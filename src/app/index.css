@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@theme {
+  --color-app-canvas: #0f1726;
+  --color-app-panel: #121a29;
+  --color-app-sidebar: #222733;
+  --font-sans: "Avenir Next", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", monospace;
+}
+
+:root {
+  color: rgb(244 244 245);
+  background: #0f1726;
+  font-family: var(--font-sans);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-width: 1200px;
+  background: var(--color-app-canvas);
+}
+
+button {
+  font: inherit;
+}
+
+button:hover,
+[role='button']:hover,
+a:hover,
+summary:hover,
+label[for]:hover {
+  cursor: pointer;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: rgba(148, 163, 184, 0.24);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
