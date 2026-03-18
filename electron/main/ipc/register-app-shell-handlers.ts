@@ -1,7 +1,9 @@
-import { app, ipcMain } from 'electron';
+import { app, dialog, ipcMain } from 'electron';
+import { basename } from 'node:path';
 
 import {
   projectSpaceChannels,
+  type ProjectDirectorySelection,
   type ToolLaunchRequest,
   type ToolLaunchResult
 } from '../../../src/shared/electron-api';
@@ -14,6 +16,28 @@ export function registerAppShellHandlers() {
       platform: process.platform
     };
   });
+
+  ipcMain.handle(
+    projectSpaceChannels.selectProjectDirectory,
+    async (): Promise<ProjectDirectorySelection> => {
+      const result = await dialog.showOpenDialog({
+        title: 'Select project folder',
+        properties: ['openDirectory', 'createDirectory']
+      });
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { canceled: true };
+      }
+
+      const selectedPath = result.filePaths[0];
+
+      return {
+        canceled: false,
+        path: selectedPath,
+        name: basename(selectedPath)
+      };
+    }
+  );
 
   ipcMain.handle(
     projectSpaceChannels.openWorkspaceTool,

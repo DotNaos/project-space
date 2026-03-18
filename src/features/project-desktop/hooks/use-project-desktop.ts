@@ -1,93 +1,74 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
-import type { Feature, Project, Sprint } from '@/domain';
-import { mockProject } from '../mocks/mock-project';
-
-type Selection =
-  | { type: 'project'; id: string }
-  | { type: 'sprint'; id: string }
-  | { type: 'feature'; id: string }
-  | { type: 'task'; id: string };
-
-function findProject(projectId: string) {
-  return projectId === mockProject.id ? mockProject : mockProject;
+export interface ProjectSpaceRecord {
+  id: string;
+  name: string;
+  rootPath: string;
 }
 
-function findSprint(project: Project, sprintId: string | undefined) {
-  return project.sprints.find((sprint) => sprint.id === sprintId) ?? project.sprints[0];
-}
+const STORAGE_KEY = 'project-space.projects';
 
-function findFeature(sprint: Sprint | undefined, featureId: string | undefined) {
-  return sprint?.features.find((feature) => feature.id === featureId) ?? sprint?.features[0];
-}
-
-function findTask(feature: Feature | undefined, taskId: string | undefined) {
-  return feature?.tasks.find((task) => task.id === taskId) ?? feature?.tasks[0];
-}
-
-function deriveSelectedTask(project: Project, selection: Selection) {
-  if (selection.type === 'task') {
-    for (const sprint of project.sprints) {
-      for (const feature of sprint.features) {
-        const task = feature.tasks.find((item) => item.id === selection.id);
-        if (task) {
-          return { sprint, feature, task };
-        }
-      }
-    }
-  }
-
-  if (selection.type === 'feature') {
-    for (const sprint of project.sprints) {
-      const feature = sprint.features.find((item) => item.id === selection.id);
-      if (feature) {
-        return { sprint, feature, task: feature.tasks[0] };
-      }
-    }
-  }
-
-  if (selection.type === 'sprint') {
-    const sprint = findSprint(project, selection.id);
-    const feature = findFeature(sprint, undefined);
-    const task = findTask(feature, undefined);
-    return { sprint, feature, task };
-  }
-
-  const sprint = findSprint(project, undefined);
-  const feature = findFeature(sprint, undefined);
-  const task = findTask(feature, undefined);
-  return { sprint, feature, task };
-}
-
-function selectionPath(project: Project, sprint?: Sprint, feature?: Feature, task?: { name: string }) {
-  return [project.name, sprint?.name, feature?.name, task?.name].filter(Boolean).join(' / ');
+function makeProjectId(name: string) {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 export function useProjectDesktop() {
-  const [selection, setSelection] = useState<Selection>({
-    type: 'task',
-    id: 'task-minimum-shell'
-  });
-  const [activeSelection, setActiveSelection] = useState('Nothing selected yet.');
+  const [projects, setProjects] = useState<ProjectSpaceRecord[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState('');
 
-  const project = findProject(mockProject.id);
-  const selectedContext = deriveSelectedTask(project, selection);
-  const sprint = selectedContext.sprint;
-  const feature = selectedContext.feature;
-  const task = selectedContext.task;
-  const selectedPath = selectionPath(project, sprint, feature, task);
+  useEffect(() => {
+    try {
+      const storedValue = window.localStorage.getItem(STORAGE_KEY);
+      if (!storedValue) {
+        return;
+      }
+
+      const parsed = JSON.parse(storedValue) as ProjectSpaceRecord[];
+      setProjects(parsed);
+      setSelectedProjectId(parsed[0]?.id ?? '');
+    } catch {
+      setProjects([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+  }, [projects]);
+
+  const project = projects.find((entry) => entry.id === selectedProjectId) ?? projects[0];
+
+  async function createProject() {
+    const selection = await window.projectSpace.selectProjectDirectory();
+    if (selection.canceled || !selection.path || !selection.name) {
+      return;
+    }
+
+    const baseId = makeProjectId(selection.name);
+    const nextId = projects.some((projectItem) => projectItem.id === baseId)
+      ? `${baseId}-${projects.length + 1}`
+      : baseId;
+
+    const nextProject = {
+      id: nextId,
+      name: selection.name.trim(),
+      rootPath: selection.path.trim()
+    };
+
+    setProjects((current) => [...current, nextProject]);
+    setSelectedProjectId(nextProject.id);
+  }
 
   return {
+    projects,
     project,
-    selection,
-    selectedPath,
-    activeSelection,
-    hasPendingSelection: activeSelection !== selectedPath,
-    confirmSelection() {
-      setActiveSelection(selectedPath);
-    },
-    selectNode(selectionType: Selection['type'], id: string) {
-      setSelection({ type: selectionType, id });
+    selectedProjectPath: project?.rootPath ?? 'No project selected.',
+    createProject,
+    selectProject(projectId: string) {
+      setSelectedProjectId(projectId);
     }
   };
 }
