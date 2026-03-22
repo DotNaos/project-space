@@ -66,19 +66,20 @@ export function ProjectDesktopShell() {
         }}
       >
         <ProjectSidebarPane
-          activeGroupName={desktop.activeGroup?.name}
           activeNavigationItemId={desktop.activeNavigationItemId}
-          canNavigateUp={desktop.canNavigateUp}
           currentPanelRef={currentPanelRef}
           discoveryRoot={desktop.discoveryRoot}
+          groups={desktop.groups}
+          groupedProjects={desktop.groupedProjects}
+          groupedProjectsLabel={desktop.groupedProjectsLabel}
           isOpen={isSidebarOpen}
           navigationItems={desktop.navigationItems}
           onCreateProject={desktop.createProject}
-          onNavigateToRoot={desktop.navigateToRoot}
           onResizeStart={(event) => {
             event.preventDefault();
             startSidebarResize();
           }}
+          onSelectProject={desktop.selectProject}
           onSelectNavigationItem={desktop.selectNavigationItem}
           onSelectWorkspace={desktop.selectWorkspace}
           onSelectWorktree={desktop.selectWorktree}
@@ -88,7 +89,10 @@ export function ProjectDesktopShell() {
           previewProject={previewProject}
           previewWorktrees={previewWorktrees}
           project={desktop.project}
+          projects={desktop.projects}
+          rootItems={desktop.rootItems}
           selectedExplorerTarget={desktop.selectedExplorerTarget}
+          selectedProjectId={desktop.selectedProjectId}
           sidebarView={desktop.sidebarView}
           titlebarSafeInset={TITLEBAR_SAFE_INSET}
           worktrees={desktop.worktrees}

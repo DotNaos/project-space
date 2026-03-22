@@ -2,26 +2,29 @@ import type { WheelEvent } from 'react';
 import { Button, Surface, Text } from '@heroui/react';
 import type {
   ExplorerTarget,
+  ProjectGroupRecord,
   ProjectNavigationItem,
   ProjectSpaceRecord,
   ProjectWorktreeRecord
 } from '@/shared/electron-api';
 import type { SidebarView } from './sidebar-view-tabs';
 import { SidebarContent } from './sidebar-content';
+import { SidebarProjectSelect } from './sidebar-project-select';
 import { SidebarViewTabs } from './sidebar-view-tabs';
 import { SpacesDock } from './spaces-dock';
 
 interface ProjectSidebarPaneProps {
-  activeGroupName?: string;
   activeNavigationItemId: string;
-  canNavigateUp: boolean;
   currentPanelRef: React.RefObject<HTMLDivElement | null>;
   discoveryRoot: string;
+  groups: ProjectGroupRecord[];
+  groupedProjects: ProjectSpaceRecord[];
+  groupedProjectsLabel?: string;
   isOpen: boolean;
   navigationItems: ProjectNavigationItem[];
   onCreateProject(): void;
-  onNavigateToRoot(): void;
   onResizeStart(event: React.MouseEvent<HTMLButtonElement>): void;
+  onSelectProject(projectId: string, groupId?: string): void;
   onSelectNavigationItem(itemId: string): void;
   onSelectWorkspace(): void;
   onSelectWorktree(worktreeId: string): void;
@@ -31,23 +34,27 @@ interface ProjectSidebarPaneProps {
   previewProject?: ProjectSpaceRecord;
   previewWorktrees: ProjectWorktreeRecord[];
   project?: ProjectSpaceRecord;
+  projects: ProjectSpaceRecord[];
+  rootItems: ProjectNavigationItem[];
   selectedExplorerTarget: ExplorerTarget;
+  selectedProjectId: string;
   sidebarView: SidebarView;
   titlebarSafeInset: number;
   worktrees: ProjectWorktreeRecord[];
 }
 
 export function ProjectSidebarPane({
-  activeGroupName,
   activeNavigationItemId,
-  canNavigateUp,
   currentPanelRef,
   discoveryRoot,
+  groups,
+  groupedProjects,
+  groupedProjectsLabel,
   isOpen,
   navigationItems,
   onCreateProject,
-  onNavigateToRoot,
   onResizeStart,
+  onSelectProject,
   onSelectNavigationItem,
   onSelectWorkspace,
   onSelectWorktree,
@@ -57,7 +64,10 @@ export function ProjectSidebarPane({
   previewProject,
   previewWorktrees,
   project,
+  projects,
+  rootItems,
   selectedExplorerTarget,
+  selectedProjectId,
   sidebarView,
   titlebarSafeInset,
   worktrees
@@ -82,17 +92,19 @@ export function ProjectSidebarPane({
         />
 
         <div className="app-no-drag relative">
-          {activeGroupName ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              onPress={onNavigateToRoot}
-              className="h-auto min-h-0 rounded-xl px-2 py-1 text-sm text-slate-400 transition hover:text-slate-100"
-            >
-              ← {activeGroupName}
-            </Button>
-          ) : discoveryRoot ? (
+          {discoveryRoot ? (
             <Text className="text-xs text-slate-500">{discoveryRoot}</Text>
+          ) : null}
+
+          {groupedProjectsLabel ? (
+            <SidebarProjectSelect
+              groupName={groupedProjectsLabel}
+              projects={groupedProjects}
+              selectedProjectId={selectedProjectId}
+              onSelectProject={(projectId) => {
+                onSelectProject(projectId);
+              }}
+            />
           ) : null}
         </div>
       </div>
@@ -135,10 +147,15 @@ export function ProjectSidebarPane({
             label: item.label
           }))}
           activeItemId={activeNavigationItemId}
-          canNavigateUp={canNavigateUp}
-          onNavigateUp={onNavigateToRoot}
+          canNavigateUp={false}
+          groups={groups}
+          onNavigateUp={undefined}
+          onSelectProject={onSelectProject}
           onSelect={onSelectNavigationItem}
           onCreate={onCreateProject}
+          projects={projects}
+          rootItems={rootItems}
+          selectedProjectId={selectedProjectId}
         />
       ) : null}
 

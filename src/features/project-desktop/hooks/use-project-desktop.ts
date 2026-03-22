@@ -4,7 +4,6 @@ import type {
   ExplorerTarget,
   LauncherAppRecord,
   ProjectDiscoveryResult,
-  ProjectGroupRecord,
   ProjectNavigationItem,
   ProjectSpaceRecord,
   ProjectWorktreeRecord
@@ -36,7 +35,6 @@ function findMatchingProject(projects: ProjectSpaceRecord[], path: string) {
 
 export function useProjectDesktop() {
   const [discovery, setDiscovery] = useState<ProjectDiscoveryResult>(emptyDiscovery);
-  const [activeGroupId, setActiveGroupId] = useState('');
   const [selectedExplorerTarget, setSelectedExplorerTarget] = useState<ExplorerTarget>({
     kind: 'workspace'
   });
@@ -58,44 +56,23 @@ export function useProjectDesktop() {
     return Object.fromEntries(discovery.projects.map((project) => [project.id, project]));
   }, [discovery.projects]);
 
-  const activeGroup = activeGroupId ? groupsById[activeGroupId] : undefined;
-
   const navigationItems = useMemo<ProjectNavigationItem[]>(() => {
-    if (activeGroup) {
-      return activeGroup.childProjectIds.reduce<ProjectNavigationItem[]>((items, projectId) => {
-          const project = projectsById[projectId];
-          if (!project) {
-            return items;
-          }
-
-          items.push({
-            id: project.id,
-            kind: 'project',
-            label: project.name,
-            projectId: project.id
-          });
-
-          return items;
-        }, []);
-    }
-
     return discovery.rootItems;
-  }, [activeGroup, discovery.rootItems, projectsById]);
-
-  const activeNavigationItemId = useMemo(() => {
-    if (activeGroup) {
-      return selectedProjectId;
-    }
-
-    const selectedProject = selectedProjectId ? projectsById[selectedProjectId] : undefined;
-    if (selectedProject && !selectedProject.groupId) {
-      return selectedProject.id;
-    }
-
-    return '';
-  }, [activeGroup, projectsById, selectedProjectId]);
+  }, [discovery.rootItems]);
 
   const project = selectedProjectId ? projectsById[selectedProjectId] : undefined;
+  const activeGroup = project?.groupId ? groupsById[project.groupId] : undefined;
+  const groupedProjects = useMemo(() => {
+    if (!activeGroup) {
+      return [];
+    }
+
+    return activeGroup.childProjectIds
+      .map((projectId) => projectsById[projectId])
+      .filter((entry): entry is ProjectSpaceRecord => Boolean(entry));
+  }, [activeGroup, projectsById]);
+
+  const activeNavigationItemId = project?.groupId ?? project?.id ?? '';
   const worktrees = project ? projectWorktrees[project.id] ?? [] : [];
   const selectedWorktree =
     selectedExplorerTarget.kind === 'worktree'
@@ -122,7 +99,6 @@ export function useProjectDesktop() {
       window.projectSpace.loadProjectDiscovery()
     ])
       .then(([state, nextDiscovery]) => {
-        setActiveGroupId(state.activeGroupId);
         setDiscovery(nextDiscovery);
         setSelectedExplorerTarget(state.selectedExplorerTarget);
         setSelectedLauncherAppId(state.selectedLauncherAppId);
@@ -154,45 +130,26 @@ export function useProjectDesktop() {
       return;
     }
 
-    let nextActiveGroupId = activeGroupId;
     let nextSelectedProjectId = selectedProjectId;
 
-    if (nextActiveGroupId && !groupsById[nextActiveGroupId]) {
-      nextActiveGroupId = '';
+    if (nextSelectedProjectId && !projectsById[nextSelectedProjectId]) {
+      nextSelectedProjectId = '';
     }
 
-    if (nextActiveGroupId) {
-      const childProjectIds = groupsById[nextActiveGroupId]?.childProjectIds ?? [];
-      if (!childProjectIds.includes(nextSelectedProjectId)) {
-        nextSelectedProjectId = childProjectIds[0] ?? '';
-      }
-    } else {
-      const selectedProject = nextSelectedProjectId ? projectsById[nextSelectedProjectId] : undefined;
-      if (selectedProject?.groupId) {
-        nextSelectedProjectId = '';
-      }
+    if (!nextSelectedProjectId) {
+      const firstItem = navigationItems[0];
 
-      if (!nextSelectedProjectId) {
-        const firstRootProject = discovery.rootItems.find((item) => item.kind === 'project');
-        const firstRootGroup = discovery.rootItems.find((item) => item.kind === 'group');
-
-        if (firstRootProject?.kind === 'project') {
-          nextSelectedProjectId = firstRootProject.projectId;
-        } else if (firstRootGroup?.kind === 'group') {
-          nextActiveGroupId = firstRootGroup.groupId;
-          nextSelectedProjectId = groupsById[firstRootGroup.groupId]?.childProjectIds[0] ?? '';
-        }
+      if (firstItem?.kind === 'project') {
+        nextSelectedProjectId = firstItem.projectId;
+      } else if (firstItem?.kind === 'group') {
+        nextSelectedProjectId = groupsById[firstItem.groupId]?.childProjectIds[0] ?? '';
       }
-    }
-
-    if (nextActiveGroupId !== activeGroupId) {
-      setActiveGroupId(nextActiveGroupId);
     }
 
     if (nextSelectedProjectId !== selectedProjectId) {
       setSelectedProjectId(nextSelectedProjectId);
     }
-  }, [activeGroupId, discovery.rootItems, groupsById, hasLoaded, projectsById, selectedProjectId]);
+  }, [hasLoaded, navigationItems, projectsById, selectedProjectId]);
 
   useEffect(() => {
     if (!hasLoaded) {
@@ -328,14 +285,14 @@ export function useProjectDesktop() {
     }
 
     void window.projectSpace.saveProjectsState({
-      activeGroupId,
+      activeGroupId: project?.groupId ?? '',
       selectedExplorerTarget,
       selectedLauncherAppId,
       selectedProjectId
     });
   }, [
-    activeGroupId,
     hasLoaded,
+    project?.groupId,
     selectedExplorerTarget,
     selectedLauncherAppId,
     selectedProjectId
@@ -349,8 +306,10 @@ export function useProjectDesktop() {
     }
 
     if (item.kind === 'project') {
+      const project = projectsById[item.projectId];
+
       return {
-        nextGroupId: activeGroup?.id ?? '',
+        nextGroupId: project?.groupId ?? '',
         nextProjectId: item.projectId
       };
     }
@@ -360,9 +319,14 @@ export function useProjectDesktop() {
       return null;
     }
 
+    const currentProjectInGroup =
+      selectedProjectId && group.childProjectIds.includes(selectedProjectId)
+        ? selectedProjectId
+        : '';
+
     return {
       nextGroupId: group.id,
-      nextProjectId: group.childProjectIds[0] ?? ''
+      nextProjectId: currentProjectInGroup || group.childProjectIds[0] || ''
     };
   }
 
@@ -382,7 +346,6 @@ export function useProjectDesktop() {
     }
 
     setLauncherError('');
-    setActiveGroupId(matchingProject.groupId ?? '');
     setSelectedExplorerTarget({ kind: 'workspace' });
     setSelectedProjectId(matchingProject.id);
   }
@@ -403,9 +366,11 @@ export function useProjectDesktop() {
   return {
     activeGroup,
     activeNavigationItemId,
-    canNavigateUp: Boolean(activeGroup),
     createProject,
     discoveryRoot: discovery.rootPath,
+    groups: discovery.groups,
+    groupedProjects,
+    groupedProjectsLabel: activeGroup?.name,
     launcherApps,
     launcherError,
     navigationItems,
@@ -413,17 +378,16 @@ export function useProjectDesktop() {
     project,
     projects: discovery.projects,
     resolveNavigationSelection,
+    rootItems: discovery.rootItems,
     selectedExplorerTarget,
     selectedLauncherApp,
     selectedLauncherAppLabel,
+    selectedProjectId,
     selectedTargetName,
     selectedTargetPath,
     selectedWorktree,
     sidebarView,
     worktrees,
-    navigateToRoot() {
-      setActiveGroupId('');
-    },
     selectLauncherApp(appId: string) {
       setSelectedLauncherAppId(appId);
       setLauncherError('');
@@ -442,7 +406,6 @@ export function useProjectDesktop() {
         }));
       }
 
-      setActiveGroupId(resolvedSelection.nextGroupId);
       setSelectedExplorerTarget(
         nextSelectedWorktreeId
           ? {
@@ -452,6 +415,11 @@ export function useProjectDesktop() {
           : { kind: 'workspace' }
       );
       setSelectedProjectId(resolvedSelection.nextProjectId);
+    },
+    selectProject(projectId: string, groupId?: string) {
+      setSelectedExplorerTarget({ kind: 'workspace' });
+      setSelectedProjectId(projectId);
+      setLauncherError('');
     },
     selectWorkspace() {
       setSelectedExplorerTarget({ kind: 'workspace' });
