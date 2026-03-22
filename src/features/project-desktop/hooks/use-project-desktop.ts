@@ -363,6 +363,31 @@ export function useProjectDesktop() {
     setLauncherError(result.status === 'error' ? result.message ?? 'Could not open path.' : '');
   }
 
+  async function openCodexSkills() {
+    const result = await window.projectSpace.openCodexSkills();
+
+    setLauncherError(
+      result.status === 'error' ? result.message ?? 'Could not open the skills folder.' : ''
+    );
+  }
+
+  async function openNewWorktreeWorkspace() {
+    if (!project) {
+      return;
+    }
+
+    const result = await window.projectSpace.openPathInApp({
+      appId: 'terminal',
+      path: project.rootPath
+    });
+
+    setLauncherError(
+      result.status === 'error'
+        ? result.message ?? 'Could not open the project in Terminal.'
+        : ''
+    );
+  }
+
   return {
     activeGroup,
     activeNavigationItemId,
@@ -374,6 +399,8 @@ export function useProjectDesktop() {
     launcherApps,
     launcherError,
     navigationItems,
+    openCodexSkills,
+    openNewWorktreeWorkspace,
     openSelectedTargetInApp,
     project,
     projects: discovery.projects,

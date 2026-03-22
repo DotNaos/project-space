@@ -10,6 +10,7 @@ import type {
 import type { SidebarView } from './sidebar-view-tabs';
 import { SidebarContent } from './sidebar-content';
 import { SidebarProjectSelect } from './sidebar-project-select';
+import { SidebarQuickActions } from './sidebar-quick-actions';
 import { SidebarViewTabs } from './sidebar-view-tabs';
 import { SpacesDock } from './spaces-dock';
 
@@ -23,6 +24,8 @@ interface ProjectSidebarPaneProps {
   isOpen: boolean;
   navigationItems: ProjectNavigationItem[];
   onCreateProject(): void;
+  onOpenCodexSkills(): void;
+  onOpenNewWorktree(): void;
   onResizeStart(event: React.MouseEvent<HTMLButtonElement>): void;
   onSelectProject(projectId: string, groupId?: string): void;
   onSelectNavigationItem(itemId: string): void;
@@ -53,6 +56,8 @@ export function ProjectSidebarPane({
   isOpen,
   navigationItems,
   onCreateProject,
+  onOpenCodexSkills,
+  onOpenNewWorktree,
   onResizeStart,
   onSelectProject,
   onSelectNavigationItem,
@@ -106,6 +111,12 @@ export function ProjectSidebarPane({
               }}
             />
           ) : null}
+
+          <SidebarQuickActions
+            canCreateWorktree={Boolean(project)}
+            onOpenSkills={onOpenCodexSkills}
+            onOpenWorktree={onOpenNewWorktree}
+          />
         </div>
       </div>
 

@@ -792,6 +792,26 @@ async function openPathInApp(request: OpenPathInAppRequest): Promise<OpenPathInA
   }
 }
 
+async function openCodexSkills(): Promise<OpenPathInAppResult> {
+  const codexHome = process.env.CODEX_HOME?.trim() || join(homedir(), '.codex');
+  const skillsPath = join(codexHome, 'skills');
+
+  try {
+    await execFileAsync('open', [skillsPath], {
+      windowsHide: true
+    });
+
+    return {
+      status: 'success'
+    };
+  } catch {
+    return {
+      message: 'Could not open the local skills folder.',
+      status: 'error'
+    };
+  }
+}
+
 export function registerAppShellHandlers() {
   ipcMain.handle(projectSpaceChannels.appMeta, () => {
     return {
@@ -803,6 +823,10 @@ export function registerAppShellHandlers() {
 
   ipcMain.handle(projectSpaceChannels.loadLauncherApps, async () => {
     return loadInstalledLauncherApps();
+  });
+
+  ipcMain.handle(projectSpaceChannels.openCodexSkills, async () => {
+    return openCodexSkills();
   });
 
   ipcMain.handle(projectSpaceChannels.loadLauncherAppIcon, async (_event, appId: string) => {

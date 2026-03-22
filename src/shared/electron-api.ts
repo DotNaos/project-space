@@ -1,5 +1,6 @@
 export const projectSpaceChannels = {
   appMeta: 'app:get-meta',
+  openCodexSkills: 'codex:open-skills',
   gestureScrollState: 'gesture:scroll-state',
   loadLauncherAppIcon: 'launcher:load-app-icon',
   loadLauncherApps: 'launcher:load-apps',
@@ -145,6 +146,7 @@ export interface ProjectSpaceApi {
   loadProjectDiscovery(): Promise<ProjectDiscoveryResult>;
   loadProjectsState(): Promise<ProjectsState>;
   loadProjectWorktrees(projectPath: string): Promise<ProjectWorktreeRecord[]>;
+  openCodexSkills(): Promise<OpenPathInAppResult>;
   openPathInApp(request: OpenPathInAppRequest): Promise<OpenPathInAppResult>;
   onGestureScrollState(listener: (state: GestureScrollState) => void): () => void;
   readDirectory(path: string): Promise<FileSystemEntry[]>;

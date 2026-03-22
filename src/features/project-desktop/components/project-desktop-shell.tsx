@@ -75,6 +75,8 @@ export function ProjectDesktopShell() {
           isOpen={isSidebarOpen}
           navigationItems={desktop.navigationItems}
           onCreateProject={desktop.createProject}
+          onOpenCodexSkills={desktop.openCodexSkills}
+          onOpenNewWorktree={desktop.openNewWorktreeWorkspace}
           onResizeStart={(event) => {
             event.preventDefault();
             startSidebarResize();

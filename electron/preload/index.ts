@@ -13,6 +13,9 @@ const api: ProjectSpaceApi = {
   getAppMeta() {
     return ipcRenderer.invoke(projectSpaceChannels.appMeta);
   },
+  openCodexSkills() {
+    return ipcRenderer.invoke(projectSpaceChannels.openCodexSkills);
+  },
   loadLauncherAppIcon(appId: string) {
     return ipcRenderer.invoke(projectSpaceChannels.loadLauncherAppIcon, appId);
   },
