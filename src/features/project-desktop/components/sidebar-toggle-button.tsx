@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { Button } from '@heroui/react';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 interface SidebarToggleButtonProps {
@@ -21,11 +22,12 @@ export function SidebarToggleButton({
   };
 
   return (
-    <button
-      type="button"
+    <Button
       aria-label={isOpen ? 'Close sidebar' : 'Open sidebar'}
-      onClick={onToggle}
-      className="app-no-drag absolute z-40 flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-slate-50"
+      isIconOnly
+      variant="ghost"
+      onPress={onToggle}
+      className="app-no-drag absolute z-40 h-8 w-8 min-w-0 rounded-xl px-0 text-slate-500 transition hover:text-slate-50"
       style={buttonStyle}
     >
       {isOpen ? (
@@ -33,6 +35,6 @@ export function SidebarToggleButton({
       ) : (
         <PanelLeftOpen className="h-[18px] w-[18px]" strokeWidth={1.9} />
       )}
-    </button>
+    </Button>
   );
 }

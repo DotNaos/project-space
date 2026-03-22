@@ -1,132 +1,170 @@
-import { ChevronDown } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import type { LauncherAppRecord } from '@/shared/electron-api';
+import {
+    Button,
+    ButtonGroup,
+    Dropdown,
+    DropdownItem,
+    DropdownMenu,
+    DropdownPopover,
+    DropdownTrigger,
+    Text,
+} from '@heroui/react';
+import { Check, ChevronDown } from 'lucide-react';
 
 interface OpenTargetDropdownProps {
-  apps: LauncherAppRecord[];
-  disabled?: boolean;
-  onOpen(): void;
-  onSelectApp(appId: string): void;
-  selectedApp?: LauncherAppRecord;
-  selectedAppLabel?: string;
+    apps: LauncherAppRecord[];
+    disabled?: boolean;
+    onOpen(): void;
+    onSelectApp(appId: string): void;
+    selectedApp?: LauncherAppRecord;
+    selectedAppLabel?: string;
 }
 
 const appIconSizeClass = 'h-8 w-8';
 
 function AppIcon({
-  app,
-  className
+    app,
+    className,
 }: {
-  app?: LauncherAppRecord;
-  className?: string;
+    app?: LauncherAppRecord;
+    className?: string;
 }) {
-  const iconSource = app?.iconDataUrl ?? app?.iconUrl;
+    const iconSource = app?.iconDataUrl ?? app?.iconUrl;
 
-  if (iconSource) {
+    if (iconSource) {
+        return (
+            <img
+                src={iconSource}
+                alt=""
+                className={cn(
+                    `${appIconSizeClass} shrink-0 rounded-lg object-contain`,
+                    className,
+                )}
+            />
+        );
+    }
+
     return (
-      <img
-        src={iconSource}
-        alt=""
-        className={cn(`${appIconSizeClass} shrink-0 rounded-lg object-contain`, className)}
-      />
+        <span
+            className={cn(
+                `flex ${appIconSizeClass} shrink-0 items-center justify-center rounded-lg bg-slate-800 text-xs font-semibold text-slate-300`,
+                className,
+            )}>
+            {app?.label.slice(0, 1).toUpperCase() ?? '?'}
+        </span>
     );
-  }
-
-  return (
-    <span
-      className={cn(
-        `flex ${appIconSizeClass} shrink-0 items-center justify-center rounded-lg bg-slate-800 text-xs font-semibold text-slate-300`,
-        className
-      )}
-    >
-      {app?.label.slice(0, 1).toUpperCase() ?? '?'}
-    </span>
-  );
 }
 
 function TriggerAppIcon({ app }: { app?: LauncherAppRecord }) {
-  const iconSource = app?.iconDataUrl ?? app?.iconUrl;
+    const iconSource = app?.iconDataUrl ?? app?.iconUrl;
 
-  if (iconSource) {
-    return (
-      <span className="flex aspect-square h-8 w-8 items-center justify-center rounded-lg">
-        <img
-          src={iconSource}
-          alt=""
-          className="aspect-square h-8 w-8 shrink-0 object-contain"
-        />
-      </span>
-    );
-  }
+    if (iconSource) {
+        return (
+            <span className="flex aspect-square h-8 w-8 items-center justify-center rounded-lg">
+                <img
+                    src={iconSource}
+                    alt=""
+                    className="aspect-square h-8 w-8 shrink-0 object-contain"
+                />
+            </span>
+        );
+    }
 
-  return <AppIcon app={app} className={appIconSizeClass} />;
+    return <AppIcon app={app} className={appIconSizeClass} />;
 }
 
 export function OpenTargetDropdown({
-  apps,
-  disabled = false,
-  onOpen,
-  onSelectApp,
-  selectedApp,
-  selectedAppLabel
+    apps,
+    disabled = false,
+    onOpen,
+    onSelectApp,
+    selectedApp,
+    selectedAppLabel,
 }: OpenTargetDropdownProps) {
-  return (
-    <div className="flex items-center rounded-2xl border border-slate-700/80 bg-slate-900/70 p-0.5 shadow-sm shadow-black/10">
-      <Button
-        type="button"
-        variant="ghost"
-        disabled={disabled || (!selectedApp && !selectedAppLabel)}
-        onClick={onOpen}
-        className="h-10 w-10 min-w-0 rounded-xl px-0 text-slate-100 hover:bg-slate-800"
-      >
-        <TriggerAppIcon
-          app={
-            selectedApp ?? (selectedAppLabel ? { appName: '', id: '', label: selectedAppLabel } : undefined)
-          }
-        />
-      </Button>
+    const currentApp =
+        selectedApp ??
+        (selectedAppLabel
+            ? { appName: '', id: '', label: selectedAppLabel }
+            : undefined);
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            disabled={disabled || apps.length === 0}
-            className="flex h-10 w-8 items-center justify-center rounded-xl text-slate-400 transition hover:bg-slate-800 hover:text-slate-100 disabled:text-slate-700"
-          >
-            <ChevronDown className="h-4 w-4" strokeWidth={1.9} />
-          </button>
-        </DropdownMenuTrigger>
+    return (
+        <div className="flex items-center">
+            <ButtonGroup
+                size="sm"
+                variant="outline"
+                className="rounded-2xl">
+                <Button
+                    variant="outline"
+                    isDisabled={disabled || !currentApp}
+                    onPress={onOpen}
+                    className="h-11 min-w-[140px] justify-start gap-3 rounded-r-none px-3">
+                    <TriggerAppIcon app={currentApp} />
+                    <Text className="truncate text-sm font-medium">
+                        {currentApp?.label ?? 'Choose app'}
+                    </Text>
+                </Button>
 
-        <DropdownMenuContent align="end" className="min-w-60">
-          {apps.length === 0 ? (
-            <div className="px-3 py-2 text-sm text-slate-500">Loading apps...</div>
-          ) : null}
-          {apps.map((app) => {
-            const active = selectedApp?.id === app.id;
+                <Dropdown>
+                    <DropdownTrigger
+                        isDisabled={disabled || apps.length === 0}
+                        className="h-11 w-11 min-w-0 rounded-l-none px-0">
+                        <ChevronDown className="h-4 w-4" strokeWidth={1.9} />
+                    </DropdownTrigger>
 
-            return (
-              <DropdownMenuItem
-                key={app.id}
-                onSelect={() => onSelectApp(app.id)}
-                className={cn(
-                  'gap-3 text-slate-300 data-[highlighted]:bg-slate-800/90 data-[highlighted]:text-slate-50',
-                  active && 'bg-slate-800 text-slate-50'
-                )}
-              >
-                <AppIcon app={app} />
-                <span>{app.label}</span>
-              </DropdownMenuItem>
-            );
-          })}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-  );
+                    <DropdownPopover
+                        offset={8}
+                        placement="bottom end"
+                        className="rounded-2xl">
+                        <DropdownMenu
+                            aria-label="Target apps"
+                            className="min-w-[240px] p-1">
+                            {apps.length === 0 ? (
+                                <DropdownItem
+                                    key="loading"
+                                    isDisabled
+                                    className="rounded-xl text-slate-500"
+                                    textValue="Loading apps">
+                                    <Text className="text-sm text-slate-500">
+                                        Loading apps...
+                                    </Text>
+                                </DropdownItem>
+                            ) : null}
+                            {apps.map((app) => {
+                                const active = selectedApp?.id === app.id;
+
+                                return (
+                                    <DropdownItem
+                                        key={app.id}
+                                        onPress={() => onSelectApp(app.id)}
+                                        className={cn(
+                                            'rounded-xl px-3 py-2.5 text-slate-300 data-[hover=true]:bg-slate-800/90 data-[hover=true]:text-slate-50',
+                                            active && 'bg-slate-800/90 text-slate-50',
+                                        )}
+                                        textValue={app.label}>
+                                        <div className="flex w-full items-center gap-3">
+                                            <AppIcon app={app} />
+                                            <div className="min-w-0 flex-1">
+                                                <Text className="truncate text-sm font-medium text-current">
+                                                    {app.label}
+                                                </Text>
+                                            </div>
+                                            <span className="flex w-4 justify-center">
+                                                {active ? (
+                                                    <Check
+                                                        className="h-3.5 w-3.5 text-slate-300"
+                                                        strokeWidth={2.2}
+                                                    />
+                                                ) : null}
+                                            </span>
+                                        </div>
+                                    </DropdownItem>
+                                );
+                            })}
+                        </DropdownMenu>
+                    </DropdownPopover>
+                </Dropdown>
+            </ButtonGroup>
+        </div>
+    );
 }

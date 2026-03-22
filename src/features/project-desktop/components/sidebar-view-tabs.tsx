@@ -1,4 +1,4 @@
-import { cn } from '@/lib/utils';
+import { Tab, TabIndicator, TabList, TabSeparator, Tabs } from '@heroui/react';
 
 export type SidebarView = 'workspace' | 'files';
 
@@ -18,27 +18,30 @@ export function SidebarViewTabs({
 }: SidebarViewTabsProps) {
   return (
     <div className="border-b border-slate-800 px-3 py-2">
-      <div className="flex items-center gap-1 rounded-[10px] bg-slate-900/50 p-1">
-        {items.map((item) => {
-          const active = item.value === value;
-
-          return (
-            <button
+      <Tabs
+        selectedKey={value}
+        variant="primary"
+        onSelectionChange={(key) => {
+          if (key === 'workspace' || key === 'files') {
+            onChange(key);
+          }
+        }}
+        className="w-full"
+      >
+        <TabList className="grid w-full grid-cols-2">
+          {items.map((item) => (
+            <Tab
               key={item.value}
-              type="button"
-              onClick={() => onChange(item.value)}
-              className={cn(
-                'flex-1 rounded-[8px] px-3 py-1.5 text-xs font-medium transition',
-                active
-                  ? 'bg-slate-700 text-slate-50'
-                  : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-200'
-              )}
+              id={item.value}
+              className="flex-1 text-xs"
             >
+              <TabSeparator />
               {item.label}
-            </button>
-          );
-        })}
-      </div>
+              <TabIndicator />
+            </Tab>
+          ))}
+        </TabList>
+      </Tabs>
     </div>
   );
 }

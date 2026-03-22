@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Button, ScrollShadow, Text } from '@heroui/react';
 import { cn } from '@/lib/utils';
 import type { FileSystemEntry } from '@/shared/electron-api';
 
@@ -48,26 +49,27 @@ function FileTreeNode({
 
   return (
     <div>
-      <button
-        type="button"
-        onClick={() => {
+      <Button
+        fullWidth
+        variant="ghost"
+        onPress={() => {
           if (expandable) {
             setExpanded((current) => !current);
           }
         }}
-        style={{ paddingLeft: `${level * 16 + 14}px` }}
         className={cn(
-          'flex w-full items-center gap-2 rounded-lg py-2 pr-3 text-left text-sm transition',
+          'justify-start rounded-lg py-2 pr-3 text-left text-sm transition',
           expandable
             ? 'text-slate-300 hover:bg-slate-800/70 hover:text-slate-50'
             : 'text-slate-500 hover:bg-slate-800/40 hover:text-slate-300'
         )}
+        style={{ paddingLeft: `${level * 16 + 14}px` }}
       >
         <span className="w-3 shrink-0 text-center text-[10px] text-slate-500">
           {expandable ? (expanded ? '▾' : '▸') : ''}
         </span>
         <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-      </button>
+      </Button>
 
       {expandable && expanded ? (
         children.length > 0 ? (
@@ -77,12 +79,12 @@ function FileTreeNode({
             ))}
           </div>
         ) : loaded ? (
-          <p
+          <Text
             style={{ paddingLeft: `${(level + 1) * 16 + 27}px` }}
             className="py-1 text-xs text-slate-600"
           >
             Empty
-          </p>
+          </Text>
         ) : null
       ) : null}
     </div>
@@ -117,22 +119,22 @@ export function FileExplorer({
 
   if (!rootPath) {
     return (
-      <section className="flex-1 overflow-y-auto px-3 py-4">
-        <p className="px-3 py-2 text-sm text-slate-500">No project selected.</p>
-      </section>
+      <ScrollShadow className="flex-1 px-3 py-4" hideScrollBar>
+        <Text className="px-3 py-2 text-sm text-slate-500">No project selected.</Text>
+      </ScrollShadow>
     );
   }
 
   return (
-    <section className="flex-1 overflow-y-auto px-3 py-4">
+    <ScrollShadow className="flex-1 px-3 py-4" hideScrollBar>
       <div className="space-y-1">
-        <div className="px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+        <Text className="px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
           {pathBasename(rootPath)}
-        </div>
+        </Text>
         {entries.map((entry) => (
           <FileTreeNode key={entry.path} entry={entry} level={0} />
         ))}
       </div>
-    </section>
+    </ScrollShadow>
   );
 }

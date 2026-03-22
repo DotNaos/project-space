@@ -1,3 +1,4 @@
+import { Button, ToggleButton, ToggleButtonGroup } from '@heroui/react';
 import { cn } from '@/lib/utils';
 
 interface SpaceItem {
@@ -37,29 +38,45 @@ export function SpacesDock({
     <div className="border-t border-slate-800 px-4 py-4">
       <div className="flex items-center justify-center gap-2">
         {canNavigateUp && onNavigateUp ? (
-          <button
-            type="button"
-            onClick={onNavigateUp}
+          <Button
             aria-label="Back to project root"
-            className="flex h-6 w-6 items-center justify-center rounded-[9px] text-sm leading-none text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
+            isIconOnly
+            size="sm"
+            variant="ghost"
+            onPress={onNavigateUp}
+            className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-sm leading-none text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
           >
             ←
-          </button>
+          </Button>
         ) : null}
 
-        <div className="flex items-center gap-0.5">
+        <ToggleButtonGroup
+          disallowEmptySelection
+          isDetached
+        selectedKeys={new Set(activeItemId ? [activeItemId] : [])}
+        selectionMode="single"
+        size="sm"
+        onSelectionChange={(keys) => {
+          const [nextItemId] = keys;
+
+          if (typeof nextItemId === 'string') {
+            onSelect(nextItemId);
+          }
+          }}
+          className="rounded-[10px] bg-transparent"
+        >
           {items.map((item) => {
             const active = activeItemId === item.id;
 
             return (
-              <button
+              <ToggleButton
                 key={item.id}
-                type="button"
+                id={item.id}
                 aria-label={item.label}
-                title={item.label}
-                onClick={() => onSelect(item.id)}
+                isIconOnly
+                variant="ghost"
                 className={cn(
-                  'group flex h-6 w-6 items-center justify-center rounded-[9px] transition',
+                  'group h-7 w-7 min-w-0 rounded-[10px] px-0 transition',
                   active ? 'bg-slate-800/90' : 'hover:bg-slate-800/70'
                 )}
               >
@@ -73,20 +90,22 @@ export function SpacesDock({
                 >
                   {shortLabel(item.label)}
                 </span>
-              </button>
+              </ToggleButton>
             );
           })}
-        </div>
+        </ToggleButtonGroup>
 
         {onCreate ? (
-          <button
-            type="button"
-            onClick={onCreate}
+          <Button
             aria-label="Add project space"
-            className="flex h-6 w-6 items-center justify-center rounded-[9px] text-sm leading-none text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
+            isIconOnly
+            size="sm"
+            variant="ghost"
+            onPress={onCreate}
+            className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-sm leading-none text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
           >
             +
-          </button>
+          </Button>
         ) : null}
       </div>
     </div>

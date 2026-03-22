@@ -11,6 +11,9 @@ export function startApp() {
     throw new Error('Root container not found.');
   }
 
+  document.documentElement.classList.add('dark');
+  document.documentElement.dataset.theme = 'dark';
+
   createRoot(container).render(
     <StrictMode>
       <App />

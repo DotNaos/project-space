@@ -1,4 +1,5 @@
 import type { WheelEvent } from 'react';
+import { Button, Surface, Text } from '@heroui/react';
 import type {
   ExplorerTarget,
   ProjectNavigationItem,
@@ -62,9 +63,10 @@ export function ProjectSidebarPane({
   worktrees
 }: ProjectSidebarPaneProps) {
   return (
-    <aside
+    <Surface
       onWheel={onSidebarWheel}
-      className="relative flex min-h-0 min-w-0 flex-col overflow-hidden border-r border-slate-800 bg-app-sidebar transition-[border-color,opacity] duration-200"
+      variant="secondary"
+      className="relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-none border-r border-slate-800 bg-app-sidebar transition-[border-color,opacity] duration-200"
       style={{
         borderRightColor: isOpen ? undefined : 'transparent',
         opacity: isOpen ? 1 : 0,
@@ -81,15 +83,16 @@ export function ProjectSidebarPane({
 
         <div className="app-no-drag relative">
           {activeGroupName ? (
-            <button
-              type="button"
-              onClick={onNavigateToRoot}
-              className="text-sm text-slate-400 transition hover:text-slate-100"
+            <Button
+              size="sm"
+              variant="ghost"
+              onPress={onNavigateToRoot}
+              className="h-auto min-h-0 rounded-xl px-2 py-1 text-sm text-slate-400 transition hover:text-slate-100"
             >
               ← {activeGroupName}
-            </button>
+            </Button>
           ) : discoveryRoot ? (
-            <p className="text-xs text-slate-500">{discoveryRoot}</p>
+            <Text className="text-xs text-slate-500">{discoveryRoot}</Text>
           ) : null}
         </div>
       </div>
@@ -140,15 +143,16 @@ export function ProjectSidebarPane({
       ) : null}
 
       {isOpen ? (
-        <button
-          type="button"
+        <Button
           aria-label="Resize sidebar"
+          isIconOnly
+          variant="ghost"
           onMouseDown={onResizeStart}
-          className="app-no-drag absolute top-0 right-0 h-full w-2 cursor-col-resize opacity-0 transition hover:opacity-100"
+          className="app-no-drag absolute top-0 right-0 h-full w-2 min-w-0 cursor-col-resize rounded-none px-0 opacity-0 transition hover:opacity-100"
         >
           <span className="absolute top-0 right-0 h-full w-px bg-slate-600/70" />
-        </button>
+        </Button>
       ) : null}
-    </aside>
+    </Surface>
   );
 }
