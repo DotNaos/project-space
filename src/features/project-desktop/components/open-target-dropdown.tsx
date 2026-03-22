@@ -15,6 +15,7 @@ interface OpenTargetDropdownProps {
   onOpen(): void;
   onSelectApp(appId: string): void;
   selectedApp?: LauncherAppRecord;
+  selectedAppLabel?: string;
 }
 
 function AppIcon({
@@ -31,7 +32,7 @@ function AppIcon({
       <img
         src={iconSource}
         alt=""
-        className={cn('h-4 w-4 shrink-0 rounded-[4px]', className)}
+        className={cn('h-5 w-5 shrink-0 rounded-[5px]', className)}
       />
     );
   }
@@ -39,7 +40,7 @@ function AppIcon({
   return (
     <span
       className={cn(
-        'flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] bg-slate-800 text-[10px] font-semibold text-slate-300',
+        'flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] bg-slate-800 text-[10px] font-semibold text-slate-300',
         className
       )}
     >
@@ -53,19 +54,26 @@ export function OpenTargetDropdown({
   disabled = false,
   onOpen,
   onSelectApp,
-  selectedApp
+  selectedApp,
+  selectedAppLabel
 }: OpenTargetDropdownProps) {
+  const triggerLabel = selectedApp?.label ?? selectedAppLabel ?? 'Choose app';
+
   return (
     <div className="flex items-center rounded-xl border border-slate-700 bg-slate-900/80 p-1 shadow-sm shadow-black/10">
       <Button
         type="button"
         variant="ghost"
-        disabled={disabled || !selectedApp}
+        disabled={disabled || (!selectedApp && !selectedAppLabel)}
         onClick={onOpen}
-        className="h-9 gap-2 rounded-[10px] px-3 text-slate-100 hover:bg-slate-800"
+        className="h-9 gap-2.5 rounded-[10px] px-3 text-slate-100 hover:bg-slate-800"
       >
-        <AppIcon app={selectedApp} />
-        <span>{selectedApp?.label ?? 'Choose app'}</span>
+        <AppIcon
+          app={
+            selectedApp ?? (selectedAppLabel ? { appName: '', id: '', label: selectedAppLabel } : undefined)
+          }
+        />
+        <span>{triggerLabel}</span>
       </Button>
 
       <DropdownMenu>
@@ -80,6 +88,9 @@ export function OpenTargetDropdown({
         </DropdownMenuTrigger>
 
         <DropdownMenuContent align="end" className="min-w-60">
+          {apps.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-slate-500">Loading apps...</div>
+          ) : null}
           {apps.map((app) => {
             const active = selectedApp?.id === app.id;
 

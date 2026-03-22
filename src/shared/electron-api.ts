@@ -80,6 +80,19 @@ export interface LauncherAppRecord {
   iconUrl?: string;
 }
 
+export const launcherAppLabels: Record<string, string> = {
+  'android-studio': 'Android Studio',
+  antigravity: 'Antigravity',
+  codex: 'Codex',
+  cursor: 'Cursor',
+  finder: 'Finder',
+  ghostty: 'Ghostty',
+  rider: 'Rider',
+  terminal: 'Terminal',
+  'vscode-insiders': 'VS Code Insiders',
+  xcode: 'Xcode'
+};
+
 export interface ProjectsState {
   activeGroupId: string;
   selectedExplorerTarget: ExplorerTarget;

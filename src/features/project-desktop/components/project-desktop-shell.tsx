@@ -428,6 +428,7 @@ export function ProjectDesktopShell() {
               onOpen={desktop.openSelectedTargetInApp}
               onSelectApp={desktop.selectLauncherApp}
               selectedApp={desktop.selectedLauncherApp}
+              selectedAppLabel={desktop.selectedLauncherAppLabel}
             />
           </div>
 

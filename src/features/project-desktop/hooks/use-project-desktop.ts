@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { launcherAppLabels } from '@/shared/electron-api';
 import type {
   ExplorerTarget,
   LauncherAppRecord,
@@ -102,6 +103,9 @@ export function useProjectDesktop() {
       : undefined;
   const selectedLauncherApp =
     launcherApps.find((entry) => entry.id === selectedLauncherAppId) ?? launcherApps[0];
+  const selectedLauncherAppLabel =
+    selectedLauncherApp?.label ??
+    (selectedLauncherAppId ? launcherAppLabels[selectedLauncherAppId] : undefined);
 
   const selectedTargetPath =
     selectedExplorerTarget.kind === 'worktree' && selectedWorktree
@@ -115,13 +119,11 @@ export function useProjectDesktop() {
   useEffect(() => {
     void Promise.all([
       window.projectSpace.loadProjectsState(),
-      window.projectSpace.loadProjectDiscovery(),
-      window.projectSpace.loadLauncherApps()
+      window.projectSpace.loadProjectDiscovery()
     ])
-      .then(([state, nextDiscovery, nextLauncherApps]) => {
+      .then(([state, nextDiscovery]) => {
         setActiveGroupId(state.activeGroupId);
         setDiscovery(nextDiscovery);
-        setLauncherApps(nextLauncherApps);
         setSelectedExplorerTarget(state.selectedExplorerTarget);
         setSelectedLauncherAppId(state.selectedLauncherAppId);
         setSelectedProjectId(state.selectedProjectId);
@@ -129,6 +131,22 @@ export function useProjectDesktop() {
       .finally(() => {
         setHasLoaded(true);
       });
+  }, []);
+
+  useEffect(() => {
+    let canceled = false;
+
+    void window.projectSpace.loadLauncherApps().then((nextLauncherApps) => {
+      if (canceled) {
+        return;
+      }
+
+      setLauncherApps(nextLauncherApps);
+    });
+
+    return () => {
+      canceled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -397,6 +415,7 @@ export function useProjectDesktop() {
     resolveNavigationSelection,
     selectedExplorerTarget,
     selectedLauncherApp,
+    selectedLauncherAppLabel,
     selectedTargetName,
     selectedTargetPath,
     selectedWorktree,

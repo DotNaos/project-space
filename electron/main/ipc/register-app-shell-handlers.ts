@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain } from 'electron';
+import { app, dialog, ipcMain, nativeTheme } from 'electron';
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
@@ -27,9 +27,36 @@ import {
 const projectSpaceDirectory = `${homedir()}/.project-space`;
 const projectsStateFile = `${projectSpaceDirectory}/projects.json`;
 const launcherIconCacheDirectory = `${projectSpaceDirectory}/cache/launcher-icons`;
+const launcherIconHelperScriptPath = `${projectSpaceDirectory}/cache/render-app-icon.swift`;
+const launcherIconSize = 64;
 // TODO: make the projects root user-configurable.
 const discoveryRoot = join(homedir(), 'projects');
 const execFileAsync = promisify(execFile);
+
+const launcherIconHelperScript = `
+import AppKit
+
+let path = CommandLine.arguments[1]
+let out = CommandLine.arguments[2]
+let appearanceArgument = CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : "dark"
+let appearanceName: NSAppearance.Name = appearanceArgument == "light" ? .aqua : .darkAqua
+let appearance = NSAppearance(named: appearanceName)!
+let requestedSize = CommandLine.arguments.count > 4 ? Int(CommandLine.arguments[4]) ?? 64 : 64
+let size = NSSize(width: requestedSize, height: requestedSize)
+let icon = NSWorkspace.shared.icon(forFile: path)
+icon.size = size
+let image = NSImage(size: size)
+image.lockFocus()
+appearance.performAsCurrentDrawingAppearance {
+  icon.draw(in: NSRect(origin: .zero, size: size))
+}
+image.unlockFocus()
+if let tiff = image.tiffRepresentation,
+   let rep = NSBitmapImageRep(data: tiff),
+   let png = rep.representation(using: .png, properties: [:]) {
+  try png.write(to: URL(fileURLWithPath: out))
+}
+`;
 
 const standaloneProjectMarkers = new Set([
   '.git',
@@ -159,6 +186,52 @@ function readProjectsState(): ProjectsState {
 function writeProjectsState(state: ProjectsState) {
   mkdirSync(projectSpaceDirectory, { recursive: true });
   writeFileSync(projectsStateFile, JSON.stringify(state, null, 2));
+}
+
+function ensureLauncherIconHelperScript() {
+  mkdirSync(`${projectSpaceDirectory}/cache`, { recursive: true });
+
+  if (!existsSync(launcherIconHelperScriptPath)) {
+    writeFileSync(launcherIconHelperScriptPath, launcherIconHelperScript);
+    return;
+  }
+
+  const currentScript = readFileSync(launcherIconHelperScriptPath, 'utf-8');
+
+  if (currentScript !== launcherIconHelperScript) {
+    writeFileSync(launcherIconHelperScriptPath, launcherIconHelperScript);
+  }
+}
+
+function loadCachedLauncherIconSource(appId: string) {
+  const appearance = nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+  const candidatePaths = [
+    join(launcherIconCacheDirectory, `${appId}-${appearance}.png`),
+    join(launcherIconCacheDirectory, `${appId}-bundle.png`)
+  ];
+
+  const cachedPath = candidatePaths.find((path) => existsSync(path));
+
+  if (!cachedPath) {
+    return {
+      iconDataUrl: undefined,
+      iconUrl: undefined
+    };
+  }
+
+  try {
+    const iconBuffer = readFileSync(cachedPath);
+
+    return {
+      iconDataUrl: `data:image/png;base64,${iconBuffer.toString('base64')}`,
+      iconUrl: pathToFileURL(cachedPath).toString()
+    };
+  } catch {
+    return {
+      iconDataUrl: undefined,
+      iconUrl: undefined
+    };
+  }
 }
 
 async function runCommand(command: string, args: string[]) {
@@ -589,15 +662,47 @@ async function resolveAppIconPath(appPath: string) {
 }
 
 async function loadAppIconSource(appId: string, appPath: string) {
+  ensureLauncherIconHelperScript();
+  mkdirSync(launcherIconCacheDirectory, { recursive: true });
+
+  const appearance = nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+  const themedOutputPath = join(launcherIconCacheDirectory, `${appId}-${appearance}.png`);
+
+  try {
+    await execFileAsync(
+      'swift',
+      [
+        launcherIconHelperScriptPath,
+        appPath,
+        themedOutputPath,
+        appearance,
+        `${launcherIconSize}`
+      ],
+      {
+        windowsHide: true
+      }
+    );
+
+    const iconBuffer = readFileSync(themedOutputPath);
+
+    if (iconBuffer.length > 0) {
+      return {
+        iconDataUrl: `data:image/png;base64,${iconBuffer.toString('base64')}`,
+        iconUrl: pathToFileURL(themedOutputPath).toString()
+      };
+    }
+  } catch {
+    // Fall through to bundled icon rendering.
+  }
+
   const iconPath = await resolveAppIconPath(appPath);
   if (iconPath) {
-    mkdirSync(launcherIconCacheDirectory, { recursive: true });
-    const outputPath = join(launcherIconCacheDirectory, `${appId}.png`);
+    const outputPath = join(launcherIconCacheDirectory, `${appId}-bundle.png`);
 
     try {
       await execFileAsync(
         'sips',
-        ['-z', '64', '64', '-s', 'format', 'png', iconPath, '--out', outputPath],
+        ['-z', `${launcherIconSize}`, `${launcherIconSize}`, '-s', 'format', 'png', iconPath, '--out', outputPath],
         {
           windowsHide: true
         }
@@ -629,7 +734,7 @@ async function loadInstalledLauncherApps() {
     const installedPath = await resolveInstalledAppPath(appEntry);
 
     if (installedPath) {
-      const iconSource = await loadAppIconSource(appEntry.id, installedPath);
+      const iconSource = loadCachedLauncherIconSource(appEntry.id);
 
       installedApps.push({
         appName: appEntry.appName,
