@@ -19,7 +19,6 @@ interface OpenTargetDropdownProps {
 }
 
 const appIconSizeClass = 'h-8 w-8';
-const triggerIconSizeClass = 'h-9 w-9';
 
 function AppIcon({
   app,
@@ -57,17 +56,17 @@ function TriggerAppIcon({ app }: { app?: LauncherAppRecord }) {
 
   if (iconSource) {
     return (
-      <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-lg">
+      <span className="flex aspect-square h-8 w-8 items-center justify-center rounded-lg">
         <img
           src={iconSource}
           alt=""
-          className="h-full w-full shrink-0 scale-125 object-cover"
+          className="aspect-square h-8 w-8 shrink-0 object-contain"
         />
       </span>
     );
   }
 
-  return <AppIcon app={app} className={triggerIconSizeClass} />;
+  return <AppIcon app={app} className={appIconSizeClass} />;
 }
 
 export function OpenTargetDropdown({
@@ -85,7 +84,7 @@ export function OpenTargetDropdown({
         variant="ghost"
         disabled={disabled || (!selectedApp && !selectedAppLabel)}
         onClick={onOpen}
-        className="h-11 w-11 min-w-0 rounded-xl px-0 text-slate-100 hover:bg-slate-800"
+        className="h-10 w-10 min-w-0 rounded-xl px-0 text-slate-100 hover:bg-slate-800"
       >
         <TriggerAppIcon
           app={
@@ -99,7 +98,7 @@ export function OpenTargetDropdown({
           <button
             type="button"
             disabled={disabled || apps.length === 0}
-            className="flex h-11 w-8 items-center justify-center rounded-xl text-slate-400 transition hover:bg-slate-800 hover:text-slate-100 disabled:text-slate-700"
+            className="flex h-10 w-8 items-center justify-center rounded-xl text-slate-400 transition hover:bg-slate-800 hover:text-slate-100 disabled:text-slate-700"
           >
             <ChevronDown className="h-4 w-4" strokeWidth={1.9} />
           </button>
