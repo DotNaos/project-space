@@ -1,20 +1,731 @@
 import { app, dialog, ipcMain } from 'electron';
-import { basename } from 'node:path';
+import { execFile } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { basename, dirname, extname, join, relative, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
 
 import {
+  type FileSystemEntry,
+  type LauncherAppRecord,
+  type OpenPathInAppRequest,
+  type OpenPathInAppResult,
+  type ProjectDiscoveryResult,
+  type ProjectGroupRecord,
+  type ProjectNavigationItem,
+  type ProjectSpaceRecord,
+  type ProjectWorktreeRecord,
+  type ProjectsState,
   projectSpaceChannels,
   type ProjectDirectorySelection,
   type ToolLaunchRequest,
   type ToolLaunchResult
 } from '../../../src/shared/electron-api';
 
+const projectSpaceDirectory = `${homedir()}/.project-space`;
+const projectsStateFile = `${projectSpaceDirectory}/projects.json`;
+const launcherIconCacheDirectory = `${projectSpaceDirectory}/cache/launcher-icons`;
+// TODO: make the projects root user-configurable.
+const discoveryRoot = join(homedir(), 'projects');
+const execFileAsync = promisify(execFile);
+
+const standaloneProjectMarkers = new Set([
+  '.git',
+  'package.json',
+  'pnpm-lock.yaml',
+  'pnpm-workspace.yaml',
+  'Cargo.toml',
+  'pyproject.toml',
+  'go.mod'
+]);
+
+const launcherRegistry: Array<
+  LauncherAppRecord & {
+    bundleName: string;
+    candidatePaths?: string[];
+  }
+> = [
+  {
+    id: 'vscode-insiders',
+    label: 'VS Code Insiders',
+    appName: 'Visual Studio Code - Insiders',
+    bundleName: 'Visual Studio Code - Insiders.app'
+  },
+  {
+    id: 'cursor',
+    label: 'Cursor',
+    appName: 'Cursor',
+    bundleName: 'Cursor.app'
+  },
+  {
+    id: 'antigravity',
+    label: 'Antigravity',
+    appName: 'Antigravity',
+    bundleName: 'Antigravity.app'
+  },
+  {
+    id: 'finder',
+    label: 'Finder',
+    appName: 'Finder',
+    bundleName: 'Finder.app',
+    candidatePaths: ['/System/Library/CoreServices/Finder.app']
+  },
+  {
+    id: 'terminal',
+    label: 'Terminal',
+    appName: 'Terminal',
+    bundleName: 'Terminal.app',
+    candidatePaths: ['/System/Applications/Utilities/Terminal.app']
+  },
+  {
+    id: 'ghostty',
+    label: 'Ghostty',
+    appName: 'Ghostty',
+    bundleName: 'Ghostty.app'
+  },
+  {
+    id: 'xcode',
+    label: 'Xcode',
+    appName: 'Xcode',
+    bundleName: 'Xcode.app'
+  },
+  {
+    id: 'android-studio',
+    label: 'Android Studio',
+    appName: 'Android Studio',
+    bundleName: 'Android Studio.app'
+  },
+  {
+    id: 'rider',
+    label: 'Rider',
+    appName: 'Rider',
+    bundleName: 'Rider.app'
+  },
+  {
+    id: 'codex',
+    label: 'Codex',
+    appName: 'Codex',
+    bundleName: 'Codex.app'
+  }
+];
+
+function readProjectsState(): ProjectsState {
+  try {
+    if (!existsSync(projectsStateFile)) {
+      return {
+        activeGroupId: '',
+        selectedExplorerTarget: { kind: 'workspace' },
+        selectedLauncherAppId: '',
+        selectedProjectId: ''
+      };
+    }
+
+    const content = readFileSync(projectsStateFile, 'utf-8');
+    const parsed = JSON.parse(content) as Partial<ProjectsState> & {
+      projects?: unknown[];
+      selectedWorktreeId?: string;
+    };
+
+    return {
+      activeGroupId: parsed.activeGroupId ?? '',
+      selectedExplorerTarget:
+        parsed.selectedExplorerTarget?.kind === 'worktree' &&
+        typeof parsed.selectedExplorerTarget.worktreeId === 'string'
+          ? {
+              kind: 'worktree',
+              worktreeId: parsed.selectedExplorerTarget.worktreeId
+            }
+          : parsed.selectedWorktreeId
+            ? {
+                kind: 'worktree',
+                worktreeId: parsed.selectedWorktreeId
+              }
+            : { kind: 'workspace' },
+      selectedLauncherAppId: parsed.selectedLauncherAppId ?? '',
+      selectedProjectId: parsed.selectedProjectId ?? ''
+    };
+  } catch {
+    return {
+      activeGroupId: '',
+      selectedExplorerTarget: { kind: 'workspace' },
+      selectedLauncherAppId: '',
+      selectedProjectId: ''
+    };
+  }
+}
+
+function writeProjectsState(state: ProjectsState) {
+  mkdirSync(projectSpaceDirectory, { recursive: true });
+  writeFileSync(projectsStateFile, JSON.stringify(state, null, 2));
+}
+
+async function runCommand(command: string, args: string[]) {
+  const { stdout } = await execFileAsync(command, args, {
+    windowsHide: true
+  });
+
+  return stdout;
+}
+
+async function listDirectoryEntries(path: string) {
+  try {
+    return await readdir(path, {
+      withFileTypes: true
+    });
+  } catch {
+    return [];
+  }
+}
+
+function makeNodeId(rootPath: string, path: string) {
+  const relativePath = relative(rootPath, path).replace(/^\.\/?/, '');
+
+  return relativePath.length > 0 ? relativePath.replace(/[\\/]+/g, '__') : basename(path);
+}
+
+function createProjectRecord(
+  rootPath: string,
+  path: string,
+  kind: ProjectSpaceRecord['kind'],
+  groupId?: string
+): ProjectSpaceRecord {
+  const resolvedPath = resolve(path);
+
+  return {
+    id: makeNodeId(rootPath, resolvedPath),
+    kind,
+    groupId,
+    name: basename(resolvedPath),
+    rootPath: resolvedPath
+  };
+}
+
+function createGroupRecord(rootPath: string, path: string, childProjectIds: string[]): ProjectGroupRecord {
+  const resolvedPath = resolve(path);
+
+  return {
+    childProjectIds,
+    id: makeNodeId(rootPath, resolvedPath),
+    name: basename(resolvedPath),
+    rootPath: resolvedPath
+  };
+}
+
+function hasWorkspaceMarker(path: string, entryNames: Set<string>) {
+  if (entryNames.has('base')) {
+    return true;
+  }
+
+  return Array.from(entryNames).some((entryName) => {
+    return entryName.endsWith('.code-workspace') && existsSync(join(path, entryName));
+  });
+}
+
+function hasStandaloneMarker(entryNames: Set<string>) {
+  return Array.from(entryNames).some((entryName) => standaloneProjectMarkers.has(entryName));
+}
+
+async function classifyProjectDirectory(path: string): Promise<ProjectSpaceRecord['kind'] | null> {
+  const entries = await listDirectoryEntries(path);
+  const entryNames = new Set(entries.map((entry) => entry.name));
+
+  if (hasWorkspaceMarker(path, entryNames)) {
+    return 'workspace';
+  }
+
+  if (hasStandaloneMarker(entryNames)) {
+    return 'standalone';
+  }
+
+  return null;
+}
+
+async function discoverProjectChildren(groupPath: string): Promise<ProjectSpaceRecord[]> {
+  const childEntries = await listDirectoryEntries(groupPath);
+  const childDirectories = childEntries.filter((entry) => entry.isDirectory());
+  const projects: ProjectSpaceRecord[] = [];
+  const groupId = makeNodeId(discoveryRoot, groupPath);
+
+  for (const childDirectory of childDirectories) {
+    const childPath = resolve(groupPath, childDirectory.name);
+    const kind = await classifyProjectDirectory(childPath);
+
+    if (!kind) {
+      continue;
+    }
+
+    projects.push(createProjectRecord(discoveryRoot, childPath, kind, groupId));
+  }
+
+  return projects.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+async function discoverProjects(): Promise<ProjectDiscoveryResult> {
+  if (!existsSync(discoveryRoot)) {
+    return {
+      groups: [],
+      projects: [],
+      rootItems: [],
+      rootPath: discoveryRoot
+    };
+  }
+
+  const rootEntries = await listDirectoryEntries(discoveryRoot);
+  const rootDirectories = rootEntries.filter((entry) => entry.isDirectory());
+  const groups: ProjectGroupRecord[] = [];
+  const projects: ProjectSpaceRecord[] = [];
+  const rootItems: ProjectNavigationItem[] = [];
+
+  for (const rootDirectory of rootDirectories) {
+    const rootChildPath = resolve(discoveryRoot, rootDirectory.name);
+    const projectKind = await classifyProjectDirectory(rootChildPath);
+
+    if (projectKind) {
+      const project = createProjectRecord(discoveryRoot, rootChildPath, projectKind);
+
+      projects.push(project);
+      rootItems.push({
+        id: project.id,
+        kind: 'project',
+        label: project.name,
+        projectId: project.id
+      });
+      continue;
+    }
+
+    const childProjects = await discoverProjectChildren(rootChildPath);
+    if (childProjects.length === 0) {
+      continue;
+    }
+
+    projects.push(...childProjects);
+
+    const group = createGroupRecord(
+      discoveryRoot,
+      rootChildPath,
+      childProjects.map((project) => project.id)
+    );
+
+    groups.push(group);
+    rootItems.push({
+      groupId: group.id,
+      id: group.id,
+      kind: 'group',
+      label: group.name
+    });
+  }
+
+  return {
+    groups: groups.sort((left, right) => left.name.localeCompare(right.name)),
+    projects: projects.sort((left, right) => left.name.localeCompare(right.name)),
+    rootItems: rootItems.sort((left, right) => left.label.localeCompare(right.label)),
+    rootPath: discoveryRoot
+  };
+}
+
+function createBaseWorktree(projectPath: string): ProjectWorktreeRecord {
+  const resolvedPath = resolve(projectPath);
+
+  return {
+    id: resolvedPath,
+    name: basename(resolvedPath),
+    path: resolvedPath,
+    isBase: true,
+    status: 'ready'
+  };
+}
+
+function parseWorktreeList(output: string, basePath: string): ProjectWorktreeRecord[] {
+  const normalizedBasePath = resolve(basePath);
+
+  const worktrees = output
+    .trim()
+    .split('\n\n')
+    .reduce<ProjectWorktreeRecord[]>((entries, block) => {
+      const lines = block.split('\n').filter(Boolean);
+      const worktreeLine = lines.find((line) => line.startsWith('worktree '));
+      if (!worktreeLine) {
+        return entries;
+      }
+
+      const worktreePath = resolve(worktreeLine.slice('worktree '.length));
+      const branchLine = lines.find((line) => line.startsWith('branch '));
+      const branchRef = branchLine?.slice('branch '.length).trim();
+
+      entries.push({
+        branchName: branchRef?.replace('refs/heads/', ''),
+        id: worktreePath,
+        isBase: worktreePath === normalizedBasePath,
+        name: basename(worktreePath),
+        path: worktreePath,
+        status: 'ready'
+      });
+
+      return entries;
+    }, []);
+
+  return worktrees.sort((left, right) => {
+    if (left.isBase !== right.isBase) {
+      return left.isBase ? -1 : 1;
+    }
+
+    return left.name.localeCompare(right.name);
+  });
+}
+
+async function scanProjectContainerWorktrees(projectPath: string): Promise<ProjectWorktreeRecord[]> {
+  const entries = await listDirectoryEntries(projectPath);
+
+  return entries
+    .filter((entry) => entry.isDirectory())
+    .reduce<ProjectWorktreeRecord[]>((worktrees, entry) => {
+      const worktreePath = resolve(projectPath, entry.name);
+      const gitPath = join(worktreePath, '.git');
+
+      if (!existsSync(gitPath)) {
+        return worktrees;
+      }
+
+      const isBase = entry.name === 'base';
+      let status: ProjectWorktreeRecord['status'] = 'ready';
+
+      try {
+        const gitPointer = readFileSync(gitPath, 'utf-8').trim();
+
+        if (gitPointer.startsWith('gitdir:')) {
+          const gitDirPath = gitPointer.slice('gitdir:'.length).trim();
+          const resolvedGitDir = gitDirPath.startsWith('/')
+            ? gitDirPath
+            : resolve(worktreePath, gitDirPath);
+
+          if (!existsSync(resolvedGitDir)) {
+            status = 'broken';
+          }
+        }
+      } catch {
+        status = 'ready';
+      }
+
+      worktrees.push({
+        id: worktreePath,
+        isBase,
+        name: entry.name,
+        path: worktreePath,
+        status
+      });
+
+      return worktrees;
+    }, [])
+    .sort((left, right) => {
+      if (left.isBase !== right.isBase) {
+        return left.isBase ? -1 : 1;
+      }
+
+      if (left.status !== right.status) {
+        return left.status === 'ready' ? -1 : 1;
+      }
+
+      return left.name.localeCompare(right.name);
+    });
+}
+
+async function loadProjectWorktrees(projectPath: string): Promise<ProjectWorktreeRecord[]> {
+  const resolvedProjectPath = resolve(projectPath);
+
+  try {
+    const gitCommonDirOutput = await runCommand('git', [
+      '-C',
+      resolvedProjectPath,
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-common-dir'
+    ]);
+    const gitCommonDir = gitCommonDirOutput.trim();
+    const basePath = dirname(gitCommonDir);
+    const worktreeList = await runCommand('git', [
+      '-C',
+      resolvedProjectPath,
+      'worktree',
+      'list',
+      '--porcelain'
+    ]);
+    const parsedWorktrees = parseWorktreeList(worktreeList, basePath);
+
+    return parsedWorktrees.length > 0 ? parsedWorktrees : [createBaseWorktree(basePath)];
+  } catch {
+    try {
+      const scannedWorktrees = await scanProjectContainerWorktrees(resolvedProjectPath);
+
+      return scannedWorktrees.length > 0 ? scannedWorktrees : [];
+    } catch {
+      return [];
+    }
+  }
+}
+
+async function readDirectoryEntries(path: string): Promise<FileSystemEntry[]> {
+  const entries = await listDirectoryEntries(path);
+
+  return entries
+    .filter((entry) => entry.isDirectory() || entry.isFile())
+    .map((entry) => {
+      const kind: FileSystemEntry['kind'] = entry.isDirectory() ? 'directory' : 'file';
+
+      return {
+        kind,
+        name: entry.name,
+        path: resolve(path, entry.name)
+      };
+    })
+    .sort((left, right) => {
+      if (left.kind !== right.kind) {
+        return left.kind === 'directory' ? -1 : 1;
+      }
+
+      return left.name.localeCompare(right.name);
+    });
+}
+
+async function resolveInstalledAppPath(appEntry: (typeof launcherRegistry)[number]) {
+  const candidatePaths = appEntry.candidatePaths ?? [
+    join('/Applications', appEntry.bundleName),
+    join(homedir(), 'Applications', appEntry.bundleName),
+    join('/System/Applications', appEntry.bundleName),
+    join('/System/Applications/Utilities', appEntry.bundleName)
+  ];
+
+  if (candidatePaths.some((path) => existsSync(path))) {
+    return candidatePaths.find((path) => existsSync(path));
+  }
+
+  try {
+    const result = await runCommand('mdfind', [
+      `kMDItemFSName == "${appEntry.bundleName}"c`
+    ]);
+
+    return result
+      .split('\n')
+      .map((entry) => entry.trim())
+      .find(Boolean);
+  } catch {
+    return undefined;
+  }
+}
+
+async function resolveAppIconPath(appPath: string) {
+  const infoPlistPath = join(appPath, 'Contents/Info.plist');
+  const resourceDirectory = join(appPath, 'Contents/Resources');
+  const candidateNames: string[] = [];
+
+  try {
+    const bundleIconFilesOutput = await runCommand('plutil', [
+      '-extract',
+      'CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconFiles',
+      'json',
+      '-o',
+      '-',
+      infoPlistPath
+    ]);
+    const bundleIconFiles = JSON.parse(bundleIconFilesOutput) as string[];
+
+    candidateNames.push(...bundleIconFiles.slice().reverse());
+  } catch {
+    // Ignore and fall back to other plist keys.
+  }
+
+  try {
+    const iconName = (
+      await runCommand('plutil', [
+        '-extract',
+        'CFBundleIconFile',
+        'raw',
+        '-o',
+        '-',
+        infoPlistPath
+      ])
+    ).trim();
+
+    if (iconName.length > 0) {
+      candidateNames.push(iconName);
+    }
+  } catch {
+    // Ignore and fall back to other plist keys.
+  }
+
+  try {
+    const iconName = (
+      await runCommand('plutil', [
+        '-extract',
+        'CFBundleIconName',
+        'raw',
+        '-o',
+        '-',
+        infoPlistPath
+      ])
+    ).trim();
+
+    if (iconName.length > 0) {
+      candidateNames.push(iconName);
+    }
+  } catch {
+    // Ignore and fall back to common bundle icon names.
+  }
+
+  const fallbackNames = ['AppIcon', basename(appPath, '.app')];
+  candidateNames.push(...fallbackNames);
+
+  return candidateNames
+    .flatMap((entryName) => {
+      const normalizedName = extname(entryName) ? entryName : `${entryName}.icns`;
+
+      return [
+        join(resourceDirectory, normalizedName),
+        join(resourceDirectory, entryName)
+      ];
+    })
+    .find((iconPath) => existsSync(iconPath));
+}
+
+async function loadAppIconSource(appId: string, appPath: string) {
+  const iconPath = await resolveAppIconPath(appPath);
+  if (iconPath) {
+    mkdirSync(launcherIconCacheDirectory, { recursive: true });
+    const outputPath = join(launcherIconCacheDirectory, `${appId}.png`);
+
+    try {
+      await execFileAsync(
+        'sips',
+        ['-z', '64', '64', '-s', 'format', 'png', iconPath, '--out', outputPath],
+        {
+          windowsHide: true
+        }
+      );
+      const iconBuffer = readFileSync(outputPath);
+
+      return {
+        iconDataUrl: `data:image/png;base64,${iconBuffer.toString('base64')}`,
+        iconUrl: pathToFileURL(outputPath).toString()
+      };
+    } catch {
+      return {
+        iconDataUrl: undefined,
+        iconUrl: undefined
+      };
+    }
+  }
+
+  return {
+    iconDataUrl: undefined,
+    iconUrl: undefined
+  };
+}
+
+async function loadInstalledLauncherApps() {
+  const installedApps: LauncherAppRecord[] = [];
+
+  for (const appEntry of launcherRegistry) {
+    const installedPath = await resolveInstalledAppPath(appEntry);
+
+    if (installedPath) {
+      const iconSource = await loadAppIconSource(appEntry.id, installedPath);
+
+      installedApps.push({
+        appName: appEntry.appName,
+        id: appEntry.id,
+        iconDataUrl: iconSource.iconDataUrl,
+        iconUrl: iconSource.iconUrl,
+        label: appEntry.label
+      });
+    }
+  }
+
+  return installedApps;
+}
+
+async function loadLauncherAppIcon(appId: string) {
+  const launcherApp = launcherRegistry.find((appEntry) => appEntry.id === appId);
+
+  if (!launcherApp) {
+    return undefined;
+  }
+
+  const installedPath = await resolveInstalledAppPath(launcherApp);
+  if (!installedPath) {
+    return undefined;
+  }
+
+  const iconSource = await loadAppIconSource(launcherApp.id, installedPath);
+
+  return iconSource.iconDataUrl;
+}
+
+async function openPathInApp(request: OpenPathInAppRequest): Promise<OpenPathInAppResult> {
+  const launcherApp = launcherRegistry.find((appEntry) => appEntry.id === request.appId);
+
+  if (!launcherApp) {
+    return {
+      message: 'Selected app is no longer available.',
+      status: 'error'
+    };
+  }
+
+  try {
+    await execFileAsync('open', ['-a', launcherApp.appName, request.path], {
+      windowsHide: true
+    });
+
+    return {
+      status: 'success'
+    };
+  } catch {
+    return {
+      message: `Could not open ${basename(request.path)} in ${launcherApp.label}.`,
+      status: 'error'
+    };
+  }
+}
+
 export function registerAppShellHandlers() {
   ipcMain.handle(projectSpaceChannels.appMeta, () => {
     return {
       name: app.getName(),
-      version: app.getVersion(),
-      platform: process.platform
+      platform: process.platform,
+      version: app.getVersion()
     };
+  });
+
+  ipcMain.handle(projectSpaceChannels.loadLauncherApps, async () => {
+    return loadInstalledLauncherApps();
+  });
+
+  ipcMain.handle(projectSpaceChannels.loadLauncherAppIcon, async (_event, appId: string) => {
+    return loadLauncherAppIcon(appId);
+  });
+
+  ipcMain.handle(projectSpaceChannels.loadProjectDiscovery, async () => {
+    return discoverProjects();
+  });
+
+  ipcMain.handle(projectSpaceChannels.loadProjectsState, () => {
+    return readProjectsState();
+  });
+
+  ipcMain.handle(projectSpaceChannels.loadProjectWorktrees, async (_event, projectPath: string) => {
+    return loadProjectWorktrees(projectPath);
+  });
+
+  ipcMain.handle(projectSpaceChannels.openPathInApp, async (_event, request: OpenPathInAppRequest) => {
+    return openPathInApp(request);
+  });
+
+  ipcMain.handle(projectSpaceChannels.readDirectory, async (_event, path: string) => {
+    return readDirectoryEntries(path);
+  });
+
+  ipcMain.handle(projectSpaceChannels.saveProjectsState, async (_event, state: ProjectsState) => {
+    writeProjectsState(state);
   });
 
   ipcMain.handle(
@@ -33,8 +744,8 @@ export function registerAppShellHandlers() {
 
       return {
         canceled: false,
-        path: selectedPath,
-        name: basename(selectedPath)
+        name: basename(selectedPath),
+        path: selectedPath
       };
     }
   );
@@ -43,8 +754,8 @@ export function registerAppShellHandlers() {
     projectSpaceChannels.openWorkspaceTool,
     async (_event, request: ToolLaunchRequest): Promise<ToolLaunchResult> => {
       return {
-        status: 'placeholder',
-        message: `Launcher placeholder: ${request.tool} will attach to worktree ${request.worktreeId ?? 'unselected'} later.`
+        message: `Launcher placeholder: ${request.tool} will attach to worktree ${request.worktreeId ?? 'unselected'} later.`,
+        status: 'placeholder'
       };
     }
   );

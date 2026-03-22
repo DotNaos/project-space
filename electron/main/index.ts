@@ -21,6 +21,16 @@ function createMainWindow() {
     }
   });
 
+  browserWindow.webContents.on('input-event', (_event, inputEvent) => {
+    if (inputEvent.type === 'gestureScrollBegin') {
+      browserWindow.webContents.send('gesture:scroll-state', 'begin');
+    }
+
+    if (inputEvent.type === 'gestureScrollEnd') {
+      browserWindow.webContents.send('gesture:scroll-state', 'end');
+    }
+  });
+
   if (process.env.VITE_DEV_SERVER_URL) {
     browserWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     return browserWindow;

@@ -2,14 +2,17 @@ import { cn } from '@/lib/utils';
 
 interface SpaceItem {
   id: string;
+  kind: 'group' | 'project';
   label: string;
 }
 
 interface SpacesDockProps {
-  projects: SpaceItem[];
-  activeProjectId: string;
-  onSelect(projectId: string): void;
-  onCreate(): void;
+  items: SpaceItem[];
+  activeItemId: string;
+  canNavigateUp?: boolean;
+  onNavigateUp?(): void;
+  onSelect(itemId: string): void;
+  onCreate?(): void;
 }
 
 function shortLabel(label: string) {
@@ -23,25 +26,38 @@ function shortLabel(label: string) {
 }
 
 export function SpacesDock({
-  projects,
-  activeProjectId,
+  items,
+  activeItemId,
+  canNavigateUp = false,
+  onNavigateUp,
   onSelect,
   onCreate
 }: SpacesDockProps) {
   return (
     <div className="border-t border-slate-800 px-4 py-4">
       <div className="flex items-center justify-center gap-2">
+        {canNavigateUp && onNavigateUp ? (
+          <button
+            type="button"
+            onClick={onNavigateUp}
+            aria-label="Back to project root"
+            className="flex h-6 w-6 items-center justify-center rounded-[9px] text-sm leading-none text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
+          >
+            ←
+          </button>
+        ) : null}
+
         <div className="flex items-center gap-0.5">
-          {projects.map((project) => {
-            const active = activeProjectId === project.id;
+          {items.map((item) => {
+            const active = activeItemId === item.id;
 
             return (
               <button
-                key={project.id}
+                key={item.id}
                 type="button"
-                aria-label={project.label}
-                title={project.label}
-                onClick={() => onSelect(project.id)}
+                aria-label={item.label}
+                title={item.label}
+                onClick={() => onSelect(item.id)}
                 className={cn(
                   'group flex h-6 w-6 items-center justify-center rounded-[9px] transition',
                   active ? 'bg-slate-800/90' : 'hover:bg-slate-800/70'
@@ -55,21 +71,23 @@ export function SpacesDock({
                       : 'text-slate-500 group-hover:text-slate-300'
                   )}
                 >
-                  {shortLabel(project.label)}
+                  {shortLabel(item.label)}
                 </span>
               </button>
             );
           })}
         </div>
 
-        <button
-          type="button"
-          onClick={onCreate}
-          aria-label="Add project space"
-          className="flex h-6 w-6 items-center justify-center rounded-[9px] text-sm leading-none text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
-        >
-          +
-        </button>
+        {onCreate ? (
+          <button
+            type="button"
+            onClick={onCreate}
+            aria-label="Add project space"
+            className="flex h-6 w-6 items-center justify-center rounded-[9px] text-sm leading-none text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
+          >
+            +
+          </button>
+        ) : null}
       </div>
     </div>
   );
