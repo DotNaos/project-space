@@ -42,6 +42,14 @@ label[for]:hover {
   box-sizing: border-box;
 }
 
+.app-drag {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}
+
 ::-webkit-scrollbar {
   width: 11px;
   height: 11px;

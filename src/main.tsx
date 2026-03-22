@@ -1,17 +1,14 @@
-import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
+import { connectReactDevTools } from '@/devtools/connect-react-devtools';
 
-import { App } from '@/app/app';
-import '@/app/index.css';
+const enableReactDevTools = false;
 
-const container = document.getElementById('root');
+async function bootstrap() {
+  if (enableReactDevTools) {
+    await connectReactDevTools();
+  }
 
-if (!container) {
-  throw new Error('Root container not found.');
+  const { startApp } = await import('@/app-entry');
+  startApp();
 }
 
-createRoot(container).render(
-  <StrictMode>
-    <App />
-  </StrictMode>
-);
+void bootstrap();

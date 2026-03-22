@@ -18,6 +18,9 @@ interface OpenTargetDropdownProps {
   selectedAppLabel?: string;
 }
 
+const appIconSizeClass = 'h-8 w-8';
+const triggerIconSizeClass = 'h-9 w-9';
+
 function AppIcon({
   app,
   className
@@ -32,7 +35,7 @@ function AppIcon({
       <img
         src={iconSource}
         alt=""
-        className={cn('h-5 w-5 shrink-0 rounded-[5px]', className)}
+        className={cn(`${appIconSizeClass} shrink-0 rounded-lg object-contain`, className)}
       />
     );
   }
@@ -40,13 +43,31 @@ function AppIcon({
   return (
     <span
       className={cn(
-        'flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] bg-slate-800 text-[10px] font-semibold text-slate-300',
+        `flex ${appIconSizeClass} shrink-0 items-center justify-center rounded-lg bg-slate-800 text-xs font-semibold text-slate-300`,
         className
       )}
     >
       {app?.label.slice(0, 1).toUpperCase() ?? '?'}
     </span>
   );
+}
+
+function TriggerAppIcon({ app }: { app?: LauncherAppRecord }) {
+  const iconSource = app?.iconDataUrl ?? app?.iconUrl;
+
+  if (iconSource) {
+    return (
+      <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-lg">
+        <img
+          src={iconSource}
+          alt=""
+          className="h-full w-full shrink-0 scale-125 object-cover"
+        />
+      </span>
+    );
+  }
+
+  return <AppIcon app={app} className={triggerIconSizeClass} />;
 }
 
 export function OpenTargetDropdown({
@@ -57,23 +78,20 @@ export function OpenTargetDropdown({
   selectedApp,
   selectedAppLabel
 }: OpenTargetDropdownProps) {
-  const triggerLabel = selectedApp?.label ?? selectedAppLabel ?? 'Choose app';
-
   return (
-    <div className="flex items-center rounded-xl border border-slate-700 bg-slate-900/80 p-1 shadow-sm shadow-black/10">
+    <div className="flex items-center rounded-2xl border border-slate-700/80 bg-slate-900/70 p-0.5 shadow-sm shadow-black/10">
       <Button
         type="button"
         variant="ghost"
         disabled={disabled || (!selectedApp && !selectedAppLabel)}
         onClick={onOpen}
-        className="h-9 gap-2.5 rounded-[10px] px-3 text-slate-100 hover:bg-slate-800"
+        className="h-11 w-11 min-w-0 rounded-xl px-0 text-slate-100 hover:bg-slate-800"
       >
-        <AppIcon
+        <TriggerAppIcon
           app={
             selectedApp ?? (selectedAppLabel ? { appName: '', id: '', label: selectedAppLabel } : undefined)
           }
         />
-        <span>{triggerLabel}</span>
       </Button>
 
       <DropdownMenu>
@@ -81,7 +99,7 @@ export function OpenTargetDropdown({
           <button
             type="button"
             disabled={disabled || apps.length === 0}
-            className="flex h-9 w-9 items-center justify-center rounded-[10px] text-slate-400 transition hover:bg-slate-800 hover:text-slate-100 disabled:text-slate-700"
+            className="flex h-11 w-8 items-center justify-center rounded-xl text-slate-400 transition hover:bg-slate-800 hover:text-slate-100 disabled:text-slate-700"
           >
             <ChevronDown className="h-4 w-4" strokeWidth={1.9} />
           </button>

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://localhost:8097;"
+    />
+    <title>React DevTools</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      html,
+      body,
+      #root {
+        height: 100%;
+        margin: 0;
+      }
+
+      body {
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+
+      #status {
+        position: fixed;
+        top: 12px;
+        right: 16px;
+        z-index: 2;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.85);
+        padding: 6px 10px;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="status">Starting</div>
+    <div id="root"></div>
+    <script>
+      const standaloneModule = require('react-devtools-core/standalone');
+      const DevToolsUI = standaloneModule.default ?? standaloneModule;
+
+      const root = document.getElementById('root');
+      const status = document.getElementById('status');
+
+      if (!root) {
+        throw new Error('React DevTools root node not found.');
+      }
+
+      DevToolsUI.setContentDOMNode(root);
+      DevToolsUI.setStatusListener((message, state) => {
+        if (!status) {
+          return;
+        }
+
+        status.textContent = state === 'devtools-connected' ? 'Connected' : message;
+      });
+      DevToolsUI.startServer(8097, 'localhost');
+    </script>
+  </body>
+</html>

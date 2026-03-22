@@ -2,3 +2,5 @@ node_modules
 dist
 dist-electron
 .DS_Store
+# heroui-agents-md
+.heroui-docs/
