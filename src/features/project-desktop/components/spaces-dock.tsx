@@ -71,27 +71,27 @@ export function SpacesDock({
 
   return (
     <div className="border-t border-slate-800 px-4 py-4">
-      <div className="flex items-center justify-center gap-2">
-        {canNavigateUp && onNavigateUp ? (
-          <Button
-            aria-label="Back to project root"
-            isIconOnly
-            size="sm"
-            variant="ghost"
-            onPress={onNavigateUp}
-            className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-sm leading-none text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
-          >
-            ←
-          </Button>
-        ) : null}
+      <ProjectSpacesPicker
+        groups={groups}
+        projects={projects}
+        rootItems={rootItems}
+        selectedProjectId={selectedProjectId}
+        onSelectProject={onSelectProject}
+      >
+        <div className="flex w-full items-center justify-center gap-2 rounded-2xl px-2 py-1">
+          {canNavigateUp && onNavigateUp ? (
+            <Button
+              aria-label="Back to project root"
+              isIconOnly
+              size="sm"
+              variant="ghost"
+              onPress={onNavigateUp}
+              className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-sm leading-none text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
+            >
+              ←
+            </Button>
+          ) : null}
 
-        <ProjectSpacesPicker
-          groups={groups}
-          projects={projects}
-          rootItems={rootItems}
-          selectedProjectId={selectedProjectId}
-          onSelectProject={onSelectProject}
-        >
           <div className="flex items-center gap-1">
             {hasLeadingOverflow ? (
               <Text className="px-1 text-[10px] font-semibold text-slate-600">…</Text>
@@ -146,21 +146,21 @@ export function SpacesDock({
               <Text className="px-1 text-[10px] font-semibold text-slate-600">…</Text>
             ) : null}
           </div>
-        </ProjectSpacesPicker>
 
-        {onCreate ? (
-          <Button
-            aria-label="Add project space"
-            isIconOnly
-            size="sm"
-            variant="ghost"
-            onPress={onCreate}
-            className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-sm leading-none text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
-          >
-            +
-          </Button>
-        ) : null}
-      </div>
+          {onCreate ? (
+            <Button
+              aria-label="Add project space"
+              isIconOnly
+              size="sm"
+              variant="ghost"
+              onPress={onCreate}
+              className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-sm leading-none text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
+            >
+              +
+            </Button>
+          ) : null}
+        </div>
+      </ProjectSpacesPicker>
     </div>
   );
 }

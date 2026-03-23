@@ -3,7 +3,6 @@ import { Folder } from 'lucide-react';
 import {
   Accordion,
   Button,
-  Popover,
   ScrollShadow,
   SearchField,
   SearchFieldClearButton,
@@ -20,6 +19,7 @@ import type {
   ProjectNavigationItem,
   ProjectSpaceRecord
 } from '@/shared/electron-api';
+import { useProjectSpacesPickerStore } from '../stores/use-project-spaces-picker-store';
 
 interface ProjectSpacesPickerProps {
   groups: ProjectGroupRecord[];
@@ -49,11 +49,13 @@ export function ProjectSpacesPicker({
   children
 }: ProjectSpacesPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [query, setQuery] = useState('');
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
   const closeTimeoutRef = useRef<number | null>(null);
-  const triggerRef = useRef<HTMLDivElement | null>(null);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const query = useProjectSpacesPickerStore((state) => state.query);
+  const setQuery = useProjectSpacesPickerStore((state) => state.setQuery);
 
   const groupsById = useMemo(() => {
     return Object.fromEntries(groups.map((group) => [group.id, group]));
@@ -134,7 +136,6 @@ export function ProjectSpacesPicker({
   function resetPicker() {
     cancelClose();
     setIsOpen(false);
-    setQuery('');
     setExpandedGroupIds(new Set());
   }
 
@@ -154,6 +155,49 @@ export function ProjectSpacesPicker({
     };
   }, []);
 
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (pickerRef.current?.contains(event.target as Node)) {
+        cancelClose();
+        return;
+      }
+
+      resetPicker();
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        resetPicker();
+      }
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
+
   function openPicker() {
     cancelClose();
     setIsOpen(true);
@@ -169,7 +213,7 @@ export function ProjectSpacesPicker({
   function isWithinInteractiveArea(target: EventTarget | null) {
     return (
       target instanceof Node &&
-      (triggerRef.current?.contains(target) || contentRef.current?.contains(target))
+      (pickerRef.current?.contains(target) || contentRef.current?.contains(target))
     );
   }
 
@@ -187,182 +231,177 @@ export function ProjectSpacesPicker({
   }
 
   return (
-    <div className="flex items-center">
-      <Popover
-        isOpen={isOpen}
-        onOpenChange={(nextOpen) => {
-          if (nextOpen) {
-            setIsOpen(true);
-            return;
-          }
+    <div
+      ref={pickerRef}
+      className="relative flex w-full items-center"
+      onFocusCapture={handlePointerEnter}
+      onBlurCapture={(event) => {
+        if (isWithinInteractiveArea(event.relatedTarget)) {
+          cancelClose();
+          return;
+        }
 
-          resetPicker();
-        }}>
-        <Popover.Trigger className="flex items-center rounded-2xl px-1 py-1">
-          <div
-            ref={triggerRef}
-            className="flex items-center"
-            onPointerEnter={handlePointerEnter}
-            onPointerLeave={handlePointerLeave}>
-            {children}
-          </div>
-        </Popover.Trigger>
+        scheduleClose();
+      }}
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
+    >
+      <div className="flex w-full items-center">{children}</div>
 
-        <Popover.Content offset={14} placement="top start" className="w-[320px] rounded-3xl">
-          <Popover.Dialog className="p-0">
-            <Surface
-              ref={contentRef}
-              variant="secondary"
-              className="rounded-3xl border border-slate-800/80 p-3"
-              onPointerEnter={handlePointerEnter}
-              onPointerLeave={handlePointerLeave}>
-              <SearchField
-                aria-label="Search projects"
-                value={query}
-                onChange={setQuery}
-                className="w-full"
-              >
-                <SearchFieldGroup className="rounded-2xl border border-slate-800/80 bg-slate-950/70">
-                  <SearchFieldSearchIcon />
-                  <SearchFieldInput
-                    autoFocus
-                    placeholder="Search projects"
-                    className="text-sm"
-                  />
-                  <SearchFieldClearButton />
-                </SearchFieldGroup>
-              </SearchField>
+      {isOpen ? (
+        <div className="absolute bottom-full left-1/2 z-50 mb-3 w-[340px] -translate-x-1/2">
+          <Surface
+            ref={contentRef}
+            variant="secondary"
+            className="flex h-[420px] min-h-0 flex-col rounded-3xl border border-slate-800/80 p-3 shadow-2xl shadow-slate-950/40"
+          >
+            <SearchField
+              aria-label="Search projects"
+              value={query}
+              onChange={setQuery}
+              className="w-full"
+            >
+              <SearchFieldGroup className="rounded-2xl border border-slate-800/80 bg-slate-950/70">
+                <SearchFieldSearchIcon />
+                <SearchFieldInput
+                  ref={searchInputRef}
+                  autoFocus
+                  placeholder="Search projects"
+                  className="text-sm"
+                />
+                <SearchFieldClearButton />
+              </SearchFieldGroup>
+            </SearchField>
 
-              <ScrollShadow className="mt-3 max-h-[320px]" hideScrollBar>
-                {filteredStandaloneProjectIds.length > 0 || filteredGroupedSections.length > 0 ? (
-                  <div className="space-y-3">
-                    {filteredStandaloneProjectIds.length > 0 ? (
-                      <div className="space-y-1">
-                        <Text className="px-3 py-1 text-xs font-medium text-slate-500">
-                          Projects
-                        </Text>
+            <ScrollShadow className="mt-3 min-h-0 flex-1" hideScrollBar>
+              {filteredStandaloneProjectIds.length > 0 || filteredGroupedSections.length > 0 ? (
+                <div className="space-y-3 pb-1">
+                  {filteredStandaloneProjectIds.length > 0 ? (
+                    <div className="space-y-1">
+                      <Text className="px-3 py-1 text-xs font-medium text-slate-500">
+                        Projects
+                      </Text>
 
-                        {filteredStandaloneProjectIds.map((projectId) => {
-                          const project = projectsById[projectId];
-                          if (!project) {
-                            return null;
-                          }
+                      {filteredStandaloneProjectIds.map((projectId) => {
+                        const project = projectsById[projectId];
+                        if (!project) {
+                          return null;
+                        }
 
-                          return (
-                            <Tooltip key={project.id} delay={0}>
-                              <Tooltip.Trigger className="block w-full">
-                                <Button
-                                  fullWidth
-                                  variant={selectedProjectId === project.id ? 'secondary' : 'ghost'}
-                                  onPress={() => {
-                                    selectProjectById(project.id);
-                                  }}
-                                  className="h-auto min-h-0 justify-start rounded-2xl px-3 py-3 text-left"
-                                >
-                                  <div className="flex w-full items-center justify-between gap-3">
-                                    <Text className="truncate text-sm font-medium text-slate-100">
-                                      {project.name}
+                        return (
+                          <Tooltip key={project.id} delay={0}>
+                            <Tooltip.Trigger className="block w-full">
+                              <Button
+                                fullWidth
+                                variant={selectedProjectId === project.id ? 'secondary' : 'ghost'}
+                                onPress={() => {
+                                  selectProjectById(project.id);
+                                }}
+                                className="h-auto min-h-0 justify-start rounded-2xl px-3 py-3 text-left"
+                              >
+                                <div className="flex w-full items-center justify-between gap-3">
+                                  <Text className="truncate text-sm font-medium text-slate-100">
+                                    {project.name}
+                                  </Text>
+                                  {project.kind === 'workspace' ? (
+                                    <Text className="shrink-0 text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                                      WS
                                     </Text>
-                                    {project.kind === 'workspace' ? (
-                                      <Text className="shrink-0 text-[10px] uppercase tracking-[0.18em] text-slate-500">
-                                        WS
-                                      </Text>
-                                    ) : null}
-                                  </div>
-                                </Button>
-                              </Tooltip.Trigger>
-                              <Tooltip.Content showArrow placement="right">
-                                <Tooltip.Arrow />
-                                {project.rootPath}
-                              </Tooltip.Content>
-                            </Tooltip>
-                          );
-                        })}
-                      </div>
-                    ) : null}
+                                  ) : null}
+                                </div>
+                              </Button>
+                            </Tooltip.Trigger>
+                            <Tooltip.Content showArrow placement="right">
+                              <Tooltip.Arrow />
+                              {project.rootPath}
+                            </Tooltip.Content>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                  ) : null}
 
-                    {filteredGroupedSections.length > 0 ? (
-                      <Accordion
-                        allowsMultipleExpanded
-                        expandedKeys={effectiveExpandedGroupIds}
-                        onExpandedChange={(keys) => {
-                          if (query.trim()) {
-                            return;
-                          }
+                  {filteredGroupedSections.length > 0 ? (
+                    <Accordion
+                      allowsMultipleExpanded
+                      expandedKeys={effectiveExpandedGroupIds}
+                      onExpandedChange={(keys) => {
+                        if (query.trim()) {
+                          return;
+                        }
 
-                          setExpandedGroupIds(new Set(Array.from(keys, (key) => String(key))));
-                        }}
-                      >
-                        {filteredGroupedSections.map((section) => (
-                          <Accordion.Item key={section.id} id={section.id}>
-                            <Accordion.Heading>
-                              <Accordion.Trigger className="rounded-2xl px-3 py-3 text-left text-sm font-medium text-slate-200 transition hover:bg-slate-900/40 data-[expanded=true]:bg-slate-900/25">
-                                <span className="flex min-w-0 items-center gap-2">
-                                  <Folder className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={1.8} />
-                                  <span className="truncate">{section.label}</span>
-                                </span>
-                                <Accordion.Indicator className="text-slate-500" />
-                              </Accordion.Trigger>
-                            </Accordion.Heading>
-                            <Accordion.Panel>
-                              <Accordion.Body className="ml-3 space-y-1 border-l border-slate-800/60 px-0 pt-1 pb-0 pl-2">
-                                {section.projectIds.map((projectId) => {
-                                  const project = projectsById[projectId];
-                                  if (!project) {
-                                    return null;
-                                  }
+                        setExpandedGroupIds(new Set(Array.from(keys, (key) => String(key))));
+                      }}
+                    >
+                      {filteredGroupedSections.map((section) => (
+                        <Accordion.Item key={section.id} id={section.id}>
+                          <Accordion.Heading>
+                            <Accordion.Trigger className="rounded-2xl px-3 py-3 text-left text-sm font-medium text-slate-200 transition hover:bg-slate-900/40 data-[expanded=true]:bg-slate-900/25">
+                              <span className="flex min-w-0 items-center gap-2">
+                                <Folder className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={1.8} />
+                                <span className="truncate">{section.label}</span>
+                              </span>
+                              <Accordion.Indicator className="text-slate-500" />
+                            </Accordion.Trigger>
+                          </Accordion.Heading>
+                          <Accordion.Panel>
+                            <Accordion.Body className="ml-3 space-y-1 border-l border-slate-800/60 px-0 pt-1 pb-0 pl-2">
+                              {section.projectIds.map((projectId) => {
+                                const project = projectsById[projectId];
+                                if (!project) {
+                                  return null;
+                                }
 
-                                  return (
-                                    <Tooltip key={project.id} delay={0}>
-                                      <Tooltip.Trigger className="block w-full">
-                                        <Button
-                                          fullWidth
-                                          variant={
-                                            selectedProjectId === project.id ? 'secondary' : 'ghost'
-                                          }
-                                          onPress={() => {
-                                            selectProjectById(project.id);
-                                          }}
-                                          className="h-auto min-h-0 justify-start rounded-2xl px-3 py-3 text-left"
-                                        >
-                                          <div className="flex w-full items-center justify-between gap-3">
-                                            <Text className="truncate text-sm font-medium text-slate-100">
-                                              {project.name}
+                                return (
+                                  <Tooltip key={project.id} delay={0}>
+                                    <Tooltip.Trigger className="block w-full">
+                                      <Button
+                                        fullWidth
+                                        variant={
+                                          selectedProjectId === project.id ? 'secondary' : 'ghost'
+                                        }
+                                        onPress={() => {
+                                          selectProjectById(project.id);
+                                        }}
+                                        className="h-auto min-h-0 justify-start rounded-2xl px-3 py-3 text-left"
+                                      >
+                                        <div className="flex w-full items-center justify-between gap-3">
+                                          <Text className="truncate text-sm font-medium text-slate-100">
+                                            {project.name}
+                                          </Text>
+                                          {project.kind === 'workspace' ? (
+                                            <Text className="shrink-0 text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                                              WS
                                             </Text>
-                                            {project.kind === 'workspace' ? (
-                                              <Text className="shrink-0 text-[10px] uppercase tracking-[0.18em] text-slate-500">
-                                                WS
-                                              </Text>
-                                            ) : null}
-                                          </div>
-                                        </Button>
-                                      </Tooltip.Trigger>
-                                      <Tooltip.Content showArrow placement="right">
-                                        <Tooltip.Arrow />
-                                        {project.rootPath}
-                                      </Tooltip.Content>
-                                    </Tooltip>
-                                  );
-                                })}
-                              </Accordion.Body>
-                            </Accordion.Panel>
-                          </Accordion.Item>
-                        ))}
-                      </Accordion>
-                    ) : null}
-                  </div>
-                ) : (
-                  <div className="px-3 py-3">
-                    <Text className="text-sm text-slate-500">
-                      No matching projects.
-                    </Text>
-                  </div>
-                )}
-              </ScrollShadow>
-            </Surface>
-          </Popover.Dialog>
-        </Popover.Content>
-      </Popover>
+                                          ) : null}
+                                        </div>
+                                      </Button>
+                                    </Tooltip.Trigger>
+                                    <Tooltip.Content showArrow placement="right">
+                                      <Tooltip.Arrow />
+                                      {project.rootPath}
+                                    </Tooltip.Content>
+                                  </Tooltip>
+                                );
+                              })}
+                            </Accordion.Body>
+                          </Accordion.Panel>
+                        </Accordion.Item>
+                      ))}
+                    </Accordion>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="flex h-full items-center justify-center px-3 py-3">
+                  <Text className="text-sm text-slate-500">
+                    No matching projects.
+                  </Text>
+                </div>
+              )}
+            </ScrollShadow>
+          </Surface>
+        </div>
+      ) : null}
     </div>
   );
 }

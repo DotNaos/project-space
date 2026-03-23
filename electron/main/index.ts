@@ -27,6 +27,9 @@ function createMainWindow() {
     minHeight: 780,
     backgroundColor: '#07111e',
     titleBarStyle: 'hiddenInset',
+    titleBarOverlay: {
+      height: 42
+    },
     webPreferences: {
       backgroundThrottling: !enableReactDevTools,
       preload: join(currentDirectory, '../preload/index.js'),

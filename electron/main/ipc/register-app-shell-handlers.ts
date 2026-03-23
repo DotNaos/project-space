@@ -286,14 +286,18 @@ function createGroupRecord(rootPath: string, path: string, childProjectIds: stri
   };
 }
 
-function hasWorkspaceMarker(path: string, entryNames: Set<string>) {
+function hasWorkspaceFileMarker(path: string, entryNames: Set<string>) {
+  return Array.from(entryNames).some((entryName) => {
+    return entryName.endsWith('.code-workspace') && existsSync(join(path, entryName));
+  });
+}
+
+function hasStrongWorkspaceMarker(path: string, entryNames: Set<string>) {
   if (entryNames.has('base')) {
     return true;
   }
 
-  return Array.from(entryNames).some((entryName) => {
-    return entryName.endsWith('.code-workspace') && existsSync(join(path, entryName));
-  });
+  return basename(path).endsWith('.worktrees');
 }
 
 function hasStandaloneMarker(entryNames: Set<string>) {
@@ -304,7 +308,7 @@ async function classifyProjectDirectory(path: string): Promise<ProjectSpaceRecor
   const entries = await listDirectoryEntries(path);
   const entryNames = new Set(entries.map((entry) => entry.name));
 
-  if (hasWorkspaceMarker(path, entryNames)) {
+  if (hasStrongWorkspaceMarker(path, entryNames) || hasWorkspaceFileMarker(path, entryNames)) {
     return 'workspace';
   }
 
@@ -313,6 +317,13 @@ async function classifyProjectDirectory(path: string): Promise<ProjectSpaceRecor
   }
 
   return null;
+}
+
+async function shouldPreferGroupOverWorkspace(path: string) {
+  const entries = await listDirectoryEntries(path);
+  const entryNames = new Set(entries.map((entry) => entry.name));
+
+  return !hasStrongWorkspaceMarker(path, entryNames) && hasWorkspaceFileMarker(path, entryNames);
 }
 
 async function discoverProjectChildren(groupPath: string): Promise<ProjectSpaceRecord[]> {
@@ -335,6 +346,49 @@ async function discoverProjectChildren(groupPath: string): Promise<ProjectSpaceR
   return projects.sort((left, right) => left.name.localeCompare(right.name));
 }
 
+async function loadGitCommonDir(path: string) {
+  try {
+    const output = await runCommand('git', [
+      '-C',
+      path,
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-common-dir'
+    ]);
+
+    return output.trim();
+  } catch {
+    return '';
+  }
+}
+
+async function shouldTreatAsWorktreeProject(
+  path: string,
+  childProjects: ProjectSpaceRecord[]
+) {
+  if (childProjects.length < 2) {
+    return false;
+  }
+
+  const commonDirs = new Set<string>();
+
+  for (const childProject of childProjects) {
+    const gitCommonDir = await loadGitCommonDir(childProject.rootPath);
+
+    if (!gitCommonDir) {
+      return false;
+    }
+
+    commonDirs.add(gitCommonDir);
+
+    if (commonDirs.size > 1) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 async function discoverProjects(): Promise<ProjectDiscoveryResult> {
   if (!existsSync(discoveryRoot)) {
     return {
@@ -354,6 +408,49 @@ async function discoverProjects(): Promise<ProjectDiscoveryResult> {
   for (const rootDirectory of rootDirectories) {
     const rootChildPath = resolve(discoveryRoot, rootDirectory.name);
     const projectKind = await classifyProjectDirectory(rootChildPath);
+    const childProjects =
+      projectKind === 'workspace' || !projectKind
+        ? await discoverProjectChildren(rootChildPath)
+        : [];
+    const treatAsWorktreeProject =
+      childProjects.length > 0 &&
+      (await shouldTreatAsWorktreeProject(rootChildPath, childProjects));
+
+    if (treatAsWorktreeProject) {
+      const project = createProjectRecord(discoveryRoot, rootChildPath, 'workspace');
+
+      projects.push(project);
+      rootItems.push({
+        id: project.id,
+        kind: 'project',
+        label: project.name,
+        projectId: project.id
+      });
+      continue;
+    }
+
+    if (
+      childProjects.length > 0 &&
+      (!projectKind ||
+        (projectKind === 'workspace' && (await shouldPreferGroupOverWorkspace(rootChildPath))))
+    ) {
+      projects.push(...childProjects);
+
+      const group = createGroupRecord(
+        discoveryRoot,
+        rootChildPath,
+        childProjects.map((project) => project.id)
+      );
+
+      groups.push(group);
+      rootItems.push({
+        groupId: group.id,
+        id: group.id,
+        kind: 'group',
+        label: group.name
+      });
+      continue;
+    }
 
     if (projectKind) {
       const project = createProjectRecord(discoveryRoot, rootChildPath, projectKind);
@@ -368,7 +465,6 @@ async function discoverProjects(): Promise<ProjectDiscoveryResult> {
       continue;
     }
 
-    const childProjects = await discoverProjectChildren(rootChildPath);
     if (childProjects.length === 0) {
       continue;
     }
