@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import type {
   ExplorerTarget,
+  ProjectIssueSourceConfig,
   ProjectSpaceRecord,
   ProjectWorktreeRecord
 } from '@/shared/electron-api';
@@ -9,6 +10,8 @@ import type { SidebarView } from './sidebar-view-tabs';
 import { WorkflowExplorer } from './workflow-explorer';
 
 interface SidebarContentProps {
+  issueSourceConfig: ProjectIssueSourceConfig;
+  onOpenIssueSource(): void;
   onSelectWorkspace(): void;
   onSelectWorktree(worktreeId: string): void;
   project?: ProjectSpaceRecord;
@@ -18,6 +21,8 @@ interface SidebarContentProps {
 }
 
 export const SidebarContent = memo(function SidebarContent({
+  issueSourceConfig,
+  onOpenIssueSource,
   onSelectWorkspace,
   onSelectWorktree,
   project,
@@ -28,6 +33,8 @@ export const SidebarContent = memo(function SidebarContent({
   if (sidebarView === 'workspace') {
     return (
       <WorkflowExplorer
+        issueSourceConfig={issueSourceConfig}
+        onOpenIssueSource={onOpenIssueSource}
         onSelectWorkspace={onSelectWorkspace}
         project={project}
         selectedExplorerTarget={selectedExplorerTarget}

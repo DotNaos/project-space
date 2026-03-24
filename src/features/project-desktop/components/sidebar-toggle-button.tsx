@@ -27,7 +27,7 @@ export function SidebarToggleButton({
       isIconOnly
       variant="ghost"
       onPress={onToggle}
-      className="app-no-drag absolute z-40 h-8 w-8 min-w-0 rounded-xl px-0 text-slate-500 transition hover:text-slate-50"
+      className="app-no-drag absolute z-40 h-8 w-8 min-w-0 rounded-xl px-0 text-zinc-500 transition hover:text-zinc-50"
       style={buttonStyle}
     >
       {isOpen ? (

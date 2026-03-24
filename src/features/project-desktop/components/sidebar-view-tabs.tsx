@@ -17,7 +17,7 @@ export function SidebarViewTabs({
   onChange
 }: SidebarViewTabsProps) {
   return (
-    <div className="border-b border-slate-800 px-3 py-2">
+    <div className="border-b border-zinc-800 px-3 py-2">
       <Tabs
         selectedKey={value}
         variant="primary"

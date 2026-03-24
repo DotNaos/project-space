@@ -8,7 +8,11 @@ import type {
   ProjectSpaceRecord,
   ProjectWorktreeRecord
 } from '@/shared/electron-api';
+import type { ProjectMainView } from '../components/project-main-panel';
 import type { SidebarView } from '../components/sidebar-view-tabs';
+import { toGithubIdea } from '../lib/idea-utils';
+import { useProjectIssueSource } from './use-project-issue-source';
+import { useProjectIdeas } from './use-project-ideas';
 
 const emptyDiscovery: ProjectDiscoveryResult = {
   groups: [],
@@ -34,6 +38,7 @@ function findMatchingProject(projects: ProjectSpaceRecord[], path: string) {
 }
 
 export function useProjectDesktop() {
+  const [mainView, setMainView] = useState<ProjectMainView>('ideas');
   const [discovery, setDiscovery] = useState<ProjectDiscoveryResult>(emptyDiscovery);
   const [selectedExplorerTarget, setSelectedExplorerTarget] = useState<ExplorerTarget>({
     kind: 'workspace'
@@ -43,6 +48,8 @@ export function useProjectDesktop() {
   const [sidebarView, setSidebarView] = useState<SidebarView>('workspace');
   const [launcherApps, setLauncherApps] = useState<LauncherAppRecord[]>([]);
   const [launcherError, setLauncherError] = useState('');
+  const [ideaExportMessage, setIdeaExportMessage] = useState('');
+  const [isIdeaExporting, setIsIdeaExporting] = useState(false);
   const [projectWorktrees, setProjectWorktrees] = useState<
     Record<string, ProjectWorktreeRecord[]>
   >({});
@@ -92,6 +99,8 @@ export function useProjectDesktop() {
     selectedExplorerTarget.kind === 'worktree' && selectedWorktree
       ? selectedWorktree.name
       : 'Workspace';
+  const issueSource = useProjectIssueSource(project);
+  const ideas = useProjectIdeas(project, issueSource.config);
 
   useEffect(() => {
     void Promise.all([
@@ -346,6 +355,7 @@ export function useProjectDesktop() {
     }
 
     setLauncherError('');
+    setMainView('ideas');
     setSelectedExplorerTarget({ kind: 'workspace' });
     setSelectedProjectId(matchingProject.id);
   }
@@ -388,18 +398,80 @@ export function useProjectDesktop() {
     );
   }
 
+  async function createIdea() {
+    setMainView('ideas');
+    await ideas.createIdea();
+  }
+
+  async function exportSelectedIdeaToCurrentWorktree() {
+    if (
+      !selectedWorktree ||
+      !ideas.selectedIdea ||
+      ideas.selectedIdea.source !== 'github' ||
+      !ideas.selectedIdea.qualityGate.isReady
+    ) {
+      return;
+    }
+
+    setIsIdeaExporting(true);
+    setIdeaExportMessage('');
+
+    try {
+      await window.projectSpace.exportIdeasToWorktree({
+        ideas: [toGithubIdea(ideas.selectedIdea)],
+        worktreePath: selectedWorktree.path
+      });
+
+      setIdeaExportMessage(`Exported to ${selectedWorktree.name}.`);
+    } catch (error) {
+      setIdeaExportMessage(
+        error instanceof Error ? error.message : 'Could not export the idea to the worktree.'
+      );
+    } finally {
+      setIsIdeaExporting(false);
+    }
+  }
+
+  function openIdeasView() {
+    setMainView('ideas');
+  }
+
+  function openProjectSettings() {
+    setMainView('settings');
+  }
+
   return {
     activeGroup,
     activeNavigationItemId,
+    createIdea,
     createProject,
     discoveryRoot: discovery.rootPath,
     groups: discovery.groups,
     groupedProjects,
     groupedProjectsLabel: activeGroup?.name,
+    ideaDraftValues: ideas.draftValues,
+    ideaExportMessage,
+    issueSourceConfig: issueSource.config,
+    issueSourceDraftKind: issueSource.draftKind,
+    issueSourceDraftUrl: issueSource.draftUrl,
+    issueSourceError: issueSource.error,
+    ideas: ideas.ideas,
+    ideasLoadError: ideas.loadError,
+    exportSelectedIdeaToCurrentWorktree,
+    isIssueSourceLoading: issueSource.isLoading,
+    isIssueSourceSaving: issueSource.isSaving,
+    isIdeaExporting,
+    isIdeaSaving: ideas.isSaving,
+    isIdeasDirty: ideas.isDirty,
+    isIdeasLoading: ideas.isLoading,
     launcherApps,
     launcherError,
+    mainView,
     navigationItems,
     openCodexSkills,
+    openIssueSource: issueSource.openSource,
+    openIdeasView,
+    openProjectSettings,
     openNewWorktreeWorkspace,
     openSelectedTargetInApp,
     project,
@@ -407,14 +479,24 @@ export function useProjectDesktop() {
     resolveNavigationSelection,
     rootItems: discovery.rootItems,
     selectedExplorerTarget,
+    selectedIdea: ideas.selectedIdea,
+    selectedIdeaId: ideas.selectedIdeaId,
     selectedLauncherApp,
     selectedLauncherAppLabel,
     selectedProjectId,
     selectedTargetName,
     selectedTargetPath,
     selectedWorktree,
+    setIssueSourceDraftKind: issueSource.setDraftKind,
+    setIssueSourceDraftUrl: issueSource.setDraftUrl,
+    saveIssueSourceConfig: issueSource.save,
+    setIdeaDraftValue: ideas.setDraftValue,
+    saveIdea: ideas.saveIdea,
     sidebarView,
+    showClosedIdeas: ideas.showClosedIssues,
+    syncErrors: ideas.syncErrors,
     worktrees,
+    setShowClosedIdeas: ideas.setShowClosedIssues,
     selectLauncherApp(appId: string) {
       setSelectedLauncherAppId(appId);
       setLauncherError('');
@@ -433,6 +515,7 @@ export function useProjectDesktop() {
         }));
       }
 
+      setMainView('ideas');
       setSelectedExplorerTarget(
         nextSelectedWorktreeId
           ? {
@@ -444,9 +527,14 @@ export function useProjectDesktop() {
       setSelectedProjectId(resolvedSelection.nextProjectId);
     },
     selectProject(projectId: string, groupId?: string) {
+      setMainView('ideas');
       setSelectedExplorerTarget({ kind: 'workspace' });
       setSelectedProjectId(projectId);
       setLauncherError('');
+    },
+    selectIdea(ideaId: string) {
+      setMainView('ideas');
+      ideas.setSelectedIdeaId(ideaId);
     },
     selectWorkspace() {
       setSelectedExplorerTarget({ kind: 'workspace' });

@@ -48,7 +48,7 @@ function AppIcon({
     return (
         <span
             className={cn(
-                `flex ${appIconSizeClass} shrink-0 items-center justify-center rounded-lg bg-slate-800 text-xs font-semibold text-slate-300`,
+                `flex ${appIconSizeClass} shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-xs font-semibold text-zinc-300`,
                 className,
             )}>
             {app?.label.slice(0, 1).toUpperCase() ?? '?'}
@@ -123,9 +123,9 @@ export function OpenTargetDropdown({
                                 <DropdownItem
                                     key="loading"
                                     isDisabled
-                                    className="rounded-xl text-slate-500"
+                                    className="rounded-xl text-zinc-500"
                                     textValue="Loading apps">
-                                    <Text className="text-sm text-slate-500">
+                                    <Text className="text-sm text-zinc-500">
                                         Loading apps...
                                     </Text>
                                 </DropdownItem>
@@ -138,8 +138,8 @@ export function OpenTargetDropdown({
                                         key={app.id}
                                         onPress={() => onSelectApp(app.id)}
                                         className={cn(
-                                            'rounded-xl px-3 py-2.5 text-slate-300 data-[hover=true]:bg-slate-800/90 data-[hover=true]:text-slate-50',
-                                            active && 'bg-slate-800/90 text-slate-50',
+                                            'rounded-xl px-3 py-2.5 text-zinc-300 data-[hover=true]:bg-zinc-800/90 data-[hover=true]:text-zinc-50',
+                                            active && 'bg-zinc-800/90 text-zinc-50',
                                         )}
                                         textValue={app.label}>
                                         <div className="flex w-full items-center gap-3">
@@ -152,7 +152,7 @@ export function OpenTargetDropdown({
                                             <span className="flex w-4 justify-center">
                                                 {active ? (
                                                     <Check
-                                                        className="h-3.5 w-3.5 text-slate-300"
+                                                        className="h-3.5 w-3.5 text-zinc-300"
                                                         strokeWidth={2.2}
                                                     />
                                                 ) : null}

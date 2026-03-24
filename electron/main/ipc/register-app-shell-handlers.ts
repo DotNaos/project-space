@@ -23,6 +23,7 @@ import {
   type ToolLaunchRequest,
   type ToolLaunchResult
 } from '../../../src/shared/electron-api';
+import { registerIdeaHandlers } from './register-idea-handlers';
 
 const projectSpaceDirectory = `${homedir()}/.project-space`;
 const projectsStateFile = `${projectSpaceDirectory}/projects.json`;
@@ -908,7 +909,26 @@ async function openCodexSkills(): Promise<OpenPathInAppResult> {
   }
 }
 
+async function openExternalUrl(url: string): Promise<OpenPathInAppResult> {
+  try {
+    await execFileAsync('open', [url], {
+      windowsHide: true
+    });
+
+    return {
+      status: 'success'
+    };
+  } catch {
+    return {
+      message: 'Could not open the external link.',
+      status: 'error'
+    };
+  }
+}
+
 export function registerAppShellHandlers() {
+  registerIdeaHandlers();
+
   ipcMain.handle(projectSpaceChannels.appMeta, () => {
     return {
       name: app.getName(),
@@ -923,6 +943,10 @@ export function registerAppShellHandlers() {
 
   ipcMain.handle(projectSpaceChannels.openCodexSkills, async () => {
     return openCodexSkills();
+  });
+
+  ipcMain.handle(projectSpaceChannels.openExternalUrl, async (_event, url: string) => {
+    return openExternalUrl(url);
   });
 
   ipcMain.handle(projectSpaceChannels.loadLauncherAppIcon, async (_event, appId: string) => {

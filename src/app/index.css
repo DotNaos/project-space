@@ -2,9 +2,9 @@
 @import "@heroui/styles";
 
 @theme {
-  --color-app-canvas: #0f1726;
-  --color-app-panel: #121a29;
-  --color-app-sidebar: #222733;
+  --color-app-canvas: #111111;
+  --color-app-panel: #151515;
+  --color-app-sidebar: #212121;
   --font-sans: "Avenir Next", "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", "SFMono-Regular", monospace;
 }
@@ -12,7 +12,7 @@
 :root {
   color-scheme: dark;
   color: rgb(244 244 245);
-  background: #0f1726;
+  background: #111111;
   font-family: var(--font-sans);
 }
 
@@ -65,7 +65,7 @@ label[for]:hover {
 ::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 999px;
-  background-color: rgba(148, 163, 184, 0.24);
+  background-color: rgba(161, 161, 170, 0.24);
   background-clip: padding-box;
 }
 

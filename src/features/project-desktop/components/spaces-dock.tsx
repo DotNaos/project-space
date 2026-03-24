@@ -70,7 +70,7 @@ export function SpacesDock({
   const hasTrailingOverflow = startIndex + maxVisibleItems < items.length;
 
   return (
-    <div className="border-t border-slate-800 px-4 py-4">
+    <div className="border-t border-zinc-800 px-4 py-4">
       <ProjectSpacesPicker
         groups={groups}
         projects={projects}
@@ -86,7 +86,7 @@ export function SpacesDock({
               size="sm"
               variant="ghost"
               onPress={onNavigateUp}
-              className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-sm leading-none text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
+              className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-sm leading-none text-zinc-500 transition hover:bg-zinc-800/70 hover:text-zinc-100"
             >
               ←
             </Button>
@@ -94,7 +94,7 @@ export function SpacesDock({
 
           <div className="flex items-center gap-1">
             {hasLeadingOverflow ? (
-              <Text className="px-1 text-[10px] font-semibold text-slate-600">…</Text>
+              <Text className="px-1 text-[10px] font-semibold text-zinc-600">…</Text>
             ) : null}
 
             <ToggleButtonGroup
@@ -124,15 +124,15 @@ export function SpacesDock({
                     variant="ghost"
                     className={cn(
                       'group h-7 w-7 min-w-0 rounded-[10px] px-0 transition',
-                      active ? 'bg-slate-800/90' : 'hover:bg-slate-800/70'
+                      active ? 'bg-zinc-800/90' : 'hover:bg-zinc-800/70'
                     )}
                   >
                     <span
                       className={cn(
                         'text-[10px] font-semibold tracking-[0.12em] transition',
                         active
-                          ? 'text-slate-100'
-                          : 'text-slate-500 group-hover:text-slate-300'
+                          ? 'text-zinc-100'
+                          : 'text-zinc-500 group-hover:text-zinc-300'
                       )}
                     >
                       {shortLabel(item.label)}
@@ -143,7 +143,7 @@ export function SpacesDock({
             </ToggleButtonGroup>
 
             {hasTrailingOverflow ? (
-              <Text className="px-1 text-[10px] font-semibold text-slate-600">…</Text>
+              <Text className="px-1 text-[10px] font-semibold text-zinc-600">…</Text>
             ) : null}
           </div>
 
@@ -154,7 +154,7 @@ export function SpacesDock({
               size="sm"
               variant="ghost"
               onPress={onCreate}
-              className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-sm leading-none text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
+              className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-sm leading-none text-zinc-500 transition hover:bg-zinc-800/70 hover:text-zinc-100"
             >
               +
             </Button>

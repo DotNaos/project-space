@@ -9,12 +9,16 @@ import {
 import { cn } from '@/lib/utils';
 import type {
   ExplorerTarget,
+  ProjectIssueSourceConfig,
   ProjectSpaceRecord,
   ProjectWorktreeRecord
 } from '@/shared/electron-api';
+import { ProjectIssueSourceLinkButton } from './project-issue-source-link-button';
 
 interface WorkflowExplorerProps {
+  issueSourceConfig: ProjectIssueSourceConfig;
   onSelectWorkspace(): void;
+  onOpenIssueSource(): void;
   project?: ProjectSpaceRecord;
   selectedExplorerTarget: ExplorerTarget;
   worktrees: ProjectWorktreeRecord[];
@@ -45,12 +49,12 @@ function TreeNode({
       className={cn(
         'rounded-xl transition',
         selected
-          ? 'bg-slate-700/70 text-slate-50'
+          ? 'bg-zinc-700/70 text-zinc-50'
           : tone === 'base'
-            ? 'bg-emerald-500/6 text-emerald-100 hover:bg-emerald-500/10'
+            ? 'bg-zinc-500/6 text-zinc-100 hover:bg-zinc-500/10'
             : tone === 'broken'
-              ? 'bg-amber-500/6 text-amber-100 hover:bg-amber-500/10'
-              : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-100'
+              ? 'bg-zinc-500/6 text-zinc-100 hover:bg-zinc-500/10'
+              : 'text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-100'
       )}
     >
       <div
@@ -76,7 +80,9 @@ function TreeNode({
 }
 
 export function WorkflowExplorer({
+  issueSourceConfig,
   onSelectWorkspace,
+  onOpenIssueSource,
   project,
   selectedExplorerTarget,
   worktrees,
@@ -92,12 +98,19 @@ export function WorkflowExplorer({
       {project ? (
         <div className="space-y-3">
           <Surface variant="transparent" className="px-3 py-2">
-            <Text className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">
+            <Text className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">
               Project
             </Text>
-            <Text className="mt-2 block text-sm font-semibold text-slate-100">
-              {project.name}
-            </Text>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <Text className="block min-w-0 truncate text-sm font-semibold text-zinc-100">
+                {project.name}
+              </Text>
+              <ProjectIssueSourceLinkButton
+                kind={issueSourceConfig.kind}
+                onPress={onOpenIssueSource}
+                url={issueSourceConfig.url}
+              />
+            </div>
           </Surface>
 
           <ListBox
@@ -155,7 +168,7 @@ export function WorkflowExplorer({
           </ListBox>
         </div>
       ) : (
-        <Text className="px-3 py-2 text-sm text-slate-500">
+        <Text className="px-3 py-2 text-sm text-zinc-500">
           No projects yet. Create one with the + button below.
         </Text>
       )}

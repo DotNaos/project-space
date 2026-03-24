@@ -25,7 +25,7 @@ function createMainWindow() {
     height: 960,
     minWidth: 1200,
     minHeight: 780,
-    backgroundColor: '#07111e',
+    backgroundColor: '#111111',
     titleBarStyle: 'hiddenInset',
     titleBarOverlay: {
       height: 42
@@ -68,7 +68,7 @@ function createReactDevToolsWindow() {
     height: 760,
     minWidth: 960,
     minHeight: 600,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#141414',
     title: 'React DevTools',
     webPreferences: {
       contextIsolation: false,

@@ -39,7 +39,7 @@ export function ProjectDesktopShell() {
   });
 
   return (
-    <div className="relative h-screen overflow-hidden bg-app-canvas text-slate-100">
+    <div className="relative h-screen overflow-hidden bg-app-canvas text-zinc-100">
       <div
         className="app-drag absolute top-0 left-0 z-30 h-14"
         style={{
@@ -72,10 +72,14 @@ export function ProjectDesktopShell() {
           groups={desktop.groups}
           groupedProjects={desktop.groupedProjects}
           groupedProjectsLabel={desktop.groupedProjectsLabel}
+          issueSourceConfig={desktop.issueSourceConfig}
           isOpen={isSidebarOpen}
           navigationItems={desktop.navigationItems}
+          onCreateIdea={desktop.createIdea}
           onCreateProject={desktop.createProject}
           onOpenCodexSkills={desktop.openCodexSkills}
+          onOpenIssueSource={desktop.openIssueSource}
+          onOpenProjectSettings={desktop.openProjectSettings}
           onOpenNewWorktree={desktop.openNewWorktreeWorkspace}
           onResizeStart={(event) => {
             event.preventDefault();
@@ -102,19 +106,49 @@ export function ProjectDesktopShell() {
 
         <ProjectMainPanel
           discoveryRoot={desktop.discoveryRoot}
+          draftValues={desktop.ideaDraftValues}
+          ideaExportMessage={desktop.ideaExportMessage}
+          ideas={desktop.ideas}
+          isDirty={desktop.isIdeasDirty}
+          isIdeaExporting={desktop.isIdeaExporting}
+          isIssueSourceLoading={desktop.isIssueSourceLoading}
+          isIssueSourceSaving={desktop.isIssueSourceSaving}
+          isLoadingIdeas={desktop.isIdeasLoading}
+          isSavingIdea={desktop.isIdeaSaving}
           isSidebarOpen={isSidebarOpen}
+          issueSourceConfig={desktop.issueSourceConfig}
+          issueSourceDraftKind={desktop.issueSourceDraftKind}
+          issueSourceDraftUrl={desktop.issueSourceDraftUrl}
+          issueSourceError={desktop.issueSourceError}
           launcherApps={desktop.launcherApps}
           launcherError={desktop.launcherError}
+          loadIdeasError={desktop.ideasLoadError}
+          mainView={desktop.mainView}
+          onCreateIdea={desktop.createIdea}
           onCreateProject={desktop.createProject}
+          onExportIdeaToWorktree={desktop.exportSelectedIdeaToCurrentWorktree}
+          onOpenIssueSource={desktop.openIssueSource}
           onOpenSelectedTarget={desktop.openSelectedTargetInApp}
+          onSaveIdea={desktop.saveIdea}
+          onSaveIssueSourceConfig={desktop.saveIssueSourceConfig}
+          onSelectIdea={desktop.selectIdea}
           onSelectLauncherApp={desktop.selectLauncherApp}
+          onToggleClosedIdeas={desktop.setShowClosedIdeas}
+          onUpdateIdeaValue={desktop.setIdeaDraftValue}
+          onUpdateIssueSourceKind={desktop.setIssueSourceDraftKind}
+          onUpdateIssueSourceUrl={desktop.setIssueSourceDraftUrl}
           project={desktop.project}
           selectedApp={desktop.selectedLauncherApp}
           selectedAppLabel={desktop.selectedLauncherAppLabel}
           selectedExplorerTarget={desktop.selectedExplorerTarget}
+          selectedIdea={desktop.selectedIdea}
+          selectedIdeaId={desktop.selectedIdeaId}
           selectedTargetName={desktop.selectedTargetName}
           selectedTargetPath={desktop.selectedTargetPath}
+          showClosedIdeas={desktop.showClosedIdeas}
           sidebarClosedPaddingLeft={TITLEBAR_SAFE_INSET}
+          syncErrors={desktop.syncErrors}
+          selectedWorktree={desktop.selectedWorktree}
         />
       </div>
     </div>

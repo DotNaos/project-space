@@ -2,6 +2,7 @@ import type { WheelEvent } from 'react';
 import { Button, Surface, Text } from '@heroui/react';
 import type {
   ExplorerTarget,
+  ProjectIssueSourceConfig,
   ProjectGroupRecord,
   ProjectNavigationItem,
   ProjectSpaceRecord,
@@ -21,10 +22,14 @@ interface ProjectSidebarPaneProps {
   groups: ProjectGroupRecord[];
   groupedProjects: ProjectSpaceRecord[];
   groupedProjectsLabel?: string;
+  issueSourceConfig: ProjectIssueSourceConfig;
   isOpen: boolean;
   navigationItems: ProjectNavigationItem[];
+  onCreateIdea(): void;
   onCreateProject(): void;
   onOpenCodexSkills(): void;
+  onOpenIssueSource(): void;
+  onOpenProjectSettings(): void;
   onOpenNewWorktree(): void;
   onResizeStart(event: React.MouseEvent<HTMLButtonElement>): void;
   onSelectProject(projectId: string, groupId?: string): void;
@@ -53,10 +58,14 @@ export function ProjectSidebarPane({
   groups,
   groupedProjects,
   groupedProjectsLabel,
+  issueSourceConfig,
   isOpen,
   navigationItems,
+  onCreateIdea,
   onCreateProject,
   onOpenCodexSkills,
+  onOpenIssueSource,
+  onOpenProjectSettings,
   onOpenNewWorktree,
   onResizeStart,
   onSelectProject,
@@ -81,14 +90,14 @@ export function ProjectSidebarPane({
     <Surface
       onWheel={onSidebarWheel}
       variant="secondary"
-      className="relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-none border-r border-slate-800 bg-app-sidebar transition-[border-color,opacity] duration-200"
+      className="relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-none border-r border-zinc-800 bg-app-sidebar transition-[border-color,opacity] duration-200"
       style={{
         borderRightColor: isOpen ? undefined : 'transparent',
         opacity: isOpen ? 1 : 0,
         pointerEvents: isOpen ? 'auto' : 'none'
       }}
     >
-      <div className="relative border-b border-slate-800 px-5 pt-14 pb-4">
+      <div className="relative border-b border-zinc-800 px-5 pt-14 pb-4">
         <div
           className="app-drag absolute inset-y-0 right-0"
           style={{
@@ -98,7 +107,7 @@ export function ProjectSidebarPane({
 
         <div className="app-no-drag relative">
           {discoveryRoot ? (
-            <Text className="text-xs text-slate-500">{discoveryRoot}</Text>
+            <Text className="text-xs text-zinc-500">{discoveryRoot}</Text>
           ) : null}
 
           {groupedProjectsLabel ? (
@@ -113,7 +122,11 @@ export function ProjectSidebarPane({
           ) : null}
 
           <SidebarQuickActions
+            canCreateIdea={Boolean(project)}
+            canOpenSettings={Boolean(project)}
             canCreateWorktree={Boolean(project)}
+            onCreateIdea={onCreateIdea}
+            onOpenProjectSettings={onOpenProjectSettings}
             onOpenSkills={onOpenCodexSkills}
             onOpenWorktree={onOpenNewWorktree}
           />
@@ -127,6 +140,8 @@ export function ProjectSidebarPane({
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <div ref={currentPanelRef} className="absolute inset-y-0 left-0 w-full">
           <SidebarContent
+            issueSourceConfig={issueSourceConfig}
+            onOpenIssueSource={onOpenIssueSource}
             onSelectWorkspace={onSelectWorkspace}
             onSelectWorktree={onSelectWorktree}
             project={project}
@@ -139,6 +154,8 @@ export function ProjectSidebarPane({
         {previewProject ? (
           <div ref={previewPanelRef} className="absolute inset-y-0 w-full">
             <SidebarContent
+              issueSourceConfig={issueSourceConfig}
+              onOpenIssueSource={onOpenIssueSource}
               onSelectWorkspace={() => undefined}
               onSelectWorktree={() => undefined}
               project={previewProject}
@@ -178,7 +195,7 @@ export function ProjectSidebarPane({
           onMouseDown={onResizeStart}
           className="app-no-drag absolute top-0 right-0 h-full w-2 min-w-0 cursor-col-resize rounded-none px-0 opacity-0 transition hover:opacity-100"
         >
-          <span className="absolute top-0 right-0 h-full w-px bg-slate-600/70" />
+          <span className="absolute top-0 right-0 h-full w-px bg-zinc-600/70" />
         </Button>
       ) : null}
     </Surface>

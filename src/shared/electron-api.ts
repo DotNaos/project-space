@@ -1,6 +1,13 @@
 export const projectSpaceChannels = {
   appMeta: 'app:get-meta',
+  createGithubIdeaFromDraft: 'ideas:create-github-from-draft',
+  deleteLocalIdeaDraft: 'ideas:delete-local-draft',
+  exportIdeasToWorktree: 'ideas:export-to-worktree',
+  listGithubIdeas: 'ideas:list-github',
+  loadLocalIdeaDrafts: 'ideas:load-local-drafts',
+  loadProjectIssueSourceConfig: 'ideas:load-project-issue-source-config',
   openCodexSkills: 'codex:open-skills',
+  openExternalUrl: 'browser:open-external-url',
   gestureScrollState: 'gesture:scroll-state',
   loadLauncherAppIcon: 'launcher:load-app-icon',
   loadLauncherApps: 'launcher:load-apps',
@@ -9,8 +16,11 @@ export const projectSpaceChannels = {
   loadProjectWorktrees: 'projects:load-worktrees',
   openPathInApp: 'launcher:open-path',
   readDirectory: 'filesystem:read-directory',
+  saveLocalIdeaDraft: 'ideas:save-local-draft',
+  saveProjectIssueSourceConfig: 'ideas:save-project-issue-source-config',
   saveProjectsState: 'projects:save-state',
   selectProjectDirectory: 'projects:select-directory',
+  updateGithubIdea: 'ideas:update-github',
   openWorkspaceTool: 'workspace-tool:open'
 } as const;
 
@@ -129,6 +139,86 @@ export interface ToolLaunchResult {
   message: string;
 }
 
+export interface IdeaRecordBase {
+  id: string;
+  title: string;
+  body: string;
+  iteration: string;
+  createdAt: string;
+  updatedAt: string;
+  evolvesIdeaId?: string;
+}
+
+export interface LocalIdeaDraftRecord extends IdeaRecordBase {
+  source: 'local';
+}
+
+export interface GithubIdeaRecord extends IdeaRecordBase {
+  source: 'github';
+  githubIssueNumber: number;
+  githubIssueUrl: string;
+  githubLabels: string[];
+  githubState: 'open' | 'closed';
+}
+
+export type IdeaRecord = LocalIdeaDraftRecord | GithubIdeaRecord;
+
+export interface SaveLocalIdeaDraftRequest {
+  draft: LocalIdeaDraftRecord;
+  projectPath: string;
+}
+
+export interface DeleteLocalIdeaDraftRequest {
+  ideaId: string;
+  projectPath: string;
+}
+
+export interface ListGithubIdeasRequest {
+  includeClosed?: boolean;
+  projectPath: string;
+}
+
+export interface CreateGithubIdeaFromDraftRequest {
+  draft: LocalIdeaDraftRecord;
+  projectPath: string;
+}
+
+export interface UpdateGithubIdeaRequest {
+  idea: GithubIdeaRecord;
+  projectPath: string;
+}
+
+export type GithubIdeaMutationResult =
+  | {
+      idea: GithubIdeaRecord;
+      status: 'success';
+    }
+  | {
+      message: string;
+      status: 'error';
+    };
+
+export interface ExportIdeasToWorktreeRequest {
+  ideas: GithubIdeaRecord[];
+  worktreePath: string;
+}
+
+export type ProjectIssueProviderKind = 'azure-devops' | 'github' | 'unconfigured';
+
+export interface ProjectIssueSourceConfig {
+  kind: ProjectIssueProviderKind;
+  source: 'inferred' | 'saved' | 'unconfigured';
+  url: string;
+}
+
+export interface SaveProjectIssueSourceConfigRequest {
+  config: {
+    kind: Exclude<ProjectIssueProviderKind, 'unconfigured'>;
+    url: string;
+  };
+  projectPath: string;
+}
+
 export interface OpenPathInAppRequest {
   appId: string;
   path: string;
@@ -140,17 +230,29 @@ export interface OpenPathInAppResult {
 }
 
 export interface ProjectSpaceApi {
+  createGithubIdeaFromDraft(
+    request: CreateGithubIdeaFromDraftRequest
+  ): Promise<GithubIdeaMutationResult>;
+  deleteLocalIdeaDraft(request: DeleteLocalIdeaDraftRequest): Promise<void>;
+  exportIdeasToWorktree(request: ExportIdeasToWorktreeRequest): Promise<void>;
   getAppMeta(): Promise<AppMeta>;
+  listGithubIdeas(request: ListGithubIdeasRequest): Promise<GithubIdeaRecord[]>;
   loadLauncherAppIcon(appId: string): Promise<string | undefined>;
   loadLauncherApps(): Promise<LauncherAppRecord[]>;
+  loadLocalIdeaDrafts(projectPath: string): Promise<LocalIdeaDraftRecord[]>;
+  loadProjectIssueSourceConfig(projectPath: string): Promise<ProjectIssueSourceConfig>;
   loadProjectDiscovery(): Promise<ProjectDiscoveryResult>;
   loadProjectsState(): Promise<ProjectsState>;
   loadProjectWorktrees(projectPath: string): Promise<ProjectWorktreeRecord[]>;
   openCodexSkills(): Promise<OpenPathInAppResult>;
+  openExternalUrl(url: string): Promise<OpenPathInAppResult>;
   openPathInApp(request: OpenPathInAppRequest): Promise<OpenPathInAppResult>;
   onGestureScrollState(listener: (state: GestureScrollState) => void): () => void;
   readDirectory(path: string): Promise<FileSystemEntry[]>;
+  saveLocalIdeaDraft(request: SaveLocalIdeaDraftRequest): Promise<LocalIdeaDraftRecord>;
+  saveProjectIssueSourceConfig(request: SaveProjectIssueSourceConfigRequest): Promise<ProjectIssueSourceConfig>;
   saveProjectsState(state: ProjectsState): Promise<void>;
   selectProjectDirectory(): Promise<ProjectDirectorySelection>;
+  updateGithubIdea(request: UpdateGithubIdeaRequest): Promise<GithubIdeaMutationResult>;
   openWorkspaceTool(request: ToolLaunchRequest): Promise<ToolLaunchResult>;
 }

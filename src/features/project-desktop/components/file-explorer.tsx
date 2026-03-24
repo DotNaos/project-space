@@ -60,12 +60,12 @@ function FileTreeNode({
         className={cn(
           'justify-start rounded-lg py-2 pr-3 text-left text-sm transition',
           expandable
-            ? 'text-slate-300 hover:bg-slate-800/70 hover:text-slate-50'
-            : 'text-slate-500 hover:bg-slate-800/40 hover:text-slate-300'
+            ? 'text-zinc-300 hover:bg-zinc-800/70 hover:text-zinc-50'
+            : 'text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-300'
         )}
         style={{ paddingLeft: `${level * 16 + 14}px` }}
       >
-        <span className="w-3 shrink-0 text-center text-[10px] text-slate-500">
+        <span className="w-3 shrink-0 text-center text-[10px] text-zinc-500">
           {expandable ? (expanded ? '▾' : '▸') : ''}
         </span>
         <span className="min-w-0 flex-1 truncate">{entry.name}</span>
@@ -81,7 +81,7 @@ function FileTreeNode({
         ) : loaded ? (
           <Text
             style={{ paddingLeft: `${(level + 1) * 16 + 27}px` }}
-            className="py-1 text-xs text-slate-600"
+            className="py-1 text-xs text-zinc-600"
           >
             Empty
           </Text>
@@ -120,7 +120,7 @@ export function FileExplorer({
   if (!rootPath) {
     return (
       <ScrollShadow className="flex-1 px-3 py-4" hideScrollBar>
-        <Text className="px-3 py-2 text-sm text-slate-500">No project selected.</Text>
+        <Text className="px-3 py-2 text-sm text-zinc-500">No project selected.</Text>
       </ScrollShadow>
     );
   }
@@ -128,7 +128,7 @@ export function FileExplorer({
   return (
     <ScrollShadow className="flex-1 px-3 py-4" hideScrollBar>
       <div className="space-y-1">
-        <Text className="px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+        <Text className="px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-zinc-500">
           {pathBasename(rootPath)}
         </Text>
         {entries.map((entry) => (

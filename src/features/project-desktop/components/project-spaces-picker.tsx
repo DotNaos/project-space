@@ -249,11 +249,11 @@ export function ProjectSpacesPicker({
       <div className="flex w-full items-center">{children}</div>
 
       {isOpen ? (
-        <div className="absolute bottom-full left-1/2 z-50 mb-3 w-[340px] -translate-x-1/2">
+        <div className="absolute bottom-full left-1/2 z-50 mb-3 w-[340px] -tranzinc-x-1/2">
           <Surface
             ref={contentRef}
             variant="secondary"
-            className="flex h-[420px] min-h-0 flex-col rounded-3xl border border-slate-800/80 p-3 shadow-2xl shadow-slate-950/40"
+            className="flex h-[420px] min-h-0 flex-col rounded-3xl border border-zinc-800/80 p-3 shadow-2xl shadow-zinc-950/40"
           >
             <SearchField
               aria-label="Search projects"
@@ -261,7 +261,7 @@ export function ProjectSpacesPicker({
               onChange={setQuery}
               className="w-full"
             >
-              <SearchFieldGroup className="rounded-2xl border border-slate-800/80 bg-slate-950/70">
+              <SearchFieldGroup className="rounded-2xl border border-zinc-800/80 bg-zinc-950/70">
                 <SearchFieldSearchIcon />
                 <SearchFieldInput
                   ref={searchInputRef}
@@ -278,7 +278,7 @@ export function ProjectSpacesPicker({
                 <div className="space-y-3 pb-1">
                   {filteredStandaloneProjectIds.length > 0 ? (
                     <div className="space-y-1">
-                      <Text className="px-3 py-1 text-xs font-medium text-slate-500">
+                      <Text className="px-3 py-1 text-xs font-medium text-zinc-500">
                         Projects
                       </Text>
 
@@ -300,11 +300,11 @@ export function ProjectSpacesPicker({
                                 className="h-auto min-h-0 justify-start rounded-2xl px-3 py-3 text-left"
                               >
                                 <div className="flex w-full items-center justify-between gap-3">
-                                  <Text className="truncate text-sm font-medium text-slate-100">
+                                  <Text className="truncate text-sm font-medium text-zinc-100">
                                     {project.name}
                                   </Text>
                                   {project.kind === 'workspace' ? (
-                                    <Text className="shrink-0 text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                                    <Text className="shrink-0 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
                                       WS
                                     </Text>
                                   ) : null}
@@ -336,16 +336,16 @@ export function ProjectSpacesPicker({
                       {filteredGroupedSections.map((section) => (
                         <Accordion.Item key={section.id} id={section.id}>
                           <Accordion.Heading>
-                            <Accordion.Trigger className="rounded-2xl px-3 py-3 text-left text-sm font-medium text-slate-200 transition hover:bg-slate-900/40 data-[expanded=true]:bg-slate-900/25">
+                            <Accordion.Trigger className="rounded-2xl px-3 py-3 text-left text-sm font-medium text-zinc-200 transition hover:bg-zinc-900/40 data-[expanded=true]:bg-zinc-900/25">
                               <span className="flex min-w-0 items-center gap-2">
-                                <Folder className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={1.8} />
+                                <Folder className="h-4 w-4 shrink-0 text-zinc-500" strokeWidth={1.8} />
                                 <span className="truncate">{section.label}</span>
                               </span>
-                              <Accordion.Indicator className="text-slate-500" />
+                              <Accordion.Indicator className="text-zinc-500" />
                             </Accordion.Trigger>
                           </Accordion.Heading>
                           <Accordion.Panel>
-                            <Accordion.Body className="ml-3 space-y-1 border-l border-slate-800/60 px-0 pt-1 pb-0 pl-2">
+                            <Accordion.Body className="ml-3 space-y-1 border-l border-zinc-800/60 px-0 pt-1 pb-0 pl-2">
                               {section.projectIds.map((projectId) => {
                                 const project = projectsById[projectId];
                                 if (!project) {
@@ -366,11 +366,11 @@ export function ProjectSpacesPicker({
                                         className="h-auto min-h-0 justify-start rounded-2xl px-3 py-3 text-left"
                                       >
                                         <div className="flex w-full items-center justify-between gap-3">
-                                          <Text className="truncate text-sm font-medium text-slate-100">
+                                          <Text className="truncate text-sm font-medium text-zinc-100">
                                             {project.name}
                                           </Text>
                                           {project.kind === 'workspace' ? (
-                                            <Text className="shrink-0 text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                                            <Text className="shrink-0 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
                                               WS
                                             </Text>
                                           ) : null}
@@ -393,7 +393,7 @@ export function ProjectSpacesPicker({
                 </div>
               ) : (
                 <div className="flex h-full items-center justify-center px-3 py-3">
-                  <Text className="text-sm text-slate-500">
+                  <Text className="text-sm text-zinc-500">
                     No matching projects.
                   </Text>
                 </div>
