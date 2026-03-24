@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@heroui/styles";
 
 @theme {
   --color-app-canvas: #0f1726;
@@ -9,9 +10,15 @@
 }
 
 :root {
+  color-scheme: dark;
   color: rgb(244 244 245);
   background: #0f1726;
   font-family: var(--font-sans);
+}
+
+html.dark,
+html[data-theme='dark'] {
+  color-scheme: dark;
 }
 
 html,
@@ -40,6 +47,14 @@ label[for]:hover {
 
 * {
   box-sizing: border-box;
+}
+
+.app-drag {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
 }
 
 ::-webkit-scrollbar {

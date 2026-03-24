@@ -1,92 +1,164 @@
-import type { Project } from '@/domain';
+import {
+  Chip,
+  ListBox,
+  ListBoxItem,
+  ScrollShadow,
+  Surface,
+  Text
+} from '@heroui/react';
 import { cn } from '@/lib/utils';
-
-type SelectionType = 'project' | 'sprint' | 'feature' | 'task';
+import type {
+  ExplorerTarget,
+  ProjectSpaceRecord,
+  ProjectWorktreeRecord
+} from '@/shared/electron-api';
 
 interface WorkflowExplorerProps {
-  project: Project;
-  selection: {
-    type: SelectionType;
-    id: string;
-  };
-  onSelect(type: SelectionType, id: string): void;
+  onSelectWorkspace(): void;
+  project?: ProjectSpaceRecord;
+  selectedExplorerTarget: ExplorerTarget;
+  worktrees: ProjectWorktreeRecord[];
+  onSelectWorktree(worktreeId: string): void;
 }
 
 interface TreeNodeProps {
+  id: string;
   label: string;
   level: number;
   selected: boolean;
-  onClick(): void;
+  badge?: string;
+  tone?: 'default' | 'base' | 'broken';
 }
 
 function TreeNode({
+  id,
   label,
   level,
   selected,
-  onClick
+  badge,
+  tone = 'default'
 }: TreeNodeProps) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{ paddingLeft: `${level * 16 + 14}px` }}
+    <ListBoxItem
+      id={id}
+      textValue={label}
       className={cn(
-        'group relative flex w-full items-center rounded-lg py-2 pr-3 text-left transition',
+        'rounded-xl transition',
         selected
           ? 'bg-slate-700/70 text-slate-50'
-          : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-100'
+          : tone === 'base'
+            ? 'bg-emerald-500/6 text-emerald-100 hover:bg-emerald-500/10'
+            : tone === 'broken'
+              ? 'bg-amber-500/6 text-amber-100 hover:bg-amber-500/10'
+              : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-100'
       )}
     >
-      <span className="min-w-0 flex-1 truncate text-sm font-medium">{label}</span>
-    </button>
+      <div
+        className="flex w-full items-center gap-2 py-2 pr-3 text-left"
+        style={{ paddingLeft: `${level * 16 + 14}px` }}
+      >
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">{label}</span>
+      {badge ? (
+        <Chip
+          color={
+            tone === 'base' ? 'success' : tone === 'broken' ? 'warning' : 'default'
+          }
+          size="sm"
+          variant="soft"
+          className="shrink-0 uppercase tracking-[0.16em]"
+        >
+          {badge}
+        </Chip>
+      ) : null}
+      </div>
+    </ListBoxItem>
   );
 }
 
 export function WorkflowExplorer({
+  onSelectWorkspace,
   project,
-  selection,
-  onSelect
+  selectedExplorerTarget,
+  worktrees,
+  onSelectWorktree
 }: WorkflowExplorerProps) {
+  const activeItemId =
+    selectedExplorerTarget.kind === 'workspace'
+      ? 'workspace'
+      : `worktree:${selectedExplorerTarget.worktreeId}`;
+
   return (
-    <section className="flex-1 overflow-y-auto px-3 py-4">
-        <TreeNode
-          label={project.name}
-          level={0}
-          selected={selection.type === 'project' && selection.id === project.id}
-          onClick={() => onSelect('project', project.id)}
-        />
+    <ScrollShadow className="flex-1 px-3 py-4" hideScrollBar>
+      {project ? (
+        <div className="space-y-3">
+          <Surface variant="transparent" className="px-3 py-2">
+            <Text className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">
+              Project
+            </Text>
+            <Text className="mt-2 block text-sm font-semibold text-slate-100">
+              {project.name}
+            </Text>
+          </Surface>
 
-        {project.sprints.map((sprint) => (
-          <div key={sprint.id}>
+          <ListBox
+            aria-label={`${project.name} targets`}
+            disallowEmptySelection
+            selectedKeys={new Set([activeItemId])}
+            selectionMode="single"
+            onAction={(key) => {
+              const value = String(key);
+
+              if (value === 'workspace') {
+                onSelectWorkspace();
+                return;
+              }
+
+              if (value.startsWith('worktree:')) {
+                onSelectWorktree(value.slice('worktree:'.length));
+              }
+            }}
+            className="space-y-1"
+          >
             <TreeNode
-              label={sprint.name}
+              id="workspace"
+              label="Workspace"
               level={1}
-              selected={selection.type === 'sprint' && selection.id === sprint.id}
-              onClick={() => onSelect('sprint', sprint.id)}
+              selected={selectedExplorerTarget.kind === 'workspace'}
+              badge={project.kind === 'workspace' ? 'root' : undefined}
             />
-
-            {sprint.features.map((feature) => (
-              <div key={feature.id}>
-                <TreeNode
-                  label={feature.name}
-                  level={2}
-                  selected={selection.type === 'feature' && selection.id === feature.id}
-                  onClick={() => onSelect('feature', feature.id)}
-                />
-
-                {feature.tasks.map((task) => (
-                  <TreeNode
-                    key={task.id}
-                    label={task.name}
-                    level={3}
-                    selected={selection.type === 'task' && selection.id === task.id}
-                    onClick={() => onSelect('task', task.id)}
-                  />
-                ))}
-              </div>
-            ))}
-          </div>
-        ))}
-    </section>
+            {worktrees.map((worktree) => (
+            <TreeNode
+              key={`worktree:${worktree.id}`}
+              id={`worktree:${worktree.id}`}
+              label={worktree.name}
+              level={1}
+              selected={
+                selectedExplorerTarget.kind === 'worktree' &&
+                selectedExplorerTarget.worktreeId === worktree.id
+              }
+              badge={
+                worktree.status === 'broken'
+                  ? 'broken'
+                  : worktree.isBase
+                    ? 'base'
+                    : undefined
+              }
+              tone={
+                worktree.status === 'broken'
+                  ? 'broken'
+                  : worktree.isBase
+                    ? 'base'
+                    : 'default'
+              }
+            />
+          ))}
+          </ListBox>
+        </div>
+      ) : (
+        <Text className="px-3 py-2 text-sm text-slate-500">
+          No projects yet. Create one with the + button below.
+        </Text>
+      )}
+    </ScrollShadow>
   );
 }
