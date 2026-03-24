@@ -68,17 +68,13 @@ export function ProjectDesktopShell() {
         <ProjectSidebarPane
           activeNavigationItemId={desktop.activeNavigationItemId}
           currentPanelRef={currentPanelRef}
-          discoveryRoot={desktop.discoveryRoot}
           groups={desktop.groups}
-          groupedProjects={desktop.groupedProjects}
-          groupedProjectsLabel={desktop.groupedProjectsLabel}
-          issueSourceConfig={desktop.issueSourceConfig}
           isOpen={isSidebarOpen}
           navigationItems={desktop.navigationItems}
           onCreateIdea={desktop.createIdea}
           onCreateProject={desktop.createProject}
           onOpenCodexSkills={desktop.openCodexSkills}
-          onOpenIssueSource={desktop.openIssueSource}
+          onOpenAppSettings={desktop.openAppSettings}
           onOpenProjectSettings={desktop.openProjectSettings}
           onOpenNewWorktree={desktop.openNewWorktreeWorkspace}
           onResizeStart={(event) => {
@@ -103,8 +99,11 @@ export function ProjectDesktopShell() {
         />
 
         <ProjectMainPanel
+          activeSettingsTab={desktop.settingsTab}
           discoveryRoot={desktop.discoveryRoot}
           draftValues={desktop.ideaDraftValues}
+          groupedProjects={desktop.groupedProjects}
+          groupedProjectsLabel={desktop.groupedProjectsLabel}
           ideaExportMessage={desktop.ideaExportMessage}
           ideas={desktop.ideas}
           isDirty={desktop.isIdeasDirty}
@@ -129,6 +128,8 @@ export function ProjectDesktopShell() {
           onOpenSelectedTarget={desktop.openSelectedTargetInApp}
           onSaveIdea={desktop.saveIdea}
           onSaveIssueSourceConfig={desktop.saveIssueSourceConfig}
+          onSelectProject={desktop.selectProject}
+          onSelectSettingsTab={desktop.setSettingsTab}
           onSelectIdea={desktop.selectIdea}
           onSelectLauncherApp={desktop.selectLauncherApp}
           onToggleClosedIdeas={desktop.setShowClosedIdeas}

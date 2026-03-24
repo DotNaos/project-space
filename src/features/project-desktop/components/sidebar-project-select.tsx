@@ -54,14 +54,14 @@ export function SidebarProjectSelect({
         <Select.Trigger
           className={
             isHeaderVariant
-              ? 'group flex h-10 min-h-10 items-center rounded-none border-none bg-transparent px-0 py-0 text-left shadow-none transition hover:bg-transparent'
+              ? 'group relative flex h-10 min-h-10 items-center rounded-none border-none bg-transparent px-0 py-0 pl-7 text-left shadow-none transition hover:bg-transparent'
               : 'min-h-9 rounded-xl border border-transparent bg-transparent px-2 text-left shadow-none transition hover:bg-zinc-900/25'
           }
         >
           <Select.Value
             className={
               isHeaderVariant
-                ? 'min-w-0 flex-1 text-[24px] font-semibold tracking-tight text-zinc-100'
+                ? 'min-w-0 flex-1 text-[24px] font-semibold leading-none tracking-tight text-zinc-100'
                 : 'min-w-0 flex-1 text-sm font-medium text-zinc-200/90'
             }
           >
@@ -80,7 +80,7 @@ export function SidebarProjectSelect({
           <Select.Indicator
             className={
               isHeaderVariant
-                ? 'order-first mr-2 w-5 shrink-0 text-zinc-500'
+                ? 'absolute top-1/2 left-0 w-5 -translate-y-1/2 text-zinc-500'
                 : 'text-zinc-500/80'
             }
           />

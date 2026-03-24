@@ -9,6 +9,7 @@ import type {
   ProjectWorktreeRecord
 } from '@/shared/electron-api';
 import type { ProjectMainView } from '../components/project-main-panel';
+import type { SettingsTab } from '../components/project-settings-panel';
 import { toGithubIdea } from '../lib/idea-utils';
 import { useProjectIssueSource } from './use-project-issue-source';
 import { useProjectIdeas } from './use-project-ideas';
@@ -44,6 +45,7 @@ export function useProjectDesktop() {
   });
   const [selectedLauncherAppId, setSelectedLauncherAppId] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('project');
   const [launcherApps, setLauncherApps] = useState<LauncherAppRecord[]>([]);
   const [launcherError, setLauncherError] = useState('');
   const [ideaExportMessage, setIdeaExportMessage] = useState('');
@@ -435,6 +437,12 @@ export function useProjectDesktop() {
   }
 
   function openProjectSettings() {
+    setSettingsTab('project');
+    setMainView('settings');
+  }
+
+  function openAppSettings() {
+    setSettingsTab('app');
     setMainView('settings');
   }
 
@@ -467,6 +475,7 @@ export function useProjectDesktop() {
     mainView,
     navigationItems,
     openCodexSkills,
+    openAppSettings,
     openIssueSource: issueSource.openSource,
     openIdeasView,
     openProjectSettings,
@@ -490,6 +499,7 @@ export function useProjectDesktop() {
     saveIssueSourceConfig: issueSource.save,
     setIdeaDraftValue: ideas.setDraftValue,
     saveIdea: ideas.saveIdea,
+    settingsTab,
     showClosedIdeas: ideas.showClosedIssues,
     syncErrors: ideas.syncErrors,
     worktrees,
@@ -542,6 +552,7 @@ export function useProjectDesktop() {
         worktreeId
       });
     },
+    setSettingsTab,
     clearLauncherError() {
       setLauncherError('');
     }

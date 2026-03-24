@@ -7,6 +7,7 @@ import type {
 import { WorkflowExplorer } from './workflow-explorer';
 
 interface SidebarContentProps {
+  onOpenNewWorktree(): void;
   onSelectWorkspace(): void;
   onSelectWorktree(worktreeId: string): void;
   project?: ProjectSpaceRecord;
@@ -15,6 +16,7 @@ interface SidebarContentProps {
 }
 
 export const SidebarContent = memo(function SidebarContent({
+  onOpenNewWorktree,
   onSelectWorkspace,
   onSelectWorktree,
   project,
@@ -23,6 +25,7 @@ export const SidebarContent = memo(function SidebarContent({
 }: SidebarContentProps) {
   return (
     <WorkflowExplorer
+      onOpenNewWorktree={onOpenNewWorktree}
       onSelectWorkspace={onSelectWorkspace}
       project={project}
       selectedExplorerTarget={selectedExplorerTarget}

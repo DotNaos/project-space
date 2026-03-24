@@ -1,4 +1,5 @@
-import { Button, Chip, ScrollShadow, Surface, Text } from '@heroui/react';
+import { Button, Chip, ScrollShadow, Text } from '@heroui/react';
+import { Folder, FolderPlus } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import type {
@@ -8,6 +9,7 @@ import type {
 } from '@/shared/electron-api';
 
 interface WorkflowExplorerProps {
+  onOpenNewWorktree(): void;
   onSelectWorkspace(): void;
   onSelectWorktree(worktreeId: string): void;
   project?: ProjectSpaceRecord;
@@ -19,99 +21,137 @@ interface TargetRowProps {
   badge?: string;
   label: string;
   onPress(): void;
-  secondary?: boolean;
   selected: boolean;
 }
 
-function TargetRow({ badge, label, onPress, secondary = false, selected }: TargetRowProps) {
+function TargetRow({ badge, label, onPress, selected }: TargetRowProps) {
   return (
     <Button
       variant="ghost"
       onPress={onPress}
       className={cn(
-        'h-auto w-full justify-start rounded-3xl px-4 py-3 text-left transition',
+        'h-auto w-full justify-start rounded-2xl px-3 py-3 text-left transition',
         selected
-          ? 'bg-zinc-800/90 text-zinc-50 shadow-[0_16px_40px_rgba(0,0,0,0.18)]'
-          : secondary
-            ? 'text-zinc-400 hover:bg-zinc-900/35 hover:text-zinc-100'
-            : 'bg-zinc-950/18 text-zinc-300 hover:bg-zinc-900/40 hover:text-zinc-50'
+          ? 'bg-zinc-800/65 text-zinc-50'
+          : 'text-zinc-300 hover:bg-zinc-900/30 hover:text-zinc-50'
       )}
     >
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <span
+      <div className="flex min-w-0 flex-1 items-start gap-3">
+        <Folder
           className={cn(
-            'h-2 w-2 shrink-0 rounded-full',
-            selected ? 'bg-zinc-100' : secondary ? 'bg-zinc-600' : 'bg-zinc-500'
+            'mt-0.5 h-4 w-4 shrink-0',
+            selected ? 'text-zinc-100' : 'text-zinc-500'
           )}
+          strokeWidth={1.9}
         />
-        <Text className="min-w-0 flex-1 truncate text-left text-[15px] font-medium text-current">
-          {label}
-        </Text>
-        {badge ? (
-          <Chip
-            color="default"
-            size="sm"
-            variant="soft"
-            className="shrink-0 rounded-full bg-zinc-900/85 px-2 text-[10px] uppercase tracking-[0.16em] text-zinc-100"
-          >
-            {badge}
-          </Chip>
-        ) : null}
+        <div className="min-w-0 flex-1">
+          <Text className="truncate text-left text-[15px] font-medium text-current">
+            {label}
+          </Text>
+        </div>
+        <div className="flex shrink-0 items-center gap-2 pl-3">
+          {badge ? (
+            <Chip
+              color="default"
+              size="sm"
+              variant="soft"
+              className="rounded-full bg-zinc-900/85 px-2 text-[10px] uppercase tracking-[0.16em] text-zinc-100"
+            >
+              {badge}
+            </Chip>
+          ) : null}
+        </div>
       </div>
     </Button>
   );
 }
 
 export function WorkflowExplorer({
+  onOpenNewWorktree,
   onSelectWorkspace,
   onSelectWorktree,
   project,
   selectedExplorerTarget,
   worktrees
 }: WorkflowExplorerProps) {
+  const baseWorktree = worktrees.find((worktree) => worktree.isBase);
+
   return (
     <ScrollShadow className="flex-1 px-4 py-5" hideScrollBar>
       {project ? (
-        <Surface
-          variant="secondary"
-          className="rounded-[2rem] border border-zinc-800/60 bg-zinc-950/20 px-4 py-5"
-        >
+        worktrees.length > 0 ? (
           <div className="space-y-3">
+            <div className="flex items-center justify-between px-1">
+              <Text className="text-[15px] font-semibold text-zinc-400">
+                Worktrees
+              </Text>
+              <Button
+                aria-label="Create new worktree"
+                isIconOnly
+                variant="ghost"
+                onPress={onOpenNewWorktree}
+                className="h-8 w-8 min-w-0 rounded-xl text-zinc-500 hover:bg-zinc-900/30 hover:text-zinc-100"
+              >
+                <FolderPlus className="h-4 w-4" strokeWidth={1.9} />
+              </Button>
+            </div>
+
+            <div className="space-y-1">
+              {worktrees.map((worktree) => {
+                const isBaseRow = worktree.isBase;
+                const isSelected = isBaseRow
+                  ? selectedExplorerTarget.kind === 'workspace' ||
+                    (selectedExplorerTarget.kind === 'worktree' &&
+                      selectedExplorerTarget.worktreeId === worktree.id)
+                  : selectedExplorerTarget.kind === 'worktree' &&
+                    selectedExplorerTarget.worktreeId === worktree.id;
+
+                return (
+                  <TargetRow
+                    key={worktree.id}
+                    badge={
+                      worktree.status === 'broken' ? 'broken' : worktree.isBase ? 'base' : undefined
+                    }
+                    label={worktree.name}
+                    onPress={() => {
+                      if (isBaseRow && baseWorktree?.id === worktree.id) {
+                        onSelectWorkspace();
+                        return;
+                      }
+
+                      onSelectWorktree(worktree.id);
+                    }}
+                    selected={isSelected}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between px-1">
+              <Text className="text-[15px] font-semibold text-zinc-400">
+                Worktrees
+              </Text>
+              <Button
+                aria-label="Create new worktree"
+                isIconOnly
+                variant="ghost"
+                onPress={onOpenNewWorktree}
+                className="h-8 w-8 min-w-0 rounded-xl text-zinc-500 hover:bg-zinc-900/30 hover:text-zinc-100"
+              >
+                <FolderPlus className="h-4 w-4" strokeWidth={1.9} />
+              </Button>
+            </div>
+
             <TargetRow
               badge={project.kind === 'workspace' ? 'root' : undefined}
-              label="Workspace"
+              label={project.name}
               onPress={onSelectWorkspace}
-              selected={selectedExplorerTarget.kind === 'workspace'}
+              selected
             />
-
-            {worktrees.length > 0 ? (
-              <div className="ml-6 space-y-2 border-l border-zinc-800/70 pl-5 pt-1">
-                {worktrees.map((worktree) => (
-                  <div key={worktree.id} className="space-y-2">
-                    <TargetRow
-                      badge={
-                        worktree.status === 'broken'
-                          ? 'broken'
-                          : worktree.isBase
-                            ? 'base'
-                            : undefined
-                      }
-                      label={worktree.name}
-                      onPress={() => {
-                        onSelectWorktree(worktree.id);
-                      }}
-                      secondary
-                      selected={
-                        selectedExplorerTarget.kind === 'worktree' &&
-                        selectedExplorerTarget.worktreeId === worktree.id
-                      }
-                    />
-                  </div>
-                ))}
-              </div>
-            ) : null}
           </div>
-        </Surface>
+        )
       ) : (
         <Text className="px-3 py-2 text-sm text-zinc-500">
           No projects yet. Create one with the + button below.

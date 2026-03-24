@@ -5,19 +5,23 @@ import type {
   ProjectSpaceRecord,
   ProjectWorktreeRecord
 } from '@/shared/electron-api';
-import { Button, Card, Chip, Surface, Text } from '@heroui/react';
+import { Button, Card, Surface, Text } from '@heroui/react';
 
 import type { EditableIdeaValues, IdeaPresentationRecord } from '../lib/idea-utils';
 import { OpenTargetDropdown } from './open-target-dropdown';
 import { ProjectIdeasPanel } from './project-ideas-panel';
 import { ProjectIssueSourceLinkButton } from './project-issue-source-link-button';
-import { ProjectSettingsPanel } from './project-settings-panel';
+import { ProjectSettingsPanel, type SettingsTab } from './project-settings-panel';
+import { SidebarProjectSelect } from './sidebar-project-select';
 
 export type ProjectMainView = 'ideas' | 'settings' | 'workspace';
 
 interface ProjectMainPanelProps {
+  activeSettingsTab: SettingsTab;
   discoveryRoot: string;
   draftValues: EditableIdeaValues;
+  groupedProjects: ProjectSpaceRecord[];
+  groupedProjectsLabel?: string;
   ideaExportMessage: string;
   ideas: IdeaPresentationRecord[];
   isDirty: boolean;
@@ -38,6 +42,8 @@ interface ProjectMainPanelProps {
   onOpenSelectedTarget(): void;
   onSaveIdea(): void;
   onSaveIssueSourceConfig(): void;
+  onSelectProject(projectId: string): void;
+  onSelectSettingsTab(tab: SettingsTab): void;
   onSelectIdea(ideaId: string): void;
   onSelectLauncherApp(appId: string): void;
   onToggleClosedIdeas(nextValue: boolean): void;
@@ -149,8 +155,11 @@ function WorkspaceMainPanel({
 }
 
 export function ProjectMainPanel({
+  activeSettingsTab,
   discoveryRoot,
   draftValues,
+  groupedProjects,
+  groupedProjectsLabel,
   ideaExportMessage,
   ideas,
   isDirty,
@@ -171,6 +180,8 @@ export function ProjectMainPanel({
   onOpenSelectedTarget,
   onSaveIdea,
   onSaveIssueSourceConfig,
+  onSelectProject,
+  onSelectSettingsTab,
   onSelectIdea,
   onSelectLauncherApp,
   onToggleClosedIdeas,
@@ -211,30 +222,37 @@ export function ProjectMainPanel({
           }}
         />
 
-        <div className="relative flex min-w-0 items-center gap-3 leading-none">
-          <Text className="truncate text-[15px] font-semibold text-zinc-100">
-            {project?.name ?? 'No project selected'}
-          </Text>
+        <div className="app-no-drag relative flex min-w-0 items-center gap-3">
+          {project ? (
+            groupedProjectsLabel ? (
+              <SidebarProjectSelect
+                groupName={groupedProjectsLabel}
+                projects={groupedProjects}
+                selectedProjectId={project.id}
+                variant="header"
+                onSelectProject={onSelectProject}
+              />
+            ) : (
+              <div className="flex h-10 min-w-0 flex-1 items-center gap-2">
+                <span className="w-5 shrink-0 opacity-0" aria-hidden="true">
+                  ˅
+                </span>
+                <Text className="min-w-0 flex-1 truncate text-[24px] font-semibold leading-none tracking-tight text-zinc-100">
+                  {project.name}
+                </Text>
+              </div>
+            )
+          ) : (
+            <Text className="truncate text-[15px] font-semibold text-zinc-100">
+              No project selected
+            </Text>
+          )}
           {project ? (
             <ProjectIssueSourceLinkButton
               kind={issueSourceConfig.kind}
               onPress={onOpenIssueSource}
               url={issueSourceConfig.url}
             />
-          ) : null}
-          {project ? (
-            <Chip
-              color="default"
-              size="sm"
-              variant="tertiary"
-              className="shrink-0 uppercase tracking-[0.18em] text-zinc-400"
-            >
-              {mainView === 'ideas'
-                ? 'Ideas'
-                : mainView === 'settings'
-                  ? 'Settings'
-                  : selectedTargetName}
-            </Chip>
           ) : null}
         </div>
 
@@ -278,6 +296,8 @@ export function ProjectMainPanel({
         />
       ) : mainView === 'settings' ? (
         <ProjectSettingsPanel
+          activeTab={activeSettingsTab}
+          discoveryRoot={discoveryRoot}
           isIssueSourceLoading={isIssueSourceLoading}
           isIssueSourceSaving={isIssueSourceSaving}
           issueSourceConfig={issueSourceConfig}
@@ -286,6 +306,7 @@ export function ProjectMainPanel({
           issueSourceError={issueSourceError}
           onOpenIssueSource={onOpenIssueSource}
           onSaveIssueSourceConfig={onSaveIssueSourceConfig}
+          onSelectTab={onSelectSettingsTab}
           onUpdateIssueSourceKind={onUpdateIssueSourceKind}
           onUpdateIssueSourceUrl={onUpdateIssueSourceUrl}
           project={project}
