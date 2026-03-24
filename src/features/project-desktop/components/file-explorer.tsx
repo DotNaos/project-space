@@ -7,6 +7,11 @@ interface FileExplorerProps {
   rootPath?: string;
 }
 
+interface FileTreeProps {
+  rootPath?: string;
+  showRootLabel?: boolean;
+}
+
 function pathBasename(path: string) {
   return path.split('/').filter(Boolean).pop() ?? path;
 }
@@ -91,9 +96,10 @@ function FileTreeNode({
   );
 }
 
-export function FileExplorer({
-  rootPath
-}: FileExplorerProps) {
+export function FileTree({
+  rootPath,
+  showRootLabel = true
+}: FileTreeProps) {
   const [entries, setEntries] = useState<FileSystemEntry[]>([]);
 
   useEffect(() => {
@@ -128,13 +134,21 @@ export function FileExplorer({
   return (
     <ScrollShadow className="flex-1 px-3 py-4" hideScrollBar>
       <div className="space-y-1">
-        <Text className="px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-          {pathBasename(rootPath)}
-        </Text>
+        {showRootLabel ? (
+          <Text className="px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+            {pathBasename(rootPath)}
+          </Text>
+        ) : null}
         {entries.map((entry) => (
           <FileTreeNode key={entry.path} entry={entry} level={0} />
         ))}
       </div>
     </ScrollShadow>
   );
+}
+
+export function FileExplorer({
+  rootPath
+}: FileExplorerProps) {
+  return <FileTree rootPath={rootPath} />;
 }

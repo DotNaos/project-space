@@ -10,6 +10,7 @@ const SIDEBAR_SWIPE_PREVIEW_LIMIT = 148;
 const SIDEBAR_SWIPE_SNAP_THRESHOLD = 82;
 const SIDEBAR_SWIPE_DIRECTION_THRESHOLD = 12;
 const SIDEBAR_SWIPE_IDLE_RELEASE_MS = 220;
+const SIDEBAR_SWIPE_STEP_LOCK_RELEASE_MS = 260;
 const SIDEBAR_SWIPE_TENSION_SPLIT = 0.58;
 const SIDEBAR_SWIPE_TENSION_EXPONENT = 1.7;
 const SIDEBAR_SWIPE_RELEASE_EXPONENT = 1.2;
@@ -53,10 +54,12 @@ export function useSidebarSwipeNavigation({
     idleTimeoutId: 0 as number | undefined,
     isGestureActive: false,
     isSettling: false,
+    lockedDirection: 0 as -1 | 0 | 1,
     offset: 0,
     previewDirection: 0 as -1 | 0 | 1,
     previewItemId: '',
-    settleTimeoutId: 0 as number | undefined
+    settleTimeoutId: 0 as number | undefined,
+    stepLockTimeoutId: 0 as number | undefined
   });
 
   const activeNavigationIndex = useMemo(() => {
@@ -86,6 +89,10 @@ export function useSidebarSwipeNavigation({
       if (state === 'end' && !swipeState.current.isSettling && swipeState.current.offset !== 0) {
         settleSwipe();
       }
+
+      if (state === 'end') {
+        releaseStepLock();
+      }
     });
 
     return () => {
@@ -97,6 +104,10 @@ export function useSidebarSwipeNavigation({
 
       if (swipeState.current.settleTimeoutId) {
         window.clearTimeout(swipeState.current.settleTimeoutId);
+      }
+
+      if (swipeState.current.stepLockTimeoutId) {
+        window.clearTimeout(swipeState.current.stepLockTimeoutId);
       }
 
       if (swipeState.current.animationFrameId) {
@@ -223,6 +234,33 @@ export function useSidebarSwipeNavigation({
     applySwipeTransform(0, 0, false);
   }
 
+  function releaseStepLock() {
+    if (swipeState.current.stepLockTimeoutId) {
+      window.clearTimeout(swipeState.current.stepLockTimeoutId);
+      swipeState.current.stepLockTimeoutId = undefined;
+    }
+
+    swipeState.current.lockedDirection = 0;
+  }
+
+  function refreshStepLock(direction: -1 | 0 | 1) {
+    if (direction === 0) {
+      releaseStepLock();
+      return;
+    }
+
+    swipeState.current.lockedDirection = direction;
+
+    if (swipeState.current.stepLockTimeoutId) {
+      window.clearTimeout(swipeState.current.stepLockTimeoutId);
+    }
+
+    swipeState.current.stepLockTimeoutId = window.setTimeout(() => {
+      swipeState.current.lockedDirection = 0;
+      swipeState.current.stepLockTimeoutId = undefined;
+    }, SIDEBAR_SWIPE_STEP_LOCK_RELEASE_MS);
+  }
+
   function settleSwipe() {
     const renderedOffset = getRenderedSwipeOffset(swipeState.current.offset, false);
     const shouldSwitch =
@@ -235,6 +273,10 @@ export function useSidebarSwipeNavigation({
       shouldSwitch && swipeState.current.previewDirection !== 0
         ? swipeState.current.previewDirection * sidebarWidth
         : 0;
+
+    if (shouldSwitch) {
+      refreshStepLock(swipeState.current.previewDirection);
+    }
 
     scheduleSwipeTransform();
 
@@ -288,6 +330,26 @@ export function useSidebarSwipeNavigation({
 
     if (swipeState.current.isSettling) {
       return;
+    }
+
+    const incomingDirection =
+      event.deltaX > SIDEBAR_SWIPE_DIRECTION_THRESHOLD
+        ? 1
+        : event.deltaX < -SIDEBAR_SWIPE_DIRECTION_THRESHOLD
+          ? -1
+          : 0;
+
+    if (incomingDirection === 0) {
+      return;
+    }
+
+    if (swipeState.current.lockedDirection !== 0) {
+      if (incomingDirection === swipeState.current.lockedDirection) {
+        refreshStepLock(incomingDirection);
+        return;
+      }
+
+      releaseStepLock();
     }
 
     if (swipeState.current.idleTimeoutId) {

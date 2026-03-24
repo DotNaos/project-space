@@ -8,11 +8,10 @@ import type {
   ProjectSpaceRecord,
   ProjectWorktreeRecord
 } from '@/shared/electron-api';
-import type { SidebarView } from './sidebar-view-tabs';
 import { SidebarContent } from './sidebar-content';
+import { ProjectIssueSourceLinkButton } from './project-issue-source-link-button';
 import { SidebarProjectSelect } from './sidebar-project-select';
 import { SidebarQuickActions } from './sidebar-quick-actions';
-import { SidebarViewTabs } from './sidebar-view-tabs';
 import { SpacesDock } from './spaces-dock';
 
 interface ProjectSidebarPaneProps {
@@ -37,7 +36,6 @@ interface ProjectSidebarPaneProps {
   onSelectWorkspace(): void;
   onSelectWorktree(worktreeId: string): void;
   onSidebarWheel(event: WheelEvent<HTMLElement>): void;
-  onSidebarViewChange(nextView: SidebarView): void;
   previewPanelRef: React.RefObject<HTMLDivElement | null>;
   previewProject?: ProjectSpaceRecord;
   previewWorktrees: ProjectWorktreeRecord[];
@@ -46,7 +44,6 @@ interface ProjectSidebarPaneProps {
   rootItems: ProjectNavigationItem[];
   selectedExplorerTarget: ExplorerTarget;
   selectedProjectId: string;
-  sidebarView: SidebarView;
   titlebarSafeInset: number;
   worktrees: ProjectWorktreeRecord[];
 }
@@ -73,7 +70,6 @@ export function ProjectSidebarPane({
   onSelectWorkspace,
   onSelectWorktree,
   onSidebarWheel,
-  onSidebarViewChange,
   previewPanelRef,
   previewProject,
   previewWorktrees,
@@ -82,7 +78,6 @@ export function ProjectSidebarPane({
   rootItems,
   selectedExplorerTarget,
   selectedProjectId,
-  sidebarView,
   titlebarSafeInset,
   worktrees
 }: ProjectSidebarPaneProps) {
@@ -110,17 +105,6 @@ export function ProjectSidebarPane({
             <Text className="text-xs text-zinc-500">{discoveryRoot}</Text>
           ) : null}
 
-          {groupedProjectsLabel ? (
-            <SidebarProjectSelect
-              groupName={groupedProjectsLabel}
-              projects={groupedProjects}
-              selectedProjectId={selectedProjectId}
-              onSelectProject={(projectId) => {
-                onSelectProject(projectId);
-              }}
-            />
-          ) : null}
-
           <SidebarQuickActions
             canCreateIdea={Boolean(project)}
             canOpenSettings={Boolean(project)}
@@ -130,23 +114,48 @@ export function ProjectSidebarPane({
             onOpenSkills={onOpenCodexSkills}
             onOpenWorktree={onOpenNewWorktree}
           />
-        </div>
-      </div>
 
-      <div className="app-no-drag">
-        <SidebarViewTabs value={sidebarView} onChange={onSidebarViewChange} />
+          {project ? (
+            <div className="mt-5 space-y-3 border-t border-zinc-800/80 pt-4">
+              <div className="flex items-center gap-3">
+                {groupedProjectsLabel ? (
+                  <SidebarProjectSelect
+                    groupName={groupedProjectsLabel}
+                    projects={groupedProjects}
+                    selectedProjectId={selectedProjectId}
+                    variant="header"
+                    onSelectProject={(projectId) => {
+                      onSelectProject(projectId);
+                    }}
+                  />
+                ) : (
+                  <div className="flex h-10 min-w-0 flex-1 items-center gap-2">
+                    <span className="w-5 shrink-0 opacity-0" aria-hidden="true">
+                      ˅
+                    </span>
+                    <Text className="min-w-0 flex-1 truncate text-[24px] font-semibold tracking-tight text-zinc-100">
+                      {project.name}
+                    </Text>
+                  </div>
+                )}
+                <ProjectIssueSourceLinkButton
+                  kind={issueSourceConfig.kind}
+                  onPress={onOpenIssueSource}
+                  url={issueSourceConfig.url}
+                />
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <div ref={currentPanelRef} className="absolute inset-y-0 left-0 w-full">
           <SidebarContent
-            issueSourceConfig={issueSourceConfig}
-            onOpenIssueSource={onOpenIssueSource}
             onSelectWorkspace={onSelectWorkspace}
             onSelectWorktree={onSelectWorktree}
             project={project}
             selectedExplorerTarget={selectedExplorerTarget}
-            sidebarView={sidebarView}
             worktrees={worktrees}
           />
         </div>
@@ -154,13 +163,10 @@ export function ProjectSidebarPane({
         {previewProject ? (
           <div ref={previewPanelRef} className="absolute inset-y-0 w-full">
             <SidebarContent
-              issueSourceConfig={issueSourceConfig}
-              onOpenIssueSource={onOpenIssueSource}
               onSelectWorkspace={() => undefined}
               onSelectWorktree={() => undefined}
               project={previewProject}
               selectedExplorerTarget={{ kind: 'workspace' }}
-              sidebarView={sidebarView}
               worktrees={previewWorktrees}
             />
           </div>

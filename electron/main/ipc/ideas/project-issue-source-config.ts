@@ -5,7 +5,6 @@ import {
   readFileSync,
   writeFileSync
 } from 'node:fs';
-import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -59,27 +58,7 @@ async function tryReadGitRemote(path: string) {
 }
 
 async function inferGithubRepoUrl(projectPath: string): Promise<string> {
-  const directRemote = await tryReadGitRemote(projectPath);
-
-  if (directRemote) {
-    return directRemote;
-  }
-
-  const entries = await readdir(projectPath, { withFileTypes: true });
-
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-    if (!entry.isDirectory() || entry.name.startsWith('.')) {
-      continue;
-    }
-
-    const candidateRemote = await tryReadGitRemote(join(projectPath, entry.name));
-
-    if (candidateRemote) {
-      return candidateRemote;
-    }
-  }
-
-  return '';
+  return tryReadGitRemote(projectPath);
 }
 
 export async function loadProjectIssueSourceConfig(

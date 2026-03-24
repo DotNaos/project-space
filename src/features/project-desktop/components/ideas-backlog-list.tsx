@@ -133,23 +133,18 @@ export function IdeasBacklogList({
   return (
     <Surface
       variant="secondary"
-      className="flex h-full min-h-0 w-[18.5rem] flex-col border-r border-zinc-800/90 bg-zinc-950/28"
+      className="flex h-full min-h-0 w-full flex-col rounded-[2rem] border border-zinc-800/70 bg-zinc-950/38 shadow-[0_24px_80px_rgba(0,0,0,0.28)]"
     >
-      <div className="border-b border-zinc-800/80 px-4 py-4">
+      <div className="border-b border-zinc-800/80 px-6 py-5">
         <div className="flex items-center justify-between gap-3">
-          <div>
-            <Text className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">
-              Ideas
-            </Text>
-            <Text className="mt-2 block text-lg font-semibold text-zinc-100">
-              Writing queue
-            </Text>
-          </div>
+          <Text className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">
+            Ideas
+          </Text>
 
           <Button
-            variant="secondary"
+            variant="primary"
             onPress={onCreateIdea}
-            className="h-10 min-w-0 rounded-2xl border border-zinc-800/70 bg-zinc-900/50 px-3 text-zinc-100 hover:bg-zinc-900/75"
+            className="h-10 min-w-0 rounded-2xl bg-zinc-100 px-3 text-zinc-950 hover:bg-zinc-200"
           >
             <PenSquare className="h-4 w-4" strokeWidth={1.9} />
             <span>New idea</span>
@@ -170,7 +165,7 @@ export function IdeasBacklogList({
         </div>
       </div>
 
-      <ScrollShadow className="min-h-0 flex-1 px-3 py-3" hideScrollBar>
+      <ScrollShadow className="min-h-0 flex-1 px-5 py-4" hideScrollBar>
         {isLoading ? (
           <div className="flex items-center gap-2 px-3 py-4 text-sm text-zinc-400">
             <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={1.8} />
@@ -191,7 +186,7 @@ export function IdeasBacklogList({
                         [section.id]: !current[section.id]
                       }));
                     }}
-                    className="h-auto w-full justify-between rounded-2xl px-2 py-2 text-left text-zinc-400 hover:bg-zinc-900/25 hover:text-zinc-200"
+                    className="h-auto w-full justify-between rounded-2xl px-3 py-2.5 text-left text-zinc-400 hover:bg-zinc-900/25 hover:text-zinc-200"
                   >
                     <span className="text-[11px] uppercase tracking-[0.2em]">
                       {getSectionTitle(section.id)}
@@ -229,7 +224,7 @@ export function IdeasBacklogList({
                                 : 'border-transparent bg-transparent text-zinc-300 hover:border-zinc-800/70 hover:bg-zinc-900/35'
                             )}
                           >
-                            <div className="w-full min-w-0 space-y-2 overflow-hidden px-3 py-3">
+                            <div className="w-full min-w-0 space-y-2 overflow-hidden px-4 py-3.5">
                               <div className="flex min-w-0 items-start gap-3">
                                 <span
                                   className={cn(

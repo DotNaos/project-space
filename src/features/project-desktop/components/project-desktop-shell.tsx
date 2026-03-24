@@ -89,7 +89,6 @@ export function ProjectDesktopShell() {
           onSelectNavigationItem={desktop.selectNavigationItem}
           onSelectWorkspace={desktop.selectWorkspace}
           onSelectWorktree={desktop.selectWorktree}
-          onSidebarViewChange={desktop.setSidebarView}
           onSidebarWheel={handleSidebarWheel}
           previewPanelRef={previewPanelRef}
           previewProject={previewProject}
@@ -99,7 +98,6 @@ export function ProjectDesktopShell() {
           rootItems={desktop.rootItems}
           selectedExplorerTarget={desktop.selectedExplorerTarget}
           selectedProjectId={desktop.selectedProjectId}
-          sidebarView={desktop.sidebarView}
           titlebarSafeInset={TITLEBAR_SAFE_INSET}
           worktrees={desktop.worktrees}
         />

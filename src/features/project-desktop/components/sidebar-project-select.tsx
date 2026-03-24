@@ -12,6 +12,7 @@ interface SidebarProjectSelectProps {
   groupName: string;
   projects: ProjectSpaceRecord[];
   selectedProjectId: string;
+  variant?: 'default' | 'header';
   onSelectProject(projectId: string): void;
 }
 
@@ -19,6 +20,7 @@ export function SidebarProjectSelect({
   groupName,
   projects,
   selectedProjectId,
+  variant = 'default',
   onSelectProject
 }: SidebarProjectSelectProps) {
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
@@ -27,11 +29,15 @@ export function SidebarProjectSelect({
     return null;
   }
 
+  const isHeaderVariant = variant === 'header';
+
   return (
-    <div className="mt-3">
-      <Text className="mb-2 px-1 text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-        {groupName}
-      </Text>
+    <div className={isHeaderVariant ? 'min-w-0 flex-1' : 'mt-3'}>
+      {isHeaderVariant ? null : (
+        <Text className="mb-2 px-1 text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+          {groupName}
+        </Text>
+      )}
 
       <Select
         aria-label={`${groupName} projects`}
@@ -45,15 +51,39 @@ export function SidebarProjectSelect({
           }
         }}
       >
-        <Select.Trigger className="min-h-9 rounded-xl border border-transparent bg-transparent px-2 text-left shadow-none transition hover:bg-zinc-900/25">
-          <Select.Value className="min-w-0 flex-1 text-sm font-medium text-zinc-200/90">
+        <Select.Trigger
+          className={
+            isHeaderVariant
+              ? 'group flex h-10 min-h-10 items-center rounded-none border-none bg-transparent px-0 py-0 text-left shadow-none transition hover:bg-transparent'
+              : 'min-h-9 rounded-xl border border-transparent bg-transparent px-2 text-left shadow-none transition hover:bg-zinc-900/25'
+          }
+        >
+          <Select.Value
+            className={
+              isHeaderVariant
+                ? 'min-w-0 flex-1 text-[24px] font-semibold tracking-tight text-zinc-100'
+                : 'min-w-0 flex-1 text-sm font-medium text-zinc-200/90'
+            }
+          >
             {({ isPlaceholder }) => (
-              <span className="block truncate">
+              <span
+                className={
+                  isHeaderVariant
+                    ? 'relative inline-block max-w-full truncate after:absolute after:right-0 after:bottom-0 after:left-0 after:h-0.5 after:origin-left after:scale-x-0 after:bg-current after:transition-transform after:duration-200 group-hover:after:scale-x-100'
+                    : 'block truncate'
+                }
+              >
                 {isPlaceholder ? 'Choose project' : (selectedProject?.name ?? 'Choose project')}
               </span>
             )}
           </Select.Value>
-          <Select.Indicator className="text-zinc-500/80" />
+          <Select.Indicator
+            className={
+              isHeaderVariant
+                ? 'order-first mr-2 w-5 shrink-0 text-zinc-500'
+                : 'text-zinc-500/80'
+            }
+          />
         </Select.Trigger>
 
         <Select.Popover className="min-w-[260px] rounded-2xl border border-zinc-800/70 bg-zinc-900/85">

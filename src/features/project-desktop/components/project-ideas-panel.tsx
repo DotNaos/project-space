@@ -77,10 +77,8 @@ export function ProjectIdeasPanel({
     );
   }
 
-  const candidateIdeas = ideas.filter((idea) => idea.id !== selectedIdeaId);
-
   return (
-    <Surface variant="transparent" className="flex min-h-0 flex-1 rounded-none bg-app-panel">
+    <Surface variant="transparent" className="flex min-h-0 flex-1 gap-6 rounded-none bg-app-panel px-6 pb-6">
       <div
         className="app-drag absolute top-0 left-0 z-10 h-14"
         style={{
@@ -88,20 +86,9 @@ export function ProjectIdeasPanel({
         }}
       />
 
-      <IdeasBacklogList
-        ideas={ideas}
-        isLoading={isLoading}
-        onCreateIdea={onCreateIdea}
-        onSelectIdea={onSelectIdea}
-        onToggleClosedIssues={onToggleClosedIssues}
-        selectedIdeaId={selectedIdeaId}
-        showClosedIssues={showClosedIssues}
-        syncErrors={syncErrors}
-      />
-
       <div className="min-h-0 min-w-0 flex-1">
         {loadError ? (
-          <div className="px-8 pt-6">
+          <div className="px-2 pt-6">
             <Surface
               variant="tertiary"
               className="rounded-2xl border border-zinc-400/25 bg-zinc-500/10 px-4 py-3 text-sm text-zinc-200"
@@ -112,7 +99,6 @@ export function ProjectIdeasPanel({
         ) : null}
 
         <IdeaEditor
-          candidateIdeas={candidateIdeas}
           draftValues={draftValues}
           exportMessage={ideaExportMessage}
           isDirty={isDirty}
@@ -120,13 +106,23 @@ export function ProjectIdeasPanel({
           isSaving={isSaving}
           onExportToWorktree={onExportIdeaToWorktree}
           onSave={onSaveIdea}
-          onSelectIdeaToEvolve={(ideaId) => {
-            onUpdateIdeaValue('evolvesIdeaId', ideaId);
-          }}
           onUpdateValue={onUpdateIdeaValue}
           selectedIdea={selectedIdea}
           selectedWorktree={selectedWorktree}
           syncError={selectedIdea ? syncErrors[selectedIdea.id] : undefined}
+        />
+      </div>
+
+      <div className="min-h-0 w-[20rem] shrink-0 pt-6">
+        <IdeasBacklogList
+          ideas={ideas}
+          isLoading={isLoading}
+          onCreateIdea={onCreateIdea}
+          onSelectIdea={onSelectIdea}
+          onToggleClosedIssues={onToggleClosedIssues}
+          selectedIdeaId={selectedIdeaId}
+          showClosedIssues={showClosedIssues}
+          syncErrors={syncErrors}
         />
       </div>
     </Surface>

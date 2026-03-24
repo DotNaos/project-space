@@ -198,11 +198,13 @@ function createSeedDrafts(projectPath: string): LocalIdeaDraftRecord[] {
   }));
 }
 
-export function loadLocalIdeaDrafts(projectPath: string): LocalIdeaDraftRecord[] {
-  const inboxPath = getProjectInboxPath(projectPath);
+function shouldSeedProjectInbox(projectPath: string) {
+  return basename(projectPath) === 'project-space';
+}
 
+export function loadLocalIdeaDrafts(projectPath: string): LocalIdeaDraftRecord[] {
   return readLocalIdeaDrafts(projectPath, {
-    seedWhenMissing: true
+    seedWhenMissing: shouldSeedProjectInbox(projectPath)
   });
 }
 
@@ -243,7 +245,7 @@ export function saveLocalIdeaDraft({
   projectPath
 }: SaveLocalIdeaDraftRequest): LocalIdeaDraftRecord {
   const currentDrafts = readLocalIdeaDrafts(projectPath, {
-    seedWhenMissing: true
+    seedWhenMissing: shouldSeedProjectInbox(projectPath)
   }).filter((entry) => entry.id !== draft.id);
   const now = new Date().toISOString();
   const nextDraft: LocalIdeaDraftRecord = {

@@ -2,8 +2,6 @@ import {
   Button,
   Card,
   Input,
-  ListBox,
-  ListBoxItem,
   ScrollShadow,
   Surface,
   Text,
@@ -13,11 +11,9 @@ import { ExternalLink, RefreshCw, Save, Share2 } from 'lucide-react';
 
 import type { ProjectWorktreeRecord } from '@/shared/electron-api';
 
-import { renderMarkdownToHtml } from '../lib/markdown-preview';
 import type { EditableIdeaValues, IdeaPresentationRecord } from '../lib/idea-utils';
 
 interface IdeaEditorProps {
-  candidateIdeas: IdeaPresentationRecord[];
   draftValues: EditableIdeaValues;
   exportMessage: string;
   isDirty: boolean;
@@ -25,7 +21,6 @@ interface IdeaEditorProps {
   isSaving: boolean;
   onExportToWorktree(): void;
   onSave(): void;
-  onSelectIdeaToEvolve(ideaId: string): void;
   onUpdateValue<Key extends keyof EditableIdeaValues>(
     key: Key,
     value: EditableIdeaValues[Key]
@@ -39,12 +34,7 @@ function formatSourceLabel(idea: IdeaPresentationRecord) {
   return idea.source === 'github' ? `GitHub #${idea.githubIssueNumber}` : 'Local draft';
 }
 
-function renderChecklistState(value: boolean) {
-  return value ? 'Ready' : 'Missing';
-}
-
 export function IdeaEditor({
-  candidateIdeas,
   draftValues,
   exportMessage,
   isDirty,
@@ -52,7 +42,6 @@ export function IdeaEditor({
   isSaving,
   onExportToWorktree,
   onSave,
-  onSelectIdeaToEvolve,
   onUpdateValue,
   selectedIdea,
   selectedWorktree,
@@ -84,13 +73,6 @@ export function IdeaEditor({
     selectedIdea.source === 'github' &&
     selectedIdea.qualityGate.isReady &&
     Boolean(selectedWorktree);
-  const previewHtml = renderMarkdownToHtml(draftValues.body);
-  const qualityGate = {
-    hasDescription: Boolean(draftValues.body.trim()),
-    hasIteration: Boolean(draftValues.iteration.trim()),
-    hasTitle: Boolean(draftValues.title.trim())
-  };
-  const isReady = qualityGate.hasTitle && qualityGate.hasDescription && qualityGate.hasIteration;
   const titlePlaceholder =
     selectedIdea.source === 'github'
       ? 'Give this idea a clear title'
@@ -168,7 +150,7 @@ export function IdeaEditor({
                 onChange={(event) => {
                   onUpdateValue('title', event.currentTarget.value);
                 }}
-                className="rounded-none border-0 bg-transparent px-0 py-2 text-3xl font-semibold tracking-tight text-zinc-50 placeholder:text-zinc-600 shadow-none"
+                className="rounded-2xl border border-transparent bg-transparent px-4 py-3 text-3xl font-semibold tracking-tight text-zinc-50 placeholder:text-zinc-600 shadow-none outline-none ring-0 transition-colors duration-200 focus:border-zinc-800/90 focus:bg-zinc-950/28 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 data-[focus-visible=true]:border-zinc-800/90 data-[focus-visible=true]:bg-zinc-950/28 data-[focus-visible=true]:shadow-none"
               />
 
               <TextArea
@@ -181,110 +163,8 @@ export function IdeaEditor({
                 onChange={(event) => {
                   onUpdateValue('body', event.currentTarget.value);
                 }}
-                className="min-h-[24rem] rounded-[1.6rem] border border-zinc-800/60 bg-zinc-950/62 px-5 py-4 font-mono text-[15px] leading-7 text-zinc-200 placeholder:text-zinc-600"
+                className="min-h-[24rem] rounded-2xl border border-transparent bg-transparent px-4 py-3 font-mono text-[15px] leading-7 text-zinc-200 placeholder:text-zinc-600 shadow-none outline-none ring-0 transition-colors duration-200 focus:border-zinc-800/90 focus:bg-zinc-950/28 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 data-[focus-visible=true]:border-zinc-800/90 data-[focus-visible=true]:bg-zinc-950/28 data-[focus-visible=true]:shadow-none"
               />
-            </div>
-
-            <div className="space-y-3 border-t border-zinc-800/80 pt-6">
-              <Text className="text-sm font-medium text-zinc-400">Preview</Text>
-              <div
-                className="space-y-4 border-t border-zinc-800/80 pt-4"
-                dangerouslySetInnerHTML={{ __html: previewHtml }}
-              />
-            </div>
-
-            <div className="space-y-4 border-t border-zinc-800/80 pt-6">
-              <div className="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
-                <div className="space-y-2">
-                  <Input
-                    aria-label="Iteration"
-                    placeholder="Iteration 1"
-                    value={draftValues.iteration}
-                    onChange={(event) => {
-                      onUpdateValue('iteration', event.currentTarget.value);
-                    }}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-4 text-sm">
-                    <Text className={qualityGate.hasTitle ? 'text-zinc-300' : 'text-zinc-500'}>
-                      Title: {renderChecklistState(qualityGate.hasTitle)}
-                    </Text>
-                    <Text
-                      className={qualityGate.hasDescription ? 'text-zinc-300' : 'text-zinc-500'}
-                    >
-                      Description: {renderChecklistState(qualityGate.hasDescription)}
-                    </Text>
-                    <Text className={qualityGate.hasIteration ? 'text-zinc-300' : 'text-zinc-500'}>
-                      Iteration: {renderChecklistState(qualityGate.hasIteration)}
-                    </Text>
-                  </div>
-                  <Text
-                    className={
-                      isReady
-                        ? 'mt-4 text-sm text-zinc-300'
-                        : 'mt-4 text-sm text-zinc-500'
-                    }
-                  >
-                    {isReady
-                      ? 'This idea is ready to be exported into a worktree.'
-                      : 'Finish the missing pieces before turning this into worktree context.'}
-                  </Text>
-                </div>
-              </div>
-
-              <ScrollShadow className="max-h-72 rounded-2xl border border-zinc-800 bg-zinc-950/20 p-2" hideScrollBar>
-                {candidateIdeas.length > 0 ? (
-                  <ListBox
-                    aria-label="Select idea lineage"
-                    className="space-y-1"
-                    selectedKeys={
-                      draftValues.evolvesIdeaId
-                        ? new Set([draftValues.evolvesIdeaId])
-                        : new Set()
-                    }
-                    selectionMode="single"
-                    onAction={(key) => {
-                      onSelectIdeaToEvolve(String(key));
-                    }}
-                  >
-                    {candidateIdeas.map((idea) => (
-                      <ListBoxItem
-                        key={idea.id}
-                        id={idea.id}
-                        textValue={idea.title.trim() || 'Untitled idea'}
-                        className="rounded-xl text-zinc-300 hover:bg-zinc-900/60 hover:text-zinc-50"
-                      >
-                        <div className="space-y-1 px-2 py-2">
-                          <Text className="truncate text-sm font-medium text-current">
-                            {idea.title.trim() || 'Untitled idea'}
-                          </Text>
-                          <Text className="text-xs text-zinc-500">
-                            {idea.iteration.trim() || 'No iteration yet'}
-                          </Text>
-                        </div>
-                      </ListBoxItem>
-                    ))}
-                  </ListBox>
-                ) : (
-                  <div className="px-2 py-3">
-                    <Text className="text-sm text-zinc-500">
-                      No other ideas yet. Create a second idea when you want to show a lineage.
-                    </Text>
-                  </div>
-                )}
-              </ScrollShadow>
-
-              <Button
-                variant="ghost"
-                onPress={() => {
-                  onUpdateValue('evolvesIdeaId', '');
-                }}
-                className="h-10 justify-start rounded-2xl px-3 text-zinc-300 hover:bg-zinc-900/40 hover:text-zinc-50"
-              >
-                Clear parent link
-              </Button>
             </div>
 
             {exportMessage ? (

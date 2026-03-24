@@ -1,172 +1,117 @@
-import {
-  Chip,
-  ListBox,
-  ListBoxItem,
-  ScrollShadow,
-  Surface,
-  Text
-} from '@heroui/react';
+import { Button, Chip, ScrollShadow, Surface, Text } from '@heroui/react';
+
 import { cn } from '@/lib/utils';
 import type {
   ExplorerTarget,
-  ProjectIssueSourceConfig,
   ProjectSpaceRecord,
   ProjectWorktreeRecord
 } from '@/shared/electron-api';
-import { ProjectIssueSourceLinkButton } from './project-issue-source-link-button';
 
 interface WorkflowExplorerProps {
-  issueSourceConfig: ProjectIssueSourceConfig;
   onSelectWorkspace(): void;
-  onOpenIssueSource(): void;
+  onSelectWorktree(worktreeId: string): void;
   project?: ProjectSpaceRecord;
   selectedExplorerTarget: ExplorerTarget;
   worktrees: ProjectWorktreeRecord[];
-  onSelectWorktree(worktreeId: string): void;
 }
 
-interface TreeNodeProps {
-  id: string;
-  label: string;
-  level: number;
-  selected: boolean;
+interface TargetRowProps {
   badge?: string;
-  tone?: 'default' | 'base' | 'broken';
+  label: string;
+  onPress(): void;
+  secondary?: boolean;
+  selected: boolean;
 }
 
-function TreeNode({
-  id,
-  label,
-  level,
-  selected,
-  badge,
-  tone = 'default'
-}: TreeNodeProps) {
+function TargetRow({ badge, label, onPress, secondary = false, selected }: TargetRowProps) {
   return (
-    <ListBoxItem
-      id={id}
-      textValue={label}
+    <Button
+      variant="ghost"
+      onPress={onPress}
       className={cn(
-        'rounded-xl transition',
+        'h-auto w-full justify-start rounded-3xl px-4 py-3 text-left transition',
         selected
-          ? 'bg-zinc-700/70 text-zinc-50'
-          : tone === 'base'
-            ? 'bg-zinc-500/6 text-zinc-100 hover:bg-zinc-500/10'
-            : tone === 'broken'
-              ? 'bg-zinc-500/6 text-zinc-100 hover:bg-zinc-500/10'
-              : 'text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-100'
+          ? 'bg-zinc-800/90 text-zinc-50 shadow-[0_16px_40px_rgba(0,0,0,0.18)]'
+          : secondary
+            ? 'text-zinc-400 hover:bg-zinc-900/35 hover:text-zinc-100'
+            : 'bg-zinc-950/18 text-zinc-300 hover:bg-zinc-900/40 hover:text-zinc-50'
       )}
     >
-      <div
-        className="flex w-full items-center gap-2 py-2 pr-3 text-left"
-        style={{ paddingLeft: `${level * 16 + 14}px` }}
-      >
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{label}</span>
-      {badge ? (
-        <Chip
-          color={
-            tone === 'base' ? 'success' : tone === 'broken' ? 'warning' : 'default'
-          }
-          size="sm"
-          variant="soft"
-          className="shrink-0 uppercase tracking-[0.16em]"
-        >
-          {badge}
-        </Chip>
-      ) : null}
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <span
+          className={cn(
+            'h-2 w-2 shrink-0 rounded-full',
+            selected ? 'bg-zinc-100' : secondary ? 'bg-zinc-600' : 'bg-zinc-500'
+          )}
+        />
+        <Text className="min-w-0 flex-1 truncate text-left text-[15px] font-medium text-current">
+          {label}
+        </Text>
+        {badge ? (
+          <Chip
+            color="default"
+            size="sm"
+            variant="soft"
+            className="shrink-0 rounded-full bg-zinc-900/85 px-2 text-[10px] uppercase tracking-[0.16em] text-zinc-100"
+          >
+            {badge}
+          </Chip>
+        ) : null}
       </div>
-    </ListBoxItem>
+    </Button>
   );
 }
 
 export function WorkflowExplorer({
-  issueSourceConfig,
   onSelectWorkspace,
-  onOpenIssueSource,
+  onSelectWorktree,
   project,
   selectedExplorerTarget,
-  worktrees,
-  onSelectWorktree
+  worktrees
 }: WorkflowExplorerProps) {
-  const activeItemId =
-    selectedExplorerTarget.kind === 'workspace'
-      ? 'workspace'
-      : `worktree:${selectedExplorerTarget.worktreeId}`;
-
   return (
-    <ScrollShadow className="flex-1 px-3 py-4" hideScrollBar>
+    <ScrollShadow className="flex-1 px-4 py-5" hideScrollBar>
       {project ? (
-        <div className="space-y-3">
-          <Surface variant="transparent" className="px-3 py-2">
-            <Text className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">
-              Project
-            </Text>
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <Text className="block min-w-0 truncate text-sm font-semibold text-zinc-100">
-                {project.name}
-              </Text>
-              <ProjectIssueSourceLinkButton
-                kind={issueSourceConfig.kind}
-                onPress={onOpenIssueSource}
-                url={issueSourceConfig.url}
-              />
-            </div>
-          </Surface>
-
-          <ListBox
-            aria-label={`${project.name} targets`}
-            disallowEmptySelection
-            selectedKeys={new Set([activeItemId])}
-            selectionMode="single"
-            onAction={(key) => {
-              const value = String(key);
-
-              if (value === 'workspace') {
-                onSelectWorkspace();
-                return;
-              }
-
-              if (value.startsWith('worktree:')) {
-                onSelectWorktree(value.slice('worktree:'.length));
-              }
-            }}
-            className="space-y-1"
-          >
-            <TreeNode
-              id="workspace"
-              label="Workspace"
-              level={1}
-              selected={selectedExplorerTarget.kind === 'workspace'}
+        <Surface
+          variant="secondary"
+          className="rounded-[2rem] border border-zinc-800/60 bg-zinc-950/20 px-4 py-5"
+        >
+          <div className="space-y-3">
+            <TargetRow
               badge={project.kind === 'workspace' ? 'root' : undefined}
+              label="Workspace"
+              onPress={onSelectWorkspace}
+              selected={selectedExplorerTarget.kind === 'workspace'}
             />
-            {worktrees.map((worktree) => (
-            <TreeNode
-              key={`worktree:${worktree.id}`}
-              id={`worktree:${worktree.id}`}
-              label={worktree.name}
-              level={1}
-              selected={
-                selectedExplorerTarget.kind === 'worktree' &&
-                selectedExplorerTarget.worktreeId === worktree.id
-              }
-              badge={
-                worktree.status === 'broken'
-                  ? 'broken'
-                  : worktree.isBase
-                    ? 'base'
-                    : undefined
-              }
-              tone={
-                worktree.status === 'broken'
-                  ? 'broken'
-                  : worktree.isBase
-                    ? 'base'
-                    : 'default'
-              }
-            />
-          ))}
-          </ListBox>
-        </div>
+
+            {worktrees.length > 0 ? (
+              <div className="ml-6 space-y-2 border-l border-zinc-800/70 pl-5 pt-1">
+                {worktrees.map((worktree) => (
+                  <div key={worktree.id} className="space-y-2">
+                    <TargetRow
+                      badge={
+                        worktree.status === 'broken'
+                          ? 'broken'
+                          : worktree.isBase
+                            ? 'base'
+                            : undefined
+                      }
+                      label={worktree.name}
+                      onPress={() => {
+                        onSelectWorktree(worktree.id);
+                      }}
+                      secondary
+                      selected={
+                        selectedExplorerTarget.kind === 'worktree' &&
+                        selectedExplorerTarget.worktreeId === worktree.id
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </Surface>
       ) : (
         <Text className="px-3 py-2 text-sm text-zinc-500">
           No projects yet. Create one with the + button below.

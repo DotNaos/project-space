@@ -2,7 +2,6 @@ import { cn } from '@/lib/utils';
 import type { LauncherAppRecord } from '@/shared/electron-api';
 import {
     Button,
-    ButtonGroup,
     Dropdown,
     DropdownItem,
     DropdownMenu,
@@ -90,15 +89,12 @@ export function OpenTargetDropdown({
 
     return (
         <div className="flex items-center">
-            <ButtonGroup
-                size="sm"
-                variant="outline"
-                className="rounded-2xl">
+            <div className="flex items-center rounded-2xl border border-zinc-800/80 bg-zinc-950/60 p-1 shadow-[0_10px_30px_rgba(0,0,0,0.18)]">
                 <Button
-                    variant="outline"
+                    variant="ghost"
                     isDisabled={disabled || !currentApp}
                     onPress={onOpen}
-                    className="h-11 min-w-[140px] justify-start gap-3 rounded-r-none px-3">
+                    className="h-11 min-w-[140px] justify-start gap-3 rounded-xl border-0 bg-transparent px-3 text-zinc-100 hover:bg-zinc-900/55">
                     <TriggerAppIcon app={currentApp} />
                     <Text className="truncate text-sm font-medium">
                         {currentApp?.label ?? 'Choose app'}
@@ -106,10 +102,14 @@ export function OpenTargetDropdown({
                 </Button>
 
                 <Dropdown>
-                    <DropdownTrigger
-                        isDisabled={disabled || apps.length === 0}
-                        className="h-11 w-11 min-w-0 rounded-l-none px-0">
-                        <ChevronDown className="h-4 w-4" strokeWidth={1.9} />
+                    <DropdownTrigger isDisabled={disabled || apps.length === 0}>
+                        <Button
+                            variant="ghost"
+                            isDisabled={disabled || apps.length === 0}
+                            className="h-11 w-11 min-w-0 rounded-xl border-0 bg-transparent px-0 text-zinc-400 hover:bg-zinc-900/55 hover:text-zinc-100"
+                        >
+                            <ChevronDown className="h-4 w-4" strokeWidth={1.9} />
+                        </Button>
                     </DropdownTrigger>
 
                     <DropdownPopover
@@ -164,7 +164,7 @@ export function OpenTargetDropdown({
                         </DropdownMenu>
                     </DropdownPopover>
                 </Dropdown>
-            </ButtonGroup>
+            </div>
         </div>
     );
 }

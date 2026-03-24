@@ -9,7 +9,6 @@ import type {
   ProjectWorktreeRecord
 } from '@/shared/electron-api';
 import type { ProjectMainView } from '../components/project-main-panel';
-import type { SidebarView } from '../components/sidebar-view-tabs';
 import { toGithubIdea } from '../lib/idea-utils';
 import { useProjectIssueSource } from './use-project-issue-source';
 import { useProjectIdeas } from './use-project-ideas';
@@ -45,7 +44,6 @@ export function useProjectDesktop() {
   });
   const [selectedLauncherAppId, setSelectedLauncherAppId] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState('');
-  const [sidebarView, setSidebarView] = useState<SidebarView>('workspace');
   const [launcherApps, setLauncherApps] = useState<LauncherAppRecord[]>([]);
   const [launcherError, setLauncherError] = useState('');
   const [ideaExportMessage, setIdeaExportMessage] = useState('');
@@ -492,7 +490,6 @@ export function useProjectDesktop() {
     saveIssueSourceConfig: issueSource.save,
     setIdeaDraftValue: ideas.setDraftValue,
     saveIdea: ideas.saveIdea,
-    sidebarView,
     showClosedIdeas: ideas.showClosedIssues,
     syncErrors: ideas.syncErrors,
     worktrees,
@@ -545,7 +542,6 @@ export function useProjectDesktop() {
         worktreeId
       });
     },
-    setSidebarView,
     clearLauncherError() {
       setLauncherError('');
     }
