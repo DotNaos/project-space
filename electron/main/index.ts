@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeImage } from 'electron';
+import { app, BrowserWindow, nativeImage, nativeTheme } from 'electron';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,7 +10,23 @@ const enableAgentBrowserDebugPort = Boolean(process.env.VITE_DEV_SERVER_URL);
 let reactDevToolsWindow: BrowserWindow | null = null;
 
 function getAppIconPath() {
-  return join(app.getAppPath(), 'assets/app_icon Exports/app_icon-iOS-Default-1024x1024@1x.png');
+  const iconFileName = nativeTheme.shouldUseDarkColors
+    ? 'app_icon-iOS-Dark-1024x1024@1x.png'
+    : 'app_icon-iOS-Default-1024x1024@1x.png';
+
+  return join(app.getAppPath(), `assets/app_icon Exports/${iconFileName}`);
+}
+
+function applyAppIcon() {
+  const appIcon = nativeImage.createFromPath(getAppIconPath());
+
+  if (appIcon.isEmpty()) {
+    return;
+  }
+
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.setIcon(appIcon);
+  }
 }
 
 if (enableReactDevTools && process.env.VITE_DEV_SERVER_URL) {
@@ -94,13 +110,8 @@ app.whenReady().then(async () => {
     process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
   }
 
-  if (process.platform === 'darwin') {
-    const appIcon = nativeImage.createFromPath(getAppIconPath());
-
-    if (!appIcon.isEmpty() && app.dock) {
-      app.dock.setIcon(appIcon);
-    }
-  }
+  applyAppIcon();
+  nativeTheme.on('updated', applyAppIcon);
 
   registerAppShellHandlers();
   createMainWindow();
