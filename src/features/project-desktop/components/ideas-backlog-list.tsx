@@ -11,9 +11,10 @@ import { ChevronDown, PenSquare, RefreshCw } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 
-import type { IdeaPresentationRecord } from '../lib/idea-utils';
+import { getIdeaStateMeta, type IdeaPresentationRecord } from '../lib/idea-utils';
 
 interface IdeasBacklogListProps {
+  assignedIdeaIds: string[];
   ideas: IdeaPresentationRecord[];
   isLoading: boolean;
   onCreateIdea(): void;
@@ -72,6 +73,7 @@ function getSectionTitle(sectionId: IdeaSectionId) {
 }
 
 export function IdeasBacklogList({
+  assignedIdeaIds,
   ideas,
   isLoading,
   onCreateIdea,
@@ -81,6 +83,7 @@ export function IdeasBacklogList({
   syncErrors,
   onToggleClosedIssues
 }: IdeasBacklogListProps) {
+  const assignedIdeaIdSet = useMemo(() => new Set(assignedIdeaIds), [assignedIdeaIds]);
   const sections = useMemo(() => {
     const grouped: Record<IdeaSectionId, IdeaPresentationRecord[]> = {
       closed: [],
@@ -206,6 +209,9 @@ export function IdeasBacklogList({
                         const syncError = syncErrors[idea.id];
                         const title = formatTitle(idea);
                         const summary = formatSummary(idea);
+                        const state = getIdeaStateMeta(idea, {
+                          assignedToWorktree: assignedIdeaIdSet.has(idea.id)
+                        });
 
                         return (
                           <Button
@@ -238,9 +244,25 @@ export function IdeasBacklogList({
                                 />
 
                                 <div className="min-w-0 flex-1 overflow-hidden">
-                                  <span className="block truncate text-sm font-semibold text-current">
-                                    {title}
-                                  </span>
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <span className="block min-w-0 flex-1 truncate text-sm font-semibold text-current">
+                                      {title}
+                                    </span>
+                                    <span
+                                      className={cn(
+                                        'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em]',
+                                        state.id === 'in-worktree'
+                                          ? 'bg-zinc-100 text-zinc-950'
+                                          : state.id === 'ready'
+                                            ? 'bg-zinc-800 text-zinc-200'
+                                            : state.id === 'closed'
+                                              ? 'bg-zinc-900 text-zinc-500'
+                                              : 'bg-zinc-900 text-zinc-400'
+                                      )}
+                                    >
+                                      {state.label}
+                                    </span>
+                                  </div>
                                   <span className="mt-1 block truncate text-xs leading-5 text-zinc-500">
                                     {summary}
                                   </span>

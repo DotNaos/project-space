@@ -2,23 +2,23 @@ import { Card, Surface, Text } from '@heroui/react';
 
 import type { ProjectSpaceRecord, ProjectWorktreeRecord } from '@/shared/electron-api';
 
-import { IdeasBacklogList } from './ideas-backlog-list';
 import { IdeaEditor } from './idea-editor';
+import { IdeasBacklogList } from './ideas-backlog-list';
+import { IdeaPropertiesPanel } from './idea-properties-panel';
 import type { EditableIdeaValues, IdeaPresentationRecord } from '../lib/idea-utils';
 
 interface ProjectIdeasPanelProps {
+  assignedIdeaIds: string[];
   draftValues: EditableIdeaValues;
-  ideaExportMessage: string;
   ideas: IdeaPresentationRecord[];
   isLoading: boolean;
-  isIdeaExporting: boolean;
   isSaving: boolean;
   loadError: string;
   onCreateIdea(): void;
-  onExportIdeaToWorktree(): void;
+  onMoveIdeaToWorktree(ideaId: string, targetWorktreeId?: string): void;
   onSaveIdea(): void;
   onSelectIdea(ideaId: string): void;
-  onToggleClosedIssues(nextValue: boolean): void;
+  onToggleClosedIdeas(nextValue: boolean): void;
   onUpdateIdeaValue<Key extends keyof EditableIdeaValues>(
     key: Key,
     value: EditableIdeaValues[Key]
@@ -26,35 +26,34 @@ interface ProjectIdeasPanelProps {
   project?: ProjectSpaceRecord;
   selectedIdea?: IdeaPresentationRecord;
   selectedIdeaId: string;
-  selectedWorktree?: ProjectWorktreeRecord;
-  showClosedIssues: boolean;
+  showClosedIdeas: boolean;
   sidebarClosedPaddingLeft: number;
   syncErrors: Record<string, string>;
+  worktrees: ProjectWorktreeRecord[];
   isDirty: boolean;
 }
 
 export function ProjectIdeasPanel({
+  assignedIdeaIds,
   draftValues,
-  ideaExportMessage,
   ideas,
   isDirty,
-  isIdeaExporting,
   isLoading,
   isSaving,
   loadError,
   onCreateIdea,
-  onExportIdeaToWorktree,
+  onMoveIdeaToWorktree,
   onSaveIdea,
   onSelectIdea,
-  onToggleClosedIssues,
+  onToggleClosedIdeas,
   onUpdateIdeaValue,
   project,
   selectedIdea,
   selectedIdeaId,
-  selectedWorktree,
-  showClosedIssues,
+  showClosedIdeas,
   sidebarClosedPaddingLeft,
-  syncErrors
+  syncErrors,
+  worktrees
 }: ProjectIdeasPanelProps) {
   if (!project) {
     return (
@@ -86,6 +85,20 @@ export function ProjectIdeasPanel({
         }}
       />
 
+      <div className="min-h-0 w-[23rem] shrink-0 pt-6">
+        <IdeasBacklogList
+          assignedIdeaIds={assignedIdeaIds}
+          ideas={ideas}
+          isLoading={isLoading}
+          onCreateIdea={onCreateIdea}
+          onSelectIdea={onSelectIdea}
+          selectedIdeaId={selectedIdeaId}
+          showClosedIssues={showClosedIdeas}
+          syncErrors={syncErrors}
+          onToggleClosedIssues={onToggleClosedIdeas}
+        />
+      </div>
+
       <div className="min-h-0 min-w-0 flex-1">
         {loadError ? (
           <div className="px-2 pt-6">
@@ -99,30 +112,25 @@ export function ProjectIdeasPanel({
         ) : null}
 
         <IdeaEditor
+          assignedIdeaIds={assignedIdeaIds}
           draftValues={draftValues}
-          exportMessage={ideaExportMessage}
           isDirty={isDirty}
-          isExporting={isIdeaExporting}
           isSaving={isSaving}
-          onExportToWorktree={onExportIdeaToWorktree}
           onSave={onSaveIdea}
           onUpdateValue={onUpdateIdeaValue}
           selectedIdea={selectedIdea}
-          selectedWorktree={selectedWorktree}
           syncError={selectedIdea ? syncErrors[selectedIdea.id] : undefined}
         />
       </div>
 
       <div className="min-h-0 w-[20rem] shrink-0 pt-6">
-        <IdeasBacklogList
-          ideas={ideas}
-          isLoading={isLoading}
-          onCreateIdea={onCreateIdea}
-          onSelectIdea={onSelectIdea}
-          onToggleClosedIssues={onToggleClosedIssues}
-          selectedIdeaId={selectedIdeaId}
-          showClosedIssues={showClosedIssues}
-          syncErrors={syncErrors}
+        <IdeaPropertiesPanel
+          assignedIdeaIds={assignedIdeaIds}
+          draftValues={draftValues}
+          onMoveIdeaToWorktree={onMoveIdeaToWorktree}
+          onUpdateValue={onUpdateIdeaValue}
+          selectedIdea={selectedIdea}
+          worktrees={worktrees}
         />
       </div>
     </Surface>

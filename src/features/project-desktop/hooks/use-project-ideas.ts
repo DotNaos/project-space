@@ -40,7 +40,7 @@ export function useProjectIdeas(
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState('');
-  const [showClosedIssues, setShowClosedIssues] = useState(false);
+  const [showClosedIssues, setShowClosedIssues] = useState(true);
   const [syncErrors, setSyncErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {

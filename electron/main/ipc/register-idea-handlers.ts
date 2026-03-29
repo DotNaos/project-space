@@ -4,6 +4,7 @@ import type {
   CreateGithubIdeaFromDraftRequest,
   DeleteLocalIdeaDraftRequest,
   ExportIdeasToWorktreeRequest,
+  MoveIdeaToWorktreeRequest,
   SaveLocalIdeaDraftRequest,
   UpdateGithubIdeaRequest
 } from '../../../src/shared/electron-api';
@@ -20,6 +21,7 @@ import {
 import {
   deleteLocalIdeaDraft,
   exportIdeasToWorktree,
+  moveIdeaToWorktree,
   loadLocalIdeaDrafts,
   saveLocalIdeaDraft
 } from './ideas/idea-storage';
@@ -76,6 +78,13 @@ export function registerIdeaHandlers() {
     projectSpaceChannels.exportIdeasToWorktree,
     async (_event, request: ExportIdeasToWorktreeRequest) => {
       exportIdeasToWorktree(request);
+    }
+  );
+
+  ipcMain.handle(
+    projectSpaceChannels.moveIdeaToWorktree,
+    async (_event, request: MoveIdeaToWorktreeRequest) => {
+      moveIdeaToWorktree(request);
     }
   );
 }

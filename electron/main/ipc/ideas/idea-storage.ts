@@ -12,7 +12,9 @@ import type {
   DeleteLocalIdeaDraftRequest,
   ExportIdeasToWorktreeRequest,
   GithubIdeaRecord,
+  IdeaRecord,
   LocalIdeaDraftRecord,
+  MoveIdeaToWorktreeRequest,
   SaveLocalIdeaDraftRequest
 } from '../../../../src/shared/electron-api';
 
@@ -147,18 +149,181 @@ function serializeLocalDraft(record: LocalIdeaDraftRecord) {
   return `${frontmatter}\n${record.body.trim()}`;
 }
 
-function serializeWorktreeIdea(record: GithubIdeaRecord, exportedAt: string) {
-  const frontmatter = serializeFrontmatter({
-    evolvesIdeaId: record.evolvesIdeaId,
-    exportedAt,
-    githubIssueNumber: record.githubIssueNumber,
-    githubIssueUrl: record.githubIssueUrl,
-    id: record.id,
-    iteration: record.iteration,
-    title: record.title
-  });
+function serializeWorktreeIdea(record: IdeaRecord, exportedAt: string) {
+  const frontmatter = serializeFrontmatter(
+    record.source === 'github'
+      ? {
+          evolvesIdeaId: record.evolvesIdeaId,
+          exportedAt,
+          githubIssueNumber: record.githubIssueNumber,
+          githubIssueUrl: record.githubIssueUrl,
+          id: record.id,
+          iteration: record.iteration,
+          source: record.source,
+          title: record.title
+        }
+      : {
+          evolvesIdeaId: record.evolvesIdeaId,
+          exportedAt,
+          id: record.id,
+          iteration: record.iteration,
+          source: record.source,
+          title: record.title
+        }
+  );
 
   return `${frontmatter}\n${record.body.trim()}`;
+}
+
+type StoredWorktreeIdea =
+  | (LocalIdeaDraftRecord & {
+      exportedAt?: string;
+    })
+  | (GithubIdeaRecord & {
+      exportedAt?: string;
+    });
+
+function parseWorktreeIdeaIds(content: string) {
+  if (!content.trim()) {
+    return [];
+  }
+
+  const ideaIds = content
+    .split(ideaDivider)
+    .map((block) => {
+      const match = block.trim().match(/^---\n([\s\S]*?)\n---/);
+
+      if (!match) {
+        return '';
+      }
+
+      const frontmatter = parseFrontmatter(match[1]);
+      return normalizeString(frontmatter.id);
+    })
+    .filter(Boolean);
+
+  return [...new Set(ideaIds)];
+}
+
+function parseWorktreeIdeaBlock(block: string): StoredWorktreeIdea | null {
+  const match = block.trim().match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const [, frontmatterContent, bodyContent] = match;
+  const frontmatter = parseFrontmatter(frontmatterContent);
+  const githubIssueNumber = Number(frontmatter.githubIssueNumber);
+  const githubIssueUrl = normalizeString(frontmatter.githubIssueUrl);
+  const id = normalizeString(frontmatter.id);
+  const source = normalizeString(frontmatter.source) === 'local' ? 'local' : 'github';
+
+  if (!id) {
+    return null;
+  }
+
+  if (source === 'local' || (!Number.isFinite(githubIssueNumber) && !githubIssueUrl)) {
+    return {
+      body: bodyContent.trim(),
+      createdAt: normalizeOptionalString(frontmatter.exportedAt) ?? new Date().toISOString(),
+      evolvesIdeaId: normalizeOptionalString(frontmatter.evolvesIdeaId),
+      exportedAt: normalizeOptionalString(frontmatter.exportedAt),
+      id,
+      iteration: normalizeString(frontmatter.iteration),
+      source: 'local',
+      title: normalizeString(frontmatter.title),
+      updatedAt: normalizeOptionalString(frontmatter.exportedAt) ?? new Date().toISOString()
+    };
+  }
+
+  if (!Number.isFinite(githubIssueNumber) || !githubIssueUrl) {
+    return null;
+  }
+
+  return {
+    body: bodyContent.trim(),
+    createdAt: normalizeOptionalString(frontmatter.exportedAt) ?? new Date().toISOString(),
+    evolvesIdeaId: normalizeOptionalString(frontmatter.evolvesIdeaId),
+    exportedAt: normalizeOptionalString(frontmatter.exportedAt),
+    githubIssueNumber,
+    githubIssueUrl,
+    githubLabels: [],
+    githubState: 'open',
+    id,
+    iteration: normalizeString(frontmatter.iteration),
+    source: 'github',
+    title: normalizeString(frontmatter.title),
+    updatedAt: normalizeOptionalString(frontmatter.exportedAt) ?? new Date().toISOString()
+  };
+}
+
+function readWorktreeIdeas(worktreePath: string): StoredWorktreeIdea[] {
+  const exportPath = getWorktreeExportPath(worktreePath);
+
+  if (!existsSync(exportPath)) {
+    return [];
+  }
+
+  const content = readFileSync(exportPath, 'utf-8').trim();
+
+  if (!content) {
+    return [];
+  }
+
+  return content
+    .split(ideaDivider)
+    .map((block) => parseWorktreeIdeaBlock(block))
+    .filter((idea): idea is StoredWorktreeIdea => Boolean(idea));
+}
+
+function writeWorktreeIdeas(worktreePath: string, ideas: StoredWorktreeIdea[]) {
+  const exportPath = getWorktreeExportPath(worktreePath);
+
+  if (ideas.length === 0) {
+    if (existsSync(exportPath)) {
+      rmSync(exportPath);
+    }
+
+    return;
+  }
+
+  ensureWorktreeDevDirectory(worktreePath);
+
+  const serialized = ideas
+    .map((idea) =>
+      serializeWorktreeIdea(
+        idea.source === 'github'
+          ? {
+              body: idea.body,
+              createdAt: idea.createdAt,
+              evolvesIdeaId: idea.evolvesIdeaId,
+              githubIssueNumber: idea.githubIssueNumber,
+              githubIssueUrl: idea.githubIssueUrl,
+              githubLabels: idea.githubLabels ?? [],
+              githubState: idea.githubState ?? 'open',
+              id: idea.id,
+              iteration: idea.iteration,
+              source: 'github',
+              title: idea.title,
+              updatedAt: idea.updatedAt
+            }
+          : {
+              body: idea.body,
+              createdAt: idea.createdAt,
+              evolvesIdeaId: idea.evolvesIdeaId,
+              id: idea.id,
+              iteration: idea.iteration,
+              source: 'local',
+              title: idea.title,
+              updatedAt: idea.updatedAt
+            },
+        idea.exportedAt ?? new Date().toISOString()
+      )
+    )
+    .join(ideaDivider);
+
+  writeFileSync(exportPath, `${serialized}\n`, 'utf-8');
 }
 
 function writeLocalDrafts(projectPath: string, drafts: LocalIdeaDraftRecord[]) {
@@ -284,4 +449,62 @@ export function exportIdeasToWorktree({
   const content = ideas.map((idea) => serializeWorktreeIdea(idea, exportedAt)).join(ideaDivider);
 
   writeFileSync(getWorktreeExportPath(worktreePath), `${content}\n`, 'utf-8');
+}
+
+export function loadWorktreeIdeaIds(worktreePath: string): string[] {
+  const exportPath = getWorktreeExportPath(worktreePath);
+
+  if (!existsSync(exportPath)) {
+    return [];
+  }
+
+  return parseWorktreeIdeaIds(readFileSync(exportPath, 'utf-8'));
+}
+
+export function moveIdeaToWorktree({
+  idea,
+  targetWorktreePath,
+  worktreePaths
+}: MoveIdeaToWorktreeRequest): void {
+  const exportedAt = new Date().toISOString();
+  const uniqueWorktreePaths = [...new Set(worktreePaths.map((path) => path.trim()).filter(Boolean))];
+
+  for (const worktreePath of uniqueWorktreePaths) {
+    const remainingIdeas = readWorktreeIdeas(worktreePath).filter((entry) => entry.id !== idea.id);
+    const shouldReceiveIdea = targetWorktreePath === worktreePath;
+
+    if (shouldReceiveIdea) {
+      remainingIdeas.push(
+        idea.source === 'github'
+          ? {
+              body: idea.body.trim(),
+              createdAt: idea.createdAt,
+              evolvesIdeaId: idea.evolvesIdeaId,
+              exportedAt,
+              githubIssueNumber: idea.githubIssueNumber,
+              githubIssueUrl: idea.githubIssueUrl,
+              githubLabels: idea.githubLabels ?? [],
+              githubState: idea.githubState ?? 'open',
+              id: idea.id,
+              iteration: idea.iteration.trim(),
+              source: 'github',
+              title: idea.title.trim(),
+              updatedAt: idea.updatedAt
+            }
+          : {
+              body: idea.body.trim(),
+              createdAt: idea.createdAt,
+              evolvesIdeaId: idea.evolvesIdeaId,
+              exportedAt,
+              id: idea.id,
+              iteration: idea.iteration.trim(),
+              source: 'local',
+              title: idea.title.trim(),
+              updatedAt: idea.updatedAt
+            }
+      );
+    }
+
+    writeWorktreeIdeas(worktreePath, remainingIdeas);
+  }
 }

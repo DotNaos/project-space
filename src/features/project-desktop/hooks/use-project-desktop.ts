@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { launcherAppLabels } from '@/shared/electron-api';
 import type {
   ExplorerTarget,
@@ -10,7 +10,8 @@ import type {
 } from '@/shared/electron-api';
 import type { ProjectMainView } from '../components/project-main-panel';
 import type { SettingsTab } from '../components/project-settings-panel';
-import { toGithubIdea } from '../lib/idea-utils';
+import { toGithubIdea, toLocalIdeaDraft } from '../lib/idea-utils';
+import type { IdeaPresentationRecord } from '../lib/idea-utils';
 import { useProjectIssueSource } from './use-project-issue-source';
 import { useProjectIdeas } from './use-project-ideas';
 
@@ -37,6 +38,10 @@ function findMatchingProject(projects: ProjectSpaceRecord[], path: string) {
     });
 }
 
+function getProjectNavigationView(currentView: ProjectMainView) {
+  return currentView === 'worktrees' ? 'worktrees' : 'ideas';
+}
+
 export function useProjectDesktop() {
   const [mainView, setMainView] = useState<ProjectMainView>('ideas');
   const [discovery, setDiscovery] = useState<ProjectDiscoveryResult>(emptyDiscovery);
@@ -53,7 +58,13 @@ export function useProjectDesktop() {
   const [projectWorktrees, setProjectWorktrees] = useState<
     Record<string, ProjectWorktreeRecord[]>
   >({});
+  const [worktreeLoadingByProjectId, setWorktreeLoadingByProjectId] = useState<
+    Record<string, boolean>
+  >({});
   const [hasLoaded, setHasLoaded] = useState(false);
+  const projectWorktreesRef = useRef<Record<string, ProjectWorktreeRecord[]>>({});
+  const worktreeLoadingRef = useRef<Record<string, boolean>>({});
+  const pendingWorktreeLoadsRef = useRef<Record<string, Promise<ProjectWorktreeRecord[]>>>({});
 
   const groupsById = useMemo(() => {
     return Object.fromEntries(discovery.groups.map((group) => [group.id, group]));
@@ -81,6 +92,9 @@ export function useProjectDesktop() {
 
   const activeNavigationItemId = project?.groupId ?? project?.id ?? '';
   const worktrees = project ? projectWorktrees[project.id] ?? [] : [];
+  const isWorktreesLoading = project
+    ? !projectWorktrees[project.id] && Boolean(worktreeLoadingByProjectId[project.id])
+    : false;
   const selectedWorktree =
     selectedExplorerTarget.kind === 'worktree'
       ? worktrees.find((entry) => entry.id === selectedExplorerTarget.worktreeId)
@@ -101,6 +115,138 @@ export function useProjectDesktop() {
       : 'Workspace';
   const issueSource = useProjectIssueSource(project);
   const ideas = useProjectIdeas(project, issueSource.config);
+  const worktreeIdeasById = useMemo<Record<string, IdeaPresentationRecord[]>>(() => {
+    const visibleIdeas = ideas.ideas;
+
+    if (worktrees.length === 0 || visibleIdeas.length === 0) {
+      return {};
+    }
+
+    const ideasById = new Map(visibleIdeas.map((idea) => [idea.id, idea]));
+    const assignedIdeaIds = new Set<string>();
+    const ideaGroups: Record<string, IdeaPresentationRecord[]> = {};
+
+    for (const worktree of worktrees) {
+      if (worktree.isBase) {
+        continue;
+      }
+
+      const assignedIdeas = worktree.ideaIds
+        .map((ideaId) => ideasById.get(ideaId))
+        .filter((idea): idea is IdeaPresentationRecord => Boolean(idea));
+
+      assignedIdeas.forEach((idea) => {
+        assignedIdeaIds.add(idea.id);
+      });
+
+      ideaGroups[worktree.id] = assignedIdeas;
+    }
+
+    return ideaGroups;
+  }, [ideas.ideas, worktrees]);
+  const assignedIdeaIds = useMemo(() => {
+    return [
+      ...new Set(
+        worktrees
+          .filter((worktree) => !worktree.isBase)
+          .flatMap((worktree) => worktree.ideaIds)
+        )
+    ];
+  }, [worktrees]);
+  const unassignedIdeas = useMemo(() => {
+    if (ideas.ideas.length === 0) {
+      return [];
+    }
+
+    const assignedIdeaIdSet = new Set(assignedIdeaIds);
+
+    return ideas.ideas.filter((idea) => !assignedIdeaIdSet.has(idea.id));
+  }, [assignedIdeaIds, ideas.ideas]);
+  const selectedTargetIdeas = useMemo(() => {
+    if (selectedExplorerTarget.kind === 'worktree' && selectedWorktree) {
+      return worktreeIdeasById[selectedWorktree.id] ?? [];
+    }
+
+    return unassignedIdeas;
+  }, [selectedExplorerTarget.kind, selectedWorktree, unassignedIdeas, worktreeIdeasById]);
+
+  useEffect(() => {
+    projectWorktreesRef.current = projectWorktrees;
+  }, [projectWorktrees]);
+
+  useEffect(() => {
+    worktreeLoadingRef.current = worktreeLoadingByProjectId;
+  }, [worktreeLoadingByProjectId]);
+
+  const loadWorktreesForProject = useCallback((nextProject: ProjectSpaceRecord) => {
+    const cachedWorktrees = projectWorktreesRef.current[nextProject.id];
+
+    if (cachedWorktrees) {
+      return Promise.resolve(cachedWorktrees);
+    }
+
+    const pendingLoad = pendingWorktreeLoadsRef.current[nextProject.id];
+
+    if (pendingLoad) {
+      return pendingLoad;
+    }
+
+    setWorktreeLoadingByProjectId((current) => ({
+      ...current,
+      [nextProject.id]: true
+    }));
+
+    const request = window.projectSpace
+      .loadProjectWorktrees(nextProject.rootPath)
+      .then((nextWorktrees) => {
+        setProjectWorktrees((current) => ({
+          ...current,
+          [nextProject.id]: nextWorktrees
+        }));
+
+        return nextWorktrees;
+      })
+      .finally(() => {
+        delete pendingWorktreeLoadsRef.current[nextProject.id];
+        setWorktreeLoadingByProjectId((current) => {
+          if (!current[nextProject.id]) {
+            return current;
+          }
+
+          const nextState = { ...current };
+          delete nextState[nextProject.id];
+          return nextState;
+        });
+      });
+
+    pendingWorktreeLoadsRef.current[nextProject.id] = request;
+    return request;
+  }, []);
+
+  const updateIdeaAssignmentInWorktrees = useCallback(
+    (projectId: string, ideaId: string, targetWorktreeId?: string) => {
+      setProjectWorktrees((current) => {
+        const currentProjectWorktrees = current[projectId] ?? [];
+
+        return {
+          ...current,
+          [projectId]: currentProjectWorktrees.map((worktree) => {
+            const nextIdeaIds = worktree.ideaIds.filter((currentIdeaId) => currentIdeaId !== ideaId);
+
+            if (targetWorktreeId && worktree.id === targetWorktreeId) {
+              nextIdeaIds.push(ideaId);
+            }
+
+            return {
+              ...worktree,
+              ideaIds: nextIdeaIds
+            };
+          })
+        };
+      });
+    },
+    []
+  );
 
   useEffect(() => {
     void Promise.all([
@@ -239,14 +385,12 @@ export function useProjectDesktop() {
       return;
     }
 
-    const cachedWorktrees = projectWorktrees[project.id];
+    const cachedWorktrees = projectWorktreesRef.current[project.id];
 
     if (project.kind === 'standalone') {
       if (selectedExplorerTarget.kind !== 'workspace') {
         setSelectedExplorerTarget({ kind: 'workspace' });
       }
-
-      return;
     }
 
     let canceled = false;
@@ -259,23 +403,19 @@ export function useProjectDesktop() {
       setSelectedExplorerTarget({ kind: 'workspace' });
     }
 
-    void window.projectSpace.loadProjectWorktrees(project.rootPath).then((nextWorktrees) => {
-      if (canceled) {
-        return;
-      }
+    void loadWorktreesForProject(project)
+      .then((nextWorktrees) => {
+        if (canceled) {
+          return;
+        }
 
-      setProjectWorktrees((current) => ({
-        ...current,
-        [project.id]: nextWorktrees
-      }));
-
-      if (
-        selectedExplorerTarget.kind === 'worktree' &&
-        !nextWorktrees.some((entry) => entry.id === selectedExplorerTarget.worktreeId)
-      ) {
-        setSelectedExplorerTarget({ kind: 'workspace' });
-      }
-    });
+        if (
+          selectedExplorerTarget.kind === 'worktree' &&
+          !nextWorktrees.some((entry) => entry.id === selectedExplorerTarget.worktreeId)
+        ) {
+          setSelectedExplorerTarget({ kind: 'workspace' });
+        }
+      });
 
     return () => {
       canceled = true;
@@ -283,9 +423,54 @@ export function useProjectDesktop() {
   }, [
     project?.id,
     project?.kind,
-    project?.rootPath,
+    loadWorktreesForProject,
     selectedExplorerTarget.kind,
     selectedExplorerTarget.kind === 'worktree' ? selectedExplorerTarget.worktreeId : ''
+  ]);
+
+  useEffect(() => {
+    if (!hasLoaded || navigationItems.length === 0) {
+      return;
+    }
+
+    const activeIndex = navigationItems.findIndex((entry) => entry.id === activeNavigationItemId);
+
+    if (activeIndex < 0) {
+      return;
+    }
+
+    const adjacentItems = [navigationItems[activeIndex - 1], navigationItems[activeIndex + 1]].filter(
+      (entry): entry is ProjectNavigationItem => Boolean(entry)
+    );
+
+    for (const item of adjacentItems) {
+      const selection = resolveNavigationSelection(item.id);
+
+      if (!selection?.nextProjectId) {
+        continue;
+      }
+
+      const adjacentProject = projectsById[selection.nextProjectId];
+
+      if (!adjacentProject) {
+        continue;
+      }
+
+      if (
+        projectWorktreesRef.current[adjacentProject.id] ||
+        worktreeLoadingRef.current[adjacentProject.id]
+      ) {
+        continue;
+      }
+
+      void loadWorktreesForProject(adjacentProject);
+    }
+  }, [
+    activeNavigationItemId,
+    hasLoaded,
+    loadWorktreesForProject,
+    navigationItems,
+    projectsById
   ]);
 
   useEffect(() => {
@@ -405,6 +590,7 @@ export function useProjectDesktop() {
 
   async function exportSelectedIdeaToCurrentWorktree() {
     if (
+      !project ||
       !selectedWorktree ||
       !ideas.selectedIdea ||
       ideas.selectedIdea.source !== 'github' ||
@@ -422,6 +608,7 @@ export function useProjectDesktop() {
         worktreePath: selectedWorktree.path
       });
 
+      updateIdeaAssignmentInWorktrees(project.id, ideas.selectedIdea.id, selectedWorktree.id);
       setIdeaExportMessage(`Exported to ${selectedWorktree.name}.`);
     } catch (error) {
       setIdeaExportMessage(
@@ -432,8 +619,36 @@ export function useProjectDesktop() {
     }
   }
 
+  async function moveIdeaToWorktree(ideaId: string, targetWorktreeId?: string) {
+    if (!project) {
+      return;
+    }
+
+    const idea = ideas.ideas.find((entry) => entry.id === ideaId);
+
+    if (!idea) {
+      return;
+    }
+
+    const targetWorktree = targetWorktreeId
+      ? worktrees.find((worktree) => worktree.id === targetWorktreeId)
+      : undefined;
+
+    await window.projectSpace.moveIdeaToWorktree({
+      idea: idea.source === 'github' ? toGithubIdea(idea) : toLocalIdeaDraft(idea),
+      targetWorktreePath: targetWorktree?.path,
+      worktreePaths: worktrees.map((worktree) => worktree.path)
+    });
+
+    updateIdeaAssignmentInWorktrees(project.id, ideaId, targetWorktreeId);
+  }
+
   function openIdeasView() {
     setMainView('ideas');
+  }
+
+  function openWorktreesView() {
+    setMainView('worktrees');
   }
 
   function openProjectSettings() {
@@ -455,6 +670,7 @@ export function useProjectDesktop() {
     groups: discovery.groups,
     groupedProjects,
     groupedProjectsLabel: activeGroup?.name,
+    hasLoaded,
     ideaDraftValues: ideas.draftValues,
     ideaExportMessage,
     issueSourceConfig: issueSource.config,
@@ -470,30 +686,39 @@ export function useProjectDesktop() {
     isIdeaSaving: ideas.isSaving,
     isIdeasDirty: ideas.isDirty,
     isIdeasLoading: ideas.isLoading,
+    isWorktreesLoading,
     launcherApps,
     launcherError,
     mainView,
+    moveIdeaToWorktree,
     navigationItems,
     openCodexSkills,
     openAppSettings,
     openIssueSource: issueSource.openSource,
     openIdeasView,
+    openWorktreesView,
     openProjectSettings,
     openNewWorktreeWorkspace,
     openSelectedTargetInApp,
     project,
+    loadWorktreesForProject,
+    projectWorktrees,
+    worktreeIdeasById,
     projects: discovery.projects,
     resolveNavigationSelection,
     rootItems: discovery.rootItems,
     selectedExplorerTarget,
     selectedIdea: ideas.selectedIdea,
     selectedIdeaId: ideas.selectedIdeaId,
+    assignedIdeaIds,
     selectedLauncherApp,
     selectedLauncherAppLabel,
     selectedProjectId,
     selectedTargetName,
     selectedTargetPath,
+    selectedTargetIdeas,
     selectedWorktree,
+    unassignedIdeas,
     setIssueSourceDraftKind: issueSource.setDraftKind,
     setIssueSourceDraftUrl: issueSource.setDraftUrl,
     saveIssueSourceConfig: issueSource.save,
@@ -522,7 +747,7 @@ export function useProjectDesktop() {
         }));
       }
 
-      setMainView('ideas');
+      setMainView(getProjectNavigationView(mainView));
       setSelectedExplorerTarget(
         nextSelectedWorktreeId
           ? {
@@ -534,7 +759,7 @@ export function useProjectDesktop() {
       setSelectedProjectId(resolvedSelection.nextProjectId);
     },
     selectProject(projectId: string, groupId?: string) {
-      setMainView('ideas');
+      setMainView(getProjectNavigationView(mainView));
       setSelectedExplorerTarget({ kind: 'workspace' });
       setSelectedProjectId(projectId);
       setLauncherError('');
@@ -544,9 +769,11 @@ export function useProjectDesktop() {
       ideas.setSelectedIdeaId(ideaId);
     },
     selectWorkspace() {
+      setMainView('workspace');
       setSelectedExplorerTarget({ kind: 'workspace' });
     },
     selectWorktree(worktreeId: string) {
+      setMainView('workspace');
       setSelectedExplorerTarget({
         kind: 'worktree',
         worktreeId

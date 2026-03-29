@@ -25,6 +25,7 @@ export function ProjectDesktopShell() {
   const {
     currentPanelRef,
     handleSidebarWheel,
+    isPreviewWorktreesLoading,
     previewPanelRef,
     previewProject,
     previewWorktrees
@@ -32,6 +33,8 @@ export function ProjectDesktopShell() {
     activeNavigationItemId: desktop.activeNavigationItemId,
     isSidebarOpen,
     navigationItems: desktop.navigationItems,
+    preloadProjectWorktrees: desktop.loadWorktreesForProject,
+    projectWorktreesById: desktop.projectWorktrees,
     projects: desktop.projects,
     resolveNavigationSelection: desktop.resolveNavigationSelection,
     selectNavigationItem: desktop.selectNavigationItem,
@@ -39,7 +42,7 @@ export function ProjectDesktopShell() {
   });
 
   return (
-    <div className="relative h-screen overflow-hidden bg-app-canvas text-zinc-100">
+    <div className="relative h-screen overflow-hidden bg-app-sidebar text-zinc-100">
       <div
         className="app-drag absolute top-0 left-0 z-30 h-14"
         style={{
@@ -69,18 +72,25 @@ export function ProjectDesktopShell() {
           activeNavigationItemId={desktop.activeNavigationItemId}
           currentPanelRef={currentPanelRef}
           groups={desktop.groups}
+          isAppLoading={!desktop.hasLoaded}
           isOpen={isSidebarOpen}
+          isPreviewWorktreesLoading={isPreviewWorktreesLoading}
+          isWorktreesLoading={desktop.isWorktreesLoading}
           navigationItems={desktop.navigationItems}
           onCreateIdea={desktop.createIdea}
           onCreateProject={desktop.createProject}
           onOpenCodexSkills={desktop.openCodexSkills}
           onOpenAppSettings={desktop.openAppSettings}
+          onOpenIdeasView={desktop.openIdeasView}
+          onOpenWorktreesView={desktop.openWorktreesView}
           onOpenProjectSettings={desktop.openProjectSettings}
           onOpenNewWorktree={desktop.openNewWorktreeWorkspace}
           onResizeStart={(event) => {
             event.preventDefault();
             startSidebarResize();
           }}
+          onMoveIdeaToWorktree={desktop.moveIdeaToWorktree}
+          onSelectIdea={desktop.selectIdea}
           onSelectProject={desktop.selectProject}
           onSelectNavigationItem={desktop.selectNavigationItem}
           onSelectWorkspace={desktop.selectWorkspace}
@@ -90,11 +100,15 @@ export function ProjectDesktopShell() {
           previewProject={previewProject}
           previewWorktrees={previewWorktrees}
           project={desktop.project}
+          mainView={desktop.mainView}
           projects={desktop.projects}
           rootItems={desktop.rootItems}
           selectedExplorerTarget={desktop.selectedExplorerTarget}
+          selectedIdeaId={desktop.selectedIdeaId}
+          unassignedIdeas={desktop.unassignedIdeas}
           selectedProjectId={desktop.selectedProjectId}
           titlebarSafeInset={TITLEBAR_SAFE_INSET}
+          worktreeIdeasById={desktop.worktreeIdeasById}
           worktrees={desktop.worktrees}
         />
 
@@ -102,15 +116,14 @@ export function ProjectDesktopShell() {
           activeSettingsTab={desktop.settingsTab}
           discoveryRoot={desktop.discoveryRoot}
           draftValues={desktop.ideaDraftValues}
+          assignedIdeaIds={desktop.assignedIdeaIds}
           groupedProjects={desktop.groupedProjects}
           groupedProjectsLabel={desktop.groupedProjectsLabel}
-          ideaExportMessage={desktop.ideaExportMessage}
           ideas={desktop.ideas}
           isDirty={desktop.isIdeasDirty}
-          isIdeaExporting={desktop.isIdeaExporting}
+          isIdeasLoading={desktop.isIdeasLoading}
           isIssueSourceLoading={desktop.isIssueSourceLoading}
           isIssueSourceSaving={desktop.isIssueSourceSaving}
-          isLoadingIdeas={desktop.isIdeasLoading}
           isSavingIdea={desktop.isIdeaSaving}
           isSidebarOpen={isSidebarOpen}
           issueSourceConfig={desktop.issueSourceConfig}
@@ -123,7 +136,7 @@ export function ProjectDesktopShell() {
           mainView={desktop.mainView}
           onCreateIdea={desktop.createIdea}
           onCreateProject={desktop.createProject}
-          onExportIdeaToWorktree={desktop.exportSelectedIdeaToCurrentWorktree}
+          onMoveIdeaToWorktree={desktop.moveIdeaToWorktree}
           onOpenIssueSource={desktop.openIssueSource}
           onOpenSelectedTarget={desktop.openSelectedTargetInApp}
           onSaveIdea={desktop.saveIdea}
@@ -132,22 +145,22 @@ export function ProjectDesktopShell() {
           onSelectSettingsTab={desktop.setSettingsTab}
           onSelectIdea={desktop.selectIdea}
           onSelectLauncherApp={desktop.selectLauncherApp}
-          onToggleClosedIdeas={desktop.setShowClosedIdeas}
           onUpdateIdeaValue={desktop.setIdeaDraftValue}
           onUpdateIssueSourceKind={desktop.setIssueSourceDraftKind}
           onUpdateIssueSourceUrl={desktop.setIssueSourceDraftUrl}
+          onToggleShowClosedIdeas={desktop.setShowClosedIdeas}
           project={desktop.project}
           selectedApp={desktop.selectedLauncherApp}
           selectedAppLabel={desktop.selectedLauncherAppLabel}
           selectedExplorerTarget={desktop.selectedExplorerTarget}
           selectedIdea={desktop.selectedIdea}
-          selectedIdeaId={desktop.selectedIdeaId}
-          selectedTargetName={desktop.selectedTargetName}
           selectedTargetPath={desktop.selectedTargetPath}
+          selectedTargetIdeas={desktop.selectedTargetIdeas}
           showClosedIdeas={desktop.showClosedIdeas}
           sidebarClosedPaddingLeft={TITLEBAR_SAFE_INSET}
           syncErrors={desktop.syncErrors}
           selectedWorktree={desktop.selectedWorktree}
+          worktrees={desktop.worktrees}
         />
       </div>
     </div>

@@ -9,26 +9,27 @@ import { Button, Card, Surface, Text } from '@heroui/react';
 
 import type { EditableIdeaValues, IdeaPresentationRecord } from '../lib/idea-utils';
 import { OpenTargetDropdown } from './open-target-dropdown';
+import { ProjectCommandCenter } from './project-command-center';
 import { ProjectIdeasPanel } from './project-ideas-panel';
 import { ProjectIssueSourceLinkButton } from './project-issue-source-link-button';
 import { ProjectSettingsPanel, type SettingsTab } from './project-settings-panel';
+import { ProjectWorktreesPanel } from './project-worktrees-panel';
 import { SidebarProjectSelect } from './sidebar-project-select';
 
-export type ProjectMainView = 'ideas' | 'settings' | 'workspace';
+export type ProjectMainView = 'ideas' | 'settings' | 'workspace' | 'worktrees';
 
 interface ProjectMainPanelProps {
   activeSettingsTab: SettingsTab;
+  assignedIdeaIds: string[];
   discoveryRoot: string;
   draftValues: EditableIdeaValues;
   groupedProjects: ProjectSpaceRecord[];
   groupedProjectsLabel?: string;
-  ideaExportMessage: string;
   ideas: IdeaPresentationRecord[];
   isDirty: boolean;
-  isIdeaExporting: boolean;
+  isIdeasLoading: boolean;
   isIssueSourceLoading: boolean;
   isIssueSourceSaving: boolean;
-  isLoadingIdeas: boolean;
   isSavingIdea: boolean;
   isSidebarOpen: boolean;
   launcherApps: LauncherAppRecord[];
@@ -37,7 +38,7 @@ interface ProjectMainPanelProps {
   mainView: ProjectMainView;
   onCreateIdea(): void;
   onCreateProject(): void;
-  onExportIdeaToWorktree(): void;
+  onMoveIdeaToWorktree(ideaId: string, targetWorktreeId?: string): void;
   onOpenIssueSource(): void;
   onOpenSelectedTarget(): void;
   onSaveIdea(): void;
@@ -46,13 +47,13 @@ interface ProjectMainPanelProps {
   onSelectSettingsTab(tab: SettingsTab): void;
   onSelectIdea(ideaId: string): void;
   onSelectLauncherApp(appId: string): void;
-  onToggleClosedIdeas(nextValue: boolean): void;
   onUpdateIdeaValue<Key extends keyof EditableIdeaValues>(
     key: Key,
     value: EditableIdeaValues[Key]
   ): void;
   onUpdateIssueSourceKind(kind: ProjectIssueSourceConfig['kind']): void;
   onUpdateIssueSourceUrl(url: string): void;
+  onToggleShowClosedIdeas(nextValue: boolean): void;
   issueSourceConfig: ProjectIssueSourceConfig;
   issueSourceDraftKind: ProjectIssueSourceConfig['kind'];
   issueSourceDraftUrl: string;
@@ -62,111 +63,25 @@ interface ProjectMainPanelProps {
   selectedAppLabel?: string;
   selectedExplorerTarget: ExplorerTarget;
   selectedIdea?: IdeaPresentationRecord;
-  selectedIdeaId: string;
-  selectedTargetName: string;
   selectedTargetPath: string;
+  selectedTargetIdeas: IdeaPresentationRecord[];
   selectedWorktree?: ProjectWorktreeRecord;
   showClosedIdeas: boolean;
   sidebarClosedPaddingLeft: number;
   syncErrors: Record<string, string>;
-}
-
-function WorkspaceMainPanel({
-  discoveryRoot,
-  launcherApps,
-  launcherError,
-  onCreateProject,
-  onOpenSelectedTarget,
-  onSelectLauncherApp,
-  project,
-  selectedApp,
-  selectedAppLabel,
-  selectedExplorerTarget,
-  selectedTargetName,
-  selectedTargetPath
-}: Pick<
-  ProjectMainPanelProps,
-  | 'discoveryRoot'
-  | 'launcherApps'
-  | 'launcherError'
-  | 'onCreateProject'
-  | 'onOpenSelectedTarget'
-  | 'onSelectLauncherApp'
-  | 'project'
-  | 'selectedApp'
-  | 'selectedAppLabel'
-  | 'selectedExplorerTarget'
-  | 'selectedTargetName'
-  | 'selectedTargetPath'
->) {
-  const targetLabel =
-    selectedExplorerTarget.kind === 'worktree' ? 'Worktree Path' : 'Workspace Path';
-
-  return (
-    <div className="flex min-h-0 flex-1 items-center justify-center px-8">
-      <div className="w-full max-w-2xl">
-        {project ? (
-          <Card variant="secondary" className="border border-zinc-800/80 bg-zinc-950/70">
-            <Card.Header className="gap-3">
-              <Text className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-                {targetLabel}
-              </Text>
-              <Card.Title className="font-mono text-xl font-medium tracking-tight text-zinc-50">
-                {selectedTargetPath}
-              </Card.Title>
-            </Card.Header>
-            <Card.Content className="gap-3">
-              <Card.Description className="text-sm text-zinc-400">
-                Open the currently selected target directly in your chosen app.
-              </Card.Description>
-              {launcherError ? (
-                <Surface
-                  variant="tertiary"
-                  className="rounded-2xl border border-zinc-400/20 bg-zinc-500/8 px-4 py-3 text-sm text-zinc-300"
-                >
-                  {launcherError}
-                </Surface>
-              ) : null}
-            </Card.Content>
-          </Card>
-        ) : (
-          <Card variant="secondary" className="border border-zinc-800/80 bg-zinc-950/70">
-            <Card.Header className="gap-3">
-              <Text className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-                No Projects
-              </Text>
-              <Card.Title className="text-2xl font-semibold tracking-tight text-zinc-50">
-                Nothing selected yet
-              </Card.Title>
-              <Card.Description className="text-base text-zinc-400">
-                Add projects under {discoveryRoot || '~/projects'} to discover them.
-              </Card.Description>
-            </Card.Header>
-            <Card.Footer>
-              <Button variant="outline" onPress={onCreateProject}>
-                Select project
-              </Button>
-            </Card.Footer>
-          </Card>
-        )}
-      </div>
-    </div>
-  );
+  worktrees: ProjectWorktreeRecord[];
 }
 
 export function ProjectMainPanel({
   activeSettingsTab,
+  assignedIdeaIds,
   discoveryRoot,
   draftValues,
   groupedProjects,
   groupedProjectsLabel,
-  ideaExportMessage,
-  ideas,
   isDirty,
-  isIdeaExporting,
   isIssueSourceLoading,
   isIssueSourceSaving,
-  isLoadingIdeas,
   isSavingIdea,
   isSidebarOpen,
   launcherApps,
@@ -175,7 +90,7 @@ export function ProjectMainPanel({
   mainView,
   onCreateIdea,
   onCreateProject,
-  onExportIdeaToWorktree,
+  onMoveIdeaToWorktree,
   onOpenIssueSource,
   onOpenSelectedTarget,
   onSaveIdea,
@@ -184,7 +99,6 @@ export function ProjectMainPanel({
   onSelectSettingsTab,
   onSelectIdea,
   onSelectLauncherApp,
-  onToggleClosedIdeas,
   onUpdateIdeaValue,
   onUpdateIssueSourceKind,
   onUpdateIssueSourceUrl,
@@ -197,18 +111,21 @@ export function ProjectMainPanel({
   selectedAppLabel,
   selectedExplorerTarget,
   selectedIdea,
-  selectedIdeaId,
-  selectedTargetName,
   selectedTargetPath,
+  selectedTargetIdeas,
   selectedWorktree,
-  showClosedIdeas,
+  isIdeasLoading,
+  ideas,
   sidebarClosedPaddingLeft,
-  syncErrors
+  onToggleShowClosedIdeas,
+  syncErrors,
+  worktrees,
+  showClosedIdeas
 }: ProjectMainPanelProps) {
   const headerSafeInset = isSidebarOpen ? 0 : sidebarClosedPaddingLeft;
 
   return (
-    <Surface variant="transparent" className="flex min-h-0 flex-col rounded-none bg-app-panel">
+    <div className="m-3 ml-2 flex min-h-0 flex-col overflow-hidden rounded-[2rem] border border-zinc-800/70 bg-app-panel shadow-[0_24px_80px_rgba(0,0,0,0.28)]">
       <div
         className="relative flex h-14 items-center justify-between pr-6"
         style={{
@@ -272,27 +189,26 @@ export function ProjectMainPanel({
 
       {mainView === 'ideas' ? (
         <ProjectIdeasPanel
+          assignedIdeaIds={assignedIdeaIds}
           draftValues={draftValues}
-          ideaExportMessage={ideaExportMessage}
           ideas={ideas}
           isDirty={isDirty}
-          isIdeaExporting={isIdeaExporting}
-          isLoading={isLoadingIdeas}
+          isLoading={isIdeasLoading}
           isSaving={isSavingIdea}
           loadError={loadIdeasError}
           onCreateIdea={onCreateIdea}
-          onExportIdeaToWorktree={onExportIdeaToWorktree}
+          onMoveIdeaToWorktree={onMoveIdeaToWorktree}
           onSaveIdea={onSaveIdea}
           onSelectIdea={onSelectIdea}
-          onToggleClosedIssues={onToggleClosedIdeas}
+          onToggleClosedIdeas={onToggleShowClosedIdeas}
           onUpdateIdeaValue={onUpdateIdeaValue}
           project={project}
           selectedIdea={selectedIdea}
-          selectedIdeaId={selectedIdeaId}
-          selectedWorktree={selectedWorktree}
-          showClosedIssues={showClosedIdeas}
+          selectedIdeaId={selectedIdea?.id ?? ''}
+          showClosedIdeas={showClosedIdeas}
           sidebarClosedPaddingLeft={sidebarClosedPaddingLeft}
           syncErrors={syncErrors}
+          worktrees={worktrees}
         />
       ) : mainView === 'settings' ? (
         <ProjectSettingsPanel
@@ -311,22 +227,30 @@ export function ProjectMainPanel({
           onUpdateIssueSourceUrl={onUpdateIssueSourceUrl}
           project={project}
         />
-      ) : (
-        <WorkspaceMainPanel
-          discoveryRoot={discoveryRoot}
-          launcherApps={launcherApps}
+      ) : mainView === 'worktrees' ? (
+        <ProjectWorktreesPanel
           launcherError={launcherError}
-          onCreateProject={onCreateProject}
           onOpenSelectedTarget={onOpenSelectedTarget}
-          onSelectLauncherApp={onSelectLauncherApp}
           project={project}
-          selectedApp={selectedApp}
-          selectedAppLabel={selectedAppLabel}
           selectedExplorerTarget={selectedExplorerTarget}
-          selectedTargetName={selectedTargetName}
           selectedTargetPath={selectedTargetPath}
+          selectedWorktree={selectedWorktree}
+          worktrees={worktrees}
+        />
+      ) : (
+        <ProjectCommandCenter
+          assignedIdeaIds={assignedIdeaIds}
+          launcherError={launcherError}
+          onCreateIdea={onCreateIdea}
+          onOpenSelectedTarget={onOpenSelectedTarget}
+          onSelectIdea={onSelectIdea}
+          project={project}
+          selectedExplorerTarget={selectedExplorerTarget}
+          selectedTargetPath={selectedTargetPath}
+          selectedWorktree={selectedWorktree}
+          targetIdeas={selectedTargetIdeas}
         />
       )}
-    </Surface>
+    </div>
   );
 }

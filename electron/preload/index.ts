@@ -7,6 +7,7 @@ import {
   type GestureScrollState,
   type ListGithubIdeasRequest,
   type LocalIdeaDraftRecord,
+  type MoveIdeaToWorktreeRequest,
   type OpenPathInAppRequest,
   projectSpaceChannels,
   type ProjectIssueSourceConfig,
@@ -27,6 +28,9 @@ const api: ProjectSpaceApi = {
   },
   exportIdeasToWorktree(request: ExportIdeasToWorktreeRequest) {
     return ipcRenderer.invoke(projectSpaceChannels.exportIdeasToWorktree, request);
+  },
+  moveIdeaToWorktree(request: MoveIdeaToWorktreeRequest) {
+    return ipcRenderer.invoke(projectSpaceChannels.moveIdeaToWorktree, request);
   },
   getAppMeta() {
     return ipcRenderer.invoke(projectSpaceChannels.appMeta);

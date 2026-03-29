@@ -30,8 +30,16 @@ export interface IdeaPresentationRecord {
 export interface EditableIdeaValues {
   body: string;
   evolvesIdeaId: string;
+  githubState: 'closed' | 'open';
   iteration: string;
   title: string;
+}
+
+export type IdeaStateId = 'closed' | 'draft' | 'in-worktree' | 'ready';
+
+export interface IdeaStateMeta {
+  id: IdeaStateId;
+  label: string;
 }
 
 export function getIdeaQualityGate(values: {
@@ -48,6 +56,39 @@ export function getIdeaQualityGate(values: {
     hasIteration,
     hasTitle,
     isReady: hasTitle && hasDescription && hasIteration
+  };
+}
+
+export function getIdeaStateMeta(
+  idea: IdeaPresentationRecord,
+  options?: {
+    assignedToWorktree?: boolean;
+  }
+): IdeaStateMeta {
+  if (idea.githubState === 'closed') {
+    return {
+      id: 'closed',
+      label: 'Closed'
+    };
+  }
+
+  if (options?.assignedToWorktree) {
+    return {
+      id: 'in-worktree',
+      label: 'In worktree'
+    };
+  }
+
+  if (idea.qualityGate.isReady) {
+    return {
+      id: 'ready',
+      label: 'Ready'
+    };
+  }
+
+  return {
+    id: 'draft',
+    label: 'Draft'
   };
 }
 
@@ -89,6 +130,7 @@ export function toEditableIdeaValues(record?: IdeaPresentationRecord): EditableI
   return {
     body: record?.body ?? '',
     evolvesIdeaId: record?.evolvesIdeaId ?? '',
+    githubState: record?.githubState ?? 'open',
     iteration: record?.iteration ?? '',
     title: record?.title ?? ''
   };
@@ -98,13 +140,23 @@ export function applyIdeaValues(
   record: IdeaPresentationRecord,
   values: EditableIdeaValues
 ): IdeaPresentationRecord {
-  const nextRecord = {
-    ...record,
-    body: values.body,
-    evolvesIdeaId: values.evolvesIdeaId.trim() || undefined,
-    iteration: values.iteration,
-    title: values.title
-  };
+  const nextRecord =
+    record.source === 'github'
+      ? {
+          ...record,
+          body: values.body,
+          evolvesIdeaId: values.evolvesIdeaId.trim() || undefined,
+          githubState: values.githubState,
+          iteration: values.iteration,
+          title: values.title
+        }
+      : {
+          ...record,
+          body: values.body,
+          evolvesIdeaId: values.evolvesIdeaId.trim() || undefined,
+          iteration: values.iteration,
+          title: values.title
+        };
 
   return {
     ...nextRecord,

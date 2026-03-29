@@ -1,5 +1,6 @@
 import type { WheelEvent } from 'react';
 import { Button, Surface } from '@heroui/react';
+import type { ProjectMainView } from './project-main-panel';
 import type {
   ExplorerTarget,
   ProjectGroupRecord,
@@ -10,20 +11,29 @@ import type {
 import { SidebarContent } from './sidebar-content';
 import { SidebarQuickActions } from './sidebar-quick-actions';
 import { SpacesDock } from './spaces-dock';
+import type { IdeaPresentationRecord } from '../lib/idea-utils';
 
 interface ProjectSidebarPaneProps {
   activeNavigationItemId: string;
   currentPanelRef: React.RefObject<HTMLDivElement | null>;
   groups: ProjectGroupRecord[];
+  isAppLoading: boolean;
   isOpen: boolean;
+  isPreviewWorktreesLoading: boolean;
+  isWorktreesLoading: boolean;
+  mainView: ProjectMainView;
   navigationItems: ProjectNavigationItem[];
   onCreateIdea(): void;
   onCreateProject(): void;
   onOpenCodexSkills(): void;
   onOpenAppSettings(): void;
   onOpenProjectSettings(): void;
+  onOpenWorktreesView(): void;
   onOpenNewWorktree(): void;
+  onMoveIdeaToWorktree(ideaId: string, targetWorktreeId?: string): void;
+  onOpenIdeasView(): void;
   onResizeStart(event: React.MouseEvent<HTMLButtonElement>): void;
+  onSelectIdea(ideaId: string): void;
   onSelectProject(projectId: string, groupId?: string): void;
   onSelectNavigationItem(itemId: string): void;
   onSelectWorkspace(): void;
@@ -36,8 +46,11 @@ interface ProjectSidebarPaneProps {
   projects: ProjectSpaceRecord[];
   rootItems: ProjectNavigationItem[];
   selectedExplorerTarget: ExplorerTarget;
+  selectedIdeaId: string;
+  unassignedIdeas: IdeaPresentationRecord[];
   selectedProjectId: string;
   titlebarSafeInset: number;
+  worktreeIdeasById: Record<string, IdeaPresentationRecord[]>;
   worktrees: ProjectWorktreeRecord[];
 }
 
@@ -45,15 +58,23 @@ export function ProjectSidebarPane({
   activeNavigationItemId,
   currentPanelRef,
   groups,
+  isAppLoading,
   isOpen,
+  isPreviewWorktreesLoading,
+  isWorktreesLoading,
+  mainView,
   navigationItems,
   onCreateIdea,
   onCreateProject,
   onOpenCodexSkills,
   onOpenAppSettings,
+  onOpenIdeasView,
   onOpenProjectSettings,
+  onOpenWorktreesView,
   onOpenNewWorktree,
+  onMoveIdeaToWorktree,
   onResizeStart,
+  onSelectIdea,
   onSelectProject,
   onSelectNavigationItem,
   onSelectWorkspace,
@@ -66,8 +87,11 @@ export function ProjectSidebarPane({
   projects,
   rootItems,
   selectedExplorerTarget,
+  selectedIdeaId,
+  unassignedIdeas,
   selectedProjectId,
   titlebarSafeInset,
+  worktreeIdeasById,
   worktrees
 }: ProjectSidebarPaneProps) {
   return (
@@ -103,11 +127,23 @@ export function ProjectSidebarPane({
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <div ref={currentPanelRef} className="absolute inset-y-0 left-0 w-full">
           <SidebarContent
+            isInteractive
+            isAppLoading={isAppLoading}
+            mainView={mainView}
+            isWorktreesLoading={isWorktreesLoading}
+            onCreateIdea={onCreateIdea}
+            onMoveIdeaToWorktree={onMoveIdeaToWorktree}
+            onOpenIdeasView={onOpenIdeasView}
             onOpenNewWorktree={onOpenNewWorktree}
+            onOpenWorktreesView={onOpenWorktreesView}
+            onSelectIdea={onSelectIdea}
             onSelectWorkspace={onSelectWorkspace}
             onSelectWorktree={onSelectWorktree}
             project={project}
             selectedExplorerTarget={selectedExplorerTarget}
+            selectedIdeaId={selectedIdeaId}
+            unassignedIdeas={unassignedIdeas}
+            worktreeIdeasById={worktreeIdeasById}
             worktrees={worktrees}
           />
         </div>
@@ -115,11 +151,23 @@ export function ProjectSidebarPane({
         {previewProject ? (
           <div ref={previewPanelRef} className="absolute inset-y-0 w-full">
             <SidebarContent
+              isInteractive={false}
+              isAppLoading={isAppLoading}
+              mainView={mainView}
+              isWorktreesLoading={isPreviewWorktreesLoading}
+              onCreateIdea={() => undefined}
+              onMoveIdeaToWorktree={() => undefined}
+              onOpenIdeasView={() => undefined}
               onOpenNewWorktree={() => undefined}
+              onOpenWorktreesView={() => undefined}
+              onSelectIdea={() => undefined}
               onSelectWorkspace={() => undefined}
               onSelectWorktree={() => undefined}
               project={previewProject}
               selectedExplorerTarget={{ kind: 'workspace' }}
+              selectedIdeaId=""
+              unassignedIdeas={[]}
+              worktreeIdeasById={{}}
               worktrees={previewWorktrees}
             />
           </div>

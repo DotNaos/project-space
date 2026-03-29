@@ -25,6 +25,8 @@ interface UseSidebarSwipeNavigationOptions {
   activeNavigationItemId: string;
   isSidebarOpen: boolean;
   navigationItems: ProjectNavigationItem[];
+  preloadProjectWorktrees(project: ProjectSpaceRecord): Promise<ProjectWorktreeRecord[]>;
+  projectWorktreesById: Record<string, ProjectWorktreeRecord[]>;
   projects: ProjectSpaceRecord[];
   resolveNavigationSelection(itemId: string): SidebarNavigationSelection | null;
   selectNavigationItem(
@@ -39,6 +41,8 @@ export function useSidebarSwipeNavigation({
   activeNavigationItemId,
   isSidebarOpen,
   navigationItems,
+  preloadProjectWorktrees,
+  projectWorktreesById,
   projects,
   resolveNavigationSelection,
   selectNavigationItem,
@@ -46,7 +50,7 @@ export function useSidebarSwipeNavigation({
 }: UseSidebarSwipeNavigationOptions) {
   const [previewDirection, setPreviewDirection] = useState<-1 | 0 | 1>(0);
   const [previewItemId, setPreviewItemId] = useState('');
-  const [previewWorktrees, setPreviewWorktrees] = useState<ProjectWorktreeRecord[]>([]);
+  const [isPreviewWorktreesLoading, setIsPreviewWorktreesLoading] = useState(false);
   const currentPanelRef = useRef<HTMLDivElement | null>(null);
   const previewPanelRef = useRef<HTMLDivElement | null>(null);
   const swipeState = useRef({
@@ -81,6 +85,7 @@ export function useSidebarSwipeNavigation({
       ? projects.find((entry) => entry.id === previewSelection.nextProjectId)
       : undefined;
   }, [previewSelection, projects]);
+  const previewWorktrees = previewProject ? projectWorktreesById[previewProject.id] ?? [] : [];
 
   useEffect(() => {
     const unsubscribe = window.projectSpace.onGestureScrollState((state) => {
@@ -141,25 +146,32 @@ export function useSidebarSwipeNavigation({
   }, [isSidebarOpen]);
 
   useEffect(() => {
-    if (!previewProject || previewProject.kind !== 'workspace') {
-      setPreviewWorktrees([]);
+    if (!previewProject) {
+      setIsPreviewWorktreesLoading(false);
       return;
     }
 
     let canceled = false;
+    if (projectWorktreesById[previewProject.id]) {
+      setIsPreviewWorktreesLoading(false);
+      return;
+    }
 
-    void window.projectSpace.loadProjectWorktrees(previewProject.rootPath).then((nextWorktrees) => {
-      if (canceled) {
-        return;
-      }
+    setIsPreviewWorktreesLoading(true);
 
-      setPreviewWorktrees(nextWorktrees);
-    });
+    void preloadProjectWorktrees(previewProject)
+      .finally(() => {
+        if (canceled) {
+          return;
+        }
+
+        setIsPreviewWorktreesLoading(false);
+      });
 
     return () => {
       canceled = true;
     };
-  }, [previewProject]);
+  }, [previewProject, preloadProjectWorktrees, projectWorktreesById]);
 
   function getRenderedSwipeOffset(offset: number, settling: boolean) {
     if (settling || offset === 0) {
@@ -230,7 +242,7 @@ export function useSidebarSwipeNavigation({
     swipeState.current.isSettling = false;
     setPreviewDirection(0);
     setPreviewItemId('');
-    setPreviewWorktrees([]);
+    setIsPreviewWorktreesLoading(false);
     applySwipeTransform(0, 0, false);
   }
 
@@ -296,7 +308,7 @@ export function useSidebarSwipeNavigation({
       swipeState.current.previewDirection = 0;
       setPreviewDirection(0);
       setPreviewItemId('');
-      setPreviewWorktrees([]);
+      setIsPreviewWorktreesLoading(false);
       return;
     }
 
@@ -306,7 +318,7 @@ export function useSidebarSwipeNavigation({
       swipeState.current.previewDirection = 0;
       setPreviewDirection(0);
       setPreviewItemId('');
-      setPreviewWorktrees([]);
+      setIsPreviewWorktreesLoading(false);
       return;
     }
 
@@ -397,6 +409,7 @@ export function useSidebarSwipeNavigation({
   return {
     currentPanelRef,
     handleSidebarWheel,
+    isPreviewWorktreesLoading,
     previewPanelRef,
     previewProject,
     previewWorktrees

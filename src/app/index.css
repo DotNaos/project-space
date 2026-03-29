@@ -12,7 +12,7 @@
 :root {
   color-scheme: dark;
   color: rgb(244 244 245);
-  background: #111111;
+  background: var(--color-app-sidebar);
   font-family: var(--font-sans);
 }
 
@@ -30,7 +30,7 @@ body,
 
 body {
   min-width: 1200px;
-  background: var(--color-app-canvas);
+  background: var(--color-app-sidebar);
 }
 
 button {
@@ -43,6 +43,32 @@ a:hover,
 summary:hover,
 label[for]:hover {
   cursor: pointer;
+}
+
+[draggable='true'] {
+  cursor: grab;
+}
+
+[draggable='true']:active {
+  cursor: grabbing;
+}
+
+.idea-drag-handle,
+.idea-drag-handle:hover,
+.idea-drag-handle * {
+  cursor: grab !important;
+}
+
+.idea-drag-handle:active,
+.idea-drag-handle:active *,
+.idea-drag-handle[data-dragging='true'],
+.idea-drag-handle[data-dragging='true'] * {
+  cursor: grabbing !important;
+}
+
+body.idea-dragging,
+body.idea-dragging * {
+  cursor: grabbing !important;
 }
 
 * {

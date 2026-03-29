@@ -9,6 +9,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "check": "tsc -b",
+    "test": "tsx --test electron/main/ipc/**/*.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -31,6 +32,7 @@
     "react-devtools-core": "^7.0.1",
     "react-devtools-electron": "^4.7.0",
     "tailwindcss": "^4.1.11",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.2",
     "vite": "^7.0.6",
     "vite-plugin-electron": "^0.29.0",

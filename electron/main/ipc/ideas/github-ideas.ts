@@ -152,7 +152,7 @@ async function resolveGithubRepoRef(projectPath: string) {
   const config = await loadProjectIssueSourceConfig(projectPath);
 
   if (config.kind !== 'github' || !config.url) {
-    throw new Error('This project is not configured to use GitHub issues.');
+    return '';
   }
 
   const repoRef = getGithubRepoRef(config.url);
@@ -206,6 +206,11 @@ export async function listGithubIdeas({
   projectPath
 }: ListGithubIdeasRequest): Promise<GithubIdeaRecord[]> {
   const repoRef = await resolveGithubRepoRef(projectPath);
+
+  if (!repoRef) {
+    return [];
+  }
+
   const output = await runGhCommand([
     'issue',
     'list',
@@ -236,6 +241,11 @@ export async function createGithubIdeaFromDraft({
 
   try {
     const repoRef = await resolveGithubRepoRef(projectPath);
+
+    if (!repoRef) {
+      throw new Error('This project is not configured to use GitHub issues.');
+    }
+
     const iterationLabel = await ensureIterationLabel(repoRef, draft.iteration);
     const args = [
       'issue',
@@ -280,6 +290,12 @@ export async function updateGithubIdea({
 
   try {
     const repoRef = await resolveGithubRepoRef(projectPath);
+
+    if (!repoRef) {
+      throw new Error('This project is not configured to use GitHub issues.');
+    }
+
+    const currentIdea = await fetchGithubIdea(repoRef, String(idea.githubIssueNumber));
     const iterationLabel = await ensureIterationLabel(repoRef, idea.iteration);
     const currentIterationLabels = idea.githubLabels.filter((label) =>
       label.startsWith(iterationLabelPrefix)
@@ -307,6 +323,20 @@ export async function updateGithubIdea({
     }
 
     await runGhCommand(args, repoRef);
+
+    if (currentIdea.githubState !== idea.githubState) {
+      await runGhCommand(
+        [
+          'issue',
+          idea.githubState === 'closed' ? 'close' : 'reopen',
+          String(idea.githubIssueNumber),
+          '-R',
+          repoRef
+        ],
+        repoRef
+      );
+    }
+
     const nextIdea = await fetchGithubIdea(repoRef, String(idea.githubIssueNumber));
 
     return {

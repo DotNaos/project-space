@@ -3,6 +3,7 @@ export const projectSpaceChannels = {
   createGithubIdeaFromDraft: 'ideas:create-github-from-draft',
   deleteLocalIdeaDraft: 'ideas:delete-local-draft',
   exportIdeasToWorktree: 'ideas:export-to-worktree',
+  moveIdeaToWorktree: 'ideas:move-to-worktree',
   listGithubIdeas: 'ideas:list-github',
   loadLocalIdeaDrafts: 'ideas:load-local-drafts',
   loadProjectIssueSourceConfig: 'ideas:load-project-issue-source-config',
@@ -112,6 +113,7 @@ export interface ProjectsState {
 }
 
 export interface ProjectWorktreeRecord {
+  ideaIds: string[];
   id: string;
   name: string;
   path: string;
@@ -199,8 +201,14 @@ export type GithubIdeaMutationResult =
     };
 
 export interface ExportIdeasToWorktreeRequest {
-  ideas: GithubIdeaRecord[];
+  ideas: IdeaRecord[];
   worktreePath: string;
+}
+
+export interface MoveIdeaToWorktreeRequest {
+  idea: IdeaRecord;
+  targetWorktreePath?: string;
+  worktreePaths: string[];
 }
 
 export type ProjectIssueProviderKind = 'azure-devops' | 'github' | 'unconfigured';
@@ -244,6 +252,7 @@ export interface ProjectSpaceApi {
   loadProjectDiscovery(): Promise<ProjectDiscoveryResult>;
   loadProjectsState(): Promise<ProjectsState>;
   loadProjectWorktrees(projectPath: string): Promise<ProjectWorktreeRecord[]>;
+  moveIdeaToWorktree(request: MoveIdeaToWorktreeRequest): Promise<void>;
   openCodexSkills(): Promise<OpenPathInAppResult>;
   openExternalUrl(url: string): Promise<OpenPathInAppResult>;
   openPathInApp(request: OpenPathInAppRequest): Promise<OpenPathInAppResult>;

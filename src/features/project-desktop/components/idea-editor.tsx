@@ -7,26 +7,21 @@ import {
   Text,
   TextArea
 } from '@heroui/react';
-import { ExternalLink, RefreshCw, Save, Share2 } from 'lucide-react';
+import { ExternalLink, RefreshCw, Save } from 'lucide-react';
 
-import type { ProjectWorktreeRecord } from '@/shared/electron-api';
-
-import type { EditableIdeaValues, IdeaPresentationRecord } from '../lib/idea-utils';
+import { getIdeaStateMeta, type EditableIdeaValues, type IdeaPresentationRecord } from '../lib/idea-utils';
 
 interface IdeaEditorProps {
+  assignedIdeaIds: string[];
   draftValues: EditableIdeaValues;
-  exportMessage: string;
   isDirty: boolean;
-  isExporting: boolean;
   isSaving: boolean;
-  onExportToWorktree(): void;
   onSave(): void;
   onUpdateValue<Key extends keyof EditableIdeaValues>(
     key: Key,
     value: EditableIdeaValues[Key]
   ): void;
   selectedIdea?: IdeaPresentationRecord;
-  selectedWorktree?: ProjectWorktreeRecord;
   syncError?: string;
 }
 
@@ -35,16 +30,13 @@ function formatSourceLabel(idea: IdeaPresentationRecord) {
 }
 
 export function IdeaEditor({
+  assignedIdeaIds,
   draftValues,
-  exportMessage,
   isDirty,
-  isExporting,
   isSaving,
-  onExportToWorktree,
   onSave,
   onUpdateValue,
   selectedIdea,
-  selectedWorktree,
   syncError
 }: IdeaEditorProps) {
   if (!selectedIdea) {
@@ -69,10 +61,9 @@ export function IdeaEditor({
   }
 
   const canSave = selectedIdea.source === 'local' || Boolean(draftValues.title.trim());
-  const canExport =
-    selectedIdea.source === 'github' &&
-    selectedIdea.qualityGate.isReady &&
-    Boolean(selectedWorktree);
+  const state = getIdeaStateMeta(selectedIdea, {
+    assignedToWorktree: assignedIdeaIds.includes(selectedIdea.id)
+  });
   const titlePlaceholder =
     selectedIdea.source === 'github'
       ? 'Give this idea a clear title'
@@ -83,36 +74,38 @@ export function IdeaEditor({
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 max-w-[28rem]">
-            {selectedIdea.githubIssueUrl ? (
-              <a
-                href={selectedIdea.githubIssueUrl}
-                rel="noreferrer"
-                target="_blank"
-                className="inline-flex max-w-full items-center gap-2 text-sm text-zinc-300 transition hover:text-zinc-200"
+            <div className="flex flex-wrap items-center gap-2">
+              {selectedIdea.githubIssueUrl ? (
+                <a
+                  href={selectedIdea.githubIssueUrl}
+                  rel="noreferrer"
+                  target="_blank"
+                  className="inline-flex max-w-full items-center gap-2 text-sm text-zinc-300 transition hover:text-zinc-200"
+                >
+                  <ExternalLink className="h-4 w-4 shrink-0" strokeWidth={1.8} />
+                  <span className="truncate">{formatSourceLabel(selectedIdea)}</span>
+                </a>
+              ) : (
+                <Text className="truncate text-sm text-zinc-500">{formatSourceLabel(selectedIdea)}</Text>
+              )}
+
+              <span
+                className={
+                  state.id === 'in-worktree'
+                    ? 'rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-950'
+                    : state.id === 'ready'
+                      ? 'rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-200'
+                      : state.id === 'closed'
+                        ? 'rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-500'
+                        : 'rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-400'
+                }
               >
-                <ExternalLink className="h-4 w-4 shrink-0" strokeWidth={1.8} />
-                <span className="truncate">{formatSourceLabel(selectedIdea)}</span>
-              </a>
-            ) : (
-              <Text className="truncate text-sm text-zinc-500">{formatSourceLabel(selectedIdea)}</Text>
-            )}
+                {state.label}
+              </span>
+            </div>
           </div>
 
           <div className="flex items-center gap-3">
-            <Button
-              variant="secondary"
-              isDisabled={!canExport || isExporting}
-              onPress={onExportToWorktree}
-              className="h-11 rounded-2xl border border-zinc-800/80 bg-zinc-950/70 px-4 text-zinc-200"
-            >
-              {isExporting ? (
-                <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={1.9} />
-              ) : (
-                <Share2 className="h-4 w-4" strokeWidth={1.9} />
-              )}
-              <span>{selectedWorktree ? 'Export' : 'Choose worktree'}</span>
-            </Button>
-
             <Button
               variant="primary"
               isDisabled={!canSave}
@@ -166,15 +159,6 @@ export function IdeaEditor({
                 className="min-h-[24rem] rounded-2xl border border-transparent bg-transparent px-4 py-3 font-mono text-[15px] leading-7 text-zinc-200 placeholder:text-zinc-600 shadow-none outline-none ring-0 transition-colors duration-200 focus:border-zinc-800/90 focus:bg-zinc-950/28 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 data-[focus-visible=true]:border-zinc-800/90 data-[focus-visible=true]:bg-zinc-950/28 data-[focus-visible=true]:shadow-none"
               />
             </div>
-
-            {exportMessage ? (
-              <Surface
-                variant="tertiary"
-                className="rounded-2xl border border-zinc-400/20 bg-zinc-500/10 px-4 py-3 text-sm text-zinc-300"
-              >
-                {exportMessage}
-              </Surface>
-            ) : null}
 
             {isDirty ? (
               <Surface

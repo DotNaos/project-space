@@ -23,6 +23,14 @@ import {
   type ToolLaunchRequest,
   type ToolLaunchResult
 } from '../../../src/shared/electron-api';
+import {
+  loadWorktreeIdeaIds,
+} from './ideas/idea-storage';
+import {
+  createWorktreeRecord,
+  inferProjectNameFromGitData,
+  parseWorktreeListOutput
+} from './project-git-metadata';
 import { registerIdeaHandlers } from './register-idea-handlers';
 
 const projectSpaceDirectory = `${homedir()}/.project-space`;
@@ -259,19 +267,57 @@ function makeNodeId(rootPath: string, path: string) {
   return relativePath.length > 0 ? relativePath.replace(/[\\/]+/g, '__') : basename(path);
 }
 
-function createProjectRecord(
+async function inferProjectName(path: string) {
+  try {
+    const remoteUrl = await runCommand('git', ['-C', path, 'remote', 'get-url', 'origin']);
+    return inferProjectNameFromGitData({
+      fallbackPath: path,
+      remoteUrl
+    });
+  } catch {
+    // fall through to other repo-derived names
+  }
+
+  try {
+    const gitCommonDir = (
+      await runCommand('git', ['-C', path, 'rev-parse', '--path-format=absolute', '--git-common-dir'])
+    ).trim();
+    return inferProjectNameFromGitData({
+      fallbackPath: path,
+      gitCommonDir
+    });
+  } catch {
+    // fall through to other repo-derived names
+  }
+
+  try {
+    const topLevelPath = (await runCommand('git', ['-C', path, 'rev-parse', '--show-toplevel'])).trim();
+    return inferProjectNameFromGitData({
+      fallbackPath: path,
+      topLevelPath
+    });
+  } catch {
+    // fall through to folder name
+  }
+
+  return inferProjectNameFromGitData({
+    fallbackPath: path
+  });
+}
+
+async function createProjectRecord(
   rootPath: string,
   path: string,
   kind: ProjectSpaceRecord['kind'],
   groupId?: string
-): ProjectSpaceRecord {
+): Promise<ProjectSpaceRecord> {
   const resolvedPath = resolve(path);
 
   return {
     id: makeNodeId(rootPath, resolvedPath),
     kind,
     groupId,
-    name: basename(resolvedPath),
+    name: await inferProjectName(resolvedPath),
     rootPath: resolvedPath
   };
 }
@@ -341,7 +387,7 @@ async function discoverProjectChildren(groupPath: string): Promise<ProjectSpaceR
       continue;
     }
 
-    projects.push(createProjectRecord(discoveryRoot, childPath, kind, groupId));
+    projects.push(await createProjectRecord(discoveryRoot, childPath, kind, groupId));
   }
 
   return projects.sort((left, right) => left.name.localeCompare(right.name));
@@ -418,7 +464,7 @@ async function discoverProjects(): Promise<ProjectDiscoveryResult> {
       (await shouldTreatAsWorktreeProject(rootChildPath, childProjects));
 
     if (treatAsWorktreeProject) {
-      const project = createProjectRecord(discoveryRoot, rootChildPath, 'workspace');
+      const project = await createProjectRecord(discoveryRoot, rootChildPath, 'workspace');
 
       projects.push(project);
       rootItems.push({
@@ -454,7 +500,7 @@ async function discoverProjects(): Promise<ProjectDiscoveryResult> {
     }
 
     if (projectKind) {
-      const project = createProjectRecord(discoveryRoot, rootChildPath, projectKind);
+      const project = await createProjectRecord(discoveryRoot, rootChildPath, projectKind);
 
       projects.push(project);
       rootItems.push({
@@ -495,99 +541,81 @@ async function discoverProjects(): Promise<ProjectDiscoveryResult> {
   };
 }
 
-function createBaseWorktree(projectPath: string): ProjectWorktreeRecord {
-  const resolvedPath = resolve(projectPath);
+async function readWorktreeBranchName(worktreePath: string): Promise<string | undefined> {
+  try {
+    const branchName = (
+      await runCommand('git', ['-C', worktreePath, 'rev-parse', '--abbrev-ref', 'HEAD'])
+    ).trim();
 
-  return {
-    id: resolvedPath,
-    name: basename(resolvedPath),
-    path: resolvedPath,
-    isBase: true,
-    status: 'ready'
-  };
+    return branchName || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
-function parseWorktreeList(output: string, basePath: string): ProjectWorktreeRecord[] {
-  const normalizedBasePath = resolve(basePath);
+async function createBaseWorktree(projectPath: string): Promise<ProjectWorktreeRecord> {
+  const resolvedPath = resolve(projectPath);
+  const branchName = await readWorktreeBranchName(resolvedPath);
 
-  const worktrees = output
-    .trim()
-    .split('\n\n')
-    .reduce<ProjectWorktreeRecord[]>((entries, block) => {
-      const lines = block.split('\n').filter(Boolean);
-      const worktreeLine = lines.find((line) => line.startsWith('worktree '));
-      if (!worktreeLine) {
-        return entries;
-      }
-
-      const worktreePath = resolve(worktreeLine.slice('worktree '.length));
-      const branchLine = lines.find((line) => line.startsWith('branch '));
-      const branchRef = branchLine?.slice('branch '.length).trim();
-
-      entries.push({
-        branchName: branchRef?.replace('refs/heads/', ''),
-        id: worktreePath,
-        isBase: worktreePath === normalizedBasePath,
-        name: basename(worktreePath),
-        path: worktreePath,
-        status: 'ready'
-      });
-
-      return entries;
-    }, []);
-
-  return worktrees.sort((left, right) => {
-    if (left.isBase !== right.isBase) {
-      return left.isBase ? -1 : 1;
-    }
-
-    return left.name.localeCompare(right.name);
+  const worktree = createWorktreeRecord({
+    branchRef: branchName,
+    isBase: true,
+    path: resolvedPath,
+    status: 'ready'
   });
+
+  return {
+    ...worktree,
+    ideaIds: loadWorktreeIdeaIds(resolvedPath)
+  };
 }
 
 async function scanProjectContainerWorktrees(projectPath: string): Promise<ProjectWorktreeRecord[]> {
   const entries = await listDirectoryEntries(projectPath);
 
-  return entries
-    .filter((entry) => entry.isDirectory())
-    .reduce<ProjectWorktreeRecord[]>((worktrees, entry) => {
-      const worktreePath = resolve(projectPath, entry.name);
-      const gitPath = join(worktreePath, '.git');
+  const worktrees: ProjectWorktreeRecord[] = [];
 
-      if (!existsSync(gitPath)) {
-        return worktrees;
-      }
+  for (const entry of entries.filter((candidate) => candidate.isDirectory())) {
+    const worktreePath = resolve(projectPath, entry.name);
+    const gitPath = join(worktreePath, '.git');
 
-      const isBase = entry.name === 'base';
-      let status: ProjectWorktreeRecord['status'] = 'ready';
+    if (!existsSync(gitPath)) {
+      continue;
+    }
 
-      try {
-        const gitPointer = readFileSync(gitPath, 'utf-8').trim();
+    const isBase = entry.name === 'base';
+    const branchName = await readWorktreeBranchName(worktreePath);
+    let status: ProjectWorktreeRecord['status'] = 'ready';
 
-        if (gitPointer.startsWith('gitdir:')) {
-          const gitDirPath = gitPointer.slice('gitdir:'.length).trim();
-          const resolvedGitDir = gitDirPath.startsWith('/')
-            ? gitDirPath
-            : resolve(worktreePath, gitDirPath);
+    try {
+      const gitPointer = readFileSync(gitPath, 'utf-8').trim();
 
-          if (!existsSync(resolvedGitDir)) {
-            status = 'broken';
-          }
+      if (gitPointer.startsWith('gitdir:')) {
+        const gitDirPath = gitPointer.slice('gitdir:'.length).trim();
+        const resolvedGitDir = gitDirPath.startsWith('/')
+          ? gitDirPath
+          : resolve(worktreePath, gitDirPath);
+
+        if (!existsSync(resolvedGitDir)) {
+          status = 'broken';
         }
-      } catch {
-        status = 'ready';
       }
+    } catch {
+      status = 'ready';
+    }
 
-      worktrees.push({
-        id: worktreePath,
+    worktrees.push({
+      ...createWorktreeRecord({
+        branchRef: branchName,
         isBase,
-        name: entry.name,
         path: worktreePath,
         status
-      });
+      }),
+      ideaIds: loadWorktreeIdeaIds(worktreePath)
+    });
+  }
 
-      return worktrees;
-    }, [])
+  return worktrees
     .sort((left, right) => {
       if (left.isBase !== right.isBase) {
         return left.isBase ? -1 : 1;
@@ -621,9 +649,12 @@ async function loadProjectWorktrees(projectPath: string): Promise<ProjectWorktre
       'list',
       '--porcelain'
     ]);
-    const parsedWorktrees = parseWorktreeList(worktreeList, basePath);
+    const parsedWorktrees = parseWorktreeListOutput(worktreeList, basePath).map((worktree) => ({
+      ...worktree,
+      ideaIds: loadWorktreeIdeaIds(worktree.path)
+    }));
 
-    return parsedWorktrees.length > 0 ? parsedWorktrees : [createBaseWorktree(basePath)];
+    return parsedWorktrees.length > 0 ? parsedWorktrees : [await createBaseWorktree(basePath)];
   } catch {
     try {
       const scannedWorktrees = await scanProjectContainerWorktrees(resolvedProjectPath);

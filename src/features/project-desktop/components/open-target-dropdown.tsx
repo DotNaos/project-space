@@ -103,13 +103,16 @@ export function OpenTargetDropdown({
 
                 <Dropdown>
                     <DropdownTrigger isDisabled={disabled || apps.length === 0}>
-                        <Button
-                            variant="ghost"
-                            isDisabled={disabled || apps.length === 0}
-                            className="h-11 w-11 min-w-0 rounded-xl border-0 bg-transparent px-0 text-zinc-400 hover:bg-zinc-900/55 hover:text-zinc-100"
+                        <div
+                            className={cn(
+                                'flex h-11 w-11 min-w-0 items-center justify-center rounded-xl text-zinc-400 transition',
+                                disabled || apps.length === 0
+                                    ? 'opacity-40'
+                                    : 'hover:bg-zinc-900/55 hover:text-zinc-100'
+                            )}
                         >
                             <ChevronDown className="h-4 w-4" strokeWidth={1.9} />
-                        </Button>
+                        </div>
                     </DropdownTrigger>
 
                     <DropdownPopover

@@ -74,25 +74,19 @@ export function SpacesDock({
 
   return (
     <div className="border-t border-zinc-800 px-4 py-4">
-      <div className="flex items-center gap-2">
-        <Button
-          aria-label="Open app settings"
-          isIconOnly
-          size="sm"
-          variant="ghost"
-          onPress={onOpenAppSettings}
-          className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-zinc-500 transition hover:bg-zinc-800/70 hover:text-zinc-100"
-        >
-          <Settings2 className="h-4 w-4" strokeWidth={1.9} />
-        </Button>
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <Button
+            aria-label="Open app settings"
+            isIconOnly
+            size="sm"
+            variant="ghost"
+            onPress={onOpenAppSettings}
+            className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-zinc-500 transition hover:bg-zinc-800/70 hover:text-zinc-100"
+          >
+            <Settings2 className="h-4 w-4" strokeWidth={1.9} />
+          </Button>
 
-        <ProjectSpacesPicker
-          groups={groups}
-          projects={projects}
-          rootItems={rootItems}
-          selectedProjectId={selectedProjectId}
-          onSelectProject={onSelectProject}
-        >
           <div className="flex flex-1 items-center justify-center gap-2 rounded-2xl px-2 py-1">
             {canNavigateUp && onNavigateUp ? (
               <Button
@@ -175,7 +169,15 @@ export function SpacesDock({
               </Button>
             ) : null}
           </div>
-        </ProjectSpacesPicker>
+        </div>
+
+        <ProjectSpacesPicker
+          groups={groups}
+          projects={projects}
+          rootItems={rootItems}
+          selectedProjectId={selectedProjectId}
+          onSelectProject={onSelectProject}
+        />
       </div>
     </div>
   );
