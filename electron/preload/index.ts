@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 import {
+  type CreateProjectWorktreeRequest,
   type CreateGithubIdeaFromDraftRequest,
   type DeleteLocalIdeaDraftRequest,
   type ExportIdeasToWorktreeRequest,
@@ -20,6 +21,9 @@ import {
 } from '../../src/shared/electron-api';
 
 const api: ProjectSpaceApi = {
+  createProjectWorktree(request: CreateProjectWorktreeRequest) {
+    return ipcRenderer.invoke(projectSpaceChannels.createProjectWorktree, request);
+  },
   createGithubIdeaFromDraft(request: CreateGithubIdeaFromDraftRequest) {
     return ipcRenderer.invoke(projectSpaceChannels.createGithubIdeaFromDraft, request);
   },

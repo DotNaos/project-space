@@ -26,6 +26,17 @@ function normalizePath(path: string) {
   return path.replace(/\/+$/, '');
 }
 
+function getParentPath(path: string) {
+  const normalizedPath = normalizePath(path);
+  const lastSlashIndex = normalizedPath.lastIndexOf('/');
+
+  if (lastSlashIndex <= 0) {
+    return normalizedPath;
+  }
+
+  return normalizedPath.slice(0, lastSlashIndex);
+}
+
 function findMatchingProject(projects: ProjectSpaceRecord[], path: string) {
   const normalizedPath = normalizePath(path);
 
@@ -42,6 +53,14 @@ function getProjectNavigationView(currentView: ProjectMainView) {
   return currentView === 'worktrees' ? 'worktrees' : 'ideas';
 }
 
+function slugifyWorktreeSegment(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 export function useProjectDesktop() {
   const [mainView, setMainView] = useState<ProjectMainView>('ideas');
   const [discovery, setDiscovery] = useState<ProjectDiscoveryResult>(emptyDiscovery);
@@ -55,6 +74,11 @@ export function useProjectDesktop() {
   const [launcherError, setLauncherError] = useState('');
   const [ideaExportMessage, setIdeaExportMessage] = useState('');
   const [isIdeaExporting, setIsIdeaExporting] = useState(false);
+  const [isCreatingWorktree, setIsCreatingWorktree] = useState(false);
+  const [isCreatingWorktreeSubmitting, setIsCreatingWorktreeSubmitting] = useState(false);
+  const [createWorktreeBranchName, setCreateWorktreeBranchNameState] = useState('codex/');
+  const [createWorktreeFolderName, setCreateWorktreeFolderNameState] = useState('');
+  const [createWorktreeError, setCreateWorktreeError] = useState('');
   const [projectWorktrees, setProjectWorktrees] = useState<
     Record<string, ProjectWorktreeRecord[]>
   >({});
@@ -115,8 +139,12 @@ export function useProjectDesktop() {
       : 'Workspace';
   const issueSource = useProjectIssueSource(project);
   const ideas = useProjectIdeas(project, issueSource.config);
+  const activeSidebarIdeas = useMemo(
+    () => ideas.ideas.filter((idea) => idea.githubState !== 'closed'),
+    [ideas.ideas]
+  );
   const worktreeIdeasById = useMemo<Record<string, IdeaPresentationRecord[]>>(() => {
-    const visibleIdeas = ideas.ideas;
+    const visibleIdeas = activeSidebarIdeas;
 
     if (worktrees.length === 0 || visibleIdeas.length === 0) {
       return {};
@@ -143,7 +171,7 @@ export function useProjectDesktop() {
     }
 
     return ideaGroups;
-  }, [ideas.ideas, worktrees]);
+  }, [activeSidebarIdeas, worktrees]);
   const assignedIdeaIds = useMemo(() => {
     return [
       ...new Set(
@@ -154,14 +182,14 @@ export function useProjectDesktop() {
     ];
   }, [worktrees]);
   const unassignedIdeas = useMemo(() => {
-    if (ideas.ideas.length === 0) {
+    if (activeSidebarIdeas.length === 0) {
       return [];
     }
 
     const assignedIdeaIdSet = new Set(assignedIdeaIds);
 
-    return ideas.ideas.filter((idea) => !assignedIdeaIdSet.has(idea.id));
-  }, [assignedIdeaIds, ideas.ideas]);
+    return activeSidebarIdeas.filter((idea) => !assignedIdeaIdSet.has(idea.id));
+  }, [activeSidebarIdeas, assignedIdeaIds]);
   const selectedTargetIdeas = useMemo(() => {
     if (selectedExplorerTarget.kind === 'worktree' && selectedWorktree) {
       return worktreeIdeasById[selectedWorktree.id] ?? [];
@@ -169,6 +197,20 @@ export function useProjectDesktop() {
 
     return unassignedIdeas;
   }, [selectedExplorerTarget.kind, selectedWorktree, unassignedIdeas, worktreeIdeasById]);
+  const createWorktreeTargetPath = useMemo(() => {
+    if (!project) {
+      return '';
+    }
+
+    const baseWorktree = worktrees.find((worktree) => worktree.isBase);
+    const basePath = baseWorktree?.path ?? project.rootPath;
+
+        if (!createWorktreeFolderName.trim()) {
+      return '';
+    }
+
+    return `${getParentPath(basePath)}/${createWorktreeFolderName.trim()}`;
+  }, [createWorktreeFolderName, project, worktrees]);
 
   useEffect(() => {
     projectWorktreesRef.current = projectWorktrees;
@@ -558,6 +600,25 @@ export function useProjectDesktop() {
     setLauncherError(result.status === 'error' ? result.message ?? 'Could not open path.' : '');
   }
 
+  async function openWorktreeInSelectedApp(worktreeId: string) {
+    if (!selectedLauncherApp) {
+      return;
+    }
+
+    const worktree = worktrees.find((entry) => entry.id === worktreeId);
+
+    if (!worktree) {
+      return;
+    }
+
+    const result = await window.projectSpace.openPathInApp({
+      appId: selectedLauncherApp.id,
+      path: worktree.path
+    });
+
+    setLauncherError(result.status === 'error' ? result.message ?? 'Could not open path.' : '');
+  }
+
   async function openCodexSkills() {
     const result = await window.projectSpace.openCodexSkills();
 
@@ -571,16 +632,16 @@ export function useProjectDesktop() {
       return;
     }
 
-    const result = await window.projectSpace.openPathInApp({
-      appId: 'terminal',
-      path: project.rootPath
-    });
+    setMainView('worktrees');
+    setIsCreatingWorktree(true);
+    setCreateWorktreeError('');
+    setCreateWorktreeBranchNameState((current) => {
+      if (current.trim()) {
+        return current;
+      }
 
-    setLauncherError(
-      result.status === 'error'
-        ? result.message ?? 'Could not open the project in Terminal.'
-        : ''
-    );
+      return 'codex/';
+    });
   }
 
   async function createIdea() {
@@ -643,12 +704,92 @@ export function useProjectDesktop() {
     updateIdeaAssignmentInWorktrees(project.id, ideaId, targetWorktreeId);
   }
 
+  async function deleteIdea(ideaId: string) {
+    if (!project) {
+      return;
+    }
+
+    const idea = ideas.ideas.find((entry) => entry.id === ideaId);
+
+    if (idea && worktrees.length > 0) {
+      await window.projectSpace.moveIdeaToWorktree({
+        idea: idea.source === 'github' ? toGithubIdea(idea) : toLocalIdeaDraft(idea),
+        targetWorktreePath: undefined,
+        worktreePaths: worktrees.map((worktree) => worktree.path)
+      });
+    }
+
+    updateIdeaAssignmentInWorktrees(project.id, ideaId, undefined);
+    await ideas.deleteIdea(ideaId);
+  }
+
   function openIdeasView() {
     setMainView('ideas');
   }
 
   function openWorktreesView() {
     setMainView('worktrees');
+  }
+
+  function cancelCreateWorktree() {
+    setIsCreatingWorktree(false);
+    setCreateWorktreeError('');
+  }
+
+  async function submitCreateWorktree() {
+    if (!project) {
+      return;
+    }
+
+    const nextBranchName = createWorktreeBranchName.trim();
+    const nextFolderName = slugifyWorktreeSegment(createWorktreeFolderName);
+
+    if (!nextBranchName) {
+      setCreateWorktreeError('Enter a branch name first.');
+      return;
+    }
+
+    if (!nextFolderName) {
+      setCreateWorktreeError('Enter a folder name first.');
+      return;
+    }
+
+    setIsCreatingWorktreeSubmitting(true);
+    setCreateWorktreeError('');
+
+    try {
+      const nextWorktrees = await window.projectSpace.createProjectWorktree({
+        branchName: nextBranchName,
+        projectPath: project.rootPath,
+        worktreePathName: nextFolderName
+      });
+
+      setProjectWorktrees((current) => ({
+        ...current,
+        [project.id]: nextWorktrees
+      }));
+
+      const createdWorktree = nextWorktrees.find(
+        (worktree) => !worktree.isBase && (worktree.branchName?.trim() || worktree.name) === nextBranchName
+      );
+
+      setIsCreatingWorktree(false);
+      setCreateWorktreeFolderNameState('');
+      setLauncherError('');
+
+      if (createdWorktree) {
+        setSelectedExplorerTarget({
+          kind: 'worktree',
+          worktreeId: createdWorktree.id
+        });
+      }
+    } catch (error) {
+      setCreateWorktreeError(
+        error instanceof Error ? error.message : 'Could not create the worktree.'
+      );
+    } finally {
+      setIsCreatingWorktreeSubmitting(false);
+    }
   }
 
   function openProjectSettings() {
@@ -666,6 +807,7 @@ export function useProjectDesktop() {
     activeNavigationItemId,
     createIdea,
     createProject,
+    deleteIdea,
     discoveryRoot: discovery.rootPath,
     groups: discovery.groups,
     groupedProjects,
@@ -673,6 +815,10 @@ export function useProjectDesktop() {
     hasLoaded,
     ideaDraftValues: ideas.draftValues,
     ideaExportMessage,
+    createWorktreeBranchName,
+    createWorktreeError,
+    createWorktreeFolderName,
+    createWorktreeTargetPath,
     issueSourceConfig: issueSource.config,
     issueSourceDraftKind: issueSource.draftKind,
     issueSourceDraftUrl: issueSource.draftUrl,
@@ -686,6 +832,8 @@ export function useProjectDesktop() {
     isIdeaSaving: ideas.isSaving,
     isIdeasDirty: ideas.isDirty,
     isIdeasLoading: ideas.isLoading,
+    isCreatingWorktree,
+    isCreatingWorktreeSubmitting,
     isWorktreesLoading,
     launcherApps,
     launcherError,
@@ -700,6 +848,7 @@ export function useProjectDesktop() {
     openProjectSettings,
     openNewWorktreeWorkspace,
     openSelectedTargetInApp,
+    openWorktreeInSelectedApp,
     project,
     loadWorktreesForProject,
     projectWorktrees,
@@ -723,11 +872,34 @@ export function useProjectDesktop() {
     setIssueSourceDraftUrl: issueSource.setDraftUrl,
     saveIssueSourceConfig: issueSource.save,
     setIdeaDraftValue: ideas.setDraftValue,
+    setCreateWorktreeBranchName(value: string) {
+      setCreateWorktreeBranchNameState(value);
+      setCreateWorktreeFolderNameState((current) => {
+        if (current.trim()) {
+          return current;
+        }
+
+        const branchLeaf = value.split('/').filter(Boolean).at(-1) ?? '';
+        const projectSlug = slugifyWorktreeSegment(project?.name ?? '');
+        const branchSlug = slugifyWorktreeSegment(branchLeaf);
+
+        if (!projectSlug && !branchSlug) {
+          return '';
+        }
+
+        return [projectSlug, branchSlug].filter(Boolean).join('-');
+      });
+    },
+    setCreateWorktreeFolderName(value: string) {
+      setCreateWorktreeFolderNameState(slugifyWorktreeSegment(value));
+    },
     saveIdea: ideas.saveIdea,
+    submitCreateWorktree,
     settingsTab,
     showClosedIdeas: ideas.showClosedIssues,
     syncErrors: ideas.syncErrors,
     worktrees,
+    cancelCreateWorktree,
     setShowClosedIdeas: ideas.setShowClosedIssues,
     selectLauncherApp(appId: string) {
       setSelectedLauncherAppId(appId);

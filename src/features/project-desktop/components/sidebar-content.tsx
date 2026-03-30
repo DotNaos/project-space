@@ -14,9 +14,11 @@ interface SidebarContentProps {
   isWorktreesLoading?: boolean;
   mainView: ProjectMainView;
   onCreateIdea(): void;
+  onDeleteIdea(ideaId: string): void;
   onMoveIdeaToWorktree(ideaId: string, targetWorktreeId?: string): void;
   onOpenIdeasView(): void;
   onOpenNewWorktree(): void;
+  onOpenWorktreeInApp(worktreeId: string): void;
   onOpenWorktreesView(): void;
   onSelectIdea(ideaId: string): void;
   onSelectWorkspace(): void;
@@ -35,9 +37,11 @@ export const SidebarContent = memo(function SidebarContent({
   isWorktreesLoading = false,
   mainView,
   onCreateIdea,
+  onDeleteIdea,
   onMoveIdeaToWorktree,
   onOpenIdeasView,
   onOpenNewWorktree,
+  onOpenWorktreeInApp,
   onOpenWorktreesView,
   onSelectIdea,
   onSelectWorkspace,
@@ -56,9 +60,11 @@ export const SidebarContent = memo(function SidebarContent({
       isWorktreesLoading={isWorktreesLoading}
       mainView={mainView}
       onCreateIdea={onCreateIdea}
+      onDeleteIdea={onDeleteIdea}
       onMoveIdeaToWorktree={onMoveIdeaToWorktree}
       onOpenIdeasView={onOpenIdeasView}
       onOpenNewWorktree={onOpenNewWorktree}
+      onOpenWorktreeInApp={onOpenWorktreeInApp}
       onOpenWorktreesView={onOpenWorktreesView}
       onSelectIdea={onSelectIdea}
       onSelectWorkspace={onSelectWorkspace}

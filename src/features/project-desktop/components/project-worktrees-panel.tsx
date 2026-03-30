@@ -1,5 +1,11 @@
-import { Button, ScrollShadow, Surface, Text } from '@heroui/react';
-import { ArrowUpRight, FolderGit2, GitBranch, GitCommitHorizontal } from 'lucide-react';
+import { Button, Input, ScrollShadow, Surface, Text } from '@heroui/react';
+import {
+  ArrowUpRight,
+  FolderGit2,
+  FolderPlus,
+  GitBranch,
+  GitCommitHorizontal
+} from 'lucide-react';
 
 import type {
   ExplorerTarget,
@@ -9,8 +15,18 @@ import type {
 import { cn } from '@/lib/utils';
 
 interface ProjectWorktreesPanelProps {
+  createWorktreeBranchName: string;
+  createWorktreeError: string;
+  createWorktreeFolderName: string;
+  createWorktreeTargetPath: string;
+  isCreatingWorktree: boolean;
+  isCreatingWorktreeSubmitting: boolean;
   launcherError: string;
+  onCancelCreateWorktree(): void;
   onOpenSelectedTarget(): void;
+  onSubmitCreateWorktree(): void;
+  onUpdateCreateWorktreeBranchName(value: string): void;
+  onUpdateCreateWorktreeFolderName(value: string): void;
   project?: ProjectSpaceRecord;
   selectedExplorerTarget: ExplorerTarget;
   selectedTargetPath: string;
@@ -27,8 +43,18 @@ function getIdeasLabel(count: number) {
 }
 
 export function ProjectWorktreesPanel({
+  createWorktreeBranchName,
+  createWorktreeError,
+  createWorktreeFolderName,
+  createWorktreeTargetPath,
+  isCreatingWorktree,
+  isCreatingWorktreeSubmitting,
   launcherError,
+  onCancelCreateWorktree,
   onOpenSelectedTarget,
+  onSubmitCreateWorktree,
+  onUpdateCreateWorktreeBranchName,
+  onUpdateCreateWorktreeFolderName,
   project,
   selectedExplorerTarget,
   selectedTargetPath,
@@ -197,6 +223,87 @@ export function ProjectWorktreesPanel({
         </div>
 
         <aside className="flex min-h-0 flex-col border-l border-zinc-800/70 pl-6">
+          {isCreatingWorktree ? (
+            <Surface
+              variant="secondary"
+              className="mb-6 rounded-[1.6rem] border border-zinc-800/80 bg-zinc-950/45 px-5 py-5"
+            >
+              <div className="flex items-center gap-3 text-zinc-400">
+                <FolderPlus className="h-4 w-4 text-zinc-500" strokeWidth={1.9} />
+                <Text className="text-sm font-medium text-current">
+                  Create worktree
+                </Text>
+              </div>
+
+              <div className="mt-5 space-y-4">
+                <label className="block space-y-2">
+                  <Text className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+                    Branch
+                  </Text>
+                  <Input
+                    aria-label="Branch name"
+                    value={createWorktreeBranchName}
+                    variant="secondary"
+                    onChange={(event) => {
+                      onUpdateCreateWorktreeBranchName(event.currentTarget.value);
+                    }}
+                  />
+                </label>
+
+                <label className="block space-y-2">
+                  <Text className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+                    Folder
+                  </Text>
+                  <Input
+                    aria-label="Worktree folder name"
+                    value={createWorktreeFolderName}
+                    variant="secondary"
+                    onChange={(event) => {
+                      onUpdateCreateWorktreeFolderName(event.currentTarget.value);
+                    }}
+                  />
+                </label>
+
+                {createWorktreeTargetPath ? (
+                  <div className="rounded-2xl border border-zinc-800/70 bg-zinc-950/50 px-3 py-3">
+                    <Text className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+                      Target path
+                    </Text>
+                    <Text className="mt-2 break-all font-mono text-xs leading-5 text-zinc-400">
+                      {createWorktreeTargetPath}
+                    </Text>
+                  </div>
+                ) : null}
+
+                {createWorktreeError ? (
+                  <div className="rounded-2xl border border-zinc-400/20 bg-zinc-500/8 px-3 py-3">
+                    <Text className="text-sm leading-6 text-zinc-300">{createWorktreeError}</Text>
+                  </div>
+                ) : null}
+
+                <div className="flex items-center gap-3 pt-1">
+                  <Button
+                    variant="primary"
+                    isDisabled={isCreatingWorktreeSubmitting}
+                    onPress={onSubmitCreateWorktree}
+                    className="h-10 rounded-2xl bg-zinc-100 px-4 text-zinc-950 hover:bg-zinc-200"
+                  >
+                    <FolderPlus className="h-4 w-4" strokeWidth={1.9} />
+                    <span>{isCreatingWorktreeSubmitting ? 'Creating…' : 'Create worktree'}</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    isDisabled={isCreatingWorktreeSubmitting}
+                    onPress={onCancelCreateWorktree}
+                    className="h-10 rounded-2xl px-4 text-zinc-400 hover:bg-zinc-900/30 hover:text-zinc-100"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </Surface>
+          ) : null}
+
           <div className="pb-5">
             <Text className="block text-sm font-medium text-zinc-400">
               Current focus

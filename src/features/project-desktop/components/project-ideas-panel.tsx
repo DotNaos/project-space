@@ -3,30 +3,22 @@ import { Card, Surface, Text } from '@heroui/react';
 import type { ProjectSpaceRecord, ProjectWorktreeRecord } from '@/shared/electron-api';
 
 import { IdeaEditor } from './idea-editor';
-import { IdeasBacklogList } from './ideas-backlog-list';
 import { IdeaPropertiesPanel } from './idea-properties-panel';
 import type { EditableIdeaValues, IdeaPresentationRecord } from '../lib/idea-utils';
 
 interface ProjectIdeasPanelProps {
   assignedIdeaIds: string[];
   draftValues: EditableIdeaValues;
-  ideas: IdeaPresentationRecord[];
-  isLoading: boolean;
   isSaving: boolean;
   loadError: string;
-  onCreateIdea(): void;
   onMoveIdeaToWorktree(ideaId: string, targetWorktreeId?: string): void;
   onSaveIdea(): void;
-  onSelectIdea(ideaId: string): void;
-  onToggleClosedIdeas(nextValue: boolean): void;
   onUpdateIdeaValue<Key extends keyof EditableIdeaValues>(
     key: Key,
     value: EditableIdeaValues[Key]
   ): void;
   project?: ProjectSpaceRecord;
   selectedIdea?: IdeaPresentationRecord;
-  selectedIdeaId: string;
-  showClosedIdeas: boolean;
   sidebarClosedPaddingLeft: number;
   syncErrors: Record<string, string>;
   worktrees: ProjectWorktreeRecord[];
@@ -36,21 +28,14 @@ interface ProjectIdeasPanelProps {
 export function ProjectIdeasPanel({
   assignedIdeaIds,
   draftValues,
-  ideas,
   isDirty,
-  isLoading,
   isSaving,
   loadError,
-  onCreateIdea,
   onMoveIdeaToWorktree,
   onSaveIdea,
-  onSelectIdea,
-  onToggleClosedIdeas,
   onUpdateIdeaValue,
   project,
   selectedIdea,
-  selectedIdeaId,
-  showClosedIdeas,
   sidebarClosedPaddingLeft,
   syncErrors,
   worktrees
@@ -84,21 +69,6 @@ export function ProjectIdeasPanel({
           width: `${sidebarClosedPaddingLeft}px`
         }}
       />
-
-      <div className="min-h-0 w-[23rem] shrink-0 pt-6">
-        <IdeasBacklogList
-          assignedIdeaIds={assignedIdeaIds}
-          ideas={ideas}
-          isLoading={isLoading}
-          onCreateIdea={onCreateIdea}
-          onSelectIdea={onSelectIdea}
-          selectedIdeaId={selectedIdeaId}
-          showClosedIssues={showClosedIdeas}
-          syncErrors={syncErrors}
-          onToggleClosedIssues={onToggleClosedIdeas}
-        />
-      </div>
-
       <div className="min-h-0 min-w-0 flex-1">
         {loadError ? (
           <div className="px-2 pt-6">

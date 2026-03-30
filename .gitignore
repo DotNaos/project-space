@@ -6,3 +6,5 @@ dist-electron
 # heroui-agents-md
 .heroui-docs/
 .tmp-agent-browser/
+build/
+release/

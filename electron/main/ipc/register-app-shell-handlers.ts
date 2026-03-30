@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 import {
+  type CreateProjectWorktreeRequest,
   type FileSystemEntry,
   type LauncherAppRecord,
   type OpenPathInAppRequest,
@@ -249,6 +250,14 @@ async function runCommand(command: string, args: string[]) {
   });
 
   return stdout;
+}
+
+function slugifyWorktreeSegment(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 async function listDirectoryEntries(path: string) {
@@ -666,6 +675,67 @@ async function loadProjectWorktrees(projectPath: string): Promise<ProjectWorktre
   }
 }
 
+async function createProjectWorktree({
+  branchName,
+  projectPath,
+  worktreePathName
+}: CreateProjectWorktreeRequest): Promise<ProjectWorktreeRecord[]> {
+  const resolvedProjectPath = resolve(projectPath);
+  const nextBranchName = branchName.trim();
+  const nextPathName = slugifyWorktreeSegment(worktreePathName);
+
+  if (!nextBranchName) {
+    throw new Error('Branch name is required.');
+  }
+
+  if (!nextPathName) {
+    throw new Error('Worktree folder name is required.');
+  }
+
+  const currentWorktrees = await loadProjectWorktrees(resolvedProjectPath);
+  const baseWorktree = currentWorktrees.find((worktree) => worktree.isBase);
+  const basePath = baseWorktree?.path ?? resolvedProjectPath;
+  const targetPath = join(dirname(basePath), nextPathName);
+
+  if (existsSync(targetPath)) {
+    throw new Error(`A folder named ${nextPathName} already exists.`);
+  }
+
+  let branchExists = false;
+
+  try {
+    await execFileAsync(
+      'git',
+      ['-C', basePath, 'show-ref', '--verify', '--quiet', `refs/heads/${nextBranchName}`],
+      { windowsHide: true }
+    );
+    branchExists = true;
+  } catch {
+    branchExists = false;
+  }
+
+  const args = branchExists
+    ? ['-C', basePath, 'worktree', 'add', targetPath, nextBranchName]
+    : ['-C', basePath, 'worktree', 'add', '-b', nextBranchName, targetPath];
+
+  try {
+    await execFileAsync('git', args, {
+      windowsHide: true
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error && 'stderr' in error && typeof error.stderr === 'string'
+        ? error.stderr.trim()
+        : error instanceof Error
+          ? error.message
+          : 'Could not create worktree.';
+
+    throw new Error(message || 'Could not create worktree.');
+  }
+
+  return loadProjectWorktrees(resolvedProjectPath);
+}
+
 async function readDirectoryEntries(path: string): Promise<FileSystemEntry[]> {
   const entries = await listDirectoryEntries(path);
 
@@ -995,6 +1065,13 @@ export function registerAppShellHandlers() {
   ipcMain.handle(projectSpaceChannels.loadProjectWorktrees, async (_event, projectPath: string) => {
     return loadProjectWorktrees(projectPath);
   });
+
+  ipcMain.handle(
+    projectSpaceChannels.createProjectWorktree,
+    async (_event, request: CreateProjectWorktreeRequest) => {
+      return createProjectWorktree(request);
+    }
+  );
 
   ipcMain.handle(projectSpaceChannels.openPathInApp, async (_event, request: OpenPathInAppRequest) => {
     return openPathInApp(request);

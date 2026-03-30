@@ -21,13 +21,15 @@ export type ProjectMainView = 'ideas' | 'settings' | 'workspace' | 'worktrees';
 interface ProjectMainPanelProps {
   activeSettingsTab: SettingsTab;
   assignedIdeaIds: string[];
+  createWorktreeBranchName: string;
+  createWorktreeError: string;
+  createWorktreeFolderName: string;
+  createWorktreeTargetPath: string;
   discoveryRoot: string;
   draftValues: EditableIdeaValues;
   groupedProjects: ProjectSpaceRecord[];
   groupedProjectsLabel?: string;
-  ideas: IdeaPresentationRecord[];
   isDirty: boolean;
-  isIdeasLoading: boolean;
   isIssueSourceLoading: boolean;
   isIssueSourceSaving: boolean;
   isSavingIdea: boolean;
@@ -36,6 +38,7 @@ interface ProjectMainPanelProps {
   launcherError: string;
   loadIdeasError: string;
   mainView: ProjectMainView;
+  onCancelCreateWorktree(): void;
   onCreateIdea(): void;
   onCreateProject(): void;
   onMoveIdeaToWorktree(ideaId: string, targetWorktreeId?: string): void;
@@ -47,13 +50,15 @@ interface ProjectMainPanelProps {
   onSelectSettingsTab(tab: SettingsTab): void;
   onSelectIdea(ideaId: string): void;
   onSelectLauncherApp(appId: string): void;
+  onSubmitCreateWorktree(): void;
   onUpdateIdeaValue<Key extends keyof EditableIdeaValues>(
     key: Key,
     value: EditableIdeaValues[Key]
   ): void;
+  onUpdateCreateWorktreeBranchName(value: string): void;
+  onUpdateCreateWorktreeFolderName(value: string): void;
   onUpdateIssueSourceKind(kind: ProjectIssueSourceConfig['kind']): void;
   onUpdateIssueSourceUrl(url: string): void;
-  onToggleShowClosedIdeas(nextValue: boolean): void;
   issueSourceConfig: ProjectIssueSourceConfig;
   issueSourceDraftKind: ProjectIssueSourceConfig['kind'];
   issueSourceDraftUrl: string;
@@ -66,15 +71,20 @@ interface ProjectMainPanelProps {
   selectedTargetPath: string;
   selectedTargetIdeas: IdeaPresentationRecord[];
   selectedWorktree?: ProjectWorktreeRecord;
-  showClosedIdeas: boolean;
   sidebarClosedPaddingLeft: number;
   syncErrors: Record<string, string>;
+  isCreatingWorktree: boolean;
+  isCreatingWorktreeSubmitting: boolean;
   worktrees: ProjectWorktreeRecord[];
 }
 
 export function ProjectMainPanel({
   activeSettingsTab,
   assignedIdeaIds,
+  createWorktreeBranchName,
+  createWorktreeError,
+  createWorktreeFolderName,
+  createWorktreeTargetPath,
   discoveryRoot,
   draftValues,
   groupedProjects,
@@ -88,6 +98,7 @@ export function ProjectMainPanel({
   launcherError,
   loadIdeasError,
   mainView,
+  onCancelCreateWorktree,
   onCreateIdea,
   onCreateProject,
   onMoveIdeaToWorktree,
@@ -99,7 +110,10 @@ export function ProjectMainPanel({
   onSelectSettingsTab,
   onSelectIdea,
   onSelectLauncherApp,
+  onSubmitCreateWorktree,
   onUpdateIdeaValue,
+  onUpdateCreateWorktreeBranchName,
+  onUpdateCreateWorktreeFolderName,
   onUpdateIssueSourceKind,
   onUpdateIssueSourceUrl,
   issueSourceConfig,
@@ -114,13 +128,11 @@ export function ProjectMainPanel({
   selectedTargetPath,
   selectedTargetIdeas,
   selectedWorktree,
-  isIdeasLoading,
-  ideas,
   sidebarClosedPaddingLeft,
-  onToggleShowClosedIdeas,
   syncErrors,
-  worktrees,
-  showClosedIdeas
+  isCreatingWorktree,
+  isCreatingWorktreeSubmitting,
+  worktrees
 }: ProjectMainPanelProps) {
   const headerSafeInset = isSidebarOpen ? 0 : sidebarClosedPaddingLeft;
 
@@ -191,21 +203,14 @@ export function ProjectMainPanel({
         <ProjectIdeasPanel
           assignedIdeaIds={assignedIdeaIds}
           draftValues={draftValues}
-          ideas={ideas}
           isDirty={isDirty}
-          isLoading={isIdeasLoading}
           isSaving={isSavingIdea}
           loadError={loadIdeasError}
-          onCreateIdea={onCreateIdea}
           onMoveIdeaToWorktree={onMoveIdeaToWorktree}
           onSaveIdea={onSaveIdea}
-          onSelectIdea={onSelectIdea}
-          onToggleClosedIdeas={onToggleShowClosedIdeas}
           onUpdateIdeaValue={onUpdateIdeaValue}
           project={project}
           selectedIdea={selectedIdea}
-          selectedIdeaId={selectedIdea?.id ?? ''}
-          showClosedIdeas={showClosedIdeas}
           sidebarClosedPaddingLeft={sidebarClosedPaddingLeft}
           syncErrors={syncErrors}
           worktrees={worktrees}
@@ -229,8 +234,18 @@ export function ProjectMainPanel({
         />
       ) : mainView === 'worktrees' ? (
         <ProjectWorktreesPanel
+          createWorktreeBranchName={createWorktreeBranchName}
+          createWorktreeError={createWorktreeError}
+          createWorktreeFolderName={createWorktreeFolderName}
+          createWorktreeTargetPath={createWorktreeTargetPath}
+          isCreatingWorktree={isCreatingWorktree}
+          isCreatingWorktreeSubmitting={isCreatingWorktreeSubmitting}
           launcherError={launcherError}
+          onCancelCreateWorktree={onCancelCreateWorktree}
           onOpenSelectedTarget={onOpenSelectedTarget}
+          onSubmitCreateWorktree={onSubmitCreateWorktree}
+          onUpdateCreateWorktreeBranchName={onUpdateCreateWorktreeBranchName}
+          onUpdateCreateWorktreeFolderName={onUpdateCreateWorktreeFolderName}
           project={project}
           selectedExplorerTarget={selectedExplorerTarget}
           selectedTargetPath={selectedTargetPath}

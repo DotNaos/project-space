@@ -1,5 +1,6 @@
 export const projectSpaceChannels = {
   appMeta: 'app:get-meta',
+  createProjectWorktree: 'projects:create-worktree',
   createGithubIdeaFromDraft: 'ideas:create-github-from-draft',
   deleteLocalIdeaDraft: 'ideas:delete-local-draft',
   exportIdeasToWorktree: 'ideas:export-to-worktree',
@@ -122,6 +123,12 @@ export interface ProjectWorktreeRecord {
   status: 'ready' | 'broken';
 }
 
+export interface CreateProjectWorktreeRequest {
+  branchName: string;
+  projectPath: string;
+  worktreePathName: string;
+}
+
 export interface FileSystemEntry {
   name: string;
   path: string;
@@ -238,6 +245,7 @@ export interface OpenPathInAppResult {
 }
 
 export interface ProjectSpaceApi {
+  createProjectWorktree(request: CreateProjectWorktreeRequest): Promise<ProjectWorktreeRecord[]>;
   createGithubIdeaFromDraft(
     request: CreateGithubIdeaFromDraftRequest
   ): Promise<GithubIdeaMutationResult>;

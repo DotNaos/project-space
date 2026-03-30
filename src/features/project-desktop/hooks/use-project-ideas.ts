@@ -120,6 +120,16 @@ export function useProjectIdeas(
     setIsDirty(false);
   }, [selectedIdea?.id, selectedIdea?.updatedAt, selectedIdea?.source]);
 
+  function selectFallbackIdea(removedIdeaId: string, nextIdeas: IdeaPresentationRecord[]) {
+    setSelectedIdeaId((currentSelectedIdeaId) => {
+      if (currentSelectedIdeaId !== removedIdeaId) {
+        return currentSelectedIdeaId;
+      }
+
+      return nextIdeas.find((idea) => idea.githubState !== 'closed')?.id ?? nextIdeas[0]?.id ?? '';
+    });
+  }
+
   async function createIdea() {
     const now = new Date().toISOString();
     const nextIdea: IdeaPresentationRecord = {
@@ -298,8 +308,90 @@ export function useProjectIdeas(
     }
   }
 
+  async function deleteIdea(ideaId: string) {
+    if (!project) {
+      return;
+    }
+
+    if (pendingIdea?.id === ideaId) {
+      setPendingIdea(undefined);
+      setSyncErrors((current) => {
+        const next = { ...current };
+        delete next[ideaId];
+        return next;
+      });
+
+      const nextIdeas = ideas;
+      selectFallbackIdea(ideaId, nextIdeas);
+      return;
+    }
+
+    const idea = ideas.find((entry) => entry.id === ideaId);
+
+    if (!idea) {
+      return;
+    }
+
+    if (idea.source === 'local') {
+      await window.projectSpace.deleteLocalIdeaDraft({
+        ideaId,
+        projectPath: project.rootPath
+      });
+
+      const nextIdeas = ideas.filter((entry) => entry.id !== ideaId);
+
+      setIdeas((current) => current.filter((entry) => entry.id !== ideaId));
+      setSyncErrors((current) => {
+        const next = { ...current };
+        delete next[ideaId];
+        return next;
+      });
+      selectFallbackIdea(ideaId, nextIdeas);
+      return;
+    }
+
+    if (issueSourceConfig.kind !== 'github') {
+      setSyncErrors((current) => ({
+        ...current,
+        [ideaId]: 'Only GitHub-backed ideas can be closed from the sidebar right now.'
+      }));
+      return;
+    }
+
+    const result = await window.projectSpace.updateGithubIdea({
+      idea: toGithubIdea({
+        ...idea,
+        githubState: 'closed'
+      }),
+      projectPath: project.rootPath
+    });
+
+    if (result.status === 'error') {
+      setSyncErrors((current) => ({
+        ...current,
+        [ideaId]: result.message
+      }));
+      return;
+    }
+
+    const updatedIdea = toIdeaPresentationRecord(result.idea);
+    const nextIdeas = mergeIdeas([
+      updatedIdea,
+      ...ideas.filter((entry) => entry.id !== updatedIdea.id)
+    ]);
+
+    setIdeas(nextIdeas);
+    setSyncErrors((current) => {
+      const next = { ...current };
+      delete next[ideaId];
+      return next;
+    });
+    selectFallbackIdea(ideaId, nextIdeas);
+  }
+
   return {
     createIdea,
+    deleteIdea,
     draftValues,
     ideas: visibleIdeas,
     isDirty,

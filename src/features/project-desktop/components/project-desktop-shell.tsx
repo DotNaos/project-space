@@ -79,12 +79,14 @@ export function ProjectDesktopShell() {
           navigationItems={desktop.navigationItems}
           onCreateIdea={desktop.createIdea}
           onCreateProject={desktop.createProject}
+          onDeleteIdea={desktop.deleteIdea}
           onOpenCodexSkills={desktop.openCodexSkills}
           onOpenAppSettings={desktop.openAppSettings}
           onOpenIdeasView={desktop.openIdeasView}
           onOpenWorktreesView={desktop.openWorktreesView}
           onOpenProjectSettings={desktop.openProjectSettings}
           onOpenNewWorktree={desktop.openNewWorktreeWorkspace}
+          onOpenWorktreeInApp={desktop.openWorktreeInSelectedApp}
           onResizeStart={(event) => {
             event.preventDefault();
             startSidebarResize();
@@ -119,9 +121,7 @@ export function ProjectDesktopShell() {
           assignedIdeaIds={desktop.assignedIdeaIds}
           groupedProjects={desktop.groupedProjects}
           groupedProjectsLabel={desktop.groupedProjectsLabel}
-          ideas={desktop.ideas}
           isDirty={desktop.isIdeasDirty}
-          isIdeasLoading={desktop.isIdeasLoading}
           isIssueSourceLoading={desktop.isIssueSourceLoading}
           isIssueSourceSaving={desktop.isIssueSourceSaving}
           isSavingIdea={desktop.isIdeaSaving}
@@ -132,11 +132,16 @@ export function ProjectDesktopShell() {
           issueSourceError={desktop.issueSourceError}
           launcherApps={desktop.launcherApps}
           launcherError={desktop.launcherError}
+          createWorktreeBranchName={desktop.createWorktreeBranchName}
+          createWorktreeError={desktop.createWorktreeError}
+          createWorktreeFolderName={desktop.createWorktreeFolderName}
+          createWorktreeTargetPath={desktop.createWorktreeTargetPath}
           loadIdeasError={desktop.ideasLoadError}
           mainView={desktop.mainView}
           onCreateIdea={desktop.createIdea}
           onCreateProject={desktop.createProject}
           onMoveIdeaToWorktree={desktop.moveIdeaToWorktree}
+          onCancelCreateWorktree={desktop.cancelCreateWorktree}
           onOpenIssueSource={desktop.openIssueSource}
           onOpenSelectedTarget={desktop.openSelectedTargetInApp}
           onSaveIdea={desktop.saveIdea}
@@ -145,10 +150,12 @@ export function ProjectDesktopShell() {
           onSelectSettingsTab={desktop.setSettingsTab}
           onSelectIdea={desktop.selectIdea}
           onSelectLauncherApp={desktop.selectLauncherApp}
+          onSubmitCreateWorktree={desktop.submitCreateWorktree}
           onUpdateIdeaValue={desktop.setIdeaDraftValue}
           onUpdateIssueSourceKind={desktop.setIssueSourceDraftKind}
           onUpdateIssueSourceUrl={desktop.setIssueSourceDraftUrl}
-          onToggleShowClosedIdeas={desktop.setShowClosedIdeas}
+          onUpdateCreateWorktreeBranchName={desktop.setCreateWorktreeBranchName}
+          onUpdateCreateWorktreeFolderName={desktop.setCreateWorktreeFolderName}
           project={desktop.project}
           selectedApp={desktop.selectedLauncherApp}
           selectedAppLabel={desktop.selectedLauncherAppLabel}
@@ -156,10 +163,11 @@ export function ProjectDesktopShell() {
           selectedIdea={desktop.selectedIdea}
           selectedTargetPath={desktop.selectedTargetPath}
           selectedTargetIdeas={desktop.selectedTargetIdeas}
-          showClosedIdeas={desktop.showClosedIdeas}
           sidebarClosedPaddingLeft={TITLEBAR_SAFE_INSET}
           syncErrors={desktop.syncErrors}
           selectedWorktree={desktop.selectedWorktree}
+          isCreatingWorktree={desktop.isCreatingWorktree}
+          isCreatingWorktreeSubmitting={desktop.isCreatingWorktreeSubmitting}
           worktrees={desktop.worktrees}
         />
       </div>

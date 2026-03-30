@@ -7,6 +7,7 @@ interface SidebarQuickActionsProps {
   onCreateIdea(): void;
   onOpenProjectSettings(): void;
   onOpenSkills(): void;
+  projectName?: string;
 }
 
 export function SidebarQuickActions({
@@ -14,38 +15,47 @@ export function SidebarQuickActions({
   canOpenSettings,
   onCreateIdea,
   onOpenProjectSettings,
-  onOpenSkills
+  onOpenSkills,
+  projectName
 }: SidebarQuickActionsProps) {
   return (
-    <div className="mt-4 space-y-1">
-      <Button
-        variant="ghost"
-        isDisabled={!canCreateIdea}
-        onPress={onCreateIdea}
-        className="h-11 w-full justify-start gap-3 rounded-2xl px-3 text-zinc-300 transition duration-200 hover:bg-zinc-900/35 hover:text-zinc-50 data-[disabled=true]:opacity-45"
-      >
-        <Lightbulb className="h-4 w-4 shrink-0" strokeWidth={1.9} />
-        <Text className="text-[15px] font-medium text-current">Ideas</Text>
-      </Button>
+    <section className="border-t-0 pt-0">
+      {projectName ? (
+        <div className="px-2 pb-2">
+          <Text className="truncate text-[15px] font-semibold text-zinc-100">{projectName}</Text>
+        </div>
+      ) : null}
 
-      <Button
-        variant="ghost"
-        onPress={onOpenSkills}
-        className="h-11 w-full justify-start gap-3 rounded-2xl px-3 text-zinc-300 transition duration-200 hover:bg-zinc-900/35 hover:text-zinc-50"
-      >
-        <Blocks className="h-4 w-4 shrink-0" strokeWidth={1.9} />
-        <Text className="text-[15px] font-medium text-current">Skills</Text>
-      </Button>
+      <div className="space-y-1">
+        <Button
+          variant="ghost"
+          isDisabled={!canCreateIdea}
+          onPress={onCreateIdea}
+          className="h-11 w-full justify-start gap-3 rounded-xl px-2 text-zinc-300 transition duration-200 hover:bg-zinc-900/35 hover:text-zinc-50 data-[disabled=true]:opacity-45"
+        >
+          <Lightbulb className="h-4 w-4 shrink-0" strokeWidth={1.9} />
+          <Text className="text-[15px] font-medium text-current">Ideas</Text>
+        </Button>
 
-      <Button
-        variant="ghost"
-        isDisabled={!canOpenSettings}
-        onPress={onOpenProjectSettings}
-        className="h-11 w-full justify-start gap-3 rounded-2xl px-3 text-zinc-300 transition duration-200 hover:bg-zinc-900/35 hover:text-zinc-50 data-[disabled=true]:opacity-45"
-      >
-        <Settings2 className="h-4 w-4 shrink-0" strokeWidth={1.9} />
-        <Text className="text-[15px] font-medium text-current">Project settings</Text>
-      </Button>
-    </div>
+        <Button
+          variant="ghost"
+          onPress={onOpenSkills}
+          className="h-11 w-full justify-start gap-3 rounded-xl px-2 text-zinc-300 transition duration-200 hover:bg-zinc-900/35 hover:text-zinc-50"
+        >
+          <Blocks className="h-4 w-4 shrink-0" strokeWidth={1.9} />
+          <Text className="text-[15px] font-medium text-current">Skills</Text>
+        </Button>
+
+        <Button
+          variant="ghost"
+          isDisabled={!canOpenSettings}
+          onPress={onOpenProjectSettings}
+          className="h-11 w-full justify-start gap-3 rounded-xl px-2 text-zinc-300 transition duration-200 hover:bg-zinc-900/35 hover:text-zinc-50 data-[disabled=true]:opacity-45"
+        >
+          <Settings2 className="h-4 w-4 shrink-0" strokeWidth={1.9} />
+          <Text className="text-[15px] font-medium text-current">Project settings</Text>
+        </Button>
+      </div>
+    </section>
   );
 }

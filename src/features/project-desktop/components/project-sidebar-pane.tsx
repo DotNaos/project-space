@@ -25,11 +25,13 @@ interface ProjectSidebarPaneProps {
   navigationItems: ProjectNavigationItem[];
   onCreateIdea(): void;
   onCreateProject(): void;
+  onDeleteIdea(ideaId: string): void;
   onOpenCodexSkills(): void;
   onOpenAppSettings(): void;
   onOpenProjectSettings(): void;
   onOpenWorktreesView(): void;
   onOpenNewWorktree(): void;
+  onOpenWorktreeInApp(worktreeId: string): void;
   onMoveIdeaToWorktree(ideaId: string, targetWorktreeId?: string): void;
   onOpenIdeasView(): void;
   onResizeStart(event: React.MouseEvent<HTMLButtonElement>): void;
@@ -66,12 +68,14 @@ export function ProjectSidebarPane({
   navigationItems,
   onCreateIdea,
   onCreateProject,
+  onDeleteIdea,
   onOpenCodexSkills,
   onOpenAppSettings,
   onOpenIdeasView,
   onOpenProjectSettings,
   onOpenWorktreesView,
   onOpenNewWorktree,
+  onOpenWorktreeInApp,
   onMoveIdeaToWorktree,
   onResizeStart,
   onSelectIdea,
@@ -120,6 +124,7 @@ export function ProjectSidebarPane({
             onCreateIdea={onCreateIdea}
             onOpenProjectSettings={onOpenProjectSettings}
             onOpenSkills={onOpenCodexSkills}
+            projectName={project?.name}
           />
         </div>
       </div>
@@ -132,9 +137,11 @@ export function ProjectSidebarPane({
             mainView={mainView}
             isWorktreesLoading={isWorktreesLoading}
             onCreateIdea={onCreateIdea}
+            onDeleteIdea={onDeleteIdea}
             onMoveIdeaToWorktree={onMoveIdeaToWorktree}
             onOpenIdeasView={onOpenIdeasView}
             onOpenNewWorktree={onOpenNewWorktree}
+            onOpenWorktreeInApp={onOpenWorktreeInApp}
             onOpenWorktreesView={onOpenWorktreesView}
             onSelectIdea={onSelectIdea}
             onSelectWorkspace={onSelectWorkspace}
@@ -156,9 +163,11 @@ export function ProjectSidebarPane({
               mainView={mainView}
               isWorktreesLoading={isPreviewWorktreesLoading}
               onCreateIdea={() => undefined}
+              onDeleteIdea={() => undefined}
               onMoveIdeaToWorktree={() => undefined}
               onOpenIdeasView={() => undefined}
               onOpenNewWorktree={() => undefined}
+              onOpenWorktreeInApp={() => undefined}
               onOpenWorktreesView={() => undefined}
               onSelectIdea={() => undefined}
               onSelectWorkspace={() => undefined}
