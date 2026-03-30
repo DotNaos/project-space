@@ -1,37 +1,61 @@
 import { Button, Text } from '@heroui/react';
-import { Blocks, GitBranchPlus } from 'lucide-react';
+import { Blocks, Lightbulb, Settings2 } from 'lucide-react';
 
 interface SidebarQuickActionsProps {
-  canCreateWorktree: boolean;
+  canCreateIdea: boolean;
+  canOpenSettings: boolean;
+  onCreateIdea(): void;
+  onOpenProjectSettings(): void;
   onOpenSkills(): void;
-  onOpenWorktree(): void;
+  projectName?: string;
 }
 
 export function SidebarQuickActions({
-  canCreateWorktree,
+  canCreateIdea,
+  canOpenSettings,
+  onCreateIdea,
+  onOpenProjectSettings,
   onOpenSkills,
-  onOpenWorktree
+  projectName
 }: SidebarQuickActionsProps) {
   return (
-    <div className="mt-4 space-y-1">
-      <Button
-        variant="ghost"
-        onPress={onOpenSkills}
-        className="h-11 w-full justify-start gap-3 rounded-2xl px-3 text-slate-300 transition duration-200 hover:bg-slate-900/35 hover:text-slate-50"
-      >
-        <Blocks className="h-4 w-4 shrink-0" strokeWidth={1.9} />
-        <Text className="text-[15px] font-medium text-current">Skills</Text>
-      </Button>
+    <section className="border-t-0 pt-0">
+      {projectName ? (
+        <div className="px-2 pb-2">
+          <Text className="truncate text-[15px] font-semibold text-zinc-100">{projectName}</Text>
+        </div>
+      ) : null}
 
-      <Button
-        variant="ghost"
-        isDisabled={!canCreateWorktree}
-        onPress={onOpenWorktree}
-        className="h-11 w-full justify-start gap-3 rounded-2xl px-3 text-slate-300 transition duration-200 hover:bg-slate-900/35 hover:text-slate-50 data-[disabled=true]:opacity-45"
-      >
-        <GitBranchPlus className="h-4 w-4 shrink-0" strokeWidth={1.9} />
-        <Text className="text-[15px] font-medium text-current">New worktree</Text>
-      </Button>
-    </div>
+      <div className="space-y-1">
+        <Button
+          variant="ghost"
+          isDisabled={!canCreateIdea}
+          onPress={onCreateIdea}
+          className="h-11 w-full justify-start gap-3 rounded-xl px-2 text-zinc-300 transition duration-200 hover:bg-zinc-900/35 hover:text-zinc-50 data-[disabled=true]:opacity-45"
+        >
+          <Lightbulb className="h-4 w-4 shrink-0" strokeWidth={1.9} />
+          <Text className="text-[15px] font-medium text-current">Ideas</Text>
+        </Button>
+
+        <Button
+          variant="ghost"
+          onPress={onOpenSkills}
+          className="h-11 w-full justify-start gap-3 rounded-xl px-2 text-zinc-300 transition duration-200 hover:bg-zinc-900/35 hover:text-zinc-50"
+        >
+          <Blocks className="h-4 w-4 shrink-0" strokeWidth={1.9} />
+          <Text className="text-[15px] font-medium text-current">Skills</Text>
+        </Button>
+
+        <Button
+          variant="ghost"
+          isDisabled={!canOpenSettings}
+          onPress={onOpenProjectSettings}
+          className="h-11 w-full justify-start gap-3 rounded-xl px-2 text-zinc-300 transition duration-200 hover:bg-zinc-900/35 hover:text-zinc-50 data-[disabled=true]:opacity-45"
+        >
+          <Settings2 className="h-4 w-4 shrink-0" strokeWidth={1.9} />
+          <Text className="text-[15px] font-medium text-current">Project settings</Text>
+        </Button>
+      </div>
+    </section>
   );
 }

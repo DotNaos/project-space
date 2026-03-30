@@ -1,4 +1,5 @@
 import { Button, Text, ToggleButton, ToggleButtonGroup } from '@heroui/react';
+import { Settings2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
   ProjectGroupRecord,
@@ -22,6 +23,7 @@ interface SpacesDockProps {
   onSelectProject(projectId: string, groupId?: string): void;
   onSelect(itemId: string): void;
   onCreate?(): void;
+  onOpenAppSettings(): void;
   projects: ProjectSpaceRecord[];
   rootItems: ProjectNavigationItem[];
   selectedProjectId: string;
@@ -50,6 +52,7 @@ export function SpacesDock({
   onSelectProject,
   onSelect,
   onCreate,
+  onOpenAppSettings,
   projects,
   rootItems,
   selectedProjectId
@@ -70,97 +73,112 @@ export function SpacesDock({
   const hasTrailingOverflow = startIndex + maxVisibleItems < items.length;
 
   return (
-    <div className="border-t border-slate-800 px-4 py-4">
-      <ProjectSpacesPicker
-        groups={groups}
-        projects={projects}
-        rootItems={rootItems}
-        selectedProjectId={selectedProjectId}
-        onSelectProject={onSelectProject}
-      >
-        <div className="flex w-full items-center justify-center gap-2 rounded-2xl px-2 py-1">
-          {canNavigateUp && onNavigateUp ? (
-            <Button
-              aria-label="Back to project root"
-              isIconOnly
-              size="sm"
-              variant="ghost"
-              onPress={onNavigateUp}
-              className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-sm leading-none text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
-            >
-              ←
-            </Button>
-          ) : null}
+    <div className="border-t border-zinc-800 px-4 py-4">
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <Button
+            aria-label="Open app settings"
+            isIconOnly
+            size="sm"
+            variant="ghost"
+            onPress={onOpenAppSettings}
+            className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-zinc-500 transition hover:bg-zinc-800/70 hover:text-zinc-100"
+          >
+            <Settings2 className="h-4 w-4" strokeWidth={1.9} />
+          </Button>
 
-          <div className="flex items-center gap-1">
-            {hasLeadingOverflow ? (
-              <Text className="px-1 text-[10px] font-semibold text-slate-600">…</Text>
+          <div className="flex flex-1 items-center justify-center gap-2 rounded-2xl px-2 py-1">
+            {canNavigateUp && onNavigateUp ? (
+              <Button
+                aria-label="Back to project root"
+                isIconOnly
+                size="sm"
+                variant="ghost"
+                onPress={onNavigateUp}
+                className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-sm leading-none text-zinc-500 transition hover:bg-zinc-800/70 hover:text-zinc-100"
+              >
+                ←
+              </Button>
             ) : null}
 
-            <ToggleButtonGroup
-              disallowEmptySelection
-              isDetached
-              selectedKeys={new Set(activeItemId ? [activeItemId] : [])}
-              selectionMode="single"
-              size="sm"
-              onSelectionChange={(keys) => {
-                const [nextItemId] = keys;
+            <div className="flex items-center gap-1">
+              {hasLeadingOverflow ? (
+                <Text className="px-1 text-[10px] font-semibold text-zinc-600">…</Text>
+              ) : null}
 
-                if (typeof nextItemId === 'string') {
-                  onSelect(nextItemId);
-                }
-              }}
-              className="rounded-[10px] bg-transparent"
-            >
-              {visibleItems.map((item) => {
-                const active = activeItemId === item.id;
+              <ToggleButtonGroup
+                disallowEmptySelection
+                isDetached
+                selectedKeys={new Set(activeItemId ? [activeItemId] : [])}
+                selectionMode="single"
+                size="sm"
+                onSelectionChange={(keys) => {
+                  const [nextItemId] = keys;
 
-                return (
-                  <ToggleButton
-                    key={item.id}
-                    id={item.id}
-                    aria-label={item.label}
-                    isIconOnly
-                    variant="ghost"
-                    className={cn(
-                      'group h-7 w-7 min-w-0 rounded-[10px] px-0 transition',
-                      active ? 'bg-slate-800/90' : 'hover:bg-slate-800/70'
-                    )}
-                  >
-                    <span
+                  if (typeof nextItemId === 'string') {
+                    onSelect(nextItemId);
+                  }
+                }}
+                className="rounded-[10px] bg-transparent"
+              >
+                {visibleItems.map((item) => {
+                  const active = activeItemId === item.id;
+
+                  return (
+                    <ToggleButton
+                      key={item.id}
+                      id={item.id}
+                      aria-label={item.label}
+                      isIconOnly
+                      variant="ghost"
                       className={cn(
-                        'text-[10px] font-semibold tracking-[0.12em] transition',
-                        active
-                          ? 'text-slate-100'
-                          : 'text-slate-500 group-hover:text-slate-300'
+                        'group h-7 w-7 min-w-0 rounded-[10px] px-0 transition',
+                        active ? 'bg-zinc-800/90' : 'hover:bg-zinc-800/70'
                       )}
                     >
-                      {shortLabel(item.label)}
-                    </span>
-                  </ToggleButton>
-                );
-              })}
-            </ToggleButtonGroup>
+                      <span
+                        className={cn(
+                          'text-[10px] font-semibold tracking-[0.12em] transition',
+                          active
+                            ? 'text-zinc-100'
+                            : 'text-zinc-500 group-hover:text-zinc-300'
+                        )}
+                      >
+                        {shortLabel(item.label)}
+                      </span>
+                    </ToggleButton>
+                  );
+                })}
+              </ToggleButtonGroup>
 
-            {hasTrailingOverflow ? (
-              <Text className="px-1 text-[10px] font-semibold text-slate-600">…</Text>
+              {hasTrailingOverflow ? (
+                <Text className="px-1 text-[10px] font-semibold text-zinc-600">…</Text>
+              ) : null}
+            </div>
+
+            {onCreate ? (
+              <Button
+                aria-label="Add project space"
+                isIconOnly
+                size="sm"
+                variant="ghost"
+                onPress={onCreate}
+                className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-sm leading-none text-zinc-500 transition hover:bg-zinc-800/70 hover:text-zinc-100"
+              >
+                +
+              </Button>
             ) : null}
           </div>
-
-          {onCreate ? (
-            <Button
-              aria-label="Add project space"
-              isIconOnly
-              size="sm"
-              variant="ghost"
-              onPress={onCreate}
-              className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-sm leading-none text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
-            >
-              +
-            </Button>
-          ) : null}
         </div>
-      </ProjectSpacesPicker>
+
+        <ProjectSpacesPicker
+          groups={groups}
+          projects={projects}
+          rootItems={rootItems}
+          selectedProjectId={selectedProjectId}
+          onSelectProject={onSelectProject}
+        />
+      </div>
     </div>
   );
 }

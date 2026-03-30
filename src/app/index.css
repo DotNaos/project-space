@@ -2,9 +2,9 @@
 @import "@heroui/styles";
 
 @theme {
-  --color-app-canvas: #0f1726;
-  --color-app-panel: #121a29;
-  --color-app-sidebar: #222733;
+  --color-app-canvas: #111111;
+  --color-app-panel: #151515;
+  --color-app-sidebar: #212121;
   --font-sans: "Avenir Next", "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", "SFMono-Regular", monospace;
 }
@@ -12,7 +12,7 @@
 :root {
   color-scheme: dark;
   color: rgb(244 244 245);
-  background: #0f1726;
+  background: var(--color-app-sidebar);
   font-family: var(--font-sans);
 }
 
@@ -30,7 +30,7 @@ body,
 
 body {
   min-width: 1200px;
-  background: var(--color-app-canvas);
+  background: var(--color-app-sidebar);
 }
 
 button {
@@ -43,6 +43,32 @@ a:hover,
 summary:hover,
 label[for]:hover {
   cursor: pointer;
+}
+
+[draggable='true'] {
+  cursor: grab;
+}
+
+[draggable='true']:active {
+  cursor: grabbing;
+}
+
+.idea-drag-handle,
+.idea-drag-handle:hover,
+.idea-drag-handle * {
+  cursor: grab !important;
+}
+
+.idea-drag-handle:active,
+.idea-drag-handle:active *,
+.idea-drag-handle[data-dragging='true'],
+.idea-drag-handle[data-dragging='true'] * {
+  cursor: grabbing !important;
+}
+
+body.idea-dragging,
+body.idea-dragging * {
+  cursor: grabbing !important;
 }
 
 * {
@@ -65,7 +91,7 @@ label[for]:hover {
 ::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 999px;
-  background-color: rgba(148, 163, 184, 0.24);
+  background-color: rgba(161, 161, 170, 0.24);
   background-clip: padding-box;
 }
 

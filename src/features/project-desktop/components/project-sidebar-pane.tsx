@@ -1,5 +1,6 @@
 import type { WheelEvent } from 'react';
-import { Button, Surface, Text } from '@heroui/react';
+import { Button, Surface } from '@heroui/react';
+import type { ProjectMainView } from './project-main-panel';
 import type {
   ExplorerTarget,
   ProjectGroupRecord,
@@ -7,32 +8,39 @@ import type {
   ProjectSpaceRecord,
   ProjectWorktreeRecord
 } from '@/shared/electron-api';
-import type { SidebarView } from './sidebar-view-tabs';
 import { SidebarContent } from './sidebar-content';
-import { SidebarProjectSelect } from './sidebar-project-select';
 import { SidebarQuickActions } from './sidebar-quick-actions';
-import { SidebarViewTabs } from './sidebar-view-tabs';
 import { SpacesDock } from './spaces-dock';
+import type { IdeaPresentationRecord } from '../lib/idea-utils';
 
 interface ProjectSidebarPaneProps {
   activeNavigationItemId: string;
   currentPanelRef: React.RefObject<HTMLDivElement | null>;
-  discoveryRoot: string;
   groups: ProjectGroupRecord[];
-  groupedProjects: ProjectSpaceRecord[];
-  groupedProjectsLabel?: string;
+  isAppLoading: boolean;
   isOpen: boolean;
+  isPreviewWorktreesLoading: boolean;
+  isWorktreesLoading: boolean;
+  mainView: ProjectMainView;
   navigationItems: ProjectNavigationItem[];
+  onCreateIdea(): void;
   onCreateProject(): void;
+  onDeleteIdea(ideaId: string): void;
   onOpenCodexSkills(): void;
+  onOpenAppSettings(): void;
+  onOpenProjectSettings(): void;
+  onOpenWorktreesView(): void;
   onOpenNewWorktree(): void;
+  onOpenWorktreeInApp(worktreeId: string): void;
+  onMoveIdeaToWorktree(ideaId: string, targetWorktreeId?: string): void;
+  onOpenIdeasView(): void;
   onResizeStart(event: React.MouseEvent<HTMLButtonElement>): void;
+  onSelectIdea(ideaId: string): void;
   onSelectProject(projectId: string, groupId?: string): void;
   onSelectNavigationItem(itemId: string): void;
   onSelectWorkspace(): void;
   onSelectWorktree(worktreeId: string): void;
   onSidebarWheel(event: WheelEvent<HTMLElement>): void;
-  onSidebarViewChange(nextView: SidebarView): void;
   previewPanelRef: React.RefObject<HTMLDivElement | null>;
   previewProject?: ProjectSpaceRecord;
   previewWorktrees: ProjectWorktreeRecord[];
@@ -40,31 +48,42 @@ interface ProjectSidebarPaneProps {
   projects: ProjectSpaceRecord[];
   rootItems: ProjectNavigationItem[];
   selectedExplorerTarget: ExplorerTarget;
+  selectedIdeaId: string;
+  unassignedIdeas: IdeaPresentationRecord[];
   selectedProjectId: string;
-  sidebarView: SidebarView;
   titlebarSafeInset: number;
+  worktreeIdeasById: Record<string, IdeaPresentationRecord[]>;
   worktrees: ProjectWorktreeRecord[];
 }
 
 export function ProjectSidebarPane({
   activeNavigationItemId,
   currentPanelRef,
-  discoveryRoot,
   groups,
-  groupedProjects,
-  groupedProjectsLabel,
+  isAppLoading,
   isOpen,
+  isPreviewWorktreesLoading,
+  isWorktreesLoading,
+  mainView,
   navigationItems,
+  onCreateIdea,
   onCreateProject,
+  onDeleteIdea,
   onOpenCodexSkills,
+  onOpenAppSettings,
+  onOpenIdeasView,
+  onOpenProjectSettings,
+  onOpenWorktreesView,
   onOpenNewWorktree,
+  onOpenWorktreeInApp,
+  onMoveIdeaToWorktree,
   onResizeStart,
+  onSelectIdea,
   onSelectProject,
   onSelectNavigationItem,
   onSelectWorkspace,
   onSelectWorktree,
   onSidebarWheel,
-  onSidebarViewChange,
   previewPanelRef,
   previewProject,
   previewWorktrees,
@@ -72,23 +91,25 @@ export function ProjectSidebarPane({
   projects,
   rootItems,
   selectedExplorerTarget,
+  selectedIdeaId,
+  unassignedIdeas,
   selectedProjectId,
-  sidebarView,
   titlebarSafeInset,
+  worktreeIdeasById,
   worktrees
 }: ProjectSidebarPaneProps) {
   return (
     <Surface
       onWheel={onSidebarWheel}
       variant="secondary"
-      className="relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-none border-r border-slate-800 bg-app-sidebar transition-[border-color,opacity] duration-200"
+      className="relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-none border-r border-zinc-800 bg-app-sidebar transition-[border-color,opacity] duration-200"
       style={{
         borderRightColor: isOpen ? undefined : 'transparent',
         opacity: isOpen ? 1 : 0,
         pointerEvents: isOpen ? 'auto' : 'none'
       }}
     >
-      <div className="relative border-b border-slate-800 px-5 pt-14 pb-4">
+      <div className="relative border-b border-zinc-800 px-5 pt-14 pb-4">
         <div
           className="app-drag absolute inset-y-0 right-0"
           style={{
@@ -97,41 +118,39 @@ export function ProjectSidebarPane({
         />
 
         <div className="app-no-drag relative">
-          {discoveryRoot ? (
-            <Text className="text-xs text-slate-500">{discoveryRoot}</Text>
-          ) : null}
-
-          {groupedProjectsLabel ? (
-            <SidebarProjectSelect
-              groupName={groupedProjectsLabel}
-              projects={groupedProjects}
-              selectedProjectId={selectedProjectId}
-              onSelectProject={(projectId) => {
-                onSelectProject(projectId);
-              }}
-            />
-          ) : null}
-
           <SidebarQuickActions
-            canCreateWorktree={Boolean(project)}
+            canCreateIdea={Boolean(project)}
+            canOpenSettings={Boolean(project)}
+            onCreateIdea={onCreateIdea}
+            onOpenProjectSettings={onOpenProjectSettings}
             onOpenSkills={onOpenCodexSkills}
-            onOpenWorktree={onOpenNewWorktree}
+            projectName={project?.name}
           />
         </div>
-      </div>
-
-      <div className="app-no-drag">
-        <SidebarViewTabs value={sidebarView} onChange={onSidebarViewChange} />
       </div>
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <div ref={currentPanelRef} className="absolute inset-y-0 left-0 w-full">
           <SidebarContent
+            isInteractive
+            isAppLoading={isAppLoading}
+            mainView={mainView}
+            isWorktreesLoading={isWorktreesLoading}
+            onCreateIdea={onCreateIdea}
+            onDeleteIdea={onDeleteIdea}
+            onMoveIdeaToWorktree={onMoveIdeaToWorktree}
+            onOpenIdeasView={onOpenIdeasView}
+            onOpenNewWorktree={onOpenNewWorktree}
+            onOpenWorktreeInApp={onOpenWorktreeInApp}
+            onOpenWorktreesView={onOpenWorktreesView}
+            onSelectIdea={onSelectIdea}
             onSelectWorkspace={onSelectWorkspace}
             onSelectWorktree={onSelectWorktree}
             project={project}
             selectedExplorerTarget={selectedExplorerTarget}
-            sidebarView={sidebarView}
+            selectedIdeaId={selectedIdeaId}
+            unassignedIdeas={unassignedIdeas}
+            worktreeIdeasById={worktreeIdeasById}
             worktrees={worktrees}
           />
         </div>
@@ -139,11 +158,25 @@ export function ProjectSidebarPane({
         {previewProject ? (
           <div ref={previewPanelRef} className="absolute inset-y-0 w-full">
             <SidebarContent
+              isInteractive={false}
+              isAppLoading={isAppLoading}
+              mainView={mainView}
+              isWorktreesLoading={isPreviewWorktreesLoading}
+              onCreateIdea={() => undefined}
+              onDeleteIdea={() => undefined}
+              onMoveIdeaToWorktree={() => undefined}
+              onOpenIdeasView={() => undefined}
+              onOpenNewWorktree={() => undefined}
+              onOpenWorktreeInApp={() => undefined}
+              onOpenWorktreesView={() => undefined}
+              onSelectIdea={() => undefined}
               onSelectWorkspace={() => undefined}
               onSelectWorktree={() => undefined}
               project={previewProject}
               selectedExplorerTarget={{ kind: 'workspace' }}
-              sidebarView={sidebarView}
+              selectedIdeaId=""
+              unassignedIdeas={[]}
+              worktreeIdeasById={{}}
               worktrees={previewWorktrees}
             />
           </div>
@@ -164,6 +197,7 @@ export function ProjectSidebarPane({
           onSelectProject={onSelectProject}
           onSelect={onSelectNavigationItem}
           onCreate={onCreateProject}
+          onOpenAppSettings={onOpenAppSettings}
           projects={projects}
           rootItems={rootItems}
           selectedProjectId={selectedProjectId}
@@ -178,7 +212,7 @@ export function ProjectSidebarPane({
           onMouseDown={onResizeStart}
           className="app-no-drag absolute top-0 right-0 h-full w-2 min-w-0 cursor-col-resize rounded-none px-0 opacity-0 transition hover:opacity-100"
         >
-          <span className="absolute top-0 right-0 h-full w-px bg-slate-600/70" />
+          <span className="absolute top-0 right-0 h-full w-px bg-zinc-600/70" />
         </Button>
       ) : null}
     </Surface>

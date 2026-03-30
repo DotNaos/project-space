@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, nativeImage, nativeTheme } from 'electron';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -8,6 +8,26 @@ const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const enableReactDevTools = false;
 const enableAgentBrowserDebugPort = Boolean(process.env.VITE_DEV_SERVER_URL);
 let reactDevToolsWindow: BrowserWindow | null = null;
+
+function getAppIconPath() {
+  const iconFileName = nativeTheme.shouldUseDarkColors
+    ? 'app_icon-iOS-Dark-1024x1024@1x.png'
+    : 'app_icon-iOS-Default-1024x1024@1x.png';
+
+  return join(app.getAppPath(), `assets/app_icon Exports/${iconFileName}`);
+}
+
+function applyAppIcon() {
+  const appIcon = nativeImage.createFromPath(getAppIconPath());
+
+  if (appIcon.isEmpty()) {
+    return;
+  }
+
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.setIcon(appIcon);
+  }
+}
 
 if (enableReactDevTools && process.env.VITE_DEV_SERVER_URL) {
   // Keep the app renderer responsive while the standalone React DevTools window is focused.
@@ -25,7 +45,8 @@ function createMainWindow() {
     height: 960,
     minWidth: 1200,
     minHeight: 780,
-    backgroundColor: '#07111e',
+    backgroundColor: '#111111',
+    icon: getAppIconPath(),
     titleBarStyle: 'hiddenInset',
     titleBarOverlay: {
       height: 42
@@ -68,7 +89,7 @@ function createReactDevToolsWindow() {
     height: 760,
     minWidth: 960,
     minHeight: 600,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#141414',
     title: 'React DevTools',
     webPreferences: {
       contextIsolation: false,
@@ -88,6 +109,9 @@ app.whenReady().then(async () => {
   if (enableReactDevTools && process.env.VITE_DEV_SERVER_URL) {
     process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
   }
+
+  applyAppIcon();
+  nativeTheme.on('updated', applyAppIcon);
 
   registerAppShellHandlers();
   createMainWindow();

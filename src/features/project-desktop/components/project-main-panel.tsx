@@ -1,144 +1,271 @@
 import type {
-    ExplorerTarget,
-    LauncherAppRecord,
-    ProjectSpaceRecord,
+  ExplorerTarget,
+  LauncherAppRecord,
+  ProjectIssueSourceConfig,
+  ProjectSpaceRecord,
+  ProjectWorktreeRecord
 } from '@/shared/electron-api';
-import { Button, Card, Chip, Surface, Text } from '@heroui/react';
+import { Button, Card, Surface, Text } from '@heroui/react';
+
+import type { EditableIdeaValues, IdeaPresentationRecord } from '../lib/idea-utils';
 import { OpenTargetDropdown } from './open-target-dropdown';
+import { ProjectCommandCenter } from './project-command-center';
+import { ProjectIdeasPanel } from './project-ideas-panel';
+import { ProjectIssueSourceLinkButton } from './project-issue-source-link-button';
+import { ProjectSettingsPanel, type SettingsTab } from './project-settings-panel';
+import { ProjectWorktreesPanel } from './project-worktrees-panel';
+import { SidebarProjectSelect } from './sidebar-project-select';
+
+export type ProjectMainView = 'ideas' | 'settings' | 'workspace' | 'worktrees';
 
 interface ProjectMainPanelProps {
-    discoveryRoot: string;
-    isSidebarOpen: boolean;
-    launcherApps: LauncherAppRecord[];
-    launcherError: string;
-    selectedApp?: LauncherAppRecord;
-    selectedAppLabel?: string;
-    selectedExplorerTarget: ExplorerTarget;
-    selectedTargetName: string;
-    selectedTargetPath: string;
-    sidebarClosedPaddingLeft: number;
-    project?: ProjectSpaceRecord;
-    onCreateProject(): void;
-    onOpenSelectedTarget(): void;
-    onSelectLauncherApp(appId: string): void;
+  activeSettingsTab: SettingsTab;
+  assignedIdeaIds: string[];
+  createWorktreeBranchName: string;
+  createWorktreeError: string;
+  createWorktreeFolderName: string;
+  createWorktreeTargetPath: string;
+  discoveryRoot: string;
+  draftValues: EditableIdeaValues;
+  groupedProjects: ProjectSpaceRecord[];
+  groupedProjectsLabel?: string;
+  isDirty: boolean;
+  isIssueSourceLoading: boolean;
+  isIssueSourceSaving: boolean;
+  isSavingIdea: boolean;
+  isSidebarOpen: boolean;
+  launcherApps: LauncherAppRecord[];
+  launcherError: string;
+  loadIdeasError: string;
+  mainView: ProjectMainView;
+  onCancelCreateWorktree(): void;
+  onCreateIdea(): void;
+  onCreateProject(): void;
+  onMoveIdeaToWorktree(ideaId: string, targetWorktreeId?: string): void;
+  onOpenIssueSource(): void;
+  onOpenSelectedTarget(): void;
+  onSaveIdea(): void;
+  onSaveIssueSourceConfig(): void;
+  onSelectProject(projectId: string): void;
+  onSelectSettingsTab(tab: SettingsTab): void;
+  onSelectIdea(ideaId: string): void;
+  onSelectLauncherApp(appId: string): void;
+  onSubmitCreateWorktree(): void;
+  onUpdateIdeaValue<Key extends keyof EditableIdeaValues>(
+    key: Key,
+    value: EditableIdeaValues[Key]
+  ): void;
+  onUpdateCreateWorktreeBranchName(value: string): void;
+  onUpdateCreateWorktreeFolderName(value: string): void;
+  onUpdateIssueSourceKind(kind: ProjectIssueSourceConfig['kind']): void;
+  onUpdateIssueSourceUrl(url: string): void;
+  issueSourceConfig: ProjectIssueSourceConfig;
+  issueSourceDraftKind: ProjectIssueSourceConfig['kind'];
+  issueSourceDraftUrl: string;
+  issueSourceError: string;
+  project?: ProjectSpaceRecord;
+  selectedApp?: LauncherAppRecord;
+  selectedAppLabel?: string;
+  selectedExplorerTarget: ExplorerTarget;
+  selectedIdea?: IdeaPresentationRecord;
+  selectedTargetPath: string;
+  selectedTargetIdeas: IdeaPresentationRecord[];
+  selectedWorktree?: ProjectWorktreeRecord;
+  sidebarClosedPaddingLeft: number;
+  syncErrors: Record<string, string>;
+  isCreatingWorktree: boolean;
+  isCreatingWorktreeSubmitting: boolean;
+  worktrees: ProjectWorktreeRecord[];
 }
 
 export function ProjectMainPanel({
-    discoveryRoot,
-    isSidebarOpen,
-    launcherApps,
-    launcherError,
-    selectedApp,
-    selectedAppLabel,
-    selectedExplorerTarget,
-    selectedTargetName,
-    selectedTargetPath,
-    sidebarClosedPaddingLeft,
-    project,
-    onCreateProject,
-    onOpenSelectedTarget,
-    onSelectLauncherApp,
+  activeSettingsTab,
+  assignedIdeaIds,
+  createWorktreeBranchName,
+  createWorktreeError,
+  createWorktreeFolderName,
+  createWorktreeTargetPath,
+  discoveryRoot,
+  draftValues,
+  groupedProjects,
+  groupedProjectsLabel,
+  isDirty,
+  isIssueSourceLoading,
+  isIssueSourceSaving,
+  isSavingIdea,
+  isSidebarOpen,
+  launcherApps,
+  launcherError,
+  loadIdeasError,
+  mainView,
+  onCancelCreateWorktree,
+  onCreateIdea,
+  onCreateProject,
+  onMoveIdeaToWorktree,
+  onOpenIssueSource,
+  onOpenSelectedTarget,
+  onSaveIdea,
+  onSaveIssueSourceConfig,
+  onSelectProject,
+  onSelectSettingsTab,
+  onSelectIdea,
+  onSelectLauncherApp,
+  onSubmitCreateWorktree,
+  onUpdateIdeaValue,
+  onUpdateCreateWorktreeBranchName,
+  onUpdateCreateWorktreeFolderName,
+  onUpdateIssueSourceKind,
+  onUpdateIssueSourceUrl,
+  issueSourceConfig,
+  issueSourceDraftKind,
+  issueSourceDraftUrl,
+  issueSourceError,
+  project,
+  selectedApp,
+  selectedAppLabel,
+  selectedExplorerTarget,
+  selectedIdea,
+  selectedTargetPath,
+  selectedTargetIdeas,
+  selectedWorktree,
+  sidebarClosedPaddingLeft,
+  syncErrors,
+  isCreatingWorktree,
+  isCreatingWorktreeSubmitting,
+  worktrees
 }: ProjectMainPanelProps) {
-    const headerSafeInset = isSidebarOpen ? 0 : sidebarClosedPaddingLeft;
-    const targetLabel =
-        selectedExplorerTarget.kind === 'worktree' ? 'Worktree Path' : 'Workspace Path';
+  const headerSafeInset = isSidebarOpen ? 0 : sidebarClosedPaddingLeft;
 
-    return (
-        <Surface
-            variant="transparent"
-            className="flex min-h-0 flex-col rounded-none bg-app-panel">
-            <div
-                className="relative flex h-14 items-center justify-between pr-6"
-                style={{
-                    paddingLeft: isSidebarOpen
-                        ? '2rem'
-                        : `${sidebarClosedPaddingLeft}px`,
-                }}>
-                <div
-                    className="app-drag absolute inset-y-0 right-0"
-                    style={{
-                        left: `${headerSafeInset}px`,
-                    }}
-                />
+  return (
+    <div className="m-3 ml-2 flex min-h-0 flex-col overflow-hidden rounded-[2rem] border border-zinc-800/70 bg-app-panel shadow-[0_24px_80px_rgba(0,0,0,0.28)]">
+      <div
+        className="relative flex h-14 items-center justify-between pr-6"
+        style={{
+          paddingLeft: isSidebarOpen ? '2rem' : `${sidebarClosedPaddingLeft}px`
+        }}
+      >
+        <div
+          className="app-drag absolute inset-y-0 right-0"
+          style={{
+            left: `${headerSafeInset}px`
+          }}
+        />
 
-                <div className="relative flex min-w-0 items-center gap-3 leading-none">
-                    <Text className="truncate text-[15px] font-semibold text-slate-100">
-                        {project?.name ?? 'No project selected'}
-                    </Text>
-                    {project ? (
-                        <Chip
-                            color="default"
-                            size="sm"
-                            variant="tertiary"
-                            className="shrink-0 uppercase tracking-[0.18em] text-slate-400">
-                            {selectedTargetName}
-                        </Chip>
-                    ) : null}
-                </div>
+        <div className="app-no-drag relative flex min-w-0 items-center gap-3">
+          {project ? (
+            groupedProjectsLabel ? (
+              <SidebarProjectSelect
+                groupName={groupedProjectsLabel}
+                projects={groupedProjects}
+                selectedProjectId={project.id}
+                variant="header"
+                onSelectProject={onSelectProject}
+              />
+            ) : (
+              <div className="flex h-10 min-w-0 flex-1 items-center gap-2">
+                <span className="w-5 shrink-0 opacity-0" aria-hidden="true">
+                  ˅
+                </span>
+                <Text className="min-w-0 flex-1 truncate text-[24px] font-semibold leading-none tracking-tight text-zinc-100">
+                  {project.name}
+                </Text>
+              </div>
+            )
+          ) : (
+            <Text className="truncate text-[15px] font-semibold text-zinc-100">
+              No project selected
+            </Text>
+          )}
+          {project ? (
+            <ProjectIssueSourceLinkButton
+              kind={issueSourceConfig.kind}
+              onPress={onOpenIssueSource}
+              url={issueSourceConfig.url}
+            />
+          ) : null}
+        </div>
 
-                <div className="app-no-drag relative">
-                    <OpenTargetDropdown
-                        apps={launcherApps}
-                        disabled={!project || !selectedTargetPath}
-                        onOpen={onOpenSelectedTarget}
-                        onSelectApp={onSelectLauncherApp}
-                        selectedApp={selectedApp}
-                        selectedAppLabel={selectedAppLabel}
-                    />
-                </div>
-            </div>
+        {project ? (
+          <div className="app-no-drag relative">
+            <OpenTargetDropdown
+              apps={launcherApps}
+              disabled={!project || !selectedTargetPath}
+              onOpen={onOpenSelectedTarget}
+              onSelectApp={onSelectLauncherApp}
+              selectedApp={selectedApp}
+              selectedAppLabel={selectedAppLabel}
+            />
+          </div>
+        ) : <div className="w-12" />}
+      </div>
 
-            <div className="flex min-h-0 flex-1 items-center justify-center px-8">
-                <div className="w-full max-w-2xl">
-                    {project ? (
-                        <Card variant="secondary" className="border border-slate-800/80 bg-slate-950/70">
-                            <Card.Header className="gap-3">
-                                <Text className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                                    {targetLabel}
-                                </Text>
-                                <Card.Title className="font-mono text-xl font-medium tracking-tight text-slate-50">
-                                    {selectedTargetPath}
-                                </Card.Title>
-                            </Card.Header>
-                            <Card.Content className="gap-3">
-                                <Card.Description className="text-sm text-slate-400">
-                                    Open the currently selected target directly in your chosen app.
-                                </Card.Description>
-                            {launcherError ? (
-                                    <Surface
-                                        variant="tertiary"
-                                        className="rounded-2xl border border-amber-400/20 bg-amber-500/8 px-4 py-3 text-sm text-amber-300">
-                                    {launcherError}
-                                    </Surface>
-                            ) : null}
-                            </Card.Content>
-                        </Card>
-                    ) : (
-                        <Card variant="secondary" className="border border-slate-800/80 bg-slate-950/70">
-                            <Card.Header className="gap-3">
-                                <Text className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                                    No Projects
-                                </Text>
-                                <Card.Title className="text-2xl font-semibold tracking-tight text-slate-50">
-                                    Nothing selected yet
-                                </Card.Title>
-                                <Card.Description className="text-base text-slate-400">
-                                Add projects under{' '}
-                                {discoveryRoot || '~/projects'} to discover
-                                them.
-                                </Card.Description>
-                            </Card.Header>
-                            <Card.Footer>
-                            <Button
-                                variant="outline"
-                                onPress={onCreateProject}>
-                                Select project
-                            </Button>
-                            </Card.Footer>
-                        </Card>
-                    )}
-                </div>
-            </div>
-        </Surface>
-    );
+      {mainView === 'ideas' ? (
+        <ProjectIdeasPanel
+          assignedIdeaIds={assignedIdeaIds}
+          draftValues={draftValues}
+          isDirty={isDirty}
+          isSaving={isSavingIdea}
+          loadError={loadIdeasError}
+          onMoveIdeaToWorktree={onMoveIdeaToWorktree}
+          onSaveIdea={onSaveIdea}
+          onUpdateIdeaValue={onUpdateIdeaValue}
+          project={project}
+          selectedIdea={selectedIdea}
+          sidebarClosedPaddingLeft={sidebarClosedPaddingLeft}
+          syncErrors={syncErrors}
+          worktrees={worktrees}
+        />
+      ) : mainView === 'settings' ? (
+        <ProjectSettingsPanel
+          activeTab={activeSettingsTab}
+          discoveryRoot={discoveryRoot}
+          isIssueSourceLoading={isIssueSourceLoading}
+          isIssueSourceSaving={isIssueSourceSaving}
+          issueSourceConfig={issueSourceConfig}
+          issueSourceDraftKind={issueSourceDraftKind}
+          issueSourceDraftUrl={issueSourceDraftUrl}
+          issueSourceError={issueSourceError}
+          onOpenIssueSource={onOpenIssueSource}
+          onSaveIssueSourceConfig={onSaveIssueSourceConfig}
+          onSelectTab={onSelectSettingsTab}
+          onUpdateIssueSourceKind={onUpdateIssueSourceKind}
+          onUpdateIssueSourceUrl={onUpdateIssueSourceUrl}
+          project={project}
+        />
+      ) : mainView === 'worktrees' ? (
+        <ProjectWorktreesPanel
+          createWorktreeBranchName={createWorktreeBranchName}
+          createWorktreeError={createWorktreeError}
+          createWorktreeFolderName={createWorktreeFolderName}
+          createWorktreeTargetPath={createWorktreeTargetPath}
+          isCreatingWorktree={isCreatingWorktree}
+          isCreatingWorktreeSubmitting={isCreatingWorktreeSubmitting}
+          launcherError={launcherError}
+          onCancelCreateWorktree={onCancelCreateWorktree}
+          onOpenSelectedTarget={onOpenSelectedTarget}
+          onSubmitCreateWorktree={onSubmitCreateWorktree}
+          onUpdateCreateWorktreeBranchName={onUpdateCreateWorktreeBranchName}
+          onUpdateCreateWorktreeFolderName={onUpdateCreateWorktreeFolderName}
+          project={project}
+          selectedExplorerTarget={selectedExplorerTarget}
+          selectedTargetPath={selectedTargetPath}
+          selectedWorktree={selectedWorktree}
+          worktrees={worktrees}
+        />
+      ) : (
+        <ProjectCommandCenter
+          assignedIdeaIds={assignedIdeaIds}
+          launcherError={launcherError}
+          onCreateIdea={onCreateIdea}
+          onOpenSelectedTarget={onOpenSelectedTarget}
+          onSelectIdea={onSelectIdea}
+          project={project}
+          selectedExplorerTarget={selectedExplorerTarget}
+          selectedTargetPath={selectedTargetPath}
+          selectedWorktree={selectedWorktree}
+          targetIdeas={selectedTargetIdeas}
+        />
+      )}
+    </div>
+  );
 }

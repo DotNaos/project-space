@@ -2,5 +2,9 @@ node_modules
 dist
 dist-electron
 .DS_Store
+.dev/
 # heroui-agents-md
 .heroui-docs/
+.tmp-agent-browser/
+build/
+release/

@@ -1,0 +1,72 @@
+name: Dev Release
+
+on:
+  push:
+    branches:
+      - dev
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dev-release
+  cancel-in-progress: true
+
+jobs:
+  dev-release:
+    name: dev-release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm check
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Build macOS packages
+        run: pnpm package:mac
+        env:
+          RELEASE_CHANNEL: dev
+          RELEASE_SHA: ${{ github.sha }}
+
+      - name: Set release metadata
+        id: meta
+        run: |
+          echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "name=Dev (${GITHUB_SHA::7})" >> "$GITHUB_OUTPUT"
+
+      - name: Upload dev artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-space-dev-${{ steps.meta.outputs.short_sha }}-macos
+          path: |
+            release/*.dmg
+            release/*.zip
+          if-no-files-found: error
+
+      - name: Publish dev prerelease
+        run: node scripts/ci/create-or-update-release.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_CHANNEL: dev
+          RELEASE_TAG: dev-latest
+          RELEASE_NAME: ${{ steps.meta.outputs.name }}
+          RELEASE_TARGET_SHA: ${{ github.sha }}
+          RELEASE_PRERELEASE: "true"
+          RELEASE_NOTES: Dev build for ${{ github.sha }}.

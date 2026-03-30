@@ -2,6 +2,8 @@
 
 This file describes the reduced MVP target for the current phase.
 
+This iteration maps to version line `0.1.x` under `.dev/versioning.md`.
+
 ## Goals
 
 - keep exactly one project on screen

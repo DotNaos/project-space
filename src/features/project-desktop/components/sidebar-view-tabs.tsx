@@ -1,4 +1,4 @@
-import { Tab, TabIndicator, TabList, TabSeparator, Tabs } from '@heroui/react';
+import { Surface, Switch, Text } from '@heroui/react';
 
 export type SidebarView = 'workspace' | 'files';
 
@@ -7,41 +7,40 @@ interface SidebarViewTabsProps {
   onChange(value: SidebarView): void;
 }
 
-const items: Array<{ value: SidebarView; label: string }> = [
-  { value: 'workspace', label: 'Workspace' },
-  { value: 'files', label: 'Files' }
-];
-
 export function SidebarViewTabs({
   value,
   onChange
 }: SidebarViewTabsProps) {
+  const isFiles = value === 'files';
+
   return (
-    <div className="border-b border-slate-800 px-3 py-2">
-      <Tabs
-        selectedKey={value}
-        variant="primary"
-        onSelectionChange={(key) => {
-          if (key === 'workspace' || key === 'files') {
-            onChange(key);
-          }
-        }}
-        className="w-full"
+    <Surface
+      variant="secondary"
+      className="flex items-center justify-between rounded-2xl border border-zinc-800/60 bg-zinc-950/18 px-4 py-3"
+    >
+      <Text
+        className={
+          isFiles ? 'text-sm font-medium text-zinc-500' : 'text-sm font-medium text-zinc-100'
+        }
       >
-        <TabList className="grid w-full grid-cols-2">
-          {items.map((item) => (
-            <Tab
-              key={item.value}
-              id={item.value}
-              className="flex-1 text-xs"
-            >
-              <TabSeparator />
-              {item.label}
-              <TabIndicator />
-            </Tab>
-          ))}
-        </TabList>
-      </Tabs>
-    </div>
+        Workspace
+      </Text>
+
+      <Switch
+        aria-label="Toggle inline file tree"
+        isSelected={isFiles}
+        onChange={(nextValue) => {
+          onChange(nextValue ? 'files' : 'workspace');
+        }}
+      />
+
+      <Text
+        className={
+          isFiles ? 'text-sm font-medium text-zinc-100' : 'text-sm font-medium text-zinc-500'
+        }
+      >
+        Files
+      </Text>
+    </Surface>
   );
 }

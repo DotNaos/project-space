@@ -10,6 +10,7 @@ const SIDEBAR_SWIPE_PREVIEW_LIMIT = 148;
 const SIDEBAR_SWIPE_SNAP_THRESHOLD = 82;
 const SIDEBAR_SWIPE_DIRECTION_THRESHOLD = 12;
 const SIDEBAR_SWIPE_IDLE_RELEASE_MS = 220;
+const SIDEBAR_SWIPE_STEP_LOCK_RELEASE_MS = 260;
 const SIDEBAR_SWIPE_TENSION_SPLIT = 0.58;
 const SIDEBAR_SWIPE_TENSION_EXPONENT = 1.7;
 const SIDEBAR_SWIPE_RELEASE_EXPONENT = 1.2;
@@ -24,6 +25,8 @@ interface UseSidebarSwipeNavigationOptions {
   activeNavigationItemId: string;
   isSidebarOpen: boolean;
   navigationItems: ProjectNavigationItem[];
+  preloadProjectWorktrees(project: ProjectSpaceRecord): Promise<ProjectWorktreeRecord[]>;
+  projectWorktreesById: Record<string, ProjectWorktreeRecord[]>;
   projects: ProjectSpaceRecord[];
   resolveNavigationSelection(itemId: string): SidebarNavigationSelection | null;
   selectNavigationItem(
@@ -38,6 +41,8 @@ export function useSidebarSwipeNavigation({
   activeNavigationItemId,
   isSidebarOpen,
   navigationItems,
+  preloadProjectWorktrees,
+  projectWorktreesById,
   projects,
   resolveNavigationSelection,
   selectNavigationItem,
@@ -45,7 +50,7 @@ export function useSidebarSwipeNavigation({
 }: UseSidebarSwipeNavigationOptions) {
   const [previewDirection, setPreviewDirection] = useState<-1 | 0 | 1>(0);
   const [previewItemId, setPreviewItemId] = useState('');
-  const [previewWorktrees, setPreviewWorktrees] = useState<ProjectWorktreeRecord[]>([]);
+  const [isPreviewWorktreesLoading, setIsPreviewWorktreesLoading] = useState(false);
   const currentPanelRef = useRef<HTMLDivElement | null>(null);
   const previewPanelRef = useRef<HTMLDivElement | null>(null);
   const swipeState = useRef({
@@ -53,10 +58,12 @@ export function useSidebarSwipeNavigation({
     idleTimeoutId: 0 as number | undefined,
     isGestureActive: false,
     isSettling: false,
+    lockedDirection: 0 as -1 | 0 | 1,
     offset: 0,
     previewDirection: 0 as -1 | 0 | 1,
     previewItemId: '',
-    settleTimeoutId: 0 as number | undefined
+    settleTimeoutId: 0 as number | undefined,
+    stepLockTimeoutId: 0 as number | undefined
   });
 
   const activeNavigationIndex = useMemo(() => {
@@ -78,6 +85,7 @@ export function useSidebarSwipeNavigation({
       ? projects.find((entry) => entry.id === previewSelection.nextProjectId)
       : undefined;
   }, [previewSelection, projects]);
+  const previewWorktrees = previewProject ? projectWorktreesById[previewProject.id] ?? [] : [];
 
   useEffect(() => {
     const unsubscribe = window.projectSpace.onGestureScrollState((state) => {
@@ -85,6 +93,10 @@ export function useSidebarSwipeNavigation({
 
       if (state === 'end' && !swipeState.current.isSettling && swipeState.current.offset !== 0) {
         settleSwipe();
+      }
+
+      if (state === 'end') {
+        releaseStepLock();
       }
     });
 
@@ -97,6 +109,10 @@ export function useSidebarSwipeNavigation({
 
       if (swipeState.current.settleTimeoutId) {
         window.clearTimeout(swipeState.current.settleTimeoutId);
+      }
+
+      if (swipeState.current.stepLockTimeoutId) {
+        window.clearTimeout(swipeState.current.stepLockTimeoutId);
       }
 
       if (swipeState.current.animationFrameId) {
@@ -130,25 +146,32 @@ export function useSidebarSwipeNavigation({
   }, [isSidebarOpen]);
 
   useEffect(() => {
-    if (!previewProject || previewProject.kind !== 'workspace') {
-      setPreviewWorktrees([]);
+    if (!previewProject) {
+      setIsPreviewWorktreesLoading(false);
       return;
     }
 
     let canceled = false;
+    if (projectWorktreesById[previewProject.id]) {
+      setIsPreviewWorktreesLoading(false);
+      return;
+    }
 
-    void window.projectSpace.loadProjectWorktrees(previewProject.rootPath).then((nextWorktrees) => {
-      if (canceled) {
-        return;
-      }
+    setIsPreviewWorktreesLoading(true);
 
-      setPreviewWorktrees(nextWorktrees);
-    });
+    void preloadProjectWorktrees(previewProject)
+      .finally(() => {
+        if (canceled) {
+          return;
+        }
+
+        setIsPreviewWorktreesLoading(false);
+      });
 
     return () => {
       canceled = true;
     };
-  }, [previewProject]);
+  }, [previewProject, preloadProjectWorktrees, projectWorktreesById]);
 
   function getRenderedSwipeOffset(offset: number, settling: boolean) {
     if (settling || offset === 0) {
@@ -219,8 +242,35 @@ export function useSidebarSwipeNavigation({
     swipeState.current.isSettling = false;
     setPreviewDirection(0);
     setPreviewItemId('');
-    setPreviewWorktrees([]);
+    setIsPreviewWorktreesLoading(false);
     applySwipeTransform(0, 0, false);
+  }
+
+  function releaseStepLock() {
+    if (swipeState.current.stepLockTimeoutId) {
+      window.clearTimeout(swipeState.current.stepLockTimeoutId);
+      swipeState.current.stepLockTimeoutId = undefined;
+    }
+
+    swipeState.current.lockedDirection = 0;
+  }
+
+  function refreshStepLock(direction: -1 | 0 | 1) {
+    if (direction === 0) {
+      releaseStepLock();
+      return;
+    }
+
+    swipeState.current.lockedDirection = direction;
+
+    if (swipeState.current.stepLockTimeoutId) {
+      window.clearTimeout(swipeState.current.stepLockTimeoutId);
+    }
+
+    swipeState.current.stepLockTimeoutId = window.setTimeout(() => {
+      swipeState.current.lockedDirection = 0;
+      swipeState.current.stepLockTimeoutId = undefined;
+    }, SIDEBAR_SWIPE_STEP_LOCK_RELEASE_MS);
   }
 
   function settleSwipe() {
@@ -235,6 +285,10 @@ export function useSidebarSwipeNavigation({
       shouldSwitch && swipeState.current.previewDirection !== 0
         ? swipeState.current.previewDirection * sidebarWidth
         : 0;
+
+    if (shouldSwitch) {
+      refreshStepLock(swipeState.current.previewDirection);
+    }
 
     scheduleSwipeTransform();
 
@@ -254,7 +308,7 @@ export function useSidebarSwipeNavigation({
       swipeState.current.previewDirection = 0;
       setPreviewDirection(0);
       setPreviewItemId('');
-      setPreviewWorktrees([]);
+      setIsPreviewWorktreesLoading(false);
       return;
     }
 
@@ -264,7 +318,7 @@ export function useSidebarSwipeNavigation({
       swipeState.current.previewDirection = 0;
       setPreviewDirection(0);
       setPreviewItemId('');
-      setPreviewWorktrees([]);
+      setIsPreviewWorktreesLoading(false);
       return;
     }
 
@@ -288,6 +342,26 @@ export function useSidebarSwipeNavigation({
 
     if (swipeState.current.isSettling) {
       return;
+    }
+
+    const incomingDirection =
+      event.deltaX > SIDEBAR_SWIPE_DIRECTION_THRESHOLD
+        ? 1
+        : event.deltaX < -SIDEBAR_SWIPE_DIRECTION_THRESHOLD
+          ? -1
+          : 0;
+
+    if (incomingDirection === 0) {
+      return;
+    }
+
+    if (swipeState.current.lockedDirection !== 0) {
+      if (incomingDirection === swipeState.current.lockedDirection) {
+        refreshStepLock(incomingDirection);
+        return;
+      }
+
+      releaseStepLock();
     }
 
     if (swipeState.current.idleTimeoutId) {
@@ -335,6 +409,7 @@ export function useSidebarSwipeNavigation({
   return {
     currentPanelRef,
     handleSidebarWheel,
+    isPreviewWorktreesLoading,
     previewPanelRef,
     previewProject,
     previewWorktrees

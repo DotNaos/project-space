@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Folder } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Folder, Search } from 'lucide-react';
 import {
-  Accordion,
-  Button,
   ScrollShadow,
   SearchField,
   SearchFieldClearButton,
@@ -12,13 +11,12 @@ import {
   Surface,
   Text
 } from '@heroui/react';
-import { Tooltip } from '@heroui/react';
-import type { ReactNode } from 'react';
 import type {
   ProjectGroupRecord,
   ProjectNavigationItem,
   ProjectSpaceRecord
 } from '@/shared/electron-api';
+import { cn } from '@/lib/utils';
 import { useProjectSpacesPickerStore } from '../stores/use-project-spaces-picker-store';
 
 interface ProjectSpacesPickerProps {
@@ -27,13 +25,19 @@ interface ProjectSpacesPickerProps {
   rootItems: ProjectNavigationItem[];
   selectedProjectId: string;
   onSelectProject(projectId: string, groupId?: string): void;
-  children: ReactNode;
 }
 
 interface ProjectPickerSection {
   id: string;
   label: string;
   projectIds: string[];
+}
+
+interface PickerPosition {
+  left: number;
+  top: number;
+  width: number;
+  maxHeight: number;
 }
 
 function matchesQuery(value: string, query: string) {
@@ -45,15 +49,15 @@ export function ProjectSpacesPicker({
   projects,
   rootItems,
   selectedProjectId,
-  onSelectProject,
-  children
+  onSelectProject
 }: ProjectSpacesPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
-  const closeTimeoutRef = useRef<number | null>(null);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [pickerPosition, setPickerPosition] = useState<PickerPosition | null>(null);
   const pickerRef = useRef<HTMLDivElement | null>(null);
-  const contentRef = useRef<HTMLDivElement | null>(null);
+  const drawerRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const optionRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const query = useProjectSpacesPickerStore((state) => state.query);
   const setQuery = useProjectSpacesPickerStore((state) => state.setQuery);
 
@@ -118,25 +122,18 @@ export function ProjectSpacesPicker({
       .filter((section): section is ProjectPickerSection => Boolean(section));
   }, [groupedSections, projectsById, query]);
 
-  const effectiveExpandedGroupIds = useMemo(() => {
-    if (query.trim()) {
-      return new Set(filteredGroupedSections.map((section) => section.id));
-    }
-
-    return expandedGroupIds;
-  }, [expandedGroupIds, filteredGroupedSections, query]);
-
-  function cancelClose() {
-    if (closeTimeoutRef.current !== null) {
-      window.clearTimeout(closeTimeoutRef.current);
-      closeTimeoutRef.current = null;
-    }
-  }
+  const visibleProjectIds = useMemo(() => {
+    return [
+      ...filteredStandaloneProjectIds,
+      ...filteredGroupedSections.flatMap((section) => section.projectIds)
+    ];
+  }, [filteredGroupedSections, filteredStandaloneProjectIds]);
 
   function resetPicker() {
-    cancelClose();
     setIsOpen(false);
-    setExpandedGroupIds(new Set());
+    setPickerPosition(null);
+    setActiveProjectId(null);
+    setQuery('');
   }
 
   function selectProjectById(projectId: string) {
@@ -150,22 +147,46 @@ export function ProjectSpacesPicker({
   }
 
   useEffect(() => {
-    return () => {
-      cancelClose();
-    };
-  }, []);
-
-  useEffect(() => {
     if (!isOpen) {
+      setPickerPosition(null);
       return;
     }
 
-    const frameId = window.requestAnimationFrame(() => {
-      searchInputRef.current?.focus();
-    });
+    function updatePickerPosition() {
+      const rect = pickerRef.current?.getBoundingClientRect();
+
+      if (!rect) {
+        return;
+      }
+
+      const viewportPadding = 16;
+      const drawerGap = 12;
+      const availableAbove = rect.top - viewportPadding - drawerGap;
+      const availableBelow = window.innerHeight - rect.bottom - viewportPadding - drawerGap;
+      const shouldPlaceAbove = availableAbove >= 240 || availableAbove >= availableBelow;
+      const maxHeight = Math.max(
+        220,
+        Math.min(availableAbove, shouldPlaceAbove ? 440 : availableBelow)
+      );
+      const top = shouldPlaceAbove
+        ? Math.max(viewportPadding, rect.top - maxHeight - drawerGap)
+        : rect.bottom + drawerGap;
+
+      setPickerPosition({
+        left: Math.max(rect.left, viewportPadding),
+        top,
+        width: Math.min(rect.width, window.innerWidth - viewportPadding * 2),
+        maxHeight
+      });
+    }
+
+    updatePickerPosition();
+    window.addEventListener('resize', updatePickerPosition);
+    window.addEventListener('scroll', updatePickerPosition, true);
 
     return () => {
-      window.cancelAnimationFrame(frameId);
+      window.removeEventListener('resize', updatePickerPosition);
+      window.removeEventListener('scroll', updatePickerPosition, true);
     };
   }, [isOpen]);
 
@@ -175,8 +196,12 @@ export function ProjectSpacesPicker({
     }
 
     function handlePointerDown(event: PointerEvent) {
-      if (pickerRef.current?.contains(event.target as Node)) {
-        cancelClose();
+      const target = event.target as Node;
+
+      if (
+        pickerRef.current?.contains(target) ||
+        drawerRef.current?.contains(target)
+      ) {
         return;
       }
 
@@ -198,210 +223,239 @@ export function ProjectSpacesPicker({
     };
   }, [isOpen]);
 
-  function openPicker() {
-    cancelClose();
-    setIsOpen(true);
-  }
-
-  function scheduleClose() {
-    cancelClose();
-    closeTimeoutRef.current = window.setTimeout(() => {
-      resetPicker();
-    }, 160);
-  }
-
-  function isWithinInteractiveArea(target: EventTarget | null) {
-    return (
-      target instanceof Node &&
-      (pickerRef.current?.contains(target) || contentRef.current?.contains(target))
-    );
-  }
-
-  function handlePointerEnter() {
-    openPicker();
-  }
-
-  function handlePointerLeave(event: React.PointerEvent<HTMLElement>) {
-    if (isWithinInteractiveArea(event.relatedTarget)) {
-      cancelClose();
+  useEffect(() => {
+    if (!isOpen) {
       return;
     }
 
-    scheduleClose();
+    const frameId = window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    setActiveProjectId(visibleProjectIds[0] ?? null);
+  }, [isOpen, query, visibleProjectIds]);
+
+  useEffect(() => {
+    if (!activeProjectId) {
+      return;
+    }
+
+    optionRefs.current[activeProjectId]?.scrollIntoView({
+      block: 'nearest'
+    });
+  }, [activeProjectId]);
+
+  function openPicker() {
+    setIsOpen(true);
+  }
+
+  function moveActiveResult(direction: 1 | -1) {
+    if (visibleProjectIds.length === 0) {
+      return;
+    }
+
+    const currentIndex = activeProjectId
+      ? visibleProjectIds.indexOf(activeProjectId)
+      : -1;
+    const baseIndex = currentIndex === -1 ? 0 : currentIndex;
+    const nextIndex = Math.min(
+      Math.max(baseIndex + direction, 0),
+      visibleProjectIds.length - 1
+    );
+
+    setActiveProjectId(visibleProjectIds[nextIndex] ?? null);
+  }
+
+  function renderProjectRow(projectId: string) {
+    const project = projectsById[projectId];
+    if (!project) {
+      return null;
+    }
+
+    const isActive = activeProjectId === project.id;
+    const isSelected = selectedProjectId === project.id;
+
+    return (
+      <button
+        key={project.id}
+        ref={(node) => {
+          optionRefs.current[project.id] = node;
+        }}
+        type="button"
+        onMouseEnter={() => {
+          setActiveProjectId(project.id);
+        }}
+        onClick={() => {
+          selectProjectById(project.id);
+        }}
+        className={cn(
+          'flex w-full flex-col items-start gap-1.5 rounded-[20px] px-4 py-3 text-left transition',
+          isActive
+            ? 'bg-zinc-800 text-zinc-50 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]'
+            : 'bg-transparent text-zinc-200 hover:bg-zinc-900/70',
+          isSelected && !isActive
+            ? 'shadow-[inset_0_0_0_1px_rgba(161,161,170,0.24)]'
+            : null
+        )}
+      >
+        <div className="flex w-full items-center justify-between gap-3">
+          <Text className="truncate text-sm font-semibold text-current">
+            {project.name}
+          </Text>
+          {project.kind === 'workspace' ? (
+            <Text className="shrink-0 text-[11px] font-medium text-zinc-500">
+              Workspace
+            </Text>
+          ) : null}
+        </div>
+        <Text className="w-full truncate text-[12px] font-medium text-zinc-500">
+          {project.rootPath}
+        </Text>
+      </button>
+    );
   }
 
   return (
-    <div
-      ref={pickerRef}
-      className="relative flex w-full items-center"
-      onFocusCapture={handlePointerEnter}
-      onBlurCapture={(event) => {
-        if (isWithinInteractiveArea(event.relatedTarget)) {
-          cancelClose();
-          return;
-        }
+    <div ref={pickerRef} className="relative w-full">
+      <SearchField
+        aria-label="Search projects"
+        value={query}
+        onChange={(value) => {
+          if (!isOpen) {
+            setIsOpen(true);
+          }
 
-        scheduleClose();
-      }}
-      onPointerEnter={handlePointerEnter}
-      onPointerLeave={handlePointerLeave}
-    >
-      <div className="flex w-full items-center">{children}</div>
+          setQuery(value);
+        }}
+        className="w-full"
+      >
+        <SearchFieldGroup
+          className={cn(
+            'h-12 rounded-[24px] border bg-zinc-950/90 px-1 shadow-[0_12px_30px_rgba(0,0,0,0.24)] transition',
+            isOpen ? 'border-zinc-600/80 bg-zinc-950' : 'border-zinc-800/80'
+          )}
+          onClick={() => {
+            openPicker();
+            searchInputRef.current?.focus();
+          }}
+        >
+          <SearchFieldSearchIcon className="text-zinc-500" />
+          <SearchFieldInput
+            ref={searchInputRef}
+            placeholder="Search projects"
+            className="text-sm font-medium text-zinc-100 placeholder:text-zinc-500"
+            onFocus={() => {
+              openPicker();
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                moveActiveResult(1);
+              }
 
-      {isOpen ? (
-        <div className="absolute bottom-full left-1/2 z-50 mb-3 w-[340px] -translate-x-1/2">
+              if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                moveActiveResult(-1);
+              }
+
+              if (event.key === 'Enter' && activeProjectId) {
+                event.preventDefault();
+                selectProjectById(activeProjectId);
+              }
+            }}
+          />
+          {query.trim() ? (
+            <SearchFieldClearButton
+              onPress={() => {
+                setQuery('');
+                setActiveProjectId(visibleProjectIds[0] ?? null);
+                searchInputRef.current?.focus();
+              }}
+            />
+          ) : (
+            <Search className="mr-2 h-4 w-4 text-zinc-700" strokeWidth={2} />
+          )}
+        </SearchFieldGroup>
+      </SearchField>
+
+      {isOpen && pickerPosition
+        ? createPortal(
+        <div
+          className="fixed z-[120]"
+          style={{
+            left: `${pickerPosition.left}px`,
+            top: `${pickerPosition.top}px`,
+            width: `${pickerPosition.width}px`
+          }}
+        >
           <Surface
-            ref={contentRef}
+            ref={drawerRef}
             variant="secondary"
-            className="flex h-[420px] min-h-0 flex-col rounded-3xl border border-slate-800/80 p-3 shadow-2xl shadow-slate-950/40"
+            className="flex min-h-0 flex-col overflow-hidden rounded-[30px] border border-zinc-800/90 bg-zinc-950/95 p-3 shadow-[0_26px_90px_rgba(0,0,0,0.58)] backdrop-blur-xl"
+            style={{
+              maxHeight: `${pickerPosition.maxHeight}px`
+            }}
           >
-            <SearchField
-              aria-label="Search projects"
-              value={query}
-              onChange={setQuery}
-              className="w-full"
-            >
-              <SearchFieldGroup className="rounded-2xl border border-slate-800/80 bg-slate-950/70">
-                <SearchFieldSearchIcon />
-                <SearchFieldInput
-                  ref={searchInputRef}
-                  autoFocus
-                  placeholder="Search projects"
-                  className="text-sm"
-                />
-                <SearchFieldClearButton />
-              </SearchFieldGroup>
-            </SearchField>
+            <div className="mb-3 flex justify-center">
+              <div className="h-1 w-10 rounded-full bg-zinc-700/70" />
+            </div>
 
-            <ScrollShadow className="mt-3 min-h-0 flex-1" hideScrollBar>
+            <ScrollShadow className="min-h-0 flex-1" hideScrollBar>
               {filteredStandaloneProjectIds.length > 0 || filteredGroupedSections.length > 0 ? (
-                <div className="space-y-3 pb-1">
+                <div className="space-y-4 pb-1">
                   {filteredStandaloneProjectIds.length > 0 ? (
-                    <div className="space-y-1">
-                      <Text className="px-3 py-1 text-xs font-medium text-slate-500">
+                    <div className="space-y-2">
+                      <Text className="px-3 text-xs font-semibold text-zinc-500">
                         Projects
                       </Text>
 
-                      {filteredStandaloneProjectIds.map((projectId) => {
-                        const project = projectsById[projectId];
-                        if (!project) {
-                          return null;
-                        }
-
-                        return (
-                          <Tooltip key={project.id} delay={0}>
-                            <Tooltip.Trigger className="block w-full">
-                              <Button
-                                fullWidth
-                                variant={selectedProjectId === project.id ? 'secondary' : 'ghost'}
-                                onPress={() => {
-                                  selectProjectById(project.id);
-                                }}
-                                className="h-auto min-h-0 justify-start rounded-2xl px-3 py-3 text-left"
-                              >
-                                <div className="flex w-full items-center justify-between gap-3">
-                                  <Text className="truncate text-sm font-medium text-slate-100">
-                                    {project.name}
-                                  </Text>
-                                  {project.kind === 'workspace' ? (
-                                    <Text className="shrink-0 text-[10px] uppercase tracking-[0.18em] text-slate-500">
-                                      WS
-                                    </Text>
-                                  ) : null}
-                                </div>
-                              </Button>
-                            </Tooltip.Trigger>
-                            <Tooltip.Content showArrow placement="right">
-                              <Tooltip.Arrow />
-                              {project.rootPath}
-                            </Tooltip.Content>
-                          </Tooltip>
-                        );
-                      })}
+                      <div className="space-y-1">
+                        {filteredStandaloneProjectIds.map(renderProjectRow)}
+                      </div>
                     </div>
                   ) : null}
 
                   {filteredGroupedSections.length > 0 ? (
-                    <Accordion
-                      allowsMultipleExpanded
-                      expandedKeys={effectiveExpandedGroupIds}
-                      onExpandedChange={(keys) => {
-                        if (query.trim()) {
-                          return;
-                        }
-
-                        setExpandedGroupIds(new Set(Array.from(keys, (key) => String(key))));
-                      }}
-                    >
+                    <div className="space-y-4">
                       {filteredGroupedSections.map((section) => (
-                        <Accordion.Item key={section.id} id={section.id}>
-                          <Accordion.Heading>
-                            <Accordion.Trigger className="rounded-2xl px-3 py-3 text-left text-sm font-medium text-slate-200 transition hover:bg-slate-900/40 data-[expanded=true]:bg-slate-900/25">
-                              <span className="flex min-w-0 items-center gap-2">
-                                <Folder className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={1.8} />
-                                <span className="truncate">{section.label}</span>
-                              </span>
-                              <Accordion.Indicator className="text-slate-500" />
-                            </Accordion.Trigger>
-                          </Accordion.Heading>
-                          <Accordion.Panel>
-                            <Accordion.Body className="ml-3 space-y-1 border-l border-slate-800/60 px-0 pt-1 pb-0 pl-2">
-                              {section.projectIds.map((projectId) => {
-                                const project = projectsById[projectId];
-                                if (!project) {
-                                  return null;
-                                }
-
-                                return (
-                                  <Tooltip key={project.id} delay={0}>
-                                    <Tooltip.Trigger className="block w-full">
-                                      <Button
-                                        fullWidth
-                                        variant={
-                                          selectedProjectId === project.id ? 'secondary' : 'ghost'
-                                        }
-                                        onPress={() => {
-                                          selectProjectById(project.id);
-                                        }}
-                                        className="h-auto min-h-0 justify-start rounded-2xl px-3 py-3 text-left"
-                                      >
-                                        <div className="flex w-full items-center justify-between gap-3">
-                                          <Text className="truncate text-sm font-medium text-slate-100">
-                                            {project.name}
-                                          </Text>
-                                          {project.kind === 'workspace' ? (
-                                            <Text className="shrink-0 text-[10px] uppercase tracking-[0.18em] text-slate-500">
-                                              WS
-                                            </Text>
-                                          ) : null}
-                                        </div>
-                                      </Button>
-                                    </Tooltip.Trigger>
-                                    <Tooltip.Content showArrow placement="right">
-                                      <Tooltip.Arrow />
-                                      {project.rootPath}
-                                    </Tooltip.Content>
-                                  </Tooltip>
-                                );
-                              })}
-                            </Accordion.Body>
-                          </Accordion.Panel>
-                        </Accordion.Item>
+                        <div key={section.id} className="space-y-2">
+                          <div className="flex items-center gap-2 px-3">
+                            <Folder className="h-4 w-4 shrink-0 text-zinc-500" strokeWidth={1.8} />
+                            <Text className="truncate text-xs font-semibold text-zinc-500">
+                              {section.label}
+                            </Text>
+                          </div>
+                          <div className="space-y-1">
+                            {section.projectIds.map(renderProjectRow)}
+                          </div>
+                        </div>
                       ))}
-                    </Accordion>
+                    </div>
                   ) : null}
                 </div>
               ) : (
                 <div className="flex h-full items-center justify-center px-3 py-3">
-                  <Text className="text-sm text-slate-500">
+                  <Text className="text-sm font-medium text-zinc-500">
                     No matching projects.
                   </Text>
                 </div>
               )}
             </ScrollShadow>
           </Surface>
-        </div>
-      ) : null}
+        </div>,
+        document.body
+      )
+        : null}
     </div>
   );
 }

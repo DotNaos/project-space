@@ -4,6 +4,8 @@
 
 `project-space` is a desktop application for running one software project as an operational workspace.
 
+Versioning follows the policy in `.dev/versioning.md`.
+
 The product is not a code editor, not a terminal wrapper, and not a file explorer. It is the desktop layer above those tools. It gives structure to project execution and launches external tools from the right workflow context.
 
 ## The Core Problem
