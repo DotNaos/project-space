@@ -42,6 +42,7 @@ jobs:
       - name: Build macOS packages
         run: pnpm package:mac
         env:
+          CSC_FOR_PULL_REQUEST: "true"
           RELEASE_CHANNEL: canary
           RELEASE_SHA: ${{ github.sha }}
 

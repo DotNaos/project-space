@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
 
 import type {
@@ -13,6 +14,25 @@ import { loadProjectIssueSourceConfig } from './project-issue-source-config';
 const execFileAsync = promisify(execFile);
 const metadataMarker = '<!-- project-space-idea-meta';
 const iterationLabelPrefix = 'iteration:';
+const ghExecutableCandidates = [
+  process.env.GH_PATH?.trim() || '',
+  '/opt/homebrew/bin/gh',
+  '/usr/local/bin/gh',
+  '/opt/local/bin/gh'
+].filter(Boolean);
+
+let ghExecutablePromise: Promise<string> | undefined;
+
+type CommandRunnerResult = {
+  stdout: string;
+  stderr?: string;
+};
+
+type CommandRunner = (
+  file: string,
+  args?: readonly string[],
+  options?: { windowsHide?: boolean }
+) => Promise<CommandRunnerResult>;
 
 interface GithubIssueJson {
   body: string;
@@ -48,6 +68,35 @@ function getCommandErrorMessage(error: unknown, fallback: string) {
   }
 
   return fallback;
+}
+
+function getGhUnavailableMessage() {
+  return 'GitHub CLI could not be found. Install `gh` or make it available to the app.';
+}
+
+export async function resolveGhExecutablePath({
+  commandRunner = execFileAsync,
+  fileExists = existsSync
+}: {
+  commandRunner?: CommandRunner;
+  fileExists?: typeof existsSync;
+} = {}) {
+  const installedCandidate = ghExecutableCandidates.find((candidate) => fileExists(candidate));
+
+  if (installedCandidate) {
+    return installedCandidate;
+  }
+
+  try {
+    const { stdout } = await commandRunner('/bin/zsh', ['-lc', 'command -v gh'], {
+      windowsHide: true
+    });
+    const shellPath = stdout.trim();
+
+    return shellPath || '';
+  } catch {
+    return '';
+  }
 }
 
 function buildIterationLabel(iteration: string) {
@@ -140,8 +189,18 @@ function getGithubRepoRef(url: string) {
   return match?.[1] ?? '';
 }
 
-async function runGhCommand(args: string[], repoRef: string) {
-  const { stdout } = await execFileAsync('gh', args, {
+async function runGhCommand(args: string[], _repoRef: string) {
+  if (!ghExecutablePromise) {
+    ghExecutablePromise = resolveGhExecutablePath();
+  }
+
+  const ghExecutablePath = await ghExecutablePromise;
+
+  if (!ghExecutablePath) {
+    throw new Error(getGhUnavailableMessage());
+  }
+
+  const { stdout } = await execFileAsync(ghExecutablePath, args, {
     windowsHide: true
   });
 
@@ -205,27 +264,33 @@ export async function listGithubIdeas({
   includeClosed,
   projectPath
 }: ListGithubIdeasRequest): Promise<GithubIdeaRecord[]> {
-  const repoRef = await resolveGithubRepoRef(projectPath);
+  try {
+    const repoRef = await resolveGithubRepoRef(projectPath);
 
-  if (!repoRef) {
-    return [];
+    if (!repoRef) {
+      return [];
+    }
+
+    const output = await runGhCommand([
+      'issue',
+      'list',
+      '--state',
+      includeClosed ? 'all' : 'open',
+      '--limit',
+      '200',
+      '--json',
+      'number,title,body,url,state,labels,createdAt,updatedAt',
+      '-R',
+      repoRef
+    ], repoRef);
+    const issues = JSON.parse(output) as GithubIssueJson[];
+
+    return issues
+      .map(mapGithubIssue)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  } catch (error) {
+    throw new Error(getCommandErrorMessage(error, getGhUnavailableMessage()));
   }
-
-  const output = await runGhCommand([
-    'issue',
-    'list',
-    '--state',
-    includeClosed ? 'all' : 'open',
-    '--limit',
-    '200',
-    '--json',
-    'number,title,body,url,state,labels,createdAt,updatedAt',
-    '-R',
-    repoRef
-  ], repoRef);
-  const issues = JSON.parse(output) as GithubIssueJson[];
-
-  return issues.map(mapGithubIssue).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
 export async function createGithubIdeaFromDraft({

@@ -1,8 +1,12 @@
+import { getChannelBuildMeta, normalizeChannel } from './scripts/build/channel-build-meta.mjs';
+
 const hasMacSigningIdentity = Boolean(process.env.CSC_LINK || process.env.CSC_NAME);
+const releaseChannel = normalizeChannel(process.env.RELEASE_CHANNEL);
+const channelBuildMeta = getChannelBuildMeta(releaseChannel);
 
 export default {
-  appId: 'com.dotnaos.project-space',
-  productName: 'Project Space',
+  appId: channelBuildMeta.appId,
+  productName: channelBuildMeta.bundleLabel,
   asar: true,
   npmRebuild: false,
   directories: {
@@ -13,11 +17,13 @@ export default {
     'dist/renderer/**/*',
     'dist-electron/**/*',
     'assets/**/*',
+    'build/runtime-icons/**/*',
     'node_modules/**/*',
     'package.json'
   ],
   extraMetadata: {
-    main: 'dist-electron/main/index.js'
+    main: 'dist-electron/main/index.js',
+    projectSpaceChannel: releaseChannel
   },
   mac: {
     category: 'public.app-category.productivity',

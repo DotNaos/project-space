@@ -1,5 +1,5 @@
 import { app, BrowserWindow, nativeImage, nativeTheme } from 'electron';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { registerAppShellHandlers } from './ipc/register-app-shell-handlers';
@@ -10,11 +10,12 @@ const enableAgentBrowserDebugPort = Boolean(process.env.VITE_DEV_SERVER_URL);
 let reactDevToolsWindow: BrowserWindow | null = null;
 
 function getAppIconPath() {
-  const iconFileName = nativeTheme.shouldUseDarkColors
-    ? 'app_icon-iOS-Dark-1024x1024@1x.png'
-    : 'app_icon-iOS-Default-1024x1024@1x.png';
+  const runtimeIconPath = join(
+    app.getAppPath(),
+    `build/runtime-icons/${nativeTheme.shouldUseDarkColors ? 'dark' : 'light'}.png`
+  );
 
-  return join(app.getAppPath(), `assets/app_icon Exports/${iconFileName}`);
+  return runtimeIconPath;
 }
 
 function applyAppIcon() {

@@ -3,9 +3,13 @@ import { join, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 
+import { getChannelBuildMeta, normalizeChannel } from '../build/channel-build-meta.mjs';
+
 const rootDirectory = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const releaseDirectory = join(rootDirectory, 'release');
-const channel = sanitizeLabel(process.env.RELEASE_CHANNEL || 'local');
+const releaseChannel = normalizeChannel(process.env.RELEASE_CHANNEL);
+const channelBuildMeta = getChannelBuildMeta(releaseChannel);
+const channel = sanitizeLabel(channelBuildMeta.releaseArtifactChannel);
 const shortSha = sanitizeLabel((process.env.RELEASE_SHA || process.env.GITHUB_SHA || 'local').slice(0, 7));
 
 await rm(releaseDirectory, { recursive: true, force: true });
