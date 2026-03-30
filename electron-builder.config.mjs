@@ -1,3 +1,5 @@
+const hasMacSigningIdentity = Boolean(process.env.CSC_LINK || process.env.CSC_NAME);
+
 export default {
   appId: 'com.dotnaos.project-space',
   productName: 'Project Space',
@@ -21,6 +23,6 @@ export default {
     category: 'public.app-category.productivity',
     target: ['dmg', 'zip'],
     icon: 'build/icon.icns',
-    identity: null
+    identity: hasMacSigningIdentity ? undefined : '-'
   }
 };
