@@ -18,7 +18,7 @@ import type {
   ProjectGroupRecord,
   ProjectNavigationItem,
   ProjectSpaceRecord
-} from '@/shared/electron-api';
+} from '@/shared/project-space-api';
 import { useProjectSpacesPickerStore } from '../stores/use-project-spaces-picker-store';
 
 interface ProjectSpacesPickerProps {

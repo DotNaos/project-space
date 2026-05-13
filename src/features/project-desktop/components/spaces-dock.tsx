@@ -4,7 +4,7 @@ import type {
   ProjectGroupRecord,
   ProjectNavigationItem,
   ProjectSpaceRecord
-} from '@/shared/electron-api';
+} from '@/shared/project-space-api';
 import { ProjectSpacesPicker } from './project-spaces-picker';
 
 interface SpaceItem {

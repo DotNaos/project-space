@@ -11,7 +11,7 @@ import type {
   ExplorerTarget,
   ProjectSpaceRecord,
   ProjectWorktreeRecord
-} from '@/shared/electron-api';
+} from '@/shared/project-space-api';
 
 interface WorkflowExplorerProps {
   onSelectWorkspace(): void;

@@ -6,7 +6,7 @@ import type {
   ProjectNavigationItem,
   ProjectSpaceRecord,
   ProjectWorktreeRecord
-} from '@/shared/electron-api';
+} from '@/shared/project-space-api';
 import type { SidebarView } from './sidebar-view-tabs';
 import { SidebarContent } from './sidebar-content';
 import { SidebarProjectSelect } from './sidebar-project-select';

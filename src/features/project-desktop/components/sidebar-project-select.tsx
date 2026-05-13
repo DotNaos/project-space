@@ -6,7 +6,7 @@ import {
   Text,
   Tooltip
 } from '@heroui/react';
-import type { ProjectSpaceRecord } from '@/shared/electron-api';
+import type { ProjectSpaceRecord } from '@/shared/project-space-api';
 
 interface SidebarProjectSelectProps {
   groupName: string;

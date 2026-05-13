@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { launcherAppLabels } from '@/shared/electron-api';
+import { projectSpaceClient } from '@/api/project-space-client';
+import { launcherAppLabels } from '@/shared/project-space-api';
 import type {
   ExplorerTarget,
   LauncherAppRecord,
@@ -7,7 +8,7 @@ import type {
   ProjectNavigationItem,
   ProjectSpaceRecord,
   ProjectWorktreeRecord
-} from '@/shared/electron-api';
+} from '@/shared/project-space-api';
 import type { SidebarView } from '../components/sidebar-view-tabs';
 
 const emptyDiscovery: ProjectDiscoveryResult = {
@@ -95,14 +96,17 @@ export function useProjectDesktop() {
 
   useEffect(() => {
     void Promise.all([
-      window.projectSpace.loadProjectsState(),
-      window.projectSpace.loadProjectDiscovery()
+      projectSpaceClient.loadProjectsState(),
+      projectSpaceClient.loadProjectDiscovery()
     ])
       .then(([state, nextDiscovery]) => {
         setDiscovery(nextDiscovery);
         setSelectedExplorerTarget(state.selectedExplorerTarget);
         setSelectedLauncherAppId(state.selectedLauncherAppId);
         setSelectedProjectId(state.selectedProjectId);
+      })
+      .catch(() => {
+        setDiscovery(emptyDiscovery);
       })
       .finally(() => {
         setHasLoaded(true);
@@ -112,13 +116,20 @@ export function useProjectDesktop() {
   useEffect(() => {
     let canceled = false;
 
-    void window.projectSpace.loadLauncherApps().then((nextLauncherApps) => {
-      if (canceled) {
-        return;
-      }
+    void projectSpaceClient
+      .loadLauncherApps()
+      .then((nextLauncherApps) => {
+        if (canceled) {
+          return;
+        }
 
-      setLauncherApps(nextLauncherApps);
-    });
+        setLauncherApps(nextLauncherApps);
+      })
+      .catch(() => {
+        if (!canceled) {
+          setLauncherApps([]);
+        }
+      });
 
     return () => {
       canceled = true;
@@ -180,7 +191,9 @@ export function useProjectDesktop() {
 
     void Promise.all(
       appsMissingIcons.map(async (entry) => {
-        const iconDataUrl = await window.projectSpace.loadLauncherAppIcon(entry.id);
+        const iconDataUrl = await projectSpaceClient
+          .loadLauncherAppIcon(entry.id)
+          .catch(() => undefined);
 
         return {
           iconDataUrl,
@@ -250,23 +263,33 @@ export function useProjectDesktop() {
       setSelectedExplorerTarget({ kind: 'workspace' });
     }
 
-    void window.projectSpace.loadProjectWorktrees(project.rootPath).then((nextWorktrees) => {
-      if (canceled) {
-        return;
-      }
+    void projectSpaceClient
+      .loadProjectWorktrees(project.rootPath)
+      .then((nextWorktrees) => {
+        if (canceled) {
+          return;
+        }
 
-      setProjectWorktrees((current) => ({
-        ...current,
-        [project.id]: nextWorktrees
-      }));
+        setProjectWorktrees((current) => ({
+          ...current,
+          [project.id]: nextWorktrees
+        }));
 
-      if (
-        selectedExplorerTarget.kind === 'worktree' &&
-        !nextWorktrees.some((entry) => entry.id === selectedExplorerTarget.worktreeId)
-      ) {
-        setSelectedExplorerTarget({ kind: 'workspace' });
-      }
-    });
+        if (
+          selectedExplorerTarget.kind === 'worktree' &&
+          !nextWorktrees.some((entry) => entry.id === selectedExplorerTarget.worktreeId)
+        ) {
+          setSelectedExplorerTarget({ kind: 'workspace' });
+        }
+      })
+      .catch(() => {
+        if (!canceled) {
+          setProjectWorktrees((current) => ({
+            ...current,
+            [project.id]: []
+          }));
+        }
+      });
 
     return () => {
       canceled = true;
@@ -284,12 +307,14 @@ export function useProjectDesktop() {
       return;
     }
 
-    void window.projectSpace.saveProjectsState({
-      activeGroupId: project?.groupId ?? '',
-      selectedExplorerTarget,
-      selectedLauncherAppId,
-      selectedProjectId
-    });
+    void projectSpaceClient
+      .saveProjectsState({
+        activeGroupId: project?.groupId ?? '',
+        selectedExplorerTarget,
+        selectedLauncherAppId,
+        selectedProjectId
+      })
+      .catch(() => undefined);
   }, [
     hasLoaded,
     project?.groupId,
@@ -331,12 +356,12 @@ export function useProjectDesktop() {
   }
 
   async function createProject() {
-    const selection = await window.projectSpace.selectProjectDirectory();
+    const selection = await projectSpaceClient.selectProjectDirectory();
     if (selection.canceled || !selection.path) {
       return;
     }
 
-    const nextDiscovery = await window.projectSpace.loadProjectDiscovery();
+    const nextDiscovery = await projectSpaceClient.loadProjectDiscovery();
     setDiscovery(nextDiscovery);
 
     const matchingProject = findMatchingProject(nextDiscovery.projects, selection.path);
@@ -355,7 +380,7 @@ export function useProjectDesktop() {
       return;
     }
 
-    const result = await window.projectSpace.openPathInApp({
+    const result = await projectSpaceClient.openPathInApp({
       appId: selectedLauncherApp.id,
       path: selectedTargetPath
     });
@@ -364,7 +389,7 @@ export function useProjectDesktop() {
   }
 
   async function openCodexSkills() {
-    const result = await window.projectSpace.openCodexSkills();
+    const result = await projectSpaceClient.openCodexSkills();
 
     setLauncherError(
       result.status === 'error' ? result.message ?? 'Could not open the skills folder.' : ''
@@ -376,7 +401,7 @@ export function useProjectDesktop() {
       return;
     }
 
-    const result = await window.projectSpace.openPathInApp({
+    const result = await projectSpaceClient.openPathInApp({
       appId: 'terminal',
       path: project.rootPath
     });

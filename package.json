@@ -1,15 +1,22 @@
 {
   "name": "project-space",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Desktop-first workspace management foundation for project-centered workflows.",
   "type": "module",
   "main": "dist-electron/main/index.js",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 127.0.0.1",
+    "dev:electron": "vite --mode electron --host 127.0.0.1",
     "build": "tsc -b && vite build",
+    "build:connector:macos-arm64": "bun build --compile --target=bun-darwin-arm64 server/web-server.ts --outfile dist/project-space-connector",
+    "build:electron": "tsc -b && vite build --mode electron",
     "check": "tsc -b",
-    "preview": "vite preview"
+    "connector:serve": "tailscale serve --bg --yes 4173",
+    "connector:status": "tailscale serve status --json",
+    "connector:start": "bun server/web-server.ts",
+    "preview": "vite preview",
+    "start": "bun server/web-server.ts"
   },
   "dependencies": {
     "@heroui/react": "^3.0.1",

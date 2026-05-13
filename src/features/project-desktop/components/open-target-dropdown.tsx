@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import type { LauncherAppRecord } from '@/shared/electron-api';
+import type { LauncherAppRecord } from '@/shared/project-space-api';
 import {
     Button,
     ButtonGroup,

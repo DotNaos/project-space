@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Button, ScrollShadow, Text } from '@heroui/react';
+import { projectSpaceClient } from '@/api/project-space-client';
 import { cn } from '@/lib/utils';
-import type { FileSystemEntry } from '@/shared/electron-api';
+import type { FileSystemEntry } from '@/shared/project-space-api';
 
 interface FileExplorerProps {
   rootPath?: string;
@@ -31,7 +32,7 @@ function FileTreeNode({
 
     let canceled = false;
 
-    void window.projectSpace.readDirectory(entry.path).then((nextEntries) => {
+    void projectSpaceClient.readDirectory(entry.path).then((nextEntries) => {
       if (canceled) {
         return;
       }
@@ -104,7 +105,7 @@ export function FileExplorer({
 
     let canceled = false;
 
-    void window.projectSpace.readDirectory(rootPath).then((nextEntries) => {
+    void projectSpaceClient.readDirectory(rootPath).then((nextEntries) => {
       if (canceled) {
         return;
       }
