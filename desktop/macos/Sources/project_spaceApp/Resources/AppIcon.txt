@@ -1,0 +1,1 @@
+The bundle script writes AppIcon.icns into the final app bundle from assets/app-icon.svg.

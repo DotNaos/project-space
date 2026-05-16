@@ -1,0 +1,9 @@
+.git
+node_modules
+apps/web/node_modules
+dist
+legacy-electron
+desktop/macos/.build
+tmp
+.env.local
+.env.op

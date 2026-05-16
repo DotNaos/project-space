@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - run: bun install
+      - run: bun run web:build
+      - run: bun run backend:build
+      - run: bun run desktop:macos:bundle
+      - name: Package CLI
+        run: |
+          mkdir -p release
+          tar -C dist -czf release/project-space_darwin_arm64.tar.gz project-space
+          ditto -c -k --keepParent "dist/Project Space.app" release/project-space_macos_app.zip
+      - name: Sign macOS app when certificate secrets are present
+        if: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 != '' }}
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          echo "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > certificate.p12
+          security create-keychain -p "$RUNNER_TEMP" build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security list-keychains -d user -s build.keychain
+          codesign --force --deep --options runtime --sign "$APPLE_SIGNING_IDENTITY" "dist/Project Space.app"
+          ditto -c -k --keepParent "dist/Project Space.app" release/project-space_macos_app.zip
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: image
+        run: echo "tag=$(echo "ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_REF_NAME}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+      - run: docker build -t "${{ steps.image.outputs.tag }}" .
+      - run: docker push "${{ steps.image.outputs.tag }}"

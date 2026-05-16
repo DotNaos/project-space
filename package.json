@@ -1,46 +1,24 @@
 {
   "name": "project-space",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Desktop-first workspace management foundation for project-centered workflows.",
-  "type": "module",
-  "main": "dist-electron/main/index.js",
+  "description": "Local-first project workspace runtime with React web, Go backend, MCP, and native shells.",
+  "packageManager": "bun@1.3.9",
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
-    "dev:electron": "vite --mode electron --host 127.0.0.1",
-    "build": "tsc -b && vite build",
-    "build:connector:macos-arm64": "bun build --compile --target=bun-darwin-arm64 server/web-server.ts --outfile dist/project-space-connector",
-    "build:electron": "tsc -b && vite build --mode electron",
-    "check": "tsc -b",
-    "connector:serve": "tailscale serve --bg --yes 4173",
-    "connector:status": "tailscale serve status --json",
-    "connector:start": "bun server/web-server.ts",
-    "preview": "vite preview",
-    "start": "bun server/web-server.ts"
+    "dev": "scripts/env-run.sh sh -c 'cd backend && go run ./cmd/project-space serve'",
+    "web:dev": "bun --filter @project-space/web dev",
+    "web:build": "bun --filter @project-space/web build",
+    "check": "bun run web:build && bun run backend:check && bun run desktop:macos:build",
+    "backend:check": "cd backend && go test ./...",
+    "backend:build": "mkdir -p dist && cd backend && go build -o ../dist/project-space ./cmd/project-space",
+    "desktop:macos:build": "cd desktop/macos && swift build",
+    "desktop:macos:bundle": "scripts/build-macos-app.sh",
+    "docker:build": "docker build -t project-space:local .",
+    "mcp": "cd backend && go run ./cmd/project-space mcp",
+    "secrets:doctor": "scripts/env-run.sh sh -c 'cd backend && go run ./cmd/project-space secrets doctor'"
   },
-  "dependencies": {
-    "@heroui/react": "^3.0.1",
-    "@heroui/styles": "^3.0.1",
-    "@radix-ui/react-dropdown-menu": "^2.1.16",
-    "lucide-react": "^0.577.0",
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1",
-    "tailwind-variants": "^3.2.2",
-    "zustand": "^5.0.12"
-  },
-  "devDependencies": {
-    "@tailwindcss/vite": "^4.1.11",
-    "@types/node": "^24.3.0",
-    "@types/react": "^19.1.10",
-    "@types/react-dom": "^19.1.7",
-    "@vitejs/plugin-react": "^5.0.0",
-    "electron": "^37.2.0",
-    "react-devtools-core": "^7.0.1",
-    "react-devtools-electron": "^4.7.0",
-    "tailwindcss": "^4.1.11",
-    "typescript": "^5.9.2",
-    "vite": "^7.0.6",
-    "vite-plugin-electron": "^0.29.0",
-    "vite-plugin-electron-renderer": "^0.14.6"
-  }
+  "devDependencies": {}
 }

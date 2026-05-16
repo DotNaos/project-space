@@ -2,6 +2,11 @@ node_modules
 dist
 dist-electron
 .DS_Store
+.env.local
+.env.op
+tmp
+.build
+desktop/macos/.build
 # heroui-agents-md
 .heroui-docs/
 .vercel

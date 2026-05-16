@@ -1,4 +1,19 @@
-# Project Space Connector
+# Project Space Runtime
+
+This document is kept for connector-release context. In the new fullstack architecture the connector is no longer a separate Bun/Electron-era artifact; it is part of the Go `project-space` runtime.
+
+Use:
+
+```bash
+brew install project-space
+brew services start project-space
+```
+
+The runtime exposes the local API at `http://127.0.0.1:4173` by default and serves the built web app from the same process.
+
+---
+
+# Legacy Project Space Connector
 
 The Project Space Connector runs on trusted machines and gives the hosted Project Space UI a safe
 way to work with local projects, Git repositories, terminal commands, Codex, Tailscale, deployments,
@@ -99,4 +114,3 @@ If the UI shows no projects:
 3. Check Tailscale Serve with `tailscale serve status --json`.
 4. Open the Vercel UI with `?projectSpaceApi=<tailscale-https-url>`.
 5. If deployments/backups are offline, set `PROJECT_SPACE_PRIVATE_VPS_BASE_URL`.
-
