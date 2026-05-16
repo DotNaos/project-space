@@ -28,12 +28,15 @@ jobs:
           tar -C dist -czf release/project-space_darwin_arm64.tar.gz project-space
           ditto -c -k --keepParent "dist/Project Space.app" release/project-space_macos_app.zip
       - name: Sign macOS app when certificate secrets are present
-        if: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 != '' }}
         env:
           APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
+          if [ -z "${APPLE_CERTIFICATE_P12_BASE64:-}" ]; then
+            echo "No Apple signing certificate configured; keeping unsigned app artifact."
+            exit 0
+          fi
           echo "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > certificate.p12
           security create-keychain -p "$RUNNER_TEMP" build.keychain
           security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
