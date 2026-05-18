@@ -3,6 +3,7 @@ import { Folder } from 'lucide-react';
 import {
   Accordion,
   Button,
+  Chip,
   ScrollShadow,
   SearchField,
   SearchFieldClearButton,
@@ -38,6 +39,18 @@ interface ProjectPickerSection {
 
 function matchesQuery(value: string, query: string) {
   return value.toLowerCase().includes(query.trim().toLowerCase());
+}
+
+function ProjectctlBadge({ project }: { project: ProjectSpaceRecord }) {
+  if (!project.projectctl || project.projectctl.status === 'unmanaged') {
+    return null;
+  }
+
+  return (
+    <Chip size="sm" variant={project.projectctl.status === 'managed' ? 'primary' : 'secondary'}>
+      {project.projectctl.status}
+    </Chip>
+  );
 }
 
 export function ProjectSpacesPicker({
@@ -308,6 +321,7 @@ export function ProjectSpacesPicker({
                                       WS
                                     </Text>
                                   ) : null}
+                                  <ProjectctlBadge project={project} />
                                 </div>
                               </Button>
                             </Tooltip.Trigger>
@@ -374,6 +388,7 @@ export function ProjectSpacesPicker({
                                               WS
                                             </Text>
                                           ) : null}
+                                          <ProjectctlBadge project={project} />
                                         </div>
                                       </Button>
                                     </Tooltip.Trigger>

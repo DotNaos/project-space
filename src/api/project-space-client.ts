@@ -19,6 +19,8 @@ import type {
   ProjectDirectorySelection,
   ProjectDiscoveryResult,
   ProjectSpaceBackend,
+  ProjectctlOverviewResult,
+  ProjectctlPlanResult,
   ProjectsState,
   ProjectWorktreeRecord,
   TerminalCommandRequest,
@@ -116,6 +118,18 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
 
   loadProjectDiscovery(): Promise<ProjectDiscoveryResult> {
     return this.request('/api/projects/discovery');
+  }
+
+  loadProjectctlOverview(projectPath: string): Promise<ProjectctlOverviewResult> {
+    const query = new URLSearchParams({ projectPath });
+
+    return this.request(`/api/projectctl/overview?${query.toString()}`);
+  }
+
+  loadProjectctlPreview(projectPath: string): Promise<ProjectctlPlanResult> {
+    const query = new URLSearchParams({ projectPath });
+
+    return this.request(`/api/projectctl/preview?${query.toString()}`);
   }
 
   loadProjectsState(): Promise<ProjectsState> {

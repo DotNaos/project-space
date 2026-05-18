@@ -137,6 +137,30 @@ function createApiHandler(backend: ProjectSpaceBackend) {
         return true;
       }
 
+      if (request.method === 'GET' && url.pathname === '/api/projectctl/overview') {
+        const projectPath = url.searchParams.get('projectPath');
+
+        if (!projectPath) {
+          writeJson(response, 400, { error: 'Missing projectPath.' });
+          return true;
+        }
+
+        writeJson(response, 200, await backend.loadProjectctlOverview(projectPath));
+        return true;
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/projectctl/preview') {
+        const projectPath = url.searchParams.get('projectPath');
+
+        if (!projectPath) {
+          writeJson(response, 400, { error: 'Missing projectPath.' });
+          return true;
+        }
+
+        writeJson(response, 200, await backend.loadProjectctlPreview(projectPath));
+        return true;
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/projects/select-directory') {
         const selection: ProjectDirectorySelection = await backend.selectProjectDirectory();
         writeJson(response, 200, selection);
