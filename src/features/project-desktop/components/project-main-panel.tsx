@@ -7,6 +7,7 @@ import { Button, Card, Chip, Surface, Text } from '@heroui/react';
 import { OpenTargetDropdown } from './open-target-dropdown';
 import { ProjectOperationsPanel } from './project-operations-panel';
 import { ProjectWorkspaceTools } from './project-workspace-tools';
+import { ProjectctlManifestPanel } from './projectctl-manifest-panel';
 
 interface ProjectMainPanelProps {
   discoveryRoot: string;
@@ -120,6 +121,7 @@ export function ProjectMainPanel({
                 ) : null}
               </Card.Content>
             </Card>
+            <ProjectctlManifestPanel targetPath={selectedTargetPath} />
             <ProjectOperationsPanel projectName={project.name} targetPath={selectedTargetPath} />
             <ProjectWorkspaceTools targetPath={selectedTargetPath} />
           </div>

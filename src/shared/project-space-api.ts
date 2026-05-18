@@ -12,12 +12,20 @@ export interface ProjectDirectorySelection {
   name?: string;
 }
 
+export interface ProjectctlDiscoverySummary {
+  hasGoals: boolean;
+  hasLock: boolean;
+  hasProject: boolean;
+  status: 'managed' | 'partial' | 'unmanaged';
+}
+
 export interface ProjectSpaceRecord {
   id: string;
   name: string;
   rootPath: string;
   kind: 'workspace' | 'standalone';
   groupId?: string;
+  projectctl?: ProjectctlDiscoverySummary;
 }
 
 export interface ProjectGroupRecord {
@@ -302,6 +310,113 @@ export interface ProjectBackupRequest {
   target: string;
 }
 
+export interface ProjectctlPresenceReport {
+  label: string;
+  path: string;
+  present: boolean;
+}
+
+export interface ProjectctlCheckItem {
+  command?: string;
+  files?: string[];
+  notes?: string[];
+  path?: string;
+  runtime?: string;
+  status: string;
+}
+
+export interface ProjectctlProjectSettings {
+  bundleId?: string;
+  displayName: string;
+  kind: string;
+  modulePath?: string;
+  name: string;
+  port?: number;
+  slug: string;
+}
+
+export interface ProjectctlEnvironmentConfig {
+  default?: boolean;
+  name: string;
+  purpose: string;
+}
+
+export interface ProjectctlInspectResult {
+  capabilities?: string[];
+  features?: Record<string, ProjectctlCheckItem>;
+  hasGoals: boolean;
+  hasLock: boolean;
+  hasProject: boolean;
+  lock?: {
+    addons?: Record<string, { status: string }>;
+    capabilities?: string[];
+    features?: Record<string, ProjectctlCheckItem>;
+    migration?: {
+      appliedMigrations?: string[];
+      lastAppliedVersion?: string;
+      notes?: string[];
+    };
+    platforms?: Record<string, ProjectctlCheckItem>;
+    preset?: {
+      name: string;
+      version: string;
+    };
+    project?: {
+      backend?: string;
+      bundleId?: string;
+      displayName: string;
+      kind: string;
+      modulePath?: string;
+      slug: string;
+    };
+    template?: {
+      generator: string;
+      repository: string;
+      version: string;
+    };
+  };
+  markers: ProjectctlPresenceReport[];
+  project?: {
+    addons?: Record<string, { enabled: boolean }>;
+    environments?: ProjectctlEnvironmentConfig[];
+    preset?: {
+      disabled?: string[];
+      name: string;
+      options?: Record<string, unknown>;
+      version: string;
+    };
+    project: ProjectctlProjectSettings;
+  };
+  root: string;
+  templateVersion: string;
+}
+
+export interface ProjectctlPlanOperation {
+  kind: string;
+  owner?: string;
+  path: string;
+  reason?: string;
+}
+
+export interface ProjectctlPlanResult {
+  changes: boolean;
+  conflictCount: number;
+  counts: Record<string, number>;
+  operations: ProjectctlPlanOperation[];
+  root: string;
+  summary: string;
+  templateVersion: string;
+}
+
+export interface ProjectctlOverviewResult {
+  available: boolean;
+  error?: string;
+  inspect?: ProjectctlInspectResult;
+  preview?: ProjectctlPlanResult;
+  status?: ProjectctlPlanResult;
+  toolPath?: string;
+}
+
 export interface ProjectSpaceBackend {
   getAppMeta(): Promise<AppMeta>;
   getCodexStatus(): Promise<CodexStatusResult>;
@@ -312,6 +427,8 @@ export interface ProjectSpaceBackend {
   loadLauncherAppIcon(appId: string): Promise<string | undefined>;
   loadLauncherApps(): Promise<LauncherAppRecord[]>;
   loadProjectDiscovery(): Promise<ProjectDiscoveryResult>;
+  loadProjectctlOverview(projectPath: string): Promise<ProjectctlOverviewResult>;
+  loadProjectctlPreview(projectPath: string): Promise<ProjectctlPlanResult>;
   loadProjectsState(): Promise<ProjectsState>;
   loadProjectWorktrees(projectPath: string): Promise<ProjectWorktreeRecord[]>;
   openCodexSkills(): Promise<OpenPathInAppResult>;

@@ -22,6 +22,10 @@ import {
 } from './local-launcher-apps';
 import { getConnectorOverview } from './local-machine-registry';
 import {
+  getProjectctlOverview,
+  getProjectctlPreview
+} from './local-projectctl-client';
+import {
   backupProject,
   deployProject,
   getPlatformOverview
@@ -93,13 +97,28 @@ function createProjectRecord(
   groupId?: string
 ): ProjectSpaceRecord {
   const resolvedPath = resolve(path);
+  const hasProject = existsSync(join(resolvedPath, 'project.yaml'));
+  const hasLock = existsSync(join(resolvedPath, 'template.lock.yaml'));
+  const hasGoals = existsSync(join(resolvedPath, 'GOALS.md'));
+  const status =
+    hasProject && hasLock
+      ? 'managed'
+      : hasProject || hasLock || hasGoals
+        ? 'partial'
+        : 'unmanaged';
 
   return {
     id: makeNodeId(rootPath, resolvedPath),
     kind,
     groupId,
     name: basename(resolvedPath),
-    rootPath: resolvedPath
+    rootPath: resolvedPath,
+    projectctl: {
+      hasGoals,
+      hasLock,
+      hasProject,
+      status
+    }
   };
 }
 
@@ -524,6 +543,12 @@ export function createLocalProjectSpaceBackend(
     },
     async loadProjectDiscovery() {
       return discoverProjects();
+    },
+    async loadProjectctlOverview(projectPath: string) {
+      return getProjectctlOverview(projectPath);
+    },
+    async loadProjectctlPreview(projectPath: string) {
+      return getProjectctlPreview(projectPath);
     },
     async loadProjectsState() {
       return readProjectsState();
