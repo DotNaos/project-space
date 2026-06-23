@@ -1,7 +1,7 @@
 class Project < Formula
   desc "Template-aware Project CLI"
   homepage "https://github.com/DotNaos/project-space"
-  head "file://#{File.expand_path("..", __dir__)}", using: :git, branch: "connector-release-v0.2.0"
+  head "https://github.com/DotNaos/project-space.git", using: :git, branch: "main"
 
   depends_on "go" => :build
 
