@@ -1,0 +1,16 @@
+{
+  "name": "status-showcase",
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "bun@1.2.0",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@heroui/react": "2.7.8",
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
+  }
+}

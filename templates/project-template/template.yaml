@@ -1,0 +1,8 @@
+name: project-template
+version: 0.1.0
+structure: structure.j2
+structureSlots: slots/structure.slots.json
+files:
+  package.json:
+    template: files/package.json.j2
+    slots: slots/package.json.slots.json
