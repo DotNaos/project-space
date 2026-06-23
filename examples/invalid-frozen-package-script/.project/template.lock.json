@@ -1,0 +1,6 @@
+{
+  "template": "DotNaos/project-template",
+  "version": "0.1.0",
+  "commit": "example",
+  "templatePath": "../../../templates/project-template"
+}
