@@ -9,7 +9,7 @@ brew tap DotNaos/project-space https://github.com/DotNaos/project-space
 brew install --HEAD DotNaos/project-space/project
 ```
 
-## Intended Commands
+## Commands
 
 Create a new project:
 
@@ -49,4 +49,4 @@ project validate
 
 ## Implementation Status
 
-This document describes the target user-facing command shape. Some lower-level implementation commands may exist while the CLI is being brought fully in line with this interface.
+`project create`, `project module install`, and `project template sync` remain available as compatibility aliases while the CLI settles on the shorter command names above.

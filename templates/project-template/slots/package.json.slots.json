@@ -1,4 +1,0 @@
-{
-  "project.name": "\"[a-z0-9-]+\"",
-  "package.extra_scripts": "(,\\n    \"custom:[a-z0-9:-]+\": \"[^\"]+\")*"
-}

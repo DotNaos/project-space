@@ -1,7 +1,6 @@
 package projectvalidator
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +13,32 @@ type InitOptions struct {
 	Version      string
 	Commit       string
 	Force        bool
+}
+
+func CreateProject(projectRoot string, options InitOptions) (string, error) {
+	root, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return "", err
+	}
+	if stat, err := os.Stat(root); err == nil {
+		if !stat.IsDir() {
+			return "", fmt.Errorf("%s already exists and is not a directory", root)
+		}
+		empty, err := isEmptyDirectory(root)
+		if err != nil {
+			return "", err
+		}
+		if !empty {
+			return "", fmt.Errorf("%s already exists and is not empty; use init for existing projects", root)
+		}
+	} else if os.IsNotExist(err) {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			return "", err
+		}
+	} else {
+		return "", err
+	}
+	return InitProject(root, options)
 }
 
 func InitProject(projectRoot string, options InitOptions) (string, error) {
@@ -37,7 +62,7 @@ func InitProject(projectRoot string, options InitOptions) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	lockPath := filepath.Join(root, ".project", "template.lock.json")
+	lockPath := filepath.Join(root, ".project", "template.lock.yaml")
 	if _, err := os.Stat(lockPath); err == nil && !options.Force {
 		return "", fmt.Errorf("%s already exists; use --force to replace it", lockPath)
 	}
@@ -50,15 +75,34 @@ func InitProject(projectRoot string, options InitOptions) (string, error) {
 		Commit:       commit,
 		TemplatePath: templatePath,
 	}
-	body, err := json.MarshalIndent(lock, "", "  ")
+	body, err := marshalYAML(lock)
 	if err != nil {
 		return "", err
 	}
-	body = append(body, '\n')
 	if err := os.WriteFile(lockPath, body, 0o644); err != nil {
 		return "", err
 	}
 	return lockPath, nil
+}
+
+func isEmptyDirectory(path string) (bool, error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return false, err
+	}
+	return len(entries) == 0, nil
+}
+
+func writeTemplateLock(projectRoot string, lock TemplateLock) (string, error) {
+	lockPath := filepath.Join(projectRoot, ".project", "template.lock.yaml")
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
+		return "", err
+	}
+	body, err := marshalYAML(lock)
+	if err != nil {
+		return "", err
+	}
+	return lockPath, os.WriteFile(lockPath, body, 0o644)
 }
 
 func resolveInitTemplatePath(projectRoot string, requestedPath string) (string, error) {
