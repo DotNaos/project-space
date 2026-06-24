@@ -8,7 +8,7 @@ import (
 	"regexp"
 )
 
-func validateTemplateFile(projectRoot string, templateRoot string, fileSpec TemplateFileSpec) FileValidation {
+func validateTemplateFile(projectRoot string, templateRoot string, fileSpec TemplateFileSpec, values TemplateValues) FileValidation {
 	projectFilePath := filepath.Join(projectRoot, fileSpec.Path)
 	if _, err := os.Stat(projectFilePath); err != nil {
 		return FileValidation{Path: fileSpec.Path, Status: StatusMissing, Code: "missing", Note: "missing"}
@@ -16,6 +16,9 @@ func validateTemplateFile(projectRoot string, templateRoot string, fileSpec Temp
 	templateBody, err := os.ReadFile(filepath.Join(templateRoot, fileSpec.TemplatePath))
 	if err != nil {
 		return FileValidation{Path: fileSpec.Path, Status: StatusViolation, Code: "validator_error", Note: err.Error()}
+	}
+	if fileSpec.SlotsPath == "" {
+		return validateRenderedTemplateFile(projectFilePath, fileSpec.Path, templateBody, values)
 	}
 	slotPatterns, err := readJSONFile[map[string]string](filepath.Join(templateRoot, fileSpec.SlotsPath))
 	if err != nil {
@@ -44,6 +47,21 @@ func validateTemplateFile(projectRoot string, templateRoot string, fileSpec Temp
 		}
 	}
 	return FileValidation{Path: fileSpec.Path, Status: StatusViolation, Code: "frozen_changed", Note: note, Diagnostics: diagnostics}
+}
+
+func validateRenderedTemplateFile(projectFilePath string, path string, templateBody []byte, values TemplateValues) FileValidation {
+	actualBody, err := os.ReadFile(projectFilePath)
+	if err != nil {
+		return FileValidation{Path: path, Status: StatusViolation, Code: "validator_error", Note: err.Error()}
+	}
+	rendered, err := renderTemplateValues(templateBody, values)
+	if err != nil {
+		return FileValidation{Path: path, Status: StatusViolation, Code: "validator_error", Note: err.Error()}
+	}
+	if string(actualBody) == string(rendered) {
+		return FileValidation{Path: path, Status: StatusOK, Code: "template", Note: "template"}
+	}
+	return FileValidation{Path: path, Status: StatusViolation, Code: "template_changed", Note: "template file changed"}
 }
 
 func diagnosePackageJSON(packageJSONPath string) []FileDiagnostic {

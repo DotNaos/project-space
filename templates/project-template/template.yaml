@@ -1,8 +1,15 @@
 name: project-template
 version: 0.1.0
-structure: structure.j2
-structureSlots: slots/structure.slots.json
-files:
-  package.json:
-    template: files/package.json.j2
-    slots: slots/package.json.slots.json
+modules:
+  - name: core.repo
+    description: Shared project foundation files that other modules can depend on.
+    default: false
+    owns:
+      - src/lib/**/*
+  - name: feature.modules
+    description: Feature extension area for project-owned product modules under src/features.
+    default: false
+    dependsOn:
+      - core.repo
+    owns:
+      - src/features/**/*

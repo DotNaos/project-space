@@ -20,9 +20,13 @@ func ValidateProject(projectRoot string) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
+	values, err := readTemplateValues(root)
+	if err != nil {
+		return Report{}, err
+	}
 	files := []FileValidation{}
 	for _, fileSpec := range template.Files {
-		files = append(files, validateTemplateFile(root, template.Root, fileSpec))
+		files = append(files, validateTemplateFile(root, template.Root, fileSpec, values))
 	}
 	structure := validateStructure(root, template, files)
 	files = mergeStructureOnlyFiles(files, structure)
@@ -65,11 +69,20 @@ func ValidateProjectFile(projectRoot string, filePath string) (FileValidation, e
 	if err != nil {
 		return FileValidation{}, err
 	}
+	values, err := readTemplateValues(root)
+	if err != nil {
+		return FileValidation{}, err
+	}
 	fileSpec, ok := template.Files[normalized]
 	if !ok {
+		if template.TreeMode {
+			if slot, ok := matchingTreeSlot(template.Slots, normalized); ok {
+				return FileValidation{Path: normalized, Status: StatusAdded, Code: "slot", Note: slot.Name}, nil
+			}
+		}
 		return FileValidation{Path: normalized, Status: StatusViolation, Code: "not_allowed", Note: "not_allowed"}, nil
 	}
-	return validateTemplateFile(root, template.Root, fileSpec), nil
+	return validateTemplateFile(root, template.Root, fileSpec, values), nil
 }
 
 func mergeStructureOnlyFiles(files []FileValidation, structure []StructureEntry) []FileValidation {
