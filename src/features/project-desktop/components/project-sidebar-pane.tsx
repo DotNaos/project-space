@@ -1,5 +1,6 @@
 import type { WheelEvent } from 'react';
-import { Button, Surface, Text } from '@heroui/react';
+import { Button, Surface, Text } from '@/app/dotnaos-ui';
+import { Blocks, FolderKanban, GitBranchPlus } from 'lucide-react';
 import type {
   ExplorerTarget,
   ProjectGroupRecord,
@@ -10,7 +11,6 @@ import type {
 import type { SidebarView } from './sidebar-view-tabs';
 import { SidebarContent } from './sidebar-content';
 import { SidebarProjectSelect } from './sidebar-project-select';
-import { SidebarQuickActions } from './sidebar-quick-actions';
 import { SidebarViewTabs } from './sidebar-view-tabs';
 import { SpacesDock } from './spaces-dock';
 
@@ -25,6 +25,7 @@ interface ProjectSidebarPaneProps {
   navigationItems: ProjectNavigationItem[];
   onCreateProject(): void;
   onOpenCodexSkills(): void;
+  onOpenHome(): void;
   onOpenNewWorktree(): void;
   onResizeStart(event: React.MouseEvent<HTMLButtonElement>): void;
   onSelectProject(projectId: string, groupId?: string): void;
@@ -36,6 +37,7 @@ interface ProjectSidebarPaneProps {
   previewPanelRef: React.RefObject<HTMLDivElement | null>;
   previewProject?: ProjectSpaceRecord;
   previewWorktrees: ProjectWorktreeRecord[];
+  isHomeSelected: boolean;
   project?: ProjectSpaceRecord;
   projects: ProjectSpaceRecord[];
   rootItems: ProjectNavigationItem[];
@@ -57,6 +59,7 @@ export function ProjectSidebarPane({
   navigationItems,
   onCreateProject,
   onOpenCodexSkills,
+  onOpenHome,
   onOpenNewWorktree,
   onResizeStart,
   onSelectProject,
@@ -68,6 +71,7 @@ export function ProjectSidebarPane({
   previewPanelRef,
   previewProject,
   previewWorktrees,
+  isHomeSelected,
   project,
   projects,
   rootItems,
@@ -81,7 +85,7 @@ export function ProjectSidebarPane({
     <Surface
       onWheel={onSidebarWheel}
       variant="secondary"
-      className="relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-none border-r border-slate-800 bg-app-sidebar transition-[border-color,opacity] duration-200"
+      className="relative z-40 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-none border-r border-slate-800 bg-app-sidebar transition-[border-color,opacity] duration-200"
       style={{
         borderRightColor: isOpen ? undefined : 'transparent',
         opacity: isOpen ? 1 : 0,
@@ -112,16 +116,50 @@ export function ProjectSidebarPane({
             />
           ) : null}
 
-          <SidebarQuickActions
-            canCreateWorktree={Boolean(project)}
-            onOpenSkills={onOpenCodexSkills}
-            onOpenWorktree={onOpenNewWorktree}
-          />
+          <Button
+            fullWidth
+            variant={isHomeSelected ? 'secondary' : 'ghost'}
+            onPress={onOpenHome}
+            className="mt-3 h-11 justify-start gap-3 rounded-xl px-3"
+          >
+            <FolderKanban className="size-4" />
+            Projects
+          </Button>
+
+          <Button
+            fullWidth
+            variant="ghost"
+            onPress={onOpenCodexSkills}
+            className="mt-1 h-11 justify-start gap-3 rounded-xl px-3 text-slate-300 transition duration-200 hover:bg-slate-900/35 hover:text-slate-50"
+          >
+            <Blocks className="size-4 shrink-0" strokeWidth={1.9} />
+            Skills
+          </Button>
         </div>
       </div>
 
-      <div className="app-no-drag">
-        <SidebarViewTabs value={sidebarView} onChange={onSidebarViewChange} />
+      <div className="app-no-drag border-b border-slate-800 px-5 py-4">
+        <Text className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">
+          Selected project
+        </Text>
+        <Text className="mt-2 block truncate text-sm font-semibold text-slate-100">
+          {project?.name ?? 'No project selected'}
+        </Text>
+
+        <div className="mt-4">
+          <SidebarViewTabs value={sidebarView} onChange={onSidebarViewChange} />
+        </div>
+
+        <Button
+          fullWidth
+          variant="ghost"
+          isDisabled={!project}
+          onPress={onOpenNewWorktree}
+          className="mt-2 h-10 justify-start gap-3 rounded-xl px-3 text-slate-300 transition duration-200 hover:bg-slate-900/35 hover:text-slate-50 data-[disabled=true]:opacity-45"
+        >
+          <GitBranchPlus className="size-4 shrink-0" strokeWidth={1.9} />
+          New worktree
+        </Button>
       </div>
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">

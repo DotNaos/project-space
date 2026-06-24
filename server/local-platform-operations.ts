@@ -78,6 +78,12 @@ function summarizeBackup(entry: Record<string, unknown>): BackupRecordSummary {
   };
 }
 
+function entriesOrEmpty(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object')
+    : [];
+}
+
 async function getGitRemoteUrl(cwd: string) {
   try {
     const { stdout } = await execFileAsync('git', ['-C', cwd, 'remote', 'get-url', 'origin'], {
@@ -127,15 +133,15 @@ export async function getPlatformOverview(): Promise<PlatformOverviewResult> {
   try {
     const [health, deployments, backups] = await Promise.all([
       readJson<{ status?: string }>('/api/v1/health'),
-      readJson<Record<string, unknown>[]>('/api/v1/deployments'),
-      readJson<Record<string, unknown>[]>('/api/v1/backups')
+      readJson<unknown>('/api/v1/deployments'),
+      readJson<unknown>('/api/v1/backups')
     ]);
 
     return {
       ...overview,
       apiReachable: true,
-      backups: backups.map(summarizeBackup),
-      deployments: deployments.map(summarizeDeployment),
+      backups: entriesOrEmpty(backups).map(summarizeBackup),
+      deployments: entriesOrEmpty(deployments).map(summarizeDeployment),
       healthStatus: health.status ?? 'ok'
     };
   } catch (error) {

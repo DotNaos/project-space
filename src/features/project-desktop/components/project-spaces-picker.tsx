@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Folder } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Check, Folder } from 'lucide-react';
 import {
   Accordion,
-  Button,
   Chip,
   ScrollShadow,
   SearchField,
@@ -12,8 +12,7 @@ import {
   SearchFieldSearchIcon,
   Surface,
   Text
-} from '@heroui/react';
-import { Tooltip } from '@heroui/react';
+} from '@/app/dotnaos-ui';
 import type { ReactNode } from 'react';
 import type {
   ProjectGroupRecord,
@@ -21,6 +20,8 @@ import type {
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
 import { useProjectSpacesPickerStore } from '../stores/use-project-spaces-picker-store';
+import { ProjectTemplateStatusPill } from './project-template-check';
+import { cn } from '@/lib/utils';
 
 interface ProjectSpacesPickerProps {
   groups: ProjectGroupRecord[];
@@ -53,6 +54,59 @@ function ProjectctlBadge({ project }: { project: ProjectSpaceRecord }) {
   );
 }
 
+function projectMatchesQuery(project: ProjectSpaceRecord, query: string) {
+  return matchesQuery(project.name, query) || matchesQuery(project.rootPath, query);
+}
+
+function ProjectPickerRow({
+  project,
+  selected,
+  onSelect
+}: {
+  project: ProjectSpaceRecord;
+  selected: boolean;
+  onSelect(): void;
+}) {
+  return (
+    <button
+      type="button"
+      title={project.rootPath}
+      onClick={onSelect}
+      className={cn(
+        'group grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg px-3 py-2.5 text-left transition',
+        selected
+          ? 'bg-slate-800/80 text-slate-50 shadow-inner shadow-slate-950/25'
+          : 'text-slate-300 hover:bg-slate-900/70 hover:text-slate-50'
+      )}
+    >
+      <span className="grid min-w-0 gap-1">
+        <span className="truncate text-sm font-semibold leading-5">
+          {project.name}
+        </span>
+        <span className="truncate font-mono text-[11px] leading-4 text-slate-500 group-hover:text-slate-400">
+          {project.rootPath}
+        </span>
+      </span>
+      <span className="flex shrink-0 items-center gap-2">
+        {project.kind === 'workspace' ? (
+          <span className="hidden text-[10px] uppercase tracking-[0.18em] text-slate-500 sm:inline">
+            WS
+          </span>
+        ) : null}
+        <span className="hidden sm:inline-flex items-center gap-2">
+          <ProjectctlBadge project={project} />
+          <ProjectTemplateStatusPill check={project.fullstackTemplate} />
+        </span>
+        {selected ? (
+          <span className="inline-flex size-6 items-center justify-center rounded-md bg-sky-400/15 text-sky-200">
+            <Check className="size-3.5" strokeWidth={2} />
+          </span>
+        ) : null}
+      </span>
+    </button>
+  );
+}
+
 export function ProjectSpacesPicker({
   groups,
   projects,
@@ -63,7 +117,6 @@ export function ProjectSpacesPicker({
 }: ProjectSpacesPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
-  const closeTimeoutRef = useRef<number | null>(null);
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -104,7 +157,7 @@ export function ProjectSpacesPicker({
 
     return standaloneProjectIds.filter((projectId) => {
       const project = projectsById[projectId];
-      return project ? matchesQuery(project.name, query) : false;
+      return project ? projectMatchesQuery(project, query) : false;
     });
   }, [projectsById, query, standaloneProjectIds]);
 
@@ -118,7 +171,7 @@ export function ProjectSpacesPicker({
         const groupMatches = matchesQuery(section.label, query);
         const projectIds = section.projectIds.filter((projectId) => {
           const project = projectsById[projectId];
-          return project ? groupMatches || matchesQuery(project.name, query) : false;
+          return project ? groupMatches || projectMatchesQuery(project, query) : false;
         });
 
         return projectIds.length > 0
@@ -139,15 +192,7 @@ export function ProjectSpacesPicker({
     return expandedGroupIds;
   }, [expandedGroupIds, filteredGroupedSections, query]);
 
-  function cancelClose() {
-    if (closeTimeoutRef.current !== null) {
-      window.clearTimeout(closeTimeoutRef.current);
-      closeTimeoutRef.current = null;
-    }
-  }
-
   function resetPicker() {
-    cancelClose();
     setIsOpen(false);
     setExpandedGroupIds(new Set());
   }
@@ -161,12 +206,6 @@ export function ProjectSpacesPicker({
     onSelectProject(project.id, project.groupId);
     resetPicker();
   }
-
-  useEffect(() => {
-    return () => {
-      cancelClose();
-    };
-  }, []);
 
   useEffect(() => {
     if (!isOpen) {
@@ -188,8 +227,7 @@ export function ProjectSpacesPicker({
     }
 
     function handlePointerDown(event: PointerEvent) {
-      if (pickerRef.current?.contains(event.target as Node)) {
-        cancelClose();
+      if (isWithinInteractiveArea(event.target)) {
         return;
       }
 
@@ -212,15 +250,7 @@ export function ProjectSpacesPicker({
   }, [isOpen]);
 
   function openPicker() {
-    cancelClose();
     setIsOpen(true);
-  }
-
-  function scheduleClose() {
-    cancelClose();
-    closeTimeoutRef.current = window.setTimeout(() => {
-      resetPicker();
-    }, 160);
   }
 
   function isWithinInteractiveArea(target: EventTarget | null) {
@@ -230,193 +260,137 @@ export function ProjectSpacesPicker({
     );
   }
 
-  function handlePointerEnter() {
-    openPicker();
-  }
+  const pickerPopover =
+    isOpen && typeof document !== 'undefined'
+      ? createPortal(
+          <div className="fixed left-1/2 top-16 z-[100] w-[min(680px,calc(100vw-2rem))] -translate-x-1/2">
+            <Surface
+              ref={contentRef}
+              variant="transparent"
+              className="flex max-h-[min(620px,calc(100vh-6rem))] min-h-0 flex-col rounded-xl border border-slate-800 bg-slate-950 p-3 shadow-2xl shadow-black/70"
+              style={{ backgroundColor: '#020617' }}
+            >
+              <SearchField
+                aria-label="Search projects"
+                value={query}
+                onChange={setQuery}
+                className="w-full"
+              >
+                <SearchFieldGroup className="rounded-lg border border-slate-800/80 bg-slate-950/70">
+                  <SearchFieldSearchIcon />
+                  <SearchFieldInput
+                    ref={searchInputRef}
+                    autoFocus
+                    placeholder="Search projects"
+                    className="text-sm"
+                  />
+                  <SearchFieldClearButton />
+                </SearchFieldGroup>
+              </SearchField>
 
-  function handlePointerLeave(event: React.PointerEvent<HTMLElement>) {
-    if (isWithinInteractiveArea(event.relatedTarget)) {
-      cancelClose();
-      return;
-    }
+              <ScrollShadow className="mt-3 min-h-0 flex-1" hideScrollBar={false}>
+                {filteredStandaloneProjectIds.length > 0 || filteredGroupedSections.length > 0 ? (
+                  <div className="space-y-4 pb-1">
+                    {filteredStandaloneProjectIds.length > 0 ? (
+                      <div className="grid gap-1">
+                        <Text className="px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
+                          Projects
+                        </Text>
 
-    scheduleClose();
-  }
+                        {filteredStandaloneProjectIds.map((projectId) => {
+                          const project = projectsById[projectId];
+                          if (!project) {
+                            return null;
+                          }
+
+                          return (
+                            <ProjectPickerRow
+                              key={project.id}
+                              project={project}
+                              selected={selectedProjectId === project.id}
+                              onSelect={() => {
+                                selectProjectById(project.id);
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+                    ) : null}
+
+                    {filteredGroupedSections.length > 0 ? (
+                      <Accordion
+                        allowsMultipleExpanded
+                        expandedKeys={effectiveExpandedGroupIds}
+                        onExpandedChange={(keys) => {
+                          if (query.trim()) {
+                            return;
+                          }
+
+                          setExpandedGroupIds(new Set(Array.from(keys, (key) => String(key))));
+                        }}
+                      >
+                        {filteredGroupedSections.map((section) => (
+                          <Accordion.Item key={section.id} id={section.id}>
+                            <Accordion.Heading>
+                              <Accordion.Trigger className="rounded-2xl px-3 py-3 text-left text-sm font-medium text-slate-200 transition hover:bg-slate-900/40 data-[expanded=true]:bg-slate-900/25">
+                                <span className="flex min-w-0 items-center gap-2">
+                                  <Folder className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={1.8} />
+                                  <span className="truncate">{section.label}</span>
+                                </span>
+                                <Accordion.Indicator className="text-slate-500" />
+                              </Accordion.Trigger>
+                            </Accordion.Heading>
+                            <Accordion.Panel>
+                              <Accordion.Body className="ml-3 grid gap-1 border-l border-slate-800/60 px-0 pt-1 pb-0 pl-2">
+                                {section.projectIds.map((projectId) => {
+                                  const project = projectsById[projectId];
+                                  if (!project) {
+                                    return null;
+                                  }
+
+                                  return (
+                                    <ProjectPickerRow
+                                      key={project.id}
+                                      project={project}
+                                      selected={selectedProjectId === project.id}
+                                      onSelect={() => {
+                                        selectProjectById(project.id);
+                                      }}
+                                    />
+                                  );
+                                })}
+                              </Accordion.Body>
+                            </Accordion.Panel>
+                          </Accordion.Item>
+                        ))}
+                      </Accordion>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="flex h-full items-center justify-center px-3 py-3">
+                    <Text className="text-sm text-slate-500">
+                      No matching projects.
+                    </Text>
+                  </div>
+                )}
+              </ScrollShadow>
+            </Surface>
+          </div>,
+          document.body
+        )
+      : null;
 
   return (
     <div
       ref={pickerRef}
       className="relative flex w-full items-center"
-      onFocusCapture={handlePointerEnter}
-      onBlurCapture={(event) => {
-        if (isWithinInteractiveArea(event.relatedTarget)) {
-          cancelClose();
-          return;
-        }
-
-        scheduleClose();
+      onClickCapture={() => {
+        openPicker();
       }}
-      onPointerEnter={handlePointerEnter}
-      onPointerLeave={handlePointerLeave}
     >
       <div className="flex w-full items-center">{children}</div>
 
-      {isOpen ? (
-        <div className="absolute bottom-full left-1/2 z-50 mb-3 w-[340px] -translate-x-1/2">
-          <Surface
-            ref={contentRef}
-            variant="secondary"
-            className="flex h-[420px] min-h-0 flex-col rounded-3xl border border-slate-800/80 p-3 shadow-2xl shadow-slate-950/40"
-          >
-            <SearchField
-              aria-label="Search projects"
-              value={query}
-              onChange={setQuery}
-              className="w-full"
-            >
-              <SearchFieldGroup className="rounded-2xl border border-slate-800/80 bg-slate-950/70">
-                <SearchFieldSearchIcon />
-                <SearchFieldInput
-                  ref={searchInputRef}
-                  autoFocus
-                  placeholder="Search projects"
-                  className="text-sm"
-                />
-                <SearchFieldClearButton />
-              </SearchFieldGroup>
-            </SearchField>
-
-            <ScrollShadow className="mt-3 min-h-0 flex-1" hideScrollBar>
-              {filteredStandaloneProjectIds.length > 0 || filteredGroupedSections.length > 0 ? (
-                <div className="space-y-3 pb-1">
-                  {filteredStandaloneProjectIds.length > 0 ? (
-                    <div className="space-y-1">
-                      <Text className="px-3 py-1 text-xs font-medium text-slate-500">
-                        Projects
-                      </Text>
-
-                      {filteredStandaloneProjectIds.map((projectId) => {
-                        const project = projectsById[projectId];
-                        if (!project) {
-                          return null;
-                        }
-
-                        return (
-                          <Tooltip key={project.id} delay={0}>
-                            <Tooltip.Trigger className="block w-full">
-                              <Button
-                                fullWidth
-                                variant={selectedProjectId === project.id ? 'secondary' : 'ghost'}
-                                onPress={() => {
-                                  selectProjectById(project.id);
-                                }}
-                                className="h-auto min-h-0 justify-start rounded-2xl px-3 py-3 text-left"
-                              >
-                                <div className="flex w-full items-center justify-between gap-3">
-                                  <Text className="truncate text-sm font-medium text-slate-100">
-                                    {project.name}
-                                  </Text>
-                                  {project.kind === 'workspace' ? (
-                                    <Text className="shrink-0 text-[10px] uppercase tracking-[0.18em] text-slate-500">
-                                      WS
-                                    </Text>
-                                  ) : null}
-                                  <ProjectctlBadge project={project} />
-                                </div>
-                              </Button>
-                            </Tooltip.Trigger>
-                            <Tooltip.Content showArrow placement="right">
-                              <Tooltip.Arrow />
-                              {project.rootPath}
-                            </Tooltip.Content>
-                          </Tooltip>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-
-                  {filteredGroupedSections.length > 0 ? (
-                    <Accordion
-                      allowsMultipleExpanded
-                      expandedKeys={effectiveExpandedGroupIds}
-                      onExpandedChange={(keys) => {
-                        if (query.trim()) {
-                          return;
-                        }
-
-                        setExpandedGroupIds(new Set(Array.from(keys, (key) => String(key))));
-                      }}
-                    >
-                      {filteredGroupedSections.map((section) => (
-                        <Accordion.Item key={section.id} id={section.id}>
-                          <Accordion.Heading>
-                            <Accordion.Trigger className="rounded-2xl px-3 py-3 text-left text-sm font-medium text-slate-200 transition hover:bg-slate-900/40 data-[expanded=true]:bg-slate-900/25">
-                              <span className="flex min-w-0 items-center gap-2">
-                                <Folder className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={1.8} />
-                                <span className="truncate">{section.label}</span>
-                              </span>
-                              <Accordion.Indicator className="text-slate-500" />
-                            </Accordion.Trigger>
-                          </Accordion.Heading>
-                          <Accordion.Panel>
-                            <Accordion.Body className="ml-3 space-y-1 border-l border-slate-800/60 px-0 pt-1 pb-0 pl-2">
-                              {section.projectIds.map((projectId) => {
-                                const project = projectsById[projectId];
-                                if (!project) {
-                                  return null;
-                                }
-
-                                return (
-                                  <Tooltip key={project.id} delay={0}>
-                                    <Tooltip.Trigger className="block w-full">
-                                      <Button
-                                        fullWidth
-                                        variant={
-                                          selectedProjectId === project.id ? 'secondary' : 'ghost'
-                                        }
-                                        onPress={() => {
-                                          selectProjectById(project.id);
-                                        }}
-                                        className="h-auto min-h-0 justify-start rounded-2xl px-3 py-3 text-left"
-                                      >
-                                        <div className="flex w-full items-center justify-between gap-3">
-                                          <Text className="truncate text-sm font-medium text-slate-100">
-                                            {project.name}
-                                          </Text>
-                                          {project.kind === 'workspace' ? (
-                                            <Text className="shrink-0 text-[10px] uppercase tracking-[0.18em] text-slate-500">
-                                              WS
-                                            </Text>
-                                          ) : null}
-                                          <ProjectctlBadge project={project} />
-                                        </div>
-                                      </Button>
-                                    </Tooltip.Trigger>
-                                    <Tooltip.Content showArrow placement="right">
-                                      <Tooltip.Arrow />
-                                      {project.rootPath}
-                                    </Tooltip.Content>
-                                  </Tooltip>
-                                );
-                              })}
-                            </Accordion.Body>
-                          </Accordion.Panel>
-                        </Accordion.Item>
-                      ))}
-                    </Accordion>
-                  ) : null}
-                </div>
-              ) : (
-                <div className="flex h-full items-center justify-center px-3 py-3">
-                  <Text className="text-sm text-slate-500">
-                    No matching projects.
-                  </Text>
-                </div>
-              )}
-            </ScrollShadow>
-          </Surface>
-        </div>
-      ) : null}
+      {pickerPopover}
     </div>
   );
 }

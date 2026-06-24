@@ -1,4 +1,0 @@
-{
-  "feature.modules": "[a-z0-9-]+/index\\.ts",
-  "project.extra_root_files": "(README\\.md|\\.env\\.example)"
-}

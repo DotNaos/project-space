@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
-import { homedir, hostname } from 'node:os';
+import { homedir, hostname, platform } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -150,8 +150,8 @@ async function loadMachines() {
 export async function getConnectorOverview(): Promise<ConnectorOverviewResult> {
   const [tailscale, machines] = await Promise.all([loadTailscaleStatus(), loadMachines()]);
 
+  const currentHost = hostname().split('.')[0];
   const machinesWithTailscale = machines.map((machine) => {
-    const currentHost = hostname().split('.')[0];
     const isLocal =
       machine.name === currentHost ||
       machine.network.localName === currentHost ||
@@ -176,6 +176,27 @@ export async function getConnectorOverview(): Promise<ConnectorOverviewResult> {
 
     return machine;
   });
+  const hasLocalMachine = machinesWithTailscale.some((machine) => machine.connector.status === 'local');
+
+  if (!hasLocalMachine) {
+    machinesWithTailscale.unshift({
+      connector: {
+        installCommand: 'project-space connector install',
+        lastSeen: new Date().toISOString(),
+        origin: process.env.PROJECT_SPACE_CONNECTOR_ORIGIN,
+        status: 'local'
+      },
+      id: currentHost,
+      kind: platform(),
+      name: currentHost,
+      network: {
+        localName: currentHost,
+        tailscaleIp: tailscale.ips[0]
+      },
+      roles: ['connector'],
+      sourcePath: ''
+    });
+  }
 
   return {
     connectorOrigin: process.env.PROJECT_SPACE_CONNECTOR_ORIGIN,

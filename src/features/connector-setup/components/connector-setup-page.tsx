@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Card, Chip, Surface, Text } from '@heroui/react';
+import { Button, Card, Chip, Surface, Text } from '@/app/dotnaos-ui';
 import {
   ArrowRight,
   CheckCircle2,
@@ -87,7 +87,19 @@ function CommandBlock({ commands }: { commands: string[] }) {
   const code = commands.join('\n');
 
   async function copyCode() {
-    await navigator.clipboard.writeText(code);
+    try {
+      await navigator.clipboard.writeText(code);
+    } catch {
+      const textArea = document.createElement('textarea');
+      textArea.value = code;
+      textArea.setAttribute('readonly', '');
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-9999px';
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      textArea.remove();
+    }
     setCopied(true);
     window.setTimeout(() => {
       setCopied(false);

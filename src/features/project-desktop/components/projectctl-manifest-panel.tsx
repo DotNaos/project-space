@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Chip, ScrollShadow, Surface, Text } from '@heroui/react';
+import { Button, Chip, ScrollShadow, Surface, Text } from '@/app/dotnaos-ui';
 import {
   ClipboardList,
   FileCheck2,

@@ -1,4 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -7,6 +8,7 @@ import type { TerminalCommandRequest, TerminalCommandResult } from '../src/share
 const execFileAsync = promisify(execFile);
 const outputLimit = 40_000;
 const commandTimeoutMs = 30_000;
+const shellCandidates = ['/bin/zsh', '/usr/bin/zsh', '/bin/bash', '/usr/bin/bash', '/bin/sh'];
 
 export async function runCommand(command: string, args: string[], cwd?: string) {
   const { stdout, stderr } = await execFileAsync(command, args, {
@@ -29,6 +31,10 @@ function trimOutput(output: string) {
   return `${output.slice(0, outputLimit)}\n\n[output trimmed]`;
 }
 
+function getCommandShell() {
+  return shellCandidates.find((candidate) => existsSync(candidate)) ?? '/bin/sh';
+}
+
 export async function runTerminalCommand(
   request: TerminalCommandRequest
 ): Promise<TerminalCommandResult> {
@@ -36,7 +42,7 @@ export async function runTerminalCommand(
   const cwd = resolve(request.cwd);
 
   return new Promise((resolveCommand) => {
-    const child = spawn('/bin/zsh', ['-lc', request.command], {
+    const child = spawn(getCommandShell(), ['-lc', request.command], {
       cwd,
       env: process.env,
       windowsHide: true

@@ -9,10 +9,19 @@ import (
 )
 
 func readTemplateLock(projectRoot string) (TemplateLock, error) {
-	lockPath := filepath.Join(projectRoot, ".project", "template.lock.json")
-	body, err := os.ReadFile(lockPath)
+	yamlPath := filepath.Join(projectRoot, ".project", "template.lock.yaml")
+	if body, err := os.ReadFile(yamlPath); err == nil {
+		var lock TemplateLock
+		if err := unmarshalYAML(body, &lock); err != nil {
+			return TemplateLock{}, err
+		}
+		return lock, nil
+	}
+
+	jsonPath := filepath.Join(projectRoot, ".project", "template.lock.json")
+	body, err := os.ReadFile(jsonPath)
 	if err != nil {
-		return TemplateLock{}, fmt.Errorf("missing .project/template.lock.json in %s", projectRoot)
+		return TemplateLock{}, fmt.Errorf("missing .project/template.lock.yaml in %s", projectRoot)
 	}
 	var lock TemplateLock
 	if err := json.Unmarshal(body, &lock); err != nil {
@@ -26,12 +35,15 @@ func loadTemplate(projectRoot string, lock TemplateLock) (TemplateSpec, error) {
 	if err != nil {
 		return TemplateSpec{}, err
 	}
+	if err := verifyTemplateChecksum(templateRoot, lock); err != nil {
+		return TemplateSpec{}, err
+	}
 	templatePath := filepath.Join(templateRoot, "template.yaml")
 	body, err := os.ReadFile(templatePath)
 	if err != nil {
 		return TemplateSpec{}, fmt.Errorf("missing template.yaml in %s", templateRoot)
 	}
-	return parseTemplateYAML(templateRoot, string(body))
+	return parseTemplateYAML(templateRoot, body)
 }
 
 func readJSONFile[T any](filePath string) (T, error) {
@@ -44,6 +56,10 @@ func readJSONFile[T any](filePath string) (T, error) {
 }
 
 func resolveTemplateRoot(projectRoot string, lock TemplateLock) (string, error) {
+	localSnapshot := filepath.Join(projectRoot, ".project", "template")
+	if _, err := os.Stat(filepath.Join(localSnapshot, "template.yaml")); err == nil {
+		return filepath.Abs(localSnapshot)
+	}
 	if lock.TemplatePath != "" {
 		if filepath.IsAbs(lock.TemplatePath) {
 			return filepath.Abs(lock.TemplatePath)
@@ -69,56 +85,90 @@ func resolveTemplateRoot(projectRoot string, lock TemplateLock) (string, error) 
 	return "", fmt.Errorf("cannot resolve template %q; add templatePath to the lock file", lock.Template)
 }
 
-func parseTemplateYAML(templateRoot string, body string) (TemplateSpec, error) {
-	spec := TemplateSpec{Root: templateRoot, Files: map[string]TemplateFileSpec{}}
-	currentFile := ""
-	for _, rawLine := range strings.Split(body, "\n") {
-		line := strings.TrimRight(rawLine, "\r")
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") || trimmed == "files:" {
-			continue
-		}
-		if !strings.HasPrefix(line, " ") {
-			key, value, ok := strings.Cut(line, ":")
-			if !ok {
-				continue
-			}
-			value = strings.TrimSpace(value)
-			switch key {
-			case "name":
-				spec.Name = value
-			case "version":
-				spec.Version = value
-			case "structure":
-				spec.StructurePath = value
-			case "structureSlots":
-				spec.StructureSlotsPath = value
-			}
-			currentFile = ""
-			continue
-		}
-		if strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "    ") && strings.HasSuffix(trimmed, ":") {
-			currentFile = strings.TrimSuffix(trimmed, ":")
-			spec.Files[currentFile] = TemplateFileSpec{Path: currentFile}
-			continue
-		}
-		if currentFile != "" && strings.HasPrefix(line, "    ") {
-			key, value, ok := strings.Cut(trimmed, ":")
-			if !ok {
-				continue
-			}
-			fileSpec := spec.Files[currentFile]
-			switch key {
-			case "template":
-				fileSpec.TemplatePath = strings.TrimSpace(value)
-			case "slots":
-				fileSpec.SlotsPath = strings.TrimSpace(value)
-			}
-			spec.Files[currentFile] = fileSpec
-		}
+func parseTemplateYAML(templateRoot string, body []byte) (TemplateSpec, error) {
+	var raw struct {
+		Name               string                      `yaml:"name"`
+		Version            string                      `yaml:"version"`
+		StructurePath      string                      `yaml:"structure"`
+		StructureSlotsPath string                      `yaml:"structureSlots"`
+		Files              map[string]TemplateFileSpec `yaml:"files"`
+		Modules            []TemplateModuleSpec        `yaml:"modules"`
 	}
-	if spec.Name == "" || spec.Version == "" || spec.StructurePath == "" || spec.StructureSlotsPath == "" {
+	if err := unmarshalYAML(body, &raw); err != nil {
+		return TemplateSpec{}, err
+	}
+	spec := TemplateSpec{
+		Root:               templateRoot,
+		Name:               raw.Name,
+		Version:            raw.Version,
+		StructurePath:      raw.StructurePath,
+		StructureSlotsPath: raw.StructureSlotsPath,
+		Files:              map[string]TemplateFileSpec{},
+		Modules:            map[string]TemplateModuleSpec{},
+	}
+	for path, file := range raw.Files {
+		file.Path = path
+		spec.Files[path] = file
+	}
+	for _, module := range raw.Modules {
+		if module.Name == "" {
+			return TemplateSpec{}, fmt.Errorf("template.yaml contains a module without name")
+		}
+		spec.Modules[module.Name] = module
+	}
+	if spec.Name == "" || spec.Version == "" {
 		return TemplateSpec{}, fmt.Errorf("template.yaml is missing required fields")
 	}
+	if spec.StructurePath != "" && spec.StructureSlotsPath != "" {
+		return spec, nil
+	}
+	if err := loadTemplateTree(&spec); err != nil {
+		return TemplateSpec{}, err
+	}
 	return spec, nil
+}
+
+func loadTemplateTree(spec *TemplateSpec) error {
+	ignore := readTemplateIgnore(spec.Root)
+	slots, err := readSlotRules(spec.Root)
+	if err != nil {
+		return err
+	}
+	spec.TreeMode = true
+	spec.TemplateFiles = map[string]bool{}
+	spec.Slots = slots
+	return filepath.WalkDir(spec.Root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if entry.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		relative, err := filepath.Rel(spec.Root, path)
+		if err != nil {
+			return err
+		}
+		normalized := normalizePath(relative)
+		if ignore.Match(normalized) {
+			return nil
+		}
+		outputPath := templateOutputPath(normalized)
+		if existing, ok := spec.Files[outputPath]; ok {
+			return fmt.Errorf("template files %s and %s both render to %s", existing.TemplatePath, normalized, outputPath)
+		}
+		spec.TemplateFiles[outputPath] = true
+		spec.Files[outputPath] = TemplateFileSpec{Path: outputPath, TemplatePath: normalized}
+		return nil
+	})
+}
+
+func templateOutputPath(templatePath string) string {
+	segments := strings.Split(normalizePath(templatePath), "/")
+	for index, segment := range segments {
+		segments[index] = strings.ReplaceAll(segment, ".template", "")
+	}
+	return strings.Join(segments, "/")
 }

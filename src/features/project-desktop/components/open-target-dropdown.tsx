@@ -9,7 +9,7 @@ import {
     DropdownPopover,
     DropdownTrigger,
     Text,
-} from '@heroui/react';
+} from '@/app/dotnaos-ui';
 import { Check, ChevronDown } from 'lucide-react';
 
 interface OpenTargetDropdownProps {

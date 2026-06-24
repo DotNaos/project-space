@@ -5,7 +5,7 @@ import {
   ScrollShadow,
   Surface,
   Text
-} from '@heroui/react';
+} from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type {
   ExplorerTarget,
@@ -91,15 +91,6 @@ export function WorkflowExplorer({
     <ScrollShadow className="flex-1 px-3 py-4" hideScrollBar>
       {project ? (
         <div className="space-y-3">
-          <Surface variant="transparent" className="px-3 py-2">
-            <Text className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">
-              Project
-            </Text>
-            <Text className="mt-2 block text-sm font-semibold text-slate-100">
-              {project.name}
-            </Text>
-          </Surface>
-
           <ListBox
             aria-label={`${project.name} targets`}
             disallowEmptySelection

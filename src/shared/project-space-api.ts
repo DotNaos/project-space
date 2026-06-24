@@ -19,6 +19,15 @@ export interface ProjectctlDiscoverySummary {
   status: 'managed' | 'partial' | 'unmanaged';
 }
 
+export type FullstackTemplateStatus = 'implemented' | 'partial' | 'not-detected' | 'template-source';
+
+export interface FullstackTemplateCheck {
+  matched: string[];
+  missing: string[];
+  score: number;
+  status: FullstackTemplateStatus;
+}
+
 export interface ProjectSpaceRecord {
   id: string;
   name: string;
@@ -26,6 +35,7 @@ export interface ProjectSpaceRecord {
   kind: 'workspace' | 'standalone';
   groupId?: string;
   projectctl?: ProjectctlDiscoverySummary;
+  fullstackTemplate?: FullstackTemplateCheck;
 }
 
 export interface ProjectGroupRecord {
@@ -180,6 +190,60 @@ export interface GitActionResult {
   status: 'success' | 'error';
   stdout?: string;
   stderr?: string;
+}
+
+export type GitHubAuthSource = 'stored-oauth' | 'environment';
+export type GitHubCatalogStatus = 'connected' | 'auth-required' | 'not-configured' | 'error';
+export type GitHubProjectConfigStatus = 'complete' | 'partial' | 'missing' | 'unknown';
+
+export interface GitHubCatalogRepository {
+  defaultBranch?: string;
+  description?: string;
+  fullName: string;
+  id: number;
+  isPrivate: boolean;
+  name: string;
+  owner: string;
+  projectConfig: {
+    projectYaml: boolean;
+    status: GitHubProjectConfigStatus;
+    templateLock: boolean;
+  };
+  pushedAt?: string;
+  updatedAt?: string;
+  url: string;
+}
+
+export interface GitHubCatalogResult {
+  auth?: {
+    login?: string;
+    source: GitHubAuthSource;
+  };
+  checkedAt: string;
+  message?: string;
+  repositories: GitHubCatalogRepository[];
+  status: GitHubCatalogStatus;
+}
+
+export interface GitHubOAuthDeviceStartResult {
+  deviceCode?: string;
+  expiresAt?: string;
+  intervalSeconds?: number;
+  message?: string;
+  status: 'pending' | 'not-configured' | 'error';
+  userCode?: string;
+  verificationUri?: string;
+}
+
+export interface GitHubOAuthDevicePollRequest {
+  deviceCode: string;
+}
+
+export interface GitHubOAuthDevicePollResult {
+  catalog?: GitHubCatalogResult;
+  intervalSeconds?: number;
+  message?: string;
+  status: 'pending' | 'connected' | 'expired' | 'denied' | 'error';
 }
 
 export interface CodexStatusResult {
@@ -417,10 +481,51 @@ export interface ProjectctlOverviewResult {
   toolPath?: string;
 }
 
+export type ScopeDevboxAgent = 'codex' | 'gemini';
+export type ScopeDevboxJobStatus = 'queued' | 'running' | 'passed' | 'failed' | 'rejected';
+
+export interface ScopeDevboxJobRecord {
+  agent: ScopeDevboxAgent;
+  createdAt: string;
+  exitCode?: number | null;
+  id: string;
+  logPath: string;
+  machineId: string;
+  machineName?: string;
+  message?: string;
+  model: string;
+  repoPath: string;
+  scopePath: string;
+  status: ScopeDevboxJobStatus;
+  task: string;
+  updatedAt: string;
+  writableFiles: string[];
+}
+
+export interface ScopeDevboxOverviewResult {
+  defaultAgent: ScopeDevboxAgent;
+  defaultModel: string;
+  devboxRepo: {
+    exists: boolean;
+    path: string;
+  };
+  jobs: ScopeDevboxJobRecord[];
+}
+
+export interface ScopeDevboxStartRequest {
+  agent: ScopeDevboxAgent;
+  machineId: string;
+  model: string;
+  repoPath: string;
+  task: string;
+  writableFiles: string[];
+}
+
 export interface ProjectSpaceBackend {
   getAppMeta(): Promise<AppMeta>;
   getCodexStatus(): Promise<CodexStatusResult>;
   getConnectorOverview(): Promise<ConnectorOverviewResult>;
+  getGitHubCatalog(): Promise<GitHubCatalogResult>;
   getGitDiff(request: GitDiffRequest): Promise<GitDiffResult>;
   getGitStatus(cwd: string): Promise<GitStatusResult>;
   getPlatformOverview(): Promise<PlatformOverviewResult>;
@@ -438,6 +543,12 @@ export interface ProjectSpaceBackend {
   runTerminalCommand(request: TerminalCommandRequest): Promise<TerminalCommandResult>;
   saveProjectsState(state: ProjectsState): Promise<void>;
   selectProjectDirectory(): Promise<ProjectDirectorySelection>;
+  startGitHubOAuthDeviceFlow(): Promise<GitHubOAuthDeviceStartResult>;
+  pollGitHubOAuthDeviceFlow(
+    request: GitHubOAuthDevicePollRequest
+  ): Promise<GitHubOAuthDevicePollResult>;
+  getScopeDevboxOverview(): Promise<ScopeDevboxOverviewResult>;
+  startScopeDevboxJob(request: ScopeDevboxStartRequest): Promise<ScopeDevboxJobRecord>;
   stageGitPaths(request: GitStageRequest): Promise<GitActionResult>;
   deployProject(request: ProjectDeployRequest): Promise<GitActionResult>;
   backupProject(request: ProjectBackupRequest): Promise<GitActionResult>;

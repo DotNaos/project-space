@@ -8,6 +8,10 @@ import type {
   GitCommitRequest,
   GitDiffRequest,
   GitDiffResult,
+  GitHubCatalogResult,
+  GitHubOAuthDevicePollRequest,
+  GitHubOAuthDevicePollResult,
+  GitHubOAuthDeviceStartResult,
   GitStageRequest,
   GitStatusResult,
   LauncherAppRecord,
@@ -23,6 +27,9 @@ import type {
   ProjectctlPlanResult,
   ProjectsState,
   ProjectWorktreeRecord,
+  ScopeDevboxOverviewResult,
+  ScopeDevboxStartRequest,
+  ScopeDevboxJobRecord,
   TerminalCommandRequest,
   TerminalCommandResult,
   ToolLaunchRequest,
@@ -87,6 +94,10 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
 
   getConnectorOverview(): Promise<ConnectorOverviewResult> {
     return this.request('/api/connectors/overview');
+  }
+
+  getGitHubCatalog(): Promise<GitHubCatalogResult> {
+    return this.request('/api/github/catalog');
   }
 
   getGitDiff(request: GitDiffRequest): Promise<GitDiffResult> {
@@ -175,6 +186,17 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     });
   }
 
+  getScopeDevboxOverview(): Promise<ScopeDevboxOverviewResult> {
+    return this.request('/api/scope-devbox/overview');
+  }
+
+  startScopeDevboxJob(request: ScopeDevboxStartRequest): Promise<ScopeDevboxJobRecord> {
+    return this.request('/api/scope-devbox/jobs', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
   saveProjectsState(state: ProjectsState): Promise<void> {
     return this.request('/api/projects/state', {
       body: JSON.stringify(state),
@@ -184,6 +206,21 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
 
   selectProjectDirectory(): Promise<ProjectDirectorySelection> {
     return this.request('/api/projects/select-directory', {
+      method: 'POST'
+    });
+  }
+
+  startGitHubOAuthDeviceFlow(): Promise<GitHubOAuthDeviceStartResult> {
+    return this.request('/api/github/oauth/device/start', {
+      method: 'POST'
+    });
+  }
+
+  pollGitHubOAuthDeviceFlow(
+    request: GitHubOAuthDevicePollRequest
+  ): Promise<GitHubOAuthDevicePollResult> {
+    return this.request('/api/github/oauth/device/poll', {
+      body: JSON.stringify(request),
       method: 'POST'
     });
   }

@@ -10,7 +10,7 @@ import {
   TabSeparator,
   Tabs,
   Text
-} from '@heroui/react';
+} from '@/app/dotnaos-ui';
 import { Bot, Check, GitBranch, Play, RefreshCw, Terminal } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import type {
@@ -221,12 +221,12 @@ function GitPanel({ targetPath }: ProjectWorkspaceToolsProps) {
   return (
     <div className="grid min-h-0 gap-3 lg:grid-cols-[18rem_minmax(0,1fr)]">
       <Surface variant="secondary" className="min-h-0 rounded-lg border border-slate-800 bg-slate-950/40">
-        <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2">
-          <div className="min-w-0">
-            <Text className="truncate text-sm font-semibold text-slate-100">
+        <div className="flex items-center justify-between gap-2 border-b border-slate-800 px-3 py-2">
+          <div className="min-w-0 overflow-hidden">
+            <Text className="block truncate text-sm font-semibold text-slate-100">
               {status.isRepository ? status.branchName : 'No repository'}
             </Text>
-            <Text className="truncate text-xs text-slate-500">
+            <Text className="block truncate text-xs text-slate-500">
               {status.isRepository ? status.repositoryRoot : targetPath}
             </Text>
           </div>
