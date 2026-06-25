@@ -1,7 +1,7 @@
 import { Button, Card, Surface, Text } from '@heroui/react';
-import { ExternalLink, FolderCog, Settings2 } from 'lucide-react';
+import { ExternalLink, FolderCog, Github, LogIn, LogOut, RefreshCw, Settings2 } from 'lucide-react';
 
-import type { ProjectIssueSourceConfig, ProjectSpaceRecord } from '@/shared/electron-api';
+import type { GitHubViewer, ProjectIssueSourceConfig, ProjectSpaceRecord } from '@/shared/electron-api';
 
 import { ProjectIssueSourceCard } from './project-issue-source-card';
 
@@ -10,6 +10,13 @@ export type SettingsTab = 'app' | 'project';
 interface ProjectSettingsPanelProps {
   activeTab: SettingsTab;
   discoveryRoot: string;
+  githubAuthError: string;
+  githubAuthViewer?: GitHubViewer;
+  isGithubAuthenticated: boolean;
+  isGithubAuthLoading: boolean;
+  isGithubConfigured: boolean;
+  isGithubSigningIn: boolean;
+  isGithubSigningOut: boolean;
   isIssueSourceLoading: boolean;
   isIssueSourceSaving: boolean;
   issueSourceConfig: ProjectIssueSourceConfig;
@@ -19,6 +26,8 @@ interface ProjectSettingsPanelProps {
   onOpenIssueSource(): void;
   onSaveIssueSourceConfig(): void;
   onSelectTab(tab: SettingsTab): void;
+  onSignInToGithub(): void;
+  onSignOutGithub(): void;
   onUpdateIssueSourceKind(kind: ProjectIssueSourceConfig['kind']): void;
   onUpdateIssueSourceUrl(url: string): void;
   project?: ProjectSpaceRecord;
@@ -51,7 +60,30 @@ function SettingsNavButton({
   );
 }
 
-function AppSettingsContent({ discoveryRoot }: { discoveryRoot: string }) {
+function AppSettingsContent({
+  discoveryRoot,
+  githubAuthError,
+  githubAuthViewer,
+  isGithubAuthenticated,
+  isGithubAuthLoading,
+  isGithubConfigured,
+  isGithubSigningIn,
+  isGithubSigningOut,
+  onSignInToGithub,
+  onSignOutGithub
+}: Pick<
+  ProjectSettingsPanelProps,
+  | 'discoveryRoot'
+  | 'githubAuthError'
+  | 'githubAuthViewer'
+  | 'isGithubAuthenticated'
+  | 'isGithubAuthLoading'
+  | 'isGithubConfigured'
+  | 'isGithubSigningIn'
+  | 'isGithubSigningOut'
+  | 'onSignInToGithub'
+  | 'onSignOutGithub'
+>) {
   return (
     <div className="space-y-5">
       <Card variant="secondary" className="border border-zinc-800/80 bg-zinc-950/50">
@@ -81,6 +113,69 @@ function AppSettingsContent({ discoveryRoot }: { discoveryRoot: string }) {
           </Text>
         </Card.Content>
       </Card>
+
+      <Card variant="secondary" className="border border-zinc-800/80 bg-zinc-950/50">
+        <Card.Content className="gap-4">
+          <div className="space-y-2">
+            <Text className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+              GitHub access
+            </Text>
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-900/40 text-zinc-200">
+                <Github className="h-5 w-5" strokeWidth={1.9} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-zinc-100">
+                  {isGithubAuthenticated
+                    ? githubAuthViewer?.name || githubAuthViewer?.login || 'GitHub connected'
+                    : 'GitHub is not connected'}
+                </p>
+                <p className="mt-1 text-sm text-zinc-400">
+                  {isGithubAuthenticated
+                    ? `Signed in as @${githubAuthViewer?.login ?? 'github'}.`
+                    : isGithubConfigured
+                      ? 'Connect GitHub once to load and publish ideas without the GitHub CLI.'
+                      : 'Start with pnpm dev:op so 1Password can load GitHub OAuth.'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {githubAuthError ? (
+            <Text className="text-sm text-zinc-300">{githubAuthError}</Text>
+          ) : null}
+
+          <div className="flex flex-wrap gap-3">
+            <Button
+              variant="secondary"
+              isDisabled={!isGithubConfigured || isGithubAuthLoading || isGithubSigningIn}
+              onPress={onSignInToGithub}
+              className="h-10 rounded-2xl px-3 text-zinc-100"
+            >
+              {isGithubSigningIn ? (
+                <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={1.9} />
+              ) : (
+                <LogIn className="h-4 w-4" strokeWidth={1.9} />
+              )}
+              <span>{isGithubAuthenticated ? 'Reconnect GitHub' : 'Connect GitHub'}</span>
+            </Button>
+
+            <Button
+              variant="ghost"
+              isDisabled={!isGithubAuthenticated || isGithubSigningOut}
+              onPress={onSignOutGithub}
+              className="h-10 rounded-2xl px-3 text-zinc-300 hover:bg-zinc-900/40 hover:text-zinc-50"
+            >
+              {isGithubSigningOut ? (
+                <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={1.9} />
+              ) : (
+                <LogOut className="h-4 w-4" strokeWidth={1.9} />
+              )}
+              <span>Disconnect GitHub</span>
+            </Button>
+          </div>
+        </Card.Content>
+      </Card>
     </div>
   );
 }
@@ -97,7 +192,20 @@ function ProjectSettingsContent({
   onUpdateIssueSourceKind,
   onUpdateIssueSourceUrl,
   project
-}: Omit<ProjectSettingsPanelProps, 'activeTab' | 'discoveryRoot' | 'onSelectTab'>) {
+}: Pick<
+  ProjectSettingsPanelProps,
+  | 'isIssueSourceLoading'
+  | 'isIssueSourceSaving'
+  | 'issueSourceConfig'
+  | 'issueSourceDraftKind'
+  | 'issueSourceDraftUrl'
+  | 'issueSourceError'
+  | 'onOpenIssueSource'
+  | 'onSaveIssueSourceConfig'
+  | 'onUpdateIssueSourceKind'
+  | 'onUpdateIssueSourceUrl'
+  | 'project'
+>) {
   if (!project) {
     return (
       <Card variant="secondary" className="w-full max-w-xl border border-zinc-800/80 bg-zinc-950/70">
@@ -171,6 +279,13 @@ function ProjectSettingsContent({
 export function ProjectSettingsPanel({
   activeTab,
   discoveryRoot,
+  githubAuthError,
+  githubAuthViewer,
+  isGithubAuthenticated,
+  isGithubAuthLoading,
+  isGithubConfigured,
+  isGithubSigningIn,
+  isGithubSigningOut,
   isIssueSourceLoading,
   isIssueSourceSaving,
   issueSourceConfig,
@@ -180,6 +295,8 @@ export function ProjectSettingsPanel({
   onOpenIssueSource,
   onSaveIssueSourceConfig,
   onSelectTab,
+  onSignInToGithub,
+  onSignOutGithub,
   onUpdateIssueSourceKind,
   onUpdateIssueSourceUrl,
   project
@@ -222,7 +339,18 @@ export function ProjectSettingsPanel({
               project={project}
             />
           ) : (
-            <AppSettingsContent discoveryRoot={discoveryRoot} />
+            <AppSettingsContent
+              discoveryRoot={discoveryRoot}
+              githubAuthError={githubAuthError}
+              githubAuthViewer={githubAuthViewer}
+              isGithubAuthenticated={isGithubAuthenticated}
+              isGithubAuthLoading={isGithubAuthLoading}
+              isGithubConfigured={isGithubConfigured}
+              isGithubSigningIn={isGithubSigningIn}
+              isGithubSigningOut={isGithubSigningOut}
+              onSignInToGithub={onSignInToGithub}
+              onSignOutGithub={onSignOutGithub}
+            />
           )}
         </div>
       </div>

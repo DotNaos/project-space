@@ -21,10 +21,19 @@ The repository currently targets a reduced MVP:
 
 ## Scripts
 
-- `npm install`
-- `npm run dev`
-- `npm run build`
-- `npm run check`
+- `pnpm install`
+- `pnpm dev`
+- `pnpm dev:op`
+- `pnpm build`
+- `pnpm check`
+
+## Environment
+
+GitHub OAuth needs `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
+
+- `.env.example` documents the required keys.
+- `.env.op` is local-only and points to the `Project Space GitHub OAuth` item in the `dev` 1Password vault.
+- `pnpm dev:op` starts the app through 1Password so the GitHub OAuth values are resolved at runtime.
 
 ## Structure
 

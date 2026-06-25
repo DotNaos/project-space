@@ -39,6 +39,7 @@ export function ProjectIssueSourceCard({
         </Text>
         <Text className="mt-2 text-sm text-zinc-400">
           Decide whether this project reads and publishes ideas through GitHub or Azure DevOps.
+          GitHub projects use the app-level GitHub connection from App settings.
         </Text>
       </div>
 

@@ -1,5 +1,6 @@
 import type {
   ExplorerTarget,
+  GitHubViewer,
   LauncherAppRecord,
   ProjectIssueSourceConfig,
   ProjectSpaceRecord,
@@ -29,7 +30,14 @@ interface ProjectMainPanelProps {
   draftValues: EditableIdeaValues;
   groupedProjects: ProjectSpaceRecord[];
   groupedProjectsLabel?: string;
+  githubAuthError: string;
+  githubAuthViewer?: GitHubViewer;
   isDirty: boolean;
+  isGithubAuthenticated: boolean;
+  isGithubAuthLoading: boolean;
+  isGithubConfigured: boolean;
+  isGithubSigningIn: boolean;
+  isGithubSigningOut: boolean;
   isIssueSourceLoading: boolean;
   isIssueSourceSaving: boolean;
   isSavingIdea: boolean;
@@ -55,6 +63,8 @@ interface ProjectMainPanelProps {
     key: Key,
     value: EditableIdeaValues[Key]
   ): void;
+  onSignInToGithub(): void;
+  onSignOutGithub(): void;
   onUpdateCreateWorktreeBranchName(value: string): void;
   onUpdateCreateWorktreeFolderName(value: string): void;
   onUpdateIssueSourceKind(kind: ProjectIssueSourceConfig['kind']): void;
@@ -87,9 +97,16 @@ export function ProjectMainPanel({
   createWorktreeTargetPath,
   discoveryRoot,
   draftValues,
+  githubAuthError,
+  githubAuthViewer,
   groupedProjects,
   groupedProjectsLabel,
   isDirty,
+  isGithubAuthenticated,
+  isGithubAuthLoading,
+  isGithubConfigured,
+  isGithubSigningIn,
+  isGithubSigningOut,
   isIssueSourceLoading,
   isIssueSourceSaving,
   isSavingIdea,
@@ -110,6 +127,8 @@ export function ProjectMainPanel({
   onSelectSettingsTab,
   onSelectIdea,
   onSelectLauncherApp,
+  onSignInToGithub,
+  onSignOutGithub,
   onSubmitCreateWorktree,
   onUpdateIdeaValue,
   onUpdateCreateWorktreeBranchName,
@@ -219,6 +238,13 @@ export function ProjectMainPanel({
         <ProjectSettingsPanel
           activeTab={activeSettingsTab}
           discoveryRoot={discoveryRoot}
+          githubAuthError={githubAuthError}
+          githubAuthViewer={githubAuthViewer}
+          isGithubAuthenticated={isGithubAuthenticated}
+          isGithubAuthLoading={isGithubAuthLoading}
+          isGithubConfigured={isGithubConfigured}
+          isGithubSigningIn={isGithubSigningIn}
+          isGithubSigningOut={isGithubSigningOut}
           isIssueSourceLoading={isIssueSourceLoading}
           isIssueSourceSaving={isIssueSourceSaving}
           issueSourceConfig={issueSourceConfig}
@@ -228,6 +254,8 @@ export function ProjectMainPanel({
           onOpenIssueSource={onOpenIssueSource}
           onSaveIssueSourceConfig={onSaveIssueSourceConfig}
           onSelectTab={onSelectSettingsTab}
+          onSignInToGithub={onSignInToGithub}
+          onSignOutGithub={onSignOutGithub}
           onUpdateIssueSourceKind={onUpdateIssueSourceKind}
           onUpdateIssueSourceUrl={onUpdateIssueSourceUrl}
           project={project}

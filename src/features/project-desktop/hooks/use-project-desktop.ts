@@ -12,6 +12,7 @@ import type { ProjectMainView } from '../components/project-main-panel';
 import type { SettingsTab } from '../components/project-settings-panel';
 import { toGithubIdea, toLocalIdeaDraft } from '../lib/idea-utils';
 import type { IdeaPresentationRecord } from '../lib/idea-utils';
+import { useGitHubAuth } from './use-github-auth';
 import { useProjectIssueSource } from './use-project-issue-source';
 import { useProjectIdeas } from './use-project-ideas';
 
@@ -137,8 +138,9 @@ export function useProjectDesktop() {
     selectedExplorerTarget.kind === 'worktree' && selectedWorktree
       ? selectedWorktree.name
       : 'Workspace';
+  const githubAuth = useGitHubAuth();
   const issueSource = useProjectIssueSource(project);
-  const ideas = useProjectIdeas(project, issueSource.config);
+  const ideas = useProjectIdeas(project, issueSource.config, githubAuth.stateKey);
   const activeSidebarIdeas = useMemo(
     () => ideas.ideas.filter((idea) => idea.githubState !== 'closed'),
     [ideas.ideas]
@@ -819,6 +821,13 @@ export function useProjectDesktop() {
     createWorktreeError,
     createWorktreeFolderName,
     createWorktreeTargetPath,
+    githubAuthError: githubAuth.error,
+    githubAuthViewer: githubAuth.viewer,
+    isGithubAuthenticated: githubAuth.isAuthenticated,
+    isGithubConfigured: githubAuth.isConfigured,
+    isGithubAuthLoading: githubAuth.isLoading,
+    isGithubSigningIn: githubAuth.isSigningIn,
+    isGithubSigningOut: githubAuth.isSigningOut,
     issueSourceConfig: issueSource.config,
     issueSourceDraftKind: issueSource.draftKind,
     issueSourceDraftUrl: issueSource.draftUrl,
@@ -856,6 +865,8 @@ export function useProjectDesktop() {
     projects: discovery.projects,
     resolveNavigationSelection,
     rootItems: discovery.rootItems,
+    signInToGithub: githubAuth.signIn,
+    signOutGithub: githubAuth.signOut,
     selectedExplorerTarget,
     selectedIdea: ideas.selectedIdea,
     selectedIdeaId: ideas.selectedIdeaId,

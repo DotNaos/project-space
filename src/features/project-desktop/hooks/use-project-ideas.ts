@@ -28,7 +28,8 @@ function mergeIdeas(ideas: IdeaPresentationRecord[]) {
 
 export function useProjectIdeas(
   project: ProjectSpaceRecord | undefined,
-  issueSourceConfig: ProjectIssueSourceConfig
+  issueSourceConfig: ProjectIssueSourceConfig,
+  githubAuthStateKey: string
 ) {
   const [ideas, setIdeas] = useState<IdeaPresentationRecord[]>([]);
   const [pendingIdea, setPendingIdea] = useState<IdeaPresentationRecord>();
@@ -97,7 +98,7 @@ export function useProjectIdeas(
     return () => {
       canceled = true;
     };
-  }, [issueSourceConfig.kind, project?.rootPath, showClosedIssues]);
+  }, [githubAuthStateKey, issueSourceConfig.kind, project?.rootPath, showClosedIssues]);
 
   const visibleIdeas = useMemo(() => {
     return pendingIdea ? mergeIdeas([pendingIdea, ...ideas]) : ideas;

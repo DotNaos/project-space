@@ -121,7 +121,14 @@ export function ProjectDesktopShell() {
           assignedIdeaIds={desktop.assignedIdeaIds}
           groupedProjects={desktop.groupedProjects}
           groupedProjectsLabel={desktop.groupedProjectsLabel}
+          githubAuthError={desktop.githubAuthError}
+          githubAuthViewer={desktop.githubAuthViewer}
           isDirty={desktop.isIdeasDirty}
+          isGithubAuthenticated={desktop.isGithubAuthenticated}
+          isGithubAuthLoading={desktop.isGithubAuthLoading}
+          isGithubConfigured={desktop.isGithubConfigured}
+          isGithubSigningIn={desktop.isGithubSigningIn}
+          isGithubSigningOut={desktop.isGithubSigningOut}
           isIssueSourceLoading={desktop.isIssueSourceLoading}
           isIssueSourceSaving={desktop.isIssueSourceSaving}
           isSavingIdea={desktop.isIdeaSaving}
@@ -150,6 +157,8 @@ export function ProjectDesktopShell() {
           onSelectSettingsTab={desktop.setSettingsTab}
           onSelectIdea={desktop.selectIdea}
           onSelectLauncherApp={desktop.selectLauncherApp}
+          onSignInToGithub={desktop.signInToGithub}
+          onSignOutGithub={desktop.signOutGithub}
           onSubmitCreateWorktree={desktop.submitCreateWorktree}
           onUpdateIdeaValue={desktop.setIdeaDraftValue}
           onUpdateIssueSourceKind={desktop.setIssueSourceDraftKind}

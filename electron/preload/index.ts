@@ -42,6 +42,9 @@ const api: ProjectSpaceApi = {
   listGithubIdeas(request: ListGithubIdeasRequest) {
     return ipcRenderer.invoke(projectSpaceChannels.listGithubIdeas, request);
   },
+  loadGithubAuthStatus() {
+    return ipcRenderer.invoke(projectSpaceChannels.loadGithubAuthStatus);
+  },
   loadProjectIssueSourceConfig(projectPath: string) {
     return ipcRenderer.invoke(projectSpaceChannels.loadProjectIssueSourceConfig, projectPath);
   },
@@ -97,6 +100,12 @@ const api: ProjectSpaceApi = {
   },
   selectProjectDirectory() {
     return ipcRenderer.invoke(projectSpaceChannels.selectProjectDirectory);
+  },
+  signOutGithubAuth() {
+    return ipcRenderer.invoke(projectSpaceChannels.signOutGithubAuth);
+  },
+  startGithubAuth() {
+    return ipcRenderer.invoke(projectSpaceChannels.startGithubAuth);
   },
   updateGithubIdea(request: UpdateGithubIdeaRequest) {
     return ipcRenderer.invoke(projectSpaceChannels.updateGithubIdea, request);

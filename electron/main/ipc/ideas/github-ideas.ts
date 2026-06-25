@@ -1,48 +1,34 @@
-import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { promisify } from 'node:util';
-
 import type {
   CreateGithubIdeaFromDraftRequest,
+  GitHubAuthSession,
   GithubIdeaMutationResult,
   GithubIdeaRecord,
   ListGithubIdeasRequest,
+  ProjectIssueSourceConfig,
   UpdateGithubIdeaRequest
 } from '../../../../src/shared/electron-api';
+import { requireGitHubAuthSession } from '../github-auth';
 import { loadProjectIssueSourceConfig } from './project-issue-source-config';
 
-const execFileAsync = promisify(execFile);
 const metadataMarker = '<!-- project-space-idea-meta';
 const iterationLabelPrefix = 'iteration:';
-const ghExecutableCandidates = [
-  process.env.GH_PATH?.trim() || '',
-  '/opt/homebrew/bin/gh',
-  '/usr/local/bin/gh',
-  '/opt/local/bin/gh'
-].filter(Boolean);
 
-let ghExecutablePromise: Promise<string> | undefined;
+interface GitHubLabelJson {
+  name?: string;
+}
 
-type CommandRunnerResult = {
-  stdout: string;
-  stderr?: string;
-};
-
-type CommandRunner = (
-  file: string,
-  args?: readonly string[],
-  options?: { windowsHide?: boolean }
-) => Promise<CommandRunnerResult>;
-
-interface GithubIssueJson {
-  body: string;
-  createdAt: string;
-  labels: Array<{ name?: string }>;
+interface GitHubIssueJson {
+  body?: string | null;
+  created_at: string;
+  html_url: string;
+  labels: GitHubLabelJson[];
   number: number;
-  state: 'OPEN' | 'CLOSED' | 'open' | 'closed';
+  pull_request?: {
+    url: string;
+  };
+  state: 'open' | 'closed';
   title: string;
-  updatedAt: string;
-  url: string;
+  updated_at: string;
 }
 
 interface IdeaMetadata {
@@ -50,53 +36,20 @@ interface IdeaMetadata {
   id: string;
 }
 
-function getCommandErrorMessage(error: unknown, fallback: string) {
-  if (typeof error === 'object' && error && 'stderr' in error && typeof error.stderr === 'string') {
-    const stderr = error.stderr.trim();
+interface GitHubIdeasDependencies {
+  fetchImpl?: typeof fetch;
+  loadAuthSession?: () => Promise<GitHubAuthSession>;
+  loadProjectIssueSourceConfig?: (
+    projectPath: string
+  ) => Promise<ProjectIssueSourceConfig>;
+}
 
-    if (stderr) {
-      return stderr;
-    }
-  }
-
-  if (typeof error === 'object' && error && 'message' in error && typeof error.message === 'string') {
-    const message = error.message.trim();
-
-    if (message) {
-      return message;
-    }
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
   }
 
   return fallback;
-}
-
-function getGhUnavailableMessage() {
-  return 'GitHub CLI could not be found. Install `gh` or make it available to the app.';
-}
-
-export async function resolveGhExecutablePath({
-  commandRunner = execFileAsync,
-  fileExists = existsSync
-}: {
-  commandRunner?: CommandRunner;
-  fileExists?: typeof existsSync;
-} = {}) {
-  const installedCandidate = ghExecutableCandidates.find((candidate) => fileExists(candidate));
-
-  if (installedCandidate) {
-    return installedCandidate;
-  }
-
-  try {
-    const { stdout } = await commandRunner('/bin/zsh', ['-lc', 'command -v gh'], {
-      windowsHide: true
-    });
-    const shellPath = stdout.trim();
-
-    return shellPath || '';
-  } catch {
-    return '';
-  }
 }
 
 function buildIterationLabel(iteration: string) {
@@ -124,17 +77,14 @@ function buildIssueBody({
   return visibleBody ? `${visibleBody}\n\n${metadataBlock}` : metadataBlock;
 }
 
-function extractIdeaMetadata(body: string): {
-  metadata: IdeaMetadata;
-  visibleBody: string;
-} {
+function extractIdeaMetadata(body: string) {
   const match = body.match(/(?:\n{0,2})<!-- project-space-idea-meta\n([\s\S]*?)\n-->\s*$/);
 
   if (!match) {
     return {
       metadata: {
         id: ''
-      },
+      } satisfies IdeaMetadata,
       visibleBody: body.trim()
     };
   }
@@ -160,26 +110,26 @@ function extractIdeaMetadata(body: string): {
   };
 }
 
-function mapGithubIssue(issue: GithubIssueJson): GithubIdeaRecord {
+function mapGithubIssue(issue: GitHubIssueJson): GithubIdeaRecord {
   const labelNames = issue.labels
     .map((label) => label.name?.trim() || '')
     .filter(Boolean);
   const iterationLabel = labelNames.find((label) => label.startsWith(iterationLabelPrefix)) ?? '';
-  const { metadata, visibleBody } = extractIdeaMetadata(issue.body);
+  const { metadata, visibleBody } = extractIdeaMetadata(issue.body?.trim() ?? '');
 
   return {
     body: visibleBody,
-    createdAt: issue.createdAt,
+    createdAt: issue.created_at,
     evolvesIdeaId: metadata.evolvesIdeaId,
     githubIssueNumber: issue.number,
-    githubIssueUrl: issue.url,
+    githubIssueUrl: issue.html_url,
     githubLabels: labelNames,
-    githubState: issue.state.toLowerCase() === 'closed' ? 'closed' : 'open',
+    githubState: issue.state === 'closed' ? 'closed' : 'open',
     id: metadata.id || `github:${issue.number}`,
     iteration: iterationLabel.slice(iterationLabelPrefix.length),
     source: 'github',
     title: issue.title,
-    updatedAt: issue.updatedAt
+    updatedAt: issue.updated_at
   };
 }
 
@@ -189,26 +139,11 @@ function getGithubRepoRef(url: string) {
   return match?.[1] ?? '';
 }
 
-async function runGhCommand(args: string[], _repoRef: string) {
-  if (!ghExecutablePromise) {
-    ghExecutablePromise = resolveGhExecutablePath();
-  }
-
-  const ghExecutablePath = await ghExecutablePromise;
-
-  if (!ghExecutablePath) {
-    throw new Error(getGhUnavailableMessage());
-  }
-
-  const { stdout } = await execFileAsync(ghExecutablePath, args, {
-    windowsHide: true
-  });
-
-  return stdout.trim();
-}
-
-async function resolveGithubRepoRef(projectPath: string) {
-  const config = await loadProjectIssueSourceConfig(projectPath);
+async function resolveGithubRepoRef(
+  projectPath: string,
+  deps: Required<Pick<GitHubIdeasDependencies, 'loadProjectIssueSourceConfig'>>
+) {
+  const config = await deps.loadProjectIssueSourceConfig(projectPath);
 
   if (config.kind !== 'github' || !config.url) {
     return '';
@@ -223,80 +158,121 @@ async function resolveGithubRepoRef(projectPath: string) {
   return repoRef;
 }
 
-async function ensureIterationLabel(repoRef: string, iteration: string) {
+function buildHeaders(accessToken: string) {
+  return {
+    Accept: 'application/vnd.github+json',
+    Authorization: `Bearer ${accessToken}`,
+    'Content-Type': 'application/json'
+  };
+}
+
+async function fetchGitHubJson<T>(
+  path: string,
+  accessToken: string,
+  deps: Required<Pick<GitHubIdeasDependencies, 'fetchImpl'>>,
+  init: RequestInit = {}
+) {
+  const response = await deps.fetchImpl(`https://api.github.com${path}`, {
+    ...init,
+    headers: {
+      ...buildHeaders(accessToken),
+      ...(init.headers ?? {})
+    }
+  });
+
+  if (!response.ok) {
+    let message = 'GitHub request failed.';
+
+    try {
+      const payload = (await response.json()) as { message?: string };
+      message = payload.message ?? message;
+    } catch {
+      // Ignore JSON parsing failures.
+    }
+
+    throw new Error(message);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return (await response.json()) as T;
+}
+
+async function ensureIterationLabel(
+  repoRef: string,
+  iteration: string,
+  accessToken: string,
+  deps: Required<Pick<GitHubIdeasDependencies, 'fetchImpl'>>
+) {
   const labelName = buildIterationLabel(iteration);
 
   if (!labelName) {
     return '';
   }
 
-  await runGhCommand([
-    'label',
-    'create',
-    labelName,
-    '--color',
-    '4F46E5',
-    '--description',
-    'Iteration planning label managed by Project Space',
-    '-R',
-    repoRef,
-    '--force'
-  ], repoRef);
+  const response = await deps.fetchImpl(`https://api.github.com/repos/${repoRef}/labels`, {
+    body: JSON.stringify({
+      color: '4F46E5',
+      description: 'Iteration planning label managed by Project Space',
+      name: labelName
+    }),
+    headers: buildHeaders(accessToken),
+    method: 'POST'
+  });
+
+  if (!response.ok && response.status !== 422) {
+    const payload = (await response.json().catch(() => ({ message: '' }))) as { message?: string };
+    throw new Error(payload.message ?? 'Could not create the iteration label.');
+  }
 
   return labelName;
 }
 
-async function fetchGithubIdea(repoRef: string, issueReference: string) {
-  const output = await runGhCommand([
-    'issue',
-    'view',
-    issueReference,
-    '--json',
-    'number,title,body,url,state,labels,createdAt,updatedAt',
-    '-R',
-    repoRef
-  ], repoRef);
-
-  return mapGithubIssue(JSON.parse(output) as GithubIssueJson);
+function withDefaults(deps: GitHubIdeasDependencies = {}) {
+  return {
+    fetchImpl: deps.fetchImpl ?? fetch,
+    loadAuthSession:
+      deps.loadAuthSession ??
+      (() => Promise.resolve(requireGitHubAuthSession())),
+    loadProjectIssueSourceConfig:
+      deps.loadProjectIssueSourceConfig ?? loadProjectIssueSourceConfig
+  };
 }
 
-export async function listGithubIdeas({
-  includeClosed,
-  projectPath
-}: ListGithubIdeasRequest): Promise<GithubIdeaRecord[]> {
+export async function listGithubIdeas(
+  { includeClosed, projectPath }: ListGithubIdeasRequest,
+  deps: GitHubIdeasDependencies = {}
+): Promise<GithubIdeaRecord[]> {
   try {
-    const repoRef = await resolveGithubRepoRef(projectPath);
+    const resolvedDeps = withDefaults(deps);
+    const repoRef = await resolveGithubRepoRef(projectPath, resolvedDeps);
 
     if (!repoRef) {
       return [];
     }
 
-    const output = await runGhCommand([
-      'issue',
-      'list',
-      '--state',
-      includeClosed ? 'all' : 'open',
-      '--limit',
-      '200',
-      '--json',
-      'number,title,body,url,state,labels,createdAt,updatedAt',
-      '-R',
-      repoRef
-    ], repoRef);
-    const issues = JSON.parse(output) as GithubIssueJson[];
+    const session = await resolvedDeps.loadAuthSession();
+    const issues = await fetchGitHubJson<GitHubIssueJson[]>(
+      `/repos/${repoRef}/issues?state=${includeClosed ? 'all' : 'open'}&per_page=200`,
+      session.accessToken,
+      resolvedDeps
+    );
 
     return issues
+      .filter((issue) => !issue.pull_request)
       .map(mapGithubIssue)
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   } catch (error) {
-    throw new Error(getCommandErrorMessage(error, getGhUnavailableMessage()));
+    throw new Error(getErrorMessage(error, 'Could not load GitHub issues.'));
   }
 }
 
-export async function createGithubIdeaFromDraft({
-  draft,
-  projectPath
-}: CreateGithubIdeaFromDraftRequest): Promise<GithubIdeaMutationResult> {
+export async function createGithubIdeaFromDraft(
+  { draft, projectPath }: CreateGithubIdeaFromDraftRequest,
+  deps: GitHubIdeasDependencies = {}
+): Promise<GithubIdeaMutationResult> {
   if (!draft.title.trim()) {
     return {
       message: 'Add a title before publishing an idea to GitHub.',
@@ -305,47 +281,50 @@ export async function createGithubIdeaFromDraft({
   }
 
   try {
-    const repoRef = await resolveGithubRepoRef(projectPath);
+    const resolvedDeps = withDefaults(deps);
+    const repoRef = await resolveGithubRepoRef(projectPath, resolvedDeps);
 
     if (!repoRef) {
       throw new Error('This project is not configured to use GitHub issues.');
     }
 
-    const iterationLabel = await ensureIterationLabel(repoRef, draft.iteration);
-    const args = [
-      'issue',
-      'create',
-      '--title',
-      draft.title.trim(),
-      '--body',
-      buildIssueBody(draft),
-      '-R',
-      repoRef
-    ];
-
-    if (iterationLabel) {
-      args.push('--label', iterationLabel);
-    }
-
-    const createdUrl = await runGhCommand(args, repoRef);
-    const idea = await fetchGithubIdea(repoRef, createdUrl);
+    const session = await resolvedDeps.loadAuthSession();
+    const iterationLabel = await ensureIterationLabel(
+      repoRef,
+      draft.iteration,
+      session.accessToken,
+      resolvedDeps
+    );
+    const createdIssue = await fetchGitHubJson<GitHubIssueJson>(
+      `/repos/${repoRef}/issues`,
+      session.accessToken,
+      resolvedDeps,
+      {
+        body: JSON.stringify({
+          body: buildIssueBody(draft),
+          labels: iterationLabel ? [iterationLabel] : [],
+          title: draft.title.trim()
+        }),
+        method: 'POST'
+      }
+    );
 
     return {
-      idea,
+      idea: mapGithubIssue(createdIssue),
       status: 'success'
     };
   } catch (error) {
     return {
-      message: getCommandErrorMessage(error, 'Could not create the GitHub issue.'),
+      message: getErrorMessage(error, 'Could not create the GitHub issue.'),
       status: 'error'
     };
   }
 }
 
-export async function updateGithubIdea({
-  idea,
-  projectPath
-}: UpdateGithubIdeaRequest): Promise<GithubIdeaMutationResult> {
+export async function updateGithubIdea(
+  { idea, projectPath }: UpdateGithubIdeaRequest,
+  deps: GitHubIdeasDependencies = {}
+): Promise<GithubIdeaMutationResult> {
   if (!idea.title.trim()) {
     return {
       message: 'GitHub issues need a title.',
@@ -354,63 +333,46 @@ export async function updateGithubIdea({
   }
 
   try {
-    const repoRef = await resolveGithubRepoRef(projectPath);
+    const resolvedDeps = withDefaults(deps);
+    const repoRef = await resolveGithubRepoRef(projectPath, resolvedDeps);
 
     if (!repoRef) {
       throw new Error('This project is not configured to use GitHub issues.');
     }
 
-    const currentIdea = await fetchGithubIdea(repoRef, String(idea.githubIssueNumber));
-    const iterationLabel = await ensureIterationLabel(repoRef, idea.iteration);
-    const currentIterationLabels = idea.githubLabels.filter((label) =>
-      label.startsWith(iterationLabelPrefix)
+    const session = await resolvedDeps.loadAuthSession();
+    const iterationLabel = await ensureIterationLabel(
+      repoRef,
+      idea.iteration,
+      session.accessToken,
+      resolvedDeps
     );
-    const args = [
-      'issue',
-      'edit',
-      String(idea.githubIssueNumber),
-      '--title',
-      idea.title.trim(),
-      '--body',
-      buildIssueBody(idea),
-      '-R',
-      repoRef
+    const labels = [
+      ...idea.githubLabels.filter((label) => !label.startsWith(iterationLabelPrefix)),
+      ...(iterationLabel ? [iterationLabel] : [])
     ];
-
-    for (const label of currentIterationLabels) {
-      if (label !== iterationLabel) {
-        args.push('--remove-label', label);
+    const updatedIssue = await fetchGitHubJson<GitHubIssueJson>(
+      `/repos/${repoRef}/issues/${idea.githubIssueNumber}`,
+      session.accessToken,
+      resolvedDeps,
+      {
+        body: JSON.stringify({
+          body: buildIssueBody(idea),
+          labels,
+          state: idea.githubState,
+          title: idea.title.trim()
+        }),
+        method: 'PATCH'
       }
-    }
-
-    if (iterationLabel && !currentIterationLabels.includes(iterationLabel)) {
-      args.push('--add-label', iterationLabel);
-    }
-
-    await runGhCommand(args, repoRef);
-
-    if (currentIdea.githubState !== idea.githubState) {
-      await runGhCommand(
-        [
-          'issue',
-          idea.githubState === 'closed' ? 'close' : 'reopen',
-          String(idea.githubIssueNumber),
-          '-R',
-          repoRef
-        ],
-        repoRef
-      );
-    }
-
-    const nextIdea = await fetchGithubIdea(repoRef, String(idea.githubIssueNumber));
+    );
 
     return {
-      idea: nextIdea,
+      idea: mapGithubIssue(updatedIssue),
       status: 'success'
     };
   } catch (error) {
     return {
-      message: getCommandErrorMessage(error, 'Could not update the GitHub issue.'),
+      message: getErrorMessage(error, 'Could not update the GitHub issue.'),
       status: 'error'
     };
   }

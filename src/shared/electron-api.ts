@@ -7,6 +7,7 @@ export const projectSpaceChannels = {
   moveIdeaToWorktree: 'ideas:move-to-worktree',
   listGithubIdeas: 'ideas:list-github',
   loadLocalIdeaDrafts: 'ideas:load-local-drafts',
+  loadGithubAuthStatus: 'github-auth:load-status',
   loadProjectIssueSourceConfig: 'ideas:load-project-issue-source-config',
   openCodexSkills: 'codex:open-skills',
   openExternalUrl: 'browser:open-external-url',
@@ -22,6 +23,8 @@ export const projectSpaceChannels = {
   saveProjectIssueSourceConfig: 'ideas:save-project-issue-source-config',
   saveProjectsState: 'projects:save-state',
   selectProjectDirectory: 'projects:select-directory',
+  signOutGithubAuth: 'github-auth:sign-out',
+  startGithubAuth: 'github-auth:start',
   updateGithubIdea: 'ideas:update-github',
   openWorkspaceTool: 'workspace-tool:open'
 } as const;
@@ -148,6 +151,23 @@ export interface ToolLaunchResult {
   message: string;
 }
 
+export interface GitHubViewer {
+  login: string;
+  name: string | null;
+  avatarUrl: string;
+}
+
+export interface GitHubAuthSession {
+  accessToken: string;
+  viewer: GitHubViewer;
+}
+
+export interface GitHubAuthStatus {
+  authenticated: boolean;
+  configured: boolean;
+  viewer?: GitHubViewer;
+}
+
 export interface IdeaRecordBase {
   id: string;
   title: string;
@@ -253,6 +273,7 @@ export interface ProjectSpaceApi {
   exportIdeasToWorktree(request: ExportIdeasToWorktreeRequest): Promise<void>;
   getAppMeta(): Promise<AppMeta>;
   listGithubIdeas(request: ListGithubIdeasRequest): Promise<GithubIdeaRecord[]>;
+  loadGithubAuthStatus(): Promise<GitHubAuthStatus>;
   loadLauncherAppIcon(appId: string): Promise<string | undefined>;
   loadLauncherApps(): Promise<LauncherAppRecord[]>;
   loadLocalIdeaDrafts(projectPath: string): Promise<LocalIdeaDraftRecord[]>;
@@ -270,6 +291,8 @@ export interface ProjectSpaceApi {
   saveProjectIssueSourceConfig(request: SaveProjectIssueSourceConfigRequest): Promise<ProjectIssueSourceConfig>;
   saveProjectsState(state: ProjectsState): Promise<void>;
   selectProjectDirectory(): Promise<ProjectDirectorySelection>;
+  signOutGithubAuth(): Promise<GitHubAuthStatus>;
+  startGithubAuth(): Promise<GitHubAuthStatus>;
   updateGithubIdea(request: UpdateGithubIdeaRequest): Promise<GithubIdeaMutationResult>;
   openWorkspaceTool(request: ToolLaunchRequest): Promise<ToolLaunchResult>;
 }

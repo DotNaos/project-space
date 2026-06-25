@@ -15,6 +15,11 @@ import {
   updateGithubIdea
 } from './ideas/github-ideas';
 import {
+  loadGitHubAuthStatus,
+  signOutGitHubAuth,
+  startGitHubAuth
+} from './github-auth';
+import {
   loadProjectIssueSourceConfig,
   saveProjectIssueSourceConfig
 } from './ideas/project-issue-source-config';
@@ -27,6 +32,18 @@ import {
 } from './ideas/idea-storage';
 
 export function registerIdeaHandlers() {
+  ipcMain.handle(projectSpaceChannels.loadGithubAuthStatus, async () => {
+    return loadGitHubAuthStatus();
+  });
+
+  ipcMain.handle(projectSpaceChannels.startGithubAuth, async () => {
+    return startGitHubAuth();
+  });
+
+  ipcMain.handle(projectSpaceChannels.signOutGithubAuth, async () => {
+    return signOutGitHubAuth();
+  });
+
   ipcMain.handle(projectSpaceChannels.loadProjectIssueSourceConfig, async (_event, projectPath: string) => {
     return loadProjectIssueSourceConfig(projectPath);
   });
