@@ -1,0 +1,51 @@
+{
+  "name": "project-space-mobile",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "scripts": {
+    "auth": "sh -c 'if [ -f .env.local ]; then node --env-file=.env.local server/auth-server.mjs; elif [ -f ../../../.env ]; then node --env-file=../../../.env server/auth-server.mjs; else node server/auth-server.mjs; fi'",
+    "inventory": "node scripts/generate-project-inventory.mjs",
+    "build:hosted": "npm run inventory && npx expo export --platform web --output-dir dist && cp public/project-inventory.json dist/project-inventory.json",
+    "native:dev": "npm run inventory && npx expo start --host lan",
+    "native:ios": "npm run inventory && npx expo start --ios",
+    "dev": "concurrently -k -n auth,web \"npm run auth\" \"npm run web -- --port 8082\"",
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "sh -c 'if [ -f .env.local ]; then node --env-file=.env.local ./node_modules/expo/bin/cli start --web \"$@\"; elif [ -f ../../../.env ]; then node --env-file=../../../.env ./node_modules/expo/bin/cli start --web \"$@\"; else expo start --web \"$@\"; fi' --"
+  },
+  "dependencies": {
+    "@better-auth/expo": "^1.6.11",
+    "@expo/metro-runtime": "~6.1.2",
+    "@gorhom/bottom-sheet": "^5.2.8",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "better-auth": "^1.6.11",
+    "expo": "~54.0.33",
+    "expo-constants": "~18.0.13",
+    "expo-linking": "~8.0.12",
+    "expo-network": "~8.0.8",
+    "expo-secure-store": "~15.0.8",
+    "expo-status-bar": "~3.0.9",
+    "heroui-native": "^1.0.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-gesture-handler": "~2.28.0",
+    "react-native-reanimated": "~4.1.1",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-screens": "~4.16.0",
+    "react-native-svg": "15.12.1",
+    "react-native-web": "^0.21.0",
+    "react-native-worklets": "0.5.1",
+    "tailwind-merge": "^3.5.0",
+    "tailwind-variants": "^3.2.2",
+    "uniwind": "^1.6.1"
+  },
+  "devDependencies": {
+    "@types/react": "~19.1.0",
+    "concurrently": "^9.2.1",
+    "tailwindcss": "^4.1.16",
+    "typescript": "~5.9.2"
+  },
+  "private": true
+}

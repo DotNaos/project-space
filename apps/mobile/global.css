@@ -1,0 +1,91 @@
+@import 'tailwindcss';
+@import 'uniwind';
+@import 'heroui-native/styles';
+
+@source './App.tsx';
+@source './src';
+@source './node_modules/heroui-native/lib';
+
+@layer theme {
+  :root {
+    @variant light {
+      --background: oklch(0.97 0.012 85);
+      --foreground: oklch(0.24 0.03 248);
+      --surface: oklch(0.995 0.006 85);
+      --surface-foreground: oklch(0.24 0.03 248);
+      --surface-secondary: oklch(0.97 0.014 85);
+      --surface-secondary-foreground: oklch(0.25 0.03 248);
+      --surface-tertiary: oklch(0.94 0.018 85);
+      --surface-tertiary-foreground: oklch(0.26 0.03 248);
+      --overlay: oklch(0.998 0.003 85);
+      --overlay-foreground: oklch(0.24 0.03 248);
+      --muted: oklch(0.53 0.03 248);
+      --default: oklch(0.95 0.016 85);
+      --default-foreground: oklch(0.26 0.03 248);
+      --accent: oklch(0.58 0.16 205);
+      --accent-foreground: oklch(0.985 0.004 205);
+      --field-background: oklch(1 0 0);
+      --field-foreground: oklch(0.24 0.03 248);
+      --field-placeholder: oklch(0.63 0.025 248);
+      --field-border: transparent;
+      --success: oklch(0.7 0.13 165);
+      --success-foreground: oklch(0.22 0.04 165);
+      --warning: oklch(0.8 0.14 88);
+      --warning-foreground: oklch(0.25 0.05 88);
+      --danger: oklch(0.66 0.19 22);
+      --danger-foreground: oklch(0.98 0.005 22);
+      --segment: oklch(0.98 0.008 85);
+      --segment-foreground: oklch(0.24 0.03 248);
+      --border: oklch(0 0 0 / 0%);
+      --separator: oklch(0.89 0.014 248);
+      --focus: var(--accent);
+      --link: oklch(0.58 0.16 205);
+      --surface-shadow:
+        0 24px 60px 0 rgba(15, 23, 42, 0.08),
+        0 8px 24px 0 rgba(15, 23, 42, 0.06);
+      --overlay-shadow:
+        0 24px 60px 0 rgba(15, 23, 42, 0.08),
+        0 8px 24px 0 rgba(15, 23, 42, 0.05);
+      --field-shadow: 0 1px 0 0 rgba(15, 23, 42, 0.03);
+      --radius: 1rem;
+    }
+
+    @variant dark {
+      --background: oklch(0.16 0.02 250);
+      --foreground: oklch(0.94 0.01 85);
+      --surface: oklch(0.21 0.024 250);
+      --surface-foreground: oklch(0.94 0.01 85);
+      --surface-secondary: oklch(0.25 0.026 250);
+      --surface-secondary-foreground: oklch(0.94 0.01 85);
+      --surface-tertiary: oklch(0.29 0.028 250);
+      --surface-tertiary-foreground: oklch(0.94 0.01 85);
+      --overlay: oklch(0.2 0.024 250);
+      --overlay-foreground: oklch(0.94 0.01 85);
+      --muted: oklch(0.72 0.02 250);
+      --default: oklch(0.28 0.026 250);
+      --default-foreground: oklch(0.94 0.01 85);
+      --accent: oklch(0.7 0.15 205);
+      --accent-foreground: oklch(0.18 0.02 250);
+      --field-background: oklch(0.24 0.026 250);
+      --field-foreground: oklch(0.94 0.01 85);
+      --field-placeholder: oklch(0.7 0.02 250);
+      --field-border: transparent;
+      --success: oklch(0.74 0.14 165);
+      --success-foreground: oklch(0.16 0.04 165);
+      --warning: oklch(0.84 0.14 88);
+      --warning-foreground: oklch(0.2 0.04 88);
+      --danger: oklch(0.72 0.18 22);
+      --danger-foreground: oklch(0.18 0.02 22);
+      --segment: oklch(0.24 0.024 250);
+      --segment-foreground: oklch(0.94 0.01 85);
+      --border: oklch(0 0 0 / 0%);
+      --separator: oklch(0.34 0.02 250);
+      --focus: var(--accent);
+      --link: oklch(0.72 0.15 205);
+      --surface-shadow: 0 0 0 0 transparent inset;
+      --overlay-shadow: 0 0 1px 0 rgba(255, 255, 255, 0.18) inset;
+      --field-shadow: 0 0 0 0 transparent inset;
+      --radius: 1rem;
+    }
+  }
+}
