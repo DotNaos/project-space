@@ -26,7 +26,9 @@ func ValidateProject(projectRoot string) (Report, error) {
 	}
 	files := []FileValidation{}
 	for _, fileSpec := range template.Files {
-		files = append(files, validateTemplateFile(root, template.Root, fileSpec, values))
+		file := validateTemplateFile(root, template.Root, fileSpec, values)
+		file.Module = moduleForPath(template, file.Path)
+		files = append(files, file)
 	}
 	structure := validateStructure(root, template, files)
 	files = mergeStructureOnlyFiles(files, structure)
@@ -77,12 +79,14 @@ func ValidateProjectFile(projectRoot string, filePath string) (FileValidation, e
 	if !ok {
 		if template.TreeMode {
 			if slot, ok := matchingTreeSlot(template.Slots, normalized); ok {
-				return FileValidation{Path: normalized, Status: StatusAdded, Code: "slot", Note: slot.Name}, nil
+				return FileValidation{Path: normalized, Status: StatusAdded, Code: "slot", Note: slot.Name, Module: moduleForPath(template, normalized)}, nil
 			}
 		}
 		return FileValidation{Path: normalized, Status: StatusViolation, Code: "not_allowed", Note: "not_allowed"}, nil
 	}
-	return validateTemplateFile(root, template.Root, fileSpec, values), nil
+	file := validateTemplateFile(root, template.Root, fileSpec, values)
+	file.Module = moduleForPath(template, file.Path)
+	return file, nil
 }
 
 func mergeStructureOnlyFiles(files []FileValidation, structure []StructureEntry) []FileValidation {
@@ -97,7 +101,7 @@ func mergeStructureOnlyFiles(files []FileValidation, structure []StructureEntry)
 		if _, ok := byPath[entry.Path]; ok {
 			continue
 		}
-		byPath[entry.Path] = FileValidation{Path: entry.Path, Status: entry.Status, Code: entry.Code, Note: entry.Note}
+		byPath[entry.Path] = FileValidation{Path: entry.Path, Status: entry.Status, Code: entry.Code, Note: entry.Note, Module: entry.Module}
 	}
 	result := make([]FileValidation, 0, len(byPath))
 	for _, file := range byPath {
