@@ -79,6 +79,61 @@ func InstallModule(projectRoot string, moduleName string, options ModuleInstallO
 	return plan, nil
 }
 
+func RemoveModule(projectRoot string, moduleName string, options ModuleRemoveOptions) (ModuleRemovePlan, error) {
+	root, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return ModuleRemovePlan{}, err
+	}
+	lock, err := readTemplateLock(root)
+	if err != nil {
+		return ModuleRemovePlan{}, err
+	}
+	template, err := loadTemplate(root, lock)
+	if err != nil {
+		return ModuleRemovePlan{}, err
+	}
+	if len(template.Modules) == 0 {
+		return ModuleRemovePlan{}, fmt.Errorf("template %s does not define modules yet", template.Name)
+	}
+	if _, ok := template.Modules[moduleName]; !ok {
+		return ModuleRemovePlan{}, fmt.Errorf("unknown module %q", moduleName)
+	}
+
+	installed := installedModuleSet(lock.Modules)
+	plan := ModuleRemovePlan{ProjectRoot: root, Module: moduleName}
+	if !installed[moduleName] {
+		return plan, nil
+	}
+
+	blockedBy := moduleDependents(template.Modules, lock.Modules, moduleName)
+	if len(blockedBy) > 0 {
+		plan.BlockedBy = blockedBy
+		return plan, fmt.Errorf("module %s is required by installed modules: %s", moduleName, strings.Join(blockedBy, ", "))
+	}
+
+	plan.ToRemove = []string{moduleName}
+	files, err := moduleRemoveFiles(root, template, moduleName, lock.Modules)
+	if err != nil {
+		return ModuleRemovePlan{}, err
+	}
+	plan.Files = files
+	plan.WouldWrite = true
+	if !options.Apply || options.DryRun {
+		return plan, nil
+	}
+
+	if err := removeModuleFiles(root, plan.Files); err != nil {
+		return ModuleRemovePlan{}, err
+	}
+	lock.Modules = removeModuleName(lock.Modules, moduleName)
+	lockPath, err := writeTemplateLock(root, lock)
+	if err != nil {
+		return ModuleRemovePlan{}, err
+	}
+	plan.LockPath = lockPath
+	return plan, nil
+}
+
 func applyModuleFiles(projectRoot string, template TemplateSpec, values TemplateValues, files []ModuleInstallFile) error {
 	for _, file := range files {
 		fileSpec, ok := template.Files[file.Path]
@@ -103,6 +158,31 @@ func applyModuleFiles(projectRoot string, template TemplateSpec, values Template
 		}
 	}
 	return nil
+}
+
+func removeModuleFiles(projectRoot string, files []ModuleInstallFile) error {
+	for _, file := range files {
+		if file.Action != "DELETE" {
+			continue
+		}
+		targetPath := filepath.Join(projectRoot, filepath.FromSlash(file.Path))
+		if err := os.Remove(targetPath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		removeEmptyParents(projectRoot, filepath.Dir(targetPath))
+	}
+	return nil
+}
+
+func removeEmptyParents(projectRoot string, dir string) {
+	root := filepath.Clean(projectRoot)
+	current := filepath.Clean(dir)
+	for current != root && strings.HasPrefix(current, root+string(filepath.Separator)) {
+		if err := os.Remove(current); err != nil {
+			return
+		}
+		current = filepath.Dir(current)
+	}
 }
 
 func ListModules(projectRoot string) ([]string, error) {
@@ -189,6 +269,39 @@ func moduleInstallFiles(projectRoot string, template TemplateSpec, modules []str
 	return installFiles, conflicts, nil
 }
 
+func moduleRemoveFiles(projectRoot string, template TemplateSpec, moduleName string, installedModules []string) ([]ModuleInstallFile, error) {
+	files, err := moduleTemplateFiles(template, moduleName)
+	if err != nil {
+		return nil, err
+	}
+	remaining := removeModuleName(installedModules, moduleName)
+	ownedByRemaining := map[string]bool{}
+	for _, remainingModule := range remaining {
+		remainingFiles, err := moduleTemplateFiles(template, remainingModule)
+		if err != nil {
+			return nil, err
+		}
+		for _, path := range remainingFiles {
+			ownedByRemaining[path] = true
+		}
+	}
+
+	removeFiles := []ModuleInstallFile{}
+	for _, path := range files {
+		if ownedByRemaining[path] {
+			continue
+		}
+		projectPath := filepath.Join(projectRoot, filepath.FromSlash(path))
+		if stat, err := os.Stat(projectPath); err == nil && !stat.IsDir() {
+			removeFiles = append(removeFiles, ModuleInstallFile{Action: "DELETE", Module: moduleName, Path: path})
+		}
+	}
+	sort.Slice(removeFiles, func(i, j int) bool {
+		return removeFiles[i].Path < removeFiles[j].Path
+	})
+	return removeFiles, nil
+}
+
 func moduleTemplateFiles(template TemplateSpec, moduleName string) ([]string, error) {
 	module, ok := template.Modules[moduleName]
 	if !ok {
@@ -228,6 +341,24 @@ func formatModuleConflicts(conflicts []ModuleInstallConflict) string {
 		parts = append(parts, conflict.Path+" ("+conflict.Module+")")
 	}
 	return strings.Join(parts, ", ")
+}
+
+func moduleDependents(modules map[string]TemplateModuleSpec, installedModules []string, moduleName string) []string {
+	dependents := []string{}
+	for _, installed := range installedModules {
+		if installed == moduleName {
+			continue
+		}
+		module := modules[installed]
+		for _, dependency := range module.DependsOn {
+			if dependency == moduleName {
+				dependents = append(dependents, installed)
+				break
+			}
+		}
+	}
+	sort.Strings(dependents)
+	return dependents
 }
 
 func installedModuleSet(modules []string) map[string]bool {
@@ -283,4 +414,15 @@ func uniqueSortedModules(modules []string) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func removeModuleName(modules []string, moduleName string) []string {
+	result := []string{}
+	for _, module := range modules {
+		if module == moduleName {
+			continue
+		}
+		result = append(result, module)
+	}
+	return uniqueSortedModules(result)
 }

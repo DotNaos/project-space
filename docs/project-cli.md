@@ -63,14 +63,23 @@ project init [project-directory]
 ```sh
 project module list [project-directory]
 project module show <module> [project-directory]
+project module add <module> [project-directory]
 project module add <module> [project-directory] --dry-run
-project module add <module> [project-directory] --apply
+project module add <module> [project-directory] --yes
+project module remove <module> [project-directory]
+project module remove <module> [project-directory] --dry-run
+project module remove <module> [project-directory] --yes
 project module add <module> [project-directory] --dry-run --format tsv
+project module remove <module> [project-directory] --dry-run --format tsv
 ```
 
-`module add` and `module install` are aliases.
+`module add` prints the planned changes, then asks for confirmation.
 
-Module installs require either `--dry-run` or `--apply`.
+Use `--dry-run` to only preview changes.
+
+Use `-y` or `--yes` to apply without prompting.
+
+`module install` is kept as an alias for `module add`.
 
 ## Validate
 
