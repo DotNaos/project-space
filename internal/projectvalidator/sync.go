@@ -1,24 +1,69 @@
 package projectvalidator
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 type TemplateSyncOptions struct {
 	TemplatePath string
+	DryRun       bool
+}
+
+type TemplateSyncPlan struct {
+	ProjectRoot string
+	SourceRoot  string
+	TargetRoot  string
+	Checksum    string
+	Files       []TemplateSyncFile
+	WouldWrite  bool
+}
+
+type TemplateSyncFile struct {
+	Action string
+	Path   string
 }
 
 func SyncTemplate(projectRoot string, options TemplateSyncOptions) (string, string, error) {
-	root, err := filepath.Abs(projectRoot)
+	plan, err := PlanTemplateSync(projectRoot, options)
 	if err != nil {
 		return "", "", err
 	}
-	lock, err := readTemplateLock(root)
+	if options.DryRun {
+		return plan.TargetRoot, plan.Checksum, nil
+	}
+	if err := os.RemoveAll(plan.TargetRoot); err != nil {
+		return "", "", err
+	}
+	if err := copyDirectory(plan.SourceRoot, plan.TargetRoot); err != nil {
+		return "", "", err
+	}
+	lock, err := readTemplateLock(plan.ProjectRoot)
 	if err != nil {
 		return "", "", err
+	}
+	if options.TemplatePath != "" {
+		lock.TemplatePath = options.TemplatePath
+	}
+	lock.Checksum = plan.Checksum
+	if _, err := writeTemplateLock(plan.ProjectRoot, lock); err != nil {
+		return "", "", err
+	}
+	return plan.TargetRoot, plan.Checksum, nil
+}
+
+func PlanTemplateSync(projectRoot string, options TemplateSyncOptions) (TemplateSyncPlan, error) {
+	root, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return TemplateSyncPlan{}, err
+	}
+	lock, err := readTemplateLock(root)
+	if err != nil {
+		return TemplateSyncPlan{}, err
 	}
 	sourceLock := lock
 	if options.TemplatePath != "" {
@@ -26,27 +71,25 @@ func SyncTemplate(projectRoot string, options TemplateSyncOptions) (string, stri
 	}
 	sourceRoot, err := resolveTemplateSourceRoot(root, sourceLock)
 	if err != nil {
-		return "", "", err
+		return TemplateSyncPlan{}, err
 	}
 	targetRoot := filepath.Join(root, ".project", "template")
-	if err := os.RemoveAll(targetRoot); err != nil {
-		return "", "", err
-	}
-	if err := copyDirectory(sourceRoot, targetRoot); err != nil {
-		return "", "", err
-	}
-	checksum, err := checksumTemplateRoot(targetRoot)
+	checksum, err := checksumTemplateRoot(sourceRoot)
 	if err != nil {
-		return "", "", err
+		return TemplateSyncPlan{}, err
 	}
-	lock.Checksum = checksum
-	if options.TemplatePath != "" {
-		lock.TemplatePath = options.TemplatePath
+	files, err := planTemplateSyncFiles(sourceRoot, targetRoot)
+	if err != nil {
+		return TemplateSyncPlan{}, err
 	}
-	if _, err := writeTemplateLock(root, lock); err != nil {
-		return "", "", err
-	}
-	return targetRoot, checksum, nil
+	return TemplateSyncPlan{
+		ProjectRoot: root,
+		SourceRoot:  sourceRoot,
+		TargetRoot:  targetRoot,
+		Checksum:    checksum,
+		Files:       files,
+		WouldWrite:  len(files) > 0 || lock.Checksum != checksum || options.TemplatePath != "",
+	}, nil
 }
 
 func resolveTemplateSourceRoot(projectRoot string, lock TemplateLock) (string, error) {
@@ -113,4 +156,85 @@ func copyFile(source string, target string) error {
 	defer output.Close()
 	_, err = io.Copy(output, input)
 	return err
+}
+
+func planTemplateSyncFiles(sourceRoot string, targetRoot string) ([]TemplateSyncFile, error) {
+	sourceFiles, err := collectTemplateSyncFiles(sourceRoot)
+	if err != nil {
+		return nil, err
+	}
+	targetFiles, err := collectTemplateSyncFiles(targetRoot)
+	if err != nil {
+		return nil, err
+	}
+	paths := map[string]bool{}
+	for path := range sourceFiles {
+		paths[path] = true
+	}
+	for path := range targetFiles {
+		paths[path] = true
+	}
+	sortedPaths := make([]string, 0, len(paths))
+	for path := range paths {
+		sortedPaths = append(sortedPaths, path)
+	}
+	sort.Strings(sortedPaths)
+
+	plan := []TemplateSyncFile{}
+	for _, path := range sortedPaths {
+		sourcePath, inSource := sourceFiles[path]
+		targetPath, inTarget := targetFiles[path]
+		switch {
+		case inSource && !inTarget:
+			plan = append(plan, TemplateSyncFile{Action: "ADD", Path: path})
+		case !inSource && inTarget:
+			plan = append(plan, TemplateSyncFile{Action: "DELETE", Path: path})
+		default:
+			equal, err := filesEqual(sourcePath, targetPath)
+			if err != nil {
+				return nil, err
+			}
+			if !equal {
+				plan = append(plan, TemplateSyncFile{Action: "UPDATE", Path: path})
+			}
+		}
+	}
+	return plan, nil
+}
+
+func collectTemplateSyncFiles(root string) (map[string]string, error) {
+	files := map[string]string{}
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		return files, nil
+	}
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if entry.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		files[normalizePath(relative)] = path
+		return nil
+	})
+	return files, err
+}
+
+func filesEqual(left string, right string) (bool, error) {
+	leftBody, err := os.ReadFile(left)
+	if err != nil {
+		return false, err
+	}
+	rightBody, err := os.ReadFile(right)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(leftBody, rightBody), nil
 }

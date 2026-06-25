@@ -58,6 +58,20 @@ project new my-app --global-tmp
 project init [project-directory]
 ```
 
+If `[project-directory]` is omitted, the CLI uses the current directory.
+
+## Sync Template Snapshot
+
+```sh
+project template sync
+project template sync --dry-run
+project template sync --dry-run --format tsv
+```
+
+The project path is optional and defaults to the current directory.
+
+`--template-path` is only needed when testing against a local template checkout instead of the template source recorded in the project lock.
+
 ## Modules
 
 ```sh
