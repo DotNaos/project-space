@@ -3,7 +3,7 @@ import type {
   ExplorerTarget,
   ProjectSpaceRecord,
   ProjectWorktreeRecord
-} from '@/shared/electron-api';
+} from '@/shared/project-space-api';
 import { FileExplorer } from './file-explorer';
 import type { SidebarView } from './sidebar-view-tabs';
 import { WorkflowExplorer } from './workflow-explorer';

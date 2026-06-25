@@ -1,6 +1,10 @@
 node_modules
 dist
 dist-electron
+tmp/
+temp/
 .DS_Store
 # heroui-agents-md
 .heroui-docs/
+.vercel
+.project/template/

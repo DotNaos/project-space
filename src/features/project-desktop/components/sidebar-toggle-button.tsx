@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { Button } from '@heroui/react';
+import { Button } from '@/app/dotnaos-ui';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 interface SidebarToggleButtonProps {

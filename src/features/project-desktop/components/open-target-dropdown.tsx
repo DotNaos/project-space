@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import type { LauncherAppRecord } from '@/shared/electron-api';
+import type { LauncherAppRecord } from '@/shared/project-space-api';
 import {
     Button,
     ButtonGroup,
@@ -9,7 +9,7 @@ import {
     DropdownPopover,
     DropdownTrigger,
     Text,
-} from '@heroui/react';
+} from '@/app/dotnaos-ui';
 import { Check, ChevronDown } from 'lucide-react';
 
 interface OpenTargetDropdownProps {

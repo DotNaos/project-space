@@ -1,13 +1,17 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, dialog } from 'electron';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { registerAppShellHandlers } from './ipc/register-app-shell-handlers';
+import { createLocalProjectSpaceBackend } from '../../server/local-project-space-backend';
+import { createProjectSpaceServer } from '../../server/project-space-http';
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const enableReactDevTools = false;
 const enableAgentBrowserDebugPort = Boolean(process.env.VITE_DEV_SERVER_URL);
 let reactDevToolsWindow: BrowserWindow | null = null;
+let localBackend:
+  | Awaited<ReturnType<typeof createProjectSpaceServer>>
+  | undefined;
 
 if (enableReactDevTools && process.env.VITE_DEV_SERVER_URL) {
   // Keep the app renderer responsive while the standalone React DevTools window is focused.
@@ -19,7 +23,45 @@ if (enableAgentBrowserDebugPort) {
   app.commandLine.appendSwitch('remote-debugging-port', '9223');
 }
 
-function createMainWindow() {
+function appendApiBaseUrl(frontendUrl: string, apiOrigin: string) {
+  const url = new URL(frontendUrl);
+
+  url.searchParams.set('projectSpaceApi', apiOrigin);
+
+  return url.toString();
+}
+
+function createElectronBackend() {
+  return createLocalProjectSpaceBackend({
+    getAppMeta() {
+      return {
+        name: app.getName(),
+        platform: process.platform,
+        version: app.getVersion()
+      };
+    },
+    async selectProjectDirectory() {
+      const result = await dialog.showOpenDialog({
+        title: 'Select project folder',
+        properties: ['openDirectory', 'createDirectory']
+      });
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { canceled: true };
+      }
+
+      const selectedPath = result.filePaths[0];
+
+      return {
+        canceled: false,
+        name: selectedPath.split('/').filter(Boolean).pop() ?? selectedPath,
+        path: selectedPath
+      };
+    }
+  });
+}
+
+async function createMainWindow() {
   const browserWindow = new BrowserWindow({
     width: 1520,
     height: 960,
@@ -32,28 +74,19 @@ function createMainWindow() {
     },
     webPreferences: {
       backgroundThrottling: !enableReactDevTools,
-      preload: join(currentDirectory, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false
     }
   });
 
-  browserWindow.webContents.on('input-event', (_event, inputEvent) => {
-    if (inputEvent.type === 'gestureScrollBegin') {
-      browserWindow.webContents.send('gesture:scroll-state', 'begin');
-    }
-
-    if (inputEvent.type === 'gestureScrollEnd') {
-      browserWindow.webContents.send('gesture:scroll-state', 'end');
-    }
-  });
-
   if (process.env.VITE_DEV_SERVER_URL) {
-    browserWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+    browserWindow.loadURL(
+      appendApiBaseUrl(process.env.VITE_DEV_SERVER_URL, localBackend?.origin ?? '')
+    );
     return browserWindow;
   }
 
-  browserWindow.loadFile(join(currentDirectory, '../../dist/renderer/index.html'));
+  browserWindow.loadURL(localBackend?.origin ?? 'about:blank');
   return browserWindow;
 }
 
@@ -89,8 +122,11 @@ app.whenReady().then(async () => {
     process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
   }
 
-  registerAppShellHandlers();
-  createMainWindow();
+  localBackend = await createProjectSpaceServer({
+    backend: createElectronBackend(),
+    staticRoot: join(currentDirectory, '../../dist/renderer')
+  });
+  await createMainWindow();
 
   if (enableReactDevTools && process.env.VITE_DEV_SERVER_URL) {
     createReactDevToolsWindow();
@@ -98,7 +134,7 @@ app.whenReady().then(async () => {
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
+      void createMainWindow();
 
       if (enableReactDevTools && process.env.VITE_DEV_SERVER_URL) {
         createReactDevToolsWindow();
@@ -111,4 +147,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('before-quit', () => {
+  void localBackend?.close();
 });

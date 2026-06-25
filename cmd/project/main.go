@@ -25,26 +25,47 @@ func newRootCommand() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(newNewCommand())
+	root.AddCommand(newCreateCommand())
 	root.AddCommand(newInitCommand())
 	root.AddCommand(newModuleCommand())
-	root.AddCommand(newSyncCommand())
 	root.AddCommand(newTemplateCommand())
-	root.AddCommand(newUpdateCommand())
 	root.AddCommand(newValidateCommand())
 	return root
 }
 
-func newNewCommand() *cobra.Command {
+func newCreateCommand() *cobra.Command {
 	options := projectvalidator.InitOptions{}
+	localTmp := false
+	globalTmp := false
 	cmd := &cobra.Command{
-		Use:               "new <project-directory>",
-		Aliases:           []string{"create"},
+		Use:               "create [project-directory]",
+		Aliases:           []string{"new"},
 		Short:             "Create and initialize a new project",
-		Args:              cobra.ExactArgs(1),
+		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: directoryCompletion,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resolved, err := filepath.Abs(args[0])
+			if localTmp && globalTmp {
+				return fmt.Errorf("--local-tmp and --global-tmp cannot be used together")
+			}
+			useTmp := localTmp || globalTmp
+			if !useTmp && len(args) == 0 {
+				return fmt.Errorf("project directory is required unless --tmp, --local-tmp, or --global-tmp is used")
+			}
+			target := ""
+			if len(args) == 1 {
+				target = args[0]
+			}
+			if useTmp {
+				var err error
+				target, err = tmpProjectTarget(target, globalTmp)
+				if err != nil {
+					return err
+				}
+				if err := os.RemoveAll(target); err != nil {
+					return err
+				}
+			}
+			resolved, err := filepath.Abs(target)
 			if err != nil {
 				return err
 			}
@@ -54,11 +75,42 @@ func newNewCommand() *cobra.Command {
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Created project: %s\n", resolved)
 			fmt.Fprintf(cmd.OutOrStdout(), "Initialized project template lock: %s\n", lockPath)
+			if useTmp {
+				valuesPath, err := projectvalidator.WriteTmpTemplateValues(resolved)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Wrote tmp template values: %s\n", valuesPath)
+				plans, err := projectvalidator.InstallDefaultModules(resolved)
+				if err != nil {
+					return err
+				}
+				for _, plan := range plans {
+					fmt.Fprintf(cmd.OutOrStdout(), "Installed module: %s\n", plan.Module)
+				}
+			}
 			return nil
 		},
 	}
 	addInitFlags(cmd, &options)
+	cmd.Flags().BoolVar(&localTmp, "tmp", false, "create a local tmp project in ./tmp and install default modules")
+	cmd.Flags().BoolVar(&localTmp, "local-tmp", false, "create a local tmp project in ./tmp and install default modules")
+	cmd.Flags().BoolVar(&globalTmp, "global-tmp", false, "create a global tmp project in /tmp and install default modules")
 	return cmd
+}
+
+func tmpProjectTarget(name string, global bool) (string, error) {
+	if name == "" {
+		name = "generated-app"
+	}
+	base := name
+	if filepath.IsAbs(name) {
+		base = filepath.Base(name)
+	}
+	if global {
+		return filepath.Join("/tmp", "project-"+base), nil
+	}
+	return filepath.Join("tmp", base), nil
 }
 
 func newInitCommand() *cobra.Command {
@@ -106,7 +158,7 @@ func newModuleCommand() *cobra.Command {
 	}
 	cmd.AddCommand(newModuleListCommand())
 	cmd.AddCommand(newModuleShowCommand())
-	cmd.AddCommand(newModuleAddCommand())
+	cmd.AddCommand(newModuleInstallCommand())
 	return cmd
 }
 
@@ -148,7 +200,7 @@ func newModuleShowCommand() *cobra.Command {
 		Use:               "show <module> [project-directory]",
 		Short:             "Show details for a project template module",
 		Args:              cobra.RangeArgs(1, 2),
-		ValidArgsFunction: moduleAddCompletion,
+		ValidArgsFunction: moduleInstallCompletion,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "pretty" && format != "tsv" {
 				return fmt.Errorf("unknown format %q; use pretty or tsv", format)
@@ -179,14 +231,13 @@ func newModuleShowCommand() *cobra.Command {
 	return cmd
 }
 
-func newModuleAddCommand() *cobra.Command {
+func newModuleInstallCommand() *cobra.Command {
 	options := projectvalidator.ModuleInstallOptions{}
 	cmd := &cobra.Command{
-		Use:               "add <module> [project-directory]",
-		Aliases:           []string{"install"},
-		Short:             "Plan or add a project template module",
+		Use:               "install <module> [project-directory]",
+		Short:             "Plan or install a project template module",
 		Args:              cobra.RangeArgs(1, 2),
-		ValidArgsFunction: moduleAddCompletion,
+		ValidArgsFunction: moduleInstallCompletion,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := "."
 			if len(args) == 2 {
@@ -207,13 +258,13 @@ func newModuleAddCommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&options.Apply, "apply", false, "apply the module add plan to the project")
-	cmd.Flags().BoolVar(&options.DryRun, "dry-run", false, "show the module add plan without writing changes")
-	cmd.Flags().BoolVar(&options.Force, "force", false, "allow module add to overwrite existing project files")
+	cmd.Flags().BoolVar(&options.Apply, "apply", false, "write the module install plan to the project lock")
+	cmd.Flags().BoolVar(&options.DryRun, "dry-run", false, "show the module install plan without writing changes")
+	cmd.Flags().BoolVar(&options.Force, "force", false, "allow module install to overwrite existing project files")
 	return cmd
 }
 
-func moduleAddCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+func moduleInstallCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) == 0 {
 		modules, err := projectvalidator.ListModules(".")
 		if err != nil {
@@ -238,7 +289,7 @@ func printModuleInstallPlan(cmd *cobra.Command, plan projectvalidator.ModuleInst
 	if options.Apply {
 		mode = "APPLY"
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "%s module add plan for %s\n", mode, plan.ProjectRoot)
+	fmt.Fprintf(cmd.OutOrStdout(), "%s module install plan for %s\n", mode, plan.ProjectRoot)
 	for _, module := range plan.AlreadyInstalled {
 		fmt.Fprintf(cmd.OutOrStdout(), "KEEP module %s\n", module)
 	}
@@ -346,23 +397,10 @@ func newTemplateCommand() *cobra.Command {
 }
 
 func newTemplateSyncCommand() *cobra.Command {
-	cmd := newSnapshotCommand("sync", "Sync the local template snapshot", "Synced")
-	return cmd
-}
-
-func newSyncCommand() *cobra.Command {
-	return newSnapshotCommand("sync [project-directory]", "Sync the local template snapshot", "Synced")
-}
-
-func newUpdateCommand() *cobra.Command {
-	return newSnapshotCommand("update [project-directory]", "Update the local template snapshot", "Updated")
-}
-
-func newSnapshotCommand(use string, short string, verb string) *cobra.Command {
 	options := projectvalidator.TemplateSyncOptions{}
 	cmd := &cobra.Command{
-		Use:               use,
-		Short:             short,
+		Use:               "sync [project-directory]",
+		Short:             "Sync the local template snapshot",
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: directoryCompletion,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -378,7 +416,7 @@ func newSnapshotCommand(use string, short string, verb string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s project template: %s\n", verb, templatePath)
+			fmt.Fprintf(cmd.OutOrStdout(), "Synced project template: %s\n", templatePath)
 			fmt.Fprintf(cmd.OutOrStdout(), "Checksum: %s\n", checksum)
 			return nil
 		},

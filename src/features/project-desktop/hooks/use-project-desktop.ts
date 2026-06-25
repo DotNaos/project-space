@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { launcherAppLabels } from '@/shared/electron-api';
+import { projectSpaceClient } from '@/api/project-space-client';
+import { launcherAppLabels } from '@/shared/project-space-api';
 import type {
   ExplorerTarget,
   LauncherAppRecord,
   ProjectDiscoveryResult,
   ProjectNavigationItem,
   ProjectSpaceRecord,
+  ProjectsState,
   ProjectWorktreeRecord
-} from '@/shared/electron-api';
+} from '@/shared/project-space-api';
 import type { SidebarView } from '../components/sidebar-view-tabs';
 
 const emptyDiscovery: ProjectDiscoveryResult = {
@@ -16,6 +18,8 @@ const emptyDiscovery: ProjectDiscoveryResult = {
   rootItems: [],
   rootPath: ''
 };
+
+export type ProjectMainView = 'home' | 'project';
 
 function normalizePath(path: string) {
   return path.replace(/\/+$/, '');
@@ -40,6 +44,7 @@ export function useProjectDesktop() {
   });
   const [selectedLauncherAppId, setSelectedLauncherAppId] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [mainView, setMainView] = useState<ProjectMainView>('home');
   const [sidebarView, setSidebarView] = useState<SidebarView>('workspace');
   const [launcherApps, setLauncherApps] = useState<LauncherAppRecord[]>([]);
   const [launcherError, setLauncherError] = useState('');
@@ -93,16 +98,23 @@ export function useProjectDesktop() {
       ? selectedWorktree.name
       : 'Workspace';
 
+  function persistProjectsState(nextState: ProjectsState) {
+    void projectSpaceClient.saveProjectsState(nextState).catch(() => undefined);
+  }
+
   useEffect(() => {
     void Promise.all([
-      window.projectSpace.loadProjectsState(),
-      window.projectSpace.loadProjectDiscovery()
+      projectSpaceClient.loadProjectsState(),
+      projectSpaceClient.loadProjectDiscovery()
     ])
       .then(([state, nextDiscovery]) => {
         setDiscovery(nextDiscovery);
         setSelectedExplorerTarget(state.selectedExplorerTarget);
         setSelectedLauncherAppId(state.selectedLauncherAppId);
         setSelectedProjectId(state.selectedProjectId);
+      })
+      .catch(() => {
+        setDiscovery(emptyDiscovery);
       })
       .finally(() => {
         setHasLoaded(true);
@@ -112,13 +124,20 @@ export function useProjectDesktop() {
   useEffect(() => {
     let canceled = false;
 
-    void window.projectSpace.loadLauncherApps().then((nextLauncherApps) => {
-      if (canceled) {
-        return;
-      }
+    void projectSpaceClient
+      .loadLauncherApps()
+      .then((nextLauncherApps) => {
+        if (canceled) {
+          return;
+        }
 
-      setLauncherApps(nextLauncherApps);
-    });
+        setLauncherApps(nextLauncherApps);
+      })
+      .catch(() => {
+        if (!canceled) {
+          setLauncherApps([]);
+        }
+      });
 
     return () => {
       canceled = true;
@@ -180,7 +199,9 @@ export function useProjectDesktop() {
 
     void Promise.all(
       appsMissingIcons.map(async (entry) => {
-        const iconDataUrl = await window.projectSpace.loadLauncherAppIcon(entry.id);
+        const iconDataUrl = await projectSpaceClient
+          .loadLauncherAppIcon(entry.id)
+          .catch(() => undefined);
 
         return {
           iconDataUrl,
@@ -250,23 +271,33 @@ export function useProjectDesktop() {
       setSelectedExplorerTarget({ kind: 'workspace' });
     }
 
-    void window.projectSpace.loadProjectWorktrees(project.rootPath).then((nextWorktrees) => {
-      if (canceled) {
-        return;
-      }
+    void projectSpaceClient
+      .loadProjectWorktrees(project.rootPath)
+      .then((nextWorktrees) => {
+        if (canceled) {
+          return;
+        }
 
-      setProjectWorktrees((current) => ({
-        ...current,
-        [project.id]: nextWorktrees
-      }));
+        setProjectWorktrees((current) => ({
+          ...current,
+          [project.id]: nextWorktrees
+        }));
 
-      if (
-        selectedExplorerTarget.kind === 'worktree' &&
-        !nextWorktrees.some((entry) => entry.id === selectedExplorerTarget.worktreeId)
-      ) {
-        setSelectedExplorerTarget({ kind: 'workspace' });
-      }
-    });
+        if (
+          selectedExplorerTarget.kind === 'worktree' &&
+          !nextWorktrees.some((entry) => entry.id === selectedExplorerTarget.worktreeId)
+        ) {
+          setSelectedExplorerTarget({ kind: 'workspace' });
+        }
+      })
+      .catch(() => {
+        if (!canceled) {
+          setProjectWorktrees((current) => ({
+            ...current,
+            [project.id]: []
+          }));
+        }
+      });
 
     return () => {
       canceled = true;
@@ -284,12 +315,14 @@ export function useProjectDesktop() {
       return;
     }
 
-    void window.projectSpace.saveProjectsState({
-      activeGroupId: project?.groupId ?? '',
-      selectedExplorerTarget,
-      selectedLauncherAppId,
-      selectedProjectId
-    });
+    void projectSpaceClient
+      .saveProjectsState({
+        activeGroupId: project?.groupId ?? '',
+        selectedExplorerTarget,
+        selectedLauncherAppId,
+        selectedProjectId
+      })
+      .catch(() => undefined);
   }, [
     hasLoaded,
     project?.groupId,
@@ -331,12 +364,12 @@ export function useProjectDesktop() {
   }
 
   async function createProject() {
-    const selection = await window.projectSpace.selectProjectDirectory();
+    const selection = await projectSpaceClient.selectProjectDirectory();
     if (selection.canceled || !selection.path) {
       return;
     }
 
-    const nextDiscovery = await window.projectSpace.loadProjectDiscovery();
+    const nextDiscovery = await projectSpaceClient.loadProjectDiscovery();
     setDiscovery(nextDiscovery);
 
     const matchingProject = findMatchingProject(nextDiscovery.projects, selection.path);
@@ -348,6 +381,12 @@ export function useProjectDesktop() {
     setLauncherError('');
     setSelectedExplorerTarget({ kind: 'workspace' });
     setSelectedProjectId(matchingProject.id);
+    persistProjectsState({
+      activeGroupId: matchingProject.groupId ?? '',
+      selectedExplorerTarget: { kind: 'workspace' },
+      selectedLauncherAppId,
+      selectedProjectId: matchingProject.id
+    });
   }
 
   async function openSelectedTargetInApp() {
@@ -355,7 +394,7 @@ export function useProjectDesktop() {
       return;
     }
 
-    const result = await window.projectSpace.openPathInApp({
+    const result = await projectSpaceClient.openPathInApp({
       appId: selectedLauncherApp.id,
       path: selectedTargetPath
     });
@@ -364,7 +403,7 @@ export function useProjectDesktop() {
   }
 
   async function openCodexSkills() {
-    const result = await window.projectSpace.openCodexSkills();
+    const result = await projectSpaceClient.openCodexSkills();
 
     setLauncherError(
       result.status === 'error' ? result.message ?? 'Could not open the skills folder.' : ''
@@ -376,7 +415,7 @@ export function useProjectDesktop() {
       return;
     }
 
-    const result = await window.projectSpace.openPathInApp({
+    const result = await projectSpaceClient.openPathInApp({
       appId: 'terminal',
       path: project.rootPath
     });
@@ -398,6 +437,7 @@ export function useProjectDesktop() {
     groupedProjectsLabel: activeGroup?.name,
     launcherApps,
     launcherError,
+    mainView,
     navigationItems,
     openCodexSkills,
     openNewWorktreeWorkspace,
@@ -415,9 +455,18 @@ export function useProjectDesktop() {
     selectedWorktree,
     sidebarView,
     worktrees,
+    openHome() {
+      setMainView('home');
+    },
     selectLauncherApp(appId: string) {
       setSelectedLauncherAppId(appId);
       setLauncherError('');
+      persistProjectsState({
+        activeGroupId: project?.groupId ?? '',
+        selectedExplorerTarget,
+        selectedLauncherAppId: appId,
+        selectedProjectId
+      });
     },
     selectNavigationItem(itemId: string, nextWorktrees?: ProjectWorktreeRecord[], nextSelectedWorktreeId?: string) {
       const resolvedSelection = resolveNavigationSelection(itemId);
@@ -433,28 +482,63 @@ export function useProjectDesktop() {
         }));
       }
 
-      setSelectedExplorerTarget(
-        nextSelectedWorktreeId
-          ? {
-              kind: 'worktree',
-              worktreeId: nextSelectedWorktreeId
-            }
-          : { kind: 'workspace' }
-      );
+      const nextSelectedExplorerTarget: ExplorerTarget = nextSelectedWorktreeId
+        ? {
+            kind: 'worktree',
+            worktreeId: nextSelectedWorktreeId
+          }
+        : { kind: 'workspace' };
+
+      setSelectedExplorerTarget(nextSelectedExplorerTarget);
       setSelectedProjectId(resolvedSelection.nextProjectId);
+      setMainView('project');
+      persistProjectsState({
+        activeGroupId: resolvedSelection.nextGroupId,
+        selectedExplorerTarget: nextSelectedExplorerTarget,
+        selectedLauncherAppId,
+        selectedProjectId: resolvedSelection.nextProjectId
+      });
     },
     selectProject(projectId: string, groupId?: string) {
-      setSelectedExplorerTarget({ kind: 'workspace' });
+      const nextSelectedExplorerTarget: ExplorerTarget = { kind: 'workspace' };
+      const nextProject = projectsById[projectId];
+
+      setSelectedExplorerTarget(nextSelectedExplorerTarget);
       setSelectedProjectId(projectId);
+      setMainView('project');
       setLauncherError('');
+      persistProjectsState({
+        activeGroupId: nextProject?.groupId ?? groupId ?? '',
+        selectedExplorerTarget: nextSelectedExplorerTarget,
+        selectedLauncherAppId,
+        selectedProjectId: projectId
+      });
     },
     selectWorkspace() {
-      setSelectedExplorerTarget({ kind: 'workspace' });
+      const nextSelectedExplorerTarget: ExplorerTarget = { kind: 'workspace' };
+
+      setSelectedExplorerTarget(nextSelectedExplorerTarget);
+      setMainView('project');
+      persistProjectsState({
+        activeGroupId: project?.groupId ?? '',
+        selectedExplorerTarget: nextSelectedExplorerTarget,
+        selectedLauncherAppId,
+        selectedProjectId
+      });
     },
     selectWorktree(worktreeId: string) {
-      setSelectedExplorerTarget({
+      const nextSelectedExplorerTarget: ExplorerTarget = {
         kind: 'worktree',
         worktreeId
+      };
+
+      setSelectedExplorerTarget(nextSelectedExplorerTarget);
+      setMainView('project');
+      persistProjectsState({
+        activeGroupId: project?.groupId ?? '',
+        selectedExplorerTarget: nextSelectedExplorerTarget,
+        selectedLauncherAppId,
+        selectedProjectId
       });
     },
     setSidebarView,

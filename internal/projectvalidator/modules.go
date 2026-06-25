@@ -53,7 +53,7 @@ func InstallModule(projectRoot string, moduleName string, options ModuleInstallO
 	plan.Files = files
 	plan.Conflicts = conflicts
 	if len(plan.Conflicts) > 0 && !options.Force {
-		return ModuleInstallPlan{}, fmt.Errorf("module add would overwrite existing project files: %s; rerun with --force to allow this", formatModuleConflicts(plan.Conflicts))
+		return ModuleInstallPlan{}, fmt.Errorf("module install would overwrite existing project files: %s; rerun with --force to allow this", formatModuleConflicts(plan.Conflicts))
 	}
 	plan.WouldWrite = len(plan.ToInstall) > 0
 	if !options.Apply || options.DryRun {
@@ -81,7 +81,11 @@ func InstallModule(projectRoot string, moduleName string, options ModuleInstallO
 
 func applyModuleFiles(projectRoot string, template TemplateSpec, values TemplateValues, files []ModuleInstallFile) error {
 	for _, file := range files {
-		sourcePath := filepath.Join(template.Root, filepath.FromSlash(file.Path))
+		fileSpec, ok := template.Files[file.Path]
+		if !ok {
+			return fmt.Errorf("template file %s is not defined", file.Path)
+		}
+		sourcePath := filepath.Join(template.Root, filepath.FromSlash(fileSpec.TemplatePath))
 		body, err := os.ReadFile(sourcePath)
 		if err != nil {
 			return err

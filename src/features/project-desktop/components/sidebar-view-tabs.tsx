@@ -1,4 +1,4 @@
-import { Tab, TabIndicator, TabList, TabSeparator, Tabs } from '@heroui/react';
+import { Tab, TabIndicator, TabList, TabSeparator, Tabs } from '@/app/dotnaos-ui';
 
 export type SidebarView = 'workspace' | 'files';
 
@@ -17,7 +17,7 @@ export function SidebarViewTabs({
   onChange
 }: SidebarViewTabsProps) {
   return (
-    <div className="border-b border-slate-800 px-3 py-2">
+    <div>
       <Tabs
         selectedKey={value}
         variant="primary"

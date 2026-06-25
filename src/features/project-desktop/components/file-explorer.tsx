@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Button, ScrollShadow, Text } from '@heroui/react';
+import { FileIcon, Icon } from '@dotnaos/react-ui';
+import { ChevronRight, Folder, FolderOpen } from 'lucide-react';
+import { ScrollShadow, Text } from '@/app/dotnaos-ui';
+import { projectSpaceClient } from '@/api/project-space-client';
 import { cn } from '@/lib/utils';
-import type { FileSystemEntry } from '@/shared/electron-api';
+import type { FileSystemEntry } from '@/shared/project-space-api';
 
 interface FileExplorerProps {
   rootPath?: string;
@@ -31,7 +34,7 @@ function FileTreeNode({
 
     let canceled = false;
 
-    void window.projectSpace.readDirectory(entry.path).then((nextEntries) => {
+    void projectSpaceClient.readDirectory(entry.path).then((nextEntries) => {
       if (canceled) {
         return;
       }
@@ -49,27 +52,43 @@ function FileTreeNode({
 
   return (
     <div>
-      <Button
-        fullWidth
-        variant="ghost"
-        onPress={() => {
+      <button
+        type="button"
+        onClick={() => {
           if (expandable) {
             setExpanded((current) => !current);
           }
         }}
         className={cn(
-          'justify-start rounded-lg py-2 pr-3 text-left text-sm transition',
+          'group flex min-h-8 w-full min-w-0 items-center gap-2 rounded-md py-1.5 pr-3 text-left text-sm transition',
           expandable
             ? 'text-slate-300 hover:bg-slate-800/70 hover:text-slate-50'
             : 'text-slate-500 hover:bg-slate-800/40 hover:text-slate-300'
         )}
         style={{ paddingLeft: `${level * 16 + 14}px` }}
       >
-        <span className="w-3 shrink-0 text-center text-[10px] text-slate-500">
-          {expandable ? (expanded ? '▾' : '▸') : ''}
+        <span className="flex size-4 shrink-0 items-center justify-center text-slate-500">
+          {expandable ? (
+            <ChevronRight
+              className={cn('size-3.5 transition-transform', expanded && 'rotate-90')}
+              strokeWidth={2}
+            />
+          ) : null}
+        </span>
+        <span className="flex size-5 shrink-0 items-center justify-center">
+          {expandable ? (
+            <Icon
+              name={expanded ? FolderOpen : Folder}
+              size="m"
+              color="inherit"
+              className="text-slate-400 group-hover:text-slate-200"
+            />
+          ) : (
+            <FileIcon filename={entry.name} size={18} grayscale className="opacity-85" />
+          )}
         </span>
         <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-      </Button>
+      </button>
 
       {expandable && expanded ? (
         children.length > 0 ? (
@@ -104,7 +123,7 @@ export function FileExplorer({
 
     let canceled = false;
 
-    void window.projectSpace.readDirectory(rootPath).then((nextEntries) => {
+    void projectSpaceClient.readDirectory(rootPath).then((nextEntries) => {
       if (canceled) {
         return;
       }

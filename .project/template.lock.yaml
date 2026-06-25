@@ -1,0 +1,5 @@
+template: DotNaos/project-template
+version: 0.1.0
+commit: local
+checksum: sha256:894c592907389ce72f01f9f73e4f8f16992f86f3636403c7ba778105002019d5
+templatePath: ../templates/project-template

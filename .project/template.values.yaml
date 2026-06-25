@@ -1,0 +1,9 @@
+project:
+  name: project-space
+  version: 0.2.0
+runtime:
+  packageManager: pnpm@10.13.1
+scripts:
+  dev: VITE_PROJECT_SPACE_API_BASE_URL=http://127.0.0.1:45873 vite --host 127.0.0.1
+  build: tsc -b && vite build
+  test: go test ./...

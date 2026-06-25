@@ -1,10 +1,11 @@
-import { Button, Text, ToggleButton, ToggleButtonGroup } from '@heroui/react';
+import { FolderKanban, Plus } from 'lucide-react';
+import { Button, Text, ToggleButton, ToggleButtonGroup } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type {
   ProjectGroupRecord,
   ProjectNavigationItem,
   ProjectSpaceRecord
-} from '@/shared/electron-api';
+} from '@/shared/project-space-api';
 import { ProjectSpacesPicker } from './project-spaces-picker';
 
 interface SpaceItem {
@@ -68,9 +69,10 @@ export function SpacesDock({
   const visibleItems = items.slice(startIndex, startIndex + maxVisibleItems);
   const hasLeadingOverflow = startIndex > 0;
   const hasTrailingOverflow = startIndex + maxVisibleItems < items.length;
+  const activeItem = items.find((item) => item.id === activeItemId);
 
   return (
-    <div className="border-t border-slate-800 px-4 py-4">
+    <div className="border-t border-slate-800 px-4 py-3">
       <ProjectSpacesPicker
         groups={groups}
         projects={projects}
@@ -78,7 +80,24 @@ export function SpacesDock({
         selectedProjectId={selectedProjectId}
         onSelectProject={onSelectProject}
       >
-        <div className="flex w-full items-center justify-center gap-2 rounded-2xl px-2 py-1">
+        <div className="grid w-full gap-2 rounded-2xl">
+          <Button
+            fullWidth
+            variant="ghost"
+            className="h-auto justify-start gap-2 rounded-xl px-2.5 py-2 text-left hover:bg-slate-800/70"
+          >
+            <FolderKanban className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={1.8} />
+            <span className="min-w-0 flex-1">
+              <Text className="block truncate text-xs font-medium text-slate-200">
+                {activeItem?.label ?? 'Choose project'}
+              </Text>
+              <Text className="block truncate text-[11px] text-slate-500">
+                Switch project
+              </Text>
+            </span>
+          </Button>
+
+          <div className="flex w-full items-center justify-center gap-2 px-2 py-1">
           {canNavigateUp && onNavigateUp ? (
             <Button
               aria-label="Back to project root"
@@ -149,16 +168,17 @@ export function SpacesDock({
 
           {onCreate ? (
             <Button
-              aria-label="Add project space"
+              aria-label="Add project directory"
               isIconOnly
               size="sm"
               variant="ghost"
               onPress={onCreate}
               className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-sm leading-none text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
             >
-              +
+              <Plus className="h-4 w-4" strokeWidth={1.8} />
             </Button>
           ) : null}
+          </div>
         </div>
       </ProjectSpacesPicker>
     </div>

@@ -1,4 +1,4 @@
-import { Button, Text } from '@heroui/react';
+import { Button, Text } from '@/app/dotnaos-ui';
 import { Blocks, GitBranchPlus } from 'lucide-react';
 
 interface SidebarQuickActionsProps {

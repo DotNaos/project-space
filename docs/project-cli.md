@@ -1,52 +1,75 @@
 # Project CLI
 
-The `project` CLI is the main tool for creating, initializing, updating, and validating projects that use Project templates.
+The `project` CLI creates, syncs, validates, and updates projects from templates.
 
-## Install
-
-```sh
-brew tap DotNaos/project-space https://github.com/DotNaos/project-space
-brew install --HEAD DotNaos/project-space/project
-```
-
-## Commands
-
-Create a new project:
+## Create A Project
 
 ```sh
-project new <project-name>
+project new <project-directory>
 ```
 
-Initialize the current directory as a project:
+`new` is an alias for `create`.
+
+Useful flags:
 
 ```sh
-project init
+--template <owner/repo>
+--template-path <path>
+--version <version>
+--commit <commit-or-label>
+--force
+--tmp
+--local-tmp
+--global-tmp
 ```
 
-Add a template module:
+`--tmp` creates `./tmp/generated-app`, writes tmp template values, and installs the template's default modules.
+
+`--local-tmp` is the explicit form of `--tmp`.
+
+`--global-tmp` creates the generated project under `/tmp`.
+
+Example:
 
 ```sh
-project module add <module-name>
+project new \
+  --template DotNaos/project-template \
+  --template-path . \
+  --version local \
+  --commit local \
+  --tmp
 ```
 
-Sync the project with the local template snapshot:
+Named local tmp project:
 
 ```sh
-project sync
+project new my-app --tmp
 ```
 
-Update the project to the latest template version:
+Named global tmp project:
 
 ```sh
-project update
+project new my-app --global-tmp
 ```
 
-Validate the current project against its template:
+## Initialize An Existing Project
 
 ```sh
-project validate
+project init [project-directory]
 ```
 
-## Implementation Status
+## Modules
 
-`project create`, `project module install`, and `project template sync` remain available as compatibility aliases while the CLI settles on the shorter command names above.
+```sh
+project module list [project-directory]
+project module show <module> [project-directory]
+project module add <module> [project-directory] --dry-run
+project module add <module> [project-directory] --apply
+```
+
+## Validate
+
+```sh
+project validate [project-directory]
+project validate [project-directory] --format tsv
+```

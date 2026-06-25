@@ -1,0 +1,9 @@
+project:
+  name: learn-arena
+  version: 0.1.0
+runtime:
+  packageManager: bun@1.2.0
+scripts:
+  dev: vite dev
+  build: vite build
+  test: vitest

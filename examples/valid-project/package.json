@@ -6,8 +6,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "test": "vitest",
-    "custom:analyze": "vite build --mode analyze"
+    "test": "vitest"
   },
   "dependencies": {
     "@heroui/react": "2.7.8",

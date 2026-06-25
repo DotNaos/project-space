@@ -4,7 +4,8 @@ import type {
   ProjectNavigationItem,
   ProjectSpaceRecord,
   ProjectWorktreeRecord
-} from '@/shared/electron-api';
+} from '@/shared/project-space-api';
+import { projectSpaceClient } from '@/api/project-space-client';
 
 const SIDEBAR_SWIPE_PREVIEW_LIMIT = 148;
 const SIDEBAR_SWIPE_SNAP_THRESHOLD = 82;
@@ -80,17 +81,7 @@ export function useSidebarSwipeNavigation({
   }, [previewSelection, projects]);
 
   useEffect(() => {
-    const unsubscribe = window.projectSpace.onGestureScrollState((state) => {
-      swipeState.current.isGestureActive = state === 'begin';
-
-      if (state === 'end' && !swipeState.current.isSettling && swipeState.current.offset !== 0) {
-        settleSwipe();
-      }
-    });
-
     return () => {
-      unsubscribe();
-
       if (swipeState.current.idleTimeoutId) {
         window.clearTimeout(swipeState.current.idleTimeoutId);
       }
@@ -137,7 +128,7 @@ export function useSidebarSwipeNavigation({
 
     let canceled = false;
 
-    void window.projectSpace.loadProjectWorktrees(previewProject.rootPath).then((nextWorktrees) => {
+    void projectSpaceClient.loadProjectWorktrees(previewProject.rootPath).then((nextWorktrees) => {
       if (canceled) {
         return;
       }

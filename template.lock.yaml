@@ -1,0 +1,146 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/DotNaos/project-template/main/schema/template-lock.schema.json
+$schema: https://raw.githubusercontent.com/DotNaos/project-template/main/schema/template-lock.schema.json
+lockVersion: 2
+template:
+  repository: DotNaos/project-template
+  version: 0.3.0
+  generator: projectctl
+project:
+  slug: project-space
+  displayName: Project Space
+  kind: app
+  modulePath: github.com/DotNaos/project-space
+  bundleId: com.dotnaos.project.space
+  backend: go
+preset:
+  name: fullstack-app
+  version: 0.3.0
+addons:
+  goals:
+    status: missing
+  onepassword-secrets:
+    status: missing
+  github-ci:
+    status: missing
+  release:
+    status: missing
+  project-space-registry:
+    status: missing
+  update-checks:
+    status: missing
+  environments:
+    status: custom
+  branch-protection:
+    status: missing
+  devcontainer:
+    status: missing
+capabilities:
+  - connector-backed-development
+  - electron-legacy
+  - git-actions
+  - project-config
+  - template-lock
+  - terminal-commands
+  - web
+platforms:
+  web:
+    status: custom
+    path: .
+    runtime: Vite React at repository root
+    notes:
+      - Target project-template path is apps/web.
+  backend:
+    status: custom
+    path: server
+    runtime: TypeScript HTTP backend
+    notes:
+      - Target project-template runtime is a Go backend under backend.
+  docker:
+    status: missing
+    path: Dockerfile
+  mobile:
+    status: missing
+    path: apps/mobile
+    runtime: Expo React Native
+  desktopMacos:
+    status: missing
+    path: desktop/macos
+    runtime: Swift WKWebView
+  desktopWindows:
+    status: disabled
+    path: desktop/windows
+    runtime: C# WebView2
+  desktopElectron:
+    status: custom
+    path: electron
+    runtime: Electron legacy shell
+features:
+  projectConfig:
+    status: enabled
+    path: project.yaml
+  templateLock:
+    status: enabled
+    path: template.lock.yaml
+  connectorBackedDevelopment:
+    status: configured
+    path: package.json
+    command: pnpm dev
+    notes:
+      - Local development uses the os-connector API at 127.0.0.1:45873.
+  localFilesystem:
+    status: custom
+    path: server
+  gitActions:
+    status: custom
+    path: server/local-git-client.ts
+  terminalCommands:
+    status: custom
+    path: server/local-command-runner.ts
+  electronLegacy:
+    status: custom
+    path: electron
+  onePasswordEnvironments:
+    status: missing
+    path: docs/secrets.md
+  githubActionsCi:
+    status: missing
+    path: .github/workflows/ci.yml
+  releaseBuilds:
+    status: missing
+    path: .github/workflows/release.yml
+  updateChecks:
+    status: missing
+    path: docs/updates.md
+  environments:
+    status: custom
+    path: project.yaml
+  branchProtection:
+    status: missing
+    path: docs/repository.md
+  devcontainer:
+    status: missing
+    path: .devcontainer/devcontainer.json
+    runtime: VS Code Dev Containers
+  editorSchema:
+    status: missing
+    path: .vscode/settings.json
+    runtime: VS Code YAML Language Server
+  mcpServer:
+    status: missing
+    command: project-space mcp
+  localCli:
+    status: missing
+    command: project-space
+  goals:
+    status: missing
+    path: GOALS.md
+  projectSpaceRegistry:
+    status: missing
+    path: docs/project-space.md
+migration:
+  lastAppliedVersion: 0.3.0
+  appliedMigrations:
+    - 0.3.0
+  notes:
+    - Metadata was initialized for the existing legacy Project Space repo.
+    - Current implementation is intentionally marked custom or missing where it does not yet match project-template layout.

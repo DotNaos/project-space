@@ -2,11 +2,16 @@
 
 `project-space` is a desktop-first project workspace, not a file explorer IDE. One project fills one screen. The left side of the app is a workflow explorer for project structure, and the app later launches external tools like IDE, terminal, git, and dev server from task or worktree context.
 
-The repository currently targets a reduced MVP:
+The repository currently targets a web-first fullstack MVP:
 
-- Electron + React + TypeScript + Vite scaffold
+- React + TypeScript + Vite frontend
+- HTTP backend for local project discovery, filesystem reads, launcher apps, and persisted UI state
+- local terminal command execution for the selected workspace or worktree
+- git status, diff, stage, unstage, and commit actions for the selected target
+- Codex CLI/app status and open-target support
+- Electron shell that hosts the same frontend and talks to the backend over HTTP
 - TailwindCSS setup
-- clean separation between Electron `main`, `preload`, and renderer
+- no renderer IPC contract or Electron preload bridge
 - typed domain model for projects, worktrees, issue docs, runtime sessions, integration requests, and edit transfer concepts
 - a single-project desktop shell with a workflow explorer and placeholder launch actions
 - product docs for vision, brain dump, and current MVP scope
@@ -18,22 +23,36 @@ The repository currently targets a reduced MVP:
 - TypeScript
 - Vite
 - TailwindCSS
+- Bun for the local production-style web server
 
 ## Scripts
 
-- `npm install`
-- `npm run dev`
-- `npm run build`
-- `npm run check`
+- `pnpm install`
+- `pnpm dev`
+  Run the web app in fullstack development mode.
+- `pnpm build`
+  Build the deployable web frontend.
+- `pnpm start`
+  Serve the built frontend plus backend from one local HTTP server.
+- `pnpm dev:electron`
+  Run the Electron shell against the HTTP backend.
+- `pnpm build:electron`
+  Build the web frontend and Electron main process.
+- `pnpm check`
+  Type-check the app.
 
 ## Structure
 
 - `electron/main`
-  Electron main process entry and IPC placeholders.
-- `electron/preload`
-  Preload bridge exposed to the renderer.
+  Electron main process entry. It starts the local backend and loads the web frontend.
+- `server`
+  HTTP routing and local backend services.
+- `src/api`
+  Browser-side HTTP client for the backend.
+- `src/shared`
+  Shared frontend/backend API types.
 - `src/domain`
-  Core domain types only. No persistence or integrations yet.
+  Core domain types.
 - `src/application/ports`
   Future-facing interfaces for launchers, runtimes, issue docs, transfer flow, and conflict validation.
 - `src/infrastructure/stubs`
@@ -45,6 +64,7 @@ The repository currently targets a reduced MVP:
 
 ## Documentation
 
+- [Connector install and usage guide](docs/connector.md)
 - `.dev/product.md`
 - `.dev/vision.md`
 - `.dev/scope/iteration-1.md`
@@ -57,18 +77,23 @@ Included now:
 - single-project desktop shell
 - workflow explorer tree
 - issue doc placeholders
-- mock navigation and action flows
+- project discovery under `~/projects`
+- git worktree discovery
+- local filesystem reads for the file sidebar
+- launcher app discovery and open-path actions
+- terminal panel for local commands
+- git changes panel with status, diff, stage, unstage, and commit
+- Codex panel for local Codex app/CLI detection and opening the active target
+- UI state persisted in `~/.project-space/projects.json`
 
 Explicitly deferred:
 
-- multi-project support
-- real git integration
-- real worktree discovery
 - markdown persistence
 - hunk diff parsing or patch application
 - runtime orchestration
-- IDE, terminal, git, or dev server launching
-- backend, database, auth, or AI features
+- hosted database, auth, or AI features
+- hosted backend adapters for non-local deployments
+- full interactive PTY streaming terminal
 
 ## Product Direction
 
