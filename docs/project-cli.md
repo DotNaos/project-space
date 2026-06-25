@@ -100,4 +100,10 @@ Use `-y` or `--yes` to apply without prompting.
 ```sh
 project validate [project-directory]
 project validate [project-directory] --format tsv
+project validate --quarantine --dry-run
+project validate --quarantine --yes
 ```
+
+`--quarantine` moves `not_allowed` file violations into `.project/quarantine/<original-path>`.
+
+The quarantine directory is ignored by template validation but is not ignored by Git, so quarantined files can be reviewed and committed.
