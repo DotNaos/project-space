@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -89,6 +91,7 @@ func newCreateCommand() *cobra.Command {
 					fmt.Fprintf(cmd.OutOrStdout(), "Installed module: %s\n", plan.Module)
 				}
 			}
+			fmt.Fprintf(cmd.OutOrStdout(), "cd %s\n", shellQuote(resolved))
 			return nil
 		},
 	}
@@ -100,17 +103,40 @@ func newCreateCommand() *cobra.Command {
 }
 
 func tmpProjectTarget(name string, global bool) (string, error) {
+	suffix, err := randomSuffix()
+	if err != nil {
+		return "", err
+	}
 	if name == "" {
 		name = "generated-app"
 	}
-	base := name
-	if filepath.IsAbs(name) {
-		base = filepath.Base(name)
+	base := filepath.Base(filepath.Clean(name))
+	if base == "." || base == string(filepath.Separator) {
+		base = "generated-app"
 	}
+	base = base + "-" + suffix
 	if global {
 		return filepath.Join("/tmp", "project-"+base), nil
 	}
 	return filepath.Join("tmp", base), nil
+}
+
+func randomSuffix() (string, error) {
+	bytes := make([]byte, 4)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("generate tmp project suffix: %w", err)
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	if !strings.ContainsAny(value, " \t\n'\"\\$&;()[]{}!*?<>|`") {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 func newInitCommand() *cobra.Command {

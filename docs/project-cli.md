@@ -23,11 +23,11 @@ Useful flags:
 --global-tmp
 ```
 
-`--tmp` creates `./tmp/generated-app`, writes tmp template values, and installs the template's default modules.
+`--tmp` creates `./tmp/generated-app-<suffix>`, writes tmp template values, and installs the template's default modules.
 
 `--local-tmp` is the explicit form of `--tmp`.
 
-`--global-tmp` creates the generated project under `/tmp`.
+`--global-tmp` creates the generated project under `/tmp` with a random suffix.
 
 Example:
 
