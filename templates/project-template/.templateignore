@@ -1,0 +1,11 @@
+.templateignore
+template.yaml
+README.md
+docs/**
+examples/**
+fixtures/**
+files/**
+slots/**
+structure.j2
+.slot.yaml
+**/.slot.yaml
