@@ -67,7 +67,7 @@ func resolveTemplateSourceRoot(projectRoot string, lock TemplateLock) (string, e
 		}
 		for _, candidate := range candidates {
 			abs, _ := filepath.Abs(candidate)
-			if _, err := os.Stat(filepath.Join(abs, "template.yaml")); err == nil {
+			if hasTemplateManifest(abs) {
 				return abs, nil
 			}
 		}

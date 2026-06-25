@@ -172,8 +172,8 @@ func resolveInitTemplatePath(projectRoot string, requestedPath string) (string, 
 	if err != nil {
 		return "", err
 	}
-	if _, err := os.Stat(filepath.Join(absTemplateRoot, "template.yaml")); err != nil {
-		return "", fmt.Errorf("template path %s does not contain template.yaml", absTemplateRoot)
+	if !hasTemplateManifest(absTemplateRoot) {
+		return "", fmt.Errorf("template path %s does not contain template/manifest.yaml or template.yaml", absTemplateRoot)
 	}
 	projectRelativeTemplatePath, err := filepath.Rel(projectRoot, absTemplateRoot)
 	if err == nil && !isParentRelative(projectRelativeTemplatePath) {
