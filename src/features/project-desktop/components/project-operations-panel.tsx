@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Chip, ScrollShadow, Surface, Text } from '@heroui/react';
+import { Button, Chip, ScrollShadow, Surface, Text } from '@/app/dotnaos-ui';
 import {
   DatabaseBackup,
   Network,
@@ -15,6 +15,7 @@ import type {
   GitActionResult,
   PlatformOverviewResult
 } from '@/shared/project-space-api';
+import { ScopeDevboxJobPanel } from './scope-devbox-job-panel';
 
 interface ProjectOperationsPanelProps {
   projectName: string;
@@ -93,8 +94,8 @@ export function ProjectOperationsPanel({
       projectSpaceClient.getPlatformOverview().catch(() => platformFallback)
     ]);
 
-    setConnector(nextConnector);
-    setPlatform(nextPlatform);
+    setConnector(nextConnector ?? connectorFallback);
+    setPlatform(nextPlatform ?? platformFallback);
   }
 
   useEffect(() => {
@@ -143,8 +144,8 @@ export function ProjectOperationsPanel({
 
   return (
     <Surface
-      variant="secondary"
-      className="grid shrink-0 gap-3 rounded-lg border border-slate-800 bg-slate-950/55 p-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]"
+      variant="transparent"
+      className="grid shrink-0 gap-4 rounded-none xl:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]"
     >
       <div className="grid min-w-0 gap-3">
         <div className="flex items-center justify-between gap-3">
@@ -350,6 +351,14 @@ export function ProjectOperationsPanel({
             </div>
           </ScrollShadow>
         </div>
+      </div>
+
+      <div className="min-w-0 xl:col-span-2">
+        <ScopeDevboxJobPanel
+          connector={connector}
+          projectName={projectName}
+          targetPath={targetPath}
+        />
       </div>
     </Surface>
   );

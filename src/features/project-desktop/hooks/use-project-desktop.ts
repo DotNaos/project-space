@@ -7,6 +7,7 @@ import type {
   ProjectDiscoveryResult,
   ProjectNavigationItem,
   ProjectSpaceRecord,
+  ProjectsState,
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
 import type { SidebarView } from '../components/sidebar-view-tabs';
@@ -17,6 +18,8 @@ const emptyDiscovery: ProjectDiscoveryResult = {
   rootItems: [],
   rootPath: ''
 };
+
+export type ProjectMainView = 'home' | 'project';
 
 function normalizePath(path: string) {
   return path.replace(/\/+$/, '');
@@ -41,6 +44,7 @@ export function useProjectDesktop() {
   });
   const [selectedLauncherAppId, setSelectedLauncherAppId] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [mainView, setMainView] = useState<ProjectMainView>('home');
   const [sidebarView, setSidebarView] = useState<SidebarView>('workspace');
   const [launcherApps, setLauncherApps] = useState<LauncherAppRecord[]>([]);
   const [launcherError, setLauncherError] = useState('');
@@ -93,6 +97,10 @@ export function useProjectDesktop() {
     selectedExplorerTarget.kind === 'worktree' && selectedWorktree
       ? selectedWorktree.name
       : 'Workspace';
+
+  function persistProjectsState(nextState: ProjectsState) {
+    void projectSpaceClient.saveProjectsState(nextState).catch(() => undefined);
+  }
 
   useEffect(() => {
     void Promise.all([
@@ -373,6 +381,12 @@ export function useProjectDesktop() {
     setLauncherError('');
     setSelectedExplorerTarget({ kind: 'workspace' });
     setSelectedProjectId(matchingProject.id);
+    persistProjectsState({
+      activeGroupId: matchingProject.groupId ?? '',
+      selectedExplorerTarget: { kind: 'workspace' },
+      selectedLauncherAppId,
+      selectedProjectId: matchingProject.id
+    });
   }
 
   async function openSelectedTargetInApp() {
@@ -423,6 +437,7 @@ export function useProjectDesktop() {
     groupedProjectsLabel: activeGroup?.name,
     launcherApps,
     launcherError,
+    mainView,
     navigationItems,
     openCodexSkills,
     openNewWorktreeWorkspace,
@@ -440,9 +455,18 @@ export function useProjectDesktop() {
     selectedWorktree,
     sidebarView,
     worktrees,
+    openHome() {
+      setMainView('home');
+    },
     selectLauncherApp(appId: string) {
       setSelectedLauncherAppId(appId);
       setLauncherError('');
+      persistProjectsState({
+        activeGroupId: project?.groupId ?? '',
+        selectedExplorerTarget,
+        selectedLauncherAppId: appId,
+        selectedProjectId
+      });
     },
     selectNavigationItem(itemId: string, nextWorktrees?: ProjectWorktreeRecord[], nextSelectedWorktreeId?: string) {
       const resolvedSelection = resolveNavigationSelection(itemId);
@@ -458,28 +482,63 @@ export function useProjectDesktop() {
         }));
       }
 
-      setSelectedExplorerTarget(
-        nextSelectedWorktreeId
-          ? {
-              kind: 'worktree',
-              worktreeId: nextSelectedWorktreeId
-            }
-          : { kind: 'workspace' }
-      );
+      const nextSelectedExplorerTarget: ExplorerTarget = nextSelectedWorktreeId
+        ? {
+            kind: 'worktree',
+            worktreeId: nextSelectedWorktreeId
+          }
+        : { kind: 'workspace' };
+
+      setSelectedExplorerTarget(nextSelectedExplorerTarget);
       setSelectedProjectId(resolvedSelection.nextProjectId);
+      setMainView('project');
+      persistProjectsState({
+        activeGroupId: resolvedSelection.nextGroupId,
+        selectedExplorerTarget: nextSelectedExplorerTarget,
+        selectedLauncherAppId,
+        selectedProjectId: resolvedSelection.nextProjectId
+      });
     },
     selectProject(projectId: string, groupId?: string) {
-      setSelectedExplorerTarget({ kind: 'workspace' });
+      const nextSelectedExplorerTarget: ExplorerTarget = { kind: 'workspace' };
+      const nextProject = projectsById[projectId];
+
+      setSelectedExplorerTarget(nextSelectedExplorerTarget);
       setSelectedProjectId(projectId);
+      setMainView('project');
       setLauncherError('');
+      persistProjectsState({
+        activeGroupId: nextProject?.groupId ?? groupId ?? '',
+        selectedExplorerTarget: nextSelectedExplorerTarget,
+        selectedLauncherAppId,
+        selectedProjectId: projectId
+      });
     },
     selectWorkspace() {
-      setSelectedExplorerTarget({ kind: 'workspace' });
+      const nextSelectedExplorerTarget: ExplorerTarget = { kind: 'workspace' };
+
+      setSelectedExplorerTarget(nextSelectedExplorerTarget);
+      setMainView('project');
+      persistProjectsState({
+        activeGroupId: project?.groupId ?? '',
+        selectedExplorerTarget: nextSelectedExplorerTarget,
+        selectedLauncherAppId,
+        selectedProjectId
+      });
     },
     selectWorktree(worktreeId: string) {
-      setSelectedExplorerTarget({
+      const nextSelectedExplorerTarget: ExplorerTarget = {
         kind: 'worktree',
         worktreeId
+      };
+
+      setSelectedExplorerTarget(nextSelectedExplorerTarget);
+      setMainView('project');
+      persistProjectsState({
+        activeGroupId: project?.groupId ?? '',
+        selectedExplorerTarget: nextSelectedExplorerTarget,
+        selectedLauncherAppId,
+        selectedProjectId
       });
     },
     setSidebarView,

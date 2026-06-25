@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func readTemplateLock(projectRoot string) (TemplateLock, error) {
@@ -154,8 +155,20 @@ func loadTemplateTree(spec *TemplateSpec) error {
 		if ignore.Match(normalized) {
 			return nil
 		}
-		spec.TemplateFiles[normalized] = true
-		spec.Files[normalized] = TemplateFileSpec{Path: normalized, TemplatePath: normalized}
+		outputPath := templateOutputPath(normalized)
+		if existing, ok := spec.Files[outputPath]; ok {
+			return fmt.Errorf("template files %s and %s both render to %s", existing.TemplatePath, normalized, outputPath)
+		}
+		spec.TemplateFiles[outputPath] = true
+		spec.Files[outputPath] = TemplateFileSpec{Path: outputPath, TemplatePath: normalized}
 		return nil
 	})
+}
+
+func templateOutputPath(templatePath string) string {
+	segments := strings.Split(normalizePath(templatePath), "/")
+	for index, segment := range segments {
+		segments[index] = strings.ReplaceAll(segment, ".template", "")
+	}
+	return strings.Join(segments, "/")
 }

@@ -1,7 +1,10 @@
-import { Button, Card, Chip, Surface, Text } from '@heroui/react';
+import { useState } from 'react';
+import { Button, Card, Chip, Surface, Text } from '@/app/dotnaos-ui';
 import {
   ArrowRight,
   CheckCircle2,
+  Check,
+  Copy,
   Download,
   ExternalLink,
   Github,
@@ -28,11 +31,102 @@ const tailscaleCommands = [
   'tailscale serve status --json'
 ];
 
-function CommandBlock({ commands }: { commands: string[] }) {
+function tokenClassName(token: string, isCommand: boolean) {
+  if (/^https?:\/\//.test(token)) {
+    return 'text-sky-300 underline decoration-sky-500/40 underline-offset-2';
+  }
+
+  if (isCommand) {
+    return 'text-emerald-300';
+  }
+
+  if (token.startsWith('--') || token.startsWith('-')) {
+    return 'text-violet-300';
+  }
+
+  if (/^[A-Z0-9_]+=/.test(token)) {
+    return 'text-amber-300';
+  }
+
+  if (/^\d+$/.test(token)) {
+    return 'text-fuchsia-300';
+  }
+
+  if (token.includes('/') || token.startsWith('.')) {
+    return 'text-sky-200';
+  }
+
+  return 'text-slate-200';
+}
+
+function HighlightedLine({ line }: { line: string }) {
+  let commandSeen = false;
+
   return (
-    <pre className="overflow-auto rounded-lg border border-slate-800 bg-black/35 p-3 font-mono text-xs leading-5 text-slate-200">
-      {commands.join('\n')}
-    </pre>
+    <>
+      {line.split(/(\s+)/).map((token, index) => {
+        if (!token.trim()) {
+          return <span key={`${token}:${index}`}>{token}</span>;
+        }
+
+        const isCommand = !commandSeen;
+        commandSeen = true;
+
+        return (
+          <span key={`${token}:${index}`} className={tokenClassName(token, isCommand)}>
+            {token}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+function CommandBlock({ commands }: { commands: string[] }) {
+  const [copied, setCopied] = useState(false);
+  const code = commands.join('\n');
+
+  async function copyCode() {
+    try {
+      await navigator.clipboard.writeText(code);
+    } catch {
+      const textArea = document.createElement('textarea');
+      textArea.value = code;
+      textArea.setAttribute('readonly', '');
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-9999px';
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      textArea.remove();
+    }
+    setCopied(true);
+    window.setTimeout(() => {
+      setCopied(false);
+    }, 1400);
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-800 bg-black/35">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-3 py-2">
+        <Text className="font-mono text-[11px] uppercase tracking-[0.16em] text-slate-500">
+          shell
+        </Text>
+        <Button size="sm" variant="ghost" className="text-slate-300" onPress={() => void copyCode()}>
+          {copied ? <Check className="size-4 text-emerald-300" /> : <Copy className="size-4" />}
+          {copied ? 'Copied' : 'Copy'}
+        </Button>
+      </div>
+      <div className="overflow-x-auto overflow-y-hidden p-3">
+        <pre className="m-0 min-w-max whitespace-pre font-mono text-xs leading-5">
+          {commands.map((line, index) => (
+            <span key={`${line}:${index}`} className="block">
+              <HighlightedLine line={line} />
+            </span>
+          ))}
+        </pre>
+      </div>
+    </div>
   );
 }
 

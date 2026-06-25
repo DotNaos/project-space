@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 type InitOptions struct {
@@ -13,6 +14,60 @@ type InitOptions struct {
 	Version      string
 	Commit       string
 	Force        bool
+}
+
+func WriteTmpTemplateValues(projectRoot string) (string, error) {
+	root, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return "", err
+	}
+	slug := slugify(filepath.Base(root))
+	if slug == "" {
+		slug = "example-project"
+	}
+	displayName := displayNameFromSlug(slug)
+	values := TemplateValues{
+		"project": map[string]any{
+			"name":        displayName,
+			"displayName": displayName,
+			"slug":        slug,
+			"packageName": slug,
+			"goModule":    "github.com/DotNaos/" + slug,
+			"appScheme":   slug,
+			"dockerImage": slug,
+		},
+	}
+	valuesPath := filepath.Join(root, ".project", "template.values.yaml")
+	if err := os.MkdirAll(filepath.Dir(valuesPath), 0o755); err != nil {
+		return "", err
+	}
+	body, err := marshalYAML(values)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(valuesPath, body, 0o644); err != nil {
+		return "", err
+	}
+	return valuesPath, nil
+}
+
+func InstallDefaultModules(projectRoot string) ([]ModuleInstallPlan, error) {
+	infos, err := ListModuleInfos(projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	plans := []ModuleInstallPlan{}
+	for _, info := range infos {
+		if !info.Default || info.Installed {
+			continue
+		}
+		plan, err := InstallModule(projectRoot, info.Name, ModuleInstallOptions{Apply: true})
+		if err != nil {
+			return nil, err
+		}
+		plans = append(plans, plan)
+	}
+	return plans, nil
 }
 
 func CreateProject(projectRoot string, options InitOptions) (string, error) {
@@ -141,4 +196,33 @@ func mustWorkingDirectory() string {
 		return "."
 	}
 	return wd
+}
+
+func slugify(value string) string {
+	parts := []rune{}
+	lastWasDash := false
+	for _, char := range strings.ToLower(value) {
+		switch {
+		case char >= 'a' && char <= 'z', char >= '0' && char <= '9':
+			parts = append(parts, char)
+			lastWasDash = false
+		case !lastWasDash:
+			parts = append(parts, '-')
+			lastWasDash = true
+		}
+	}
+	return strings.Trim(string(parts), "-")
+}
+
+func displayNameFromSlug(slug string) string {
+	words := strings.Split(slug, "-")
+	for index, word := range words {
+		if word == "" {
+			continue
+		}
+		runes := []rune(word)
+		runes[0] = unicode.ToUpper(runes[0])
+		words[index] = string(runes)
+	}
+	return strings.Join(words, " ")
 }

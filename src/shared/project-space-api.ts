@@ -12,12 +12,30 @@ export interface ProjectDirectorySelection {
   name?: string;
 }
 
+export interface ProjectctlDiscoverySummary {
+  hasGoals: boolean;
+  hasLock: boolean;
+  hasProject: boolean;
+  status: 'managed' | 'partial' | 'unmanaged';
+}
+
+export type FullstackTemplateStatus = 'implemented' | 'partial' | 'not-detected' | 'template-source';
+
+export interface FullstackTemplateCheck {
+  matched: string[];
+  missing: string[];
+  score: number;
+  status: FullstackTemplateStatus;
+}
+
 export interface ProjectSpaceRecord {
   id: string;
   name: string;
   rootPath: string;
   kind: 'workspace' | 'standalone';
   groupId?: string;
+  projectctl?: ProjectctlDiscoverySummary;
+  fullstackTemplate?: FullstackTemplateCheck;
 }
 
 export interface ProjectGroupRecord {
@@ -174,6 +192,60 @@ export interface GitActionResult {
   stderr?: string;
 }
 
+export type GitHubAuthSource = 'stored-oauth' | 'environment';
+export type GitHubCatalogStatus = 'connected' | 'auth-required' | 'not-configured' | 'error';
+export type GitHubProjectConfigStatus = 'complete' | 'partial' | 'missing' | 'unknown';
+
+export interface GitHubCatalogRepository {
+  defaultBranch?: string;
+  description?: string;
+  fullName: string;
+  id: number;
+  isPrivate: boolean;
+  name: string;
+  owner: string;
+  projectConfig: {
+    projectYaml: boolean;
+    status: GitHubProjectConfigStatus;
+    templateLock: boolean;
+  };
+  pushedAt?: string;
+  updatedAt?: string;
+  url: string;
+}
+
+export interface GitHubCatalogResult {
+  auth?: {
+    login?: string;
+    source: GitHubAuthSource;
+  };
+  checkedAt: string;
+  message?: string;
+  repositories: GitHubCatalogRepository[];
+  status: GitHubCatalogStatus;
+}
+
+export interface GitHubOAuthDeviceStartResult {
+  deviceCode?: string;
+  expiresAt?: string;
+  intervalSeconds?: number;
+  message?: string;
+  status: 'pending' | 'not-configured' | 'error';
+  userCode?: string;
+  verificationUri?: string;
+}
+
+export interface GitHubOAuthDevicePollRequest {
+  deviceCode: string;
+}
+
+export interface GitHubOAuthDevicePollResult {
+  catalog?: GitHubCatalogResult;
+  intervalSeconds?: number;
+  message?: string;
+  status: 'pending' | 'connected' | 'expired' | 'denied' | 'error';
+}
+
 export interface CodexStatusResult {
   appServerOrigin?: string;
   appServerReachable: boolean;
@@ -302,16 +374,166 @@ export interface ProjectBackupRequest {
   target: string;
 }
 
+export interface ProjectctlPresenceReport {
+  label: string;
+  path: string;
+  present: boolean;
+}
+
+export interface ProjectctlCheckItem {
+  command?: string;
+  files?: string[];
+  notes?: string[];
+  path?: string;
+  runtime?: string;
+  status: string;
+}
+
+export interface ProjectctlProjectSettings {
+  bundleId?: string;
+  displayName: string;
+  kind: string;
+  modulePath?: string;
+  name: string;
+  port?: number;
+  slug: string;
+}
+
+export interface ProjectctlEnvironmentConfig {
+  default?: boolean;
+  name: string;
+  purpose: string;
+}
+
+export interface ProjectctlInspectResult {
+  capabilities?: string[];
+  features?: Record<string, ProjectctlCheckItem>;
+  hasGoals: boolean;
+  hasLock: boolean;
+  hasProject: boolean;
+  lock?: {
+    addons?: Record<string, { status: string }>;
+    capabilities?: string[];
+    features?: Record<string, ProjectctlCheckItem>;
+    migration?: {
+      appliedMigrations?: string[];
+      lastAppliedVersion?: string;
+      notes?: string[];
+    };
+    platforms?: Record<string, ProjectctlCheckItem>;
+    preset?: {
+      name: string;
+      version: string;
+    };
+    project?: {
+      backend?: string;
+      bundleId?: string;
+      displayName: string;
+      kind: string;
+      modulePath?: string;
+      slug: string;
+    };
+    template?: {
+      generator: string;
+      repository: string;
+      version: string;
+    };
+  };
+  markers: ProjectctlPresenceReport[];
+  project?: {
+    addons?: Record<string, { enabled: boolean }>;
+    environments?: ProjectctlEnvironmentConfig[];
+    preset?: {
+      disabled?: string[];
+      name: string;
+      options?: Record<string, unknown>;
+      version: string;
+    };
+    project: ProjectctlProjectSettings;
+  };
+  root: string;
+  templateVersion: string;
+}
+
+export interface ProjectctlPlanOperation {
+  kind: string;
+  owner?: string;
+  path: string;
+  reason?: string;
+}
+
+export interface ProjectctlPlanResult {
+  changes: boolean;
+  conflictCount: number;
+  counts: Record<string, number>;
+  operations: ProjectctlPlanOperation[];
+  root: string;
+  summary: string;
+  templateVersion: string;
+}
+
+export interface ProjectctlOverviewResult {
+  available: boolean;
+  error?: string;
+  inspect?: ProjectctlInspectResult;
+  preview?: ProjectctlPlanResult;
+  status?: ProjectctlPlanResult;
+  toolPath?: string;
+}
+
+export type ScopeDevboxAgent = 'codex' | 'gemini';
+export type ScopeDevboxJobStatus = 'queued' | 'running' | 'passed' | 'failed' | 'rejected';
+
+export interface ScopeDevboxJobRecord {
+  agent: ScopeDevboxAgent;
+  createdAt: string;
+  exitCode?: number | null;
+  id: string;
+  logPath: string;
+  machineId: string;
+  machineName?: string;
+  message?: string;
+  model: string;
+  repoPath: string;
+  scopePath: string;
+  status: ScopeDevboxJobStatus;
+  task: string;
+  updatedAt: string;
+  writableFiles: string[];
+}
+
+export interface ScopeDevboxOverviewResult {
+  defaultAgent: ScopeDevboxAgent;
+  defaultModel: string;
+  devboxRepo: {
+    exists: boolean;
+    path: string;
+  };
+  jobs: ScopeDevboxJobRecord[];
+}
+
+export interface ScopeDevboxStartRequest {
+  agent: ScopeDevboxAgent;
+  machineId: string;
+  model: string;
+  repoPath: string;
+  task: string;
+  writableFiles: string[];
+}
+
 export interface ProjectSpaceBackend {
   getAppMeta(): Promise<AppMeta>;
   getCodexStatus(): Promise<CodexStatusResult>;
   getConnectorOverview(): Promise<ConnectorOverviewResult>;
+  getGitHubCatalog(): Promise<GitHubCatalogResult>;
   getGitDiff(request: GitDiffRequest): Promise<GitDiffResult>;
   getGitStatus(cwd: string): Promise<GitStatusResult>;
   getPlatformOverview(): Promise<PlatformOverviewResult>;
   loadLauncherAppIcon(appId: string): Promise<string | undefined>;
   loadLauncherApps(): Promise<LauncherAppRecord[]>;
   loadProjectDiscovery(): Promise<ProjectDiscoveryResult>;
+  loadProjectctlOverview(projectPath: string): Promise<ProjectctlOverviewResult>;
+  loadProjectctlPreview(projectPath: string): Promise<ProjectctlPlanResult>;
   loadProjectsState(): Promise<ProjectsState>;
   loadProjectWorktrees(projectPath: string): Promise<ProjectWorktreeRecord[]>;
   openCodexSkills(): Promise<OpenPathInAppResult>;
@@ -321,6 +543,12 @@ export interface ProjectSpaceBackend {
   runTerminalCommand(request: TerminalCommandRequest): Promise<TerminalCommandResult>;
   saveProjectsState(state: ProjectsState): Promise<void>;
   selectProjectDirectory(): Promise<ProjectDirectorySelection>;
+  startGitHubOAuthDeviceFlow(): Promise<GitHubOAuthDeviceStartResult>;
+  pollGitHubOAuthDeviceFlow(
+    request: GitHubOAuthDevicePollRequest
+  ): Promise<GitHubOAuthDevicePollResult>;
+  getScopeDevboxOverview(): Promise<ScopeDevboxOverviewResult>;
+  startScopeDevboxJob(request: ScopeDevboxStartRequest): Promise<ScopeDevboxJobRecord>;
   stageGitPaths(request: GitStageRequest): Promise<GitActionResult>;
   deployProject(request: ProjectDeployRequest): Promise<GitActionResult>;
   backupProject(request: ProjectBackupRequest): Promise<GitActionResult>;

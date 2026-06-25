@@ -5,7 +5,7 @@ import {
   Select,
   Text,
   Tooltip
-} from '@heroui/react';
+} from '@/app/dotnaos-ui';
 import type { ProjectSpaceRecord } from '@/shared/project-space-api';
 
 interface SidebarProjectSelectProps {

@@ -6,6 +6,7 @@ import { createLocalProjectSpaceBackend } from './local-project-space-backend';
 import type {
   OpenPathInAppRequest,
   CodexOpenRequest,
+  GitHubOAuthDevicePollRequest,
   ProjectBackupRequest,
   GitCommitRequest,
   GitDiffRequest,
@@ -13,6 +14,7 @@ import type {
   ProjectDeployRequest,
   ProjectDirectorySelection,
   ProjectSpaceBackend,
+  ScopeDevboxStartRequest,
   ProjectsState,
   TerminalCommandRequest,
   ToolLaunchRequest
@@ -137,6 +139,30 @@ function createApiHandler(backend: ProjectSpaceBackend) {
         return true;
       }
 
+      if (request.method === 'GET' && url.pathname === '/api/projectctl/overview') {
+        const projectPath = url.searchParams.get('projectPath');
+
+        if (!projectPath) {
+          writeJson(response, 400, { error: 'Missing projectPath.' });
+          return true;
+        }
+
+        writeJson(response, 200, await backend.loadProjectctlOverview(projectPath));
+        return true;
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/projectctl/preview') {
+        const projectPath = url.searchParams.get('projectPath');
+
+        if (!projectPath) {
+          writeJson(response, 400, { error: 'Missing projectPath.' });
+          return true;
+        }
+
+        writeJson(response, 200, await backend.loadProjectctlPreview(projectPath));
+        return true;
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/projects/select-directory') {
         const selection: ProjectDirectorySelection = await backend.selectProjectDirectory();
         writeJson(response, 200, selection);
@@ -170,6 +196,22 @@ function createApiHandler(backend: ProjectSpaceBackend) {
         return true;
       }
 
+      if (request.method === 'GET' && url.pathname === '/api/github/catalog') {
+        writeJson(response, 200, await backend.getGitHubCatalog());
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/github/oauth/device/start') {
+        writeJson(response, 200, await backend.startGitHubOAuthDeviceFlow());
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/github/oauth/device/poll') {
+        const payload = await readJson<GitHubOAuthDevicePollRequest>(request);
+        writeJson(response, 200, await backend.pollGitHubOAuthDeviceFlow(payload));
+        return true;
+      }
+
       if (request.method === 'GET' && url.pathname === '/api/platform/overview') {
         writeJson(response, 200, await backend.getPlatformOverview());
         return true;
@@ -196,6 +238,17 @@ function createApiHandler(backend: ProjectSpaceBackend) {
       if (request.method === 'POST' && url.pathname === '/api/terminal/run') {
         const payload = await readJson<TerminalCommandRequest>(request);
         writeJson(response, 200, await backend.runTerminalCommand(payload));
+        return true;
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/scope-devbox/overview') {
+        writeJson(response, 200, await backend.getScopeDevboxOverview());
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/scope-devbox/jobs') {
+        const payload = await readJson<ScopeDevboxStartRequest>(request);
+        writeJson(response, 200, await backend.startScopeDevboxJob(payload));
         return true;
       }
 

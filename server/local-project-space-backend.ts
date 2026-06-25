@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 
 import { getCodexStatus, openCodexTarget } from './local-codex-client';
 import { runTerminalCommand } from './local-command-runner';
+import { loadConnectorProjectDiscovery } from './connector-discovery';
 import {
   commitGitChanges,
   getGitDiff,
@@ -15,6 +16,11 @@ import {
   unstageGitPaths
 } from './local-git-client';
 import {
+  getGitHubCatalog,
+  pollGitHubOAuthDeviceFlow,
+  startGitHubOAuthDeviceFlow
+} from './local-github-catalog';
+import {
   loadInstalledLauncherApps,
   loadLauncherAppIcon,
   openCodexSkills,
@@ -22,10 +28,18 @@ import {
 } from './local-launcher-apps';
 import { getConnectorOverview } from './local-machine-registry';
 import {
+  getProjectctlOverview,
+  getProjectctlPreview
+} from './local-projectctl-client';
+import {
   backupProject,
   deployProject,
   getPlatformOverview
 } from './local-platform-operations';
+import {
+  getScopeDevboxOverview,
+  startScopeDevboxJob
+} from './local-scope-devbox-jobs';
 import type {
   AppMeta,
   FileSystemEntry,
@@ -93,13 +107,28 @@ function createProjectRecord(
   groupId?: string
 ): ProjectSpaceRecord {
   const resolvedPath = resolve(path);
+  const hasProject = existsSync(join(resolvedPath, 'project.yaml'));
+  const hasLock = existsSync(join(resolvedPath, 'template.lock.yaml'));
+  const hasGoals = existsSync(join(resolvedPath, 'GOALS.md'));
+  const status =
+    hasProject && hasLock
+      ? 'managed'
+      : hasProject || hasLock || hasGoals
+        ? 'partial'
+        : 'unmanaged';
 
   return {
     id: makeNodeId(rootPath, resolvedPath),
     kind,
     groupId,
     name: basename(resolvedPath),
-    rootPath: resolvedPath
+    rootPath: resolvedPath,
+    projectctl: {
+      hasGoals,
+      hasLock,
+      hasProject,
+      status
+    }
   };
 }
 
@@ -507,6 +536,9 @@ export function createLocalProjectSpaceBackend(
     async getConnectorOverview() {
       return getConnectorOverview();
     },
+    async getGitHubCatalog() {
+      return getGitHubCatalog();
+    },
     async getGitDiff(request) {
       return getGitDiff(request);
     },
@@ -523,7 +555,22 @@ export function createLocalProjectSpaceBackend(
       return loadLauncherAppIcon(appId);
     },
     async loadProjectDiscovery() {
+      if (process.env.PROJECT_SPACE_DISCOVERY_SOURCE === 'connector') {
+        return (await loadConnectorProjectDiscovery()) ?? {
+          groups: [],
+          projects: [],
+          rootItems: [],
+          rootPath: 'connector'
+        };
+      }
+
       return discoverProjects();
+    },
+    async loadProjectctlOverview(projectPath: string) {
+      return getProjectctlOverview(projectPath);
+    },
+    async loadProjectctlPreview(projectPath: string) {
+      return getProjectctlPreview(projectPath);
     },
     async loadProjectsState() {
       return readProjectsState();
@@ -551,6 +598,18 @@ export function createLocalProjectSpaceBackend(
     },
     async selectProjectDirectory() {
       return options.selectProjectDirectory?.() ?? { canceled: true };
+    },
+    async startGitHubOAuthDeviceFlow() {
+      return startGitHubOAuthDeviceFlow();
+    },
+    async pollGitHubOAuthDeviceFlow(request) {
+      return pollGitHubOAuthDeviceFlow(request);
+    },
+    async getScopeDevboxOverview() {
+      return getScopeDevboxOverview();
+    },
+    async startScopeDevboxJob(request) {
+      return startScopeDevboxJob(request);
     },
     async stageGitPaths(request) {
       return stageGitPaths(request);

@@ -1,0 +1,52 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/DotNaos/project-template/main/schema/project.schema.json
+$schema: https://raw.githubusercontent.com/DotNaos/project-template/main/schema/project.schema.json
+project:
+  name: project-space
+  slug: project-space
+  kind: app
+  displayName: Project Space
+  modulePath: github.com/DotNaos/project-space
+  bundleId: com.dotnaos.project.space
+  port: 4173
+environments:
+  - name: prod
+    purpose: stable Tailscale-only hosted Project Space
+    default: true
+  - name: preview
+    purpose: pre-release validation and branch worktrees
+preset:
+  name: fullstack-app
+  version: 0.3.0
+  options:
+    backend: go
+    mobile: true
+    desktop:
+      macos: true
+      windows: false
+    docker: true
+    githubCi: true
+    release: true
+    onePasswordSecrets: true
+    updateChecks: true
+    environments: true
+    cli: true
+    mcp: true
+addons:
+  goals:
+    enabled: true
+  onepassword-secrets:
+    enabled: true
+  github-ci:
+    enabled: true
+  release:
+    enabled: true
+  project-space-registry:
+    enabled: true
+  update-checks:
+    enabled: true
+  environments:
+    enabled: true
+  branch-protection:
+    enabled: true
+  devcontainer:
+    enabled: true
