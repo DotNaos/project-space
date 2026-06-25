@@ -132,3 +132,24 @@ type Report struct {
 	Files         []FileValidation
 	OK            bool
 }
+
+type ViolationQuarantineOptions struct {
+	Apply  bool
+	DryRun bool
+}
+
+type ViolationQuarantinePlan struct {
+	ProjectRoot    string
+	QuarantineRoot string
+	Files          []ViolationQuarantineFile
+	WouldWrite     bool
+	ManifestPath   string
+}
+
+type ViolationQuarantineFile struct {
+	Action         string
+	OriginalPath   string
+	QuarantinePath string
+	Code           string
+	Module         string
+}
