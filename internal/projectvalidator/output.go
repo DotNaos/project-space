@@ -72,7 +72,7 @@ func PrintFileReportWithOptions(report FileValidation, options OutputOptions) {
 	}
 	fmt.Println(report.Path)
 	fmt.Println()
-	printStatusLine(report.Path, report.Status, report.Note, options)
+	printStatusLine(report.Path, report.Status, fileModuleDetail(report), options)
 	for _, diagnostic := range report.Diagnostics {
 		printStatusLine(diagnostic.Path, diagnostic.Status, diagnostic.Note, options)
 	}
@@ -86,7 +86,7 @@ func PrintFileReportWithOptions(report FileValidation, options OutputOptions) {
 
 func printTable(report Report, options OutputOptions) {
 	for _, file := range report.Files {
-		printStatusLine(file.Path, file.Status, file.Note, options)
+		printStatusLine(file.Path, file.Status, fileModuleDetail(file), options)
 		for _, diagnostic := range file.Diagnostics {
 			if diagnostic.Status == StatusViolation {
 				printStatusLine("  "+diagnostic.Path, diagnostic.Status, diagnostic.Note, options)
@@ -96,9 +96,9 @@ func printTable(report Report, options OutputOptions) {
 }
 
 func printProjectTSV(report Report) {
-	fmt.Println("status\tkind\tpath\tcode\tdetail")
+	fmt.Println("status\tkind\tpath\tcode\tmodule")
 	for _, entry := range report.Structure {
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", entry.Status, entry.Kind, entry.Path, entry.Code, entry.Note)
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", entry.Status, entry.Kind, entry.Path, entry.Code, structureModuleDetail(entry))
 	}
 	if report.OK {
 		fmt.Println("RESULT\tresult\t.\tok\tproject adheres to template")
@@ -108,8 +108,8 @@ func printProjectTSV(report Report) {
 }
 
 func printFileTSV(report FileValidation) {
-	fmt.Println("status\tkind\tpath\tcode\tdetail")
-	fmt.Printf("%s\tfile\t%s\t%s\t%s\n", report.Status, report.Path, report.Code, report.Note)
+	fmt.Println("status\tkind\tpath\tcode\tmodule")
+	fmt.Printf("%s\tfile\t%s\t%s\t%s\n", report.Status, report.Path, report.Code, fileModuleDetail(report))
 	for _, diagnostic := range report.Diagnostics {
 		fmt.Printf("%s\tdiagnostic\t%s\t%s\t%s\n", diagnostic.Status, diagnostic.Path, diagnostic.Status, diagnostic.Note)
 	}
@@ -169,9 +169,29 @@ func printTreeChildren(node *treeNode, prefix string, options OutputOptions) {
 		if entry.Kind == "dir" {
 			label += "/"
 		}
-		printStatusLine(prefix+branch+label, entry.Status, entry.Note, options)
+		printStatusLine(prefix+branch+label, entry.Status, structureModuleDetail(*entry), options)
 		printTreeChildren(child, nextPrefix, options)
 	}
+}
+
+func structureModuleDetail(entry StructureEntry) string {
+	if entry.Module != "" {
+		return entry.Module
+	}
+	if entry.Code == "template" || entry.Code == "missing" {
+		return "template"
+	}
+	return "-"
+}
+
+func fileModuleDetail(file FileValidation) string {
+	if file.Module != "" {
+		return file.Module
+	}
+	if file.Code == "template" || file.Code == "missing" {
+		return "template"
+	}
+	return "-"
 }
 
 func printStatusLine(label string, status Status, note string, options OutputOptions) {

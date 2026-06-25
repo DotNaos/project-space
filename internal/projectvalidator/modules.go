@@ -335,6 +335,27 @@ type ownRule struct {
 	match func(string) bool
 }
 
+func moduleForPath(template TemplateSpec, path string) string {
+	names := make([]string, 0, len(template.Modules))
+	for name := range template.Modules {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, moduleName := range names {
+		module := template.Modules[moduleName]
+		for _, pattern := range module.Owns {
+			regex, err := compilePathPattern(pattern, nil)
+			if err != nil {
+				continue
+			}
+			if regex.MatchString(path) {
+				return moduleName
+			}
+		}
+	}
+	return ""
+}
+
 func formatModuleConflicts(conflicts []ModuleInstallConflict) string {
 	parts := make([]string, 0, len(conflicts))
 	for _, conflict := range conflicts {

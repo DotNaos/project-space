@@ -106,6 +106,7 @@ type StructureEntry struct {
 	Code   string
 	Note   string
 	Slot   string
+	Module string
 }
 
 type FileDiagnostic struct {
@@ -119,6 +120,7 @@ type FileValidation struct {
 	Status      Status
 	Code        string
 	Note        string
+	Module      string
 	Diagnostics []FileDiagnostic
 }
 

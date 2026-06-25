@@ -50,18 +50,20 @@ func validateStructure(projectRoot string, template TemplateSpec, files []FileVa
 	for fixedPath := range fixedPaths {
 		fileStatus, hasFileStatus := fileStatusByPath[fixedPath]
 		if !actualFiles[fixedPath] {
-			entries[fixedPath] = StructureEntry{Path: fixedPath, Kind: "file", Status: StatusMissing, Code: "missing", Note: "missing"}
+			entries[fixedPath] = StructureEntry{Path: fixedPath, Kind: "file", Status: StatusMissing, Code: "missing", Note: "missing", Module: moduleForPath(template, fixedPath)}
 			continue
 		}
 		status := StatusOK
 		code := "template"
 		note := "template"
+		module := moduleForPath(template, fixedPath)
 		if hasFileStatus {
 			status = fileStatus.Status
 			code = fileStatus.Code
 			note = fileStatus.Note
+			module = fileStatus.Module
 		}
-		entries[fixedPath] = StructureEntry{Path: fixedPath, Kind: "file", Status: status, Code: code, Note: note}
+		entries[fixedPath] = StructureEntry{Path: fixedPath, Kind: "file", Status: status, Code: code, Note: note, Module: module}
 	}
 
 	for actualFile := range actualFiles {
@@ -69,7 +71,7 @@ func validateStructure(projectRoot string, template TemplateSpec, files []FileVa
 			continue
 		}
 		if rule, ok := matchingSlot(slotRules, actualFile); ok {
-			entries[actualFile] = StructureEntry{Path: actualFile, Kind: "file", Status: StatusAdded, Code: "slot", Note: rule.placeholder, Slot: rule.placeholder}
+			entries[actualFile] = StructureEntry{Path: actualFile, Kind: "file", Status: StatusAdded, Code: "slot", Note: rule.placeholder, Slot: rule.placeholder, Module: moduleForPath(template, actualFile)}
 			continue
 		}
 		entries[actualFile] = StructureEntry{Path: actualFile, Kind: "file", Status: StatusViolation, Code: "not_allowed", Note: "not_allowed"}
@@ -95,18 +97,20 @@ func validateTreeStructure(projectRoot string, template TemplateSpec, files []Fi
 	for templateFile := range template.TemplateFiles {
 		fileStatus, hasFileStatus := fileStatusByPath[templateFile]
 		if !actualFiles[templateFile] {
-			entries[templateFile] = StructureEntry{Path: templateFile, Kind: "file", Status: StatusMissing, Code: "missing", Note: "missing"}
+			entries[templateFile] = StructureEntry{Path: templateFile, Kind: "file", Status: StatusMissing, Code: "missing", Note: "missing", Module: moduleForPath(template, templateFile)}
 			continue
 		}
 		status := StatusOK
 		code := "template"
 		note := "template"
+		module := moduleForPath(template, templateFile)
 		if hasFileStatus {
 			status = fileStatus.Status
 			code = fileStatus.Code
 			note = fileStatus.Note
+			module = fileStatus.Module
 		}
-		entries[templateFile] = StructureEntry{Path: templateFile, Kind: "file", Status: status, Code: code, Note: note}
+		entries[templateFile] = StructureEntry{Path: templateFile, Kind: "file", Status: status, Code: code, Note: note, Module: module}
 	}
 
 	for actualFile := range actualFiles {
@@ -114,7 +118,7 @@ func validateTreeStructure(projectRoot string, template TemplateSpec, files []Fi
 			continue
 		}
 		if slot, ok := matchingTreeSlot(template.Slots, actualFile); ok {
-			entries[actualFile] = StructureEntry{Path: actualFile, Kind: "file", Status: StatusAdded, Code: "slot", Note: slot.Name, Slot: slot.Name}
+			entries[actualFile] = StructureEntry{Path: actualFile, Kind: "file", Status: StatusAdded, Code: "slot", Note: slot.Name, Slot: slot.Name, Module: moduleForPath(template, actualFile)}
 			continue
 		}
 		entries[actualFile] = StructureEntry{Path: actualFile, Kind: "file", Status: StatusViolation, Code: "not_allowed", Note: "not_allowed"}
@@ -198,7 +202,7 @@ func addParentDirectories(entries map[string]StructureEntry) {
 				code = "slot"
 				note = entry.Slot
 			}
-			entries[dir] = StructureEntry{Path: dir, Kind: "dir", Status: StatusOK, Code: code, Note: note, Slot: entry.Slot}
+			entries[dir] = StructureEntry{Path: dir, Kind: "dir", Status: StatusOK, Code: code, Note: note, Slot: entry.Slot, Module: entry.Module}
 		}
 	}
 }
