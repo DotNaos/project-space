@@ -1,3 +1,5 @@
+import { Button } from '@heroui/react';
+
 import type { WorkspaceTool } from '@/shared/electron-api';
 
 interface QuickActionsProps {
@@ -15,14 +17,17 @@ export function QuickActions({ onOpen }: QuickActionsProps) {
   return (
     <div className="flex flex-wrap gap-2">
       {actionLabels.map((action) => (
-        <button
+        <Button
           key={action.tool}
           type="button"
-          onClick={() => onOpen(action.tool)}
-          className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left transition hover:border-teal-300/30 hover:bg-teal-300/8"
+          variant="outline"
+          onPress={() => onOpen(action.tool)}
+          className="justify-start rounded-xl border-slate-700/70 bg-slate-950/30 px-3 py-2 text-left text-slate-100 shadow-none transition hover:border-teal-300/30 hover:bg-teal-300/8"
         >
-          <span className="block text-sm font-medium text-white">{action.label}</span>
-        </button>
+          <span className="block text-sm font-medium text-inherit">
+            {action.label}
+          </span>
+        </Button>
       ))}
     </div>
   );

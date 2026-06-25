@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import { Button } from '@heroui/react';
 import { cn } from '@/lib/utils';
 
 interface SpaceItem {
@@ -36,38 +37,44 @@ export function SpacesDock() {
             const active = activeSpaceId === space.id;
 
             return (
-              <button
+              <Button
                 key={space.id}
                 type="button"
                 aria-label={space.label}
-                title={space.label}
-                onClick={() => setActiveSpaceId(space.id)}
+                isIconOnly
+                variant={active ? 'secondary' : 'ghost'}
+                size="sm"
+                onPress={() => setActiveSpaceId(space.id)}
                 className={cn(
-                  'group flex h-6 w-6 items-center justify-center rounded-[9px] transition',
-                  active ? 'bg-slate-800/90' : 'hover:bg-slate-800/70'
+                  'group flex h-6 w-6 min-w-0 items-center justify-center rounded-[9px] border border-transparent p-0 transition',
+                  active
+                    ? 'bg-slate-800/90 text-slate-100 shadow-[0_0_0_1px_rgba(148,163,184,0.12)]'
+                    : 'text-slate-400 hover:border-slate-700/80 hover:bg-slate-800/70 hover:text-slate-100'
                 )}
               >
                 <span
                   className={cn(
                     'h-1.5 w-1.5 rounded-full transition',
-                  active
-                    ? 'bg-slate-100 shadow-[0_0_0_3px_rgba(241,245,249,0.08)]'
-                    : 'bg-slate-600 group-hover:bg-slate-400'
+                    active
+                      ? 'bg-slate-100 shadow-[0_0_0_3px_rgba(241,245,249,0.08)]'
+                      : 'bg-slate-600 group-hover:bg-slate-400'
                   )}
                 />
-              </button>
+              </Button>
             );
           })}
         </div>
 
-        <button
+        <Button
           type="button"
-          onClick={addSpace}
+          variant="ghost"
+          size="sm"
+          onPress={addSpace}
           aria-label="Add space"
-          className="flex h-6 w-6 items-center justify-center rounded-[9px] text-sm leading-none text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
+          className="flex h-6 w-6 min-w-0 items-center justify-center rounded-[9px] border border-transparent p-0 text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
         >
-          +
-        </button>
+          <span className="text-sm leading-none">+</span>
+        </Button>
       </div>
     </div>
   );
