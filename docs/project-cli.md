@@ -18,16 +18,16 @@ Useful flags:
 --version <version>
 --commit <commit-or-label>
 --force
---temp
---local-temp
---global-temp
+--tmp
+--local-tmp
+--global-tmp
 ```
 
-`--temp` creates `./temp/generated-app`, writes temp template values, and installs the template's default modules.
+`--tmp` creates `./tmp/generated-app`, writes tmp template values, and installs the template's default modules.
 
-`--local-temp` is the explicit form of `--temp`.
+`--local-tmp` is the explicit form of `--tmp`.
 
-`--global-temp` creates the generated project under `/tmp`.
+`--global-tmp` creates the generated project under `/tmp`.
 
 Example:
 
@@ -37,19 +37,19 @@ project new \
   --template-path . \
   --version local \
   --commit local \
-  --temp
+  --tmp
 ```
 
-Named local temp project:
+Named local tmp project:
 
 ```sh
-project new my-app --temp
+project new my-app --tmp
 ```
 
-Named global temp project:
+Named global tmp project:
 
 ```sh
-project new my-app --global-temp
+project new my-app --global-tmp
 ```
 
 ## Initialize An Existing Project

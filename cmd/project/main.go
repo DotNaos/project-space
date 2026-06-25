@@ -35,8 +35,8 @@ func newRootCommand() *cobra.Command {
 
 func newCreateCommand() *cobra.Command {
 	options := projectvalidator.InitOptions{}
-	localTemp := false
-	globalTemp := false
+	localTmp := false
+	globalTmp := false
 	cmd := &cobra.Command{
 		Use:               "create [project-directory]",
 		Aliases:           []string{"new"},
@@ -44,20 +44,20 @@ func newCreateCommand() *cobra.Command {
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: directoryCompletion,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if localTemp && globalTemp {
-				return fmt.Errorf("--local-temp and --global-temp cannot be used together")
+			if localTmp && globalTmp {
+				return fmt.Errorf("--local-tmp and --global-tmp cannot be used together")
 			}
-			useTemp := localTemp || globalTemp
-			if !useTemp && len(args) == 0 {
-				return fmt.Errorf("project directory is required unless --temp, --local-temp, or --global-temp is used")
+			useTmp := localTmp || globalTmp
+			if !useTmp && len(args) == 0 {
+				return fmt.Errorf("project directory is required unless --tmp, --local-tmp, or --global-tmp is used")
 			}
 			target := ""
 			if len(args) == 1 {
 				target = args[0]
 			}
-			if useTemp {
+			if useTmp {
 				var err error
-				target, err = tempProjectTarget(target, globalTemp)
+				target, err = tmpProjectTarget(target, globalTmp)
 				if err != nil {
 					return err
 				}
@@ -75,12 +75,12 @@ func newCreateCommand() *cobra.Command {
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Created project: %s\n", resolved)
 			fmt.Fprintf(cmd.OutOrStdout(), "Initialized project template lock: %s\n", lockPath)
-			if useTemp {
-				valuesPath, err := projectvalidator.WriteTempTemplateValues(resolved)
+			if useTmp {
+				valuesPath, err := projectvalidator.WriteTmpTemplateValues(resolved)
 				if err != nil {
 					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Wrote temp template values: %s\n", valuesPath)
+				fmt.Fprintf(cmd.OutOrStdout(), "Wrote tmp template values: %s\n", valuesPath)
 				plans, err := projectvalidator.InstallDefaultModules(resolved)
 				if err != nil {
 					return err
@@ -93,13 +93,13 @@ func newCreateCommand() *cobra.Command {
 		},
 	}
 	addInitFlags(cmd, &options)
-	cmd.Flags().BoolVar(&localTemp, "temp", false, "create a local temp project in ./temp and install default modules")
-	cmd.Flags().BoolVar(&localTemp, "local-temp", false, "create a local temp project in ./temp and install default modules")
-	cmd.Flags().BoolVar(&globalTemp, "global-temp", false, "create a global temp project in /tmp and install default modules")
+	cmd.Flags().BoolVar(&localTmp, "tmp", false, "create a local tmp project in ./tmp and install default modules")
+	cmd.Flags().BoolVar(&localTmp, "local-tmp", false, "create a local tmp project in ./tmp and install default modules")
+	cmd.Flags().BoolVar(&globalTmp, "global-tmp", false, "create a global tmp project in /tmp and install default modules")
 	return cmd
 }
 
-func tempProjectTarget(name string, global bool) (string, error) {
+func tmpProjectTarget(name string, global bool) (string, error) {
 	if name == "" {
 		name = "generated-app"
 	}
@@ -110,7 +110,7 @@ func tempProjectTarget(name string, global bool) (string, error) {
 	if global {
 		return filepath.Join("/tmp", "project-"+base), nil
 	}
-	return filepath.Join("temp", base), nil
+	return filepath.Join("tmp", base), nil
 }
 
 func newInitCommand() *cobra.Command {

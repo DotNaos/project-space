@@ -16,7 +16,7 @@ type InitOptions struct {
 	Force        bool
 }
 
-func WriteTempTemplateValues(projectRoot string) (string, error) {
+func WriteTmpTemplateValues(projectRoot string) (string, error) {
 	root, err := filepath.Abs(projectRoot)
 	if err != nil {
 		return "", err
