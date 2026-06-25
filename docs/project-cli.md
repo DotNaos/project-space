@@ -65,7 +65,12 @@ project module list [project-directory]
 project module show <module> [project-directory]
 project module add <module> [project-directory] --dry-run
 project module add <module> [project-directory] --apply
+project module add <module> [project-directory] --dry-run --format tsv
 ```
+
+`module add` and `module install` are aliases.
+
+Module installs require either `--dry-run` or `--apply`.
 
 ## Validate
 

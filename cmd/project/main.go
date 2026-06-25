@@ -259,8 +259,10 @@ func newModuleShowCommand() *cobra.Command {
 
 func newModuleInstallCommand() *cobra.Command {
 	options := projectvalidator.ModuleInstallOptions{}
+	format := "pretty"
 	cmd := &cobra.Command{
 		Use:               "install <module> [project-directory]",
+		Aliases:           []string{"add"},
 		Short:             "Plan or install a project template module",
 		Args:              cobra.RangeArgs(1, 2),
 		ValidArgsFunction: moduleInstallCompletion,
@@ -276,17 +278,25 @@ func newModuleInstallCommand() *cobra.Command {
 			if options.Apply && options.DryRun {
 				return fmt.Errorf("--apply and --dry-run cannot be used together")
 			}
+			if !options.Apply && !options.DryRun {
+				return fmt.Errorf("choose --dry-run to preview changes or --apply to write them")
+			}
+			if format != "pretty" && format != "tsv" {
+				return fmt.Errorf("unknown format %q; use pretty or tsv", format)
+			}
 			plan, err := projectvalidator.InstallModule(resolved, args[0], options)
 			if err != nil {
 				return err
 			}
-			printModuleInstallPlan(cmd, plan, options)
+			printModuleInstallPlan(cmd, plan, options, format)
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&options.Apply, "apply", false, "write the module install plan to the project lock")
 	cmd.Flags().BoolVar(&options.DryRun, "dry-run", false, "show the module install plan without writing changes")
 	cmd.Flags().BoolVar(&options.Force, "force", false, "allow module install to overwrite existing project files")
+	cmd.Flags().StringVar(&format, "format", "pretty", "output format")
+	must(cmd.RegisterFlagCompletionFunc("format", fixedValuesCompletion("pretty", "tsv")))
 	return cmd
 }
 
@@ -310,30 +320,85 @@ func moduleInstallCompletion(cmd *cobra.Command, args []string, toComplete strin
 	return nil, cobra.ShellCompDirectiveNoFileComp
 }
 
-func printModuleInstallPlan(cmd *cobra.Command, plan projectvalidator.ModuleInstallPlan, options projectvalidator.ModuleInstallOptions) {
+func printModuleInstallPlan(cmd *cobra.Command, plan projectvalidator.ModuleInstallPlan, options projectvalidator.ModuleInstallOptions, format string) {
+	if format == "tsv" {
+		printModuleInstallPlanTSV(cmd, plan, options)
+		return
+	}
+
 	mode := "DRY-RUN"
 	if options.Apply {
 		mode = "APPLY"
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "%s module install plan for %s\n", mode, plan.ProjectRoot)
+	fmt.Fprintf(cmd.OutOrStdout(), "Module install plan\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "Project: %s\n", plan.ProjectRoot)
+	fmt.Fprintf(cmd.OutOrStdout(), "Mode: %s\n\n", strings.ToLower(mode))
+
+	fmt.Fprintln(cmd.OutOrStdout(), "Modules")
 	for _, module := range plan.AlreadyInstalled {
-		fmt.Fprintf(cmd.OutOrStdout(), "KEEP module %s\n", module)
+		fmt.Fprintf(cmd.OutOrStdout(), "  = %s already installed\n", module)
 	}
 	for _, module := range plan.ToInstall {
-		fmt.Fprintf(cmd.OutOrStdout(), "ADD module %s\n", module)
+		fmt.Fprintf(cmd.OutOrStdout(), "  + %s\n", module)
 	}
+	if len(plan.AlreadyInstalled) == 0 && len(plan.ToInstall) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "  no module changes")
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout(), "\nFiles")
 	for _, file := range plan.Files {
-		fmt.Fprintf(cmd.OutOrStdout(), "%s file %s module %s\n", file.Action, file.Path, file.Module)
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s %-40s %s\n", moduleFileActionSymbol(file.Action), file.Path, file.Module)
 	}
+	if len(plan.Files) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "  no file changes")
+	}
+
 	if len(plan.ToInstall) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "RESULT ok no module changes")
+		fmt.Fprintln(cmd.OutOrStdout(), "\nResult: no module changes")
 		return
 	}
 	if !options.Apply {
-		fmt.Fprintln(cmd.OutOrStdout(), "RESULT dry_run no changes written")
+		fmt.Fprintln(cmd.OutOrStdout(), "\nResult: dry run, no changes written")
 		return
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "RESULT applied %s\n", plan.LockPath)
+	fmt.Fprintf(cmd.OutOrStdout(), "\nResult: applied\nLock: %s\n", plan.LockPath)
+}
+
+func printModuleInstallPlanTSV(cmd *cobra.Command, plan projectvalidator.ModuleInstallPlan, options projectvalidator.ModuleInstallOptions) {
+	mode := "dry_run"
+	if options.Apply {
+		mode = "apply"
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "PLAN\tmodule_install\t%s\t%s\n", mode, plan.ProjectRoot)
+	for _, module := range plan.AlreadyInstalled {
+		fmt.Fprintf(cmd.OutOrStdout(), "KEEP\tmodule\t%s\t.\n", module)
+	}
+	for _, module := range plan.ToInstall {
+		fmt.Fprintf(cmd.OutOrStdout(), "ADD\tmodule\t%s\t.\n", module)
+	}
+	for _, file := range plan.Files {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s\tfile\t%s\t%s\n", file.Action, file.Path, file.Module)
+	}
+	if len(plan.ToInstall) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "RESULT\tok\t.\tno module changes")
+		return
+	}
+	if !options.Apply {
+		fmt.Fprintln(cmd.OutOrStdout(), "RESULT\tdry_run\t.\tno changes written")
+		return
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "RESULT\tapplied\t%s\tlock updated\n", plan.LockPath)
+}
+
+func moduleFileActionSymbol(action string) string {
+	switch action {
+	case "ADD":
+		return "+"
+	case "OVERWRITE":
+		return "!"
+	default:
+		return strings.ToLower(action)
+	}
 }
 
 func printModuleShow(cmd *cobra.Command, projectRoot string, module projectvalidator.ModuleInfo, format string) {
