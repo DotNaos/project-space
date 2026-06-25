@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -184,7 +185,8 @@ func newModuleCommand() *cobra.Command {
 	}
 	cmd.AddCommand(newModuleListCommand())
 	cmd.AddCommand(newModuleShowCommand())
-	cmd.AddCommand(newModuleInstallCommand())
+	cmd.AddCommand(newModuleAddCommand())
+	cmd.AddCommand(newModuleRemoveCommand())
 	return cmd
 }
 
@@ -257,13 +259,16 @@ func newModuleShowCommand() *cobra.Command {
 	return cmd
 }
 
-func newModuleInstallCommand() *cobra.Command {
-	options := projectvalidator.ModuleInstallOptions{}
+func newModuleAddCommand() *cobra.Command {
+	dryRun := false
+	force := false
 	format := "pretty"
+	yes := false
+	legacyApply := false
 	cmd := &cobra.Command{
-		Use:               "install <module> [project-directory]",
-		Aliases:           []string{"add"},
-		Short:             "Plan or install a project template module",
+		Use:               "add <module> [project-directory]",
+		Aliases:           []string{"install"},
+		Short:             "Add a project template module",
 		Args:              cobra.RangeArgs(1, 2),
 		ValidArgsFunction: moduleInstallCompletion,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -275,27 +280,115 @@ func newModuleInstallCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if options.Apply && options.DryRun {
-				return fmt.Errorf("--apply and --dry-run cannot be used together")
+			if legacyApply {
+				yes = true
 			}
-			if !options.Apply && !options.DryRun {
-				return fmt.Errorf("choose --dry-run to preview changes or --apply to write them")
+			if yes && dryRun {
+				return fmt.Errorf("--yes and --dry-run cannot be used together")
 			}
 			if format != "pretty" && format != "tsv" {
 				return fmt.Errorf("unknown format %q; use pretty or tsv", format)
 			}
-			plan, err := projectvalidator.InstallModule(resolved, args[0], options)
+			if format == "tsv" && !dryRun && !yes {
+				return fmt.Errorf("use --dry-run or --yes with --format tsv")
+			}
+
+			plan, err := projectvalidator.InstallModule(resolved, args[0], projectvalidator.ModuleInstallOptions{Force: force})
 			if err != nil {
 				return err
 			}
-			printModuleInstallPlan(cmd, plan, options, format)
+			displayOptions := projectvalidator.ModuleInstallOptions{Apply: yes, DryRun: dryRun, Force: force}
+			printModuleInstallPlan(cmd, plan, displayOptions, format)
+			if dryRun || len(plan.ToInstall) == 0 {
+				return nil
+			}
+			if !yes {
+				confirmed, err := confirmApply(cmd)
+				if err != nil {
+					return err
+				}
+				if !confirmed {
+					printModuleCanceled(cmd, format)
+					return nil
+				}
+			}
+			applied, err := projectvalidator.InstallModule(resolved, args[0], projectvalidator.ModuleInstallOptions{Apply: true, Force: force})
+			if err != nil {
+				return err
+			}
+			printModuleApplied(cmd, applied.LockPath, format)
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&options.Apply, "apply", false, "write the module install plan to the project lock")
-	cmd.Flags().BoolVar(&options.DryRun, "dry-run", false, "show the module install plan without writing changes")
-	cmd.Flags().BoolVar(&options.Force, "force", false, "allow module install to overwrite existing project files")
+	cmd.Flags().BoolVar(&legacyApply, "apply", false, "write the module add plan without prompting")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show the module add plan without writing changes")
+	cmd.Flags().BoolVar(&force, "force", false, "allow module add to overwrite existing project files")
 	cmd.Flags().StringVar(&format, "format", "pretty", "output format")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "apply the module add plan without prompting")
+	must(cmd.Flags().MarkHidden("apply"))
+	must(cmd.Flags().MarkDeprecated("apply", "use --yes instead"))
+	must(cmd.RegisterFlagCompletionFunc("format", fixedValuesCompletion("pretty", "tsv")))
+	return cmd
+}
+
+func newModuleRemoveCommand() *cobra.Command {
+	dryRun := false
+	format := "pretty"
+	yes := false
+	cmd := &cobra.Command{
+		Use:               "remove <module> [project-directory]",
+		Short:             "Remove a project template module",
+		Args:              cobra.RangeArgs(1, 2),
+		ValidArgsFunction: moduleInstallCompletion,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target := "."
+			if len(args) == 2 {
+				target = args[1]
+			}
+			resolved, err := filepath.Abs(target)
+			if err != nil {
+				return err
+			}
+			if yes && dryRun {
+				return fmt.Errorf("--yes and --dry-run cannot be used together")
+			}
+			if format != "pretty" && format != "tsv" {
+				return fmt.Errorf("unknown format %q; use pretty or tsv", format)
+			}
+			if format == "tsv" && !dryRun && !yes {
+				return fmt.Errorf("use --dry-run or --yes with --format tsv")
+			}
+
+			plan, err := projectvalidator.RemoveModule(resolved, args[0], projectvalidator.ModuleRemoveOptions{})
+			if err != nil {
+				return err
+			}
+			displayOptions := projectvalidator.ModuleRemoveOptions{Apply: yes, DryRun: dryRun}
+			printModuleRemovePlan(cmd, plan, displayOptions, format)
+			if dryRun || len(plan.ToRemove) == 0 {
+				return nil
+			}
+			if !yes {
+				confirmed, err := confirmApply(cmd)
+				if err != nil {
+					return err
+				}
+				if !confirmed {
+					printModuleCanceled(cmd, format)
+					return nil
+				}
+			}
+			applied, err := projectvalidator.RemoveModule(resolved, args[0], projectvalidator.ModuleRemoveOptions{Apply: true})
+			if err != nil {
+				return err
+			}
+			printModuleApplied(cmd, applied.LockPath, format)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show the module remove plan without writing changes")
+	cmd.Flags().StringVar(&format, "format", "pretty", "output format")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "apply the module remove plan without prompting")
 	must(cmd.RegisterFlagCompletionFunc("format", fixedValuesCompletion("pretty", "tsv")))
 	return cmd
 }
@@ -329,8 +422,10 @@ func printModuleInstallPlan(cmd *cobra.Command, plan projectvalidator.ModuleInst
 	mode := "DRY-RUN"
 	if options.Apply {
 		mode = "APPLY"
+	} else if !options.DryRun {
+		mode = "CONFIRM"
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Module install plan\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "Module add plan\n")
 	fmt.Fprintf(cmd.OutOrStdout(), "Project: %s\n", plan.ProjectRoot)
 	fmt.Fprintf(cmd.OutOrStdout(), "Mode: %s\n\n", strings.ToLower(mode))
 
@@ -357,19 +452,25 @@ func printModuleInstallPlan(cmd *cobra.Command, plan projectvalidator.ModuleInst
 		fmt.Fprintln(cmd.OutOrStdout(), "\nResult: no module changes")
 		return
 	}
-	if !options.Apply {
+	if options.DryRun {
 		fmt.Fprintln(cmd.OutOrStdout(), "\nResult: dry run, no changes written")
 		return
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "\nResult: applied\nLock: %s\n", plan.LockPath)
+	if options.Apply {
+		fmt.Fprintln(cmd.OutOrStdout(), "\nResult: applying")
+		return
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "\nResult: waiting for confirmation")
 }
 
 func printModuleInstallPlanTSV(cmd *cobra.Command, plan projectvalidator.ModuleInstallPlan, options projectvalidator.ModuleInstallOptions) {
 	mode := "dry_run"
 	if options.Apply {
 		mode = "apply"
+	} else if !options.DryRun {
+		mode = "confirm"
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "PLAN\tmodule_install\t%s\t%s\n", mode, plan.ProjectRoot)
+	fmt.Fprintf(cmd.OutOrStdout(), "PLAN\tmodule_add\t%s\t%s\n", mode, plan.ProjectRoot)
 	for _, module := range plan.AlreadyInstalled {
 		fmt.Fprintf(cmd.OutOrStdout(), "KEEP\tmodule\t%s\t.\n", module)
 	}
@@ -383,11 +484,107 @@ func printModuleInstallPlanTSV(cmd *cobra.Command, plan projectvalidator.ModuleI
 		fmt.Fprintln(cmd.OutOrStdout(), "RESULT\tok\t.\tno module changes")
 		return
 	}
-	if !options.Apply {
+	if options.DryRun {
 		fmt.Fprintln(cmd.OutOrStdout(), "RESULT\tdry_run\t.\tno changes written")
 		return
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "RESULT\tapplied\t%s\tlock updated\n", plan.LockPath)
+	if options.Apply {
+		fmt.Fprintln(cmd.OutOrStdout(), "RESULT\tapply\t.\tapplying")
+		return
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "RESULT\tconfirm\t.\twaiting for confirmation")
+}
+
+func printModuleRemovePlan(cmd *cobra.Command, plan projectvalidator.ModuleRemovePlan, options projectvalidator.ModuleRemoveOptions, format string) {
+	if format == "tsv" {
+		printModuleRemovePlanTSV(cmd, plan, options)
+		return
+	}
+
+	mode := "DRY-RUN"
+	if options.Apply {
+		mode = "APPLY"
+	} else if !options.DryRun {
+		mode = "CONFIRM"
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Module remove plan\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "Project: %s\n", plan.ProjectRoot)
+	fmt.Fprintf(cmd.OutOrStdout(), "Mode: %s\n\n", strings.ToLower(mode))
+
+	fmt.Fprintln(cmd.OutOrStdout(), "Modules")
+	for _, module := range plan.ToRemove {
+		fmt.Fprintf(cmd.OutOrStdout(), "  - %s\n", module)
+	}
+	if len(plan.ToRemove) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "  no module changes")
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout(), "\nFiles")
+	for _, file := range plan.Files {
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s %-40s %s\n", moduleFileActionSymbol(file.Action), file.Path, file.Module)
+	}
+	if len(plan.Files) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "  no file changes")
+	}
+
+	if len(plan.ToRemove) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "\nResult: no module changes")
+		return
+	}
+	if options.DryRun {
+		fmt.Fprintln(cmd.OutOrStdout(), "\nResult: dry run, no changes written")
+		return
+	}
+	if options.Apply {
+		fmt.Fprintln(cmd.OutOrStdout(), "\nResult: applying")
+		return
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "\nResult: waiting for confirmation")
+}
+
+func printModuleRemovePlanTSV(cmd *cobra.Command, plan projectvalidator.ModuleRemovePlan, options projectvalidator.ModuleRemoveOptions) {
+	mode := "dry_run"
+	if options.Apply {
+		mode = "apply"
+	} else if !options.DryRun {
+		mode = "confirm"
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "PLAN\tmodule_remove\t%s\t%s\n", mode, plan.ProjectRoot)
+	for _, module := range plan.ToRemove {
+		fmt.Fprintf(cmd.OutOrStdout(), "DELETE\tmodule\t%s\t.\n", module)
+	}
+	for _, file := range plan.Files {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s\tfile\t%s\t%s\n", file.Action, file.Path, file.Module)
+	}
+	if len(plan.ToRemove) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "RESULT\tok\t.\tno module changes")
+		return
+	}
+	if options.DryRun {
+		fmt.Fprintln(cmd.OutOrStdout(), "RESULT\tdry_run\t.\tno changes written")
+		return
+	}
+	if options.Apply {
+		fmt.Fprintln(cmd.OutOrStdout(), "RESULT\tapply\t.\tapplying")
+		return
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "RESULT\tconfirm\t.\twaiting for confirmation")
+}
+
+func printModuleApplied(cmd *cobra.Command, lockPath string, format string) {
+	if format == "tsv" {
+		fmt.Fprintf(cmd.OutOrStdout(), "RESULT\tapplied\t%s\tlock updated\n", lockPath)
+		return
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Result: applied\nLock: %s\n", lockPath)
+}
+
+func printModuleCanceled(cmd *cobra.Command, format string) {
+	if format == "tsv" {
+		fmt.Fprintln(cmd.OutOrStdout(), "RESULT\tcanceled\t.\tno changes written")
+		return
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "Result: canceled, no changes written")
 }
 
 func moduleFileActionSymbol(action string) string {
@@ -396,9 +593,24 @@ func moduleFileActionSymbol(action string) string {
 		return "+"
 	case "OVERWRITE":
 		return "!"
+	case "DELETE":
+		return "-"
 	default:
 		return strings.ToLower(action)
 	}
+}
+
+func confirmApply(cmd *cobra.Command) (bool, error) {
+	fmt.Fprint(cmd.OutOrStdout(), "Apply changes? Y/n: ")
+	scanner := bufio.NewScanner(cmd.InOrStdin())
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return false, err
+		}
+		return false, fmt.Errorf("confirmation required; rerun with --yes or --dry-run")
+	}
+	answer := strings.ToLower(strings.TrimSpace(scanner.Text()))
+	return answer == "" || answer == "y" || answer == "yes", nil
 }
 
 func printModuleShow(cmd *cobra.Command, projectRoot string, module projectvalidator.ModuleInfo, format string) {

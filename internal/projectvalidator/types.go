@@ -42,6 +42,11 @@ type ModuleInstallOptions struct {
 	DryRun bool
 }
 
+type ModuleRemoveOptions struct {
+	Apply  bool
+	DryRun bool
+}
+
 type ModuleInstallPlan struct {
 	ProjectRoot      string
 	Module           string
@@ -51,6 +56,16 @@ type ModuleInstallPlan struct {
 	Conflicts        []ModuleInstallConflict
 	WouldWrite       bool
 	LockPath         string
+}
+
+type ModuleRemovePlan struct {
+	ProjectRoot string
+	Module      string
+	ToRemove    []string
+	Files       []ModuleInstallFile
+	BlockedBy   []string
+	WouldWrite  bool
+	LockPath    string
 }
 
 type ModuleInstallFile struct {
