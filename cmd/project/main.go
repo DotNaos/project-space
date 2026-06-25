@@ -701,6 +701,7 @@ func newTemplateCommand() *cobra.Command {
 
 func newTemplateSyncCommand() *cobra.Command {
 	options := projectvalidator.TemplateSyncOptions{}
+	format := "pretty"
 	cmd := &cobra.Command{
 		Use:               "sync [project-directory]",
 		Short:             "Sync the local template snapshot",
@@ -715,18 +716,78 @@ func newTemplateSyncCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if format != "pretty" && format != "tsv" {
+				return fmt.Errorf("unknown format %q; use pretty or tsv", format)
+			}
+			if options.DryRun {
+				plan, err := projectvalidator.PlanTemplateSync(resolved, options)
+				if err != nil {
+					return err
+				}
+				printTemplateSyncPlan(cmd, plan, options, format)
+				return nil
+			}
 			templatePath, checksum, err := projectvalidator.SyncTemplate(resolved, options)
 			if err != nil {
 				return err
+			}
+			if format == "tsv" {
+				fmt.Fprintf(cmd.OutOrStdout(), "RESULT\tapplied\t%s\t%s\n", templatePath, checksum)
+				return nil
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Synced project template: %s\n", templatePath)
 			fmt.Fprintf(cmd.OutOrStdout(), "Checksum: %s\n", checksum)
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&options.DryRun, "dry-run", false, "show the template sync plan without writing changes")
+	cmd.Flags().StringVar(&format, "format", "pretty", "output format")
 	cmd.Flags().StringVar(&options.TemplatePath, "template-path", "", "template source path")
+	must(cmd.RegisterFlagCompletionFunc("format", fixedValuesCompletion("pretty", "tsv")))
 	must(cmd.RegisterFlagCompletionFunc("template-path", directoryCompletion))
 	return cmd
+}
+
+func printTemplateSyncPlan(cmd *cobra.Command, plan projectvalidator.TemplateSyncPlan, options projectvalidator.TemplateSyncOptions, format string) {
+	if format == "tsv" {
+		fmt.Fprintf(cmd.OutOrStdout(), "PLAN\ttemplate_sync\tdry_run\t%s\n", plan.ProjectRoot)
+		fmt.Fprintf(cmd.OutOrStdout(), "SOURCE\tdir\t%s\t.\n", plan.SourceRoot)
+		fmt.Fprintf(cmd.OutOrStdout(), "TARGET\tdir\t%s\t.\n", plan.TargetRoot)
+		fmt.Fprintf(cmd.OutOrStdout(), "CHECKSUM\ttemplate\t%s\t.\n", plan.Checksum)
+		for _, file := range plan.Files {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s\tfile\t%s\t.\n", file.Action, file.Path)
+		}
+		if !plan.WouldWrite {
+			fmt.Fprintln(cmd.OutOrStdout(), "RESULT\tok\t.\tno changes")
+			return
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), "RESULT\tdry_run\t.\tno changes written")
+		return
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout(), "Template sync plan")
+	fmt.Fprintf(cmd.OutOrStdout(), "Project: %s\n", plan.ProjectRoot)
+	fmt.Fprintf(cmd.OutOrStdout(), "Source: %s\n", plan.SourceRoot)
+	fmt.Fprintf(cmd.OutOrStdout(), "Target: %s\n", plan.TargetRoot)
+	fmt.Fprintf(cmd.OutOrStdout(), "Checksum: %s\n", plan.Checksum)
+	if options.TemplatePath != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "Template path override: %s\n", options.TemplatePath)
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "Mode: dry-run")
+
+	fmt.Fprintln(cmd.OutOrStdout(), "\nFiles")
+	for _, file := range plan.Files {
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s %s\n", file.Action, file.Path)
+	}
+	if len(plan.Files) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "  no file changes")
+	}
+
+	if !plan.WouldWrite {
+		fmt.Fprintln(cmd.OutOrStdout(), "\nResult: no changes")
+		return
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "\nResult: dry run, no changes written")
 }
 
 func newValidateCommand() *cobra.Command {
