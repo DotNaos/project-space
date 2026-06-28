@@ -26,22 +26,34 @@ func readTemplateValues(projectRoot string) (TemplateValues, error) {
 }
 
 func renderTemplateValues(body []byte, values TemplateValues) ([]byte, error) {
-	rendered := placeholderRE.ReplaceAllStringFunc(string(body), func(match string) string {
-		name := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(match, "{{"), "}}"))
+	source := string(body)
+	rendered := strings.Builder{}
+	cursor := 0
+	matches := placeholderRE.FindAllStringSubmatchIndex(source, -1)
+	for _, match := range matches {
+		if match[0] > 0 && source[match[0]-1] == '$' {
+			continue
+		}
+		rendered.WriteString(source[cursor:match[0]])
+		name := strings.TrimSpace(source[match[2]:match[3]])
 		value, ok := lookupTemplateValue(values, name)
 		if !ok {
-			return "\x00missing:" + name + "\x00"
+			rendered.WriteString("\x00missing:" + name + "\x00")
+		} else {
+			rendered.WriteString(value)
 		}
-		return value
-	})
-	if start := strings.Index(rendered, "\x00missing:"); start >= 0 {
-		rest := rendered[start+len("\x00missing:"):]
+		cursor = match[1]
+	}
+	rendered.WriteString(source[cursor:])
+	output := rendered.String()
+	if start := strings.Index(output, "\x00missing:"); start >= 0 {
+		rest := output[start+len("\x00missing:"):]
 		end := strings.Index(rest, "\x00")
 		if end >= 0 {
 			return nil, fmt.Errorf("missing template value %q", rest[:end])
 		}
 	}
-	return []byte(rendered), nil
+	return []byte(output), nil
 }
 
 func lookupTemplateValue(values TemplateValues, name string) (string, bool) {
