@@ -17,6 +17,7 @@ type deployOptions struct {
 	RemotePath    string
 	Branch        string
 	ProjectDomain string
+	APIDomain     string
 	AcmeEmail     string
 	DryRun        bool
 }
@@ -34,11 +35,12 @@ type deployProject struct {
 }
 
 type deployConfig struct {
-	Host   string `yaml:"host"`
-	Path   string `yaml:"path"`
-	Branch string `yaml:"branch"`
-	Domain string `yaml:"domain"`
-	Email  string `yaml:"email"`
+	Host      string `yaml:"host"`
+	Path      string `yaml:"path"`
+	Branch    string `yaml:"branch"`
+	Domain    string `yaml:"domain"`
+	APIDomain string `yaml:"apiDomain"`
+	Email     string `yaml:"email"`
 }
 
 type deployCandidate struct {
@@ -109,6 +111,7 @@ func addDeployFlags(cmd *cobra.Command, options *deployOptions) {
 	cmd.Flags().StringVar(&options.RemotePath, "path", "", "remote project directory")
 	cmd.Flags().StringVar(&options.Branch, "branch", "", "git branch to deploy")
 	cmd.Flags().StringVar(&options.ProjectDomain, "domain", "", "project domain")
+	cmd.Flags().StringVar(&options.APIDomain, "api-domain", "", "project API domain")
 	cmd.Flags().StringVar(&options.AcmeEmail, "email", "", "Traefik ACME email")
 	cmd.Flags().BoolVar(&options.DryRun, "dry-run", false, "print planned remote actions without changing the VPS")
 	must(cmd.RegisterFlagCompletionFunc("path", directoryCompletion))
@@ -137,22 +140,21 @@ func deployProjectStatus(cmd *cobra.Command, projectRoot string, options deployO
 	if err != nil {
 		return deployProject{}, err
 	}
-	domain := options.ProjectDomain
-	if domain == "" {
-		domain = "status.local"
+	if options.ProjectDomain == "" {
+		options.ProjectDomain = "status.local"
 	}
-	email := options.AcmeEmail
-	if email == "" {
-		email = "status@example.com"
+	if options.APIDomain == "" {
+		options.APIDomain = "status-api.local"
 	}
-	env := fmt.Sprintf("PROJECT_DOMAIN=%s TRAEFIK_ACME_EMAIL=%s", shellQuote(domain), shellQuote(email))
+	env := deployEnv(options)
 	statusScript := strings.Join([]string{
 		"set -e",
 		"echo SSH ok",
 		"docker --version",
 		"docker compose version",
 		"if docker info >/dev/null 2>&1; then echo docker api ok; else echo docker api unavailable; fi",
-		"if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx ingress; then echo ingress running; else echo ingress missing; fi",
+		"if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx private-platform-traefik; then echo traefik running; else echo traefik missing; fi",
+		"if docker network inspect traefik-public >/dev/null 2>&1; then echo traefik-public network ok; else echo traefik-public network missing; fi",
 		fmt.Sprintf("if [ -d %s/.git ]; then echo repo present; else echo repo missing; fi", shellQuote(project.RemotePath)),
 		fmt.Sprintf("if [ -d %s/.git ]; then cd %s && %s docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml ps 2>/dev/null || echo app status unavailable; else true; fi", shellQuote(project.RemotePath), shellQuote(project.RemotePath), env),
 	}, "\n")
@@ -171,9 +173,6 @@ func resolveDeployProject(cmd *cobra.Command, projectRoot string, options deploy
 	if _, err := os.Stat(filepath.Join(projectRoot, "deploy", "ingress.labels.yml")); err != nil {
 		return deployProject{}, options, fmt.Errorf("deploy/ingress.labels.yml is required: %w", err)
 	}
-	if _, err := os.Stat(filepath.Join(projectRoot, "deploy", "ingress.compose.yml")); err != nil {
-		return deployProject{}, options, fmt.Errorf("deploy/ingress.compose.yml is required: %w", err)
-	}
 	config, err := readDeployConfig(projectRoot)
 	if err != nil {
 		return deployProject{}, options, err
@@ -190,12 +189,11 @@ func resolveDeployProject(cmd *cobra.Command, projectRoot string, options deploy
 	}
 	projectName := strings.TrimPrefix(repoRef[strings.LastIndex(repoRef, "/"):], "/")
 	currentBranch, _ := gitCurrentBranch(projectRoot)
-	gitEmail, _ := gitConfigValue(projectRoot, "user.email")
 
 	options.Host, err = resolveDeployValue(cmd, input, "deploy host", "host", options.Host, []deployCandidate{
 		configCandidate(config.Host, "deploy/deploy.yaml"),
 		firstEnvCandidate("PROJECT_DEPLOY_HOST", "DEPLOY_HOST"),
-		{Value: "os-vps", Source: "standard SSH host"},
+		{Value: "deploy@100.84.238.75", Source: "standard VPS deploy host"},
 	}, true)
 	if err != nil {
 		return deployProject{}, options, err
@@ -203,7 +201,7 @@ func resolveDeployProject(cmd *cobra.Command, projectRoot string, options deploy
 	options.RemotePath, err = resolveDeployValue(cmd, input, "remote path", "path", options.RemotePath, []deployCandidate{
 		configCandidate(config.Path, "deploy/deploy.yaml"),
 		firstEnvCandidate("PROJECT_DEPLOY_PATH", "DEPLOY_PATH"),
-		{Value: "/opt/projects/" + projectName, Source: "project name"},
+		{Value: "/opt/platform/apps/" + projectName, Source: "project name"},
 	}, true)
 	if err != nil {
 		return deployProject{}, options, err
@@ -223,20 +221,26 @@ func resolveDeployProject(cmd *cobra.Command, projectRoot string, options deploy
 	if err != nil {
 		return deployProject{}, options, err
 	}
-	options.AcmeEmail, err = resolveDeployValue(cmd, input, "ACME email", "email", options.AcmeEmail, []deployCandidate{
-		configCandidate(config.Email, "deploy/deploy.yaml"),
-		firstEnvCandidate("TRAEFIK_ACME_EMAIL", "PROJECT_DEPLOY_ACME_EMAIL"),
-		configCandidate(gitEmail, "Git config user.email"),
+	options.APIDomain, err = resolveDeployValue(cmd, input, "project API domain", "api-domain", options.APIDomain, []deployCandidate{
+		configCandidate(config.APIDomain, "deploy/deploy.yaml"),
+		firstEnvCandidate("PROJECT_API_DOMAIN", "PROJECT_DEPLOY_API_DOMAIN"),
+		configCandidate(defaultAPIDomain(options.ProjectDomain), "project domain"),
 	}, requireRuntimeValues)
 	if err != nil {
 		return deployProject{}, options, err
 	}
+	options.AcmeEmail, _ = resolveDeployValue(cmd, input, "ACME email", "email", options.AcmeEmail, []deployCandidate{
+		configCandidate(config.Email, "deploy/deploy.yaml"),
+		firstEnvCandidate("TRAEFIK_ACME_EMAIL", "PROJECT_DEPLOY_ACME_EMAIL"),
+	}, false)
 
 	webURL := ""
 	apiURL := ""
 	if options.ProjectDomain != "" {
 		webURL = "https://" + options.ProjectDomain
-		apiURL = "https://api." + options.ProjectDomain
+	}
+	if options.APIDomain != "" {
+		apiURL = "https://" + options.APIDomain
 	}
 	return deployProject{
 		Name:       projectName,
@@ -322,15 +326,38 @@ func firstEnvCandidate(names ...string) deployCandidate {
 }
 
 func deploySteps(project deployProject, options deployOptions) []string {
-	env := fmt.Sprintf("PROJECT_DOMAIN=%s TRAEFIK_ACME_EMAIL=%s", shellQuote(options.ProjectDomain), shellQuote(options.AcmeEmail))
+	env := deployEnv(options)
+	remotePath := shellQuote(project.RemotePath)
 	return []string{
 		"set -e; docker --version; docker compose version; docker info >/dev/null",
-		fmt.Sprintf("set -e; mkdir -p %s", shellQuote(project.RemotePath)),
-		fmt.Sprintf("set -e; if [ -d %s/.git ]; then cd %s && git fetch origin %s && git reset --hard origin/%s; else git clone --branch %s %s %s; fi", shellQuote(project.RemotePath), shellQuote(project.RemotePath), shellQuote(project.Branch), shellQuote(project.Branch), shellQuote(project.Branch), shellQuote(project.RemoteURL), shellQuote(project.RemotePath)),
-		fmt.Sprintf("set -e; if docker ps --format '{{.Names}}' | grep -qx ingress; then echo ingress already running; else cd %s; %s docker compose -f deploy/ingress.compose.yml up -d; fi", shellQuote(project.RemotePath), env),
-		fmt.Sprintf("set -e; cd %s; %s docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml up -d --build", shellQuote(project.RemotePath), env),
-		fmt.Sprintf("set -e; cd %s; docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml ps", shellQuote(project.RemotePath)),
+		"set -e; docker network inspect traefik-public >/dev/null",
+		fmt.Sprintf("set -e; sudo -n mkdir -p %s; sudo -n chown $(id -u):$(id -g) %s", remotePath, remotePath),
+		fmt.Sprintf("set -e; if [ -d %s/.git ]; then cd %s && git fetch origin %s && git reset --hard origin/%s; else git clone --branch %s %s %s; fi", remotePath, remotePath, shellQuote(project.Branch), shellQuote(project.Branch), shellQuote(project.Branch), shellQuote(project.RemoteURL), remotePath),
+		fmt.Sprintf("set -e; cd %s; %s docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml up -d --build", remotePath, env),
+		fmt.Sprintf("set -e; cd %s; %s docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml ps", remotePath, env),
 	}
+}
+
+func deployEnv(options deployOptions) string {
+	parts := []string{
+		"PROJECT_DOMAIN=" + shellQuote(options.ProjectDomain),
+		"PROJECT_API_DOMAIN=" + shellQuote(options.APIDomain),
+	}
+	if options.AcmeEmail != "" {
+		parts = append(parts, "TRAEFIK_ACME_EMAIL="+shellQuote(options.AcmeEmail))
+	}
+	return strings.Join(parts, " ")
+}
+
+func defaultAPIDomain(domain string) string {
+	const suffix = ".os-home.net"
+	if strings.HasSuffix(domain, suffix) {
+		return strings.TrimSuffix(domain, suffix) + "-api" + suffix
+	}
+	if domain == "" {
+		return ""
+	}
+	return "api-" + domain
 }
 
 func gitRemoteURL(projectRoot string) (string, error) {

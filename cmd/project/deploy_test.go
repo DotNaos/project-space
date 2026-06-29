@@ -12,17 +12,17 @@ import (
 func TestDeployStepsUseExistingComposeFiles(t *testing.T) {
 	project := deployProject{
 		RemoteURL:  "https://github.com/DotNaos/example",
-		RemotePath: "/opt/projects/example",
+		RemotePath: "/opt/platform/apps/example",
 		Branch:     "main",
 	}
-	options := deployOptions{ProjectDomain: "example.com", AcmeEmail: "ops@example.com"}
+	options := deployOptions{ProjectDomain: "example.com", APIDomain: "example-api.com"}
 
 	steps := strings.Join(deploySteps(project, options), "\n")
 	for _, want := range []string{
-		"deploy/ingress.compose.yml",
+		"docker network inspect traefik-public",
 		"deploy/compose.yml -f deploy/ingress.labels.yml",
 		"PROJECT_DOMAIN=example.com",
-		"TRAEFIK_ACME_EMAIL=ops@example.com",
+		"PROJECT_API_DOMAIN=example-api.com",
 	} {
 		if !strings.Contains(steps, want) {
 			t.Fatalf("deploy steps missing %q:\n%s", want, steps)
@@ -56,15 +56,15 @@ func TestResolveDeployValueAcceptsDiscoveredValue(t *testing.T) {
 	cmd := deployValueTestCommand("", "\n")
 
 	value, err := resolveDeployValue(cmd, bufio.NewReader(cmd.InOrStdin()), "deploy host", "host", "", []deployCandidate{
-		{Value: "os-vps", Source: "deploy/deploy.yaml"},
+		{Value: "deploy@100.84.238.75", Source: "deploy/deploy.yaml"},
 	}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value != "os-vps" {
+	if value != "deploy@100.84.238.75" {
 		t.Fatalf("value = %q", value)
 	}
-	if !strings.Contains(cmd.OutOrStdout().(*bytes.Buffer).String(), "Use deploy host from deploy/deploy.yaml: os-vps? Y/n") {
+	if !strings.Contains(cmd.OutOrStdout().(*bytes.Buffer).String(), "Use deploy host from deploy/deploy.yaml: deploy@100.84.238.75? Y/n") {
 		t.Fatalf("prompt missing:\n%s", cmd.OutOrStdout().(*bytes.Buffer).String())
 	}
 }
