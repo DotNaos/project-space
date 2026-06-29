@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestDeployStepsUseExistingComposeFiles(t *testing.T) {
@@ -31,4 +35,58 @@ func TestGitRemoteURLConvertsGitHubSSH(t *testing.T) {
 	if converted != "https://github.com/DotNaos/example" {
 		t.Fatalf("converted URL = %q", converted)
 	}
+}
+
+func TestResolveDeployValueUsesExplicitFlagWithoutPrompt(t *testing.T) {
+	cmd := deployValueTestCommand("flag-value", "")
+	must(cmd.Flags().Set("host", "flag-value"))
+
+	value, err := resolveDeployValue(cmd, bufio.NewReader(cmd.InOrStdin()), "deploy host", "host", "flag-value", []deployCandidate{
+		{Value: "config-value", Source: "deploy/deploy.yaml"},
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "flag-value" {
+		t.Fatalf("value = %q", value)
+	}
+}
+
+func TestResolveDeployValueAcceptsDiscoveredValue(t *testing.T) {
+	cmd := deployValueTestCommand("", "\n")
+
+	value, err := resolveDeployValue(cmd, bufio.NewReader(cmd.InOrStdin()), "deploy host", "host", "", []deployCandidate{
+		{Value: "os-vps", Source: "deploy/deploy.yaml"},
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "os-vps" {
+		t.Fatalf("value = %q", value)
+	}
+	if !strings.Contains(cmd.OutOrStdout().(*bytes.Buffer).String(), "Use deploy host from deploy/deploy.yaml: os-vps? Y/n") {
+		t.Fatalf("prompt missing:\n%s", cmd.OutOrStdout().(*bytes.Buffer).String())
+	}
+}
+
+func TestResolveDeployValueDeclinesDiscoveredValue(t *testing.T) {
+	cmd := deployValueTestCommand("", "n\n")
+
+	_, err := resolveDeployValue(cmd, bufio.NewReader(cmd.InOrStdin()), "deploy host", "host", "", []deployCandidate{
+		{Value: "os-vps", Source: "deploy/deploy.yaml"},
+	}, true)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "deploy host from deploy/deploy.yaml was declined") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func deployValueTestCommand(flagValue string, input string) *cobra.Command {
+	cmd := &cobra.Command{}
+	cmd.Flags().String("host", flagValue, "")
+	cmd.SetIn(strings.NewReader(input))
+	cmd.SetOut(&bytes.Buffer{})
+	return cmd
 }

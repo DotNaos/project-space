@@ -79,13 +79,21 @@ project deploy status
 - `deploy/ingress.compose.yml` for the shared Traefik ingress.
 - `deploy/compose.yml` and `deploy/ingress.labels.yml` for this app.
 
-Defaults:
+Configuration can live in `deploy/deploy.yaml`:
 
-- `--host` defaults to `os-vps`.
-- `--path` defaults to `/opt/projects/<repo-name>`.
-- `--branch` defaults to the current branch, then `main`.
+```yaml
+host: os-vps
+path: /opt/projects/my-project
+branch: main
+domain: my-project.os-home.net
+email: you@example.com
+```
 
-`PROJECT_DOMAIN` and `TRAEFIK_ACME_EMAIL` can be set through flags or environment variables.
+Flags override config.
+
+If a value comes from `deploy/deploy.yaml`, an environment variable, Git config, or an inferred convention, the CLI asks before using it.
+
+Supported environment fallbacks are `PROJECT_DEPLOY_HOST`, `PROJECT_DEPLOY_PATH`, `PROJECT_DOMAIN`, `TRAEFIK_ACME_EMAIL`, and their older aliases.
 
 ## Sync Template Snapshot
 
