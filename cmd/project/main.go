@@ -40,6 +40,8 @@ func newCreateCommand() *cobra.Command {
 	options := projectvalidator.InitOptions{}
 	localTmp := false
 	globalTmp := false
+	github := false
+	secrets := false
 	cmd := &cobra.Command{
 		Use:               "create [project-directory]",
 		Aliases:           []string{"new"},
@@ -47,6 +49,9 @@ func newCreateCommand() *cobra.Command {
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: directoryCompletion,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if secrets && !github {
+				return fmt.Errorf("--secrets requires --github")
+			}
 			if localTmp && globalTmp {
 				return fmt.Errorf("--local-tmp and --global-tmp cannot be used together")
 			}
@@ -92,11 +97,24 @@ func newCreateCommand() *cobra.Command {
 					fmt.Fprintf(cmd.OutOrStdout(), "Installed module: %s\n", plan.Module)
 				}
 			}
+			if github {
+				result, err := createGitHubRepository(resolved, createGitHubRepositoryOptions{Secrets: secrets})
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "GitHub repository: %s\n", result.URL)
+				if result.SecretSet {
+					fmt.Fprintln(cmd.OutOrStdout(), "GitHub secret: OP_SERVICE_ACCOUNT_TOKEN set")
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), "Pushed initial commit: main")
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "cd %s\n", shellQuote(resolved))
 			return nil
 		},
 	}
 	addInitFlags(cmd, &options)
+	cmd.Flags().BoolVar(&github, "github", false, "create a private GitHub repository and push the project")
+	cmd.Flags().BoolVar(&secrets, "secrets", false, "set required GitHub secrets; requires --github")
 	cmd.Flags().BoolVar(&localTmp, "tmp", false, "create a local tmp project in ./tmp and install default modules")
 	cmd.Flags().BoolVar(&localTmp, "local-tmp", false, "create a local tmp project in ./tmp and install default modules")
 	cmd.Flags().BoolVar(&globalTmp, "global-tmp", false, "create a global tmp project in /tmp and install default modules")
