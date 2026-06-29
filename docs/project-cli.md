@@ -66,6 +66,27 @@ project init [project-directory]
 
 If `[project-directory]` is omitted, the CLI uses the current directory.
 
+## Deploy
+
+```sh
+project deploy --domain <domain> --email <acme-email>
+project deploy --dry-run --domain <domain> --email <acme-email>
+project deploy status
+```
+
+`project deploy` uses the existing template compose files:
+
+- `deploy/ingress.compose.yml` for the shared Traefik ingress.
+- `deploy/compose.yml` and `deploy/ingress.labels.yml` for this app.
+
+Defaults:
+
+- `--host` defaults to `os-vps`.
+- `--path` defaults to `/opt/projects/<repo-name>`.
+- `--branch` defaults to the current branch, then `main`.
+
+`PROJECT_DOMAIN` and `TRAEFIK_ACME_EMAIL` can be set through flags or environment variables.
+
 ## Sync Template Snapshot
 
 ```sh

@@ -29,6 +29,7 @@ func newRootCommand() *cobra.Command {
 		SilenceErrors: true,
 	}
 	root.AddCommand(newCreateCommand())
+	root.AddCommand(newDeployCommand())
 	root.AddCommand(newInitCommand())
 	root.AddCommand(newModuleCommand())
 	root.AddCommand(newTemplateCommand())
