@@ -69,31 +69,31 @@ If `[project-directory]` is omitted, the CLI uses the current directory.
 ## Deploy
 
 ```sh
-project deploy --domain <domain> --email <acme-email>
-project deploy --dry-run --domain <domain> --email <acme-email>
+project deploy --domain <domain> --api-domain <api-domain>
+project deploy --dry-run --domain <domain> --api-domain <api-domain>
 project deploy status
 ```
 
 `project deploy` uses the existing template compose files:
 
-- `deploy/ingress.compose.yml` for the shared Traefik ingress.
 - `deploy/compose.yml` and `deploy/ingress.labels.yml` for this app.
+- The VPS-owned `private-platform-traefik` ingress and `traefik-public` Docker network.
 
 Configuration can live in `deploy/deploy.yaml`:
 
 ```yaml
-host: os-vps
-path: /opt/projects/my-project
+host: deploy@100.84.238.75
+path: /opt/platform/apps/my-project
 branch: main
 domain: my-project.os-home.net
-email: you@example.com
+apiDomain: my-project-api.os-home.net
 ```
 
 Flags override config.
 
 If a value comes from `deploy/deploy.yaml`, an environment variable, Git config, or an inferred convention, the CLI asks before using it.
 
-Supported environment fallbacks are `PROJECT_DEPLOY_HOST`, `PROJECT_DEPLOY_PATH`, `PROJECT_DOMAIN`, `TRAEFIK_ACME_EMAIL`, and their older aliases.
+Supported environment fallbacks are `PROJECT_DEPLOY_HOST`, `PROJECT_DEPLOY_PATH`, `PROJECT_DOMAIN`, `PROJECT_API_DOMAIN`, and their older aliases.
 
 ## Sync Template Snapshot
 
