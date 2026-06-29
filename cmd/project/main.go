@@ -715,6 +715,7 @@ func newTemplateCommand() *cobra.Command {
 		Short: "Manage the local project template snapshot",
 	}
 	cmd.AddCommand(newTemplateSyncCommand())
+	cmd.AddCommand(newTemplateSmokeCommand())
 	return cmd
 }
 
