@@ -18,6 +18,8 @@ Useful flags:
 --version <version>
 --commit <commit-or-label>
 --force
+--github
+--secrets
 --tmp
 --local-tmp
 --global-tmp
@@ -28,6 +30,10 @@ Useful flags:
 `--local-tmp` is the explicit form of `--tmp`.
 
 `--global-tmp` creates the generated project under `/tmp` with a random suffix.
+
+`--github` initializes Git, creates a private GitHub repository with the implicit `gh` owner, commits the project, and pushes `main`.
+
+`--secrets` is opt-in and requires `--github`. It sets `OP_SERVICE_ACCOUNT_TOKEN` on the new GitHub repository from the project 1Password vault before the first push.
 
 Example:
 
