@@ -107,6 +107,19 @@ The project path is optional and defaults to the current directory.
 
 `--template-path` is only needed when testing against a local template checkout instead of the template source recorded in the project lock.
 
+## Smoke Test A Template
+
+```sh
+project template smoke --template-path <template-directory> --version local --commit local
+project template smoke --template-path <template-directory> --version local --commit local --skip-checks --container
+```
+
+This creates a generated tmp project, installs default modules, validates it, and runs the generated project's normal checks.
+
+Use `--container --skip-checks` for a focused generated-container smoke test.
+
+Use `--skip-secrets-doctor` for local smoke checks when no 1Password service token is available.
+
 ## Modules
 
 ```sh
