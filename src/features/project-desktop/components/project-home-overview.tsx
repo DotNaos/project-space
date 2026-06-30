@@ -562,6 +562,11 @@ export function ProjectHomeOverview({
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-2">
+                    {machine.connector.serviceName ? (
+                      <Chip size="sm" variant="secondary">
+                        {machine.connector.serviceName}
+                      </Chip>
+                    ) : null}
                     <Chip size="sm" className={connectorChipClass(machine.connector.status)}>
                       {machine.connector.status}
                     </Chip>

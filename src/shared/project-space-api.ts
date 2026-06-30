@@ -280,6 +280,7 @@ export interface MachineConnectorRecord {
   installCommand: string;
   lastSeen?: string;
   origin?: string;
+  serviceName?: string;
   status: ConnectorStatus;
 }
 
@@ -326,6 +327,7 @@ export interface ConnectorProjectRegistryResult {
     machineId: string;
     machineName: string;
     origin?: string;
+    serviceName?: string;
   };
   discovery: ProjectDiscoveryResult;
 }

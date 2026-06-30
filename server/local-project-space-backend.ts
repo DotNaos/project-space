@@ -9,6 +9,10 @@ import { getCodexStatus, openCodexTarget } from './local-codex-client';
 import { runTerminalCommand } from './local-command-runner';
 import { loadConnectorProjectDiscovery } from './connector-discovery';
 import {
+  getRegisteredConnectorDiscovery,
+  getRegisteredConnectorMachines
+} from './connector-hub';
+import {
   commitGitChanges,
   getGitDiff,
   getGitStatus,
@@ -287,6 +291,22 @@ function writeProjectsState(state: ProjectsState) {
   writeFileSync(projectsStateFile, JSON.stringify(state, null, 2));
 }
 
+function mergeDiscoveries(
+  localDiscovery: ProjectDiscoveryResult,
+  remoteDiscovery: ProjectDiscoveryResult
+): ProjectDiscoveryResult {
+  return {
+    groups: [...localDiscovery.groups, ...remoteDiscovery.groups],
+    projects: [...localDiscovery.projects, ...remoteDiscovery.projects].sort((left, right) =>
+      left.name.localeCompare(right.name)
+    ),
+    rootItems: [...localDiscovery.rootItems, ...remoteDiscovery.rootItems].sort((left, right) =>
+      left.label.localeCompare(right.label)
+    ),
+    rootPath: [localDiscovery.rootPath, remoteDiscovery.rootPath].filter(Boolean).join(', ')
+  };
+}
+
 async function discoverProjects(): Promise<ProjectDiscoveryResult> {
   if (!existsSync(discoveryRoot)) {
     return {
@@ -535,7 +555,17 @@ export function createLocalProjectSpaceBackend(
       return getCodexStatus();
     },
     async getConnectorOverview() {
-      return getConnectorOverview();
+      const connector = await getConnectorOverview();
+      const registeredMachines = getRegisteredConnectorMachines();
+      const knownMachineIds = new Set(connector.machines.map((machine) => machine.id));
+
+      return {
+        ...connector,
+        machines: [
+          ...connector.machines,
+          ...registeredMachines.filter((machine) => !knownMachineIds.has(machine.id))
+        ]
+      };
     },
     async getConnectorProjectRegistry() {
       const [connector, discovery] = await Promise.all([
@@ -552,7 +582,8 @@ export function createLocalProjectSpaceBackend(
         connector: {
           machineId: localMachine?.id ?? machineName,
           machineName,
-          origin: connector.connectorOrigin
+          origin: connector.connectorOrigin,
+          serviceName: process.env.PROJECT_CONNECTOR_SERVICE_NAME ?? 'project-space-connector'
         },
         discovery
       };
@@ -588,7 +619,7 @@ export function createLocalProjectSpaceBackend(
         };
       }
 
-      return discoverProjects();
+      return mergeDiscoveries(await discoverProjects(), getRegisteredConnectorDiscovery());
     },
     async loadProjectctlOverview(projectPath: string) {
       return getProjectctlOverview(projectPath);
