@@ -1,0 +1,69 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+html {
+  scrollbar-gutter: stable;
+}
+
+html > body[data-scroll-locked] {
+  margin-right: 0px !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}
+
+.doc-type,
+.doc-default-empty {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, currentColor 22%, transparent);
+  padding: 0.125rem 0.5rem;
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8125em;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.doc-type-string {
+  color: #60a5fa;
+  background: color-mix(in oklab, #60a5fa 14%, transparent);
+}
+
+.doc-type-boolean {
+  color: #34d399;
+  background: color-mix(in oklab, #34d399 14%, transparent);
+}
+
+.doc-default-empty {
+  color: color-mix(in oklab, var(--fd-muted-foreground) 78%, transparent);
+  background: color-mix(in oklab, var(--fd-muted-foreground) 10%, transparent);
+  font-style: italic;
+  font-weight: 500;
+}
+
+td code,
+th code {
+  white-space: nowrap !important;
+  word-break: keep-all !important;
+  overflow-wrap: normal !important;
+}
+
+td:first-child,
+td:nth-child(2),
+th:first-child,
+th:nth-child(2) {
+  white-space: nowrap !important;
+  word-break: keep-all !important;
+  overflow-wrap: normal !important;
+}
+
+td:first-child *,
+td:nth-child(2) *,
+th:first-child *,
+th:nth-child(2) * {
+  white-space: nowrap !important;
+  word-break: keep-all !important;
+  overflow-wrap: normal !important;
+}

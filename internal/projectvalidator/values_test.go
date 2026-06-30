@@ -32,3 +32,39 @@ func TestRenderTemplateValuesReportsMissingProjectValues(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestDefaultTemplateValuesUseModuleValueSpecs(t *testing.T) {
+	template := TemplateSpec{
+		Modules: map[string]TemplateModuleSpec{
+			"core.fullstack": {
+				Name:    "core.fullstack",
+				Default: true,
+				Values: map[string]TemplateValueSpec{
+					"project.slug": {
+						Type:     "string",
+						Required: true,
+					},
+					"project.goModule": {
+						Type:     "string",
+						Required: true,
+						Default:  "github.com/DotNaos/{{ project.slug }}",
+					},
+				},
+			},
+		},
+	}
+
+	values, err := defaultTemplateValuesForProject("/tmp/demo-project", template, []string{"core.fullstack"})
+	if err != nil {
+		t.Fatalf("defaultTemplateValuesForProject returned error: %v", err)
+	}
+	if got, ok := lookupTemplateValue(values, "project.slug"); !ok || got != "demo-project" {
+		t.Fatalf("project.slug = %q, %t", got, ok)
+	}
+	if got, ok := lookupTemplateValue(values, "project.goModule"); !ok || got != "github.com/DotNaos/demo-project" {
+		t.Fatalf("project.goModule = %q, %t", got, ok)
+	}
+	if _, ok := lookupTemplateValue(values, "project.displayName"); ok {
+		t.Fatal("project.displayName should not be written when no installed module declares it")
+	}
+}

@@ -3,6 +3,6 @@ set -euo pipefail
 
 PROJECT_SPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_SPACE_BIN="${TMPDIR:-/tmp}/project-space-project-cli"
-go build -o "$PROJECT_SPACE_BIN" "$PROJECT_SPACE_ROOT/cmd/project"
+(cd "$PROJECT_SPACE_ROOT" && go build -o "$PROJECT_SPACE_BIN" ./cmd/project)
 export PROJECT_SPACE_TEMPLATE_ROOT="$PROJECT_SPACE_ROOT/templates/project-template"
 exec "$PROJECT_SPACE_BIN" "$@"

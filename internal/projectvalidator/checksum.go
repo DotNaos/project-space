@@ -17,7 +17,7 @@ func checksumTemplateRoot(templateRoot string) (string, error) {
 			return err
 		}
 		if entry.IsDir() {
-			if entry.Name() == ".git" {
+			if shouldSkipTemplateWorkDir(entry.Name()) {
 				return filepath.SkipDir
 			}
 			return nil

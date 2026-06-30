@@ -1,0 +1,28 @@
+---
+title: Reference
+description: Exact lookup material for commands, config, and output formats.
+---
+
+## Commands
+
+The detailed command reference lives under [CLI](/docs/cli).
+
+## Config Files
+
+Common Project files:
+
+```text
+.project/template.lock.yaml
+.project/template.values.yaml
+deploy/deploy.yaml
+```
+
+## Output Formats
+
+Use `--format tsv` for agent-friendly command output where supported:
+
+```sh
+project validate --format tsv
+project module list --format tsv
+project template update --dry-run --format tsv
+```

@@ -65,29 +65,7 @@ func resolveTemplateRoot(projectRoot string, lock TemplateLock) (string, error) 
 	if hasTemplateManifest(localSnapshot) {
 		return filepath.Abs(localSnapshot)
 	}
-	if lock.TemplatePath != "" {
-		if filepath.IsAbs(lock.TemplatePath) {
-			return filepath.Abs(lock.TemplatePath)
-		}
-		return filepath.Abs(filepath.Join(projectRoot, ".project", lock.TemplatePath))
-	}
-	if envTemplateRoot := os.Getenv("PROJECT_SPACE_TEMPLATE_ROOT"); envTemplateRoot != "" {
-		return filepath.Abs(envTemplateRoot)
-	}
-	if lock.Template == "DotNaos/project-template" {
-		candidates := []string{
-			filepath.Join(projectRoot, "..", "project-template"),
-			"/Users/oli/projects/project-template",
-			filepath.Join(".", "templates", "project-template"),
-		}
-		for _, candidate := range candidates {
-			abs, _ := filepath.Abs(candidate)
-			if hasTemplateManifest(abs) {
-				return abs, nil
-			}
-		}
-	}
-	return "", fmt.Errorf("cannot resolve template %q; add templatePath to the lock file", lock.Template)
+	return "", fmt.Errorf("missing local template snapshot at %s; run project template sync to restore it", filepath.ToSlash(localSnapshot))
 }
 
 func findTemplateManifest(templateRoot string) (string, error) {
@@ -192,7 +170,7 @@ func loadTemplateTree(spec *TemplateSpec) error {
 			return err
 		}
 		if entry.IsDir() {
-			if entry.Name() == ".git" {
+			if shouldSkipTemplateWorkDir(entry.Name()) {
 				return filepath.SkipDir
 			}
 			return nil

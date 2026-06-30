@@ -53,6 +53,13 @@ func SyncTemplate(projectRoot string, options TemplateSyncOptions) (string, stri
 	if _, err := writeTemplateLock(plan.ProjectRoot, lock); err != nil {
 		return "", "", err
 	}
+	template, err := loadTemplateFromRoot(plan.TargetRoot)
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := ensureTemplateValues(plan.ProjectRoot, template, lock.Modules); err != nil {
+		return "", "", err
+	}
 	return plan.TargetRoot, plan.Checksum, nil
 }
 
@@ -131,7 +138,7 @@ func copyDirectory(source string, target string) error {
 			return os.MkdirAll(target, 0o755)
 		}
 		if entry.IsDir() {
-			if entry.Name() == ".git" {
+			if shouldSkipTemplateWorkDir(entry.Name()) {
 				return filepath.SkipDir
 			}
 			return os.MkdirAll(filepath.Join(target, relative), 0o755)
@@ -212,7 +219,7 @@ func collectTemplateSyncFiles(root string) (map[string]string, error) {
 			return err
 		}
 		if entry.IsDir() {
-			if entry.Name() == ".git" {
+			if shouldSkipTemplateWorkDir(entry.Name()) {
 				return filepath.SkipDir
 			}
 			return nil

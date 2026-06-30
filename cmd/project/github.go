@@ -13,7 +13,7 @@ import (
 const projectServiceAccountTokenRef = "op://projects/yiw7onwcvruugyi2ji6c4crwpy/password"
 
 type createGitHubRepositoryOptions struct {
-	Secrets bool
+	Visibility string
 }
 
 type createGitHubRepositoryResult struct {
@@ -32,13 +32,11 @@ func createGitHubRepository(projectRoot string, options createGitHubRepositoryOp
 	if _, err := exec.LookPath("git"); err != nil {
 		return createGitHubRepositoryResult{}, errors.New("git is required for --github")
 	}
-	if options.Secrets {
-		if _, err := exec.LookPath("op"); err != nil {
-			return createGitHubRepositoryResult{}, errors.New("op is required for --secrets")
-		}
+	if _, err := exec.LookPath("op"); err != nil {
+		return createGitHubRepositoryResult{}, errors.New("op is required for --github")
 	}
 
-	output, err := runCommand("", nil, "gh", "repo", "create", repoName, "--private")
+	output, err := runCommand("", nil, "gh", "repo", "create", repoName, githubRepositoryVisibilityFlag(options.Visibility))
 	if err != nil {
 		return createGitHubRepositoryResult{}, fmt.Errorf("create GitHub repository: %w", err)
 	}
@@ -54,22 +52,25 @@ func createGitHubRepository(projectRoot string, options createGitHubRepositoryOp
 		return createGitHubRepositoryResult{}, err
 	}
 
-	secretSet := false
-	if options.Secrets {
-		token, err := readProjectServiceAccountToken()
-		if err != nil {
-			return createGitHubRepositoryResult{}, err
-		}
-		if err := setGitHubSecret(repoRef, token); err != nil {
-			return createGitHubRepositoryResult{}, err
-		}
-		secretSet = true
+	token, err := readProjectServiceAccountToken()
+	if err != nil {
+		return createGitHubRepositoryResult{}, err
+	}
+	if err := setGitHubSecret(repoRef, token); err != nil {
+		return createGitHubRepositoryResult{}, err
 	}
 
 	if err := initializeAndPushRepository(projectRoot, repoURL); err != nil {
 		return createGitHubRepositoryResult{}, err
 	}
-	return createGitHubRepositoryResult{URL: repoURL, SecretSet: secretSet}, nil
+	return createGitHubRepositoryResult{URL: repoURL, SecretSet: true}, nil
+}
+
+func githubRepositoryVisibilityFlag(visibility string) string {
+	if visibility == "public" {
+		return "--public"
+	}
+	return "--private"
 }
 
 func githubRepositoryName(projectRoot string) (string, error) {

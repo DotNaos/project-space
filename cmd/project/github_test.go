@@ -36,3 +36,16 @@ func TestGitHubRepositoryName(t *testing.T) {
 		t.Fatalf("githubRepositoryName = %q, want my-app", got)
 	}
 }
+
+func TestGitHubRepositoryVisibilityFlag(t *testing.T) {
+	tests := map[string]string{
+		"":        "--private",
+		"private": "--private",
+		"public":  "--public",
+	}
+	for input, want := range tests {
+		if got := githubRepositoryVisibilityFlag(input); got != want {
+			t.Fatalf("githubRepositoryVisibilityFlag(%q) = %q, want %q", input, got, want)
+		}
+	}
+}

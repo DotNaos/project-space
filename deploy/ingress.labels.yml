@@ -1,0 +1,37 @@
+services:
+  web:
+    networks:
+      - default
+      - traefik-public
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      - traefik.constraint-label=traefik-public
+      - traefik.http.routers.project-space-web.rule=Host(`${PROJECT_DOMAIN:?set PROJECT_DOMAIN}`)
+      - traefik.http.routers.project-space-web.entrypoints=websecure
+      - traefik.http.routers.project-space-web.tls=true
+      - traefik.http.routers.project-space-web.tls.certresolver=letsencrypt-dns
+      - traefik.http.routers.project-space-web.middlewares=secure-headers@file,gzip@file
+      - traefik.http.routers.project-space-web.priority=10
+      - traefik.http.services.project-space-web.loadbalancer.server.port=4173
+
+  docs:
+    networks:
+      - default
+      - traefik-public
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      - traefik.constraint-label=traefik-public
+      - traefik.http.routers.project-space-docs.rule=Host(`${PROJECT_DOMAIN:?set PROJECT_DOMAIN}`) && PathPrefix(`/docs`)
+      - traefik.http.routers.project-space-docs.entrypoints=websecure
+      - traefik.http.routers.project-space-docs.tls=true
+      - traefik.http.routers.project-space-docs.tls.certresolver=letsencrypt-dns
+      - traefik.http.routers.project-space-docs.middlewares=secure-headers@file,gzip@file
+      - traefik.http.routers.project-space-docs.priority=20
+      - traefik.http.services.project-space-docs.loadbalancer.server.port=3000
+
+networks:
+  traefik-public:
+    external: true
+    name: traefik-public

@@ -1,0 +1,65 @@
+---
+title: CLI
+description: Comprehensive command reference for the Project CLI.
+---
+
+The `project` CLI is the local command-line interface for Project. It exposes project creation, template snapshots, validation, modules, deployment, and shell completion.
+
+## Base Command
+
+```sh
+project [command]
+```
+
+## Commands
+
+| Command | Synonyms | Description |
+| --- | --- | --- |
+| `project create` | `project new` | Create and initialize a new project. |
+| `project init` | - | Initialize template state in an existing project. |
+| `project validate` | - | Validate a project against its local template snapshot. |
+| `project module` | - | List, inspect, add, and remove template modules. |
+| `project template` | - | Sync, update, and smoke-test template snapshots. |
+| `project deploy` | - | Deploy the project to the VPS using the project deploy contract. |
+| `project completion` | - | Generate shell completion scripts. |
+
+## Global Flags
+
+| Flag | Synonyms | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--help` | `-h` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Print help for the selected command. |
+
+## Common Workflows
+
+Create a project:
+
+```sh
+project create my-project
+```
+
+Validate the current project:
+
+```sh
+project validate
+```
+
+Preview a template update:
+
+```sh
+project template update --dry-run
+```
+
+Preview a deployment:
+
+```sh
+project deploy --dry-run
+```
+
+## Pages
+
+- [Create and init](/docs/cli/create-init)
+- [Validate](/docs/cli/validate)
+- [Modules](/docs/cli/modules)
+- [Template commands](/docs/cli/template)
+- [Deploy](/docs/cli/deploy)
+- [Shell completion](/docs/cli/completion)

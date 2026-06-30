@@ -1,6 +1,6 @@
 import type { WheelEvent } from 'react';
 import { Button, Surface, Text } from '@/app/dotnaos-ui';
-import { Blocks, FolderKanban, GitBranchPlus } from 'lucide-react';
+import { FolderKanban, GitBranchPlus, Server } from 'lucide-react';
 import type {
   ExplorerTarget,
   ProjectGroupRecord,
@@ -24,8 +24,8 @@ interface ProjectSidebarPaneProps {
   isOpen: boolean;
   navigationItems: ProjectNavigationItem[];
   onCreateProject(): void;
-  onOpenCodexSkills(): void;
-  onOpenHome(): void;
+  onOpenMachines(): void;
+  onOpenProjects(): void;
   onOpenNewWorktree(): void;
   onResizeStart(event: React.MouseEvent<HTMLButtonElement>): void;
   onSelectProject(projectId: string, groupId?: string): void;
@@ -37,7 +37,8 @@ interface ProjectSidebarPaneProps {
   previewPanelRef: React.RefObject<HTMLDivElement | null>;
   previewProject?: ProjectSpaceRecord;
   previewWorktrees: ProjectWorktreeRecord[];
-  isHomeSelected: boolean;
+  isMachinesSelected: boolean;
+  isProjectsSelected: boolean;
   project?: ProjectSpaceRecord;
   projects: ProjectSpaceRecord[];
   rootItems: ProjectNavigationItem[];
@@ -58,8 +59,8 @@ export function ProjectSidebarPane({
   isOpen,
   navigationItems,
   onCreateProject,
-  onOpenCodexSkills,
-  onOpenHome,
+  onOpenMachines,
+  onOpenProjects,
   onOpenNewWorktree,
   onResizeStart,
   onSelectProject,
@@ -71,7 +72,8 @@ export function ProjectSidebarPane({
   previewPanelRef,
   previewProject,
   previewWorktrees,
-  isHomeSelected,
+  isMachinesSelected,
+  isProjectsSelected,
   project,
   projects,
   rootItems,
@@ -117,23 +119,25 @@ export function ProjectSidebarPane({
           ) : null}
 
           <Button
+            data-testid="sidebar-machines"
             fullWidth
-            variant={isHomeSelected ? 'secondary' : 'ghost'}
-            onPress={onOpenHome}
+            variant={isMachinesSelected ? 'secondary' : 'ghost'}
+            onPress={onOpenMachines}
             className="mt-3 h-11 justify-start gap-3 rounded-xl px-3"
           >
-            <FolderKanban className="size-4" />
-            Projects
+            <Server className="size-4" />
+            Machines
           </Button>
 
           <Button
+            data-testid="sidebar-projects"
             fullWidth
-            variant="ghost"
-            onPress={onOpenCodexSkills}
-            className="mt-1 h-11 justify-start gap-3 rounded-xl px-3 text-slate-300 transition duration-200 hover:bg-slate-900/35 hover:text-slate-50"
+            variant={isProjectsSelected ? 'secondary' : 'ghost'}
+            onPress={onOpenProjects}
+            className="mt-1 h-11 justify-start gap-3 rounded-xl px-3"
           >
-            <Blocks className="size-4 shrink-0" strokeWidth={1.9} />
-            Skills
+            <FolderKanban className="size-4" />
+            Projects
           </Button>
         </div>
       </div>

@@ -1,0 +1,44 @@
+---
+title: Shell Completion
+description: Generate shell completion scripts for Project.
+---
+
+## `project completion`
+
+Generate shell completion scripts.
+
+```sh
+project completion [command]
+```
+
+Available commands:
+
+| Command | Description |
+| --- | --- |
+| `project completion bash` | Generate Bash completions. |
+| `project completion fish` | Generate Fish completions. |
+| `project completion powershell` | Generate PowerShell completions. |
+| `project completion zsh` | Generate Zsh completions. |
+
+## `project completion zsh`
+
+```sh
+project completion zsh [flags]
+```
+
+### Flags
+
+| Flag | Synonyms | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--no-descriptions` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Disable completion descriptions. |
+| `--help` | `-h` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Print help. |
+
+### Homebrew Install Path
+
+When installed through Homebrew, completions should be installed into Homebrew's zsh completion path:
+
+```sh
+project completion zsh > "$(brew --prefix)/share/zsh/site-functions/_project"
+```
+
+Start a new shell after writing the completion file.

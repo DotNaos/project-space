@@ -1,0 +1,30 @@
+---
+title: Deploy
+description: Deploy projects to the VPS.
+---
+
+Project deploys use the project's own deploy files:
+
+```text
+deploy/compose.yml
+deploy/ingress.labels.yml
+deploy/deploy.yaml
+```
+
+Preview a deployment:
+
+```sh
+project deploy --dry-run
+```
+
+Deploy:
+
+```sh
+project deploy
+```
+
+Check status:
+
+```sh
+project deploy status
+```

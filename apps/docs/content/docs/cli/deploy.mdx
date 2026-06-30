@@ -1,0 +1,95 @@
+---
+title: Deploy
+description: Deploy and inspect Project deployments on the VPS.
+---
+
+## `project deploy`
+
+Deploy the current project to the VPS.
+
+```sh
+project deploy [directory] [flags]
+```
+
+### Arguments
+
+| Argument | Required | Default | Description |
+| --- | --- | --- | --- |
+| `directory` | no | `.` | Project directory to deploy. |
+
+### Flags
+
+| Flag | Synonyms | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--host` | - | <span className="doc-type doc-type-string">string</span> | discovered | SSH host. |
+| `--path` | - | <span className="doc-type doc-type-string">string</span> | discovered | Remote project directory. |
+| `--branch` | - | <span className="doc-type doc-type-string">string</span> | discovered | Git branch to deploy. |
+| `--domain` | - | <span className="doc-type doc-type-string">string</span> | discovered | Public project domain. |
+| `--api-domain` | - | <span className="doc-type doc-type-string">string</span> | derived from `--domain` when possible | Public API domain. |
+| `--email` | - | <span className="doc-type doc-type-string">string</span> | <span className="doc-default-empty">none</span> | Traefik ACME email. |
+| `--dry-run` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Print planned remote actions without changing the VPS. |
+| `--help` | `-h` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Print help. |
+
+### Deploy Config
+
+Values can live in `deploy/deploy.yaml`:
+
+```yaml
+host: deploy@100.84.238.75
+path: /opt/platform/apps/my-project
+branch: main
+domain: my-project.os-home.net
+apiDomain: my-project-api.os-home.net
+```
+
+Flags override config.
+
+### Behavior
+
+- Requires `deploy/compose.yml`.
+- Requires `deploy/ingress.labels.yml`.
+- Uses the VPS-owned `private-platform-traefik` ingress and `traefik-public` Docker network.
+- Confirms discovered values before using them.
+- Clones or refreshes the remote Git checkout.
+- Runs Docker Compose with the deploy compose and ingress labels.
+
+### Examples
+
+```sh
+project deploy --dry-run
+project deploy
+project deploy --domain projects.os-home.net --api-domain projects-api.os-home.net
+```
+
+## `project deploy status`
+
+Inspect deployment status without changing the VPS.
+
+```sh
+project deploy status [directory] [flags]
+```
+
+### Arguments
+
+| Argument | Required | Default | Description |
+| --- | --- | --- | --- |
+| `directory` | no | `.` | Project directory. |
+
+### Flags
+
+| Flag | Synonyms | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--host` | - | <span className="doc-type doc-type-string">string</span> | discovered | SSH host. |
+| `--path` | - | <span className="doc-type doc-type-string">string</span> | discovered | Remote project directory. |
+| `--branch` | - | <span className="doc-type doc-type-string">string</span> | discovered | Git branch. |
+| `--domain` | - | <span className="doc-type doc-type-string">string</span> | discovered | Public project domain. |
+| `--api-domain` | - | <span className="doc-type doc-type-string">string</span> | derived from `--domain` when possible | Public API domain. |
+| `--email` | - | <span className="doc-type doc-type-string">string</span> | <span className="doc-default-empty">none</span> | Traefik ACME email. |
+| `--help` | `-h` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Print help. |
+
+### Examples
+
+```sh
+project deploy status
+project deploy status --host deploy@100.84.238.75 --path /opt/platform/apps/project-space
+```

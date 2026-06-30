@@ -8,6 +8,7 @@ import type {
   CodexOpenRequest,
   GitHubOAuthDevicePollRequest,
   ProjectBackupRequest,
+  ProjectCliCommandRequest,
   GitCommitRequest,
   GitDiffRequest,
   GitStageRequest,
@@ -193,6 +194,17 @@ function createApiHandler(backend: ProjectSpaceBackend) {
 
       if (request.method === 'GET' && url.pathname === '/api/connectors/overview') {
         writeJson(response, 200, await backend.getConnectorOverview());
+        return true;
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/connectors/project-registry') {
+        writeJson(response, 200, await backend.getConnectorProjectRegistry());
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/project-cli/run') {
+        const payload = await readJson<ProjectCliCommandRequest>(request);
+        writeJson(response, 200, await backend.runProjectCliCommand(payload));
         return true;
       }
 

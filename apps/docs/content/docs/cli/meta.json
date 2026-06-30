@@ -1,0 +1,4 @@
+{
+  "title": "CLI",
+  "pages": ["index", "create-init", "validate", "modules", "template", "deploy", "completion"]
+}

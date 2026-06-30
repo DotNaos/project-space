@@ -29,11 +29,21 @@ type TemplateFileSpec struct {
 }
 
 type TemplateModuleSpec struct {
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
-	Default     bool     `yaml:"default"`
-	DependsOn   []string `yaml:"dependsOn"`
-	Owns        []string `yaml:"owns"`
+	Name        string                       `yaml:"name"`
+	Description string                       `yaml:"description"`
+	Default     bool                         `yaml:"default"`
+	DependsOn   []string                     `yaml:"dependsOn"`
+	Values      map[string]TemplateValueSpec `yaml:"values"`
+	Owns        []string                     `yaml:"owns"`
+}
+
+type TemplateValueSpec struct {
+	Type        string `yaml:"type"`
+	Required    bool   `yaml:"required"`
+	Description string `yaml:"description"`
+	Pattern     string `yaml:"pattern"`
+	Default     string `yaml:"default"`
+	DefaultFrom string `yaml:"defaultFrom"`
 }
 
 type ModuleInstallOptions struct {
@@ -85,6 +95,7 @@ type ModuleInfo struct {
 	Installed   bool
 	Default     bool
 	DependsOn   []string
+	Values      map[string]TemplateValueSpec
 	Owns        []string
 	Files       []string
 }
@@ -152,4 +163,39 @@ type ViolationQuarantineFile struct {
 	QuarantinePath string
 	Code           string
 	Module         string
+}
+
+type TemplateUpdateOptions struct {
+	TemplatePath string
+	DryRun       bool
+}
+
+type TemplateUpdatePlan struct {
+	ProjectRoot    string
+	SourceRoot     string
+	FromTemplate   string
+	FromVersion    string
+	FromCommit     string
+	FromChecksum   string
+	ToTemplate     string
+	ToVersion      string
+	ToChecksum     string
+	Values         []TemplateUpdateValueChange
+	Files          []TemplateUpdateFileChange
+	WouldWrite     bool
+	ConflictFolder string
+}
+
+type TemplateUpdateValueChange struct {
+	Action string
+	Key    string
+	Before string
+	After  string
+}
+
+type TemplateUpdateFileChange struct {
+	Action string
+	Path   string
+	Result string
+	Module string
 }
