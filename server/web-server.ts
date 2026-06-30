@@ -1,6 +1,8 @@
 import { resolve } from 'node:path';
 
+import { createLocalProjectSpaceBackend } from './local-project-space-backend';
 import { createProjectSpaceServer } from './project-space-http';
+import { startProjectConnectorWebSocket } from './project-connector-websocket';
 
 const version = '0.2.0';
 const command = process.argv[2] ?? 'serve';
@@ -39,11 +41,24 @@ if (command !== 'serve') {
 const port = Number(process.env.PORT ?? process.env.PROJECT_SPACE_PORT ?? 4173);
 const host = process.env.PROJECT_SPACE_HOST ?? '127.0.0.1';
 const staticRoot = resolve(process.cwd(), 'dist/renderer');
+const backend = createLocalProjectSpaceBackend();
 
 const server = await createProjectSpaceServer({
+  backend,
   host,
   port,
   staticRoot
 });
+const bridge = startProjectConnectorWebSocket({ backend });
+
+function shutdown() {
+  bridge.close();
+  void server.close().finally(() => {
+    process.exit(0);
+  });
+}
+
+process.once('SIGINT', shutdown);
+process.once('SIGTERM', shutdown);
 
 console.log(`Project Space fullstack server running at ${server.origin}`);

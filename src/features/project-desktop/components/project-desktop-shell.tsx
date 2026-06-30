@@ -104,8 +104,8 @@ export function ProjectDesktopShell() {
           isOpen={isSidebarOpen}
           navigationItems={desktop.navigationItems}
           onCreateProject={desktop.createProject}
-          onOpenCodexSkills={desktop.openCodexSkills}
-          onOpenHome={desktop.openHome}
+          onOpenMachines={desktop.openMachines}
+          onOpenProjects={desktop.openProjects}
           onOpenNewWorktree={desktop.openNewWorktreeWorkspace}
           onResizeStart={(event) => {
             event.preventDefault();
@@ -120,7 +120,8 @@ export function ProjectDesktopShell() {
           previewPanelRef={previewPanelRef}
           previewProject={previewProject}
           previewWorktrees={previewWorktrees}
-          isHomeSelected={desktop.mainView === 'home'}
+          isMachinesSelected={desktop.mainView === 'machines'}
+          isProjectsSelected={desktop.mainView === 'projects'}
           project={desktop.project}
           projects={desktop.projects}
           rootItems={desktop.rootItems}
@@ -138,6 +139,8 @@ export function ProjectDesktopShell() {
           launcherError={desktop.launcherError}
           mainView={desktop.mainView}
           onCreateProject={desktop.createProject}
+          onOpenMachines={desktop.openMachines}
+          onOpenProjects={desktop.openProjects}
           onOpenSelectedTarget={desktop.openSelectedTargetInApp}
           onSelectLauncherApp={desktop.selectLauncherApp}
           onSelectProject={desktop.selectProject}

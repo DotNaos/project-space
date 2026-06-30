@@ -64,12 +64,19 @@ func InstallModule(projectRoot string, moduleName string, options ModuleInstallO
 	if err != nil {
 		return ModuleInstallPlan{}, err
 	}
-	if err := applyModuleFiles(root, template, values, plan.Files); err != nil {
-		return ModuleInstallPlan{}, err
-	}
 	nextModules := append([]string{}, lock.Modules...)
 	nextModules = append(nextModules, plan.ToInstall...)
 	nextModules = uniqueSortedModules(nextModules)
+	values, err = mergeTemplateValuesForModules(root, template, nextModules, values)
+	if err != nil {
+		return ModuleInstallPlan{}, err
+	}
+	if err := applyModuleFiles(root, template, values, plan.Files); err != nil {
+		return ModuleInstallPlan{}, err
+	}
+	if _, err := writeTemplateValues(root, values); err != nil {
+		return ModuleInstallPlan{}, err
+	}
 	lock.Modules = nextModules
 	lockPath, err := writeTemplateLock(root, lock)
 	if err != nil {
@@ -229,6 +236,7 @@ func ListModuleInfos(projectRoot string) ([]ModuleInfo, error) {
 			Installed:   installed[name],
 			Default:     module.Default,
 			DependsOn:   append([]string{}, module.DependsOn...),
+			Values:      module.Values,
 			Owns:        append([]string{}, module.Owns...),
 			Files:       files,
 		})

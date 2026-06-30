@@ -1,0 +1,90 @@
+---
+title: Create and Init
+description: Commands for creating a new project or initializing an existing one.
+---
+
+## `project create`
+
+Create a new directory and initialize it as a Project-managed project.
+
+```sh
+project create [directory] [flags]
+```
+
+Synonym: `project new [directory] [flags]`
+
+### Arguments
+
+| Argument | Required | Default | Description |
+| --- | --- | --- | --- |
+| `directory` | yes, unless `--tmp` or `--global-tmp` is used | none | Directory to create and initialize. |
+
+### Flags
+
+| Flag | Synonyms | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--template` | - | <span className="doc-type doc-type-string">string</span> | <span className="doc-default-empty">none</span> | Template repository, for example `DotNaos/project-template`. |
+| `--template-path` | - | <span className="doc-type doc-type-string">string</span> | <span className="doc-default-empty">none</span> | Local template path, mainly for local template development. |
+| `--version` | - | <span className="doc-type doc-type-string">string</span> | <span className="doc-default-empty">none</span> | Template version to write into the project lock. |
+| `--commit` | - | <span className="doc-type doc-type-string">string</span> | <span className="doc-default-empty">none</span> | Template commit or label to write into the project lock. |
+| `--force` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Replace an existing `.project/template.lock.yaml`. |
+| `--github` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Create a private GitHub repository by default and push the project. |
+| `--github-visibility` | - | <span className="doc-type doc-type-string">string</span> | `private` | GitHub repository visibility. Valid values: `private`, `public`. Requires `--github` when changed. |
+| `--tmp` | `--local-tmp` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Create a local tmp project in `./tmp` and install default modules. |
+| `--global-tmp` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Create a generated project under `/tmp`. |
+| `--help` | `-h` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Print help. |
+
+### Behavior
+
+- Creates the target directory.
+- Writes `.project/template.lock.yaml`.
+- Prints a copy-paste-ready `cd <path>` line.
+- With `--tmp` or `--global-tmp`, adds a random suffix so the command can be run repeatedly.
+- With `--tmp` or `--global-tmp`, writes tmp template values and installs the template's default modules.
+- With `--github`, initializes Git, creates a private GitHub repository by default, commits, and pushes `main`.
+- GitHub repositories are private by default. Use `--github-visibility public` to create a public repository.
+- With `--github`, stores `OP_SERVICE_ACCOUNT_TOKEN` on the new GitHub repository before the first push.
+
+### Examples
+
+```sh
+project create my-project
+project new my-project
+project new --tmp
+project new my-project --global-tmp
+project new my-project --github
+project new my-project --github --github-visibility public
+```
+
+## `project init`
+
+Initialize Project template state in an existing directory.
+
+```sh
+project init [directory] [flags]
+```
+
+### Arguments
+
+| Argument | Required | Default | Description |
+| --- | --- | --- | --- |
+| `directory` | no | `.` | Existing directory to initialize. |
+
+### Flags
+
+| Flag | Synonyms | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--template` | - | <span className="doc-type doc-type-string">string</span> | <span className="doc-default-empty">none</span> | Template repository. |
+| `--template-path` | - | <span className="doc-type doc-type-string">string</span> | <span className="doc-default-empty">none</span> | Local template path. |
+| `--version` | - | <span className="doc-type doc-type-string">string</span> | <span className="doc-default-empty">none</span> | Template version. |
+| `--commit` | - | <span className="doc-type doc-type-string">string</span> | <span className="doc-default-empty">none</span> | Template commit or label. |
+| `--force` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Replace an existing `.project/template.lock.yaml`. |
+| `--help` | `-h` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Print help. |
+
+### Examples
+
+```sh
+project init
+project init existing-project
+project init --template DotNaos/project-template --version 0.1.0
+```

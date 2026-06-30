@@ -1,0 +1,4 @@
+{
+  "title": "Project",
+  "pages": ["index", "setup", "cli", "api", "templates", "deploy", "reference"]
+}

@@ -22,6 +22,7 @@ import type {
 } from '@/shared/project-space-api';
 
 interface ProjectHomeOverviewProps {
+  mode: 'machines' | 'projects';
   projects: ProjectSpaceRecord[];
   onSelectProject(projectId: string): void;
 }
@@ -78,12 +79,23 @@ function getMachineId(project: ProjectSpaceRecord) {
   return project.id.includes(':') ? project.id.slice(0, project.id.indexOf(':')) : 'local';
 }
 
+function getProjectMachineId(project: ProjectSpaceRecord, localMachineId: string) {
+  const machineId = getMachineId(project);
+  return machineId === 'local' ? localMachineId : machineId;
+}
+
 function getTemplateStatus(project: ProjectSpaceRecord): FullstackTemplateStatus {
   return project.fullstackTemplate?.status ?? 'not-detected';
 }
 
 function basename(path: string) {
   return path.split('/').filter(Boolean).at(-1) ?? path;
+}
+
+function isVisibleLocalProject(project: ProjectSpaceRecord) {
+  const projectFolder = basename(project.rootPath);
+
+  return !projectFolder.startsWith('.') && !projectFolder.endsWith('.worktrees');
 }
 
 function normalizeKey(value: string) {
@@ -321,6 +333,7 @@ function WorktreeDrawer({
 }
 
 export function ProjectHomeOverview({
+  mode,
   projects,
   onSelectProject
 }: ProjectHomeOverviewProps) {
@@ -329,6 +342,7 @@ export function ProjectHomeOverview({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [expandedRowId, setExpandedRowId] = useState<string>('');
   const [loadingRowId, setLoadingRowId] = useState<string>('');
+  const [selectedMachineId, setSelectedMachineId] = useState('');
   const [worktreeDetails, setWorktreeDetails] = useState<Record<string, WorktreeDetail[]>>({});
 
   async function refresh() {
@@ -345,12 +359,15 @@ export function ProjectHomeOverview({
         return projectSpaceClient.getGitHubCatalog().catch(() => catalog);
       };
 
-      const [nextConnector, nextGitHubCatalog] = await Promise.all([
-        projectSpaceClient.getConnectorOverview().catch(() => connectorFallback),
+      await Promise.all([
+        projectSpaceClient
+          .getConnectorOverview()
+          .then((nextConnector) => setConnector(nextConnector ?? connectorFallback))
+          .catch(() => setConnector(connectorFallback)),
         loadGitHubCatalog()
+          .then((nextGitHubCatalog) => setGitHubCatalog(nextGitHubCatalog ?? githubFallback))
+          .catch(() => setGitHubCatalog(githubFallback))
       ]);
-      setConnector(nextConnector ?? connectorFallback);
-      setGitHubCatalog(nextGitHubCatalog ?? githubFallback);
     } finally {
       setIsRefreshing(false);
     }
@@ -386,6 +403,10 @@ export function ProjectHomeOverview({
     () => new Map(machines.map((machine) => [machine.id, machine])),
     [machines]
   );
+  const localMachineId =
+    machines.find((machine) => machine.connector.status === 'local')?.id ?? 'local';
+  const activeMachineId = selectedMachineId || localMachineId || machines[0]?.id || '';
+  const activeMachine = machinesById.get(activeMachineId);
 
   const rows = useMemo<MatrixRow[]>(() => {
     const repositories =
@@ -397,7 +418,7 @@ export function ProjectHomeOverview({
         .map((project) => {
           matchedProjectIds.add(project.id);
           return {
-            machineId: getMachineId(project),
+            machineId: getProjectMachineId(project, localMachineId),
             project
           };
         });
@@ -420,7 +441,7 @@ export function ProjectHomeOverview({
         isLocalOnly: true,
         localMatches: [
           {
-            machineId: getMachineId(project),
+            machineId: getProjectMachineId(project, localMachineId),
             project
           }
         ],
@@ -428,9 +449,28 @@ export function ProjectHomeOverview({
       }));
 
     return [...repoRows, ...localOnlyRows];
-  }, [githubCatalog, projects]);
+  }, [githubCatalog, localMachineId, projects]);
 
   const columnTemplate = `minmax(20rem,1.35fr) repeat(${machines.length}, minmax(10rem,12rem))`;
+  const projectsByMachine = useMemo(() => {
+    return projects.filter(isVisibleLocalProject).reduce<Record<string, ProjectSpaceRecord[]>>((groups, project) => {
+      const machineId = getProjectMachineId(project, localMachineId);
+      groups[machineId] = [...(groups[machineId] ?? []), project];
+      return groups;
+    }, {});
+  }, [localMachineId, projects]);
+  const activeMachineProjects = activeMachineId ? projectsByMachine[activeMachineId] ?? [] : [];
+  const githubRows = rows.filter((row) => !row.isLocalOnly);
+
+  useEffect(() => {
+    if (machines.length === 0) {
+      return;
+    }
+
+    if (!activeMachineId || !machinesById.has(activeMachineId)) {
+      setSelectedMachineId(localMachineId || machines[0]?.id || '');
+    }
+  }, [activeMachineId, localMachineId, machines, machinesById]);
 
   async function toggleRow(row: MatrixRow) {
     const nextExpandedId = expandedRowId === row.id ? '' : row.id;
@@ -460,9 +500,13 @@ export function ProjectHomeOverview({
     <div className="flex min-h-full w-full flex-col">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <Text className="block text-sm font-semibold text-slate-100">Project matrix</Text>
+          <Text className="block text-sm font-semibold text-slate-100">
+            {mode === 'machines' ? 'Machines' : 'GitHub projects'}
+          </Text>
           <Text className="block text-sm text-slate-500">
-            GitHub repos by workstation. Expand a row for local checkouts and worktrees.
+            {mode === 'machines'
+              ? 'Connected workstations and their local Project registry.'
+              : 'Global projects are GitHub repositories. Local-only folders stay under Machines.'}
           </Text>
         </div>
         <Button
@@ -475,7 +519,120 @@ export function ProjectHomeOverview({
         </Button>
       </div>
 
-      {githubCatalog.status !== 'connected' ? (
+      {mode === 'machines' ? (
+        <>
+          <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {machines.map((machine) => {
+              const machineProjects = projectsByMachine[machine.id] ?? [];
+              const isOnline =
+                machine.connector.status === 'local' || machine.connector.status === 'online';
+              const isSelected = machine.id === activeMachineId;
+
+              return (
+                <button
+                  key={machine.id}
+                  type="button"
+                  onClick={() => setSelectedMachineId(machine.id)}
+                  className={[
+                    'min-w-0 rounded-lg border bg-slate-950/55 p-4 text-left transition hover:border-slate-700 hover:bg-slate-900/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400',
+                    isSelected ? 'border-sky-500/45' : 'border-slate-800'
+                  ].join(' ')}
+                >
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <MachineIcon machine={machine} />
+                      <div className="min-w-0">
+                        <Text className="block truncate text-sm font-semibold text-slate-100">
+                          {machine.name}
+                        </Text>
+                        <Text className="block truncate text-xs text-slate-500">
+                          {[machine.kind, machine.profile, machine.network.localName]
+                            .filter(Boolean)
+                            .join(' / ') || 'machine'}
+                        </Text>
+                      </div>
+                    </div>
+                    <span
+                      className={
+                        isOnline
+                          ? 'mt-1 size-2.5 rounded-full bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.6)]'
+                          : 'mt-1 size-2.5 rounded-full bg-slate-600'
+                      }
+                    />
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Chip size="sm" className={connectorChipClass(machine.connector.status)}>
+                      {machine.connector.status}
+                    </Chip>
+                    <Chip size="sm" variant="tertiary">
+                      {machineProjects.length} projects
+                    </Chip>
+                    <Chip size="sm" variant="tertiary">
+                      {formatLastSeen(machine.connector.lastSeen)}
+                    </Chip>
+                  </div>
+
+                  <Text className="mt-3 block truncate font-mono text-xs text-slate-500">
+                    {machine.connector.origin ??
+                      machine.network.tailscaleIp ??
+                      machine.connector.installCommand}
+                  </Text>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mb-3">
+            <Text className="block text-sm font-semibold text-slate-100">
+              {activeMachine?.name ?? 'Machine'} projects
+            </Text>
+            <Text className="block text-sm text-slate-500">
+              Local folders are reachable through the connector on this machine.
+            </Text>
+          </div>
+
+          {activeMachineProjects.length > 0 ? (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {activeMachineProjects.map((project) => {
+                const status = getTemplateStatus(project);
+
+                return (
+                  <button
+                    key={project.id}
+                    type="button"
+                    onClick={() => onSelectProject(project.id)}
+                    className="min-w-0 rounded-lg border border-slate-800 bg-slate-950/55 p-4 text-left transition hover:border-slate-700 hover:bg-slate-900/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400"
+                  >
+                    <Text className="block truncate text-sm font-semibold text-slate-100">
+                      {project.name}
+                    </Text>
+                    <Text className="mt-1 block truncate font-mono text-xs text-slate-500">
+                      {project.rootPath}
+                    </Text>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Chip size="sm" className={configChipClass(status)}>
+                        {templateStatusLabels[status]}
+                      </Chip>
+                      <Chip size="sm" variant="tertiary">
+                        {project.kind}
+                      </Chip>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-slate-800 bg-slate-950/45 px-4 py-6">
+              <Text className="text-sm text-slate-500">
+                No local projects reported by this machine yet.
+              </Text>
+            </div>
+          )}
+        </>
+      ) : null}
+
+      {mode === 'projects' && githubCatalog.status !== 'connected' ? (
         <div className="mb-3 rounded-lg border border-amber-500/20 bg-amber-500/8 px-3 py-2">
           <Text className="text-sm text-amber-200">
             {githubCatalog.message ?? `GitHub is ${githubCatalog.status}.`}
@@ -483,86 +640,97 @@ export function ProjectHomeOverview({
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-800/80">
-        <div className="min-w-max">
-          <div
-            className="sticky top-0 z-10 grid border-b border-slate-800 bg-slate-950/95"
-            style={{ gridTemplateColumns: columnTemplate }}
-          >
-            <div className="flex items-center gap-2 px-4 py-3">
-              <Github className="size-4 text-slate-500" />
-              <Text className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                GitHub repository
-              </Text>
-              {githubCatalog.auth?.login ? (
-                <Chip size="sm" variant="tertiary">
-                  @{githubCatalog.auth.login}
-                </Chip>
-              ) : null}
-            </div>
-            {machines.map((machine) => (
-              <div key={machine.id} className="border-l border-slate-800 px-3 py-3">
-                <div className="flex min-w-0 items-center gap-2">
-                  <MachineIcon machine={machine} />
-                  <Text className="min-w-0 truncate text-sm font-semibold text-slate-200">
-                    {machine.name}
-                  </Text>
-                </div>
-                <div className="mt-1 flex flex-wrap gap-1.5">
-                  <Chip size="sm" className={connectorChipClass(machine.connector.status)}>
-                    {machine.connector.status}
-                  </Chip>
-                  <Chip size="sm" variant="tertiary">
-                    {formatLastSeen(machine.connector.lastSeen)}
-                  </Chip>
-                </div>
-              </div>
-            ))}
+      {mode === 'projects' ? (
+        <>
+          <div className="mb-3">
+            <Text className="block text-sm font-semibold text-slate-100">Projects</Text>
+            <Text className="block text-sm text-slate-500">
+              GitHub repositories by workstation. Expand a row for local checkouts and worktrees.
+            </Text>
           </div>
 
-          {rows.map((row) => {
-            const isExpanded = expandedRowId === row.id;
-
-            return (
-              <div key={row.id}>
-                <div
-                  className="grid border-b border-slate-900/80 hover:bg-slate-900/30"
-                  style={{ gridTemplateColumns: columnTemplate }}
-                >
-                  <div className="min-w-0 px-4 py-3">
-                    <RepoCell row={row} isExpanded={isExpanded} onToggle={toggleRow} />
-                  </div>
-                  {machines.map((machine) => {
-                    const matches = row.localMatches.filter(
-                      (match) => match.machineId === machine.id
-                    );
-
-                    return (
-                      <div
-                        key={`${row.id}:${machine.id}`}
-                        className="flex items-center border-l border-slate-900/80 px-3 py-3"
-                      >
-                        <MatrixCell
-                          matches={matches}
-                          onSelectProject={onSelectProject}
-                        />
-                      </div>
-                    );
-                  })}
+          <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-800/80">
+            <div className="min-w-max">
+              <div
+                className="sticky top-0 z-10 grid border-b border-slate-800 bg-slate-950/95"
+                style={{ gridTemplateColumns: columnTemplate }}
+              >
+                <div className="flex items-center gap-2 px-4 py-3">
+                  <Github className="size-4 text-slate-500" />
+                  <Text className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    GitHub repository
+                  </Text>
+                  {githubCatalog.auth?.login ? (
+                    <Chip size="sm" variant="tertiary">
+                      @{githubCatalog.auth.login}
+                    </Chip>
+                  ) : null}
                 </div>
-                {isExpanded ? (
-                  <WorktreeDrawer
-                    details={worktreeDetails[row.id]}
-                    isLoading={loadingRowId === row.id}
-                    machinesById={machinesById}
-                    row={row}
-                  />
-                ) : null}
+                {machines.map((machine) => (
+                  <div key={machine.id} className="border-l border-slate-800 px-3 py-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <MachineIcon machine={machine} />
+                      <Text className="min-w-0 truncate text-sm font-semibold text-slate-200">
+                        {machine.name}
+                      </Text>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      <Chip size="sm" className={connectorChipClass(machine.connector.status)}>
+                        {machine.connector.status}
+                      </Chip>
+                      <Chip size="sm" variant="tertiary">
+                        {formatLastSeen(machine.connector.lastSeen)}
+                      </Chip>
+                    </div>
+                  </div>
+                ))}
               </div>
-            );
-          })}
-        </div>
-      </div>
+
+              {githubRows.map((row) => {
+                const isExpanded = expandedRowId === row.id;
+
+                return (
+                  <div key={row.id}>
+                    <div
+                      className="grid border-b border-slate-900/80 hover:bg-slate-900/30"
+                      style={{ gridTemplateColumns: columnTemplate }}
+                    >
+                      <div className="min-w-0 px-4 py-3">
+                        <RepoCell row={row} isExpanded={isExpanded} onToggle={toggleRow} />
+                      </div>
+                      {machines.map((machine) => {
+                        const matches = row.localMatches.filter(
+                          (match) => match.machineId === machine.id
+                        );
+
+                        return (
+                          <div
+                            key={`${row.id}:${machine.id}`}
+                            className="flex items-center border-l border-slate-900/80 px-3 py-3"
+                          >
+                            <MatrixCell
+                              matches={matches}
+                              onSelectProject={onSelectProject}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {isExpanded ? (
+                      <WorktreeDrawer
+                        details={worktreeDetails[row.id]}
+                        isLoading={loadingRowId === row.id}
+                        machinesById={machinesById}
+                        row={row}
+                      />
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

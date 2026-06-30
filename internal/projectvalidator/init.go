@@ -21,34 +21,38 @@ func WriteTmpTemplateValues(projectRoot string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	slug := slugify(filepath.Base(root))
-	if slug == "" {
-		slug = "example-project"
-	}
-	displayName := displayNameFromSlug(slug)
-	values := TemplateValues{
-		"project": map[string]any{
-			"name":        displayName,
-			"displayName": displayName,
-			"slug":        slug,
-			"packageName": slug,
-			"goModule":    "github.com/DotNaos/" + slug,
-			"appScheme":   slug,
-			"dockerImage": slug,
-		},
-	}
-	valuesPath := filepath.Join(root, ".project", "template.values.yaml")
-	if err := os.MkdirAll(filepath.Dir(valuesPath), 0o755); err != nil {
-		return "", err
-	}
-	body, err := marshalYAML(values)
+	lock, err := readTemplateLock(root)
 	if err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(valuesPath, body, 0o644); err != nil {
+	template, err := loadTemplate(root, lock)
+	if err != nil {
 		return "", err
 	}
-	return valuesPath, nil
+	modules, err := defaultModuleClosure(template.Modules)
+	if err != nil {
+		return "", err
+	}
+	values, err := defaultTemplateValuesForProject(root, template, modules)
+	if err != nil {
+		return "", err
+	}
+	return writeTemplateValues(root, values)
+}
+
+func defaultModuleClosure(modules map[string]TemplateModuleSpec) ([]string, error) {
+	installed := []string{}
+	for name, module := range modules {
+		if !module.Default {
+			continue
+		}
+		closure, err := moduleInstallClosure(modules, name)
+		if err != nil {
+			return nil, err
+		}
+		installed = append(installed, closure...)
+	}
+	return uniqueSortedModules(installed), nil
 }
 
 func InstallDefaultModules(projectRoot string) ([]ModuleInstallPlan, error) {
@@ -105,10 +109,6 @@ func InitProject(projectRoot string, options InitOptions) (string, error) {
 	if template == "" {
 		template = "DotNaos/project-template"
 	}
-	version := options.Version
-	if version == "" {
-		version = "0.1.0"
-	}
 	commit := options.Commit
 	if commit == "" {
 		commit = "local"
@@ -117,6 +117,18 @@ func InitProject(projectRoot string, options InitOptions) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	sourceRoot, err := resolveTemplatePathFromLockPath(root, templatePath)
+	if err != nil {
+		return "", err
+	}
+	sourceTemplate, err := loadTemplateFromRoot(sourceRoot)
+	if err != nil {
+		return "", err
+	}
+	version := options.Version
+	if version == "" {
+		version = sourceTemplate.Version
+	}
 	lockPath := filepath.Join(root, ".project", "template.lock.yaml")
 	if _, err := os.Stat(lockPath); err == nil && !options.Force {
 		return "", fmt.Errorf("%s already exists; use --force to replace it", lockPath)
@@ -124,17 +136,32 @@ func InitProject(projectRoot string, options InitOptions) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
 		return "", err
 	}
+	targetRoot := filepath.Join(root, ".project", "template")
+	if err := os.RemoveAll(targetRoot); err != nil {
+		return "", err
+	}
+	if err := copyDirectory(sourceRoot, targetRoot); err != nil {
+		return "", err
+	}
+	checksum, err := checksumTemplateRoot(targetRoot)
+	if err != nil {
+		return "", err
+	}
 	lock := TemplateLock{
 		Template:     template,
 		Version:      version,
 		Commit:       commit,
+		Checksum:     checksum,
 		TemplatePath: templatePath,
 	}
-	body, err := marshalYAML(lock)
+	if _, err := writeTemplateLock(root, lock); err != nil {
+		return "", err
+	}
+	targetTemplate, err := loadTemplateFromRoot(targetRoot)
 	if err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(lockPath, body, 0o644); err != nil {
+	if _, err := ensureTemplateValues(root, targetTemplate, lock.Modules); err != nil {
 		return "", err
 	}
 	return lockPath, nil
@@ -184,6 +211,13 @@ func resolveInitTemplatePath(projectRoot string, requestedPath string) (string, 
 		}
 	}
 	return absTemplateRoot, nil
+}
+
+func resolveTemplatePathFromLockPath(projectRoot string, templatePath string) (string, error) {
+	if filepath.IsAbs(templatePath) {
+		return filepath.Abs(templatePath)
+	}
+	return filepath.Abs(filepath.Join(projectRoot, ".project", templatePath))
 }
 
 func isParentRelative(pathValue string) bool {

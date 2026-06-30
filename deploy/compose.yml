@@ -1,0 +1,16 @@
+name: project-space
+
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: project-space-web:local
+    restart: unless-stopped
+
+  docs:
+    build:
+      context: ..
+      dockerfile: apps/docs/Dockerfile
+    image: project-space-docs:local
+    restart: unless-stopped

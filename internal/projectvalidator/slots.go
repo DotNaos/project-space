@@ -26,7 +26,7 @@ func readSlotRules(templateRoot string) ([]SlotRule, error) {
 			return err
 		}
 		if entry.IsDir() {
-			if entry.Name() == ".git" {
+			if shouldSkipTemplateWorkDir(entry.Name()) {
 				return filepath.SkipDir
 			}
 			return nil

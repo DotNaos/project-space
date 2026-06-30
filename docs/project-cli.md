@@ -1,11 +1,14 @@
-# Project CLI
+---
+title: Project CLI Reference
+description: Commands and workflows for the Project CLI.
+---
 
-The `project` CLI creates, syncs, validates, and updates projects from templates.
+The `project` CLI is the local command-line interface for Project. It calls the same Project functionality that is also exposed through API surfaces.
 
 ## Create A Project
 
 ```sh
-project new <project-directory>
+project new <directory>
 ```
 
 `new` is an alias for `create`.
@@ -19,7 +22,7 @@ Useful flags:
 --commit <commit-or-label>
 --force
 --github
---secrets
+--github-visibility <private|public>
 --tmp
 --local-tmp
 --global-tmp
@@ -31,9 +34,11 @@ Useful flags:
 
 `--global-tmp` creates the generated project under `/tmp` with a random suffix.
 
-`--github` initializes Git, creates a private GitHub repository with the implicit `gh` owner, commits the project, and pushes `main`.
+`--github` initializes Git, creates a private GitHub repository by default with the implicit `gh` owner, commits the project, and pushes `main`.
 
-`--secrets` is opt-in and requires `--github`. It sets `OP_SERVICE_ACCOUNT_TOKEN` on the new GitHub repository from the project 1Password vault before the first push.
+GitHub repositories are private by default. Use `--github-visibility public` to create a public repository.
+
+`--github` also sets `OP_SERVICE_ACCOUNT_TOKEN` on the new GitHub repository from the project 1Password vault before the first push.
 
 Example:
 
@@ -61,10 +66,10 @@ project new my-app --global-tmp
 ## Initialize An Existing Project
 
 ```sh
-project init [project-directory]
+project init [directory]
 ```
 
-If `[project-directory]` is omitted, the CLI uses the current directory.
+If `[directory]` is omitted, the CLI uses the current directory.
 
 ## Deploy
 
@@ -97,6 +102,16 @@ Supported environment fallbacks are `PROJECT_DEPLOY_HOST`, `PROJECT_DEPLOY_PATH`
 
 ## Sync Template Snapshot
 
+Project template commands expect local template state in the project:
+
+```text
+.project/template.lock.yaml
+.project/template/
+.project/template.values.yaml
+```
+
+`project init` and `project create` create this state. Normal template commands use it automatically, so no template path is needed.
+
 ```sh
 project template sync
 project template sync --dry-run
@@ -106,6 +121,18 @@ project template sync --dry-run --format tsv
 The project path is optional and defaults to the current directory.
 
 `--template-path` is only needed when testing against a local template checkout instead of the template source recorded in the project lock.
+
+## Preview Template Update
+
+```sh
+project template update --dry-run
+project template update --dry-run --format tsv
+project template update --dry-run --template-path <template-directory>
+```
+
+This previews a template migration without writing changes. It shows value changes as `before -> after`, file changes, and files that would conflict because the project edited a template-owned file.
+
+`--template-path` is only for testing an update against a specific local template checkout. Normal use reads the source from `.project/template.lock.yaml`.
 
 ## Smoke Test A Template
 
@@ -123,16 +150,16 @@ Use `--skip-secrets-doctor` for local smoke checks when no 1Password service tok
 ## Modules
 
 ```sh
-project module list [project-directory]
-project module show <module> [project-directory]
-project module add <module> [project-directory]
-project module add <module> [project-directory] --dry-run
-project module add <module> [project-directory] --yes
-project module remove <module> [project-directory]
-project module remove <module> [project-directory] --dry-run
-project module remove <module> [project-directory] --yes
-project module add <module> [project-directory] --dry-run --format tsv
-project module remove <module> [project-directory] --dry-run --format tsv
+project module list [directory]
+project module show <module> [directory]
+project module add <module> [directory]
+project module add <module> [directory] --dry-run
+project module add <module> [directory] --yes
+project module remove <module> [directory]
+project module remove <module> [directory] --dry-run
+project module remove <module> [directory] --yes
+project module add <module> [directory] --dry-run --format tsv
+project module remove <module> [directory] --dry-run --format tsv
 ```
 
 `module add` prints the planned changes, then asks for confirmation.
@@ -146,8 +173,8 @@ Use `-y` or `--yes` to apply without prompting.
 ## Validate
 
 ```sh
-project validate [project-directory]
-project validate [project-directory] --format tsv
+project validate [directory]
+project validate [directory] --format tsv
 project validate --quarantine --dry-run
 project validate --quarantine --yes
 ```

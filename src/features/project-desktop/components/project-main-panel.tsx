@@ -4,9 +4,10 @@ import type {
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
 import type { ProjectMainView } from '../hooks/use-project-desktop';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, FolderKanban, GitBranch, ListChecks, Play, Server } from 'lucide-react';
 import { Button, Card, Chip, Surface, Text } from '@/app/dotnaos-ui';
 import { OpenTargetDropdown } from './open-target-dropdown';
+import { ProjectCliCommandPanel } from './project-cli-command-panel';
 import { ProjectHomeOverview } from './project-home-overview';
 import { ProjectOperationsPanel } from './project-operations-panel';
 import { ProjectTemplateCheckPanel } from './project-template-check';
@@ -28,6 +29,8 @@ interface ProjectMainPanelProps {
   project?: ProjectSpaceRecord;
   projects: ProjectSpaceRecord[];
   onCreateProject(): void;
+  onOpenMachines(): void;
+  onOpenProjects(): void;
   onOpenSelectedTarget(): void;
   onSelectLauncherApp(appId: string): void;
   onSelectProject(projectId: string): void;
@@ -48,6 +51,8 @@ export function ProjectMainPanel({
   project,
   projects,
   onCreateProject,
+  onOpenMachines,
+  onOpenProjects,
   onOpenSelectedTarget,
   onSelectLauncherApp,
   onSelectProject
@@ -76,7 +81,11 @@ export function ProjectMainPanel({
 
         <div className="relative flex min-w-0 items-center gap-3 leading-none">
           <Text className="truncate text-[15px] font-semibold text-slate-100">
-            {mainView === 'home' ? 'Projects' : project?.name ?? 'No project selected'}
+            {mainView === 'machines'
+              ? 'Machines'
+              : mainView === 'projects'
+                ? 'Projects'
+                : project?.name ?? 'No project selected'}
           </Text>
           {mainView === 'project' && project ? (
             <div className="hidden sm:block">
@@ -107,8 +116,28 @@ export function ProjectMainPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-8 pt-4 sm:px-8">
-        {mainView === 'home' ? (
+        <div className="mb-4 grid grid-cols-2 gap-2 sm:hidden">
+          <Button
+            data-testid="mobile-nav-machines"
+            variant={mainView === 'machines' ? 'secondary' : 'ghost'}
+            onPress={onOpenMachines}
+          >
+            <Server className="size-4" />
+            Machines
+          </Button>
+          <Button
+            data-testid="mobile-nav-projects"
+            variant={mainView === 'projects' ? 'secondary' : 'ghost'}
+            onPress={onOpenProjects}
+          >
+            <FolderKanban className="size-4" />
+            Projects
+          </Button>
+        </div>
+
+        {mainView === 'machines' || mainView === 'projects' ? (
           <ProjectHomeOverview
+            mode={mainView}
             projects={projects}
             onSelectProject={onSelectProject}
           />
@@ -142,7 +171,74 @@ export function ProjectMainPanel({
               ) : null}
             </section>
 
+            <section className="grid gap-3 lg:grid-cols-2">
+              <Surface
+                variant="tertiary"
+                className="rounded-lg border border-slate-800 bg-slate-950/45 p-4"
+              >
+                <div className="mb-3 flex items-center gap-2">
+                  <Play className="size-4 text-slate-400" />
+                  <Text className="text-sm font-semibold text-slate-100">Actions</Text>
+                </div>
+                <Button variant="secondary" isDisabled={!project}>
+                  Start developing a new feature
+                </Button>
+              </Surface>
+
+              <Surface
+                variant="tertiary"
+                className="rounded-lg border border-slate-800 bg-slate-950/45 p-4"
+              >
+                <div className="mb-3 flex items-center gap-2">
+                  <ListChecks className="size-4 text-slate-400" />
+                  <Text className="text-sm font-semibold text-slate-100">
+                    Board / Issues / Features
+                  </Text>
+                </div>
+                <Text className="text-sm text-slate-500">
+                  GitHub issues and feature planning will live here for this project.
+                </Text>
+              </Surface>
+
+              <Surface
+                variant="tertiary"
+                className="rounded-lg border border-slate-800 bg-slate-950/45 p-4"
+              >
+                <div className="mb-3 flex items-center gap-2">
+                  <GitBranch className="size-4 text-slate-400" />
+                  <Text className="text-sm font-semibold text-slate-100">Branches</Text>
+                </div>
+                <div className="grid gap-2">
+                  <div className="flex items-center justify-between gap-3 rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2">
+                    <Text className="text-sm text-slate-300">Workspace</Text>
+                    <Chip size="sm" variant="tertiary">
+                      current
+                    </Chip>
+                  </div>
+                </div>
+              </Surface>
+
+              <Surface
+                variant="tertiary"
+                className="rounded-lg border border-slate-800 bg-slate-950/45 p-4"
+              >
+                <div className="mb-3 flex items-center gap-2">
+                  <Server className="size-4 text-slate-400" />
+                  <Text className="text-sm font-semibold text-slate-100">
+                    Machines developing this project
+                  </Text>
+                </div>
+                <div className="rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2">
+                  <Text className="block text-sm text-slate-300">Local connector</Text>
+                  <Text className="block truncate font-mono text-xs text-slate-500">
+                    {selectedTargetPath}
+                  </Text>
+                </div>
+              </Surface>
+            </section>
+
             <ProjectWorkspaceTools targetPath={selectedTargetPath} />
+            <ProjectCliCommandPanel project={project} targetPath={selectedTargetPath} />
 
             <details className="group shrink-0 border-t border-slate-800/70 pt-3">
               <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg py-2 text-sm font-medium text-slate-300 hover:text-slate-100">

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { homedir, hostname } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -27,6 +27,7 @@ import {
   openPathInApp
 } from './local-launcher-apps';
 import { getConnectorOverview } from './local-machine-registry';
+import { runProjectCliCommand } from './local-project-cli-client';
 import {
   getProjectctlOverview,
   getProjectctlPreview
@@ -535,6 +536,29 @@ export function createLocalProjectSpaceBackend(
     },
     async getConnectorOverview() {
       return getConnectorOverview();
+    },
+    async getConnectorProjectRegistry() {
+      const [connector, discovery] = await Promise.all([
+        getConnectorOverview(),
+        discoverProjects()
+      ]);
+      const localMachine =
+        connector.machines.find((machine) => machine.connector.status === 'local') ??
+        connector.machines[0];
+      const machineName = localMachine?.name ?? hostname().split('.')[0];
+
+      return {
+        checkedAt: new Date().toISOString(),
+        connector: {
+          machineId: localMachine?.id ?? machineName,
+          machineName,
+          origin: connector.connectorOrigin
+        },
+        discovery
+      };
+    },
+    async runProjectCliCommand(request) {
+      return runProjectCliCommand(request);
     },
     async getGitHubCatalog() {
       return getGitHubCatalog();

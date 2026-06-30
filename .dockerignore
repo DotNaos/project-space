@@ -1,0 +1,11 @@
+.git
+.github
+.project
+tmp
+temp
+node_modules
+**/node_modules
+**/.next
+**/.source
+**/*.tsbuildinfo
+.DS_Store

@@ -19,6 +19,9 @@ import type {
   OpenPathInAppResult,
   PlatformOverviewResult,
   ProjectBackupRequest,
+  ConnectorProjectRegistryResult,
+  ProjectCliCommandRequest,
+  ProjectCliCommandResult,
   ProjectDeployRequest,
   ProjectDirectorySelection,
   ProjectDiscoveryResult,
@@ -94,6 +97,17 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
 
   getConnectorOverview(): Promise<ConnectorOverviewResult> {
     return this.request('/api/connectors/overview');
+  }
+
+  getConnectorProjectRegistry(): Promise<ConnectorProjectRegistryResult> {
+    return this.request('/api/connectors/project-registry');
+  }
+
+  runProjectCliCommand(request: ProjectCliCommandRequest): Promise<ProjectCliCommandResult> {
+    return this.request('/api/project-cli/run', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
   }
 
   getGitHubCatalog(): Promise<GitHubCatalogResult> {

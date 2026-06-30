@@ -1,0 +1,31 @@
+---
+title: Setup
+description: Install Project and get a local project ready.
+---
+
+## Install
+
+```sh
+brew tap DotNaos/project-space https://github.com/DotNaos/project-space
+brew install --HEAD DotNaos/project-space/project
+```
+
+Update to the newest version:
+
+```sh
+brew update
+brew reinstall --HEAD DotNaos/project-space/project
+```
+
+## First Project
+
+```sh
+project create my-project
+cd my-project
+```
+
+For an existing directory:
+
+```sh
+project init
+```

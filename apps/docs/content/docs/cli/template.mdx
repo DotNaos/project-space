@@ -1,0 +1,138 @@
+---
+title: Template Commands
+description: Sync, update, and smoke-test local template snapshots.
+---
+
+## `project template`
+
+Manage the local project template snapshot.
+
+```sh
+project template [command]
+```
+
+Available commands:
+
+| Command | Description |
+| --- | --- |
+| `project template sync` | Sync `.project/template` from the configured template source. |
+| `project template update` | Preview a project template update. |
+| `project template smoke` | Generate a tmp project and run template smoke checks. |
+
+## Required Project State
+
+Template commands expect this local state:
+
+```text
+.project/template.lock.yaml
+.project/template/
+.project/template.values.yaml
+```
+
+`project create` and `project init` create that state. Normal use should not require passing a template path.
+
+## `project template sync`
+
+```sh
+project template sync [directory] [flags]
+```
+
+### Arguments
+
+| Argument | Required | Default | Description |
+| --- | --- | --- | --- |
+| `directory` | no | `.` | Project directory. |
+
+### Flags
+
+| Flag | Synonyms | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--dry-run` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Show the template sync plan without writing changes. |
+| `--format` | - | <span className="doc-type doc-type-string">string</span> | `pretty` | Output format. Use `tsv` for filtering. |
+| `--template-path` | - | <span className="doc-type doc-type-string">string</span> | <span className="doc-default-empty">none</span> | Override the template source path for local testing. |
+| `--help` | `-h` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Print help. |
+
+### Behavior
+
+- Refreshes `.project/template`.
+- Updates the template checksum in `.project/template.lock.yaml`.
+- Ensures required template values exist.
+- Uses the source recorded in the project lock unless `--template-path` is passed.
+
+### Examples
+
+```sh
+project template sync
+project template sync --dry-run
+project template sync --dry-run --format tsv
+```
+
+## `project template update`
+
+Preview changes between the current local template snapshot and a target template source.
+
+```sh
+project template update [directory] [flags]
+```
+
+### Arguments
+
+| Argument | Required | Default | Description |
+| --- | --- | --- | --- |
+| `directory` | no | `.` | Project directory. |
+
+### Flags
+
+| Flag | Synonyms | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--dry-run` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Show the template update plan without writing changes. Required today. |
+| `--format` | - | <span className="doc-type doc-type-string">string</span> | `pretty` | Output format. Use `tsv` for filtering. |
+| `--template-path` | - | <span className="doc-type doc-type-string">string</span> | <span className="doc-default-empty">none</span> | Override the target template source path for local testing. |
+| `--help` | `-h` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Print help. |
+
+### Behavior
+
+- Compares current template values with target values.
+- Shows value changes as before and after.
+- Shows file changes and whether each file is clean or conflicting.
+- Does not currently apply changes; it is preview-only and requires `--dry-run`.
+- Reports a visible conflict folder under `.conflicts/<from>-to-<target>` for future manual resolution.
+
+### Examples
+
+```sh
+project template update --dry-run
+project template update --dry-run --format tsv
+project template update --dry-run --template-path ../project-template
+```
+
+## `project template smoke`
+
+Generate a tmp project and run template smoke checks.
+
+```sh
+project template smoke [flags]
+```
+
+### Flags
+
+| Flag | Synonyms | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--template` | - | <span className="doc-type doc-type-string">string</span> | <span className="doc-default-empty">none</span> | Template repository. |
+| `--template-path` | - | <span className="doc-type doc-type-string">string</span> | <span className="doc-default-empty">none</span> | Local template path. |
+| `--version` | - | <span className="doc-type doc-type-string">string</span> | <span className="doc-default-empty">none</span> | Template version. |
+| `--commit` | - | <span className="doc-type doc-type-string">string</span> | <span className="doc-default-empty">none</span> | Template commit or label. |
+| `--name` | - | <span className="doc-type doc-type-string">string</span> | `generated-app` | Tmp project name prefix. |
+| `--global-tmp` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Create the generated project under `/tmp`. |
+| `--skip-checks` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Skip dependency, secrets, check, and build commands. |
+| `--skip-secrets-doctor` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Skip `bun run secrets:doctor`. |
+| `--container` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Build generated project containers. |
+| `--help` | `-h` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Print help. |
+
+### Examples
+
+```sh
+project template smoke --template-path ../project-template --version local --commit local
+project template smoke --template-path ../project-template --version local --commit local --skip-checks
+project template smoke --template-path ../project-template --version local --commit local --skip-checks --container
+```

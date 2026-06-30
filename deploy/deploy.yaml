@@ -1,0 +1,5 @@
+host: deploy@100.84.238.75
+path: /opt/platform/apps/project-space
+branch: main
+domain: projects.os-home.net
+apiDomain: projects-api.os-home.net

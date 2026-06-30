@@ -1,0 +1,74 @@
+---
+title: Validate
+description: Validate project files against the local template snapshot.
+---
+
+## `project validate`
+
+Validate a project against its local `.project/template` snapshot.
+
+```sh
+project validate [directory|file] [flags]
+```
+
+### Arguments
+
+| Argument | Required | Default | Description |
+| --- | --- | --- | --- |
+| `directory|file` | no | `.` | Project directory or a specific file to validate. |
+
+### Flags
+
+| Flag | Synonyms | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--format` | - | <span className="doc-type doc-type-string">string</span> | `pretty` | Output format. Current useful values are `pretty` and `tsv`. |
+| `--view` | - | <span className="doc-type doc-type-string">string</span> | `tree` | Pretty output view. |
+| `--color-scope` | - | <span className="doc-type doc-type-string">string</span> | `line` | Color scope for pretty output. |
+| `--status-color-only` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Color only the status text instead of the whole row. |
+| `--quarantine` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Move `not_allowed` validation violations into `.project/quarantine`. |
+| `--dry-run` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Show the quarantine plan without writing changes. |
+| `--yes` | `-y` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Apply the quarantine plan without prompting. |
+| `--help` | `-h` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Print help. |
+
+### Statuses
+
+| Status | Meaning |
+| --- | --- |
+| `OK` | File exists in the template and matches the expected template area. |
+| `ADDED` | File is allowed by a slot pattern. |
+| `VIOLATION` | File is neither in the template nor allowed by a slot pattern. |
+
+### Output
+
+Use `--format tsv` when another tool or agent should filter the result.
+
+```sh
+project validate --format tsv
+project validate --format tsv | awk '$1 == "VIOLATION"'
+```
+
+### Quarantine
+
+Quarantine moves violating files out of the source tree while keeping them visible in Git.
+
+```sh
+project validate --quarantine --dry-run
+project validate --quarantine --yes
+```
+
+Violating files are moved under:
+
+```text
+.project/quarantine/<original-path>
+```
+
+### Examples
+
+```sh
+project validate
+project validate .
+project validate src/app/page.tsx
+project validate --view table
+project validate --status-color-only
+project validate --format tsv
+```

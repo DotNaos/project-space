@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/DotNaos/project-space/internal/projectvalidator"
 	"github.com/spf13/cobra"
@@ -42,16 +44,19 @@ func newCreateCommand() *cobra.Command {
 	localTmp := false
 	globalTmp := false
 	github := false
-	secrets := false
+	githubVisibility := "private"
 	cmd := &cobra.Command{
-		Use:               "create [project-directory]",
+		Use:               "create [directory]",
 		Aliases:           []string{"new"},
 		Short:             "Create and initialize a new project",
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: directoryCompletion,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if secrets && !github {
-				return fmt.Errorf("--secrets requires --github")
+			if cmd.Flags().Changed("github-visibility") && !github {
+				return fmt.Errorf("--github-visibility requires --github")
+			}
+			if !isGitHubVisibility(githubVisibility) {
+				return fmt.Errorf("--github-visibility must be private or public")
 			}
 			if localTmp && globalTmp {
 				return fmt.Errorf("--local-tmp and --global-tmp cannot be used together")
@@ -99,7 +104,9 @@ func newCreateCommand() *cobra.Command {
 				}
 			}
 			if github {
-				result, err := createGitHubRepository(resolved, createGitHubRepositoryOptions{Secrets: secrets})
+				result, err := createGitHubRepository(resolved, createGitHubRepositoryOptions{
+					Visibility: githubVisibility,
+				})
 				if err != nil {
 					return err
 				}
@@ -115,11 +122,16 @@ func newCreateCommand() *cobra.Command {
 	}
 	addInitFlags(cmd, &options)
 	cmd.Flags().BoolVar(&github, "github", false, "create a private GitHub repository and push the project")
-	cmd.Flags().BoolVar(&secrets, "secrets", false, "set required GitHub secrets; requires --github")
+	cmd.Flags().StringVar(&githubVisibility, "github-visibility", "private", "GitHub repository visibility")
 	cmd.Flags().BoolVar(&localTmp, "tmp", false, "create a local tmp project in ./tmp and install default modules")
 	cmd.Flags().BoolVar(&localTmp, "local-tmp", false, "create a local tmp project in ./tmp and install default modules")
 	cmd.Flags().BoolVar(&globalTmp, "global-tmp", false, "create a global tmp project in /tmp and install default modules")
+	must(cmd.RegisterFlagCompletionFunc("github-visibility", fixedValuesCompletion("private", "public")))
 	return cmd
+}
+
+func isGitHubVisibility(value string) bool {
+	return value == "private" || value == "public"
 }
 
 func tmpProjectTarget(name string, global bool) (string, error) {
@@ -162,7 +174,7 @@ func shellQuote(value string) string {
 func newInitCommand() *cobra.Command {
 	options := projectvalidator.InitOptions{}
 	cmd := &cobra.Command{
-		Use:               "init [project-directory]",
+		Use:               "init [directory]",
 		Short:             "Initialize a project template lock",
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: directoryCompletion,
@@ -212,7 +224,7 @@ func newModuleCommand() *cobra.Command {
 func newModuleListCommand() *cobra.Command {
 	format := "pretty"
 	cmd := &cobra.Command{
-		Use:               "list [project-directory]",
+		Use:               "list [directory]",
 		Short:             "List project template modules",
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: directoryCompletion,
@@ -244,7 +256,7 @@ func newModuleListCommand() *cobra.Command {
 func newModuleShowCommand() *cobra.Command {
 	format := "pretty"
 	cmd := &cobra.Command{
-		Use:               "show <module> [project-directory]",
+		Use:               "show <module> [directory]",
 		Short:             "Show details for a project template module",
 		Args:              cobra.RangeArgs(1, 2),
 		ValidArgsFunction: moduleInstallCompletion,
@@ -285,7 +297,7 @@ func newModuleAddCommand() *cobra.Command {
 	yes := false
 	legacyApply := false
 	cmd := &cobra.Command{
-		Use:               "add <module> [project-directory]",
+		Use:               "add <module> [directory]",
 		Aliases:           []string{"install"},
 		Short:             "Add a project template module",
 		Args:              cobra.RangeArgs(1, 2),
@@ -355,7 +367,7 @@ func newModuleRemoveCommand() *cobra.Command {
 	format := "pretty"
 	yes := false
 	cmd := &cobra.Command{
-		Use:               "remove <module> [project-directory]",
+		Use:               "remove <module> [directory]",
 		Short:             "Remove a project template module",
 		Args:              cobra.RangeArgs(1, 2),
 		ValidArgsFunction: moduleInstallCompletion,
@@ -641,6 +653,7 @@ func printModuleShow(cmd *cobra.Command, projectRoot string, module projectvalid
 		fmt.Fprintf(cmd.OutOrStdout(), "description\t%s\n", module.Description)
 		fmt.Fprintf(cmd.OutOrStdout(), "default\t%t\n", module.Default)
 		fmt.Fprintf(cmd.OutOrStdout(), "depends_on\t%s\n", joinList(module.DependsOn))
+		fmt.Fprintf(cmd.OutOrStdout(), "values\t%s\n", joinList(moduleValueNames(module.Values)))
 		fmt.Fprintf(cmd.OutOrStdout(), "owns\t%s\n", joinList(module.Owns))
 		fmt.Fprintf(cmd.OutOrStdout(), "files\t%s\n", joinList(module.Files))
 		return
@@ -651,8 +664,18 @@ func printModuleShow(cmd *cobra.Command, projectRoot string, module projectvalid
 	fmt.Fprintf(cmd.OutOrStdout(), "Description: %s\n", prettyValue(module.Description))
 	fmt.Fprintf(cmd.OutOrStdout(), "Default: %t\n", module.Default)
 	fmt.Fprintf(cmd.OutOrStdout(), "Depends on: %s\n", prettyList(module.DependsOn))
+	fmt.Fprintf(cmd.OutOrStdout(), "Values: %s\n", prettyList(moduleValueNames(module.Values)))
 	fmt.Fprintf(cmd.OutOrStdout(), "Owns: %s\n", prettyList(module.Owns))
 	fmt.Fprintf(cmd.OutOrStdout(), "Files: %s\n", prettyList(module.Files))
+}
+
+func moduleValueNames(values map[string]projectvalidator.TemplateValueSpec) []string {
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func printModuleList(cmd *cobra.Command, projectRoot string, modules []projectvalidator.ModuleInfo, format string) {
@@ -715,15 +738,179 @@ func newTemplateCommand() *cobra.Command {
 		Short: "Manage the local project template snapshot",
 	}
 	cmd.AddCommand(newTemplateSyncCommand())
+	cmd.AddCommand(newTemplateUpdateCommand())
 	cmd.AddCommand(newTemplateSmokeCommand())
 	return cmd
+}
+
+func newTemplateUpdateCommand() *cobra.Command {
+	options := projectvalidator.TemplateUpdateOptions{}
+	format := "pretty"
+	cmd := &cobra.Command{
+		Use:               "update [directory]",
+		Short:             "Preview a project template update",
+		Args:              cobra.MaximumNArgs(1),
+		ValidArgsFunction: directoryCompletion,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target := "."
+			if len(args) == 1 {
+				target = args[0]
+			}
+			resolved, err := filepath.Abs(target)
+			if err != nil {
+				return err
+			}
+			if format != "pretty" && format != "tsv" {
+				return fmt.Errorf("unknown format %q; use pretty or tsv", format)
+			}
+			if !options.DryRun {
+				return fmt.Errorf("template update currently supports preview only; rerun with --dry-run")
+			}
+			plan, err := projectvalidator.PlanTemplateUpdate(resolved, options)
+			if err != nil {
+				return err
+			}
+			printTemplateUpdatePlan(cmd, plan, format)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&options.DryRun, "dry-run", false, "show the template update plan without writing changes")
+	cmd.Flags().StringVar(&format, "format", "pretty", "output format")
+	cmd.Flags().StringVar(&options.TemplatePath, "template-path", "", "template source path")
+	must(cmd.RegisterFlagCompletionFunc("format", fixedValuesCompletion("pretty", "tsv")))
+	must(cmd.RegisterFlagCompletionFunc("template-path", directoryCompletion))
+	return cmd
+}
+
+func printTemplateUpdatePlan(cmd *cobra.Command, plan projectvalidator.TemplateUpdatePlan, format string) {
+	if format == "tsv" {
+		fmt.Fprintf(cmd.OutOrStdout(), "PLAN\ttemplate_update\tdry_run\t%s\n", plan.ProjectRoot)
+		fmt.Fprintf(cmd.OutOrStdout(), "FROM\ttemplate\t%s\t%s\n", plan.FromTemplate, plan.FromVersion)
+		fmt.Fprintf(cmd.OutOrStdout(), "TO\ttemplate\t%s\t%s\n", plan.ToTemplate, plan.ToVersion)
+		fmt.Fprintf(cmd.OutOrStdout(), "SOURCE\tdir\t%s\t.\n", plan.SourceRoot)
+		fmt.Fprintf(cmd.OutOrStdout(), "CONFLICTS\tdir\t%s\t.\n", plan.ConflictFolder)
+		for _, value := range plan.Values {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s\tvalue\t%s\t%s\t%s\n", value.Action, value.Key, tsvValue(value.Before), tsvValue(value.After))
+		}
+		for _, file := range plan.Files {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s\tfile\t%s\t%s\t%s\n", file.Action, file.Path, file.Result, file.Module)
+		}
+		if !plan.WouldWrite {
+			fmt.Fprintln(cmd.OutOrStdout(), "RESULT\tok\t.\tno changes")
+			return
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), "RESULT\tdry_run\t.\tno changes written")
+		return
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout(), "Template update plan")
+	fmt.Fprintf(cmd.OutOrStdout(), "Project: %s\n", plan.ProjectRoot)
+	fmt.Fprintf(cmd.OutOrStdout(), "Source: %s\n", plan.SourceRoot)
+	fmt.Fprintf(cmd.OutOrStdout(), "From: %s@%s\n", plan.FromTemplate, prettyValue(plan.FromVersion))
+	fmt.Fprintf(cmd.OutOrStdout(), "To: %s@%s\n", plan.ToTemplate, prettyValue(plan.ToVersion))
+	if plan.FromCommit != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "Current commit: %s\n", plan.FromCommit)
+	}
+	if plan.FromChecksum != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "Current checksum: %s\n", plan.FromChecksum)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Target checksum: %s\n", plan.ToChecksum)
+	fmt.Fprintf(cmd.OutOrStdout(), "Conflict folder: %s\n", plan.ConflictFolder)
+	fmt.Fprintln(cmd.OutOrStdout(), "Mode: dry-run")
+
+	fmt.Fprintln(cmd.OutOrStdout(), "\nValues")
+	if len(plan.Values) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "  no value changes")
+	} else {
+		writer := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		fmt.Fprintln(writer, "  CHANGE\tKEY\tBEFORE\tAFTER")
+		for _, value := range plan.Values {
+			fmt.Fprintf(writer, "  %s\t%s\t%s\t%s\n", coloredTemplateUpdateAction(value.Action), value.Key, prettyDash(value.Before), prettyDash(value.After))
+		}
+		writer.Flush()
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout(), "\nFiles")
+	if len(plan.Files) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "  no file changes")
+	} else {
+		writer := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		fmt.Fprintln(writer, "  CHANGE\tPATH\tRESULT\tMODULE")
+		for _, file := range plan.Files {
+			fmt.Fprintf(writer, "  %s\t%s\t%s\t%s\n", coloredTemplateUpdateAction(file.Action), file.Path, coloredTemplateUpdateResult(file.Result), prettyDash(file.Module))
+		}
+		writer.Flush()
+	}
+
+	if !plan.WouldWrite {
+		fmt.Fprintln(cmd.OutOrStdout(), "\nResult: no changes")
+		return
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "\nResult: dry run, no changes written")
+}
+
+func coloredTemplateUpdateAction(action string) string {
+	switch action {
+	case "ADD":
+		return cliColor(action, "blue")
+	case "CHANGE", "UPDATE":
+		return cliColor(action, "yellow")
+	case "REMOVE":
+		return cliColor(action, "red")
+	default:
+		return action
+	}
+}
+
+func coloredTemplateUpdateResult(result string) string {
+	switch result {
+	case "clean":
+		return cliColor(result, "green")
+	case "conflict":
+		return cliColor(result, "red")
+	case "missing":
+		return cliColor(result, "yellow")
+	default:
+		return result
+	}
+}
+
+func prettyDash(value string) string {
+	if value == "" {
+		return "-"
+	}
+	return value
+}
+
+func tsvValue(value string) string {
+	if value == "" {
+		return "."
+	}
+	return value
+}
+
+func cliColor(value string, colorName string) string {
+	if os.Getenv("NO_COLOR") != "" {
+		return value
+	}
+	codes := map[string]string{
+		"green":  "38;2;52;211;153",
+		"blue":   "38;2;96;165;250",
+		"yellow": "38;2;245;158;11",
+		"red":    "38;2;248;113;113",
+	}
+	code, ok := codes[colorName]
+	if !ok {
+		return value
+	}
+	return "\x1b[" + code + "m" + value + "\x1b[0m"
 }
 
 func newTemplateSyncCommand() *cobra.Command {
 	options := projectvalidator.TemplateSyncOptions{}
 	format := "pretty"
 	cmd := &cobra.Command{
-		Use:               "sync [project-directory]",
+		Use:               "sync [directory]",
 		Short:             "Sync the local template snapshot",
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: directoryCompletion,
@@ -816,7 +1003,7 @@ func newValidateCommand() *cobra.Command {
 	dryRun := false
 	yes := false
 	cmd := &cobra.Command{
-		Use:               "validate [project-directory|file]",
+		Use:               "validate [directory|file]",
 		Short:             "Validate a project against its template",
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: fileCompletion,

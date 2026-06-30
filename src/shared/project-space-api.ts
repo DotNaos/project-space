@@ -320,6 +320,40 @@ export interface ConnectorOverviewResult {
   tailscale: TailscaleStatusResult;
 }
 
+export interface ConnectorProjectRegistryResult {
+  checkedAt: string;
+  connector: {
+    machineId: string;
+    machineName: string;
+    origin?: string;
+  };
+  discovery: ProjectDiscoveryResult;
+}
+
+export type ProjectCliCommand =
+  | 'validate'
+  | 'module-list'
+  | 'module-show'
+  | 'template-sync'
+  | 'template-update'
+  | 'deploy-status';
+
+export interface ProjectCliCommandRequest {
+  command: ProjectCliCommand;
+  cwd: string;
+  moduleName?: string;
+}
+
+export interface ProjectCliCommandResult {
+  args: string[];
+  command: ProjectCliCommand;
+  cwd: string;
+  durationMs: number;
+  exitCode: number | null;
+  stderr: string;
+  stdout: string;
+}
+
 export interface DeploymentRecordSummary {
   appSlug: string;
   createdAt?: string;
@@ -525,6 +559,8 @@ export interface ProjectSpaceBackend {
   getAppMeta(): Promise<AppMeta>;
   getCodexStatus(): Promise<CodexStatusResult>;
   getConnectorOverview(): Promise<ConnectorOverviewResult>;
+  getConnectorProjectRegistry(): Promise<ConnectorProjectRegistryResult>;
+  runProjectCliCommand(request: ProjectCliCommandRequest): Promise<ProjectCliCommandResult>;
   getGitHubCatalog(): Promise<GitHubCatalogResult>;
   getGitDiff(request: GitDiffRequest): Promise<GitDiffResult>;
   getGitStatus(cwd: string): Promise<GitStatusResult>;

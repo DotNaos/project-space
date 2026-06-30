@@ -1,0 +1,149 @@
+---
+title: Modules
+description: List, inspect, add, and remove template modules.
+---
+
+## `project module`
+
+Manage project template modules.
+
+```sh
+project module [command]
+```
+
+Available commands:
+
+| Command | Synonyms | Description |
+| --- | --- | --- |
+| `project module list` | - | List available and installed modules. |
+| `project module show` | - | Show details for one module. |
+| `project module add` | `project module install` | Add a module to the project. |
+| `project module remove` | - | Remove a module from the project. |
+
+## `project module list`
+
+```sh
+project module list [directory] [flags]
+```
+
+### Arguments
+
+| Argument | Required | Default | Description |
+| --- | --- | --- | --- |
+| `directory` | no | `.` | Project directory. |
+
+### Flags
+
+| Flag | Synonyms | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--format` | - | <span className="doc-type doc-type-string">string</span> | `pretty` | Output format. Use `tsv` for filtering. |
+| `--help` | `-h` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Print help. |
+
+### Examples
+
+```sh
+project module list
+project module list --format tsv
+```
+
+## `project module show`
+
+```sh
+project module show <module> [directory] [flags]
+```
+
+### Arguments
+
+| Argument | Required | Default | Description |
+| --- | --- | --- | --- |
+| `module` | yes | none | Module name. |
+| `directory` | no | `.` | Project directory. |
+
+### Flags
+
+| Flag | Synonyms | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--format` | - | <span className="doc-type doc-type-string">string</span> | `pretty` | Output format. Use `tsv` for filtering. |
+| `--help` | `-h` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Print help. |
+
+### Examples
+
+```sh
+project module show core.repo
+project module show core.repo --format tsv
+```
+
+## `project module add`
+
+Add a module to a project.
+
+```sh
+project module add <module> [directory] [flags]
+```
+
+Synonym: `project module install <module> [directory] [flags]`
+
+### Arguments
+
+| Argument | Required | Default | Description |
+| --- | --- | --- | --- |
+| `module` | yes | none | Module name. |
+| `directory` | no | `.` | Project directory. |
+
+### Flags
+
+| Flag | Synonyms | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--dry-run` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Show the module add plan without writing changes. |
+| `--force` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Allow module add to overwrite existing project files. |
+| `--format` | - | <span className="doc-type doc-type-string">string</span> | `pretty` | Output format. Use `tsv` with `--dry-run` or `--yes`. |
+| `--yes` | `-y` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Apply without prompting. |
+| `--help` | `-h` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Print help. |
+
+### Behavior
+
+- Prints a plan before writing.
+- Prompts before applying unless `--yes` is passed.
+- Fails on file conflicts unless `--force` is passed.
+- `--dry-run` never writes files.
+
+### Examples
+
+```sh
+project module add core.repo --dry-run
+project module add core.repo
+project module add core.repo --yes
+project module add core.repo --dry-run --format tsv
+```
+
+## `project module remove`
+
+Remove a module from a project.
+
+```sh
+project module remove <module> [directory] [flags]
+```
+
+### Arguments
+
+| Argument | Required | Default | Description |
+| --- | --- | --- | --- |
+| `module` | yes | none | Module name. |
+| `directory` | no | `.` | Project directory. |
+
+### Flags
+
+| Flag | Synonyms | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--dry-run` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Show the module remove plan without writing changes. |
+| `--format` | - | <span className="doc-type doc-type-string">string</span> | `pretty` | Output format. Use `tsv` with `--dry-run` or `--yes`. |
+| `--yes` | `-y` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Apply without prompting. |
+| `--help` | `-h` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Print help. |
+
+### Examples
+
+```sh
+project module remove core.repo --dry-run
+project module remove core.repo --yes
+project module remove core.repo --dry-run --format tsv
+```

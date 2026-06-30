@@ -19,7 +19,7 @@ const emptyDiscovery: ProjectDiscoveryResult = {
   rootPath: ''
 };
 
-export type ProjectMainView = 'home' | 'project';
+export type ProjectMainView = 'machines' | 'projects' | 'project';
 
 function normalizePath(path: string) {
   return path.replace(/\/+$/, '');
@@ -44,7 +44,7 @@ export function useProjectDesktop() {
   });
   const [selectedLauncherAppId, setSelectedLauncherAppId] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState('');
-  const [mainView, setMainView] = useState<ProjectMainView>('home');
+  const [mainView, setMainView] = useState<ProjectMainView>('machines');
   const [sidebarView, setSidebarView] = useState<SidebarView>('workspace');
   const [launcherApps, setLauncherApps] = useState<LauncherAppRecord[]>([]);
   const [launcherError, setLauncherError] = useState('');
@@ -455,8 +455,11 @@ export function useProjectDesktop() {
     selectedWorktree,
     sidebarView,
     worktrees,
-    openHome() {
-      setMainView('home');
+    openMachines() {
+      setMainView('machines');
+    },
+    openProjects() {
+      setMainView('projects');
     },
     selectLauncherApp(appId: string) {
       setSelectedLauncherAppId(appId);

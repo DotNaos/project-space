@@ -1,0 +1,28 @@
+---
+title: Templates
+description: Template structure, values, modules, slots, and updates.
+---
+
+Templates define what a project should contain.
+
+Core rules:
+
+- A file that exists in the template is valid.
+- A file that matches an allowed slot pattern is valid as project-owned content.
+- A file that is neither in the template nor allowed by a slot is a violation.
+
+Template state lives inside each project:
+
+```text
+.project/template.lock.yaml
+.project/template/
+.project/template.values.yaml
+```
+
+Useful commands:
+
+```sh
+project template sync
+project template update --dry-run
+project validate
+```

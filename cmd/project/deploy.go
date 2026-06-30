@@ -51,7 +51,7 @@ type deployCandidate struct {
 func newDeployCommand() *cobra.Command {
 	options := deployOptions{}
 	cmd := &cobra.Command{
-		Use:               "deploy [project-directory]",
+		Use:               "deploy [directory]",
 		Short:             "Deploy this project to the VPS",
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: directoryCompletion,
@@ -80,7 +80,7 @@ func newDeployCommand() *cobra.Command {
 func newDeployStatusCommand() *cobra.Command {
 	options := deployOptions{}
 	cmd := &cobra.Command{
-		Use:               "status [project-directory]",
+		Use:               "status [directory]",
 		Short:             "Inspect deployment status without changing the VPS",
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: directoryCompletion,
