@@ -404,7 +404,9 @@ export function ProjectHomeOverview({
     [machines]
   );
   const localMachineId =
-    machines.find((machine) => machine.connector.status === 'local')?.id ?? 'local';
+    machines.find((machine) => machine.connector.status === 'local')?.id ??
+    machines[0]?.id ??
+    'local';
   const activeMachineId = selectedMachineId || localMachineId || machines[0]?.id || '';
   const activeMachine = machinesById.get(activeMachineId);
 
