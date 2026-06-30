@@ -558,11 +558,17 @@ export function createLocalProjectSpaceBackend(
       const connector = await getConnectorOverview();
       const registeredMachines = getRegisteredConnectorMachines();
       const knownMachineIds = new Set(connector.machines.map((machine) => machine.id));
+      const localMachines =
+        registeredMachines.length > 0
+          ? connector.machines.filter(
+              (machine) => machine.connector.serviceName !== 'project-space-web'
+            )
+          : connector.machines;
 
       return {
         ...connector,
         machines: [
-          ...connector.machines,
+          ...localMachines,
           ...registeredMachines.filter((machine) => !knownMachineIds.has(machine.id))
         ]
       };
