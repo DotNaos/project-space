@@ -3,7 +3,9 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { extname, join, normalize, resolve } from 'node:path';
 
 import { createLocalProjectSpaceBackend } from './local-project-space-backend';
+import { registerConnectorProjectRegistry } from './connector-hub';
 import type {
+  ConnectorProjectRegistryResult,
   OpenPathInAppRequest,
   CodexOpenRequest,
   GitHubOAuthDevicePollRequest,
@@ -199,6 +201,13 @@ function createApiHandler(backend: ProjectSpaceBackend) {
 
       if (request.method === 'GET' && url.pathname === '/api/connectors/project-registry') {
         writeJson(response, 200, await backend.getConnectorProjectRegistry());
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/connectors/project-registry') {
+        const payload = await readJson<ConnectorProjectRegistryResult>(request);
+        registerConnectorProjectRegistry(payload);
+        writeJson(response, 200, { ok: true });
         return true;
       }
 

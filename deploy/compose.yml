@@ -5,6 +5,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+    environment:
+      PROJECT_CONNECTOR_SERVICE_NAME: project-space-web
     image: project-space-web:local
     restart: unless-stopped
 

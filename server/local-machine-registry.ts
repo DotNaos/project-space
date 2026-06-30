@@ -78,6 +78,7 @@ function parseHostFile(path: string): MachineRecord {
     connector: {
       installCommand: 'project-space connector install',
       origin: isLocal ? process.env.PROJECT_SPACE_CONNECTOR_ORIGIN : undefined,
+      serviceName: process.env.PROJECT_CONNECTOR_SERVICE_NAME ?? 'project-space-connector',
       status: isLocal ? 'local' : 'not-installed'
     },
     id: name,
@@ -165,6 +166,7 @@ export async function getConnectorOverview(): Promise<ConnectorOverviewResult> {
           ...machine.connector,
           lastSeen: new Date().toISOString(),
           origin: process.env.PROJECT_SPACE_CONNECTOR_ORIGIN,
+          serviceName: process.env.PROJECT_CONNECTOR_SERVICE_NAME ?? 'project-space-connector',
           status: 'local' as const
         },
         network: {
@@ -184,6 +186,7 @@ export async function getConnectorOverview(): Promise<ConnectorOverviewResult> {
         installCommand: 'project-space connector install',
         lastSeen: new Date().toISOString(),
         origin: process.env.PROJECT_SPACE_CONNECTOR_ORIGIN,
+        serviceName: process.env.PROJECT_CONNECTOR_SERVICE_NAME ?? 'project-space-connector',
         status: 'local'
       },
       id: currentHost,

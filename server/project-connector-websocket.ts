@@ -11,6 +11,7 @@ interface ConnectorCommandMessage {
 
 interface ProjectConnectorWebSocketOptions {
   backend: ProjectSpaceBackend;
+  hubHttpUrl?: string;
   hubUrl?: string;
 }
 
@@ -33,23 +34,71 @@ function parseMessage(data: MessageEvent['data']) {
 
 export function startProjectConnectorWebSocket({
   backend,
+  hubHttpUrl = process.env.PROJECT_CONNECTOR_HUB_URL,
   hubUrl = process.env.PROJECT_CONNECTOR_HUB_WS_URL
 }: ProjectConnectorWebSocketOptions) {
-  if (!hubUrl) {
+  if (!hubUrl && !hubHttpUrl) {
     return {
       close() {}
+    };
+  }
+
+  const resolvedHubHttpUrl = hubHttpUrl?.replace(/\/+$/, '');
+  let httpRegistryTimer: ReturnType<typeof setInterval> | undefined;
+  let closed = false;
+
+  async function publishRegistryToHttpHub() {
+    if (!resolvedHubHttpUrl) {
+      return;
+    }
+
+    const registry = await backend.getConnectorProjectRegistry();
+    await fetch(`${resolvedHubHttpUrl}/api/connectors/project-registry`, {
+      body: JSON.stringify(registry),
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      method: 'POST'
+    }).catch((error) => {
+      console.warn(
+        `Could not publish connector registry to ${resolvedHubHttpUrl}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    });
+  }
+
+  if (resolvedHubHttpUrl) {
+    void publishRegistryToHttpHub();
+    httpRegistryTimer = setInterval(() => {
+      void publishRegistryToHttpHub();
+    }, registryIntervalMs);
+  }
+
+  if (!hubUrl) {
+    return {
+      close() {
+        closed = true;
+        if (httpRegistryTimer) {
+          clearInterval(httpRegistryTimer);
+        }
+      }
     };
   }
 
   if (typeof WebSocket === 'undefined') {
     console.warn('PROJECT_CONNECTOR_HUB_WS_URL is set, but WebSocket is not available.');
     return {
-      close() {}
+      close() {
+        closed = true;
+        if (httpRegistryTimer) {
+          clearInterval(httpRegistryTimer);
+        }
+      }
     };
   }
 
   const resolvedHubUrl = hubUrl;
-  let closed = false;
   let socket: WebSocket | undefined;
   let registryTimer: ReturnType<typeof setInterval> | undefined;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -78,7 +127,7 @@ export function startProjectConnectorWebSocket({
   }
 
   function connect() {
-    if (closed) {
+    if (closed || !resolvedHubUrl) {
       return;
     }
 
@@ -129,6 +178,9 @@ export function startProjectConnectorWebSocket({
   return {
     close() {
       closed = true;
+      if (httpRegistryTimer) {
+        clearInterval(httpRegistryTimer);
+      }
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
       }

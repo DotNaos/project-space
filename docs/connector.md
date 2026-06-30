@@ -51,6 +51,8 @@ The connector reads these environment variables:
 ```bash
 PROJECT_SPACE_HOST=127.0.0.1
 PROJECT_SPACE_PORT=4173
+PROJECT_CONNECTOR_HUB_URL=https://projects.os-home.net
+PROJECT_CONNECTOR_SERVICE_NAME=project-space-connector
 PROJECT_SPACE_PRIVATE_VPS_BASE_URL=https://your-private-vps-platform-api
 PROJECT_SPACE_CONNECTOR_ORIGIN=https://your-machine.tailnet.ts.net
 ```
@@ -59,6 +61,8 @@ Defaults:
 
 - `PROJECT_SPACE_HOST` defaults to `127.0.0.1`.
 - `PROJECT_SPACE_PORT` defaults to `4173`.
+- `PROJECT_CONNECTOR_HUB_URL` publishes this machine to the hosted Project Space UI.
+- `PROJECT_CONNECTOR_SERVICE_NAME` is the service label shown on machine cards.
 - `PROJECT_SPACE_PRIVATE_VPS_BASE_URL` is optional until deployments/backups are wired to the VPS platform.
 - `PROJECT_SPACE_CONNECTOR_ORIGIN` is optional metadata shown in the UI.
 
@@ -99,4 +103,3 @@ If the UI shows no projects:
 3. Check Tailscale Serve with `tailscale serve status --json`.
 4. Open the Vercel UI with `?projectSpaceApi=<tailscale-https-url>`.
 5. If deployments/backups are offline, set `PROJECT_SPACE_PRIVATE_VPS_BASE_URL`.
-
