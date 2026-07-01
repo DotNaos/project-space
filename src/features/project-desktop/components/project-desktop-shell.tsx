@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react';
-import { FolderKanban, House, Server } from 'lucide-react';
+import { FolderKanban, Github, House, LogIn, Server } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Button, Surface, Text } from '@/app/dotnaos-ui';
+import {
+  projectSpaceClient,
+  setProjectSpaceAuthToken
+} from '@/api/project-space-client';
+import type {
+  ProjectSpaceAuthDeviceStartResult,
+  ProjectSpaceAuthSessionResult
+} from '@/shared/project-space-api';
 import { useProjectDesktop } from '../hooks/use-project-desktop';
 import type { ProjectMainView } from '../hooks/use-project-desktop';
 import { useResizableSidebar } from '../hooks/use-resizable-sidebar';
@@ -91,7 +100,128 @@ function MobileTabBar({
   );
 }
 
-export function ProjectDesktopShell() {
+function ProjectSpaceLoginScreen({
+  onAuthenticated
+}: {
+  onAuthenticated(session: ProjectSpaceAuthSessionResult): void;
+}) {
+  const [flow, setFlow] = useState<ProjectSpaceAuthDeviceStartResult | null>(null);
+  const [message, setMessage] = useState('');
+  const [isBusy, setIsBusy] = useState(false);
+
+  async function startLogin() {
+    setIsBusy(true);
+    setMessage('');
+
+    try {
+      const nextFlow = await projectSpaceClient.startProjectSpaceLogin();
+      setFlow(nextFlow);
+
+      if (nextFlow.status !== 'pending') {
+        setMessage(nextFlow.message ?? 'Could not start GitHub login.');
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not start GitHub login.');
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function finishLogin() {
+    if (!flow?.deviceCode) {
+      return;
+    }
+
+    setIsBusy(true);
+    setMessage('');
+
+    try {
+      const result = await projectSpaceClient.pollProjectSpaceLogin({
+        deviceCode: flow.deviceCode
+      });
+
+      if (result.status === 'connected' && result.sessionToken) {
+        setProjectSpaceAuthToken(result.sessionToken);
+        onAuthenticated({
+          authenticated: true,
+          authRequired: true,
+          expiresAt: result.expiresAt,
+          user: result.user
+        });
+        return;
+      }
+
+      setMessage(result.message ?? `GitHub login is ${result.status}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not finish GitHub login.');
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-app-canvas px-6 text-neutral-100">
+      <Surface
+        variant="secondary"
+        className="flex w-full max-w-md flex-col gap-6 rounded-lg border-neutral-800 p-6"
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex size-11 items-center justify-center rounded-lg bg-neutral-100 text-neutral-950">
+            <Github className="size-5" strokeWidth={2} />
+          </div>
+          <div className="min-w-0">
+            <Text as="h1" className="text-xl font-semibold text-neutral-50">
+              Sign in to Project Space
+            </Text>
+            <Text as="p" className="mt-1 text-sm text-neutral-400">
+              GitHub login is required before this connector exposes local machines.
+            </Text>
+          </div>
+        </div>
+
+        {flow?.status === 'pending' ? (
+          <div className="flex flex-col gap-4">
+            <div className="rounded-lg bg-neutral-900 px-4 py-3">
+              <Text as="p" className="text-sm text-neutral-400">
+                Enter this code on GitHub:
+              </Text>
+              <Text as="p" className="mt-2 font-mono text-2xl font-semibold tracking-wide text-neutral-50">
+                {flow.userCode}
+              </Text>
+            </div>
+            {flow.verificationUri ? (
+              <a
+                className="text-sm font-medium text-neutral-100 underline decoration-neutral-600 underline-offset-4 hover:text-white"
+                href={flow.verificationUri}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open GitHub device login
+              </a>
+            ) : null}
+            <Button onPress={finishLogin} isDisabled={isBusy}>
+              <LogIn className="size-4" />
+              Check login
+            </Button>
+          </div>
+        ) : (
+          <Button onPress={startLogin} isDisabled={isBusy}>
+            <Github className="size-4" />
+            Sign in with GitHub
+          </Button>
+        )}
+
+        {message ? (
+          <Text as="p" className="text-sm text-amber-300">
+            {message}
+          </Text>
+        ) : null}
+      </Surface>
+    </div>
+  );
+}
+
+function AuthenticatedProjectDesktopShell() {
   const desktop = useProjectDesktop();
   const [isCompact, setIsCompact] = useState(isCompactViewport);
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => !isCompactViewport());
@@ -307,4 +437,48 @@ export function ProjectDesktopShell() {
       ) : null}
     </div>
   );
+}
+
+export function ProjectDesktopShell() {
+  const [session, setSession] = useState<ProjectSpaceAuthSessionResult | null>(null);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
+
+  useEffect(() => {
+    let canceled = false;
+
+    projectSpaceClient
+      .getAuthSession()
+      .then((nextSession) => {
+        if (!canceled) {
+          setSession(nextSession);
+        }
+      })
+      .catch(() => {
+        if (!canceled) {
+          setSession({
+            authenticated: false,
+            authRequired: true
+          });
+        }
+      })
+      .finally(() => {
+        if (!canceled) {
+          setIsCheckingSession(false);
+        }
+      });
+
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
+  if (isCheckingSession) {
+    return <div className="min-h-screen bg-app-canvas" />;
+  }
+
+  if (session?.authRequired && !session.authenticated) {
+    return <ProjectSpaceLoginScreen onAuthenticated={setSession} />;
+  }
+
+  return <AuthenticatedProjectDesktopShell />;
 }

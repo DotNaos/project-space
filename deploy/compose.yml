@@ -8,6 +8,8 @@ services:
     environment:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
+      PROJECT_SPACE_ALLOWED_GITHUB_LOGINS: ${PROJECT_SPACE_ALLOWED_GITHUB_LOGINS:-}
+      PROJECT_SPACE_AUTH_DISABLED: ${PROJECT_SPACE_AUTH_DISABLED:-}
       PROJECT_CONNECTOR_SERVICE_NAME: project-space-web
     image: project-space-web:local
     restart: unless-stopped

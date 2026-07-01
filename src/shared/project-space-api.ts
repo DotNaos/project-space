@@ -198,6 +198,41 @@ export interface GitActionResult {
   stderr?: string;
 }
 
+export interface ProjectSpaceAuthUser {
+  login: string;
+  role: 'owner' | 'user';
+}
+
+export interface ProjectSpaceAuthSessionResult {
+  authenticated: boolean;
+  authRequired: boolean;
+  expiresAt?: string;
+  user?: ProjectSpaceAuthUser;
+}
+
+export interface ProjectSpaceAuthDeviceStartResult {
+  deviceCode?: string;
+  expiresAt?: string;
+  intervalSeconds?: number;
+  message?: string;
+  status: 'pending' | 'not-configured' | 'error';
+  userCode?: string;
+  verificationUri?: string;
+}
+
+export interface ProjectSpaceAuthDevicePollRequest {
+  deviceCode: string;
+}
+
+export interface ProjectSpaceAuthDevicePollResult {
+  expiresAt?: string;
+  intervalSeconds?: number;
+  message?: string;
+  sessionToken?: string;
+  status: 'pending' | 'connected' | 'expired' | 'denied' | 'error';
+  user?: ProjectSpaceAuthUser;
+}
+
 export type GitHubAuthSource = 'stored-oauth' | 'environment';
 export type GitHubCatalogStatus = 'connected' | 'auth-required' | 'not-configured' | 'error';
 export type GitHubProjectConfigStatus = 'complete' | 'partial' | 'missing' | 'unknown';

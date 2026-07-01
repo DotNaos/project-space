@@ -20,6 +20,10 @@ import type {
   OpenPathInAppRequest,
   OpenPathInAppResult,
   PlatformOverviewResult,
+  ProjectSpaceAuthDevicePollRequest,
+  ProjectSpaceAuthDevicePollResult,
+  ProjectSpaceAuthDeviceStartResult,
+  ProjectSpaceAuthSessionResult,
   ProjectBackupRequest,
   ConnectorProjectRegistryResult,
   ProjectCliCommandRequest,
@@ -40,6 +44,29 @@ import type {
   ToolLaunchRequest,
   ToolLaunchResult
 } from '@/shared/project-space-api';
+
+const authTokenStorageKey = 'project-space.session-token';
+
+export function getProjectSpaceAuthToken() {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+
+  return window.localStorage.getItem(authTokenStorageKey) ?? '';
+}
+
+export function setProjectSpaceAuthToken(token: string) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  if (token) {
+    window.localStorage.setItem(authTokenStorageKey, token);
+    return;
+  }
+
+  window.localStorage.removeItem(authTokenStorageKey);
+}
 
 function resolveApiBaseUrl() {
   const explicitBaseUrl = import.meta.env.VITE_PROJECT_SPACE_API_BASE_URL;
@@ -80,9 +107,12 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
   private readonly baseUrl = resolveApiBaseUrl();
 
   private request<T>(path: string, init?: RequestInit) {
+    const token = getProjectSpaceAuthToken();
+
     return fetch(`${this.baseUrl}${path}`, {
       ...init,
       headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
         ...init?.headers
       }
@@ -91,6 +121,32 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
 
   getAppMeta(): Promise<AppMeta> {
     return this.request('/api/app/meta');
+  }
+
+  getAuthSession(): Promise<ProjectSpaceAuthSessionResult> {
+    return this.request('/api/auth/session');
+  }
+
+  startProjectSpaceLogin(): Promise<ProjectSpaceAuthDeviceStartResult> {
+    return this.request('/api/auth/github/device/start', {
+      method: 'POST'
+    });
+  }
+
+  pollProjectSpaceLogin(
+    request: ProjectSpaceAuthDevicePollRequest
+  ): Promise<ProjectSpaceAuthDevicePollResult> {
+    return this.request('/api/auth/github/device/poll', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  async logout(): Promise<void> {
+    await this.request('/api/auth/logout', {
+      method: 'POST'
+    }).catch(() => undefined);
+    setProjectSpaceAuthToken('');
   }
 
   getCodexStatus(): Promise<CodexStatusResult> {
