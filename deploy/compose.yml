@@ -19,6 +19,8 @@ services:
       PROJECT_CONNECTOR_SERVICE_NAME: project-space-web
     image: project-space-web:local
     restart: unless-stopped
+    volumes:
+      - ./ssh:/root/.ssh:ro
 
   docs:
     build:
