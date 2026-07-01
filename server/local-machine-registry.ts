@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 
 import type {
   ConnectorOverviewResult,
+  MachineBatteryRecord,
   MachineRecord,
   TailscaleStatusResult
 } from '../src/shared/project-space-api';
@@ -28,6 +29,86 @@ function parseScalar(line: string, key: string) {
   const match = line.match(new RegExp(`^${key}:\\s*(.+?)\\s*$`));
 
   return match?.[1]?.replace(/^["']|["']$/g, '');
+}
+
+function normalizeBatteryState(value: string | undefined): MachineBatteryRecord['state'] {
+  const state = value?.trim().toLowerCase();
+
+  if (state === 'charging') {
+    return 'charging';
+  }
+
+  if (state === 'discharging') {
+    return 'discharging';
+  }
+
+  if (state === 'charged' || state === 'full') {
+    return 'charged';
+  }
+
+  return state ? 'unknown' : undefined;
+}
+
+async function loadMacBatteryStatus(): Promise<MachineBatteryRecord | undefined> {
+  const output = await run('pmset', ['-g', 'batt']);
+  const match = output.match(/(\d{1,3})%;\s*([^;]+)/);
+
+  if (!match) {
+    return undefined;
+  }
+
+  return {
+    percentage: Math.max(0, Math.min(100, Number(match[1]))),
+    state: normalizeBatteryState(match[2])
+  };
+}
+
+async function loadLinuxBatteryStatus(): Promise<MachineBatteryRecord | undefined> {
+  const powerSupplyPath = '/sys/class/power_supply';
+
+  if (!existsSync(powerSupplyPath)) {
+    return undefined;
+  }
+
+  const entries = await readdir(powerSupplyPath, {
+    withFileTypes: true
+  });
+  const battery = entries.find((entry) => entry.name.toLowerCase().startsWith('bat'));
+
+  if (!battery) {
+    return undefined;
+  }
+
+  const batteryPath = join(powerSupplyPath, battery.name);
+  const capacity = Number(readFileSync(join(batteryPath, 'capacity'), 'utf-8').trim());
+  const state = existsSync(join(batteryPath, 'status'))
+    ? readFileSync(join(batteryPath, 'status'), 'utf-8').trim()
+    : undefined;
+
+  if (!Number.isFinite(capacity)) {
+    return undefined;
+  }
+
+  return {
+    percentage: Math.max(0, Math.min(100, capacity)),
+    state: normalizeBatteryState(state)
+  };
+}
+
+export async function loadBatteryStatus(): Promise<MachineBatteryRecord | undefined> {
+  try {
+    if (platform() === 'darwin') {
+      return await loadMacBatteryStatus();
+    }
+
+    if (platform() === 'linux') {
+      return await loadLinuxBatteryStatus();
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
 }
 
 function parseHostFile(path: string): MachineRecord {
@@ -149,7 +230,11 @@ async function loadMachines() {
 }
 
 export async function getConnectorOverview(): Promise<ConnectorOverviewResult> {
-  const [tailscale, machines] = await Promise.all([loadTailscaleStatus(), loadMachines()]);
+  const [tailscale, machines, battery] = await Promise.all([
+    loadTailscaleStatus(),
+    loadMachines(),
+    loadBatteryStatus()
+  ]);
 
   const currentHost = hostname().split('.')[0];
   const machinesWithTailscale = machines.map((machine) => {
@@ -162,6 +247,7 @@ export async function getConnectorOverview(): Promise<ConnectorOverviewResult> {
     if (isLocal) {
       return {
         ...machine,
+        battery,
         connector: {
           ...machine.connector,
           lastSeen: new Date().toISOString(),
@@ -182,6 +268,7 @@ export async function getConnectorOverview(): Promise<ConnectorOverviewResult> {
 
   if (!hasLocalMachine) {
     machinesWithTailscale.unshift({
+      battery,
       connector: {
         installCommand: 'project-space connector install',
         lastSeen: new Date().toISOString(),

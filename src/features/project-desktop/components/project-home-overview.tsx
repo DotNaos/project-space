@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Battery,
+  BatteryCharging,
   ChevronDown,
   ExternalLink,
   Github,
@@ -169,6 +171,36 @@ function formatLastSeen(value?: string) {
 
   const hours = Math.round(minutes / 60);
   return hours < 24 ? `${hours}h` : `${Math.round(hours / 24)}d`;
+}
+
+function formatBattery(machine: MachineRecord) {
+  if (!machine.battery) {
+    return undefined;
+  }
+
+  const suffix =
+    machine.battery.state && machine.battery.state !== 'unknown'
+      ? ` ${machine.battery.state}`
+      : '';
+
+  return `${machine.battery.percentage}%${suffix}`;
+}
+
+function BatteryIcon({ machine }: { machine: MachineRecord }) {
+  return machine.battery?.state === 'charging' ? (
+    <BatteryCharging className="size-3.5" />
+  ) : (
+    <Battery className="size-3.5" />
+  );
+}
+
+function BatteryChipContent({ machine, label }: { label: string; machine: MachineRecord }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <BatteryIcon machine={machine} />
+      {label}
+    </span>
+  );
 }
 
 function MachineIcon({ machine }: { machine: MachineRecord }) {
@@ -529,6 +561,7 @@ export function ProjectHomeOverview({
               const isOnline =
                 machine.connector.status === 'local' || machine.connector.status === 'online';
               const isSelected = machine.id === activeMachineId;
+              const batteryLabel = formatBattery(machine);
 
               return (
                 <button
@@ -575,6 +608,11 @@ export function ProjectHomeOverview({
                     <Chip size="sm" variant="tertiary">
                       {machineProjects.length} projects
                     </Chip>
+                    {batteryLabel ? (
+                      <Chip size="sm" variant="tertiary">
+                        <BatteryChipContent label={batteryLabel} machine={machine} />
+                      </Chip>
+                    ) : null}
                     <Chip size="sm" variant="tertiary">
                       {formatLastSeen(machine.connector.lastSeen)}
                     </Chip>
@@ -685,6 +723,11 @@ export function ProjectHomeOverview({
                       <Chip size="sm" className={connectorChipClass(machine.connector.status)}>
                         {machine.connector.status}
                       </Chip>
+                      {formatBattery(machine) ? (
+                        <Chip size="sm" variant="tertiary">
+                          <BatteryChipContent label={formatBattery(machine) ?? ''} machine={machine} />
+                        </Chip>
+                      ) : null}
                       <Chip size="sm" variant="tertiary">
                         {formatLastSeen(machine.connector.lastSeen)}
                       </Chip>

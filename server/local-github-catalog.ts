@@ -50,9 +50,15 @@ const githubTokenFile = join(projectSpaceDirectory, 'github-oauth.json');
 const githubApiBaseUrl = 'https://api.github.com';
 const githubDeviceCodeUrl = 'https://github.com/login/device/code';
 const githubAccessTokenUrl = 'https://github.com/login/oauth/access_token';
+const githubOAuthClientIdMissingMessage = 'Set GITHUB_OAUTH_CLIENT_ID to enable GitHub OAuth.';
 
 function getGitHubClientId() {
-  return process.env.PROJECT_SPACE_GITHUB_CLIENT_ID ?? process.env.GITHUB_CLIENT_ID ?? '';
+  return (
+    process.env.GITHUB_OAUTH_CLIENT_ID ??
+    process.env.PROJECT_SPACE_GITHUB_CLIENT_ID ??
+    process.env.GITHUB_CLIENT_ID ??
+    ''
+  );
 }
 
 function createEmptyCatalog(
@@ -258,7 +264,7 @@ export async function getGitHubCatalog(): Promise<GitHubCatalogResult> {
       getGitHubClientId() ? 'auth-required' : 'not-configured',
       getGitHubClientId()
         ? 'Connect GitHub to load the remote project catalog.'
-        : 'Set PROJECT_SPACE_GITHUB_CLIENT_ID to enable GitHub OAuth.'
+        : githubOAuthClientIdMissingMessage
     );
   }
 
@@ -291,7 +297,7 @@ export async function startGitHubOAuthDeviceFlow(): Promise<GitHubOAuthDeviceSta
 
   if (!clientId) {
     return {
-      message: 'Set PROJECT_SPACE_GITHUB_CLIENT_ID to enable GitHub OAuth.',
+      message: githubOAuthClientIdMissingMessage,
       status: 'not-configured'
     };
   }
@@ -340,7 +346,7 @@ export async function pollGitHubOAuthDeviceFlow({
 
   if (!clientId) {
     return {
-      message: 'Set PROJECT_SPACE_GITHUB_CLIENT_ID to enable GitHub OAuth.',
+      message: githubOAuthClientIdMissingMessage,
       status: 'error'
     };
   }

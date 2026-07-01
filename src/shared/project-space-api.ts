@@ -284,10 +284,16 @@ export interface MachineConnectorRecord {
   status: ConnectorStatus;
 }
 
+export interface MachineBatteryRecord {
+  percentage: number;
+  state?: 'charged' | 'charging' | 'discharging' | 'unknown';
+}
+
 export interface MachineRecord {
   id: string;
   kind: string;
   name: string;
+  battery?: MachineBatteryRecord;
   primaryUser?: string;
   profile?: string;
   roles: string[];
@@ -324,6 +330,7 @@ export interface ConnectorOverviewResult {
 export interface ConnectorProjectRegistryResult {
   checkedAt: string;
   connector: {
+    battery?: MachineBatteryRecord;
     machineId: string;
     machineName: string;
     origin?: string;
