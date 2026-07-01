@@ -74,7 +74,7 @@ func TestDeployComposeScriptUsesSecretValuesOnlyAtRuntime(t *testing.T) {
 		"CLERK_PUBLISHABLE_KEY=clerk-publishable-value",
 		"VITE_CLERK_PUBLISHABLE_KEY=clerk-publishable-value",
 		"CLERK_SECRET_KEY=clerk-secret-value",
-		"docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml up -d --build",
+		"docker compose --env-file .env -f deploy/compose.yml -f deploy/ingress.labels.yml up -d --build",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("runtime deploy script missing %q:\n%s", want, script)

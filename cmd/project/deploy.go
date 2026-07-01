@@ -425,14 +425,14 @@ func deploySteps(project deployProject, options deployOptions) []string {
 
 func composeUpStep(project deployProject, options deployOptions) string {
 	return fmt.Sprintf(
-		"set -e; cd %s; cat > .env <<'PROJECT_SPACE_ENV'\n%s\nPROJECT_SPACE_ENV\ndocker compose -f deploy/compose.yml -f deploy/ingress.labels.yml up -d --build",
+		"set -e; cd %s; cat > .env <<'PROJECT_SPACE_ENV'\n%s\nPROJECT_SPACE_ENV\ndocker compose --env-file .env -f deploy/compose.yml -f deploy/ingress.labels.yml up -d --build",
 		shellQuote(project.RemotePath),
 		deployEnvFileContent(options, false),
 	)
 }
 
 func composeStatusStep(project deployProject, options deployOptions) string {
-	return fmt.Sprintf("set -e; cd %s; docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml ps", shellQuote(project.RemotePath))
+	return fmt.Sprintf("set -e; cd %s; docker compose --env-file .env -f deploy/compose.yml -f deploy/ingress.labels.yml ps", shellQuote(project.RemotePath))
 }
 
 func deployStatusEnv(options deployOptions) string {
@@ -485,9 +485,9 @@ func secretSourceLabel(source string) string {
 }
 
 func deployComposeScript(project deployProject, options deployOptions, up bool) string {
-	command := "docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml ps"
+	command := "docker compose --env-file .env -f deploy/compose.yml -f deploy/ingress.labels.yml ps"
 	if up {
-		command = "docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml up -d --build"
+		command = "docker compose --env-file .env -f deploy/compose.yml -f deploy/ingress.labels.yml up -d --build"
 	}
 	return strings.Join([]string{
 		"set -e",
