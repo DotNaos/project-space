@@ -331,6 +331,7 @@ function AuthenticatedProjectDesktopShell() {
           onOpenMachines={desktop.openMachines}
           onOpenMachine={desktop.openMachine}
           onOpenProjects={desktop.openProjects}
+          onOpenRoot={desktop.openRoot}
           onOpenSelectedTarget={desktop.openSelectedTargetInApp}
           onRefreshConnectorOverview={desktop.refreshConnectorOverview}
           onRefreshGitHubCatalog={desktop.refreshGitHubCatalog}
