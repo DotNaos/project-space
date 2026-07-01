@@ -404,9 +404,12 @@ export interface ConnectorProjectRegistryResult {
   checkedAt: string;
   connector: {
     battery?: MachineBatteryRecord;
+    kind?: string;
     machineId: string;
     machineName: string;
+    network?: MachineRecord['network'];
     origin?: string;
+    primaryUser?: string;
     serviceName?: string;
   };
   discovery: ProjectDiscoveryResult;
