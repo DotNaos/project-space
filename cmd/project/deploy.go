@@ -13,13 +13,17 @@ import (
 )
 
 type deployOptions struct {
-	Host          string
-	RemotePath    string
-	Branch        string
-	ProjectDomain string
-	APIDomain     string
-	AcmeEmail     string
-	DryRun        bool
+	Host                      string
+	RemotePath                string
+	Branch                    string
+	ProjectDomain             string
+	APIDomain                 string
+	AcmeEmail                 string
+	GitHubToken               string
+	GitHubTokenSource         string
+	GitHubOAuthClientID       string
+	GitHubOAuthClientIDSource string
+	DryRun                    bool
 }
 
 type deployProject struct {
@@ -47,6 +51,11 @@ type deployCandidate struct {
 	Value  string
 	Source string
 }
+
+const (
+	deployGitHubTokenRef         = "op://projects/GitHub Personal Access Token/token"
+	deployGitHubOAuthClientIDRef = "op://projects/GitHub OAuth App/client_id"
+)
 
 func newDeployCommand() *cobra.Command {
 	options := deployOptions{}
@@ -128,6 +137,13 @@ func deployProjectToVPS(cmd *cobra.Command, projectRoot string, options deployOp
 		return project, nil
 	}
 	for _, step := range steps {
+		if step == composeUpStep(project, options) || step == composeStatusStep(project, options) {
+			if _, err := runRemoteScript(options.Host, deployComposeScript(project, options, strings.Contains(step, " up "))); err != nil {
+				return deployProject{}, fmt.Errorf("remote deploy step failed: %w", err)
+			}
+			continue
+		}
+
 		if _, err := runCommand("", nil, "ssh", options.Host, step); err != nil {
 			return deployProject{}, fmt.Errorf("remote deploy step failed: %w", err)
 		}
@@ -233,6 +249,26 @@ func resolveDeployProject(cmd *cobra.Command, projectRoot string, options deploy
 		configCandidate(config.Email, "deploy/deploy.yaml"),
 		firstEnvCandidate("TRAEFIK_ACME_EMAIL", "PROJECT_DEPLOY_ACME_EMAIL"),
 	}, false)
+	if requireRuntimeValues {
+		options.GitHubToken, options.GitHubTokenSource, err = resolveDeploySecretValue(
+			"GitHub token",
+			[]string{"GITHUB_TOKEN"},
+			deployGitHubTokenRef,
+			true,
+		)
+		if err != nil {
+			return deployProject{}, options, err
+		}
+		options.GitHubOAuthClientID, options.GitHubOAuthClientIDSource, err = resolveDeploySecretValue(
+			"GitHub OAuth client ID",
+			[]string{"GITHUB_OAUTH_CLIENT_ID", "PROJECT_SPACE_GITHUB_CLIENT_ID", "GITHUB_CLIENT_ID"},
+			deployGitHubOAuthClientIDRef,
+			false,
+		)
+		if err != nil {
+			return deployProject{}, options, err
+		}
+	}
 
 	webURL := ""
 	apiURL := ""
@@ -325,17 +361,50 @@ func firstEnvCandidate(names ...string) deployCandidate {
 	return deployCandidate{}
 }
 
+func resolveDeploySecretValue(label string, envNames []string, onePasswordRef string, required bool) (string, string, error) {
+	for _, name := range envNames {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			return value, "$" + name, nil
+		}
+	}
+
+	if onePasswordRef != "" {
+		output, err := runCommand("", nil, "op", "read", onePasswordRef)
+		if err == nil {
+			value := strings.TrimRight(output, "\r\n")
+			if value != "" {
+				return value, onePasswordRef, nil
+			}
+		}
+		if required {
+			if err != nil {
+				return "", "", fmt.Errorf("read %s from 1Password: %w", label, err)
+			}
+			return "", "", fmt.Errorf("%s from 1Password was empty", label)
+		}
+	}
+
+	return "", "", nil
+}
+
 func deploySteps(project deployProject, options deployOptions) []string {
-	env := deployEnv(options)
 	remotePath := shellQuote(project.RemotePath)
 	return []string{
 		"set -e; docker --version; docker compose version; docker info >/dev/null",
 		"set -e; docker network inspect traefik-public >/dev/null",
 		fmt.Sprintf("set -e; sudo -n mkdir -p %s; sudo -n chown $(id -u):$(id -g) %s", remotePath, remotePath),
 		fmt.Sprintf("set -e; if [ -d %s/.git ]; then cd %s && git fetch origin %s && git reset --hard origin/%s; else git clone --branch %s %s %s; fi", remotePath, remotePath, shellQuote(project.Branch), shellQuote(project.Branch), shellQuote(project.Branch), shellQuote(project.RemoteURL), remotePath),
-		fmt.Sprintf("set -e; cd %s; %s docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml up -d --build", remotePath, env),
-		fmt.Sprintf("set -e; cd %s; %s docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml ps", remotePath, env),
+		composeUpStep(project, options),
+		composeStatusStep(project, options),
 	}
+}
+
+func composeUpStep(project deployProject, options deployOptions) string {
+	return fmt.Sprintf("set -e; cd %s; %s docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml up -d --build", shellQuote(project.RemotePath), deployEnv(options))
+}
+
+func composeStatusStep(project deployProject, options deployOptions) string {
+	return fmt.Sprintf("set -e; cd %s; %s docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml ps", shellQuote(project.RemotePath), deployEnv(options))
 }
 
 func deployEnv(options deployOptions) string {
@@ -346,7 +415,53 @@ func deployEnv(options deployOptions) string {
 	if options.AcmeEmail != "" {
 		parts = append(parts, "TRAEFIK_ACME_EMAIL="+shellQuote(options.AcmeEmail))
 	}
+	if options.GitHubToken != "" {
+		parts = append(parts, "GITHUB_TOKEN="+shellQuote(secretSourceLabel(options.GitHubTokenSource)))
+	}
+	if options.GitHubOAuthClientID != "" {
+		parts = append(parts, "GITHUB_OAUTH_CLIENT_ID="+shellQuote(secretSourceLabel(options.GitHubOAuthClientIDSource)))
+	}
 	return strings.Join(parts, " ")
+}
+
+func deployRuntimeEnv(options deployOptions) string {
+	parts := []string{
+		"PROJECT_DOMAIN=" + shellQuote(options.ProjectDomain),
+		"PROJECT_API_DOMAIN=" + shellQuote(options.APIDomain),
+	}
+	if options.AcmeEmail != "" {
+		parts = append(parts, "TRAEFIK_ACME_EMAIL="+shellQuote(options.AcmeEmail))
+	}
+	if options.GitHubToken != "" {
+		parts = append(parts, "GITHUB_TOKEN="+shellQuote(options.GitHubToken))
+	}
+	if options.GitHubOAuthClientID != "" {
+		parts = append(parts, "GITHUB_OAUTH_CLIENT_ID="+shellQuote(options.GitHubOAuthClientID))
+	}
+	return strings.Join(parts, " ")
+}
+
+func secretSourceLabel(source string) string {
+	if source == "" {
+		return "<secret>"
+	}
+	return "<secret from " + source + ">"
+}
+
+func deployComposeScript(project deployProject, options deployOptions, up bool) string {
+	command := "docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml ps"
+	if up {
+		command = "docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml up -d --build"
+	}
+	return strings.Join([]string{
+		"set -e",
+		"cd " + shellQuote(project.RemotePath),
+		deployRuntimeEnv(options) + " " + command,
+	}, "\n")
+}
+
+func runRemoteScript(host string, script string) (string, error) {
+	return runCommand("", []byte(script), "ssh", host, "sh", "-s")
 }
 
 func defaultAPIDomain(domain string) string {
