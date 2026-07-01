@@ -8,18 +8,15 @@ import { createMachineTerminalUpgradeHandler } from './machine-terminal-websocke
 import {
   getProjectSpaceAuthSessionResult,
   isProjectSpaceAuthRequired,
-  pollProjectSpaceAuthDeviceFlow,
   readAuthSessionFromRequest,
   readAuthTokenFromRequest,
   revokeProjectSpaceAuthSession,
-  runWithAuthSession,
-  startProjectSpaceAuthDeviceFlow
+  runWithAuthSession
 } from './local-auth-store';
 import type {
   ConnectorProjectRegistryResult,
   OpenPathInAppRequest,
   CodexOpenRequest,
-  ProjectSpaceAuthDevicePollRequest,
   GitHubOAuthDevicePollRequest,
   MachineTerminalCommandRequest,
   ProjectBackupRequest,
@@ -112,29 +109,18 @@ function createApiHandler(backend: ProjectSpaceBackend) {
         writeJson(
           response,
           200,
-          getProjectSpaceAuthSessionResult(readAuthTokenFromRequest(request))
+          await getProjectSpaceAuthSessionResult(readAuthTokenFromRequest(request))
         );
         return true;
       }
 
-      if (request.method === 'POST' && url.pathname === '/api/auth/github/device/start') {
-        writeJson(response, 200, await startProjectSpaceAuthDeviceFlow());
-        return true;
-      }
-
-      if (request.method === 'POST' && url.pathname === '/api/auth/github/device/poll') {
-        const payload = await readJson<ProjectSpaceAuthDevicePollRequest>(request);
-        writeJson(response, 200, await pollProjectSpaceAuthDeviceFlow(payload));
-        return true;
-      }
-
       if (request.method === 'POST' && url.pathname === '/api/auth/logout') {
-        revokeProjectSpaceAuthSession(readAuthTokenFromRequest(request));
+        revokeProjectSpaceAuthSession();
         writeJson(response, 200, { ok: true });
         return true;
       }
 
-      const authSession = readAuthSessionFromRequest(request);
+      const authSession = await readAuthSessionFromRequest(request);
 
       if (isProjectSpaceAuthRequired() && !authSession) {
         writeJson(response, 401, { error: 'Login required.' });

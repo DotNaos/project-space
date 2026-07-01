@@ -186,7 +186,7 @@ export function createMachineTerminalUpgradeHandler(backend: ProjectSpaceBackend
     socket.on('message', queueMessage);
 
     try {
-      const authSession = readAuthSessionFromUrl(url);
+      const authSession = await readAuthSessionFromUrl(url);
 
       if (isProjectSpaceAuthRequired() && !authSession) {
         sendJson(socket, {

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 
 import { App } from '@/app/app';
 import '@/app/index.css';
+import { AppClerkProvider } from '@/auth/clerk-provider';
 
 export function startApp() {
   const container = document.getElementById('root');
@@ -16,7 +17,9 @@ export function startApp() {
 
   createRoot(container).render(
     <StrictMode>
-      <App />
+      <AppClerkProvider>
+        <App />
+      </AppClerkProvider>
     </StrictMode>
   );
 }

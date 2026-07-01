@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react';
-import { FolderKanban, Github, House, LogIn, Server } from 'lucide-react';
+import { useAuth, useClerk, useUser } from '@clerk/react';
+import { FolderKanban, House, LogIn, Server } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button, Surface, Text } from '@/app/dotnaos-ui';
 import {
   projectSpaceClient,
-  setProjectSpaceAuthToken
+  setProjectSpaceAuthTokenProvider
 } from '@/api/project-space-client';
-import type {
-  ProjectSpaceAuthDeviceStartResult,
-  ProjectSpaceAuthSessionResult
-} from '@/shared/project-space-api';
+import { isClerkConfigured } from '@/auth/clerk-provider';
+import type { ProjectSpaceAuthSessionResult } from '@/shared/project-space-api';
 import { useProjectDesktop } from '../hooks/use-project-desktop';
 import type { ProjectMainView } from '../hooks/use-project-desktop';
 import { useResizableSidebar } from '../hooks/use-resizable-sidebar';
@@ -101,64 +100,14 @@ function MobileTabBar({
 }
 
 function ProjectSpaceLoginScreen({
-  onAuthenticated
+  isBusy = false,
+  message,
+  onSignIn
 }: {
-  onAuthenticated(session: ProjectSpaceAuthSessionResult): void;
+  isBusy?: boolean;
+  message?: string;
+  onSignIn(): void;
 }) {
-  const [flow, setFlow] = useState<ProjectSpaceAuthDeviceStartResult | null>(null);
-  const [message, setMessage] = useState('');
-  const [isBusy, setIsBusy] = useState(false);
-
-  async function startLogin() {
-    setIsBusy(true);
-    setMessage('');
-
-    try {
-      const nextFlow = await projectSpaceClient.startProjectSpaceLogin();
-      setFlow(nextFlow);
-
-      if (nextFlow.status !== 'pending') {
-        setMessage(nextFlow.message ?? 'Could not start GitHub login.');
-      }
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not start GitHub login.');
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function finishLogin() {
-    if (!flow?.deviceCode) {
-      return;
-    }
-
-    setIsBusy(true);
-    setMessage('');
-
-    try {
-      const result = await projectSpaceClient.pollProjectSpaceLogin({
-        deviceCode: flow.deviceCode
-      });
-
-      if (result.status === 'connected' && result.sessionToken) {
-        setProjectSpaceAuthToken(result.sessionToken);
-        onAuthenticated({
-          authenticated: true,
-          authRequired: true,
-          expiresAt: result.expiresAt,
-          user: result.user
-        });
-        return;
-      }
-
-      setMessage(result.message ?? `GitHub login is ${result.status}.`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not finish GitHub login.');
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
   return (
     <div className="flex min-h-screen items-center justify-center bg-app-canvas px-6 text-neutral-100">
       <Surface
@@ -167,49 +116,22 @@ function ProjectSpaceLoginScreen({
       >
         <div className="flex items-center gap-3">
           <div className="flex size-11 items-center justify-center rounded-lg bg-neutral-100 text-neutral-950">
-            <Github className="size-5" strokeWidth={2} />
+            <LogIn className="size-5" strokeWidth={2} />
           </div>
           <div className="min-w-0">
             <Text as="h1" className="text-xl font-semibold text-neutral-50">
               Sign in to Project Space
             </Text>
             <Text as="p" className="mt-1 text-sm text-neutral-400">
-              GitHub login is required before this connector exposes local machines.
+              Sign in with Google through Clerk to open this workspace. Connect GitHub later for repositories.
             </Text>
           </div>
         </div>
 
-        {flow?.status === 'pending' ? (
-          <div className="flex flex-col gap-4">
-            <div className="rounded-lg bg-neutral-900 px-4 py-3">
-              <Text as="p" className="text-sm text-neutral-400">
-                Enter this code on GitHub:
-              </Text>
-              <Text as="p" className="mt-2 font-mono text-2xl font-semibold tracking-wide text-neutral-50">
-                {flow.userCode}
-              </Text>
-            </div>
-            {flow.verificationUri ? (
-              <a
-                className="text-sm font-medium text-neutral-100 underline decoration-neutral-600 underline-offset-4 hover:text-white"
-                href={flow.verificationUri}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open GitHub device login
-              </a>
-            ) : null}
-            <Button onPress={finishLogin} isDisabled={isBusy}>
-              <LogIn className="size-4" />
-              Check login
-            </Button>
-          </div>
-        ) : (
-          <Button onPress={startLogin} isDisabled={isBusy}>
-            <Github className="size-4" />
-            Sign in with GitHub
-          </Button>
-        )}
+        <Button onPress={onSignIn} isDisabled={isBusy}>
+          <LogIn className="size-4" />
+          Sign in with Google
+        </Button>
 
         {message ? (
           <Text as="p" className="text-sm text-amber-300">
@@ -440,26 +362,76 @@ function AuthenticatedProjectDesktopShell() {
 }
 
 export function ProjectDesktopShell() {
+  if (!isClerkConfigured()) {
+    return (
+      <ProjectSpaceLoginScreen
+        message="Set VITE_CLERK_PUBLISHABLE_KEY to enable Project Space login."
+        onSignIn={() => undefined}
+      />
+    );
+  }
+
+  return <ClerkProjectDesktopShell />;
+}
+
+function ClerkProjectDesktopShell() {
+  const { getToken, isLoaded, isSignedIn } = useAuth();
+  const { openSignIn } = useClerk();
+  const { user } = useUser();
   const [session, setSession] = useState<ProjectSpaceAuthSessionResult | null>(null);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [message, setMessage] = useState('');
 
   useEffect(() => {
     let canceled = false;
 
+    if (!isLoaded) {
+      return () => {
+        canceled = true;
+      };
+    }
+
+    if (!isSignedIn) {
+      setProjectSpaceAuthTokenProvider(null);
+      setSession({
+        authenticated: false,
+        authRequired: true
+      });
+      setMessage('');
+      setIsCheckingSession(false);
+      return () => {
+        canceled = true;
+      };
+    }
+
+    setProjectSpaceAuthTokenProvider(() => getToken());
+    setIsCheckingSession(true);
+    setMessage('');
+
     projectSpaceClient
       .getAuthSession()
       .then((nextSession) => {
-        if (!canceled) {
-          setSession(nextSession);
+        if (canceled) {
+          return;
         }
+
+        setSession(nextSession);
+        setMessage(
+          nextSession.authenticated
+            ? ''
+            : nextSession.message ??
+                `This Clerk session was not accepted${user?.primaryEmailAddress?.emailAddress ? ` for ${user.primaryEmailAddress.emailAddress}` : ''}.`
+        );
       })
-      .catch(() => {
-        if (!canceled) {
-          setSession({
-            authenticated: false,
-            authRequired: true
-          });
+      .catch((error) => {
+        if (canceled) {
+          return;
         }
+        setSession({
+          authenticated: false,
+          authRequired: true
+        });
+        setMessage(error instanceof Error ? error.message : 'Could not verify Clerk session.');
       })
       .finally(() => {
         if (!canceled) {
@@ -470,14 +442,22 @@ export function ProjectDesktopShell() {
     return () => {
       canceled = true;
     };
-  }, []);
+  }, [getToken, isLoaded, isSignedIn, user?.primaryEmailAddress?.emailAddress]);
 
-  if (isCheckingSession) {
+  if (!isLoaded || isCheckingSession) {
     return <div className="min-h-screen bg-app-canvas" />;
   }
 
-  if (session?.authRequired && !session.authenticated) {
-    return <ProjectSpaceLoginScreen onAuthenticated={setSession} />;
+  if (!isSignedIn || (session?.authRequired && !session.authenticated)) {
+    return (
+      <ProjectSpaceLoginScreen
+        isBusy={!isLoaded}
+        message={message}
+        onSignIn={() => {
+          void openSignIn();
+        }}
+      />
+    );
   }
 
   return <AuthenticatedProjectDesktopShell />;

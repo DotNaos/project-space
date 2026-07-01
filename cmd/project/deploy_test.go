@@ -17,6 +17,10 @@ func TestDeployStepsUseExistingComposeFiles(t *testing.T) {
 	}
 	options := deployOptions{
 		APIDomain:                 "example-api.com",
+		ClerkPublishableKey:       "clerk-publishable-value",
+		ClerkPublishableKeySource: deployClerkPublishableKeyRef,
+		ClerkSecretKey:            "clerk-secret-value",
+		ClerkSecretKeySource:      deployClerkSecretKeyRef,
 		GitHubOAuthClientID:       "oauth-client-id",
 		GitHubOAuthClientIDSource: deployGitHubOAuthClientIDRef,
 		GitHubToken:               "github-token-value",
@@ -27,17 +31,24 @@ func TestDeployStepsUseExistingComposeFiles(t *testing.T) {
 	steps := strings.Join(deploySteps(project, options), "\n")
 	for _, want := range []string{
 		"docker network inspect traefik-public",
+		"cat > .env <<'PROJECT_SPACE_ENV'",
 		"deploy/compose.yml -f deploy/ingress.labels.yml",
 		"PROJECT_DOMAIN=example.com",
 		"PROJECT_API_DOMAIN=example-api.com",
-		"GITHUB_TOKEN='<secret from op://projects/GitHub Personal Access Token/token>'",
-		"GITHUB_OAUTH_CLIENT_ID='<secret from op://projects/GitHub OAuth App/client_id>'",
+		"GITHUB_TOKEN=<secret from op://projects/GitHub Personal Access Token/token>",
+		"GITHUB_OAUTH_CLIENT_ID=<secret from op://projects/GitHub OAuth App/client_id>",
+		"CLERK_PUBLISHABLE_KEY=<secret from op://projects/clerk-project/publishable_key>",
+		"VITE_CLERK_PUBLISHABLE_KEY=<secret from op://projects/clerk-project/publishable_key>",
+		"CLERK_SECRET_KEY=<secret from op://projects/clerk-project/secret_key>",
 	} {
 		if !strings.Contains(steps, want) {
 			t.Fatalf("deploy steps missing %q:\n%s", want, steps)
 		}
 	}
-	if strings.Contains(steps, "github-token-value") || strings.Contains(steps, "oauth-client-id") {
+	if strings.Contains(steps, "github-token-value") ||
+		strings.Contains(steps, "oauth-client-id") ||
+		strings.Contains(steps, "clerk-publishable-value") ||
+		strings.Contains(steps, "clerk-secret-value") {
 		t.Fatalf("deploy dry-run steps leaked secret values:\n%s", steps)
 	}
 }
@@ -46,6 +57,8 @@ func TestDeployComposeScriptUsesSecretValuesOnlyAtRuntime(t *testing.T) {
 	project := deployProject{RemotePath: "/opt/platform/apps/example"}
 	options := deployOptions{
 		APIDomain:           "example-api.com",
+		ClerkPublishableKey: "clerk-publishable-value",
+		ClerkSecretKey:      "clerk-secret-value",
 		GitHubOAuthClientID: "oauth-client-id",
 		GitHubToken:         "github-token-value",
 		ProjectDomain:       "example.com",
@@ -53,8 +66,14 @@ func TestDeployComposeScriptUsesSecretValuesOnlyAtRuntime(t *testing.T) {
 
 	script := deployComposeScript(project, options, true)
 	for _, want := range []string{
+		"cat > .env <<'PROJECT_SPACE_ENV'",
+		"PROJECT_DOMAIN=example.com",
+		"PROJECT_API_DOMAIN=example-api.com",
 		"GITHUB_TOKEN=github-token-value",
 		"GITHUB_OAUTH_CLIENT_ID=oauth-client-id",
+		"CLERK_PUBLISHABLE_KEY=clerk-publishable-value",
+		"VITE_CLERK_PUBLISHABLE_KEY=clerk-publishable-value",
+		"CLERK_SECRET_KEY=clerk-secret-value",
 		"docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml up -d --build",
 	} {
 		if !strings.Contains(script, want) {

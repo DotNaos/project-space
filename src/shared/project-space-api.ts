@@ -199,14 +199,17 @@ export interface GitActionResult {
 }
 
 export interface ProjectSpaceAuthUser {
+  email?: string;
+  id?: string;
   login: string;
-  role: 'owner' | 'user';
+  role: 'user';
 }
 
 export interface ProjectSpaceAuthSessionResult {
   authenticated: boolean;
   authRequired: boolean;
   expiresAt?: string;
+  message?: string;
   user?: ProjectSpaceAuthUser;
 }
 

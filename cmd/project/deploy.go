@@ -23,6 +23,10 @@ type deployOptions struct {
 	GitHubTokenSource         string
 	GitHubOAuthClientID       string
 	GitHubOAuthClientIDSource string
+	ClerkPublishableKey       string
+	ClerkPublishableKeySource string
+	ClerkSecretKey            string
+	ClerkSecretKeySource      string
 	DryRun                    bool
 }
 
@@ -55,6 +59,8 @@ type deployCandidate struct {
 const (
 	deployGitHubTokenRef         = "op://projects/GitHub Personal Access Token/token"
 	deployGitHubOAuthClientIDRef = "op://projects/GitHub OAuth App/client_id"
+	deployClerkPublishableKeyRef = "op://projects/clerk-project/publishable_key"
+	deployClerkSecretKeyRef      = "op://projects/clerk-project/secret_key"
 )
 
 func newDeployCommand() *cobra.Command {
@@ -162,7 +168,7 @@ func deployProjectStatus(cmd *cobra.Command, projectRoot string, options deployO
 	if options.APIDomain == "" {
 		options.APIDomain = "status-api.local"
 	}
-	env := deployEnv(options)
+	env := deployStatusEnv(options)
 	statusScript := strings.Join([]string{
 		"set -e",
 		"echo SSH ok",
@@ -264,6 +270,24 @@ func resolveDeployProject(cmd *cobra.Command, projectRoot string, options deploy
 			[]string{"GITHUB_OAUTH_CLIENT_ID", "PROJECT_SPACE_GITHUB_CLIENT_ID", "GITHUB_CLIENT_ID"},
 			deployGitHubOAuthClientIDRef,
 			false,
+		)
+		if err != nil {
+			return deployProject{}, options, err
+		}
+		options.ClerkPublishableKey, options.ClerkPublishableKeySource, err = resolveDeploySecretValue(
+			"Clerk publishable key",
+			[]string{"CLERK_PUBLISHABLE_KEY", "VITE_CLERK_PUBLISHABLE_KEY"},
+			deployClerkPublishableKeyRef,
+			true,
+		)
+		if err != nil {
+			return deployProject{}, options, err
+		}
+		options.ClerkSecretKey, options.ClerkSecretKeySource, err = resolveDeploySecretValue(
+			"Clerk secret key",
+			[]string{"CLERK_SECRET_KEY"},
+			deployClerkSecretKeyRef,
+			true,
 		)
 		if err != nil {
 			return deployProject{}, options, err
@@ -400,14 +424,18 @@ func deploySteps(project deployProject, options deployOptions) []string {
 }
 
 func composeUpStep(project deployProject, options deployOptions) string {
-	return fmt.Sprintf("set -e; cd %s; %s docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml up -d --build", shellQuote(project.RemotePath), deployEnv(options))
+	return fmt.Sprintf(
+		"set -e; cd %s; cat > .env <<'PROJECT_SPACE_ENV'\n%s\nPROJECT_SPACE_ENV\ndocker compose -f deploy/compose.yml -f deploy/ingress.labels.yml up -d --build",
+		shellQuote(project.RemotePath),
+		deployEnvFileContent(options, false),
+	)
 }
 
 func composeStatusStep(project deployProject, options deployOptions) string {
-	return fmt.Sprintf("set -e; cd %s; %s docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml ps", shellQuote(project.RemotePath), deployEnv(options))
+	return fmt.Sprintf("set -e; cd %s; docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml ps", shellQuote(project.RemotePath))
 }
 
-func deployEnv(options deployOptions) string {
+func deployStatusEnv(options deployOptions) string {
 	parts := []string{
 		"PROJECT_DOMAIN=" + shellQuote(options.ProjectDomain),
 		"PROJECT_API_DOMAIN=" + shellQuote(options.APIDomain),
@@ -415,30 +443,38 @@ func deployEnv(options deployOptions) string {
 	if options.AcmeEmail != "" {
 		parts = append(parts, "TRAEFIK_ACME_EMAIL="+shellQuote(options.AcmeEmail))
 	}
-	if options.GitHubToken != "" {
-		parts = append(parts, "GITHUB_TOKEN="+shellQuote(secretSourceLabel(options.GitHubTokenSource)))
-	}
-	if options.GitHubOAuthClientID != "" {
-		parts = append(parts, "GITHUB_OAUTH_CLIENT_ID="+shellQuote(secretSourceLabel(options.GitHubOAuthClientIDSource)))
-	}
 	return strings.Join(parts, " ")
 }
 
-func deployRuntimeEnv(options deployOptions) string {
-	parts := []string{
-		"PROJECT_DOMAIN=" + shellQuote(options.ProjectDomain),
-		"PROJECT_API_DOMAIN=" + shellQuote(options.APIDomain),
+func deployEnvFileContent(options deployOptions, includeSecretValues bool) string {
+	secretValue := func(value string, source string) string {
+		if includeSecretValues {
+			return value
+		}
+		return secretSourceLabel(source)
+	}
+
+	lines := []string{
+		"PROJECT_DOMAIN=" + options.ProjectDomain,
+		"PROJECT_API_DOMAIN=" + options.APIDomain,
 	}
 	if options.AcmeEmail != "" {
-		parts = append(parts, "TRAEFIK_ACME_EMAIL="+shellQuote(options.AcmeEmail))
+		lines = append(lines, "TRAEFIK_ACME_EMAIL="+options.AcmeEmail)
 	}
 	if options.GitHubToken != "" {
-		parts = append(parts, "GITHUB_TOKEN="+shellQuote(options.GitHubToken))
+		lines = append(lines, "GITHUB_TOKEN="+secretValue(options.GitHubToken, options.GitHubTokenSource))
 	}
 	if options.GitHubOAuthClientID != "" {
-		parts = append(parts, "GITHUB_OAUTH_CLIENT_ID="+shellQuote(options.GitHubOAuthClientID))
+		lines = append(lines, "GITHUB_OAUTH_CLIENT_ID="+secretValue(options.GitHubOAuthClientID, options.GitHubOAuthClientIDSource))
 	}
-	return strings.Join(parts, " ")
+	if options.ClerkPublishableKey != "" {
+		lines = append(lines, "CLERK_PUBLISHABLE_KEY="+secretValue(options.ClerkPublishableKey, options.ClerkPublishableKeySource))
+		lines = append(lines, "VITE_CLERK_PUBLISHABLE_KEY="+secretValue(options.ClerkPublishableKey, options.ClerkPublishableKeySource))
+	}
+	if options.ClerkSecretKey != "" {
+		lines = append(lines, "CLERK_SECRET_KEY="+secretValue(options.ClerkSecretKey, options.ClerkSecretKeySource))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func secretSourceLabel(source string) string {
@@ -456,7 +492,10 @@ func deployComposeScript(project deployProject, options deployOptions, up bool) 
 	return strings.Join([]string{
 		"set -e",
 		"cd " + shellQuote(project.RemotePath),
-		deployRuntimeEnv(options) + " " + command,
+		"cat > .env <<'PROJECT_SPACE_ENV'",
+		deployEnvFileContent(options, true),
+		"PROJECT_SPACE_ENV",
+		command,
 	}, "\n")
 }
 

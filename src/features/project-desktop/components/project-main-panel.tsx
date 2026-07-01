@@ -22,7 +22,7 @@ import {
 import { WTerm } from '@wterm/dom';
 import '@wterm/dom/css';
 import { Button, Card, Chip, Surface, Text } from '@/app/dotnaos-ui';
-import { getProjectSpaceAuthToken, projectSpaceClient } from '@/api/project-space-client';
+import { projectSpaceClient, refreshProjectSpaceAuthToken } from '@/api/project-space-client';
 import { OpenTargetDropdown } from './open-target-dropdown';
 import { ProjectCliCommandPanel } from './project-cli-command-panel';
 import { ProjectHomeOverview } from './project-home-overview';
@@ -361,7 +361,7 @@ const MachineTerminalSession = memo(function MachineTerminalSession({
 
     terminal
       .init()
-      .then(() => {
+      .then(async () => {
         if (canceled) {
           return;
         }
@@ -377,7 +377,7 @@ const MachineTerminalSession = memo(function MachineTerminalSession({
           new URL(window.location.href).searchParams.get('projectSpaceApi') ||
           window.location.origin;
         const url = new URL(`/api/machines/${encodeURIComponent(machineId)}/terminal`, baseUrl);
-        const sessionToken = getProjectSpaceAuthToken();
+        const sessionToken = await refreshProjectSpaceAuthToken();
 
         url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
         url.searchParams.set('cols', String(cols));

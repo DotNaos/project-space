@@ -27,6 +27,8 @@
     "start": "bun server/web-server.ts"
   },
   "dependencies": {
+    "@clerk/backend": "^3.9.0",
+    "@clerk/react": "^6.11.3",
     "@dotnaos/react-ui": "^0.0.2",
     "@wterm/dom": "^0.3.0",
     "lucide-react": "^0.577.0",

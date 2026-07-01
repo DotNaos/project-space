@@ -155,20 +155,20 @@ async function readLogin(token: string) {
 }
 
 async function resolveToken(): Promise<TokenResolution | null> {
+  const currentSession = getCurrentAuthSession();
+
+  if (isProjectSpaceAuthRequired() && !currentSession) {
+    return null;
+  }
+
   const sessionToken = getCurrentGitHubToken();
 
   if (sessionToken) {
-    const session = getCurrentAuthSession();
-
     return {
-      login: session?.login,
+      login: currentSession?.login,
       source: 'stored-oauth',
       token: sessionToken
     };
-  }
-
-  if (isProjectSpaceAuthRequired() && process.env.PROJECT_SPACE_ALLOW_GLOBAL_GITHUB_TOKEN !== '1') {
-    return null;
   }
 
   const stored = readStoredToken();
@@ -179,6 +179,10 @@ async function resolveToken(): Promise<TokenResolution | null> {
       source: 'stored-oauth',
       token: stored.accessToken
     };
+  }
+
+  if (isProjectSpaceAuthRequired() && process.env.PROJECT_SPACE_ALLOW_GLOBAL_GITHUB_TOKEN !== '1') {
+    return null;
   }
 
   const environmentToken = process.env.GITHUB_TOKEN;

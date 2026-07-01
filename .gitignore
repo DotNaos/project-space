@@ -1,6 +1,9 @@
 node_modules
 dist
 dist-electron
+.env
+.env.*
+!.env.example
 tmp/
 temp/
 .DS_Store
