@@ -15,7 +15,14 @@ func TestDeployStepsUseExistingComposeFiles(t *testing.T) {
 		RemotePath: "/opt/platform/apps/example",
 		Branch:     "main",
 	}
-	options := deployOptions{ProjectDomain: "example.com", APIDomain: "example-api.com"}
+	options := deployOptions{
+		APIDomain:                 "example-api.com",
+		GitHubOAuthClientID:       "oauth-client-id",
+		GitHubOAuthClientIDSource: deployGitHubOAuthClientIDRef,
+		GitHubToken:               "github-token-value",
+		GitHubTokenSource:         deployGitHubTokenRef,
+		ProjectDomain:             "example.com",
+	}
 
 	steps := strings.Join(deploySteps(project, options), "\n")
 	for _, want := range []string{
@@ -23,9 +30,35 @@ func TestDeployStepsUseExistingComposeFiles(t *testing.T) {
 		"deploy/compose.yml -f deploy/ingress.labels.yml",
 		"PROJECT_DOMAIN=example.com",
 		"PROJECT_API_DOMAIN=example-api.com",
+		"GITHUB_TOKEN='<secret from op://projects/GitHub Personal Access Token/token>'",
+		"GITHUB_OAUTH_CLIENT_ID='<secret from op://projects/GitHub OAuth App/client_id>'",
 	} {
 		if !strings.Contains(steps, want) {
 			t.Fatalf("deploy steps missing %q:\n%s", want, steps)
+		}
+	}
+	if strings.Contains(steps, "github-token-value") || strings.Contains(steps, "oauth-client-id") {
+		t.Fatalf("deploy dry-run steps leaked secret values:\n%s", steps)
+	}
+}
+
+func TestDeployComposeScriptUsesSecretValuesOnlyAtRuntime(t *testing.T) {
+	project := deployProject{RemotePath: "/opt/platform/apps/example"}
+	options := deployOptions{
+		APIDomain:           "example-api.com",
+		GitHubOAuthClientID: "oauth-client-id",
+		GitHubToken:         "github-token-value",
+		ProjectDomain:       "example.com",
+	}
+
+	script := deployComposeScript(project, options, true)
+	for _, want := range []string{
+		"GITHUB_TOKEN=github-token-value",
+		"GITHUB_OAUTH_CLIENT_ID=oauth-client-id",
+		"docker compose -f deploy/compose.yml -f deploy/ingress.labels.yml up -d --build",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("runtime deploy script missing %q:\n%s", want, script)
 		}
 	}
 }

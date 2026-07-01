@@ -6,6 +6,7 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile
     environment:
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
       PROJECT_CONNECTOR_SERVICE_NAME: project-space-web
     image: project-space-web:local
