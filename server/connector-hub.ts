@@ -79,6 +79,7 @@ export function getRegisteredConnectorRegistries() {
 
 export function getRegisteredConnectorMachines(): MachineRecord[] {
   return getRegisteredConnectorRegistries().map(({ receivedAt, registry }) => ({
+    battery: registry.connector.battery,
     connector: {
       installCommand: 'project-space-connector',
       lastSeen: receivedAt,

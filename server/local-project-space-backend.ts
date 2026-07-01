@@ -586,6 +586,7 @@ export function createLocalProjectSpaceBackend(
       return {
         checkedAt: new Date().toISOString(),
         connector: {
+          battery: localMachine?.battery,
           machineId: localMachine?.id ?? machineName,
           machineName,
           origin: connector.connectorOrigin,
