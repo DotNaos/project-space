@@ -13,21 +13,23 @@ import (
 )
 
 type deployOptions struct {
-	Host                      string
-	RemotePath                string
-	Branch                    string
-	ProjectDomain             string
-	APIDomain                 string
-	AcmeEmail                 string
-	GitHubToken               string
-	GitHubTokenSource         string
-	GitHubOAuthClientID       string
-	GitHubOAuthClientIDSource string
-	ClerkPublishableKey       string
-	ClerkPublishableKeySource string
-	ClerkSecretKey            string
-	ClerkSecretKeySource      string
-	DryRun                    bool
+	Host                             string
+	RemotePath                       string
+	Branch                           string
+	ProjectDomain                    string
+	APIDomain                        string
+	AcmeEmail                        string
+	GitHubToken                      string
+	GitHubTokenSource                string
+	GitHubOAuthClientID              string
+	GitHubOAuthClientIDSource        string
+	ClerkPublishableKey              string
+	ClerkPublishableKeySource        string
+	ClerkSecretKey                   string
+	ClerkSecretKeySource             string
+	ConnectorRegistrationToken       string
+	ConnectorRegistrationTokenSource string
+	DryRun                           bool
 }
 
 type deployProject struct {
@@ -57,10 +59,11 @@ type deployCandidate struct {
 }
 
 const (
-	deployGitHubTokenRef         = "op://projects/GitHub Personal Access Token/token"
-	deployGitHubOAuthClientIDRef = "op://projects/GitHub OAuth App/client_id"
-	deployClerkPublishableKeyRef = "op://projects/clerk-project/publishable_key"
-	deployClerkSecretKeyRef      = "op://projects/clerk-project/secret_key"
+	deployGitHubTokenRef                = "op://projects/GitHub Personal Access Token/token"
+	deployGitHubOAuthClientIDRef        = "op://projects/GitHub OAuth App/client_id"
+	deployClerkPublishableKeyRef        = "op://projects/clerk-project/publishable_key"
+	deployClerkSecretKeyRef             = "op://projects/clerk-project/secret_key"
+	deployConnectorRegistrationTokenRef = "op://projects/Project Space Connector Registration Token/password"
 )
 
 func newDeployCommand() *cobra.Command {
@@ -292,6 +295,15 @@ func resolveDeployProject(cmd *cobra.Command, projectRoot string, options deploy
 		if err != nil {
 			return deployProject{}, options, err
 		}
+		options.ConnectorRegistrationToken, options.ConnectorRegistrationTokenSource, err = resolveDeploySecretValue(
+			"connector registration token",
+			[]string{"PROJECT_CONNECTOR_REGISTRATION_TOKEN"},
+			deployConnectorRegistrationTokenRef,
+			true,
+		)
+		if err != nil {
+			return deployProject{}, options, err
+		}
 	}
 
 	webURL := ""
@@ -473,6 +485,9 @@ func deployEnvFileContent(options deployOptions, includeSecretValues bool) strin
 	}
 	if options.ClerkSecretKey != "" {
 		lines = append(lines, "CLERK_SECRET_KEY="+secretValue(options.ClerkSecretKey, options.ClerkSecretKeySource))
+	}
+	if options.ConnectorRegistrationToken != "" {
+		lines = append(lines, "PROJECT_CONNECTOR_REGISTRATION_TOKEN="+secretValue(options.ConnectorRegistrationToken, options.ConnectorRegistrationTokenSource))
 	}
 	return strings.Join(lines, "\n")
 }

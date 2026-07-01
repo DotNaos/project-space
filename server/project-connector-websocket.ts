@@ -24,6 +24,17 @@ function sendJson(socket: WebSocket, payload: unknown) {
   }
 }
 
+function connectorRegistrationHeaders(): Record<string, string> {
+  const token = process.env.PROJECT_CONNECTOR_REGISTRATION_TOKEN;
+
+  return token
+    ? {
+        Authorization: `Bearer ${token}`,
+        'X-Project-Connector-Token': token
+      }
+    : {};
+}
+
 function parseMessage(data: MessageEvent['data']) {
   try {
     return JSON.parse(typeof data === 'string' ? data : String(data)) as ConnectorCommandMessage;
@@ -56,7 +67,8 @@ export function startProjectConnectorWebSocket({
     await fetch(`${resolvedHubHttpUrl}/api/connectors/project-registry`, {
       body: JSON.stringify(registry),
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...connectorRegistrationHeaders()
       },
       method: 'POST'
     }).catch((error) => {
