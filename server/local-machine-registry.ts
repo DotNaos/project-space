@@ -115,6 +115,7 @@ function parseHostFile(path: string): MachineRecord {
   const lines = readFileSync(path, 'utf-8').split(/\r?\n/);
   const roles: string[] = [];
   const network: MachineRecord['network'] = {};
+  const os: NonNullable<MachineRecord['os']> = {};
   let section = '';
   let name = basename(path, '.yml');
   let kind = 'unknown';
@@ -149,6 +150,12 @@ function parseHostFile(path: string): MachineRecord {
       network.localName = parseScalar(trimmed, 'local_name') ?? network.localName;
       network.sshUser = parseScalar(trimmed, 'ssh_user') ?? network.sshUser;
     }
+
+    if (section === 'os') {
+      os.family = parseScalar(trimmed, 'family') ?? os.family;
+      os.version = parseScalar(trimmed, 'version') ?? os.version;
+      os.codename = parseScalar(trimmed, 'codename') ?? os.codename;
+    }
   }
 
   const currentHost = hostname().split('.')[0];
@@ -166,6 +173,7 @@ function parseHostFile(path: string): MachineRecord {
     kind,
     name,
     network,
+    os: Object.keys(os).length > 0 ? os : undefined,
     primaryUser: primaryUser || undefined,
     profile: profile || undefined,
     roles,

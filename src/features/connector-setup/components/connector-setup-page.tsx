@@ -33,30 +33,30 @@ const tailscaleCommands = [
 
 function tokenClassName(token: string, isCommand: boolean) {
   if (/^https?:\/\//.test(token)) {
-    return 'text-sky-300 underline decoration-sky-500/40 underline-offset-2';
+    return 'text-neutral-200 underline decoration-neutral-500/40 underline-offset-2';
   }
 
   if (isCommand) {
-    return 'text-emerald-300';
+    return 'font-semibold text-neutral-100';
   }
 
   if (token.startsWith('--') || token.startsWith('-')) {
-    return 'text-violet-300';
+    return 'text-neutral-400';
   }
 
   if (/^[A-Z0-9_]+=/.test(token)) {
-    return 'text-amber-300';
+    return 'text-neutral-300';
   }
 
   if (/^\d+$/.test(token)) {
-    return 'text-fuchsia-300';
+    return 'text-neutral-300';
   }
 
   if (token.includes('/') || token.startsWith('.')) {
-    return 'text-sky-200';
+    return 'text-neutral-300';
   }
 
-  return 'text-slate-200';
+  return 'text-neutral-200';
 }
 
 function HighlightedLine({ line }: { line: string }) {
@@ -107,12 +107,12 @@ function CommandBlock({ commands }: { commands: string[] }) {
   }
 
   return (
-    <div className="rounded-lg border border-slate-800 bg-black/35">
-      <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-3 py-2">
-        <Text className="font-mono text-[11px] uppercase tracking-[0.16em] text-slate-500">
+    <div className="rounded-lg border border-neutral-800 bg-black/35">
+      <div className="flex items-center justify-between gap-3 border-b border-neutral-800 px-3 py-2">
+        <Text className="font-mono text-[11px] uppercase tracking-[0.16em] text-neutral-500">
           shell
         </Text>
-        <Button size="sm" variant="ghost" className="text-slate-300" onPress={() => void copyCode()}>
+        <Button size="sm" variant="ghost" className="text-neutral-300" onPress={() => void copyCode()}>
           {copied ? <Check className="size-4 text-emerald-300" /> : <Copy className="size-4" />}
           {copied ? 'Copied' : 'Copy'}
         </Button>
@@ -142,20 +142,20 @@ function StepCard({
   title: string;
 }) {
   return (
-    <Card variant="secondary" className="border border-slate-800 bg-slate-950/70">
+    <Card variant="secondary" className="border border-neutral-800 bg-neutral-950/70">
       <Card.Header className="gap-3">
         <div className="flex items-center gap-2">
           <Surface
             variant="tertiary"
-            className="flex size-9 items-center justify-center rounded-lg border border-slate-800 bg-black/25"
+            className="flex size-9 items-center justify-center rounded-lg border border-neutral-800 bg-black/25"
           >
-            <Icon className="size-4 text-slate-300" />
+            <Icon className="size-4 text-neutral-300" />
           </Surface>
           <Chip size="sm" variant="secondary">
             {label}
           </Chip>
         </div>
-        <Card.Title className="text-xl font-semibold tracking-tight text-slate-50">
+        <Card.Title className="text-xl font-semibold tracking-tight text-neutral-50">
           {title}
         </Card.Title>
       </Card.Header>
@@ -166,22 +166,22 @@ function StepCard({
 
 function GraphRow({ from, to }: { from: string; to: string }) {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2">
-      <Text className="truncate text-sm text-slate-200">{from}</Text>
-      <ArrowRight className="size-4 text-slate-500" />
-      <Text className="truncate text-sm text-slate-200">{to}</Text>
+    <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-950/50 px-3 py-2">
+      <Text className="truncate text-sm text-neutral-200">{from}</Text>
+      <ArrowRight className="size-4 text-neutral-500" />
+      <Text className="truncate text-sm text-neutral-200">{to}</Text>
     </div>
   );
 }
 
 export function ConnectorSetupPage() {
   return (
-    <main className="min-h-screen bg-app-canvas px-8 py-8 text-slate-100">
+    <main className="min-h-screen bg-app-canvas px-8 py-8 text-neutral-100">
       <div className="mx-auto grid max-w-6xl gap-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <a
             href="/"
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-800 px-3 py-2 text-sm text-slate-300 transition hover:bg-slate-900"
+            className="inline-flex items-center gap-2 rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 transition hover:bg-neutral-900"
           >
             <Home className="size-4" />
             Project Space
@@ -210,10 +210,10 @@ export function ConnectorSetupPage() {
           <Chip size="sm" variant="primary" className="w-fit">
             Project Space Connector
           </Chip>
-          <h1 className="max-w-4xl text-4xl font-semibold tracking-tight text-slate-50">
+          <h1 className="max-w-4xl text-4xl font-semibold tracking-tight text-neutral-50">
             Connect this web UI to your Mac, VPS, and dev machines.
           </h1>
-          <Text className="max-w-3xl text-base leading-7 text-slate-400">
+          <Text className="max-w-3xl text-base leading-7 text-neutral-400">
             The connector runs on each trusted machine. It gives Project Space a safe local
             endpoint for projects, Git, terminal commands, Codex, Tailscale, deployments, and
             backups without putting direct filesystem access inside the hosted web app.
@@ -222,7 +222,7 @@ export function ConnectorSetupPage() {
 
         <section className="grid gap-4 lg:grid-cols-3">
           <StepCard icon={Download} label="1" title="Install">
-            <Text className="text-sm leading-6 text-slate-400">
+            <Text className="text-sm leading-6 text-neutral-400">
               Homebrew is the preferred path on macOS. It installs the connector command and can
               run it as a background service.
             </Text>
@@ -230,7 +230,7 @@ export function ConnectorSetupPage() {
           </StepCard>
 
           <StepCard icon={Network} label="2" title="Expose through Tailscale">
-            <Text className="text-sm leading-6 text-slate-400">
+            <Text className="text-sm leading-6 text-neutral-400">
               Keep the connector private to your tailnet. Tailscale Serve gives the Vercel UI an
               HTTPS endpoint that still stays inside your private network.
             </Text>
@@ -238,7 +238,7 @@ export function ConnectorSetupPage() {
           </StepCard>
 
           <StepCard icon={Terminal} label="3" title="Use it from Project Space">
-            <Text className="text-sm leading-6 text-slate-400">
+            <Text className="text-sm leading-6 text-neutral-400">
               Open the web UI and point it at the connector endpoint. Local app mode can use
               localhost; hosted mode should use the Tailscale HTTPS URL.
             </Text>
@@ -252,12 +252,12 @@ export function ConnectorSetupPage() {
         </section>
 
         <section className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-          <Card variant="secondary" className="border border-slate-800 bg-slate-950/70">
+          <Card variant="secondary" className="border border-neutral-800 bg-neutral-950/70">
             <Card.Header className="gap-3">
-              <Card.Title className="text-xl font-semibold tracking-tight text-slate-50">
+              <Card.Title className="text-xl font-semibold tracking-tight text-neutral-50">
                 Manual download
               </Card.Title>
-              <Card.Description className="text-sm text-slate-400">
+              <Card.Description className="text-sm text-neutral-400">
                 Use this when Homebrew is not available or you want to test a release directly.
               </Card.Description>
             </Card.Header>
@@ -267,7 +267,7 @@ export function ConnectorSetupPage() {
                 href="https://github.com/DotNaos/project-space/releases/latest"
                 rel="noreferrer"
                 target="_blank"
-                className="inline-flex items-center gap-2 text-sm text-sky-300"
+                className="inline-flex items-center gap-2 text-sm text-neutral-200 underline decoration-neutral-500/40 underline-offset-2 hover:text-neutral-50"
               >
                 Open GitHub release downloads
                 <ExternalLink className="size-4" />
@@ -275,12 +275,12 @@ export function ConnectorSetupPage() {
             </Card.Content>
           </Card>
 
-          <Card variant="secondary" className="border border-slate-800 bg-slate-950/70">
+          <Card variant="secondary" className="border border-neutral-800 bg-neutral-950/70">
             <Card.Header className="gap-3">
-              <Card.Title className="text-xl font-semibold tracking-tight text-slate-50">
+              <Card.Title className="text-xl font-semibold tracking-tight text-neutral-50">
                 How the graph guides you
               </Card.Title>
-              <Card.Description className="text-sm text-slate-400">
+              <Card.Description className="text-sm text-neutral-400">
                 Project Space should route you to the next working node whenever one path is
                 missing or blocked.
               </Card.Description>

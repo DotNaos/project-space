@@ -57,7 +57,7 @@ function OperationRow({ operation }: { operation: ProjectctlPlanOperation }) {
   return (
     <Surface
       variant="tertiary"
-      className="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-3 rounded-md border border-slate-800 bg-black/20 px-3 py-2"
+      className="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-3 rounded-md border border-neutral-800 bg-black/20 px-3 py-2"
     >
       <Chip
         size="sm"
@@ -67,9 +67,9 @@ function OperationRow({ operation }: { operation: ProjectctlPlanOperation }) {
         {operation.kind}
       </Chip>
       <div className="min-w-0">
-        <Text className="block truncate font-mono text-xs text-slate-200">{operation.path}</Text>
+        <Text className="block truncate font-mono text-xs text-neutral-200">{operation.path}</Text>
         {operation.reason || operation.owner ? (
-          <Text className="block truncate text-xs text-slate-500">
+          <Text className="block truncate text-xs text-neutral-500">
             {[operation.owner, operation.reason].filter(Boolean).join(' / ')}
           </Text>
         ) : null}
@@ -143,13 +143,13 @@ export function ProjectctlManifestPanel({ targetPath }: ProjectctlManifestPanelP
   return (
     <Surface
       variant="secondary"
-      className="grid shrink-0 gap-3 rounded-lg border border-slate-800 bg-slate-950/55 p-3 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.25fr)]"
+      className="grid shrink-0 gap-3 rounded-lg border border-neutral-800 bg-neutral-950/55 p-3 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.25fr)]"
     >
       <div className="grid min-w-0 gap-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
-            <ClipboardList className="size-4 shrink-0 text-slate-400" />
-            <Text className="truncate text-sm font-semibold text-slate-100">Project Manifest</Text>
+            <ClipboardList className="size-4 shrink-0 text-neutral-400" />
+            <Text className="truncate text-sm font-semibold text-neutral-100">Project Manifest</Text>
           </div>
           <div className="flex items-center gap-2">
             <Chip size="sm" variant={statusVariant(label)}>
@@ -167,25 +167,25 @@ export function ProjectctlManifestPanel({ targetPath }: ProjectctlManifestPanelP
         </div>
 
         <div className="grid gap-2 sm:grid-cols-3">
-          <Surface variant="tertiary" className="rounded-lg border border-slate-800 bg-black/20 p-3">
-            <Text className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+          <Surface variant="tertiary" className="rounded-lg border border-neutral-800 bg-black/20 p-3">
+            <Text className="block text-xs font-semibold uppercase tracking-[0.16em] text-neutral-500">
               Kind
             </Text>
-            <Text className="mt-1 block truncate text-sm text-slate-100">
+            <Text className="mt-1 block truncate text-sm text-neutral-100">
               {manifestProject?.kind ?? 'unknown'}
             </Text>
           </Surface>
-          <Surface variant="tertiary" className="rounded-lg border border-slate-800 bg-black/20 p-3">
-            <Text className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+          <Surface variant="tertiary" className="rounded-lg border border-neutral-800 bg-black/20 p-3">
+            <Text className="block text-xs font-semibold uppercase tracking-[0.16em] text-neutral-500">
               Preset
             </Text>
-            <Text className="mt-1 block truncate text-sm text-slate-100">{presetName}</Text>
+            <Text className="mt-1 block truncate text-sm text-neutral-100">{presetName}</Text>
           </Surface>
-          <Surface variant="tertiary" className="rounded-lg border border-slate-800 bg-black/20 p-3">
-            <Text className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+          <Surface variant="tertiary" className="rounded-lg border border-neutral-800 bg-black/20 p-3">
+            <Text className="block text-xs font-semibold uppercase tracking-[0.16em] text-neutral-500">
               Template
             </Text>
-            <Text className="mt-1 block truncate font-mono text-sm text-slate-100">
+            <Text className="mt-1 block truncate font-mono text-sm text-neutral-100">
               {templateVersion}
             </Text>
           </Surface>
@@ -223,8 +223,8 @@ export function ProjectctlManifestPanel({ targetPath }: ProjectctlManifestPanelP
 
       <div className="grid min-w-0 gap-3">
         <div className="flex items-center gap-2">
-          <GitCompareArrows className="size-4 shrink-0 text-slate-400" />
-          <Text className="truncate text-sm font-semibold text-slate-100">Standard Drift</Text>
+          <GitCompareArrows className="size-4 shrink-0 text-neutral-400" />
+          <Text className="truncate text-sm font-semibold text-neutral-100">Standard Drift</Text>
           <div className="ml-auto flex items-center gap-2">
             <Chip size="sm" variant={preview?.changes ? 'secondary' : 'primary'}>
               {preview ? preview.summary : overview?.status?.summary ?? 'not checked'}
@@ -242,10 +242,10 @@ export function ProjectctlManifestPanel({ targetPath }: ProjectctlManifestPanelP
         </div>
 
         <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <Surface variant="tertiary" className="min-h-32 rounded-lg border border-slate-800 bg-black/20 p-3">
+          <Surface variant="tertiary" className="min-h-32 rounded-lg border border-neutral-800 bg-black/20 p-3">
             <div className="mb-2 flex items-center gap-2">
-              <FileCheck2 className="size-4 text-slate-400" />
-              <Text className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              <FileCheck2 className="size-4 text-neutral-400" />
+              <Text className="text-xs font-semibold uppercase tracking-[0.16em] text-neutral-500">
                 Capabilities
               </Text>
             </div>
@@ -258,16 +258,16 @@ export function ProjectctlManifestPanel({ targetPath }: ProjectctlManifestPanelP
                     </Chip>
                   ))
                 ) : (
-                  <Text className="text-sm text-slate-500">No capabilities recorded yet.</Text>
+                  <Text className="text-sm text-neutral-500">No capabilities recorded yet.</Text>
                 )}
               </div>
             </ScrollShadow>
           </Surface>
 
-          <Surface variant="tertiary" className="min-h-32 rounded-lg border border-slate-800 bg-black/20 p-3">
+          <Surface variant="tertiary" className="min-h-32 rounded-lg border border-neutral-800 bg-black/20 p-3">
             <div className="mb-2 flex items-center gap-2">
-              <FileWarning className="size-4 text-slate-400" />
-              <Text className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              <FileWarning className="size-4 text-neutral-400" />
+              <Text className="text-xs font-semibold uppercase tracking-[0.16em] text-neutral-500">
                 Missing
               </Text>
             </div>
@@ -275,12 +275,12 @@ export function ProjectctlManifestPanel({ targetPath }: ProjectctlManifestPanelP
               <div className="grid gap-2">
                 {missingMarkers.length > 0 ? (
                   missingMarkers.slice(0, 6).map((marker) => (
-                    <Text key={marker.path} className="truncate font-mono text-xs text-slate-400">
+                    <Text key={marker.path} className="truncate font-mono text-xs text-neutral-400">
                       {marker.path}
                     </Text>
                   ))
                 ) : (
-                  <Text className="text-sm text-slate-500">All tracked markers are present.</Text>
+                  <Text className="text-sm text-neutral-500">All tracked markers are present.</Text>
                 )}
               </div>
             </ScrollShadow>
@@ -298,7 +298,7 @@ export function ProjectctlManifestPanel({ targetPath }: ProjectctlManifestPanelP
         ) : (
           <Surface
             variant="tertiary"
-            className="rounded-lg border border-slate-800 bg-black/20 px-3 py-2 text-sm text-slate-500"
+            className="rounded-lg border border-neutral-800 bg-black/20 px-3 py-2 text-sm text-neutral-500"
           >
             No planned file changes.
           </Surface>

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { FileIcon, Icon } from '@dotnaos/react-ui';
-import { ChevronRight, Folder, FolderOpen } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Folder, FolderOpen } from 'lucide-react';
 import { ScrollShadow, Text } from '@/app/dotnaos-ui';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { cn } from '@/lib/utils';
 import type { FileSystemEntry } from '@/shared/project-space-api';
 
 interface FileExplorerProps {
+  onBack(): void;
   rootPath?: string;
 }
 
@@ -62,12 +63,12 @@ function FileTreeNode({
         className={cn(
           'group flex min-h-8 w-full min-w-0 items-center gap-2 rounded-md py-1.5 pr-3 text-left text-sm transition',
           expandable
-            ? 'text-slate-300 hover:bg-slate-800/70 hover:text-slate-50'
-            : 'text-slate-500 hover:bg-slate-800/40 hover:text-slate-300'
+            ? 'text-neutral-300 hover:bg-neutral-800/70 hover:text-neutral-50'
+            : 'text-neutral-500 hover:bg-neutral-800/40 hover:text-neutral-300'
         )}
         style={{ paddingLeft: `${level * 16 + 14}px` }}
       >
-        <span className="flex size-4 shrink-0 items-center justify-center text-slate-500">
+        <span className="flex size-4 shrink-0 items-center justify-center text-neutral-500">
           {expandable ? (
             <ChevronRight
               className={cn('size-3.5 transition-transform', expanded && 'rotate-90')}
@@ -81,7 +82,7 @@ function FileTreeNode({
               name={expanded ? FolderOpen : Folder}
               size="m"
               color="inherit"
-              className="text-slate-400 group-hover:text-slate-200"
+              className="text-neutral-400 group-hover:text-neutral-200"
             />
           ) : (
             <FileIcon filename={entry.name} size={18} grayscale className="opacity-85" />
@@ -100,7 +101,7 @@ function FileTreeNode({
         ) : loaded ? (
           <Text
             style={{ paddingLeft: `${(level + 1) * 16 + 27}px` }}
-            className="py-1 text-xs text-slate-600"
+            className="py-1 text-xs text-neutral-600"
           >
             Empty
           </Text>
@@ -110,7 +111,21 @@ function FileTreeNode({
   );
 }
 
+function BackToWorkspaceRow({ onBack }: { onBack(): void }) {
+  return (
+    <button
+      type="button"
+      onClick={onBack}
+      className="flex min-h-8 w-full items-center gap-2 rounded-xl py-1.5 pr-3 pl-3 text-left text-sm font-medium text-neutral-400 transition hover:bg-neutral-800/70 hover:text-neutral-100"
+    >
+      <ChevronLeft className="size-4 shrink-0" strokeWidth={1.8} />
+      Workspace
+    </button>
+  );
+}
+
 export function FileExplorer({
+  onBack,
   rootPath
 }: FileExplorerProps) {
   const [entries, setEntries] = useState<FileSystemEntry[]>([]);
@@ -139,7 +154,10 @@ export function FileExplorer({
   if (!rootPath) {
     return (
       <ScrollShadow className="flex-1 px-3 py-4" hideScrollBar>
-        <Text className="px-3 py-2 text-sm text-slate-500">No project selected.</Text>
+        <div className="space-y-1">
+          <BackToWorkspaceRow onBack={onBack} />
+          <Text className="px-3 py-2 text-sm text-neutral-500">No project selected.</Text>
+        </div>
       </ScrollShadow>
     );
   }
@@ -147,7 +165,8 @@ export function FileExplorer({
   return (
     <ScrollShadow className="flex-1 px-3 py-4" hideScrollBar>
       <div className="space-y-1">
-        <Text className="px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+        <BackToWorkspaceRow onBack={onBack} />
+        <Text className="px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-neutral-500">
           {pathBasename(rootPath)}
         </Text>
         {entries.map((entry) => (

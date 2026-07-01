@@ -4,11 +4,14 @@ import { join } from 'node:path';
 
 import type {
   GitHubAuthSource,
+  GitHubBranchRecord,
   GitHubCatalogRepository,
   GitHubCatalogResult,
+  GitHubIssueRecord,
   GitHubOAuthDevicePollRequest,
   GitHubOAuthDevicePollResult,
   GitHubOAuthDeviceStartResult,
+  GitHubRepositoryDetailsResult,
   GitHubProjectConfigStatus
 } from '../src/shared/project-space-api';
 
@@ -37,6 +40,26 @@ interface GitHubApiRepository {
 
 interface GitHubApiUser {
   login?: string;
+}
+
+interface GitHubApiBranch {
+  name: string;
+  commit?: {
+    html_url?: string;
+  };
+}
+
+interface GitHubApiIssue {
+  html_url: string;
+  labels?: Array<{ name?: string }>;
+  number: number;
+  pull_request?: unknown;
+  state: 'open' | 'closed';
+  title: string;
+  updated_at?: string | null;
+  user?: {
+    login?: string;
+  } | null;
 }
 
 interface TokenResolution {
@@ -288,6 +311,75 @@ export async function getGitHubCatalog(): Promise<GitHubCatalogResult> {
     return createEmptyCatalog(
       'error',
       error instanceof Error ? error.message : 'Could not load GitHub repositories.'
+    );
+  }
+}
+
+function createEmptyRepositoryDetails(
+  status: GitHubCatalogResult['status'],
+  message?: string
+): GitHubRepositoryDetailsResult {
+  return {
+    branches: [],
+    checkedAt: new Date().toISOString(),
+    issues: [],
+    message,
+    status
+  };
+}
+
+export async function getGitHubRepositoryDetails(
+  fullName: string
+): Promise<GitHubRepositoryDetailsResult> {
+  const auth = await resolveToken();
+
+  if (!auth) {
+    return createEmptyRepositoryDetails(
+      getGitHubClientId() ? 'auth-required' : 'not-configured',
+      getGitHubClientId()
+        ? 'Connect GitHub to load repository details.'
+        : githubOAuthClientIdMissingMessage
+    );
+  }
+
+  try {
+    const repoPath = fullName.split('/').map(encodeURIComponent).join('/');
+    const [repo, branches, issues] = await Promise.all([
+      requestGitHub<GitHubApiRepository>(`/repos/${repoPath}`, auth.token),
+      requestGitHub<GitHubApiBranch[]>(
+        `/repos/${repoPath}/branches?per_page=30`,
+        auth.token
+      ),
+      requestGitHub<GitHubApiIssue[]>(
+        `/repos/${repoPath}/issues?state=open&per_page=20&sort=updated&direction=desc`,
+        auth.token
+      )
+    ]);
+
+    return {
+      branches: branches.map<GitHubBranchRecord>((branch) => ({
+        isDefault: branch.name === repo.default_branch,
+        name: branch.name,
+        url: branch.commit?.html_url
+      })),
+      checkedAt: new Date().toISOString(),
+      issues: issues
+        .filter((issue) => !issue.pull_request)
+        .map<GitHubIssueRecord>((issue) => ({
+          author: issue.user?.login,
+          labels: issue.labels?.map((label) => label.name).filter((name): name is string => Boolean(name)) ?? [],
+          number: issue.number,
+          state: issue.state,
+          title: issue.title,
+          updatedAt: issue.updated_at ?? undefined,
+          url: issue.html_url
+        })),
+      status: 'connected'
+    };
+  } catch (error) {
+    return createEmptyRepositoryDetails(
+      'error',
+      error instanceof Error ? error.message : 'Could not load GitHub repository details.'
     );
   }
 }

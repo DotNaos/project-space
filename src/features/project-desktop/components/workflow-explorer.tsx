@@ -1,9 +1,9 @@
+import { ChevronRight, Files, GitBranchPlus } from 'lucide-react';
 import {
   Chip,
   ListBox,
   ListBoxItem,
   ScrollShadow,
-  Surface,
   Text
 } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
@@ -14,11 +14,35 @@ import type {
 } from '@/shared/project-space-api';
 
 interface WorkflowExplorerProps {
+  onOpenFiles(): void;
+  onOpenNewWorktree(): void;
   onSelectWorkspace(): void;
   project?: ProjectSpaceRecord;
   selectedExplorerTarget: ExplorerTarget;
   worktrees: ProjectWorktreeRecord[];
   onSelectWorktree(worktreeId: string): void;
+}
+
+interface TreeActionRowProps {
+  icon: typeof ChevronRight;
+  label: string;
+  onPress(): void;
+  trailingIcon?: typeof ChevronRight;
+}
+
+function TreeActionRow({ icon: LeadingIcon, label, onPress, trailingIcon: TrailingIcon }: TreeActionRowProps) {
+  return (
+    <button
+      type="button"
+      onClick={onPress}
+      className="flex min-h-8 w-full items-center gap-2 rounded-xl py-2 pr-3 text-left text-sm font-medium text-neutral-400 transition hover:bg-neutral-800/70 hover:text-neutral-100"
+      style={{ paddingLeft: '30px' }}
+    >
+      <LeadingIcon className="size-4 shrink-0" strokeWidth={1.8} />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {TrailingIcon ? <TrailingIcon className="size-4 shrink-0 text-neutral-600" /> : null}
+    </button>
+  );
 }
 
 interface TreeNodeProps {
@@ -45,12 +69,12 @@ function TreeNode({
       className={cn(
         'rounded-xl transition',
         selected
-          ? 'bg-slate-700/70 text-slate-50'
+          ? 'bg-neutral-700/70 text-neutral-50'
           : tone === 'base'
             ? 'bg-emerald-500/6 text-emerald-100 hover:bg-emerald-500/10'
             : tone === 'broken'
               ? 'bg-amber-500/6 text-amber-100 hover:bg-amber-500/10'
-              : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-100'
+              : 'text-neutral-400 hover:bg-neutral-800/70 hover:text-neutral-100'
       )}
     >
       <div
@@ -76,6 +100,8 @@ function TreeNode({
 }
 
 export function WorkflowExplorer({
+  onOpenFiles,
+  onOpenNewWorktree,
   onSelectWorkspace,
   project,
   selectedExplorerTarget,
@@ -144,9 +170,14 @@ export function WorkflowExplorer({
             />
           ))}
           </ListBox>
+
+          <div className="space-y-1">
+            <TreeActionRow icon={Files} label="Files" trailingIcon={ChevronRight} onPress={onOpenFiles} />
+            <TreeActionRow icon={GitBranchPlus} label="New worktree" onPress={onOpenNewWorktree} />
+          </div>
         </div>
       ) : (
-        <Text className="px-3 py-2 text-sm text-slate-500">
+        <Text className="px-3 py-2 text-sm text-neutral-500">
           No projects yet. Create one with the + button below.
         </Text>
       )}

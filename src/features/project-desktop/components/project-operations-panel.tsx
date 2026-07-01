@@ -150,8 +150,8 @@ export function ProjectOperationsPanel({
       <div className="grid min-w-0 gap-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
-            <PlugZap className="size-4 shrink-0 text-slate-400" />
-            <Text className="truncate text-sm font-semibold text-slate-100">Connectors</Text>
+            <PlugZap className="size-4 shrink-0 text-neutral-400" />
+            <Text className="truncate text-sm font-semibold text-neutral-100">Connectors</Text>
           </div>
           <Button size="sm" variant="ghost" onPress={() => void refresh()}>
             <RefreshCw className="size-4" />
@@ -159,10 +159,10 @@ export function ProjectOperationsPanel({
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2">
-          <Surface variant="tertiary" className="rounded-lg border border-slate-800 bg-black/20 p-3">
+          <Surface variant="tertiary" className="rounded-lg border border-neutral-800 bg-black/20 p-3">
             <div className="mb-2 flex items-center gap-2">
-              <Network className="size-4 text-slate-400" />
-              <Text className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              <Network className="size-4 text-neutral-400" />
+              <Text className="text-xs font-semibold uppercase tracking-[0.16em] text-neutral-500">
                 Tailscale
               </Text>
             </div>
@@ -176,7 +176,7 @@ export function ProjectOperationsPanel({
                 label={connector.tailscale.connected ? 'connected' : 'offline'}
               />
             </div>
-            <Text className="mt-2 truncate text-xs text-slate-400">
+            <Text className="mt-2 truncate text-xs text-neutral-400">
               {connector.tailscale.serveOrigins[0] ??
                 connector.tailscale.selfName ??
                 localMachine?.name ??
@@ -184,10 +184,10 @@ export function ProjectOperationsPanel({
             </Text>
           </Surface>
 
-          <Surface variant="tertiary" className="rounded-lg border border-slate-800 bg-black/20 p-3">
+          <Surface variant="tertiary" className="rounded-lg border border-neutral-800 bg-black/20 p-3">
             <div className="mb-2 flex items-center gap-2">
-              <Server className="size-4 text-slate-400" />
-              <Text className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              <Server className="size-4 text-neutral-400" />
+              <Text className="text-xs font-semibold uppercase tracking-[0.16em] text-neutral-500">
                 Machines
               </Text>
             </div>
@@ -200,7 +200,7 @@ export function ProjectOperationsPanel({
                 {connector.machines.length} hosts
               </Chip>
             </div>
-            <Text className="mt-2 truncate text-xs text-slate-400">
+            <Text className="mt-2 truncate text-xs text-neutral-400">
               {connector.machinesRepo.path || 'machines repo not found'}
             </Text>
           </Surface>
@@ -212,11 +212,11 @@ export function ProjectOperationsPanel({
               <Surface
                 key={machine.id}
                 variant="tertiary"
-                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-slate-800 bg-black/20 px-3 py-2"
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-neutral-800 bg-black/20 px-3 py-2"
               >
                 <div className="min-w-0">
-                  <Text className="block truncate text-sm text-slate-100">{machine.name}</Text>
-                  <Text className="block truncate text-xs text-slate-500">
+                  <Text className="block truncate text-sm text-neutral-100">{machine.name}</Text>
+                  <Text className="block truncate text-xs text-neutral-500">
                     {[machine.kind, machine.profile, machine.network.localName]
                       .filter(Boolean)
                       .join(' / ')}
@@ -233,8 +233,8 @@ export function ProjectOperationsPanel({
 
       <div className="grid min-w-0 gap-3">
         <div className="flex items-center gap-2">
-          <Rocket className="size-4 text-slate-400" />
-          <Text className="truncate text-sm font-semibold text-slate-100">Deployments</Text>
+          <Rocket className="size-4 text-neutral-400" />
+          <Text className="truncate text-sm font-semibold text-neutral-100">Deployments</Text>
           <div className="ml-auto flex gap-2">
             <a href="/connector" target="_blank">
               <Button size="sm" variant="ghost">
@@ -256,22 +256,22 @@ export function ProjectOperationsPanel({
           <input
             value={projectSlug}
             onChange={(event) => setProjectSlug(event.target.value)}
-            className="min-w-44 flex-1 rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-500"
+            className="min-w-44 flex-1 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500"
           />
           <input
             value={environment}
             onChange={(event) => setEnvironment(event.target.value)}
-            className="w-28 rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-500"
+            className="w-28 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500"
           />
           <select
             value={visibility}
             onChange={(event) => setVisibility(event.target.value as DeploymentVisibility)}
-            className="w-32 rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-500"
+            className="w-32 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500"
           >
             <option value="private">private</option>
             <option value="public">public</option>
           </select>
-          <label className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 text-sm text-slate-300">
+          <label className="flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 py-2 text-sm text-neutral-300">
             <input
               type="checkbox"
               checked={planOnly}
@@ -294,7 +294,7 @@ export function ProjectOperationsPanel({
           <input
             value={backupTarget}
             onChange={(event) => setBackupTarget(event.target.value)}
-            className="min-w-0 rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-500"
+            className="min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500"
           />
           <Button
             size="sm"
@@ -308,7 +308,7 @@ export function ProjectOperationsPanel({
         </div>
 
         {actionResult ? (
-          <pre className="max-h-20 overflow-auto rounded-lg border border-slate-800 bg-black/30 p-2 text-xs text-slate-300">
+          <pre className="max-h-20 overflow-auto rounded-lg border border-neutral-800 bg-black/30 p-2 text-xs text-neutral-300">
             {formatAction(actionResult)}
           </pre>
         ) : null}
@@ -320,12 +320,12 @@ export function ProjectOperationsPanel({
                 <Surface
                   key={`deployment:${deployment.id}`}
                   variant="tertiary"
-                  className="rounded-md border border-slate-800 bg-black/20 px-3 py-2"
+                  className="rounded-md border border-neutral-800 bg-black/20 px-3 py-2"
                 >
-                  <Text className="truncate text-sm text-slate-100">
+                  <Text className="truncate text-sm text-neutral-100">
                     {deployment.appSlug}/{deployment.environment}
                   </Text>
-                  <Text className="truncate text-xs text-slate-500">
+                  <Text className="truncate text-xs text-neutral-500">
                     {[deployment.status, deployment.routeHost].filter(Boolean).join(' / ')}
                   </Text>
                 </Surface>
@@ -338,12 +338,12 @@ export function ProjectOperationsPanel({
                 <Surface
                   key={`backup:${backup.id}`}
                   variant="tertiary"
-                  className="rounded-md border border-slate-800 bg-black/20 px-3 py-2"
+                  className="rounded-md border border-neutral-800 bg-black/20 px-3 py-2"
                 >
-                  <Text className="truncate text-sm text-slate-100">
+                  <Text className="truncate text-sm text-neutral-100">
                     {backup.appSlug}/{backup.environment}
                   </Text>
-                  <Text className="truncate text-xs text-slate-500">
+                  <Text className="truncate text-xs text-neutral-500">
                     {[backup.status, backup.target].filter(Boolean).join(' / ')}
                   </Text>
                 </Surface>

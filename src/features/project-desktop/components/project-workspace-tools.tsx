@@ -67,7 +67,7 @@ function formatGitAction(action?: GitActionResult) {
 
 function statusTone(entry: GitStatusEntry) {
   if (entry.displayStatus === '??') {
-    return 'text-sky-300';
+    return 'text-neutral-300';
   }
 
   if (entry.indexStatus.trim()) {
@@ -113,7 +113,7 @@ function TerminalPanel({ targetPath }: ProjectWorkspaceToolsProps) {
               void runCommand();
             }
           }}
-          className="min-w-0 flex-1 rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 font-mono text-sm text-slate-100 outline-none transition focus:border-slate-500"
+          className="min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 py-2 font-mono text-sm text-neutral-100 outline-none transition focus:border-neutral-500"
         />
         <Button
           variant="secondary"
@@ -126,7 +126,7 @@ function TerminalPanel({ targetPath }: ProjectWorkspaceToolsProps) {
           Run
         </Button>
       </div>
-      <pre className="min-h-[190px] overflow-auto rounded-lg border border-slate-800 bg-black/40 p-3 font-mono text-xs leading-5 text-slate-200">
+      <pre className="min-h-[190px] overflow-auto rounded-lg border border-neutral-800 bg-black/40 p-3 font-mono text-xs leading-5 text-neutral-200">
         {commandOutput(result)}
       </pre>
     </div>
@@ -148,7 +148,7 @@ function GitFileRow({
       onClick={onSelect}
       className={cn(
         'grid w-full grid-cols-[3rem_minmax(0,1fr)] items-center rounded-md px-2 py-1.5 text-left font-mono text-xs transition',
-        isSelected ? 'bg-slate-700/70 text-slate-50' : 'text-slate-300 hover:bg-slate-800/80'
+        isSelected ? 'bg-neutral-700/70 text-neutral-50' : 'text-neutral-300 hover:bg-neutral-800/80'
       )}
     >
       <span className={cn('font-semibold', statusTone(entry))}>{entry.displayStatus}</span>
@@ -220,13 +220,13 @@ function GitPanel({ targetPath }: ProjectWorkspaceToolsProps) {
 
   return (
     <div className="grid min-h-0 gap-3 lg:grid-cols-[18rem_minmax(0,1fr)]">
-      <Surface variant="secondary" className="min-h-0 rounded-lg border border-slate-800 bg-slate-950/40">
-        <div className="flex items-center justify-between gap-2 border-b border-slate-800 px-3 py-2">
+      <Surface variant="secondary" className="min-h-0 rounded-lg border border-neutral-800 bg-neutral-950/40">
+        <div className="flex items-center justify-between gap-2 border-b border-neutral-800 px-3 py-2">
           <div className="min-w-0 overflow-hidden">
-            <Text className="block truncate text-sm font-semibold text-slate-100">
+            <Text className="block truncate text-sm font-semibold text-neutral-100">
               {status.isRepository ? status.branchName : 'No repository'}
             </Text>
-            <Text className="block truncate text-xs text-slate-500">
+            <Text className="block truncate text-xs text-neutral-500">
               {status.isRepository ? status.repositoryRoot : targetPath}
             </Text>
           </div>
@@ -264,7 +264,7 @@ function GitPanel({ targetPath }: ProjectWorkspaceToolsProps) {
               />
             ))
           ) : (
-            <Text className="px-2 py-4 text-sm text-slate-500">
+            <Text className="px-2 py-4 text-sm text-neutral-500">
               {status.isRepository ? 'Working tree is clean.' : 'Select a git repository.'}
             </Text>
           )}
@@ -299,7 +299,7 @@ function GitPanel({ targetPath }: ProjectWorkspaceToolsProps) {
             onChange={(event) => {
               setCommitMessage(event.target.value);
             }}
-            className="min-w-56 flex-1 rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-slate-500"
+            className="min-w-56 flex-1 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 py-2 text-sm text-neutral-100 outline-none transition focus:border-neutral-500"
           />
           <Button
             size="sm"
@@ -314,11 +314,11 @@ function GitPanel({ targetPath }: ProjectWorkspaceToolsProps) {
           </Button>
         </div>
         {actionResult ? (
-          <pre className="max-h-20 overflow-auto rounded-lg border border-slate-800 bg-slate-950/60 p-2 text-xs text-slate-300">
+          <pre className="max-h-20 overflow-auto rounded-lg border border-neutral-800 bg-neutral-950/60 p-2 text-xs text-neutral-300">
             {formatGitAction(actionResult)}
           </pre>
         ) : null}
-        <pre className="min-h-[210px] overflow-auto rounded-lg border border-slate-800 bg-black/40 p-3 font-mono text-xs leading-5 text-slate-200">
+        <pre className="min-h-[210px] overflow-auto rounded-lg border border-neutral-800 bg-black/40 p-3 font-mono text-xs leading-5 text-neutral-200">
           {diff?.diff ?? 'Select a changed file to inspect its diff.'}
         </pre>
       </div>
@@ -362,12 +362,12 @@ function CodexPanel({ targetPath }: ProjectWorkspaceToolsProps) {
           <Surface
             key={label}
             variant="secondary"
-            className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2"
+            className="rounded-lg border border-neutral-800 bg-neutral-950/40 px-3 py-2"
           >
-            <Text className="block text-[11px] uppercase tracking-[0.16em] text-slate-500">
+            <Text className="block text-[11px] uppercase tracking-[0.16em] text-neutral-500">
               {label}
             </Text>
-            <Text className="block truncate pt-1 text-sm text-slate-200">{value}</Text>
+            <Text className="block truncate pt-1 text-sm text-neutral-200">{value}</Text>
           </Surface>
         ))}
       </div>
@@ -382,7 +382,7 @@ function CodexPanel({ targetPath }: ProjectWorkspaceToolsProps) {
         </Button>
       </div>
       {message ? (
-        <Text className="text-sm text-slate-400">{message}</Text>
+        <Text className="text-sm text-neutral-400">{message}</Text>
       ) : null}
     </div>
   );
@@ -403,9 +403,9 @@ export function ProjectWorkspaceTools({ targetPath }: ProjectWorkspaceToolsProps
   return (
     <Surface
       variant="secondary"
-      className="flex min-h-0 flex-col rounded-lg border border-slate-800 bg-slate-950/55"
+      className="flex min-h-0 flex-col rounded-lg border border-neutral-800 bg-neutral-950/55"
     >
-      <div className="border-b border-slate-800 px-3 py-2">
+      <div className="border-b border-neutral-800 px-3 py-2">
         <Tabs
           selectedKey={view}
           variant="primary"

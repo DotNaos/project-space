@@ -23,17 +23,18 @@ export function SidebarToggleButton({
 
   return (
     <Button
-      aria-label={isOpen ? 'Close sidebar' : 'Open sidebar'}
+      aria-label={isOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+      data-testid="sidebar-toggle"
       isIconOnly
       variant="ghost"
       onPress={onToggle}
-      className="app-no-drag absolute z-40 h-8 w-8 min-w-0 rounded-xl px-0 text-slate-500 transition hover:text-slate-50"
+      className="app-no-drag absolute z-50 h-10 w-10 min-w-0 rounded-lg bg-neutral-900/40 px-0 text-neutral-400 transition hover:bg-neutral-800/80 hover:text-neutral-100"
       style={buttonStyle}
     >
       {isOpen ? (
-        <PanelLeftClose className="h-[18px] w-[18px]" strokeWidth={1.9} />
+        <PanelLeftClose className="h-5 w-5" strokeWidth={1.9} />
       ) : (
-        <PanelLeftOpen className="h-[18px] w-[18px]" strokeWidth={1.9} />
+        <PanelLeftOpen className="h-5 w-5" strokeWidth={1.9} />
       )}
     </Button>
   );

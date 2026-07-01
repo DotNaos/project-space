@@ -111,16 +111,16 @@ export function ProjectCliCommandPanel({
     <Surface
       data-testid="project-cli-command-panel"
       variant="tertiary"
-      className="rounded-lg border border-slate-800 bg-black/20 p-4"
+      className="rounded-lg border border-neutral-800 bg-black/20 p-4"
     >
       <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
-          <TerminalSquare className="size-4 shrink-0 text-slate-400" />
+          <TerminalSquare className="size-4 shrink-0 text-neutral-400" />
           <div className="min-w-0">
-            <Text className="block truncate text-sm font-semibold text-slate-100">
+            <Text className="block truncate text-sm font-semibold text-neutral-100">
               Project CLI
             </Text>
-            <Text className="block truncate text-xs text-slate-500">
+            <Text className="block truncate text-xs text-neutral-500">
               {cwd || 'Select a project to run commands'}
             </Text>
           </div>
@@ -128,11 +128,7 @@ export function ProjectCliCommandPanel({
         {result ? (
           <Chip
             size="sm"
-            className={
-              result.exitCode === 0
-                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
-                : 'border-red-500/30 bg-red-500/10 text-red-200'
-            }
+            className={result.exitCode === 0 ? 'text-emerald-300' : 'text-red-300'}
           >
             exit {result.exitCode ?? 'unknown'} {formatDuration(result.durationMs)}
           </Chip>
@@ -144,7 +140,7 @@ export function ProjectCliCommandPanel({
           data-testid="project-cli-command-select"
           value={selectedCommand}
           onChange={(event) => setSelectedCommand(event.target.value as ProjectCliCommand)}
-          className="min-h-10 rounded-lg border border-slate-800 bg-slate-950/80 px-3 text-sm text-slate-100 outline-none focus:border-slate-500"
+          className="min-h-10 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 text-sm text-neutral-100 outline-none focus:border-neutral-500"
         >
           {commandOptions.map((option) => (
             <option key={option.command} value={option.command}>
@@ -158,10 +154,10 @@ export function ProjectCliCommandPanel({
             value={moduleName}
             onChange={(event) => setModuleName(event.target.value)}
             placeholder="module name"
-            className="min-h-10 rounded-lg border border-slate-800 bg-slate-950/80 px-3 text-sm text-slate-100 outline-none focus:border-slate-500"
+            className="min-h-10 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 text-sm text-neutral-100 outline-none focus:border-neutral-500"
           />
         ) : (
-          <Text className="flex min-h-10 items-center text-sm text-slate-500">
+          <Text className="flex min-h-10 items-center text-sm text-neutral-500">
             {selectedOption.description}
           </Text>
         )}
@@ -184,7 +180,7 @@ export function ProjectCliCommandPanel({
 
       <pre
         data-testid="project-cli-command-output"
-        className="mt-3 max-h-80 overflow-auto rounded-lg border border-slate-900 bg-slate-950/80 p-3 font-mono text-xs leading-relaxed text-slate-300"
+        className="mt-3 max-h-80 overflow-auto rounded-lg border border-neutral-900 bg-neutral-950/80 p-3 font-mono text-xs leading-relaxed text-neutral-300"
       >
         {resultOutput(result)}
       </pre>

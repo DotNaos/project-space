@@ -30,7 +30,7 @@ function StatusIcon({ status }: { status: FullstackTemplateCheck['status'] }) {
     return <AlertTriangle className="size-4 text-amber-300" />;
   }
 
-  return <CircleDashed className="size-4 text-slate-500" />;
+  return <CircleDashed className="size-4 text-neutral-500" />;
 }
 
 export function ProjectTemplateStatusPill({ check }: ProjectTemplateCheckPanelProps) {
@@ -61,11 +61,11 @@ export function ProjectTemplateStatusPill({ check }: ProjectTemplateCheckPanelPr
 export function ProjectTemplateCheckPanel({ check }: ProjectTemplateCheckPanelProps) {
   if (!check) {
     return (
-      <div className="flex min-w-0 items-start gap-2 text-slate-400">
+      <div className="flex min-w-0 items-start gap-2 text-neutral-400">
         <StatusIcon status="not-detected" />
         <div className="min-w-0 leading-tight">
-          <Text className="block text-sm font-medium text-slate-200">Fullstack template</Text>
-          <Text className="block text-xs text-slate-500">
+          <Text className="block text-sm font-medium text-neutral-200">Fullstack template</Text>
+          <Text className="block text-xs text-neutral-500">
             Not detected
           </Text>
         </div>
@@ -81,19 +81,19 @@ export function ProjectTemplateCheckPanel({ check }: ProjectTemplateCheckPanelPr
   return (
     <details className="group min-w-0">
       <summary className="flex min-w-0 cursor-pointer list-none items-center gap-2 rounded-md px-0 py-1 text-left">
-        <FileCheck2 className="size-4 shrink-0 text-slate-500" />
+        <FileCheck2 className="size-4 shrink-0 text-neutral-500" />
         <StatusIcon status={check.status} />
-        <Text className="truncate text-sm font-medium text-slate-200">
+        <Text className="truncate text-sm font-medium text-neutral-200">
           Fullstack template
         </Text>
         <Chip size="sm" variant={statusTone(check.status)}>
           {statusLabel[check.status]}
         </Chip>
-        <Text className="shrink-0 text-xs text-slate-500">
+        <Text className="shrink-0 text-xs text-neutral-500">
           {check.score}% / {missing.length} gaps
         </Text>
         {missing.length > 0 ? (
-          <Text className="ml-auto shrink-0 text-xs text-slate-500 group-open:hidden">
+          <Text className="ml-auto shrink-0 text-xs text-neutral-500 group-open:hidden">
             Show gaps
           </Text>
         ) : null}
@@ -112,7 +112,7 @@ export function ProjectTemplateCheckPanel({ check }: ProjectTemplateCheckPanelPr
             ) : null}
           </>
         ) : (
-          <Text className="text-xs text-slate-500">
+          <Text className="text-xs text-neutral-500">
             {matched.length} template checks matched.
           </Text>
         )}

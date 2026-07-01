@@ -6,7 +6,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import { getCodexStatus, openCodexTarget } from './local-codex-client';
-import { runTerminalCommand } from './local-command-runner';
+import { runSshTerminalCommand, runTerminalCommand } from './local-command-runner';
 import { loadConnectorProjectDiscovery } from './connector-discovery';
 import {
   getRegisteredConnectorDiscovery,
@@ -21,6 +21,7 @@ import {
 } from './local-git-client';
 import {
   getGitHubCatalog,
+  getGitHubRepositoryDetails,
   pollGitHubOAuthDeviceFlow,
   startGitHubOAuthDeviceFlow
 } from './local-github-catalog';
@@ -48,6 +49,7 @@ import {
 import type {
   AppMeta,
   FileSystemEntry,
+  MachineRecord,
   ProjectDirectorySelection,
   ProjectDiscoveryResult,
   ProjectGroupRecord,
@@ -521,6 +523,36 @@ async function loadProjectWorktrees(projectPath: string): Promise<ProjectWorktre
   }
 }
 
+async function loadMergedConnectorOverview() {
+  const connector = await getConnectorOverview();
+  const registeredMachines = getRegisteredConnectorMachines();
+  const knownMachineIds = new Set(connector.machines.map((machine) => machine.id));
+  const localMachines =
+    registeredMachines.length > 0
+      ? connector.machines.filter(
+          (machine) => machine.connector.serviceName !== 'project-space-web'
+        )
+      : connector.machines;
+
+  return {
+    ...connector,
+    machines: [
+      ...localMachines,
+      ...registeredMachines.filter((machine) => !knownMachineIds.has(machine.id))
+    ]
+  };
+}
+
+function createMachineSshTarget(machine: MachineRecord) {
+  const host = machine.network.tailscaleIp ?? machine.network.localName ?? machine.name;
+
+  if (!host) {
+    return '';
+  }
+
+  return machine.network.sshUser ? `${machine.network.sshUser}@${host}` : host;
+}
+
 async function readDirectoryEntries(path: string): Promise<FileSystemEntry[]> {
   const entries = await listDirectoryEntries(path);
 
@@ -555,23 +587,7 @@ export function createLocalProjectSpaceBackend(
       return getCodexStatus();
     },
     async getConnectorOverview() {
-      const connector = await getConnectorOverview();
-      const registeredMachines = getRegisteredConnectorMachines();
-      const knownMachineIds = new Set(connector.machines.map((machine) => machine.id));
-      const localMachines =
-        registeredMachines.length > 0
-          ? connector.machines.filter(
-              (machine) => machine.connector.serviceName !== 'project-space-web'
-            )
-          : connector.machines;
-
-      return {
-        ...connector,
-        machines: [
-          ...localMachines,
-          ...registeredMachines.filter((machine) => !knownMachineIds.has(machine.id))
-        ]
-      };
+      return loadMergedConnectorOverview();
     },
     async getConnectorProjectRegistry() {
       const [connector, discovery] = await Promise.all([
@@ -600,6 +616,9 @@ export function createLocalProjectSpaceBackend(
     },
     async getGitHubCatalog() {
       return getGitHubCatalog();
+    },
+    async getGitHubRepositoryDetails(fullName: string) {
+      return getGitHubRepositoryDetails(fullName);
     },
     async getGitDiff(request) {
       return getGitDiff(request);
@@ -654,6 +673,57 @@ export function createLocalProjectSpaceBackend(
     },
     async runTerminalCommand(request) {
       return runTerminalCommand(request);
+    },
+    async runMachineTerminalCommand(request) {
+      const overview = await loadMergedConnectorOverview();
+      const machine = overview.machines.find((entry) => entry.id === request.machineId);
+
+      if (!machine) {
+        return {
+          command: request.command,
+          cwd: `machine:${request.machineId}`,
+          durationMs: 0,
+          exitCode: 1,
+          stderr: `Machine ${request.machineId} was not found.`,
+          stdout: ''
+        };
+      }
+
+      if (machine.connector.status === 'local' || machine.kind === 'local') {
+        return runTerminalCommand({
+          command: request.command,
+          cwd: homedir()
+        });
+      }
+
+      if (machine.connector.status !== 'online') {
+        return {
+          command: request.command,
+          cwd: `machine:${machine.id}`,
+          durationMs: 0,
+          exitCode: 1,
+          stderr: `${machine.name} is ${machine.connector.status}.`,
+          stdout: ''
+        };
+      }
+
+      const target = createMachineSshTarget(machine);
+
+      if (!target) {
+        return {
+          command: request.command,
+          cwd: `machine:${machine.id}`,
+          durationMs: 0,
+          exitCode: 1,
+          stderr: `${machine.name} does not have an SSH target.`,
+          stdout: ''
+        };
+      }
+
+      return runSshTerminalCommand({
+        command: request.command,
+        target
+      });
     },
     async saveProjectsState(state: ProjectsState) {
       writeProjectsState(state);

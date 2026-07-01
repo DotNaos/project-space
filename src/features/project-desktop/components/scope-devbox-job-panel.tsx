@@ -141,10 +141,10 @@ export function ScopeDevboxJobPanel({
   }
 
   return (
-    <Surface variant="tertiary" className="grid gap-3 rounded-lg border border-slate-800 bg-black/20 p-3">
+    <Surface variant="tertiary" className="grid gap-3 rounded-lg border border-neutral-800 bg-black/20 p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Boxes className="size-4 text-slate-400" />
-        <Text className="truncate text-sm font-semibold text-slate-100">Scoped jobs</Text>
+        <Boxes className="size-4 text-neutral-400" />
+        <Text className="truncate text-sm font-semibold text-neutral-100">Scoped jobs</Text>
         <Chip size="sm" variant={overview.devboxRepo.exists ? 'primary' : 'secondary'}>
           {overview.devboxRepo.exists ? 'devbox linked' : 'devbox missing'}
         </Chip>
@@ -162,7 +162,7 @@ export function ScopeDevboxJobPanel({
         <select
           value={machineId}
           onChange={(event) => setMachineId(event.target.value)}
-          className="min-h-9 min-w-0 rounded-lg border border-slate-800 bg-slate-950/80 px-3 text-sm text-slate-100 outline-none focus:border-slate-500"
+          className="min-h-9 min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 text-sm text-neutral-100 outline-none focus:border-neutral-500"
         >
           {connector.machines.length === 0 ? <option value="">No machines</option> : null}
           {connector.machines.map((machine) => (
@@ -172,7 +172,7 @@ export function ScopeDevboxJobPanel({
         <select
           value={agent}
           onChange={(event) => setAgent(event.target.value as ScopeDevboxAgent)}
-          className="min-h-9 min-w-0 rounded-lg border border-slate-800 bg-slate-950/80 px-3 text-sm text-slate-100 outline-none focus:border-slate-500"
+          className="min-h-9 min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 text-sm text-neutral-100 outline-none focus:border-neutral-500"
         >
           <option value="codex">Codex CLI</option>
           <option value="gemini">Gemini CLI</option>
@@ -180,7 +180,7 @@ export function ScopeDevboxJobPanel({
         <select
           value={model}
           onChange={(event) => setModel(event.target.value)}
-          className="min-h-9 min-w-0 rounded-lg border border-slate-800 bg-slate-950/80 px-3 text-sm text-slate-100 outline-none focus:border-slate-500"
+          className="min-h-9 min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 text-sm text-neutral-100 outline-none focus:border-neutral-500"
         >
           {modelOptions.map((entry) => (
             <option key={entry.id} value={entry.id}>
@@ -194,7 +194,7 @@ export function ScopeDevboxJobPanel({
         value={task}
         onChange={(event) => setTask(event.target.value)}
         rows={3}
-        className="min-h-20 resize-y rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-500"
+        className="min-h-20 resize-y rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500"
       />
 
       <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
@@ -202,7 +202,7 @@ export function ScopeDevboxJobPanel({
           value={writableFiles}
           onChange={(event) => setWritableFiles(event.target.value)}
           placeholder="Writable files, e.g. src/app.tsx, tests/app.test.ts"
-          className="min-h-9 min-w-0 rounded-lg border border-slate-800 bg-slate-950/80 px-3 text-sm text-slate-100 outline-none focus:border-slate-500"
+          className="min-h-9 min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 text-sm text-neutral-100 outline-none focus:border-neutral-500"
         />
         <Button
           size="sm"
@@ -222,7 +222,7 @@ export function ScopeDevboxJobPanel({
       ) : null}
 
       {lastJob ? (
-        <Surface variant="primary" className="rounded-md px-3 py-2 text-sm text-sky-100">
+        <Surface variant="primary" className="rounded-md px-3 py-2 text-sm text-neutral-100">
           {lastJob.message ?? `Job ${lastJob.status}`} · {lastJob.id}
         </Surface>
       ) : null}
@@ -233,23 +233,23 @@ export function ScopeDevboxJobPanel({
             <Surface
               key={job.id}
               variant="secondary"
-              className="grid gap-1 rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2"
+              className="grid gap-1 rounded-md border border-neutral-800 bg-neutral-950/60 px-3 py-2"
             >
               <div className="flex min-w-0 items-center gap-2">
-                <Bot className="size-4 shrink-0 text-slate-500" />
-                <Text className="truncate text-sm text-slate-100">
+                <Bot className="size-4 shrink-0 text-neutral-500" />
+                <Text className="truncate text-sm text-neutral-100">
                   {job.machineName ?? job.machineId} · {job.agent} · {job.model}
                 </Text>
                 <Chip className="ml-auto" color={jobTone(job.status)} size="sm" variant="secondary">
                   {job.status}
                 </Chip>
               </div>
-              <Text className="truncate text-xs text-slate-500">{job.repoPath}</Text>
-              {job.message ? <Text className="text-xs text-slate-400">{job.message}</Text> : null}
+              <Text className="truncate text-xs text-neutral-500">{job.repoPath}</Text>
+              {job.message ? <Text className="text-xs text-neutral-400">{job.message}</Text> : null}
             </Surface>
           ))}
           {overview.jobs.length === 0 ? (
-            <Text className="text-xs text-slate-500">No scoped jobs yet.</Text>
+            <Text className="text-xs text-neutral-500">No scoped jobs yet.</Text>
           ) : null}
         </div>
       </ScrollShadow>

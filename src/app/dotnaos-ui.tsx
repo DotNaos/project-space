@@ -31,12 +31,12 @@ interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'dis
 
 const buttonVariantClass: Record<string, string> = {
   danger: 'border-red-500/30 bg-red-500/15 text-red-100 hover:bg-red-500/25',
-  ghost: 'border-transparent bg-transparent text-slate-300 hover:bg-slate-800/70 hover:text-slate-50',
-  outline: 'border-slate-700 bg-transparent text-slate-200 hover:bg-slate-800/70 hover:text-slate-50',
-  primary: 'border-sky-500/30 bg-sky-500/20 text-sky-50 hover:bg-sky-500/30',
-  secondary: 'border-slate-700 bg-slate-800/80 text-slate-100 hover:bg-slate-700/90',
-  tertiary: 'border-slate-800 bg-black/20 text-slate-200 hover:bg-slate-900/70',
-  transparent: 'border-transparent bg-transparent text-slate-300 hover:bg-slate-800/60'
+  ghost: 'border-transparent bg-transparent text-neutral-300 hover:bg-neutral-800/70 hover:text-neutral-50',
+  outline: 'border-neutral-700 bg-transparent text-neutral-200 hover:bg-neutral-800/70 hover:text-neutral-50',
+  primary: 'border-transparent bg-neutral-100 text-neutral-900 hover:bg-white',
+  secondary: 'border-transparent bg-neutral-800/80 text-neutral-100 hover:bg-neutral-700/90',
+  tertiary: 'border-transparent bg-black/20 text-neutral-200 hover:bg-neutral-900/70',
+  transparent: 'border-transparent bg-transparent text-neutral-300 hover:bg-neutral-800/60'
 };
 
 const buttonSizeClass: Record<UiSize, string> = {
@@ -93,10 +93,10 @@ interface SurfaceProps extends HTMLAttributes<HTMLDivElement> {
 
 const surfaceVariantClass: Record<UiVariant, string> = {
   ghost: 'bg-transparent',
-  outline: 'border border-slate-800 bg-transparent',
-  primary: 'border border-sky-500/20 bg-sky-500/10',
-  secondary: 'border border-slate-800 bg-slate-950/55',
-  tertiary: 'border border-slate-800 bg-black/20',
+  outline: 'border border-neutral-800 bg-transparent',
+  primary: 'border border-neutral-700 bg-neutral-800/40',
+  secondary: 'border border-neutral-800 bg-neutral-950/55',
+  tertiary: 'border border-neutral-800 bg-black/20',
   transparent: 'bg-transparent'
 };
 
@@ -154,7 +154,7 @@ function CardTitle({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
 }
 
 function CardDescription({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div {...props} className={cn('text-sm text-slate-400', className)} />;
+  return <div {...props} className={cn('text-sm text-neutral-400', className)} />;
 }
 
 export const Card = Object.assign(CardBase, {
@@ -186,9 +186,9 @@ export function Chip({
       {...props}
       data-tone={tone}
       className={cn(
-        'inline-flex items-center justify-center whitespace-nowrap rounded-full border border-slate-700 bg-slate-800/70 px-2.5 py-1 text-xs font-medium text-slate-200',
-        variant === 'primary' && 'border-sky-500/30 bg-sky-500/20 text-sky-100',
-        size === 'sm' && 'px-2 py-0.5 text-[11px]',
+        'inline-flex items-center whitespace-nowrap text-xs font-medium text-neutral-400',
+        variant === 'primary' && 'text-neutral-100',
+        size === 'sm' && 'text-[11px]',
         className
       )}
     >
@@ -271,7 +271,7 @@ export function Tab({ children, className, id, ...props }: TabProps) {
           }
         }}
         className={cn(
-          'relative inline-flex min-h-8 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium text-slate-500 transition hover:text-slate-200 aria-selected:bg-slate-800/80 aria-selected:text-slate-100',
+          'relative inline-flex min-h-8 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium text-neutral-500 transition hover:text-neutral-200 aria-selected:bg-neutral-800/80 aria-selected:text-neutral-100',
           className
         )}
       >
@@ -283,7 +283,7 @@ export function Tab({ children, className, id, ...props }: TabProps) {
 
 export function TabIndicator() {
   const { selected } = useContext(TabContext);
-  return selected ? <span className="absolute inset-x-3 bottom-1 h-px rounded-full bg-sky-300" /> : null;
+  return selected ? <span className="absolute inset-x-3 bottom-1 h-px rounded-full bg-neutral-200" /> : null;
 }
 
 export function TabSeparator() {
@@ -342,7 +342,7 @@ export function DropdownTrigger({
         }
       }}
       className={cn(
-        'inline-flex items-center justify-center border border-slate-700 bg-transparent text-slate-200 transition hover:bg-slate-800/70 disabled:pointer-events-none disabled:opacity-50',
+        'inline-flex items-center justify-center border border-neutral-700 bg-transparent text-neutral-200 transition hover:bg-neutral-800/70 disabled:pointer-events-none disabled:opacity-50',
         className
       )}
     >
@@ -374,7 +374,7 @@ export function DropdownPopover({
     <div
       {...props}
       className={cn(
-        'absolute right-0 z-50 min-w-max rounded-lg border border-slate-800 bg-slate-950 p-1 shadow-2xl shadow-black/40',
+        'absolute right-0 z-50 min-w-max rounded-lg border border-neutral-800/50 bg-neutral-950 p-1 shadow-2xl shadow-black/50',
         placement?.includes('top') ? 'bottom-full' : 'top-full',
         className
       )}
@@ -419,7 +419,7 @@ export function DropdownItem({
         }
       }}
       className={cn(
-        'w-full rounded-md px-3 py-2 text-left text-sm text-slate-300 transition hover:bg-slate-800 hover:text-slate-50 disabled:pointer-events-none disabled:text-slate-500',
+        'w-full rounded-md px-3 py-2 text-left text-sm text-neutral-300 transition hover:bg-neutral-800 hover:text-neutral-50 disabled:pointer-events-none disabled:text-neutral-500',
         className
       )}
     >
@@ -477,7 +477,7 @@ function TooltipContent({
   return (
     <span
       className={cn(
-        'absolute left-full top-1/2 z-50 ml-2 min-w-48 -translate-y-1/2 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-300 shadow-xl',
+        'absolute left-full top-1/2 z-50 ml-2 min-w-48 -translate-y-1/2 rounded-lg border border-neutral-800/50 bg-neutral-950 px-3 py-2 text-xs text-neutral-300 shadow-2xl shadow-black/50',
         className
       )}
     >
@@ -523,7 +523,7 @@ export function SearchFieldGroup(props: HTMLAttributes<HTMLDivElement>) {
 }
 
 export function SearchFieldSearchIcon() {
-  return <Search className="size-4 shrink-0 text-slate-500" />;
+  return <Search className="size-4 shrink-0 text-neutral-500" />;
 }
 
 export const SearchFieldInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
@@ -536,7 +536,7 @@ export const SearchFieldInput = forwardRef<HTMLInputElement, InputHTMLAttributes
         ref={ref}
         value={field?.value ?? ''}
         onChange={(event) => field?.onChange(event.target.value)}
-        className={cn('min-w-0 flex-1 bg-transparent text-slate-100 outline-none placeholder:text-slate-500', className)}
+        className={cn('min-w-0 flex-1 bg-transparent text-neutral-100 outline-none placeholder:text-neutral-500', className)}
       />
     );
   }
@@ -553,7 +553,7 @@ export function SearchFieldClearButton() {
     <button
       type="button"
       onClick={() => field.onChange('')}
-      className="inline-flex size-6 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-800 hover:text-slate-200"
+      className="inline-flex size-6 items-center justify-center rounded-md text-neutral-500 transition hover:bg-neutral-800 hover:text-neutral-200"
     >
       <X className="size-3.5" />
     </button>
@@ -632,8 +632,8 @@ export function ToggleButton({
         }
       }}
       className={cn(
-        'inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-200',
-        selected && 'bg-slate-800 text-slate-100',
+        'inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm text-neutral-500 transition hover:bg-neutral-800/70 hover:text-neutral-200',
+        selected && 'bg-neutral-800 text-neutral-100',
         className
       )}
     >

@@ -7,13 +7,23 @@ import { defineConfig } from 'vite';
 import type { Plugin, ViteDevServer } from 'vite';
 import electron from 'vite-plugin-electron/simple';
 
+import { createLocalProjectSpaceBackend } from './server/local-project-space-backend';
+import { createMachineTerminalUpgradeHandler } from './server/machine-terminal-websocket';
 import { createProjectSpaceRequestHandler } from './server/project-space-http';
 
 function projectSpaceApiPlugin(): Plugin {
   return {
     name: 'project-space-api',
     configureServer(server: ViteDevServer) {
-      const handler = createProjectSpaceRequestHandler();
+      const backend = createLocalProjectSpaceBackend();
+      const handler = createProjectSpaceRequestHandler({
+        backend
+      });
+      const handleMachineTerminalUpgrade = createMachineTerminalUpgradeHandler(backend);
+
+      server.httpServer?.on('upgrade', (request, socket, head) => {
+        handleMachineTerminalUpgrade(request, socket, head);
+      });
 
       server.middlewares.use((
         request: IncomingMessage,
@@ -59,6 +69,10 @@ export default defineConfig(({ mode }) => ({
     alias: {
       '@': resolve(__dirname, 'src')
     }
+  },
+  server: {
+    port: process.env.PORT ? Number(process.env.PORT) : 5173,
+    strictPort: true
   },
   build: {
     outDir: 'dist/renderer',
