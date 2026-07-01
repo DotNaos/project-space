@@ -603,9 +603,25 @@ export function createLocalProjectSpaceBackend(
         checkedAt: new Date().toISOString(),
         connector: {
           battery: localMachine?.battery,
+          kind: process.env.PROJECT_CONNECTOR_MACHINE_KIND ?? localMachine?.kind,
           machineId: localMachine?.id ?? machineName,
           machineName,
+          network: {
+            ...localMachine?.network,
+            localName:
+              process.env.PROJECT_CONNECTOR_SSH_HOST ??
+              localMachine?.network.localName,
+            sshUser:
+              process.env.PROJECT_CONNECTOR_SSH_USER ??
+              localMachine?.network.sshUser,
+            tailscaleIp:
+              process.env.PROJECT_CONNECTOR_SSH_HOST ??
+              localMachine?.network.tailscaleIp
+          },
           origin: connector.connectorOrigin,
+          primaryUser:
+            process.env.PROJECT_CONNECTOR_SSH_USER ??
+            localMachine?.primaryUser,
           serviceName: process.env.PROJECT_CONNECTOR_SERVICE_NAME ?? 'project-space-connector'
         },
         discovery

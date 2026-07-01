@@ -88,9 +88,10 @@ export function getRegisteredConnectorMachines(): MachineRecord[] {
       status: 'online'
     },
     id: registry.connector.machineId,
-    kind: 'connector',
+    kind: registry.connector.kind ?? 'connector',
     name: registry.connector.machineName,
-    network: {},
+    network: registry.connector.network ?? {},
+    primaryUser: registry.connector.primaryUser,
     roles: ['connector'],
     sourcePath: 'connector-hub'
   }));
