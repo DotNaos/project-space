@@ -4,13 +4,15 @@ WORKDIR /workspace
 RUN apt-get update \
   && apt-get install -y --no-install-recommends build-essential python3 \
   && rm -rf /var/lib/apt/lists/*
-COPY package.json ./
-RUN bun install
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
 
 FROM oven/bun:1 AS build
 
 WORKDIR /workspace
+ARG VITE_CLERK_PUBLISHABLE_KEY=
 ENV VITE_PROJECT_SPACE_API_BASE_URL=
+ENV VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY
 COPY --from=deps /workspace/node_modules /workspace/node_modules
 COPY . .
 RUN bun run build

@@ -8,7 +8,7 @@
     />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:; font-src 'self' data:; connect-src 'self' ws: http://localhost:* http://127.0.0.1:*;"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://*.clerk.accounts.dev https://*.clerk.dev https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: file: https://img.clerk.com https://images.clerk.dev https://*.clerk.accounts.dev; font-src 'self' data:; connect-src 'self' ws: wss: http://localhost:* http://127.0.0.1:* https://api.clerk.com https://*.clerk.accounts.dev https://*.clerk.dev; frame-src https://*.clerk.accounts.dev https://*.clerk.dev https://challenges.cloudflare.com; worker-src 'self' blob:;"
     />
     <title>project-space</title>
   </head>

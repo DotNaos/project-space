@@ -20,9 +20,6 @@ import type {
   OpenPathInAppRequest,
   OpenPathInAppResult,
   PlatformOverviewResult,
-  ProjectSpaceAuthDevicePollRequest,
-  ProjectSpaceAuthDevicePollResult,
-  ProjectSpaceAuthDeviceStartResult,
   ProjectSpaceAuthSessionResult,
   ProjectBackupRequest,
   ConnectorProjectRegistryResult,
@@ -46,16 +43,26 @@ import type {
 } from '@/shared/project-space-api';
 
 const authTokenStorageKey = 'project-space.session-token';
+let projectSpaceAuthToken = '';
+let projectSpaceAuthTokenProvider: (() => Promise<string | null>) | null = null;
 
 export function getProjectSpaceAuthToken() {
-  if (typeof window === 'undefined') {
-    return '';
-  }
+  return projectSpaceAuthToken;
+}
 
-  return window.localStorage.getItem(authTokenStorageKey) ?? '';
+export function setProjectSpaceAuthTokenProvider(
+  provider: (() => Promise<string | null>) | null
+) {
+  projectSpaceAuthTokenProvider = provider;
+
+  if (!provider) {
+    projectSpaceAuthToken = '';
+  }
 }
 
 export function setProjectSpaceAuthToken(token: string) {
+  projectSpaceAuthToken = token;
+
   if (typeof window === 'undefined') {
     return;
   }
@@ -66,6 +73,15 @@ export function setProjectSpaceAuthToken(token: string) {
   }
 
   window.localStorage.removeItem(authTokenStorageKey);
+}
+
+export async function refreshProjectSpaceAuthToken() {
+  if (!projectSpaceAuthTokenProvider) {
+    return projectSpaceAuthToken;
+  }
+
+  projectSpaceAuthToken = (await projectSpaceAuthTokenProvider()) ?? '';
+  return projectSpaceAuthToken;
 }
 
 function resolveApiBaseUrl() {
@@ -106,8 +122,8 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
 class HttpProjectSpaceClient implements ProjectSpaceBackend {
   private readonly baseUrl = resolveApiBaseUrl();
 
-  private request<T>(path: string, init?: RequestInit) {
-    const token = getProjectSpaceAuthToken();
+  private async request<T>(path: string, init?: RequestInit) {
+    const token = await refreshProjectSpaceAuthToken();
 
     return fetch(`${this.baseUrl}${path}`, {
       ...init,
@@ -125,21 +141,6 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
 
   getAuthSession(): Promise<ProjectSpaceAuthSessionResult> {
     return this.request('/api/auth/session');
-  }
-
-  startProjectSpaceLogin(): Promise<ProjectSpaceAuthDeviceStartResult> {
-    return this.request('/api/auth/github/device/start', {
-      method: 'POST'
-    });
-  }
-
-  pollProjectSpaceLogin(
-    request: ProjectSpaceAuthDevicePollRequest
-  ): Promise<ProjectSpaceAuthDevicePollResult> {
-    return this.request('/api/auth/github/device/poll', {
-      body: JSON.stringify(request),
-      method: 'POST'
-    });
   }
 
   async logout(): Promise<void> {
