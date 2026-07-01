@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Check,
+  Copy,
   ExternalLink,
+  Github,
   Grid2X2,
   Info,
   List,
+  Plus,
   RefreshCw,
+  Terminal,
+  X,
 } from 'lucide-react';
 import { Button, Chip, Tab, TabIndicator, TabList, Tabs, Text, Tooltip } from '@/app/dotnaos-ui';
 import { projectSpaceClient } from '@/api/project-space-client';
@@ -13,6 +19,7 @@ import type {
   FullstackTemplateStatus,
   GitHubCatalogRepository,
   GitHubCatalogResult,
+  GitHubOAuthDeviceStartResult,
   GitHubProjectConfigStatus,
   MachineRecord,
   ProjectWorktreeRecord,
@@ -240,6 +247,14 @@ function DetailRow({ label, mono, value }: { label: string; mono?: boolean; valu
   );
 }
 
+function installScriptUrl() {
+  if (typeof window === 'undefined') {
+    return '/connector/install.sh';
+  }
+
+  return `${window.location.origin}/connector/install.sh`;
+}
+
 function MachineDetailsTooltip({
   machine,
   projectCount
@@ -328,6 +343,12 @@ export function ProjectHomeOverview({
   const [branchRecordsByProjectId, setBranchRecordsByProjectId] = useState<
     Record<string, BranchChipRecord[]>
   >({});
+  const [githubFlow, setGitHubFlow] = useState<GitHubOAuthDeviceStartResult>();
+  const [isConnectingGitHub, setIsConnectingGitHub] = useState(false);
+  const [isInstallDialogOpen, setIsInstallDialogOpen] = useState(false);
+  const [installCommand, setInstallCommand] = useState(`curl -fsSL ${installScriptUrl()} | bash`);
+  const [installScriptHref, setInstallScriptHref] = useState('/connector/install.sh');
+  const [hasCopiedInstallCommand, setHasCopiedInstallCommand] = useState(false);
   const [layout, setLayout] = useState<'grid' | 'list'>('list');
   const [selectedMachineId, setSelectedMachineId] = useState('');
 
@@ -346,6 +367,45 @@ export function ProjectHomeOverview({
     } finally {
       setIsRefreshing(false);
     }
+  }
+
+  async function connectGitHub() {
+    setIsConnectingGitHub(true);
+    try {
+      const nextFlow = await projectSpaceClient.startGitHubOAuthDeviceFlow();
+      setGitHubFlow(nextFlow);
+    } finally {
+      setIsConnectingGitHub(false);
+    }
+  }
+
+  async function pollGitHubLogin() {
+    if (!githubFlow?.deviceCode) {
+      return;
+    }
+
+    setIsConnectingGitHub(true);
+    try {
+      const result = await projectSpaceClient.pollGitHubOAuthDeviceFlow({
+        deviceCode: githubFlow.deviceCode
+      });
+
+      if (result.status !== 'pending') {
+        setGitHubFlow(undefined);
+      }
+
+      if (result.status === 'connected') {
+        await onRefreshGitHubCatalog();
+      }
+    } finally {
+      setIsConnectingGitHub(false);
+    }
+  }
+
+  async function copyInstallCommand() {
+    await navigator.clipboard?.writeText(installCommand);
+    setHasCopiedInstallCommand(true);
+    window.setTimeout(() => setHasCopiedInstallCommand(false), 1_500);
   }
 
   const machines = useMemo(() => {
@@ -533,6 +593,30 @@ export function ProjectHomeOverview({
       setSelectedMachineId(localMachineId || machines[0]?.id || '');
     }
   }, [activeMachineId, localMachineId, machines, machinesById]);
+
+  useEffect(() => {
+    if (!isInstallDialogOpen) {
+      return;
+    }
+
+    let canceled = false;
+
+    projectSpaceClient
+      .getConnectorInstallCommand()
+      .then((result) => {
+        if (canceled) {
+          return;
+        }
+
+        setInstallCommand(result.command);
+        setInstallScriptHref(result.scriptUrl);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      canceled = true;
+    };
+  }, [isInstallDialogOpen]);
 
   function renderLayoutTabs() {
     return (
@@ -726,8 +810,124 @@ export function ProjectHomeOverview({
     );
   }
 
+  function renderGitHubConnectPanel() {
+    if (githubCatalog.status === 'connected') {
+      return null;
+    }
+
+    return (
+      <div className="mb-4 rounded-lg bg-neutral-950/60 px-4 py-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <Text className="block text-sm font-semibold text-neutral-100">
+              Connect GitHub
+            </Text>
+            <Text className="mt-1 block text-sm text-neutral-500">
+              {githubFlow?.status === 'pending'
+                ? 'Enter this code on GitHub, then check the login here.'
+                : githubCatalog.message ?? 'Connect GitHub to load repositories.'}
+            </Text>
+          </div>
+          {githubFlow?.status === 'pending' ? (
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <span className="rounded-lg bg-neutral-900 px-3 py-1.5 font-mono text-sm font-semibold text-neutral-100">
+                {githubFlow.userCode}
+              </span>
+              {githubFlow.verificationUri ? (
+                <a href={githubFlow.verificationUri} target="_blank" rel="noreferrer">
+                  <Button size="sm" variant="outline">
+                    <ExternalLink className="size-4" />
+                    Open GitHub
+                  </Button>
+                </a>
+              ) : null}
+              <Button size="sm" isDisabled={isConnectingGitHub} onPress={() => void pollGitHubLogin()}>
+                Check login
+              </Button>
+            </div>
+          ) : (
+            <Button
+              className="shrink-0"
+              size="sm"
+              isDisabled={isConnectingGitHub || githubCatalog.status === 'not-configured'}
+              onPress={() => void connectGitHub()}
+            >
+              <Github className="size-4" />
+              Login with GitHub
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function renderInstallDialog() {
+    if (!isInstallDialogOpen) {
+      return null;
+    }
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-end bg-black/70 p-4 sm:items-center sm:justify-center">
+        <div className="w-full max-w-xl rounded-lg border border-neutral-800 bg-neutral-950 p-4 shadow-2xl">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <Text className="block text-base font-semibold text-neutral-100">
+                Add a machine
+              </Text>
+              <Text className="mt-1 block text-sm text-neutral-500">
+                Run this on the Mac you want to add. It installs the connector and keeps it running.
+              </Text>
+            </div>
+            <Button
+              aria-label="Close add machine"
+              isIconOnly
+              size="sm"
+              variant="ghost"
+              onPress={() => setIsInstallDialogOpen(false)}
+            >
+              <X className="size-4" />
+            </Button>
+          </div>
+
+          <div className="mt-4 rounded-lg bg-black px-3 py-3">
+            <div className="mb-2 flex items-center gap-2 text-xs font-medium text-neutral-500">
+              <Terminal className="size-3.5" />
+              macOS arm64
+            </div>
+            <code className="block whitespace-pre-wrap break-all font-mono text-sm text-neutral-100">
+              {installCommand}
+            </code>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button size="sm" onPress={() => void copyInstallCommand()}>
+              {hasCopiedInstallCommand ? <Check className="size-4" /> : <Copy className="size-4" />}
+              {hasCopiedInstallCommand ? 'Copied' : 'Copy command'}
+            </Button>
+            <a href={installScriptHref} target="_blank" rel="noreferrer">
+              <Button size="sm" variant="outline">
+                <ExternalLink className="size-4" />
+                Open script
+              </Button>
+            </a>
+            <a href="/connector" target="_blank" rel="noreferrer">
+              <Button size="sm" variant="ghost">
+                Install guide
+              </Button>
+            </a>
+          </div>
+
+          <Text className="mt-3 block text-xs text-neutral-600">
+            Linux packaging is not published yet. Build from source or run a matching connector binary with PROJECT_CONNECTOR_HUB_URL set to this site.
+          </Text>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-full w-full flex-col">
+      {renderInstallDialog()}
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="min-w-0">
           {mode === 'machines' ? (
@@ -743,6 +943,12 @@ export function ProjectHomeOverview({
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {mode === 'machines' ? (
+            <Button size="sm" variant="outline" onPress={() => setIsInstallDialogOpen(true)}>
+              <Plus className="size-4" />
+              Add machine
+            </Button>
+          ) : null}
           {renderLayoutTabs()}
           <Button
             aria-label="Refresh machines and projects"
@@ -813,13 +1019,7 @@ export function ProjectHomeOverview({
         </>
       ) : null}
 
-      {mode === 'projects' && githubCatalog.status !== 'connected' ? (
-        <div className="mb-3 rounded-lg border border-amber-500/20 bg-amber-500/8 px-3 py-2">
-          <Text className="text-sm text-amber-200">
-            {githubCatalog.message ?? `GitHub is ${githubCatalog.status}.`}
-          </Text>
-        </div>
-      ) : null}
+      {mode === 'projects' ? renderGitHubConnectPanel() : null}
 
       {mode === 'projects' ? (
         <div className="flex max-h-[70vh] flex-col overflow-y-auto">

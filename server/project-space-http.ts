@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname, join, normalize, resolve } from 'node:path';
@@ -71,6 +72,144 @@ function writeEmpty(response: ServerResponse, statusCode = 204) {
   response.end();
 }
 
+function writeText(response: ServerResponse, statusCode: number, body: string, contentType = 'text/plain; charset=utf-8') {
+  response.writeHead(statusCode, {
+    'Access-Control-Allow-Origin': '*',
+    'Cache-Control': 'no-store',
+    'Content-Type': contentType
+  });
+  response.end(body);
+}
+
+function safeShellDoubleQuoted(value: string) {
+  return value.replace(/["\\$`]/g, (match) => `\\${match}`);
+}
+
+function connectorInstallScript(origin: string, registrationToken?: string) {
+  const registrationTokenValue = registrationToken
+    ? safeShellDoubleQuoted(registrationToken)
+    : '${PROJECT_CONNECTOR_REGISTRATION_TOKEN:-}';
+
+  return `#!/usr/bin/env bash
+set -euo pipefail
+
+hub_url="${origin}"
+registration_token="${registrationTokenValue}"
+install_dir="\${PROJECT_SPACE_CONNECTOR_DIR:-$HOME/.local/bin}"
+service_name="\${PROJECT_CONNECTOR_SERVICE_NAME:-$(hostname -s)}"
+asset="project-space-connector-darwin-arm64.tar.gz"
+download_url="https://github.com/DotNaos/project-space/releases/latest/download/$asset"
+
+if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
+  echo "Project Space currently publishes a packaged connector for macOS arm64."
+  echo "For this machine, build from source or install a matching connector binary, then run:"
+  echo "PROJECT_CONNECTOR_HUB_URL=$hub_url PROJECT_CONNECTOR_SERVICE_NAME=$service_name project-space-connector"
+  exit 1
+fi
+
+mkdir -p "$install_dir"
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
+
+curl -fsSL "$download_url" -o "$tmp_dir/project-space-connector.tar.gz"
+tar -xzf "$tmp_dir/project-space-connector.tar.gz" -C "$tmp_dir"
+install "$tmp_dir/project-space-connector" "$install_dir/project-space-connector"
+
+mkdir -p "$HOME/Library/LaunchAgents"
+cat > "$HOME/Library/LaunchAgents/net.os-home.project-space-connector.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>net.os-home.project-space-connector</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$install_dir/project-space-connector</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PROJECT_CONNECTOR_HUB_URL</key>
+    <string>$hub_url</string>
+    <key>PROJECT_CONNECTOR_SERVICE_NAME</key>
+    <string>$service_name</string>
+    <key>PROJECT_CONNECTOR_REGISTRATION_TOKEN</key>
+    <string>$registration_token</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+</dict>
+</plist>
+PLIST
+
+launchctl unload "$HOME/Library/LaunchAgents/net.os-home.project-space-connector.plist" >/dev/null 2>&1 || true
+launchctl load "$HOME/Library/LaunchAgents/net.os-home.project-space-connector.plist"
+
+echo "Project Space connector installed."
+echo "Machine service: $service_name"
+echo "Hub: $hub_url"
+`;
+}
+
+function requestPublicOrigin(request: IncomingMessage) {
+  const host = request.headers['x-forwarded-host'] ?? request.headers.host ?? 'projects.os-home.net';
+  const proto = request.headers['x-forwarded-proto'] ?? (String(host).includes('127.0.0.1') ? 'http' : 'https');
+  const firstHost = Array.isArray(host) ? host[0] : String(host).split(',')[0]?.trim();
+  const firstProto = Array.isArray(proto) ? proto[0] : String(proto).split(',')[0]?.trim();
+
+  return `${firstProto || 'https'}://${firstHost || 'projects.os-home.net'}`;
+}
+
+function connectorRegistrationToken() {
+  return process.env.PROJECT_CONNECTOR_REGISTRATION_TOKEN ?? '';
+}
+
+function requestConnectorToken(request: IncomingMessage) {
+  const headerToken = request.headers['x-project-connector-token'];
+  const authHeader = request.headers.authorization;
+
+  if (typeof headerToken === 'string' && headerToken.trim()) {
+    return headerToken.trim();
+  }
+
+  if (authHeader?.toLowerCase().startsWith('bearer ')) {
+    return authHeader.slice('bearer '.length).trim();
+  }
+
+  return '';
+}
+
+function hasValidConnectorRegistrationToken(request: IncomingMessage) {
+  const expected = connectorRegistrationToken();
+  const actual = requestConnectorToken(request);
+
+  if (!expected || !actual) {
+    return false;
+  }
+
+  const expectedBytes = Buffer.from(expected);
+  const actualBytes = Buffer.from(actual);
+
+  return expectedBytes.length === actualBytes.length && timingSafeEqual(expectedBytes, actualBytes);
+}
+
+function connectorInstallUrl(origin: string) {
+  const token = connectorRegistrationToken();
+  const url = new URL('/connector/install.sh', origin);
+
+  if (token) {
+    url.searchParams.set('registrationToken', token);
+  }
+
+  return url.toString();
+}
+
+function connectorInstallCommand(origin: string) {
+  return `curl -fsSL ${connectorInstallUrl(origin)} | bash`;
+}
+
 async function readJson<T>(request: IncomingMessage): Promise<T> {
   const chunks: Buffer[] = [];
 
@@ -120,6 +259,18 @@ function createApiHandler(backend: ProjectSpaceBackend) {
         return true;
       }
 
+      if (request.method === 'POST' && url.pathname === '/api/connectors/project-registry') {
+        if (!hasValidConnectorRegistrationToken(request)) {
+          writeJson(response, 401, { error: 'Connector registration token required.' });
+          return true;
+        }
+
+        const payload = await readJson<ConnectorProjectRegistryResult>(request);
+        registerConnectorProjectRegistry(payload);
+        writeJson(response, 200, { ok: true });
+        return true;
+      }
+
       const authSession = await readAuthSessionFromRequest(request);
 
       if (isProjectSpaceAuthRequired() && !authSession) {
@@ -128,6 +279,16 @@ function createApiHandler(backend: ProjectSpaceBackend) {
       }
 
       return await runWithAuthSession(authSession, async () => {
+      if (request.method === 'GET' && url.pathname === '/api/connectors/install-command') {
+        const origin = requestPublicOrigin(request);
+
+        writeJson(response, 200, {
+          command: connectorInstallCommand(origin),
+          scriptUrl: connectorInstallUrl(origin)
+        });
+        return true;
+      }
+
       if (request.method === 'GET' && url.pathname === '/api/launcher/apps') {
         writeJson(response, 200, await backend.loadLauncherApps());
         return true;
@@ -408,6 +569,19 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     response: ServerResponse
   ) {
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+
+    if (request.method === 'GET' && url.pathname === '/connector/install.sh') {
+      writeText(
+        response,
+        200,
+        connectorInstallScript(
+          requestPublicOrigin(request),
+          url.searchParams.get('registrationToken') ?? undefined
+        ),
+        'text/x-shellscript; charset=utf-8'
+      );
+      return;
+    }
 
     if (url.pathname.startsWith('/api/')) {
       const handled = await handleApiRequest(request, response, url);

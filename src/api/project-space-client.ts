@@ -162,6 +162,10 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     return this.request('/api/connectors/project-registry');
   }
 
+  getConnectorInstallCommand(): Promise<{ command: string; scriptUrl: string }> {
+    return this.request('/api/connectors/install-command');
+  }
+
   runProjectCliCommand(request: ProjectCliCommandRequest): Promise<ProjectCliCommandResult> {
     return this.request('/api/project-cli/run', {
       body: JSON.stringify(request),
