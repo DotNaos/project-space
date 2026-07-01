@@ -72,7 +72,7 @@ export function SpacesDock({
   const activeItem = items.find((item) => item.id === activeItemId);
 
   return (
-    <div className="border-t border-slate-800 px-4 py-3">
+    <div className="border-t border-neutral-800 px-4 py-3">
       <ProjectSpacesPicker
         groups={groups}
         projects={projects}
@@ -84,14 +84,14 @@ export function SpacesDock({
           <Button
             fullWidth
             variant="ghost"
-            className="h-auto justify-start gap-2 rounded-xl px-2.5 py-2 text-left hover:bg-slate-800/70"
+            className="h-auto justify-start gap-2 rounded-xl px-2.5 py-2 text-left hover:bg-neutral-800/70"
           >
-            <FolderKanban className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={1.8} />
+            <FolderKanban className="h-4 w-4 shrink-0 text-neutral-500" strokeWidth={1.8} />
             <span className="min-w-0 flex-1">
-              <Text className="block truncate text-xs font-medium text-slate-200">
+              <Text className="block truncate text-xs font-medium text-neutral-200">
                 {activeItem?.label ?? 'Choose project'}
               </Text>
-              <Text className="block truncate text-[11px] text-slate-500">
+              <Text className="block truncate text-[11px] text-neutral-500">
                 Switch project
               </Text>
             </span>
@@ -105,7 +105,7 @@ export function SpacesDock({
               size="sm"
               variant="ghost"
               onPress={onNavigateUp}
-              className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-sm leading-none text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
+              className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-sm leading-none text-neutral-500 transition hover:bg-neutral-800/70 hover:text-neutral-100"
             >
               ←
             </Button>
@@ -113,7 +113,7 @@ export function SpacesDock({
 
           <div className="flex items-center gap-1">
             {hasLeadingOverflow ? (
-              <Text className="px-1 text-[10px] font-semibold text-slate-600">…</Text>
+              <Text className="px-1 text-[10px] font-semibold text-neutral-600">…</Text>
             ) : null}
 
             <ToggleButtonGroup
@@ -143,15 +143,15 @@ export function SpacesDock({
                     variant="ghost"
                     className={cn(
                       'group h-7 w-7 min-w-0 rounded-[10px] px-0 transition',
-                      active ? 'bg-slate-800/90' : 'hover:bg-slate-800/70'
+                      active ? 'bg-neutral-800/90' : 'hover:bg-neutral-800/70'
                     )}
                   >
                     <span
                       className={cn(
                         'text-[10px] font-semibold tracking-[0.12em] transition',
                         active
-                          ? 'text-slate-100'
-                          : 'text-slate-500 group-hover:text-slate-300'
+                          ? 'text-neutral-100'
+                          : 'text-neutral-500 group-hover:text-neutral-300'
                       )}
                     >
                       {shortLabel(item.label)}
@@ -162,7 +162,7 @@ export function SpacesDock({
             </ToggleButtonGroup>
 
             {hasTrailingOverflow ? (
-              <Text className="px-1 text-[10px] font-semibold text-slate-600">…</Text>
+              <Text className="px-1 text-[10px] font-semibold text-neutral-600">…</Text>
             ) : null}
           </div>
 
@@ -173,7 +173,7 @@ export function SpacesDock({
               size="sm"
               variant="ghost"
               onPress={onCreate}
-              className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-sm leading-none text-slate-500 transition hover:bg-slate-800/70 hover:text-slate-100"
+              className="h-7 w-7 min-w-0 rounded-[10px] px-0 text-sm leading-none text-neutral-500 transition hover:bg-neutral-800/70 hover:text-neutral-100"
             >
               <Plus className="h-4 w-4" strokeWidth={1.8} />
             </Button>

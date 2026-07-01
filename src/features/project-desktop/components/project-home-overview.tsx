@@ -1,28 +1,40 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ChevronDown,
   ExternalLink,
-  Github,
-  Laptop,
+  Grid2X2,
+  Info,
+  List,
   RefreshCw,
-  Server
 } from 'lucide-react';
-import { Button, Chip, Text } from '@/app/dotnaos-ui';
+import { Button, Chip, Tab, TabIndicator, TabList, Tabs, Text, Tooltip } from '@/app/dotnaos-ui';
 import { projectSpaceClient } from '@/api/project-space-client';
 import type {
   ConnectorOverviewResult,
-  ConnectorStatus,
   FullstackTemplateStatus,
   GitHubCatalogRepository,
   GitHubCatalogResult,
   GitHubProjectConfigStatus,
   MachineRecord,
-  ProjectSpaceRecord,
-  ProjectWorktreeRecord
+  ProjectWorktreeRecord,
+  ProjectSpaceRecord
 } from '@/shared/project-space-api';
+import {
+  isMachineConnected,
+  MachineBatteryMeter,
+  MachineConnectionIcon,
+  MachineDeviceIcon,
+  MachineOsMark
+} from './machine-visuals';
 
 interface ProjectHomeOverviewProps {
+  connector: ConnectorOverviewResult;
+  githubCatalog: GitHubCatalogResult;
+  isConnectorRefreshing: boolean;
+  isGitHubRefreshing: boolean;
   mode: 'machines' | 'projects';
+  onRefreshConnector(): Promise<ConnectorOverviewResult>;
+  onRefreshGitHubCatalog(): Promise<GitHubCatalogResult>;
+  onSelectMachine(machineId: string): void;
   projects: ProjectSpaceRecord[];
   onSelectProject(projectId: string): void;
 }
@@ -33,7 +45,6 @@ interface LocalMatch {
 }
 
 interface MatrixRow {
-  description?: string;
   id: string;
   isLocalOnly: boolean;
   localMatches: LocalMatch[];
@@ -41,32 +52,10 @@ interface MatrixRow {
   title: string;
 }
 
-interface WorktreeDetail {
-  machineId: string;
-  project: ProjectSpaceRecord;
-  worktrees: ProjectWorktreeRecord[];
+interface BranchChipRecord {
+  isBase: boolean;
+  name: string;
 }
-
-const connectorFallback: ConnectorOverviewResult = {
-  machines: [],
-  machinesRepo: {
-    exists: false,
-    path: ''
-  },
-  tailscale: {
-    connected: false,
-    installed: false,
-    ips: [],
-    peersOnline: 0,
-    serveOrigins: []
-  }
-};
-
-const githubFallback: GitHubCatalogResult = {
-  checkedAt: '',
-  repositories: [],
-  status: 'auth-required'
-};
 
 const templateStatusLabels: Record<FullstackTemplateStatus, string> = {
   implemented: 'ok',
@@ -93,6 +82,10 @@ function basename(path: string) {
 }
 
 function isVisibleLocalProject(project: ProjectSpaceRecord) {
+  if (project.kind === 'github') {
+    return false;
+  }
+
   const projectFolder = basename(project.rootPath);
 
   return !projectFolder.startsWith('.') && !projectFolder.endsWith('.worktrees');
@@ -122,28 +115,88 @@ function projectMatchesRepo(project: ProjectSpaceRecord, repo: GitHubCatalogRepo
   return keys.has(fullName) || keys.has(name);
 }
 
-function connectorChipClass(status: ConnectorStatus) {
-  if (status === 'local' || status === 'online') {
-    return 'border-emerald-500/30 bg-emerald-500/12 text-emerald-200';
+function isBaseBranchName(branchName: string, defaultBranch?: string) {
+  const normalizedBranch = normalizeKey(branchName);
+  const normalizedDefault = defaultBranch ? normalizeKey(defaultBranch) : '';
+
+  return (
+    (normalizedDefault && normalizedBranch === normalizedDefault) ||
+    normalizedBranch === 'main' ||
+    normalizedBranch === 'master'
+  );
+}
+
+function branchesFromWorktrees(
+  worktrees: ProjectWorktreeRecord[],
+  defaultBranch?: string
+): BranchChipRecord[] {
+  const branches = new Map<string, BranchChipRecord>();
+
+  for (const worktree of worktrees) {
+    const branchName = worktree.branchName?.trim();
+
+    if (!branchName) {
+      continue;
+    }
+
+    branches.set(branchName, {
+      isBase: isBaseBranchName(branchName, defaultBranch),
+      name: branchName
+    });
   }
 
-  if (status === 'offline') {
-    return 'border-amber-500/30 bg-amber-500/12 text-amber-200';
+  return Array.from(branches.values()).sort((left, right) => {
+    if (left.isBase !== right.isBase) {
+      return left.isBase ? -1 : 1;
+    }
+
+    return left.name.localeCompare(right.name);
+  });
+}
+
+function mergeBranchChips(
+  defaultBranch: string | undefined,
+  branchGroups: BranchChipRecord[][]
+) {
+  const branches = new Map<string, BranchChipRecord>();
+
+  if (defaultBranch) {
+    branches.set(defaultBranch, {
+      isBase: true,
+      name: defaultBranch
+    });
   }
 
-  return 'border-slate-700 bg-slate-800/70 text-slate-300';
+  for (const group of branchGroups) {
+    for (const branch of group) {
+      const existing = branches.get(branch.name);
+
+      branches.set(branch.name, {
+        isBase: existing?.isBase || branch.isBase || isBaseBranchName(branch.name, defaultBranch),
+        name: branch.name
+      });
+    }
+  }
+
+  return Array.from(branches.values()).sort((left, right) => {
+    if (left.isBase !== right.isBase) {
+      return left.isBase ? -1 : 1;
+    }
+
+    return left.name.localeCompare(right.name);
+  });
 }
 
 function configChipClass(status: GitHubProjectConfigStatus | FullstackTemplateStatus) {
   if (status === 'complete' || status === 'implemented' || status === 'template-source') {
-    return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
+    return 'text-emerald-300';
   }
 
   if (status === 'partial') {
-    return 'border-amber-500/30 bg-amber-500/10 text-amber-200';
+    return 'text-amber-300';
   }
 
-  return 'border-slate-700 bg-slate-900/80 text-slate-400';
+  return 'text-neutral-500';
 }
 
 function formatLastSeen(value?: string) {
@@ -171,264 +224,129 @@ function formatLastSeen(value?: string) {
   return hours < 24 ? `${hours}h` : `${Math.round(hours / 24)}d`;
 }
 
-function batteryFillClass(percentage: number) {
-  if (percentage <= 20) {
-    return 'bg-red-400';
-  }
-
-  if (percentage <= 50) {
-    return 'bg-amber-300';
-  }
-
-  return 'bg-emerald-400';
-}
-
-function formatBatteryState(machine: MachineRecord) {
-  if (!machine.battery) {
-    return undefined;
-  }
-
-  return machine.battery.state && machine.battery.state !== 'unknown'
-    ? machine.battery.state
-    : undefined;
-}
-
-function BatteryMeter({ machine }: { machine: MachineRecord }) {
-  if (!machine.battery) {
-    return null;
-  }
-
-  const percentage = Math.max(0, Math.min(100, Math.round(machine.battery.percentage)));
-  const state = formatBatteryState(machine);
-
+function DetailRow({ label, mono, value }: { label: string; mono?: boolean; value: string }) {
   return (
-    <span
-      aria-label={`Battery ${percentage}%${state ? ` ${state}` : ''}`}
-      className="inline-flex items-center gap-2 rounded-full border border-slate-600/80 bg-slate-950/80 px-2 py-1 text-xs font-semibold text-slate-100 shadow-inner shadow-slate-950/80"
-    >
-      <span className="inline-flex items-center" aria-hidden="true">
-        <span className="flex h-4 w-8 items-center rounded-[4px] border border-slate-300/80 bg-slate-950 p-[2px]">
-          <span
-            className={[
-              'block h-full min-w-1 rounded-[2px] transition-[width]',
-              batteryFillClass(percentage)
-            ].join(' ')}
-            style={{ width: `${percentage}%` }}
-          />
-        </span>
-        <span className="h-2 w-1 rounded-r-[2px] bg-slate-300/80" />
-      </span>
-      <span className="tabular-nums">{percentage}%</span>
-      {state ? <span className="font-medium text-slate-400">{state}</span> : null}
-    </span>
-  );
-}
-
-function MachineIcon({ machine }: { machine: MachineRecord }) {
-  if (machine.kind === 'darwin') {
-    return <Laptop className="size-4 text-slate-400" />;
-  }
-
-  return <Server className="size-4 text-slate-400" />;
-}
-
-function MatrixCell({
-  matches,
-  onSelectProject
-}: {
-  matches: LocalMatch[];
-  onSelectProject(projectId: string): void;
-}) {
-  if (matches.length === 0) {
-    return <span className="text-sm text-slate-700">-</span>;
-  }
-
-  const primary = matches[0];
-  const status = getTemplateStatus(primary.project);
-
-  return (
-    <button
-      type="button"
-      onClick={() => onSelectProject(primary.project.id)}
-      aria-label={`Open ${primary.project.name} on ${primary.machineId}`}
-      className="flex max-w-full items-center gap-2 rounded-md border border-slate-800 bg-slate-950/55 px-2.5 py-1.5 text-left transition hover:border-slate-700 hover:bg-slate-900/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400"
-    >
-      <Chip size="sm" className={configChipClass(status)}>
-        {templateStatusLabels[status]}
-      </Chip>
-      {matches.length > 1 ? (
-        <Text className="text-xs text-slate-500">{matches.length}</Text>
-      ) : null}
-    </button>
-  );
-}
-
-function RepoCell({
-  row,
-  isExpanded,
-  onToggle
-}: {
-  row: MatrixRow;
-  isExpanded: boolean;
-  onToggle(row: MatrixRow): void;
-}) {
-  return (
-    <div className="flex min-w-0 items-center gap-2">
-      <button
-        type="button"
-        onClick={() => onToggle(row)}
-        className="flex size-7 shrink-0 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-900 hover:text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400"
-        aria-label={isExpanded ? `Hide ${row.title} details` : `Show ${row.title} details`}
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="shrink-0 text-[10px] font-medium text-neutral-500">{label}</span>
+      <span
+        className={[
+          'min-w-0 truncate text-right text-neutral-200',
+          mono ? 'font-mono text-[11px]' : 'text-xs'
+        ].join(' ')}
       >
-        <ChevronDown className={isExpanded ? 'size-4 rotate-180' : 'size-4'} />
-      </button>
-      <div className="min-w-0">
-        <div className="flex min-w-0 items-center gap-2">
-          <Text className="block truncate text-sm font-semibold text-slate-100">
-            {row.title}
-          </Text>
-          {row.isLocalOnly ? (
-            <Chip size="sm" variant="tertiary">
-              local only
-            </Chip>
-          ) : null}
-          {row.repo ? (
-            <a
-              href={row.repo.url}
-              target="_blank"
-              rel="noreferrer"
-              className="shrink-0 text-slate-500 hover:text-slate-200"
-              aria-label={`Open ${row.repo.fullName} on GitHub`}
-            >
-              <ExternalLink className="size-3.5" />
-            </a>
-          ) : null}
-        </div>
-        <Text className="mt-0.5 block truncate text-xs text-slate-500">
-          {row.description || 'No description'}
-        </Text>
-      </div>
+        {value}
+      </span>
     </div>
   );
 }
 
-function WorktreeDrawer({
-  details,
-  isLoading,
-  machinesById,
-  row
+function MachineDetailsTooltip({
+  machine,
+  projectCount
 }: {
-  details?: WorktreeDetail[];
-  isLoading: boolean;
-  machinesById: Map<string, MachineRecord>;
-  row: MatrixRow;
+  machine: MachineRecord;
+  projectCount: number;
 }) {
+  const origin =
+    machine.connector.origin ?? machine.network.tailscaleIp ?? machine.connector.installCommand;
+
   return (
-    <div className="border-b border-slate-800/70 bg-slate-950/35 px-4 py-3">
-      <div className="mb-2 flex items-center gap-2">
-        <Text className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-          Checkouts and worktrees
-        </Text>
-        {isLoading ? (
-          <RefreshCw className="size-3.5 animate-spin text-slate-500" />
+    <Tooltip delay={150}>
+      <Tooltip.Trigger className="inline-flex">
+        <span
+          aria-label={`${machine.name} details`}
+          className="inline-flex size-5 items-center justify-center rounded-full text-neutral-600 transition hover:text-neutral-300"
+        >
+          <Info className="size-3.5" strokeWidth={1.8} />
+        </span>
+      </Tooltip.Trigger>
+      <Tooltip.Content className="w-56 space-y-1.5">
+        {machine.connector.serviceName ? (
+          <DetailRow label="Service" value={machine.connector.serviceName} />
         ) : null}
-      </div>
-      {row.localMatches.length === 0 ? (
-        <Text className="text-sm text-slate-500">No connector checkout found.</Text>
+        <DetailRow label="Status" value={machine.connector.status} />
+        <DetailRow label="Projects" value={String(projectCount)} />
+        <DetailRow label="Last seen" value={formatLastSeen(machine.connector.lastSeen)} />
+        {origin ? <DetailRow label="Origin" mono value={origin} /> : null}
+      </Tooltip.Content>
+    </Tooltip>
+  );
+}
+
+function BranchChips({ branches }: { branches: BranchChipRecord[] }) {
+  if (branches.length === 0) {
+    return null;
+  }
+
+  const visibleBranches = branches.slice(0, 3);
+  const hiddenCount = branches.length - visibleBranches.length;
+
+  return (
+    <div
+      aria-label="Branches"
+      className="flex max-w-[17rem] shrink-0 items-center gap-1 overflow-x-auto"
+    >
+      {visibleBranches.map((branch) => (
+        <span
+          key={branch.name}
+          title={branch.name}
+          className={[
+            'inline-flex max-w-28 shrink-0 items-center truncate rounded-full px-2 py-0.5 text-[11px] font-medium',
+            branch.isBase
+              ? 'bg-neutral-100 text-neutral-950'
+              : 'bg-neutral-800/80 text-neutral-300'
+          ].join(' ')}
+        >
+          {branch.name}
+        </span>
+      ))}
+      {hiddenCount > 0 ? (
+        <span
+          title={branches.slice(3).map((branch) => branch.name).join(', ')}
+          className="inline-flex shrink-0 rounded-full bg-neutral-900 px-2 py-0.5 text-[11px] font-medium text-neutral-500"
+        >
+          +{hiddenCount}
+        </span>
       ) : null}
-      <div className="grid gap-2">
-        {(details ?? []).map(({ machineId, project, worktrees }) => (
-          <div
-            key={`${machineId}:${project.id}`}
-            className="rounded-lg border border-slate-800/80 bg-slate-950/55 px-3 py-2"
-          >
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <Chip size="sm" variant="secondary">
-                {machinesById.get(machineId)?.name ?? machineId}
-              </Chip>
-              <Text className="min-w-0 truncate text-sm font-medium text-slate-200">
-                {project.rootPath}
-              </Text>
-              <Chip size="sm" className={configChipClass(getTemplateStatus(project))}>
-                {templateStatusLabels[getTemplateStatus(project)]}
-              </Chip>
-            </div>
-            <div className="mt-2 grid gap-1.5">
-              {worktrees.length > 0 ? (
-                worktrees.map((worktree) => (
-                  <div
-                    key={worktree.id}
-                    className="grid grid-cols-[minmax(7rem,12rem)_minmax(0,1fr)_auto] items-center gap-2 text-xs"
-                  >
-                    <Text className="truncate text-slate-300">{worktree.name}</Text>
-                    <Text className="truncate font-mono text-slate-500">{worktree.path}</Text>
-                    <Chip
-                      size="sm"
-                      className={
-                        worktree.status === 'ready'
-                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
-                          : 'border-amber-500/30 bg-amber-500/10 text-amber-200'
-                      }
-                    >
-                      {worktree.branchName ?? worktree.status}
-                    </Chip>
-                  </div>
-                ))
-              ) : (
-                <Text className="text-xs text-slate-600">No extra worktrees detected.</Text>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
 
 export function ProjectHomeOverview({
+  connector,
+  githubCatalog,
+  isConnectorRefreshing,
+  isGitHubRefreshing,
   mode,
+  onRefreshConnector,
+  onRefreshGitHubCatalog,
+  onSelectMachine,
   projects,
   onSelectProject
 }: ProjectHomeOverviewProps) {
-  const [connector, setConnector] = useState<ConnectorOverviewResult>(connectorFallback);
-  const [githubCatalog, setGitHubCatalog] = useState<GitHubCatalogResult>(githubFallback);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [expandedRowId, setExpandedRowId] = useState<string>('');
-  const [loadingRowId, setLoadingRowId] = useState<string>('');
+  const [branchRecordsByProjectId, setBranchRecordsByProjectId] = useState<
+    Record<string, BranchChipRecord[]>
+  >({});
+  const [layout, setLayout] = useState<'grid' | 'list'>('list');
   const [selectedMachineId, setSelectedMachineId] = useState('');
-  const [worktreeDetails, setWorktreeDetails] = useState<Record<string, WorktreeDetail[]>>({});
 
-  async function refresh() {
+  async function refresh(includeConnector: boolean) {
     setIsRefreshing(true);
     try {
-      const loadGitHubCatalog = async () => {
-        const catalog = await projectSpaceClient.getGitHubCatalog().catch(() => githubFallback);
+      const refreshTasks: Promise<unknown>[] = [
+        onRefreshGitHubCatalog()
+      ];
 
-        if (catalog.status === 'connected') {
-          return catalog;
-        }
+      if (includeConnector) {
+        refreshTasks.push(onRefreshConnector());
+      }
 
-        await new Promise((resolve) => setTimeout(resolve, 1_500));
-        return projectSpaceClient.getGitHubCatalog().catch(() => catalog);
-      };
-
-      await Promise.all([
-        projectSpaceClient
-          .getConnectorOverview()
-          .then((nextConnector) => setConnector(nextConnector ?? connectorFallback))
-          .catch(() => setConnector(connectorFallback)),
-        loadGitHubCatalog()
-          .then((nextGitHubCatalog) => setGitHubCatalog(nextGitHubCatalog ?? githubFallback))
-          .catch(() => setGitHubCatalog(githubFallback))
-      ]);
+      await Promise.all(refreshTasks);
     } finally {
       setIsRefreshing(false);
     }
   }
-
-  useEffect(() => {
-    void refresh();
-  }, []);
 
   const machines = useMemo(() => {
     if (connector.machines.length > 0) {
@@ -460,12 +378,18 @@ export function ProjectHomeOverview({
     machines.find((machine) => machine.connector.status === 'local')?.id ??
     machines[0]?.id ??
     'local';
+  const connectedMachines = machines.filter(isMachineConnected);
+  const disconnectedMachines = machines.filter((machine) => !isMachineConnected(machine));
   const activeMachineId = selectedMachineId || localMachineId || machines[0]?.id || '';
   const activeMachine = machinesById.get(activeMachineId);
 
   const rows = useMemo<MatrixRow[]>(() => {
     const repositories =
-      githubCatalog.status === 'connected' ? githubCatalog.repositories : [];
+      githubCatalog.status === 'connected'
+        ? [...githubCatalog.repositories].sort((left, right) =>
+            left.fullName.localeCompare(right.fullName)
+          )
+        : [];
     const matchedProjectIds = new Set<string>();
     const repoRows = repositories.map((repo) => {
       const localMatches = projects
@@ -479,7 +403,6 @@ export function ProjectHomeOverview({
         });
 
       return {
-        description: repo.description || repo.defaultBranch,
         id: `github:${repo.id}`,
         isLocalOnly: false,
         localMatches,
@@ -489,9 +412,8 @@ export function ProjectHomeOverview({
     });
 
     const localOnlyRows = projects
-      .filter((project) => !matchedProjectIds.has(project.id))
+      .filter((project) => project.kind !== 'github' && !matchedProjectIds.has(project.id))
       .map((project) => ({
-        description: project.rootPath,
         id: `local:${project.id}`,
         isLocalOnly: true,
         localMatches: [
@@ -503,10 +425,11 @@ export function ProjectHomeOverview({
         title: project.name
       }));
 
-    return [...repoRows, ...localOnlyRows];
+    return [...repoRows, ...localOnlyRows].sort((left, right) =>
+      left.title.localeCompare(right.title)
+    );
   }, [githubCatalog, localMachineId, projects]);
 
-  const columnTemplate = `minmax(20rem,1.35fr) repeat(${machines.length}, minmax(10rem,12rem))`;
   const projectsByMachine = useMemo(() => {
     return projects.filter(isVisibleLocalProject).reduce<Record<string, ProjectSpaceRecord[]>>((groups, project) => {
       const machineId = getProjectMachineId(project, localMachineId);
@@ -516,6 +439,90 @@ export function ProjectHomeOverview({
   }, [localMachineId, projects]);
   const activeMachineProjects = activeMachineId ? projectsByMachine[activeMachineId] ?? [] : [];
   const githubRows = rows.filter((row) => !row.isLocalOnly);
+  const branchSourceProjects = useMemo(() => {
+    if (mode !== 'projects') {
+      return [];
+    }
+
+    const sourceProjects = new Map<string, ProjectSpaceRecord>();
+
+    for (const row of rows) {
+      for (const match of row.localMatches) {
+        if (match.project.rootPath && isVisibleLocalProject(match.project)) {
+          sourceProjects.set(match.project.id, match.project);
+        }
+      }
+    }
+
+    return Array.from(sourceProjects.values()).slice(0, 80);
+  }, [mode, rows]);
+  const githubRowGroups = useMemo(() => {
+    const groups = new Map<string, MatrixRow[]>();
+
+    for (const row of githubRows) {
+      const owner = row.repo?.owner ?? 'Other';
+      const items = groups.get(owner) ?? [];
+      items.push(row);
+      groups.set(owner, items);
+    }
+
+    return Array.from(groups.entries())
+      .map(([owner, items]) => ({
+        items: [...items].sort((left, right) => left.title.localeCompare(right.title)),
+        owner
+      }))
+      .sort((left, right) => left.owner.localeCompare(right.owner));
+  }, [githubRows]);
+
+  useEffect(() => {
+    const missingProjects = branchSourceProjects.filter(
+      (project) => branchRecordsByProjectId[project.id] === undefined
+    );
+
+    if (missingProjects.length === 0) {
+      return;
+    }
+
+    let canceled = false;
+
+    void Promise.all(
+      missingProjects.map(async (project) => {
+        const worktrees = await projectSpaceClient
+          .loadProjectWorktrees(project.rootPath)
+          .catch(() => []);
+
+        return {
+          branches: branchesFromWorktrees(worktrees),
+          projectId: project.id
+        };
+      })
+    ).then((results) => {
+      if (canceled) {
+        return;
+      }
+
+      setBranchRecordsByProjectId((current) => {
+        const next = { ...current };
+
+        for (const result of results) {
+          next[result.projectId] = result.branches;
+        }
+
+        return next;
+      });
+    });
+
+    return () => {
+      canceled = true;
+    };
+  }, [branchRecordsByProjectId, branchSourceProjects]);
+
+  function branchesForRow(row: MatrixRow) {
+    return mergeBranchChips(
+      row.repo?.defaultBranch,
+      row.localMatches.map((match) => branchRecordsByProjectId[match.project.id] ?? [])
+    );
+  }
 
   useEffect(() => {
     if (machines.length === 0) {
@@ -527,134 +534,252 @@ export function ProjectHomeOverview({
     }
   }, [activeMachineId, localMachineId, machines, machinesById]);
 
-  async function toggleRow(row: MatrixRow) {
-    const nextExpandedId = expandedRowId === row.id ? '' : row.id;
-    setExpandedRowId(nextExpandedId);
+  function renderLayoutTabs() {
+    return (
+      <Tabs
+        selectedKey={layout}
+        onSelectionChange={(key) => setLayout(key === 'grid' ? 'grid' : 'list')}
+      >
+        <TabList className="inline-flex rounded-lg bg-neutral-900/70 p-1">
+          <Tab id="list" className="min-h-7 px-2.5 text-xs">
+            <List className="size-3.5" />
+            List
+            <TabIndicator />
+          </Tab>
+          <Tab id="grid" className="min-h-7 px-2.5 text-xs">
+            <Grid2X2 className="size-3.5" />
+            Grid
+            <TabIndicator />
+          </Tab>
+        </TabList>
+      </Tabs>
+    );
+  }
 
-    if (!nextExpandedId || worktreeDetails[row.id]) {
-      return;
+  function renderMachineCard(machine: MachineRecord) {
+    const machineProjects = projectsByMachine[machine.id] ?? [];
+    const isSelected = machine.id === activeMachineId;
+
+    return (
+      <button
+        key={machine.id}
+        type="button"
+        onClick={() => {
+          setSelectedMachineId(machine.id);
+          onSelectMachine(machine.id);
+        }}
+        className={[
+          'min-w-0 rounded-lg border bg-neutral-900/40 p-4 text-left transition hover:border-neutral-700 hover:bg-neutral-900/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-300',
+          isSelected ? 'border-neutral-100/50' : 'border-transparent'
+        ].join(' ')}
+      >
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <MachineDeviceIcon machine={machine} />
+            <div className="min-w-0">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <Text className="block truncate text-sm font-semibold text-neutral-100">
+                  {machine.name}
+                </Text>
+                <MachineOsMark machine={machine} />
+              </span>
+              <Text className="block truncate text-xs text-neutral-500">
+                {[machine.kind, machine.profile, machine.network.localName]
+                  .filter(Boolean)
+                  .join(' / ') || 'machine'}
+              </Text>
+            </div>
+          </div>
+          <div className="mt-0.5 flex shrink-0 items-center gap-2">
+            <MachineConnectionIcon machine={machine} />
+            <MachineBatteryMeter compact machine={machine} />
+            <MachineDetailsTooltip machine={machine} projectCount={machineProjects.length} />
+          </div>
+        </div>
+      </button>
+    );
+  }
+
+  function renderMachineRow(machine: MachineRecord) {
+    const machineProjects = projectsByMachine[machine.id] ?? [];
+    const isSelected = machine.id === activeMachineId;
+
+    return (
+      <button
+        key={machine.id}
+        type="button"
+        onClick={() => {
+          setSelectedMachineId(machine.id);
+          onSelectMachine(machine.id);
+        }}
+        className={[
+          'flex min-w-0 items-center gap-3 rounded-lg px-3 py-3 text-left transition hover:bg-neutral-900/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-300',
+          isSelected ? 'bg-neutral-900/70' : ''
+        ].join(' ')}
+      >
+        <MachineConnectionIcon machine={machine} />
+        <MachineDeviceIcon machine={machine} />
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <Text className="block truncate text-sm font-semibold text-neutral-100">
+              {machine.name}
+            </Text>
+            <MachineOsMark machine={machine} />
+          </span>
+          <Text className="block truncate text-xs text-neutral-500">
+            {[machine.kind, machine.profile, machine.network.localName]
+              .filter(Boolean)
+              .join(' / ') || 'machine'}
+          </Text>
+        </span>
+        <MachineBatteryMeter compact machine={machine} />
+        <MachineDetailsTooltip machine={machine} projectCount={machineProjects.length} />
+      </button>
+    );
+  }
+
+  function renderMachineSection(title: string, sectionMachines: MachineRecord[]) {
+    if (sectionMachines.length === 0) {
+      return null;
     }
 
-    setLoadingRowId(row.id);
-    try {
-      const details = await Promise.all(
-        row.localMatches.map(async (match) => ({
-          ...match,
-          worktrees: await projectSpaceClient
-            .loadProjectWorktrees(match.project.rootPath)
-            .catch(() => [])
-        }))
-      );
-      setWorktreeDetails((current) => ({ ...current, [row.id]: details }));
-    } finally {
-      setLoadingRowId('');
-    }
+    return (
+      <section className="space-y-2">
+        <Text className="block text-sm font-medium text-neutral-500">{title}</Text>
+        <div className={layout === 'grid' ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-3' : 'flex flex-col'}>
+          {sectionMachines.map(layout === 'grid' ? renderMachineCard : renderMachineRow)}
+        </div>
+      </section>
+    );
+  }
+
+  function projectIdForRow(row: MatrixRow) {
+    return row.localMatches[0]?.project.id ?? (row.repo ? `github:${row.repo.fullName}` : '');
+  }
+
+  function renderGitHubLink(repo: GitHubCatalogRepository, label: string) {
+    return (
+      <a
+        href={repo.url}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={`Open ${repo.fullName} on GitHub`}
+        onClick={(event) => event.stopPropagation()}
+        className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-neutral-600 transition hover:bg-neutral-900 hover:text-neutral-200"
+        title={label}
+      >
+        <ExternalLink className="size-3.5" />
+      </a>
+    );
+  }
+
+  function renderProjectRow(row: MatrixRow) {
+    const branches = branchesForRow(row);
+    const projectId = projectIdForRow(row);
+
+    return (
+      <div
+        key={row.id}
+        className="flex min-w-0 items-center gap-3 rounded-lg px-3 py-2 transition hover:bg-neutral-900/40"
+      >
+        <button
+          type="button"
+          onClick={() => projectId && onSelectProject(projectId)}
+          className="min-w-0 flex-1 text-left"
+        >
+          <Text className="block min-w-0 truncate text-sm font-medium text-neutral-100">
+            {row.repo?.name ?? row.title}
+          </Text>
+        </button>
+        <BranchChips branches={branches} />
+        {row.repo ? renderGitHubLink(row.repo, 'Open on GitHub') : null}
+      </div>
+    );
+  }
+
+  function renderProjectCard(row: MatrixRow) {
+    const branches = branchesForRow(row);
+    const projectId = projectIdForRow(row);
+
+    return (
+      <div
+        key={row.id}
+        className="group flex min-w-0 flex-col gap-4 rounded-lg border border-neutral-900 bg-neutral-950/45 p-4 transition hover:border-neutral-800 hover:bg-neutral-950/70"
+      >
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => projectId && onSelectProject(projectId)}
+            className="min-w-0 flex-1 text-left"
+          >
+            <Text className="block min-w-0 truncate text-sm font-semibold text-neutral-100">
+              {row.repo?.name ?? row.title}
+            </Text>
+            <Text className="mt-1 block truncate text-xs text-neutral-500">
+              {row.repo?.owner ?? 'Local'}
+            </Text>
+          </button>
+          {row.repo ? renderGitHubLink(row.repo, 'Open on GitHub') : null}
+        </div>
+        <BranchChips branches={branches} />
+      </div>
+    );
   }
 
   return (
     <div className="flex min-h-full w-full flex-col">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <Text className="block text-sm font-semibold text-slate-100">
-            {mode === 'machines' ? 'Machines' : 'GitHub projects'}
-          </Text>
-          <Text className="block text-sm text-slate-500">
-            {mode === 'machines'
-              ? 'Connected workstations and their local Project registry.'
-              : 'Global projects are GitHub repositories. Local-only folders stay under Machines.'}
-          </Text>
+          {mode === 'machines' ? (
+            <>
+              <Text className="block text-sm font-semibold text-neutral-100">Machines</Text>
+              <Text className="block text-sm text-neutral-500">
+                Connected workstations and their local Project registry.
+              </Text>
+            </>
+          ) : null}
+          {mode === 'projects' ? (
+            <Text className="block text-sm font-semibold text-neutral-100">Projects</Text>
+          ) : null}
         </div>
-        <Button
-          size="sm"
-          variant="ghost"
-          isDisabled={isRefreshing}
-          onPress={() => void refresh()}
-        >
-          <RefreshCw className={isRefreshing ? 'size-4 animate-spin' : 'size-4'} />
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {renderLayoutTabs()}
+          <Button
+            aria-label="Refresh machines and projects"
+            size="sm"
+            variant="ghost"
+            isDisabled={isRefreshing || isConnectorRefreshing || isGitHubRefreshing}
+            onPress={() => void refresh(true)}
+          >
+            <RefreshCw
+              className={
+                isRefreshing || isConnectorRefreshing || isGitHubRefreshing
+                  ? 'size-4 animate-spin'
+                  : 'size-4'
+              }
+            />
+          </Button>
+        </div>
       </div>
 
       {mode === 'machines' ? (
         <>
-          <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {machines.map((machine) => {
-              const machineProjects = projectsByMachine[machine.id] ?? [];
-              const isOnline =
-                machine.connector.status === 'local' || machine.connector.status === 'online';
-              const isSelected = machine.id === activeMachineId;
-
-              return (
-                <button
-                  key={machine.id}
-                  type="button"
-                  onClick={() => setSelectedMachineId(machine.id)}
-                  className={[
-                    'min-w-0 rounded-lg border bg-slate-950/55 p-4 text-left transition hover:border-slate-700 hover:bg-slate-900/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400',
-                    isSelected ? 'border-sky-500/45' : 'border-slate-800'
-                  ].join(' ')}
-                >
-                  <div className="flex min-w-0 items-start justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <MachineIcon machine={machine} />
-                      <div className="min-w-0">
-                        <Text className="block truncate text-sm font-semibold text-slate-100">
-                          {machine.name}
-                        </Text>
-                        <Text className="block truncate text-xs text-slate-500">
-                          {[machine.kind, machine.profile, machine.network.localName]
-                            .filter(Boolean)
-                            .join(' / ') || 'machine'}
-                        </Text>
-                      </div>
-                    </div>
-                    <span
-                      className={
-                        isOnline
-                          ? 'mt-1 size-2.5 rounded-full bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.6)]'
-                          : 'mt-1 size-2.5 rounded-full bg-slate-600'
-                      }
-                    />
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {machine.connector.serviceName ? (
-                      <Chip size="sm" variant="secondary">
-                        {machine.connector.serviceName}
-                      </Chip>
-                    ) : null}
-                    <Chip size="sm" className={connectorChipClass(machine.connector.status)}>
-                      {machine.connector.status}
-                    </Chip>
-                    <Chip size="sm" variant="tertiary">
-                      {machineProjects.length} projects
-                    </Chip>
-                    <BatteryMeter machine={machine} />
-                    <Chip size="sm" variant="tertiary">
-                      {formatLastSeen(machine.connector.lastSeen)}
-                    </Chip>
-                  </div>
-
-                  <Text className="mt-3 block truncate font-mono text-xs text-slate-500">
-                    {machine.connector.origin ??
-                      machine.network.tailscaleIp ??
-                      machine.connector.installCommand}
-                  </Text>
-                </button>
-              );
-            })}
+          <div className="mb-4 space-y-4">
+            {renderMachineSection('Connected', connectedMachines)}
+            {renderMachineSection('Disconnected', disconnectedMachines)}
           </div>
 
           <div className="mb-3">
-            <Text className="block text-sm font-semibold text-slate-100">
+            <Text className="block text-sm font-semibold text-neutral-100">
               {activeMachine?.name ?? 'Machine'} projects
             </Text>
-            <Text className="block text-sm text-slate-500">
+            <Text className="block text-sm text-neutral-500">
               Local folders are reachable through the connector on this machine.
             </Text>
           </div>
 
           {activeMachineProjects.length > 0 ? (
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="flex flex-col">
               {activeMachineProjects.map((project) => {
                 const status = getTemplateStatus(project);
 
@@ -662,30 +787,25 @@ export function ProjectHomeOverview({
                   <button
                     key={project.id}
                     type="button"
+                    title={`${project.rootPath} · ${project.kind}`}
                     onClick={() => onSelectProject(project.id)}
-                    className="min-w-0 rounded-lg border border-slate-800 bg-slate-950/55 p-4 text-left transition hover:border-slate-700 hover:bg-slate-900/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400"
+                    className="flex min-w-0 items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-neutral-900/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-300"
                   >
-                    <Text className="block truncate text-sm font-semibold text-slate-100">
+                    <Text className="min-w-0 truncate text-sm font-medium text-neutral-100">
                       {project.name}
                     </Text>
-                    <Text className="mt-1 block truncate font-mono text-xs text-slate-500">
-                      {project.rootPath}
-                    </Text>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Chip size="sm" className={configChipClass(status)}>
+                    {status !== 'implemented' ? (
+                      <Chip size="sm" className={['shrink-0', configChipClass(status)].join(' ')}>
                         {templateStatusLabels[status]}
                       </Chip>
-                      <Chip size="sm" variant="tertiary">
-                        {project.kind}
-                      </Chip>
-                    </div>
+                    ) : null}
                   </button>
                 );
               })}
             </div>
           ) : (
-            <div className="rounded-lg border border-slate-800 bg-slate-950/45 px-4 py-6">
-              <Text className="text-sm text-slate-500">
+            <div className="rounded-lg bg-neutral-950/45 px-4 py-6">
+              <Text className="text-sm text-neutral-500">
                 No local projects reported by this machine yet.
               </Text>
             </div>
@@ -702,96 +822,18 @@ export function ProjectHomeOverview({
       ) : null}
 
       {mode === 'projects' ? (
-        <>
-          <div className="mb-3">
-            <Text className="block text-sm font-semibold text-slate-100">Projects</Text>
-            <Text className="block text-sm text-slate-500">
-              GitHub repositories by workstation. Expand a row for local checkouts and worktrees.
-            </Text>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-800/80">
-            <div className="min-w-max">
-              <div
-                className="sticky top-0 z-10 grid border-b border-slate-800 bg-slate-950/95"
-                style={{ gridTemplateColumns: columnTemplate }}
-              >
-                <div className="flex items-center gap-2 px-4 py-3">
-                  <Github className="size-4 text-slate-500" />
-                  <Text className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    GitHub repository
-                  </Text>
-                  {githubCatalog.auth?.login ? (
-                    <Chip size="sm" variant="tertiary">
-                      @{githubCatalog.auth.login}
-                    </Chip>
-                  ) : null}
-                </div>
-                {machines.map((machine) => (
-                  <div key={machine.id} className="border-l border-slate-800 px-3 py-3">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <MachineIcon machine={machine} />
-                      <Text className="min-w-0 truncate text-sm font-semibold text-slate-200">
-                        {machine.name}
-                      </Text>
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-1.5">
-                      <Chip size="sm" className={connectorChipClass(machine.connector.status)}>
-                        {machine.connector.status}
-                      </Chip>
-                      <BatteryMeter machine={machine} />
-                      <Chip size="sm" variant="tertiary">
-                        {formatLastSeen(machine.connector.lastSeen)}
-                      </Chip>
-                    </div>
-                  </div>
-                ))}
+        <div className="flex max-h-[70vh] flex-col overflow-y-auto">
+          {githubRowGroups.map((group) => (
+            <div key={group.owner} className="mb-3 last:mb-0">
+              <Text className="mb-1 block px-3 text-xs font-medium text-neutral-600">
+                {group.owner}
+              </Text>
+              <div className={layout === 'grid' ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-3' : 'flex flex-col'}>
+                {group.items.map(layout === 'grid' ? renderProjectCard : renderProjectRow)}
               </div>
-
-              {githubRows.map((row) => {
-                const isExpanded = expandedRowId === row.id;
-
-                return (
-                  <div key={row.id}>
-                    <div
-                      className="grid border-b border-slate-900/80 hover:bg-slate-900/30"
-                      style={{ gridTemplateColumns: columnTemplate }}
-                    >
-                      <div className="min-w-0 px-4 py-3">
-                        <RepoCell row={row} isExpanded={isExpanded} onToggle={toggleRow} />
-                      </div>
-                      {machines.map((machine) => {
-                        const matches = row.localMatches.filter(
-                          (match) => match.machineId === machine.id
-                        );
-
-                        return (
-                          <div
-                            key={`${row.id}:${machine.id}`}
-                            className="flex items-center border-l border-slate-900/80 px-3 py-3"
-                          >
-                            <MatrixCell
-                              matches={matches}
-                              onSelectProject={onSelectProject}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {isExpanded ? (
-                      <WorktreeDrawer
-                        details={worktreeDetails[row.id]}
-                        isLoading={loadingRowId === row.id}
-                        machinesById={machinesById}
-                        row={row}
-                      />
-                    ) : null}
-                  </div>
-                );
-              })}
             </div>
-          </div>
-        </>
+          ))}
+        </div>
       ) : null}
     </div>
   );

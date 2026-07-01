@@ -5,12 +5,15 @@ import type {
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
 import { FileExplorer } from './file-explorer';
-import type { SidebarView } from './sidebar-view-tabs';
 import { WorkflowExplorer } from './workflow-explorer';
 
+export type SidebarView = 'workspace' | 'files';
+
 interface SidebarContentProps {
+  onOpenNewWorktree(): void;
   onSelectWorkspace(): void;
   onSelectWorktree(worktreeId: string): void;
+  onSidebarViewChange(nextView: SidebarView): void;
   project?: ProjectSpaceRecord;
   selectedExplorerTarget: ExplorerTarget;
   sidebarView: SidebarView;
@@ -18,8 +21,10 @@ interface SidebarContentProps {
 }
 
 export const SidebarContent = memo(function SidebarContent({
+  onOpenNewWorktree,
   onSelectWorkspace,
   onSelectWorktree,
+  onSidebarViewChange,
   project,
   selectedExplorerTarget,
   sidebarView,
@@ -28,6 +33,8 @@ export const SidebarContent = memo(function SidebarContent({
   if (sidebarView === 'workspace') {
     return (
       <WorkflowExplorer
+        onOpenFiles={() => onSidebarViewChange('files')}
+        onOpenNewWorktree={onOpenNewWorktree}
         onSelectWorkspace={onSelectWorkspace}
         project={project}
         selectedExplorerTarget={selectedExplorerTarget}
@@ -43,5 +50,5 @@ export const SidebarContent = memo(function SidebarContent({
         project?.rootPath
       : project?.rootPath;
 
-  return <FileExplorer rootPath={rootPath} />;
+  return <FileExplorer rootPath={rootPath} onBack={() => onSidebarViewChange('workspace')} />;
 });

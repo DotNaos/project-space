@@ -32,10 +32,11 @@ export interface ProjectSpaceRecord {
   id: string;
   name: string;
   rootPath: string;
-  kind: 'workspace' | 'standalone';
+  kind: 'workspace' | 'standalone' | 'github';
   groupId?: string;
   projectctl?: ProjectctlDiscoverySummary;
   fullstackTemplate?: FullstackTemplateCheck;
+  github?: GitHubCatalogRepository;
 }
 
 export interface ProjectGroupRecord {
@@ -134,6 +135,11 @@ export interface TerminalCommandRequest {
   command: string;
 }
 
+export interface MachineTerminalCommandRequest {
+  command: string;
+  machineId: string;
+}
+
 export interface TerminalCommandResult {
   command: string;
   cwd: string;
@@ -212,6 +218,30 @@ export interface GitHubCatalogRepository {
   pushedAt?: string;
   updatedAt?: string;
   url: string;
+}
+
+export interface GitHubBranchRecord {
+  isDefault: boolean;
+  name: string;
+  url?: string;
+}
+
+export interface GitHubIssueRecord {
+  author?: string;
+  labels: string[];
+  number: number;
+  state: 'open' | 'closed';
+  title: string;
+  updatedAt?: string;
+  url: string;
+}
+
+export interface GitHubRepositoryDetailsResult {
+  branches: GitHubBranchRecord[];
+  checkedAt: string;
+  issues: GitHubIssueRecord[];
+  message?: string;
+  status: GitHubCatalogStatus;
 }
 
 export interface GitHubCatalogResult {
@@ -294,6 +324,11 @@ export interface MachineRecord {
   kind: string;
   name: string;
   battery?: MachineBatteryRecord;
+  os?: {
+    codename?: string;
+    family?: string;
+    version?: string;
+  };
   primaryUser?: string;
   profile?: string;
   roles: string[];
@@ -586,6 +621,7 @@ export interface ProjectSpaceBackend {
   openPathInApp(request: OpenPathInAppRequest): Promise<OpenPathInAppResult>;
   readDirectory(path: string): Promise<FileSystemEntry[]>;
   runTerminalCommand(request: TerminalCommandRequest): Promise<TerminalCommandResult>;
+  runMachineTerminalCommand(request: MachineTerminalCommandRequest): Promise<TerminalCommandResult>;
   saveProjectsState(state: ProjectsState): Promise<void>;
   selectProjectDirectory(): Promise<ProjectDirectorySelection>;
   startGitHubOAuthDeviceFlow(): Promise<GitHubOAuthDeviceStartResult>;
@@ -593,6 +629,7 @@ export interface ProjectSpaceBackend {
     request: GitHubOAuthDevicePollRequest
   ): Promise<GitHubOAuthDevicePollResult>;
   getScopeDevboxOverview(): Promise<ScopeDevboxOverviewResult>;
+  getGitHubRepositoryDetails(fullName: string): Promise<GitHubRepositoryDetailsResult>;
   startScopeDevboxJob(request: ScopeDevboxStartRequest): Promise<ScopeDevboxJobRecord>;
   stageGitPaths(request: GitStageRequest): Promise<GitActionResult>;
   deployProject(request: ProjectDeployRequest): Promise<GitActionResult>;

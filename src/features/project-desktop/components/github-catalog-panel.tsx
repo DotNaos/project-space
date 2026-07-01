@@ -17,18 +17,18 @@ const emptyCatalog: GitHubCatalogResult = {
 
 function configChipClass(status: GitHubProjectConfigStatus) {
   if (status === 'complete') {
-    return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
+    return 'text-emerald-300';
   }
 
   if (status === 'partial') {
-    return 'border-amber-500/30 bg-amber-500/10 text-amber-200';
+    return 'text-amber-300';
   }
 
   if (status === 'unknown') {
-    return 'border-slate-600 bg-slate-800/80 text-slate-300';
+    return 'text-neutral-300';
   }
 
-  return 'border-slate-700 bg-slate-900/80 text-slate-400';
+  return 'text-neutral-500';
 }
 
 function summarizeConfig(repositories: GitHubCatalogRepository[]) {
@@ -60,21 +60,21 @@ function GitHubAuthPanel({
   onPoll(): void;
 }) {
   return (
-    <div className="rounded-lg border border-dashed border-slate-800 bg-slate-950/30 px-4 py-3">
-      <Text className="block text-sm font-medium text-slate-200">
+    <div className="rounded-lg border border-dashed border-neutral-800 bg-neutral-950/30 px-4 py-3">
+      <Text className="block text-sm font-medium text-neutral-200">
         {catalog.status === 'not-configured' ? 'OAuth not configured' : 'Connect GitHub'}
       </Text>
-      <Text className="mt-1 block text-sm text-slate-500">
+      <Text className="mt-1 block text-sm text-neutral-500">
         {catalog.message ?? 'Connect a GitHub account to load remote repositories.'}
       </Text>
 
       {flow?.status === 'pending' ? (
         <div className="mt-4 grid gap-3">
-          <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
-            <Text className="block text-xs uppercase tracking-[0.16em] text-slate-500">
+          <div className="rounded-lg border border-neutral-800 bg-neutral-950/70 px-3 py-2">
+            <Text className="block text-xs uppercase tracking-[0.16em] text-neutral-500">
               GitHub code
             </Text>
-            <Text className="mt-1 block font-mono text-lg font-semibold text-slate-50">
+            <Text className="mt-1 block font-mono text-lg font-semibold text-neutral-50">
               {flow.userCode}
             </Text>
           </div>
@@ -177,20 +177,20 @@ export function GitHubCatalogPanel() {
     <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
       <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
         <div className="min-w-0">
-          <Text className="block truncate text-sm font-semibold text-slate-100">
+          <Text className="block truncate text-sm font-semibold text-neutral-100">
             {catalog.auth?.login ? `@${catalog.auth.login}` : 'GitHub'}
           </Text>
-          <Text className="block truncate text-xs text-slate-500">
+          <Text className="block truncate text-xs text-neutral-500">
             {catalog.auth?.source ?? 'connected'} / {catalog.repositories.length} repositories
           </Text>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Chip size="sm" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-200">
+        <div className="flex flex-wrap gap-x-3 gap-y-1">
+          <Chip size="sm" className="text-emerald-300">
             {configSummary.complete} complete
           </Chip>
           {configSummary.partial > 0 ? (
-            <Chip size="sm" className="border-amber-500/30 bg-amber-500/10 text-amber-200">
+            <Chip size="sm" className="text-amber-300">
               {configSummary.partial} partial
             </Chip>
           ) : null}

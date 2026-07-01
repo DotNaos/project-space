@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
+import { FolderKanban, House, Server } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useProjectDesktop } from '../hooks/use-project-desktop';
+import type { ProjectMainView } from '../hooks/use-project-desktop';
 import { useResizableSidebar } from '../hooks/use-resizable-sidebar';
 import { useSidebarSwipeNavigation } from '../hooks/use-sidebar-swipe-navigation';
 import { ProjectMainPanel } from './project-main-panel';
@@ -7,12 +10,13 @@ import { ProjectSidebarPane } from './project-sidebar-pane';
 import { SidebarToggleButton } from './sidebar-toggle-button';
 
 const SIDEBAR_DEFAULT_WIDTH = 294;
+const SIDEBAR_COLLAPSED_WIDTH = 64;
 const SIDEBAR_MIN_WIDTH = 248;
 const SIDEBAR_MAX_WIDTH = 420;
-const TITLEBAR_TOGGLE_LEFT = 90;
+const TITLEBAR_TOGGLE_LEFT = 12;
 const TITLEBAR_TOGGLE_TOP = 12;
-const TITLEBAR_TOGGLE_SIZE = 32;
-const TITLEBAR_SAFE_INSET = TITLEBAR_TOGGLE_LEFT + TITLEBAR_TOGGLE_SIZE + 24;
+const TITLEBAR_TOGGLE_SIZE = 40;
+const TITLEBAR_SAFE_INSET = TITLEBAR_TOGGLE_LEFT + TITLEBAR_TOGGLE_SIZE + 16;
 const COMPACT_VIEWPORT_WIDTH = 760;
 const COMPACT_TITLEBAR_TOGGLE_LEFT = 12;
 const COMPACT_TITLEBAR_SAFE_INSET = COMPACT_TITLEBAR_TOGGLE_LEFT + TITLEBAR_TOGGLE_SIZE + 16;
@@ -21,17 +25,89 @@ function isCompactViewport() {
   return typeof window !== 'undefined' && window.innerWidth < COMPACT_VIEWPORT_WIDTH;
 }
 
+interface MobileTabBarProps {
+  mainView: ProjectMainView;
+  onOpenRoot(): void;
+  onOpenMachines(): void;
+  onOpenProjects(): void;
+}
+
+function MobileTabBar({
+  mainView,
+  onOpenRoot,
+  onOpenMachines,
+  onOpenProjects
+}: MobileTabBarProps) {
+  const items = [
+    {
+      icon: House,
+      isActive: mainView === 'root',
+      label: 'Home',
+      onPress: onOpenRoot
+    },
+    {
+      icon: Server,
+      isActive: mainView === 'machines' || mainView === 'machine',
+      label: 'Machines',
+      onPress: onOpenMachines
+    },
+    {
+      icon: FolderKanban,
+      isActive: mainView === 'projects' || mainView === 'project',
+      label: 'Projects',
+      onPress: onOpenProjects
+    }
+  ];
+
+  return (
+    <nav
+      aria-label="Primary"
+      className="app-no-drag pointer-events-auto absolute inset-x-0 bottom-0 z-50 border-t border-neutral-800/90 bg-app-panel/95 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-16px_40px_rgba(0,0,0,0.35)] backdrop-blur"
+    >
+      <div className="grid grid-cols-3 gap-1">
+        {items.map((item) => {
+          const Icon = item.icon;
+
+          return (
+            <button
+              key={item.label}
+              type="button"
+              aria-current={item.isActive ? 'page' : undefined}
+              onClick={item.onPress}
+              className={cn(
+                'flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-2 text-[11px] font-medium transition',
+                item.isActive
+                  ? 'bg-neutral-800 text-neutral-50'
+                  : 'text-neutral-500 hover:bg-neutral-900/70 hover:text-neutral-200'
+              )}
+            >
+              <Icon className="size-5" strokeWidth={1.9} />
+              <span className="max-w-full truncate">{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
 export function ProjectDesktopShell() {
   const desktop = useProjectDesktop();
   const [isCompact, setIsCompact] = useState(isCompactViewport);
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => !isCompactViewport());
+  const [sidebarMode, setSidebarMode] = useState<ProjectMainView>('root');
+  const useBottomTabBar = isCompact;
   const { isResizingSidebar, sidebarWidth, startSidebarResize } = useResizableSidebar({
     initialWidth: SIDEBAR_DEFAULT_WIDTH,
     maxWidth: SIDEBAR_MAX_WIDTH,
     minWidth: SIDEBAR_MIN_WIDTH
   });
   const titlebarToggleLeft = isCompact ? COMPACT_TITLEBAR_TOGGLE_LEFT : TITLEBAR_TOGGLE_LEFT;
-  const titlebarSafeInset = isCompact ? COMPACT_TITLEBAR_SAFE_INSET : TITLEBAR_SAFE_INSET;
+  const titlebarSafeInset = !isSidebarOpen
+    ? SIDEBAR_COLLAPSED_WIDTH
+    : isCompact
+      ? COMPACT_TITLEBAR_SAFE_INSET
+      : TITLEBAR_SAFE_INSET;
 
   useEffect(() => {
     function updateViewportMode() {
@@ -51,6 +127,50 @@ export function ProjectDesktopShell() {
     };
   }, []);
 
+  useEffect(() => {
+    if (desktop.mainView === 'project' && desktop.selectedProjectId) {
+      setSidebarMode('project');
+    }
+
+    if (desktop.mainView === 'machine' && desktop.selectedMachineId) {
+      setSidebarMode('machine');
+    }
+  }, [desktop.mainView, desktop.selectedMachineId, desktop.selectedProjectId]);
+
+  function openSidebarRoot() {
+    setSidebarMode('root');
+  }
+
+  function openHomeFromSidebar() {
+    setSidebarMode('root');
+    desktop.openRoot();
+  }
+
+  function openSidebarMachines() {
+    setSidebarMode('machines');
+    setIsSidebarOpen(true);
+  }
+
+  function openSidebarProjects() {
+    setSidebarMode('projects');
+    setIsSidebarOpen(true);
+  }
+
+  function selectProjectFromSidebar(projectId: string, groupId?: string) {
+    setSidebarMode('project');
+    desktop.selectProject(projectId, groupId);
+  }
+
+  function selectNavigationItemFromSidebar(itemId: string) {
+    setSidebarMode('project');
+    desktop.selectNavigationItem(itemId);
+  }
+
+  function selectMachineFromSidebar(machineId: string) {
+    setSidebarMode('machine');
+    desktop.openMachine(machineId);
+  }
+
   const {
     currentPanelRef,
     handleSidebarWheel,
@@ -68,80 +188,100 @@ export function ProjectDesktopShell() {
   });
 
   return (
-    <div className="relative h-screen overflow-hidden bg-app-canvas text-slate-100">
-      <div
-        className="app-drag absolute top-0 left-0 z-30 h-14"
-        style={{
-          width: `${titlebarSafeInset}px`
-        }}
-      >
-        <SidebarToggleButton
-          isOpen={isSidebarOpen}
-          left={titlebarToggleLeft}
-          top={TITLEBAR_TOGGLE_TOP}
-          onToggle={() => {
-            setIsSidebarOpen((current) => !current);
+    <div className="relative h-screen overflow-hidden bg-app-canvas text-neutral-100">
+      {!useBottomTabBar ? (
+        <div
+          className="app-drag absolute top-0 left-0 z-50 flex h-14 items-center"
+          style={{
+            width: `${titlebarSafeInset}px`
           }}
-        />
-      </div>
+        >
+          <SidebarToggleButton
+            isOpen={isSidebarOpen}
+            left={titlebarToggleLeft}
+            top={TITLEBAR_TOGGLE_TOP}
+            onToggle={() => {
+              setIsSidebarOpen((current) => !current);
+            }}
+          />
+        </div>
+      ) : null}
 
       <div
         className="grid h-full"
         style={{
-          gridTemplateColumns: isSidebarOpen
-            ? `${isCompact ? `min(82vw, ${sidebarWidth}px)` : `${sidebarWidth}px`} minmax(0,1fr)`
-            : '0px minmax(0,1fr)',
+          gridTemplateColumns: useBottomTabBar
+            ? 'minmax(0,1fr)'
+            : isSidebarOpen
+              ? `${sidebarWidth}px minmax(0,1fr)`
+              : `${SIDEBAR_COLLAPSED_WIDTH}px minmax(0,1fr)`,
           transition: isResizingSidebar ? 'none' : 'grid-template-columns 200ms ease-out'
         }}
       >
-        <ProjectSidebarPane
-          activeNavigationItemId={desktop.activeNavigationItemId}
-          currentPanelRef={currentPanelRef}
-          discoveryRoot={desktop.discoveryRoot}
-          groups={desktop.groups}
-          groupedProjects={desktop.groupedProjects}
-          groupedProjectsLabel={desktop.groupedProjectsLabel}
-          isOpen={isSidebarOpen}
-          navigationItems={desktop.navigationItems}
-          onCreateProject={desktop.createProject}
-          onOpenMachines={desktop.openMachines}
-          onOpenProjects={desktop.openProjects}
-          onOpenNewWorktree={desktop.openNewWorktreeWorkspace}
-          onResizeStart={(event) => {
-            event.preventDefault();
-            startSidebarResize();
-          }}
-          onSelectProject={desktop.selectProject}
-          onSelectNavigationItem={desktop.selectNavigationItem}
-          onSelectWorkspace={desktop.selectWorkspace}
-          onSelectWorktree={desktop.selectWorktree}
-          onSidebarViewChange={desktop.setSidebarView}
-          onSidebarWheel={handleSidebarWheel}
-          previewPanelRef={previewPanelRef}
-          previewProject={previewProject}
-          previewWorktrees={previewWorktrees}
-          isMachinesSelected={desktop.mainView === 'machines'}
-          isProjectsSelected={desktop.mainView === 'projects'}
-          project={desktop.project}
-          projects={desktop.projects}
-          rootItems={desktop.rootItems}
-          selectedExplorerTarget={desktop.selectedExplorerTarget}
-          selectedProjectId={desktop.selectedProjectId}
-          sidebarView={desktop.sidebarView}
-          titlebarSafeInset={titlebarSafeInset}
-          worktrees={desktop.worktrees}
-        />
+        {!useBottomTabBar ? (
+          <ProjectSidebarPane
+            activeNavigationItemId={desktop.activeNavigationItemId}
+            connectorOverview={desktop.connectorOverview}
+            currentPanelRef={currentPanelRef}
+            groups={desktop.groups}
+            groupedProjects={desktop.groupedProjects}
+            groupedProjectsLabel={desktop.groupedProjectsLabel}
+            isOpen={isSidebarOpen}
+            navigationItems={desktop.navigationItems}
+            onCreateProject={desktop.createProject}
+            onOpenHome={openHomeFromSidebar}
+            onOpenRoot={openSidebarRoot}
+            onOpenMachines={openSidebarMachines}
+            onOpenProjects={openSidebarProjects}
+            onOpenNewWorktree={desktop.openNewWorktreeWorkspace}
+            onResizeStart={(event) => {
+              event.preventDefault();
+              startSidebarResize();
+            }}
+            onSelectProject={selectProjectFromSidebar}
+            onSelectMachine={selectMachineFromSidebar}
+            onSelectNavigationItem={selectNavigationItemFromSidebar}
+            onSelectWorkspace={desktop.selectWorkspace}
+            onSelectWorktree={desktop.selectWorktree}
+            onSidebarViewChange={desktop.setSidebarView}
+            onSidebarWheel={handleSidebarWheel}
+            previewPanelRef={previewPanelRef}
+            previewProject={previewProject}
+            previewWorktrees={previewWorktrees}
+            isHomeSelected={desktop.mainView === 'root'}
+            isMachinesSelected={sidebarMode === 'machines'}
+            isProjectsSelected={sidebarMode === 'projects'}
+            project={desktop.project}
+            projects={desktop.projects}
+            rootItems={desktop.rootItems}
+            selectedExplorerTarget={desktop.selectedExplorerTarget}
+            selectedMachine={desktop.selectedMachine}
+            selectedMachineId={desktop.selectedMachineId}
+            selectedProjectId={desktop.selectedProjectId}
+            sidebarMode={sidebarMode}
+            sidebarView={desktop.sidebarView}
+            titlebarSafeInset={titlebarSafeInset}
+            worktrees={desktop.worktrees}
+          />
+        ) : null}
 
         <ProjectMainPanel
-          discoveryRoot={desktop.discoveryRoot}
+          connectorOverview={desktop.connectorOverview}
+          githubCatalog={desktop.githubCatalog}
+          hasBottomTabBar={useBottomTabBar}
           isSidebarOpen={isSidebarOpen}
+          isConnectorRefreshing={desktop.isConnectorRefreshing}
+          isGitHubRefreshing={desktop.isGitHubRefreshing}
           launcherApps={desktop.launcherApps}
           launcherError={desktop.launcherError}
           mainView={desktop.mainView}
           onCreateProject={desktop.createProject}
           onOpenMachines={desktop.openMachines}
+          onOpenMachine={desktop.openMachine}
           onOpenProjects={desktop.openProjects}
           onOpenSelectedTarget={desktop.openSelectedTargetInApp}
+          onRefreshConnectorOverview={desktop.refreshConnectorOverview}
+          onRefreshGitHubCatalog={desktop.refreshGitHubCatalog}
           onSelectLauncherApp={desktop.selectLauncherApp}
           onSelectProject={desktop.selectProject}
           project={desktop.project}
@@ -149,11 +289,22 @@ export function ProjectDesktopShell() {
           selectedApp={desktop.selectedLauncherApp}
           selectedAppLabel={desktop.selectedLauncherAppLabel}
           selectedExplorerTarget={desktop.selectedExplorerTarget}
+          selectedMachine={desktop.selectedMachine}
+          selectedMachineId={desktop.selectedMachineId}
           selectedTargetName={desktop.selectedTargetName}
           selectedTargetPath={desktop.selectedTargetPath}
-          sidebarClosedPaddingLeft={titlebarSafeInset}
+          sidebarClosedPaddingLeft={useBottomTabBar ? 16 : titlebarSafeInset}
         />
       </div>
+
+      {useBottomTabBar ? (
+        <MobileTabBar
+          mainView={desktop.mainView}
+          onOpenRoot={desktop.openRoot}
+          onOpenMachines={desktop.openMachines}
+          onOpenProjects={desktop.openProjects}
+        />
+      ) : null}
     </div>
   );
 }

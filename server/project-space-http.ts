@@ -4,11 +4,13 @@ import { extname, join, normalize, resolve } from 'node:path';
 
 import { createLocalProjectSpaceBackend } from './local-project-space-backend';
 import { registerConnectorProjectRegistry } from './connector-hub';
+import { createMachineTerminalUpgradeHandler } from './machine-terminal-websocket';
 import type {
   ConnectorProjectRegistryResult,
   OpenPathInAppRequest,
   CodexOpenRequest,
   GitHubOAuthDevicePollRequest,
+  MachineTerminalCommandRequest,
   ProjectBackupRequest,
   ProjectCliCommandRequest,
   GitCommitRequest,
@@ -222,6 +224,18 @@ function createApiHandler(backend: ProjectSpaceBackend) {
         return true;
       }
 
+      if (request.method === 'GET' && url.pathname === '/api/github/repository-details') {
+        const fullName = url.searchParams.get('fullName');
+
+        if (!fullName) {
+          writeJson(response, 400, { error: 'Missing fullName.' });
+          return true;
+        }
+
+        writeJson(response, 200, await backend.getGitHubRepositoryDetails(fullName));
+        return true;
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/github/oauth/device/start') {
         writeJson(response, 200, await backend.startGitHubOAuthDeviceFlow());
         return true;
@@ -259,6 +273,12 @@ function createApiHandler(backend: ProjectSpaceBackend) {
       if (request.method === 'POST' && url.pathname === '/api/terminal/run') {
         const payload = await readJson<TerminalCommandRequest>(request);
         writeJson(response, 200, await backend.runTerminalCommand(payload));
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/machines/terminal/run') {
+        const payload = await readJson<MachineTerminalCommandRequest>(request);
+        writeJson(response, 200, await backend.runMachineTerminalCommand(payload));
         return true;
       }
 
@@ -378,7 +398,18 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
 
 export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions = {}) {
   const host = options.host ?? '127.0.0.1';
-  const server = createServer(createProjectSpaceRequestHandler(options));
+  const backend = options.backend ?? createLocalProjectSpaceBackend();
+  const server = createServer(createProjectSpaceRequestHandler({
+    ...options,
+    backend
+  }));
+  const handleMachineTerminalUpgrade = createMachineTerminalUpgradeHandler(backend);
+
+  server.on('upgrade', (request, socket, head) => {
+    if (!handleMachineTerminalUpgrade(request, socket, head)) {
+      socket.destroy();
+    }
+  });
 
   await new Promise<void>((resolveListen) => {
     server.listen(options.port ?? 0, host, resolveListen);

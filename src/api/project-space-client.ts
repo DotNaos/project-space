@@ -9,12 +9,14 @@ import type {
   GitDiffRequest,
   GitDiffResult,
   GitHubCatalogResult,
+  GitHubRepositoryDetailsResult,
   GitHubOAuthDevicePollRequest,
   GitHubOAuthDevicePollResult,
   GitHubOAuthDeviceStartResult,
   GitStageRequest,
   GitStatusResult,
   LauncherAppRecord,
+  MachineTerminalCommandRequest,
   OpenPathInAppRequest,
   OpenPathInAppResult,
   PlatformOverviewResult,
@@ -114,6 +116,12 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     return this.request('/api/github/catalog');
   }
 
+  getGitHubRepositoryDetails(fullName: string): Promise<GitHubRepositoryDetailsResult> {
+    const query = new URLSearchParams({ fullName });
+
+    return this.request(`/api/github/repository-details?${query.toString()}`);
+  }
+
   getGitDiff(request: GitDiffRequest): Promise<GitDiffResult> {
     return this.request('/api/git/diff', {
       body: JSON.stringify(request),
@@ -195,6 +203,15 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
 
   runTerminalCommand(request: TerminalCommandRequest): Promise<TerminalCommandResult> {
     return this.request('/api/terminal/run', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  runMachineTerminalCommand(
+    request: MachineTerminalCommandRequest
+  ): Promise<TerminalCommandResult> {
+    return this.request('/api/machines/terminal/run', {
       body: JSON.stringify(request),
       method: 'POST'
     });

@@ -9,7 +9,7 @@
     "project": "./bin/project"
   },
   "scripts": {
-    "dev": "VITE_PROJECT_SPACE_API_BASE_URL=http://127.0.0.1:45873 vite --host 127.0.0.1",
+    "dev": "vite --host 127.0.0.1",
     "dev:electron": "vite --mode electron --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "build:connector:macos-arm64": "bun build --compile --target=bun-darwin-arm64 server/web-server.ts --outfile dist/project-space-connector",
@@ -28,9 +28,12 @@
   },
   "dependencies": {
     "@dotnaos/react-ui": "^0.0.2",
+    "@wterm/dom": "^0.3.0",
     "lucide-react": "^0.577.0",
+    "node-pty": "^1.1.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "ws": "^8.21.0",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
@@ -38,6 +41,7 @@
     "@types/node": "^24.3.0",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.0.0",
     "electron": "^37.2.0",
     "react-devtools-core": "^7.0.1",

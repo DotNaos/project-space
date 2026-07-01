@@ -75,21 +75,21 @@ function ProjectPickerRow({
       className={cn(
         'group grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg px-3 py-2.5 text-left transition',
         selected
-          ? 'bg-slate-800/80 text-slate-50 shadow-inner shadow-slate-950/25'
-          : 'text-slate-300 hover:bg-slate-900/70 hover:text-slate-50'
+          ? 'bg-neutral-800/80 text-neutral-50 shadow-inner shadow-neutral-950/25'
+          : 'text-neutral-300 hover:bg-neutral-900/70 hover:text-neutral-50'
       )}
     >
       <span className="grid min-w-0 gap-1">
         <span className="truncate text-sm font-semibold leading-5">
           {project.name}
         </span>
-        <span className="truncate font-mono text-[11px] leading-4 text-slate-500 group-hover:text-slate-400">
+        <span className="truncate font-mono text-[11px] leading-4 text-neutral-500 group-hover:text-neutral-400">
           {project.rootPath}
         </span>
       </span>
       <span className="flex shrink-0 items-center gap-2">
         {project.kind === 'workspace' ? (
-          <span className="hidden text-[10px] uppercase tracking-[0.18em] text-slate-500 sm:inline">
+          <span className="hidden text-[10px] uppercase tracking-[0.18em] text-neutral-500 sm:inline">
             WS
           </span>
         ) : null}
@@ -98,7 +98,7 @@ function ProjectPickerRow({
           <ProjectTemplateStatusPill check={project.fullstackTemplate} />
         </span>
         {selected ? (
-          <span className="inline-flex size-6 items-center justify-center rounded-md bg-sky-400/15 text-sky-200">
+          <span className="inline-flex size-6 items-center justify-center rounded-md bg-neutral-100 text-neutral-900">
             <Check className="size-3.5" strokeWidth={2} />
           </span>
         ) : null}
@@ -267,7 +267,7 @@ export function ProjectSpacesPicker({
             <Surface
               ref={contentRef}
               variant="transparent"
-              className="flex max-h-[min(620px,calc(100vh-6rem))] min-h-0 flex-col rounded-xl border border-slate-800 bg-slate-950 p-3 shadow-2xl shadow-black/70"
+              className="flex max-h-[min(620px,calc(100vh-6rem))] min-h-0 flex-col rounded-xl border border-neutral-800 bg-neutral-950 p-3 shadow-2xl shadow-black/70"
               style={{ backgroundColor: '#020617' }}
             >
               <SearchField
@@ -276,7 +276,7 @@ export function ProjectSpacesPicker({
                 onChange={setQuery}
                 className="w-full"
               >
-                <SearchFieldGroup className="rounded-lg border border-slate-800/80 bg-slate-950/70">
+                <SearchFieldGroup className="rounded-lg border border-neutral-800/80 bg-neutral-950/70">
                   <SearchFieldSearchIcon />
                   <SearchFieldInput
                     ref={searchInputRef}
@@ -293,7 +293,7 @@ export function ProjectSpacesPicker({
                   <div className="space-y-4 pb-1">
                     {filteredStandaloneProjectIds.length > 0 ? (
                       <div className="grid gap-1">
-                        <Text className="px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
+                        <Text className="px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-neutral-500">
                           Projects
                         </Text>
 
@@ -332,16 +332,16 @@ export function ProjectSpacesPicker({
                         {filteredGroupedSections.map((section) => (
                           <Accordion.Item key={section.id} id={section.id}>
                             <Accordion.Heading>
-                              <Accordion.Trigger className="rounded-2xl px-3 py-3 text-left text-sm font-medium text-slate-200 transition hover:bg-slate-900/40 data-[expanded=true]:bg-slate-900/25">
+                              <Accordion.Trigger className="rounded-2xl px-3 py-3 text-left text-sm font-medium text-neutral-200 transition hover:bg-neutral-900/40 data-[expanded=true]:bg-neutral-900/25">
                                 <span className="flex min-w-0 items-center gap-2">
-                                  <Folder className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={1.8} />
+                                  <Folder className="h-4 w-4 shrink-0 text-neutral-500" strokeWidth={1.8} />
                                   <span className="truncate">{section.label}</span>
                                 </span>
-                                <Accordion.Indicator className="text-slate-500" />
+                                <Accordion.Indicator className="text-neutral-500" />
                               </Accordion.Trigger>
                             </Accordion.Heading>
                             <Accordion.Panel>
-                              <Accordion.Body className="ml-3 grid gap-1 border-l border-slate-800/60 px-0 pt-1 pb-0 pl-2">
+                              <Accordion.Body className="ml-3 grid gap-1 border-l border-neutral-800/60 px-0 pt-1 pb-0 pl-2">
                                 {section.projectIds.map((projectId) => {
                                   const project = projectsById[projectId];
                                   if (!project) {
@@ -368,7 +368,7 @@ export function ProjectSpacesPicker({
                   </div>
                 ) : (
                   <div className="flex h-full items-center justify-center px-3 py-3">
-                    <Text className="text-sm text-slate-500">
+                    <Text className="text-sm text-neutral-500">
                       No matching projects.
                     </Text>
                   </div>
