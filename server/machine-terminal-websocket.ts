@@ -8,6 +8,11 @@ import type { IncomingMessage } from 'node:http';
 import type { IPty } from 'node-pty';
 import { WebSocketServer, WebSocket } from 'ws';
 
+import {
+  isProjectSpaceAuthRequired,
+  readAuthSessionFromUrl,
+  runWithAuthSession
+} from './local-auth-store';
 import type { MachineRecord, ProjectSpaceBackend } from '../src/shared/project-space-api';
 
 interface TerminalClientMessage {
@@ -181,6 +186,18 @@ export function createMachineTerminalUpgradeHandler(backend: ProjectSpaceBackend
     socket.on('message', queueMessage);
 
     try {
+      const authSession = readAuthSessionFromUrl(url);
+
+      if (isProjectSpaceAuthRequired() && !authSession) {
+        sendJson(socket, {
+          data: 'Login required.\r\n',
+          type: 'output'
+        });
+        socket.close();
+        return;
+      }
+
+      await runWithAuthSession(authSession, async () => {
       const overview = await backend.getConnectorOverview();
       const machine = overview.machines.find((entry) => entry.id === machineId);
 
@@ -209,6 +226,7 @@ export function createMachineTerminalUpgradeHandler(backend: ProjectSpaceBackend
       for (const message of queuedMessages) {
         applyTerminalMessage(pty, parseMessage(message));
       }
+      });
     } catch (error) {
       socket.off('message', queueMessage);
       sendJson(socket, {

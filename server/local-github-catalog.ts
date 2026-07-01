@@ -14,6 +14,11 @@ import type {
   GitHubRepositoryDetailsResult,
   GitHubProjectConfigStatus
 } from '../src/shared/project-space-api';
+import {
+  getCurrentAuthSession,
+  getCurrentGitHubToken,
+  isProjectSpaceAuthRequired
+} from './local-auth-store';
 
 interface StoredGitHubToken {
   accessToken: string;
@@ -150,6 +155,22 @@ async function readLogin(token: string) {
 }
 
 async function resolveToken(): Promise<TokenResolution | null> {
+  const sessionToken = getCurrentGitHubToken();
+
+  if (sessionToken) {
+    const session = getCurrentAuthSession();
+
+    return {
+      login: session?.login,
+      source: 'stored-oauth',
+      token: sessionToken
+    };
+  }
+
+  if (isProjectSpaceAuthRequired() && process.env.PROJECT_SPACE_ALLOW_GLOBAL_GITHUB_TOKEN !== '1') {
+    return null;
+  }
+
   const stored = readStoredToken();
 
   if (stored) {

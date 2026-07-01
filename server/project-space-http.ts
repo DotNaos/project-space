@@ -5,10 +5,21 @@ import { extname, join, normalize, resolve } from 'node:path';
 import { createLocalProjectSpaceBackend } from './local-project-space-backend';
 import { registerConnectorProjectRegistry } from './connector-hub';
 import { createMachineTerminalUpgradeHandler } from './machine-terminal-websocket';
+import {
+  getProjectSpaceAuthSessionResult,
+  isProjectSpaceAuthRequired,
+  pollProjectSpaceAuthDeviceFlow,
+  readAuthSessionFromRequest,
+  readAuthTokenFromRequest,
+  revokeProjectSpaceAuthSession,
+  runWithAuthSession,
+  startProjectSpaceAuthDeviceFlow
+} from './local-auth-store';
 import type {
   ConnectorProjectRegistryResult,
   OpenPathInAppRequest,
   CodexOpenRequest,
+  ProjectSpaceAuthDevicePollRequest,
   GitHubOAuthDevicePollRequest,
   MachineTerminalCommandRequest,
   ProjectBackupRequest,
@@ -44,7 +55,7 @@ const contentTypes: Record<string, string> = {
 
 function writeJson(response: ServerResponse, statusCode: number, payload: unknown) {
   response.writeHead(statusCode, {
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
     'Access-Control-Allow-Private-Network': 'true',
     'Access-Control-Allow-Origin': '*',
@@ -55,7 +66,7 @@ function writeJson(response: ServerResponse, statusCode: number, payload: unknow
 
 function writeEmpty(response: ServerResponse, statusCode = 204) {
   response.writeHead(statusCode, {
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
     'Access-Control-Allow-Private-Network': 'true',
     'Access-Control-Allow-Origin': '*'
@@ -97,6 +108,40 @@ function createApiHandler(backend: ProjectSpaceBackend) {
         return true;
       }
 
+      if (request.method === 'GET' && url.pathname === '/api/auth/session') {
+        writeJson(
+          response,
+          200,
+          getProjectSpaceAuthSessionResult(readAuthTokenFromRequest(request))
+        );
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/auth/github/device/start') {
+        writeJson(response, 200, await startProjectSpaceAuthDeviceFlow());
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/auth/github/device/poll') {
+        const payload = await readJson<ProjectSpaceAuthDevicePollRequest>(request);
+        writeJson(response, 200, await pollProjectSpaceAuthDeviceFlow(payload));
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/auth/logout') {
+        revokeProjectSpaceAuthSession(readAuthTokenFromRequest(request));
+        writeJson(response, 200, { ok: true });
+        return true;
+      }
+
+      const authSession = readAuthSessionFromRequest(request);
+
+      if (isProjectSpaceAuthRequired() && !authSession) {
+        writeJson(response, 401, { error: 'Login required.' });
+        return true;
+      }
+
+      return await runWithAuthSession(authSession, async () => {
       if (request.method === 'GET' && url.pathname === '/api/launcher/apps') {
         writeJson(response, 200, await backend.loadLauncherApps());
         return true;
@@ -336,6 +381,7 @@ function createApiHandler(backend: ProjectSpaceBackend) {
       }
 
       return false;
+      });
     } catch (error) {
       writeJson(response, 500, {
         error: error instanceof Error ? error.message : 'Unexpected backend error.'

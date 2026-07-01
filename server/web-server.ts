@@ -17,6 +17,9 @@ Usage:
 Environment:
   PROJECT_SPACE_HOST  Host to bind. Defaults to 127.0.0.1.
   PROJECT_SPACE_PORT  Port to bind. Defaults to 4173.
+  GITHUB_OAUTH_CLIENT_ID  GitHub OAuth app client ID for login.
+  PROJECT_SPACE_ALLOWED_GITHUB_LOGINS  Optional comma-separated GitHub login allowlist.
+  PROJECT_SPACE_AUTH_DISABLED=1  Disable login protection for trusted local debugging only.
 
 After starting the connector, open:
   https://project-space-mu.vercel.app
