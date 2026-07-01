@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Battery,
-  BatteryCharging,
   ChevronDown,
   ExternalLink,
   Github,
@@ -173,32 +171,55 @@ function formatLastSeen(value?: string) {
   return hours < 24 ? `${hours}h` : `${Math.round(hours / 24)}d`;
 }
 
-function formatBattery(machine: MachineRecord) {
+function batteryFillClass(percentage: number) {
+  if (percentage <= 20) {
+    return 'bg-red-400';
+  }
+
+  if (percentage <= 50) {
+    return 'bg-amber-300';
+  }
+
+  return 'bg-emerald-400';
+}
+
+function formatBatteryState(machine: MachineRecord) {
   if (!machine.battery) {
     return undefined;
   }
 
-  const suffix =
-    machine.battery.state && machine.battery.state !== 'unknown'
-      ? ` ${machine.battery.state}`
-      : '';
-
-  return `${machine.battery.percentage}%${suffix}`;
+  return machine.battery.state && machine.battery.state !== 'unknown'
+    ? machine.battery.state
+    : undefined;
 }
 
-function BatteryIcon({ machine }: { machine: MachineRecord }) {
-  return machine.battery?.state === 'charging' ? (
-    <BatteryCharging className="size-3.5" />
-  ) : (
-    <Battery className="size-3.5" />
-  );
-}
+function BatteryMeter({ machine }: { machine: MachineRecord }) {
+  if (!machine.battery) {
+    return null;
+  }
 
-function BatteryChipContent({ machine, label }: { label: string; machine: MachineRecord }) {
+  const percentage = Math.max(0, Math.min(100, Math.round(machine.battery.percentage)));
+  const state = formatBatteryState(machine);
+
   return (
-    <span className="inline-flex items-center gap-1">
-      <BatteryIcon machine={machine} />
-      {label}
+    <span
+      aria-label={`Battery ${percentage}%${state ? ` ${state}` : ''}`}
+      className="inline-flex items-center gap-2 rounded-full border border-slate-600/80 bg-slate-950/80 px-2 py-1 text-xs font-semibold text-slate-100 shadow-inner shadow-slate-950/80"
+    >
+      <span className="inline-flex items-center" aria-hidden="true">
+        <span className="flex h-4 w-8 items-center rounded-[4px] border border-slate-300/80 bg-slate-950 p-[2px]">
+          <span
+            className={[
+              'block h-full min-w-1 rounded-[2px] transition-[width]',
+              batteryFillClass(percentage)
+            ].join(' ')}
+            style={{ width: `${percentage}%` }}
+          />
+        </span>
+        <span className="h-2 w-1 rounded-r-[2px] bg-slate-300/80" />
+      </span>
+      <span className="tabular-nums">{percentage}%</span>
+      {state ? <span className="font-medium text-slate-400">{state}</span> : null}
     </span>
   );
 }
@@ -561,7 +582,6 @@ export function ProjectHomeOverview({
               const isOnline =
                 machine.connector.status === 'local' || machine.connector.status === 'online';
               const isSelected = machine.id === activeMachineId;
-              const batteryLabel = formatBattery(machine);
 
               return (
                 <button
@@ -608,11 +628,7 @@ export function ProjectHomeOverview({
                     <Chip size="sm" variant="tertiary">
                       {machineProjects.length} projects
                     </Chip>
-                    {batteryLabel ? (
-                      <Chip size="sm" variant="tertiary">
-                        <BatteryChipContent label={batteryLabel} machine={machine} />
-                      </Chip>
-                    ) : null}
+                    <BatteryMeter machine={machine} />
                     <Chip size="sm" variant="tertiary">
                       {formatLastSeen(machine.connector.lastSeen)}
                     </Chip>
@@ -723,11 +739,7 @@ export function ProjectHomeOverview({
                       <Chip size="sm" className={connectorChipClass(machine.connector.status)}>
                         {machine.connector.status}
                       </Chip>
-                      {formatBattery(machine) ? (
-                        <Chip size="sm" variant="tertiary">
-                          <BatteryChipContent label={formatBattery(machine) ?? ''} machine={machine} />
-                        </Chip>
-                      ) : null}
+                      <BatteryMeter machine={machine} />
                       <Chip size="sm" variant="tertiary">
                         {formatLastSeen(machine.connector.lastSeen)}
                       </Chip>
