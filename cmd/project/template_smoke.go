@@ -59,6 +59,21 @@ func runTemplateSmoke(cmd *cobra.Command, options templateSmokeOptions) error {
 	if err := os.RemoveAll(resolved); err != nil {
 		return err
 	}
+	lintRoot, err := resolveTemplateLintRoot(options.Init.TemplatePath)
+	if err != nil {
+		return err
+	}
+	lintReport, err := projectvalidator.LintTemplate(lintRoot)
+	if err != nil {
+		return err
+	}
+	if !lintReport.OK {
+		if err := printTemplateLintReport(cmd, lintReport, "pretty"); err != nil {
+			return err
+		}
+		return fmt.Errorf("template lint failed")
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "OK lint")
 
 	lockPath, err := projectvalidator.CreateProject(resolved, options.Init)
 	if err != nil {
@@ -86,7 +101,11 @@ func runTemplateSmoke(cmd *cobra.Command, options templateSmokeOptions) error {
 	fmt.Fprintln(cmd.OutOrStdout(), "OK validate")
 
 	if !options.SkipChecks {
-		if err := runSmokeCommand(cmd, resolved, "bun", "install", "--frozen-lockfile"); err != nil {
+		installArgs := []string{"install"}
+		if hasBunLock(resolved) {
+			installArgs = append(installArgs, "--frozen-lockfile")
+		}
+		if err := runSmokeCommand(cmd, resolved, "bun", installArgs...); err != nil {
 			return err
 		}
 		if !options.SkipSecretsDoctor {
@@ -110,6 +129,11 @@ func runTemplateSmoke(cmd *cobra.Command, options templateSmokeOptions) error {
 
 	fmt.Fprintf(cmd.OutOrStdout(), "RESULT ok %s\n", resolved)
 	return nil
+}
+
+func hasBunLock(projectRoot string) bool {
+	_, err := os.Stat(filepath.Join(projectRoot, "bun.lock"))
+	return err == nil
 }
 
 func validateSmokeProject(projectRoot string) error {

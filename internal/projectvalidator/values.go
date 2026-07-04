@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+
+	"github.com/DotNaos/project-space/internal/placeholder"
 )
 
 type TemplateValues map[string]any
@@ -112,16 +114,6 @@ func defaultTemplateValuesForProject(projectRoot string, template TemplateSpec, 
 	if slug == "" {
 		slug = "example-project"
 	}
-	displayName := displayNameFromSlug(slug)
-	context := map[string]string{
-		"project.slug":        slug,
-		"project.name":        displayName,
-		"project.displayName": displayName,
-		"project.packageName": slug,
-		"project.goModule":    "github.com/DotNaos/" + slug,
-		"project.appScheme":   slug,
-		"project.dockerImage": slug,
-	}
 	specs, err := valueSpecsForModules(template.Modules, modules)
 	if err != nil {
 		return nil, err
@@ -133,19 +125,18 @@ func defaultTemplateValuesForProject(projectRoot string, template TemplateSpec, 
 	sort.Strings(keys)
 
 	values := TemplateValues{}
+	setTemplateValue(values, "project.slug", slug)
 	for _, key := range keys {
-		spec := specs[key]
-		value, ok, err := defaultValueForSpec(key, spec, values, context)
+		_, ok, err := resolveDefaultValue(key, specs, values, map[string]bool{})
 		if err != nil {
 			return nil, err
 		}
 		if !ok {
-			if spec.Required {
+			if specs[key].Required {
 				return nil, fmt.Errorf("template value %s is required but has no default", key)
 			}
 			continue
 		}
-		setTemplateValue(values, key, value)
 	}
 	return values, nil
 }
@@ -167,46 +158,74 @@ func valueSpecsForModules(modules map[string]TemplateModuleSpec, moduleNames []s
 	return specs, nil
 }
 
-func defaultValueForSpec(key string, spec TemplateValueSpec, values TemplateValues, context map[string]string) (string, bool, error) {
-	if spec.DefaultFrom != "" {
-		if value, ok := lookupTemplateValue(values, spec.DefaultFrom); ok {
-			return value, true, nil
-		}
-		if value, ok := context[spec.DefaultFrom]; ok {
-			return value, true, nil
-		}
+func resolveDefaultValue(key string, specs map[string]TemplateValueSpec, values TemplateValues, visiting map[string]bool) (string, bool, error) {
+	if value, ok := lookupTemplateValue(values, key); ok {
+		return value, true, nil
+	}
+	spec, ok := specs[key]
+	if !ok {
 		return "", false, nil
 	}
+	if visiting[key] {
+		return "", false, fmt.Errorf("template value %s has a defaultFrom cycle", key)
+	}
+	visiting[key] = true
+	defer delete(visiting, key)
+
+	var value string
+	var resolved bool
 	if spec.Default != "" {
-		rendered, err := renderTemplateValues([]byte(spec.Default), mergeContextValues(values, context))
+		template, err := placeholder.Parse([]byte(spec.Default))
 		if err != nil {
 			return "", false, err
 		}
-		return string(rendered), true, nil
+		for _, placeholderName := range template.Placeholders() {
+			if _, ok := lookupTemplateValue(values, placeholderName); ok {
+				continue
+			}
+			if _, _, err := resolveDefaultValue(placeholderName, specs, values, visiting); err != nil {
+				return "", false, err
+			}
+		}
+		rendered, err := template.Render(placeholderValues(values))
+		if err != nil {
+			return "", false, err
+		}
+		value = string(rendered)
+		resolved = true
+	} else if spec.DefaultFrom != "" {
+		sourceValue, ok, err := resolveDefaultValue(spec.DefaultFrom, specs, values, visiting)
+		if err != nil {
+			return "", false, err
+		}
+		if !ok {
+			return "", false, nil
+		}
+		value = sourceValue
+		resolved = true
 	}
-	if value, ok := context[key]; ok {
-		return value, true, nil
+	if !resolved {
+		return "", false, nil
 	}
-	return "", false, nil
+	transformed, err := transformTemplateValue(value, spec.Transform)
+	if err != nil {
+		return "", false, fmt.Errorf("template value %s: %w", key, err)
+	}
+	setTemplateValue(values, key, transformed)
+	return transformed, true, nil
 }
 
-func mergeContextValues(values TemplateValues, context map[string]string) TemplateValues {
-	merged := TemplateValues{}
-	for key, value := range values {
-		merged[key] = value
+func transformTemplateValue(value string, transform string) (string, error) {
+	switch transform {
+	case "":
+		return value, nil
+	case "title":
+		return displayNameFromSlug(value), nil
+	case "slug":
+		return slugify(value), nil
+	default:
+		return "", fmt.Errorf("unknown transform %q", transform)
 	}
-	keys := make([]string, 0, len(context))
-	for key := range context {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		if _, ok := lookupTemplateValue(merged, key); ok {
-			continue
-		}
-		setTemplateValue(merged, key, context[key])
-	}
-	return merged
 }
 
 func setTemplateValue(values TemplateValues, name string, value string) {
@@ -226,35 +245,45 @@ func setTemplateValue(values TemplateValues, name string, value string) {
 	}
 }
 
-func renderTemplateValues(body []byte, values TemplateValues) ([]byte, error) {
-	source := string(body)
-	rendered := strings.Builder{}
-	cursor := 0
-	matches := placeholderRE.FindAllStringSubmatchIndex(source, -1)
-	for _, match := range matches {
-		if match[0] > 0 && source[match[0]-1] == '$' {
-			continue
-		}
-		rendered.WriteString(source[cursor:match[0]])
-		name := strings.TrimSpace(source[match[2]:match[3]])
-		value, ok := lookupTemplateValue(values, name)
-		if !ok {
-			rendered.WriteString("\x00missing:" + name + "\x00")
-		} else {
-			rendered.WriteString(value)
-		}
-		cursor = match[1]
+func renderTemplateBody(body []byte, values TemplateValues) ([]byte, error) {
+	template, err := placeholder.Parse(body)
+	if err != nil {
+		return nil, err
 	}
-	rendered.WriteString(source[cursor:])
-	output := rendered.String()
-	if start := strings.Index(output, "\x00missing:"); start >= 0 {
-		rest := output[start+len("\x00missing:"):]
-		end := strings.Index(rest, "\x00")
-		if end >= 0 {
-			return nil, fmt.Errorf("missing template value %q", rest[:end])
-		}
+	return template.Render(placeholderValues(values))
+}
+
+func placeholderValues(values TemplateValues) placeholder.Values {
+	converted := placeholder.Values{}
+	for key, value := range values {
+		converted[key] = placeholderValue(value)
 	}
-	return []byte(output), nil
+	return converted
+}
+
+func placeholderValue(value any) any {
+	switch typed := value.(type) {
+	case TemplateValues:
+		return placeholderValues(typed)
+	case map[string]any:
+		nested := map[string]any{}
+		for key, value := range typed {
+			nested[key] = placeholderValue(value)
+		}
+		return nested
+	case map[any]any:
+		nested := map[string]any{}
+		for key, value := range typed {
+			keyString, ok := key.(string)
+			if !ok {
+				return typed
+			}
+			nested[keyString] = placeholderValue(value)
+		}
+		return nested
+	default:
+		return typed
+	}
 }
 
 func lookupTemplateValue(values TemplateValues, name string) (string, bool) {

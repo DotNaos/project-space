@@ -1,60 +1,39 @@
 package projectvalidator
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
-	"path/filepath"
-	"sort"
+
+	templatesnapshot "github.com/DotNaos/project-space/internal/snapshot"
 )
 
+const templateChecksumVersion = 2
+
 func checksumTemplateRoot(templateRoot string) (string, error) {
-	paths := []string{}
-	if err := filepath.WalkDir(templateRoot, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			if shouldSkipTemplateWorkDir(entry.Name()) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		relative, err := filepath.Rel(templateRoot, path)
-		if err != nil {
-			return err
-		}
-		paths = append(paths, normalizePath(relative))
-		return nil
-	}); err != nil {
+	return templatesnapshot.Checksum(templateRoot)
+}
+
+func checksumTemplateSourceSnapshot(sourceRoot string) (string, error) {
+	tempRoot, err := os.MkdirTemp("", "project-template-checksum-*")
+	if err != nil {
 		return "", err
 	}
-	sort.Strings(paths)
-
-	hash := sha256.New()
-	for _, relative := range paths {
-		if _, err := io.WriteString(hash, relative+"\n"); err != nil {
-			return "", err
-		}
-		body, err := os.ReadFile(filepath.Join(templateRoot, filepath.FromSlash(relative)))
-		if err != nil {
-			return "", err
-		}
-		if _, err := hash.Write(body); err != nil {
-			return "", err
-		}
-		if _, err := io.WriteString(hash, "\n"); err != nil {
-			return "", err
-		}
+	defer os.RemoveAll(tempRoot)
+	if err := copySnapshot(sourceRoot, tempRoot); err != nil {
+		return "", err
 	}
-	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
+	return checksumTemplateRoot(tempRoot)
 }
 
 func verifyTemplateChecksum(templateRoot string, lock TemplateLock) error {
 	if lock.Checksum == "" {
 		return nil
+	}
+	if lock.ChecksumVersion == 0 {
+		return nil
+	}
+	if lock.ChecksumVersion != templateChecksumVersion {
+		return fmt.Errorf("unsupported template checksum version %d; run project template sync to refresh it", lock.ChecksumVersion)
 	}
 	actual, err := checksumTemplateRoot(templateRoot)
 	if err != nil {

@@ -7,91 +7,13 @@ import (
 	"strings"
 )
 
-type slotRule struct {
-	placeholder string
-	regex       *regexpWrapper
-}
-
-type regexpWrapper struct {
-	match func(string) bool
-}
-
-func validateStructure(projectRoot string, template TemplateSpec, files []FileValidation) []StructureEntry {
-	if template.TreeMode {
-		return validateTreeStructure(projectRoot, template, files)
-	}
-	structureLines := readStructureLines(filepath.Join(template.Root, template.StructurePath))
-	slotPatterns, _ := readJSONFile[map[string]string](filepath.Join(template.Root, template.StructureSlotsPath))
-	fixedPaths := map[string]bool{}
-	slotRules := []slotRule{}
-
-	for _, line := range structureLines {
-		if anyPlaceholderRE.MatchString(line) {
-			compiled, err := compileTemplateRegex(line, slotPatterns)
-			if err == nil {
-				placeholder := "unknown"
-				if len(compiled.placeholders) > 0 {
-					placeholder = compiled.placeholders[0]
-				}
-				slotRules = append(slotRules, slotRule{placeholder: placeholder, regex: &regexpWrapper{match: compiled.regex.MatchString}})
-			}
-			continue
-		}
-		fixedPaths[normalizePath(line)] = true
-	}
-
+func validateStructure(projectRoot string, template TemplateSpec, files []FileValidation, blockers map[string]AdoptionFile, waivers map[string]AdoptionFile) []StructureEntry {
 	fileStatusByPath := map[string]FileValidation{}
 	for _, file := range files {
 		fileStatusByPath[file.Path] = file
 	}
 	actualFiles := listProjectFiles(projectRoot)
-	entries := map[string]StructureEntry{}
-
-	for fixedPath := range fixedPaths {
-		fileStatus, hasFileStatus := fileStatusByPath[fixedPath]
-		if !actualFiles[fixedPath] {
-			entries[fixedPath] = StructureEntry{Path: fixedPath, Kind: "file", Status: StatusMissing, Code: "missing", Note: "missing", Module: moduleForPath(template, fixedPath)}
-			continue
-		}
-		status := StatusOK
-		code := "template"
-		note := "template"
-		module := moduleForPath(template, fixedPath)
-		if hasFileStatus {
-			status = fileStatus.Status
-			code = fileStatus.Code
-			note = fileStatus.Note
-			module = fileStatus.Module
-		}
-		entries[fixedPath] = StructureEntry{Path: fixedPath, Kind: "file", Status: status, Code: code, Note: note, Module: module}
-	}
-
-	for actualFile := range actualFiles {
-		if fixedPaths[actualFile] {
-			continue
-		}
-		if rule, ok := matchingSlot(slotRules, actualFile); ok {
-			entries[actualFile] = StructureEntry{Path: actualFile, Kind: "file", Status: StatusAdded, Code: "slot", Note: rule.placeholder, Slot: rule.placeholder, Module: moduleForPath(template, actualFile)}
-			continue
-		}
-		entries[actualFile] = StructureEntry{Path: actualFile, Kind: "file", Status: StatusViolation, Code: "not_allowed", Note: "not_allowed"}
-	}
-
-	addParentDirectories(entries)
-	result := make([]StructureEntry, 0, len(entries))
-	for _, entry := range entries {
-		result = append(result, entry)
-	}
-	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
-	return result
-}
-
-func validateTreeStructure(projectRoot string, template TemplateSpec, files []FileValidation) []StructureEntry {
-	fileStatusByPath := map[string]FileValidation{}
-	for _, file := range files {
-		fileStatusByPath[file.Path] = file
-	}
-	actualFiles := listProjectFiles(projectRoot)
+	ignore := readTemplateIgnore(template.Root)
 	entries := map[string]StructureEntry{}
 
 	for templateFile := range template.TemplateFiles {
@@ -117,6 +39,17 @@ func validateTreeStructure(projectRoot string, template TemplateSpec, files []Fi
 		if template.TemplateFiles[actualFile] {
 			continue
 		}
+		if blocker, ok := blockers[actualFile]; ok {
+			entries[actualFile] = StructureEntry{Path: actualFile, Kind: "file", Status: StatusViolation, Code: "blocker", Note: blocker.Note, Module: blocker.Module}
+			continue
+		}
+		if waiver, ok := waivers[actualFile]; ok {
+			entries[actualFile] = StructureEntry{Path: actualFile, Kind: "file", Status: StatusWaived, Code: "waived", Note: waiver.Note, Module: waiver.Module}
+			continue
+		}
+		if ignore.Match(actualFile) {
+			continue
+		}
 		if slot, ok := matchingTreeSlot(template.Slots, actualFile); ok {
 			entries[actualFile] = StructureEntry{Path: actualFile, Kind: "file", Status: StatusAdded, Code: "slot", Note: slot.Name, Slot: slot.Name, Module: moduleForPath(template, actualFile)}
 			continue
@@ -131,21 +64,6 @@ func validateTreeStructure(projectRoot string, template TemplateSpec, files []Fi
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
 	return result
-}
-
-func readStructureLines(filePath string) []string {
-	body, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil
-	}
-	lines := []string{}
-	for _, line := range strings.Split(string(body), "\n") {
-		normalized := normalizePath(strings.TrimSpace(line))
-		if normalized != "" {
-			lines = append(lines, normalized)
-		}
-	}
-	return lines
 }
 
 func listProjectFiles(projectRoot string) map[string]bool {
@@ -167,15 +85,6 @@ func listProjectFiles(projectRoot string) map[string]bool {
 		return nil
 	})
 	return files
-}
-
-func matchingSlot(rules []slotRule, filePath string) (slotRule, bool) {
-	for _, rule := range rules {
-		if rule.regex.match(filePath) {
-			return rule, true
-		}
-	}
-	return slotRule{}, false
 }
 
 func matchingTreeSlot(rules []SlotRule, filePath string) (SlotRule, bool) {

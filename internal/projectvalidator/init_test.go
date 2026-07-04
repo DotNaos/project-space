@@ -64,9 +64,38 @@ func TestInstallModuleFillsMissingTemplateValues(t *testing.T) {
 	}
 }
 
+func TestDefaultModulesCreateValidProject(t *testing.T) {
+	templateRoot := writeTestTemplate(t)
+	projectRoot := filepath.Join(t.TempDir(), "demo-project")
+	if _, err := CreateProject(projectRoot, InitOptions{TemplatePath: templateRoot}); err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	if _, err := WriteTmpTemplateValues(projectRoot); err != nil {
+		t.Fatalf("WriteTmpTemplateValues returned error: %v", err)
+	}
+	plans, err := InstallDefaultModules(projectRoot)
+	if err != nil {
+		t.Fatalf("InstallDefaultModules returned error: %v", err)
+	}
+	if len(plans) != 1 {
+		t.Fatalf("installed %d default module plans, want 1", len(plans))
+	}
+	if plans[0].Module != "core.fullstack" {
+		t.Fatalf("installed module %q, want core.fullstack", plans[0].Module)
+	}
+	report, err := ValidateProject(projectRoot)
+	if err != nil {
+		t.Fatalf("ValidateProject returned error: %v", err)
+	}
+	if !report.OK {
+		t.Fatal("generated project did not validate")
+	}
+}
+
 func writeTestTemplate(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, ".templateignore"), ".templateignore\ntemplate/**\n")
 	mustWriteFile(t, filepath.Join(root, "template", "manifest.yaml"), "name: project-template\nversion: 0.1.0\nmodules:\n  - modules/core.yaml\n")
 	mustWriteFile(t, filepath.Join(root, "template", "modules", "core.yaml"), "name: core.fullstack\ndescription: Core test module.\ndefault: true\nvalues:\n  project.slug:\n    type: string\n    required: true\nowns:\n  - README.md\n")
 	mustWriteFile(t, filepath.Join(root, "README.md.template"), "# {{ project.slug }}\n")

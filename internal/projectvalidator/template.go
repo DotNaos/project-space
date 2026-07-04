@@ -12,21 +12,12 @@ import (
 
 func readTemplateLock(projectRoot string) (TemplateLock, error) {
 	yamlPath := filepath.Join(projectRoot, ".project", "template.lock.yaml")
-	if body, err := os.ReadFile(yamlPath); err == nil {
-		var lock TemplateLock
-		if err := unmarshalYAML(body, &lock); err != nil {
-			return TemplateLock{}, err
-		}
-		return lock, nil
-	}
-
-	jsonPath := filepath.Join(projectRoot, ".project", "template.lock.json")
-	body, err := os.ReadFile(jsonPath)
+	body, err := os.ReadFile(yamlPath)
 	if err != nil {
 		return TemplateLock{}, fmt.Errorf("missing .project/template.lock.yaml in %s", projectRoot)
 	}
 	var lock TemplateLock
-	if err := json.Unmarshal(body, &lock); err != nil {
+	if err := unmarshalYAML(body, &lock); err != nil {
 		return TemplateLock{}, err
 	}
 	return lock, nil
@@ -69,15 +60,11 @@ func resolveTemplateRoot(projectRoot string, lock TemplateLock) (string, error) 
 }
 
 func findTemplateManifest(templateRoot string) (string, error) {
-	preferred := filepath.Join(templateRoot, "template", "manifest.yaml")
-	if _, err := os.Stat(preferred); err == nil {
-		return preferred, nil
+	manifest := filepath.Join(templateRoot, "template", "manifest.yaml")
+	if _, err := os.Stat(manifest); err == nil {
+		return manifest, nil
 	}
-	legacy := filepath.Join(templateRoot, "template.yaml")
-	if _, err := os.Stat(legacy); err == nil {
-		return legacy, nil
-	}
-	return "", fmt.Errorf("missing template manifest in %s; expected template/manifest.yaml or template.yaml", templateRoot)
+	return "", fmt.Errorf("missing template manifest in %s; expected template/manifest.yaml", templateRoot)
 }
 
 func hasTemplateManifest(templateRoot string) bool {
@@ -87,24 +74,20 @@ func hasTemplateManifest(templateRoot string) bool {
 
 func parseTemplateYAML(templateRoot string, manifestPath string, body []byte) (TemplateSpec, error) {
 	var raw struct {
-		Name               string                      `yaml:"name"`
-		Version            string                      `yaml:"version"`
-		StructurePath      string                      `yaml:"structure"`
-		StructureSlotsPath string                      `yaml:"structureSlots"`
-		Files              map[string]TemplateFileSpec `yaml:"files"`
-		Modules            []yaml.Node                 `yaml:"modules"`
+		Name    string                      `yaml:"name"`
+		Version string                      `yaml:"version"`
+		Files   map[string]TemplateFileSpec `yaml:"files"`
+		Modules []yaml.Node                 `yaml:"modules"`
 	}
 	if err := unmarshalYAML(body, &raw); err != nil {
 		return TemplateSpec{}, err
 	}
 	spec := TemplateSpec{
-		Root:               templateRoot,
-		Name:               raw.Name,
-		Version:            raw.Version,
-		StructurePath:      raw.StructurePath,
-		StructureSlotsPath: raw.StructureSlotsPath,
-		Files:              map[string]TemplateFileSpec{},
-		Modules:            map[string]TemplateModuleSpec{},
+		Root:    templateRoot,
+		Name:    raw.Name,
+		Version: raw.Version,
+		Files:   map[string]TemplateFileSpec{},
+		Modules: map[string]TemplateModuleSpec{},
 	}
 	for path, file := range raw.Files {
 		file.Path = path
@@ -123,13 +106,65 @@ func parseTemplateYAML(templateRoot string, manifestPath string, body []byte) (T
 	if spec.Name == "" || spec.Version == "" {
 		return TemplateSpec{}, fmt.Errorf("%s is missing required fields", filepath.ToSlash(manifestPath))
 	}
-	if spec.StructurePath != "" && spec.StructureSlotsPath != "" {
-		return spec, nil
-	}
 	if err := loadTemplateTree(&spec); err != nil {
 		return TemplateSpec{}, err
 	}
+	if err := compileTemplateModuleOwnRules(&spec); err != nil {
+		return TemplateSpec{}, err
+	}
+	selfValues, err := loadTemplateSelfValues(templateRoot)
+	if err != nil {
+		return TemplateSpec{}, err
+	}
+	spec.SelfValues = selfValues
 	return spec, nil
+}
+
+func loadTemplateSelfValues(templateRoot string) (map[string]string, error) {
+	valuesPath := filepath.Join(templateRoot, "template", "values.yaml")
+	body, err := os.ReadFile(valuesPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var node yaml.Node
+	if err := yaml.Unmarshal(body, &node); err != nil {
+		return nil, fmt.Errorf("%s: %w", filepath.ToSlash(valuesPath), err)
+	}
+	values := map[string]string{}
+	if err := flattenYAMLStringValues("", &node, values); err != nil {
+		return nil, fmt.Errorf("%s: %w", filepath.ToSlash(valuesPath), err)
+	}
+	return values, nil
+}
+
+func flattenYAMLStringValues(prefix string, node *yaml.Node, values map[string]string) error {
+	if node.Kind == yaml.DocumentNode && len(node.Content) == 1 {
+		return flattenYAMLStringValues(prefix, node.Content[0], values)
+	}
+	switch node.Kind {
+	case yaml.MappingNode:
+		for index := 0; index < len(node.Content); index += 2 {
+			key := node.Content[index].Value
+			nextPrefix := key
+			if prefix != "" {
+				nextPrefix = prefix + "." + key
+			}
+			if err := flattenYAMLStringValues(nextPrefix, node.Content[index+1], values); err != nil {
+				return err
+			}
+		}
+	case yaml.ScalarNode:
+		if prefix == "" {
+			return fmt.Errorf("expected mapping")
+		}
+		values[prefix] = node.Value
+	default:
+		return fmt.Errorf("expected scalar or mapping at %s", prefix)
+	}
+	return nil
 }
 
 func decodeTemplateModule(manifestPath string, moduleNode yaml.Node) (TemplateModuleSpec, error) {
@@ -145,14 +180,8 @@ func decodeTemplateModule(manifestPath string, moduleNode yaml.Node) (TemplateMo
 			return TemplateModuleSpec{}, fmt.Errorf("%s: %w", filepath.ToSlash(modulePath), err)
 		}
 		return module, nil
-	case yaml.MappingNode:
-		var module TemplateModuleSpec
-		if err := moduleNode.Decode(&module); err != nil {
-			return TemplateModuleSpec{}, err
-		}
-		return module, nil
 	default:
-		return TemplateModuleSpec{}, fmt.Errorf("invalid module entry in %s", filepath.ToSlash(manifestPath))
+		return TemplateModuleSpec{}, fmt.Errorf("invalid module entry in %s; modules must reference files under template/modules", filepath.ToSlash(manifestPath))
 	}
 }
 
@@ -162,7 +191,6 @@ func loadTemplateTree(spec *TemplateSpec) error {
 	if err != nil {
 		return err
 	}
-	spec.TreeMode = true
 	spec.TemplateFiles = map[string]bool{}
 	spec.Slots = slots
 	return filepath.WalkDir(spec.Root, func(path string, entry os.DirEntry, err error) error {

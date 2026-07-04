@@ -152,7 +152,7 @@ func applyModuleFiles(projectRoot string, template TemplateSpec, values Template
 		if err != nil {
 			return err
 		}
-		rendered, err := renderTemplateValues(body, values)
+		rendered, err := renderTemplateBody(body, values)
 		if err != nil {
 			return fmt.Errorf("%s: %w", file.Path, err)
 		}
@@ -311,17 +311,13 @@ func moduleRemoveFiles(projectRoot string, template TemplateSpec, moduleName str
 }
 
 func moduleTemplateFiles(template TemplateSpec, moduleName string) ([]string, error) {
-	module, ok := template.Modules[moduleName]
+	_, ok := template.Modules[moduleName]
 	if !ok {
 		return nil, fmt.Errorf("unknown module %q", moduleName)
 	}
-	rules := []*ownRule{}
-	for _, pattern := range module.Owns {
-		regex, err := compilePathPattern(pattern, nil)
-		if err != nil {
-			return nil, fmt.Errorf("module %s owns pattern %q: %w", moduleName, pattern, err)
-		}
-		rules = append(rules, &ownRule{match: regex.MatchString})
+	rules, err := moduleOwnRules(template, moduleName)
+	if err != nil {
+		return nil, err
 	}
 	if len(rules) == 0 {
 		return nil, nil
@@ -340,7 +336,48 @@ func moduleTemplateFiles(template TemplateSpec, moduleName string) ([]string, er
 }
 
 type ownRule struct {
-	match func(string) bool
+	pattern string
+	match   func(string) bool
+}
+
+func compileTemplateModuleOwnRules(template *TemplateSpec) error {
+	template.ModuleOwnRules = map[string][]ownRule{}
+	names := make([]string, 0, len(template.Modules))
+	for name := range template.Modules {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, moduleName := range names {
+		rules, err := compileModuleOwnRules(moduleName, template.Modules[moduleName].Owns)
+		if err != nil {
+			return err
+		}
+		template.ModuleOwnRules[moduleName] = rules
+	}
+	return nil
+}
+
+func moduleOwnRules(template TemplateSpec, moduleName string) ([]ownRule, error) {
+	if rules, ok := template.ModuleOwnRules[moduleName]; ok {
+		return rules, nil
+	}
+	module, ok := template.Modules[moduleName]
+	if !ok {
+		return nil, fmt.Errorf("unknown module %q", moduleName)
+	}
+	return compileModuleOwnRules(moduleName, module.Owns)
+}
+
+func compileModuleOwnRules(moduleName string, patterns []string) ([]ownRule, error) {
+	rules := []ownRule{}
+	for _, pattern := range patterns {
+		regex, err := compilePathPattern(pattern, nil)
+		if err != nil {
+			return nil, fmt.Errorf("module %s owns pattern %q: %w", moduleName, pattern, err)
+		}
+		rules = append(rules, ownRule{pattern: pattern, match: regex.MatchString})
+	}
+	return rules, nil
 }
 
 func moduleForPath(template TemplateSpec, path string) string {
@@ -350,13 +387,12 @@ func moduleForPath(template TemplateSpec, path string) string {
 	}
 	sort.Strings(names)
 	for _, moduleName := range names {
-		module := template.Modules[moduleName]
-		for _, pattern := range module.Owns {
-			regex, err := compilePathPattern(pattern, nil)
-			if err != nil {
-				continue
-			}
-			if regex.MatchString(path) {
+		rules, err := moduleOwnRules(template, moduleName)
+		if err != nil {
+			continue
+		}
+		for _, rule := range rules {
+			if rule.match(path) {
 				return moduleName
 			}
 		}

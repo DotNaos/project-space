@@ -4,57 +4,82 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/DotNaos/project-space/internal/placeholder"
 )
 
 func PlanTemplateUpdate(projectRoot string, options TemplateUpdateOptions) (TemplateUpdatePlan, error) {
-	root, err := filepath.Abs(projectRoot)
+	context, err := loadTemplateUpdateContext(projectRoot, options)
 	if err != nil {
 		return TemplateUpdatePlan{}, err
+	}
+	return context.plan, nil
+}
+
+type templateUpdateContext struct {
+	root            string
+	lock            TemplateLock
+	currentTemplate TemplateSpec
+	nextTemplate    TemplateSpec
+	sourceRoot      string
+	sourceCommit    string
+	nextChecksum    string
+	currentValues   TemplateValues
+	nextValues      TemplateValues
+	plan            TemplateUpdatePlan
+}
+
+func loadTemplateUpdateContext(projectRoot string, options TemplateUpdateOptions) (templateUpdateContext, error) {
+	root, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return templateUpdateContext{}, err
 	}
 	lock, err := readTemplateLock(root)
 	if err != nil {
-		return TemplateUpdatePlan{}, err
+		return templateUpdateContext{}, err
 	}
 	currentTemplate, err := loadTemplate(root, lock)
 	if err != nil {
-		return TemplateUpdatePlan{}, err
+		return templateUpdateContext{}, err
 	}
 	sourceLock := lock
 	if options.TemplatePath != "" {
 		sourceLock.TemplatePath = options.TemplatePath
 	}
-	sourceRoot, err := resolveTemplateSourceRoot(root, sourceLock)
+	source, err := resolveTemplateSource(root, sourceLock)
 	if err != nil {
-		return TemplateUpdatePlan{}, err
+		return templateUpdateContext{}, err
 	}
-	nextTemplate, err := loadTemplateFromRoot(sourceRoot)
+	nextTemplate, err := loadTemplateFromRoot(source.Root)
 	if err != nil {
-		return TemplateUpdatePlan{}, err
+		return templateUpdateContext{}, err
 	}
-	nextChecksum, err := checksumTemplateRoot(sourceRoot)
+	nextChecksum, err := checksumTemplateSourceSnapshot(source.Root)
 	if err != nil {
-		return TemplateUpdatePlan{}, err
+		return templateUpdateContext{}, err
 	}
 	currentValues, err := readTemplateValues(root)
 	if err != nil {
-		return TemplateUpdatePlan{}, err
+		return templateUpdateContext{}, err
 	}
 	nextValues, err := mergeTemplateValuesForModules(root, nextTemplate, lock.Modules, currentValues)
 	if err != nil {
-		return TemplateUpdatePlan{}, err
+		return templateUpdateContext{}, err
 	}
 	valueChanges := planTemplateUpdateValues(currentValues, nextValues)
 	fileChanges, err := planTemplateUpdateFiles(root, currentTemplate, nextTemplate, currentValues, nextValues, lock.Modules)
 	if err != nil {
-		return TemplateUpdatePlan{}, err
+		return templateUpdateContext{}, err
 	}
 	conflictFolder := ".conflicts/" + updateLabel(lock, nextChecksum)
-	return TemplateUpdatePlan{
+	plan := TemplateUpdatePlan{
 		ProjectRoot:    root,
-		SourceRoot:     sourceRoot,
+		SourceRoot:     source.Root,
+		SourceCommit:   source.Commit,
 		FromTemplate:   currentTemplate.Name,
 		FromVersion:    lock.Version,
 		FromCommit:     lock.Commit,
@@ -66,7 +91,58 @@ func PlanTemplateUpdate(projectRoot string, options TemplateUpdateOptions) (Temp
 		Files:          fileChanges,
 		WouldWrite:     len(valueChanges) > 0 || len(fileChanges) > 0 || lock.Checksum != nextChecksum || lock.Version != nextTemplate.Version,
 		ConflictFolder: conflictFolder,
+	}
+	return templateUpdateContext{
+		root:            root,
+		lock:            lock,
+		currentTemplate: currentTemplate,
+		nextTemplate:    nextTemplate,
+		sourceRoot:      source.Root,
+		sourceCommit:    source.Commit,
+		nextChecksum:    nextChecksum,
+		currentValues:   currentValues,
+		nextValues:      nextValues,
+		plan:            plan,
 	}, nil
+}
+
+func ApplyTemplateUpdate(projectRoot string, options TemplateUpdateOptions) (TemplateUpdatePlan, error) {
+	context, err := loadTemplateUpdateContext(projectRoot, options)
+	if err != nil {
+		return TemplateUpdatePlan{}, err
+	}
+	if err := applyTemplateUpdateFiles(context); err != nil {
+		return TemplateUpdatePlan{}, err
+	}
+	if _, err := writeTemplateValues(context.root, context.nextValues); err != nil {
+		return TemplateUpdatePlan{}, err
+	}
+	targetRoot := filepath.Join(context.root, ".project", "template")
+	if err := os.RemoveAll(targetRoot); err != nil {
+		return TemplateUpdatePlan{}, err
+	}
+	if err := copySnapshot(context.sourceRoot, targetRoot); err != nil {
+		return TemplateUpdatePlan{}, err
+	}
+	lock := context.lock
+	if strings.Contains(context.lock.Template, "/") && options.TemplatePath == "" {
+		lock.Template = context.lock.Template
+	} else {
+		lock.Template = context.nextTemplate.Name
+	}
+	lock.Version = context.nextTemplate.Version
+	lock.Commit = context.sourceCommit
+	lock.Checksum = context.nextChecksum
+	lock.ChecksumVersion = templateChecksumVersion
+	if options.TemplatePath != "" {
+		lock.TemplatePath = options.TemplatePath
+	} else if context.sourceCommit != "" {
+		lock.TemplatePath = ""
+	}
+	if _, err := writeTemplateLock(context.root, lock); err != nil {
+		return TemplateUpdatePlan{}, err
+	}
+	return context.plan, nil
 }
 
 func loadTemplateFromRoot(templateRoot string) (TemplateSpec, error) {
@@ -221,7 +297,11 @@ func planTemplateUpdateFiles(projectRoot string, current TemplateSpec, next Temp
 			}
 			changes = append(changes, TemplateUpdateFileChange{Action: "ADD", Path: path, Result: result, Module: module})
 		case inCurrent && !inNext:
-			result, err := templateFileUpdateResult(projectRoot, path, current, currentValues, nil)
+			before, err := renderedTemplateFile(current, path, currentValues)
+			if err != nil {
+				return nil, err
+			}
+			result, err := templateFileUpdateResult(projectRoot, path, before, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -238,7 +318,7 @@ func planTemplateUpdateFiles(projectRoot string, current TemplateSpec, next Temp
 			if bytes.Equal(before, after) {
 				continue
 			}
-			result, err := templateFileUpdateResult(projectRoot, path, current, currentValues, before)
+			result, err := templateFileUpdateResult(projectRoot, path, before, after)
 			if err != nil {
 				return nil, err
 			}
@@ -271,14 +351,21 @@ func renderedTemplateFile(template TemplateSpec, path string, values TemplateVal
 	if err != nil {
 		return nil, err
 	}
-	rendered, err := renderTemplateValues(body, values)
+	if shouldUnrenderTemplateFile(template, fileSpec.TemplatePath, body) {
+		body = placeholder.Unrender(body, template.SelfValues)
+	}
+	rendered, err := renderTemplateBody(body, values)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return rendered, nil
 }
 
-func templateFileUpdateResult(projectRoot string, path string, current TemplateSpec, currentValues TemplateValues, expected []byte) (string, error) {
+func shouldUnrenderTemplateFile(template TemplateSpec, templatePath string, body []byte) bool {
+	return len(template.SelfValues) > 0 && !strings.HasPrefix(templatePath, "template/") && !strings.Contains(templatePath, ".template") && !bytes.Contains(body, []byte("{{"))
+}
+
+func templateFileUpdateResult(projectRoot string, path string, base []byte, theirs []byte) (string, error) {
 	projectPath := filepath.Join(projectRoot, filepath.FromSlash(path))
 	body, err := os.ReadFile(projectPath)
 	if os.IsNotExist(err) {
@@ -287,17 +374,173 @@ func templateFileUpdateResult(projectRoot string, path string, current TemplateS
 	if err != nil {
 		return "", err
 	}
-	if expected == nil {
-		var renderErr error
-		expected, renderErr = renderedTemplateFile(current, path, currentValues)
-		if renderErr != nil {
-			return "", renderErr
-		}
-	}
-	if bytes.Equal(body, expected) {
+	if bytes.Equal(body, base) {
 		return "clean", nil
 	}
+	if theirs == nil {
+		return "conflict", nil
+	}
+	_, clean, err := threeWayMerge(body, base, theirs)
+	if err != nil {
+		return "", err
+	}
+	if clean {
+		return "merged", nil
+	}
 	return "conflict", nil
+}
+
+func applyTemplateUpdateFiles(context templateUpdateContext) error {
+	for _, change := range context.plan.Files {
+		switch change.Action {
+		case "ADD":
+			if change.Result != "clean" {
+				if err := writeUpdateConflictCopies(context, change.Path, nil, nil); err != nil {
+					return err
+				}
+				continue
+			}
+			body, err := renderedTemplateFile(context.nextTemplate, change.Path, context.nextValues)
+			if err != nil {
+				return err
+			}
+			if err := writeProjectFile(context.root, change.Path, body); err != nil {
+				return err
+			}
+		case "REMOVE":
+			if change.Result == "clean" || change.Result == "missing" {
+				if err := os.Remove(filepath.Join(context.root, filepath.FromSlash(change.Path))); err != nil && !os.IsNotExist(err) {
+					return err
+				}
+				removeEmptyParents(context.root, filepath.Dir(filepath.Join(context.root, filepath.FromSlash(change.Path))))
+				continue
+			}
+			if err := writeUpdateConflictCopies(context, change.Path, nil, nil); err != nil {
+				return err
+			}
+		case "UPDATE":
+			base, err := renderedTemplateFile(context.currentTemplate, change.Path, context.currentValues)
+			if err != nil {
+				return err
+			}
+			theirs, err := renderedTemplateFile(context.nextTemplate, change.Path, context.nextValues)
+			if err != nil {
+				return err
+			}
+			projectPath := filepath.Join(context.root, filepath.FromSlash(change.Path))
+			mine, err := os.ReadFile(projectPath)
+			if os.IsNotExist(err) {
+				if err := writeProjectFile(context.root, change.Path, theirs); err != nil {
+					return err
+				}
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			switch change.Result {
+			case "clean":
+				if err := writeProjectFile(context.root, change.Path, theirs); err != nil {
+					return err
+				}
+			case "merged":
+				merged, _, err := threeWayMerge(mine, base, theirs)
+				if err != nil {
+					return err
+				}
+				if err := writeProjectFile(context.root, change.Path, merged); err != nil {
+					return err
+				}
+			case "conflict":
+				merged, _, err := threeWayMerge(mine, base, theirs)
+				if err != nil {
+					return err
+				}
+				if err := writeUpdateConflictCopies(context, change.Path, base, theirs); err != nil {
+					return err
+				}
+				if err := writeProjectFile(context.root, change.Path, merged); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func writeProjectFile(projectRoot string, path string, body []byte) error {
+	target := filepath.Join(projectRoot, filepath.FromSlash(path))
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(target, body, 0o644)
+}
+
+func writeUpdateConflictCopies(context templateUpdateContext, path string, base []byte, theirs []byte) error {
+	projectPath := filepath.Join(context.root, filepath.FromSlash(path))
+	mine, err := os.ReadFile(projectPath)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if base == nil {
+		if rendered, renderErr := renderedTemplateFile(context.currentTemplate, path, context.currentValues); renderErr == nil {
+			base = rendered
+		}
+	}
+	if theirs == nil {
+		if rendered, renderErr := renderedTemplateFile(context.nextTemplate, path, context.nextValues); renderErr == nil {
+			theirs = rendered
+		}
+	}
+	conflictRoot := filepath.Join(context.root, filepath.FromSlash(context.plan.ConflictFolder), filepath.FromSlash(path))
+	if len(mine) > 0 {
+		if err := writeFile(conflictRoot+".mine", mine); err != nil {
+			return err
+		}
+	}
+	if len(base) > 0 {
+		if err := writeFile(conflictRoot+".base", base); err != nil {
+			return err
+		}
+	}
+	if len(theirs) > 0 {
+		if err := writeFile(conflictRoot+".theirs", theirs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func threeWayMerge(mine []byte, base []byte, theirs []byte) ([]byte, bool, error) {
+	tempDir, err := os.MkdirTemp("", "project-template-merge-*")
+	if err != nil {
+		return nil, false, err
+	}
+	defer os.RemoveAll(tempDir)
+	minePath := filepath.Join(tempDir, "mine")
+	basePath := filepath.Join(tempDir, "base")
+	theirsPath := filepath.Join(tempDir, "theirs")
+	if err := os.WriteFile(minePath, mine, 0o644); err != nil {
+		return nil, false, err
+	}
+	if err := os.WriteFile(basePath, base, 0o644); err != nil {
+		return nil, false, err
+	}
+	if err := os.WriteFile(theirsPath, theirs, 0o644); err != nil {
+		return nil, false, err
+	}
+	command := exec.Command("git", "merge-file", "-p", minePath, basePath, theirsPath)
+	output, err := command.Output()
+	if err == nil {
+		return output, true, nil
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		return output, false, nil
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return nil, false, fmt.Errorf("git merge-file: %s", strings.TrimSpace(string(exitErr.Stderr)))
+	}
+	return nil, false, err
 }
 
 func fileExists(path string) bool {
