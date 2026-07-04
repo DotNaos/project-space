@@ -1,25 +1,26 @@
 package projectvalidator
 
 type TemplateLock struct {
-	Template     string   `json:"template" yaml:"template"`
-	Version      string   `json:"version" yaml:"version"`
-	Commit       string   `json:"commit,omitempty" yaml:"commit,omitempty"`
-	Checksum     string   `json:"checksum,omitempty" yaml:"checksum,omitempty"`
-	TemplatePath string   `json:"templatePath,omitempty" yaml:"templatePath,omitempty"`
-	Modules      []string `json:"modules,omitempty" yaml:"modules,omitempty"`
+	Template        string           `json:"template" yaml:"template"`
+	Version         string           `json:"version" yaml:"version"`
+	Commit          string           `json:"commit,omitempty" yaml:"commit,omitempty"`
+	Checksum        string           `json:"checksum,omitempty" yaml:"checksum,omitempty"`
+	ChecksumVersion int              `json:"checksumVersion,omitempty" yaml:"checksumVersion,omitempty"`
+	TemplatePath    string           `json:"templatePath,omitempty" yaml:"templatePath,omitempty"`
+	Modules         []string         `json:"modules,omitempty" yaml:"modules,omitempty"`
+	Waivers         []AdoptionWaiver `json:"waivers,omitempty" yaml:"waivers,omitempty"`
 }
 
 type TemplateSpec struct {
-	Root               string
-	Name               string
-	Version            string
-	StructurePath      string
-	StructureSlotsPath string
-	Files              map[string]TemplateFileSpec
-	TreeMode           bool
-	TemplateFiles      map[string]bool
-	Slots              []SlotRule
-	Modules            map[string]TemplateModuleSpec
+	Root           string
+	Name           string
+	Version        string
+	Files          map[string]TemplateFileSpec
+	TemplateFiles  map[string]bool
+	Slots          []SlotRule
+	Modules        map[string]TemplateModuleSpec
+	ModuleOwnRules map[string][]ownRule
+	SelfValues     map[string]string
 }
 
 type TemplateFileSpec struct {
@@ -34,6 +35,8 @@ type TemplateModuleSpec struct {
 	Default     bool                         `yaml:"default"`
 	DependsOn   []string                     `yaml:"dependsOn"`
 	Values      map[string]TemplateValueSpec `yaml:"values"`
+	Rules       map[string]TemplateFileRules `yaml:"rules"`
+	Blockers    []TemplateBlockerRule        `yaml:"blockers"`
 	Owns        []string                     `yaml:"owns"`
 }
 
@@ -44,6 +47,23 @@ type TemplateValueSpec struct {
 	Pattern     string `yaml:"pattern"`
 	Default     string `yaml:"default"`
 	DefaultFrom string `yaml:"defaultFrom"`
+	Transform   string `yaml:"transform"`
+}
+
+type TemplateFileRules struct {
+	Format  string                  `yaml:"format"`
+	Entries []TemplateFileRuleEntry `yaml:"entries"`
+}
+
+type TemplateFileRuleEntry struct {
+	Path    string `yaml:"path"`
+	Kind    string `yaml:"kind"`
+	Pattern string `yaml:"pattern"`
+}
+
+type TemplateBlockerRule struct {
+	Path   string `yaml:"path"`
+	Reason string `yaml:"reason"`
 }
 
 type ModuleInstallOptions struct {
@@ -107,6 +127,7 @@ const (
 	StatusAdded     Status = "ADDED"
 	StatusMissing   Status = "MISSING"
 	StatusChanged   Status = "CHANGED"
+	StatusWaived    Status = "WAIVED"
 	StatusViolation Status = "VIOLATION"
 )
 
@@ -144,6 +165,63 @@ type Report struct {
 	OK            bool
 }
 
+type AdoptionPlan struct {
+	ProjectRoot   string                  `json:"projectRoot"`
+	ProjectName   string                  `json:"projectName"`
+	TemplateLabel string                  `json:"templateLabel"`
+	WouldWrite    bool                    `json:"wouldWrite"`
+	Summary       AdoptionCounts          `json:"summary"`
+	Modules       []ModuleAdoptionSummary `json:"modules"`
+	Files         []AdoptionFile          `json:"files"`
+}
+
+type ModuleAdoptionSummary struct {
+	Name      string         `json:"name"`
+	Adopted   bool           `json:"adopted"`
+	Summary   AdoptionCounts `json:"summary"`
+	Owns      []string       `json:"owns"`
+	DependsOn []string       `json:"dependsOn"`
+}
+
+type AdoptionFile struct {
+	Path   string `json:"path"`
+	State  string `json:"state"`
+	Module string `json:"module,omitempty"`
+	Slot   string `json:"slot,omitempty"`
+	Note   string `json:"note,omitempty"`
+}
+
+type AdoptionWaiver struct {
+	Path   string `json:"path" yaml:"path"`
+	Reason string `json:"reason" yaml:"reason"`
+	Added  string `json:"added" yaml:"added"`
+}
+
+type AdoptionWaiverOptions struct {
+	Apply bool
+	Today string
+}
+
+type AdoptionWaiverPlan struct {
+	ProjectRoot   string `json:"projectRoot"`
+	Path          string `json:"path"`
+	Reason        string `json:"reason"`
+	Added         string `json:"added"`
+	AlreadyExists bool   `json:"alreadyExists"`
+	WouldWrite    bool   `json:"wouldWrite"`
+	LockPath      string `json:"lockPath,omitempty"`
+}
+
+type AdoptionCounts struct {
+	Match   int `json:"match"`
+	Slot    int `json:"slot"`
+	Blocker int `json:"blocker"`
+	Waived  int `json:"waived"`
+	Missing int `json:"missing"`
+	Drift   int `json:"drift"`
+	Unknown int `json:"unknown"`
+}
+
 type ViolationQuarantineOptions struct {
 	Apply  bool
 	DryRun bool
@@ -173,6 +251,7 @@ type TemplateUpdateOptions struct {
 type TemplateUpdatePlan struct {
 	ProjectRoot    string
 	SourceRoot     string
+	SourceCommit   string
 	FromTemplate   string
 	FromVersion    string
 	FromCommit     string

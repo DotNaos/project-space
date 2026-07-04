@@ -1,5 +1,0 @@
-name: feature.modules
-allow:
-  - "{feature}/**/*"
-patterns:
-  feature: "[a-z0-9-]+"

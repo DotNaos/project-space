@@ -94,15 +94,20 @@ func repositoryURL(repoName string) (string, error) {
 }
 
 func readProjectServiceAccountToken() (string, error) {
-	output, err := runCommand("", nil, "op", "read", projectServiceAccountTokenRef)
-	if err != nil {
-		return "", fmt.Errorf("read OP_SERVICE_ACCOUNT_TOKEN from 1Password: %w", err)
+	var lastErr error
+	for _, ref := range []string{projectTokenRef, legacyProjectTokenRef} {
+		output, err := runCommand("", nil, "op", "read", ref)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		token := strings.TrimRight(output, "\r\n")
+		if token != "" {
+			return token, nil
+		}
+		lastErr = errors.New("OP_SERVICE_ACCOUNT_TOKEN from 1Password was empty")
 	}
-	token := strings.TrimRight(output, "\r\n")
-	if token == "" {
-		return "", errors.New("OP_SERVICE_ACCOUNT_TOKEN from 1Password was empty")
-	}
-	return token, nil
+	return "", fmt.Errorf("read OP_SERVICE_ACCOUNT_TOKEN from 1Password: %w", lastErr)
 }
 
 func setGitHubSecret(repoRef string, token string) error {
@@ -155,7 +160,13 @@ func firstNonEmptyLine(output string) string {
 	return ""
 }
 
+var runExternalCommand = executeCommand
+
 func runCommand(dir string, stdin []byte, name string, args ...string) (string, error) {
+	return runExternalCommand(dir, stdin, name, args...)
+}
+
+func executeCommand(dir string, stdin []byte, name string, args ...string) (string, error) {
 	command := exec.Command(name, args...)
 	command.Dir = dir
 	if stdin != nil {

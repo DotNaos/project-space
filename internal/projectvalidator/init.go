@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
+
+	templatesnapshot "github.com/DotNaos/project-space/internal/snapshot"
 )
 
 type InitOptions struct {
@@ -105,29 +107,31 @@ func InitProject(projectRoot string, options InitOptions) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	source, templatePath, err := resolveInitTemplateSource(root, options)
+	if err != nil {
+		return "", err
+	}
+	sourceTemplate, err := loadTemplateFromRoot(source.Root)
+	if err != nil {
+		return "", err
+	}
 	template := options.Template
 	if template == "" {
-		template = "DotNaos/project-template"
-	}
-	commit := options.Commit
-	if commit == "" {
-		commit = "local"
-	}
-	templatePath, err := resolveInitTemplatePath(root, options.TemplatePath)
-	if err != nil {
-		return "", err
-	}
-	sourceRoot, err := resolveTemplatePathFromLockPath(root, templatePath)
-	if err != nil {
-		return "", err
-	}
-	sourceTemplate, err := loadTemplateFromRoot(sourceRoot)
-	if err != nil {
-		return "", err
+		if source.Fetched {
+			template = "DotNaos/project-template"
+		} else {
+			template = sourceTemplate.Name
+		}
 	}
 	version := options.Version
 	if version == "" {
 		version = sourceTemplate.Version
+	}
+	commit := options.Commit
+	if source.Fetched {
+		commit = source.Commit
+	} else if commit == "" {
+		commit = "local"
 	}
 	lockPath := filepath.Join(root, ".project", "template.lock.yaml")
 	if _, err := os.Stat(lockPath); err == nil && !options.Force {
@@ -140,7 +144,7 @@ func InitProject(projectRoot string, options InitOptions) (string, error) {
 	if err := os.RemoveAll(targetRoot); err != nil {
 		return "", err
 	}
-	if err := copyDirectory(sourceRoot, targetRoot); err != nil {
+	if err := copySnapshot(source.Root, targetRoot); err != nil {
 		return "", err
 	}
 	checksum, err := checksumTemplateRoot(targetRoot)
@@ -148,11 +152,12 @@ func InitProject(projectRoot string, options InitOptions) (string, error) {
 		return "", err
 	}
 	lock := TemplateLock{
-		Template:     template,
-		Version:      version,
-		Commit:       commit,
-		Checksum:     checksum,
-		TemplatePath: templatePath,
+		Template:        template,
+		Version:         version,
+		Commit:          commit,
+		Checksum:        checksum,
+		ChecksumVersion: templateChecksumVersion,
+		TemplatePath:    templatePath,
 	}
 	if _, err := writeTemplateLock(root, lock); err != nil {
 		return "", err
@@ -193,14 +198,14 @@ func resolveInitTemplatePath(projectRoot string, requestedPath string) (string, 
 		templateRoot = os.Getenv("PROJECT_SPACE_TEMPLATE_ROOT")
 	}
 	if templateRoot == "" {
-		templateRoot = filepath.Join(mustWorkingDirectory(), "templates", "project-template")
+		return "", fmt.Errorf("missing template path; pass --template-path or set PROJECT_SPACE_TEMPLATE_ROOT")
 	}
 	absTemplateRoot, err := filepath.Abs(templateRoot)
 	if err != nil {
 		return "", err
 	}
 	if !hasTemplateManifest(absTemplateRoot) {
-		return "", fmt.Errorf("template path %s does not contain template/manifest.yaml or template.yaml", absTemplateRoot)
+		return "", fmt.Errorf("template path %s does not contain template/manifest.yaml", absTemplateRoot)
 	}
 	projectRelativeTemplatePath, err := filepath.Rel(projectRoot, absTemplateRoot)
 	if err == nil && !isParentRelative(projectRelativeTemplatePath) {
@@ -213,6 +218,29 @@ func resolveInitTemplatePath(projectRoot string, requestedPath string) (string, 
 	return absTemplateRoot, nil
 }
 
+func resolveInitTemplateSource(projectRoot string, options InitOptions) (templatesnapshot.Source, string, error) {
+	templatePath, err := resolveInitTemplatePath(projectRoot, options.TemplatePath)
+	if err == nil {
+		sourceRoot, sourceErr := resolveTemplatePathFromLockPath(projectRoot, templatePath)
+		if sourceErr != nil {
+			return templatesnapshot.Source{}, "", sourceErr
+		}
+		return templatesnapshot.Source{Root: sourceRoot}, templatePath, nil
+	}
+	if options.TemplatePath != "" || os.Getenv("PROJECT_SPACE_TEMPLATE_ROOT") != "" {
+		return templatesnapshot.Source{}, "", err
+	}
+	template := options.Template
+	if template == "" {
+		template = "DotNaos/project-template"
+	}
+	source, fetchErr := templatesnapshot.FetchTemplate(template, options.Version, options.Commit)
+	if fetchErr != nil {
+		return templatesnapshot.Source{}, "", fmt.Errorf("%w; also failed to fetch template %s: %v", err, template, fetchErr)
+	}
+	return source, "", nil
+}
+
 func resolveTemplatePathFromLockPath(projectRoot string, templatePath string) (string, error) {
 	if filepath.IsAbs(templatePath) {
 		return filepath.Abs(templatePath)
@@ -222,14 +250,6 @@ func resolveTemplatePathFromLockPath(projectRoot string, templatePath string) (s
 
 func isParentRelative(pathValue string) bool {
 	return pathValue == ".." || strings.HasPrefix(pathValue, ".."+string(filepath.Separator)) || strings.HasPrefix(filepath.ToSlash(pathValue), "../")
-}
-
-func mustWorkingDirectory() string {
-	wd, err := os.Getwd()
-	if err != nil {
-		return "."
-	}
-	return wd
 }
 
 func slugify(value string) string {

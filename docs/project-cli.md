@@ -40,6 +40,10 @@ GitHub repositories are private by default. Use `--github-visibility public` to 
 
 `--github` also sets `OP_SERVICE_ACCOUNT_TOKEN` on the new GitHub repository from the project 1Password vault before the first push.
 
+When `--template-path` and `PROJECT_SPACE_TEMPLATE_ROOT` are omitted, `project new`
+fetches the GitHub template named by `--template`. If `--template` is omitted,
+it uses `DotNaos/project-template`.
+
 Example:
 
 ```sh
@@ -70,6 +74,49 @@ project init [directory]
 ```
 
 If `[directory]` is omitted, the CLI uses the current directory.
+
+## Plan Existing Project Adoption
+
+```sh
+project adopt [directory]
+project adopt [directory] --format json
+project adopt [directory] --waive <path-pattern> --reason <text>
+project adopt [directory] --waive <path-pattern> --reason <text> --yes
+```
+
+Without an action flag, this is read-only. It classifies files as matching the
+template, missing from the project, changed from the template, allowed by a
+slot, or unknown to the template. Template-defined blockers, such as plaintext
+secret files, are always reported before ignored paths or slots are pruned.
+Files ignored by the template are otherwise left out of the adoption noise.
+
+`--waive` records tracked adoption debt in `.project/template.lock.yaml`.
+Waivers require a reason and cannot cover blocker files.
+
+## Create The Project Token
+
+```sh
+project token create
+project token create --expires-in 24h
+project token create --dry-run
+project token create --yes
+project token create --json
+```
+
+This creates the one Project service-account token used to read shared secrets from 1Password.
+
+Fixed policy:
+
+- Vault: `projects`
+- Permission: `read_items`
+- Stable item: `project-ci-service-account`
+- Stable reference: `op://projects/project-ci-service-account/password`
+
+`--expires-in` creates a temporary token item instead of replacing the stable CI token.
+
+1Password item names created by this command use slug-style names, so generated secret references do not contain spaces.
+
+The token value is stored directly in 1Password and is never printed.
 
 ## Deploy
 
@@ -122,15 +169,50 @@ The project path is optional and defaults to the current directory.
 
 `--template-path` is only needed when testing against a local template checkout instead of the template source recorded in the project lock.
 
-## Preview Template Update
+For `project init`, `project new`, and template sync/update commands, local
+sources are resolved in this order: `--template-path`, then
+`PROJECT_SPACE_TEMPLATE_ROOT`, then the GitHub repository recorded in
+`.project/template.lock.yaml`.
+
+Fetched templates are cached under the user cache directory at
+`project-space/templates/<owner>/<repo>/<commit>/`. Set
+`PROJECT_SPACE_TEMPLATE_CACHE` to use a different cache directory.
+
+## Template Placeholders
+
+Template files use `{{ ns.key }}` placeholders, such as `{{ project.slug }}`.
+
+A `$` immediately before `{{` escapes the placeholder and keeps it as literal text. Use this for GitHub Actions expressions such as `${{ github.ref }}`.
+
+## Lint A Template
+
+```sh
+project template lint --template-path <template-directory>
+project template lint --template-path <template-directory> --format json
+```
+
+This validates a template checkout without generating a project. It checks the
+manifest, module files, ownership coverage, placeholder declarations, default
+values, slot files, `.templateignore`, and reverse-rendering self values.
+
+## Update From Template
 
 ```sh
 project template update --dry-run
 project template update --dry-run --format tsv
-project template update --dry-run --template-path <template-directory>
+project template update --yes
+project template update --template-path <template-directory>
 ```
 
-This previews a template migration without writing changes. It shows value changes as `before -> after`, file changes, and files that would conflict because the project edited a template-owned file.
+This updates a project from its template. It prints the plan first. Use
+`--dry-run` to preview without writing, or `--yes` to apply without prompting.
+
+For changed template-owned files, the update uses a three-way merge:
+
+- clean files are replaced with the new rendered template version.
+- independent local edits are merged and shown as `merged`.
+- overlapping edits are written with conflict markers, and the original local
+  file plus both template sides are copied to `.conflicts/<update>/`.
 
 `--template-path` is only for testing an update against a specific local template checkout. Normal use reads the source from `.project/template.lock.yaml`.
 
@@ -182,3 +264,7 @@ project validate --quarantine --yes
 `--quarantine` moves `not_allowed` file violations into `.project/quarantine/<original-path>`.
 
 The quarantine directory is ignored by template validation but is not ignored by Git, so quarantined files can be reviewed and committed.
+
+Paths waived through `project adopt --waive` are reported as `WAIVED` and do not
+fail validation. Template-defined blockers still fail validation even if a lock
+file was edited manually to waive them.
