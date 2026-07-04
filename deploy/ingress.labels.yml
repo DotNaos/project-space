@@ -7,13 +7,19 @@ services:
       - traefik.enable=true
       - traefik.docker.network=traefik-public
       - traefik.constraint-label=traefik-public
-      - traefik.http.routers.project-space-web.rule=Host(`${PROJECT_DOMAIN:?set PROJECT_DOMAIN}`)
-      - traefik.http.routers.project-space-web.entrypoints=websecure
-      - traefik.http.routers.project-space-web.tls=true
-      - traefik.http.routers.project-space-web.tls.certresolver=letsencrypt-dns
-      - traefik.http.routers.project-space-web.middlewares=secure-headers@file,gzip@file
-      - traefik.http.routers.project-space-web.priority=10
-      - traefik.http.services.project-space-web.loadbalancer.server.port=4173
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-web.rule=Host(`${PROJECT_DOMAIN:?set PROJECT_DOMAIN}`)
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-web.entrypoints=websecure
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-web.tls=true
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-web.tls.certresolver=letsencrypt-dns
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-web.middlewares=secure-headers@file,gzip@file
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-web.priority=10
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-api.rule=Host(`${PROJECT_API_DOMAIN:?set PROJECT_API_DOMAIN}`)
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-api.entrypoints=websecure
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-api.tls=true
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-api.tls.certresolver=letsencrypt-dns
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-api.middlewares=secure-headers@file,gzip@file
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-api.priority=10
+      - traefik.http.services.${PROJECT_COMPOSE_NAME}-web.loadbalancer.server.port=4173
 
   docs:
     networks:
@@ -23,13 +29,13 @@ services:
       - traefik.enable=true
       - traefik.docker.network=traefik-public
       - traefik.constraint-label=traefik-public
-      - traefik.http.routers.project-space-docs.rule=Host(`${PROJECT_DOMAIN:?set PROJECT_DOMAIN}`) && PathPrefix(`/docs`)
-      - traefik.http.routers.project-space-docs.entrypoints=websecure
-      - traefik.http.routers.project-space-docs.tls=true
-      - traefik.http.routers.project-space-docs.tls.certresolver=letsencrypt-dns
-      - traefik.http.routers.project-space-docs.middlewares=secure-headers@file,gzip@file
-      - traefik.http.routers.project-space-docs.priority=20
-      - traefik.http.services.project-space-docs.loadbalancer.server.port=3000
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-docs.rule=Host(`${PROJECT_DOMAIN:?set PROJECT_DOMAIN}`) && (PathPrefix(`/docs`) || PathPrefix(`/_next`) || PathPrefix(`/og/docs`) || PathPrefix(`/api/search`) || PathPrefix(`/llms`))
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-docs.entrypoints=websecure
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-docs.tls=true
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-docs.tls.certresolver=letsencrypt-dns
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-docs.middlewares=secure-headers@file,gzip@file
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-docs.priority=20
+      - traefik.http.services.${PROJECT_COMPOSE_NAME}-docs.loadbalancer.server.port=3000
 
 networks:
   traefik-public:

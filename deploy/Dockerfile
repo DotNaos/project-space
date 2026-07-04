@@ -33,7 +33,6 @@ COPY --from=build /workspace/package.json /workspace/package.json
 COPY --from=build /workspace/node_modules /workspace/node_modules
 COPY --from=build /workspace/server /workspace/server
 COPY --from=build /workspace/src /workspace/src
-COPY --from=build /workspace/templates /workspace/templates
 
 EXPOSE 4173
 CMD ["bun", "server/web-server.ts"]
