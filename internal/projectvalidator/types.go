@@ -212,6 +212,27 @@ type AdoptionWaiverPlan struct {
 	LockPath      string `json:"lockPath,omitempty"`
 }
 
+type AdoptionModuleOptions struct {
+	Apply  bool
+	DryRun bool
+}
+
+type AdoptionModulePlan struct {
+	ProjectRoot    string               `json:"projectRoot"`
+	Module         string               `json:"module"`
+	AlreadyAdopted []string             `json:"alreadyAdopted"`
+	ToAdopt        []string             `json:"toAdopt"`
+	Files          []AdoptionModuleFile `json:"files"`
+	WouldWrite     bool                 `json:"wouldWrite"`
+	LockPath       string               `json:"lockPath,omitempty"`
+}
+
+type AdoptionModuleFile struct {
+	Action string `json:"action"`
+	Module string `json:"module"`
+	Path   string `json:"path"`
+}
+
 type AdoptionCounts struct {
 	Match   int `json:"match"`
 	Slot    int `json:"slot"`

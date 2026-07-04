@@ -1,6 +1,7 @@
 package projectvalidator
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -108,6 +109,69 @@ func TestAddAdoptionWaiverRejectsBlocker(t *testing.T) {
 	}
 }
 
+func TestAdoptModuleAddsMissingFilesAndMarksLock(t *testing.T) {
+	templateRoot := writeAdoptionTestTemplate(t)
+	projectRoot := filepath.Join(t.TempDir(), "demo-project")
+	if _, err := InitProject(projectRoot, InitOptions{TemplatePath: templateRoot}); err != nil {
+		t.Fatalf("InitProject returned error: %v", err)
+	}
+	mustWriteFile(t, filepath.Join(projectRoot, "package.json"), "{\"name\":\"custom\"}\n")
+
+	plan, err := AdoptModule(projectRoot, "core.fullstack", AdoptionModuleOptions{})
+	if err != nil {
+		t.Fatalf("AdoptModule returned error: %v", err)
+	}
+	if !plan.WouldWrite {
+		t.Fatal("module adoption should report writes")
+	}
+	if len(plan.Files) != 2 {
+		t.Fatalf("files length = %d, want 2", len(plan.Files))
+	}
+	assertAdoptionModuleFile(t, plan.Files, "README.md")
+	assertAdoptionModuleFile(t, plan.Files, "LICENSE")
+
+	applied, err := AdoptModule(projectRoot, "core.fullstack", AdoptionModuleOptions{Apply: true})
+	if err != nil {
+		t.Fatalf("AdoptModule apply returned error: %v", err)
+	}
+	if applied.LockPath == "" {
+		t.Fatal("applied module adoption should report lock path")
+	}
+	body, err := os.ReadFile(filepath.Join(projectRoot, "package.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "{\"name\":\"custom\"}\n" {
+		t.Fatalf("package.json was overwritten: %q", string(body))
+	}
+	lock, err := readTemplateLock(projectRoot)
+	if err != nil {
+		t.Fatalf("readTemplateLock returned error: %v", err)
+	}
+	if len(lock.Modules) != 1 || lock.Modules[0] != "core.fullstack" {
+		t.Fatalf("lock modules = %#v, want core.fullstack", lock.Modules)
+	}
+	assertAdoptionFileContent(t, filepath.Join(projectRoot, "README.md"), "# demo-project\n")
+	assertAdoptionFileContent(t, filepath.Join(projectRoot, "LICENSE"), "MIT\n")
+}
+
+func TestAdoptModuleRespectsWaivedMissingFile(t *testing.T) {
+	templateRoot := writeAdoptionTestTemplate(t)
+	projectRoot := filepath.Join(t.TempDir(), "demo-project")
+	if _, err := InitProject(projectRoot, InitOptions{TemplatePath: templateRoot}); err != nil {
+		t.Fatalf("InitProject returned error: %v", err)
+	}
+	if _, err := AddAdoptionWaiver(projectRoot, "LICENSE", "license handled elsewhere", AdoptionWaiverOptions{Apply: true, Today: "2026-07-04"}); err != nil {
+		t.Fatalf("AddAdoptionWaiver returned error: %v", err)
+	}
+
+	plan, err := AdoptModule(projectRoot, "core.fullstack", AdoptionModuleOptions{})
+	if err != nil {
+		t.Fatalf("AdoptModule returned error: %v", err)
+	}
+	assertNoAdoptionModuleFile(t, plan.Files, "LICENSE")
+}
+
 func writeAdoptionTestTemplate(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -147,5 +211,38 @@ func assertNoAdoptionFile(t *testing.T, files []AdoptionFile, path string) {
 		if file.Path == path {
 			t.Fatalf("unexpected adoption file %s with state %s", path, file.State)
 		}
+	}
+}
+
+func assertAdoptionModuleFile(t *testing.T, files []AdoptionModuleFile, path string) {
+	t.Helper()
+	for _, file := range files {
+		if file.Path == path {
+			if file.Action != "ADD" {
+				t.Fatalf("%s action = %q, want ADD", path, file.Action)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing adoption module file %s", path)
+}
+
+func assertNoAdoptionModuleFile(t *testing.T, files []AdoptionModuleFile, path string) {
+	t.Helper()
+	for _, file := range files {
+		if file.Path == path {
+			t.Fatalf("unexpected adoption module file %s", path)
+		}
+	}
+}
+
+func assertAdoptionFileContent(t *testing.T, path string, want string) {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != want {
+		t.Fatalf("%s = %q, want %q", filepath.ToSlash(path), string(body), want)
 	}
 }

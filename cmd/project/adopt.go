@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/DotNaos/project-space/internal/projectvalidator"
 	"github.com/spf13/cobra"
@@ -12,6 +13,7 @@ import (
 func newAdoptCommand() *cobra.Command {
 	dryRun := false
 	format := "pretty"
+	module := ""
 	reason := ""
 	waive := ""
 	yes := false
@@ -24,7 +26,10 @@ func newAdoptCommand() *cobra.Command {
 			if format != "pretty" && format != "json" {
 				return fmt.Errorf("unknown format %q; use pretty or json", format)
 			}
-			if format == "json" && waive != "" && !dryRun && !yes {
+			if module != "" && waive != "" {
+				return fmt.Errorf("use --module or --waive, not both")
+			}
+			if format == "json" && (waive != "" || module != "") && !dryRun && !yes {
 				return fmt.Errorf("use --dry-run or --yes with --format json")
 			}
 			target := "."
@@ -65,6 +70,33 @@ func newAdoptCommand() *cobra.Command {
 				}
 				return printAdoptionWaiverApplied(cmd, applied, format)
 			}
+			if module != "" {
+				plan, err := projectvalidator.AdoptModule(resolved, module, projectvalidator.AdoptionModuleOptions{})
+				if err != nil {
+					return err
+				}
+				if dryRun || !plan.WouldWrite {
+					return printAdoptionModulePlan(cmd, plan, projectvalidator.AdoptionModuleOptions{DryRun: true}, format)
+				}
+				if !yes {
+					if err := printAdoptionModulePlan(cmd, plan, projectvalidator.AdoptionModuleOptions{}, format); err != nil {
+						return err
+					}
+					confirmed, err := confirmApply(cmd)
+					if err != nil {
+						return err
+					}
+					if !confirmed {
+						printModuleCanceled(cmd, formatForModuleCancel(format))
+						return nil
+					}
+				}
+				applied, err := projectvalidator.AdoptModule(resolved, module, projectvalidator.AdoptionModuleOptions{Apply: true})
+				if err != nil {
+					return err
+				}
+				return printAdoptionModuleApplied(cmd, applied, format)
+			}
 			plan, err := projectvalidator.PlanAdoption(resolved)
 			if err != nil {
 				return err
@@ -74,11 +106,27 @@ func newAdoptCommand() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show the adoption plan without writing changes")
 	cmd.Flags().StringVar(&format, "format", "pretty", "output format")
+	cmd.Flags().StringVar(&module, "module", "", "adopt a template module by adding only missing files")
 	cmd.Flags().StringVar(&reason, "reason", "", "reason for a waiver")
 	cmd.Flags().StringVar(&waive, "waive", "", "add a waiver for a path pattern")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "apply the adoption action without prompting")
 	must(cmd.RegisterFlagCompletionFunc("format", fixedValuesCompletion("pretty", "json")))
+	must(cmd.RegisterFlagCompletionFunc("module", adoptModuleFlagCompletion))
 	return cmd
+}
+
+func adoptModuleFlagCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	modules, err := projectvalidator.ListModules(".")
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	matches := []string{}
+	for _, module := range modules {
+		if strings.HasPrefix(module, toComplete) {
+			matches = append(matches, module)
+		}
+	}
+	return matches, cobra.ShellCompDirectiveNoFileComp
 }
 
 func formatForModuleCancel(format string) string {
@@ -174,5 +222,71 @@ func printAdoptionWaiverApplied(cmd *cobra.Command, plan projectvalidator.Adopti
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), "Result: waiver added")
 	fmt.Fprintf(cmd.OutOrStdout(), "Lock: %s\n", plan.LockPath)
+	return nil
+}
+
+func printAdoptionModulePlan(cmd *cobra.Command, plan projectvalidator.AdoptionModulePlan, options projectvalidator.AdoptionModuleOptions, format string) error {
+	if format == "json" {
+		encoder := json.NewEncoder(cmd.OutOrStdout())
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(plan)
+	}
+
+	mode := "dry-run"
+	if options.Apply {
+		mode = "apply"
+	} else if !options.DryRun {
+		mode = "confirm"
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "Adoption module plan")
+	fmt.Fprintf(cmd.OutOrStdout(), "Project: %s\n", plan.ProjectRoot)
+	fmt.Fprintf(cmd.OutOrStdout(), "Module: %s\n", plan.Module)
+	fmt.Fprintf(cmd.OutOrStdout(), "Mode: %s\n\n", mode)
+
+	fmt.Fprintln(cmd.OutOrStdout(), "Modules")
+	for _, module := range plan.AlreadyAdopted {
+		fmt.Fprintf(cmd.OutOrStdout(), "  = %s already adopted\n", module)
+	}
+	for _, module := range plan.ToAdopt {
+		fmt.Fprintf(cmd.OutOrStdout(), "  + %s\n", module)
+	}
+	if len(plan.AlreadyAdopted) == 0 && len(plan.ToAdopt) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "  no module changes")
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout(), "\nFiles")
+	for _, file := range plan.Files {
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s %-48s %s\n", moduleFileActionSymbol(file.Action), file.Path, file.Module)
+	}
+	if len(plan.Files) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "  no file changes")
+	}
+
+	if !plan.WouldWrite {
+		fmt.Fprintln(cmd.OutOrStdout(), "\nResult: no changes")
+		return nil
+	}
+	if options.DryRun {
+		fmt.Fprintln(cmd.OutOrStdout(), "\nResult: dry run, no changes written")
+		return nil
+	}
+	if options.Apply {
+		fmt.Fprintln(cmd.OutOrStdout(), "\nResult: applying")
+		return nil
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "\nResult: waiting for confirmation")
+	return nil
+}
+
+func printAdoptionModuleApplied(cmd *cobra.Command, plan projectvalidator.AdoptionModulePlan, format string) error {
+	if format == "json" {
+		encoder := json.NewEncoder(cmd.OutOrStdout())
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(plan)
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "Result: module adopted")
+	if plan.LockPath != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "Lock: %s\n", plan.LockPath)
+	}
 	return nil
 }
