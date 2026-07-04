@@ -75,6 +75,42 @@ func TestAdoptCommandAppliesWaiverAsJSON(t *testing.T) {
 	}
 }
 
+func TestAdoptCommandAppliesModuleAsJSON(t *testing.T) {
+	templateRoot := writeAdoptCommandTemplate(t)
+	projectRoot := filepath.Join(t.TempDir(), "demo-project")
+	if _, err := projectvalidator.InitProject(projectRoot, projectvalidator.InitOptions{TemplatePath: templateRoot}); err != nil {
+		t.Fatalf("InitProject returned error: %v", err)
+	}
+
+	cmd := newRootCommand()
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"adopt", projectRoot, "--module", "core.fullstack", "--yes", "--format", "json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("adopt module command returned error: %v\nstderr:\n%s", err, stderr.String())
+	}
+	var plan projectvalidator.AdoptionModulePlan
+	if err := json.Unmarshal(stdout.Bytes(), &plan); err != nil {
+		t.Fatalf("adopt module command did not print one JSON object: %v\n%s", err, stdout.String())
+	}
+	if plan.LockPath == "" {
+		t.Fatal("applied module adoption should report lock path")
+	}
+	if len(plan.Files) != 1 || plan.Files[0].Path != "README.md" {
+		t.Fatalf("files = %#v, want README.md add", plan.Files)
+	}
+	body, err := os.ReadFile(filepath.Join(projectRoot, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "# demo-project\n" {
+		t.Fatalf("README.md = %q, want rendered project name", string(body))
+	}
+}
+
 func writeAdoptCommandTemplate(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()

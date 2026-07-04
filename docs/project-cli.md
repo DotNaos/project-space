@@ -80,6 +80,8 @@ If `[directory]` is omitted, the CLI uses the current directory.
 ```sh
 project adopt [directory]
 project adopt [directory] --format json
+project adopt [directory] --module <name>
+project adopt [directory] --module <name> --yes
 project adopt [directory] --waive <path-pattern> --reason <text>
 project adopt [directory] --waive <path-pattern> --reason <text> --yes
 ```
@@ -92,6 +94,11 @@ Files ignored by the template are otherwise left out of the adoption noise.
 
 `--waive` records tracked adoption debt in `.project/template.lock.yaml`.
 Waivers require a reason and cannot cover blocker files.
+
+`--module` adopts a template module for an existing project. It adds only
+missing template-owned files, never overwrites existing files, and records the
+module in `.project/template.lock.yaml`. Dependency modules are adopted with the
+requested module.
 
 ## Create The Project Token
 
