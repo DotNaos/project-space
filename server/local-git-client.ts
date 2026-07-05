@@ -35,8 +35,29 @@ function parseStatusEntry(line: string): GitStatusEntry | null {
   };
 }
 
+function resolveConfiguredBackendRepositoryPath() {
+  return process.env.PROJECT_SPACE_BACKEND_REPO_PATH
+    ? resolve(process.env.PROJECT_SPACE_BACKEND_REPO_PATH)
+    : undefined;
+}
+
+function gitArgsForCwd(args: string[], cwd: string) {
+  const backendRepositoryPath = resolveConfiguredBackendRepositoryPath();
+  const resolvedCwd = resolve(cwd);
+
+  if (
+    backendRepositoryPath &&
+    (resolvedCwd === backendRepositoryPath ||
+      resolvedCwd.startsWith(`${backendRepositoryPath}/`))
+  ) {
+    return ['-c', `safe.directory=${backendRepositoryPath}`, ...args];
+  }
+
+  return args;
+}
+
 async function git(args: string[], cwd: string) {
-  return runCommand('git', args, cwd);
+  return runCommand('git', gitArgsForCwd(args, cwd), cwd);
 }
 
 async function resolveGitRoot(cwd: string) {
