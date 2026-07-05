@@ -279,7 +279,7 @@ export function IssueActionPanel({
   }
 
   return (
-    <aside className="grid min-w-0 content-start gap-3 overflow-y-auto">
+    <aside className="grid min-w-0 content-start gap-3 overflow-x-hidden overflow-y-auto">
       <Surface variant="tertiary" className="rounded-xl border border-neutral-800/70 bg-neutral-950/40 p-3.5">
         <div className="mb-3 flex items-center gap-2">
           <Play className="size-4 text-neutral-400" />
@@ -383,11 +383,11 @@ export function IssueActionPanel({
             <Text className="text-neutral-500">State</Text>
             <Text className="text-neutral-200">{issue.state}</Text>
           </div>
-          <div className="flex gap-1">
+          <div className="grid min-w-0 grid-cols-2 gap-1">
             <Button
               size="sm"
               variant={issue.state === 'open' ? 'secondary' : 'ghost'}
-              className="h-7 flex-1 text-xs"
+              className="h-7 min-w-0 text-xs"
               isDisabled={isUpdatingState || !repoFullName || issue.state === 'open'}
               onPress={() => void updateIssueState('open')}
             >
@@ -396,7 +396,7 @@ export function IssueActionPanel({
             <Button
               size="sm"
               variant={issue.state === 'closed' ? 'secondary' : 'ghost'}
-              className="h-7 flex-1 text-xs"
+              className="h-7 min-w-0 text-xs"
               isDisabled={isUpdatingState || !repoFullName || issue.state === 'closed'}
               onPress={() => void updateIssueState('closed')}
             >
@@ -443,7 +443,9 @@ export function IssueActionPanel({
                     {commentTimeLabel(comment)}
                   </Text>
                 </div>
-                <IssueMarkdown markdown={comment.body} />
+                <div className="[&_*]:break-words [&_code]:break-all">
+                  <IssueMarkdown markdown={comment.body} />
+                </div>
               </div>
             ))
           ) : (
