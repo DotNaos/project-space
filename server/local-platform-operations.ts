@@ -163,10 +163,14 @@ async function readLocalPackageVersionAtRevision(revision: string) {
   }
 
   try {
-    const { stdout } = await execFileAsync('git', ['-C', backendRepoPath, 'show', `${revision}:package.json`], {
-      timeout: 5_000,
-      windowsHide: true
-    });
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-c', `safe.directory=${backendRepoPath}`, '-C', backendRepoPath, 'show', `${revision}:package.json`],
+      {
+        timeout: 5_000,
+        windowsHide: true
+      }
+    );
 
     return packageVersionFromJson(stdout);
   } catch {
@@ -176,10 +180,14 @@ async function readLocalPackageVersionAtRevision(revision: string) {
 
 async function readCurrentLocalPackageVersion() {
   try {
-    const { stdout } = await execFileAsync('git', ['-C', backendRepoPath, 'show', 'HEAD:package.json'], {
-      timeout: 5_000,
-      windowsHide: true
-    });
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-c', `safe.directory=${backendRepoPath}`, '-C', backendRepoPath, 'show', 'HEAD:package.json'],
+      {
+        timeout: 5_000,
+        windowsHide: true
+      }
+    );
 
     return packageVersionFromJson(stdout);
   } catch {
