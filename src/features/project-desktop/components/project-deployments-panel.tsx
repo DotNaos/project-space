@@ -351,6 +351,15 @@ function DeploymentRow({ deployment, isLive = false, pipelineRun, repositoryUrl 
         <Chip size="sm" variant={deployment.environment === 'prod' ? 'primary' : 'secondary'}>
           {deployment.environment || 'env unknown'}
         </Chip>
+        {deployment.revision ? (
+          <Chip
+            size="sm"
+            className="border border-sky-500/30 bg-sky-500/10 font-mono text-sky-200"
+            title={deployment.revision}
+          >
+            Version {shortRevision(deployment.revision)}
+          </Chip>
+        ) : null}
         <Text className="min-w-0 truncate text-sm font-medium text-neutral-100">
           {deployment.appSlug}
         </Text>
@@ -395,11 +404,6 @@ function DeploymentRow({ deployment, isLive = false, pipelineRun, repositoryUrl 
         ) : (
           <span>no source recorded</span>
         )}
-        {deployment.revision ? (
-          <span className="font-mono" title={deployment.revision}>
-            {shortRevision(deployment.revision)}
-          </span>
-        ) : null}
         <span title={formatDate(deployment.updatedAt || deployment.createdAt)}>
           deployed {formatRelativeTime(deployment.updatedAt || deployment.createdAt)}
         </span>
