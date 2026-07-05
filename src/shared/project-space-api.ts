@@ -540,6 +540,7 @@ export interface DeploymentRecordSummary {
   sourceRef?: string;
   status: string;
   updatedAt?: string;
+  version?: string;
 }
 
 export interface BackupRecordSummary {

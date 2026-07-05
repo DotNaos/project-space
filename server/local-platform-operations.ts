@@ -16,6 +16,10 @@ import type {
 const execFileAsync = promisify(execFile);
 const platformRepoPath = join(homedir(), 'projects', 'private-vps-platform');
 
+interface PlatformAppRecordSummary {
+  repoUrl: string;
+}
+
 function getApiBaseUrl() {
   return (
     process.env.PROJECT_SPACE_PRIVATE_VPS_BASE_URL ??
@@ -65,6 +69,115 @@ function summarizeDeployment(entry: Record<string, unknown>): DeploymentRecordSu
     status: String(entry.Status ?? entry.status ?? 'unknown'),
     updatedAt: String(entry.UpdatedAt ?? entry.updated_at ?? '')
   };
+}
+
+function summarizeAppRecord(entry: Record<string, unknown>): [string, PlatformAppRecordSummary] | undefined {
+  const app = entry.App && typeof entry.App === 'object' ? entry.App as Record<string, unknown> : entry;
+  const slug = String(app.Slug ?? app.slug ?? '');
+
+  if (!slug) {
+    return undefined;
+  }
+
+  return [
+    slug,
+    {
+      repoUrl: String(app.RepoURL ?? app.repo_url ?? '')
+    }
+  ];
+}
+
+function githubRepoPath(repoUrl: string) {
+  const trimmed = repoUrl.trim().replace(/\.git$/, '');
+  const sshMatch = /^git@github\.com:([^/]+\/[^/]+)$/i.exec(trimmed);
+
+  if (sshMatch) {
+    return sshMatch[1];
+  }
+
+  const httpsMatch = /^https:\/\/github\.com\/([^/]+\/[^/]+)$/i.exec(trimmed);
+
+  if (httpsMatch) {
+    return httpsMatch[1];
+  }
+
+  return /^[^/\s]+\/[^/\s]+$/.test(trimmed) ? trimmed : undefined;
+}
+
+function packageVersionFromJson(raw: string) {
+  try {
+    const parsed = JSON.parse(raw) as { version?: unknown };
+
+    return typeof parsed.version === 'string' && parsed.version.trim()
+      ? parsed.version.trim()
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function readGitHubPackageVersion(repoUrl: string, revision: string) {
+  const repoPath = githubRepoPath(repoUrl);
+
+  if (!repoPath || !revision) {
+    return undefined;
+  }
+
+  const response = await fetch(
+    `https://api.github.com/repos/${repoPath}/contents/package.json?ref=${encodeURIComponent(revision)}`,
+    {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        ...(process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {}),
+        'User-Agent': 'project-space',
+        'X-GitHub-Api-Version': '2022-11-28'
+      }
+    }
+  );
+
+  if (!response.ok) {
+    return undefined;
+  }
+
+  const payload = await response.json().catch(() => undefined) as
+    | { content?: unknown; encoding?: unknown }
+    | undefined;
+
+  if (typeof payload?.content !== 'string') {
+    return undefined;
+  }
+
+  const content = payload.content.replace(/\s/g, '');
+  const raw =
+    payload.encoding === 'base64'
+      ? Buffer.from(content, 'base64').toString('utf-8')
+      : payload.content;
+
+  return packageVersionFromJson(raw);
+}
+
+async function addDeploymentVersion(
+  deployment: DeploymentRecordSummary,
+  appsBySlug: Map<string, PlatformAppRecordSummary>,
+  versionCache: Map<string, Promise<string | undefined>>
+) {
+  const app = appsBySlug.get(deployment.appSlug);
+
+  if (!app?.repoUrl || !deployment.revision) {
+    return deployment;
+  }
+
+  const cacheKey = `${app.repoUrl}#${deployment.revision}`;
+  let versionPromise = versionCache.get(cacheKey);
+
+  if (!versionPromise) {
+    versionPromise = readGitHubPackageVersion(app.repoUrl, deployment.revision);
+    versionCache.set(cacheKey, versionPromise);
+  }
+
+  const version = await versionPromise;
+
+  return version ? { ...deployment, version } : deployment;
 }
 
 function deploymentPublicUrl(deployment: DeploymentRecordSummary) {
@@ -203,18 +316,29 @@ export async function getPlatformOverview(): Promise<PlatformOverviewResult> {
   }
 
   try {
-    const [health, deployments, backups] = await Promise.all([
+    const [health, apps, deployments, backups] = await Promise.all([
       readJson<{ status?: string }>('/api/v1/health'),
+      readJson<unknown>('/api/v1/apps'),
       readJson<unknown>('/api/v1/deployments'),
       readJson<unknown>('/api/v1/backups')
     ]);
+    const appEntries = entriesOrEmpty(apps)
+      .map(summarizeAppRecord)
+      .filter((entry): entry is [string, PlatformAppRecordSummary] => Boolean(entry));
+    const appsBySlug = new Map(appEntries);
+    const versionCache = new Map<string, Promise<string | undefined>>();
     const deploymentSummaries = entriesOrEmpty(deployments).map(summarizeDeployment);
+    const versionedDeployments = await Promise.all(
+      deploymentSummaries.map((deployment) =>
+        addDeploymentVersion(deployment, appsBySlug, versionCache)
+      )
+    );
 
     return {
       ...overview,
       apiReachable: true,
       backups: entriesOrEmpty(backups).map(summarizeBackup),
-      deployments: await Promise.all(deploymentSummaries.map(checkDeploymentLiveStatus)),
+      deployments: await Promise.all(versionedDeployments.map(checkDeploymentLiveStatus)),
       healthStatus: health.status ?? 'ok'
     };
   } catch (error) {

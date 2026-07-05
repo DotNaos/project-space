@@ -351,13 +351,21 @@ function DeploymentRow({ deployment, isLive = false, pipelineRun, repositoryUrl 
         <Chip size="sm" variant={deployment.environment === 'prod' ? 'primary' : 'secondary'}>
           {deployment.environment || 'env unknown'}
         </Chip>
-        {deployment.revision ? (
+        {deployment.version ? (
           <Chip
             size="sm"
             className="border border-sky-500/30 bg-sky-500/10 font-mono text-sky-200"
+            title={deployment.revision ? `Revision ${deployment.revision}` : undefined}
+          >
+            Version {deployment.version}
+          </Chip>
+        ) : deployment.revision ? (
+          <Chip
+            size="sm"
+            className="border border-neutral-700 bg-neutral-900 font-mono text-neutral-400"
             title={deployment.revision}
           >
-            Version {shortRevision(deployment.revision)}
+            Revision {shortRevision(deployment.revision)}
           </Chip>
         ) : null}
         <Text className="min-w-0 truncate text-sm font-medium text-neutral-100">
