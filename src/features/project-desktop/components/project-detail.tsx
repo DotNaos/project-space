@@ -520,7 +520,7 @@ export function ProjectDetail({
 
   const targetLabel =
     selectedExplorerTarget.kind === 'worktree' ? 'Worktree path' : 'Workspace path';
-  const containsOwnScroll = tab === 'history' || (tab === 'issues' && selectedIssueNumber);
+  const containsOwnScroll = tab === 'history' || tab === 'issues';
 
   return (
     <div
