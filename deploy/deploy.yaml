@@ -1,5 +1,20 @@
 host: deploy@100.84.238.75
-path: /opt/platform/apps/project-space
-branch: main
-domain: projects.os-home.net
-apiDomain: projects-api.os-home.net
+secrets:
+  CLERK_PUBLISHABLE_KEY: op://projects/clerk-project/publishable_key
+  CLERK_SECRET_KEY: op://projects/clerk-project/secret_key
+  GITHUB_OAUTH_CLIENT_ID: op://projects/GitHub OAuth App/client_id
+  GITHUB_TOKEN: op://projects/GitHub Personal Access Token/token
+  PROJECT_CONNECTOR_REGISTRATION_TOKEN: op://projects/Project Space Connector Registration Token/password
+  VITE_CLERK_PUBLISHABLE_KEY: op://projects/clerk-project/publishable_key
+environments:
+  prod:
+    default: true
+    branch: main
+    path: /opt/platform/apps/project-space
+    domain: projects.os-home.net
+    apiDomain: api.projects.os-home.net
+  beta:
+    branch: beta
+    path: /opt/platform/apps/project-space-beta
+    domain: beta.projects.os-home.net
+    apiDomain: api.beta.projects.os-home.net

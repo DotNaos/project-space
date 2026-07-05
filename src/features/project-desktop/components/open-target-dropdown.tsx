@@ -98,9 +98,9 @@ export function OpenTargetDropdown({
                     variant="outline"
                     isDisabled={disabled || !currentApp}
                     onPress={onOpen}
-                    className="h-11 min-w-[140px] justify-start gap-3 rounded-r-none px-3">
+                    className="h-11 min-w-0 justify-start gap-3 rounded-r-none px-2 sm:min-w-[140px] sm:px-3">
                     <TriggerAppIcon app={currentApp} />
-                    <Text className="truncate text-sm font-medium">
+                    <Text className="hidden truncate text-sm font-medium sm:block">
                         {currentApp?.label ?? 'Choose app'}
                     </Text>
                 </Button>

@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Chip, ScrollShadow, Surface, Text } from '@/app/dotnaos-ui';
 import {
-  DatabaseBackup,
+  Button,
+  Chip,
+  ScrollShadow,
+  Surface,
+  Text
+} from '@/app/dotnaos-ui';
+import {
+  ExternalLink,
   Network,
+  Play,
   PlugZap,
   RefreshCw,
   Rocket,
@@ -11,14 +18,15 @@ import {
 import { projectSpaceClient } from '@/api/project-space-client';
 import type {
   ConnectorOverviewResult,
-  DeploymentVisibility,
   GitActionResult,
-  PlatformOverviewResult
+  ProjectCliCommandResult,
+  ProjectDeployEnvironment
 } from '@/shared/project-space-api';
 import { ScopeDevboxJobPanel } from './scope-devbox-job-panel';
 
 interface ProjectOperationsPanelProps {
   projectName: string;
+  showJobs?: boolean;
   targetPath: string;
 }
 
@@ -37,29 +45,65 @@ const connectorFallback: ConnectorOverviewResult = {
   }
 };
 
-const platformFallback: PlatformOverviewResult = {
-  apiReachable: false,
-  backups: [],
-  deployments: [],
-  platformRepo: {
-    exists: false,
-    path: ''
-  }
-};
-
-function slugify(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
 function formatAction(action?: GitActionResult) {
   if (!action) {
     return '';
   }
 
   return [action.message, action.stdout?.trim(), action.stderr?.trim()].filter(Boolean).join('\n');
+}
+
+interface DeployEnvironmentStatus {
+  apiUrl: string;
+  branch: string;
+  composeProject: string;
+  docsUrl: string;
+  environment: ProjectDeployEnvironment;
+  remotePath: string;
+  status?: string;
+  webUrl: string;
+}
+
+interface DeployStatusReport {
+  environments: DeployEnvironmentStatus[];
+  host: string;
+  projectName: string;
+  projectRoot: string;
+}
+
+function parseDeployStatus(result?: ProjectCliCommandResult) {
+  if (!result || result.exitCode !== 0 || !result.stdout.trim()) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(result.stdout) as DeployStatusReport;
+  } catch {
+    return undefined;
+  }
+}
+
+function statusSummary(status?: string) {
+  if (!status) {
+    return 'unknown';
+  }
+  if (status.includes('status unavailable')) {
+    return 'unavailable';
+  }
+  if (status.includes('app status unavailable')) {
+    return 'partial';
+  }
+  if (status.includes('repo missing')) {
+    return 'repo missing';
+  }
+  if (status.includes('repo present')) {
+    return 'repo present';
+  }
+  return 'checked';
+}
+
+function statusIsOk(label: string) {
+  return label === 'checked' || label === 'repo present';
 }
 
 function StatusChip({ ok, label }: { ok: boolean; label: string }) {
@@ -70,32 +114,54 @@ function StatusChip({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
+function DeploymentUrlLink({ label, url }: { label: string; url: string }) {
+  if (!url) {
+    return null;
+  }
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      className="group flex min-w-0 items-start gap-1 text-xs text-neutral-400 transition hover:text-neutral-100"
+    >
+      <span className="shrink-0 text-neutral-500">{label}:</span>
+      <span className="min-w-0 break-all underline decoration-neutral-700 underline-offset-2 group-hover:decoration-neutral-200">
+        {url}
+      </span>
+      <ExternalLink className="mt-0.5 size-3 shrink-0 text-neutral-500 group-hover:text-neutral-200" />
+    </a>
+  );
+}
+
 export function ProjectOperationsPanel({
   projectName,
+  showJobs = true,
   targetPath
 }: ProjectOperationsPanelProps) {
   const [connector, setConnector] = useState<ConnectorOverviewResult>(connectorFallback);
-  const [platform, setPlatform] = useState<PlatformOverviewResult>(platformFallback);
-  const [environment, setEnvironment] = useState('prod');
-  const [visibility, setVisibility] = useState<DeploymentVisibility>('private');
-  const [planOnly, setPlanOnly] = useState(true);
-  const [projectSlug, setProjectSlug] = useState(() => slugify(projectName));
-  const [backupTarget, setBackupTarget] = useState('default');
+  const [deployStatusResult, setDeployStatusResult] = useState<ProjectCliCommandResult>();
   const [actionResult, setActionResult] = useState<GitActionResult>();
   const [isBusy, setIsBusy] = useState(false);
-
-  useEffect(() => {
-    setProjectSlug((current) => current || slugify(projectName));
-  }, [projectName]);
+  const [isRefreshing, setIsRefreshing] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   async function refresh() {
-    const [nextConnector, nextPlatform] = await Promise.all([
+    setIsRefreshing(true);
+    const [nextConnector, nextDeployStatus] = await Promise.all([
       projectSpaceClient.getConnectorOverview().catch(() => connectorFallback),
-      projectSpaceClient.getPlatformOverview().catch(() => platformFallback)
+      targetPath
+        ? projectSpaceClient
+            .runProjectCliCommand({ command: 'deploy-status', cwd: targetPath })
+            .catch(() => undefined)
+        : Promise.resolve(undefined)
     ]);
 
     setConnector(nextConnector ?? connectorFallback);
-    setPlatform(nextPlatform ?? platformFallback);
+    setDeployStatusResult(nextDeployStatus);
+    setHasLoaded(true);
+    setIsRefreshing(false);
   }
 
   useEffect(() => {
@@ -106,41 +172,30 @@ export function ProjectOperationsPanel({
     () => connector.machines.find((machine) => machine.connector.status === 'local'),
     [connector.machines]
   );
+  const deployStatus = useMemo(() => parseDeployStatus(deployStatusResult), [deployStatusResult]);
 
-  async function runDeploy() {
+  async function runDeployDryRun(environment: ProjectDeployEnvironment) {
     setIsBusy(true);
     try {
-      const result = await projectSpaceClient.deployProject({
+      const result = await projectSpaceClient.runProjectCliCommand({
+        command: 'deploy-dry-run',
         cwd: targetPath,
-        displayName: projectName,
-        environment,
-        planOnly,
-        projectSlug,
-        visibility
+        environment
       });
 
-      setActionResult(result);
+      setActionResult({
+        message: result.exitCode === 0 ? 'Deploy dry run ready.' : 'Deploy dry run failed.',
+        status: result.exitCode === 0 ? 'success' : 'error',
+        stderr: result.stderr,
+        stdout: result.stdout
+      });
       await refresh();
     } finally {
       setIsBusy(false);
     }
   }
 
-  async function runBackup() {
-    setIsBusy(true);
-    try {
-      const result = await projectSpaceClient.backupProject({
-        environment,
-        projectSlug,
-        target: backupTarget
-      });
-
-      setActionResult(result);
-      await refresh();
-    } finally {
-      setIsBusy(false);
-    }
-  }
+  const isInitialLoading = isRefreshing && !hasLoaded;
 
   return (
     <Surface
@@ -242,68 +297,33 @@ export function ProjectOperationsPanel({
               </Button>
             </a>
             <StatusChip
-              ok={platform.platformRepo.exists}
-              label={platform.platformRepo.exists ? 'platform repo' : 'repo missing'}
+              ok={isRefreshing || deployStatusResult?.exitCode === 0}
+              label={
+                isRefreshing
+                  ? 'loading status'
+                  : deployStatusResult?.exitCode === 0
+                    ? 'cli status'
+                    : 'status unavailable'
+              }
             />
             <StatusChip
-              ok={platform.apiReachable}
-              label={platform.apiReachable ? 'api online' : 'api offline'}
+              ok={Boolean(deployStatus)}
+              label={
+                isInitialLoading ? 'loading config' : deployStatus ? 'config loaded' : 'config missing'
+              }
             />
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <input
-            value={projectSlug}
-            onChange={(event) => setProjectSlug(event.target.value)}
-            className="min-w-44 flex-1 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500"
-          />
-          <input
-            value={environment}
-            onChange={(event) => setEnvironment(event.target.value)}
-            className="w-28 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500"
-          />
-          <select
-            value={visibility}
-            onChange={(event) => setVisibility(event.target.value as DeploymentVisibility)}
-            className="w-32 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500"
-          >
-            <option value="private">private</option>
-            <option value="public">public</option>
-          </select>
-          <label className="flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 py-2 text-sm text-neutral-300">
-            <input
-              type="checkbox"
-              checked={planOnly}
-              onChange={(event) => setPlanOnly(event.target.checked)}
-            />
-            plan
-          </label>
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
-            variant="secondary"
-            isDisabled={!platform.apiReachable || !targetPath || !projectSlug || !environment || isBusy}
-            onPress={() => void runDeploy()}
+            variant="ghost"
+            isDisabled={isBusy || isRefreshing || !targetPath}
+            onPress={() => void refresh()}
           >
-            <Rocket className="size-4" />
-            Deploy
-          </Button>
-        </div>
-
-        <div className="grid gap-2 lg:grid-cols-[1fr_auto_auto]">
-          <input
-            value={backupTarget}
-            onChange={(event) => setBackupTarget(event.target.value)}
-            className="min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500"
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            isDisabled={!platform.apiReachable || !projectSlug || !environment || !backupTarget || isBusy}
-            onPress={() => void runBackup()}
-          >
-            <DatabaseBackup className="size-4" />
-            Backup
+            <RefreshCw className={isRefreshing ? 'size-4 animate-spin' : 'size-4'} />
+            Refresh
           </Button>
         </div>
 
@@ -313,53 +333,96 @@ export function ProjectOperationsPanel({
           </pre>
         ) : null}
 
-        <div className="grid gap-2 md:grid-cols-2">
-          <ScrollShadow className="max-h-32" hideScrollBar>
-            <div className="grid gap-2">
-              {platform.deployments.slice(0, 4).map((deployment) => (
-                <Surface
-                  key={`deployment:${deployment.id}`}
-                  variant="tertiary"
-                  className="rounded-md border border-neutral-800 bg-black/20 px-3 py-2"
-                >
-                  <Text className="truncate text-sm text-neutral-100">
-                    {deployment.appSlug}/{deployment.environment}
+        <div className="grid gap-2">
+            {isInitialLoading ? (
+              <Surface
+                variant="tertiary"
+                className="rounded-md border border-neutral-800 bg-black/20 px-3 py-3"
+              >
+                <div className="flex items-center gap-3">
+                  <RefreshCw className="size-4 animate-spin text-neutral-400" />
+                  <div className="min-w-0">
+                    <Text className="block text-sm font-medium text-neutral-200">
+                      Loading deployment status...
+                    </Text>
+                    <Text className="block text-xs text-neutral-500">
+                      Reading connector state and deployment config for this project.
+                    </Text>
+                  </div>
+                </div>
+              </Surface>
+            ) : null}
+
+            {isRefreshing && hasLoaded ? (
+              <Surface
+                variant="tertiary"
+                className="rounded-md border border-neutral-800 bg-black/20 px-3 py-2"
+              >
+                <div className="flex items-center gap-2">
+                  <RefreshCw className="size-4 animate-spin text-neutral-400" />
+                  <Text className="text-sm text-neutral-300">Refreshing deployment status...</Text>
+                </div>
+              </Surface>
+            ) : null}
+
+            {!isInitialLoading ? (deployStatus?.environments ?? []).map((entry) => (
+              <Surface
+                key={entry.environment}
+                variant="tertiary"
+                className="grid gap-2 rounded-md border border-neutral-800 bg-black/20 px-3 py-2 md:grid-cols-[auto_minmax(0,1fr)_auto]"
+              >
+                <Chip size="sm" variant={entry.environment === 'prod' ? 'primary' : 'secondary'}>
+                  {entry.environment}
+                </Chip>
+                <div className="min-w-0">
+                  <Text className="block truncate text-sm text-neutral-100">
+                    {entry.branch} / {entry.composeProject}
                   </Text>
-                  <Text className="truncate text-xs text-neutral-500">
-                    {[deployment.status, deployment.routeHost].filter(Boolean).join(' / ')}
+                  <Text className="block truncate text-xs text-neutral-500">
+                    {entry.remotePath}
                   </Text>
-                </Surface>
-              ))}
-            </div>
-          </ScrollShadow>
-          <ScrollShadow className="max-h-32" hideScrollBar>
-            <div className="grid gap-2">
-              {platform.backups.slice(0, 4).map((backup) => (
-                <Surface
-                  key={`backup:${backup.id}`}
-                  variant="tertiary"
-                  className="rounded-md border border-neutral-800 bg-black/20 px-3 py-2"
-                >
-                  <Text className="truncate text-sm text-neutral-100">
-                    {backup.appSlug}/{backup.environment}
-                  </Text>
-                  <Text className="truncate text-xs text-neutral-500">
-                    {[backup.status, backup.target].filter(Boolean).join(' / ')}
-                  </Text>
-                </Surface>
-              ))}
-            </div>
-          </ScrollShadow>
+                  <div className="mt-1 grid gap-0.5">
+                    <DeploymentUrlLink label="web" url={entry.webUrl} />
+                    <DeploymentUrlLink label="api" url={entry.apiUrl} />
+                    <DeploymentUrlLink label="docs" url={entry.docsUrl} />
+                  </div>
+                </div>
+                <div className="flex min-w-0 items-center justify-end gap-2">
+                  <StatusChip
+                    ok={statusIsOk(statusSummary(entry.status))}
+                    label={statusSummary(entry.status)}
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    isDisabled={!targetPath || isBusy || isRefreshing}
+                    onPress={() => void runDeployDryRun(entry.environment)}
+                  >
+                    <Play className="size-4" />
+                    Dry run
+                  </Button>
+                </div>
+              </Surface>
+            )) : null}
+            {!isInitialLoading && !deployStatus ? (
+              <Surface variant="tertiary" className="rounded-md border border-neutral-800 bg-black/20 px-3 py-2">
+                <Text className="text-sm text-neutral-400">
+                  {deployStatusResult?.stderr || 'Deploy config status is not loaded.'}
+                </Text>
+              </Surface>
+            ) : null}
         </div>
       </div>
 
-      <div className="min-w-0 xl:col-span-2">
-        <ScopeDevboxJobPanel
-          connector={connector}
-          projectName={projectName}
-          targetPath={targetPath}
-        />
-      </div>
+      {showJobs ? (
+        <div className="min-w-0 xl:col-span-2">
+          <ScopeDevboxJobPanel
+            connector={connector}
+            projectName={projectName}
+            targetPath={targetPath}
+          />
+        </div>
+      ) : null}
     </Surface>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth, useClerk, useUser } from '@clerk/react';
-import { FolderKanban, House, LogIn, Server } from 'lucide-react';
+import { FolderKanban, House, LogIn, Server, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button, Surface, Text } from '@/app/dotnaos-ui';
 import {
@@ -12,58 +12,75 @@ import type { ProjectSpaceAuthSessionResult } from '@/shared/project-space-api';
 import { useProjectDesktop } from '../hooks/use-project-desktop';
 import type { ProjectMainView } from '../hooks/use-project-desktop';
 import { useResizableSidebar } from '../hooks/use-resizable-sidebar';
-import { useSidebarSwipeNavigation } from '../hooks/use-sidebar-swipe-navigation';
+import { AppRail, type AppSection, type RailAccount } from './app-rail';
+import { ContextPanel } from './context-panel';
 import { ProjectMainPanel } from './project-main-panel';
-import { ProjectSidebarPane } from './project-sidebar-pane';
-import { SidebarToggleButton } from './sidebar-toggle-button';
 
-const SIDEBAR_DEFAULT_WIDTH = 294;
-const SIDEBAR_COLLAPSED_WIDTH = 64;
-const SIDEBAR_MIN_WIDTH = 248;
-const SIDEBAR_MAX_WIDTH = 420;
-const TITLEBAR_TOGGLE_LEFT = 12;
-const TITLEBAR_TOGGLE_TOP = 12;
-const TITLEBAR_TOGGLE_SIZE = 40;
-const TITLEBAR_SAFE_INSET = TITLEBAR_TOGGLE_LEFT + TITLEBAR_TOGGLE_SIZE + 16;
+const RAIL_WIDTH = 56;
+const PANEL_DEFAULT_WIDTH = 272;
+const PANEL_MIN_WIDTH = 224;
+const PANEL_MAX_WIDTH = 400;
 const COMPACT_VIEWPORT_WIDTH = 760;
-const COMPACT_TITLEBAR_TOGGLE_LEFT = 12;
-const COMPACT_TITLEBAR_SAFE_INSET = COMPACT_TITLEBAR_TOGGLE_LEFT + TITLEBAR_TOGGLE_SIZE + 16;
 
 function isCompactViewport() {
   return typeof window !== 'undefined' && window.innerWidth < COMPACT_VIEWPORT_WIDTH;
 }
 
+function sectionForView(view: ProjectMainView): AppSection {
+  if (view === 'projects' || view === 'project') {
+    return 'projects';
+  }
+
+  if (view === 'machines' || view === 'machine') {
+    return 'machines';
+  }
+
+  if (view === 'settings') {
+    return 'settings';
+  }
+
+  return 'home';
+}
+
 interface MobileTabBarProps {
-  mainView: ProjectMainView;
-  onOpenRoot(): void;
+  activeSection: AppSection;
   onOpenMachines(): void;
   onOpenProjects(): void;
+  onOpenRoot(): void;
+  onOpenSettings(): void;
 }
 
 function MobileTabBar({
-  mainView,
-  onOpenRoot,
+  activeSection,
   onOpenMachines,
-  onOpenProjects
+  onOpenProjects,
+  onOpenRoot,
+  onOpenSettings
 }: MobileTabBarProps) {
   const items = [
     {
       icon: House,
-      isActive: mainView === 'root',
+      isActive: activeSection === 'home',
       label: 'Home',
       onPress: onOpenRoot
     },
     {
+      icon: FolderKanban,
+      isActive: activeSection === 'projects',
+      label: 'Projects',
+      onPress: onOpenProjects
+    },
+    {
       icon: Server,
-      isActive: mainView === 'machines' || mainView === 'machine',
+      isActive: activeSection === 'machines',
       label: 'Machines',
       onPress: onOpenMachines
     },
     {
-      icon: FolderKanban,
-      isActive: mainView === 'projects' || mainView === 'project',
-      label: 'Projects',
-      onPress: onOpenProjects
+      icon: Settings,
+      isActive: activeSection === 'settings',
+      label: 'Settings',
+      onPress: onOpenSettings
     }
   ];
 
@@ -72,7 +89,7 @@ function MobileTabBar({
       aria-label="Primary"
       className="app-no-drag pointer-events-auto absolute inset-x-0 bottom-0 z-50 border-t border-neutral-800/90 bg-app-panel/95 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-16px_40px_rgba(0,0,0,0.35)] backdrop-blur"
     >
-      <div className="grid grid-cols-3 gap-1">
+      <div className="grid grid-cols-4 gap-1">
         {items.map((item) => {
           const Icon = item.icon;
 
@@ -109,7 +126,7 @@ function ProjectSpaceLoginScreen({
   onSignIn(): void;
 }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-app-canvas px-6 text-neutral-100">
+    <div className="flex min-h-full items-center justify-center bg-app-canvas px-6 text-neutral-100">
       <Surface
         variant="secondary"
         className="flex w-full max-w-md flex-col gap-6 rounded-lg border-neutral-800 p-6"
@@ -143,32 +160,20 @@ function ProjectSpaceLoginScreen({
   );
 }
 
-function AuthenticatedProjectDesktopShell() {
+function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }) {
   const desktop = useProjectDesktop();
   const [isCompact, setIsCompact] = useState(isCompactViewport);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(() => !isCompactViewport());
-  const [sidebarMode, setSidebarMode] = useState<ProjectMainView>('root');
-  const useBottomTabBar = isCompact;
+  const [isPanelOpen, setIsPanelOpen] = useState(() => !isCompactViewport());
   const { isResizingSidebar, sidebarWidth, startSidebarResize } = useResizableSidebar({
-    initialWidth: SIDEBAR_DEFAULT_WIDTH,
-    maxWidth: SIDEBAR_MAX_WIDTH,
-    minWidth: SIDEBAR_MIN_WIDTH
+    initialWidth: PANEL_DEFAULT_WIDTH,
+    maxWidth: PANEL_MAX_WIDTH,
+    minWidth: PANEL_MIN_WIDTH,
+    offsetLeft: RAIL_WIDTH
   });
-  const titlebarToggleLeft = isCompact ? COMPACT_TITLEBAR_TOGGLE_LEFT : TITLEBAR_TOGGLE_LEFT;
-  const titlebarSafeInset = !isSidebarOpen
-    ? SIDEBAR_COLLAPSED_WIDTH
-    : isCompact
-      ? COMPACT_TITLEBAR_SAFE_INSET
-      : TITLEBAR_SAFE_INSET;
 
   useEffect(() => {
     function updateViewportMode() {
-      const nextIsCompact = isCompactViewport();
-      setIsCompact(nextIsCompact);
-
-      if (nextIsCompact) {
-        setIsSidebarOpen(false);
-      }
+      setIsCompact(isCompactViewport());
     }
 
     updateViewportMode();
@@ -179,183 +184,116 @@ function AuthenticatedProjectDesktopShell() {
     };
   }, []);
 
-  useEffect(() => {
-    if (desktop.mainView === 'project' && desktop.selectedProjectId) {
-      setSidebarMode('project');
-    }
+  const activeSection = sectionForView(desktop.mainView);
+  const hasContextPanel =
+    !isCompact && (activeSection === 'projects' || activeSection === 'machines');
+  const showContextPanel = hasContextPanel && isPanelOpen;
 
-    if (desktop.mainView === 'machine' && desktop.selectedMachineId) {
-      setSidebarMode('machine');
-    }
-  }, [desktop.mainView, desktop.selectedMachineId, desktop.selectedProjectId]);
-
-  function openSidebarRoot() {
-    setSidebarMode('root');
-  }
-
-  function openHomeFromSidebar() {
-    setSidebarMode('root');
-    desktop.openRoot();
-  }
-
-  function openSidebarMachines() {
-    setSidebarMode('machines');
-    setIsSidebarOpen(true);
-  }
-
-  function openSidebarProjects() {
-    setSidebarMode('projects');
-    setIsSidebarOpen(true);
-  }
-
-  function selectProjectFromSidebar(projectId: string, groupId?: string) {
-    setSidebarMode('project');
-    desktop.selectProject(projectId, groupId);
-  }
-
-  function selectNavigationItemFromSidebar(itemId: string) {
-    setSidebarMode('project');
-    desktop.selectNavigationItem(itemId);
-  }
-
-  function selectMachineFromSidebar(machineId: string) {
-    setSidebarMode('machine');
-    desktop.openMachine(machineId);
-  }
-
-  const {
-    currentPanelRef,
-    handleSidebarWheel,
-    previewPanelRef,
-    previewProject,
-    previewWorktrees
-  } = useSidebarSwipeNavigation({
-    activeNavigationItemId: desktop.activeNavigationItemId,
-    isSidebarOpen,
-    navigationItems: desktop.navigationItems,
-    projects: desktop.projects,
-    resolveNavigationSelection: desktop.resolveNavigationSelection,
-    selectNavigationItem: desktop.selectNavigationItem,
-    sidebarWidth
-  });
+  const gridTemplateColumns = isCompact
+    ? 'minmax(0,1fr)'
+    : showContextPanel
+      ? `${RAIL_WIDTH}px ${sidebarWidth}px minmax(0,1fr)`
+      : `${RAIL_WIDTH}px minmax(0,1fr)`;
 
   return (
-    <div className="relative h-screen overflow-hidden bg-app-canvas text-neutral-100">
-      {!useBottomTabBar ? (
-        <div
-          className="app-drag absolute top-0 left-0 z-50 flex h-14 items-center"
-          style={{
-            width: `${titlebarSafeInset}px`
-          }}
-        >
-          <SidebarToggleButton
-            isOpen={isSidebarOpen}
-            left={titlebarToggleLeft}
-            top={TITLEBAR_TOGGLE_TOP}
-            onToggle={() => {
-              setIsSidebarOpen((current) => !current);
-            }}
-          />
-        </div>
-      ) : null}
-
+    <div className="relative h-full overflow-hidden bg-app-canvas text-neutral-100">
       <div
         className="grid h-full"
         style={{
-          gridTemplateColumns: useBottomTabBar
-            ? 'minmax(0,1fr)'
-            : isSidebarOpen
-              ? `${sidebarWidth}px minmax(0,1fr)`
-              : `${SIDEBAR_COLLAPSED_WIDTH}px minmax(0,1fr)`,
+          gridTemplateColumns,
           transition: isResizingSidebar ? 'none' : 'grid-template-columns 200ms ease-out'
         }}
       >
-        {!useBottomTabBar ? (
-          <ProjectSidebarPane
-            activeNavigationItemId={desktop.activeNavigationItemId}
+        {!isCompact ? (
+          <AppRail
+            account={account}
+            activeSection={activeSection}
+            hasContextPanel={hasContextPanel}
+            isContextPanelOpen={isPanelOpen}
+            onOpenHome={desktop.openRoot}
+            onOpenMachines={desktop.openMachines}
+            onOpenProjects={desktop.openProjects}
+            onOpenSettings={desktop.openSettings}
+            onToggleContextPanel={() => {
+              setIsPanelOpen((current) => !current);
+            }}
+          />
+        ) : null}
+
+        {showContextPanel ? (
+          <ContextPanel
             connectorOverview={desktop.connectorOverview}
-            currentPanelRef={currentPanelRef}
             groups={desktop.groups}
-            groupedProjects={desktop.groupedProjects}
-            groupedProjectsLabel={desktop.groupedProjectsLabel}
-            isOpen={isSidebarOpen}
-            navigationItems={desktop.navigationItems}
             onCreateProject={desktop.createProject}
-            onOpenHome={openHomeFromSidebar}
-            onOpenRoot={openSidebarRoot}
-            onOpenMachines={openSidebarMachines}
-            onOpenProjects={openSidebarProjects}
             onOpenNewWorktree={desktop.openNewWorktreeWorkspace}
             onResizeStart={(event) => {
               event.preventDefault();
               startSidebarResize();
             }}
-            onSelectProject={selectProjectFromSidebar}
-            onSelectMachine={selectMachineFromSidebar}
-            onSelectNavigationItem={selectNavigationItemFromSidebar}
+            onSelectMachine={desktop.openMachine}
+            onSelectProject={desktop.selectProject}
             onSelectWorkspace={desktop.selectWorkspace}
             onSelectWorktree={desktop.selectWorktree}
-            onSidebarViewChange={desktop.setSidebarView}
-            onSidebarWheel={handleSidebarWheel}
-            previewPanelRef={previewPanelRef}
-            previewProject={previewProject}
-            previewWorktrees={previewWorktrees}
-            isHomeSelected={desktop.mainView === 'root'}
-            isMachinesSelected={sidebarMode === 'machines'}
-            isProjectsSelected={sidebarMode === 'projects'}
-            project={desktop.project}
+            onTogglePinnedProject={desktop.togglePinnedProject}
+            pinnedProjectIds={desktop.pinnedProjectIds}
             projects={desktop.projects}
-            rootItems={desktop.rootItems}
+            section={activeSection === 'machines' ? 'machines' : 'projects'}
             selectedExplorerTarget={desktop.selectedExplorerTarget}
-            selectedMachine={desktop.selectedMachine}
             selectedMachineId={desktop.selectedMachineId}
             selectedProjectId={desktop.selectedProjectId}
-            sidebarMode={sidebarMode}
-            sidebarView={desktop.sidebarView}
-            titlebarSafeInset={titlebarSafeInset}
             worktrees={desktop.worktrees}
           />
         ) : null}
 
         <ProjectMainPanel
+          account={account}
           connectorOverview={desktop.connectorOverview}
           githubCatalog={desktop.githubCatalog}
-          hasBottomTabBar={useBottomTabBar}
-          isSidebarOpen={isSidebarOpen}
+          hasBottomTabBar={isCompact}
           isConnectorRefreshing={desktop.isConnectorRefreshing}
           isGitHubRefreshing={desktop.isGitHubRefreshing}
           launcherApps={desktop.launcherApps}
           launcherError={desktop.launcherError}
+          machineTab={desktop.machineTab}
           mainView={desktop.mainView}
           onCreateProject={desktop.createProject}
-          onOpenMachines={desktop.openMachines}
           onOpenMachine={desktop.openMachine}
+          onOpenMachines={desktop.openMachines}
+          onOpenNewWorktree={desktop.openNewWorktreeWorkspace}
           onOpenProjects={desktop.openProjects}
           onOpenRoot={desktop.openRoot}
           onOpenSelectedTarget={desktop.openSelectedTargetInApp}
           onRefreshConnectorOverview={desktop.refreshConnectorOverview}
           onRefreshGitHubCatalog={desktop.refreshGitHubCatalog}
           onSelectLauncherApp={desktop.selectLauncherApp}
+          onSelectMachineTab={desktop.selectMachineTab}
           onSelectProject={desktop.selectProject}
+          onSelectProjectTab={desktop.selectProjectTab}
+          onSelectWorkspace={desktop.selectWorkspace}
+          onSelectWorktree={desktop.selectWorktree}
+          onOpenProjectIssue={desktop.openProjectIssue}
           project={desktop.project}
           projects={desktop.projects}
+          projectTab={desktop.projectTab}
           selectedApp={desktop.selectedLauncherApp}
           selectedAppLabel={desktop.selectedLauncherAppLabel}
           selectedExplorerTarget={desktop.selectedExplorerTarget}
+          selectedIssueNumber={desktop.selectedIssueNumber}
           selectedMachine={desktop.selectedMachine}
           selectedMachineId={desktop.selectedMachineId}
           selectedTargetName={desktop.selectedTargetName}
           selectedTargetPath={desktop.selectedTargetPath}
-          sidebarClosedPaddingLeft={useBottomTabBar ? 16 : titlebarSafeInset}
+          worktrees={desktop.worktrees}
         />
       </div>
 
-      {useBottomTabBar ? (
+      {isCompact ? (
         <MobileTabBar
-          mainView={desktop.mainView}
-          onOpenRoot={desktop.openRoot}
+          activeSection={activeSection}
           onOpenMachines={desktop.openMachines}
           onOpenProjects={desktop.openProjects}
+          onOpenRoot={desktop.openRoot}
+          onOpenSettings={desktop.openSettings}
         />
       ) : null}
     </div>
@@ -363,6 +301,10 @@ function AuthenticatedProjectDesktopShell() {
 }
 
 export function ProjectDesktopShell() {
+  if (import.meta.env.VITE_PROJECT_SPACE_AUTH_DISABLED === '1') {
+    return <AuthenticatedProjectDesktopShell />;
+  }
+
   if (!isClerkConfigured()) {
     return (
       <ProjectSpaceLoginScreen
@@ -377,7 +319,7 @@ export function ProjectDesktopShell() {
 
 function ClerkProjectDesktopShell() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
-  const { openSignIn } = useClerk();
+  const { openSignIn, signOut } = useClerk();
   const { user } = useUser();
   const [session, setSession] = useState<ProjectSpaceAuthSessionResult | null>(null);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
@@ -446,7 +388,7 @@ function ClerkProjectDesktopShell() {
   }, [getToken, isLoaded, isSignedIn, user?.primaryEmailAddress?.emailAddress]);
 
   if (!isLoaded || isCheckingSession) {
-    return <div className="min-h-screen bg-app-canvas" />;
+    return <div className="min-h-full bg-app-canvas" />;
   }
 
   if (!isSignedIn || (session?.authRequired && !session.authenticated)) {
@@ -461,5 +403,14 @@ function ClerkProjectDesktopShell() {
     );
   }
 
-  return <AuthenticatedProjectDesktopShell />;
+  const account: RailAccount = {
+    email: user?.primaryEmailAddress?.emailAddress,
+    imageUrl: user?.imageUrl,
+    name: user?.fullName ?? undefined,
+    onSignOut() {
+      void signOut();
+    }
+  };
+
+  return <AuthenticatedProjectDesktopShell account={account} />;
 }

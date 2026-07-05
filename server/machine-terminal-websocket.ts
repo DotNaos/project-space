@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
-import { chmodSync, existsSync } from 'node:fs';
+import { chmodSync, existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import type { Duplex } from 'node:stream';
 import type { IncomingMessage } from 'node:http';
 
@@ -23,6 +23,7 @@ interface TerminalClientMessage {
 }
 
 const terminalPathPattern = /^\/api\/machines\/([^/]+)\/terminal$/;
+const projectTerminalPathPattern = /^\/api\/projects\/terminal$/;
 const shellCandidates = ['/bin/zsh', '/usr/bin/zsh', '/bin/bash', '/usr/bin/bash', '/bin/sh'];
 const require = createRequire(import.meta.url);
 
@@ -51,13 +52,35 @@ function sanitizeEnv() {
 
   return {
     ...env,
+    BASH_SILENCE_DEPRECATION_WARNING: '1',
     COLORTERM: 'truecolor',
+    PS1: '\\h$ ',
     TERM: 'xterm-256color'
   };
 }
 
 function getCommandShell() {
   return process.env.SHELL ?? shellCandidates[0];
+}
+
+function getProjectCommandShell() {
+  const bash = shellCandidates.find((candidate) => basename(candidate) === 'bash');
+
+  return bash ?? getCommandShell();
+}
+
+function getProjectShellArgs(shell: string) {
+  const shellName = basename(shell);
+
+  if (shellName === 'zsh') {
+    return ['-f'];
+  }
+
+  if (shellName === 'bash') {
+    return ['--noprofile', '--norc', '-i'];
+  }
+
+  return [];
 }
 
 function ensureNodePtySpawnHelperExecutable() {
@@ -120,6 +143,26 @@ async function createTerminalProcess(machine: MachineRecord, cols: number, rows:
     ['-tt', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', target],
     ptyOptions
   );
+}
+
+async function createProjectTerminalProcess(cwd: string, cols: number, rows: number) {
+  const resolvedCwd = resolve(cwd);
+
+  if (!existsSync(resolvedCwd) || !statSync(resolvedCwd).isDirectory()) {
+    throw new Error(`${resolvedCwd} is not a directory.`);
+  }
+
+  ensureNodePtySpawnHelperExecutable();
+  const { spawn: spawnPty } = await import('node-pty');
+  const shell = getProjectCommandShell();
+
+  return spawnPty(shell, getProjectShellArgs(shell), {
+    cols,
+    cwd: resolvedCwd,
+    env: sanitizeEnv(),
+    name: 'xterm-256color',
+    rows
+  });
 }
 
 function applyTerminalMessage(pty: IPty, message: TerminalClientMessage | undefined) {
@@ -245,6 +288,73 @@ export function createMachineTerminalUpgradeHandler(backend: ProjectSpaceBackend
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
 
     if (!terminalPathPattern.test(url.pathname)) {
+      return false;
+    }
+
+    webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
+      webSocketServer.emit('connection', webSocket, request);
+    });
+
+    return true;
+  };
+}
+
+export function createProjectTerminalUpgradeHandler() {
+  const webSocketServer = new WebSocketServer({
+    noServer: true
+  });
+
+  webSocketServer.on('connection', async (socket, request) => {
+    const queuedMessages: WebSocket.RawData[] = [];
+    const queueMessage = (data: WebSocket.RawData) => {
+      queuedMessages.push(data);
+    };
+    const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+    const cwd = url.searchParams.get('cwd') ?? '';
+    const cols = Math.max(20, Number(url.searchParams.get('cols') ?? 100));
+    const rows = Math.max(8, Number(url.searchParams.get('rows') ?? 28));
+
+    socket.on('message', queueMessage);
+
+    try {
+      const authSession = await readAuthSessionFromUrl(url);
+
+      if (isProjectSpaceAuthRequired() && !authSession) {
+        sendJson(socket, {
+          data: 'Login required.\r\n',
+          type: 'output'
+        });
+        socket.close();
+        return;
+      }
+
+      await runWithAuthSession(authSession, async () => {
+        const pty = await createProjectTerminalProcess(cwd, cols, rows);
+        socket.off('message', queueMessage);
+        attachPtyToSocket(socket, pty);
+
+        for (const message of queuedMessages) {
+          applyTerminalMessage(pty, parseMessage(message));
+        }
+      });
+    } catch (error) {
+      socket.off('message', queueMessage);
+      sendJson(socket, {
+        data: `${error instanceof Error ? error.message : 'Could not start terminal.'}\r\n`,
+        type: 'output'
+      });
+      socket.close();
+    }
+  });
+
+  return function handleProjectTerminalUpgrade(
+    request: IncomingMessage,
+    socket: Duplex,
+    head: Buffer
+  ) {
+    const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+
+    if (!projectTerminalPathPattern.test(url.pathname)) {
       return false;
     }
 

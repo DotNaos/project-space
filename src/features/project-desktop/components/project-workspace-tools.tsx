@@ -1,344 +1,288 @@
-import { useEffect, useMemo, useState } from 'react';
-import {
-  Button,
-  Chip,
-  ScrollShadow,
-  Surface,
-  Tab,
-  TabIndicator,
-  TabList,
-  TabSeparator,
-  Tabs,
-  Text
-} from '@/app/dotnaos-ui';
-import { Bot, Check, GitBranch, Play, RefreshCw, Terminal } from 'lucide-react';
-import { projectSpaceClient } from '@/api/project-space-client';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Bot, CheckCircle2, RefreshCw, SquareTerminal } from 'lucide-react';
+import { WTerm } from '@wterm/dom';
+import '@wterm/dom/css';
+import { Button, Chip, Surface, Text } from '@/app/dotnaos-ui';
+import { projectSpaceClient, refreshProjectSpaceAuthToken } from '@/api/project-space-client';
 import type {
   CodexStatusResult,
-  GitActionResult,
-  GitDiffResult,
-  GitStatusEntry,
-  GitStatusResult,
-  TerminalCommandResult
+  OpenPathInAppResult
 } from '@/shared/project-space-api';
-import { cn } from '@/lib/utils';
-
-type WorkspaceToolView = 'terminal' | 'git' | 'codex';
 
 interface ProjectWorkspaceToolsProps {
   targetPath: string;
 }
 
-const defaultGitStatus: GitStatusResult = {
-  branchName: '',
-  entries: [],
-  isRepository: false,
-  repositoryRoot: '',
-  summary: {
-    changed: 0,
-    staged: 0,
-    untracked: 0
-  }
-};
+type ProjectTerminalStatus = 'connecting' | 'connected' | 'closed' | 'error';
 
-function commandOutput(result?: TerminalCommandResult) {
+function formatOpenResult(result?: OpenPathInAppResult) {
   if (!result) {
-    return 'Run a command to see output here.';
-  }
-
-  return [
-    `$ ${result.command}`,
-    result.stdout.trim(),
-    result.stderr.trim(),
-    '',
-    `exit ${result.exitCode ?? 'unknown'} in ${result.durationMs}ms`
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
-
-function formatGitAction(action?: GitActionResult) {
-  if (!action) {
     return '';
   }
 
-  return [action.message, action.stdout?.trim(), action.stderr?.trim()].filter(Boolean).join('\n');
+  return result.status === 'success' ? 'Codex opened for this target.' : result.message ?? 'Could not open Codex.';
 }
 
-function statusTone(entry: GitStatusEntry) {
-  if (entry.displayStatus === '??') {
-    return 'text-neutral-300';
-  }
-
-  if (entry.indexStatus.trim()) {
-    return 'text-emerald-300';
-  }
-
-  return 'text-amber-300';
-}
-
-function TerminalPanel({ targetPath }: ProjectWorkspaceToolsProps) {
-  const [command, setCommand] = useState('pwd && git status --short');
-  const [isRunning, setIsRunning] = useState(false);
-  const [result, setResult] = useState<TerminalCommandResult>();
-
-  async function runCommand() {
-    if (!targetPath || !command.trim()) {
-      return;
-    }
-
-    setIsRunning(true);
-    try {
-      setResult(
-        await projectSpaceClient.runTerminalCommand({
-          command,
-          cwd: targetPath
-        })
-      );
-    } finally {
-      setIsRunning(false);
-    }
-  }
-
+function CodexStatusRow({ label, value }: { label: string; value?: string }) {
   return (
-    <div className="grid min-h-0 gap-3">
-      <div className="flex min-w-0 gap-2">
-        <input
-          value={command}
-          onChange={(event) => {
-            setCommand(event.target.value);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              void runCommand();
-            }
-          }}
-          className="min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 py-2 font-mono text-sm text-neutral-100 outline-none transition focus:border-neutral-500"
-        />
-        <Button
-          variant="secondary"
-          isDisabled={!targetPath || isRunning}
-          onPress={() => {
-            void runCommand();
-          }}
-        >
-          <Play className="size-4" />
-          Run
-        </Button>
-      </div>
-      <pre className="min-h-[190px] overflow-auto rounded-lg border border-neutral-800 bg-black/40 p-3 font-mono text-xs leading-5 text-neutral-200">
-        {commandOutput(result)}
-      </pre>
+    <div className="grid min-w-0 grid-cols-[7rem_minmax(0,1fr)] items-center gap-3 border-b border-neutral-900/80 py-2 last:border-b-0">
+      <Text className="text-xs uppercase tracking-[0.14em] text-neutral-500">{label}</Text>
+      <Text className="truncate text-sm text-neutral-200">{value || 'Not found'}</Text>
     </div>
   );
 }
 
-function GitFileRow({
-  entry,
-  isSelected,
-  onSelect
-}: {
-  entry: GitStatusEntry;
-  isSelected: boolean;
-  onSelect(): void;
-}) {
+function terminalBaseUrl() {
+  const currentUrl = new URL(window.location.href);
+  const isLocalVite =
+    (currentUrl.hostname === '127.0.0.1' || currentUrl.hostname === 'localhost') &&
+    currentUrl.port.startsWith('517');
+
+  if (isLocalVite) {
+    return window.location.origin;
+  }
+
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={cn(
-        'grid w-full grid-cols-[3rem_minmax(0,1fr)] items-center rounded-md px-2 py-1.5 text-left font-mono text-xs transition',
-        isSelected ? 'bg-neutral-700/70 text-neutral-50' : 'text-neutral-300 hover:bg-neutral-800/80'
-      )}
-    >
-      <span className={cn('font-semibold', statusTone(entry))}>{entry.displayStatus}</span>
-      <span className="truncate">{entry.path}</span>
-    </button>
+    import.meta.env.VITE_PROJECT_SPACE_API_BASE_URL ||
+    currentUrl.searchParams.get('projectSpaceApi') ||
+    window.location.origin
   );
 }
 
-function GitPanel({ targetPath }: ProjectWorkspaceToolsProps) {
-  const [status, setStatus] = useState<GitStatusResult>(defaultGitStatus);
-  const [selectedPath, setSelectedPath] = useState('');
-  const [diff, setDiff] = useState<GitDiffResult>();
-  const [commitMessage, setCommitMessage] = useState('');
-  const [actionResult, setActionResult] = useState<GitActionResult>();
-  const [isBusy, setIsBusy] = useState(false);
+const ProjectTerminalSession = memo(function ProjectTerminalSession({
+  onStatusChange,
+  sessionVersion,
+  targetPath
+}: {
+  onStatusChange(status: ProjectTerminalStatus, message?: string): void;
+  sessionVersion: number;
+  targetPath: string;
+}) {
+  const terminalElementRef = useRef<HTMLDivElement | null>(null);
+  const terminalRef = useRef<WTerm | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
+  const sizeRef = useRef({ cols: 112, rows: 34 });
 
-  async function refresh(nextSelectedPath = selectedPath) {
-    if (!targetPath) {
-      setStatus(defaultGitStatus);
+  useEffect(() => {
+    const element = terminalElementRef.current;
+
+    if (!element) {
       return;
     }
 
-    const nextStatus = await projectSpaceClient.getGitStatus(targetPath);
+    let canceled = false;
+    const terminal = new WTerm(element, {
+      autoResize: true,
+      cols: 112,
+      cursorBlink: true,
+      onData(data) {
+        const socket = socketRef.current;
+
+        if (socket?.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ data, type: 'input' }));
+        }
+      },
+      onResize(cols, rows) {
+        sizeRef.current = { cols, rows };
+        const socket = socketRef.current;
+
+        if (socket?.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ cols, rows, type: 'resize' }));
+        }
+      },
+      rows: 34
+    });
+    terminalRef.current = terminal;
+
+    terminal
+      .init()
+      .then(async () => {
+        if (canceled) {
+          return;
+        }
+
+        const { cols, rows } = sizeRef.current;
+        const url = new URL('/api/projects/terminal', terminalBaseUrl());
+        const sessionToken = await refreshProjectSpaceAuthToken();
+
+        url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+        url.searchParams.set('cwd', targetPath);
+        url.searchParams.set('cols', String(cols));
+        url.searchParams.set('rows', String(rows));
+        if (sessionToken) {
+          url.searchParams.set('session', sessionToken);
+        }
+
+        const socket = new WebSocket(url);
+        socketRef.current = socket;
+
+        onStatusChange('connecting');
+        terminal.write('\x1bc');
+
+        socket.addEventListener('open', () => {
+          if (canceled) {
+            return;
+          }
+
+          onStatusChange('connected');
+          terminal.focus();
+        });
+
+        socket.addEventListener('message', (event) => {
+          try {
+            const message = JSON.parse(String(event.data)) as {
+              data?: string;
+              exitCode?: number;
+              signal?: number;
+              type: 'output' | 'exit';
+            };
+
+            if (message.type === 'output' && typeof message.data === 'string') {
+              terminal.write(message.data);
+              return;
+            }
+
+            if (message.type === 'exit') {
+              terminal.write(
+                `\r\n[session exited: ${message.exitCode ?? message.signal ?? 'closed'}]\r\n`
+              );
+            }
+          } catch {
+            terminal.write(String(event.data));
+          }
+        });
+
+        socket.addEventListener('close', () => {
+          if (socketRef.current === socket) {
+            socketRef.current = null;
+          }
+
+          if (!canceled) {
+            onStatusChange('closed');
+          }
+        });
+
+        socket.addEventListener('error', () => {
+          if (!canceled) {
+            onStatusChange('error');
+            terminal.write('\r\n[terminal connection failed]\r\n');
+          }
+        });
+      })
+      .catch((error) => {
+        if (canceled) {
+          return;
+        }
+
+        onStatusChange(
+          'error',
+          `wterm failed to initialize: ${
+            error instanceof Error ? error.message : 'unknown error'
+          }`
+        );
+      });
+
+    return () => {
+      canceled = true;
+      socketRef.current?.close();
+      socketRef.current = null;
+      terminal.destroy();
+      if (terminalRef.current === terminal) {
+        terminalRef.current = null;
+      }
+      onStatusChange('closed');
+    };
+  }, [onStatusChange, sessionVersion, targetPath]);
+
+  return <div ref={terminalElementRef} className="project-terminal h-full min-h-[34rem] w-full" />;
+}, (previous, next) => {
+  return (
+    previous.sessionVersion === next.sessionVersion &&
+    previous.targetPath === next.targetPath
+  );
+});
+
+export function ProjectWorkspaceTools({ targetPath }: ProjectWorkspaceToolsProps) {
+  const [sessionVersion, setSessionVersion] = useState(0);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [status, setStatus] = useState<ProjectTerminalStatus>('closed');
+  const handleStatusChange = useCallback((nextStatus: ProjectTerminalStatus, message?: string) => {
+    setErrorMessage(message ?? '');
     setStatus(nextStatus);
+  }, []);
 
-    const availablePath =
-      nextSelectedPath && nextStatus.entries.some((entry) => entry.path === nextSelectedPath)
-        ? nextSelectedPath
-        : nextStatus.entries[0]?.path ?? '';
-
-    setSelectedPath(availablePath);
-
-    if (availablePath) {
-      setDiff(
-        await projectSpaceClient.getGitDiff({
-          cwd: targetPath,
-          path: availablePath
-        })
-      );
-    } else {
-      setDiff(undefined);
-    }
-  }
-
-  useEffect(() => {
-    void refresh('');
-  }, [targetPath]);
-
-  async function runGitAction(action: 'stage' | 'unstage' | 'commit') {
-    setIsBusy(true);
-    try {
-      const paths = selectedPath ? [selectedPath] : [];
-      const result =
-        action === 'stage'
-          ? await projectSpaceClient.stageGitPaths({ cwd: targetPath, paths })
-          : action === 'unstage'
-            ? await projectSpaceClient.unstageGitPaths({ cwd: targetPath, paths })
-            : await projectSpaceClient.commitGitChanges({
-                cwd: targetPath,
-                message: commitMessage
-              });
-
-      setActionResult(result);
-      await refresh(selectedPath);
-    } finally {
-      setIsBusy(false);
-    }
+  function reconnect() {
+    setSessionVersion((current) => current + 1);
   }
 
   return (
-    <div className="grid min-h-0 gap-3 lg:grid-cols-[18rem_minmax(0,1fr)]">
-      <Surface variant="secondary" className="min-h-0 rounded-lg border border-neutral-800 bg-neutral-950/40">
-        <div className="flex items-center justify-between gap-2 border-b border-neutral-800 px-3 py-2">
-          <div className="min-w-0 overflow-hidden">
-            <Text className="block truncate text-sm font-semibold text-neutral-100">
-              {status.isRepository ? status.branchName : 'No repository'}
-            </Text>
-            <Text className="block truncate text-xs text-neutral-500">
-              {status.isRepository ? status.repositoryRoot : targetPath}
-            </Text>
-          </div>
+    <div className="flex min-h-[34rem] min-w-0 flex-col gap-3">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <SquareTerminal className="size-4 shrink-0 text-neutral-400" />
+          <Text className="text-sm font-semibold text-neutral-100">Terminal</Text>
+          <Chip size="sm" className="max-w-[34rem] truncate font-mono text-neutral-500">
+            {targetPath}
+          </Chip>
+        </div>
+        <div className="flex items-center gap-2">
+          <Chip size="sm" className="font-mono text-neutral-500">
+            {status}
+          </Chip>
           <Button
             size="sm"
             variant="ghost"
-            onPress={() => {
-              void refresh();
-            }}
+            isDisabled={!targetPath || status === 'connecting'}
+            onPress={reconnect}
           >
             <RefreshCw className="size-4" />
+            {status === 'connected' ? 'Reconnect' : 'Connect'}
           </Button>
         </div>
-        <div className="flex gap-2 px-3 py-2">
-          <Chip size="sm" variant="secondary">
-            {status.summary.changed} changed
-          </Chip>
-          <Chip size="sm" variant="secondary">
-            {status.summary.staged} staged
-          </Chip>
-        </div>
-        <ScrollShadow className="max-h-[250px] px-2 pb-2" hideScrollBar>
-          {status.entries.length > 0 ? (
-            status.entries.map((entry) => (
-              <GitFileRow
-                key={`${entry.displayStatus}:${entry.path}`}
-                entry={entry}
-                isSelected={entry.path === selectedPath}
-                onSelect={() => {
-                  setSelectedPath(entry.path);
-                  void projectSpaceClient
-                    .getGitDiff({ cwd: targetPath, path: entry.path })
-                    .then(setDiff);
-                }}
-              />
-            ))
-          ) : (
-            <Text className="px-2 py-4 text-sm text-neutral-500">
-              {status.isRepository ? 'Working tree is clean.' : 'Select a git repository.'}
-            </Text>
-          )}
-        </ScrollShadow>
-      </Surface>
-
-      <div className="grid min-h-0 gap-3">
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="secondary"
-            isDisabled={!status.isRepository || isBusy}
-            onPress={() => {
-              void runGitAction('stage');
-            }}
-          >
-            Stage
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            isDisabled={!status.isRepository || isBusy}
-            onPress={() => {
-              void runGitAction('unstage');
-            }}
-          >
-            Unstage
-          </Button>
-          <input
-            value={commitMessage}
-            placeholder="Commit message"
-            onChange={(event) => {
-              setCommitMessage(event.target.value);
-            }}
-            className="min-w-56 flex-1 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 py-2 text-sm text-neutral-100 outline-none transition focus:border-neutral-500"
-          />
-          <Button
-            size="sm"
-            variant="secondary"
-            isDisabled={!status.isRepository || !commitMessage.trim() || isBusy}
-            onPress={() => {
-              void runGitAction('commit');
-            }}
-          >
-            <Check className="size-4" />
-            Commit
-          </Button>
-        </div>
-        {actionResult ? (
-          <pre className="max-h-20 overflow-auto rounded-lg border border-neutral-800 bg-neutral-950/60 p-2 text-xs text-neutral-300">
-            {formatGitAction(actionResult)}
-          </pre>
-        ) : null}
-        <pre className="min-h-[210px] overflow-auto rounded-lg border border-neutral-800 bg-black/40 p-3 font-mono text-xs leading-5 text-neutral-200">
-          {diff?.diff ?? 'Select a changed file to inspect its diff.'}
-        </pre>
       </div>
+
+      <Surface
+        variant="tertiary"
+        className="min-h-0 flex-1 overflow-hidden rounded-lg border border-neutral-800 bg-black"
+      >
+        <ProjectTerminalSession
+          onStatusChange={handleStatusChange}
+          sessionVersion={sessionVersion}
+          targetPath={targetPath}
+        />
+      </Surface>
+      <Text className="text-xs text-neutral-600">
+        {status === 'connected'
+          ? 'Live shell connected.'
+          : status === 'connecting'
+            ? 'Connecting shell...'
+            : status === 'error'
+              ? errorMessage || 'Terminal connection failed.'
+              : 'Terminal disconnected.'}
+      </Text>
     </div>
   );
 }
 
-function CodexPanel({ targetPath }: ProjectWorkspaceToolsProps) {
+export function ProjectCodexPanel({ targetPath }: ProjectWorkspaceToolsProps) {
   const [status, setStatus] = useState<CodexStatusResult>();
-  const [message, setMessage] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(true);
+  const [openResult, setOpenResult] = useState<OpenPathInAppResult>();
 
   async function refresh() {
-    setStatus(await projectSpaceClient.getCodexStatus());
+    setIsRefreshing(true);
+    try {
+      setStatus(await projectSpaceClient.getCodexStatus());
+    } finally {
+      setIsRefreshing(false);
+    }
   }
 
   useEffect(() => {
     void refresh();
   }, []);
 
-  const rows = useMemo(
+  const rows = useMemo<Array<[string, string | undefined]>>(
     () => [
       ['CLI', status?.cliAvailable ? status.cliPath : 'Not found'],
       ['App', status?.appInstalled ? status.appPath : 'Not found'],
@@ -351,91 +295,46 @@ function CodexPanel({ targetPath }: ProjectWorkspaceToolsProps) {
   );
 
   async function openCodex() {
-    const result = await projectSpaceClient.openCodexTarget({ cwd: targetPath });
-    setMessage(result.status === 'error' ? result.message ?? 'Could not open Codex.' : 'Opened Codex target.');
+    setOpenResult(await projectSpaceClient.openCodexTarget({ cwd: targetPath }));
   }
 
   return (
-    <div className="grid gap-3">
-      <div className="grid gap-2 sm:grid-cols-2">
-        {rows.map(([label, value]) => (
-          <Surface
-            key={label}
-            variant="secondary"
-            className="rounded-lg border border-neutral-800 bg-neutral-950/40 px-3 py-2"
-          >
-            <Text className="block text-[11px] uppercase tracking-[0.16em] text-neutral-500">
-              {label}
-            </Text>
-            <Text className="block truncate pt-1 text-sm text-neutral-200">{value}</Text>
-          </Surface>
-        ))}
+    <div className="flex min-w-0 flex-col gap-3">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <Bot className="size-4 shrink-0 text-neutral-400" />
+          <Text className="text-sm font-semibold text-neutral-100">Codex</Text>
+          <Chip size="sm" className="max-w-[34rem] truncate font-mono text-neutral-500">
+            {targetPath}
+          </Chip>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="ghost" isDisabled={isRefreshing} onPress={() => void refresh()}>
+            <RefreshCw className={isRefreshing ? 'size-4 animate-spin' : 'size-4'} />
+            Refresh
+          </Button>
+          <Button size="sm" variant="secondary" isDisabled={!targetPath} onPress={() => void openCodex()}>
+            <Bot className="size-4" />
+            Open Codex
+          </Button>
+        </div>
       </div>
-      <div className="flex flex-wrap gap-2">
-        <Button variant="secondary" isDisabled={!targetPath} onPress={() => void openCodex()}>
-          <Bot className="size-4" />
-          Open Codex
-        </Button>
-        <Button variant="outline" onPress={() => void refresh()}>
-          <RefreshCw className="size-4" />
-          Refresh
-        </Button>
-      </div>
-      {message ? (
-        <Text className="text-sm text-neutral-400">{message}</Text>
+
+      <Surface variant="tertiary" className="rounded-lg border border-neutral-800 bg-black/20 px-4 py-3">
+        <div className="mb-2 flex items-center gap-2">
+          <CheckCircle2 className="size-4 text-neutral-400" />
+          <Text className="text-sm font-semibold text-neutral-100">Runtime status</Text>
+        </div>
+        <div className="grid">
+          {rows.map(([label, value]) => (
+            <CodexStatusRow key={label} label={label} value={value} />
+          ))}
+        </div>
+      </Surface>
+
+      {formatOpenResult(openResult) ? (
+        <Text className="text-sm text-neutral-400">{formatOpenResult(openResult)}</Text>
       ) : null}
     </div>
-  );
-}
-
-export function ProjectWorkspaceTools({ targetPath }: ProjectWorkspaceToolsProps) {
-  const [view, setView] = useState<WorkspaceToolView>('terminal');
-  const items: Array<{
-    icon: typeof Terminal;
-    label: string;
-    value: WorkspaceToolView;
-  }> = [
-    { icon: Terminal, label: 'Terminal', value: 'terminal' },
-    { icon: GitBranch, label: 'Git', value: 'git' },
-    { icon: Bot, label: 'Codex', value: 'codex' }
-  ];
-
-  return (
-    <Surface
-      variant="secondary"
-      className="flex min-h-0 flex-col rounded-lg border border-neutral-800 bg-neutral-950/55"
-    >
-      <div className="border-b border-neutral-800 px-3 py-2">
-        <Tabs
-          selectedKey={view}
-          variant="primary"
-          onSelectionChange={(key) => {
-            if (key === 'terminal' || key === 'git' || key === 'codex') {
-              setView(key);
-            }
-          }}
-        >
-          <TabList className="grid max-w-md grid-cols-3">
-            {items.map((item) => {
-              const Icon = item.icon;
-
-              return (
-                <Tab key={item.value} id={item.value} className="gap-2 text-xs">
-                  <TabSeparator />
-                  <Icon className="size-4" />
-                  {item.label}
-                  <TabIndicator />
-                </Tab>
-              );
-            })}
-          </TabList>
-        </Tabs>
-      </div>
-      <div className="min-h-0 flex-1 p-3">
-        {view === 'terminal' ? <TerminalPanel targetPath={targetPath} /> : null}
-        {view === 'git' ? <GitPanel targetPath={targetPath} /> : null}
-        {view === 'codex' ? <CodexPanel targetPath={targetPath} /> : null}
-      </div>
-    </Surface>
   );
 }

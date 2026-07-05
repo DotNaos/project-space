@@ -8,7 +8,10 @@ import type { Plugin, ViteDevServer } from 'vite';
 import electron from 'vite-plugin-electron/simple';
 
 import { createLocalProjectSpaceBackend } from './server/local-project-space-backend';
-import { createMachineTerminalUpgradeHandler } from './server/machine-terminal-websocket';
+import {
+  createMachineTerminalUpgradeHandler,
+  createProjectTerminalUpgradeHandler
+} from './server/machine-terminal-websocket';
 import { createProjectSpaceRequestHandler } from './server/project-space-http';
 
 function projectSpaceApiPlugin(): Plugin {
@@ -20,9 +23,15 @@ function projectSpaceApiPlugin(): Plugin {
         backend
       });
       const handleMachineTerminalUpgrade = createMachineTerminalUpgradeHandler(backend);
+      const handleProjectTerminalUpgrade = createProjectTerminalUpgradeHandler();
 
       server.httpServer?.on('upgrade', (request, socket, head) => {
-        handleMachineTerminalUpgrade(request, socket, head);
+        if (
+          !handleMachineTerminalUpgrade(request, socket, head) &&
+          !handleProjectTerminalUpgrade(request, socket, head)
+        ) {
+          return;
+        }
       });
 
       server.middlewares.use((

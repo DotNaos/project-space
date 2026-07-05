@@ -99,6 +99,7 @@ export const launcherAppLabels: Record<string, string> = {
 
 export interface ProjectsState {
   activeGroupId: string;
+  pinnedProjectIds: string[];
   selectedExplorerTarget: ExplorerTarget;
   selectedLauncherAppId: string;
   selectedProjectId: string;
@@ -266,6 +267,7 @@ export interface GitHubBranchRecord {
 
 export interface GitHubIssueRecord {
   author?: string;
+  body?: string;
   labels: string[];
   number: number;
   state: 'open' | 'closed';
@@ -421,11 +423,15 @@ export type ProjectCliCommand =
   | 'module-show'
   | 'template-sync'
   | 'template-update'
-  | 'deploy-status';
+  | 'deploy-status'
+  | 'deploy-dry-run';
+
+export type ProjectDeployEnvironment = 'prod' | 'beta';
 
 export interface ProjectCliCommandRequest {
   command: ProjectCliCommand;
   cwd: string;
+  environment?: ProjectDeployEnvironment;
   moduleName?: string;
 }
 

@@ -42,7 +42,12 @@ function projectCliArgs(request: ProjectCliCommandRequest): string[] {
     case 'template-update':
       return ['template', 'update', '--dry-run'];
     case 'deploy-status':
-      return ['deploy', 'status'];
+      return ['deploy', 'status', '--all-envs', '--format', 'json'];
+    case 'deploy-dry-run':
+      if (!request.environment) {
+        throw new Error('environment is required for deploy-dry-run.');
+      }
+      return ['deploy', '--env', request.environment, '--dry-run', '--format', 'json'];
   }
 }
 

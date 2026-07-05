@@ -5,7 +5,10 @@ import { extname, join, normalize, resolve } from 'node:path';
 
 import { createLocalProjectSpaceBackend } from './local-project-space-backend';
 import { registerConnectorProjectRegistry } from './connector-hub';
-import { createMachineTerminalUpgradeHandler } from './machine-terminal-websocket';
+import {
+  createMachineTerminalUpgradeHandler,
+  createProjectTerminalUpgradeHandler
+} from './machine-terminal-websocket';
 import {
   getProjectSpaceAuthSessionResult,
   isProjectSpaceAuthRequired,
@@ -610,9 +613,13 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
     backend
   }));
   const handleMachineTerminalUpgrade = createMachineTerminalUpgradeHandler(backend);
+  const handleProjectTerminalUpgrade = createProjectTerminalUpgradeHandler();
 
   server.on('upgrade', (request, socket, head) => {
-    if (!handleMachineTerminalUpgrade(request, socket, head)) {
+    if (
+      !handleMachineTerminalUpgrade(request, socket, head) &&
+      !handleProjectTerminalUpgrade(request, socket, head)
+    ) {
       socket.destroy();
     }
   });

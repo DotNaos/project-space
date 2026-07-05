@@ -446,14 +446,17 @@ function TooltipRoot({ children }: { children: ReactNode; delay?: number }) {
   );
 }
 
-function TooltipTrigger({ children, className }: HTMLAttributes<HTMLSpanElement>) {
+function TooltipTrigger({ children, className, ...props }: HTMLAttributes<HTMLSpanElement>) {
   const tooltip = useContext(TooltipContext);
 
   return (
     <span
+      {...props}
       className={className}
       onFocus={() => tooltip?.setOpen(true)}
       onBlur={() => tooltip?.setOpen(false)}
+      onMouseEnter={() => tooltip?.setOpen(true)}
+      onMouseLeave={() => tooltip?.setOpen(false)}
       onPointerEnter={() => tooltip?.setOpen(true)}
       onPointerLeave={() => tooltip?.setOpen(false)}
     >

@@ -4,390 +4,241 @@ import type {
   GitHubCatalogResult,
   LauncherAppRecord,
   MachineRecord,
-  ProjectSpaceRecord
+  ProjectSpaceRecord,
+  ProjectWorktreeRecord
 } from '@/shared/project-space-api';
 import { useCallback, useMemo } from 'react';
-import type { ProjectMainView } from '../hooks/use-project-desktop';
-import { ChevronDown, ExternalLink, Play, Server } from 'lucide-react';
-import { Button, Card, Chip, Surface, Text } from '@/app/dotnaos-ui';
-import { OpenTargetDropdown } from './open-target-dropdown';
+import type {
+  MachineDetailTab,
+  ProjectDetailTab,
+  ProjectMainView
+} from '../hooks/use-project-desktop';
+import { ArrowLeft, ChevronRight } from 'lucide-react';
+import { Button, Card, Surface, Text } from '@/app/dotnaos-ui';
+import type { RailAccount } from './app-rail';
+import { EntitySwitcher, type SwitcherEntry } from './entity-switcher';
 import { MachineDetailView } from './machine-detail-view';
-import { MainBreadcrumbs, type MainBreadcrumbItem } from './project-main-breadcrumbs';
-import { ProjectCliCommandPanel } from './project-cli-command-panel';
+import { OpenTargetDropdown } from './open-target-dropdown';
+import { ProjectDetail } from './project-detail';
 import { ProjectHomeOverview } from './project-home-overview';
-import { ProjectOperationsPanel } from './project-operations-panel';
 import { ProjectRootOverview } from './project-root-overview';
-import { ProjectTemplateCheckPanel } from './project-template-check';
-import { ProjectWorkspaceTools } from './project-workspace-tools';
-import { ProjectctlManifestPanel } from './projectctl-manifest-panel';
-import { RepositoryActivityPanel } from './repository-activity-panel';
+import { SettingsView } from './settings-view';
 import { resolveProjectRepository } from './project-main-model';
+import { cn } from '@/lib/utils';
 
-interface ProjectMainPanelProps {
+function isVisibleProject(project: ProjectSpaceRecord) {
+  const folder = project.rootPath.split('/').filter(Boolean).pop() ?? '';
+
+  return !folder.startsWith('.') && !folder.endsWith('.worktrees');
+}
+
+interface BreadcrumbSegment {
+  label: string;
+  onPress?(): void;
+}
+
+function HeaderBreadcrumbs({
+  onBack,
+  segments,
+  switcher
+}: {
+  onBack?(): void;
+  segments: BreadcrumbSegment[];
+  switcher?: React.ReactNode;
+}) {
+  return (
+    <div className="app-no-drag relative flex min-w-0 items-center gap-1">
+      {onBack ? (
+        <Button
+          aria-label="Back"
+          isIconOnly
+          size="sm"
+          variant="ghost"
+          onPress={onBack}
+          className="mr-1 h-8 w-8 min-w-0 rounded-lg px-0 text-neutral-500 hover:text-neutral-100"
+        >
+          <ArrowLeft className="size-4" />
+        </Button>
+      ) : null}
+
+      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1">
+        {segments.map((segment, index) => {
+          const isLast = index === segments.length - 1 && !switcher;
+
+          return (
+            <span key={`${segment.label}-${index}`} className="flex min-w-0 items-center gap-1">
+              {index > 0 ? (
+                <ChevronRight className="size-3 shrink-0 text-neutral-700" strokeWidth={1.8} />
+              ) : null}
+              {segment.onPress && !isLast ? (
+                <button
+                  type="button"
+                  onClick={segment.onPress}
+                  className="hidden min-w-0 rounded-md px-1.5 py-1 text-left text-xs text-neutral-500 transition hover:bg-neutral-900 hover:text-neutral-200 sm:block"
+                >
+                  <span className="block max-w-[10rem] truncate">{segment.label}</span>
+                </button>
+              ) : (
+                <Text
+                  className={
+                    isLast
+                      ? 'min-w-0 truncate px-1 text-[15px] font-semibold text-neutral-100'
+                      : 'hidden min-w-0 truncate px-1.5 py-1 text-xs text-neutral-500 sm:block'
+                  }
+                >
+                  {segment.label}
+                </Text>
+              )}
+            </span>
+          );
+        })}
+        {switcher ? (
+          <>
+            {segments.length > 0 ? (
+              <ChevronRight
+                className="hidden size-3 shrink-0 text-neutral-700 sm:block"
+                strokeWidth={1.8}
+              />
+            ) : null}
+            {switcher}
+          </>
+        ) : null}
+      </nav>
+    </div>
+  );
+}
+
+function EmptyProjectView({ onCreateProject }: { onCreateProject(): void }) {
+  return (
+    <div className="mx-auto flex h-full w-full max-w-3xl flex-col justify-center gap-4">
+      <Card variant="secondary" className="w-full border border-neutral-800/80 bg-neutral-950/70">
+        <Card.Header className="gap-3">
+          <Text className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
+            No project selected
+          </Text>
+          <Card.Title className="text-2xl font-semibold tracking-tight text-neutral-50">
+            Pick a project from the sidebar
+          </Card.Title>
+          <Card.Description className="text-base text-neutral-400">
+            Or add a project directory to discover it.
+          </Card.Description>
+        </Card.Header>
+        <Card.Footer>
+          <Button variant="outline" onPress={onCreateProject}>
+            Add project directory
+          </Button>
+        </Card.Footer>
+      </Card>
+    </div>
+  );
+}
+
+export interface ProjectMainPanelProps {
+  account?: RailAccount;
   connectorOverview: ConnectorOverviewResult;
   githubCatalog: GitHubCatalogResult;
   hasBottomTabBar?: boolean;
   isConnectorRefreshing: boolean;
   isGitHubRefreshing: boolean;
-  isSidebarOpen: boolean;
   launcherApps: LauncherAppRecord[];
   launcherError: string;
+  machineTab: MachineDetailTab;
   mainView: ProjectMainView;
-  selectedApp?: LauncherAppRecord;
-  selectedAppLabel?: string;
-  selectedExplorerTarget: ExplorerTarget;
-  selectedMachine?: MachineRecord;
-  selectedMachineId: string;
-  selectedTargetName: string;
-  selectedTargetPath: string;
-  sidebarClosedPaddingLeft: number;
-  project?: ProjectSpaceRecord;
-  projects: ProjectSpaceRecord[];
   onCreateProject(): void;
-  onOpenMachines(): void;
   onOpenMachine(machineId: string): void;
+  onOpenMachines(): void;
+  onOpenNewWorktree(): void;
   onOpenProjects(): void;
+  onOpenProjectIssue(issueNumber: number): void;
   onOpenRoot(): void;
   onOpenSelectedTarget(): void;
   onRefreshConnectorOverview(): Promise<ConnectorOverviewResult>;
   onRefreshGitHubCatalog(): Promise<GitHubCatalogResult>;
   onSelectLauncherApp(appId: string): void;
+  onSelectMachineTab(tab: MachineDetailTab): void;
   onSelectProject(projectId: string): void;
-}
-
-function ProjectHeaderTitle({
-  mainView,
-  project,
-  selectedMachine,
-  selectedTargetName
-}: {
-  mainView: ProjectMainView;
+  onSelectProjectTab(tab: ProjectDetailTab): void;
+  onSelectWorkspace(): void;
+  onSelectWorktree(worktreeId: string): void;
   project?: ProjectSpaceRecord;
+  projects: ProjectSpaceRecord[];
+  projectTab: ProjectDetailTab;
+  selectedApp?: LauncherAppRecord;
+  selectedAppLabel?: string;
+  selectedExplorerTarget: ExplorerTarget;
+  selectedIssueNumber?: number;
   selectedMachine?: MachineRecord;
+  selectedMachineId: string;
   selectedTargetName: string;
-}) {
-  return (
-    <div className="relative flex min-w-0 items-center gap-3 leading-none">
-      <Text className="truncate text-[15px] font-semibold text-neutral-100">
-        {mainView === 'root'
-          ? 'Project Space'
-          : mainView === 'machines'
-            ? 'Machines'
-            : mainView === 'machine'
-              ? selectedMachine?.name ?? 'Machine'
-              : mainView === 'projects'
-                ? 'Projects'
-                : project?.name ?? 'No project selected'}
-      </Text>
-      {mainView === 'project' && project && project.kind !== 'github' ? (
-        <div className="hidden sm:block">
-          <Chip color="default" size="sm" variant="tertiary" className="shrink-0 text-neutral-400">
-            {selectedTargetName}
-          </Chip>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function GitHubProjectView({
-  project,
-  selectedRepository
-}: {
-  project: ProjectSpaceRecord & { github: NonNullable<ProjectSpaceRecord['github']> };
-  selectedRepository?: ProjectSpaceRecord['github'];
-}) {
-  return (
-    <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-4">
-      <section className="shrink-0 border-b border-neutral-800/70 pb-4">
-        <Text className="block text-[11px] font-medium text-neutral-500">GitHub repository</Text>
-        <Text className="mt-2 block truncate text-xl font-semibold text-neutral-50">
-          {project.github.fullName}
-        </Text>
-        {project.github.description ? (
-          <Text className="mt-2 block text-sm text-neutral-500">
-            {project.github.description}
-          </Text>
-        ) : null}
-      </section>
-
-      <section className="grid gap-3 sm:grid-cols-2">
-        <Surface
-          variant="tertiary"
-          className="rounded-lg border border-neutral-800 bg-neutral-950/45 p-4"
-        >
-          <Text className="block text-sm font-semibold text-neutral-100">Repository</Text>
-          <div className="mt-3 grid gap-2 text-sm">
-            <div className="flex justify-between gap-3">
-              <Text className="text-neutral-500">Owner</Text>
-              <Text className="truncate text-neutral-200">{project.github.owner}</Text>
-            </div>
-            <div className="flex justify-between gap-3">
-              <Text className="text-neutral-500">Default branch</Text>
-              <Text className="truncate text-neutral-200">
-                {project.github.defaultBranch ?? 'unknown'}
-              </Text>
-            </div>
-            <div className="flex justify-between gap-3">
-              <Text className="text-neutral-500">Visibility</Text>
-              <Text className="truncate text-neutral-200">
-                {project.github.isPrivate ? 'Private' : 'Public'}
-              </Text>
-            </div>
-          </div>
-        </Surface>
-
-        <Surface
-          variant="tertiary"
-          className="rounded-lg border border-neutral-800 bg-neutral-950/45 p-4"
-        >
-          <Text className="block text-sm font-semibold text-neutral-100">Project config</Text>
-          <div className="mt-3 grid gap-2 text-sm">
-            <div className="flex justify-between gap-3">
-              <Text className="text-neutral-500">Status</Text>
-              <Text className="truncate text-neutral-200">
-                {project.github.projectConfig.status}
-              </Text>
-            </div>
-            <div className="flex justify-between gap-3">
-              <Text className="text-neutral-500">project.yaml</Text>
-              <Text className="truncate text-neutral-200">
-                {project.github.projectConfig.projectYaml ? 'Present' : 'Missing'}
-              </Text>
-            </div>
-            <div className="flex justify-between gap-3">
-              <Text className="text-neutral-500">template lock</Text>
-              <Text className="truncate text-neutral-200">
-                {project.github.projectConfig.templateLock ? 'Present' : 'Missing'}
-              </Text>
-            </div>
-          </div>
-        </Surface>
-      </section>
-
-      <a
-        href={project.github.url}
-        target="_blank"
-        rel="noreferrer"
-        className="inline-flex w-fit items-center gap-2 rounded-lg bg-neutral-900 px-3 py-2 text-sm font-medium text-neutral-100 transition hover:bg-neutral-800"
-      >
-        Open on GitHub
-        <ExternalLink className="size-4" />
-      </a>
-
-      <RepositoryActivityPanel repository={selectedRepository} />
-    </div>
-  );
-}
-
-function LocalProjectView({
-  launcherError,
-  project,
-  selectedRepository,
-  selectedTargetPath,
-  targetLabel
-}: {
-  launcherError: string;
-  project: ProjectSpaceRecord;
-  selectedRepository?: ProjectSpaceRecord['github'];
   selectedTargetPath: string;
-  targetLabel: string;
-}) {
-  return (
-    <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col gap-4">
-      <section className="shrink-0 border-b border-neutral-800/70 pb-4">
-        <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <Text className="block text-[11px] font-medium text-neutral-500">{targetLabel}</Text>
-            <Text
-              title={selectedTargetPath}
-              className="mt-2 block truncate font-mono text-base font-medium text-neutral-50"
-            >
-              {selectedTargetPath}
-            </Text>
-          </div>
-          <div className="min-w-[18rem] max-w-full">
-            <ProjectTemplateCheckPanel check={project.fullstackTemplate} />
-          </div>
-        </div>
-
-        {launcherError ? (
-          <Surface
-            variant="tertiary"
-            className="mt-3 rounded-lg border border-amber-400/20 bg-amber-500/8 px-4 py-3 text-sm text-amber-300"
-          >
-            {launcherError}
-          </Surface>
-        ) : null}
-      </section>
-
-      <RepositoryActivityPanel repository={selectedRepository} />
-
-      <section className="grid gap-3 lg:grid-cols-2">
-        <Surface
-          variant="tertiary"
-          className="rounded-lg border border-neutral-800 bg-neutral-950/45 p-4"
-        >
-          <div className="mb-3 flex items-center gap-2">
-            <Play className="size-4 text-neutral-400" />
-            <Text className="text-sm font-semibold text-neutral-100">Actions</Text>
-          </div>
-          <Button variant="secondary" isDisabled={!project}>
-            Start developing a new feature
-          </Button>
-        </Surface>
-
-        <Surface
-          variant="tertiary"
-          className="rounded-lg border border-neutral-800 bg-neutral-950/45 p-4"
-        >
-          <div className="mb-3 flex items-center gap-2">
-            <Server className="size-4 text-neutral-400" />
-            <Text className="text-sm font-semibold text-neutral-100">
-              Machines developing this project
-            </Text>
-          </div>
-          <div className="rounded-md border border-neutral-800 bg-neutral-950/50 px-3 py-2">
-            <Text className="block text-sm text-neutral-300">Local connector</Text>
-            <Text className="block truncate font-mono text-xs text-neutral-500">
-              {selectedTargetPath}
-            </Text>
-          </div>
-        </Surface>
-      </section>
-
-      <ProjectWorkspaceTools targetPath={selectedTargetPath} />
-      <ProjectCliCommandPanel project={project} targetPath={selectedTargetPath} />
-
-      <details className="group shrink-0 border-t border-neutral-800/70 pt-3">
-        <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg py-2 text-sm font-medium text-neutral-300 hover:text-neutral-100">
-          <ChevronDown
-            className="size-4 text-neutral-500 transition group-open:rotate-180"
-            strokeWidth={1.8}
-          />
-          Infrastructure and automation
-          <Text className="text-xs font-normal text-neutral-500">
-            connector, deploy, backup, scoped jobs
-          </Text>
-        </summary>
-        <div className="grid gap-3 pt-2">
-          <ProjectctlManifestPanel targetPath={selectedTargetPath} />
-          <ProjectOperationsPanel projectName={project.name} targetPath={selectedTargetPath} />
-        </div>
-      </details>
-    </div>
-  );
-}
-
-function EmptyProjectView({
-  onCreateProject
-}: {
-  onCreateProject(): void;
-}) {
-  return (
-    <div className="mx-auto flex h-full w-full max-w-6xl flex-col justify-center gap-4">
-      <Card variant="secondary" className="w-full border border-neutral-800/80 bg-neutral-950/70">
-        <Card.Header className="gap-3">
-          <Text className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
-            No Projects
-          </Text>
-          <Card.Title className="text-2xl font-semibold tracking-tight text-neutral-50">
-            Nothing selected yet
-          </Card.Title>
-          <Card.Description className="text-base text-neutral-400">
-            Add projects to discover them.
-          </Card.Description>
-        </Card.Header>
-        <Card.Footer>
-          <Button variant="outline" onPress={onCreateProject}>
-            Select project
-          </Button>
-        </Card.Footer>
-      </Card>
-      <ProjectOperationsPanel projectName="project-space" targetPath="" />
-    </div>
-  );
+  worktrees: ProjectWorktreeRecord[];
 }
 
 export function ProjectMainPanel({
+  account,
   connectorOverview,
   githubCatalog,
   hasBottomTabBar = false,
   isConnectorRefreshing,
   isGitHubRefreshing,
-  isSidebarOpen,
   launcherApps,
   launcherError,
+  machineTab,
   mainView,
-  selectedApp,
-  selectedAppLabel,
-  selectedExplorerTarget,
-  selectedMachine,
-  selectedMachineId,
-  selectedTargetName,
-  selectedTargetPath,
-  sidebarClosedPaddingLeft,
-  project,
-  projects,
   onCreateProject,
-  onOpenMachines,
   onOpenMachine,
+  onOpenMachines,
+  onOpenNewWorktree,
   onOpenProjects,
+  onOpenProjectIssue,
   onOpenRoot,
   onOpenSelectedTarget,
   onRefreshConnectorOverview,
   onRefreshGitHubCatalog,
   onSelectLauncherApp,
-  onSelectProject
+  onSelectMachineTab,
+  onSelectProject,
+  onSelectProjectTab,
+  onSelectWorkspace,
+  onSelectWorktree,
+  project,
+  projects,
+  projectTab,
+  selectedApp,
+  selectedAppLabel,
+  selectedExplorerTarget,
+  selectedIssueNumber,
+  selectedMachine,
+  selectedMachineId,
+  selectedTargetName,
+  selectedTargetPath,
+  worktrees
 }: ProjectMainPanelProps) {
-  const headerSafeInset = isSidebarOpen ? 0 : sidebarClosedPaddingLeft;
-  const targetLabel =
-    selectedExplorerTarget.kind === 'worktree' ? 'Worktree path' : 'Workspace path';
   const selectedRepository = useMemo(
     () => resolveProjectRepository(project, githubCatalog),
     [githubCatalog, project]
   );
-  const mainBreadcrumbItems = useMemo<MainBreadcrumbItem[]>(() => {
-    if (mainView === 'root') {
-      return [];
-    }
 
-    const homeItem: MainBreadcrumbItem = {
-      label: 'Home',
-      onPress: onOpenRoot
-    };
+  const projectSwitcherEntries = useMemo<SwitcherEntry[]>(() => {
+    return projects
+      .filter(isVisibleProject)
+      .map((entry) => ({
+        id: entry.id,
+        label: entry.github?.name ?? entry.name,
+        sublabel: entry.github?.owner ?? (entry.kind === 'github' ? 'GitHub' : 'Local')
+      }))
+      .sort((left, right) => left.label.localeCompare(right.label));
+  }, [projects]);
 
-    if (mainView === 'machines') {
-      return [homeItem, { label: 'Machines' }];
-    }
+  const machineSwitcherEntries = useMemo<SwitcherEntry[]>(() => {
+    return connectorOverview.machines.map((machine) => ({
+      id: machine.id,
+      label: machine.name,
+      sublabel: machine.connector.status
+    }));
+  }, [connectorOverview.machines]);
 
-    if (mainView === 'machine') {
-      return [
-        homeItem,
-        { label: 'Machines', onPress: onOpenMachines },
-        { label: selectedMachine?.name ?? (selectedMachineId || 'Machine') }
-      ];
-    }
-
-    if (mainView === 'projects') {
-      return [homeItem, { label: 'Projects' }];
-    }
-
-    return [
-      homeItem,
-      { label: 'Projects', onPress: onOpenProjects },
-      { label: project?.name ?? 'Project' }
-    ];
-  }, [
-    mainView,
-    onOpenMachines,
-    onOpenProjects,
-    onOpenRoot,
-    project?.name,
-    selectedMachine?.name,
-    selectedMachineId
-  ]);
-  const handleMainBack = useCallback(() => {
+  const handleBack = useCallback(() => {
     if (mainView === 'machine') {
       onOpenMachines();
       return;
@@ -401,30 +252,62 @@ export function ProjectMainPanel({
     onOpenRoot();
   }, [mainView, onOpenMachines, onOpenProjects, onOpenRoot]);
 
+  const homeSegment: BreadcrumbSegment = { label: 'Home', onPress: onOpenRoot };
+
+  let segments: BreadcrumbSegment[] = [{ label: 'Home' }];
+  let switcher: React.ReactNode;
+  let onBack: (() => void) | undefined;
+
+  if (mainView === 'machines') {
+    segments = [homeSegment, { label: 'Machines' }];
+    onBack = handleBack;
+  } else if (mainView === 'machine') {
+    segments = [homeSegment, { label: 'Machines', onPress: onOpenMachines }];
+    switcher = (
+      <EntitySwitcher
+        ariaLabel="Switch machine"
+        currentLabel={selectedMachine?.name ?? (selectedMachineId || 'Machine')}
+        entries={machineSwitcherEntries}
+        selectedId={selectedMachineId}
+        onSelect={onOpenMachine}
+      />
+    );
+    onBack = handleBack;
+  } else if (mainView === 'projects') {
+    segments = [homeSegment, { label: 'Projects' }];
+    onBack = handleBack;
+  } else if (mainView === 'project') {
+    segments = [homeSegment, { label: 'Projects', onPress: onOpenProjects }];
+    switcher = (
+      <EntitySwitcher
+        ariaLabel="Switch project"
+        currentLabel={project?.github?.name ?? project?.name ?? 'No project selected'}
+        entries={projectSwitcherEntries}
+        selectedId={project?.id ?? ''}
+        onSelect={onSelectProject}
+      />
+    );
+    onBack = handleBack;
+  } else if (mainView === 'settings') {
+    segments = [homeSegment, { label: 'Settings' }];
+    onBack = handleBack;
+  }
+
+  const containsOwnScroll =
+    mainView === 'project' &&
+    project &&
+    project.kind !== 'github' &&
+    (projectTab === 'history' || (projectTab === 'issues' && selectedIssueNumber));
+
   return (
     <Surface variant="transparent" className="flex min-h-0 flex-col rounded-none bg-app-panel">
-      <div
-        className="relative flex h-14 items-center justify-between pr-4 sm:pr-6"
-        style={{
-          paddingLeft: isSidebarOpen ? '2rem' : `${sidebarClosedPaddingLeft}px`
-        }}
-      >
-        <div
-          className="app-drag absolute inset-y-0 right-0"
-          style={{
-            left: `${headerSafeInset}px`
-          }}
-        />
+      <div className="relative flex h-14 shrink-0 items-center justify-between gap-3 pr-4 pl-4 sm:pr-6 sm:pl-6">
+        <div className="app-drag absolute inset-0" />
 
-        <ProjectHeaderTitle
-          mainView={mainView}
-          project={project}
-          selectedMachine={selectedMachine}
-          selectedTargetName={selectedTargetName}
-        />
+        <HeaderBreadcrumbs onBack={onBack} segments={segments} switcher={switcher} />
 
-        {mainView === 'project' && project?.kind !== 'github' ? (
-          <div className="app-no-drag relative">
+        {mainView === 'project' && project && project.kind !== 'github' ? (
+          <div className="app-no-drag relative shrink-0">
             <OpenTargetDropdown
               apps={launcherApps}
               disabled={!project || !selectedTargetPath}
@@ -438,16 +321,19 @@ export function ProjectMainPanel({
       </div>
 
       <div
-        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pt-4 sm:px-8"
+        data-testid="project-main-content"
+        className={cn(
+          'min-h-0 flex-1 overflow-x-hidden px-4 pt-2 sm:px-8',
+          containsOwnScroll ? 'overflow-hidden' : 'overflow-y-auto'
+        )}
         style={{
-          paddingBottom: hasBottomTabBar ? 'calc(6.75rem + env(safe-area-inset-bottom))' : '2rem'
+          paddingBottom: containsOwnScroll
+            ? '0.5rem'
+            : hasBottomTabBar
+              ? 'calc(6.75rem + env(safe-area-inset-bottom))'
+              : '2rem'
         }}
       >
-        <MainBreadcrumbs
-          items={mainBreadcrumbItems}
-          onBack={mainView === 'root' ? undefined : handleMainBack}
-        />
-
         {mainView === 'machines' || mainView === 'projects' ? (
           <ProjectHomeOverview
             connector={connectorOverview}
@@ -468,7 +354,9 @@ export function ProjectMainPanel({
             machineId={selectedMachineId}
             onOpenMachines={onOpenMachines}
             onSelectProject={onSelectProject}
+            onSelectTab={onSelectMachineTab}
             projects={projects}
+            tab={machineTab}
           />
         ) : mainView === 'root' ? (
           <ProjectRootOverview
@@ -479,15 +367,32 @@ export function ProjectMainPanel({
             onSelectProject={onSelectProject}
             projects={projects}
           />
-        ) : project?.kind === 'github' && project.github ? (
-          <GitHubProjectView project={project as ProjectSpaceRecord & { github: NonNullable<ProjectSpaceRecord['github']> }} selectedRepository={selectedRepository} />
+        ) : mainView === 'settings' ? (
+          <SettingsView
+            account={account}
+            connectorOverview={connectorOverview}
+            githubCatalog={githubCatalog}
+            isGitHubRefreshing={isGitHubRefreshing}
+            onRefreshGitHubCatalog={onRefreshGitHubCatalog}
+          />
         ) : project ? (
-          <LocalProjectView
+          <ProjectDetail
+            connectorOverview={connectorOverview}
             launcherError={launcherError}
+            onOpenNewWorktree={onOpenNewWorktree}
+            onOpenIssue={onOpenProjectIssue}
+            onSelectTab={onSelectProjectTab}
+            onSelectWorkspace={onSelectWorkspace}
+            onSelectWorktree={onSelectWorktree}
             project={project}
+            projects={projects}
+            selectedExplorerTarget={selectedExplorerTarget}
+            selectedIssueNumber={selectedIssueNumber}
             selectedRepository={selectedRepository}
+            selectedTargetName={selectedTargetName}
             selectedTargetPath={selectedTargetPath}
-            targetLabel={targetLabel}
+            tab={projectTab}
+            worktrees={worktrees}
           />
         ) : (
           <EmptyProjectView onCreateProject={onCreateProject} />

@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 import type { FileSystemEntry } from '@/shared/project-space-api';
 
 interface FileExplorerProps {
-  onBack(): void;
+  onBack?(): void;
   rootPath?: string;
 }
 
@@ -155,7 +155,7 @@ export function FileExplorer({
     return (
       <ScrollShadow className="flex-1 px-3 py-4" hideScrollBar>
         <div className="space-y-1">
-          <BackToWorkspaceRow onBack={onBack} />
+          {onBack ? <BackToWorkspaceRow onBack={onBack} /> : null}
           <Text className="px-3 py-2 text-sm text-neutral-500">No project selected.</Text>
         </div>
       </ScrollShadow>
@@ -165,7 +165,7 @@ export function FileExplorer({
   return (
     <ScrollShadow className="flex-1 px-3 py-4" hideScrollBar>
       <div className="space-y-1">
-        <BackToWorkspaceRow onBack={onBack} />
+        {onBack ? <BackToWorkspaceRow onBack={onBack} /> : null}
         <Text className="px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-neutral-500">
           {pathBasename(rootPath)}
         </Text>

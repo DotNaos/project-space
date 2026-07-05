@@ -246,14 +246,17 @@ async function shouldTreatAsWorktreeProject(
 }
 
 function readProjectsState(): ProjectsState {
+  const emptyState: ProjectsState = {
+    activeGroupId: '',
+    pinnedProjectIds: [],
+    selectedExplorerTarget: { kind: 'workspace' },
+    selectedLauncherAppId: '',
+    selectedProjectId: ''
+  };
+
   try {
     if (!existsSync(projectsStateFile)) {
-      return {
-        activeGroupId: '',
-        selectedExplorerTarget: { kind: 'workspace' },
-        selectedLauncherAppId: '',
-        selectedProjectId: ''
-      };
+      return emptyState;
     }
 
     const parsed = JSON.parse(readFileSync(projectsStateFile, 'utf-8')) as Partial<ProjectsState> & {
@@ -262,6 +265,7 @@ function readProjectsState(): ProjectsState {
 
     return {
       activeGroupId: parsed.activeGroupId ?? '',
+      pinnedProjectIds: normalizePinnedProjectIds(parsed.pinnedProjectIds),
       selectedExplorerTarget:
         parsed.selectedExplorerTarget?.kind === 'worktree' &&
         typeof parsed.selectedExplorerTarget.worktreeId === 'string'
@@ -279,18 +283,33 @@ function readProjectsState(): ProjectsState {
       selectedProjectId: parsed.selectedProjectId ?? ''
     };
   } catch {
-    return {
-      activeGroupId: '',
-      selectedExplorerTarget: { kind: 'workspace' },
-      selectedLauncherAppId: '',
-      selectedProjectId: ''
-    };
+    return emptyState;
   }
+}
+
+function normalizePinnedProjectIds(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(value.filter((projectId): projectId is string => typeof projectId === 'string'))
+  );
 }
 
 function writeProjectsState(state: ProjectsState) {
   mkdirSync(projectSpaceDirectory, { recursive: true });
-  writeFileSync(projectsStateFile, JSON.stringify(state, null, 2));
+  writeFileSync(
+    projectsStateFile,
+    JSON.stringify(
+      {
+        ...state,
+        pinnedProjectIds: normalizePinnedProjectIds(state.pinnedProjectIds)
+      },
+      null,
+      2
+    )
+  );
 }
 
 function mergeDiscoveries(

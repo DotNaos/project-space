@@ -55,6 +55,7 @@ interface GitHubApiBranch {
 }
 
 interface GitHubApiIssue {
+  body?: string | null;
   html_url: string;
   labels?: Array<{ name?: string }>;
   number: number;
@@ -392,6 +393,7 @@ export async function getGitHubRepositoryDetails(
         .filter((issue) => !issue.pull_request)
         .map<GitHubIssueRecord>((issue) => ({
           author: issue.user?.login,
+          body: issue.body ?? undefined,
           labels: issue.labels?.map((label) => label.name).filter((name): name is string => Boolean(name)) ?? [],
           number: issue.number,
           state: issue.state,
