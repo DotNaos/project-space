@@ -36,8 +36,10 @@ interface ProjectDeploymentsPanelProps {
 }
 
 const refreshIntervalMs = 30_000;
+const expectedDeploymentEnvironments = ['prod', 'beta'] as const;
 
 type DeploymentTone = 'ok' | 'pending' | 'failed' | 'muted';
+type ExpectedDeploymentEnvironment = typeof expectedDeploymentEnvironments[number];
 
 interface RuntimeCheck {
   label: string;
@@ -315,11 +317,80 @@ function sortDeployments(deployments: DeploymentRecordSummary[]) {
   });
 }
 
+function expectedBranchForEnvironment(environment: string) {
+  if (environment === 'prod') {
+    return 'main';
+  }
+  if (environment === 'beta') {
+    return 'beta';
+  }
+
+  return undefined;
+}
+
 interface DeploymentRowProps {
   deployment: DeploymentRecordSummary;
   isLive?: boolean;
   pipelineRun?: GitHubWorkflowRunSummary;
   repositoryUrl?: string;
+}
+
+interface EnvironmentSlotRowProps {
+  environment: ExpectedDeploymentEnvironment;
+  projectName: string;
+  repositoryUrl?: string;
+}
+
+function EnvironmentSlotRow({
+  environment,
+  projectName,
+  repositoryUrl
+}: EnvironmentSlotRowProps) {
+  const branch = expectedBranchForEnvironment(environment);
+  const branchUrl = repositoryUrl && branch
+    ? `${repositoryUrl}/tree/${encodeURIComponent(branch)}`
+    : undefined;
+
+  return (
+    <Surface
+      variant="tertiary"
+      className="grid gap-2 rounded-lg border border-dashed border-neutral-800 bg-black/10 px-3 py-3"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <Chip size="sm" variant={environment === 'prod' ? 'primary' : 'secondary'}>
+          {environment}
+        </Chip>
+        <Text className="min-w-0 truncate text-sm font-medium text-neutral-300">
+          {environment === 'prod' ? projectName : `${projectName}-${environment}`}
+        </Text>
+        <div className="ml-auto">
+          <ToneChip label="missing" tone="muted" />
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-500">
+        {branch ? (
+          branchUrl ? (
+            <a
+              href={branchUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 transition hover:text-neutral-200"
+            >
+              <GitBranch className="size-3" />
+              {branch}
+            </a>
+          ) : (
+            <span className="inline-flex items-center gap-1">
+              <GitBranch className="size-3" />
+              {branch}
+            </span>
+          )
+        ) : null}
+        <span>No deployment recorded for this environment.</span>
+      </div>
+    </Surface>
+  );
 }
 
 function DeploymentRow({ deployment, isLive = false, pipelineRun, repositoryUrl }: DeploymentRowProps) {
@@ -560,7 +631,7 @@ export function ProjectDeploymentsPanel({
     [platform?.deployments, projectName]
   );
 
-  const liveDeployments = useMemo(() => {
+  const latestDeploymentByEnvironment = useMemo(() => {
     const byEnvironment = new Map<string, DeploymentRecordSummary>();
 
     for (const deployment of projectDeployments) {
@@ -576,15 +647,32 @@ export function ProjectDeploymentsPanel({
     );
   }, [projectDeployments]);
 
+  const environmentSlots = useMemo(() => {
+    const byEnvironment = new Map(
+      latestDeploymentByEnvironment.map((deployment) => [deployment.environment, deployment])
+    );
+    const unexpectedEnvironments = latestDeploymentByEnvironment
+      .map((deployment) => deployment.environment)
+      .filter((environment) =>
+        !expectedDeploymentEnvironments.includes(environment as ExpectedDeploymentEnvironment)
+      );
+    const environments = [...expectedDeploymentEnvironments, ...unexpectedEnvironments];
+
+    return environments.map((environment) => ({
+      deployment: byEnvironment.get(environment),
+      environment
+    }));
+  }, [latestDeploymentByEnvironment]);
+
   const historyDeployments = useMemo(() => {
     const liveIds = new Set(
-      liveDeployments.map((deployment) => deployment.id || `${deployment.appSlug}-${deployment.environment}`)
+      latestDeploymentByEnvironment.map((deployment) => deployment.id || `${deployment.appSlug}-${deployment.environment}`)
     );
 
     return projectDeployments.filter(
       (deployment) => !liveIds.has(deployment.id || `${deployment.appSlug}-${deployment.environment}`)
     );
-  }, [projectDeployments, liveDeployments]);
+  }, [projectDeployments, latestDeploymentByEnvironment]);
 
   const latestRunByBranch = useMemo(() => {
     const byBranch = new Map<string, GitHubWorkflowRunSummary>();
@@ -670,27 +758,34 @@ export function ProjectDeploymentsPanel({
           <div className="flex items-center gap-2">
             <Radio className="size-4 text-neutral-400" />
             <Text className="text-xs font-semibold uppercase tracking-[0.16em] text-neutral-500">
-              Live on VPS
+              Environments
             </Text>
           </div>
-          {liveDeployments.length > 0 ? (
-            liveDeployments.map((deployment) => (
-              <DeploymentRow
-                key={`live-${deployment.id || `${deployment.appSlug}-${deployment.environment}`}`}
-                deployment={deployment}
-                isLive
-                pipelineRun={
-                  deployment.sourceRef ? latestRunByBranch.get(deployment.sourceRef) : undefined
-                }
-                repositoryUrl={repository?.url}
-              />
-            ))
+          {platform?.apiReachable ? (
+            environmentSlots.map((slot) =>
+              slot.deployment ? (
+                <DeploymentRow
+                  key={`environment-${slot.deployment.id || `${slot.deployment.appSlug}-${slot.environment}`}`}
+                  deployment={slot.deployment}
+                  isLive
+                  pipelineRun={
+                    slot.deployment.sourceRef ? latestRunByBranch.get(slot.deployment.sourceRef) : undefined
+                  }
+                  repositoryUrl={repository?.url}
+                />
+              ) : expectedDeploymentEnvironments.includes(slot.environment as ExpectedDeploymentEnvironment) ? (
+                <EnvironmentSlotRow
+                  key={`environment-missing-${slot.environment}`}
+                  environment={slot.environment as ExpectedDeploymentEnvironment}
+                  projectName={projectName}
+                  repositoryUrl={repository?.url}
+                />
+              ) : null
+            )
           ) : (
             <Surface variant="tertiary" className="rounded-lg border border-neutral-800 bg-black/20 px-3 py-2">
               <Text className="text-sm text-neutral-400">
-                {platform?.apiReachable
-                  ? 'No deployments were found for this project on the VPS platform.'
-                  : 'Connect the private VPS platform to see what is live for this project.'}
+                Connect the private VPS platform to see deployment environments for this project.
               </Text>
             </Surface>
           )}
