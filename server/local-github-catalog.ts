@@ -75,7 +75,7 @@ interface GitHubApiIssue {
   } | null;
 }
 
-interface TokenResolution {
+export interface TokenResolution {
   login?: string;
   source: GitHubAuthSource;
   token: string;
@@ -86,9 +86,9 @@ const githubTokenFile = join(projectSpaceDirectory, 'github-oauth.json');
 const githubApiBaseUrl = 'https://api.github.com';
 const githubDeviceCodeUrl = 'https://github.com/login/device/code';
 const githubAccessTokenUrl = 'https://github.com/login/oauth/access_token';
-const githubOAuthClientIdMissingMessage = 'Set GITHUB_OAUTH_CLIENT_ID to enable GitHub OAuth.';
+export const githubOAuthClientIdMissingMessage = 'Set GITHUB_OAUTH_CLIENT_ID to enable GitHub OAuth.';
 
-function getGitHubClientId() {
+export function getGitHubClientId() {
   return (
     process.env.GITHUB_OAUTH_CLIENT_ID ??
     process.env.PROJECT_SPACE_GITHUB_CLIENT_ID ??
@@ -130,7 +130,7 @@ function writeStoredToken(token: StoredGitHubToken) {
   });
 }
 
-async function requestGitHub<T>(
+export async function requestGitHub<T>(
   path: string,
   token: string,
   init: RequestInit = {}
@@ -162,7 +162,7 @@ async function readLogin(token: string) {
   }
 }
 
-async function resolveToken(): Promise<TokenResolution | null> {
+export async function resolveToken(): Promise<TokenResolution | null> {
   const currentSession = getCurrentAuthSession();
 
   if (isProjectSpaceAuthRequired() && !currentSession) {

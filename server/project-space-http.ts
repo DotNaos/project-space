@@ -28,6 +28,8 @@ import type {
   GitCommitRequest,
   GitDiffRequest,
   GitHistoryRequest,
+  GitHubBranchCreateRequest,
+  GitHubIssueCommentCreateRequest,
   GitHubIssueCreateRequest,
   GitHubIssueUpdateRequest,
   GitStageRequest,
@@ -449,6 +451,31 @@ function createApiHandler(backend: ProjectSpaceBackend) {
       if (request.method === 'POST' && url.pathname === '/api/github/issues') {
         const payload = await readJson<GitHubIssueCreateRequest>(request);
         writeJson(response, 200, await backend.createGitHubIssue(payload));
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/github/branches') {
+        const payload = await readJson<GitHubBranchCreateRequest>(request);
+        writeJson(response, 200, await backend.createGitHubBranch(payload));
+        return true;
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/github/issue-comments') {
+        const fullName = url.searchParams.get('fullName');
+        const number = Number(url.searchParams.get('number') ?? '');
+
+        if (!fullName || !Number.isFinite(number)) {
+          writeJson(response, 400, { error: 'Missing fullName or number.' });
+          return true;
+        }
+
+        writeJson(response, 200, await backend.getGitHubIssueComments(fullName, number));
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/github/issue-comments') {
+        const payload = await readJson<GitHubIssueCommentCreateRequest>(request);
+        writeJson(response, 200, await backend.createGitHubIssueComment(payload));
         return true;
       }
 
