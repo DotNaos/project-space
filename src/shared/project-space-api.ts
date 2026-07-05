@@ -276,6 +276,15 @@ export interface GitHubIssueRecord {
   url: string;
 }
 
+export interface GitHubIssueCommentRecord {
+  author?: string;
+  body: string;
+  createdAt?: string;
+  id: number;
+  updatedAt?: string;
+  url: string;
+}
+
 export interface GitHubIssueCreateRequest {
   body?: string;
   fullName: string;
@@ -294,6 +303,36 @@ export interface GitHubIssueUpdateRequest {
 
 export interface GitHubIssueMutationResult {
   issue?: GitHubIssueRecord;
+  message?: string;
+  status: GitHubCatalogStatus;
+}
+
+export interface GitHubIssueCommentsResult {
+  comments: GitHubIssueCommentRecord[];
+  message?: string;
+  status: GitHubCatalogStatus;
+}
+
+export interface GitHubIssueCommentCreateRequest {
+  body: string;
+  fullName: string;
+  number: number;
+}
+
+export interface GitHubIssueCommentMutationResult {
+  comment?: GitHubIssueCommentRecord;
+  message?: string;
+  status: GitHubCatalogStatus;
+}
+
+export interface GitHubBranchCreateRequest {
+  fullName: string;
+  name: string;
+  sourceBranch?: string;
+}
+
+export interface GitHubBranchMutationResult {
+  branch?: GitHubBranchRecord;
   message?: string;
   status: GitHubCatalogStatus;
 }
@@ -787,7 +826,15 @@ export interface ProjectSpaceBackend {
     request: GitHubOAuthDevicePollRequest
   ): Promise<GitHubOAuthDevicePollResult>;
   getScopeDevboxOverview(): Promise<ScopeDevboxOverviewResult>;
+  createGitHubBranch(request: GitHubBranchCreateRequest): Promise<GitHubBranchMutationResult>;
   createGitHubIssue(request: GitHubIssueCreateRequest): Promise<GitHubIssueMutationResult>;
+  createGitHubIssueComment(
+    request: GitHubIssueCommentCreateRequest
+  ): Promise<GitHubIssueCommentMutationResult>;
+  getGitHubIssueComments(
+    fullName: string,
+    number: number
+  ): Promise<GitHubIssueCommentsResult>;
   getGitHubRepositoryDetails(fullName: string): Promise<GitHubRepositoryDetailsResult>;
   updateGitHubIssue(request: GitHubIssueUpdateRequest): Promise<GitHubIssueMutationResult>;
   startScopeDevboxJob(request: ScopeDevboxStartRequest): Promise<ScopeDevboxJobRecord>;

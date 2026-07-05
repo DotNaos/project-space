@@ -11,6 +11,11 @@ import type {
   GitHistoryRequest,
   GitHistoryResult,
   GitHubCatalogResult,
+  GitHubBranchCreateRequest,
+  GitHubBranchMutationResult,
+  GitHubIssueCommentCreateRequest,
+  GitHubIssueCommentMutationResult,
+  GitHubIssueCommentsResult,
   GitHubIssueCreateRequest,
   GitHubIssueMutationResult,
   GitHubIssueUpdateRequest,
@@ -188,6 +193,28 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
       body: JSON.stringify(request),
       method: 'POST'
     });
+  }
+
+  createGitHubBranch(request: GitHubBranchCreateRequest): Promise<GitHubBranchMutationResult> {
+    return this.request('/api/github/branches', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  createGitHubIssueComment(
+    request: GitHubIssueCommentCreateRequest
+  ): Promise<GitHubIssueCommentMutationResult> {
+    return this.request('/api/github/issue-comments', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  getGitHubIssueComments(fullName: string, number: number): Promise<GitHubIssueCommentsResult> {
+    const query = new URLSearchParams({ fullName, number: String(number) });
+
+    return this.request(`/api/github/issue-comments?${query.toString()}`);
   }
 
   getGitHubPipelineStatus(fullName: string): Promise<GitHubPipelineStatusResult> {

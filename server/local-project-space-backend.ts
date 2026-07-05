@@ -30,6 +30,11 @@ import {
   updateGitHubIssue
 } from './local-github-catalog';
 import {
+  createGitHubBranch,
+  createGitHubIssueComment,
+  getGitHubIssueComments
+} from './local-github-issue-actions';
+import {
   loadInstalledLauncherApps,
   loadLauncherAppIcon,
   openCodexSkills,
@@ -791,8 +796,17 @@ export function createLocalProjectSpaceBackend(
     async getScopeDevboxOverview() {
       return getScopeDevboxOverview();
     },
+    async createGitHubBranch(request) {
+      return createGitHubBranch(request);
+    },
     async startScopeDevboxJob(request) {
       return startScopeDevboxJob(request);
+    },
+    async createGitHubIssueComment(request) {
+      return createGitHubIssueComment(request);
+    },
+    async getGitHubIssueComments(fullName: string, number: number) {
+      return getGitHubIssueComments(fullName, number);
     },
     async stageGitPaths(request) {
       return stageGitPaths(request);
