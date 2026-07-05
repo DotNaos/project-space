@@ -21,10 +21,12 @@ import {
   unstageGitPaths
 } from './local-git-client';
 import {
+  createGitHubIssue,
   getGitHubCatalog,
   getGitHubRepositoryDetails,
   pollGitHubOAuthDeviceFlow,
-  startGitHubOAuthDeviceFlow
+  startGitHubOAuthDeviceFlow,
+  updateGitHubIssue
 } from './local-github-catalog';
 import {
   loadInstalledLauncherApps,
@@ -653,8 +655,14 @@ export function createLocalProjectSpaceBackend(
     async getGitHubCatalog() {
       return getGitHubCatalog();
     },
+    async createGitHubIssue(request) {
+      return createGitHubIssue(request);
+    },
     async getGitHubRepositoryDetails(fullName: string) {
       return getGitHubRepositoryDetails(fullName);
+    },
+    async updateGitHubIssue(request) {
+      return updateGitHubIssue(request);
     },
     async getGitDiff(request) {
       return getGitDiff(request);

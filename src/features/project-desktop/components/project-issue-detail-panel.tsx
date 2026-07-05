@@ -8,8 +8,11 @@ import {
   Inbox,
   List,
   ListChecks,
+  Pencil,
+  Plus,
   Play,
   Rocket,
+  Save,
   SlidersHorizontal,
   Tags,
   X
@@ -107,7 +110,7 @@ function useRepositoryDetails(repository?: GitHubCatalogRepository) {
     };
   }, [repository]);
 
-  return { details, error, isLoading };
+  return { details, error, isLoading, setDetails };
 }
 
 export function ProjectIssueDetailPanel({
@@ -121,7 +124,7 @@ export function ProjectIssueDetailPanel({
   onOpenIssue(issueNumber: number): void;
   repository?: GitHubCatalogRepository;
 }) {
-  const { details, error, isLoading } = useRepositoryDetails(repository);
+  const { details, error, isLoading, setDetails } = useRepositoryDetails(repository);
   const [viewMode, setViewMode] = useState<IssueViewMode>(() => loadIssueViewMode());
   const [query, setQuery] = useState('');
   const [activeLabels, setActiveLabels] = useState<ReadonlySet<string>>(() => new Set());
@@ -133,6 +136,22 @@ export function ProjectIssueDetailPanel({
     error ||
     safeDetails.message ||
     (!repository ? 'No GitHub repository is linked to this project.' : 'No open issues.');
+
+  const upsertIssue = (nextIssue: GitHubIssueRecord) => {
+    setDetails((previous) => {
+      const base = previous ?? safeDetails;
+      const exists = base.issues.some((entry) => entry.number === nextIssue.number);
+      const nextIssues = exists
+        ? base.issues.map((entry) => (entry.number === nextIssue.number ? nextIssue : entry))
+        : [nextIssue, ...base.issues];
+
+      return {
+        ...base,
+        checkedAt: new Date().toISOString(),
+        issues: nextIssues
+      };
+    });
+  };
 
   return (
     <Surface
@@ -165,6 +184,7 @@ export function ProjectIssueDetailPanel({
           issue={issue}
           issues={issues}
           onOpenIssue={onOpenIssue}
+          onIssueUpdated={upsertIssue}
           repoFullName={repository?.fullName}
         />
       ) : issueNumber ? (
@@ -178,6 +198,7 @@ export function ProjectIssueDetailPanel({
           isLoading={isLoading}
           issues={issues}
           onActiveLabelsChange={setActiveLabels}
+          onIssueCreated={upsertIssue}
           onOpenIssue={onOpenIssue}
           onQueryChange={setQuery}
           onViewModeChange={(nextMode) => {
@@ -199,6 +220,7 @@ function IssueIndex({
   isLoading,
   issues,
   onActiveLabelsChange,
+  onIssueCreated,
   onOpenIssue,
   onQueryChange,
   onViewModeChange,
@@ -211,6 +233,7 @@ function IssueIndex({
   isLoading: boolean;
   issues: GitHubIssueRecord[];
   onActiveLabelsChange(labels: ReadonlySet<string>): void;
+  onIssueCreated(issue: GitHubIssueRecord): void;
   onOpenIssue(issueNumber: number): void;
   onQueryChange(query: string): void;
   onViewModeChange(viewMode: IssueViewMode): void;
@@ -225,6 +248,8 @@ function IssueIndex({
   const [hiddenColumns, setHiddenColumns] = useState<ReadonlySet<IssueColumnId>>(() =>
     loadHiddenIssueColumns()
   );
+  const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState('');
 
   useEffect(() => {
     setOverrides(loadIssueColumnOverrides(repoFullName));
@@ -272,6 +297,28 @@ function IssueIndex({
     onActiveLabelsChange(next);
   };
 
+  const createIssue = async (values: IssueFormValues) => {
+    if (!repository) {
+      return;
+    }
+
+    setCreateError('');
+    const result = await projectSpaceClient.createGitHubIssue({
+      body: values.body,
+      fullName: repository.fullName,
+      labels: values.labels,
+      title: values.title
+    });
+
+    if (result.status !== 'connected' || !result.issue) {
+      setCreateError(result.message ?? 'Could not create issue.');
+      return;
+    }
+
+    onIssueCreated(result.issue);
+    setIsCreating(false);
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="mb-3 flex min-w-0 shrink-0 flex-wrap items-center gap-2">
@@ -283,6 +330,19 @@ function IssueIndex({
           </Text>
         </div>
         <div className="ml-auto flex min-w-0 items-center gap-2">
+          {repository ? (
+            <Button
+              size="sm"
+              variant={isCreating ? 'ghost' : 'secondary'}
+              onPress={() => {
+                setCreateError('');
+                setIsCreating((value) => !value);
+              }}
+            >
+              {isCreating ? <X className="size-4" /> : <Plus className="size-4" />}
+              {isCreating ? 'Cancel' : 'New issue'}
+            </Button>
+          ) : null}
           <SearchField
             aria-label="Search issues"
             value={query}
@@ -369,6 +429,21 @@ function IssueIndex({
         </div>
       </div>
 
+      {isCreating && repository ? (
+        <IssueEditor
+          error={createError}
+          initialBody=""
+          initialLabels={[]}
+          initialTitle=""
+          onCancel={() => {
+            setCreateError('');
+            setIsCreating(false);
+          }}
+          onSubmit={createIssue}
+          submitLabel="Create issue"
+        />
+      ) : null}
+
       {labels.length > 0 ? (
         <div className="mb-3 flex shrink-0 flex-wrap items-center gap-1.5">
           <Tags className="size-3.5 text-neutral-600" />
@@ -449,11 +524,11 @@ function IssueBoardSkeleton({ viewMode }: { viewMode: IssueViewMode }) {
   }
 
   return (
-    <div className="grid min-h-0 flex-1 auto-rows-[minmax(0,1fr)] gap-3 lg:grid-cols-2 xl:grid-cols-4">
+    <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto overflow-y-hidden pb-2">
       {issueColumns.map((column) => (
         <div
           key={column.id}
-          className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-neutral-800/70 bg-neutral-950/40"
+          className="flex h-full min-h-0 w-80 shrink-0 flex-col overflow-hidden rounded-xl border border-neutral-800/70 bg-neutral-950/40"
         >
           <div className="flex items-center gap-2 border-b border-neutral-800/60 px-3 py-2.5">
             <span className={cn('size-1.5 rounded-full opacity-60', column.dotClass)} />
@@ -511,11 +586,13 @@ function IssueEmptyState({
 function IssueDetailWorkbench({
   issue,
   issues,
+  onIssueUpdated,
   onOpenIssue,
   repoFullName
 }: {
   issue: GitHubIssueRecord;
   issues: GitHubIssueRecord[];
+  onIssueUpdated(issue: GitHubIssueRecord): void;
   onOpenIssue(issueNumber: number): void;
   repoFullName?: string;
 }) {
@@ -527,7 +604,7 @@ function IssueDetailWorkbench({
         repoFullName={repoFullName}
         selectedIssueNumber={issue.number}
       />
-      <IssueBody issue={issue} />
+      <IssueBody issue={issue} onIssueUpdated={onIssueUpdated} repoFullName={repoFullName} />
       <IssueActionPanel issue={issue} />
     </div>
   );
@@ -602,8 +679,41 @@ function IssueDetailList({
   );
 }
 
-function IssueBody({ issue }: { issue: GitHubIssueRecord }) {
+function IssueBody({
+  issue,
+  onIssueUpdated,
+  repoFullName
+}: {
+  issue: GitHubIssueRecord;
+  onIssueUpdated(issue: GitHubIssueRecord): void;
+  repoFullName?: string;
+}) {
   const updated = issueUpdatedAtLabel(issue);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editError, setEditError] = useState('');
+
+  const updateIssue = async (values: IssueFormValues) => {
+    if (!repoFullName) {
+      return;
+    }
+
+    setEditError('');
+    const result = await projectSpaceClient.updateGitHubIssue({
+      body: values.body,
+      fullName: repoFullName,
+      labels: values.labels,
+      number: issue.number,
+      title: values.title
+    });
+
+    if (result.status !== 'connected' || !result.issue) {
+      setEditError(result.message ?? 'Could not edit issue.');
+      return;
+    }
+
+    onIssueUpdated(result.issue);
+    setIsEditing(false);
+  };
 
   return (
     <article className="issue-rise-in min-h-0 min-w-0 overflow-y-auto pr-3">
@@ -644,6 +754,20 @@ function IssueBody({ issue }: { issue: GitHubIssueRecord }) {
         {updated ? (
           <Text className="font-mono text-[11px] text-neutral-600">updated {updated} ago</Text>
         ) : null}
+        {repoFullName ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto"
+            onPress={() => {
+              setEditError('');
+              setIsEditing((value) => !value);
+            }}
+          >
+            {isEditing ? <X className="size-4" /> : <Pencil className="size-4" />}
+            {isEditing ? 'Cancel edit' : 'Edit'}
+          </Button>
+        ) : null}
       </div>
 
       {issue.labels.length > 0 ? (
@@ -656,8 +780,113 @@ function IssueBody({ issue }: { issue: GitHubIssueRecord }) {
 
       <div className="mt-5 h-px bg-neutral-800/80" />
 
-      <IssueMarkdown markdown={issue.body} />
+      {isEditing ? (
+        <IssueEditor
+          error={editError}
+          initialBody={issue.body ?? ''}
+          initialLabels={issue.labels}
+          initialTitle={issue.title}
+          onCancel={() => {
+            setEditError('');
+            setIsEditing(false);
+          }}
+          onSubmit={updateIssue}
+          submitLabel="Save issue"
+        />
+      ) : (
+        <IssueMarkdown markdown={issue.body} />
+      )}
     </article>
+  );
+}
+
+interface IssueFormValues {
+  body: string;
+  labels: string[];
+  title: string;
+}
+
+function labelsFromInput(value: string) {
+  return value
+    .split(',')
+    .map((label) => label.trim())
+    .filter(Boolean);
+}
+
+function IssueEditor({
+  error,
+  initialBody,
+  initialLabels,
+  initialTitle,
+  onCancel,
+  onSubmit,
+  submitLabel
+}: {
+  error: string;
+  initialBody: string;
+  initialLabels: string[];
+  initialTitle: string;
+  onCancel(): void;
+  onSubmit(values: IssueFormValues): Promise<void>;
+  submitLabel: string;
+}) {
+  const [body, setBody] = useState(initialBody);
+  const [labels, setLabels] = useState(initialLabels.join(', '));
+  const [title, setTitle] = useState(initialTitle);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const submit = async () => {
+    setIsSubmitting(true);
+    try {
+      await onSubmit({
+        body,
+        labels: labelsFromInput(labels),
+        title
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="issue-rise-in mb-4 rounded-xl border border-neutral-800/70 bg-neutral-950/40 p-3">
+      <div className="grid gap-2">
+        <input
+          value={title}
+          onChange={(event) => setTitle(event.currentTarget.value)}
+          placeholder="Issue title"
+          className="h-9 rounded-lg border border-neutral-800 bg-neutral-950 px-3 text-sm text-neutral-100 outline-none transition placeholder:text-neutral-600 focus:border-neutral-600"
+        />
+        <textarea
+          value={body}
+          onChange={(event) => setBody(event.currentTarget.value)}
+          placeholder="Markdown description"
+          rows={8}
+          className="min-h-40 resize-y rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm leading-6 text-neutral-100 outline-none transition placeholder:text-neutral-600 focus:border-neutral-600"
+        />
+        <input
+          value={labels}
+          onChange={(event) => setLabels(event.currentTarget.value)}
+          placeholder="Labels, comma separated"
+          className="h-9 rounded-lg border border-neutral-800 bg-neutral-950 px-3 text-sm text-neutral-100 outline-none transition placeholder:text-neutral-600 focus:border-neutral-600"
+        />
+      </div>
+      {error ? <Text className="mt-2 block text-xs text-red-300">{error}</Text> : null}
+      <div className="mt-3 flex justify-end gap-2">
+        <Button size="sm" variant="ghost" onPress={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          isDisabled={isSubmitting || !title.trim()}
+          variant="primary"
+          onPress={() => void submit()}
+        >
+          <Save className="size-4" />
+          {isSubmitting ? 'Saving...' : submitLabel}
+        </Button>
+      </div>
+    </div>
   );
 }
 

@@ -28,6 +28,8 @@ import type {
   GitCommitRequest,
   GitDiffRequest,
   GitHistoryRequest,
+  GitHubIssueCreateRequest,
+  GitHubIssueUpdateRequest,
   GitStageRequest,
   ProjectDeployRequest,
   ProjectDirectorySelection,
@@ -58,7 +60,7 @@ const contentTypes: Record<string, string> = {
 function writeJson(response: ServerResponse, statusCode: number, payload: unknown) {
   response.writeHead(statusCode, {
     'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-    'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,OPTIONS',
     'Access-Control-Allow-Private-Network': 'true',
     'Access-Control-Allow-Origin': '*',
     'Content-Type': 'application/json; charset=utf-8'
@@ -69,7 +71,7 @@ function writeJson(response: ServerResponse, statusCode: number, payload: unknow
 function writeEmpty(response: ServerResponse, statusCode = 204) {
   response.writeHead(statusCode, {
     'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-    'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,OPTIONS',
     'Access-Control-Allow-Private-Network': 'true',
     'Access-Control-Allow-Origin': '*'
   });
@@ -429,6 +431,18 @@ function createApiHandler(backend: ProjectSpaceBackend) {
         }
 
         writeJson(response, 200, await backend.getGitHubRepositoryDetails(fullName));
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/github/issues') {
+        const payload = await readJson<GitHubIssueCreateRequest>(request);
+        writeJson(response, 200, await backend.createGitHubIssue(payload));
+        return true;
+      }
+
+      if (request.method === 'PATCH' && url.pathname === '/api/github/issues') {
+        const payload = await readJson<GitHubIssueUpdateRequest>(request);
+        writeJson(response, 200, await backend.updateGitHubIssue(payload));
         return true;
       }
 
