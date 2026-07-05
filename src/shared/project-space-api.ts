@@ -533,6 +533,7 @@ export interface DeploymentRecordSummary {
     statusCode?: number;
     url?: string;
   };
+  revision?: string;
   routeHost?: string;
   routeKind?: DeploymentVisibility;
   runtimeDir?: string;

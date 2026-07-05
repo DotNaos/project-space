@@ -162,6 +162,10 @@ function formatRunDuration(run: GitHubWorkflowRunSummary) {
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
+function shortRevision(revision?: string) {
+  return revision ? revision.slice(0, 7) : '';
+}
+
 function liveStatusLabel(deployment: DeploymentRecordSummary) {
   if (!deployment.live || deployment.live.status === 'unknown') {
     return 'not checked';
@@ -391,6 +395,11 @@ function DeploymentRow({ deployment, isLive = false, pipelineRun, repositoryUrl 
         ) : (
           <span>no source recorded</span>
         )}
+        {deployment.revision ? (
+          <span className="font-mono" title={deployment.revision}>
+            {shortRevision(deployment.revision)}
+          </span>
+        ) : null}
         <span title={formatDate(deployment.updatedAt || deployment.createdAt)}>
           deployed {formatRelativeTime(deployment.updatedAt || deployment.createdAt)}
         </span>
