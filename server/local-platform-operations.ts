@@ -15,6 +15,7 @@ import type {
 
 const execFileAsync = promisify(execFile);
 const platformRepoPath = join(homedir(), 'projects', 'private-vps-platform');
+const backendRepoPath = process.env.PROJECT_SPACE_BACKEND_REPO_PATH || '/workspace/backend-repo';
 
 interface PlatformAppRecordSummary {
   repoUrl: string;
@@ -156,6 +157,36 @@ async function readGitHubPackageVersion(repoUrl: string, revision: string) {
   return packageVersionFromJson(raw);
 }
 
+async function readLocalPackageVersionAtRevision(revision: string) {
+  if (!revision) {
+    return undefined;
+  }
+
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', backendRepoPath, 'show', `${revision}:package.json`], {
+      timeout: 5_000,
+      windowsHide: true
+    });
+
+    return packageVersionFromJson(stdout);
+  } catch {
+    return undefined;
+  }
+}
+
+async function readCurrentLocalPackageVersion() {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', backendRepoPath, 'show', 'HEAD:package.json'], {
+      timeout: 5_000,
+      windowsHide: true
+    });
+
+    return packageVersionFromJson(stdout);
+  } catch {
+    return undefined;
+  }
+}
+
 async function addDeploymentVersion(
   deployment: DeploymentRecordSummary,
   appsBySlug: Map<string, PlatformAppRecordSummary>,
@@ -171,7 +202,9 @@ async function addDeploymentVersion(
   let versionPromise = versionCache.get(cacheKey);
 
   if (!versionPromise) {
-    versionPromise = readGitHubPackageVersion(app.repoUrl, deployment.revision);
+    versionPromise = readGitHubPackageVersion(app.repoUrl, deployment.revision)
+      .then((version) => version ?? readLocalPackageVersionAtRevision(deployment.revision ?? ''))
+      .then((version) => version ?? readCurrentLocalPackageVersion());
     versionCache.set(cacheKey, versionPromise);
   }
 
