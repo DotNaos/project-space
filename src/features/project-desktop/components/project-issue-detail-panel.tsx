@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Columns3,
   ExternalLink,
   GitBranchPlus,
@@ -21,7 +23,6 @@ import { projectSpaceClient } from '@/api/project-space-client';
 import {
   Button,
   Dropdown,
-  DropdownItem,
   DropdownMenu,
   DropdownPopover,
   DropdownTrigger,
@@ -45,15 +46,17 @@ import { GitHubMark } from './github-mark';
 import {
   filterIssues,
   groupIssuesByColumn,
-  issueColumns,
   issueUpdatedAtLabel,
   labelChipStyle,
   loadHiddenIssueColumns,
   loadIssueColumnOverrides,
+  loadIssueColumnOrder,
   loadIssueViewMode,
+  orderedIssueColumns,
   resolveIssueColumn,
   saveHiddenIssueColumns,
   saveIssueColumnOverrides,
+  saveIssueColumnOrder,
   saveIssueViewMode,
   topIssueLabels,
   type IssueColumnId,
@@ -135,7 +138,7 @@ export function ProjectIssueDetailPanel({
   const emptyMessage =
     error ||
     safeDetails.message ||
-    (!repository ? 'No GitHub repository is linked to this project.' : 'No open issues.');
+    (!repository ? 'No GitHub repository is linked to this project.' : 'No issues.');
 
   const upsertIssue = (nextIssue: GitHubIssueRecord) => {
     setDetails((previous) => {
@@ -189,7 +192,7 @@ export function ProjectIssueDetailPanel({
         />
       ) : issueNumber ? (
         <IssueEmptyState
-          message={details ? 'Issue was not found in the loaded open issues.' : emptyMessage}
+          message={details ? 'Issue was not found in the loaded issues.' : emptyMessage}
         />
       ) : (
         <IssueIndex
@@ -248,6 +251,7 @@ function IssueIndex({
   const [hiddenColumns, setHiddenColumns] = useState<ReadonlySet<IssueColumnId>>(() =>
     loadHiddenIssueColumns()
   );
+  const [columnOrder, setColumnOrder] = useState<IssueColumnId[]>(() => loadIssueColumnOrder());
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState('');
 
@@ -258,10 +262,27 @@ function IssueIndex({
   const filteredIssues = filterIssues(issues, query, activeLabels);
   const labels = topIssueLabels(issues);
   const hasFilter = query.trim().length > 0 || activeLabels.size > 0;
-  const visibleColumns = issueColumns.filter((column) => !hiddenColumns.has(column.id));
+  const orderedColumns = orderedIssueColumns(columnOrder);
+  const visibleColumns = orderedColumns.filter((column) => !hiddenColumns.has(column.id));
   const columnGroups = groupIssuesByColumn(filteredIssues, overrides);
 
-  const moveIssue = (issueNumber: number, columnId: IssueColumnId) => {
+  const moveIssue = async (issueNumber: number, columnId: IssueColumnId) => {
+    const issue = issues.find((entry) => entry.number === issueNumber);
+    const shouldClose = columnId === 'closed';
+    const shouldReopen = issue?.state === 'closed' && columnId !== 'closed';
+
+    if (repository && issue && (shouldClose || shouldReopen)) {
+      const result = await projectSpaceClient.updateGitHubIssue({
+        fullName: repository.fullName,
+        number: issueNumber,
+        state: shouldClose ? 'closed' : 'open'
+      });
+
+      if (result.status === 'connected' && result.issue) {
+        onIssueCreated(result.issue);
+      }
+    }
+
     setOverrides((previous) => {
       const next = { ...previous, [issueNumber]: columnId };
 
@@ -281,6 +302,22 @@ function IssueIndex({
       }
 
       saveHiddenIssueColumns(next);
+      return next;
+    });
+  };
+
+  const moveColumn = (columnId: IssueColumnId, direction: -1 | 1) => {
+    setColumnOrder((previous) => {
+      const next = [...previous];
+      const index = next.indexOf(columnId);
+      const targetIndex = index + direction;
+
+      if (index < 0 || targetIndex < 0 || targetIndex >= next.length) {
+        return previous;
+      }
+
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      saveIssueColumnOrder(next);
       return next;
     });
   };
@@ -384,42 +421,63 @@ function IssueIndex({
               >
                 <SlidersHorizontal className="size-4" />
               </DropdownTrigger>
-              <DropdownPopover className="w-52">
+              <DropdownPopover className="w-64">
                 <DropdownMenu aria-label="Toggle board columns">
                   <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-600">
                     Board columns
                   </div>
-                  {issueColumns.map((column) => {
+                  {orderedColumns.map((column, index) => {
                     const isVisible = !hiddenColumns.has(column.id);
                     const isLastVisible = isVisible && visibleColumns.length === 1;
 
                     return (
-                      <DropdownItem
+                      <div
                         key={column.id}
-                        isDisabled={isLastVisible}
-                        onClick={(event) => {
-                          // Keep the menu open so several columns can be toggled in a row.
-                          event.preventDefault();
-                          toggleColumn(column.id);
-                        }}
-                        className="flex items-center gap-2 text-xs"
+                        className="flex items-center gap-1 rounded-md px-2 py-1.5 text-xs text-neutral-300 hover:bg-neutral-900/80"
                       >
-                        <span
-                          className={cn(
-                            'flex size-4 shrink-0 items-center justify-center rounded border transition',
-                            isVisible
-                              ? 'border-neutral-400 bg-neutral-200 text-neutral-900'
-                              : 'border-neutral-700 text-transparent'
-                          )}
+                        <button
+                          type="button"
+                          disabled={isLastVisible}
+                          onClick={() => toggleColumn(column.id)}
+                          className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:opacity-50"
                         >
-                          <Check className="size-3" strokeWidth={3} />
-                        </span>
-                        <span className={cn('size-1.5 shrink-0 rounded-full', column.dotClass)} />
-                        {column.label}
-                        <span className="ml-auto font-mono text-[10px] tabular-nums text-neutral-600">
-                          {columnGroups[column.id].length}
-                        </span>
-                      </DropdownItem>
+                          <span
+                            className={cn(
+                              'flex size-4 shrink-0 items-center justify-center rounded border transition',
+                              isVisible
+                                ? 'border-neutral-400 bg-neutral-200 text-neutral-900'
+                                : 'border-neutral-700 text-transparent'
+                            )}
+                          >
+                            {isVisible ? <Check className="size-3" strokeWidth={3} /> : null}
+                          </span>
+                          <span
+                            className={cn('size-1.5 shrink-0 rounded-full', column.dotClass)}
+                          />
+                          <span className="min-w-0 flex-1 truncate">{column.label}</span>
+                          <span className="font-mono text-[10px] tabular-nums text-neutral-600">
+                            {columnGroups[column.id].length}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={index === 0}
+                          onClick={() => moveColumn(column.id, -1)}
+                          className="flex size-6 shrink-0 items-center justify-center rounded text-neutral-500 transition hover:bg-neutral-800 hover:text-neutral-200 disabled:pointer-events-none disabled:opacity-25"
+                          aria-label={`Move ${column.label} left`}
+                        >
+                          <ChevronLeft className="size-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={index === orderedColumns.length - 1}
+                          onClick={() => moveColumn(column.id, 1)}
+                          className="flex size-6 shrink-0 items-center justify-center rounded text-neutral-500 transition hover:bg-neutral-800 hover:text-neutral-200 disabled:pointer-events-none disabled:opacity-25"
+                          aria-label={`Move ${column.label} right`}
+                        >
+                          <ChevronRight className="size-3.5" />
+                        </button>
+                      </div>
                     );
                   })}
                 </DropdownMenu>
@@ -525,7 +583,7 @@ function IssueBoardSkeleton({ viewMode }: { viewMode: IssueViewMode }) {
 
   return (
     <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto overflow-y-hidden pb-2">
-      {issueColumns.map((column) => (
+      {orderedIssueColumns(loadIssueColumnOrder()).map((column) => (
         <div
           key={column.id}
           className="flex h-full min-h-0 w-80 shrink-0 flex-col overflow-hidden rounded-xl border border-neutral-800/70 bg-neutral-950/40"
@@ -633,7 +691,7 @@ function IssueDetailList({
     <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-neutral-800/70 bg-neutral-950/40">
       <div className="flex shrink-0 items-center gap-2 border-b border-neutral-800/60 px-3 py-2.5">
         <Text className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-300">
-          Open issues
+          Issues
         </Text>
         <Text className="ml-auto font-mono text-[11px] tabular-nums text-neutral-500">
           {issues.length}
@@ -703,6 +761,7 @@ function IssueBody({
       fullName: repoFullName,
       labels: values.labels,
       number: issue.number,
+      state: values.state,
       title: values.title
     });
 
@@ -785,12 +844,14 @@ function IssueBody({
           error={editError}
           initialBody={issue.body ?? ''}
           initialLabels={issue.labels}
+          initialState={issue.state}
           initialTitle={issue.title}
           onCancel={() => {
             setEditError('');
             setIsEditing(false);
           }}
           onSubmit={updateIssue}
+          showState
           submitLabel="Save issue"
         />
       ) : (
@@ -803,6 +864,7 @@ function IssueBody({
 interface IssueFormValues {
   body: string;
   labels: string[];
+  state?: GitHubIssueRecord['state'];
   title: string;
 }
 
@@ -817,21 +879,26 @@ function IssueEditor({
   error,
   initialBody,
   initialLabels,
+  initialState,
   initialTitle,
   onCancel,
   onSubmit,
+  showState = false,
   submitLabel
 }: {
   error: string;
   initialBody: string;
   initialLabels: string[];
+  initialState?: GitHubIssueRecord['state'];
   initialTitle: string;
   onCancel(): void;
   onSubmit(values: IssueFormValues): Promise<void>;
+  showState?: boolean;
   submitLabel: string;
 }) {
   const [body, setBody] = useState(initialBody);
   const [labels, setLabels] = useState(initialLabels.join(', '));
+  const [state, setState] = useState<GitHubIssueRecord['state']>(initialState ?? 'open');
   const [title, setTitle] = useState(initialTitle);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -841,6 +908,7 @@ function IssueEditor({
       await onSubmit({
         body,
         labels: labelsFromInput(labels),
+        state: showState ? state : undefined,
         title
       });
     } finally {
@@ -870,6 +938,30 @@ function IssueEditor({
           placeholder="Labels, comma separated"
           className="h-9 rounded-lg border border-neutral-800 bg-neutral-950 px-3 text-sm text-neutral-100 outline-none transition placeholder:text-neutral-600 focus:border-neutral-600"
         />
+        {showState ? (
+          <div className="flex items-center gap-2">
+            <Text className="w-14 text-xs text-neutral-500">State</Text>
+            <ToggleButtonGroup
+              aria-label="Issue state"
+              selectedKeys={new Set([state])}
+              onSelectionChange={(keys) => {
+                const nextState = Array.from(keys)[0];
+
+                if (nextState === 'open' || nextState === 'closed') {
+                  setState(nextState);
+                }
+              }}
+              className="rounded-lg bg-neutral-900/70 p-1"
+            >
+              <ToggleButton id="open" className="h-7 gap-1.5 rounded-md px-2 text-xs">
+                Open
+              </ToggleButton>
+              <ToggleButton id="closed" className="h-7 gap-1.5 rounded-md px-2 text-xs">
+                Closed
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </div>
+        ) : null}
       </div>
       {error ? <Text className="mt-2 block text-xs text-red-300">{error}</Text> : null}
       <div className="mt-3 flex justify-end gap-2">
