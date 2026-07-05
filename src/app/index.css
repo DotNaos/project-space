@@ -51,6 +51,40 @@ label[for]:hover {
   box-sizing: border-box;
 }
 
+@keyframes issue-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+}
+
+.issue-rise-in {
+  animation: issue-rise-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+body.issue-dragging,
+body.issue-dragging * {
+  cursor: grabbing !important;
+}
+
+body.issue-dragging {
+  user-select: none;
+}
+
+@keyframes issue-drag-pop {
+  from {
+    transform: scale(1) rotate(0deg);
+  }
+
+  to {
+    transform: scale(1.03) rotate(1.5deg);
+  }
+}
+
+.issue-drag-preview {
+  animation: issue-drag-pop 0.16s ease-out both;
+}
+
 .app-drag {
   -webkit-app-region: drag;
 }

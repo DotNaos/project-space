@@ -297,7 +297,7 @@ export function ProjectMainPanel({
     mainView === 'project' &&
     project &&
     project.kind !== 'github' &&
-    (projectTab === 'history' || (projectTab === 'issues' && selectedIssueNumber));
+    (projectTab === 'history' || projectTab === 'issues');
 
   return (
     <Surface variant="transparent" className="flex min-h-0 flex-col rounded-none bg-app-panel">
