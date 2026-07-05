@@ -9,7 +9,6 @@ import {
 import {
   ExternalLink,
   Network,
-  Play,
   PlugZap,
   RefreshCw,
   Rocket,
@@ -18,9 +17,8 @@ import {
 import { projectSpaceClient } from '@/api/project-space-client';
 import type {
   ConnectorOverviewResult,
-  GitActionResult,
-  ProjectCliCommandResult,
-  ProjectDeployEnvironment
+  DeploymentRecordSummary,
+  PlatformOverviewResult
 } from '@/shared/project-space-api';
 import { ScopeDevboxJobPanel } from './scope-devbox-job-panel';
 
@@ -45,67 +43,6 @@ const connectorFallback: ConnectorOverviewResult = {
   }
 };
 
-function formatAction(action?: GitActionResult) {
-  if (!action) {
-    return '';
-  }
-
-  return [action.message, action.stdout?.trim(), action.stderr?.trim()].filter(Boolean).join('\n');
-}
-
-interface DeployEnvironmentStatus {
-  apiUrl: string;
-  branch: string;
-  composeProject: string;
-  docsUrl: string;
-  environment: ProjectDeployEnvironment;
-  remotePath: string;
-  status?: string;
-  webUrl: string;
-}
-
-interface DeployStatusReport {
-  environments: DeployEnvironmentStatus[];
-  host: string;
-  projectName: string;
-  projectRoot: string;
-}
-
-function parseDeployStatus(result?: ProjectCliCommandResult) {
-  if (!result || result.exitCode !== 0 || !result.stdout.trim()) {
-    return undefined;
-  }
-
-  try {
-    return JSON.parse(result.stdout) as DeployStatusReport;
-  } catch {
-    return undefined;
-  }
-}
-
-function statusSummary(status?: string) {
-  if (!status) {
-    return 'unknown';
-  }
-  if (status.includes('status unavailable')) {
-    return 'unavailable';
-  }
-  if (status.includes('app status unavailable')) {
-    return 'partial';
-  }
-  if (status.includes('repo missing')) {
-    return 'repo missing';
-  }
-  if (status.includes('repo present')) {
-    return 'repo present';
-  }
-  return 'checked';
-}
-
-function statusIsOk(label: string) {
-  return label === 'checked' || label === 'repo present';
-}
-
 function StatusChip({ ok, label }: { ok: boolean; label: string }) {
   return (
     <Chip size="sm" variant={ok ? 'primary' : 'secondary'}>
@@ -114,7 +51,52 @@ function StatusChip({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
-function DeploymentUrlLink({ label, url }: { label: string; url: string }) {
+function deploymentUrl(deployment: DeploymentRecordSummary) {
+  if (deployment.live?.url) {
+    return deployment.live.url;
+  }
+
+  if (deployment.routeKind === 'public' && deployment.routeHost) {
+    return `https://${deployment.routeHost}`;
+  }
+
+  return '';
+}
+
+function deploymentMatchesProject(deployment: DeploymentRecordSummary, projectName: string) {
+  const expected = projectName.toLowerCase();
+  const appSlug = deployment.appSlug.toLowerCase();
+
+  return appSlug === expected || appSlug === `${expected}-beta`;
+}
+
+function formatDate(value?: string) {
+  if (!value) {
+    return 'unknown';
+  }
+
+  const date = new Date(value);
+
+  return Number.isNaN(date.getTime()) ? 'unknown' : date.toLocaleString();
+}
+
+function liveStatusLabel(deployment: DeploymentRecordSummary) {
+  if (!deployment.live || deployment.live.status === 'unknown') {
+    return 'not checked';
+  }
+
+  if (deployment.live.status === 'online') {
+    return deployment.live.statusCode
+      ? `online ${deployment.live.statusCode}`
+      : 'online';
+  }
+
+  return deployment.live.statusCode
+    ? `offline ${deployment.live.statusCode}`
+    : 'offline';
+}
+
+function DeploymentUrlLink({ label, url }: { label: string; url?: string }) {
   if (!url) {
     return null;
   }
@@ -141,25 +123,19 @@ export function ProjectOperationsPanel({
   targetPath
 }: ProjectOperationsPanelProps) {
   const [connector, setConnector] = useState<ConnectorOverviewResult>(connectorFallback);
-  const [deployStatusResult, setDeployStatusResult] = useState<ProjectCliCommandResult>();
-  const [actionResult, setActionResult] = useState<GitActionResult>();
-  const [isBusy, setIsBusy] = useState(false);
+  const [platform, setPlatform] = useState<PlatformOverviewResult>();
   const [isRefreshing, setIsRefreshing] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
 
   async function refresh() {
     setIsRefreshing(true);
-    const [nextConnector, nextDeployStatus] = await Promise.all([
+    const [nextConnector, nextPlatform] = await Promise.all([
       projectSpaceClient.getConnectorOverview().catch(() => connectorFallback),
-      targetPath
-        ? projectSpaceClient
-            .runProjectCliCommand({ command: 'deploy-status', cwd: targetPath })
-            .catch(() => undefined)
-        : Promise.resolve(undefined)
+      projectSpaceClient.getPlatformOverview().catch(() => undefined)
     ]);
 
     setConnector(nextConnector ?? connectorFallback);
-    setDeployStatusResult(nextDeployStatus);
+    setPlatform(nextPlatform);
     setHasLoaded(true);
     setIsRefreshing(false);
   }
@@ -172,28 +148,21 @@ export function ProjectOperationsPanel({
     () => connector.machines.find((machine) => machine.connector.status === 'local'),
     [connector.machines]
   );
-  const deployStatus = useMemo(() => parseDeployStatus(deployStatusResult), [deployStatusResult]);
+  const projectDeployments = useMemo(
+    () =>
+      (platform?.deployments ?? [])
+        .filter((deployment) => deploymentMatchesProject(deployment, projectName))
+        .sort((left, right) => {
+          const leftTime = Date.parse(left.updatedAt || left.createdAt || '');
+          const rightTime = Date.parse(right.updatedAt || right.createdAt || '');
 
-  async function runDeployDryRun(environment: ProjectDeployEnvironment) {
-    setIsBusy(true);
-    try {
-      const result = await projectSpaceClient.runProjectCliCommand({
-        command: 'deploy-dry-run',
-        cwd: targetPath,
-        environment
-      });
-
-      setActionResult({
-        message: result.exitCode === 0 ? 'Deploy dry run ready.' : 'Deploy dry run failed.',
-        status: result.exitCode === 0 ? 'success' : 'error',
-        stderr: result.stderr,
-        stdout: result.stdout
-      });
-      await refresh();
-    } finally {
-      setIsBusy(false);
-    }
-  }
+          return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
+        }),
+    [platform?.deployments, projectName]
+  );
+  const onlineCount = projectDeployments.filter(
+    (deployment) => deployment.live?.status === 'online'
+  ).length;
 
   const isInitialLoading = isRefreshing && !hasLoaded;
 
@@ -297,21 +266,31 @@ export function ProjectOperationsPanel({
               </Button>
             </a>
             <StatusChip
-              ok={isRefreshing || deployStatusResult?.exitCode === 0}
+              ok={isRefreshing || Boolean(platform?.apiReachable)}
               label={
                 isRefreshing
-                  ? 'loading status'
-                  : deployStatusResult?.exitCode === 0
-                    ? 'cli status'
-                    : 'status unavailable'
+                  ? 'checking platform'
+                  : platform?.apiReachable
+                    ? 'platform online'
+                    : 'platform offline'
               }
             />
             <StatusChip
-              ok={Boolean(deployStatus)}
+              ok={projectDeployments.length > 0}
               label={
-                isInitialLoading ? 'loading config' : deployStatus ? 'config loaded' : 'config missing'
+                isInitialLoading
+                  ? 'loading deployments'
+                  : projectDeployments.length > 0
+                    ? `${projectDeployments.length} deployments`
+                    : 'no deployments'
               }
             />
+            {projectDeployments.length > 0 ? (
+              <StatusChip
+                ok={onlineCount === projectDeployments.length}
+                label={`${onlineCount}/${projectDeployments.length} reachable`}
+              />
+            ) : null}
           </div>
         </div>
 
@@ -319,19 +298,13 @@ export function ProjectOperationsPanel({
           <Button
             size="sm"
             variant="ghost"
-            isDisabled={isBusy || isRefreshing || !targetPath}
+            isDisabled={isRefreshing}
             onPress={() => void refresh()}
           >
             <RefreshCw className={isRefreshing ? 'size-4 animate-spin' : 'size-4'} />
             Refresh
           </Button>
         </div>
-
-        {actionResult ? (
-          <pre className="max-h-20 overflow-auto rounded-lg border border-neutral-800 bg-black/30 p-2 text-xs text-neutral-300">
-            {formatAction(actionResult)}
-          </pre>
-        ) : null}
 
         <div className="grid gap-2">
             {isInitialLoading ? (
@@ -346,7 +319,7 @@ export function ProjectOperationsPanel({
                       Loading deployment status...
                     </Text>
                     <Text className="block text-xs text-neutral-500">
-                      Reading connector state and deployment config for this project.
+                      Reading VPS platform status and checking public routes.
                     </Text>
                   </div>
                 </div>
@@ -365,9 +338,22 @@ export function ProjectOperationsPanel({
               </Surface>
             ) : null}
 
-            {!isInitialLoading ? (deployStatus?.environments ?? []).map((entry) => (
+            {!isInitialLoading && platform?.error ? (
               <Surface
-                key={entry.environment}
+                variant="tertiary"
+                className="rounded-md border border-red-500/25 bg-red-500/10 px-3 py-2"
+              >
+                <Text className="text-sm text-red-200">{platform.error}</Text>
+              </Surface>
+            ) : null}
+
+            {!isInitialLoading ? projectDeployments.map((entry) => {
+              const url = deploymentUrl(entry);
+              const liveOnline = entry.live?.status === 'online';
+
+              return (
+              <Surface
+                key={entry.id || `${entry.appSlug}-${entry.environment}`}
                 variant="tertiary"
                 className="grid gap-2 rounded-md border border-neutral-800 bg-black/20 px-3 py-2 md:grid-cols-[auto_minmax(0,1fr)_auto]"
               >
@@ -376,38 +362,37 @@ export function ProjectOperationsPanel({
                 </Chip>
                 <div className="min-w-0">
                   <Text className="block truncate text-sm text-neutral-100">
-                    {entry.branch} / {entry.composeProject}
+                    {entry.appSlug}
                   </Text>
                   <Text className="block truncate text-xs text-neutral-500">
-                    {entry.remotePath}
+                    {entry.sourceRef || entry.runtimeDir || 'no source recorded'}
+                  </Text>
+                  <Text className="block truncate text-xs text-neutral-600">
+                    deployed {formatDate(entry.updatedAt || entry.createdAt)}
                   </Text>
                   <div className="mt-1 grid gap-0.5">
-                    <DeploymentUrlLink label="web" url={entry.webUrl} />
-                    <DeploymentUrlLink label="api" url={entry.apiUrl} />
-                    <DeploymentUrlLink label="docs" url={entry.docsUrl} />
+                    <DeploymentUrlLink label="site" url={url} />
+                    {entry.runtimeDir ? (
+                      <Text className="block truncate font-mono text-xs text-neutral-600">
+                        {entry.runtimeDir}
+                      </Text>
+                    ) : null}
                   </div>
                 </div>
                 <div className="flex min-w-0 items-center justify-end gap-2">
                   <StatusChip
-                    ok={statusIsOk(statusSummary(entry.status))}
-                    label={statusSummary(entry.status)}
+                    ok={entry.status === 'deployed' || entry.status === 'running'}
+                    label={entry.status || 'unknown'}
                   />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    isDisabled={!targetPath || isBusy || isRefreshing}
-                    onPress={() => void runDeployDryRun(entry.environment)}
-                  >
-                    <Play className="size-4" />
-                    Dry run
-                  </Button>
+                  <StatusChip ok={liveOnline} label={liveStatusLabel(entry)} />
                 </div>
               </Surface>
-            )) : null}
-            {!isInitialLoading && !deployStatus ? (
+              );
+            }) : null}
+            {!isInitialLoading && !platform?.error && projectDeployments.length === 0 ? (
               <Surface variant="tertiary" className="rounded-md border border-neutral-800 bg-black/20 px-3 py-2">
                 <Text className="text-sm text-neutral-400">
-                  {deployStatusResult?.stderr || 'Deploy config status is not loaded.'}
+                  No deployments were found for this project on the VPS platform.
                 </Text>
               </Surface>
             ) : null}

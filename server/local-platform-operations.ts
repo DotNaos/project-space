@@ -66,6 +66,77 @@ function summarizeDeployment(entry: Record<string, unknown>): DeploymentRecordSu
   };
 }
 
+function deploymentPublicUrl(deployment: DeploymentRecordSummary) {
+  if (deployment.routeKind !== 'public' || !deployment.routeHost) {
+    return undefined;
+  }
+
+  if (/^https?:\/\//i.test(deployment.routeHost)) {
+    return deployment.routeHost;
+  }
+
+  return `https://${deployment.routeHost}`;
+}
+
+async function checkDeploymentLiveStatus(deployment: DeploymentRecordSummary) {
+  const url = deploymentPublicUrl(deployment);
+  const checkedAt = new Date().toISOString();
+
+  if (!url) {
+    return {
+      ...deployment,
+      live: {
+        checkedAt,
+        status: 'unknown' as const
+      }
+    };
+  }
+
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 6_000);
+
+  try {
+    let response = await fetch(url, {
+      method: 'HEAD',
+      redirect: 'manual',
+      signal: controller.signal
+    });
+
+    if (response.status === 405) {
+      response = await fetch(url, {
+        method: 'GET',
+        redirect: 'manual',
+        signal: controller.signal
+      });
+    }
+
+    return {
+      ...deployment,
+      live: {
+        checkedAt,
+        latencyMs: Date.now() - startedAt,
+        status: response.status < 500 ? 'online' as const : 'offline' as const,
+        statusCode: response.status,
+        url
+      }
+    };
+  } catch (error) {
+    return {
+      ...deployment,
+      live: {
+        checkedAt,
+        error: error instanceof Error ? error.message : 'Live check failed.',
+        latencyMs: Date.now() - startedAt,
+        status: 'offline' as const,
+        url
+      }
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function summarizeBackup(entry: Record<string, unknown>): BackupRecordSummary {
   return {
     appSlug: String(entry.AppSlug ?? entry.app_slug ?? ''),
@@ -136,12 +207,13 @@ export async function getPlatformOverview(): Promise<PlatformOverviewResult> {
       readJson<unknown>('/api/v1/deployments'),
       readJson<unknown>('/api/v1/backups')
     ]);
+    const deploymentSummaries = entriesOrEmpty(deployments).map(summarizeDeployment);
 
     return {
       ...overview,
       apiReachable: true,
       backups: entriesOrEmpty(backups).map(summarizeBackup),
-      deployments: entriesOrEmpty(deployments).map(summarizeDeployment),
+      deployments: await Promise.all(deploymentSummaries.map(checkDeploymentLiveStatus)),
       healthStatus: health.status ?? 'ok'
     };
   } catch (error) {

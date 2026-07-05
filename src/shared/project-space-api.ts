@@ -472,6 +472,14 @@ export interface DeploymentRecordSummary {
   createdAt?: string;
   environment: string;
   id: string;
+  live?: {
+    checkedAt: string;
+    error?: string;
+    latencyMs?: number;
+    status: 'offline' | 'online' | 'unknown';
+    statusCode?: number;
+    url?: string;
+  };
   routeHost?: string;
   routeKind?: DeploymentVisibility;
   runtimeDir?: string;
