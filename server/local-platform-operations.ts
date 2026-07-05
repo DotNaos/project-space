@@ -57,6 +57,7 @@ function summarizeDeployment(entry: Record<string, unknown>): DeploymentRecordSu
     createdAt: String(entry.CreatedAt ?? entry.created_at ?? ''),
     environment: String(entry.EnvName ?? entry.environment ?? ''),
     id: String(entry.ID ?? entry.id ?? ''),
+    revision: String(entry.Revision ?? entry.revision ?? ''),
     routeHost: String(entry.RouteHost ?? entry.route_host ?? ''),
     routeKind: entry.RouteKind === 'public' ? 'public' : 'private',
     runtimeDir: String(entry.RuntimeDir ?? entry.runtime_dir ?? ''),
