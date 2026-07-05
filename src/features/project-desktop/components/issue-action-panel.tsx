@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  CheckCircle2,
+  Download,
   ExternalLink,
   GitBranch,
   GitBranchPlus,
   MessageSquare,
+  Monitor,
   Play,
   Rocket,
   Send
@@ -15,10 +18,22 @@ import {
   Text
 } from '@/app/dotnaos-ui';
 import type {
+  ConnectorOverviewResult,
   GitHubBranchRecord,
   GitHubIssueCommentRecord,
-  GitHubIssueRecord
+  GitHubIssueRecord,
+  ProjectSpaceRecord
 } from '@/shared/project-space-api';
+import {
+  canRunMachineCommand,
+  cloneUrl,
+  createStartDevelopmentCommand,
+  getIssueMachineRows,
+  machineStatusClass,
+  relativeClonePath,
+  repositoryNameFromProject,
+  type IssueMachineProjectRow
+} from './issue-development-machine-actions';
 import { IssueMarkdown } from './issue-markdown';
 
 function branchNameForIssue(issue: GitHubIssueRecord) {
@@ -72,20 +87,28 @@ function commentTimeLabel(comment: GitHubIssueCommentRecord) {
 
 interface IssueActionPanelProps {
   branches: GitHubBranchRecord[];
+  connectorOverview: ConnectorOverviewResult;
   issue: GitHubIssueRecord;
   onBranchCreated(branch: GitHubBranchRecord): void;
   onIssueUpdated(issue: GitHubIssueRecord): void;
+  project: ProjectSpaceRecord;
+  projects: ProjectSpaceRecord[];
   repoFullName?: string;
   repoUrl?: string;
+  targetPath: string;
 }
 
 export function IssueActionPanel({
   branches,
+  connectorOverview,
   issue,
   onBranchCreated,
   onIssueUpdated,
+  project,
+  projects,
   repoFullName,
-  repoUrl
+  repoUrl,
+  targetPath
 }: IssueActionPanelProps) {
   const defaultBranch = branches.find((branch) => branch.isDefault)?.name ?? 'main';
   const suggestedBranch = branchNameForIssue(issue);
@@ -95,6 +118,8 @@ export function IssueActionPanel({
   const [branchError, setBranchError] = useState('');
   const [branchMessage, setBranchMessage] = useState('');
   const [isCreatingBranch, setIsCreatingBranch] = useState(false);
+  const [busyMachineId, setBusyMachineId] = useState('');
+  const [machineMessage, setMachineMessage] = useState('');
   const [isUpdatingState, setIsUpdatingState] = useState(false);
   const [stateError, setStateError] = useState('');
   const [comments, setComments] = useState<GitHubIssueCommentRecord[]>([]);
@@ -105,7 +130,6 @@ export function IssueActionPanel({
 
   useEffect(() => {
     setBranchName(suggestedBranch);
-    setSelectedBranch(undefined);
     setBranchError('');
     setBranchMessage('');
   }, [issue.number, suggestedBranch]);
@@ -170,10 +194,46 @@ export function IssueActionPanel({
       : scoredBranches.map((entry) => entry.branch).slice(0, 6);
   }, [branches, issue]);
 
+  const bestMatchingBranch = useMemo(() => {
+    return branches
+      .map((branch) => ({ branch, score: issueBranchScore(issue, branch) }))
+      .filter((entry) => entry.score > 0)
+      .sort((left, right) => right.score - left.score)[0]?.branch;
+  }, [branches, issue]);
+
+  useEffect(() => {
+    if (bestMatchingBranch && (!selectedBranch || selectedBranch.name !== bestMatchingBranch.name)) {
+      setSelectedBranch(bestMatchingBranch);
+      setBranchName(bestMatchingBranch.name);
+    }
+  }, [bestMatchingBranch, selectedBranch]);
+
+  const machineRows = useMemo<IssueMachineProjectRow[]>(
+    () =>
+      getIssueMachineRows({
+        connectorOverview,
+        project,
+        projects,
+        repoFullName
+      }),
+    [connectorOverview, project, projects, repoFullName]
+  );
+
   const selectedBranchUrl = selectedBranch ? branchWebUrl(repoUrl, selectedBranch.name) : undefined;
   const selectedPullRequestUrl = selectedBranch
     ? pullRequestUrl(repoUrl, defaultBranch, selectedBranch.name)
     : undefined;
+  const repositoryCloneUrl = cloneUrl(repoFullName, repoUrl);
+  const repositoryName = repositoryNameFromProject(project, repoFullName);
+  const fallbackRelativePath = relativeClonePath(targetPath || project.rootPath, repositoryName);
+
+  function linkBranch(branch: GitHubBranchRecord) {
+    setSelectedBranch(branch);
+    setBranchName(branch.name);
+    setBranchError('');
+    setBranchMessage('Branch linked.');
+    setShowBranchPicker(false);
+  }
 
   async function createBranch() {
     if (!repoFullName) {
@@ -191,9 +251,7 @@ export function IssueActionPanel({
     const existingBranch = branches.find((branch) => branch.name === trimmedBranchName);
 
     if (existingBranch) {
-      setSelectedBranch(existingBranch);
-      setBranchMessage('Using existing branch.');
-      setBranchError('');
+      linkBranch(existingBranch);
       return;
     }
 
@@ -214,9 +272,49 @@ export function IssueActionPanel({
 
       onBranchCreated(result.branch);
       setSelectedBranch(result.branch);
-      setBranchMessage('Branch created.');
+      setShowBranchPicker(false);
+      setBranchMessage('Branch created and linked.');
     } finally {
       setIsCreatingBranch(false);
+    }
+  }
+
+  async function startDevelopment(row: IssueMachineProjectRow) {
+    if (!selectedBranch) {
+      setMachineMessage('Link a branch first.');
+      return;
+    }
+
+    if (!canRunMachineCommand(row.machine)) {
+      setMachineMessage(`${row.machine?.name ?? row.machineId} is not online.`);
+      return;
+    }
+
+    if (!row.project && !repositoryCloneUrl) {
+      setMachineMessage('No clone URL is available for this repository.');
+      return;
+    }
+
+    setBusyMachineId(row.machineId);
+    setMachineMessage('');
+    try {
+      const result = await projectSpaceClient.runMachineTerminalCommand({
+        command: createStartDevelopmentCommand({
+          branchName: selectedBranch.name,
+          projectPath: row.project?.rootPath,
+          relativePath: fallbackRelativePath,
+          repository: repositoryCloneUrl
+        }),
+        machineId: row.machineId
+      });
+
+      setMachineMessage(
+        result.exitCode === 0
+          ? result.stdout.trim() || `Started ${selectedBranch.name} on ${row.machine?.name ?? row.machineId}.`
+          : result.stderr || result.stdout || `Could not start development on ${row.machine?.name ?? row.machineId}.`
+      );
+    } finally {
+      setBusyMachineId('');
     }
   }
 
@@ -289,14 +387,70 @@ export function IssueActionPanel({
           Start work from issue <span className="font-mono text-neutral-300">#{issue.number}</span>.
         </Text>
         <div className="grid gap-2">
-          <Button variant="secondary" onPress={() => setShowBranchPicker((value) => !value)}>
-            <GitBranchPlus className="size-4" />
-            Start branch
-          </Button>
+          <div className="grid gap-2 rounded-lg border border-neutral-800 bg-black/20 p-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-neutral-700 text-[11px] text-neutral-400">
+                1
+              </span>
+              <Text className="min-w-0 flex-1 text-xs font-medium text-neutral-300">
+                Branch
+              </Text>
+              {selectedBranch ? <CheckCircle2 className="size-3.5 text-emerald-300" /> : null}
+            </div>
+            {selectedBranch ? (
+              <div className="flex min-w-0 items-center gap-2 rounded-md bg-neutral-900/70 px-2 py-1.5">
+                <GitBranch className="size-3.5 shrink-0 text-neutral-500" />
+                <Text className="min-w-0 flex-1 truncate font-mono text-xs text-neutral-200">
+                  {selectedBranch.name}
+                </Text>
+                {selectedBranchUrl ? (
+                  <a
+                    href={selectedBranchUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="shrink-0 text-neutral-500 transition hover:text-neutral-200"
+                    aria-label="Open branch on GitHub"
+                  >
+                    <ExternalLink className="size-3.5" />
+                  </a>
+                ) : null}
+              </div>
+            ) : (
+              <Text className="text-xs text-neutral-500">No branch linked yet.</Text>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="justify-start"
+              onPress={() => setShowBranchPicker((value) => !value)}
+            >
+              <GitBranchPlus className="size-4" />
+              Link branch
+            </Button>
+          </div>
           {showBranchPicker ? (
             <div className="issue-rise-in grid gap-2 rounded-lg border border-neutral-800 bg-black/20 p-2">
+              {visibleBranches.length > 0 ? (
+                <div className="grid gap-1">
+                  <Text className="text-xs text-neutral-500">Existing branches</Text>
+                  {visibleBranches.map((branch) => (
+                    <button
+                      key={branch.name}
+                      type="button"
+                      onClick={() => linkBranch(branch)}
+                      className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-neutral-300 transition hover:bg-neutral-900 hover:text-neutral-50"
+                    >
+                      <GitBranch className="size-3 shrink-0 text-neutral-500" />
+                      <span className="min-w-0 truncate font-mono">{branch.name}</span>
+                      {branch.isDefault ? (
+                        <span className="ml-auto shrink-0 text-[10px] text-neutral-600">default</span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               <label className="grid gap-1">
-                <Text className="text-xs text-neutral-500">Branch name</Text>
+                <Text className="text-xs text-neutral-500">New branch</Text>
                 <input
                   value={branchName}
                   onChange={(event) => setBranchName(event.currentTarget.value)}
@@ -309,69 +463,85 @@ export function IssueActionPanel({
                 onPress={() => void createBranch()}
               >
                 <GitBranchPlus className="size-4" />
-                {isCreatingBranch ? 'Creating...' : 'Create branch'}
+                {isCreatingBranch ? 'Creating...' : 'Create and link'}
               </Button>
-              {visibleBranches.length > 0 ? (
-                <div className="grid gap-1">
-                  <Text className="text-xs text-neutral-500">Existing branches</Text>
-                  {visibleBranches.map((branch) => (
-                    <button
-                      key={branch.name}
-                      type="button"
-                      onClick={() => {
-                        setSelectedBranch(branch);
-                        setBranchName(branch.name);
-                        setBranchError('');
-                        setBranchMessage('Using existing branch.');
-                      }}
-                      className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-neutral-300 transition hover:bg-neutral-900 hover:text-neutral-50"
-                    >
-                      <GitBranch className="size-3 shrink-0 text-neutral-500" />
-                      <span className="min-w-0 truncate font-mono">{branch.name}</span>
-                      {branch.isDefault ? (
-                        <span className="ml-auto shrink-0 text-[10px] text-neutral-600">default</span>
-                      ) : null}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-              {selectedBranch ? (
-                <div className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1.5">
-                  <Text className="block truncate font-mono text-xs text-emerald-200">
-                    {selectedBranch.name}
-                  </Text>
-                  {selectedBranchUrl ? (
-                    <a
-                      href={selectedBranchUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-1 inline-flex items-center gap-1 text-xs text-emerald-300/80 transition hover:text-emerald-100"
-                    >
-                      Open branch
-                      <ExternalLink className="size-3" />
-                    </a>
-                  ) : null}
-                </div>
-              ) : null}
               {branchMessage ? <Text className="text-xs text-emerald-300">{branchMessage}</Text> : null}
               {branchError ? <Text className="text-xs text-red-300">{branchError}</Text> : null}
             </div>
           ) : null}
+          <div className="grid gap-2 rounded-lg border border-neutral-800 bg-black/20 p-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-neutral-700 text-[11px] text-neutral-400">
+                2
+              </span>
+              <Text className="min-w-0 flex-1 text-xs font-medium text-neutral-300">
+                Next action
+              </Text>
+            </div>
+            <Button
+              variant="secondary"
+              isDisabled={!selectedPullRequestUrl}
+              onPress={() => {
+                if (selectedPullRequestUrl) {
+                  window.open(selectedPullRequestUrl, '_blank', 'noreferrer');
+                }
+              }}
+            >
+              <Rocket className="size-4" />
+              Create PR
+            </Button>
+          </div>
+          <div className="grid gap-2 rounded-lg border border-neutral-800 bg-black/20 p-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-neutral-700 text-[11px] text-neutral-400">
+                3
+              </span>
+              <Text className="min-w-0 flex-1 text-xs font-medium text-neutral-300">
+                Start development
+              </Text>
+            </div>
+            {machineRows.length > 0 ? (
+              <div className="grid gap-1">
+                {machineRows.map((row) => {
+                  const hasCheckout = Boolean(row.project);
+                  const canStart =
+                    Boolean(selectedBranch) &&
+                    canRunMachineCommand(row.machine) &&
+                    (hasCheckout || Boolean(repositoryCloneUrl));
+
+                  return (
+                    <button
+                      key={row.machineId}
+                      type="button"
+                      disabled={!canStart || busyMachineId === row.machineId}
+                      onClick={() => void startDevelopment(row)}
+                      className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-neutral-300 transition hover:bg-neutral-900 hover:text-neutral-50 disabled:pointer-events-none disabled:opacity-45"
+                    >
+                      {hasCheckout ? (
+                        <Monitor className="size-3.5 shrink-0 text-neutral-500" />
+                      ) : (
+                        <Download className="size-3.5 shrink-0 text-neutral-500" />
+                      )}
+                      <span className="min-w-0 flex-1 truncate">
+                        {busyMachineId === row.machineId
+                          ? 'Starting...'
+                          : row.machine?.name ?? row.machineId}
+                      </span>
+                      <span className={machineStatusClass(row.machine?.connector.status)}>
+                        {hasCheckout ? 'open' : 'clone'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <Text className="text-xs text-neutral-500">No connector machines registered.</Text>
+            )}
+            {machineMessage ? <Text className="text-xs text-neutral-500">{machineMessage}</Text> : null}
+          </div>
           <Button variant="ghost" isDisabled>
             <Play className="size-4" />
             Run tests
-          </Button>
-          <Button
-            variant="ghost"
-            isDisabled={!selectedPullRequestUrl}
-            onPress={() => {
-              if (selectedPullRequestUrl) {
-                window.open(selectedPullRequestUrl, '_blank', 'noreferrer');
-              }
-            }}
-          >
-            <Rocket className="size-4" />
-            Create PR
           </Button>
         </div>
       </Surface>
