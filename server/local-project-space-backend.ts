@@ -15,6 +15,7 @@ import {
 import {
   commitGitChanges,
   getGitDiff,
+  getGitHistory,
   getGitStatus,
   stageGitPaths,
   unstageGitPaths
@@ -657,6 +658,9 @@ export function createLocalProjectSpaceBackend(
     },
     async getGitDiff(request) {
       return getGitDiff(request);
+    },
+    async getGitHistory(request) {
+      return getGitHistory(request);
     },
     async getGitStatus(cwd: string) {
       return getGitStatus(cwd);

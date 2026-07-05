@@ -3,11 +3,11 @@ import { GitCommitHorizontal, GitPullRequest, RefreshCw, Tag } from 'lucide-reac
 import { Button, Chip, Surface, Text, Tooltip } from '@/app/dotnaos-ui';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { cn } from '@/lib/utils';
+import type { GitHistoryCommit } from '@/shared/project-space-api';
 
 const COMMIT_LIMIT = 300;
 const LANE_WIDTH = 14;
 const ROW_HEIGHT = 32;
-const FIELD_SEPARATOR = String.fromCharCode(31);
 
 const lanePalette = [
   '#0085d9',
@@ -20,14 +20,7 @@ const lanePalette = [
   '#e138e8'
 ];
 
-interface GraphCommit {
-  author: string;
-  date: string;
-  hash: string;
-  parents: string[];
-  refs: string[];
-  subject: string;
-}
+type GraphCommit = GitHistoryCommit;
 
 interface RowSegment {
   color: string;
@@ -41,29 +34,6 @@ interface GraphRow {
   column: number;
   commit: GraphCommit;
   segments: RowSegment[];
-}
-
-function parseGitLog(stdout: string): GraphCommit[] {
-  return stdout
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [hash, parents, author, date, refs, ...subjectParts] = line.split(FIELD_SEPARATOR);
-
-      return {
-        author: author ?? '',
-        date: date ?? '',
-        hash: hash ?? '',
-        parents: (parents ?? '').split(' ').filter(Boolean),
-        refs: (refs ?? '')
-          .split(',')
-          .map((ref) => ref.trim())
-          .filter(Boolean),
-        subject: subjectParts.join(FIELD_SEPARATOR) || ''
-      };
-    })
-    .filter((commit) => commit.hash);
 }
 
 interface Lane {
@@ -283,7 +253,13 @@ function CommitDotTooltip({
   );
 }
 
-export function GitGraphPanel({ targetPath }: { targetPath: string }) {
+export function GitGraphPanel({
+  repositoryFullName,
+  targetPath
+}: {
+  repositoryFullName?: string;
+  targetPath: string;
+}) {
   const [commits, setCommits] = useState<GraphCommit[]>([]);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -297,18 +273,20 @@ export function GitGraphPanel({ targetPath }: { targetPath: string }) {
     setIsLoading(true);
     setError('');
     try {
-      const result = await projectSpaceClient.runTerminalCommand({
-        command: `git log --all --date-order -n ${COMMIT_LIMIT} --date=short --pretty=format:%H%x1f%P%x1f%an%x1f%ad%x1f%D%x1f%s`,
-        cwd: targetPath
+      const result = await projectSpaceClient.getGitHistory({
+        cwd: targetPath,
+        limit: COMMIT_LIMIT,
+        repositoryFullName
       });
 
-      if (result.exitCode !== 0) {
+      if (!result.isRepository) {
         setCommits([]);
-        setError(result.stderr.trim() || 'Could not read the git history.');
+        setError(result.message ?? 'Could not read the git history.');
         return;
       }
 
-      setCommits(parseGitLog(result.stdout));
+      setCommits(result.commits);
+      setError(result.message ?? '');
     } catch (requestError) {
       setCommits([]);
       setError(
@@ -321,7 +299,7 @@ export function GitGraphPanel({ targetPath }: { targetPath: string }) {
 
   useEffect(() => {
     void refresh();
-  }, [targetPath]);
+  }, [repositoryFullName, targetPath]);
 
   const { maxLanes, rows } = useMemo(() => layoutGraph(commits), [commits]);
   const graphWidth = maxLanes * LANE_WIDTH;

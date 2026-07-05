@@ -21,7 +21,7 @@ FROM oven/bun:1 AS runner
 
 WORKDIR /workspace
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssh-client \
+  && apt-get install -y --no-install-recommends git openssh-client \
   && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 ENV PROJECT_SPACE_HOST=0.0.0.0
