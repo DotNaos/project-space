@@ -308,8 +308,8 @@ function environmentSortKey(environment: string) {
 
 function sortDeployments(deployments: DeploymentRecordSummary[]) {
   return [...deployments].sort((left, right) => {
-    const leftTime = Date.parse(left.updatedAt || left.createdAt || '');
-    const rightTime = Date.parse(right.updatedAt || right.createdAt || '');
+    const leftTime = Date.parse(left.createdAt || left.updatedAt || '');
+    const rightTime = Date.parse(right.createdAt || right.updatedAt || '');
 
     return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
   });
@@ -355,9 +355,12 @@ function DeploymentRow({ deployment, isLive = false, pipelineRun, repositoryUrl 
           <Chip
             size="sm"
             className="border border-sky-500/30 bg-sky-500/10 font-mono text-sky-200"
-            title={deployment.revision ? `Revision ${deployment.revision}` : undefined}
+            title={[
+              'Automatic deployment version',
+              deployment.revision ? `Revision ${deployment.revision}` : ''
+            ].filter(Boolean).join(' · ')}
           >
-            Version {deployment.version}
+            {deployment.version}
           </Chip>
         ) : deployment.revision ? (
           <Chip
@@ -412,8 +415,8 @@ function DeploymentRow({ deployment, isLive = false, pipelineRun, repositoryUrl 
         ) : (
           <span>no source recorded</span>
         )}
-        <span title={formatDate(deployment.updatedAt || deployment.createdAt)}>
-          deployed {formatRelativeTime(deployment.updatedAt || deployment.createdAt)}
+        <span title={formatDate(deployment.createdAt || deployment.updatedAt)}>
+          deployed {formatRelativeTime(deployment.createdAt || deployment.updatedAt)}
         </span>
         {typeof deployment.live?.latencyMs === 'number' ? (
           <span>{deployment.live.latencyMs}ms response</span>

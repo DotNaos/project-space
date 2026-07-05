@@ -15,11 +15,6 @@ import type {
 
 const execFileAsync = promisify(execFile);
 const platformRepoPath = join(homedir(), 'projects', 'private-vps-platform');
-const backendRepoPath = process.env.PROJECT_SPACE_BACKEND_REPO_PATH || '/workspace/backend-repo';
-
-interface PlatformAppRecordSummary {
-  repoUrl: string;
-}
 
 function getApiBaseUrl() {
   return (
@@ -72,153 +67,67 @@ function summarizeDeployment(entry: Record<string, unknown>): DeploymentRecordSu
   };
 }
 
-function summarizeAppRecord(entry: Record<string, unknown>): [string, PlatformAppRecordSummary] | undefined {
-  const app = entry.App && typeof entry.App === 'object' ? entry.App as Record<string, unknown> : entry;
-  const slug = String(app.Slug ?? app.slug ?? '');
+function deploymentTimeMs(deployment: DeploymentRecordSummary) {
+  const timestamp = Date.parse(deployment.createdAt || deployment.updatedAt || '');
 
-  if (!slug) {
-    return undefined;
-  }
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
 
-  return [
-    slug,
-    {
-      repoUrl: String(app.RepoURL ?? app.repo_url ?? '')
+function deploymentSequenceKey(deployment: DeploymentRecordSummary) {
+  return deployment.id
+    || [
+      deployment.appSlug,
+      deployment.environment,
+      deployment.revision,
+      deployment.createdAt,
+      deployment.updatedAt
+    ].join(':');
+}
+
+function deploymentNumericId(deployment: DeploymentRecordSummary) {
+  const id = Number(deployment.id);
+
+  return Number.isFinite(id) ? id : 0;
+}
+
+function deploymentVersionDate(timestamp: number) {
+  const date = timestamp > 0 ? new Date(timestamp) : new Date(0);
+  const yy = String(date.getUTCFullYear()).slice(-2);
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(date.getUTCDate()).padStart(2, '0');
+
+  return `${yy}.${mm}.${dd}`;
+}
+
+function addGeneratedDeploymentVersions(
+  deployments: DeploymentRecordSummary[]
+): DeploymentRecordSummary[] {
+  const versions = new Map<string, string>();
+  const counters = new Map<string, number>();
+  const ordered = [...deployments].sort((left, right) => {
+    const byTime = deploymentTimeMs(left) - deploymentTimeMs(right);
+
+    if (byTime !== 0) {
+      return byTime;
     }
-  ];
-}
 
-function githubRepoPath(repoUrl: string) {
-  const trimmed = repoUrl.trim().replace(/\.git$/, '');
-  const sshMatch = /^git@github\.com:([^/]+\/[^/]+)$/i.exec(trimmed);
+    return deploymentNumericId(left) - deploymentNumericId(right);
+  });
 
-  if (sshMatch) {
-    return sshMatch[1];
+  for (const deployment of ordered) {
+    const environment = deployment.environment || 'env';
+    const date = deploymentVersionDate(deploymentTimeMs(deployment));
+    const groupKey = `${deployment.appSlug}\0${environment}\0${date}`;
+    const count = (counters.get(groupKey) ?? 0) + 1;
+
+    counters.set(groupKey, count);
+    versions.set(deploymentSequenceKey(deployment), `${environment} ${date} #${count}`);
   }
 
-  const httpsMatch = /^https:\/\/github\.com\/([^/]+\/[^/]+)$/i.exec(trimmed);
-
-  if (httpsMatch) {
-    return httpsMatch[1];
-  }
-
-  return /^[^/\s]+\/[^/\s]+$/.test(trimmed) ? trimmed : undefined;
-}
-
-function packageVersionFromJson(raw: string) {
-  try {
-    const parsed = JSON.parse(raw) as { version?: unknown };
-
-    return typeof parsed.version === 'string' && parsed.version.trim()
-      ? parsed.version.trim()
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-async function readGitHubPackageVersion(repoUrl: string, revision: string) {
-  const repoPath = githubRepoPath(repoUrl);
-
-  if (!repoPath || !revision) {
-    return undefined;
-  }
-
-  const response = await fetch(
-    `https://api.github.com/repos/${repoPath}/contents/package.json?ref=${encodeURIComponent(revision)}`,
-    {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        ...(process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {}),
-        'User-Agent': 'project-space',
-        'X-GitHub-Api-Version': '2022-11-28'
-      }
-    }
-  );
-
-  if (!response.ok) {
-    return undefined;
-  }
-
-  const payload = await response.json().catch(() => undefined) as
-    | { content?: unknown; encoding?: unknown }
-    | undefined;
-
-  if (typeof payload?.content !== 'string') {
-    return undefined;
-  }
-
-  const content = payload.content.replace(/\s/g, '');
-  const raw =
-    payload.encoding === 'base64'
-      ? Buffer.from(content, 'base64').toString('utf-8')
-      : payload.content;
-
-  return packageVersionFromJson(raw);
-}
-
-async function readLocalPackageVersionAtRevision(revision: string) {
-  if (!revision) {
-    return undefined;
-  }
-
-  try {
-    const { stdout } = await execFileAsync(
-      'git',
-      ['-c', `safe.directory=${backendRepoPath}`, '-C', backendRepoPath, 'show', `${revision}:package.json`],
-      {
-        timeout: 5_000,
-        windowsHide: true
-      }
-    );
-
-    return packageVersionFromJson(stdout);
-  } catch {
-    return undefined;
-  }
-}
-
-async function readCurrentLocalPackageVersion() {
-  try {
-    const { stdout } = await execFileAsync(
-      'git',
-      ['-c', `safe.directory=${backendRepoPath}`, '-C', backendRepoPath, 'show', 'HEAD:package.json'],
-      {
-        timeout: 5_000,
-        windowsHide: true
-      }
-    );
-
-    return packageVersionFromJson(stdout);
-  } catch {
-    return undefined;
-  }
-}
-
-async function addDeploymentVersion(
-  deployment: DeploymentRecordSummary,
-  appsBySlug: Map<string, PlatformAppRecordSummary>,
-  versionCache: Map<string, Promise<string | undefined>>
-) {
-  const app = appsBySlug.get(deployment.appSlug);
-
-  if (!app?.repoUrl || !deployment.revision) {
-    return deployment;
-  }
-
-  const cacheKey = `${app.repoUrl}#${deployment.revision}`;
-  let versionPromise = versionCache.get(cacheKey);
-
-  if (!versionPromise) {
-    versionPromise = readGitHubPackageVersion(app.repoUrl, deployment.revision)
-      .then((version) => version ?? readLocalPackageVersionAtRevision(deployment.revision ?? ''))
-      .then((version) => version ?? readCurrentLocalPackageVersion());
-    versionCache.set(cacheKey, versionPromise);
-  }
-
-  const version = await versionPromise;
-
-  return version ? { ...deployment, version } : deployment;
+  return deployments.map((deployment) => ({
+    ...deployment,
+    version: versions.get(deploymentSequenceKey(deployment))
+  }));
 }
 
 function deploymentPublicUrl(deployment: DeploymentRecordSummary) {
@@ -357,22 +266,13 @@ export async function getPlatformOverview(): Promise<PlatformOverviewResult> {
   }
 
   try {
-    const [health, apps, deployments, backups] = await Promise.all([
+    const [health, deployments, backups] = await Promise.all([
       readJson<{ status?: string }>('/api/v1/health'),
-      readJson<unknown>('/api/v1/apps'),
       readJson<unknown>('/api/v1/deployments'),
       readJson<unknown>('/api/v1/backups')
     ]);
-    const appEntries = entriesOrEmpty(apps)
-      .map(summarizeAppRecord)
-      .filter((entry): entry is [string, PlatformAppRecordSummary] => Boolean(entry));
-    const appsBySlug = new Map(appEntries);
-    const versionCache = new Map<string, Promise<string | undefined>>();
-    const deploymentSummaries = entriesOrEmpty(deployments).map(summarizeDeployment);
-    const versionedDeployments = await Promise.all(
-      deploymentSummaries.map((deployment) =>
-        addDeploymentVersion(deployment, appsBySlug, versionCache)
-      )
+    const versionedDeployments = addGeneratedDeploymentVersions(
+      entriesOrEmpty(deployments).map(summarizeDeployment)
     );
 
     return {
