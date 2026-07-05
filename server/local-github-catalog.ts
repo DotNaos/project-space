@@ -396,7 +396,7 @@ export async function getGitHubRepositoryDetails(
         auth.token
       ),
       requestGitHub<GitHubApiIssue[]>(
-        `/repos/${repoPath}/issues?state=open&per_page=20&sort=updated&direction=desc`,
+        `/repos/${repoPath}/issues?state=all&per_page=100&sort=updated&direction=desc`,
         auth.token
       )
     ]);

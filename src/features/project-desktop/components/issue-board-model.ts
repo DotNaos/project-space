@@ -1,7 +1,7 @@
 import type { GitHubIssueRecord } from '@/shared/project-space-api';
 import { formatRelativeTime } from './project-main-model';
 
-export type IssueColumnId = 'backlog' | 'blocked' | 'in-progress' | 'ready';
+export type IssueColumnId = 'backlog' | 'blocked' | 'closed' | 'in-progress' | 'ready';
 export type IssueViewMode = 'board' | 'list';
 
 export interface IssueColumnDefinition {
@@ -13,6 +13,13 @@ export interface IssueColumnDefinition {
 }
 
 export const issueColumns: IssueColumnDefinition[] = [
+  {
+    dotClass: 'bg-neutral-500',
+    dropClass: 'border-neutral-500/60 bg-neutral-500/[0.04]',
+    hint: 'Not scheduled yet',
+    id: 'backlog',
+    label: 'Backlog'
+  },
   {
     dotClass: 'bg-emerald-400',
     dropClass: 'border-emerald-400/50 bg-emerald-400/[0.04]',
@@ -35,21 +42,25 @@ export const issueColumns: IssueColumnDefinition[] = [
     label: 'Blocked'
   },
   {
-    dotClass: 'bg-neutral-500',
-    dropClass: 'border-neutral-500/60 bg-neutral-500/[0.04]',
-    hint: 'Not scheduled yet',
-    id: 'backlog',
-    label: 'Backlog'
+    dotClass: 'bg-violet-400',
+    dropClass: 'border-violet-400/50 bg-violet-400/[0.04]',
+    hint: 'Completed work',
+    id: 'closed',
+    label: 'Closed'
   }
 ];
 
 export function issueColumnById(columnId: IssueColumnId) {
-  return issueColumns.find((column) => column.id === columnId) ?? issueColumns[3];
+  return issueColumns.find((column) => column.id === columnId) ?? issueColumns[0];
 }
 
 export type IssueColumnOverrides = Record<number, IssueColumnId>;
 
 function derivedIssueColumn(issue: GitHubIssueRecord, index: number): IssueColumnId {
+  if (issue.state === 'closed') {
+    return 'closed';
+  }
+
   const text = `${issue.title} ${issue.labels.join(' ')}`.toLowerCase();
 
   if (text.includes('blocked') || text.includes('blocker') || text.includes('waiting')) {
@@ -72,6 +83,10 @@ export function resolveIssueColumn(
   index: number,
   overrides: IssueColumnOverrides
 ): IssueColumnId {
+  if (issue.state === 'closed') {
+    return 'closed';
+  }
+
   return overrides[issue.number] ?? derivedIssueColumn(issue, index);
 }
 
@@ -82,6 +97,7 @@ export function groupIssuesByColumn(
   const groups: Record<IssueColumnId, GitHubIssueRecord[]> = {
     backlog: [],
     blocked: [],
+    closed: [],
     'in-progress': [],
     ready: []
   };
@@ -94,6 +110,66 @@ export function groupIssuesByColumn(
 }
 
 const columnIds = new Set<string>(issueColumns.map((column) => column.id));
+
+export function normalizeIssueColumnOrder(order: IssueColumnId[]) {
+  const seen = new Set<IssueColumnId>();
+  const normalized = order.filter((columnId) => {
+    if (!columnIds.has(columnId) || seen.has(columnId)) {
+      return false;
+    }
+
+    seen.add(columnId);
+    return true;
+  });
+
+  for (const column of issueColumns) {
+    if (!seen.has(column.id)) {
+      normalized.push(column.id);
+    }
+  }
+
+  return normalized;
+}
+
+const columnOrderStorageKey = 'project-space:issue-board-column-order:v1';
+
+export function loadIssueColumnOrder(): IssueColumnId[] {
+  try {
+    const raw = window.localStorage.getItem(columnOrderStorageKey);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+
+    if (!Array.isArray(parsed)) {
+      return issueColumns.map((column) => column.id);
+    }
+
+    return normalizeIssueColumnOrder(
+      parsed.filter(
+        (value): value is IssueColumnId => typeof value === 'string' && columnIds.has(value)
+      )
+    );
+  } catch {
+    return issueColumns.map((column) => column.id);
+  }
+}
+
+export function saveIssueColumnOrder(order: IssueColumnId[]) {
+  try {
+    window.localStorage.setItem(
+      columnOrderStorageKey,
+      JSON.stringify(normalizeIssueColumnOrder(order))
+    );
+  } catch {
+    // Persisting the board order is best-effort.
+  }
+}
+
+export function orderedIssueColumns(order: IssueColumnId[]) {
+  const byId = new Map(issueColumns.map((column) => [column.id, column]));
+
+  return normalizeIssueColumnOrder(order)
+    .map((columnId) => byId.get(columnId))
+    .filter((column): column is IssueColumnDefinition => Boolean(column));
+}
 
 function boardStorageKey(repoFullName: string) {
   return `project-space:issue-board:v1:${repoFullName}`;
