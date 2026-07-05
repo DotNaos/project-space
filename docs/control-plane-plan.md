@@ -228,21 +228,22 @@ terminal involved. Every mutation showed its plan first.
        branch: main
        path: /opt/platform/apps/{{ project.slug }}
        domain: {{ project.slug }}.os-home.net
-       apiDomain: {{ project.slug }}-api.os-home.net
+       apiDomain: api.{{ project.slug }}.os-home.net
        default: true
      beta:
-       branch: dev
+       branch: beta
        path: /opt/platform/apps/{{ project.slug }}-beta
        domain: beta.{{ project.slug }}.os-home.net
-       apiDomain: beta.{{ project.slug }}-api.os-home.net
+       apiDomain: api.beta.{{ project.slug }}.os-home.net
    ```
 
-   Back-compat: a flat single-env file is read as `environments: {prod: …}`.
+   No back-compat: flat single-env `deploy.yaml` is invalid.
    Because `deploy/` is template-owned, projects gain environments via
    `template update`.
 2. `project deploy --env <name>` / `project deploy status --env <name>|--all-envs`;
    compose project name suffixed per env so stacks coexist; Traefik labels use
-   the env's domains.
+   the env's domains. Status JSON exposes `webUrl`, `apiUrl`, and `docsUrl`
+   for UI links.
 3. Deploy prompting policy fix (usability): never prompt for values coming
    from `deploy.yaml` or flags; prompt once for inferred values and offer to
    persist the answer into `deploy.yaml`. Remove the hardcoded 1Password

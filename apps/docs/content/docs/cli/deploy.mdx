@@ -36,29 +36,43 @@ Values can live in `deploy/deploy.yaml`:
 
 ```yaml
 host: deploy@100.84.238.75
-path: /opt/platform/apps/my-project
-branch: main
-domain: my-project.os-home.net
-apiDomain: my-project-api.os-home.net
+secrets:
+  GITHUB_TOKEN: op://projects/GitHub Personal Access Token/token
+environments:
+  prod:
+    default: true
+    branch: main
+    path: /opt/platform/apps/my-project
+    domain: my-project.os-home.net
+    apiDomain: api.my-project.os-home.net
+  beta:
+    branch: beta
+    path: /opt/platform/apps/my-project-beta
+    domain: beta.my-project.os-home.net
+    apiDomain: api.beta.my-project.os-home.net
 ```
 
 Flags override config.
+
+Deploy status and dry-run JSON include `webUrl`, `apiUrl`, and `docsUrl`.
+`docsUrl` is derived from the app domain at `/docs`.
 
 ### Behavior
 
 - Requires `deploy/compose.yml`.
 - Requires `deploy/ingress.labels.yml`.
 - Uses the VPS-owned `private-platform-traefik` ingress and `traefik-public` Docker network.
-- Confirms discovered values before using them.
+- Supports only `prod` and `beta`.
+- Requires `--env` for deploys.
 - Clones or refreshes the remote Git checkout.
 - Runs Docker Compose with the deploy compose and ingress labels.
 
 ### Examples
 
 ```sh
-project deploy --dry-run
-project deploy
-project deploy --domain projects.os-home.net --api-domain projects-api.os-home.net
+project deploy --env prod --dry-run
+project deploy --env beta --dry-run --format json
+project deploy status --all-envs --format json
 ```
 
 ## `project deploy status`

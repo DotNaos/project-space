@@ -128,9 +128,11 @@ The token value is stored directly in 1Password and is never printed.
 ## Deploy
 
 ```sh
-project deploy --domain <domain> --api-domain <api-domain>
-project deploy --dry-run --domain <domain> --api-domain <api-domain>
-project deploy status
+project deploy --env prod
+project deploy --env beta
+project deploy --env prod --dry-run --format json
+project deploy status --env prod
+project deploy status --all-envs --format json
 ```
 
 `project deploy` uses the existing template compose files:
@@ -142,17 +144,31 @@ Configuration can live in `deploy/deploy.yaml`:
 
 ```yaml
 host: deploy@100.84.238.75
-path: /opt/platform/apps/my-project
-branch: main
-domain: my-project.os-home.net
-apiDomain: my-project-api.os-home.net
+secrets:
+  GITHUB_TOKEN: op://projects/GitHub Personal Access Token/token
+environments:
+  prod:
+    default: true
+    branch: main
+    path: /opt/platform/apps/my-project
+    domain: my-project.os-home.net
+    apiDomain: api.my-project.os-home.net
+  beta:
+    branch: beta
+    path: /opt/platform/apps/my-project-beta
+    domain: beta.my-project.os-home.net
+    apiDomain: api.beta.my-project.os-home.net
 ```
 
-Flags override config.
+Only `prod` and `beta` are supported. The old flat `deploy/deploy.yaml`
+shape is not supported.
 
-If a value comes from `deploy/deploy.yaml`, an environment variable, Git config, or an inferred convention, the CLI asks before using it.
+Deploy status and dry-run JSON include clickable URLs for the app, API, and
+docs. The docs URL is derived from the app domain at `/docs`.
 
-Supported environment fallbacks are `PROJECT_DEPLOY_HOST`, `PROJECT_DEPLOY_PATH`, `PROJECT_DOMAIN`, `PROJECT_API_DOMAIN`, and their older aliases.
+Flags override config. Values from `deploy/deploy.yaml` are used directly,
+without confirmation prompts. Secret values are read from 1Password only for
+real deploys; dry-runs show only secret references.
 
 ## Sync Template Snapshot
 

@@ -5,8 +5,21 @@ import type {
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
 import { refreshProjectSpaceAuthToken } from '@/api/project-space-client';
-import { Button, Surface, Text } from '@/app/dotnaos-ui';
-import { Terminal as TerminalIcon } from 'lucide-react';
+import {
+  Button,
+  Surface,
+  Tab,
+  TabIndicator,
+  TabList,
+  Tabs,
+  Text
+} from '@/app/dotnaos-ui';
+import {
+  FolderKanban,
+  LayoutDashboard,
+  Terminal as TerminalIcon
+} from 'lucide-react';
+import type { MachineDetailTab } from '../hooks/use-project-desktop';
 import { WTerm } from '@wterm/dom';
 import '@wterm/dom/css';
 import {
@@ -214,7 +227,7 @@ function MachineTerminalPanel({ machine }: { machine: MachineRecord }) {
   return (
     <Surface
       variant="tertiary"
-      className="rounded-lg border border-neutral-800 bg-neutral-950/45 p-4"
+      className="min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/45 p-4"
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
@@ -252,20 +265,34 @@ function MachineTerminalPanel({ machine }: { machine: MachineRecord }) {
   );
 }
 
+const machineTabItems: Array<{
+  icon: typeof LayoutDashboard;
+  id: MachineDetailTab;
+  label: string;
+}> = [
+  { icon: LayoutDashboard, id: 'overview', label: 'Overview' },
+  { icon: FolderKanban, id: 'projects', label: 'Projects' },
+  { icon: TerminalIcon, id: 'terminal', label: 'Terminal' }
+];
+
 export function MachineDetailView({
   connector,
   machine,
   machineId,
   onOpenMachines,
   onSelectProject,
-  projects
+  onSelectTab,
+  projects,
+  tab
 }: {
   connector: ConnectorOverviewResult;
   machine?: MachineRecord;
   machineId: string;
   onOpenMachines(): void;
   onSelectProject(projectId: string): void;
+  onSelectTab(tab: MachineDetailTab): void;
   projects: ProjectSpaceRecord[];
+  tab: MachineDetailTab;
 }) {
   const localMachineId =
     connector.machines.find((entry) => entry.connector.status === 'local')?.id ??
@@ -297,8 +324,8 @@ export function MachineDetailView({
     machine.connector.origin ?? machine.network.tailscaleIp ?? machine.connector.installCommand;
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col gap-5">
-      <section className="border-b border-neutral-800/70 pb-5">
+    <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col gap-4">
+      <section className="border-b border-neutral-800/70 pb-4">
         <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
@@ -320,67 +347,98 @@ export function MachineDetailView({
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        <Surface
-          variant="tertiary"
-          className="rounded-lg border border-neutral-800 bg-neutral-950/45 p-4"
+      <div className="-mx-1 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <Tabs
+          selectedKey={tab}
+          onSelectionChange={(key) => {
+            const nextTab = machineTabItems.find((item) => item.id === key);
+
+            if (nextTab) {
+              onSelectTab(nextTab.id);
+            }
+          }}
         >
-          <Text className="mb-3 block text-sm font-semibold text-neutral-100">Connection</Text>
-          <MachineDetailRow label="Status" value={machine.connector.status} />
-          <MachineDetailRow label="Service" value={machine.connector.serviceName ?? 'unknown'} />
-          <MachineDetailRow label="Last seen" value={formatOptionalTime(machine.connector.lastSeen)} />
-          <MachineDetailRow label="Origin" value={origin ?? 'unknown'} />
-        </Surface>
+          <TabList className="inline-flex min-w-max gap-1 rounded-xl bg-neutral-900/60 p-1">
+            {machineTabItems.map((item) => {
+              const Icon = item.icon;
 
-        <Surface
-          variant="tertiary"
-          className="rounded-lg border border-neutral-800 bg-neutral-950/45 p-4"
-        >
-          <Text className="mb-3 block text-sm font-semibold text-neutral-100">System</Text>
-          <MachineDetailRow label="OS" value={[machine.os?.family, machine.os?.version].filter(Boolean).join(' ') || 'unknown'} />
-          <MachineDetailRow label="Device" value={machine.kind || 'unknown'} />
-          <MachineDetailRow label="Profile" value={machine.profile ?? 'unknown'} />
-          <MachineDetailRow label="User" value={machine.primaryUser ?? machine.network.sshUser ?? 'unknown'} />
-        </Surface>
-      </section>
+              return (
+                <Tab key={item.id} id={item.id} className="min-h-8 gap-1.5 px-3 text-xs">
+                  <Icon className="size-3.5" />
+                  {item.label}
+                  <TabIndicator />
+                </Tab>
+              );
+            })}
+          </TabList>
+        </Tabs>
+      </div>
 
-      <MachineTerminalPanel machine={machine} />
+      {tab === 'overview' ? (
+        <section className="grid gap-4 lg:grid-cols-2">
+          <Surface
+            variant="tertiary"
+            className="min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/45 p-4"
+          >
+            <Text className="mb-3 block text-sm font-semibold text-neutral-100">Connection</Text>
+            <MachineDetailRow label="Status" value={machine.connector.status} />
+            <MachineDetailRow label="Service" value={machine.connector.serviceName ?? 'unknown'} />
+            <MachineDetailRow label="Last seen" value={formatOptionalTime(machine.connector.lastSeen)} />
+            <MachineDetailRow label="Origin" value={origin ?? 'unknown'} />
+          </Surface>
 
-      <section>
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <Text className="text-sm font-semibold text-neutral-100">Projects on this machine</Text>
-          <Text className="text-xs text-neutral-500">{machineProjects.length}</Text>
-        </div>
+          <Surface
+            variant="tertiary"
+            className="min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/45 p-4"
+          >
+            <Text className="mb-3 block text-sm font-semibold text-neutral-100">System</Text>
+            <MachineDetailRow label="OS" value={[machine.os?.family, machine.os?.version].filter(Boolean).join(' ') || 'unknown'} />
+            <MachineDetailRow label="Device" value={machine.kind || 'unknown'} />
+            <MachineDetailRow label="Profile" value={machine.profile ?? 'unknown'} />
+            <MachineDetailRow label="User" value={machine.primaryUser ?? machine.network.sshUser ?? 'unknown'} />
+          </Surface>
+        </section>
+      ) : null}
 
-        {machineProjects.length > 0 ? (
-          <div className="flex flex-col divide-y divide-neutral-900/80">
-            {machineProjects.map((project) => (
-              <button
-                key={project.id}
-                type="button"
-                title={project.rootPath}
-                onClick={() => onSelectProject(project.id)}
-                className="flex min-w-0 items-center justify-between gap-3 rounded-lg px-3 py-3 text-left transition hover:bg-neutral-900/50"
-              >
-                <span className="min-w-0">
-                  <Text className="block truncate text-sm font-medium text-neutral-100">
-                    {project.name}
-                  </Text>
-                  <Text className="block truncate font-mono text-xs text-neutral-500">
-                    {project.rootPath}
-                  </Text>
-                </span>
-              </button>
-            ))}
+      {tab === 'terminal' ? <MachineTerminalPanel machine={machine} /> : null}
+
+      {tab === 'projects' ? (
+        <section>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <Text className="text-sm font-semibold text-neutral-100">Projects on this machine</Text>
+            <Text className="text-xs text-neutral-500">{machineProjects.length}</Text>
           </div>
-        ) : (
-          <div className="rounded-lg bg-neutral-950/45 px-4 py-6">
-            <Text className="text-sm text-neutral-500">
-              No local projects reported by this machine yet.
-            </Text>
-          </div>
-        )}
-      </section>
+
+          {machineProjects.length > 0 ? (
+            <div className="flex flex-col divide-y divide-neutral-900/80">
+              {machineProjects.map((project) => (
+                <button
+                  key={project.id}
+                  type="button"
+                  title={project.rootPath}
+                  onClick={() => onSelectProject(project.id)}
+                  className="flex min-w-0 items-center justify-between gap-3 rounded-lg px-3 py-3 text-left transition hover:bg-neutral-900/50"
+                >
+                  <span className="min-w-0">
+                    <Text className="block truncate text-sm font-medium text-neutral-100">
+                      {project.name}
+                    </Text>
+                    <Text className="block truncate font-mono text-xs text-neutral-500">
+                      {project.rootPath}
+                    </Text>
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg bg-neutral-950/45 px-4 py-6">
+              <Text className="text-sm text-neutral-500">
+                No local projects reported by this machine yet.
+              </Text>
+            </div>
+          )}
+        </section>
+      ) : null}
     </div>
   );
 }

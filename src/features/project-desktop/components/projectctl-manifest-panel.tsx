@@ -140,6 +140,34 @@ export function ProjectctlManifestPanel({ targetPath }: ProjectctlManifestPanelP
     [features]
   );
 
+  if (overview && !overview.available) {
+    return (
+      <Surface
+        variant="secondary"
+        className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-neutral-800 bg-neutral-950/55 px-4 py-3"
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <ClipboardList className="size-4 shrink-0 text-neutral-400" />
+          <Text className="truncate text-sm font-semibold text-neutral-100">Project Manifest</Text>
+        </div>
+        <Chip size="sm" variant="secondary">
+          tool missing
+        </Chip>
+        <Text className="min-w-0 flex-1 text-sm text-neutral-500">
+          projectctl is not installed on this machine, so manifest and drift are unavailable.
+        </Text>
+        <Button
+          size="sm"
+          variant="ghost"
+          isDisabled={!targetPath || isLoading}
+          onPress={() => void refresh()}
+        >
+          <RefreshCw className={`size-4 ${isLoading ? 'animate-spin' : ''}`} />
+        </Button>
+      </Surface>
+    );
+  }
+
   return (
     <Surface
       variant="secondary"

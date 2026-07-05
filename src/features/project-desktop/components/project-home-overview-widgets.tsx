@@ -8,7 +8,6 @@ import {
   Check,
   Copy,
   ExternalLink,
-  Github,
   Info,
   Terminal,
   X
@@ -28,6 +27,7 @@ import {
   type BranchChipRecord,
   type MatrixRow
 } from './project-home-overview-model';
+import { GitHubMark } from './github-mark';
 
 function DetailRow({ label, mono, value }: { label: string; mono?: boolean; value: string }) {
   return (
@@ -154,7 +154,7 @@ function GitHubLinkButton({ label, repo }: { label: string; repo: GitHubCatalogR
       className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-neutral-600 transition hover:bg-neutral-900 hover:text-neutral-200"
       title={label}
     >
-      <ExternalLink className="size-3.5" />
+      <GitHubMark className="size-3.5" />
     </a>
   );
 }
@@ -270,7 +270,7 @@ export function GitHubConnectPanel({
             isDisabled={isConnecting || githubCatalog.status === 'not-configured'}
             onPress={onConnect}
           >
-            <Github className="size-4" />
+            <GitHubMark className="size-4" />
             Login with GitHub
           </Button>
         )}

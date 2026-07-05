@@ -12,8 +12,8 @@ environments:
   - name: prod
     purpose: stable Tailscale-only hosted Project Space
     default: true
-  - name: preview
-    purpose: pre-release validation and branch worktrees
+  - name: beta
+    purpose: pre-release validation on the beta branch
 preset:
   name: fullstack-app
   version: 0.3.0

@@ -8,12 +8,10 @@ import type {
   GitHubCatalogResult,
   LauncherAppRecord,
   ProjectDiscoveryResult,
-  ProjectNavigationItem,
   ProjectSpaceRecord,
   ProjectsState,
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
-import type { SidebarView } from '../components/sidebar-content';
 
 const emptyDiscovery: ProjectDiscoveryResult = {
   groups: [],
@@ -43,7 +41,42 @@ const githubFallback: GitHubCatalogResult = {
   status: 'auth-required'
 };
 
-export type ProjectMainView = 'root' | 'machines' | 'machine' | 'projects' | 'project';
+export type ProjectMainView =
+  | 'root'
+  | 'machines'
+  | 'machine'
+  | 'projects'
+  | 'project'
+  | 'settings';
+
+export const projectDetailTabs = [
+  'overview',
+  'issues',
+  'machines',
+  'workspaces',
+  'history',
+  'template',
+  'deployments',
+  'automation',
+  'codex',
+  'terminal'
+] as const;
+export type ProjectDetailTab = (typeof projectDetailTabs)[number];
+
+export const machineDetailTabs = ['overview', 'projects', 'terminal'] as const;
+export type MachineDetailTab = (typeof machineDetailTabs)[number];
+
+function parseProjectDetailTab(segment: string | undefined): ProjectDetailTab {
+  return projectDetailTabs.includes(segment as ProjectDetailTab)
+    ? (segment as ProjectDetailTab)
+    : 'overview';
+}
+
+function parseMachineDetailTab(segment: string | undefined): MachineDetailTab {
+  return machineDetailTabs.includes(segment as MachineDetailTab)
+    ? (segment as MachineDetailTab)
+    : 'overview';
+}
 
 function normalizePath(path: string) {
   return path.replace(/\/+$/, '');
@@ -85,13 +118,17 @@ function projectPath(projectId: string) {
   return `${projectsPath}/${encodeURIComponent(projectId)}`;
 }
 
-function routeForView(view: ProjectMainView, projectId = '') {
+const settingsPath = '/settings';
+
+function routeForView(view: ProjectMainView, projectId = '', tab = '', detail = '') {
   if (view === 'machines') {
     return machinesPath;
   }
 
   if (view === 'machine' && projectId) {
-    return machinePath(projectId);
+    const base = machinePath(projectId);
+
+    return tab && tab !== 'overview' ? `${base}/${tab}` : base;
   }
 
   if (view === 'projects') {
@@ -99,34 +136,75 @@ function routeForView(view: ProjectMainView, projectId = '') {
   }
 
   if (view === 'project' && projectId) {
-    return projectPath(projectId);
+    const base = projectPath(projectId);
+
+    if (tab === 'issues' && detail) {
+      return `${base}/issues/${encodeURIComponent(detail)}`;
+    }
+
+    if (!tab || tab === 'overview') {
+      return base;
+    }
+
+    return `${base}/${tab}`;
+  }
+
+  if (view === 'settings') {
+    return settingsPath;
   }
 
   return '/';
 }
 
-function parseProjectRoute(pathname: string) {
+interface ParsedProjectRoute {
+  issueNumber?: number;
+  machineId?: string;
+  machineTab?: MachineDetailTab;
+  projectId?: string;
+  projectTab?: ProjectDetailTab;
+  view: ProjectMainView;
+}
+
+function parseProjectRoute(pathname: string): ParsedProjectRoute {
+  if (pathname === settingsPath || pathname === `${settingsPath}/`) {
+    return { view: 'settings' };
+  }
+
   if (pathname === machinesPath) {
-    return { view: 'machines' as const };
+    return { view: 'machines' };
   }
 
   if (pathname.startsWith(`${machinesPath}/`)) {
-    const machineId = decodeURIComponent(pathname.slice(machinesPath.length + 1));
+    const rest = pathname.slice(machinesPath.length + 1);
+    const [rawMachineId, rawTab] = rest.split('/');
+    const machineId = decodeURIComponent(rawMachineId ?? '');
 
-    return machineId ? { machineId, view: 'machine' as const } : { view: 'machines' as const };
+    return machineId
+      ? { machineId, machineTab: parseMachineDetailTab(rawTab), view: 'machine' }
+      : { view: 'machines' };
   }
 
   if (pathname === projectsPath || pathname === `${projectsPath}/`) {
-    return { view: 'projects' as const };
+    return { view: 'projects' };
   }
 
   if (pathname.startsWith(`${projectsPath}/`)) {
-    const projectId = decodeURIComponent(pathname.slice(projectsPath.length + 1));
+    const rest = pathname.slice(projectsPath.length + 1);
+    const [rawProjectId, rawTab, rawDetail] = rest.split('/');
+    const projectId = decodeURIComponent(rawProjectId ?? '');
+    const issueNumber = rawTab === 'issues' && rawDetail ? Number(rawDetail) : undefined;
 
-    return projectId ? { projectId, view: 'project' as const } : { view: 'projects' as const };
+    return projectId
+      ? {
+          issueNumber: Number.isFinite(issueNumber) ? issueNumber : undefined,
+          projectId,
+          projectTab: parseProjectDetailTab(rawTab),
+          view: 'project'
+        }
+      : { view: 'projects' };
   }
 
-  return { view: 'root' as const };
+  return { view: 'root' };
 }
 
 function resolveRouteProject(
@@ -173,12 +251,12 @@ function createGitHubProjectRecord(repo: GitHubCatalogRepository): ProjectSpaceR
   };
 }
 
-function writeRoute(view: ProjectMainView, projectId = '', replace = false) {
+function writeRoute(view: ProjectMainView, projectId = '', replace = false, tab = '', detail = '') {
   if (typeof window === 'undefined') {
     return;
   }
 
-  const nextPath = routeForView(view, projectId);
+  const nextPath = routeForView(view, projectId, tab, detail);
   const nextUrl = `${nextPath}${window.location.search}${window.location.hash}`;
 
   if (window.location.pathname === nextPath) {
@@ -213,8 +291,11 @@ export function useProjectDesktop() {
   const [selectedLauncherAppId, setSelectedLauncherAppId] = useState('');
   const [selectedMachineId, setSelectedMachineId] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [pinnedProjectIds, setPinnedProjectIds] = useState<string[]>([]);
   const [mainView, setMainView] = useState<ProjectMainView>('root');
-  const [sidebarView, setSidebarView] = useState<SidebarView>('workspace');
+  const [projectTab, setProjectTab] = useState<ProjectDetailTab>('overview');
+  const [machineTab, setMachineTab] = useState<MachineDetailTab>('overview');
+  const [selectedIssueNumber, setSelectedIssueNumber] = useState<number | undefined>();
   const [launcherApps, setLauncherApps] = useState<LauncherAppRecord[]>([]);
   const [launcherError, setLauncherError] = useState('');
   const [connectorOverview, setConnectorOverview] =
@@ -256,26 +337,11 @@ export function useProjectDesktop() {
     return Object.fromEntries(projects.map((project) => [project.id, project]));
   }, [projects]);
 
-  const navigationItems = useMemo<ProjectNavigationItem[]>(() => {
-    return discovery.rootItems;
-  }, [discovery.rootItems]);
-
   const project = selectedProjectId ? projectsById[selectedProjectId] : undefined;
   const selectedMachine = selectedMachineId
     ? connectorOverview.machines.find((machine) => machine.id === selectedMachineId)
     : undefined;
   const activeGroup = project?.groupId ? groupsById[project.groupId] : undefined;
-  const groupedProjects = useMemo(() => {
-    if (!activeGroup) {
-      return [];
-    }
-
-    return activeGroup.childProjectIds
-      .map((projectId) => projectsById[projectId])
-      .filter((entry): entry is ProjectSpaceRecord => Boolean(entry));
-  }, [activeGroup, projectsById]);
-
-  const activeNavigationItemId = project?.groupId ?? project?.id ?? '';
   const worktrees = project ? projectWorktrees[project.id] ?? [] : [];
   const selectedWorktree =
     selectedExplorerTarget.kind === 'worktree'
@@ -354,14 +420,18 @@ export function useProjectDesktop() {
           isGitHubProjectId(initialRoute.projectId);
         const selectedProjectFromRoute =
           initialRoute.view === 'project'
-            ? routeProject?.id ?? (shouldWaitForGitHubProject ? initialRoute.projectId : '')
+            ? routeProject?.id ?? (shouldWaitForGitHubProject ? initialRoute.projectId ?? '' : '')
             : state.selectedProjectId;
 
         setDiscovery(sanitizedDiscovery);
+        setPinnedProjectIds(state.pinnedProjectIds ?? []);
         setSelectedExplorerTarget(state.selectedExplorerTarget);
         setSelectedLauncherAppId(state.selectedLauncherAppId);
         setSelectedMachineId(initialRoute.view === 'machine' ? initialRoute.machineId ?? '' : '');
         setSelectedProjectId(selectedProjectFromRoute);
+        setSelectedIssueNumber(initialRoute.issueNumber);
+        setProjectTab(initialRoute.projectTab ?? 'overview');
+        setMachineTab(initialRoute.machineTab ?? 'overview');
         setMainView(
           initialRoute.view === 'project' && !routeProject && !shouldWaitForGitHubProject
             ? 'projects'
@@ -369,7 +439,13 @@ export function useProjectDesktop() {
         );
 
         if (initialRoute.view === 'project' && !shouldWaitForGitHubProject) {
-          writeRoute(routeProject ? 'project' : 'projects', routeProject?.id ?? '', true);
+          writeRoute(
+            routeProject ? 'project' : 'projects',
+            routeProject?.id ?? '',
+            true,
+            initialRoute.projectTab ?? 'overview',
+            initialRoute.projectTab === 'issues' ? String(initialRoute.issueNumber ?? '') : ''
+          );
         }
       })
       .catch(() => {
@@ -398,6 +474,8 @@ export function useProjectDesktop() {
         if (nextProject) {
           setSelectedExplorerTarget({ kind: 'workspace' });
           setSelectedProjectId(nextProject.id);
+          setSelectedIssueNumber(nextRoute.issueNumber);
+          setProjectTab(nextRoute.projectTab ?? 'overview');
           setMainView('project');
           return;
         }
@@ -409,6 +487,7 @@ export function useProjectDesktop() {
 
       if (nextRoute.view === 'machine') {
         setSelectedMachineId(nextRoute.machineId ?? '');
+        setMachineTab(nextRoute.machineTab ?? 'overview');
         setMainView('machine');
         return;
       }
@@ -467,7 +546,7 @@ export function useProjectDesktop() {
 
     if (mainView === 'machine') {
       if (selectedMachineId) {
-        writeRoute('machine', selectedMachineId, true);
+        writeRoute('machine', selectedMachineId, true, machineTab);
       } else {
         writeRoute('machines', '', true);
       }
@@ -477,9 +556,21 @@ export function useProjectDesktop() {
 
     if (mainView === 'project') {
       if (project) {
-        writeRoute('project', project.id, true);
+        writeRoute(
+          'project',
+          project.id,
+          true,
+          project.kind === 'github' ? 'overview' : projectTab,
+          projectTab === 'issues' ? String(selectedIssueNumber ?? '') : ''
+        );
       } else if (isGitHubProjectId(selectedProjectId)) {
-        writeRoute('project', selectedProjectId, true);
+        writeRoute(
+          'project',
+          selectedProjectId,
+          true,
+          projectTab,
+          projectTab === 'issues' ? String(selectedIssueNumber ?? '') : ''
+        );
       } else {
         writeRoute('projects', '', true);
       }
@@ -488,7 +579,16 @@ export function useProjectDesktop() {
     }
 
     writeRoute(mainView, '', true);
-  }, [hasLoaded, mainView, project?.id, selectedMachineId, selectedProjectId]);
+  }, [
+    hasLoaded,
+    machineTab,
+    mainView,
+    project?.id,
+    projectTab,
+    selectedIssueNumber,
+    selectedMachineId,
+    selectedProjectId
+  ]);
 
   useEffect(() => {
     if (!hasLoaded) {
@@ -638,6 +738,7 @@ export function useProjectDesktop() {
     void projectSpaceClient
       .saveProjectsState({
         activeGroupId: project?.groupId ?? '',
+        pinnedProjectIds,
         selectedExplorerTarget,
         selectedLauncherAppId,
         selectedProjectId
@@ -645,43 +746,12 @@ export function useProjectDesktop() {
       .catch(() => undefined);
   }, [
     hasLoaded,
+    pinnedProjectIds,
     project?.groupId,
     selectedExplorerTarget,
     selectedLauncherAppId,
     selectedProjectId
   ]);
-
-  function resolveNavigationSelection(itemId: string) {
-    const item = navigationItems.find((entry) => entry.id === itemId);
-
-    if (!item) {
-      return null;
-    }
-
-    if (item.kind === 'project') {
-      const project = projectsById[item.projectId];
-
-      return {
-        nextGroupId: project?.groupId ?? '',
-        nextProjectId: item.projectId
-      };
-    }
-
-    const group = groupsById[item.groupId];
-    if (!group) {
-      return null;
-    }
-
-    const currentProjectInGroup =
-      selectedProjectId && group.childProjectIds.includes(selectedProjectId)
-        ? selectedProjectId
-        : '';
-
-    return {
-      nextGroupId: group.id,
-      nextProjectId: currentProjectInGroup || group.childProjectIds[0] || ''
-    };
-  }
 
   async function createProject() {
     const selection = await projectSpaceClient.selectProjectDirectory();
@@ -705,6 +775,7 @@ export function useProjectDesktop() {
     writeRoute('project', matchingProject.id);
     persistProjectsState({
       activeGroupId: matchingProject.groupId ?? '',
+      pinnedProjectIds,
       selectedExplorerTarget: { kind: 'workspace' },
       selectedLauncherAppId,
       selectedProjectId: matchingProject.id
@@ -750,31 +821,28 @@ export function useProjectDesktop() {
   }
 
   return {
-    activeGroup,
-    activeNavigationItemId,
     connectorOverview,
     createProject,
     discoveryRoot: discovery.rootPath,
     githubCatalog,
     groups: discovery.groups,
-    groupedProjects,
-    groupedProjectsLabel: activeGroup?.name,
     launcherApps,
     launcherError,
     isConnectorRefreshing,
     isGitHubRefreshing,
+    machineTab,
     mainView,
-    navigationItems,
     openCodexSkills,
     openNewWorktreeWorkspace,
     openSelectedTargetInApp,
+    pinnedProjectIds,
     project,
     projects,
-    resolveNavigationSelection,
+    projectTab,
     refreshConnectorOverview,
     refreshGitHubCatalog,
-    rootItems: discovery.rootItems,
     selectedExplorerTarget,
+    selectedIssueNumber,
     selectedLauncherApp,
     selectedLauncherAppLabel,
     selectedMachine,
@@ -783,7 +851,6 @@ export function useProjectDesktop() {
     selectedTargetName,
     selectedTargetPath,
     selectedWorktree,
-    sidebarView,
     worktrees,
     openRoot() {
       setMainView('root');
@@ -796,52 +863,57 @@ export function useProjectDesktop() {
     openMachine(machineId: string) {
       setSelectedMachineId(machineId);
       setMainView('machine');
-      writeRoute('machine', machineId);
+      writeRoute('machine', machineId, false, machineTab);
     },
     openProjects() {
       setMainView('projects');
       writeRoute('projects');
+    },
+    openSettings() {
+      setMainView('settings');
+      writeRoute('settings');
+    },
+    selectProjectTab(nextTab: ProjectDetailTab) {
+      setProjectTab(nextTab);
+      setSelectedIssueNumber(undefined);
+
+      if (mainView === 'project' && selectedProjectId) {
+        writeRoute('project', selectedProjectId, true, nextTab);
+      }
+    },
+    selectMachineTab(nextTab: MachineDetailTab) {
+      setMachineTab(nextTab);
+
+      if (mainView === 'machine' && selectedMachineId) {
+        writeRoute('machine', selectedMachineId, true, nextTab);
+      }
     },
     selectLauncherApp(appId: string) {
       setSelectedLauncherAppId(appId);
       setLauncherError('');
       persistProjectsState({
         activeGroupId: project?.groupId ?? '',
+        pinnedProjectIds,
         selectedExplorerTarget,
         selectedLauncherAppId: appId,
         selectedProjectId
       });
     },
-    selectNavigationItem(itemId: string, nextWorktrees?: ProjectWorktreeRecord[], nextSelectedWorktreeId?: string) {
-      const resolvedSelection = resolveNavigationSelection(itemId);
+    togglePinnedProject(projectId: string) {
+      setPinnedProjectIds((current) => {
+        const nextPinnedProjectIds = current.includes(projectId)
+          ? current.filter((entry) => entry !== projectId)
+          : [...current, projectId];
 
-      if (!resolvedSelection) {
-        return;
-      }
+        persistProjectsState({
+          activeGroupId: project?.groupId ?? '',
+          pinnedProjectIds: nextPinnedProjectIds,
+          selectedExplorerTarget,
+          selectedLauncherAppId,
+          selectedProjectId
+        });
 
-      if (nextWorktrees && resolvedSelection.nextProjectId) {
-        setProjectWorktrees((current) => ({
-          ...current,
-          [resolvedSelection.nextProjectId]: nextWorktrees
-        }));
-      }
-
-      const nextSelectedExplorerTarget: ExplorerTarget = nextSelectedWorktreeId
-        ? {
-            kind: 'worktree',
-            worktreeId: nextSelectedWorktreeId
-          }
-        : { kind: 'workspace' };
-
-      setSelectedExplorerTarget(nextSelectedExplorerTarget);
-      setSelectedProjectId(resolvedSelection.nextProjectId);
-      setMainView('project');
-      writeRoute('project', resolvedSelection.nextProjectId);
-      persistProjectsState({
-        activeGroupId: resolvedSelection.nextGroupId,
-        selectedExplorerTarget: nextSelectedExplorerTarget,
-        selectedLauncherAppId,
-        selectedProjectId: resolvedSelection.nextProjectId
+        return nextPinnedProjectIds;
       });
     },
     selectProject(projectId: string, groupId?: string) {
@@ -850,11 +922,18 @@ export function useProjectDesktop() {
 
       setSelectedExplorerTarget(nextSelectedExplorerTarget);
       setSelectedProjectId(projectId);
+      setSelectedIssueNumber(undefined);
       setMainView('project');
-      writeRoute('project', projectId);
+      writeRoute(
+        'project',
+        projectId,
+        false,
+        nextProject?.kind === 'github' ? 'overview' : projectTab
+      );
       setLauncherError('');
       persistProjectsState({
         activeGroupId: nextProject?.groupId ?? groupId ?? '',
+        pinnedProjectIds,
         selectedExplorerTarget: nextSelectedExplorerTarget,
         selectedLauncherAppId,
         selectedProjectId: projectId
@@ -864,12 +943,14 @@ export function useProjectDesktop() {
       const nextSelectedExplorerTarget: ExplorerTarget = { kind: 'workspace' };
 
       setSelectedExplorerTarget(nextSelectedExplorerTarget);
+      setSelectedIssueNumber(undefined);
       setMainView('project');
       if (selectedProjectId) {
-        writeRoute('project', selectedProjectId);
+        writeRoute('project', selectedProjectId, true, projectTab);
       }
       persistProjectsState({
         activeGroupId: project?.groupId ?? '',
+        pinnedProjectIds,
         selectedExplorerTarget: nextSelectedExplorerTarget,
         selectedLauncherAppId,
         selectedProjectId
@@ -882,18 +963,29 @@ export function useProjectDesktop() {
       };
 
       setSelectedExplorerTarget(nextSelectedExplorerTarget);
+      setSelectedIssueNumber(undefined);
       setMainView('project');
       if (selectedProjectId) {
-        writeRoute('project', selectedProjectId);
+        writeRoute('project', selectedProjectId, true, projectTab);
       }
       persistProjectsState({
         activeGroupId: project?.groupId ?? '',
+        pinnedProjectIds,
         selectedExplorerTarget: nextSelectedExplorerTarget,
         selectedLauncherAppId,
         selectedProjectId
       });
     },
-    setSidebarView,
+    openProjectIssue(issueNumber: number) {
+      if (!selectedProjectId) {
+        return;
+      }
+
+      setProjectTab('issues');
+      setSelectedIssueNumber(issueNumber);
+      setMainView('project');
+      writeRoute('project', selectedProjectId, false, 'issues', String(issueNumber));
+    },
     clearLauncherError() {
       setLauncherError('');
     }

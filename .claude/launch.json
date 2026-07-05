@@ -16,6 +16,15 @@
         "VITE_PROJECT_SPACE_API_BASE_URL=http://127.0.0.1:4173 pnpm exec vite --host 127.0.0.1 --port 5174"
       ],
       "port": 5174
+    },
+    {
+      "name": "frontend-preview-noauth",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "VITE_PROJECT_SPACE_AUTH_DISABLED=1 VITE_PROJECT_SPACE_API_BASE_URL=http://127.0.0.1:4174 pnpm exec vite --host 127.0.0.1 --port 5175"
+      ],
+      "port": 5175
     }
   ]
 }

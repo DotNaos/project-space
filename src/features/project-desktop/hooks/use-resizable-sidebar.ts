@@ -4,12 +4,14 @@ interface UseResizableSidebarOptions {
   initialWidth: number;
   maxWidth: number;
   minWidth: number;
+  offsetLeft?: number;
 }
 
 export function useResizableSidebar({
   initialWidth,
   maxWidth,
-  minWidth
+  minWidth,
+  offsetLeft = 0
 }: UseResizableSidebarOptions) {
   const [isResizing, setIsResizing] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(initialWidth);
@@ -20,7 +22,7 @@ export function useResizableSidebar({
     }
 
     const handleMouseMove = (event: MouseEvent) => {
-      const nextWidth = Math.max(minWidth, Math.min(maxWidth, event.clientX));
+      const nextWidth = Math.max(minWidth, Math.min(maxWidth, event.clientX - offsetLeft));
 
       setSidebarWidth(nextWidth);
     };
@@ -40,7 +42,7 @@ export function useResizableSidebar({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isResizing, maxWidth, minWidth]);
+  }, [isResizing, maxWidth, minWidth, offsetLeft]);
 
   return {
     isResizingSidebar: isResizing,
