@@ -306,6 +306,39 @@ export interface GitHubRepositoryDetailsResult {
   status: GitHubCatalogStatus;
 }
 
+export type GitHubWorkflowRunConclusion =
+  | 'success'
+  | 'failure'
+  | 'cancelled'
+  | 'skipped'
+  | 'timed_out'
+  | 'action_required'
+  | 'neutral'
+  | 'stale';
+
+export interface GitHubWorkflowRunSummary {
+  branch?: string;
+  conclusion?: GitHubWorkflowRunConclusion;
+  createdAt?: string;
+  displayTitle?: string;
+  event?: string;
+  headSha?: string;
+  id: number;
+  name?: string;
+  runNumber?: number;
+  runStartedAt?: string;
+  status: 'queued' | 'in_progress' | 'completed' | 'waiting' | 'pending' | 'requested';
+  updatedAt?: string;
+  url?: string;
+}
+
+export interface GitHubPipelineStatusResult {
+  checkedAt: string;
+  message?: string;
+  runs: GitHubWorkflowRunSummary[];
+  status: GitHubCatalogStatus;
+}
+
 export interface GitHubCatalogResult {
   auth?: {
     login?: string;
@@ -465,6 +498,26 @@ export interface ProjectCliCommandResult {
   exitCode: number | null;
   stderr: string;
   stdout: string;
+}
+
+export interface DeployCliEnvironmentReport {
+  apiUrl?: string;
+  branch?: string;
+  composeProject?: string;
+  environment: string;
+  name: string;
+  remotePath?: string;
+  remoteRef?: string;
+  remoteUrl?: string;
+  status?: string;
+  webUrl?: string;
+}
+
+export interface DeployCliStatusReport {
+  environments: DeployCliEnvironmentReport[];
+  host?: string;
+  projectName?: string;
+  projectRoot?: string;
 }
 
 export interface DeploymentRecordSummary {
@@ -707,6 +760,7 @@ export interface ProjectSpaceBackend {
   getConnectorProjectRegistry(): Promise<ConnectorProjectRegistryResult>;
   runProjectCliCommand(request: ProjectCliCommandRequest): Promise<ProjectCliCommandResult>;
   getGitHubCatalog(): Promise<GitHubCatalogResult>;
+  getGitHubPipelineStatus(fullName: string): Promise<GitHubPipelineStatusResult>;
   getGitDiff(request: GitDiffRequest): Promise<GitDiffResult>;
   getGitHistory(request: GitHistoryRequest): Promise<GitHistoryResult>;
   getGitStatus(cwd: string): Promise<GitStatusResult>;

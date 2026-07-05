@@ -23,6 +23,7 @@ import {
 import {
   createGitHubIssue,
   getGitHubCatalog,
+  getGitHubPipelineStatus,
   getGitHubRepositoryDetails,
   pollGitHubOAuthDeviceFlow,
   startGitHubOAuthDeviceFlow,
@@ -657,6 +658,9 @@ export function createLocalProjectSpaceBackend(
     },
     async createGitHubIssue(request) {
       return createGitHubIssue(request);
+    },
+    async getGitHubPipelineStatus(fullName: string) {
+      return getGitHubPipelineStatus(fullName);
     },
     async getGitHubRepositoryDetails(fullName: string) {
       return getGitHubRepositoryDetails(fullName);

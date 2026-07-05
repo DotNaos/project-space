@@ -434,6 +434,18 @@ function createApiHandler(backend: ProjectSpaceBackend) {
         return true;
       }
 
+      if (request.method === 'GET' && url.pathname === '/api/github/pipeline') {
+        const fullName = url.searchParams.get('fullName');
+
+        if (!fullName) {
+          writeJson(response, 400, { error: 'Missing fullName.' });
+          return true;
+        }
+
+        writeJson(response, 200, await backend.getGitHubPipelineStatus(fullName));
+        return true;
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/github/issues') {
         const payload = await readJson<GitHubIssueCreateRequest>(request);
         writeJson(response, 200, await backend.createGitHubIssue(payload));

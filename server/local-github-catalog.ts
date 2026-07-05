@@ -14,8 +14,11 @@ import type {
   GitHubOAuthDevicePollRequest,
   GitHubOAuthDevicePollResult,
   GitHubOAuthDeviceStartResult,
+  GitHubPipelineStatusResult,
   GitHubRepositoryDetailsResult,
-  GitHubProjectConfigStatus
+  GitHubProjectConfigStatus,
+  GitHubWorkflowRunConclusion,
+  GitHubWorkflowRunSummary
 } from '../src/shared/project-space-api';
 import { getCurrentAuthSession, isProjectSpaceAuthRequired } from './local-auth-store';
 import {
@@ -417,6 +420,86 @@ export async function getGitHubRepositoryDetails(
     return createEmptyRepositoryDetails(
       'error',
       error instanceof Error ? error.message : 'Could not load GitHub repository details.'
+    );
+  }
+}
+
+interface GitHubApiWorkflowRun {
+  conclusion?: string | null;
+  created_at?: string | null;
+  display_title?: string | null;
+  event?: string | null;
+  head_branch?: string | null;
+  head_sha?: string | null;
+  html_url?: string | null;
+  id: number;
+  name?: string | null;
+  run_number?: number | null;
+  run_started_at?: string | null;
+  status?: string | null;
+  updated_at?: string | null;
+}
+
+function createEmptyPipelineStatus(
+  status: GitHubCatalogResult['status'],
+  message?: string
+): GitHubPipelineStatusResult {
+  return {
+    checkedAt: new Date().toISOString(),
+    message,
+    runs: [],
+    status
+  };
+}
+
+function mapWorkflowRun(run: GitHubApiWorkflowRun): GitHubWorkflowRunSummary {
+  return {
+    branch: run.head_branch ?? undefined,
+    conclusion: (run.conclusion ?? undefined) as GitHubWorkflowRunConclusion | undefined,
+    createdAt: run.created_at ?? undefined,
+    displayTitle: run.display_title ?? undefined,
+    event: run.event ?? undefined,
+    headSha: run.head_sha ?? undefined,
+    id: run.id,
+    name: run.name ?? undefined,
+    runNumber: run.run_number ?? undefined,
+    runStartedAt: run.run_started_at ?? undefined,
+    status: (run.status ?? 'completed') as GitHubWorkflowRunSummary['status'],
+    updatedAt: run.updated_at ?? undefined,
+    url: run.html_url ?? undefined
+  };
+}
+
+export async function getGitHubPipelineStatus(
+  fullName: string
+): Promise<GitHubPipelineStatusResult> {
+  const auth = await resolveToken();
+
+  if (!auth) {
+    return createEmptyPipelineStatus(
+      getGitHubClientId() ? 'auth-required' : 'not-configured',
+      getGitHubClientId()
+        ? 'Connect GitHub to load pipeline status.'
+        : githubOAuthClientIdMissingMessage
+    );
+  }
+
+  try {
+    const repoPath = fullName.split('/').map(encodeURIComponent).join('/');
+    const payload = await requestGitHub<{ workflow_runs?: GitHubApiWorkflowRun[] }>(
+      `/repos/${repoPath}/actions/runs?per_page=20`,
+      auth.token
+    );
+
+    return {
+      checkedAt: new Date().toISOString(),
+      runs: (payload.workflow_runs ?? []).map(mapWorkflowRun),
+      status: 'connected'
+    };
+  } catch (error) {
+    return createEmptyPipelineStatus(
+      'error',
+      error instanceof Error ? error.message : 'Could not load GitHub workflow runs.'
     );
   }
 }
