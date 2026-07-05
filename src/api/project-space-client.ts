@@ -11,6 +11,9 @@ import type {
   GitHistoryRequest,
   GitHistoryResult,
   GitHubCatalogResult,
+  GitHubIssueCreateRequest,
+  GitHubIssueMutationResult,
+  GitHubIssueUpdateRequest,
   GitHubRepositoryDetailsResult,
   GitHubOAuthDevicePollRequest,
   GitHubOAuthDevicePollResult,
@@ -179,10 +182,24 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     return this.request('/api/github/catalog');
   }
 
+  createGitHubIssue(request: GitHubIssueCreateRequest): Promise<GitHubIssueMutationResult> {
+    return this.request('/api/github/issues', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
   getGitHubRepositoryDetails(fullName: string): Promise<GitHubRepositoryDetailsResult> {
     const query = new URLSearchParams({ fullName });
 
     return this.request(`/api/github/repository-details?${query.toString()}`);
+  }
+
+  updateGitHubIssue(request: GitHubIssueUpdateRequest): Promise<GitHubIssueMutationResult> {
+    return this.request('/api/github/issues', {
+      body: JSON.stringify(request),
+      method: 'PATCH'
+    });
   }
 
   getGitDiff(request: GitDiffRequest): Promise<GitDiffResult> {

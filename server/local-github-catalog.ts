@@ -7,18 +7,22 @@ import type {
   GitHubBranchRecord,
   GitHubCatalogRepository,
   GitHubCatalogResult,
+  GitHubIssueCreateRequest,
+  GitHubIssueMutationResult,
   GitHubIssueRecord,
+  GitHubIssueUpdateRequest,
   GitHubOAuthDevicePollRequest,
   GitHubOAuthDevicePollResult,
   GitHubOAuthDeviceStartResult,
   GitHubRepositoryDetailsResult,
   GitHubProjectConfigStatus
 } from '../src/shared/project-space-api';
+import { getCurrentAuthSession, isProjectSpaceAuthRequired } from './local-auth-store';
 import {
-  getCurrentAuthSession,
-  getCurrentGitHubToken,
-  isProjectSpaceAuthRequired
-} from './local-auth-store';
+  isDatabaseConfigured,
+  readGitHubOAuthToken,
+  writeGitHubOAuthToken
+} from './local-database-store';
 
 interface StoredGitHubToken {
   accessToken: string;
@@ -162,17 +166,19 @@ async function resolveToken(): Promise<TokenResolution | null> {
     return null;
   }
 
-  const sessionToken = getCurrentGitHubToken();
+  if (currentSession && isDatabaseConfigured()) {
+    const storedForUser = await readGitHubOAuthToken(currentSession.userId);
 
-  if (sessionToken) {
-    return {
-      login: currentSession?.login,
-      source: 'stored-oauth',
-      token: sessionToken
-    };
+    if (storedForUser) {
+      return {
+        login: storedForUser.login ?? currentSession.login,
+        source: 'stored-oauth',
+        token: storedForUser.accessToken
+      };
+    }
   }
 
-  const stored = readStoredToken();
+  const stored = !isProjectSpaceAuthRequired() ? readStoredToken() : null;
 
   if (stored) {
     return {
@@ -354,6 +360,19 @@ function createEmptyRepositoryDetails(
   };
 }
 
+function mapGitHubIssue(issue: GitHubApiIssue): GitHubIssueRecord {
+  return {
+    author: issue.user?.login,
+    body: issue.body ?? undefined,
+    labels: issue.labels?.map((label) => label.name).filter((name): name is string => Boolean(name)) ?? [],
+    number: issue.number,
+    state: issue.state,
+    title: issue.title,
+    updatedAt: issue.updated_at ?? undefined,
+    url: issue.html_url
+  };
+}
+
 export async function getGitHubRepositoryDetails(
   fullName: string
 ): Promise<GitHubRepositoryDetailsResult> {
@@ -391,22 +410,130 @@ export async function getGitHubRepositoryDetails(
       checkedAt: new Date().toISOString(),
       issues: issues
         .filter((issue) => !issue.pull_request)
-        .map<GitHubIssueRecord>((issue) => ({
-          author: issue.user?.login,
-          body: issue.body ?? undefined,
-          labels: issue.labels?.map((label) => label.name).filter((name): name is string => Boolean(name)) ?? [],
-          number: issue.number,
-          state: issue.state,
-          title: issue.title,
-          updatedAt: issue.updated_at ?? undefined,
-          url: issue.html_url
-        })),
+        .map(mapGitHubIssue),
       status: 'connected'
     };
   } catch (error) {
     return createEmptyRepositoryDetails(
       'error',
       error instanceof Error ? error.message : 'Could not load GitHub repository details.'
+    );
+  }
+}
+
+function createIssueMutationError(
+  status: GitHubCatalogResult['status'],
+  message?: string
+): GitHubIssueMutationResult {
+  return {
+    message,
+    status
+  };
+}
+
+export async function createGitHubIssue({
+  body,
+  fullName,
+  labels,
+  title
+}: GitHubIssueCreateRequest): Promise<GitHubIssueMutationResult> {
+  const auth = await resolveToken();
+
+  if (!auth) {
+    return createIssueMutationError(
+      getGitHubClientId() ? 'auth-required' : 'not-configured',
+      getGitHubClientId() ? 'Connect GitHub to create issues.' : githubOAuthClientIdMissingMessage
+    );
+  }
+
+  if (!title.trim()) {
+    return createIssueMutationError('error', 'Issue title is required.');
+  }
+
+  try {
+    const repoPath = fullName.split('/').map(encodeURIComponent).join('/');
+    const issue = await requestGitHub<GitHubApiIssue>(`/repos/${repoPath}/issues`, auth.token, {
+      body: JSON.stringify({
+        body: body?.trim() || undefined,
+        labels: labels?.filter(Boolean),
+        title: title.trim()
+      }),
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      method: 'POST'
+    });
+
+    return {
+      issue: mapGitHubIssue(issue),
+      status: 'connected'
+    };
+  } catch (error) {
+    return createIssueMutationError(
+      'error',
+      error instanceof Error ? error.message : 'Could not create GitHub issue.'
+    );
+  }
+}
+
+export async function updateGitHubIssue({
+  body,
+  fullName,
+  labels,
+  number,
+  state,
+  title
+}: GitHubIssueUpdateRequest): Promise<GitHubIssueMutationResult> {
+  const auth = await resolveToken();
+
+  if (!auth) {
+    return createIssueMutationError(
+      getGitHubClientId() ? 'auth-required' : 'not-configured',
+      getGitHubClientId() ? 'Connect GitHub to edit issues.' : githubOAuthClientIdMissingMessage
+    );
+  }
+
+  try {
+    const repoPath = fullName.split('/').map(encodeURIComponent).join('/');
+    const payload: Record<string, unknown> = {};
+
+    if (title !== undefined) {
+      payload.title = title.trim();
+    }
+    if (body !== undefined) {
+      payload.body = body;
+    }
+    if (labels !== undefined) {
+      payload.labels = labels.filter(Boolean);
+    }
+    if (state !== undefined) {
+      payload.state = state;
+    }
+
+    if (typeof payload.title === 'string' && !payload.title) {
+      return createIssueMutationError('error', 'Issue title is required.');
+    }
+
+    const issue = await requestGitHub<GitHubApiIssue>(
+      `/repos/${repoPath}/issues/${number}`,
+      auth.token,
+      {
+        body: JSON.stringify(payload),
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        method: 'PATCH'
+      }
+    );
+
+    return {
+      issue: mapGitHubIssue(issue),
+      status: 'connected'
+    };
+  } catch (error) {
+    return createIssueMutationError(
+      'error',
+      error instanceof Error ? error.message : 'Could not edit GitHub issue.'
     );
   }
 }
@@ -520,14 +647,20 @@ export async function pollGitHubOAuthDeviceFlow({
   }
 
   const login = await readLogin(payload.access_token);
-
-  writeStoredToken({
+  const storedToken = {
     accessToken: payload.access_token,
     createdAt: new Date().toISOString(),
     login,
     scope: payload.scope,
     tokenType: payload.token_type
-  });
+  };
+  const currentSession = getCurrentAuthSession();
+
+  if (currentSession) {
+    await writeGitHubOAuthToken(currentSession.userId, storedToken);
+  } else {
+    writeStoredToken(storedToken);
+  }
 
   return {
     catalog: await getGitHubCatalog(),

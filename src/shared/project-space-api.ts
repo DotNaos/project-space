@@ -276,6 +276,28 @@ export interface GitHubIssueRecord {
   url: string;
 }
 
+export interface GitHubIssueCreateRequest {
+  body?: string;
+  fullName: string;
+  labels?: string[];
+  title: string;
+}
+
+export interface GitHubIssueUpdateRequest {
+  body?: string;
+  fullName: string;
+  labels?: string[];
+  number: number;
+  state?: 'open' | 'closed';
+  title?: string;
+}
+
+export interface GitHubIssueMutationResult {
+  issue?: GitHubIssueRecord;
+  message?: string;
+  status: GitHubCatalogStatus;
+}
+
 export interface GitHubRepositoryDetailsResult {
   branches: GitHubBranchRecord[];
   checkedAt: string;
@@ -701,7 +723,9 @@ export interface ProjectSpaceBackend {
     request: GitHubOAuthDevicePollRequest
   ): Promise<GitHubOAuthDevicePollResult>;
   getScopeDevboxOverview(): Promise<ScopeDevboxOverviewResult>;
+  createGitHubIssue(request: GitHubIssueCreateRequest): Promise<GitHubIssueMutationResult>;
   getGitHubRepositoryDetails(fullName: string): Promise<GitHubRepositoryDetailsResult>;
+  updateGitHubIssue(request: GitHubIssueUpdateRequest): Promise<GitHubIssueMutationResult>;
   startScopeDevboxJob(request: ScopeDevboxStartRequest): Promise<ScopeDevboxJobRecord>;
   stageGitPaths(request: GitStageRequest): Promise<GitActionResult>;
   deployProject(request: ProjectDeployRequest): Promise<GitActionResult>;
