@@ -18,6 +18,7 @@ import type {
   GitHubOAuthDevicePollRequest,
   GitHubOAuthDevicePollResult,
   GitHubOAuthDeviceStartResult,
+  GitHubPipelineStatusResult,
   GitStageRequest,
   GitStatusResult,
   LauncherAppRecord,
@@ -187,6 +188,12 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
       body: JSON.stringify(request),
       method: 'POST'
     });
+  }
+
+  getGitHubPipelineStatus(fullName: string): Promise<GitHubPipelineStatusResult> {
+    const query = new URLSearchParams({ fullName });
+
+    return this.request(`/api/github/pipeline?${query.toString()}`);
   }
 
   getGitHubRepositoryDetails(fullName: string): Promise<GitHubRepositoryDetailsResult> {

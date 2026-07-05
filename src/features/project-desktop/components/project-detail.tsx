@@ -38,7 +38,7 @@ import { GitGraphPanel } from './git-graph-panel';
 import { ProjectCliCommandPanel } from './project-cli-command-panel';
 import { ProjectIssueDetailPanel } from './project-issue-detail-panel';
 import { ProjectMachinesPanel } from './project-machines-panel';
-import { ProjectOperationsPanel } from './project-operations-panel';
+import { ProjectDeploymentsPanel } from './project-deployments-panel';
 import { ProjectOverviewWorkbench } from './project-overview-workbench';
 import { ProjectCodexPanel, ProjectWorkspaceTools } from './project-workspace-tools';
 import { ProjectctlManifestPanel } from './projectctl-manifest-panel';
@@ -621,9 +621,9 @@ export function ProjectDetail({
         ) : null}
 
         {tab === 'deployments' ? (
-          <ProjectOperationsPanel
+          <ProjectDeploymentsPanel
             projectName={project.name}
-            showJobs={false}
+            repository={selectedRepository ?? project.github}
             targetPath={selectedTargetPath}
           />
         ) : null}
