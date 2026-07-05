@@ -18,7 +18,6 @@ import { Button, Card, Surface, Text } from '@/app/dotnaos-ui';
 import type { RailAccount } from './app-rail';
 import { EntitySwitcher, type SwitcherEntry } from './entity-switcher';
 import { MachineDetailView } from './machine-detail-view';
-import { OpenTargetDropdown } from './open-target-dropdown';
 import { ProjectDetail } from './project-detail';
 import { ProjectHomeOverview } from './project-home-overview';
 import { ProjectRootOverview } from './project-root-overview';
@@ -306,18 +305,7 @@ export function ProjectMainPanel({
 
         <HeaderBreadcrumbs onBack={onBack} segments={segments} switcher={switcher} />
 
-        {mainView === 'project' && project && project.kind !== 'github' ? (
-          <div className="app-no-drag relative shrink-0">
-            <OpenTargetDropdown
-              apps={launcherApps}
-              disabled={!project || !selectedTargetPath}
-              onOpen={onOpenSelectedTarget}
-              onSelectApp={onSelectLauncherApp}
-              selectedApp={selectedApp}
-              selectedAppLabel={selectedAppLabel}
-            />
-          </div>
-        ) : null}
+        <div className="app-no-drag relative shrink-0" />
       </div>
 
       <div

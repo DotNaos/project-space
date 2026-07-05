@@ -33,10 +33,12 @@ import {
 } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type {
+  ConnectorOverviewResult,
   GitHubBranchRecord,
   GitHubCatalogRepository,
   GitHubIssueRecord,
-  GitHubRepositoryDetailsResult
+  GitHubRepositoryDetailsResult,
+  ProjectSpaceRecord
 } from '@/shared/project-space-api';
 import { IssueActionPanel } from './issue-action-panel';
 import { GitHubMark } from './github-mark';
@@ -114,15 +116,23 @@ function useRepositoryDetails(repository?: GitHubCatalogRepository) {
 }
 
 export function ProjectIssueDetailPanel({
+  connectorOverview,
   issueNumber,
   onBack,
   onOpenIssue,
-  repository
+  project,
+  projects,
+  repository,
+  targetPath
 }: {
+  connectorOverview: ConnectorOverviewResult;
   issueNumber?: number;
   onBack(): void;
   onOpenIssue(issueNumber: number): void;
+  project: ProjectSpaceRecord;
+  projects: ProjectSpaceRecord[];
   repository?: GitHubCatalogRepository;
+  targetPath: string;
 }) {
   const { details, error, isLoading, setDetails } = useRepositoryDetails(repository);
   const [viewMode, setViewMode] = useState<IssueViewMode>(() => loadIssueViewMode());
@@ -198,13 +208,17 @@ export function ProjectIssueDetailPanel({
       {issue ? (
         <IssueDetailWorkbench
           branches={safeDetails.branches}
+          connectorOverview={connectorOverview}
           issue={issue}
           issues={issues}
           onBranchCreated={upsertBranch}
           onOpenIssue={onOpenIssue}
           onIssueUpdated={upsertIssue}
+          project={project}
+          projects={projects}
           repoFullName={repository?.fullName}
           repoUrl={repository?.url}
+          targetPath={targetPath}
         />
       ) : issueNumber ? (
         <IssueEmptyState
@@ -659,22 +673,30 @@ function IssueEmptyState({
 
 function IssueDetailWorkbench({
   branches,
+  connectorOverview,
   issue,
   issues,
   onBranchCreated,
   onIssueUpdated,
   onOpenIssue,
+  project,
+  projects,
   repoFullName,
-  repoUrl
+  repoUrl,
+  targetPath
 }: {
   branches: GitHubBranchRecord[];
+  connectorOverview: ConnectorOverviewResult;
   issue: GitHubIssueRecord;
   issues: GitHubIssueRecord[];
   onBranchCreated(branch: GitHubBranchRecord): void;
   onIssueUpdated(issue: GitHubIssueRecord): void;
   onOpenIssue(issueNumber: number): void;
+  project: ProjectSpaceRecord;
+  projects: ProjectSpaceRecord[];
   repoFullName?: string;
   repoUrl?: string;
+  targetPath: string;
 }) {
   return (
     <div className="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[minmax(13rem,0.55fr)_minmax(0,1.2fr)_minmax(14rem,0.6fr)]">
@@ -687,11 +709,15 @@ function IssueDetailWorkbench({
       <IssueBody issue={issue} onIssueUpdated={onIssueUpdated} repoFullName={repoFullName} />
       <IssueActionPanel
         branches={branches}
+        connectorOverview={connectorOverview}
         issue={issue}
         onBranchCreated={onBranchCreated}
         onIssueUpdated={onIssueUpdated}
+        project={project}
+        projects={projects}
         repoFullName={repoFullName}
         repoUrl={repoUrl}
+        targetPath={targetPath}
       />
     </div>
   );

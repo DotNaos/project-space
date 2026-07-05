@@ -605,10 +605,14 @@ export function ProjectDetail({
 
         {tab === 'issues' ? (
           <ProjectIssueDetailPanel
+            connectorOverview={connectorOverview}
             issueNumber={selectedIssueNumber}
             onBack={() => onSelectTab('issues')}
             onOpenIssue={onOpenIssue}
+            project={project}
+            projects={projects}
             repository={selectedRepository}
+            targetPath={selectedTargetPath}
           />
         ) : null}
 
