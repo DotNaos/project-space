@@ -27,6 +27,7 @@ import type {
   ProjectCliCommandRequest,
   GitCommitRequest,
   GitDiffRequest,
+  GitHistoryRequest,
   GitStageRequest,
   ProjectDeployRequest,
   ProjectDirectorySelection,
@@ -497,6 +498,12 @@ function createApiHandler(backend: ProjectSpaceBackend) {
         }
 
         writeJson(response, 200, await backend.getGitStatus(cwd));
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/git/history') {
+        const payload = await readJson<GitHistoryRequest>(request);
+        writeJson(response, 200, await backend.getGitHistory(payload));
         return true;
       }
 

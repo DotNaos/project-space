@@ -646,6 +646,30 @@ export interface ScopeDevboxStartRequest {
   writableFiles: string[];
 }
 
+export interface GitHistoryRequest {
+  cwd?: string;
+  limit?: number;
+  repositoryFullName?: string;
+}
+
+export interface GitHistoryCommit {
+  author: string;
+  date: string;
+  hash: string;
+  parents: string[];
+  refs: string[];
+  subject: string;
+}
+
+export interface GitHistoryResult {
+  commits: GitHistoryCommit[];
+  cwd: string;
+  isRepository: boolean;
+  message?: string;
+  repositoryRoot: string;
+  stderr?: string;
+}
+
 export interface ProjectSpaceBackend {
   getAppMeta(): Promise<AppMeta>;
   getCodexStatus(): Promise<CodexStatusResult>;
@@ -654,6 +678,7 @@ export interface ProjectSpaceBackend {
   runProjectCliCommand(request: ProjectCliCommandRequest): Promise<ProjectCliCommandResult>;
   getGitHubCatalog(): Promise<GitHubCatalogResult>;
   getGitDiff(request: GitDiffRequest): Promise<GitDiffResult>;
+  getGitHistory(request: GitHistoryRequest): Promise<GitHistoryResult>;
   getGitStatus(cwd: string): Promise<GitStatusResult>;
   getPlatformOverview(): Promise<PlatformOverviewResult>;
   loadLauncherAppIcon(appId: string): Promise<string | undefined>;

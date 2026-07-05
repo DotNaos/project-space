@@ -596,7 +596,12 @@ export function ProjectDetail({
           />
         ) : null}
 
-        {tab === 'history' ? <GitGraphPanel targetPath={selectedTargetPath} /> : null}
+        {tab === 'history' ? (
+          <GitGraphPanel
+            repositoryFullName={selectedRepository?.fullName}
+            targetPath={selectedTargetPath}
+          />
+        ) : null}
 
         {tab === 'issues' ? (
           <ProjectIssueDetailPanel

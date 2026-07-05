@@ -8,6 +8,8 @@ import type {
   GitCommitRequest,
   GitDiffRequest,
   GitDiffResult,
+  GitHistoryRequest,
+  GitHistoryResult,
   GitHubCatalogResult,
   GitHubRepositoryDetailsResult,
   GitHubOAuthDevicePollRequest,
@@ -185,6 +187,13 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
 
   getGitDiff(request: GitDiffRequest): Promise<GitDiffResult> {
     return this.request('/api/git/diff', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  getGitHistory(request: GitHistoryRequest): Promise<GitHistoryResult> {
+    return this.request('/api/git/history', {
       body: JSON.stringify(request),
       method: 'POST'
     });
