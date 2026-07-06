@@ -21,18 +21,18 @@ import {
   unstageGitPaths
 } from './local-git-client';
 import {
-  createGitHubIssue,
   getGitHubCatalog,
   getGitHubPipelineStatus,
   getGitHubRepositoryDetails,
   pollGitHubOAuthDeviceFlow,
-  startGitHubOAuthDeviceFlow,
-  updateGitHubIssue
+  startGitHubOAuthDeviceFlow
 } from './local-github-catalog';
 import {
   createGitHubBranch,
+  createGitHubIssue,
   createGitHubIssueComment,
-  getGitHubIssueComments
+  getGitHubIssueComments,
+  updateGitHubIssue
 } from './local-github-issue-actions';
 import {
   loadInstalledLauncherApps,

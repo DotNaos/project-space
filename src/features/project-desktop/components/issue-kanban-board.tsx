@@ -15,7 +15,17 @@ import {
   Text
 } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
-import type { GitHubIssueRecord } from '@/shared/project-space-api';
+import type {
+  GitHubBranchRecord,
+  GitHubIssueRecord,
+  GitHubPullRequestRecord
+} from '@/shared/project-space-api';
+import { GitHubMark } from './github-mark';
+import { IssueBranchMenu, IssuePullRequestChip } from './issue-branch-menu';
+import {
+  issueBranchesForIssue,
+  issuePullRequestsForIssue
+} from './issue-branch-model';
 import {
   groupIssuesByColumn,
   type IssueColumnDefinition,
@@ -40,15 +50,25 @@ interface BoardDragState {
 }
 
 export function IssueKanbanBoard({
+  branches,
+  defaultBranch,
   issues,
+  onBranchCreated,
   onMoveIssue,
   onOpenIssue,
+  pullRequests,
+  repoFullName,
   overrides,
   visibleColumns
 }: {
+  branches: GitHubBranchRecord[];
+  defaultBranch: string;
   issues: GitHubIssueRecord[];
+  onBranchCreated(branch: GitHubBranchRecord): void;
   onMoveIssue(issueNumber: number, columnId: IssueColumnId): void;
   onOpenIssue(issueNumber: number): void;
+  pullRequests: GitHubPullRequestRecord[];
+  repoFullName?: string;
   overrides: IssueColumnOverrides;
   visibleColumns: IssueColumnDefinition[];
 }) {
@@ -196,6 +216,7 @@ export function IssueKanbanBoard({
       {visibleColumns.map((column) => (
         <BoardColumn
           key={column.id}
+          branches={branches}
           column={column}
           moveTargets={visibleColumns.filter((target) => target.id !== column.id)}
           columnRef={(element) => {
@@ -205,13 +226,17 @@ export function IssueKanbanBoard({
               columnRefs.current.delete(column.id);
             }
           }}
+          defaultBranch={defaultBranch}
           draggedIssueNumber={isDragActive ? (drag?.issue.number ?? null) : null}
           isDragActive={isDragActive}
           isDropTarget={isDragActive && dropTarget === column.id}
           issues={groups[column.id]}
+          onBranchCreated={onBranchCreated}
           onCardPointerDown={beginDrag}
           onMoveIssue={onMoveIssue}
           onOpenIssue={onOpenIssue}
+          pullRequests={pullRequests}
+          repoFullName={repoFullName}
           suppressClickRef={suppressClickRef}
         />
       ))}
@@ -225,7 +250,11 @@ export function IssueKanbanBoard({
               }}
             >
               <div className="issue-drag-preview rounded-lg border border-neutral-600/80 bg-neutral-900 shadow-2xl shadow-black/60 ring-1 ring-white/10">
-                <BoardCardContent issue={drag.issue} className="p-3" />
+                <BoardCardContent
+                  issue={drag.issue}
+                  pullRequests={pullRequests}
+                  className="p-3"
+                />
               </div>
             </div>,
             document.body
@@ -236,25 +265,33 @@ export function IssueKanbanBoard({
 }
 
 function BoardColumn({
+  branches,
   column,
   columnRef,
+  defaultBranch,
   draggedIssueNumber,
   isDragActive,
   isDropTarget,
   issues,
   moveTargets,
+  onBranchCreated,
   onCardPointerDown,
   onMoveIssue,
   onOpenIssue,
+  pullRequests,
+  repoFullName,
   suppressClickRef
 }: {
+  branches: GitHubBranchRecord[];
   column: IssueColumnDefinition;
   columnRef(element: HTMLElement | null): void;
+  defaultBranch: string;
   draggedIssueNumber: number | null;
   isDragActive: boolean;
   isDropTarget: boolean;
   issues: GitHubIssueRecord[];
   moveTargets: IssueColumnDefinition[];
+  onBranchCreated(branch: GitHubBranchRecord): void;
   onCardPointerDown(
     event: ReactPointerEvent<HTMLElement>,
     issue: GitHubIssueRecord,
@@ -262,6 +299,8 @@ function BoardColumn({
   ): void;
   onMoveIssue(issueNumber: number, columnId: IssueColumnId): void;
   onOpenIssue(issueNumber: number): void;
+  pullRequests: GitHubPullRequestRecord[];
+  repoFullName?: string;
   suppressClickRef: { current: boolean };
 }) {
   return (
@@ -286,13 +325,18 @@ function BoardColumn({
         {issues.map((issue, index) => (
           <BoardCard
             key={issue.number}
+            branches={branches}
             column={column}
+            defaultBranch={defaultBranch}
             isDragSource={draggedIssueNumber === issue.number}
             issue={issue}
             moveTargets={moveTargets}
+            onBranchCreated={onBranchCreated}
             onMoveIssue={onMoveIssue}
             onOpenIssue={onOpenIssue}
             onPointerDown={onCardPointerDown}
+            pullRequests={pullRequests}
+            repoFullName={repoFullName}
             style={{ animationDelay: `${Math.min(index, 8) * 35}ms` }}
             suppressClickRef={suppressClickRef}
           />
@@ -313,30 +357,43 @@ function BoardColumn({
 }
 
 function BoardCard({
+  branches,
   column,
+  defaultBranch,
   isDragSource,
   issue,
   moveTargets,
+  onBranchCreated,
   onMoveIssue,
   onOpenIssue,
   onPointerDown,
+  pullRequests,
+  repoFullName,
   style,
   suppressClickRef
 }: {
+  branches: GitHubBranchRecord[];
   column: IssueColumnDefinition;
+  defaultBranch: string;
   isDragSource: boolean;
   issue: GitHubIssueRecord;
   moveTargets: IssueColumnDefinition[];
+  onBranchCreated(branch: GitHubBranchRecord): void;
   onMoveIssue(issueNumber: number, columnId: IssueColumnId): void;
   onOpenIssue(issueNumber: number): void;
+  pullRequests: GitHubPullRequestRecord[];
   onPointerDown(
     event: ReactPointerEvent<HTMLElement>,
     issue: GitHubIssueRecord,
     fromColumn: IssueColumnId
   ): void;
+  repoFullName?: string;
   style?: React.CSSProperties;
   suppressClickRef: { current: boolean };
 }) {
+  const linkedBranches = issueBranchesForIssue({ branches, issue });
+  const hasLinkedBranch = linkedBranches.length > 0;
+
   return (
     <article
       onPointerDown={(event) => onPointerDown(event, issue, column.id)}
@@ -357,8 +414,40 @@ function BoardCard({
         onClick={() => onOpenIssue(issue.number)}
         className="block w-full min-w-0 cursor-[inherit] p-3 text-left"
       >
-        <BoardCardContent issue={issue} />
+        <BoardCardContent
+          issue={issue}
+          pullRequests={pullRequests}
+        />
       </button>
+      <div
+        data-no-drag
+        className={cn(
+          'absolute right-8 top-1.5 transition-opacity focus-within:opacity-100 group-hover:opacity-100',
+          hasLinkedBranch ? 'opacity-100' : 'opacity-0'
+        )}
+      >
+        <IssueBranchMenu
+          branches={branches}
+          className="max-w-28"
+          defaultBranch={defaultBranch}
+          issue={issue}
+          onBranchCreated={onBranchCreated}
+          repoFullName={repoFullName}
+        />
+      </div>
+      {issue.url ? (
+        <a
+          data-no-drag
+          href={issue.url}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={`Open issue #${issue.number} on GitHub`}
+          title="Open on GitHub"
+          className="absolute bottom-2 right-2 flex size-6 items-center justify-center rounded-md text-neutral-500 transition hover:bg-neutral-800 hover:text-neutral-100"
+        >
+          <GitHubMark className="size-3.5" />
+        </a>
+      ) : null}
       {moveTargets.length > 0 ? (
         <div
           data-no-drag
@@ -394,11 +483,18 @@ function BoardCard({
 
 function BoardCardContent({
   className,
-  issue
+  issue,
+  pullRequests
 }: {
   className?: string;
   issue: GitHubIssueRecord;
+  pullRequests: GitHubPullRequestRecord[];
 }) {
+  const linkedPullRequests = issuePullRequestsForIssue({
+    issue,
+    pullRequests
+  });
+
   return (
     <div className={cn('min-w-0', className)}>
       <div className="flex h-5 min-w-0 items-center gap-1.5 overflow-hidden">
@@ -415,7 +511,18 @@ function BoardCardContent({
       <Text className="mt-1.5 line-clamp-2 min-h-[2lh] text-sm font-medium leading-snug text-neutral-100">
         {issue.title}
       </Text>
-      <IssueAuthorLine issue={issue} className="mt-2.5 h-4" />
+      {linkedPullRequests.length > 0 ? (
+        <div className="mt-1.5 flex min-w-0 flex-wrap gap-1">
+          {linkedPullRequests.slice(0, 2).map((pullRequest) => (
+            <IssuePullRequestChip
+              key={pullRequest.number}
+              pullRequest={pullRequest}
+              className="max-w-full"
+            />
+          ))}
+        </div>
+      ) : null}
+      <IssueAuthorLine issue={issue} className="mt-2.5 h-4 pr-7" />
     </div>
   );
 }

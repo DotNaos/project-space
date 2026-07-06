@@ -261,8 +261,19 @@ export interface GitHubCatalogRepository {
 
 export interface GitHubBranchRecord {
   isDefault: boolean;
+  linkedIssueNumbers?: number[];
   name: string;
   url?: string;
+}
+
+export interface GitHubPullRequestRecord {
+  headBranch?: string;
+  linkedIssueNumbers?: number[];
+  number: number;
+  state: 'open' | 'closed' | 'merged';
+  title: string;
+  updatedAt?: string;
+  url: string;
 }
 
 export interface GitHubIssueRecord {
@@ -327,6 +338,7 @@ export interface GitHubIssueCommentMutationResult {
 
 export interface GitHubBranchCreateRequest {
   fullName: string;
+  issueNumber?: number;
   name: string;
   sourceBranch?: string;
 }
@@ -342,6 +354,7 @@ export interface GitHubRepositoryDetailsResult {
   checkedAt: string;
   issues: GitHubIssueRecord[];
   message?: string;
+  pullRequests: GitHubPullRequestRecord[];
   status: GitHubCatalogStatus;
 }
 

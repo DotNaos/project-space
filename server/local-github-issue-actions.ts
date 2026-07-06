@@ -2,10 +2,14 @@ import type {
   GitHubBranchCreateRequest,
   GitHubBranchMutationResult,
   GitHubCatalogResult,
+  GitHubIssueCreateRequest,
   GitHubIssueCommentCreateRequest,
   GitHubIssueCommentMutationResult,
   GitHubIssueCommentRecord,
-  GitHubIssueCommentsResult
+  GitHubIssueCommentsResult,
+  GitHubIssueMutationResult,
+  GitHubIssueRecord,
+  GitHubIssueUpdateRequest
 } from '../src/shared/project-space-api';
 import {
   getGitHubClientId,
@@ -13,6 +17,7 @@ import {
   requestGitHub,
   resolveToken
 } from './local-github-catalog';
+import { requestGitHubGraphQL } from './github-graphql-client';
 
 interface GitHubApiRepository {
   default_branch?: string;
@@ -23,6 +28,37 @@ interface GitHubApiGitRef {
   object?: {
     sha?: string;
   };
+}
+
+interface GitHubApiIssue {
+  body?: string | null;
+  html_url: string;
+  labels?: Array<{ name?: string }>;
+  number: number;
+  state: 'open' | 'closed';
+  title: string;
+  updated_at?: string | null;
+  user?: {
+    login?: string;
+  } | null;
+}
+
+interface GitHubLinkedBranchTarget {
+  repository?: {
+    issue?: {
+      id: string;
+    } | null;
+  } | null;
+}
+
+interface GitHubCreateLinkedBranchResult {
+  createLinkedBranch?: {
+    linkedBranch?: {
+      ref?: {
+        name?: string;
+      } | null;
+    } | null;
+  } | null;
 }
 
 interface GitHubApiIssueComment {
@@ -51,10 +87,30 @@ function mapGitHubComment(comment: GitHubApiIssueComment): GitHubIssueCommentRec
   };
 }
 
+function mapGitHubIssue(issue: GitHubApiIssue): GitHubIssueRecord {
+  return {
+    author: issue.user?.login,
+    body: issue.body ?? undefined,
+    labels: issue.labels?.map((label) => label.name).filter((name): name is string => Boolean(name)) ?? [],
+    number: issue.number,
+    state: issue.state,
+    title: issue.title,
+    updatedAt: issue.updated_at ?? undefined,
+    url: issue.html_url
+  };
+}
+
 function branchMutationError(
   status: GitHubCatalogResult['status'],
   message?: string
 ): GitHubBranchMutationResult {
+  return { message, status };
+}
+
+function issueMutationError(
+  status: GitHubCatalogResult['status'],
+  message?: string
+): GitHubIssueMutationResult {
   return { message, status };
 }
 
@@ -74,6 +130,7 @@ function commentMutationError(
 
 export async function createGitHubBranch({
   fullName,
+  issueNumber,
   name,
   sourceBranch
 }: GitHubBranchCreateRequest): Promise<GitHubBranchMutationResult> {
@@ -107,6 +164,60 @@ export async function createGitHubBranch({
       return branchMutationError('error', `Could not resolve ${baseBranch}.`);
     }
 
+    if (issueNumber) {
+      const [owner, repoName] = fullName.split('/');
+
+      if (!owner || !repoName) {
+        return branchMutationError('error', 'Repository name must include owner and name.');
+      }
+
+      const target = await requestGitHubGraphQL<GitHubLinkedBranchTarget>(
+        auth.token,
+        `
+          query LinkedBranchTarget($owner: String!, $name: String!, $number: Int!) {
+            repository(owner: $owner, name: $name) {
+              issue(number: $number) {
+                id
+              }
+            }
+          }
+        `,
+        { name: repoName, number: issueNumber, owner }
+      );
+      const issueId = target.repository?.issue?.id;
+
+      if (!issueId) {
+        return branchMutationError('error', `Could not resolve issue #${issueNumber}.`);
+      }
+
+      const created = await requestGitHubGraphQL<GitHubCreateLinkedBranchResult>(
+        auth.token,
+        `
+          mutation CreateLinkedBranch($issueId: ID!, $name: String!, $oid: GitObjectID!) {
+            createLinkedBranch(input: {issueId: $issueId, name: $name, oid: $oid}) {
+              linkedBranch {
+                ref {
+                  name
+                }
+              }
+            }
+          }
+        `,
+        { issueId, name: branchName, oid: sha }
+      );
+      const linkedBranchName = created.createLinkedBranch?.linkedBranch?.ref?.name ?? branchName;
+
+      return {
+        branch: {
+          isDefault: linkedBranchName === repo.default_branch,
+          linkedIssueNumbers: [issueNumber],
+          name: linkedBranchName,
+          url: `${repo.html_url}/tree/${encodeURIComponent(linkedBranchName).replace(/%2F/g, '/')}`
+        },
+        status: 'connected'
+      };
+    }
+
     await requestGitHub<GitHubApiGitRef>(`/repos/${repoPath}/git/refs`, auth.token, {
       body: JSON.stringify({
         ref: `refs/heads/${branchName}`,
@@ -130,6 +241,115 @@ export async function createGitHubBranch({
     return branchMutationError(
       'error',
       error instanceof Error ? error.message : 'Could not create GitHub branch.'
+    );
+  }
+}
+
+export async function createGitHubIssue({
+  body,
+  fullName,
+  labels,
+  title
+}: GitHubIssueCreateRequest): Promise<GitHubIssueMutationResult> {
+  const auth = await resolveToken();
+
+  if (!auth) {
+    return issueMutationError(
+      getGitHubClientId() ? 'auth-required' : 'not-configured',
+      getGitHubClientId() ? 'Connect GitHub to create issues.' : githubOAuthClientIdMissingMessage
+    );
+  }
+
+  if (!title.trim()) {
+    return issueMutationError('error', 'Issue title is required.');
+  }
+
+  try {
+    const issue = await requestGitHub<GitHubApiIssue>(
+      `/repos/${repoApiPath(fullName)}/issues`,
+      auth.token,
+      {
+        body: JSON.stringify({
+          body: body?.trim() || undefined,
+          labels: labels?.filter(Boolean),
+          title: title.trim()
+        }),
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        method: 'POST'
+      }
+    );
+
+    return {
+      issue: mapGitHubIssue(issue),
+      status: 'connected'
+    };
+  } catch (error) {
+    return issueMutationError(
+      'error',
+      error instanceof Error ? error.message : 'Could not create GitHub issue.'
+    );
+  }
+}
+
+export async function updateGitHubIssue({
+  body,
+  fullName,
+  labels,
+  number,
+  state,
+  title
+}: GitHubIssueUpdateRequest): Promise<GitHubIssueMutationResult> {
+  const auth = await resolveToken();
+
+  if (!auth) {
+    return issueMutationError(
+      getGitHubClientId() ? 'auth-required' : 'not-configured',
+      getGitHubClientId() ? 'Connect GitHub to edit issues.' : githubOAuthClientIdMissingMessage
+    );
+  }
+
+  try {
+    const payload: Record<string, unknown> = {};
+
+    if (title !== undefined) {
+      payload.title = title.trim();
+    }
+    if (body !== undefined) {
+      payload.body = body;
+    }
+    if (labels !== undefined) {
+      payload.labels = labels.filter(Boolean);
+    }
+    if (state !== undefined) {
+      payload.state = state;
+    }
+
+    if (typeof payload.title === 'string' && !payload.title) {
+      return issueMutationError('error', 'Issue title is required.');
+    }
+
+    const issue = await requestGitHub<GitHubApiIssue>(
+      `/repos/${repoApiPath(fullName)}/issues/${number}`,
+      auth.token,
+      {
+        body: JSON.stringify(payload),
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        method: 'PATCH'
+      }
+    );
+
+    return {
+      issue: mapGitHubIssue(issue),
+      status: 'connected'
+    };
+  } catch (error) {
+    return issueMutationError(
+      'error',
+      error instanceof Error ? error.message : 'Could not edit GitHub issue.'
     );
   }
 }

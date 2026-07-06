@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
-import type { GitHubIssueRecord } from '@/shared/project-space-api';
+import type {
+  GitHubBranchRecord,
+  GitHubIssueRecord,
+  GitHubPullRequestRecord
+} from '@/shared/project-space-api';
 import { GitHubMark } from './github-mark';
+import { IssueBranchMenu, IssuePullRequestChip } from './issue-branch-menu';
+import { issuePullRequestsForIssue } from './issue-branch-model';
 import {
   issueUpdatedAtLabel,
   loadIssueColumnOverrides,
@@ -12,12 +18,20 @@ import {
 import { IssueAuthorAvatar, IssueLabelChip, IssueStatusDot } from './issue-visuals';
 
 export function IssueListView({
+  branches,
+  defaultBranch,
   issues,
+  onBranchCreated,
   onOpenIssue,
+  pullRequests,
   repoFullName
 }: {
+  branches: GitHubBranchRecord[];
+  defaultBranch: string;
   issues: GitHubIssueRecord[];
+  onBranchCreated(branch: GitHubBranchRecord): void;
   onOpenIssue(issueNumber: number): void;
+  pullRequests: GitHubPullRequestRecord[];
   repoFullName?: string;
 }) {
   const [overrides, setOverrides] = useState<IssueColumnOverrides>(() =>
@@ -33,11 +47,16 @@ export function IssueListView({
       <div className="min-h-0 flex-1 overflow-y-auto">
         {issues.map((issue, index) => (
           <IssueListRow
+            branches={branches}
             key={issue.number}
             columnId={resolveIssueColumn(issue, index, overrides)}
+            defaultBranch={defaultBranch}
             isLast={index === issues.length - 1}
             issue={issue}
+            onBranchCreated={onBranchCreated}
             onOpenIssue={onOpenIssue}
+            pullRequests={pullRequests}
+            repoFullName={repoFullName}
           />
         ))}
       </div>
@@ -46,17 +65,31 @@ export function IssueListView({
 }
 
 function IssueListRow({
+  branches,
   columnId,
+  defaultBranch,
   isLast,
   issue,
-  onOpenIssue
+  onBranchCreated,
+  repoFullName,
+  onOpenIssue,
+  pullRequests
 }: {
+  branches: GitHubBranchRecord[];
   columnId: ReturnType<typeof resolveIssueColumn>;
+  defaultBranch: string;
   isLast: boolean;
   issue: GitHubIssueRecord;
+  onBranchCreated(branch: GitHubBranchRecord): void;
   onOpenIssue(issueNumber: number): void;
+  pullRequests: GitHubPullRequestRecord[];
+  repoFullName?: string;
 }) {
   const updated = issueUpdatedAtLabel(issue);
+  const issuePullRequests = issuePullRequestsForIssue({
+    issue,
+    pullRequests
+  });
 
   return (
     <div
@@ -88,6 +121,20 @@ function IssueListRow({
           </span>
         ) : null}
       </button>
+      <IssueBranchMenu
+        branches={branches}
+        defaultBranch={defaultBranch}
+        issue={issue}
+        onBranchCreated={onBranchCreated}
+        repoFullName={repoFullName}
+      />
+      {issuePullRequests.slice(0, 1).map((pullRequest) => (
+        <IssuePullRequestChip
+          key={pullRequest.number}
+          pullRequest={pullRequest}
+          className="hidden lg:inline-flex"
+        />
+      ))}
       <span className="hidden shrink-0 items-center gap-1.5 lg:flex">
         {issue.author ? (
           <>

@@ -230,8 +230,11 @@ export function ProjectIssueDetailPanel({
           emptyMessage={emptyMessage}
           isLoading={isLoading}
           issues={issues}
+          pullRequests={safeDetails.pullRequests}
           onActiveLabelsChange={setActiveLabels}
+          branches={safeDetails.branches}
           onIssueCreated={upsertIssue}
+          onBranchCreated={upsertBranch}
           onOpenIssue={onOpenIssue}
           onQueryChange={setQuery}
           onViewModeChange={(nextMode) => {
@@ -251,8 +254,11 @@ function IssueIndex({
   activeLabels,
   emptyMessage,
   isLoading,
+  branches,
   issues,
+  pullRequests,
   onActiveLabelsChange,
+  onBranchCreated,
   onIssueCreated,
   onOpenIssue,
   onQueryChange,
@@ -264,8 +270,11 @@ function IssueIndex({
   activeLabels: ReadonlySet<string>;
   emptyMessage: string;
   isLoading: boolean;
+  branches: GitHubBranchRecord[];
   issues: GitHubIssueRecord[];
+  pullRequests: GitHubRepositoryDetailsResult['pullRequests'];
   onActiveLabelsChange(labels: ReadonlySet<string>): void;
+  onBranchCreated(branch: GitHubBranchRecord): void;
   onIssueCreated(issue: GitHubIssueRecord): void;
   onOpenIssue(issueNumber: number): void;
   onQueryChange(query: string): void;
@@ -576,16 +585,25 @@ function IssueIndex({
         <IssueEmptyState message="No issues match the current filters." />
       ) : viewMode === 'board' ? (
         <IssueKanbanBoard
+          branches={branches}
+          defaultBranch={branches.find((branch) => branch.isDefault)?.name ?? 'main'}
           issues={filteredIssues}
+          onBranchCreated={onBranchCreated}
           onMoveIssue={moveIssue}
           onOpenIssue={onOpenIssue}
+          pullRequests={pullRequests}
+          repoFullName={repository?.fullName}
           overrides={overrides}
           visibleColumns={visibleColumns}
         />
       ) : (
         <IssueListView
+          branches={branches}
+          defaultBranch={branches.find((branch) => branch.isDefault)?.name ?? 'main'}
           issues={filteredIssues}
+          onBranchCreated={onBranchCreated}
           onOpenIssue={onOpenIssue}
+          pullRequests={pullRequests}
           repoFullName={repository?.fullName}
         />
       )}
