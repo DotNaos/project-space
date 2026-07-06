@@ -37,7 +37,7 @@ func newValidateCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show the quarantine plan without writing changes")
 	cmd.Flags().Bool("status-color-only", false, "color only the status text")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "apply the quarantine plan without prompting")
-	must(cmd.RegisterFlagCompletionFunc("format", fixedValuesCompletion("pretty", "tsv")))
+	must(cmd.RegisterFlagCompletionFunc("format", fixedValuesCompletion("pretty", "tsv", "json")))
 	must(cmd.RegisterFlagCompletionFunc("view", fixedValuesCompletion("tree", "table")))
 	must(cmd.RegisterFlagCompletionFunc("color-scope", fixedValuesCompletion("line", "status")))
 	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
@@ -46,6 +46,9 @@ func newValidateCommand() *cobra.Command {
 		}
 		if !quarantine && (yes || dryRun) {
 			return fmt.Errorf("--yes and --dry-run require --quarantine")
+		}
+		if quarantine && options.Format == projectvalidator.OutputFormatJSON {
+			return fmt.Errorf("--quarantine supports pretty or tsv output")
 		}
 		if quarantine && options.Format == projectvalidator.OutputFormatTSV && !dryRun && !yes {
 			return fmt.Errorf("use --dry-run or --yes with --quarantine --format tsv")
@@ -238,9 +241,9 @@ func validate(target string, options projectvalidator.OutputOptions) error {
 
 func validateOutputOptions(options projectvalidator.OutputOptions) error {
 	switch options.Format {
-	case projectvalidator.OutputFormatPretty, projectvalidator.OutputFormatTSV:
+	case projectvalidator.OutputFormatPretty, projectvalidator.OutputFormatTSV, projectvalidator.OutputFormatJSON:
 	default:
-		return fmt.Errorf("unknown format %q; use pretty or tsv", options.Format)
+		return fmt.Errorf("unknown format %q; use pretty, tsv, or json", options.Format)
 	}
 	switch options.View {
 	case projectvalidator.ViewModeTree, projectvalidator.ViewModeTable:

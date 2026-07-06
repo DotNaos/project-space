@@ -36,6 +36,7 @@ import type { ProjectDetailTab } from '../hooks/use-project-desktop';
 import { FileExplorer } from './file-explorer';
 import { GitWorkbenchPanel } from './git-workbench-panel';
 import { ProjectCliCommandPanel } from './project-cli-command-panel';
+import { ProjectTemplateAdherencePanel } from './project-template-adherence-panel';
 import { ProjectIssueDetailPanel } from './project-issue-detail-panel';
 import { ProjectMachinesPanel } from './project-machines-panel';
 import { ProjectDeploymentsPanel } from './project-deployments-panel';
@@ -618,6 +619,7 @@ export function ProjectDetail({
 
         {tab === 'template' ? (
           <div className="flex flex-col gap-4">
+            <ProjectTemplateAdherencePanel targetPath={selectedTargetPath} />
             <TemplateStatusCard check={project.fullstackTemplate} />
             <ProjectCliCommandPanel project={project} targetPath={selectedTargetPath} />
             <ProjectctlManifestPanel targetPath={selectedTargetPath} />

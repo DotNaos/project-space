@@ -57,6 +57,8 @@ import type {
   ScopeDevboxOverviewResult,
   ScopeDevboxStartRequest,
   ScopeDevboxJobRecord,
+  TemplateAdherenceReport,
+  TemplateAdherenceRequest,
   TerminalCommandRequest,
   TerminalCommandResult,
   ToolLaunchRequest,
@@ -189,6 +191,13 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
 
   runProjectCliCommand(request: ProjectCliCommandRequest): Promise<ProjectCliCommandResult> {
     return this.request('/api/project-cli/run', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  getTemplateAdherence(request: TemplateAdherenceRequest): Promise<TemplateAdherenceReport> {
+    return this.request('/api/template/adherence', {
       body: JSON.stringify(request),
       method: 'POST'
     });

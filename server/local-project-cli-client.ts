@@ -22,8 +22,69 @@ function trimOutput(output: string) {
   return `${output.slice(0, outputLimit)}\n\n[output trimmed]`;
 }
 
-function projectBinary() {
+export function projectBinary() {
   return existsSync(localProjectBin) ? localProjectBin : 'project';
+}
+
+export interface ProjectBinaryRunResult {
+  durationMs: number;
+  exitCode: number | null;
+  stderr: string;
+  stdout: string;
+}
+
+export async function runProjectBinary(
+  args: string[],
+  cwd: string
+): Promise<ProjectBinaryRunResult> {
+  const startedAt = Date.now();
+
+  return new Promise((resolveCommand) => {
+    const child = spawn(projectBinary(), args, {
+      cwd,
+      env: { ...process.env, NO_COLOR: '1' },
+      windowsHide: true
+    });
+    let stdout = '';
+    let stderr = '';
+    let finished = false;
+    const timeout = setTimeout(() => {
+      if (!finished) {
+        stderr += `\nProject CLI command timed out after ${commandTimeoutMs / 1000}s.`;
+        child.kill('SIGTERM');
+      }
+    }, commandTimeoutMs);
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf-8');
+    });
+
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf-8');
+    });
+
+    child.on('close', (exitCode) => {
+      finished = true;
+      clearTimeout(timeout);
+      resolveCommand({
+        durationMs: Date.now() - startedAt,
+        exitCode,
+        stderr,
+        stdout
+      });
+    });
+
+    child.on('error', (error) => {
+      finished = true;
+      clearTimeout(timeout);
+      resolveCommand({
+        durationMs: Date.now() - startedAt,
+        exitCode: 1,
+        stderr: error.message,
+        stdout: ''
+      });
+    });
+  });
 }
 
 function projectCliArgs(request: ProjectCliCommandRequest): string[] {
@@ -54,60 +115,17 @@ function projectCliArgs(request: ProjectCliCommandRequest): string[] {
 export async function runProjectCliCommand(
   request: ProjectCliCommandRequest
 ): Promise<ProjectCliCommandResult> {
-  const startedAt = Date.now();
   const cwd = resolve(request.cwd);
   const args = projectCliArgs(request);
+  const result = await runProjectBinary(args, cwd);
 
-  return new Promise((resolveCommand) => {
-    const child = spawn(projectBinary(), args, {
-      cwd,
-      env: process.env,
-      windowsHide: true
-    });
-    let stdout = '';
-    let stderr = '';
-    let finished = false;
-    const timeout = setTimeout(() => {
-      if (!finished) {
-        stderr += `\nProject CLI command timed out after ${commandTimeoutMs / 1000}s.`;
-        child.kill('SIGTERM');
-      }
-    }, commandTimeoutMs);
-
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString('utf-8');
-    });
-
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString('utf-8');
-    });
-
-    child.on('close', (exitCode) => {
-      finished = true;
-      clearTimeout(timeout);
-      resolveCommand({
-        args,
-        command: request.command,
-        cwd,
-        durationMs: Date.now() - startedAt,
-        exitCode,
-        stderr: trimOutput(stderr),
-        stdout: trimOutput(stdout)
-      });
-    });
-
-    child.on('error', (error) => {
-      finished = true;
-      clearTimeout(timeout);
-      resolveCommand({
-        args,
-        command: request.command,
-        cwd,
-        durationMs: Date.now() - startedAt,
-        exitCode: 1,
-        stderr: error.message,
-        stdout: ''
-      });
-    });
-  });
+  return {
+    args,
+    command: request.command,
+    cwd,
+    durationMs: result.durationMs,
+    exitCode: result.exitCode,
+    stderr: trimOutput(result.stderr),
+    stdout: trimOutput(result.stdout)
+  };
 }
