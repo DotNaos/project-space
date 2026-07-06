@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2,
   Download,
-  ExternalLink,
   GitBranch,
   GitBranchPlus,
   MessageSquare,
@@ -22,6 +21,7 @@ import type {
   GitHubBranchRecord,
   GitHubIssueCommentRecord,
   GitHubIssueRecord,
+  GitHubPullRequestRecord,
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
 import {
@@ -34,50 +34,11 @@ import {
   repositoryNameFromProject,
   type IssueMachineProjectRow
 } from './issue-development-machine-actions';
+import {
+  branchNameForIssue,
+  issueBranchesForIssue
+} from './issue-branch-model';
 import { IssueMarkdown } from './issue-markdown';
-
-function branchNameForIssue(issue: GitHubIssueRecord) {
-  const slug = issue.title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48)
-    .replace(/-+$/g, '');
-
-  return `issue-${issue.number}${slug ? `-${slug}` : ''}`;
-}
-
-function issueBranchScore(issue: GitHubIssueRecord, branch: GitHubBranchRecord) {
-  const normalizedBranch = branch.name.toLowerCase();
-  const titleWords = issue.title
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((word) => word.length > 3);
-  let score = 0;
-
-  if (normalizedBranch.includes(String(issue.number))) {
-    score += 10;
-  }
-  for (const word of titleWords) {
-    if (normalizedBranch.includes(word)) {
-      score += 1;
-    }
-  }
-
-  return score;
-}
-
-function branchWebUrl(repoUrl: string | undefined, branchName: string) {
-  return repoUrl
-    ? `${repoUrl}/tree/${encodeURIComponent(branchName).replace(/%2F/g, '/')}`
-    : undefined;
-}
-
-function pullRequestUrl(repoUrl: string | undefined, baseBranch: string, branchName: string) {
-  return repoUrl
-    ? `${repoUrl}/compare/${encodeURIComponent(baseBranch).replace(/%2F/g, '/')}...${encodeURIComponent(branchName).replace(/%2F/g, '/')}?quick_pull=1`
-    : undefined;
-}
 
 function commentTimeLabel(comment: GitHubIssueCommentRecord) {
   const value = comment.updatedAt || comment.createdAt;
@@ -91,6 +52,7 @@ interface IssueActionPanelProps {
   issue: GitHubIssueRecord;
   onBranchCreated(branch: GitHubBranchRecord): void;
   onIssueUpdated(issue: GitHubIssueRecord): void;
+  onPullRequestCreated(pullRequest: GitHubPullRequestRecord): void;
   project: ProjectSpaceRecord;
   projects: ProjectSpaceRecord[];
   repoFullName?: string;
@@ -104,6 +66,7 @@ export function IssueActionPanel({
   issue,
   onBranchCreated,
   onIssueUpdated,
+  onPullRequestCreated,
   project,
   projects,
   repoFullName,
@@ -113,11 +76,13 @@ export function IssueActionPanel({
   const defaultBranch = branches.find((branch) => branch.isDefault)?.name ?? 'main';
   const suggestedBranch = branchNameForIssue(issue);
   const [branchName, setBranchName] = useState(suggestedBranch);
-  const [selectedBranch, setSelectedBranch] = useState<GitHubBranchRecord | undefined>();
   const [showBranchPicker, setShowBranchPicker] = useState(false);
   const [branchError, setBranchError] = useState('');
   const [branchMessage, setBranchMessage] = useState('');
   const [isCreatingBranch, setIsCreatingBranch] = useState(false);
+  const [isCreatingPullRequest, setIsCreatingPullRequest] = useState(false);
+  const [pullRequestMessage, setPullRequestMessage] = useState('');
+  const [pullRequestError, setPullRequestError] = useState('');
   const [busyMachineId, setBusyMachineId] = useState('');
   const [machineMessage, setMachineMessage] = useState('');
   const [isUpdatingState, setIsUpdatingState] = useState(false);
@@ -175,38 +140,20 @@ export function IssueActionPanel({
     };
   }, [issue.number, repoFullName]);
 
-  const visibleBranches = useMemo(() => {
-    const scoredBranches = branches
-      .map((branch) => ({ branch, score: issueBranchScore(issue, branch) }))
-      .sort((left, right) => {
-        if (right.score !== left.score) {
-          return right.score - left.score;
-        }
-        if (left.branch.isDefault !== right.branch.isDefault) {
-          return left.branch.isDefault ? 1 : -1;
-        }
-        return left.branch.name.localeCompare(right.branch.name);
-      });
-    const relevant = scoredBranches.filter((entry) => entry.score > 0).map((entry) => entry.branch);
-
-    return relevant.length > 0
-      ? relevant.slice(0, 6)
-      : scoredBranches.map((entry) => entry.branch).slice(0, 6);
-  }, [branches, issue]);
-
-  const bestMatchingBranch = useMemo(() => {
-    return branches
-      .map((branch) => ({ branch, score: issueBranchScore(issue, branch) }))
-      .filter((entry) => entry.score > 0)
-      .sort((left, right) => right.score - left.score)[0]?.branch;
-  }, [branches, issue]);
-
-  useEffect(() => {
-    if (bestMatchingBranch && (!selectedBranch || selectedBranch.name !== bestMatchingBranch.name)) {
-      setSelectedBranch(bestMatchingBranch);
-      setBranchName(bestMatchingBranch.name);
-    }
-  }, [bestMatchingBranch, selectedBranch]);
+  const linkedBranches = useMemo(
+    () => issueBranchesForIssue({ branches, issue }),
+    [branches, issue]
+  );
+  const selectedBranch = linkedBranches[0];
+  const visibleBranches = useMemo(
+    () =>
+      branches
+        .filter((branch) => !branch.isDefault)
+        .filter((branch) => !branch.linkedIssueNumbers?.includes(issue.number))
+        .sort((left, right) => left.name.localeCompare(right.name))
+        .slice(0, 6),
+    [branches, issue.number]
+  );
 
   const machineRows = useMemo<IssueMachineProjectRow[]>(
     () =>
@@ -219,29 +166,17 @@ export function IssueActionPanel({
     [connectorOverview, project, projects, repoFullName]
   );
 
-  const selectedBranchUrl = selectedBranch ? branchWebUrl(repoUrl, selectedBranch.name) : undefined;
-  const selectedPullRequestUrl = selectedBranch
-    ? pullRequestUrl(repoUrl, defaultBranch, selectedBranch.name)
-    : undefined;
   const repositoryCloneUrl = cloneUrl(repoFullName, repoUrl);
   const repositoryName = repositoryNameFromProject(project, repoFullName);
   const fallbackRelativePath = relativeClonePath(targetPath || project.rootPath, repositoryName);
 
-  function linkBranch(branch: GitHubBranchRecord) {
-    setSelectedBranch(branch);
-    setBranchName(branch.name);
-    setBranchError('');
-    setBranchMessage('Branch linked.');
-    setShowBranchPicker(false);
-  }
-
-  async function createBranch() {
+  async function createBranch(branchNameOverride?: string) {
     if (!repoFullName) {
       setBranchError('No GitHub repository is linked.');
       return;
     }
 
-    const trimmedBranchName = branchName.trim();
+    const trimmedBranchName = (branchNameOverride ?? branchName).trim();
 
     if (!trimmedBranchName) {
       setBranchError('Branch name is required.');
@@ -250,19 +185,15 @@ export function IssueActionPanel({
 
     const existingBranch = branches.find((branch) => branch.name === trimmedBranchName);
 
-    if (existingBranch) {
-      linkBranch(existingBranch);
-      return;
-    }
-
     setIsCreatingBranch(true);
     setBranchError('');
     setBranchMessage('');
     try {
       const result = await projectSpaceClient.createGitHubBranch({
         fullName: repoFullName,
+        issueNumber: issue.number,
         name: trimmedBranchName,
-        sourceBranch: defaultBranch
+        sourceBranch: existingBranch?.name ?? defaultBranch
       });
 
       if (result.status !== 'connected' || !result.branch) {
@@ -271,9 +202,8 @@ export function IssueActionPanel({
       }
 
       onBranchCreated(result.branch);
-      setSelectedBranch(result.branch);
       setShowBranchPicker(false);
-      setBranchMessage('Branch created and linked.');
+      setBranchMessage('Linked branch created.');
     } finally {
       setIsCreatingBranch(false);
     }
@@ -315,6 +245,37 @@ export function IssueActionPanel({
       );
     } finally {
       setBusyMachineId('');
+    }
+  }
+
+  async function createPullRequest() {
+    if (!repoFullName || !selectedBranch) {
+      setPullRequestError('Link a branch first.');
+      return;
+    }
+
+    setIsCreatingPullRequest(true);
+    setPullRequestError('');
+    setPullRequestMessage('');
+    try {
+      const result = await projectSpaceClient.createGitHubPullRequest({
+        baseBranch: defaultBranch,
+        body: issue.body,
+        fullName: repoFullName,
+        headBranch: selectedBranch.name,
+        issueNumber: issue.number,
+        title: issue.title
+      });
+
+      if (result.status !== 'connected' || !result.pullRequest) {
+        setPullRequestError(result.message ?? 'Could not create pull request.');
+        return;
+      }
+
+      onPullRequestCreated(result.pullRequest);
+      setPullRequestMessage(`Pull request #${result.pullRequest.number} created.`);
+    } finally {
+      setIsCreatingPullRequest(false);
     }
   }
 
@@ -403,17 +364,6 @@ export function IssueActionPanel({
                 <Text className="min-w-0 flex-1 truncate font-mono text-xs text-neutral-200">
                   {selectedBranch.name}
                 </Text>
-                {selectedBranchUrl ? (
-                  <a
-                    href={selectedBranchUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="shrink-0 text-neutral-500 transition hover:text-neutral-200"
-                    aria-label="Open branch on GitHub"
-                  >
-                    <ExternalLink className="size-3.5" />
-                  </a>
-                ) : null}
               </div>
             ) : (
               <Text className="text-xs text-neutral-500">No branch linked yet.</Text>
@@ -421,11 +371,12 @@ export function IssueActionPanel({
             <Button
               size="sm"
               variant="ghost"
+              isDisabled={Boolean(selectedBranch)}
               className="justify-start"
               onPress={() => setShowBranchPicker((value) => !value)}
             >
               <GitBranchPlus className="size-4" />
-              Link branch
+              Create linked branch
             </Button>
           </div>
           {showBranchPicker ? (
@@ -437,20 +388,20 @@ export function IssueActionPanel({
                     <button
                       key={branch.name}
                       type="button"
-                      onClick={() => linkBranch(branch)}
+                      onClick={() => {
+                        setBranchName(branch.name);
+                        void createBranch(branch.name);
+                      }}
                       className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-neutral-300 transition hover:bg-neutral-900 hover:text-neutral-50"
                     >
                       <GitBranch className="size-3 shrink-0 text-neutral-500" />
                       <span className="min-w-0 truncate font-mono">{branch.name}</span>
-                      {branch.isDefault ? (
-                        <span className="ml-auto shrink-0 text-[10px] text-neutral-600">default</span>
-                      ) : null}
                     </button>
                   ))}
                 </div>
               ) : null}
               <label className="grid gap-1">
-                <Text className="text-xs text-neutral-500">New branch</Text>
+                <Text className="text-xs text-neutral-500">Branch name</Text>
                 <input
                   value={branchName}
                   onChange={(event) => setBranchName(event.currentTarget.value)}
@@ -463,8 +414,11 @@ export function IssueActionPanel({
                 onPress={() => void createBranch()}
               >
                 <GitBranchPlus className="size-4" />
-                {isCreatingBranch ? 'Creating...' : 'Create and link'}
+                {isCreatingBranch ? 'Creating...' : 'Create linked branch'}
               </Button>
+              <Text className="text-xs text-neutral-600">
+                Existing branches only appear here after GitHub links them to this issue.
+              </Text>
               {branchMessage ? <Text className="text-xs text-emerald-300">{branchMessage}</Text> : null}
               {branchError ? <Text className="text-xs text-red-300">{branchError}</Text> : null}
             </div>
@@ -480,16 +434,18 @@ export function IssueActionPanel({
             </div>
             <Button
               variant="secondary"
-              isDisabled={!selectedPullRequestUrl}
-              onPress={() => {
-                if (selectedPullRequestUrl) {
-                  window.open(selectedPullRequestUrl, '_blank', 'noreferrer');
-                }
-              }}
+              isDisabled={!selectedBranch || !repoFullName || isCreatingPullRequest}
+              onPress={() => void createPullRequest()}
             >
               <Rocket className="size-4" />
-              Create PR
+              {isCreatingPullRequest ? 'Creating PR...' : 'Create PR'}
             </Button>
+            {pullRequestMessage ? (
+              <Text className="text-xs text-emerald-300">{pullRequestMessage}</Text>
+            ) : null}
+            {pullRequestError ? (
+              <Text className="text-xs text-red-300">{pullRequestError}</Text>
+            ) : null}
           </div>
           <div className="grid gap-2 rounded-lg border border-neutral-800 bg-black/20 p-2">
             <div className="flex min-w-0 items-center gap-2">

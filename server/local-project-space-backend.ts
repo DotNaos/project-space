@@ -21,18 +21,19 @@ import {
   unstageGitPaths
 } from './local-git-client';
 import {
-  createGitHubIssue,
   getGitHubCatalog,
   getGitHubPipelineStatus,
   getGitHubRepositoryDetails,
   pollGitHubOAuthDeviceFlow,
-  startGitHubOAuthDeviceFlow,
-  updateGitHubIssue
+  startGitHubOAuthDeviceFlow
 } from './local-github-catalog';
 import {
   createGitHubBranch,
+  createGitHubIssue,
   createGitHubIssueComment,
-  getGitHubIssueComments
+  createGitHubPullRequest,
+  getGitHubIssueComments,
+  updateGitHubIssue
 } from './local-github-issue-actions';
 import {
   loadInstalledLauncherApps,
@@ -798,6 +799,9 @@ export function createLocalProjectSpaceBackend(
     },
     async createGitHubBranch(request) {
       return createGitHubBranch(request);
+    },
+    async createGitHubPullRequest(request) {
+      return createGitHubPullRequest(request);
     },
     async startScopeDevboxJob(request) {
       return startScopeDevboxJob(request);

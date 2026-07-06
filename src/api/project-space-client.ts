@@ -19,6 +19,8 @@ import type {
   GitHubIssueCreateRequest,
   GitHubIssueMutationResult,
   GitHubIssueUpdateRequest,
+  GitHubPullRequestCreateRequest,
+  GitHubPullRequestMutationResult,
   GitHubRepositoryDetailsResult,
   GitHubOAuthDevicePollRequest,
   GitHubOAuthDevicePollResult,
@@ -197,6 +199,15 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
 
   createGitHubBranch(request: GitHubBranchCreateRequest): Promise<GitHubBranchMutationResult> {
     return this.request('/api/github/branches', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  createGitHubPullRequest(
+    request: GitHubPullRequestCreateRequest
+  ): Promise<GitHubPullRequestMutationResult> {
+    return this.request('/api/github/pull-requests', {
       body: JSON.stringify(request),
       method: 'POST'
     });

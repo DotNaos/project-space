@@ -54,11 +54,10 @@ export function IssueBody({ issue, onIssueUpdated, repoFullName }: IssueBodyProp
 
   return (
     <article className="issue-rise-in min-h-0 min-w-0 overflow-y-auto pr-3">
-      <div className="flex min-w-0 items-center gap-2">
-        <Text className="font-mono text-xs tabular-nums text-neutral-500">#{issue.number}</Text>
+      <div className="mb-2 flex min-w-0 items-center gap-2">
         <span
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium',
+            'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium',
             issue.state === 'open'
               ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300'
               : 'border-neutral-700 bg-neutral-800/60 text-neutral-400'
@@ -74,12 +73,31 @@ export function IssueBody({ issue, onIssueUpdated, repoFullName }: IssueBodyProp
         </span>
       </div>
 
-      <Text
-        as="h1"
-        className="mt-3 block text-2xl font-semibold leading-tight tracking-tight text-neutral-50"
-      >
-        {issue.title}
-      </Text>
+      <div className="flex min-w-0 items-start gap-3">
+        <Text
+          as="h1"
+          className="min-w-0 flex-1 text-2xl font-semibold leading-tight tracking-tight text-neutral-50"
+        >
+          <span className="mr-2 font-mono text-lg font-medium tabular-nums text-neutral-500">
+            #{issue.number}
+          </span>
+          {issue.title}
+        </Text>
+        {repoFullName ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="mt-0.5 shrink-0"
+            onPress={() => {
+              setEditError('');
+              setIsEditing((value) => !value);
+            }}
+          >
+            {isEditing ? <X className="size-4" /> : <Pencil className="size-4" />}
+            {isEditing ? 'Cancel edit' : 'Edit'}
+          </Button>
+        ) : null}
+      </div>
 
       <div className="mt-3 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
         {issue.author ? (
@@ -90,20 +108,6 @@ export function IssueBody({ issue, onIssueUpdated, repoFullName }: IssueBodyProp
         ) : null}
         {updated ? (
           <Text className="font-mono text-[11px] text-neutral-600">updated {updated} ago</Text>
-        ) : null}
-        {repoFullName ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ml-auto"
-            onPress={() => {
-              setEditError('');
-              setIsEditing((value) => !value);
-            }}
-          >
-            {isEditing ? <X className="size-4" /> : <Pencil className="size-4" />}
-            {isEditing ? 'Cancel edit' : 'Edit'}
-          </Button>
         ) : null}
       </div>
 

@@ -7,10 +7,7 @@ import type {
   GitHubBranchRecord,
   GitHubCatalogRepository,
   GitHubCatalogResult,
-  GitHubIssueCreateRequest,
-  GitHubIssueMutationResult,
   GitHubIssueRecord,
-  GitHubIssueUpdateRequest,
   GitHubOAuthDevicePollRequest,
   GitHubOAuthDevicePollResult,
   GitHubOAuthDeviceStartResult,
@@ -20,6 +17,7 @@ import type {
   GitHubWorkflowRunConclusion,
   GitHubWorkflowRunSummary
 } from '../src/shared/project-space-api';
+import { loadRepositoryDevelopmentLinks } from './local-github-development-links';
 import { getCurrentAuthSession, isProjectSpaceAuthRequired } from './local-auth-store';
 import {
   isDatabaseConfigured,
@@ -359,6 +357,7 @@ function createEmptyRepositoryDetails(
     checkedAt: new Date().toISOString(),
     issues: [],
     message,
+    pullRequests: [],
     status
   };
 }
@@ -374,6 +373,10 @@ function mapGitHubIssue(issue: GitHubApiIssue): GitHubIssueRecord {
     updatedAt: issue.updated_at ?? undefined,
     url: issue.html_url
   };
+}
+
+function branchWebUrl(repoUrl: string, branchName: string) {
+  return `${repoUrl}/tree/${encodeURIComponent(branchName).replace(/%2F/g, '/')}`;
 }
 
 export async function getGitHubRepositoryDetails(
@@ -392,7 +395,7 @@ export async function getGitHubRepositoryDetails(
 
   try {
     const repoPath = fullName.split('/').map(encodeURIComponent).join('/');
-    const [repo, branches, issues] = await Promise.all([
+    const [repo, branches, issues, developmentLinks] = await Promise.all([
       requestGitHub<GitHubApiRepository>(`/repos/${repoPath}`, auth.token),
       requestGitHub<GitHubApiBranch[]>(
         `/repos/${repoPath}/branches?per_page=30`,
@@ -401,19 +404,24 @@ export async function getGitHubRepositoryDetails(
       requestGitHub<GitHubApiIssue[]>(
         `/repos/${repoPath}/issues?state=all&per_page=100&sort=updated&direction=desc`,
         auth.token
-      )
+      ),
+      loadRepositoryDevelopmentLinks(fullName, auth.token)
     ]);
 
     return {
       branches: branches.map<GitHubBranchRecord>((branch) => ({
         isDefault: branch.name === repo.default_branch,
+        linkedIssueNumbers: Array.from(
+          developmentLinks.linkedIssueNumbersByBranch.get(branch.name) ?? []
+        ).sort((left, right) => left - right),
         name: branch.name,
-        url: branch.commit?.html_url
+        url: branchWebUrl(repo.html_url, branch.name)
       })),
       checkedAt: new Date().toISOString(),
       issues: issues
         .filter((issue) => !issue.pull_request)
         .map(mapGitHubIssue),
+      pullRequests: developmentLinks.pullRequests,
       status: 'connected'
     };
   } catch (error) {
@@ -500,123 +508,6 @@ export async function getGitHubPipelineStatus(
     return createEmptyPipelineStatus(
       'error',
       error instanceof Error ? error.message : 'Could not load GitHub workflow runs.'
-    );
-  }
-}
-
-function createIssueMutationError(
-  status: GitHubCatalogResult['status'],
-  message?: string
-): GitHubIssueMutationResult {
-  return {
-    message,
-    status
-  };
-}
-
-export async function createGitHubIssue({
-  body,
-  fullName,
-  labels,
-  title
-}: GitHubIssueCreateRequest): Promise<GitHubIssueMutationResult> {
-  const auth = await resolveToken();
-
-  if (!auth) {
-    return createIssueMutationError(
-      getGitHubClientId() ? 'auth-required' : 'not-configured',
-      getGitHubClientId() ? 'Connect GitHub to create issues.' : githubOAuthClientIdMissingMessage
-    );
-  }
-
-  if (!title.trim()) {
-    return createIssueMutationError('error', 'Issue title is required.');
-  }
-
-  try {
-    const repoPath = fullName.split('/').map(encodeURIComponent).join('/');
-    const issue = await requestGitHub<GitHubApiIssue>(`/repos/${repoPath}/issues`, auth.token, {
-      body: JSON.stringify({
-        body: body?.trim() || undefined,
-        labels: labels?.filter(Boolean),
-        title: title.trim()
-      }),
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      method: 'POST'
-    });
-
-    return {
-      issue: mapGitHubIssue(issue),
-      status: 'connected'
-    };
-  } catch (error) {
-    return createIssueMutationError(
-      'error',
-      error instanceof Error ? error.message : 'Could not create GitHub issue.'
-    );
-  }
-}
-
-export async function updateGitHubIssue({
-  body,
-  fullName,
-  labels,
-  number,
-  state,
-  title
-}: GitHubIssueUpdateRequest): Promise<GitHubIssueMutationResult> {
-  const auth = await resolveToken();
-
-  if (!auth) {
-    return createIssueMutationError(
-      getGitHubClientId() ? 'auth-required' : 'not-configured',
-      getGitHubClientId() ? 'Connect GitHub to edit issues.' : githubOAuthClientIdMissingMessage
-    );
-  }
-
-  try {
-    const repoPath = fullName.split('/').map(encodeURIComponent).join('/');
-    const payload: Record<string, unknown> = {};
-
-    if (title !== undefined) {
-      payload.title = title.trim();
-    }
-    if (body !== undefined) {
-      payload.body = body;
-    }
-    if (labels !== undefined) {
-      payload.labels = labels.filter(Boolean);
-    }
-    if (state !== undefined) {
-      payload.state = state;
-    }
-
-    if (typeof payload.title === 'string' && !payload.title) {
-      return createIssueMutationError('error', 'Issue title is required.');
-    }
-
-    const issue = await requestGitHub<GitHubApiIssue>(
-      `/repos/${repoPath}/issues/${number}`,
-      auth.token,
-      {
-        body: JSON.stringify(payload),
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        method: 'PATCH'
-      }
-    );
-
-    return {
-      issue: mapGitHubIssue(issue),
-      status: 'connected'
-    };
-  } catch (error) {
-    return createIssueMutationError(
-      'error',
-      error instanceof Error ? error.message : 'Could not edit GitHub issue.'
     );
   }
 }

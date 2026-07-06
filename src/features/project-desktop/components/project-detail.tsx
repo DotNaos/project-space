@@ -34,7 +34,7 @@ import type {
 } from '@/shared/project-space-api';
 import type { ProjectDetailTab } from '../hooks/use-project-desktop';
 import { FileExplorer } from './file-explorer';
-import { GitGraphPanel } from './git-graph-panel';
+import { GitWorkbenchPanel } from './git-workbench-panel';
 import { ProjectCliCommandPanel } from './project-cli-command-panel';
 import { ProjectIssueDetailPanel } from './project-issue-detail-panel';
 import { ProjectMachinesPanel } from './project-machines-panel';
@@ -597,7 +597,7 @@ export function ProjectDetail({
         ) : null}
 
         {tab === 'history' ? (
-          <GitGraphPanel
+          <GitWorkbenchPanel
             repositoryFullName={selectedRepository?.fullName}
             targetPath={selectedTargetPath}
           />

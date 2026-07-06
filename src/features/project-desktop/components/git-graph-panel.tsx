@@ -4,6 +4,11 @@ import { Button, Chip, Surface, Text, Tooltip } from '@/app/dotnaos-ui';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { cn } from '@/lib/utils';
 import type { GitHistoryCommit } from '@/shared/project-space-api';
+import {
+  buildGitBranchOptions,
+  GitBranchSidebar,
+  GitCommitDetails
+} from './git-graph-browser';
 
 const COMMIT_LIMIT = 300;
 const LANE_WIDTH = 14;
@@ -260,12 +265,16 @@ export function GitGraphPanel({
   repositoryFullName?: string;
   targetPath: string;
 }) {
+  const [allCommits, setAllCommits] = useState<GraphCommit[]>([]);
   const [commits, setCommits] = useState<GraphCommit[]>([]);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedHash, setSelectedHash] = useState('');
+  const [selectedRef, setSelectedRef] = useState('all');
 
-  async function refresh() {
+  async function refresh(nextRef = selectedRef) {
     if (!targetPath) {
+      setAllCommits([]);
       setCommits([]);
       return;
     }
@@ -273,21 +282,42 @@ export function GitGraphPanel({
     setIsLoading(true);
     setError('');
     try {
-      const result = await projectSpaceClient.getGitHistory({
+      const allResult = await projectSpaceClient.getGitHistory({
         cwd: targetPath,
         limit: COMMIT_LIMIT,
         repositoryFullName
       });
 
-      if (!result.isRepository) {
+      if (!allResult.isRepository) {
+        setAllCommits([]);
         setCommits([]);
-        setError(result.message ?? 'Could not read the git history.');
+        setError(allResult.message ?? 'Could not read the git history.');
         return;
       }
 
-      setCommits(result.commits);
-      setError(result.message ?? '');
+      setAllCommits(allResult.commits);
+
+      const nextCommits =
+        nextRef === 'all'
+          ? allResult.commits
+          : (
+              await projectSpaceClient.getGitHistory({
+                cwd: targetPath,
+                limit: COMMIT_LIMIT,
+                ref: nextRef,
+                repositoryFullName
+              })
+            ).commits;
+
+      setCommits(nextCommits);
+      setSelectedHash((previousHash) =>
+        nextCommits.some((commit) => commit.hash === previousHash)
+          ? previousHash
+          : nextCommits[0]?.hash ?? ''
+      );
+      setError(allResult.message ?? '');
     } catch (requestError) {
+      setAllCommits([]);
       setCommits([]);
       setError(
         requestError instanceof Error ? requestError.message : 'Could not read the git history.'
@@ -298,11 +328,21 @@ export function GitGraphPanel({
   }
 
   useEffect(() => {
-    void refresh();
+    setSelectedRef('all');
+    void refresh('all');
   }, [repositoryFullName, targetPath]);
 
+  const branchOptions = useMemo(
+    () => buildGitBranchOptions(allCommits.length > 0 ? allCommits : commits),
+    [allCommits, commits]
+  );
   const { maxLanes, rows } = useMemo(() => layoutGraph(commits), [commits]);
   const graphWidth = maxLanes * LANE_WIDTH;
+  const selectedCommit = commits.find((commit) => commit.hash === selectedHash) ?? commits[0];
+  const selectedLabel =
+    selectedRef === 'all'
+      ? 'all branches'
+      : branchOptions.find((branch) => branch.ref === selectedRef)?.label ?? selectedRef;
 
   return (
     <Surface
@@ -315,7 +355,7 @@ export function GitGraphPanel({
           <Text className="truncate text-sm font-semibold text-neutral-100">Commit graph</Text>
           <Text className="shrink-0 text-xs text-neutral-500">
             {rows.length > 0
-              ? `${rows.length}${rows.length >= COMMIT_LIMIT ? '+' : ''} commits, all branches`
+              ? `${rows.length}${rows.length >= COMMIT_LIMIT ? '+' : ''} commits, ${selectedLabel}`
               : ''}
           </Text>
         </div>
@@ -334,91 +374,118 @@ export function GitGraphPanel({
         <Text className="block px-4 py-6 text-sm text-neutral-500">{error}</Text>
       ) : rows.length === 0 ? (
         <Text className="block px-4 py-6 text-sm text-neutral-500">
-          {isLoading ? 'Loading history…' : 'No commits found.'}
+          {isLoading ? 'Loading history...' : 'No commits found.'}
         </Text>
       ) : (
-        <div data-testid="git-graph-scroll" className="min-h-0 min-w-0 flex-1 overflow-auto">
-          <div className="min-w-fit py-1">
-            {rows.map((row) => {
-              const isMerge = row.commit.parents.length > 1;
-              const prLabel = pullRequestLabel(row.commit.subject);
+        <div className="grid min-h-0 flex-1 grid-cols-[12rem_minmax(0,1fr)_14rem] overflow-hidden">
+          <GitBranchSidebar
+            branches={branchOptions}
+            isLoading={isLoading}
+            onSelectRef={(ref) => {
+              setSelectedRef(ref);
+              void refresh(ref);
+            }}
+            selectedRef={selectedRef}
+          />
+          <div data-testid="git-graph-scroll" className="min-h-0 min-w-0 overflow-auto">
+            <div className="min-w-fit py-1">
+              {rows.map((row) => {
+                const isMerge = row.commit.parents.length > 1;
+                const isSelected = row.commit.hash === selectedCommit?.hash;
+                const prLabel = pullRequestLabel(row.commit.subject);
 
-              return (
-                <div
-                  key={row.commit.hash}
-                  className="group flex min-w-0 items-center gap-3 px-3 transition hover:bg-neutral-900/50"
-                  style={{ height: ROW_HEIGHT }}
-                >
-                  <span
-                    className="relative shrink-0"
-                    style={{ width: graphWidth, height: ROW_HEIGHT }}
+                return (
+                  <div
+                    key={row.commit.hash}
+                    className={cn(
+                      'group flex min-w-0 cursor-pointer items-center gap-3 px-3 outline-none transition hover:bg-neutral-900/50 focus-visible:bg-neutral-900/70',
+                      isSelected && 'bg-neutral-800/70 hover:bg-neutral-800/70'
+                    )}
+                    onClick={() => setSelectedHash(row.commit.hash)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setSelectedHash(row.commit.hash);
+                      }
+                    }}
+                    role="button"
+                    style={{ height: ROW_HEIGHT }}
+                    tabIndex={0}
                   >
-                    <svg
-                      aria-hidden="true"
-                      width={graphWidth}
-                      height={ROW_HEIGHT}
-                      className="pointer-events-none absolute inset-0"
-                    >
-                      {row.segments.map((segment, index) => (
-                        <path
-                          key={index}
-                          d={segmentPath(segment)}
-                          fill="none"
-                          stroke={segment.color}
-                          strokeWidth={2}
-                        />
-                      ))}
-                    </svg>
                     <span
-                      className="absolute"
-                      style={{
-                        left: laneX(row.column),
-                        top: ROW_HEIGHT / 2,
-                        transform: 'translate(-50%, -50%)'
-                      }}
+                      className="relative shrink-0"
+                      style={{ width: graphWidth, height: ROW_HEIGHT }}
                     >
-                      <CommitDotTooltip
-                        color={row.color}
-                        commit={row.commit}
-                        isMerge={isMerge}
-                        isPullRequest={Boolean(prLabel)}
-                      />
-                    </span>
-                  </span>
-
-                  <span className="flex w-[26rem] min-w-0 shrink-0 items-center gap-1.5 sm:w-[30rem]">
-                    <RefChips refs={row.commit.refs} />
-                    {prLabel ? (
-                      <Chip
-                        size="sm"
-                        variant="secondary"
-                        className="gap-1 rounded-full border border-sky-400/25 bg-sky-400/10 px-1.5 py-0.5 text-sky-200"
+                      <svg
+                        aria-hidden="true"
+                        width={graphWidth}
+                        height={ROW_HEIGHT}
+                        className="pointer-events-none absolute inset-0"
                       >
-                        <GitPullRequest className="size-3 shrink-0" />
-                        <span>{prLabel}</span>
-                      </Chip>
-                    ) : null}
-                    <Text
-                      className={cn(
-                        'min-w-0 truncate text-sm',
-                        isMerge ? 'text-neutral-500' : 'text-neutral-200'
-                      )}
-                    >
-                      {row.commit.subject}
-                    </Text>
-                  </span>
+                        {row.segments.map((segment, index) => (
+                          <path
+                            key={index}
+                            d={segmentPath(segment)}
+                            fill="none"
+                            stroke={segment.color}
+                            strokeWidth={2}
+                          />
+                        ))}
+                      </svg>
+                      <span
+                        className="absolute"
+                        style={{
+                          left: laneX(row.column),
+                          top: ROW_HEIGHT / 2,
+                          transform: 'translate(-50%, -50%)'
+                        }}
+                      >
+                        <CommitDotTooltip
+                          color={row.color}
+                          commit={row.commit}
+                          isMerge={isMerge}
+                          isPullRequest={Boolean(prLabel)}
+                        />
+                      </span>
+                    </span>
 
-                  <Text className="w-24 shrink-0 text-xs text-neutral-500">{row.commit.date}</Text>
-                  <Text className="w-36 shrink-0 truncate text-xs text-neutral-500">
-                    {row.commit.author}
-                  </Text>
-                  <Text className="shrink-0 font-mono text-xs text-neutral-600">
-                    {row.commit.hash.slice(0, 8)}
-                  </Text>
-                </div>
-              );
-            })}
+                    <span className="flex w-[18rem] min-w-0 shrink-0 items-center gap-1.5 sm:w-[22rem]">
+                      <RefChips refs={row.commit.refs} />
+                      {prLabel ? (
+                        <Chip
+                          size="sm"
+                          variant="secondary"
+                          className="gap-1 rounded-full border border-sky-400/25 bg-sky-400/10 px-1.5 py-0.5 text-sky-200"
+                        >
+                          <GitPullRequest className="size-3 shrink-0" />
+                          <span>{prLabel}</span>
+                        </Chip>
+                      ) : null}
+                      <Text
+                        className={cn(
+                          'min-w-0 truncate text-sm',
+                          isMerge ? 'text-neutral-500' : 'text-neutral-200'
+                        )}
+                      >
+                        {row.commit.subject}
+                      </Text>
+                    </span>
+
+                    <Text className="w-24 shrink-0 text-xs text-neutral-500">
+                      {row.commit.date}
+                    </Text>
+                    <Text className="w-36 shrink-0 truncate text-xs text-neutral-500">
+                      {row.commit.author}
+                    </Text>
+                    <Text className="shrink-0 font-mono text-xs text-neutral-600">
+                      {row.commit.hash.slice(0, 8)}
+                    </Text>
+                  </div>
+                );
+              })}
+            </div>
           </div>
+          <GitCommitDetails commit={selectedCommit} />
         </div>
       )}
     </Surface>

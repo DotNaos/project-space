@@ -167,7 +167,9 @@ export async function getGitStatus(cwd: string): Promise<GitStatusResult> {
       repositoryRoot,
       summary: {
         changed: entries.length,
-        staged: entries.filter((entry) => entry.indexStatus.trim()).length,
+        staged: entries.filter(
+          (entry) => entry.indexStatus.trim() && entry.indexStatus !== '?'
+        ).length,
         untracked: entries.filter((entry) => entry.displayStatus === '??').length
       },
       upstream: upstreamOutput.stdout.trim() || undefined
@@ -220,6 +222,7 @@ export async function getGitHistory(request: GitHistoryRequest): Promise<GitHist
   const limit = normalizeHistoryLimit(request.limit);
   const candidates = getBackendRepositoryCandidates(request.cwd);
   const fallbackCwd = request.cwd ? resolve(request.cwd) : resolve(process.cwd());
+  const ref = request.ref?.trim();
 
   for (const candidate of candidates) {
     const resolvedCwd = resolve(candidate);
@@ -242,7 +245,7 @@ export async function getGitHistory(request: GitHistoryRequest): Promise<GitHist
       const output = await git(
         [
           'log',
-          '--all',
+          ...(ref ? [ref] : ['--all']),
           '--date-order',
           '-n',
           String(limit),

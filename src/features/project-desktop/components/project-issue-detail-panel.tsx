@@ -37,6 +37,7 @@ import type {
   GitHubBranchRecord,
   GitHubCatalogRepository,
   GitHubIssueRecord,
+  GitHubPullRequestRecord,
   GitHubRepositoryDetailsResult,
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
@@ -142,6 +143,7 @@ export function ProjectIssueDetailPanel({
   const safeDetails = details ?? repositoryDetailsFallback(repository ? 'connected' : 'error');
   const issues = safeDetails.issues;
   const issue = issues.find((entry) => entry.number === issueNumber);
+  const isInitialDetailsLoad = isLoading && !details && !error;
   const emptyMessage =
     error ||
     safeDetails.message ||
@@ -175,6 +177,24 @@ export function ProjectIssueDetailPanel({
         ...base,
         branches: nextBranches,
         checkedAt: new Date().toISOString()
+      };
+    });
+  };
+
+  const upsertPullRequest = (nextPullRequest: GitHubPullRequestRecord) => {
+    setDetails((previous) => {
+      const base = previous ?? safeDetails;
+      const exists = base.pullRequests.some((entry) => entry.number === nextPullRequest.number);
+      const nextPullRequests = exists
+        ? base.pullRequests.map((entry) =>
+            entry.number === nextPullRequest.number ? nextPullRequest : entry
+          )
+        : [nextPullRequest, ...base.pullRequests];
+
+      return {
+        ...base,
+        checkedAt: new Date().toISOString(),
+        pullRequests: nextPullRequests
       };
     });
   };
@@ -214,12 +234,15 @@ export function ProjectIssueDetailPanel({
           onBranchCreated={upsertBranch}
           onOpenIssue={onOpenIssue}
           onIssueUpdated={upsertIssue}
+          onPullRequestCreated={upsertPullRequest}
           project={project}
           projects={projects}
           repoFullName={repository?.fullName}
           repoUrl={repository?.url}
           targetPath={targetPath}
         />
+      ) : issueNumber && isInitialDetailsLoad ? (
+        <IssueBoardSkeleton viewMode="list" />
       ) : issueNumber ? (
         <IssueEmptyState
           message={details ? 'Issue was not found in the loaded issues.' : emptyMessage}
@@ -230,8 +253,11 @@ export function ProjectIssueDetailPanel({
           emptyMessage={emptyMessage}
           isLoading={isLoading}
           issues={issues}
+          pullRequests={safeDetails.pullRequests}
           onActiveLabelsChange={setActiveLabels}
+          branches={safeDetails.branches}
           onIssueCreated={upsertIssue}
+          onBranchCreated={upsertBranch}
           onOpenIssue={onOpenIssue}
           onQueryChange={setQuery}
           onViewModeChange={(nextMode) => {
@@ -251,8 +277,11 @@ function IssueIndex({
   activeLabels,
   emptyMessage,
   isLoading,
+  branches,
   issues,
+  pullRequests,
   onActiveLabelsChange,
+  onBranchCreated,
   onIssueCreated,
   onOpenIssue,
   onQueryChange,
@@ -264,8 +293,11 @@ function IssueIndex({
   activeLabels: ReadonlySet<string>;
   emptyMessage: string;
   isLoading: boolean;
+  branches: GitHubBranchRecord[];
   issues: GitHubIssueRecord[];
+  pullRequests: GitHubRepositoryDetailsResult['pullRequests'];
   onActiveLabelsChange(labels: ReadonlySet<string>): void;
+  onBranchCreated(branch: GitHubBranchRecord): void;
   onIssueCreated(issue: GitHubIssueRecord): void;
   onOpenIssue(issueNumber: number): void;
   onQueryChange(query: string): void;
@@ -576,16 +608,25 @@ function IssueIndex({
         <IssueEmptyState message="No issues match the current filters." />
       ) : viewMode === 'board' ? (
         <IssueKanbanBoard
+          branches={branches}
+          defaultBranch={branches.find((branch) => branch.isDefault)?.name ?? 'main'}
           issues={filteredIssues}
+          onBranchCreated={onBranchCreated}
           onMoveIssue={moveIssue}
           onOpenIssue={onOpenIssue}
+          pullRequests={pullRequests}
+          repoFullName={repository?.fullName}
           overrides={overrides}
           visibleColumns={visibleColumns}
         />
       ) : (
         <IssueListView
+          branches={branches}
+          defaultBranch={branches.find((branch) => branch.isDefault)?.name ?? 'main'}
           issues={filteredIssues}
+          onBranchCreated={onBranchCreated}
           onOpenIssue={onOpenIssue}
+          pullRequests={pullRequests}
           repoFullName={repository?.fullName}
         />
       )}
@@ -679,6 +720,7 @@ function IssueDetailWorkbench({
   onBranchCreated,
   onIssueUpdated,
   onOpenIssue,
+  onPullRequestCreated,
   project,
   projects,
   repoFullName,
@@ -692,6 +734,7 @@ function IssueDetailWorkbench({
   onBranchCreated(branch: GitHubBranchRecord): void;
   onIssueUpdated(issue: GitHubIssueRecord): void;
   onOpenIssue(issueNumber: number): void;
+  onPullRequestCreated(pullRequest: GitHubPullRequestRecord): void;
   project: ProjectSpaceRecord;
   projects: ProjectSpaceRecord[];
   repoFullName?: string;
@@ -713,6 +756,7 @@ function IssueDetailWorkbench({
         issue={issue}
         onBranchCreated={onBranchCreated}
         onIssueUpdated={onIssueUpdated}
+        onPullRequestCreated={onPullRequestCreated}
         project={project}
         projects={projects}
         repoFullName={repoFullName}

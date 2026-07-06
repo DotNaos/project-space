@@ -32,6 +32,7 @@ import type {
   GitHubIssueCommentCreateRequest,
   GitHubIssueCreateRequest,
   GitHubIssueUpdateRequest,
+  GitHubPullRequestCreateRequest,
   GitStageRequest,
   ProjectDeployRequest,
   ProjectDirectorySelection,
@@ -457,6 +458,12 @@ function createApiHandler(backend: ProjectSpaceBackend) {
       if (request.method === 'POST' && url.pathname === '/api/github/branches') {
         const payload = await readJson<GitHubBranchCreateRequest>(request);
         writeJson(response, 200, await backend.createGitHubBranch(payload));
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/github/pull-requests') {
+        const payload = await readJson<GitHubPullRequestCreateRequest>(request);
+        writeJson(response, 200, await backend.createGitHubPullRequest(payload));
         return true;
       }
 

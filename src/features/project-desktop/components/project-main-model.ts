@@ -117,6 +117,7 @@ export function repositoryDetailsFallback(
     branches: [],
     checkedAt: new Date().toISOString(),
     issues: [],
+    pullRequests: [],
     status
   };
 }

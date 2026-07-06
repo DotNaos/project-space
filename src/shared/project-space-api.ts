@@ -261,8 +261,19 @@ export interface GitHubCatalogRepository {
 
 export interface GitHubBranchRecord {
   isDefault: boolean;
+  linkedIssueNumbers?: number[];
   name: string;
   url?: string;
+}
+
+export interface GitHubPullRequestRecord {
+  headBranch?: string;
+  linkedIssueNumbers?: number[];
+  number: number;
+  state: 'open' | 'closed' | 'merged';
+  title: string;
+  updatedAt?: string;
+  url: string;
 }
 
 export interface GitHubIssueRecord {
@@ -327,6 +338,7 @@ export interface GitHubIssueCommentMutationResult {
 
 export interface GitHubBranchCreateRequest {
   fullName: string;
+  issueNumber?: number;
   name: string;
   sourceBranch?: string;
 }
@@ -337,11 +349,27 @@ export interface GitHubBranchMutationResult {
   status: GitHubCatalogStatus;
 }
 
+export interface GitHubPullRequestCreateRequest {
+  baseBranch: string;
+  body?: string;
+  fullName: string;
+  headBranch: string;
+  issueNumber?: number;
+  title: string;
+}
+
+export interface GitHubPullRequestMutationResult {
+  message?: string;
+  pullRequest?: GitHubPullRequestRecord;
+  status: GitHubCatalogStatus;
+}
+
 export interface GitHubRepositoryDetailsResult {
   branches: GitHubBranchRecord[];
   checkedAt: string;
   issues: GitHubIssueRecord[];
   message?: string;
+  pullRequests: GitHubPullRequestRecord[];
   status: GitHubCatalogStatus;
 }
 
@@ -773,6 +801,7 @@ export interface ScopeDevboxStartRequest {
 export interface GitHistoryRequest {
   cwd?: string;
   limit?: number;
+  ref?: string;
   repositoryFullName?: string;
 }
 
@@ -827,6 +856,9 @@ export interface ProjectSpaceBackend {
   ): Promise<GitHubOAuthDevicePollResult>;
   getScopeDevboxOverview(): Promise<ScopeDevboxOverviewResult>;
   createGitHubBranch(request: GitHubBranchCreateRequest): Promise<GitHubBranchMutationResult>;
+  createGitHubPullRequest(
+    request: GitHubPullRequestCreateRequest
+  ): Promise<GitHubPullRequestMutationResult>;
   createGitHubIssue(request: GitHubIssueCreateRequest): Promise<GitHubIssueMutationResult>;
   createGitHubIssueComment(
     request: GitHubIssueCommentCreateRequest
