@@ -18,6 +18,16 @@
       "port": 5174
     },
     {
+      "name": "frontend-noauth-embedded",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "PROJECT_SPACE_AUTH_DISABLED=1 VITE_PROJECT_SPACE_AUTH_DISABLED=1 pnpm exec vite --host 127.0.0.1 --port ${PORT:-5176}"
+      ],
+      "port": 5176,
+      "autoPort": true
+    },
+    {
       "name": "frontend-preview-noauth",
       "runtimeExecutable": "sh",
       "runtimeArgs": [

@@ -19,6 +19,7 @@ import {
 } from './local-auth-store';
 import type {
   ConnectorProjectRegistryResult,
+  CodexChatRequest,
   OpenPathInAppRequest,
   CodexOpenRequest,
   GitHubOAuthDevicePollRequest,
@@ -37,6 +38,8 @@ import type {
   ProjectDeployRequest,
   ProjectDirectorySelection,
   ProjectSpaceBackend,
+  ProjectStructureActionRequest,
+  ProjectTrashRestoreRequest,
   ScopeDevboxStartRequest,
   ProjectsState,
   TerminalCommandRequest,
@@ -322,6 +325,23 @@ function createApiHandler(backend: ProjectSpaceBackend) {
         return true;
       }
 
+      if (request.method === 'POST' && url.pathname === '/api/projects/structure-actions') {
+        const payload = await readJson<ProjectStructureActionRequest>(request);
+        writeJson(response, 200, await backend.applyProjectStructureAction(payload));
+        return true;
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/projects/trash') {
+        writeJson(response, 200, await backend.listProjectTrash());
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/projects/trash/restore') {
+        const payload = await readJson<ProjectTrashRestoreRequest>(request);
+        writeJson(response, 200, await backend.restoreProjectTrashEntry(payload));
+        return true;
+      }
+
       if (request.method === 'GET' && url.pathname === '/api/projects/state') {
         writeJson(response, 200, await backend.loadProjectsState());
         return true;
@@ -523,6 +543,29 @@ function createApiHandler(backend: ProjectSpaceBackend) {
       if (request.method === 'POST' && url.pathname === '/api/codex/open-target') {
         const payload = await readJson<CodexOpenRequest>(request);
         writeJson(response, 200, await backend.openCodexTarget(payload));
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/codex/chat') {
+        const payload = await readJson<CodexChatRequest>(request);
+        writeJson(response, 200, await backend.runCodexChat(payload));
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/codex/chat/stream') {
+        const payload = await readJson<CodexChatRequest>(request);
+        response.writeHead(200, {
+          'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+          'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,OPTIONS',
+          'Access-Control-Allow-Private-Network': 'true',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store',
+          'Content-Type': 'application/x-ndjson; charset=utf-8'
+        });
+        await backend.streamCodexChat(payload, (event) => {
+          response.write(`${JSON.stringify(event)}\n`);
+        });
+        response.end();
         return true;
       }
 

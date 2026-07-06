@@ -36,7 +36,84 @@ export interface ProjectSpaceRecord {
   groupId?: string;
   projectctl?: ProjectctlDiscoverySummary;
   fullstackTemplate?: FullstackTemplateCheck;
+  gitStatus?: ProjectGitStatusSummary;
   github?: GitHubCatalogRepository;
+}
+
+export interface ProjectGitStatusSummary {
+  branchName: string;
+  changed: number;
+  hasUnstagedChanges: boolean;
+  staged: number;
+  unstaged: number;
+  untracked: number;
+}
+
+export type ProjectStructureViolationType =
+  | 'git_repo_missing_github_remote'
+  | 'root_stray_file'
+  | 'root_stray_folder'
+  | 'worktrees_stray_file'
+  | 'worktrees_missing_project_layer'
+  | 'orphan_worktree_container'
+  | 'worktree_project_stray_file'
+  | 'worktree_stray_folder';
+
+export interface ProjectStructureViolationRecord {
+  id: string;
+  type: ProjectStructureViolationType;
+  severity: 'warning' | 'error';
+  path: string;
+  relativePath: string;
+  name: string;
+  title: string;
+  detail: string;
+  machineId?: string;
+  projectName?: string;
+}
+
+export type ProjectStructureActionType =
+  | 'move_to_poc'
+  | 'move_to_trash'
+  | 'initialize_git'
+  | 'keep_local_only';
+
+export interface ProjectStructureActionRequest {
+  action: ProjectStructureActionType;
+  path: string;
+  type: ProjectStructureViolationType;
+}
+
+export interface ProjectStructureActionResult {
+  message: string;
+  status: 'success' | 'error';
+  trashPath?: string;
+}
+
+export interface ProjectTrashEntryRecord {
+  id: string;
+  itemPath: string;
+  name: string;
+  originalPath: string;
+  originalRelativePath: string;
+  reason: ProjectStructureViolationType;
+  trashPath: string;
+  trashedAt: string;
+}
+
+export interface ProjectTrashListResult {
+  entries: ProjectTrashEntryRecord[];
+  trashPath: string;
+}
+
+export interface ProjectTrashRestoreRequest {
+  trashPath: string;
+}
+
+export interface ProjectTrashRestoreResult {
+  message: string;
+  restoredPath?: string;
+  status: 'success' | 'error';
 }
 
 export interface ProjectGroupRecord {
@@ -65,6 +142,7 @@ export interface ProjectDiscoveryResult {
   groups: ProjectGroupRecord[];
   projects: ProjectSpaceRecord[];
   rootItems: ProjectNavigationItem[];
+  structureViolations: ProjectStructureViolationRecord[];
 }
 
 export type ExplorerTarget =
@@ -100,6 +178,7 @@ export const launcherAppLabels: Record<string, string> = {
 export interface ProjectsState {
   activeGroupId: string;
   pinnedProjectIds: string[];
+  recentProjectIds: string[];
   selectedExplorerTarget: ExplorerTarget;
   selectedLauncherAppId: string;
   selectedProjectId: string;
@@ -453,7 +532,33 @@ export interface CodexStatusResult {
 
 export interface CodexOpenRequest {
   cwd: string;
+  prompt?: string;
 }
+
+export interface CodexChatMessageRecord {
+  id: string;
+  role: 'assistant' | 'user';
+  text: string;
+}
+
+export interface CodexChatRequest {
+  cwd: string;
+  machineId: string;
+  messages: CodexChatMessageRecord[];
+  prompt: string;
+  systemPrompt?: string;
+}
+
+export interface CodexChatResult {
+  message?: string;
+  response?: string;
+  status: 'success' | 'error';
+}
+
+export type CodexChatStreamEvent =
+  | { delta: string; type: 'delta' }
+  | { response: string; type: 'done' }
+  | { message: string; type: 'error' };
 
 export interface OpenPathInAppRequest {
   appId: string;
@@ -838,12 +943,24 @@ export interface ProjectSpaceBackend {
   loadLauncherAppIcon(appId: string): Promise<string | undefined>;
   loadLauncherApps(): Promise<LauncherAppRecord[]>;
   loadProjectDiscovery(): Promise<ProjectDiscoveryResult>;
+  applyProjectStructureAction(
+    request: ProjectStructureActionRequest
+  ): Promise<ProjectStructureActionResult>;
+  listProjectTrash(): Promise<ProjectTrashListResult>;
+  restoreProjectTrashEntry(
+    request: ProjectTrashRestoreRequest
+  ): Promise<ProjectTrashRestoreResult>;
   loadProjectctlOverview(projectPath: string): Promise<ProjectctlOverviewResult>;
   loadProjectctlPreview(projectPath: string): Promise<ProjectctlPlanResult>;
   loadProjectsState(): Promise<ProjectsState>;
   loadProjectWorktrees(projectPath: string): Promise<ProjectWorktreeRecord[]>;
   openCodexSkills(): Promise<OpenPathInAppResult>;
   openCodexTarget(request: CodexOpenRequest): Promise<OpenPathInAppResult>;
+  runCodexChat(request: CodexChatRequest): Promise<CodexChatResult>;
+  streamCodexChat(
+    request: CodexChatRequest,
+    emit: (event: CodexChatStreamEvent) => void
+  ): Promise<void>;
   openPathInApp(request: OpenPathInAppRequest): Promise<OpenPathInAppResult>;
   readDirectory(path: string): Promise<FileSystemEntry[]>;
   runTerminalCommand(request: TerminalCommandRequest): Promise<TerminalCommandResult>;

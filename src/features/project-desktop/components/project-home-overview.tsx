@@ -4,6 +4,7 @@ import {
   List,
   Plus,
   RefreshCw,
+  SlidersHorizontal,
 } from 'lucide-react';
 import {
   Button,
@@ -65,7 +66,10 @@ interface ProjectHomeOverviewProps {
   onSelectMachine(machineId: string): void;
   projects: ProjectSpaceRecord[];
   onSelectProject(projectId: string): void;
+  recentProjectIds: string[];
 }
+
+type ProjectSortKey = 'name' | 'owner' | 'recent' | 'unstaged';
 
 export function ProjectHomeOverview({
   connector,
@@ -77,7 +81,8 @@ export function ProjectHomeOverview({
   onRefreshGitHubCatalog,
   onSelectMachine,
   projects,
-  onSelectProject
+  onSelectProject,
+  recentProjectIds
 }: ProjectHomeOverviewProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [branchRecordsByProjectId, setBranchRecordsByProjectId] = useState<
@@ -92,6 +97,7 @@ export function ProjectHomeOverview({
   const [layout, setLayout] = useState<'grid' | 'list'>('list');
   const [machineQuery, setMachineQuery] = useState('');
   const [projectQuery, setProjectQuery] = useState('');
+  const [projectSort, setProjectSort] = useState<ProjectSortKey>('owner');
   const [selectedMachineId, setSelectedMachineId] = useState('');
 
   async function refresh(includeConnector: boolean) {
@@ -262,23 +268,102 @@ export function ProjectHomeOverview({
   }, [localMachineId, projects]);
   const activeMachineProjects = activeMachineId ? projectsByMachine[activeMachineId] ?? [] : [];
   const githubRows = rows.filter((row) => !row.isLocalOnly);
+  const recentRankByProjectId = useMemo(() => {
+    return new Map(recentProjectIds.map((projectId, index) => [projectId, index]));
+  }, [recentProjectIds]);
+  function rowRecentRank(row: MatrixRow) {
+    const localRanks = row.localMatches
+      .map((match) => recentRankByProjectId.get(match.project.id))
+      .filter((rank): rank is number => rank !== undefined);
+    const githubRank = row.repo ? recentRankByProjectId.get(`github:${row.repo.fullName}`) : undefined;
+    const ranks = githubRank === undefined ? localRanks : [...localRanks, githubRank];
+
+    return ranks.length > 0 ? Math.min(...ranks) : Number.POSITIVE_INFINITY;
+  }
+
+  function rowUnstagedCount(row: MatrixRow) {
+    return row.localMatches.reduce(
+      (count, match) => count + (match.project.gitStatus?.unstaged ?? 0),
+      0
+    );
+  }
+
+  function compareRows(left: MatrixRow, right: MatrixRow) {
+    if (projectSort === 'recent') {
+      const recentDelta = rowRecentRank(left) - rowRecentRank(right);
+      if (recentDelta !== 0) {
+        return recentDelta;
+      }
+    }
+
+    if (projectSort === 'unstaged') {
+      const unstagedDelta = rowUnstagedCount(right) - rowUnstagedCount(left);
+      if (unstagedDelta !== 0) {
+        return unstagedDelta;
+      }
+    }
+
+    if (projectSort === 'owner') {
+      const ownerDelta = (left.repo?.owner ?? 'Other').localeCompare(right.repo?.owner ?? 'Other');
+      if (ownerDelta !== 0) {
+        return ownerDelta;
+      }
+    }
+
+    return left.title.localeCompare(right.title);
+  }
+
   const filteredGithubRows = useMemo(
     () =>
-      githubRows.filter((row) =>
-        matchesQuery(
-          [
-            row.title,
-            row.repo?.fullName,
-            row.repo?.name,
-            row.repo?.owner,
-            row.repo?.description,
-            row.localMatches.map((match) => match.project.name).join(' ')
-          ],
-          projectQuery
+      githubRows
+        .filter((row) =>
+          matchesQuery(
+            [
+              row.title,
+              row.repo?.fullName,
+              row.repo?.name,
+              row.repo?.owner,
+              row.repo?.description,
+              row.localMatches.map((match) => match.project.name).join(' ')
+            ],
+            projectQuery
+          )
         )
-      ),
-    [githubRows, projectQuery]
+        .sort(compareRows),
+    [githubRows, projectQuery, projectSort, recentRankByProjectId]
   );
+  const recentGithubRows = useMemo(() => {
+    if (projectQuery.trim()) {
+      return [];
+    }
+
+    const rowsByProjectId = new Map<string, MatrixRow>();
+
+    for (const row of githubRows) {
+      if (row.repo) {
+        rowsByProjectId.set(`github:${row.repo.fullName}`, row);
+      }
+
+      for (const match of row.localMatches) {
+        rowsByProjectId.set(match.project.id, row);
+      }
+    }
+
+    const seen = new Set<string>();
+    const recentRows: MatrixRow[] = [];
+
+    for (const projectId of recentProjectIds) {
+      const row = rowsByProjectId.get(projectId);
+      if (!row || seen.has(row.id)) {
+        continue;
+      }
+
+      seen.add(row.id);
+      recentRows.push(row);
+    }
+
+    return recentRows.slice(0, 5);
+  }, [githubRows, projectQuery, recentProjectIds]);
   const branchSourceProjects = useMemo(() => {
     if (mode !== 'projects') {
       return [];
@@ -297,6 +382,15 @@ export function ProjectHomeOverview({
     return Array.from(sourceProjects.values()).slice(0, 80);
   }, [mode, rows]);
   const githubRowGroups = useMemo(() => {
+    if (projectSort !== 'owner') {
+      return [
+        {
+          items: filteredGithubRows,
+          owner: projectSort === 'recent' ? 'Recently sorted' : projectSort === 'unstaged' ? 'Most changes' : 'All projects'
+        }
+      ];
+    }
+
     const groups = new Map<string, MatrixRow[]>();
 
     for (const row of filteredGithubRows) {
@@ -312,7 +406,7 @@ export function ProjectHomeOverview({
         owner
       }))
       .sort((left, right) => left.owner.localeCompare(right.owner));
-  }, [filteredGithubRows]);
+  }, [filteredGithubRows, projectSort]);
 
   useEffect(() => {
     const missingProjects = branchSourceProjects.filter(
@@ -528,7 +622,7 @@ export function ProjectHomeOverview({
           onCopy={() => void copyInstallCommand()}
         />
       ) : null}
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-3 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           {mode === 'machines' ? (
             <>
@@ -542,16 +636,33 @@ export function ProjectHomeOverview({
             <Text className="block text-sm font-semibold text-neutral-100">Projects</Text>
           ) : null}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex w-full shrink-0 flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end">
           {mode === 'machines' ? (
             <Button size="sm" variant="outline" onPress={() => setIsInstallDialogOpen(true)}>
               <Plus className="size-4" />
               Add machine
             </Button>
           ) : null}
-          {renderLayoutTabs()}
+          {mode === 'projects' ? (
+            <label className="order-1 inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-neutral-900/70 px-2.5 text-xs text-neutral-400">
+              <SlidersHorizontal className="size-3.5" />
+              <select
+                aria-label="Sort projects"
+                className="max-w-24 bg-transparent text-xs font-medium text-neutral-200 outline-none sm:max-w-none"
+                value={projectSort}
+                onChange={(event) => setProjectSort(event.target.value as ProjectSortKey)}
+              >
+                <option value="owner">Owner</option>
+                <option value="name">Name</option>
+                <option value="recent">Recent</option>
+                <option value="unstaged">Unstaged</option>
+              </select>
+            </label>
+          ) : null}
+          <div className="order-3 w-full sm:order-2 sm:w-auto">{renderLayoutTabs()}</div>
           <Button
             aria-label="Refresh machines and projects"
+            className="order-2 sm:order-3"
             size="sm"
             variant="ghost"
             isDisabled={isRefreshing || isConnectorRefreshing || isGitHubRefreshing}
@@ -656,6 +767,24 @@ export function ProjectHomeOverview({
 
       {mode === 'projects' ? (
         <div className="flex max-h-[70vh] flex-col overflow-y-auto">
+          {recentGithubRows.length > 0 && projectSort !== 'recent' ? (
+            <div className="mb-4">
+              <Text className="mb-1 block px-3 text-xs font-medium text-neutral-600">
+                Recently opened
+              </Text>
+              <div className={layout === 'grid' ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-3' : 'flex flex-col'}>
+                {recentGithubRows.map((row) => (
+                  <ProjectListItem
+                    key={`recent:${row.id}`}
+                    branches={branchesForRow(row)}
+                    layout={layout}
+                    onSelectProject={onSelectProject}
+                    row={row}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
           {githubRowGroups.map((group) => (
             <div key={group.owner} className="mb-3 last:mb-0">
               <Text className="mb-1 block px-3 text-xs font-medium text-neutral-600">

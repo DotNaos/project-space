@@ -3,7 +3,8 @@ import type {
   MachineRecord,
   ProjectDiscoveryResult,
   ProjectNavigationItem,
-  ProjectSpaceRecord
+  ProjectSpaceRecord,
+  ProjectStructureViolationRecord
 } from '../src/shared/project-space-api';
 
 interface RegisteredConnector {
@@ -56,6 +57,21 @@ function normalizeRootItem(
   };
 }
 
+function normalizeStructureViolation(
+  machineId: string,
+  violation: ProjectStructureViolationRecord
+): ProjectStructureViolationRecord {
+  if (violation.machineId) {
+    return violation;
+  }
+
+  return {
+    ...violation,
+    id: `${machineId}:${violation.id}`,
+    machineId
+  };
+}
+
 export function registerConnectorProjectRegistry(registry: ConnectorProjectRegistryResult) {
   const machineId = registry.connector.machineId.trim();
 
@@ -101,6 +117,7 @@ export function getRegisteredConnectorDiscovery(): ProjectDiscoveryResult {
   const entries = getRegisteredConnectorRegistries();
   const projects: ProjectSpaceRecord[] = [];
   const rootItems: ProjectNavigationItem[] = [];
+  const structureViolations: ProjectStructureViolationRecord[] = [];
 
   for (const { registry } of entries) {
     const machineId = registry.connector.machineId;
@@ -112,6 +129,11 @@ export function getRegisteredConnectorDiscovery(): ProjectDiscoveryResult {
     rootItems.push(
       ...registry.discovery.rootItems.map((item) => normalizeRootItem(machineId, item))
     );
+    structureViolations.push(
+      ...(registry.discovery.structureViolations ?? []).map((violation) =>
+        normalizeStructureViolation(machineId, violation)
+      )
+    );
   }
 
   return {
@@ -121,6 +143,9 @@ export function getRegisteredConnectorDiscovery(): ProjectDiscoveryResult {
     rootPath: entries
       .map(({ registry }) => registry.discovery.rootPath)
       .filter(Boolean)
-      .join(', ')
+      .join(', '),
+    structureViolations: structureViolations.sort((left, right) =>
+      left.relativePath.localeCompare(right.relativePath)
+    )
   };
 }

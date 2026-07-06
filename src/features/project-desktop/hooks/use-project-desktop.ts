@@ -17,7 +17,8 @@ const emptyDiscovery: ProjectDiscoveryResult = {
   groups: [],
   projects: [],
   rootItems: [],
-  rootPath: ''
+  rootPath: '',
+  structureViolations: []
 };
 
 const connectorFallback: ConnectorOverviewResult = {
@@ -106,7 +107,8 @@ function sanitizeDiscovery(discovery: ProjectDiscoveryResult): ProjectDiscoveryR
     projects: discovery.projects.map((project) => ({
       ...project,
       name: sanitizeProjectName(project)
-    }))
+    })),
+    structureViolations: discovery.structureViolations ?? []
   };
 }
 
@@ -292,6 +294,7 @@ export function useProjectDesktop() {
   const [selectedMachineId, setSelectedMachineId] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [pinnedProjectIds, setPinnedProjectIds] = useState<string[]>([]);
+  const [recentProjectIds, setRecentProjectIds] = useState<string[]>([]);
   const [mainView, setMainView] = useState<ProjectMainView>('root');
   const [projectTab, setProjectTab] = useState<ProjectDetailTab>('overview');
   const [machineTab, setMachineTab] = useState<MachineDetailTab>('overview');
@@ -366,6 +369,16 @@ export function useProjectDesktop() {
     void projectSpaceClient.saveProjectsState(nextState).catch(() => undefined);
   }
 
+  function pushRecentProject(projectId: string) {
+    const nextRecentProjectIds = [
+      projectId,
+      ...recentProjectIds.filter((entry) => entry !== projectId)
+    ].slice(0, 8);
+    setRecentProjectIds(nextRecentProjectIds);
+
+    return nextRecentProjectIds;
+  }
+
   const refreshConnectorOverview = useCallback(async () => {
     setIsConnectorRefreshing(true);
     try {
@@ -425,6 +438,7 @@ export function useProjectDesktop() {
 
         setDiscovery(sanitizedDiscovery);
         setPinnedProjectIds(state.pinnedProjectIds ?? []);
+        setRecentProjectIds(state.recentProjectIds ?? []);
         setSelectedExplorerTarget(state.selectedExplorerTarget);
         setSelectedLauncherAppId(state.selectedLauncherAppId);
         setSelectedMachineId(initialRoute.view === 'machine' ? initialRoute.machineId ?? '' : '');
@@ -739,6 +753,7 @@ export function useProjectDesktop() {
       .saveProjectsState({
         activeGroupId: project?.groupId ?? '',
         pinnedProjectIds,
+        recentProjectIds,
         selectedExplorerTarget,
         selectedLauncherAppId,
         selectedProjectId
@@ -748,6 +763,7 @@ export function useProjectDesktop() {
     hasLoaded,
     pinnedProjectIds,
     project?.groupId,
+    recentProjectIds,
     selectedExplorerTarget,
     selectedLauncherAppId,
     selectedProjectId
@@ -773,13 +789,21 @@ export function useProjectDesktop() {
     setSelectedProjectId(matchingProject.id);
     setMainView('project');
     writeRoute('project', matchingProject.id);
+    const nextRecentProjectIds = pushRecentProject(matchingProject.id);
     persistProjectsState({
       activeGroupId: matchingProject.groupId ?? '',
       pinnedProjectIds,
+      recentProjectIds: nextRecentProjectIds,
       selectedExplorerTarget: { kind: 'workspace' },
       selectedLauncherAppId,
       selectedProjectId: matchingProject.id
     });
+  }
+
+  async function refreshProjectDiscovery() {
+    const nextDiscovery = sanitizeDiscovery(await projectSpaceClient.loadProjectDiscovery());
+    setDiscovery(nextDiscovery);
+    return nextDiscovery;
   }
 
   async function openSelectedTargetInApp() {
@@ -836,9 +860,11 @@ export function useProjectDesktop() {
     openNewWorktreeWorkspace,
     openSelectedTargetInApp,
     pinnedProjectIds,
+    recentProjectIds,
     project,
     projects,
     projectTab,
+    refreshProjectDiscovery,
     refreshConnectorOverview,
     refreshGitHubCatalog,
     selectedExplorerTarget,
@@ -850,6 +876,7 @@ export function useProjectDesktop() {
     selectedProjectId,
     selectedTargetName,
     selectedTargetPath,
+    structureViolations: discovery.structureViolations,
     selectedWorktree,
     worktrees,
     openRoot() {
@@ -894,6 +921,7 @@ export function useProjectDesktop() {
       persistProjectsState({
         activeGroupId: project?.groupId ?? '',
         pinnedProjectIds,
+        recentProjectIds,
         selectedExplorerTarget,
         selectedLauncherAppId: appId,
         selectedProjectId
@@ -908,6 +936,7 @@ export function useProjectDesktop() {
         persistProjectsState({
           activeGroupId: project?.groupId ?? '',
           pinnedProjectIds: nextPinnedProjectIds,
+          recentProjectIds,
           selectedExplorerTarget,
           selectedLauncherAppId,
           selectedProjectId
@@ -931,9 +960,11 @@ export function useProjectDesktop() {
         nextProject?.kind === 'github' ? 'overview' : projectTab
       );
       setLauncherError('');
+      const nextRecentProjectIds = pushRecentProject(projectId);
       persistProjectsState({
         activeGroupId: nextProject?.groupId ?? groupId ?? '',
         pinnedProjectIds,
+        recentProjectIds: nextRecentProjectIds,
         selectedExplorerTarget: nextSelectedExplorerTarget,
         selectedLauncherAppId,
         selectedProjectId: projectId
@@ -951,6 +982,7 @@ export function useProjectDesktop() {
       persistProjectsState({
         activeGroupId: project?.groupId ?? '',
         pinnedProjectIds,
+        recentProjectIds,
         selectedExplorerTarget: nextSelectedExplorerTarget,
         selectedLauncherAppId,
         selectedProjectId
@@ -971,6 +1003,7 @@ export function useProjectDesktop() {
       persistProjectsState({
         activeGroupId: project?.groupId ?? '',
         pinnedProjectIds,
+        recentProjectIds,
         selectedExplorerTarget: nextSelectedExplorerTarget,
         selectedLauncherAppId,
         selectedProjectId
