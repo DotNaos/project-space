@@ -801,6 +801,7 @@ export interface ScopeDevboxStartRequest {
 export interface GitHistoryRequest {
   cwd?: string;
   limit?: number;
+  ref?: string;
   repositoryFullName?: string;
 }
 
