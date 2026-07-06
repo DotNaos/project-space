@@ -231,7 +231,7 @@ export function ConnectorSetupPage() {
 
           <StepCard icon={Network} label="2" title="Expose through Tailscale">
             <Text className="text-sm leading-6 text-neutral-400">
-              Keep the connector private to your tailnet. Tailscale Serve gives the Vercel UI an
+              Keep the connector private to your tailnet. Tailscale Serve gives the hosted UI an
               HTTPS endpoint that still stays inside your private network.
             </Text>
             <CommandBlock commands={tailscaleCommands} />
@@ -244,8 +244,8 @@ export function ConnectorSetupPage() {
             </Text>
             <CommandBlock
               commands={[
-                'https://project-space-mu.vercel.app',
-                'https://project-space-mu.vercel.app/?projectSpaceApi=https://your-machine.tailnet.ts.net'
+                'https://projects.os-home.net',
+                'https://projects.os-home.net/?projectSpaceApi=https://your-machine.tailnet.ts.net'
               ]}
             />
           </StepCard>
@@ -286,7 +286,7 @@ export function ConnectorSetupPage() {
               </Card.Description>
             </Card.Header>
             <Card.Content className="gap-2">
-              <GraphRow from="Vercel web UI" to="Connector install page" />
+              <GraphRow from="Hosted web UI" to="Connector install page" />
               <GraphRow from="Connector" to="Tailscale private endpoint" />
               <GraphRow from="Machines repo" to="Available dev machines" />
               <GraphRow from="Private VPS platform" to="Deployments and backups" />

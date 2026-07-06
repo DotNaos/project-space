@@ -1,6 +1,6 @@
 class ProjectSpaceConnector < Formula
   desc "Local connector for Project Space web and machine operations"
-  homepage "https://project-space-mu.vercel.app/connector"
+  homepage "https://projects.os-home.net/connector"
   url "https://github.com/DotNaos/project-space/releases/download/v0.2.0/project-space-connector-v0.2.0-darwin-arm64.tar.gz"
   version "0.2.0"
   sha256 "e8b439289d277618c3bf3165864a4b4373b00dc59619b6c06eaddde76c2331dd"

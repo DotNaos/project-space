@@ -7,7 +7,7 @@ and backups.
 The web UI is deployed at:
 
 ```text
-https://project-space-mu.vercel.app
+https://projects.os-home.net
 ```
 
 The connector keeps local access local. The hosted UI does not receive direct filesystem access; it
@@ -68,7 +68,7 @@ Defaults:
 
 ## Expose Through Tailscale
 
-The Vercel-hosted UI should use a Tailscale HTTPS endpoint, not plain localhost.
+The hosted UI should use a Tailscale HTTPS endpoint, not plain localhost.
 
 ```bash
 tailscale status
@@ -79,7 +79,7 @@ tailscale serve status --json
 Then open Project Space with the connector URL:
 
 ```text
-https://project-space-mu.vercel.app/?projectSpaceApi=https://your-machine.tailnet.ts.net
+https://projects.os-home.net/?projectSpaceApi=https://your-machine.tailnet.ts.net
 ```
 
 ## Use the Connector
@@ -101,5 +101,5 @@ If the UI shows no projects:
 1. Check that the connector is running.
 2. Open `http://127.0.0.1:4173/api/health` locally.
 3. Check Tailscale Serve with `tailscale serve status --json`.
-4. Open the Vercel UI with `?projectSpaceApi=<tailscale-https-url>`.
+4. Open the hosted UI with `?projectSpaceApi=<tailscale-https-url>`.
 5. If deployments/backups are offline, set `PROJECT_SPACE_PRIVATE_VPS_BASE_URL`.
