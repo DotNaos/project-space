@@ -87,6 +87,7 @@ https://projects.os-home.net/?projectSpaceApi=https://your-machine.tailnet.ts.ne
 Once connected, Project Space can show:
 
 - projects discovered under `~/projects`
+- template adherence validation (`project validate`) with per-rule results for a selected project
 - Git status, diffs, staging, unstaging, and commits
 - terminal command execution inside a selected project or worktree
 - Codex CLI/app status

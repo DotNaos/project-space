@@ -48,6 +48,7 @@ import {
 } from './local-launcher-apps';
 import { getConnectorOverview } from './local-machine-registry';
 import { runProjectCliCommand } from './local-project-cli-client';
+import { getTemplateAdherence } from './local-template-adherence';
 import {
   getProjectctlOverview,
   getProjectctlPreview
@@ -703,6 +704,9 @@ export function createLocalProjectSpaceBackend(
     },
     async runProjectCliCommand(request) {
       return runProjectCliCommand(request);
+    },
+    async getTemplateAdherence(request) {
+      return getTemplateAdherence(request);
     },
     async getGitHubCatalog() {
       return getGitHubCatalog();

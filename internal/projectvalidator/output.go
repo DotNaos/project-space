@@ -1,6 +1,7 @@
 package projectvalidator
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,6 +21,7 @@ const (
 	ViewModeTable      ViewMode     = "table"
 	OutputFormatPretty OutputFormat = "pretty"
 	OutputFormatTSV    OutputFormat = "tsv"
+	OutputFormatJSON   OutputFormat = "json"
 )
 
 type OutputOptions struct {
@@ -37,6 +39,10 @@ func PrintProjectReport(report Report) {
 }
 
 func PrintProjectReportWithOptions(report Report, options OutputOptions) {
+	if options.Format == OutputFormatJSON {
+		printProjectJSON(report)
+		return
+	}
 	if options.Format == OutputFormatTSV {
 		printProjectTSV(report)
 		return
@@ -66,6 +72,10 @@ func PrintFileReport(report FileValidation) {
 }
 
 func PrintFileReportWithOptions(report FileValidation, options OutputOptions) {
+	if options.Format == OutputFormatJSON {
+		printFileJSON(report)
+		return
+	}
 	if options.Format == OutputFormatTSV {
 		printFileTSV(report)
 		return
@@ -93,6 +103,127 @@ func printTable(report Report, options OutputOptions) {
 			}
 		}
 	}
+}
+
+type jsonStructureEntry struct {
+	Path   string `json:"path"`
+	Kind   string `json:"kind"`
+	Status Status `json:"status"`
+	Code   string `json:"code,omitempty"`
+	Note   string `json:"note,omitempty"`
+	Slot   string `json:"slot,omitempty"`
+	Module string `json:"module,omitempty"`
+}
+
+type jsonFileDiagnostic struct {
+	Path   string `json:"path"`
+	Status Status `json:"status"`
+	Note   string `json:"note,omitempty"`
+}
+
+type jsonFileValidation struct {
+	Path        string               `json:"path"`
+	Status      Status               `json:"status"`
+	Code        string               `json:"code,omitempty"`
+	Note        string               `json:"note,omitempty"`
+	Module      string               `json:"module,omitempty"`
+	Diagnostics []jsonFileDiagnostic `json:"diagnostics,omitempty"`
+}
+
+type jsonReportSummary struct {
+	Total     int `json:"total"`
+	OK        int `json:"ok"`
+	Added     int `json:"added"`
+	Missing   int `json:"missing"`
+	Changed   int `json:"changed"`
+	Waived    int `json:"waived"`
+	Violation int `json:"violation"`
+}
+
+type jsonProjectReport struct {
+	ProjectRoot   string               `json:"projectRoot"`
+	ProjectName   string               `json:"projectName"`
+	TemplateLabel string               `json:"templateLabel"`
+	OK            bool                 `json:"ok"`
+	Summary       jsonReportSummary    `json:"summary"`
+	Structure     []jsonStructureEntry `json:"structure"`
+	Files         []jsonFileValidation `json:"files"`
+}
+
+func projectReportJSON(report Report) jsonProjectReport {
+	payload := jsonProjectReport{
+		ProjectRoot:   filepath.ToSlash(report.ProjectRoot),
+		ProjectName:   report.ProjectName,
+		TemplateLabel: report.TemplateLabel,
+		OK:            report.OK,
+		Structure:     []jsonStructureEntry{},
+		Files:         []jsonFileValidation{},
+	}
+	for _, entry := range report.Structure {
+		payload.Structure = append(payload.Structure, jsonStructureEntry{
+			Path:   entry.Path,
+			Kind:   entry.Kind,
+			Status: entry.Status,
+			Code:   entry.Code,
+			Note:   entry.Note,
+			Slot:   entry.Slot,
+			Module: entry.Module,
+		})
+		payload.Summary.Total++
+		switch entry.Status {
+		case StatusOK:
+			payload.Summary.OK++
+		case StatusAdded:
+			payload.Summary.Added++
+		case StatusMissing:
+			payload.Summary.Missing++
+		case StatusChanged:
+			payload.Summary.Changed++
+		case StatusWaived:
+			payload.Summary.Waived++
+		case StatusViolation:
+			payload.Summary.Violation++
+		}
+	}
+	for _, file := range report.Files {
+		payload.Files = append(payload.Files, fileValidationJSON(file))
+	}
+	return payload
+}
+
+func fileValidationJSON(file FileValidation) jsonFileValidation {
+	converted := jsonFileValidation{
+		Path:   file.Path,
+		Status: file.Status,
+		Code:   file.Code,
+		Note:   file.Note,
+		Module: file.Module,
+	}
+	for _, diagnostic := range file.Diagnostics {
+		converted.Diagnostics = append(converted.Diagnostics, jsonFileDiagnostic{
+			Path:   diagnostic.Path,
+			Status: diagnostic.Status,
+			Note:   diagnostic.Note,
+		})
+	}
+	return converted
+}
+
+func printProjectJSON(report Report) {
+	printJSON(projectReportJSON(report))
+}
+
+func printFileJSON(report FileValidation) {
+	printJSON(fileValidationJSON(report))
+}
+
+func printJSON(payload any) {
+	encoded, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "could not encode report as JSON: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println(string(encoded))
 }
 
 func printProjectTSV(report Report) {

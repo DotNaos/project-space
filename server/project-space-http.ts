@@ -26,6 +26,7 @@ import type {
   MachineTerminalCommandRequest,
   ProjectBackupRequest,
   ProjectCliCommandRequest,
+  TemplateAdherenceRequest,
   GitCommitRequest,
   GitDiffRequest,
   GitHistoryRequest,
@@ -437,6 +438,18 @@ function createApiHandler(backend: ProjectSpaceBackend) {
       if (request.method === 'POST' && url.pathname === '/api/project-cli/run') {
         const payload = await readJson<ProjectCliCommandRequest>(request);
         writeJson(response, 200, await backend.runProjectCliCommand(payload));
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/template/adherence') {
+        const payload = await readJson<TemplateAdherenceRequest>(request);
+
+        if (!payload?.cwd) {
+          writeJson(response, 400, { error: 'Missing cwd.' });
+          return true;
+        }
+
+        writeJson(response, 200, await backend.getTemplateAdherence(payload));
         return true;
       }
 

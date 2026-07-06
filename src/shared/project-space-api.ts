@@ -672,6 +672,66 @@ export interface ProjectCliCommandResult {
   stdout: string;
 }
 
+export type TemplateAdherenceEntryStatus =
+  | 'OK'
+  | 'ADDED'
+  | 'MISSING'
+  | 'CHANGED'
+  | 'WAIVED'
+  | 'VIOLATION';
+
+export interface TemplateAdherenceEntry {
+  code?: string;
+  kind: 'dir' | 'file';
+  module?: string;
+  note?: string;
+  path: string;
+  slot?: string;
+  status: TemplateAdherenceEntryStatus;
+}
+
+export interface TemplateAdherenceDiagnostic {
+  note?: string;
+  path: string;
+  status: TemplateAdherenceEntryStatus;
+}
+
+export interface TemplateAdherenceFile {
+  code?: string;
+  diagnostics?: TemplateAdherenceDiagnostic[];
+  module?: string;
+  note?: string;
+  path: string;
+  status: TemplateAdherenceEntryStatus;
+}
+
+export interface TemplateAdherenceSummary {
+  added: number;
+  changed: number;
+  missing: number;
+  ok: number;
+  total: number;
+  violation: number;
+  waived: number;
+}
+
+export interface TemplateAdherenceRequest {
+  cwd: string;
+}
+
+export interface TemplateAdherenceReport {
+  checkedAt: string;
+  cwd: string;
+  durationMs: number;
+  error?: string;
+  files: TemplateAdherenceFile[];
+  projectName?: string;
+  status: 'error' | 'ok' | 'violations';
+  structure: TemplateAdherenceEntry[];
+  summary?: TemplateAdherenceSummary;
+  templateLabel?: string;
+}
+
 export interface DeployCliEnvironmentReport {
   apiUrl?: string;
   branch?: string;
@@ -934,6 +994,7 @@ export interface ProjectSpaceBackend {
   getConnectorOverview(): Promise<ConnectorOverviewResult>;
   getConnectorProjectRegistry(): Promise<ConnectorProjectRegistryResult>;
   runProjectCliCommand(request: ProjectCliCommandRequest): Promise<ProjectCliCommandResult>;
+  getTemplateAdherence(request: TemplateAdherenceRequest): Promise<TemplateAdherenceReport>;
   getGitHubCatalog(): Promise<GitHubCatalogResult>;
   getGitHubPipelineStatus(fullName: string): Promise<GitHubPipelineStatusResult>;
   getGitDiff(request: GitDiffRequest): Promise<GitDiffResult>;
