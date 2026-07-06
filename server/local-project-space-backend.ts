@@ -31,6 +31,7 @@ import {
   createGitHubBranch,
   createGitHubIssue,
   createGitHubIssueComment,
+  createGitHubPullRequest,
   getGitHubIssueComments,
   updateGitHubIssue
 } from './local-github-issue-actions';
@@ -798,6 +799,9 @@ export function createLocalProjectSpaceBackend(
     },
     async createGitHubBranch(request) {
       return createGitHubBranch(request);
+    },
+    async createGitHubPullRequest(request) {
+      return createGitHubPullRequest(request);
     },
     async startScopeDevboxJob(request) {
       return startScopeDevboxJob(request);

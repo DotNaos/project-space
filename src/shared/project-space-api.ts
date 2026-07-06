@@ -349,6 +349,21 @@ export interface GitHubBranchMutationResult {
   status: GitHubCatalogStatus;
 }
 
+export interface GitHubPullRequestCreateRequest {
+  baseBranch: string;
+  body?: string;
+  fullName: string;
+  headBranch: string;
+  issueNumber?: number;
+  title: string;
+}
+
+export interface GitHubPullRequestMutationResult {
+  message?: string;
+  pullRequest?: GitHubPullRequestRecord;
+  status: GitHubCatalogStatus;
+}
+
 export interface GitHubRepositoryDetailsResult {
   branches: GitHubBranchRecord[];
   checkedAt: string;
@@ -840,6 +855,9 @@ export interface ProjectSpaceBackend {
   ): Promise<GitHubOAuthDevicePollResult>;
   getScopeDevboxOverview(): Promise<ScopeDevboxOverviewResult>;
   createGitHubBranch(request: GitHubBranchCreateRequest): Promise<GitHubBranchMutationResult>;
+  createGitHubPullRequest(
+    request: GitHubPullRequestCreateRequest
+  ): Promise<GitHubPullRequestMutationResult>;
   createGitHubIssue(request: GitHubIssueCreateRequest): Promise<GitHubIssueMutationResult>;
   createGitHubIssueComment(
     request: GitHubIssueCommentCreateRequest

@@ -9,7 +9,10 @@ import type {
   GitHubIssueCommentsResult,
   GitHubIssueMutationResult,
   GitHubIssueRecord,
-  GitHubIssueUpdateRequest
+  GitHubIssueUpdateRequest,
+  GitHubPullRequestCreateRequest,
+  GitHubPullRequestMutationResult,
+  GitHubPullRequestRecord
 } from '../src/shared/project-space-api';
 import {
   getGitHubClientId,
@@ -72,6 +75,18 @@ interface GitHubApiIssueComment {
   } | null;
 }
 
+interface GitHubApiPullRequest {
+  body?: string | null;
+  head?: {
+    ref?: string | null;
+  } | null;
+  html_url: string;
+  number: number;
+  state: 'open' | 'closed';
+  title: string;
+  updated_at?: string | null;
+}
+
 function repoApiPath(fullName: string) {
   return fullName.split('/').map(encodeURIComponent).join('/');
 }
@@ -100,6 +115,21 @@ function mapGitHubIssue(issue: GitHubApiIssue): GitHubIssueRecord {
   };
 }
 
+function mapGitHubPullRequest(
+  pullRequest: GitHubApiPullRequest,
+  linkedIssueNumber?: number
+): GitHubPullRequestRecord {
+  return {
+    headBranch: pullRequest.head?.ref ?? undefined,
+    linkedIssueNumbers: linkedIssueNumber ? [linkedIssueNumber] : [],
+    number: pullRequest.number,
+    state: pullRequest.state,
+    title: pullRequest.title,
+    updatedAt: pullRequest.updated_at ?? undefined,
+    url: pullRequest.html_url
+  };
+}
+
 function branchMutationError(
   status: GitHubCatalogResult['status'],
   message?: string
@@ -125,6 +155,13 @@ function commentMutationError(
   status: GitHubCatalogResult['status'],
   message?: string
 ): GitHubIssueCommentMutationResult {
+  return { message, status };
+}
+
+function pullRequestMutationError(
+  status: GitHubCatalogResult['status'],
+  message?: string
+): GitHubPullRequestMutationResult {
   return { message, status };
 }
 
@@ -289,6 +326,67 @@ export async function createGitHubIssue({
     return issueMutationError(
       'error',
       error instanceof Error ? error.message : 'Could not create GitHub issue.'
+    );
+  }
+}
+
+export async function createGitHubPullRequest({
+  baseBranch,
+  body,
+  fullName,
+  headBranch,
+  issueNumber,
+  title
+}: GitHubPullRequestCreateRequest): Promise<GitHubPullRequestMutationResult> {
+  const auth = await resolveToken();
+
+  if (!auth) {
+    return pullRequestMutationError(
+      getGitHubClientId() ? 'auth-required' : 'not-configured',
+      getGitHubClientId()
+        ? 'Connect GitHub to create pull requests.'
+        : githubOAuthClientIdMissingMessage
+    );
+  }
+
+  const trimmedTitle = title.trim();
+  const trimmedHeadBranch = headBranch.trim();
+  const trimmedBaseBranch = baseBranch.trim();
+
+  if (!trimmedTitle || !trimmedHeadBranch || !trimmedBaseBranch) {
+    return pullRequestMutationError('error', 'Title, head branch, and base branch are required.');
+  }
+
+  try {
+    const linkedBody = [
+      body?.trim(),
+      issueNumber ? `Closes #${issueNumber}` : ''
+    ].filter(Boolean).join('\n\n');
+    const pullRequest = await requestGitHub<GitHubApiPullRequest>(
+      `/repos/${repoApiPath(fullName)}/pulls`,
+      auth.token,
+      {
+        body: JSON.stringify({
+          base: trimmedBaseBranch,
+          body: linkedBody || undefined,
+          head: trimmedHeadBranch,
+          title: trimmedTitle
+        }),
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        method: 'POST'
+      }
+    );
+
+    return {
+      pullRequest: mapGitHubPullRequest(pullRequest, issueNumber),
+      status: 'connected'
+    };
+  } catch (error) {
+    return pullRequestMutationError(
+      'error',
+      error instanceof Error ? error.message : 'Could not create GitHub pull request.'
     );
   }
 }

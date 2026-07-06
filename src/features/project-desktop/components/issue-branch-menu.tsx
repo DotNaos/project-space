@@ -153,11 +153,6 @@ export function IssueBranchMenu({
             linkedBranches.map((branch) => (
               <DropdownItem
                 key={`linked:${branch.name}`}
-                onPress={() => {
-                  if (branch.url) {
-                    window.open(branch.url, '_blank', 'noreferrer');
-                  }
-                }}
                 className="rounded-lg px-3 py-2 text-xs text-neutral-200"
                 textValue={branch.name}
               >

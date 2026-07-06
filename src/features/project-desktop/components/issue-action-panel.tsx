@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2,
   Download,
-  ExternalLink,
   GitBranch,
   GitBranchPlus,
   MessageSquare,
@@ -22,6 +21,7 @@ import type {
   GitHubBranchRecord,
   GitHubIssueCommentRecord,
   GitHubIssueRecord,
+  GitHubPullRequestRecord,
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
 import {
@@ -40,18 +40,6 @@ import {
 } from './issue-branch-model';
 import { IssueMarkdown } from './issue-markdown';
 
-function branchWebUrl(repoUrl: string | undefined, branchName: string) {
-  return repoUrl
-    ? `${repoUrl}/tree/${encodeURIComponent(branchName).replace(/%2F/g, '/')}`
-    : undefined;
-}
-
-function pullRequestUrl(repoUrl: string | undefined, baseBranch: string, branchName: string) {
-  return repoUrl
-    ? `${repoUrl}/compare/${encodeURIComponent(baseBranch).replace(/%2F/g, '/')}...${encodeURIComponent(branchName).replace(/%2F/g, '/')}?quick_pull=1`
-    : undefined;
-}
-
 function commentTimeLabel(comment: GitHubIssueCommentRecord) {
   const value = comment.updatedAt || comment.createdAt;
 
@@ -64,6 +52,7 @@ interface IssueActionPanelProps {
   issue: GitHubIssueRecord;
   onBranchCreated(branch: GitHubBranchRecord): void;
   onIssueUpdated(issue: GitHubIssueRecord): void;
+  onPullRequestCreated(pullRequest: GitHubPullRequestRecord): void;
   project: ProjectSpaceRecord;
   projects: ProjectSpaceRecord[];
   repoFullName?: string;
@@ -77,6 +66,7 @@ export function IssueActionPanel({
   issue,
   onBranchCreated,
   onIssueUpdated,
+  onPullRequestCreated,
   project,
   projects,
   repoFullName,
@@ -90,6 +80,9 @@ export function IssueActionPanel({
   const [branchError, setBranchError] = useState('');
   const [branchMessage, setBranchMessage] = useState('');
   const [isCreatingBranch, setIsCreatingBranch] = useState(false);
+  const [isCreatingPullRequest, setIsCreatingPullRequest] = useState(false);
+  const [pullRequestMessage, setPullRequestMessage] = useState('');
+  const [pullRequestError, setPullRequestError] = useState('');
   const [busyMachineId, setBusyMachineId] = useState('');
   const [machineMessage, setMachineMessage] = useState('');
   const [isUpdatingState, setIsUpdatingState] = useState(false);
@@ -173,10 +166,6 @@ export function IssueActionPanel({
     [connectorOverview, project, projects, repoFullName]
   );
 
-  const selectedBranchUrl = selectedBranch ? branchWebUrl(repoUrl, selectedBranch.name) : undefined;
-  const selectedPullRequestUrl = selectedBranch
-    ? pullRequestUrl(repoUrl, defaultBranch, selectedBranch.name)
-    : undefined;
   const repositoryCloneUrl = cloneUrl(repoFullName, repoUrl);
   const repositoryName = repositoryNameFromProject(project, repoFullName);
   const fallbackRelativePath = relativeClonePath(targetPath || project.rootPath, repositoryName);
@@ -256,6 +245,37 @@ export function IssueActionPanel({
       );
     } finally {
       setBusyMachineId('');
+    }
+  }
+
+  async function createPullRequest() {
+    if (!repoFullName || !selectedBranch) {
+      setPullRequestError('Link a branch first.');
+      return;
+    }
+
+    setIsCreatingPullRequest(true);
+    setPullRequestError('');
+    setPullRequestMessage('');
+    try {
+      const result = await projectSpaceClient.createGitHubPullRequest({
+        baseBranch: defaultBranch,
+        body: issue.body,
+        fullName: repoFullName,
+        headBranch: selectedBranch.name,
+        issueNumber: issue.number,
+        title: issue.title
+      });
+
+      if (result.status !== 'connected' || !result.pullRequest) {
+        setPullRequestError(result.message ?? 'Could not create pull request.');
+        return;
+      }
+
+      onPullRequestCreated(result.pullRequest);
+      setPullRequestMessage(`Pull request #${result.pullRequest.number} created.`);
+    } finally {
+      setIsCreatingPullRequest(false);
     }
   }
 
@@ -344,17 +364,6 @@ export function IssueActionPanel({
                 <Text className="min-w-0 flex-1 truncate font-mono text-xs text-neutral-200">
                   {selectedBranch.name}
                 </Text>
-                {selectedBranchUrl ? (
-                  <a
-                    href={selectedBranchUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="shrink-0 text-neutral-500 transition hover:text-neutral-200"
-                    aria-label="Open branch on GitHub"
-                  >
-                    <ExternalLink className="size-3.5" />
-                  </a>
-                ) : null}
               </div>
             ) : (
               <Text className="text-xs text-neutral-500">No branch linked yet.</Text>
@@ -425,16 +434,18 @@ export function IssueActionPanel({
             </div>
             <Button
               variant="secondary"
-              isDisabled={!selectedPullRequestUrl}
-              onPress={() => {
-                if (selectedPullRequestUrl) {
-                  window.open(selectedPullRequestUrl, '_blank', 'noreferrer');
-                }
-              }}
+              isDisabled={!selectedBranch || !repoFullName || isCreatingPullRequest}
+              onPress={() => void createPullRequest()}
             >
               <Rocket className="size-4" />
-              Create PR
+              {isCreatingPullRequest ? 'Creating PR...' : 'Create PR'}
             </Button>
+            {pullRequestMessage ? (
+              <Text className="text-xs text-emerald-300">{pullRequestMessage}</Text>
+            ) : null}
+            {pullRequestError ? (
+              <Text className="text-xs text-red-300">{pullRequestError}</Text>
+            ) : null}
           </div>
           <div className="grid gap-2 rounded-lg border border-neutral-800 bg-black/20 p-2">
             <div className="flex min-w-0 items-center gap-2">

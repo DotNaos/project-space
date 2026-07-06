@@ -37,6 +37,7 @@ import type {
   GitHubBranchRecord,
   GitHubCatalogRepository,
   GitHubIssueRecord,
+  GitHubPullRequestRecord,
   GitHubRepositoryDetailsResult,
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
@@ -179,6 +180,24 @@ export function ProjectIssueDetailPanel({
     });
   };
 
+  const upsertPullRequest = (nextPullRequest: GitHubPullRequestRecord) => {
+    setDetails((previous) => {
+      const base = previous ?? safeDetails;
+      const exists = base.pullRequests.some((entry) => entry.number === nextPullRequest.number);
+      const nextPullRequests = exists
+        ? base.pullRequests.map((entry) =>
+            entry.number === nextPullRequest.number ? nextPullRequest : entry
+          )
+        : [nextPullRequest, ...base.pullRequests];
+
+      return {
+        ...base,
+        checkedAt: new Date().toISOString(),
+        pullRequests: nextPullRequests
+      };
+    });
+  };
+
   return (
     <Surface
       variant="transparent"
@@ -214,6 +233,7 @@ export function ProjectIssueDetailPanel({
           onBranchCreated={upsertBranch}
           onOpenIssue={onOpenIssue}
           onIssueUpdated={upsertIssue}
+          onPullRequestCreated={upsertPullRequest}
           project={project}
           projects={projects}
           repoFullName={repository?.fullName}
@@ -697,6 +717,7 @@ function IssueDetailWorkbench({
   onBranchCreated,
   onIssueUpdated,
   onOpenIssue,
+  onPullRequestCreated,
   project,
   projects,
   repoFullName,
@@ -710,6 +731,7 @@ function IssueDetailWorkbench({
   onBranchCreated(branch: GitHubBranchRecord): void;
   onIssueUpdated(issue: GitHubIssueRecord): void;
   onOpenIssue(issueNumber: number): void;
+  onPullRequestCreated(pullRequest: GitHubPullRequestRecord): void;
   project: ProjectSpaceRecord;
   projects: ProjectSpaceRecord[];
   repoFullName?: string;
@@ -731,6 +753,7 @@ function IssueDetailWorkbench({
         issue={issue}
         onBranchCreated={onBranchCreated}
         onIssueUpdated={onIssueUpdated}
+        onPullRequestCreated={onPullRequestCreated}
         project={project}
         projects={projects}
         repoFullName={repoFullName}
