@@ -23,7 +23,7 @@ Environment:
   PROJECT_SPACE_AUTH_DISABLED=1  Disable login protection for trusted local debugging only.
 
 After starting the connector, open:
-  https://project-space-mu.vercel.app
+  https://projects.os-home.net
 
 For remote browser access from your tailnet, expose it with:
   tailscale serve --bg --yes 4173
