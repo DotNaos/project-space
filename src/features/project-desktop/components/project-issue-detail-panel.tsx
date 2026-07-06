@@ -143,6 +143,7 @@ export function ProjectIssueDetailPanel({
   const safeDetails = details ?? repositoryDetailsFallback(repository ? 'connected' : 'error');
   const issues = safeDetails.issues;
   const issue = issues.find((entry) => entry.number === issueNumber);
+  const isInitialDetailsLoad = isLoading && !details && !error;
   const emptyMessage =
     error ||
     safeDetails.message ||
@@ -240,6 +241,8 @@ export function ProjectIssueDetailPanel({
           repoUrl={repository?.url}
           targetPath={targetPath}
         />
+      ) : issueNumber && isInitialDetailsLoad ? (
+        <IssueBoardSkeleton viewMode="list" />
       ) : issueNumber ? (
         <IssueEmptyState
           message={details ? 'Issue was not found in the loaded issues.' : emptyMessage}
