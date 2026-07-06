@@ -167,7 +167,9 @@ export async function getGitStatus(cwd: string): Promise<GitStatusResult> {
       repositoryRoot,
       summary: {
         changed: entries.length,
-        staged: entries.filter((entry) => entry.indexStatus.trim()).length,
+        staged: entries.filter(
+          (entry) => entry.indexStatus.trim() && entry.indexStatus !== '?'
+        ).length,
         untracked: entries.filter((entry) => entry.displayStatus === '??').length
       },
       upstream: upstreamOutput.stdout.trim() || undefined
