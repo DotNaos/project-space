@@ -539,7 +539,7 @@ export const SearchFieldInput = forwardRef<HTMLInputElement, InputHTMLAttributes
         ref={ref}
         value={field?.value ?? ''}
         onChange={(event) => field?.onChange(event.target.value)}
-        className={cn('min-w-0 flex-1 bg-transparent text-neutral-100 outline-none placeholder:text-neutral-500', className)}
+        className={cn('min-w-0 flex-1 bg-transparent text-base text-neutral-100 outline-none placeholder:text-neutral-500 sm:text-sm', className)}
       />
     );
   }

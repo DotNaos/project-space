@@ -263,6 +263,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           onOpenProjects={desktop.openProjects}
           onOpenRoot={desktop.openRoot}
           onOpenSelectedTarget={desktop.openSelectedTargetInApp}
+          onRefreshProjectDiscovery={desktop.refreshProjectDiscovery}
           onRefreshConnectorOverview={desktop.refreshConnectorOverview}
           onRefreshGitHubCatalog={desktop.refreshGitHubCatalog}
           onSelectLauncherApp={desktop.selectLauncherApp}
@@ -275,6 +276,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           project={desktop.project}
           projects={desktop.projects}
           projectTab={desktop.projectTab}
+          recentProjectIds={desktop.recentProjectIds}
           selectedApp={desktop.selectedLauncherApp}
           selectedAppLabel={desktop.selectedLauncherAppLabel}
           selectedExplorerTarget={desktop.selectedExplorerTarget}
@@ -283,6 +285,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           selectedMachineId={desktop.selectedMachineId}
           selectedTargetName={desktop.selectedTargetName}
           selectedTargetPath={desktop.selectedTargetPath}
+          structureViolations={desktop.structureViolations}
           worktrees={desktop.worktrees}
         />
       </div>

@@ -2,23 +2,12 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type {
   ConnectorOverviewResult,
   MachineRecord,
-  ProjectSpaceRecord
+  ProjectSpaceRecord,
+  ProjectStructureViolationRecord
 } from '@/shared/project-space-api';
 import { refreshProjectSpaceAuthToken } from '@/api/project-space-client';
-import {
-  Button,
-  Surface,
-  Tab,
-  TabIndicator,
-  TabList,
-  Tabs,
-  Text
-} from '@/app/dotnaos-ui';
-import {
-  FolderKanban,
-  LayoutDashboard,
-  Terminal as TerminalIcon
-} from 'lucide-react';
+import { Button, Surface, Tab, TabIndicator, TabList, Tabs, Text } from '@/app/dotnaos-ui';
+import { FolderKanban, LayoutDashboard, Terminal as TerminalIcon } from 'lucide-react';
 import type { MachineDetailTab } from '../hooks/use-project-desktop';
 import { WTerm } from '@wterm/dom';
 import '@wterm/dom/css';
@@ -29,12 +18,8 @@ import {
   MachineDeviceIcon,
   MachineOsMark
 } from './machine-visuals';
-import {
-  formatOptionalTime,
-  getProjectMachineId,
-  isVisibleProject,
-  machineSubtitle
-} from './project-main-model';
+import { formatOptionalTime, machineSubtitle } from './project-main-model';
+import { MachineProjectsPanel } from './machine-projects-panel';
 
 function MachineDetailRow({ label, value }: { label: string; value: string }) {
   return (
@@ -282,7 +267,9 @@ export function MachineDetailView({
   onOpenMachines,
   onSelectProject,
   onSelectTab,
+  onRefreshProjectDiscovery,
   projects,
+  structureViolations,
   tab
 }: {
   connector: ConnectorOverviewResult;
@@ -291,20 +278,15 @@ export function MachineDetailView({
   onOpenMachines(): void;
   onSelectProject(projectId: string): void;
   onSelectTab(tab: MachineDetailTab): void;
+  onRefreshProjectDiscovery(): Promise<unknown>;
   projects: ProjectSpaceRecord[];
+  structureViolations: ProjectStructureViolationRecord[];
   tab: MachineDetailTab;
 }) {
   const localMachineId =
     connector.machines.find((entry) => entry.connector.status === 'local')?.id ??
     connector.machines[0]?.id ??
     'local';
-  const machineProjects = machine
-    ? projects
-        .filter(isVisibleProject)
-        .filter((project) => project.kind !== 'github')
-        .filter((project) => getProjectMachineId(project, localMachineId) === machine.id)
-        .sort((left, right) => left.name.localeCompare(right.name))
-    : [];
 
   if (!machine) {
     return (
@@ -403,41 +385,14 @@ export function MachineDetailView({
       {tab === 'terminal' ? <MachineTerminalPanel machine={machine} /> : null}
 
       {tab === 'projects' ? (
-        <section>
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <Text className="text-sm font-semibold text-neutral-100">Projects on this machine</Text>
-            <Text className="text-xs text-neutral-500">{machineProjects.length}</Text>
-          </div>
-
-          {machineProjects.length > 0 ? (
-            <div className="flex flex-col divide-y divide-neutral-900/80">
-              {machineProjects.map((project) => (
-                <button
-                  key={project.id}
-                  type="button"
-                  title={project.rootPath}
-                  onClick={() => onSelectProject(project.id)}
-                  className="flex min-w-0 items-center justify-between gap-3 rounded-lg px-3 py-3 text-left transition hover:bg-neutral-900/50"
-                >
-                  <span className="min-w-0">
-                    <Text className="block truncate text-sm font-medium text-neutral-100">
-                      {project.name}
-                    </Text>
-                    <Text className="block truncate font-mono text-xs text-neutral-500">
-                      {project.rootPath}
-                    </Text>
-                  </span>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-lg bg-neutral-950/45 px-4 py-6">
-              <Text className="text-sm text-neutral-500">
-                No local projects reported by this machine yet.
-              </Text>
-            </div>
-          )}
-        </section>
+        <MachineProjectsPanel
+          localMachineId={localMachineId}
+          machine={machine}
+          onRefreshProjectDiscovery={onRefreshProjectDiscovery}
+          onSelectProject={onSelectProject}
+          projects={projects}
+          structureViolations={structureViolations}
+        />
       ) : null}
     </div>
   );

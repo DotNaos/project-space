@@ -39,6 +39,12 @@ button {
   font: inherit;
 }
 
+input,
+select,
+textarea {
+  font-size: max(16px, 1em);
+}
+
 button:hover,
 [role='button']:hover,
 a:hover,

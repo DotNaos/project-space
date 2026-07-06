@@ -5,6 +5,7 @@ import type {
   LauncherAppRecord,
   MachineRecord,
   ProjectSpaceRecord,
+  ProjectStructureViolationRecord,
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
 import { useCallback, useMemo } from 'react';
@@ -151,6 +152,7 @@ export interface ProjectMainPanelProps {
   onOpenProjectIssue(issueNumber: number): void;
   onOpenRoot(): void;
   onOpenSelectedTarget(): void;
+  onRefreshProjectDiscovery(): Promise<unknown>;
   onRefreshConnectorOverview(): Promise<ConnectorOverviewResult>;
   onRefreshGitHubCatalog(): Promise<GitHubCatalogResult>;
   onSelectLauncherApp(appId: string): void;
@@ -162,6 +164,7 @@ export interface ProjectMainPanelProps {
   project?: ProjectSpaceRecord;
   projects: ProjectSpaceRecord[];
   projectTab: ProjectDetailTab;
+  recentProjectIds: string[];
   selectedApp?: LauncherAppRecord;
   selectedAppLabel?: string;
   selectedExplorerTarget: ExplorerTarget;
@@ -170,6 +173,7 @@ export interface ProjectMainPanelProps {
   selectedMachineId: string;
   selectedTargetName: string;
   selectedTargetPath: string;
+  structureViolations: ProjectStructureViolationRecord[];
   worktrees: ProjectWorktreeRecord[];
 }
 
@@ -192,6 +196,7 @@ export function ProjectMainPanel({
   onOpenProjectIssue,
   onOpenRoot,
   onOpenSelectedTarget,
+  onRefreshProjectDiscovery,
   onRefreshConnectorOverview,
   onRefreshGitHubCatalog,
   onSelectLauncherApp,
@@ -203,6 +208,7 @@ export function ProjectMainPanel({
   project,
   projects,
   projectTab,
+  recentProjectIds,
   selectedApp,
   selectedAppLabel,
   selectedExplorerTarget,
@@ -211,6 +217,7 @@ export function ProjectMainPanel({
   selectedMachineId,
   selectedTargetName,
   selectedTargetPath,
+  structureViolations,
   worktrees
 }: ProjectMainPanelProps) {
   const selectedRepository = useMemo(
@@ -334,6 +341,7 @@ export function ProjectMainPanel({
             onSelectMachine={onOpenMachine}
             projects={projects}
             onSelectProject={onSelectProject}
+            recentProjectIds={recentProjectIds}
           />
         ) : mainView === 'machine' ? (
           <MachineDetailView
@@ -343,7 +351,9 @@ export function ProjectMainPanel({
             onOpenMachines={onOpenMachines}
             onSelectProject={onSelectProject}
             onSelectTab={onSelectMachineTab}
+            onRefreshProjectDiscovery={onRefreshProjectDiscovery}
             projects={projects}
+            structureViolations={structureViolations}
             tab={machineTab}
           />
         ) : mainView === 'root' ? (

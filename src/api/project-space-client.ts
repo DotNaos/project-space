@@ -1,5 +1,8 @@
 import type {
   AppMeta,
+  CodexChatRequest,
+  CodexChatResult,
+  CodexChatStreamEvent,
   CodexOpenRequest,
   CodexStatusResult,
   ConnectorOverviewResult,
@@ -42,6 +45,11 @@ import type {
   ProjectDirectorySelection,
   ProjectDiscoveryResult,
   ProjectSpaceBackend,
+  ProjectStructureActionRequest,
+  ProjectStructureActionResult,
+  ProjectTrashListResult,
+  ProjectTrashRestoreRequest,
+  ProjectTrashRestoreResult,
   ProjectctlOverviewResult,
   ProjectctlPlanResult,
   ProjectsState,
@@ -285,6 +293,28 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     return this.request('/api/projects/discovery');
   }
 
+  applyProjectStructureAction(
+    request: ProjectStructureActionRequest
+  ): Promise<ProjectStructureActionResult> {
+    return this.request('/api/projects/structure-actions', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  listProjectTrash(): Promise<ProjectTrashListResult> {
+    return this.request('/api/projects/trash');
+  }
+
+  restoreProjectTrashEntry(
+    request: ProjectTrashRestoreRequest
+  ): Promise<ProjectTrashRestoreResult> {
+    return this.request('/api/projects/trash/restore', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
   loadProjectctlOverview(projectPath: string): Promise<ProjectctlOverviewResult> {
     const query = new URLSearchParams({ projectPath });
 
@@ -318,6 +348,20 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
       body: JSON.stringify(request),
       method: 'POST'
     });
+  }
+
+  runCodexChat(request: CodexChatRequest): Promise<CodexChatResult> {
+    return this.request('/api/codex/chat', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  streamCodexChat(
+    request: CodexChatRequest,
+    emit: (event: CodexChatStreamEvent) => void
+  ): Promise<void> {
+    return streamCodexChat(request, emit);
   }
 
   openPathInApp(request: OpenPathInAppRequest): Promise<OpenPathInAppResult> {
@@ -432,3 +476,62 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
 }
 
 export const projectSpaceClient = new HttpProjectSpaceClient();
+
+export async function streamCodexChat(
+  request: CodexChatRequest,
+  emit: (event: CodexChatStreamEvent) => void
+) {
+  const token = await refreshProjectSpaceAuthToken();
+  const baseUrl = resolveApiBaseUrl();
+  const response = await fetch(`${baseUrl}/api/codex/chat/stream`, {
+    body: JSON.stringify(request),
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      'Content-Type': 'application/json'
+    },
+    method: 'POST'
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => undefined)) as
+      | { error?: string }
+      | undefined;
+
+    throw new Error(payload?.error ?? `Request failed with ${response.status}.`);
+  }
+
+  if (!response.body) {
+    throw new Error('Streaming is not available in this browser.');
+  }
+
+  const decoder = new TextDecoder();
+  const reader = response.body.getReader();
+  let buffer = '';
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        continue;
+      }
+
+      emit(JSON.parse(trimmed) as CodexChatStreamEvent);
+    }
+  }
+
+  buffer += decoder.decode();
+  const trimmed = buffer.trim();
+
+  if (trimmed) {
+    emit(JSON.parse(trimmed) as CodexChatStreamEvent);
+  }
+}

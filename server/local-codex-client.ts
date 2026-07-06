@@ -1,9 +1,17 @@
+import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { runCommand } from './local-command-runner';
+import {
+  runCodexAppServerChat,
+  type CodexChatRuntime,
+  type CodexChatStreamEmitter
+} from './local-codex-app-server-client';
 import type {
+  CodexChatRequest,
+  CodexChatResult,
   CodexOpenRequest,
   CodexStatusResult,
   OpenPathInAppResult
@@ -14,6 +22,18 @@ function resolveCodexHome() {
 }
 
 async function resolveCodexCliPath() {
+  const candidates = [
+    process.env.PROJECT_SPACE_CODEX_CLI,
+    '/Applications/Codex.app/Contents/Resources/codex',
+    join(homedir(), 'Applications', 'Codex.app', 'Contents', 'Resources', 'codex')
+  ].filter((path): path is string => Boolean(path));
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
   try {
     const output = await runCommand('zsh', ['-lc', 'command -v codex']);
 
@@ -39,6 +59,23 @@ async function isAppServerReachable(origin?: string) {
   }
 }
 
+async function copyPromptToClipboard(prompt?: string) {
+  if (!prompt?.trim()) {
+    return false;
+  }
+
+  return new Promise<boolean>((resolveCopy) => {
+    const child = spawn('pbcopy', [], {
+      env: process.env,
+      windowsHide: true
+    });
+
+    child.on('error', () => resolveCopy(false));
+    child.on('close', (exitCode) => resolveCopy(exitCode === 0));
+    child.stdin.end(prompt);
+  });
+}
+
 export async function getCodexStatus(): Promise<CodexStatusResult> {
   const codexHome = resolveCodexHome();
   const appPaths = ['/Applications/Codex.app', join(homedir(), 'Applications', 'Codex.app')];
@@ -61,17 +98,72 @@ export async function getCodexStatus(): Promise<CodexStatusResult> {
   };
 }
 
+export async function runCodexChat(
+  request: CodexChatRequest,
+  runtime?: CodexChatRuntime
+): Promise<CodexChatResult> {
+  const cwd = resolve(request.cwd);
+  const codexCliPath = runtime ? undefined : await resolveCodexCliPath();
+
+  if (!runtime && !codexCliPath) {
+    return {
+      message: 'Codex CLI is not available on this machine.',
+      status: 'error'
+    };
+  }
+
+  return runCodexAppServerChat({
+    codexCliPath,
+    codexHome: resolveCodexHome(),
+    request: { ...request, cwd },
+    runtime
+  });
+}
+
+export async function streamCodexChat(
+  request: CodexChatRequest,
+  emit: CodexChatStreamEmitter,
+  runtime?: CodexChatRuntime
+) {
+  const cwd = resolve(request.cwd);
+  const codexCliPath = runtime ? undefined : await resolveCodexCliPath();
+
+  if (!runtime && !codexCliPath) {
+    emit({ message: 'Codex CLI is not available on this machine.', type: 'error' });
+    return;
+  }
+
+  const result = await runCodexAppServerChat({
+    codexCliPath,
+    codexHome: resolveCodexHome(),
+    emit,
+    request: { ...request, cwd },
+    runtime
+  });
+
+  if (result.status === 'success' && result.response) {
+    emit({ response: result.response, type: 'done' });
+    return;
+  }
+
+  emit({ message: result.message ?? 'Codex chat failed.', type: 'error' });
+}
+
 export async function openCodexTarget(
   request: CodexOpenRequest
 ): Promise<OpenPathInAppResult> {
   const status = await getCodexStatus();
   const cwd = resolve(request.cwd);
+  const promptCopied = await copyPromptToClipboard(request.prompt);
 
   if (status.appInstalled) {
     try {
       await runCommand('open', ['-a', 'Codex', cwd]);
 
       return {
+        message: promptCopied
+          ? 'Codex opened. The repair prompt was copied to the clipboard.'
+          : undefined,
         status: 'success'
       };
     } catch {
@@ -84,7 +176,9 @@ export async function openCodexTarget(
 
   if (status.cliAvailable) {
     return {
-      message: `Codex CLI is available at ${status.cliPath}. Open a terminal in ${cwd} and run codex.`,
+      message: promptCopied
+        ? `Codex CLI is available at ${status.cliPath}. Open a terminal in ${cwd}, run codex, and paste the copied repair prompt.`
+        : `Codex CLI is available at ${status.cliPath}. Open a terminal in ${cwd} and run codex.`,
       status: 'success'
     };
   }

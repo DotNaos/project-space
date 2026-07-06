@@ -146,6 +146,7 @@ export async function loadConnectorProjectDiscovery(): Promise<ProjectDiscoveryR
     groups: [],
     projects: projects.sort((left, right) => left.name.localeCompare(right.name)),
     rootItems: rootItems.sort((left, right) => left.label.localeCompare(right.label)),
-    rootPath: snapshots.flatMap((snapshot) => snapshot.roots ?? []).join(', ') || 'connector'
+    rootPath: snapshots.flatMap((snapshot) => snapshot.roots ?? []).join(', ') || 'connector',
+    structureViolations: []
   };
 }

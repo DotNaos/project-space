@@ -5,7 +5,12 @@ import { homedir, hostname } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
-import { getCodexStatus, openCodexTarget } from './local-codex-client';
+import {
+  getCodexStatus,
+  openCodexTarget,
+  runCodexChat,
+  streamCodexChat as streamLocalCodexChat
+} from './local-codex-client';
 import { runSshTerminalCommand, runTerminalCommand } from './local-command-runner';
 import { loadConnectorProjectDiscovery } from './connector-discovery';
 import {
@@ -52,6 +57,12 @@ import {
   deployProject,
   getPlatformOverview
 } from './local-platform-operations';
+import {
+  applyProjectStructureAction,
+  collectProjectStructureViolations,
+  listProjectTrash,
+  restoreProjectTrashEntry
+} from './project-structure-violations';
 import {
   getScopeDevboxOverview,
   startScopeDevboxJob
@@ -117,16 +128,22 @@ function makeNodeId(rootPath: string, path: string) {
   return relativePath.length > 0 ? relativePath.replace(/[\\/]+/g, '__') : basename(path);
 }
 
-function createProjectRecord(
+async function createProjectRecord(
   rootPath: string,
   path: string,
   kind: ProjectSpaceRecord['kind'],
   groupId?: string
-): ProjectSpaceRecord {
+): Promise<ProjectSpaceRecord> {
   const resolvedPath = resolve(path);
   const hasProject = existsSync(join(resolvedPath, 'project.yaml'));
   const hasLock = existsSync(join(resolvedPath, 'template.lock.yaml'));
   const hasGoals = existsSync(join(resolvedPath, 'GOALS.md'));
+  const gitStatus = await getGitStatus(resolvedPath);
+  const unstaged =
+    gitStatus.summary.untracked +
+    gitStatus.entries.filter(
+      (entry) => entry.displayStatus !== '??' && Boolean(entry.worktreeStatus.trim())
+    ).length;
   const status =
     hasProject && hasLock
       ? 'managed'
@@ -140,6 +157,16 @@ function createProjectRecord(
     groupId,
     name: basename(resolvedPath),
     rootPath: resolvedPath,
+    gitStatus: gitStatus.isRepository
+      ? {
+          branchName: gitStatus.branchName,
+          changed: gitStatus.summary.changed,
+          hasUnstagedChanges: unstaged > 0,
+          staged: gitStatus.summary.staged,
+          unstaged,
+          untracked: gitStatus.summary.untracked
+        }
+      : undefined,
     projectctl: {
       hasGoals,
       hasLock,
@@ -206,7 +233,7 @@ async function discoverProjectChildren(groupPath: string): Promise<ProjectSpaceR
     const kind = await classifyProjectDirectory(childPath);
 
     if (kind) {
-      projects.push(createProjectRecord(discoveryRoot, childPath, kind, groupId));
+      projects.push(await createProjectRecord(discoveryRoot, childPath, kind, groupId));
     }
   }
 
@@ -259,6 +286,7 @@ function readProjectsState(): ProjectsState {
   const emptyState: ProjectsState = {
     activeGroupId: '',
     pinnedProjectIds: [],
+    recentProjectIds: [],
     selectedExplorerTarget: { kind: 'workspace' },
     selectedLauncherAppId: '',
     selectedProjectId: ''
@@ -276,6 +304,7 @@ function readProjectsState(): ProjectsState {
     return {
       activeGroupId: parsed.activeGroupId ?? '',
       pinnedProjectIds: normalizePinnedProjectIds(parsed.pinnedProjectIds),
+      recentProjectIds: normalizeProjectIds(parsed.recentProjectIds),
       selectedExplorerTarget:
         parsed.selectedExplorerTarget?.kind === 'worktree' &&
         typeof parsed.selectedExplorerTarget.worktreeId === 'string'
@@ -298,6 +327,10 @@ function readProjectsState(): ProjectsState {
 }
 
 function normalizePinnedProjectIds(value: unknown) {
+  return normalizeProjectIds(value);
+}
+
+function normalizeProjectIds(value: unknown) {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -314,7 +347,8 @@ function writeProjectsState(state: ProjectsState) {
     JSON.stringify(
       {
         ...state,
-        pinnedProjectIds: normalizePinnedProjectIds(state.pinnedProjectIds)
+        pinnedProjectIds: normalizePinnedProjectIds(state.pinnedProjectIds),
+        recentProjectIds: normalizeProjectIds(state.recentProjectIds).slice(0, 8)
       },
       null,
       2
@@ -334,7 +368,11 @@ function mergeDiscoveries(
     rootItems: [...localDiscovery.rootItems, ...remoteDiscovery.rootItems].sort((left, right) =>
       left.label.localeCompare(right.label)
     ),
-    rootPath: [localDiscovery.rootPath, remoteDiscovery.rootPath].filter(Boolean).join(', ')
+    rootPath: [localDiscovery.rootPath, remoteDiscovery.rootPath].filter(Boolean).join(', '),
+    structureViolations: [
+      ...(localDiscovery.structureViolations ?? []),
+      ...(remoteDiscovery.structureViolations ?? [])
+    ].sort((left, right) => left.relativePath.localeCompare(right.relativePath))
   };
 }
 
@@ -344,7 +382,8 @@ async function discoverProjects(): Promise<ProjectDiscoveryResult> {
       groups: [],
       projects: [],
       rootItems: [],
-      rootPath: discoveryRoot
+      rootPath: discoveryRoot,
+      structureViolations: []
     };
   }
 
@@ -352,6 +391,7 @@ async function discoverProjects(): Promise<ProjectDiscoveryResult> {
   const groups: ProjectGroupRecord[] = [];
   const projects: ProjectSpaceRecord[] = [];
   const rootItems: ProjectNavigationItem[] = [];
+  const structureViolations = await collectProjectStructureViolations(discoveryRoot);
 
   for (const rootDirectory of rootEntries.filter((entry) => entry.isDirectory())) {
     const rootChildPath = resolve(discoveryRoot, rootDirectory.name);
@@ -362,7 +402,7 @@ async function discoverProjects(): Promise<ProjectDiscoveryResult> {
         : [];
 
     if (childProjects.length > 0 && (await shouldTreatAsWorktreeProject(childProjects))) {
-      const project = createProjectRecord(discoveryRoot, rootChildPath, 'workspace');
+      const project = await createProjectRecord(discoveryRoot, rootChildPath, 'workspace');
       projects.push(project);
       rootItems.push({
         id: project.id,
@@ -397,7 +437,7 @@ async function discoverProjects(): Promise<ProjectDiscoveryResult> {
     }
 
     if (projectKind) {
-      const project = createProjectRecord(discoveryRoot, rootChildPath, projectKind);
+      const project = await createProjectRecord(discoveryRoot, rootChildPath, projectKind);
       projects.push(project);
       rootItems.push({
         id: project.id,
@@ -412,7 +452,8 @@ async function discoverProjects(): Promise<ProjectDiscoveryResult> {
     groups: groups.sort((left, right) => left.name.localeCompare(right.name)),
     projects: projects.sort((left, right) => left.name.localeCompare(right.name)),
     rootItems: rootItems.sort((left, right) => left.label.localeCompare(right.label)),
-    rootPath: discoveryRoot
+    rootPath: discoveryRoot,
+    structureViolations
   };
 }
 
@@ -582,6 +623,10 @@ function createMachineSshTarget(machine: MachineRecord) {
   return machine.network.sshUser ? `${machine.network.sshUser}@${host}` : host;
 }
 
+function shellQuote(value: string) {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 async function readDirectoryEntries(path: string): Promise<FileSystemEntry[]> {
   const entries = await listDirectoryEntries(path);
 
@@ -698,11 +743,21 @@ export function createLocalProjectSpaceBackend(
           groups: [],
           projects: [],
           rootItems: [],
-          rootPath: 'connector'
+          rootPath: 'connector',
+          structureViolations: []
         };
       }
 
       return mergeDiscoveries(await discoverProjects(), getRegisteredConnectorDiscovery());
+    },
+    async applyProjectStructureAction(request) {
+      return applyProjectStructureAction(discoveryRoot, request);
+    },
+    async listProjectTrash() {
+      return listProjectTrash(discoveryRoot);
+    },
+    async restoreProjectTrashEntry(request) {
+      return restoreProjectTrashEntry(discoveryRoot, request);
     },
     async loadProjectctlOverview(projectPath: string) {
       return getProjectctlOverview(projectPath);
@@ -721,6 +776,93 @@ export function createLocalProjectSpaceBackend(
     },
     async openCodexTarget(request) {
       return openCodexTarget(request);
+    },
+    async runCodexChat(request) {
+      const overview = await loadMergedConnectorOverview();
+      const machine = overview.machines.find((entry) => entry.id === request.machineId);
+
+      if (!machine) {
+        return {
+          message: `Machine ${request.machineId} was not found.`,
+          status: 'error'
+        };
+      }
+
+      if (machine.connector.status === 'local' || machine.kind === 'local') {
+        return runCodexChat(request);
+      }
+
+      if (machine.connector.status !== 'online') {
+        return {
+          message: `${machine.name} is ${machine.connector.status}.`,
+          status: 'error'
+        };
+      }
+
+      const target = createMachineSshTarget(machine);
+
+      if (!target) {
+        return {
+          message: `${machine.name} does not have an SSH target.`,
+          status: 'error'
+        };
+      }
+
+      const remoteCommand = [
+        `cd ${shellQuote(request.cwd)}`,
+        'if [ -x /Applications/Codex.app/Contents/Resources/codex ]; then',
+        '/Applications/Codex.app/Contents/Resources/codex app-server --listen stdio://',
+        'else',
+        'codex app-server --listen stdio://',
+        'fi'
+      ].join(' && ');
+
+      return runCodexChat(request, {
+        args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', target, remoteCommand],
+        command: 'ssh',
+        cwd: homedir()
+      });
+    },
+    async streamCodexChat(request, emit) {
+      const overview = await loadMergedConnectorOverview();
+      const machine = overview.machines.find((entry) => entry.id === request.machineId);
+
+      if (!machine) {
+        emit({ message: `Machine ${request.machineId} was not found.`, type: 'error' });
+        return;
+      }
+
+      if (machine.connector.status === 'local' || machine.kind === 'local') {
+        await streamLocalCodexChat(request, emit);
+        return;
+      }
+
+      if (machine.connector.status !== 'online') {
+        emit({ message: `${machine.name} is ${machine.connector.status}.`, type: 'error' });
+        return;
+      }
+
+      const target = createMachineSshTarget(machine);
+
+      if (!target) {
+        emit({ message: `${machine.name} does not have an SSH target.`, type: 'error' });
+        return;
+      }
+
+      const remoteCommand = [
+        `cd ${shellQuote(request.cwd)}`,
+        'if [ -x /Applications/Codex.app/Contents/Resources/codex ]; then',
+        '/Applications/Codex.app/Contents/Resources/codex app-server --listen stdio://',
+        'else',
+        'codex app-server --listen stdio://',
+        'fi'
+      ].join(' && ');
+
+      await streamLocalCodexChat(request, emit, {
+        args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', target, remoteCommand],
+        command: 'ssh',
+        cwd: homedir()
+      });
     },
     async openPathInApp(request) {
       return openPathInApp(request);
