@@ -17,10 +17,15 @@ Usage:
 Environment:
   PROJECT_SPACE_HOST  Host to bind. Defaults to 127.0.0.1.
   PROJECT_SPACE_PORT  Port to bind. Defaults to 4173.
+  PROJECT_CONNECTOR_CONFIG  Connector hub config path. Defaults to ~/.config/project-space/connector.json.
+  PROJECT_CONNECTOR_HUBS  Optional comma-separated or JSON hub list for one-off runs.
   CLERK_SECRET_KEY  Clerk secret key for Project Space login.
   PROJECT_SPACE_ALLOWED_EMAILS  Optional comma-separated Clerk email allowlist.
   GITHUB_OAUTH_CLIENT_ID  GitHub OAuth app client ID for repository connection.
   PROJECT_SPACE_AUTH_DISABLED=1  Disable login protection for trusted local debugging only.
+
+Configure the machine with:
+  project connector setup
 
 After starting the connector, open:
   https://projects.os-home.net

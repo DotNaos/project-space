@@ -12,6 +12,7 @@ import {
   createMachineTerminalUpgradeHandler,
   createProjectTerminalUpgradeHandler
 } from './server/machine-terminal-websocket';
+import { startProjectConnectorWebSocket } from './server/project-connector-websocket';
 import { createProjectSpaceRequestHandler } from './server/project-space-http';
 
 function projectSpaceApiPlugin(): Plugin {
@@ -19,11 +20,16 @@ function projectSpaceApiPlugin(): Plugin {
     name: 'project-space-api',
     configureServer(server: ViteDevServer) {
       const backend = createLocalProjectSpaceBackend();
+      const bridge = startProjectConnectorWebSocket({ backend });
       const handler = createProjectSpaceRequestHandler({
         backend
       });
       const handleMachineTerminalUpgrade = createMachineTerminalUpgradeHandler(backend);
       const handleProjectTerminalUpgrade = createProjectTerminalUpgradeHandler();
+
+      server.httpServer?.once('close', () => {
+        bridge.close();
+      });
 
       server.httpServer?.on('upgrade', (request, socket, head) => {
         if (

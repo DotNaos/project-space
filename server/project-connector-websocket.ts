@@ -2,6 +2,11 @@ import type {
   ProjectCliCommandRequest,
   ProjectSpaceBackend
 } from '../src/shared/project-space-api';
+import {
+  connectorRegistrationHeaders,
+  resolveProjectConnectorTargets,
+  type ProjectConnectorHubTarget
+} from './project-connector-config';
 
 interface ConnectorCommandMessage {
   id?: string;
@@ -24,17 +29,6 @@ function sendJson(socket: WebSocket, payload: unknown) {
   }
 }
 
-function connectorRegistrationHeaders(): Record<string, string> {
-  const token = process.env.PROJECT_CONNECTOR_REGISTRATION_TOKEN;
-
-  return token
-    ? {
-        Authorization: `Bearer ${token}`,
-        'X-Project-Connector-Token': token
-      }
-    : {};
-}
-
 function parseMessage(data: MessageEvent['data']) {
   try {
     return JSON.parse(typeof data === 'string' ? data : String(data)) as ConnectorCommandMessage;
@@ -45,154 +39,144 @@ function parseMessage(data: MessageEvent['data']) {
 
 export function startProjectConnectorWebSocket({
   backend,
-  hubHttpUrl = process.env.PROJECT_CONNECTOR_HUB_URL,
-  hubUrl = process.env.PROJECT_CONNECTOR_HUB_WS_URL
+  hubHttpUrl,
+  hubUrl
 }: ProjectConnectorWebSocketOptions) {
-  if (!hubUrl && !hubHttpUrl) {
+  const targets = resolveProjectConnectorTargets({ hubHttpUrl, hubUrl });
+  if (targets.length === 0) {
     return {
       close() {}
     };
   }
 
-  const resolvedHubHttpUrl = hubHttpUrl?.replace(/\/+$/, '');
-  let httpRegistryTimer: ReturnType<typeof setInterval> | undefined;
   let closed = false;
+  const cleanupTasks: Array<() => void> = [];
 
-  async function publishRegistryToHttpHub() {
-    if (!resolvedHubHttpUrl) {
+  function startHttpRegistryPublisher(target: ProjectConnectorHubTarget) {
+    if (!target.url) {
       return;
     }
+    const resolvedHubHttpUrl = target.url;
 
-    const registry = await backend.getConnectorProjectRegistry();
-    await fetch(`${resolvedHubHttpUrl}/api/connectors/project-registry`, {
-      body: JSON.stringify(registry),
-      headers: {
-        'Content-Type': 'application/json',
-        ...connectorRegistrationHeaders()
-      },
-      method: 'POST'
-    }).catch((error) => {
-      console.warn(
-        `Could not publish connector registry to ${resolvedHubHttpUrl}: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    });
-  }
+    async function publishRegistryToHttpHub() {
+      const registry = await backend.getConnectorProjectRegistry();
+      await fetch(`${resolvedHubHttpUrl}/api/connectors/project-registry`, {
+        body: JSON.stringify(registry),
+        headers: {
+          'Content-Type': 'application/json',
+          ...connectorRegistrationHeaders(target)
+        },
+        method: 'POST'
+      })
+        .then(async (response) => {
+          if (!response.ok) {
+            const detail = await response.text().catch(() => '');
+            throw new Error(`${response.status} ${response.statusText}${detail ? `: ${detail}` : ''}`);
+          }
+        })
+        .catch((error) => {
+          console.warn(
+            `Could not publish connector registry to ${target.name} (${resolvedHubHttpUrl}): ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        });
+    }
 
-  if (resolvedHubHttpUrl) {
     void publishRegistryToHttpHub();
-    httpRegistryTimer = setInterval(() => {
+    const httpRegistryTimer = setInterval(() => {
       void publishRegistryToHttpHub();
     }, registryIntervalMs);
+    cleanupTasks.push(() => clearInterval(httpRegistryTimer));
   }
 
-  if (!hubUrl) {
-    return {
-      close() {
-        closed = true;
-        if (httpRegistryTimer) {
-          clearInterval(httpRegistryTimer);
-        }
-      }
-    };
-  }
-
-  if (typeof WebSocket === 'undefined') {
-    console.warn('PROJECT_CONNECTOR_HUB_WS_URL is set, but WebSocket is not available.');
-    return {
-      close() {
-        closed = true;
-        if (httpRegistryTimer) {
-          clearInterval(httpRegistryTimer);
-        }
-      }
-    };
-  }
-
-  const resolvedHubUrl = hubUrl;
-  let socket: WebSocket | undefined;
-  let registryTimer: ReturnType<typeof setInterval> | undefined;
-  let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-
-  async function publishRegistry() {
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
+  function startWebSocketBridge(target: ProjectConnectorHubTarget) {
+    if (!target.wsUrl) {
       return;
     }
 
-    const registry = await backend.getConnectorProjectRegistry();
-    sendJson(socket, {
-      payload: registry,
-      type: 'connector.registry'
-    });
-  }
-
-  function scheduleReconnect() {
-    if (closed || reconnectTimer) {
+    if (typeof WebSocket === 'undefined') {
+      console.warn(`Connector hub ${target.name} has a WebSocket URL, but WebSocket is not available.`);
       return;
     }
 
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = undefined;
-      connect();
-    }, reconnectDelayMs);
-  }
+    const resolvedHubUrl = target.wsUrl;
+    let socket: WebSocket | undefined;
+    let registryTimer: ReturnType<typeof setInterval> | undefined;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
-  function connect() {
-    if (closed || !resolvedHubUrl) {
-      return;
-    }
-
-    socket = new WebSocket(resolvedHubUrl);
-
-    socket.addEventListener('open', () => {
-      void publishRegistry();
-      registryTimer = setInterval(() => {
-        void publishRegistry();
-      }, registryIntervalMs);
-    });
-
-    socket.addEventListener('message', (event) => {
-      const message = parseMessage(event.data);
-
-      if (message?.type !== 'project-cli.run' || !message.payload) {
+    async function publishRegistry() {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
         return;
       }
 
-      void backend.runProjectCliCommand(message.payload).then((result) => {
-        if (!socket) {
+      const registry = await backend.getConnectorProjectRegistry();
+      sendJson(socket, {
+        payload: registry,
+        type: 'connector.registry'
+      });
+    }
+
+    function scheduleReconnect() {
+      if (closed || reconnectTimer) {
+        return;
+      }
+
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = undefined;
+        connect();
+      }, reconnectDelayMs);
+    }
+
+    function connect() {
+      if (closed || !resolvedHubUrl) {
+        return;
+      }
+
+      socket = new WebSocket(resolvedHubUrl);
+
+      socket.addEventListener('open', () => {
+        void publishRegistry();
+        registryTimer = setInterval(() => {
+          void publishRegistry();
+        }, registryIntervalMs);
+      });
+
+      socket.addEventListener('message', (event) => {
+        const message = parseMessage(event.data);
+
+        if (message?.type !== 'project-cli.run' || !message.payload) {
           return;
         }
 
-        sendJson(socket, {
-          id: message.id,
-          payload: result,
-          type: 'project-cli.result'
+        void backend.runProjectCliCommand(message.payload).then((result) => {
+          if (!socket) {
+            return;
+          }
+
+          sendJson(socket, {
+            id: message.id,
+            payload: result,
+            type: 'project-cli.result'
+          });
         });
       });
-    });
 
-    socket.addEventListener('close', () => {
-      if (registryTimer) {
-        clearInterval(registryTimer);
-        registryTimer = undefined;
-      }
-      scheduleReconnect();
-    });
+      socket.addEventListener('close', () => {
+        if (registryTimer) {
+          clearInterval(registryTimer);
+          registryTimer = undefined;
+        }
+        scheduleReconnect();
+      });
 
-    socket.addEventListener('error', () => {
-      socket?.close();
-    });
-  }
+      socket.addEventListener('error', () => {
+        socket?.close();
+      });
+    }
 
-  connect();
-
-  return {
-    close() {
-      closed = true;
-      if (httpRegistryTimer) {
-        clearInterval(httpRegistryTimer);
-      }
+    connect();
+    cleanupTasks.push(() => {
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
       }
@@ -200,6 +184,18 @@ export function startProjectConnectorWebSocket({
         clearInterval(registryTimer);
       }
       socket?.close();
+    });
+  }
+
+  for (const target of targets) {
+    startHttpRegistryPublisher(target);
+    startWebSocketBridge(target);
+  }
+
+  return {
+    close() {
+      closed = true;
+      cleanupTasks.forEach((cleanup) => cleanup());
     }
   };
 }

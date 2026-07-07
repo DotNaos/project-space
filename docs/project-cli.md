@@ -170,6 +170,41 @@ Flags override config. Values from `deploy/deploy.yaml` are used directly,
 without confirmation prompts. Secret values are read from 1Password only for
 real deploys; dry-runs show only secret references.
 
+## Connector Setup
+
+```sh
+project connector setup
+project connector install
+project connector status
+project connector connect prod https://projects.os-home.net
+```
+
+`project connector setup` writes the machine connector config to
+`~/.config/project-space/connector.json`. By default it configures both the
+remote production hub and the local development hub:
+
+```json
+{
+  "hubs": [
+    {
+      "name": "prod",
+      "url": "https://projects.os-home.net",
+      "registrationTokenEnv": "PROJECT_CONNECTOR_REGISTRATION_TOKEN"
+    },
+    {
+      "name": "dev",
+      "url": "http://127.0.0.1:5177",
+      "registrationTokenEnv": "PROJECT_CONNECTOR_REGISTRATION_TOKEN"
+    }
+  ]
+}
+```
+
+The token stays in the environment. The config stores only the environment
+variable name, so the secret is not written into the repo or the config file.
+
+Use `project connector connect <name> <url>` to add or update a single hub.
+
 ## Sync Template Snapshot
 
 Project template commands expect local template state in the project:
