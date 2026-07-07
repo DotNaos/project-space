@@ -3,6 +3,7 @@ import {
   Check,
   Copy,
   Download,
+  Info,
   LogOut,
   Network,
   RefreshCw,
@@ -12,6 +13,7 @@ import { Button, Chip, Surface, Text } from '@/app/dotnaos-ui';
 import { GitHubMark } from './github-mark';
 import { projectSpaceClient } from '@/api/project-space-client';
 import type {
+  AppMeta,
   ConnectorOverviewResult,
   GitHubCatalogResult,
   GitHubOAuthDeviceStartResult
@@ -55,8 +57,20 @@ function StatusChip({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
+function SettingsRow({ label, value }: { label: string; value?: string }) {
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-3 border-b border-neutral-900 py-2 last:border-b-0">
+      <Text className="shrink-0 text-xs text-neutral-500">{label}</Text>
+      <code className="min-w-0 truncate text-right font-mono text-xs text-neutral-200">
+        {value || 'unknown'}
+      </code>
+    </div>
+  );
+}
+
 export interface SettingsViewProps {
   account?: RailAccount;
+  appMeta: AppMeta;
   connectorOverview: ConnectorOverviewResult;
   githubCatalog: GitHubCatalogResult;
   isGitHubRefreshing: boolean;
@@ -65,6 +79,7 @@ export interface SettingsViewProps {
 
 export function SettingsView({
   account,
+  appMeta,
   connectorOverview,
   githubCatalog,
   isGitHubRefreshing,
@@ -144,6 +159,30 @@ export function SettingsView({
           Connections, connector setup, and account.
         </Text>
       </section>
+
+      <SettingsSection
+        icon={Info}
+        title="Software"
+        description="The version currently served by this Project Space instance."
+      >
+        <div className="grid gap-0">
+          <SettingsRow label="Version" value={appMeta.version} />
+          <SettingsRow
+            label="Commit"
+            value={
+              appMeta.commit
+                ? `${appMeta.commitShort ?? appMeta.commit.slice(0, 8)} (${appMeta.ref ?? 'unknown ref'})`
+                : undefined
+            }
+          />
+          <SettingsRow label="Build" value={appMeta.buildTime} />
+          <SettingsRow label="Environment" value={appMeta.environment} />
+          <SettingsRow
+            label="Runtime"
+            value={[appMeta.platform, appMeta.nodeVersion].filter(Boolean).join(' / ')}
+          />
+        </div>
+      </SettingsSection>
 
       <SettingsSection
         icon={GitHubMark}

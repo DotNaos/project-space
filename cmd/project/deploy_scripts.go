@@ -57,6 +57,11 @@ func deployEnvFileContent(project deployProject, options deployOptions, includeS
 		"PROJECT_COMPOSE_NAME=" + project.ComposeProject,
 		"PROJECT_DOMAIN=" + options.ProjectDomain,
 		"PROJECT_API_DOMAIN=" + options.APIDomain,
+		"PROJECT_SPACE_BUILD_NAME=" + project.Name,
+		"PROJECT_SPACE_BUILD_VERSION=" + project.BuildVersion,
+		"PROJECT_SPACE_BUILD_COMMIT=" + project.BuildCommit,
+		"PROJECT_SPACE_BUILD_REF=" + project.BuildRef,
+		"PROJECT_SPACE_BUILD_TIME=" + project.BuildTime,
 	}
 	if options.AcmeEmail != "" {
 		lines = append(lines, "TRAEFIK_ACME_EMAIL="+options.AcmeEmail)

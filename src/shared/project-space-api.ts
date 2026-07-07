@@ -4,6 +4,12 @@ export interface AppMeta {
   name: string;
   version: string;
   platform: string;
+  buildTime?: string;
+  commit?: string;
+  commitShort?: string;
+  environment?: string;
+  nodeVersion?: string;
+  ref?: string;
 }
 
 export interface ProjectDirectorySelection {

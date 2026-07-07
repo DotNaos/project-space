@@ -1,4 +1,5 @@
 import type {
+  AppMeta,
   ConnectorOverviewResult,
   ExplorerTarget,
   GitHubCatalogResult,
@@ -135,6 +136,7 @@ function EmptyProjectView({ onCreateProject }: { onCreateProject(): void }) {
 
 export interface ProjectMainPanelProps {
   account?: RailAccount;
+  appMeta: AppMeta;
   connectorOverview: ConnectorOverviewResult;
   githubCatalog: GitHubCatalogResult;
   hasBottomTabBar?: boolean;
@@ -179,6 +181,7 @@ export interface ProjectMainPanelProps {
 
 export function ProjectMainPanel({
   account,
+  appMeta,
   connectorOverview,
   githubCatalog,
   hasBottomTabBar = false,
@@ -368,6 +371,7 @@ export function ProjectMainPanel({
         ) : mainView === 'settings' ? (
           <SettingsView
             account={account}
+            appMeta={appMeta}
             connectorOverview={connectorOverview}
             githubCatalog={githubCatalog}
             isGitHubRefreshing={isGitHubRefreshing}

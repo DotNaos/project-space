@@ -58,6 +58,7 @@ import {
   deployProject,
   getPlatformOverview
 } from './local-platform-operations';
+import { readAppMeta } from './app-meta';
 import {
   applyProjectStructureAction,
   collectProjectStructureViolations,
@@ -652,11 +653,7 @@ export function createLocalProjectSpaceBackend(
 ): ProjectSpaceBackend {
   return {
     async getAppMeta() {
-      return options.getAppMeta?.() ?? {
-        name: 'project-space',
-        platform: process.platform,
-        version: '0.1.0'
-      };
+      return options.getAppMeta?.() ?? readAppMeta();
     },
     async getCodexStatus() {
       return getCodexStatus();

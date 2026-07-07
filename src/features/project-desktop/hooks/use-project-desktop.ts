@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { launcherAppLabels } from '@/shared/project-space-api';
 import type {
+  AppMeta,
   ConnectorOverviewResult,
   ExplorerTarget,
   GitHubCatalogRepository,
@@ -40,6 +41,12 @@ const githubFallback: GitHubCatalogResult = {
   checkedAt: '',
   repositories: [],
   status: 'auth-required'
+};
+
+const appMetaFallback: AppMeta = {
+  name: 'project-space',
+  platform: 'unknown',
+  version: 'unknown'
 };
 
 export type ProjectMainView =
@@ -304,6 +311,7 @@ export function useProjectDesktop() {
   const [connectorOverview, setConnectorOverview] =
     useState<ConnectorOverviewResult>(connectorFallback);
   const [githubCatalog, setGitHubCatalog] = useState<GitHubCatalogResult>(githubFallback);
+  const [appMeta, setAppMeta] = useState<AppMeta>(appMetaFallback);
   const [isConnectorRefreshing, setIsConnectorRefreshing] = useState(false);
   const [isGitHubRefreshing, setIsGitHubRefreshing] = useState(false);
   const [projectWorktrees, setProjectWorktrees] = useState<
@@ -477,6 +485,27 @@ export function useProjectDesktop() {
   useEffect(() => {
     void refreshGitHubCatalog();
   }, [refreshGitHubCatalog]);
+
+  useEffect(() => {
+    let canceled = false;
+
+    void projectSpaceClient
+      .getAppMeta()
+      .then((nextMeta) => {
+        if (!canceled) {
+          setAppMeta(nextMeta ?? appMetaFallback);
+        }
+      })
+      .catch(() => {
+        if (!canceled) {
+          setAppMeta(appMetaFallback);
+        }
+      });
+
+    return () => {
+      canceled = true;
+    };
+  }, []);
 
   useEffect(() => {
     function handlePopState() {
@@ -845,6 +874,7 @@ export function useProjectDesktop() {
   }
 
   return {
+    appMeta,
     connectorOverview,
     createProject,
     discoveryRoot: discovery.rootPath,

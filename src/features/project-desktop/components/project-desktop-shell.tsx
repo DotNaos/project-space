@@ -247,6 +247,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
 
         <ProjectMainPanel
           account={account}
+          appMeta={desktop.appMeta}
           connectorOverview={desktop.connectorOverview}
           githubCatalog={desktop.githubCatalog}
           hasBottomTabBar={isCompact}

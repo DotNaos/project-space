@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -25,6 +27,10 @@ type deployOptions struct {
 
 type deployProject struct {
 	Name           string   `json:"name"`
+	BuildCommit    string   `json:"buildCommit,omitempty"`
+	BuildRef       string   `json:"buildRef,omitempty"`
+	BuildTime      string   `json:"buildTime,omitempty"`
+	BuildVersion   string   `json:"buildVersion,omitempty"`
 	Environment    string   `json:"environment"`
 	RemoteURL      string   `json:"remoteUrl"`
 	RemoteRef      string   `json:"remoteRef"`
@@ -291,8 +297,19 @@ func resolveDeployProject(cmd *cobra.Command, projectRoot string, options deploy
 	if options.APIDomain != "" {
 		apiURL = "https://" + options.APIDomain
 	}
+	buildCommit, _ := gitCommit(projectRoot)
+	buildRef, _ := gitCurrentBranch(projectRoot)
+	if buildRef == "" {
+		buildRef = options.Branch
+	}
+	buildVersion, _ := packageVersion(projectRoot)
+
 	return deployProject{
 		Name:           projectName,
+		BuildCommit:    buildCommit,
+		BuildRef:       buildRef,
+		BuildTime:      time.Now().UTC().Format(time.RFC3339),
+		BuildVersion:   buildVersion,
 		Environment:    options.Environment,
 		RemoteURL:      remoteURL,
 		RemoteRef:      repoRef,
@@ -312,6 +329,28 @@ func gitRemoteURL(projectRoot string) (string, error) {
 	}
 	remoteURL := strings.TrimSpace(output)
 	return normalizeGitHubRemoteURL(remoteURL), nil
+}
+
+func packageVersion(projectRoot string) (string, error) {
+	body, err := os.ReadFile(filepath.Join(projectRoot, "package.json"))
+	if err != nil {
+		return "", err
+	}
+	var packageJSON struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(body, &packageJSON); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(packageJSON.Version), nil
+}
+
+func gitCommit(projectRoot string) (string, error) {
+	output, err := runCommand(projectRoot, nil, "git", "rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(output), nil
 }
 
 func normalizeGitHubRemoteURL(remoteURL string) string {
