@@ -1,8 +1,6 @@
 import { useState } from 'react';
 import {
   Bot,
-  Check,
-  Copy,
   ExternalLink,
   FileCheck2,
   GitBranchPlus,
@@ -37,6 +35,7 @@ import { FileExplorer } from './file-explorer';
 import { GitWorkbenchPanel } from './git-workbench-panel';
 import { ProjectCliCommandPanel } from './project-cli-command-panel';
 import { ProjectTemplateAdherencePanel } from './project-template-adherence-panel';
+import { ProjectTemplateSetupPanel } from './project-template-setup-panel';
 import { ProjectIssueDetailPanel } from './project-issue-detail-panel';
 import { ProjectMachinesPanel } from './project-machines-panel';
 import { ProjectDeploymentsPanel } from './project-deployments-panel';
@@ -45,13 +44,6 @@ import { ProjectCodexPanel, ProjectWorkspaceTools } from './project-workspace-to
 import { ProjectctlManifestPanel } from './projectctl-manifest-panel';
 import { RepositoryActivityPanel } from './repository-activity-panel';
 import { ScopeDevboxJobPanel } from './scope-devbox-job-panel';
-
-const templateChipLabel: Record<FullstackTemplateCheck['status'], string> = {
-  implemented: 'template ok',
-  partial: 'template partial',
-  'not-detected': 'no template',
-  'template-source': 'template source'
-};
 
 const templateStatusTitle: Record<FullstackTemplateCheck['status'], string> = {
   implemented: 'Implemented',
@@ -70,6 +62,24 @@ function templateChipClass(status: FullstackTemplateCheck['status'] | undefined)
   }
 
   return 'bg-neutral-800/80 text-neutral-400';
+}
+
+function normalizeTemplateRelativePath(value: string) {
+  return value
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment && segment !== '.' && segment !== '..')
+    .join('/');
+}
+
+function joinTargetPath(rootPath: string, relativePath: string) {
+  const normalizedRelativePath = normalizeTemplateRelativePath(relativePath);
+
+  if (!rootPath || !normalizedRelativePath) {
+    return rootPath;
+  }
+
+  return `${rootPath.replace(/\/+$/, '')}/${normalizedRelativePath}`;
 }
 
 function TemplateStatusCard({ check }: { check?: FullstackTemplateCheck }) {
@@ -130,79 +140,6 @@ function TemplateStatusCard({ check }: { check?: FullstackTemplateCheck }) {
         )}
       </div>
     </Surface>
-  );
-}
-
-function CopyPathButton({ path }: { path: string }) {
-  const [hasCopied, setHasCopied] = useState(false);
-
-  async function copy() {
-    await navigator.clipboard?.writeText(path);
-    setHasCopied(true);
-    window.setTimeout(() => setHasCopied(false), 1_500);
-  }
-
-  return (
-    <Button
-      aria-label="Copy path"
-      isIconOnly
-      size="sm"
-      variant="ghost"
-      onPress={() => void copy()}
-      className="h-7 w-7 min-w-0 rounded-lg px-0 text-neutral-500 hover:text-neutral-100"
-    >
-      {hasCopied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-    </Button>
-  );
-}
-
-interface ProjectIdentityStripProps {
-  onOpenTemplateTab(): void;
-  project: ProjectSpaceRecord;
-  selectedTargetName: string;
-  selectedTargetPath: string;
-  targetLabel: string;
-}
-
-function ProjectIdentityStrip({
-  onOpenTemplateTab,
-  project,
-  selectedTargetName,
-  selectedTargetPath,
-  targetLabel
-}: ProjectIdentityStripProps) {
-  const templateStatus = project.fullstackTemplate?.status;
-
-  return (
-    <section className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-neutral-800/70 pb-4">
-      <Text className="shrink-0 text-xs font-medium text-neutral-500">{targetLabel}</Text>
-      <div className="flex min-w-0 items-center gap-1">
-        <Text
-          title={selectedTargetPath}
-          className="block truncate font-mono text-sm text-neutral-200"
-        >
-          {selectedTargetPath || 'No local checkout'}
-        </Text>
-        {selectedTargetPath ? <CopyPathButton path={selectedTargetPath} /> : null}
-      </div>
-
-      <div className="ml-auto flex shrink-0 items-center gap-2">
-        <Chip size="sm" variant="tertiary" className="text-neutral-400">
-          {selectedTargetName}
-        </Chip>
-        <button
-          type="button"
-          onClick={onOpenTemplateTab}
-          title="Open template status"
-          className={cn(
-            'rounded-full px-2.5 py-1 text-xs font-medium transition hover:brightness-125',
-            templateChipClass(templateStatus)
-          )}
-        >
-          {templateChipLabel[templateStatus ?? 'not-detected']}
-        </button>
-      </div>
-    </section>
   );
 }
 
@@ -483,7 +420,6 @@ export interface ProjectDetailProps {
   selectedExplorerTarget: ExplorerTarget;
   selectedIssueNumber?: number;
   selectedRepository?: ProjectSpaceRecord['github'];
-  selectedTargetName: string;
   selectedTargetPath: string;
   tab: ProjectDetailTab;
   worktrees: ProjectWorktreeRecord[];
@@ -502,26 +438,15 @@ export function ProjectDetail({
   selectedExplorerTarget,
   selectedIssueNumber,
   selectedRepository,
-  selectedTargetName,
   selectedTargetPath,
   tab,
   worktrees
 }: ProjectDetailProps) {
-  if (project.kind === 'github' && project.github) {
-    return (
-      <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col">
-        <GitHubProjectOverview
-          onOpenIssue={onOpenIssue}
-          project={project as ProjectSpaceRecord & { github: NonNullable<ProjectSpaceRecord['github']> }}
-          selectedRepository={selectedRepository}
-        />
-      </div>
-    );
-  }
+  const [templateRefreshKey, setTemplateRefreshKey] = useState(0);
+  const [templateRelativePath, setTemplateRelativePath] = useState('');
 
-  const targetLabel =
-    selectedExplorerTarget.kind === 'worktree' ? 'Worktree path' : 'Workspace path';
   const containsOwnScroll = tab === 'history' || tab === 'issues';
+  const templateTargetPath = joinTargetPath(selectedTargetPath, templateRelativePath);
 
   return (
     <div
@@ -530,14 +455,6 @@ export function ProjectDetail({
         containsOwnScroll ? 'h-full min-h-0 overflow-hidden' : 'min-h-full'
       )}
     >
-      <ProjectIdentityStrip
-        onOpenTemplateTab={() => onSelectTab('template')}
-        project={project}
-        selectedTargetName={selectedTargetName}
-        selectedTargetPath={selectedTargetPath}
-        targetLabel={targetLabel}
-      />
-
       <div className="-mx-1 shrink-0 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <Tabs
           selectedKey={projectTabItems.some((item) => item.id === tab) ? tab : 'overview'}
@@ -566,14 +483,26 @@ export function ProjectDetail({
 
       <div className="min-h-0 flex-1">
         {tab === 'overview' ? (
-          <OverviewTab
-            connectorOverview={connectorOverview}
-            launcherError={launcherError}
-            onOpenIssue={onOpenIssue}
-            project={project}
-            selectedRepository={selectedRepository}
-            selectedTargetPath={selectedTargetPath}
-          />
+          project.kind === 'github' && project.github ? (
+            <GitHubProjectOverview
+              onOpenIssue={onOpenIssue}
+              project={
+                project as ProjectSpaceRecord & {
+                  github: NonNullable<ProjectSpaceRecord['github']>;
+                }
+              }
+              selectedRepository={selectedRepository}
+            />
+          ) : (
+            <OverviewTab
+              connectorOverview={connectorOverview}
+              launcherError={launcherError}
+              onOpenIssue={onOpenIssue}
+              project={project}
+              selectedRepository={selectedRepository}
+              selectedTargetPath={selectedTargetPath}
+            />
+          )
         ) : null}
 
         {tab === 'machines' ? (
@@ -619,10 +548,26 @@ export function ProjectDetail({
 
         {tab === 'template' ? (
           <div className="flex flex-col gap-4">
-            <ProjectTemplateAdherencePanel targetPath={selectedTargetPath} />
+            <ProjectTemplateSetupPanel
+              connectorOverview={connectorOverview}
+              onSelectWorkspace={onSelectWorkspace}
+              onSelectWorktree={onSelectWorktree}
+              onTemplateRelativePathChange={setTemplateRelativePath}
+              onTemplateChanged={() => setTemplateRefreshKey((current) => current + 1)}
+              project={project}
+              relativePath={templateRelativePath}
+              resolvedTargetPath={templateTargetPath}
+              selectedExplorerTarget={selectedExplorerTarget}
+              targetRootPath={selectedTargetPath}
+              worktrees={worktrees}
+            />
+            <ProjectTemplateAdherencePanel
+              refreshKey={templateRefreshKey}
+              targetPath={templateTargetPath}
+            />
             <TemplateStatusCard check={project.fullstackTemplate} />
-            <ProjectCliCommandPanel project={project} targetPath={selectedTargetPath} />
-            <ProjectctlManifestPanel targetPath={selectedTargetPath} />
+            <ProjectCliCommandPanel project={project} targetPath={templateTargetPath} />
+            <ProjectctlManifestPanel targetPath={templateTargetPath} />
           </div>
         ) : null}
 

@@ -37,6 +37,7 @@ import {
 } from './project-template-adherence-model';
 
 interface ProjectTemplateAdherencePanelProps {
+  refreshKey?: number;
   targetPath: string;
 }
 
@@ -212,7 +213,10 @@ function ViolationListRow({
   );
 }
 
-export function ProjectTemplateAdherencePanel({ targetPath }: ProjectTemplateAdherencePanelProps) {
+export function ProjectTemplateAdherencePanel({
+  refreshKey = 0,
+  targetPath
+}: ProjectTemplateAdherencePanelProps) {
   const [report, setReport] = useState<TemplateAdherenceReport>();
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -247,7 +251,7 @@ export function ProjectTemplateAdherencePanel({ targetPath }: ProjectTemplateAdh
     setReport(undefined);
     setStatusFilters(new Set());
     void runValidation();
-  }, [targetPath]);
+  }, [refreshKey, targetPath]);
 
   const diagnosticsByPath = useMemo(() => {
     const byPath = new Map<string, TemplateAdherenceDiagnostic[]>();

@@ -1,14 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
-import { GitCommitHorizontal, GitPullRequest, RefreshCw, Tag } from 'lucide-react';
+import { GitCommitHorizontal, GitPullRequest, PanelLeftOpen, RefreshCw, Tag } from 'lucide-react';
 import { Button, Chip, Surface, Text, Tooltip } from '@/app/dotnaos-ui';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { cn } from '@/lib/utils';
-import type { GitHistoryCommit } from '@/shared/project-space-api';
+import type {
+  GitHistoryCommit,
+  GitHubBranchRecord,
+  GitHubPullRequestRecord
+} from '@/shared/project-space-api';
+import { usePaneResize } from '../hooks/use-pane-resize';
 import {
   buildGitBranchOptions,
   GitBranchSidebar,
-  GitCommitDetails
+  GitCommitDetailsPane
 } from './git-graph-browser';
+import { PaneResizeHandle } from './pane-resize-handle';
 
 const COMMIT_LIMIT = 300;
 const LANE_WIDTH = 14;
@@ -259,9 +265,13 @@ function CommitDotTooltip({
 }
 
 export function GitGraphPanel({
+  githubBranches = [],
+  pullRequests = [],
   repositoryFullName,
   targetPath
 }: {
+  githubBranches?: GitHubBranchRecord[];
+  pullRequests?: GitHubPullRequestRecord[];
   repositoryFullName?: string;
   targetPath: string;
 }) {
@@ -271,6 +281,16 @@ export function GitGraphPanel({
   const [isLoading, setIsLoading] = useState(false);
   const [selectedHash, setSelectedHash] = useState('');
   const [selectedRef, setSelectedRef] = useState('all');
+  const sidebarPane = usePaneResize({ axis: 'x', initialSize: 208, maxSize: 420, minSize: 150 });
+  const detailPane = usePaneResize({
+    axis: 'y',
+    initialSize: 300,
+    invert: true,
+    maxSize: 640,
+    minSize: 130
+  });
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isDetailCollapsed, setIsDetailCollapsed] = useState(false);
 
   async function refresh(nextRef = selectedRef) {
     if (!targetPath) {
@@ -333,8 +353,13 @@ export function GitGraphPanel({
   }, [repositoryFullName, targetPath]);
 
   const branchOptions = useMemo(
-    () => buildGitBranchOptions(allCommits.length > 0 ? allCommits : commits),
-    [allCommits, commits]
+    () =>
+      buildGitBranchOptions(
+        allCommits.length > 0 ? allCommits : commits,
+        githubBranches,
+        pullRequests
+      ),
+    [allCommits, commits, githubBranches, pullRequests]
   );
   const { maxLanes, rows } = useMemo(() => layoutGraph(commits), [commits]);
   const graphWidth = maxLanes * LANE_WIDTH;
@@ -377,17 +402,43 @@ export function GitGraphPanel({
           {isLoading ? 'Loading history...' : 'No commits found.'}
         </Text>
       ) : (
-        <div className="grid min-h-0 flex-1 grid-cols-[12rem_minmax(0,1fr)_14rem] overflow-hidden">
-          <GitBranchSidebar
-            branches={branchOptions}
-            isLoading={isLoading}
-            onSelectRef={(ref) => {
-              setSelectedRef(ref);
-              void refresh(ref);
-            }}
-            selectedRef={selectedRef}
-          />
-          <div data-testid="git-graph-scroll" className="min-h-0 min-w-0 overflow-auto">
+        <div
+          className="grid min-h-0 flex-1 overflow-hidden"
+          style={{
+            gridTemplateColumns: `${isSidebarCollapsed ? 44 : sidebarPane.size}px minmax(0,1fr)`
+          }}
+        >
+          <div className="relative min-h-0 min-w-0">
+            {isSidebarCollapsed ? (
+              <div className="flex h-full flex-col items-center gap-2 border-r border-neutral-800/70 py-2">
+                <Button
+                  aria-label="Expand branches"
+                  isIconOnly
+                  size="sm"
+                  variant="ghost"
+                  onPress={() => setIsSidebarCollapsed(false)}
+                >
+                  <PanelLeftOpen className="size-3.5" />
+                </Button>
+              </div>
+            ) : (
+              <>
+                <GitBranchSidebar
+                  branches={branchOptions}
+                  isLoading={isLoading}
+                  onCollapse={() => setIsSidebarCollapsed(true)}
+                  onSelectRef={(ref) => {
+                    setSelectedRef(ref);
+                    void refresh(ref);
+                  }}
+                  selectedRef={selectedRef}
+                />
+                <PaneResizeHandle axis="x" onStart={sidebarPane.startResize} />
+              </>
+            )}
+          </div>
+          <div className="flex min-h-0 min-w-0 flex-col">
+          <div data-testid="git-graph-scroll" className="min-h-0 min-w-0 flex-1 overflow-auto">
             <div className="min-w-fit py-1">
               {rows.map((row) => {
                 const isMerge = row.commit.parents.length > 1;
@@ -485,7 +536,21 @@ export function GitGraphPanel({
               })}
             </div>
           </div>
-          <GitCommitDetails commit={selectedCommit} />
+          <div
+            className="relative flex min-h-0 shrink-0 flex-col border-t border-neutral-800/70"
+            style={{ height: isDetailCollapsed ? undefined : detailPane.size }}
+          >
+            {isDetailCollapsed ? null : (
+              <PaneResizeHandle axis="y" onStart={detailPane.startResize} />
+            )}
+            <GitCommitDetailsPane
+              commit={selectedCommit}
+              isCollapsed={isDetailCollapsed}
+              onToggleCollapse={() => setIsDetailCollapsed((current) => !current)}
+              targetPath={targetPath}
+            />
+          </div>
+          </div>
         </div>
       )}
     </Surface>

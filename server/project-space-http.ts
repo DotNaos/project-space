@@ -25,6 +25,7 @@ import type {
   GitHubOAuthDevicePollRequest,
   MachineTerminalCommandRequest,
   ProjectBackupRequest,
+  ProjectCliCommandResult,
   ProjectCliCommandRequest,
   TemplateAdherenceRequest,
   GitCommitRequest,
@@ -454,6 +455,29 @@ function createApiHandler(backend: ProjectSpaceBackend) {
 
       if (request.method === 'POST' && url.pathname === '/api/project-cli/run') {
         const payload = await readJson<ProjectCliCommandRequest>(request);
+        if (payload.machineId) {
+          const overview = await backend.getConnectorOverview();
+          const machine = overview.machines.find((entry) => entry.id === payload.machineId);
+
+          if (!machine) {
+            writeJson(response, 404, { error: `Machine ${payload.machineId} was not found.` });
+            return true;
+          }
+
+          if (machine.connector.status !== 'local') {
+            writeJson(response, 200, {
+              args: [],
+              command: payload.command,
+              cwd: payload.cwd,
+              durationMs: 0,
+              exitCode: 1,
+              stderr:
+                'Project CLI writes can only run on the local connector in this build. Select a local dev machine or add remote connector command routing.',
+              stdout: ''
+            } satisfies ProjectCliCommandResult);
+            return true;
+          }
+        }
         writeJson(response, 200, await backend.runProjectCliCommand(payload));
         return true;
       }

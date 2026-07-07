@@ -218,6 +218,7 @@ interface ProjectsPanelProps {
   onTogglePinnedProject(projectId: string): void;
   pinnedProjectIds: string[];
   projects: ProjectSpaceRecord[];
+  recentProjectIds: string[];
   selectedExplorerTarget: ExplorerTarget;
   selectedProjectId: string;
   worktrees: ProjectWorktreeRecord[];
@@ -233,6 +234,7 @@ function ProjectsPanel({
   onTogglePinnedProject,
   pinnedProjectIds = [],
   projects,
+  recentProjectIds,
   selectedExplorerTarget,
   selectedProjectId,
   worktrees
@@ -247,6 +249,7 @@ function ProjectsPanel({
     [groups]
   );
   const pinnedProjectIdSet = useMemo(() => new Set(pinnedProjectIds), [pinnedProjectIds]);
+  const recentProjectIdSet = useMemo(() => new Set(recentProjectIds), [recentProjectIds]);
   const projectsById = useMemo(
     () => new Map(projects.map((project) => [project.id, project])),
     [projects]
@@ -272,11 +275,29 @@ function ProjectsPanel({
         return isVisibleProject(project) && projectMatchesQuery(project);
       });
   }, [groupsById, pinnedProjectIds, projectsById, query, selectedProjectId]);
+  const recentProjects = useMemo(() => {
+    return recentProjectIds
+      .map((projectId) => projectsById.get(projectId))
+      .filter((project): project is ProjectSpaceRecord => {
+        if (!project || pinnedProjectIdSet.has(project.id)) {
+          return false;
+        }
+
+        return isVisibleProject(project) && projectMatchesQuery(project);
+      });
+  }, [
+    groupsById,
+    pinnedProjectIdSet,
+    projectsById,
+    query,
+    recentProjectIds,
+    selectedProjectId
+  ]);
   const projectGroups = useMemo(() => {
     const byOwner = new Map<string, ProjectSpaceRecord[]>();
 
     for (const project of projects.filter(isVisibleProject)) {
-      if (pinnedProjectIdSet.has(project.id)) {
+      if (pinnedProjectIdSet.has(project.id) || recentProjectIdSet.has(project.id)) {
         continue;
       }
 
@@ -297,7 +318,7 @@ function ProjectsPanel({
         owner
       }))
       .sort((left, right) => left.owner.localeCompare(right.owner));
-  }, [groupsById, pinnedProjectIdSet, projects, query, selectedProjectId]);
+  }, [groupsById, pinnedProjectIdSet, projects, query, recentProjectIdSet, selectedProjectId]);
 
   const renderProjectRow = (entry: ProjectSpaceRecord, owner: string) => {
     const isPinned = pinnedProjectIdSet.has(entry.id);
@@ -380,6 +401,17 @@ function ProjectsPanel({
           </div>
         ) : null}
 
+        {recentProjects.length > 0 ? (
+          <div className="mb-3">
+            <Text className="mb-1 block px-2.5 text-xs font-medium text-neutral-600">
+              Recently opened
+            </Text>
+            {recentProjects.map((entry) =>
+              renderProjectRow(entry, getProjectOwner(entry, groupsById))
+            )}
+          </div>
+        ) : null}
+
         {projectGroups.map((group) => (
           <div key={group.owner} className="mb-2 last:mb-0">
             <Text className="mb-1 block px-2.5 text-xs font-medium text-neutral-600">
@@ -389,7 +421,7 @@ function ProjectsPanel({
           </div>
         ))}
 
-        {projectGroups.length === 0 && pinnedProjects.length === 0 ? (
+        {projectGroups.length === 0 && pinnedProjects.length === 0 && recentProjects.length === 0 ? (
           <Text className="px-2.5 py-2 text-sm text-neutral-500">
             {projects.filter(isVisibleProject).length === 0
               ? 'No projects yet. Add one with the + button above.'
@@ -536,6 +568,7 @@ export interface ContextPanelProps {
   onTogglePinnedProject(projectId: string): void;
   pinnedProjectIds: string[];
   projects: ProjectSpaceRecord[];
+  recentProjectIds: string[];
   section: 'projects' | 'machines';
   selectedExplorerTarget: ExplorerTarget;
   selectedMachineId: string;
@@ -556,6 +589,7 @@ export function ContextPanel({
   onTogglePinnedProject,
   pinnedProjectIds,
   projects,
+  recentProjectIds,
   section,
   selectedExplorerTarget,
   selectedMachineId,
@@ -580,6 +614,7 @@ export function ContextPanel({
           onTogglePinnedProject={onTogglePinnedProject}
           pinnedProjectIds={pinnedProjectIds}
           projects={projects}
+          recentProjectIds={recentProjectIds}
           selectedExplorerTarget={selectedExplorerTarget}
           selectedProjectId={selectedProjectId}
           worktrees={worktrees}

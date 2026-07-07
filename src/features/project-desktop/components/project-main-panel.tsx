@@ -173,7 +173,6 @@ export interface ProjectMainPanelProps {
   selectedIssueNumber?: number;
   selectedMachine?: MachineRecord;
   selectedMachineId: string;
-  selectedTargetName: string;
   selectedTargetPath: string;
   structureViolations: ProjectStructureViolationRecord[];
   worktrees: ProjectWorktreeRecord[];
@@ -218,7 +217,6 @@ export function ProjectMainPanel({
   selectedIssueNumber,
   selectedMachine,
   selectedMachineId,
-  selectedTargetName,
   selectedTargetPath,
   structureViolations,
   worktrees
@@ -367,6 +365,7 @@ export function ProjectMainPanel({
             onOpenProjects={onOpenProjects}
             onSelectProject={onSelectProject}
             projects={projects}
+            recentProjectIds={recentProjectIds}
           />
         ) : mainView === 'settings' ? (
           <SettingsView
@@ -391,7 +390,6 @@ export function ProjectMainPanel({
             selectedExplorerTarget={selectedExplorerTarget}
             selectedIssueNumber={selectedIssueNumber}
             selectedRepository={selectedRepository}
-            selectedTargetName={selectedTargetName}
             selectedTargetPath={selectedTargetPath}
             tab={projectTab}
             worktrees={worktrees}

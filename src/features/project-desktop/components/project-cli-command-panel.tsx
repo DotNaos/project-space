@@ -27,6 +27,16 @@ const commandOptions: CommandOption[] = [
     label: 'Validate'
   },
   {
+    command: 'template-init',
+    description: 'Initialize this target with a template lock and local snapshot.',
+    label: 'Initialize template'
+  },
+  {
+    command: 'template-sync-apply',
+    description: 'Restore or refresh the local template snapshot.',
+    label: 'Sync snapshot'
+  },
+  {
     command: 'module-list',
     description: 'List available and installed template modules.',
     label: 'Modules'

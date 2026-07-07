@@ -7,12 +7,7 @@ import {
   MachineDeviceIcon,
   MachineOsMark
 } from './machine-visuals';
-import {
-  formatRelativeTime,
-  getProjectTimestamp,
-  isVisibleProject,
-  machineSubtitle
-} from './project-main-model';
+import { isVisibleProject, machineSubtitle } from './project-main-model';
 
 export function ProjectRootOverview({
   connector,
@@ -20,7 +15,8 @@ export function ProjectRootOverview({
   onOpenMachine,
   onOpenProjects,
   onSelectProject,
-  projects
+  projects,
+  recentProjectIds
 }: {
   connector: ConnectorOverviewResult;
   onOpenMachines(): void;
@@ -28,17 +24,20 @@ export function ProjectRootOverview({
   onOpenProjects(): void;
   onSelectProject(projectId: string): void;
   projects: ProjectSpaceRecord[];
+  recentProjectIds: string[];
 }) {
   const connectedMachines = connector.machines.filter(isMachineConnected);
-  const recentProjects = projects
+  const projectsById = new Map(projects.map((project) => [project.id, project]));
+  const openedRecentProjects = recentProjectIds
+    .map((projectId) => projectsById.get(projectId))
+    .filter((project): project is ProjectSpaceRecord => Boolean(project && isVisibleProject(project)));
+  const fallbackProjects = projects
     .filter(isVisibleProject)
-    .sort((left, right) => {
-      const timestampDelta = getProjectTimestamp(right) - getProjectTimestamp(left);
-
-      return timestampDelta || left.name.localeCompare(right.name);
-    })
+    .sort((left, right) => left.name.localeCompare(right.name))
     .slice(0, 8);
-  const hasProjectTimestamps = recentProjects.some((project) => getProjectTimestamp(project) > 0);
+  const recentProjects =
+    openedRecentProjects.length > 0 ? openedRecentProjects.slice(0, 8) : fallbackProjects;
+  const hasOpenedRecentProjects = openedRecentProjects.length > 0;
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col gap-8 pt-4">
@@ -86,7 +85,7 @@ export function ProjectRootOverview({
       <section>
         <div className="mb-2 flex items-center justify-between gap-3">
           <Text className="text-sm font-semibold text-neutral-100">
-            {hasProjectTimestamps ? 'Recent projects' : 'Projects'}
+            {hasOpenedRecentProjects ? 'Recently opened' : 'Projects'}
           </Text>
           <Button size="sm" variant="ghost" onPress={onOpenProjects}>
             View all
@@ -96,10 +95,8 @@ export function ProjectRootOverview({
         {recentProjects.length > 0 ? (
           <div className="divide-y divide-neutral-900/80">
             {recentProjects.map((entry) => {
-              const timestamp = getProjectTimestamp(entry);
               const label = entry.github?.name ?? entry.name;
               const sublabel = entry.github?.owner ?? (entry.kind === 'github' ? 'GitHub' : 'Local');
-              const relative = formatRelativeTime(timestamp);
 
               return (
                 <button
@@ -114,9 +111,6 @@ export function ProjectRootOverview({
                     </Text>
                     <Text className="block truncate text-xs text-neutral-500">{sublabel}</Text>
                   </span>
-                  {relative ? (
-                    <Text className="shrink-0 text-xs text-neutral-500">{relative}</Text>
-                  ) : null}
                 </button>
               );
             })}

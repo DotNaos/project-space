@@ -91,6 +91,8 @@ function projectCliArgs(request: ProjectCliCommandRequest): string[] {
   switch (request.command) {
     case 'validate':
       return ['validate', '--format', 'pretty'];
+    case 'template-init':
+      return ['init'];
     case 'module-list':
       return ['module', 'list'];
     case 'module-show':
@@ -100,6 +102,8 @@ function projectCliArgs(request: ProjectCliCommandRequest): string[] {
       return ['module', 'show', request.moduleName];
     case 'template-sync':
       return ['template', 'sync', '--dry-run'];
+    case 'template-sync-apply':
+      return ['template', 'sync'];
     case 'template-update':
       return ['template', 'update', '--dry-run'];
     case 'deploy-status':
