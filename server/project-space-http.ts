@@ -110,23 +110,39 @@ hub_url="${origin}"
 registration_token="${registrationTokenValue}"
 install_dir="\${PROJECT_SPACE_CONNECTOR_DIR:-$HOME/.local/bin}"
 service_name="\${PROJECT_CONNECTOR_SERVICE_NAME:-$(hostname -s)}"
+config_dir="\${PROJECT_CONNECTOR_CONFIG_DIR:-$HOME/.config/project-space}"
+config_file="\${PROJECT_CONNECTOR_CONFIG:-$config_dir/connector.json}"
 asset="project-space-connector-darwin-arm64.tar.gz"
 download_url="https://github.com/DotNaos/project-space/releases/latest/download/$asset"
 
 if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
   echo "Project Space currently publishes a packaged connector for macOS arm64."
   echo "For this machine, build from source or install a matching connector binary, then run:"
-  echo "PROJECT_CONNECTOR_HUB_URL=$hub_url PROJECT_CONNECTOR_SERVICE_NAME=$service_name project-space-connector"
+  echo "project connector setup --prod-url $hub_url"
+  echo "PROJECT_CONNECTOR_CONFIG=$config_file PROJECT_CONNECTOR_SERVICE_NAME=$service_name project-space-connector"
   exit 1
 fi
 
 mkdir -p "$install_dir"
+mkdir -p "$(dirname "$config_file")"
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 curl -fsSL "$download_url" -o "$tmp_dir/project-space-connector.tar.gz"
 tar -xzf "$tmp_dir/project-space-connector.tar.gz" -C "$tmp_dir"
 install "$tmp_dir/project-space-connector" "$install_dir/project-space-connector"
+
+cat > "$config_file" <<JSON
+{
+  "hubs": [
+    {
+      "name": "prod",
+      "url": "$hub_url",
+      "registrationTokenEnv": "PROJECT_CONNECTOR_REGISTRATION_TOKEN"
+    }
+  ]
+}
+JSON
 
 mkdir -p "$HOME/Library/LaunchAgents"
 cat > "$HOME/Library/LaunchAgents/net.os-home.project-space-connector.plist" <<PLIST
@@ -142,8 +158,8 @@ cat > "$HOME/Library/LaunchAgents/net.os-home.project-space-connector.plist" <<P
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PROJECT_CONNECTOR_HUB_URL</key>
-    <string>$hub_url</string>
+    <key>PROJECT_CONNECTOR_CONFIG</key>
+    <string>$config_file</string>
     <key>PROJECT_CONNECTOR_SERVICE_NAME</key>
     <string>$service_name</string>
     <key>PROJECT_CONNECTOR_REGISTRATION_TOKEN</key>
@@ -163,6 +179,7 @@ launchctl load "$HOME/Library/LaunchAgents/net.os-home.project-space-connector.p
 echo "Project Space connector installed."
 echo "Machine service: $service_name"
 echo "Hub: $hub_url"
+echo "Config: $config_file"
 `;
 }
 
