@@ -137,3 +137,78 @@ body.issue-dragging {
   border-radius: 0;
   box-shadow: none;
 }
+
+/* Syntax highlighting for rendered diffs (highlight.js token classes). */
+.diff-code .hljs-comment,
+.diff-code .hljs-quote {
+  color: #8a8a8a;
+  font-style: italic;
+}
+
+.diff-code .hljs-keyword,
+.diff-code .hljs-selector-tag,
+.diff-code .hljs-literal,
+.diff-code .hljs-doctag,
+.diff-code .hljs-meta .hljs-keyword {
+  color: #c4b5fd;
+}
+
+.diff-code .hljs-string,
+.diff-code .hljs-regexp,
+.diff-code .hljs-addition {
+  color: #9ce8b4;
+}
+
+.diff-code .hljs-number,
+.diff-code .hljs-symbol,
+.diff-code .hljs-bullet,
+.diff-code .hljs-link {
+  color: #fcd34d;
+}
+
+.diff-code .hljs-title,
+.diff-code .hljs-title.function_,
+.diff-code .hljs-function .hljs-title,
+.diff-code .hljs-section {
+  color: #7dd3fc;
+}
+
+.diff-code .hljs-title.class_,
+.diff-code .hljs-type,
+.diff-code .hljs-built_in,
+.diff-code .hljs-class .hljs-title {
+  color: #5eead4;
+}
+
+.diff-code .hljs-attr,
+.diff-code .hljs-attribute,
+.diff-code .hljs-selector-attr,
+.diff-code .hljs-selector-class,
+.diff-code .hljs-selector-id,
+.diff-code .hljs-property {
+  color: #fdba74;
+}
+
+.diff-code .hljs-variable,
+.diff-code .hljs-template-variable,
+.diff-code .hljs-name,
+.diff-code .hljs-params {
+  color: #f0abfc;
+}
+
+.diff-code .hljs-meta,
+.diff-code .hljs-tag {
+  color: #a8b3c4;
+}
+
+.diff-code .hljs-emphasis {
+  font-style: italic;
+}
+
+.diff-code .hljs-strong {
+  font-weight: 600;
+}
+
+.diff-code .hljs-deletion {
+  color: #fca5a5;
+}

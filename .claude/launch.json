@@ -41,6 +41,16 @@
       "autoPort": true
     },
     {
+      "name": "frontend-direct",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "./node_modules/.bin/vite --host 127.0.0.1 --port ${PORT:-5178}"
+      ],
+      "port": 5178,
+      "autoPort": true
+    },
+    {
       "name": "frontend-noauth-direct",
       "runtimeExecutable": "sh",
       "runtimeArgs": [

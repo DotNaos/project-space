@@ -387,6 +387,34 @@ export function useProjectDesktop() {
     return nextRecentProjectIds;
   }
 
+  useEffect(() => {
+    if (!hasLoaded || mainView !== 'project' || !project) {
+      return;
+    }
+
+    setRecentProjectIds((current) => {
+      if (current[0] === project.id) {
+        return current;
+      }
+
+      const nextRecentProjectIds = [
+        project.id,
+        ...current.filter((entry) => entry !== project.id)
+      ].slice(0, 8);
+
+      persistProjectsState({
+        activeGroupId: project.groupId ?? '',
+        pinnedProjectIds,
+        recentProjectIds: nextRecentProjectIds,
+        selectedExplorerTarget,
+        selectedLauncherAppId,
+        selectedProjectId: project.id
+      });
+
+      return nextRecentProjectIds;
+    });
+  }, [hasLoaded, mainView, project?.id]);
+
   const refreshConnectorOverview = useCallback(async () => {
     setIsConnectorRefreshing(true);
     try {
@@ -603,7 +631,7 @@ export function useProjectDesktop() {
           'project',
           project.id,
           true,
-          project.kind === 'github' ? 'overview' : projectTab,
+          projectTab,
           projectTab === 'issues' ? String(selectedIssueNumber ?? '') : ''
         );
       } else if (isGitHubProjectId(selectedProjectId)) {
@@ -987,7 +1015,7 @@ export function useProjectDesktop() {
         'project',
         projectId,
         false,
-        nextProject?.kind === 'github' ? 'overview' : projectTab
+        projectTab
       );
       setLauncherError('');
       const nextRecentProjectIds = pushRecentProject(projectId);

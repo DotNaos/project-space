@@ -200,8 +200,18 @@ export async function getGitDiff(request: GitDiffRequest): Promise<GitDiffResult
     };
   }
 
-  const args = ['diff'];
-  if (request.staged) {
+  const commit = request.commit?.trim();
+
+  if (commit && !/^[0-9a-f]{4,40}$/i.test(commit)) {
+    return {
+      diff: 'Invalid commit hash.',
+      path: request.path,
+      staged: false
+    };
+  }
+
+  const args = commit ? ['show', '--format=', '--patch', commit] : ['diff'];
+  if (!commit && request.staged) {
     args.push('--cached');
   }
 

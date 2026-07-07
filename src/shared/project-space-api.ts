@@ -256,6 +256,8 @@ export interface GitStatusResult {
 }
 
 export interface GitDiffRequest {
+  /** When set, returns the patch introduced by this commit instead of working-tree changes. */
+  commit?: string;
   cwd: string;
   path?: string;
   staged?: boolean;
@@ -652,9 +654,11 @@ export interface ConnectorProjectRegistryResult {
 
 export type ProjectCliCommand =
   | 'validate'
+  | 'template-init'
   | 'module-list'
   | 'module-show'
   | 'template-sync'
+  | 'template-sync-apply'
   | 'template-update'
   | 'deploy-status'
   | 'deploy-dry-run';
@@ -665,6 +669,7 @@ export interface ProjectCliCommandRequest {
   command: ProjectCliCommand;
   cwd: string;
   environment?: ProjectDeployEnvironment;
+  machineId?: string;
   moduleName?: string;
 }
 

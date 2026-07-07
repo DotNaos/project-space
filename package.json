@@ -31,6 +31,7 @@
     "@clerk/react": "^6.11.3",
     "@dotnaos/react-ui": "^0.0.2",
     "@wterm/dom": "^0.3.0",
+    "highlight.js": "^11.11.1",
     "lucide-react": "^0.577.0",
     "node-pty": "^1.1.0",
     "pg": "^8.22.0",
@@ -55,5 +56,6 @@
     "vite": "^7.0.6",
     "vite-plugin-electron": "^0.29.0",
     "vite-plugin-electron-renderer": "^0.14.6"
-  }
+  },
+  "packageManager": "pnpm@11.10.0+sha512.0b7f8b98060031904c017e3a41eb187a16d40eeb829b95c4f8cb03681761fc4ab53dd219115b9b447f4dce1a05a214764461e7d3703392a9f32f9511ce8c86c8"
 }

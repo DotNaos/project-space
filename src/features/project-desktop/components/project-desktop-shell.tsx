@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useAuth, useClerk, useUser } from '@clerk/react';
-import { FolderKanban, House, LogIn, Server, Settings } from 'lucide-react';
+import { useAuth, useClerk, useSignIn, useUser } from '@clerk/react';
+import { FolderKanban, House, Server, Settings, TriangleAlert } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button, Surface, Text } from '@/app/dotnaos-ui';
 import {
@@ -116,6 +116,29 @@ function MobileTabBar({
   );
 }
 
+function GoogleLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 48 48" className={className} aria-hidden="true">
+      <path
+        fill="#EA4335"
+        d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+      />
+      <path
+        fill="#4285F4"
+        d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+      />
+      <path
+        fill="#34A853"
+        d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+      />
+    </svg>
+  );
+}
+
 function ProjectSpaceLoginScreen({
   isBusy = false,
   message,
@@ -126,36 +149,60 @@ function ProjectSpaceLoginScreen({
   onSignIn(): void;
 }) {
   return (
-    <div className="flex min-h-full items-center justify-center bg-app-canvas px-6 text-neutral-100">
-      <Surface
-        variant="secondary"
-        className="flex w-full max-w-md flex-col gap-6 rounded-lg border-neutral-800 p-6"
-      >
-        <div className="flex items-center gap-3">
-          <div className="flex size-11 items-center justify-center rounded-lg bg-neutral-100 text-neutral-950">
-            <LogIn className="size-5" strokeWidth={2} />
-          </div>
-          <div className="min-w-0">
-            <Text as="h1" className="text-xl font-semibold text-neutral-50">
-              Sign in to Project Space
-            </Text>
-            <Text as="p" className="mt-1 text-sm text-neutral-400">
-              Sign in with Google through Clerk to open this workspace. Connect GitHub later for repositories.
-            </Text>
-          </div>
+    <div className="relative flex min-h-full items-center justify-center overflow-hidden bg-app-canvas px-6 text-neutral-100">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+        <div className="absolute left-1/2 top-[-30%] h-[26rem] w-[42rem] -translate-x-1/2 rounded-full bg-neutral-50/[0.05] blur-[120px]" />
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-neutral-700/70 to-transparent" />
+      </div>
+
+      <div className="relative flex w-full max-w-sm flex-col items-center text-center">
+        <div className="flex size-14 items-center justify-center rounded-2xl border border-neutral-800 bg-app-panel shadow-[0_16px_40px_rgba(0,0,0,0.5)]">
+          <FolderKanban className="size-6 text-neutral-100" strokeWidth={1.8} />
         </div>
 
-        <Button onPress={onSignIn} isDisabled={isBusy}>
-          <LogIn className="size-4" />
-          Sign in with Google
+        <Text as="h1" className="mt-6 text-2xl font-semibold tracking-tight text-neutral-50">
+          Welcome to Project Space
+        </Text>
+        <Text as="p" className="mt-2 max-w-xs text-sm leading-relaxed text-neutral-400">
+          Sign in to open your workspace. Connect GitHub later for repositories.
+        </Text>
+
+        <Button
+          fullWidth
+          size="lg"
+          variant="primary"
+          isDisabled={isBusy}
+          onPress={onSignIn}
+          className="mt-8 gap-3 rounded-xl bg-white text-[15px] hover:bg-neutral-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-300"
+        >
+          {isBusy ? (
+            <span
+              aria-hidden="true"
+              className="size-4 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-800"
+            />
+          ) : (
+            <GoogleLogo className="size-4.5" />
+          )}
+          {isBusy ? 'Redirecting to Google…' : 'Continue with Google'}
         </Button>
 
         {message ? (
-          <Text as="p" className="text-sm text-amber-300">
-            {message}
-          </Text>
+          <div className="mt-5 flex max-w-xs items-start gap-2 text-left">
+            <TriangleAlert
+              aria-hidden="true"
+              className="mt-0.5 size-3.5 shrink-0 text-amber-300/90"
+              strokeWidth={1.8}
+            />
+            <Text as="p" className="text-xs leading-relaxed text-neutral-400">
+              {message}
+            </Text>
+          </div>
         ) : null}
-      </Surface>
+
+        <Text as="p" className="mt-10 text-xs text-neutral-600">
+          You&apos;ll be taken straight to Google to sign in securely.
+        </Text>
+      </div>
     </div>
   );
 }
@@ -237,6 +284,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
             onTogglePinnedProject={desktop.togglePinnedProject}
             pinnedProjectIds={desktop.pinnedProjectIds}
             projects={desktop.projects}
+            recentProjectIds={desktop.recentProjectIds}
             section={activeSection === 'machines' ? 'machines' : 'projects'}
             selectedExplorerTarget={desktop.selectedExplorerTarget}
             selectedMachineId={desktop.selectedMachineId}
@@ -284,7 +332,6 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           selectedIssueNumber={desktop.selectedIssueNumber}
           selectedMachine={desktop.selectedMachine}
           selectedMachineId={desktop.selectedMachineId}
-          selectedTargetName={desktop.selectedTargetName}
           selectedTargetPath={desktop.selectedTargetPath}
           structureViolations={desktop.structureViolations}
           worktrees={desktop.worktrees}
@@ -323,11 +370,43 @@ export function ProjectDesktopShell() {
 
 function ClerkProjectDesktopShell() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
-  const { openSignIn, signOut } = useClerk();
+  const { signOut } = useClerk();
+  const { signIn } = useSignIn();
   const { user } = useUser();
   const [session, setSession] = useState<ProjectSpaceAuthSessionResult | null>(null);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [isRedirectingToGoogle, setIsRedirectingToGoogle] = useState(false);
   const [message, setMessage] = useState('');
+
+  async function signInWithGoogle() {
+    if (!signIn) {
+      return;
+    }
+
+    setIsRedirectingToGoogle(true);
+    setMessage('');
+
+    try {
+      // A rejected Clerk session must be cleared before a new OAuth attempt.
+      if (isSignedIn) {
+        await signOut();
+      }
+
+      const { error } = await signIn.sso({
+        redirectCallbackUrl: '/sso-callback',
+        redirectUrl: '/',
+        strategy: 'oauth_google'
+      });
+
+      if (error) {
+        setIsRedirectingToGoogle(false);
+        setMessage(error.message || 'Could not start Google sign-in.');
+      }
+    } catch (error) {
+      setIsRedirectingToGoogle(false);
+      setMessage(error instanceof Error ? error.message : 'Could not start Google sign-in.');
+    }
+  }
 
   useEffect(() => {
     let canceled = false;
@@ -398,10 +477,10 @@ function ClerkProjectDesktopShell() {
   if (!isSignedIn || (session?.authRequired && !session.authenticated)) {
     return (
       <ProjectSpaceLoginScreen
-        isBusy={!isLoaded}
+        isBusy={!isLoaded || isRedirectingToGoogle}
         message={message}
         onSignIn={() => {
-          void openSignIn();
+          void signInWithGoogle();
         }}
       />
     );
