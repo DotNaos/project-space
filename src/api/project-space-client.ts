@@ -15,6 +15,7 @@ import type {
   GitHistoryResult,
   GitHubCatalogResult,
   GitHubBranchCreateRequest,
+  GitHubBranchDeleteRequest,
   GitHubBranchMutationResult,
   GitHubIssueCommentCreateRequest,
   GitHubIssueCommentMutationResult,
@@ -108,17 +109,33 @@ export async function refreshProjectSpaceAuthToken() {
 }
 
 function resolveApiBaseUrl() {
-  const explicitBaseUrl = import.meta.env.VITE_PROJECT_SPACE_API_BASE_URL;
-
-  if (explicitBaseUrl) {
-    return explicitBaseUrl.replace(/\/+$/, '');
-  }
-
   const currentUrl = new URL(window.location.href);
   const queryBaseUrl = currentUrl.searchParams.get('projectSpaceApi');
 
   if (queryBaseUrl) {
     return queryBaseUrl.replace(/\/+$/, '');
+  }
+
+  const explicitBaseUrl = import.meta.env.VITE_PROJECT_SPACE_API_BASE_URL;
+
+  if (explicitBaseUrl) {
+    const explicitUrl = new URL(explicitBaseUrl, currentUrl);
+    const explicitHost = explicitUrl.hostname.toLowerCase();
+    const currentHost = currentUrl.hostname.toLowerCase();
+    const explicitIsLoopback =
+      explicitHost === 'localhost' ||
+      explicitHost === '127.0.0.1' ||
+      explicitHost === '::1' ||
+      explicitHost === '[::1]';
+    const currentIsLoopback =
+      currentHost === 'localhost' ||
+      currentHost === '127.0.0.1' ||
+      currentHost === '::1' ||
+      currentHost === '[::1]';
+
+    if (!explicitIsLoopback || currentIsLoopback) {
+      return explicitUrl.toString().replace(/\/+$/, '');
+    }
   }
 
   return '';
@@ -218,6 +235,13 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     return this.request('/api/github/branches', {
       body: JSON.stringify(request),
       method: 'POST'
+    });
+  }
+
+  deleteGitHubBranch(request: GitHubBranchDeleteRequest): Promise<GitHubBranchMutationResult> {
+    return this.request('/api/github/branches', {
+      body: JSON.stringify(request),
+      method: 'DELETE'
     });
   }
 

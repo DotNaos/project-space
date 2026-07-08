@@ -224,7 +224,7 @@ class CodexAppServerClient {
         'You are helping inside Project Space. Answer plainly. Use tools only when the user asks you to inspect or change local files.',
       cwd,
       ephemeral: true,
-      sandbox: 'workspace-write'
+      sandbox: 'read-only'
     };
     const model = process.env.PROJECT_SPACE_CODEX_MODEL ?? process.env.CODEX_MODEL;
 

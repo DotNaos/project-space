@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import {
+  Check,
+  ChevronDown,
+  Filter,
   Grid2X2,
   List,
   Plus,
@@ -9,14 +12,24 @@ import {
 import {
   Button,
   Chip,
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownPopover,
+  DropdownTrigger,
+  SearchField,
+  SearchFieldClearButton,
+  SearchFieldGroup,
+  SearchFieldInput,
+  SearchFieldSearchIcon,
   Tab,
   TabIndicator,
   TabList,
   Tabs,
-  Text,
-  Tooltip
+  Text
 } from '@/app/dotnaos-ui';
 import { projectSpaceClient } from '@/api/project-space-client';
+import { cn } from '@/lib/utils';
 import type {
   ConnectorOverviewResult,
   GitHubCatalogResult,
@@ -24,20 +37,16 @@ import type {
   MachineRecord,
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
-import {
-  isMachineConnected,
-  MachineBatteryMeter,
-  MachineConnectionIcon,
-  MachineDeviceIcon,
-  MachineOsMark
-} from './machine-visuals';
+import { isMachineConnected } from './machine-visuals';
+import { MachineListItem } from './machine-list-item';
 import {
   AddMachineDialog,
   BranchChips,
   GitHubConnectPanel,
-  MachineDetailsTooltip,
   MainListSearch,
-  ProjectListItem
+  ProjectListItem,
+  ProjectListTableHeader,
+  sourceLabelForRow
 } from './project-home-overview-widgets';
 import {
   branchesFromWorktrees,
@@ -69,7 +78,17 @@ interface ProjectHomeOverviewProps {
   recentProjectIds: string[];
 }
 
-type ProjectSortKey = 'name' | 'owner' | 'recent' | 'unstaged';
+type ProjectSortKey = 'name' | 'recent' | 'unstaged';
+
+const projectSortLabels: Record<ProjectSortKey, string> = {
+  name: 'Name',
+  recent: 'Recently opened',
+  unstaged: 'Unstaged changes'
+};
+
+function matrixRowProjectId(row: MatrixRow) {
+  return row.localMatches[0]?.project.id ?? (row.repo ? `github:${row.repo.fullName}` : '');
+}
 
 export function ProjectHomeOverview({
   connector,
@@ -97,8 +116,18 @@ export function ProjectHomeOverview({
   const [layout, setLayout] = useState<'grid' | 'list'>('list');
   const [machineQuery, setMachineQuery] = useState('');
   const [projectQuery, setProjectQuery] = useState('');
-  const [projectSort, setProjectSort] = useState<ProjectSortKey>('owner');
+  const [projectSort, setProjectSort] = useState<ProjectSortKey>('name');
+  const [activeMachineSearchIndex, setActiveMachineSearchIndex] = useState(0);
+  const [activeProjectSearchIndex, setActiveProjectSearchIndex] = useState(0);
+  const [sourceFilter, setSourceFilter] = useState('all');
+  const [sourceFilterQuery, setSourceFilterQuery] = useState('');
+  const [sourceFilterOpen, setSourceFilterOpen] = useState(false);
+  const [activeSourceFilterIndex, setActiveSourceFilterIndex] = useState(0);
   const [selectedMachineId, setSelectedMachineId] = useState('');
+  const isPendingGitHubCatalog =
+    mode === 'projects' &&
+    githubCatalog.status !== 'connected' &&
+    (isGitHubRefreshing || !githubCatalog.checkedAt);
 
   async function refresh(includeConnector: boolean) {
     setIsRefreshing(true);
@@ -212,6 +241,16 @@ export function ProjectHomeOverview({
   const activeMachineId = selectedMachineId || localMachineId || machines[0]?.id || '';
   const activeMachine = machinesById.get(activeMachineId);
 
+  useEffect(() => {
+    setActiveMachineSearchIndex(0);
+  }, [machineQuery, layout]);
+
+  useEffect(() => {
+    if (activeMachineSearchIndex >= filteredMachines.length) {
+      setActiveMachineSearchIndex(Math.max(0, filteredMachines.length - 1));
+    }
+  }, [activeMachineSearchIndex, filteredMachines.length]);
+
   const rows = useMemo<MatrixRow[]>(() => {
     const repositories =
       githubCatalog.status === 'connected'
@@ -303,19 +342,44 @@ export function ProjectHomeOverview({
       }
     }
 
-    if (projectSort === 'owner') {
-      const ownerDelta = (left.repo?.owner ?? 'Other').localeCompare(right.repo?.owner ?? 'Other');
-      if (ownerDelta !== 0) {
-        return ownerDelta;
-      }
-    }
-
     return left.title.localeCompare(right.title);
   }
+
+  const projectSourceOptions = useMemo(() => {
+    const sources = Array.from(new Set(githubRows.map(sourceLabelForRow))).sort((left, right) =>
+      left.localeCompare(right)
+    );
+
+    return ['all', ...sources];
+  }, [githubRows]);
+  const filteredProjectSourceOptions = useMemo(
+    () =>
+      projectSourceOptions.filter((source) =>
+        matchesQuery([source === 'all' ? 'All sources' : source], sourceFilterQuery)
+      ),
+    [projectSourceOptions, sourceFilterQuery]
+  );
+
+  useEffect(() => {
+    if (sourceFilter !== 'all' && !projectSourceOptions.includes(sourceFilter)) {
+      setSourceFilter('all');
+    }
+  }, [projectSourceOptions, sourceFilter]);
+
+  useEffect(() => {
+    setActiveSourceFilterIndex(0);
+  }, [sourceFilterQuery, sourceFilterOpen]);
+
+  useEffect(() => {
+    if (activeSourceFilterIndex >= filteredProjectSourceOptions.length) {
+      setActiveSourceFilterIndex(Math.max(0, filteredProjectSourceOptions.length - 1));
+    }
+  }, [activeSourceFilterIndex, filteredProjectSourceOptions.length]);
 
   const filteredGithubRows = useMemo(
     () =>
       githubRows
+        .filter((row) => sourceFilter === 'all' || sourceLabelForRow(row) === sourceFilter)
         .filter((row) =>
           matchesQuery(
             [
@@ -330,8 +394,18 @@ export function ProjectHomeOverview({
           )
         )
         .sort(compareRows),
-    [githubRows, projectQuery, projectSort, recentRankByProjectId]
+    [githubRows, projectQuery, projectSort, recentRankByProjectId, sourceFilter]
   );
+
+  useEffect(() => {
+    setActiveProjectSearchIndex(0);
+  }, [projectQuery, sourceFilter, projectSort, layout]);
+
+  useEffect(() => {
+    if (activeProjectSearchIndex >= filteredGithubRows.length) {
+      setActiveProjectSearchIndex(Math.max(0, filteredGithubRows.length - 1));
+    }
+  }, [activeProjectSearchIndex, filteredGithubRows.length]);
   const recentGithubRows = useMemo(() => {
     if (projectQuery.trim()) {
       return [];
@@ -339,7 +413,7 @@ export function ProjectHomeOverview({
 
     const rowsByProjectId = new Map<string, MatrixRow>();
 
-    for (const row of githubRows) {
+    for (const row of filteredGithubRows) {
       if (row.repo) {
         rowsByProjectId.set(`github:${row.repo.fullName}`, row);
       }
@@ -363,7 +437,7 @@ export function ProjectHomeOverview({
     }
 
     return recentRows.slice(0, 5);
-  }, [githubRows, projectQuery, recentProjectIds]);
+  }, [filteredGithubRows, projectQuery, recentProjectIds]);
   const branchSourceProjects = useMemo(() => {
     if (mode !== 'projects') {
       return [];
@@ -382,30 +456,17 @@ export function ProjectHomeOverview({
     return Array.from(sourceProjects.values()).slice(0, 80);
   }, [mode, rows]);
   const githubRowGroups = useMemo(() => {
-    if (projectSort !== 'owner') {
-      return [
-        {
-          items: filteredGithubRows,
-          owner: projectSort === 'recent' ? 'Recently sorted' : projectSort === 'unstaged' ? 'Most changes' : 'All projects'
-        }
-      ];
-    }
-
-    const groups = new Map<string, MatrixRow[]>();
-
-    for (const row of filteredGithubRows) {
-      const owner = row.repo?.owner ?? 'Other';
-      const items = groups.get(owner) ?? [];
-      items.push(row);
-      groups.set(owner, items);
-    }
-
-    return Array.from(groups.entries())
-      .map(([owner, items]) => ({
-        items: [...items].sort((left, right) => left.title.localeCompare(right.title)),
-        owner
-      }))
-      .sort((left, right) => left.owner.localeCompare(right.owner));
+    return [
+      {
+        items: filteredGithubRows,
+        owner:
+          projectSort === 'recent'
+            ? 'Recently sorted'
+            : projectSort === 'unstaged'
+            ? 'Most changes'
+            : 'All projects'
+      }
+    ];
   }, [filteredGithubRows, projectSort]);
 
   useEffect(() => {
@@ -456,6 +517,124 @@ export function ProjectHomeOverview({
       row.repo?.defaultBranch,
       row.localMatches.map((match) => branchRecordsByProjectId[match.project.id] ?? [])
     );
+  }
+
+  function moveIndex(currentIndex: number, delta: number, itemCount: number) {
+    if (itemCount <= 0) {
+      return 0;
+    }
+
+    return Math.min(itemCount - 1, Math.max(0, currentIndex + delta));
+  }
+
+  function handleMachineSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      if (filteredMachines.length === 0) {
+        return;
+      }
+      setActiveMachineSearchIndex((index) => moveIndex(index, 1, filteredMachines.length));
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (filteredMachines.length === 0) {
+        return;
+      }
+      setActiveMachineSearchIndex((index) => moveIndex(index, -1, filteredMachines.length));
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (filteredMachines.length === 0) {
+        return;
+      }
+      const machine = filteredMachines[activeMachineSearchIndex] ?? filteredMachines[0];
+
+      if (machine) {
+        setSelectedMachineId(machine.id);
+        onSelectMachine(machine.id);
+      }
+    }
+  }
+
+  function handleProjectSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      if (filteredGithubRows.length === 0) {
+        return;
+      }
+      setActiveProjectSearchIndex((index) => moveIndex(index, 1, filteredGithubRows.length));
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (filteredGithubRows.length === 0) {
+        return;
+      }
+      setActiveProjectSearchIndex((index) => moveIndex(index, -1, filteredGithubRows.length));
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (filteredGithubRows.length === 0) {
+        return;
+      }
+      const row = filteredGithubRows[activeProjectSearchIndex] ?? filteredGithubRows[0];
+      const projectId = row ? matrixRowProjectId(row) : '';
+
+      if (projectId) {
+        onSelectProject(projectId);
+      }
+    }
+  }
+
+  function applySourceFilter(source: string) {
+    setSourceFilter(source);
+    setSourceFilterQuery('');
+    setSourceFilterOpen(false);
+  }
+
+  function handleSourceFilterKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (filteredProjectSourceOptions.length === 0) {
+      return;
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveSourceFilterIndex((index) =>
+        moveIndex(index, 1, filteredProjectSourceOptions.length)
+      );
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveSourceFilterIndex((index) =>
+        moveIndex(index, -1, filteredProjectSourceOptions.length)
+      );
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const source =
+        filteredProjectSourceOptions[activeSourceFilterIndex] ?? filteredProjectSourceOptions[0];
+
+      if (source) {
+        applySourceFilter(source);
+      }
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setSourceFilterOpen(false);
+    }
   }
 
   useEffect(() => {
@@ -514,85 +693,164 @@ export function ProjectHomeOverview({
     );
   }
 
-  function renderMachineCard(machine: MachineRecord) {
-    const machineProjects = projectsByMachine[machine.id] ?? [];
-    const isSelected = machine.id === activeMachineId;
+  function renderProjectSortMenu() {
+    const sortKeys: ProjectSortKey[] = ['name', 'recent', 'unstaged'];
 
     return (
-      <button
+      <Dropdown>
+        <DropdownTrigger
+          aria-label="Sort projects"
+          className="min-h-9 gap-2 rounded-lg border-neutral-800 bg-neutral-900/70 px-2.5 text-xs text-neutral-300 hover:border-neutral-700 hover:bg-neutral-900"
+        >
+          <SlidersHorizontal className="size-3.5 text-neutral-500" />
+          <span className="hidden text-neutral-500 sm:inline">Sort</span>
+          <span className="font-medium text-neutral-100">{projectSortLabels[projectSort]}</span>
+          <ChevronDown className="size-3.5 text-neutral-500" />
+        </DropdownTrigger>
+        <DropdownPopover className="w-52">
+          <DropdownMenu aria-label="Project sort options">
+            {sortKeys.map((sortKey) => (
+              <DropdownItem key={sortKey} onPress={() => setProjectSort(sortKey)}>
+                <span className="inline-flex w-full items-center justify-between gap-3">
+                  <span className="min-w-0 flex-1 truncate">{projectSortLabels[sortKey]}</span>
+                  {projectSort === sortKey ? <Check className="size-3.5" /> : null}
+                </span>
+              </DropdownItem>
+            ))}
+          </DropdownMenu>
+        </DropdownPopover>
+      </Dropdown>
+    );
+  }
+
+  function renderProjectSourceFilter() {
+    const label = sourceFilter === 'all' ? 'All sources' : sourceFilter;
+
+    return (
+      <Dropdown
+        open={sourceFilterOpen}
+        onOpenChange={(open) => {
+          setSourceFilterOpen(open);
+
+          if (!open) {
+            setSourceFilterQuery('');
+          }
+        }}
+      >
+        <DropdownTrigger
+          aria-label="Filter projects by source"
+          className="min-h-9 w-48 justify-start gap-2 rounded-lg border-neutral-800 bg-neutral-900/70 px-2.5 text-xs text-neutral-300 hover:border-neutral-700 hover:bg-neutral-900 sm:w-56"
+        >
+          <Filter className="size-3.5 shrink-0 text-neutral-500" />
+          <span className="hidden text-neutral-500 sm:inline">Source</span>
+          <span className="min-w-0 flex-1 truncate text-left font-medium text-neutral-100">
+            {label}
+          </span>
+          <ChevronDown className="size-3.5 shrink-0 text-neutral-500" />
+        </DropdownTrigger>
+        <DropdownPopover
+          className="left-0 right-auto"
+          style={{ maxWidth: 'calc(100vw - 2rem)', minWidth: 0, width: '16rem' }}
+        >
+          <div className="border-b border-neutral-900 p-1.5">
+            <SearchField value={sourceFilterQuery} onChange={setSourceFilterQuery}>
+              <SearchFieldGroup className="rounded-md bg-neutral-900/80 px-2 py-1.5">
+                <SearchFieldSearchIcon />
+                <SearchFieldInput
+                  autoFocus
+                  className="text-sm"
+                  placeholder="Search sources"
+                  spellCheck={false}
+                  onKeyDown={handleSourceFilterKeyDown}
+                />
+                <SearchFieldClearButton />
+              </SearchFieldGroup>
+            </SearchField>
+          </div>
+          <DropdownMenu
+            aria-label="Project source filter options"
+            className="max-h-72 overflow-y-auto"
+          >
+            {filteredProjectSourceOptions.map((source, index) => (
+              <DropdownItem
+                key={source}
+                className={[
+                  'min-w-0',
+                  activeSourceFilterIndex === index ? 'bg-neutral-800 text-neutral-50' : ''
+                ].join(' ')}
+                title={source === 'all' ? 'All sources' : source}
+                onPress={() => applySourceFilter(source)}
+              >
+                <span className="inline-flex w-full items-center justify-between gap-3">
+                  <span className="min-w-0 flex-1 truncate">
+                    {source === 'all' ? 'All sources' : source}
+                  </span>
+                  {sourceFilter === source ? <Check className="size-3.5 shrink-0" /> : null}
+                </span>
+              </DropdownItem>
+            ))}
+            {filteredProjectSourceOptions.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-neutral-500">No sources found.</div>
+            ) : null}
+          </DropdownMenu>
+        </DropdownPopover>
+      </Dropdown>
+    );
+  }
+
+  function renderMachineCard(machine: MachineRecord) {
+    const machineProjects = projectsByMachine[machine.id] ?? [];
+    const isSelected =
+      machine.id === activeMachineId ||
+      filteredMachines[activeMachineSearchIndex]?.id === machine.id;
+
+    return (
+      <MachineListItem
         key={machine.id}
-        type="button"
-        onClick={() => {
+        machine={machine}
+        subtitle={[machine.kind, machine.profile, machine.network.localName].filter(Boolean).join(' / ') || 'machine'}
+        isSelected={isSelected}
+        className={cn(
+          'border bg-neutral-900/40 p-4 hover:border-neutral-700 hover:bg-neutral-900/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-300',
+          isSelected ? 'border-neutral-100/50' : 'border-transparent'
+        )}
+        endContent={
+          <span className="shrink-0 rounded-full bg-neutral-950/80 px-2 py-0.5 text-[11px] text-neutral-500">
+            {machineProjects.length}
+          </span>
+        }
+        onPress={() => {
           setSelectedMachineId(machine.id);
           onSelectMachine(machine.id);
         }}
-        className={[
-          'min-w-0 rounded-lg border bg-neutral-900/40 p-4 text-left transition hover:border-neutral-700 hover:bg-neutral-900/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-300',
-          isSelected ? 'border-neutral-100/50' : 'border-transparent'
-        ].join(' ')}
-      >
-        <div className="flex min-w-0 items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <MachineDeviceIcon machine={machine} />
-            <div className="min-w-0">
-              <span className="flex min-w-0 items-center gap-1.5">
-                <Text className="block truncate text-sm font-semibold text-neutral-100">
-                  {machine.name}
-                </Text>
-                <MachineOsMark machine={machine} />
-              </span>
-              <Text className="block truncate text-xs text-neutral-500">
-                {[machine.kind, machine.profile, machine.network.localName]
-                  .filter(Boolean)
-                  .join(' / ') || 'machine'}
-              </Text>
-            </div>
-          </div>
-          <div className="mt-0.5 flex shrink-0 items-center gap-2">
-            <MachineConnectionIcon machine={machine} />
-            <MachineBatteryMeter compact machine={machine} />
-            <MachineDetailsTooltip machine={machine} projectCount={machineProjects.length} />
-          </div>
-        </div>
-      </button>
+      />
     );
   }
 
   function renderMachineRow(machine: MachineRecord) {
     const machineProjects = projectsByMachine[machine.id] ?? [];
-    const isSelected = machine.id === activeMachineId;
+    const isSelected =
+      machine.id === activeMachineId ||
+      filteredMachines[activeMachineSearchIndex]?.id === machine.id;
 
     return (
-      <button
+      <MachineListItem
         key={machine.id}
-        type="button"
-        onClick={() => {
+        compact
+        machine={machine}
+        subtitle={[machine.kind, machine.profile, machine.network.localName].filter(Boolean).join(' / ') || 'machine'}
+        isSelected={isSelected}
+        className="hover:bg-neutral-900/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-300"
+        endContent={
+          <span className="shrink-0 rounded-full bg-neutral-950/80 px-2 py-0.5 text-[11px] text-neutral-500">
+            {machineProjects.length}
+          </span>
+        }
+        onPress={() => {
           setSelectedMachineId(machine.id);
           onSelectMachine(machine.id);
         }}
-        className={[
-          'flex min-w-0 items-center gap-3 rounded-lg px-3 py-3 text-left transition hover:bg-neutral-900/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-300',
-          isSelected ? 'bg-neutral-900/70' : ''
-        ].join(' ')}
-      >
-        <MachineConnectionIcon machine={machine} />
-        <MachineDeviceIcon machine={machine} />
-        <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 items-center gap-1.5">
-            <Text className="block truncate text-sm font-semibold text-neutral-100">
-              {machine.name}
-            </Text>
-            <MachineOsMark machine={machine} />
-          </span>
-          <Text className="block truncate text-xs text-neutral-500">
-            {[machine.kind, machine.profile, machine.network.localName]
-              .filter(Boolean)
-              .join(' / ') || 'machine'}
-          </Text>
-        </span>
-        <MachineBatteryMeter compact machine={machine} />
-        <MachineDetailsTooltip machine={machine} projectCount={machineProjects.length} />
-      </button>
+      />
     );
   }
 
@@ -644,20 +902,10 @@ export function ProjectHomeOverview({
             </Button>
           ) : null}
           {mode === 'projects' ? (
-            <label className="order-1 inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-neutral-900/70 px-2.5 text-xs text-neutral-400">
-              <SlidersHorizontal className="size-3.5" />
-              <select
-                aria-label="Sort projects"
-                className="max-w-24 bg-transparent text-xs font-medium text-neutral-200 outline-none sm:max-w-none"
-                value={projectSort}
-                onChange={(event) => setProjectSort(event.target.value as ProjectSortKey)}
-              >
-                <option value="owner">Owner</option>
-                <option value="name">Name</option>
-                <option value="recent">Recent</option>
-                <option value="unstaged">Unstaged</option>
-              </select>
-            </label>
+            <div className="order-1 inline-flex min-w-0 flex-wrap items-center gap-2">
+              {renderProjectSourceFilter()}
+              {renderProjectSortMenu()}
+            </div>
           ) : null}
           <div className="order-3 w-full sm:order-2 sm:w-auto">{renderLayoutTabs()}</div>
           <Button
@@ -687,6 +935,7 @@ export function ProjectHomeOverview({
               placeholder="Search machines"
               value={machineQuery}
               onChange={setMachineQuery}
+              onKeyDown={handleMachineSearchKeyDown}
             />
           ) : (
             <MainListSearch
@@ -694,6 +943,7 @@ export function ProjectHomeOverview({
               placeholder="Search projects"
               value={projectQuery}
               onChange={setProjectQuery}
+              onKeyDown={handleProjectSearchKeyDown}
             />
           )}
         </div>
@@ -755,28 +1005,58 @@ export function ProjectHomeOverview({
         </>
       ) : null}
 
-      {mode === 'projects' ? (
+      {mode === 'projects' && !isPendingGitHubCatalog ? (
         <GitHubConnectPanel
           flow={githubFlow}
           githubCatalog={githubCatalog}
           isConnecting={isConnectingGitHub}
           onConnect={() => void connectGitHub()}
           onPoll={() => void pollGitHubLogin()}
+          onRetry={() => void refresh(false)}
         />
       ) : null}
 
       {mode === 'projects' ? (
-        <div className="flex max-h-[70vh] flex-col overflow-y-auto">
-          {recentGithubRows.length > 0 && projectSort !== 'recent' ? (
+        <div
+          className={[
+            'flex max-h-[70vh] flex-col',
+            layout === 'grid' ? 'overflow-y-auto' : 'overflow-auto'
+          ].join(' ')}
+        >
+          {layout === 'list' ? <ProjectListTableHeader /> : null}
+          {isPendingGitHubCatalog ? (
+            <div className="flex min-h-56 min-w-[38rem] items-center justify-center border-t border-neutral-950/80 px-4 py-12">
+              <div className="flex items-center gap-3 rounded-lg bg-neutral-950/50 px-4 py-3 text-sm text-neutral-400">
+                <RefreshCw className="size-4 animate-spin text-neutral-500" />
+                <span>Loading project catalog</span>
+              </div>
+            </div>
+          ) : null}
+          {layout === 'list' && !isPendingGitHubCatalog ? (
+            <div className="flex min-w-[38rem] flex-col">
+              {filteredGithubRows.map((row) => (
+                <ProjectListItem
+                  key={row.id}
+                  branches={branchesForRow(row)}
+                  isActive={filteredGithubRows[activeProjectSearchIndex]?.id === row.id}
+                  layout={layout}
+                  onSelectProject={onSelectProject}
+                  row={row}
+                />
+              ))}
+            </div>
+          ) : null}
+          {layout === 'grid' && !isPendingGitHubCatalog && recentGithubRows.length > 0 && projectSort !== 'recent' ? (
             <div className="mb-4">
               <Text className="mb-1 block px-3 text-xs font-medium text-neutral-600">
                 Recently opened
               </Text>
-              <div className={layout === 'grid' ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-3' : 'flex flex-col'}>
+              <div className={layout === 'grid' ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-3' : 'flex min-w-[38rem] flex-col'}>
                 {recentGithubRows.map((row) => (
                   <ProjectListItem
                     key={`recent:${row.id}`}
                     branches={branchesForRow(row)}
+                    isActive={filteredGithubRows[activeProjectSearchIndex]?.id === row.id}
                     layout={layout}
                     onSelectProject={onSelectProject}
                     row={row}
@@ -785,16 +1065,17 @@ export function ProjectHomeOverview({
               </div>
             </div>
           ) : null}
-          {githubRowGroups.map((group) => (
+          {layout === 'grid' && !isPendingGitHubCatalog ? githubRowGroups.map((group) => (
             <div key={group.owner} className="mb-3 last:mb-0">
               <Text className="mb-1 block px-3 text-xs font-medium text-neutral-600">
                 {group.owner}
               </Text>
-              <div className={layout === 'grid' ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-3' : 'flex flex-col'}>
+              <div className={layout === 'grid' ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-3' : 'flex min-w-[38rem] flex-col'}>
                 {group.items.map((row) => (
                   <ProjectListItem
                     key={row.id}
                     branches={branchesForRow(row)}
+                    isActive={filteredGithubRows[activeProjectSearchIndex]?.id === row.id}
                     layout={layout}
                     onSelectProject={onSelectProject}
                     row={row}
@@ -802,7 +1083,7 @@ export function ProjectHomeOverview({
                 ))}
               </div>
             </div>
-          ))}
+          )) : null}
           {githubCatalog.status === 'connected' && filteredGithubRows.length === 0 ? (
             <div className="rounded-lg bg-neutral-950/45 px-4 py-6">
               <Text className="text-sm text-neutral-500">No projects found.</Text>

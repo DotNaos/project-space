@@ -14,21 +14,25 @@ type MarkdownListItem = {
   task: boolean;
 };
 
-export function IssueMarkdown({ markdown }: { markdown?: string }) {
+export function IssueMarkdown({
+  className = 'mt-5 text-sm leading-6 text-neutral-300',
+  emptyText = 'No issue description.',
+  markdown
+}: {
+  className?: string;
+  emptyText?: string;
+  markdown?: string;
+}) {
   const trimmedMarkdown = markdown?.trim();
 
   if (!trimmedMarkdown) {
-    return (
-      <div className="mt-5 text-sm leading-6 text-neutral-500">
-        No issue description.
-      </div>
-    );
+    return <div className="mt-5 text-sm leading-6 text-neutral-500">{emptyText}</div>;
   }
 
   const blocks = parseMarkdown(trimmedMarkdown);
 
   return (
-    <div className="mt-5 text-sm leading-6 text-neutral-300">
+    <div className={className}>
       <div className="grid gap-4">
         {blocks.map((block, index) => renderBlock(block, index))}
       </div>

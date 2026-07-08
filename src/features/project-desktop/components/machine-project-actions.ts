@@ -80,23 +80,39 @@ export function projectsRootFromViolations(violations: ProjectStructureViolation
 
 export function codexSystemPromptForViolations({
   machine,
+  query,
+  visibleViolations,
   violations
 }: {
   machine: MachineRecord;
+  query?: string;
+  visibleViolations?: ProjectStructureViolationRecord[];
   violations: ProjectStructureViolationRecord[];
 }) {
+  const visibleViolationList = (visibleViolations ?? [])
+    .slice(0, 20)
+    .map((violation, index) => formatViolationForPrompt(violation, index))
+    .join('\n');
+  const visibleOmittedCount = Math.max(0, (visibleViolations?.length ?? 0) - 20);
   const violationList = violations
     .slice(0, 40)
-    .map(
-      (violation, index) =>
-        `${index + 1}. ${violation.title} (${violation.type})\n   path: ${violation.path}\n   detail: ${violation.detail}`
-    )
+    .map((violation, index) => formatViolationForPrompt(violation, index))
     .join('\n');
   const omittedCount = Math.max(0, violations.length - 40);
 
-  return `Fix these Project Space project-folder structure violations.
+  return `Inspect these Project Space project-folder structure violations.
 
 Machine: ${machine.name} (${machine.id})
+
+Safety rules:
+- You are in read-only diagnosis mode unless the human explicitly confirms one concrete action.
+- Do not delete, discard, reset, clean, archive, move, overwrite, or modify files, folders, Git worktrees, branches, uncommitted changes, or local state without explicit user confirmation for that exact action.
+- Never run destructive Git commands such as git reset, git clean, branch deletion, or checkout that discards changes.
+- If a fix could touch user data or uncommitted changes, explain the risk and ask for confirmation first.
+- Prefer read-only inspection and Project CLI validation commands.
+
+Currently visible in the UI${query?.trim() ? ` for search "${query.trim()}"` : ''}:
+${visibleViolationList || 'No visible violation rows are currently filtered in.'}${visibleOmittedCount > 0 ? `\n\n${visibleOmittedCount} more visible violations were omitted from this prompt.` : ''}
 
 Violations:
 ${violationList}${omittedCount > 0 ? `\n\n${omittedCount} more violations were omitted from this prompt.` : ''}
@@ -105,12 +121,39 @@ Expected structure:
 - ~/projects/{project} is the main worktree and must be a Git repository.
 - ~/projects/.worktrees/{project}/{branch} contains additional Git worktrees.
 - Random files and non-project folders do not belong directly in ~/projects or .worktrees.
-- Items that should be removed must be moved to the projects archive folder, not deleted.
+- Items that should be removed must be moved to the projects archive folder, never deleted, and only after explicit confirmation.
 - Local POCs that should be kept but are not Project Space projects belong in ~/projects.poc.
 - Git repositories in ~/projects should either have a GitHub remote or be intentionally marked as local-only.
 
-Use the Project CLI where possible, make the smallest safe change, and validate the result with project validate.
-Keep replies concise and report what you changed or what you need next.`;
+Use the Project CLI where possible. Keep replies concise. Explain what you see and propose the smallest safe next step.
+
+When you want the Project Space UI to show accept/decline controls, include a fenced
+project-space-actions JSON block after your explanation. Only propose actions from this schema:
+
+\`\`\`project-space-actions
+[
+  {
+    "label": "Short button label",
+    "action": "move_to_poc | move_to_trash | initialize_git | keep_local_only",
+    "type": "one of the violation types listed above",
+    "path": "absolute path from a listed violation",
+    "reason": "Why this is the safe next step",
+    "risk": "What the user should know before accepting"
+  }
+]
+\`\`\`
+
+Only include actions for violations shown in this prompt. Do not invent paths.`;
+}
+
+function formatViolationForPrompt(violation: ProjectStructureViolationRecord, index: number) {
+  return [
+    `${index + 1}. ${violation.projectName ? `${violation.projectName}: ` : ''}${violation.title} (${violation.type}, ${violation.severity})`,
+    `   name: ${violation.name}`,
+    `   relative path: ${violation.relativePath}`,
+    `   absolute path: ${violation.path}`,
+    `   detail: ${violation.detail}`
+  ].join('\n');
 }
 
 export function fixOptionsForViolation(

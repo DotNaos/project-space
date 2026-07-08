@@ -34,6 +34,7 @@ import {
 } from './local-github-catalog';
 import {
   createGitHubBranch,
+  deleteGitHubBranch,
   createGitHubIssue,
   createGitHubIssueComment,
   createGitHubPullRequest,
@@ -564,6 +565,117 @@ async function scanProjectContainerWorktrees(projectPath: string): Promise<Proje
     });
 }
 
+async function readWorktreeBranchName(worktreePath: string) {
+  try {
+    const branch = (
+      await runCommand('git', ['-C', worktreePath, 'branch', '--show-current'])
+    ).trim();
+
+    return branch || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function canonicalProjectsRootFor(projectPath: string, projectName: string) {
+  const parentPath = dirname(projectPath);
+
+  if (basename(parentPath) === projectName) {
+    return dirname(parentPath);
+  }
+
+  return parentPath;
+}
+
+function canonicalProjectPaths(projectPath: string, projectName: string) {
+  const projectsRoot = canonicalProjectsRootFor(projectPath, projectName);
+
+  return {
+    mainPath: resolve(projectsRoot, projectName),
+    projectsRoot,
+    worktreesRoot: resolve(projectsRoot, '.worktrees', projectName)
+  };
+}
+
+function isPathInside(parentPath: string, childPath: string) {
+  const relativePath = relative(resolve(parentPath), resolve(childPath));
+
+  return Boolean(relativePath) && !relativePath.startsWith('..') && !relativePath.startsWith('/');
+}
+
+async function scanCanonicalWorktrees(
+  projectPath: string,
+  projectName: string
+): Promise<ProjectWorktreeRecord[]> {
+  const { worktreesRoot } = canonicalProjectPaths(projectPath, projectName);
+  const entries = await listDirectoryEntries(worktreesRoot);
+
+  const worktrees: Array<ProjectWorktreeRecord | undefined> = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => {
+        const worktreePath = resolve(worktreesRoot, entry.name);
+        const gitPath = join(worktreePath, '.git');
+
+        if (!existsSync(gitPath)) {
+          return undefined;
+        }
+
+        let status: ProjectWorktreeRecord['status'] = 'ready';
+
+        try {
+          const gitPointer = readFileSync(gitPath, 'utf-8').trim();
+
+          if (gitPointer.startsWith('gitdir:')) {
+            const gitDirPath = gitPointer.slice('gitdir:'.length).trim();
+            const resolvedGitDir = gitDirPath.startsWith('/')
+              ? gitDirPath
+              : resolve(worktreePath, gitDirPath);
+
+            if (!existsSync(resolvedGitDir)) {
+              status = 'broken';
+            }
+          }
+        } catch {
+          status = 'ready';
+        }
+
+        return {
+          branchName: await readWorktreeBranchName(worktreePath),
+          id: worktreePath,
+          isBase: false,
+          name: entry.name,
+          path: worktreePath,
+          status
+        } satisfies ProjectWorktreeRecord;
+      })
+  );
+
+  return worktrees
+    .filter((entry): entry is ProjectWorktreeRecord => entry !== undefined)
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function mergeWorktreeRecords(worktrees: ProjectWorktreeRecord[]) {
+  const recordsByPath = new Map<string, ProjectWorktreeRecord>();
+
+  for (const worktree of worktrees) {
+    recordsByPath.set(resolve(worktree.path), worktree);
+  }
+
+  return Array.from(recordsByPath.values()).sort((left, right) => {
+    if (left.isBase !== right.isBase) {
+      return left.isBase ? -1 : 1;
+    }
+
+    if (left.status !== right.status) {
+      return left.status === 'ready' ? -1 : 1;
+    }
+
+    return (left.branchName || left.name).localeCompare(right.branchName || right.name);
+  });
+}
+
 async function loadProjectWorktrees(projectPath: string): Promise<ProjectWorktreeRecord[]> {
   const resolvedProjectPath = resolve(projectPath);
 
@@ -586,12 +698,35 @@ async function loadProjectWorktrees(projectPath: string): Promise<ProjectWorktre
       '--porcelain'
     ]);
     const parsedWorktrees = parseWorktreeList(worktreeList, basePath);
+    const projectName = basename(basePath);
+    const { mainPath, worktreesRoot } = canonicalProjectPaths(basePath, projectName);
+    const canonicalParsedWorktrees = parsedWorktrees.filter((worktree) => {
+      if (worktree.isBase) {
+        return resolve(worktree.path) === mainPath;
+      }
 
-    return parsedWorktrees.length > 0 ? parsedWorktrees : [createBaseWorktree(basePath)];
+      return isPathInside(worktreesRoot, worktree.path);
+    });
+    const canonicalWorktrees = await scanCanonicalWorktrees(
+      basePath,
+      projectName
+    );
+
+    return mergeWorktreeRecords([
+      ...canonicalParsedWorktrees,
+      ...(canonicalParsedWorktrees.length === 0 && resolve(basePath) === mainPath
+        ? [createBaseWorktree(basePath)]
+        : []),
+      ...canonicalWorktrees
+    ]);
   } catch {
     const scannedWorktrees = await scanProjectContainerWorktrees(resolvedProjectPath);
+    const canonicalWorktrees = await scanCanonicalWorktrees(
+      resolvedProjectPath,
+      basename(resolvedProjectPath)
+    );
 
-    return scannedWorktrees.length > 0 ? scannedWorktrees : [];
+    return mergeWorktreeRecords([...scannedWorktrees, ...canonicalWorktrees]);
   }
 }
 
@@ -942,6 +1077,9 @@ export function createLocalProjectSpaceBackend(
     },
     async createGitHubBranch(request) {
       return createGitHubBranch(request);
+    },
+    async deleteGitHubBranch(request) {
+      return deleteGitHubBranch(request);
     },
     async createGitHubPullRequest(request) {
       return createGitHubPullRequest(request);

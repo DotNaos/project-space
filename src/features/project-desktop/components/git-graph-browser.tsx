@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown, GitBranch, GitPullRequest, PanelLeftClose } from 'lucide-react';
+import { Check, ChevronDown, GitBranch, GitPullRequest, ListFilter, PanelLeftClose, Trash2 } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { Button, Chip, Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
@@ -11,6 +11,7 @@ import type {
 import { DiffView } from './diff-view';
 
 export interface GitBranchOption {
+  color?: string;
   githubUrl?: string;
   isCurrent: boolean;
   isDefault: boolean;
@@ -114,6 +115,9 @@ export function buildGitBranchOptions(
     }
   }
 
+  const githubBranchNames = new Set(githubBranches.map((branch) => branch.name));
+  const hasGithubBranchSource = githubBranches.length > 0;
+
   for (const pullRequest of pullRequests) {
     if (!pullRequest.headBranch) {
       continue;
@@ -125,7 +129,17 @@ export function buildGitBranchOptions(
     }
   }
 
-  return Array.from(branches.values()).sort((left, right) => {
+  return Array.from(branches.values()).filter((branch) => {
+    if (!hasGithubBranchSource) {
+      return true;
+    }
+
+    if (branch.sources.includes('local') || branch.sources.includes('github')) {
+      return true;
+    }
+
+    return githubBranchNames.has(branch.label);
+  }).sort((left, right) => {
     if (left.isCurrent !== right.isCurrent) {
       return left.isCurrent ? -1 : 1;
     }
@@ -147,34 +161,62 @@ export function buildGitBranchOptions(
 }
 
 export function GitBranchSidebar({
+  activeBranchLabel,
   branches,
+  isFilterActive,
   isLoading,
   onCollapse,
-  onSelectRef,
-  selectedRef
+  onDeleteBranch,
+  onHoverBranch,
+  onSelectBranch,
+  onToggleBranch,
+  onToggleFilter,
+  visibleBranchLabels
 }: {
+  activeBranchLabel?: string;
   branches: GitBranchOption[];
+  isFilterActive: boolean;
   isLoading: boolean;
   onCollapse?(): void;
-  onSelectRef(ref: string): void;
-  selectedRef: string;
+  onDeleteBranch?(branch: GitBranchOption): void;
+  onHoverBranch?(branch: GitBranchOption | null): void;
+  onSelectBranch?(branch: GitBranchOption): void;
+  onToggleBranch?(branch: GitBranchOption): void;
+  onToggleFilter?(): void;
+  visibleBranchLabels: Set<string>;
 }) {
+  const visibleCount = branches.filter((branch) => visibleBranchLabels.has(branch.label)).length;
+
   return (
     <aside className="flex h-full min-h-0 flex-col overflow-hidden border-r border-neutral-800/70">
-      <div className="flex shrink-0 items-center gap-2 border-b border-neutral-800/70 py-1.5 pl-3 pr-1.5">
-        <GitBranch className="size-4 text-neutral-500" />
-        <Text className="text-xs font-semibold uppercase tracking-[0.14em] text-neutral-500">
+      <div className="flex shrink-0 items-center gap-1.5 border-b border-neutral-800/70 py-1.5 pl-3 pr-1">
+        <GitBranch className="size-4 shrink-0 text-neutral-500" />
+        <Text className="shrink-0 whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-500">
           Branches
         </Text>
-        <Text className="ml-auto text-[11px] text-neutral-600">
-          {branches.length > 0 ? branches.length : ''}
+        <Text className="ml-auto shrink-0 whitespace-nowrap text-[11px] text-neutral-600">
+          {branches.length > 0 ? (isFilterActive ? `${visibleCount}/${branches.length}` : branches.length) : ''}
         </Text>
+        <Button
+          aria-label={isFilterActive ? 'Hide branch filters' : 'Filter branches'}
+          isIconOnly
+          size="sm"
+          variant="ghost"
+          className={cn(
+            'shrink-0',
+            isFilterActive && 'bg-neutral-800 text-neutral-100 hover:bg-neutral-800'
+          )}
+          onPress={onToggleFilter}
+        >
+          <ListFilter className="size-3.5" />
+        </Button>
         {onCollapse ? (
           <Button
             aria-label="Collapse branches"
             isIconOnly
             size="sm"
             variant="ghost"
+            className="shrink-0"
             onPress={onCollapse}
           >
             <PanelLeftClose className="size-3.5" />
@@ -182,18 +224,18 @@ export function GitBranchSidebar({
         ) : null}
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-2">
-        <BranchButton
-          isActive={selectedRef === 'all'}
-          label="All branches"
-          onPress={() => onSelectRef('all')}
-        />
         {branches.map((branch) => (
           <BranchButton
             key={branch.label}
             branch={branch}
-            isActive={selectedRef === branch.ref}
+            isActive={activeBranchLabel === branch.label}
+            isFilterActive={isFilterActive}
+            isVisible={visibleBranchLabels.has(branch.label)}
             label={branch.label}
-            onPress={() => onSelectRef(branch.ref)}
+            onDelete={onDeleteBranch ? () => onDeleteBranch(branch) : undefined}
+            onHover={(nextBranch) => onHoverBranch?.(nextBranch)}
+            onPress={() => onSelectBranch?.(branch)}
+            onToggleVisible={() => onToggleBranch?.(branch)}
           />
         ))}
         {branches.length === 0 ? (
@@ -209,32 +251,75 @@ export function GitBranchSidebar({
 function BranchButton({
   branch,
   isActive,
+  isFilterActive,
+  isVisible,
   label,
-  onPress
+  onHover,
+  onDelete,
+  onPress,
+  onToggleVisible
 }: {
   branch?: GitBranchOption;
   isActive: boolean;
+  isFilterActive: boolean;
+  isVisible: boolean;
   label: string;
+  onHover?(branch: GitBranchOption | null): void;
+  onDelete?(): void;
   onPress(): void;
+  onToggleVisible?(): void;
 }) {
-  const openPr = branch?.prs.find((pr) => pr.state === 'open') ?? branch?.prs[0];
+  const openPr = branch?.prs.find((pr) => pr.state === 'open');
+  const mergedPr = branch?.prs.find((pr) => pr.state === 'merged');
+  const shownPr = openPr ?? mergedPr ?? branch?.prs[0];
 
   return (
-    <button
-      type="button"
-      onClick={onPress}
+    <div
+      onBlur={() => onHover?.(null)}
+      onFocus={() => onHover?.(branch ?? null)}
+      onMouseEnter={() => onHover?.(branch ?? null)}
+      onMouseLeave={() => onHover?.(null)}
+      onMouseMove={() => onHover?.(branch ?? null)}
+      onPointerEnter={() => onHover?.(branch ?? null)}
+      onPointerMove={() => onHover?.(branch ?? null)}
       className={cn(
-        'mb-1 flex w-full min-w-0 items-center gap-2 rounded-lg px-2.5 py-2 text-left transition',
-        isActive ? 'bg-neutral-800/80 text-neutral-100' : 'text-neutral-400 hover:bg-neutral-900/70'
+        'mb-1 flex w-full min-w-0 items-center gap-2 rounded-lg px-2.5 py-2 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-neutral-500/70',
+        isActive ? 'bg-neutral-800/80 text-neutral-100' : 'text-neutral-400 hover:bg-neutral-900/70',
+        isFilterActive && !isVisible && 'opacity-45'
       )}
     >
+      {isFilterActive ? (
+        <button
+          aria-checked={isVisible}
+          aria-label={`${isVisible ? 'Hide' : 'Show'} ${label}`}
+          className={cn(
+            'flex size-4 shrink-0 items-center justify-center rounded border transition',
+            isVisible
+              ? 'border-sky-400 bg-sky-400/15 text-sky-200'
+              : 'border-neutral-700 bg-neutral-950 text-transparent hover:border-neutral-500'
+          )}
+          role="checkbox"
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleVisible?.();
+          }}
+        >
+          <Check className="size-3" />
+        </button>
+      ) : null}
       <GitBranch
-        className={cn(
-          'size-3.5 shrink-0',
-          branch?.isCurrent ? 'text-emerald-400' : 'text-neutral-600'
-        )}
+        className={cn('size-3.5 shrink-0', !branch?.color && (branch?.isCurrent ? 'text-emerald-400' : 'text-neutral-600'))}
+        style={branch?.color ? { color: branch.color } : undefined}
       />
-      <span className="min-w-0 flex-1">
+      <button
+        className="min-w-0 flex-1 text-left outline-none"
+        type="button"
+        onClick={() => {
+          onHover?.(branch ?? null);
+          onPress();
+        }}
+      >
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="min-w-0 truncate text-sm font-medium">{label}</span>
           {branch?.isCurrent ? (
@@ -249,15 +334,34 @@ function BranchButton({
                 default
               </span>
             ) : null}
-            {openPr ? (
-              <span className="inline-flex items-center gap-0.5 font-sans text-[10px] text-sky-300">
-                <GitPullRequest className="size-2.5" />#{openPr.number}
+            {shownPr ? (
+              <span
+                className={cn(
+                  'inline-flex items-center gap-0.5 font-sans text-[10px]',
+                  shownPr.state === 'merged' ? 'text-violet-300' : 'text-sky-300'
+                )}
+              >
+                <GitPullRequest className="size-2.5" />
+                {shownPr.state === 'merged' ? 'merged ' : ''}#{shownPr.number}
               </span>
             ) : null}
           </span>
         ) : null}
-      </span>
-    </button>
+      </button>
+      {mergedPr && !branch?.isDefault && onDelete ? (
+        <button
+          aria-label={`Delete merged branch ${label}`}
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-neutral-500 transition hover:bg-red-400/10 hover:text-red-200"
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete();
+          }}
+        >
+          <Trash2 className="size-3.5" />
+        </button>
+      ) : null}
+    </div>
   );
 }
 

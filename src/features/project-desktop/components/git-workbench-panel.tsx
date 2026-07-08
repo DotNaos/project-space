@@ -3,10 +3,14 @@ import { FileDiff, GitCommitHorizontal } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { Text, ToggleButton, ToggleButtonGroup } from '@/app/dotnaos-ui';
 import type {
+  ConnectorOverviewResult,
+  GitHubCatalogRepository,
   GitHubBranchRecord,
   GitHubPullRequestRecord,
-  GitStatusResult
+  GitStatusResult,
+  ProjectSpaceRecord
 } from '@/shared/project-space-api';
+import type { MachineDetailTab } from '../hooks/use-project-desktop';
 import { GitChangesPanel } from './git-changes-panel';
 import { GitGraphPanel } from './git-graph-panel';
 
@@ -70,9 +74,19 @@ function useGitWorkbenchData({
 }
 
 export function GitWorkbenchPanel({
+  connectorOverview,
+  onOpenMachine,
+  project,
+  projects,
+  repository,
   repositoryFullName,
   targetPath
 }: {
+  connectorOverview?: ConnectorOverviewResult;
+  onOpenMachine?(machineId: string, tab?: MachineDetailTab): void;
+  project?: ProjectSpaceRecord;
+  projects?: ProjectSpaceRecord[];
+  repository?: GitHubCatalogRepository;
   repositoryFullName?: string;
   targetPath: string;
 }) {
@@ -119,8 +133,14 @@ export function GitWorkbenchPanel({
       <div className="min-h-0 flex-1">
         {view === 'history' ? (
           <GitGraphPanel
+            connectorOverview={connectorOverview}
             githubBranches={data.githubBranches}
+            onOpenMachine={onOpenMachine}
+            onRefreshRepositoryDetails={data.refresh}
+            project={project}
+            projects={projects}
             pullRequests={data.pullRequests}
+            repository={repository}
             repositoryFullName={repositoryFullName}
             targetPath={targetPath}
           />

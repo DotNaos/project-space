@@ -56,6 +56,12 @@ function hasGitEntry(path: string) {
   return existsSync(join(path, '.git'));
 }
 
+function nestedSameNameGitCheckout(path: string) {
+  const nestedPath = join(path, basename(path));
+
+  return hasGitEntry(nestedPath) ? nestedPath : '';
+}
+
 async function hasGitHubRemote(path: string) {
   try {
     const { stdout } = await execFileAsync('git', ['-C', path, 'remote', '-v'], {
@@ -247,6 +253,23 @@ export async function collectProjectStructureViolations(rootPath: string) {
 
     if (rootEntry.isDirectory()) {
       if (reservedRootDirectories.has(rootEntry.name)) {
+        continue;
+      }
+
+      const nestedCheckoutPath = nestedSameNameGitCheckout(entryPath);
+
+      if (nestedCheckoutPath) {
+        violations.push(
+          createViolation({
+            detail:
+              'The main checkout is nested one level too deep. Main checkouts must live directly under ~/projects/{project}.',
+            path: nestedCheckoutPath,
+            projectName: rootEntry.name,
+            rootPath,
+            title: 'Nested project checkout',
+            type: 'nested_project_checkout'
+          })
+        );
         continue;
       }
 

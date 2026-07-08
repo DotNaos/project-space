@@ -7,6 +7,7 @@ import type {
   ProjectCliCommandResult,
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
+import { TemplateSelectMenu } from './template-select-menu';
 
 interface ProjectCliCommandPanelProps {
   project?: ProjectSpaceRecord;
@@ -146,18 +147,18 @@ export function ProjectCliCommandPanel({
       </div>
 
       <div className="grid gap-3 lg:grid-cols-[minmax(12rem,16rem)_minmax(0,1fr)_auto]">
-        <select
+        <TemplateSelectMenu
+          ariaLabel="Project CLI command"
+          className="min-w-0"
           data-testid="project-cli-command-select"
+          options={commandOptions.map((option) => ({
+            detail: option.description,
+            label: option.label,
+            value: option.command
+          }))}
           value={selectedCommand}
-          onChange={(event) => setSelectedCommand(event.target.value as ProjectCliCommand)}
-          className="min-h-10 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 text-sm text-neutral-100 outline-none focus:border-neutral-500"
-        >
-          {commandOptions.map((option) => (
-            <option key={option.command} value={option.command}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          onChange={(command) => setSelectedCommand(command as ProjectCliCommand)}
+        />
 
         {selectedOption.needsModule ? (
           <input

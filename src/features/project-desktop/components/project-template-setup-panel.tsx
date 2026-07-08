@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { FileCheck2, GitBranch, Play, RefreshCw, Server } from 'lucide-react';
 import { Button, Chip, Surface, Text } from '@/app/dotnaos-ui';
 import { projectSpaceClient } from '@/api/project-space-client';
+import { cn } from '@/lib/utils';
 import type {
   ConnectorOverviewResult,
   ExplorerTarget,
@@ -11,6 +12,7 @@ import type {
   ProjectSpaceRecord,
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
+import { TemplateSelectMenu } from './template-select-menu';
 
 interface ProjectTemplateSetupPanelProps {
   connectorOverview: ConnectorOverviewResult;
@@ -18,10 +20,12 @@ interface ProjectTemplateSetupPanelProps {
   onSelectWorktree(worktreeId: string): void;
   onTemplateRelativePathChange(relativePath: string): void;
   onTemplateChanged(): void;
+  preferredMachineId?: string;
   project: ProjectSpaceRecord;
   relativePath: string;
   resolvedTargetPath: string;
   selectedExplorerTarget: ExplorerTarget;
+  showMachineSelector?: boolean;
   targetRootPath: string;
   worktrees: ProjectWorktreeRecord[];
 }
@@ -64,10 +68,12 @@ export function ProjectTemplateSetupPanel({
   onTemplateRelativePathChange,
   onSelectWorktree,
   onTemplateChanged,
+  preferredMachineId,
   project,
   relativePath,
   resolvedTargetPath,
   selectedExplorerTarget,
+  showMachineSelector = true,
   targetRootPath,
   worktrees
 }: ProjectTemplateSetupPanelProps) {
@@ -101,22 +107,47 @@ export function ProjectTemplateSetupPanel({
     ],
     [project, worktrees]
   );
+  const machineOptions = useMemo(
+    () =>
+      machines.length > 0
+        ? machines.map((machine) => ({
+            detail: machineStatusLabel(machine),
+            label: machine.name,
+            value: machine.id
+          }))
+        : [{ detail: 'No connector machines', label: 'Unavailable', value: '' }],
+    [machines]
+  );
+  const selectTargetOptions = useMemo(
+    () =>
+      targetOptions.map((target) => ({
+        detail: target.branch,
+        label: target.label,
+        value: target.id
+      })),
+    [targetOptions]
+  );
 
   useEffect(() => {
+    if (!showMachineSelector && preferredMachineId && selectedMachineId !== preferredMachineId) {
+      setSelectedMachineId(preferredMachineId);
+      return;
+    }
+
     if (selectedMachineId || machines.length === 0) {
       return;
     }
 
-    const preferredMachineId = projectMachineId(project);
-    const preferredMachine = preferredMachineId
-      ? machines.find((machine) => machine.id === preferredMachineId)
+    const projectPreferredMachineId = preferredMachineId || projectMachineId(project);
+    const preferredMachine = projectPreferredMachineId
+      ? machines.find((machine) => machine.id === projectPreferredMachineId)
       : undefined;
     const localMachine = machines.find((machine) => machine.connector.status === 'local');
     const onlineMachine = machines.find((machine) => machine.connector.status === 'online');
     const nextMachine = preferredMachine ?? localMachine ?? onlineMachine ?? machines[0];
 
     setSelectedMachineId(nextMachine.id);
-  }, [machines, project, selectedMachineId]);
+  }, [machines, preferredMachineId, project, selectedMachineId, showMachineSelector]);
 
   async function runTemplateCommand(command: ProjectCliCommand) {
     if (!resolvedTargetPath || !selectedMachine || !canRunWrite) {
@@ -170,32 +201,33 @@ export function ProjectTemplateSetupPanel({
         ) : null}
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(10rem,16rem)_minmax(12rem,20rem)_minmax(10rem,18rem)_auto_auto]">
-        <label className="flex min-w-0 flex-col gap-1">
-          <span className="text-xs font-medium text-neutral-500">Machine</span>
-          <select
-            value={selectedMachineId}
-            onChange={(event) => setSelectedMachineId(event.target.value)}
-            className="min-h-10 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 text-sm text-neutral-100 outline-none focus:border-neutral-500"
-          >
-            {machines.length > 0 ? (
-              machines.map((machine) => (
-                <option key={machine.id} value={machine.id}>
-                  {machine.name} · {machineStatusLabel(machine)}
-                </option>
-              ))
-            ) : (
-              <option value="">No connector machines</option>
-            )}
-          </select>
-        </label>
+      <div
+        className={cn(
+          'grid gap-3',
+          showMachineSelector
+            ? 'lg:grid-cols-[minmax(10rem,16rem)_minmax(12rem,20rem)_minmax(10rem,18rem)_auto_auto]'
+            : 'lg:grid-cols-[minmax(12rem,20rem)_minmax(10rem,18rem)_auto_auto]'
+        )}
+      >
+        {showMachineSelector ? (
+          <label className="flex min-w-0 flex-col gap-1">
+            <span className="text-xs font-medium text-neutral-500">Machine</span>
+            <TemplateSelectMenu
+              ariaLabel="Template machine"
+              options={machineOptions}
+              value={selectedMachineId}
+              onChange={setSelectedMachineId}
+            />
+          </label>
+        ) : null}
 
         <label className="flex min-w-0 flex-col gap-1">
           <span className="text-xs font-medium text-neutral-500">Git worktree</span>
-          <select
+          <TemplateSelectMenu
+            ariaLabel="Template Git worktree"
+            options={selectTargetOptions}
             value={activeTargetId}
-            onChange={(event) => {
-              const value = event.target.value;
+            onChange={(value) => {
               if (value === 'workspace') {
                 onSelectWorkspace();
                 return;
@@ -204,14 +236,7 @@ export function ProjectTemplateSetupPanel({
                 onSelectWorktree(value.slice('worktree:'.length));
               }
             }}
-            className="min-h-10 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 text-sm text-neutral-100 outline-none focus:border-neutral-500"
-          >
-            {targetOptions.map((target) => (
-              <option key={target.id} value={target.id}>
-                {target.label}
-              </option>
-            ))}
-          </select>
+          />
         </label>
 
         <label className="flex min-w-0 flex-col gap-1">
@@ -249,7 +274,7 @@ export function ProjectTemplateSetupPanel({
           Sync snapshot
         </Button>
 
-        <div className="min-w-0 lg:col-span-5">
+        <div className={cn('min-w-0', showMachineSelector ? 'lg:col-span-5' : 'lg:col-span-4')}>
           <Text
             className="block truncate font-mono text-xs text-neutral-500"
             title={resolvedTargetPath}

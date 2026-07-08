@@ -32,6 +32,7 @@ import type {
   GitDiffRequest,
   GitHistoryRequest,
   GitHubBranchCreateRequest,
+  GitHubBranchDeleteRequest,
   GitHubIssueCommentCreateRequest,
   GitHubIssueCreateRequest,
   GitHubIssueUpdateRequest,
@@ -532,6 +533,12 @@ function createApiHandler(backend: ProjectSpaceBackend) {
       if (request.method === 'POST' && url.pathname === '/api/github/branches') {
         const payload = await readJson<GitHubBranchCreateRequest>(request);
         writeJson(response, 200, await backend.createGitHubBranch(payload));
+        return true;
+      }
+
+      if (request.method === 'DELETE' && url.pathname === '/api/github/branches') {
+        const payload = await readJson<GitHubBranchDeleteRequest>(request);
+        writeJson(response, 200, await backend.deleteGitHubBranch(payload));
         return true;
       }
 
