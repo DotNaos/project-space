@@ -23,6 +23,9 @@ interface GitHubGraphQLDevelopmentLinks {
           } | null>;
         } | null;
         headRefName?: string | null;
+        mergeCommit?: {
+          oid?: string | null;
+        } | null;
         number: number;
         state: 'OPEN' | 'CLOSED' | 'MERGED';
         title: string;
@@ -84,6 +87,9 @@ export async function loadRepositoryDevelopmentLinks(
               url
               state
               headRefName
+              mergeCommit {
+                oid
+              }
               updatedAt
               closingIssuesReferences(first: 20) {
                 nodes {
@@ -123,6 +129,7 @@ export async function loadRepositoryDevelopmentLinks(
           pullRequest.closingIssuesReferences?.nodes
             ?.map((issue) => issue?.number)
             .filter((number): number is number => typeof number === 'number') ?? [],
+        mergeCommitHash: pullRequest.mergeCommit?.oid ?? undefined,
         number: pullRequest.number,
         state: pullRequest.state.toLowerCase() as GitHubPullRequestRecord['state'],
         title: pullRequest.title,

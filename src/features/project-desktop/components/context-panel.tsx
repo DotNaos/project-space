@@ -1,8 +1,7 @@
-import { useMemo, useState } from 'react';
-import { FolderGit2, GitBranchPlus, Pin, Plus } from 'lucide-react';
+import { useEffect, useMemo, useState, type KeyboardEvent, type KeyboardEventHandler } from 'react';
+import { Pin, Plus } from 'lucide-react';
 import {
   Button,
-  Chip,
   ScrollShadow,
   SearchField,
   SearchFieldClearButton,
@@ -15,19 +14,13 @@ import {
 import { cn } from '@/lib/utils';
 import type {
   ConnectorOverviewResult,
-  ExplorerTarget,
   MachineRecord,
   ProjectGroupRecord,
-  ProjectSpaceRecord,
-  ProjectWorktreeRecord
+  ProjectSpaceRecord
 } from '@/shared/project-space-api';
-import {
-  isMachineConnected,
-  MachineBatteryMeter,
-  MachineConnectionIcon,
-  MachineDeviceIcon,
-  MachineOsMark
-} from './machine-visuals';
+import { matchesFuzzyQuery } from '@/lib/fuzzy-search';
+import { isMachineConnected } from './machine-visuals';
+import { MachineListItem } from './machine-list-item';
 
 function isVisibleProject(project: ProjectSpaceRecord) {
   const folder = project.rootPath.split('/').filter(Boolean).pop() ?? '';
@@ -36,7 +29,7 @@ function isVisibleProject(project: ProjectSpaceRecord) {
 }
 
 function matchesSearch(value: string, query: string) {
-  return value.toLowerCase().includes(query.trim().toLowerCase());
+  return matchesFuzzyQuery([value], query);
 }
 
 function formatMachineSubtitle(machine: MachineRecord) {
@@ -78,17 +71,22 @@ function getProjectLabel(project: ProjectSpaceRecord, owner: string) {
 function PanelSearch({
   label,
   onChange,
+  onKeyDown,
   placeholder,
   value
 }: {
   label: string;
   onChange(value: string): void;
+  onKeyDown?: KeyboardEventHandler<HTMLInputElement>;
   placeholder: string;
   value: string;
 }) {
   return (
     <SearchField aria-label={label} value={value} onChange={onChange}>
-      <SearchFieldGroup className="rounded-lg bg-neutral-900/90">
+      <SearchFieldGroup
+        className="rounded-lg bg-neutral-900/90"
+        onKeyDown={(event) => onKeyDown?.(event as unknown as Parameters<NonNullable<typeof onKeyDown>>[0])}
+      >
         <SearchFieldSearchIcon />
         <SearchFieldInput className="text-sm" placeholder={placeholder} spellCheck={false} />
         <SearchFieldClearButton />
@@ -126,120 +124,29 @@ function PanelHeader({
   );
 }
 
-interface ProjectTargetRowsProps {
-  onOpenNewWorktree(): void;
-  onSelectWorkspace(): void;
-  onSelectWorktree(worktreeId: string): void;
-  selectedExplorerTarget: ExplorerTarget;
-  worktrees: ProjectWorktreeRecord[];
-}
-
-function ProjectTargetRows({
-  onOpenNewWorktree,
-  onSelectWorkspace,
-  onSelectWorktree,
-  selectedExplorerTarget,
-  worktrees
-}: ProjectTargetRowsProps) {
-  const isWorkspaceSelected = selectedExplorerTarget.kind === 'workspace';
-
-  return (
-    <div className="mt-0.5 mb-1 flex flex-col gap-0.5 border-l border-neutral-800/80 pl-3 ml-4">
-      <button
-        type="button"
-        onClick={onSelectWorkspace}
-        className={cn(
-          'flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-medium transition',
-          isWorkspaceSelected
-            ? 'bg-neutral-800/90 text-neutral-50'
-            : 'text-neutral-400 hover:bg-neutral-800/60 hover:text-neutral-100'
-        )}
-      >
-        <FolderGit2 className="size-3.5 shrink-0" strokeWidth={1.8} />
-        <span className="min-w-0 flex-1 truncate">Workspace</span>
-      </button>
-
-      {worktrees.map((worktree) => {
-        const isSelected =
-          selectedExplorerTarget.kind === 'worktree' &&
-          selectedExplorerTarget.worktreeId === worktree.id;
-        const badge =
-          worktree.status === 'broken' ? 'broken' : worktree.isBase ? 'base' : undefined;
-
-        return (
-          <button
-            key={worktree.id}
-            type="button"
-            onClick={() => onSelectWorktree(worktree.id)}
-            className={cn(
-              'flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-medium transition',
-              isSelected
-                ? 'bg-neutral-800/90 text-neutral-50'
-                : worktree.status === 'broken'
-                  ? 'text-amber-200/80 hover:bg-amber-500/10'
-                  : 'text-neutral-400 hover:bg-neutral-800/60 hover:text-neutral-100'
-            )}
-          >
-            <GitBranchPlus className="size-3.5 shrink-0" strokeWidth={1.8} />
-            <span className="min-w-0 flex-1 truncate">{worktree.name}</span>
-            {badge ? (
-              <Chip
-                color={badge === 'base' ? 'success' : 'warning'}
-                size="sm"
-                variant="soft"
-                className="shrink-0 uppercase tracking-[0.14em]"
-              >
-                {badge}
-              </Chip>
-            ) : null}
-          </button>
-        );
-      })}
-
-      <button
-        type="button"
-        onClick={onOpenNewWorktree}
-        className="flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-medium text-neutral-600 transition hover:bg-neutral-800/60 hover:text-neutral-200"
-      >
-        <Plus className="size-3.5 shrink-0" strokeWidth={1.8} />
-        New worktree
-      </button>
-    </div>
-  );
-}
-
 interface ProjectsPanelProps {
   groups: ProjectGroupRecord[];
   onCreateProject(): void;
-  onOpenNewWorktree(): void;
   onSelectProject(projectId: string, groupId?: string): void;
-  onSelectWorkspace(): void;
-  onSelectWorktree(worktreeId: string): void;
   onTogglePinnedProject(projectId: string): void;
   pinnedProjectIds: string[];
   projects: ProjectSpaceRecord[];
   recentProjectIds: string[];
-  selectedExplorerTarget: ExplorerTarget;
   selectedProjectId: string;
-  worktrees: ProjectWorktreeRecord[];
 }
 
 function ProjectsPanel({
   groups,
   onCreateProject,
-  onOpenNewWorktree,
   onSelectProject,
-  onSelectWorkspace,
-  onSelectWorktree,
   onTogglePinnedProject,
   pinnedProjectIds = [],
   projects,
   recentProjectIds,
-  selectedExplorerTarget,
-  selectedProjectId,
-  worktrees
+  selectedProjectId
 }: ProjectsPanelProps) {
   const [query, setQuery] = useState('');
+  const [activeProjectIndex, setActiveProjectIndex] = useState(0);
   const groupsById = useMemo(
     () =>
       groups.reduce<Record<string, ProjectGroupRecord>>((index, group) => {
@@ -258,11 +165,11 @@ function ProjectsPanel({
     const owner = getProjectOwner(project, groupsById);
     const label = getProjectLabel(project, owner);
 
-    return (
-      !query.trim() ||
-      matchesSearch(`${owner} ${label} ${project.name} ${project.rootPath}`, query) ||
-      project.id === selectedProjectId
-    );
+    if (!query.trim()) {
+      return true;
+    }
+
+    return matchesSearch(`${owner} ${label} ${project.name} ${project.github?.fullName ?? ''}`, query);
   };
   const pinnedProjects = useMemo(() => {
     return pinnedProjectIds
@@ -319,11 +226,59 @@ function ProjectsPanel({
       }))
       .sort((left, right) => left.owner.localeCompare(right.owner));
   }, [groupsById, pinnedProjectIdSet, projects, query, recentProjectIdSet, selectedProjectId]);
+  const visibleProjects = useMemo(() => {
+    return [
+      ...pinnedProjects,
+      ...recentProjects,
+      ...projectGroups.flatMap((group) => group.entries)
+    ];
+  }, [pinnedProjects, projectGroups, recentProjects]);
+
+  useEffect(() => {
+    setActiveProjectIndex(0);
+  }, [query]);
+
+  useEffect(() => {
+    if (activeProjectIndex >= visibleProjects.length) {
+      setActiveProjectIndex(Math.max(0, visibleProjects.length - 1));
+    }
+  }, [activeProjectIndex, visibleProjects.length]);
+
+  function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      if (visibleProjects.length === 0) {
+        return;
+      }
+      setActiveProjectIndex((index) => Math.min(index + 1, visibleProjects.length - 1));
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (visibleProjects.length === 0) {
+        return;
+      }
+      setActiveProjectIndex((index) => Math.max(index - 1, 0));
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (visibleProjects.length === 0) {
+        return;
+      }
+      const project = visibleProjects[activeProjectIndex] ?? visibleProjects[0];
+      if (project) {
+        onSelectProject(project.id);
+      }
+    }
+  }
 
   const renderProjectRow = (entry: ProjectSpaceRecord, owner: string) => {
     const isPinned = pinnedProjectIdSet.has(entry.id);
     const isSelected = entry.id === selectedProjectId;
-    const showTargets = isSelected && entry.kind !== 'github' && entry.rootPath !== '';
+    const isKeyboardActive = visibleProjects[activeProjectIndex]?.id === entry.id;
     const label = getProjectLabel(entry, owner);
 
     return (
@@ -333,6 +288,8 @@ function ProjectsPanel({
             'group/project-row flex min-w-0 items-center rounded-lg transition',
             isSelected
               ? 'bg-neutral-800/90 text-neutral-50'
+              : isKeyboardActive
+                ? 'bg-neutral-900/80 text-neutral-50'
               : 'text-neutral-300 hover:bg-neutral-800/60 hover:text-neutral-50'
           )}
         >
@@ -361,15 +318,6 @@ function ProjectsPanel({
           </button>
         </div>
 
-        {showTargets ? (
-          <ProjectTargetRows
-            onOpenNewWorktree={onOpenNewWorktree}
-            onSelectWorkspace={onSelectWorkspace}
-            onSelectWorktree={onSelectWorktree}
-            selectedExplorerTarget={selectedExplorerTarget}
-            worktrees={worktrees}
-          />
-        ) : null}
       </div>
     );
   };
@@ -386,6 +334,7 @@ function ProjectsPanel({
           placeholder="Search projects"
           value={query}
           onChange={setQuery}
+          onKeyDown={handleSearchKeyDown}
         />
       </div>
 
@@ -443,30 +392,13 @@ function MachineRow({
   onSelectMachine(machineId: string): void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={() => onSelectMachine(machine.id)}
-      aria-current={isSelected ? 'true' : undefined}
-      className={cn(
-        'flex min-w-0 items-center gap-3 rounded-lg px-2.5 py-2 text-left transition',
-        isSelected ? 'bg-neutral-800/90' : 'hover:bg-neutral-800/60'
-      )}
-    >
-      <MachineConnectionIcon machine={machine} />
-      <MachineDeviceIcon machine={machine} />
-      <span className="min-w-0 flex-1">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <Text className="block truncate text-sm font-medium text-neutral-100">
-            {machine.name}
-          </Text>
-          <MachineOsMark machine={machine} />
-        </span>
-        <Text className="block truncate text-xs text-neutral-500">
-          {formatMachineSubtitle(machine) || machine.connector.status}
-        </Text>
-      </span>
-      <MachineBatteryMeter compact machine={machine} />
-    </button>
+    <MachineListItem
+      compact
+      isSelected={isSelected}
+      machine={machine}
+      subtitle={formatMachineSubtitle(machine) || machine.connector.status}
+      onPress={() => onSelectMachine(machine.id)}
+    />
   );
 }
 
@@ -482,6 +414,7 @@ function MachinesPanel({
   selectedMachineId
 }: MachinesPanelProps) {
   const [query, setQuery] = useState('');
+  const [activeMachineIndex, setActiveMachineIndex] = useState(0);
   const machines = useMemo(() => {
     return connectorOverview.machines.filter((machine) => {
       if (!query.trim()) {
@@ -509,6 +442,47 @@ function MachinesPanel({
   const connectedMachines = machines.filter(isMachineConnected);
   const disconnectedMachines = machines.filter((machine) => !isMachineConnected(machine));
 
+  useEffect(() => {
+    setActiveMachineIndex(0);
+  }, [query]);
+
+  useEffect(() => {
+    if (activeMachineIndex >= machines.length) {
+      setActiveMachineIndex(Math.max(0, machines.length - 1));
+    }
+  }, [activeMachineIndex, machines.length]);
+
+  function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      if (machines.length === 0) {
+        return;
+      }
+      setActiveMachineIndex((index) => Math.min(index + 1, machines.length - 1));
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (machines.length === 0) {
+        return;
+      }
+      setActiveMachineIndex((index) => Math.max(index - 1, 0));
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (machines.length === 0) {
+        return;
+      }
+      const machine = machines[activeMachineIndex] ?? machines[0];
+      if (machine) {
+        onSelectMachine(machine.id);
+      }
+    }
+  }
+
   function renderSection(title: string, sectionMachines: MachineRecord[]) {
     if (sectionMachines.length === 0) {
       return null;
@@ -521,7 +495,9 @@ function MachinesPanel({
           {sectionMachines.map((machine) => (
             <MachineRow
               key={machine.id}
-              isSelected={machine.id === selectedMachineId}
+              isSelected={
+                machine.id === selectedMachineId || machines[activeMachineIndex]?.id === machine.id
+              }
               machine={machine}
               onSelectMachine={onSelectMachine}
             />
@@ -540,6 +516,7 @@ function MachinesPanel({
           placeholder="Search machines"
           value={query}
           onChange={setQuery}
+          onKeyDown={handleSearchKeyDown}
         />
       </div>
 
@@ -559,42 +536,32 @@ export interface ContextPanelProps {
   connectorOverview: ConnectorOverviewResult;
   groups: ProjectGroupRecord[];
   onCreateProject(): void;
-  onOpenNewWorktree(): void;
   onResizeStart(event: React.MouseEvent<HTMLButtonElement>): void;
   onSelectMachine(machineId: string): void;
   onSelectProject(projectId: string, groupId?: string): void;
-  onSelectWorkspace(): void;
-  onSelectWorktree(worktreeId: string): void;
   onTogglePinnedProject(projectId: string): void;
   pinnedProjectIds: string[];
   projects: ProjectSpaceRecord[];
   recentProjectIds: string[];
   section: 'projects' | 'machines';
-  selectedExplorerTarget: ExplorerTarget;
   selectedMachineId: string;
   selectedProjectId: string;
-  worktrees: ProjectWorktreeRecord[];
 }
 
 export function ContextPanel({
   connectorOverview,
   groups,
   onCreateProject,
-  onOpenNewWorktree,
   onResizeStart,
   onSelectMachine,
   onSelectProject,
-  onSelectWorkspace,
-  onSelectWorktree,
   onTogglePinnedProject,
   pinnedProjectIds,
   projects,
   recentProjectIds,
   section,
-  selectedExplorerTarget,
   selectedMachineId,
-  selectedProjectId,
-  worktrees
+  selectedProjectId
 }: ContextPanelProps) {
   return (
     <Surface
@@ -607,17 +574,12 @@ export function ContextPanel({
         <ProjectsPanel
           groups={groups}
           onCreateProject={onCreateProject}
-          onOpenNewWorktree={onOpenNewWorktree}
           onSelectProject={onSelectProject}
-          onSelectWorkspace={onSelectWorkspace}
-          onSelectWorktree={onSelectWorktree}
           onTogglePinnedProject={onTogglePinnedProject}
           pinnedProjectIds={pinnedProjectIds}
           projects={projects}
           recentProjectIds={recentProjectIds}
-          selectedExplorerTarget={selectedExplorerTarget}
           selectedProjectId={selectedProjectId}
-          worktrees={worktrees}
         />
       ) : (
         <MachinesPanel

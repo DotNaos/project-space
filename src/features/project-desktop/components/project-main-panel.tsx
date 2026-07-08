@@ -134,6 +134,14 @@ function EmptyProjectView({ onCreateProject }: { onCreateProject(): void }) {
   );
 }
 
+function normalizeBranchKey(value: string | undefined) {
+  return value?.trim().replace(/^refs\/heads\//, '').toLowerCase() ?? '';
+}
+
+function normalizeComparablePath(value: string | undefined) {
+  return value?.replace(/^~(?=\/)/, '').replace(/\/+$/, '').toLowerCase() ?? '';
+}
+
 export interface ProjectMainPanelProps {
   account?: RailAccount;
   appMeta: AppMeta;
@@ -147,7 +155,7 @@ export interface ProjectMainPanelProps {
   machineTab: MachineDetailTab;
   mainView: ProjectMainView;
   onCreateProject(): void;
-  onOpenMachine(machineId: string): void;
+  onOpenMachine(machineId: string, tab?: MachineDetailTab): void;
   onOpenMachines(): void;
   onOpenNewWorktree(): void;
   onOpenProjects(): void;
@@ -157,7 +165,9 @@ export interface ProjectMainPanelProps {
   onRefreshProjectDiscovery(): Promise<unknown>;
   onRefreshConnectorOverview(): Promise<ConnectorOverviewResult>;
   onRefreshGitHubCatalog(): Promise<GitHubCatalogResult>;
+  onRefreshProjectWorktrees(): Promise<ProjectWorktreeRecord[]>;
   onSelectLauncherApp(appId: string): void;
+  onSelectMachineContext(machineId: string): void;
   onSelectMachineTab(tab: MachineDetailTab): void;
   onSelectProject(projectId: string): void;
   onSelectProjectTab(tab: ProjectDetailTab): void;
@@ -201,7 +211,9 @@ export function ProjectMainPanel({
   onRefreshProjectDiscovery,
   onRefreshConnectorOverview,
   onRefreshGitHubCatalog,
+  onRefreshProjectWorktrees,
   onSelectLauncherApp,
+  onSelectMachineContext,
   onSelectMachineTab,
   onSelectProject,
   onSelectProjectTab,
@@ -225,6 +237,34 @@ export function ProjectMainPanel({
     () => resolveProjectRepository(project, githubCatalog),
     [githubCatalog, project]
   );
+
+  function openProjectWorktreeBranch(machineId: string, branchName: string, path?: string) {
+    onSelectMachineContext(machineId);
+
+    const branchKey = normalizeBranchKey(branchName);
+    const pathKey = normalizeComparablePath(path);
+    const projectBranchKey = normalizeBranchKey(project?.gitStatus?.branchName);
+    const projectPathKey = normalizeComparablePath(project?.rootPath);
+    const matchingWorktree = worktrees.find((worktree) => {
+      if (pathKey && normalizeComparablePath(worktree.path) === pathKey) {
+        return true;
+      }
+
+      return normalizeBranchKey(worktree.branchName || worktree.name) === branchKey;
+    });
+
+    if (
+      matchingWorktree &&
+      !matchingWorktree.isBase &&
+      normalizeComparablePath(matchingWorktree.path) !== projectPathKey
+    ) {
+      onSelectWorktree(matchingWorktree.id);
+    } else if (!branchKey || branchKey === 'main' || branchKey === projectBranchKey || pathKey === projectPathKey) {
+      onSelectWorkspace();
+    }
+
+    onSelectProjectTab('workspaces');
+  }
 
   const projectSwitcherEntries = useMemo<SwitcherEntry[]>(() => {
     return projects
@@ -286,13 +326,22 @@ export function ProjectMainPanel({
   } else if (mainView === 'project') {
     segments = [homeSegment, { label: 'Projects', onPress: onOpenProjects }];
     switcher = (
-      <EntitySwitcher
-        ariaLabel="Switch project"
-        currentLabel={project?.github?.name ?? project?.name ?? 'No project selected'}
-        entries={projectSwitcherEntries}
-        selectedId={project?.id ?? ''}
-        onSelect={onSelectProject}
-      />
+      <div className="flex min-w-0 items-center gap-1.5">
+        <EntitySwitcher
+          ariaLabel="Switch project"
+          currentLabel={project?.github?.name ?? project?.name ?? 'No project selected'}
+          entries={projectSwitcherEntries}
+          selectedId={project?.id ?? ''}
+          onSelect={onSelectProject}
+        />
+        <EntitySwitcher
+          ariaLabel="Switch machine context"
+          currentLabel={selectedMachine?.name ?? (selectedMachineId || 'Machine')}
+          entries={machineSwitcherEntries}
+          selectedId={selectedMachineId}
+          onSelect={onSelectMachineContext}
+        />
+      </div>
     );
     onBack = handleBack;
   } else if (mainView === 'settings') {
@@ -380,8 +429,11 @@ export function ProjectMainPanel({
           <ProjectDetail
             connectorOverview={connectorOverview}
             launcherError={launcherError}
+            onOpenMachine={onOpenMachine}
             onOpenNewWorktree={onOpenNewWorktree}
+            onOpenWorktreeBranch={openProjectWorktreeBranch}
             onOpenIssue={onOpenProjectIssue}
+            onRefreshWorktrees={onRefreshProjectWorktrees}
             onSelectTab={onSelectProjectTab}
             onSelectWorkspace={onSelectWorkspace}
             onSelectWorktree={onSelectWorktree}
@@ -391,6 +443,7 @@ export function ProjectMainPanel({
             selectedIssueNumber={selectedIssueNumber}
             selectedRepository={selectedRepository}
             selectedTargetPath={selectedTargetPath}
+            selectedMachineId={selectedMachineId}
             tab={projectTab}
             worktrees={worktrees}
           />

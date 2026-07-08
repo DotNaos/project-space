@@ -1,5 +1,6 @@
 import type {
   GitHubBranchCreateRequest,
+  GitHubBranchDeleteRequest,
   GitHubBranchMutationResult,
   GitHubCatalogResult,
   GitHubIssueCreateRequest,
@@ -18,6 +19,7 @@ import {
   getGitHubClientId,
   githubOAuthClientIdMissingMessage,
   requestGitHub,
+  resolveOAuthToken,
   resolveToken
 } from './local-github-catalog';
 import { requestGitHubGraphQL } from './github-graphql-client';
@@ -171,7 +173,7 @@ export async function createGitHubBranch({
   name,
   sourceBranch
 }: GitHubBranchCreateRequest): Promise<GitHubBranchMutationResult> {
-  const auth = await resolveToken();
+  const auth = await resolveOAuthToken();
 
   if (!auth) {
     return branchMutationError(
@@ -282,13 +284,67 @@ export async function createGitHubBranch({
   }
 }
 
+export async function deleteGitHubBranch({
+  fullName,
+  name
+}: GitHubBranchDeleteRequest): Promise<GitHubBranchMutationResult> {
+  const auth = await resolveOAuthToken();
+
+  if (!auth) {
+    return branchMutationError(
+      getGitHubClientId() ? 'auth-required' : 'not-configured',
+      getGitHubClientId() ? 'Connect GitHub to delete branches.' : githubOAuthClientIdMissingMessage
+    );
+  }
+
+  const branchName = name.trim();
+
+  if (!branchName) {
+    return branchMutationError('error', 'Branch name is required.');
+  }
+
+  try {
+    const repoPath = repoApiPath(fullName);
+    const repo = await requestGitHub<GitHubApiRepository>(`/repos/${repoPath}`, auth.token);
+
+    if (repo.default_branch === branchName) {
+      return branchMutationError('error', `Cannot delete default branch ${branchName}.`);
+    }
+
+    const encodedBranch = encodeURIComponent(branchName).replace(/%2F/g, '/');
+
+    await requestGitHub<void>(`/repos/${repoPath}/git/refs/heads/${encodedBranch}`, auth.token, {
+      method: 'DELETE'
+    });
+
+    return {
+      message: `${branchName} deleted on GitHub.`,
+      status: 'connected'
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+
+    if (message.includes('Reference does not exist')) {
+      return {
+        message: `${branchName} was already deleted on GitHub.`,
+        status: 'connected'
+      };
+    }
+
+    return branchMutationError(
+      'error',
+      message || `Could not delete ${branchName}.`
+    );
+  }
+}
+
 export async function createGitHubIssue({
   body,
   fullName,
   labels,
   title
 }: GitHubIssueCreateRequest): Promise<GitHubIssueMutationResult> {
-  const auth = await resolveToken();
+  const auth = await resolveOAuthToken();
 
   if (!auth) {
     return issueMutationError(
@@ -338,7 +394,7 @@ export async function createGitHubPullRequest({
   issueNumber,
   title
 }: GitHubPullRequestCreateRequest): Promise<GitHubPullRequestMutationResult> {
-  const auth = await resolveToken();
+  const auth = await resolveOAuthToken();
 
   if (!auth) {
     return pullRequestMutationError(
@@ -399,7 +455,7 @@ export async function updateGitHubIssue({
   state,
   title
 }: GitHubIssueUpdateRequest): Promise<GitHubIssueMutationResult> {
-  const auth = await resolveToken();
+  const auth = await resolveOAuthToken();
 
   if (!auth) {
     return issueMutationError(
@@ -488,7 +544,7 @@ export async function createGitHubIssueComment({
   fullName,
   number
 }: GitHubIssueCommentCreateRequest): Promise<GitHubIssueCommentMutationResult> {
-  const auth = await resolveToken();
+  const auth = await resolveOAuthToken();
 
   if (!auth) {
     return commentMutationError(

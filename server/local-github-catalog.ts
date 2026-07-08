@@ -144,7 +144,23 @@ export async function requestGitHub<T>(
   });
 
   if (!response.ok) {
-    throw new Error(`GitHub request failed with ${response.status}.`);
+    let message = `GitHub request failed with ${response.status}.`;
+
+    try {
+      const payload = (await response.json()) as { message?: string };
+
+      if (payload.message) {
+        message = `GitHub request failed: ${payload.message} (${response.status}).`;
+      }
+    } catch {
+      // Keep the status-only message when GitHub does not return JSON.
+    }
+
+    throw new Error(message);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
   }
 
   return (await response.json()) as T;
@@ -200,6 +216,38 @@ export async function resolveToken(): Promise<TokenResolution | null> {
       login: await readLogin(environmentToken),
       source: 'environment',
       token: environmentToken
+    };
+  }
+
+  return null;
+}
+
+export async function resolveOAuthToken(): Promise<TokenResolution | null> {
+  const currentSession = getCurrentAuthSession();
+
+  if (isProjectSpaceAuthRequired() && !currentSession) {
+    return null;
+  }
+
+  if (currentSession && isDatabaseConfigured()) {
+    const storedForUser = await readGitHubOAuthToken(currentSession.userId);
+
+    if (storedForUser) {
+      return {
+        login: storedForUser.login ?? currentSession.login,
+        source: 'stored-oauth',
+        token: storedForUser.accessToken
+      };
+    }
+  }
+
+  const stored = !isProjectSpaceAuthRequired() ? readStoredToken() : null;
+
+  if (stored) {
+    return {
+      login: stored.login,
+      source: 'stored-oauth',
+      token: stored.accessToken
     };
   }
 

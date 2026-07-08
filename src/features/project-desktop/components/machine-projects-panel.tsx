@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type {
   MachineRecord,
   ProjectSpaceRecord,
+  ProjectStructureActionRequest,
   ProjectStructureActionType,
   ProjectTrashEntryRecord,
   ProjectStructureViolationRecord
@@ -100,6 +101,20 @@ export function MachineProjectsPanel({
   const filteredLooseViolations = looseViolations.filter((violation) =>
     matchesViolationQuery(violation, projectQuery)
   );
+  const visibleViolationIds = new Set<string>();
+  const visibleViolationsForCodex = [
+    ...filteredMachineProjects.flatMap((project) =>
+      violationsByProjectName.get(project.name) ?? []
+    ),
+    ...filteredLooseViolations
+  ].filter((violation) => {
+    if (visibleViolationIds.has(violation.id)) {
+      return false;
+    }
+
+    visibleViolationIds.add(violation.id);
+    return true;
+  });
   const projectsRoot = projectsRootFromViolations(machineViolations);
   const activeFixViolation =
     machineViolations.find((violation) => violation.id === openFixViolationId) ?? null;
@@ -107,6 +122,8 @@ export function MachineProjectsPanel({
     machineProjects.find((project) => project.id === openProjectMenuId) ?? null;
   const codexSystemPrompt = codexSystemPromptForViolations({
     machine,
+    query: projectQuery,
+    visibleViolations: visibleViolationsForCodex,
     violations: machineViolations
   });
 
@@ -149,6 +166,17 @@ export function MachineProjectsPanel({
     } finally {
       setBusyViolationId('');
     }
+  }
+
+  async function applyGeneratedCodexAction(request: ProjectStructureActionRequest) {
+    const result = await projectSpaceClient.applyProjectStructureAction(request);
+
+    if (result.status !== 'success') {
+      throw new Error(result.message);
+    }
+
+    await onRefreshProjectDiscovery();
+    return result.message;
   }
 
   async function loadTrash() {
@@ -687,6 +715,7 @@ export function MachineProjectsPanel({
           <MachineProjectsCodexChat
             cwd={projectsRoot}
             machine={machine}
+            onApplyAction={applyGeneratedCodexAction}
             systemPrompt={codexSystemPrompt}
             violations={machineViolations}
           />

@@ -1,6 +1,7 @@
 import {
   createContext,
   forwardRef,
+  useCallback,
   useContext,
   useMemo,
   useState,
@@ -307,9 +308,28 @@ interface DropdownContextValue {
 
 const DropdownContext = createContext<DropdownContextValue | null>(null);
 
-export function Dropdown({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  const value = useMemo(() => ({ close: () => setOpen(false), open, setOpen }), [open]);
+export function Dropdown({
+  children,
+  onOpenChange,
+  open: controlledOpen
+}: {
+  children: ReactNode;
+  onOpenChange?(open: boolean): void;
+  open?: boolean;
+}) {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = useCallback(
+    (nextOpen: boolean) => {
+      if (controlledOpen === undefined) {
+        setUncontrolledOpen(nextOpen);
+      }
+
+      onOpenChange?.(nextOpen);
+    },
+    [controlledOpen, onOpenChange]
+  );
+  const value = useMemo(() => ({ close: () => setOpen(false), open, setOpen }), [open, setOpen]);
 
   return (
     <DropdownContext.Provider value={value}>
@@ -795,6 +815,7 @@ export function ListBox({
 
 interface ListBoxItemProps extends HTMLAttributes<HTMLButtonElement> {
   id: string;
+  isDisabled?: boolean;
   textValue?: string;
 }
 
@@ -802,6 +823,7 @@ export function ListBoxItem({
   children,
   className,
   id,
+  isDisabled = false,
   textValue: _textValue,
   ...props
 }: ListBoxItemProps) {
@@ -815,10 +837,13 @@ export function ListBoxItem({
       type="button"
       role="option"
       aria-selected={selected}
+      aria-disabled={isDisabled}
       data-selected={selected ? 'true' : 'false'}
+      data-disabled={isDisabled ? 'true' : 'false'}
+      disabled={isDisabled}
       onClick={(event) => {
         props.onClick?.(event);
-        if (!event.defaultPrevented) {
+        if (!event.defaultPrevented && !isDisabled) {
           listBox.onAction?.(id);
           select?.onChange(id);
           select?.close();

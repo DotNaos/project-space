@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Bot, Download, GitBranchPlus, Monitor, Terminal } from 'lucide-react';
+import { Monitor } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
-import { Button, Chip, Surface, Text } from '@/app/dotnaos-ui';
+import {
+  Chip,
+  SearchField,
+  SearchFieldClearButton,
+  SearchFieldGroup,
+  SearchFieldInput,
+  SearchFieldSearchIcon,
+  Surface,
+  Text
+} from '@/app/dotnaos-ui';
 import type {
   ConnectorOverviewResult,
   GitHubCatalogRepository,
@@ -9,15 +18,46 @@ import type {
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
 import { cn } from '@/lib/utils';
+import { matchesFuzzyQuery } from '@/lib/fuzzy-search';
+import type { MachineDetailTab } from '../hooks/use-project-desktop';
+import { MachineListItem } from './machine-list-item';
+import { machineSubtitle } from './project-main-model';
+import {
+  WorktreeBranchList,
+  type WorktreeBranchOption
+} from './worktree-branch-list';
 
 interface MachineProjectMatch {
+  checkout: MachineProjectCheckout;
   machineId: string;
+}
+
+interface MachineProjectCheckout {
+  branchName?: string;
+  kind: 'main' | 'worktree';
+  path: string;
   project: ProjectSpaceRecord;
 }
 
-interface MachineBranchState {
-  branches: string[];
+interface MachineWorktreeInfo {
+  branchName?: string;
+  kind: 'main' | 'worktree';
+  path: string;
+}
+
+interface MachineWorktreeState {
   error?: string;
+  worktrees: MachineWorktreeInfo[];
+}
+
+interface CloneTargetInfo {
+  exists: boolean;
+  path: string;
+}
+
+interface MachineCloneTargetState {
+  error?: string;
+  targets: Record<string, CloneTargetInfo>;
 }
 
 function basename(path: string) {
@@ -26,6 +66,10 @@ function basename(path: string) {
 
 function normalizeKey(value: string) {
   return value.trim().replace(/^@/, '').toLowerCase();
+}
+
+function normalizeRelativePath(value: string) {
+  return value.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
 }
 
 function shellQuote(value: string) {
@@ -45,45 +89,100 @@ function getMachineId(project: ProjectSpaceRecord, localMachineId: string) {
   return localMachineId;
 }
 
-function matchesSelectedProject(
-  candidate: ProjectSpaceRecord,
-  selectedProject: ProjectSpaceRecord,
-  repository?: GitHubCatalogRepository
-) {
-  if (candidate.id === selectedProject.id) {
-    return true;
-  }
-
-  const candidateName = normalizeKey(candidate.name);
-  const candidateFolder = normalizeKey(basename(candidate.rootPath));
-
-  if (repository) {
-    const repoName = normalizeKey(repository.name);
-    const repoFullName = normalizeKey(repository.fullName);
-
-    return (
-      candidateName === repoName ||
-      candidateName === repoFullName ||
-      candidateFolder === repoName ||
-      candidateFolder === repoFullName
-    );
-  }
-
-  const selectedName = normalizeKey(selectedProject.name);
-  const selectedFolder = normalizeKey(basename(selectedProject.rootPath));
-
-  return candidateName === selectedName || candidateFolder === selectedFolder;
+function canonicalProjectName(project: ProjectSpaceRecord, repository?: GitHubCatalogRepository) {
+  return repository?.name || project.github?.name || project.name.split('/').pop() || basename(project.rootPath);
 }
 
-function parseBranchOutput(output: string) {
-  return Array.from(
-    new Set(
-      output
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-    )
-  ).sort((left, right) => left.localeCompare(right));
+function defaultBranchName(project: ProjectSpaceRecord, repository?: GitHubCatalogRepository) {
+  return repository?.defaultBranch || project.github?.defaultBranch || 'main';
+}
+
+function isDefaultBranch(branchName: string | undefined, defaultBranch: string) {
+  return normalizeKey(branchName || '') === normalizeKey(defaultBranch);
+}
+
+function relativePathUnderProjects(path: string) {
+  const normalizedPath = normalizeRelativePath(path);
+  const marker = 'projects/';
+  const markerIndex = normalizedPath.lastIndexOf(marker);
+
+  if (markerIndex >= 0) {
+    return normalizedPath.slice(markerIndex + marker.length);
+  }
+
+  return '';
+}
+
+function checkoutForProjectPath(
+  candidate: ProjectSpaceRecord,
+  projectName: string,
+  defaultBranch: string
+): MachineProjectCheckout | undefined {
+  const relativePath = relativePathUnderProjects(candidate.rootPath);
+
+  if (!relativePath) {
+    return undefined;
+  }
+
+  if (normalizeKey(relativePath) === normalizeKey(projectName)) {
+    if (!isDefaultBranch(candidate.gitStatus?.branchName, defaultBranch)) {
+      return undefined;
+    }
+
+    return {
+      branchName: candidate.gitStatus?.branchName || defaultBranch,
+      kind: 'main',
+      path: candidate.rootPath,
+      project: candidate
+    };
+  }
+
+  const worktreePrefix = `.worktrees/${projectName}/`;
+
+  if (normalizeKey(relativePath).startsWith(normalizeKey(worktreePrefix))) {
+    const branchPath = relativePath.slice(worktreePrefix.length);
+
+    if (!branchPath) {
+      return undefined;
+    }
+
+    return {
+      branchName: candidate.gitStatus?.branchName || branchPath,
+      kind: 'worktree',
+      path: candidate.rootPath,
+      project: candidate
+    };
+  }
+
+  return undefined;
+}
+
+function parseWorktreeOutput(output: string, mainPath: string): MachineWorktreeInfo[] {
+  return output
+    .trim()
+    .split('\n\n')
+    .filter(Boolean)
+    .map((block) => {
+      const lines = block.split('\n').filter(Boolean);
+      const path = lines.find((line) => line.startsWith('worktree '))?.slice('worktree '.length).trim() ?? '';
+      const branchRef = lines.find((line) => line.startsWith('branch '))?.slice('branch '.length).trim();
+      const branchName = branchRef?.replace('refs/heads/', '');
+      const kind: MachineWorktreeInfo['kind'] =
+        normalizeRelativePath(path) === normalizeRelativePath(mainPath) ? 'main' : 'worktree';
+
+      return {
+        branchName,
+        kind,
+        path
+      };
+    })
+    .filter((entry) => entry.path)
+    .sort((left, right) => {
+      const leftLabel = left.branchName || basename(left.path);
+      const rightLabel = right.branchName || basename(right.path);
+
+      return leftLabel.localeCompare(rightLabel);
+    });
 }
 
 function canRunMachineCommand(machine?: MachineRecord) {
@@ -102,42 +201,131 @@ function cloneUrl(repository?: GitHubCatalogRepository) {
   return repository.url.endsWith('.git') ? repository.url : `${repository.url}.git`;
 }
 
-function relativeClonePath(projectPath: string, fallbackName: string) {
-  const normalized = projectPath.replace(/\/+$/, '');
-  const marker = '/projects/';
-  const markerIndex = normalized.lastIndexOf(marker);
-
-  if (markerIndex >= 0) {
-    return normalized.slice(markerIndex + marker.length) || fallbackName;
+function expectedPathForBranch(repositoryName: string, branchName: string, defaultBranch: string) {
+  if (isDefaultBranch(branchName, defaultBranch)) {
+    return `~/projects/${repositoryName}`;
   }
 
-  return fallbackName;
+  return `~/projects/.worktrees/${repositoryName}/${branchName}`;
 }
 
-function createBranchCommand(projectPath: string) {
+function cloneTargetExpressionForBranch(repositoryName: string, branchName: string, defaultBranch: string) {
+  const projectPath = escapeDoubleQuotedShell(repositoryName);
+  const worktreePath = escapeDoubleQuotedShell(`${repositoryName}/${branchName}`);
+
+  if (isDefaultBranch(branchName, defaultBranch)) {
+    return `$HOME/projects/${projectPath}`;
+  }
+
+  return `$HOME/projects/.worktrees/${worktreePath}`;
+}
+
+function createCloneTargetProbeCommand(
+  branchNames: string[],
+  defaultBranch: string,
+  repositoryName: string
+) {
+  return [
+    'set -e',
+    ...branchNames.flatMap((branch) => [
+      `target="${cloneTargetExpressionForBranch(repositoryName, branch, defaultBranch)}"`,
+      'if [ -e "$target" ]; then exists=1; else exists=0; fi',
+      `printf '%s\\t%s\\t%s\\n' ${shellQuote(branch)} "$exists" "$target"`
+    ])
+  ].join('\n');
+}
+
+function parseCloneTargetProbeOutput(output: string): Record<string, CloneTargetInfo> {
+  return Object.fromEntries(
+    output
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [branchName, exists, path] = line.split('\t');
+
+        return [
+          branchName,
+          {
+            exists: exists === '1',
+            path
+          }
+        ];
+      })
+  );
+}
+
+function compactHomePath(path: string | undefined) {
+  if (!path) {
+    return '';
+  }
+
+  return path.replace(/^\/Users\/[^/]+/, '~').replace(/^\/home\/[^/]+/, '~');
+}
+
+function branchOptions(
+  branchNames: string[],
+  defaultBranch: string,
+  repositoryName: string,
+  cloneTargets: Record<string, CloneTargetInfo> | undefined,
+  worktreeByBranch: Map<string, NonNullable<WorktreeBranchOption['worktree']>>
+): WorktreeBranchOption[] {
+  return branchNames.map((branchName) => ({
+    branchName,
+    expectedPath: expectedPathForBranch(repositoryName, branchName, defaultBranch),
+    target: cloneTargets?.[branchName],
+    worktree: worktreeByBranch.get(normalizeKey(branchName))
+  }));
+}
+
+function createWorktreeCommand(projectPath: string) {
   return [
     `cd ${shellQuote(projectPath)}`,
-    "{ git branch --show-current 2>/dev/null || true; git worktree list --porcelain 2>/dev/null | sed -n 's/^branch refs\\/heads\\///p'; } | awk 'NF && !seen[$0]++'"
+    'git worktree list --porcelain 2>/dev/null'
   ].join(' && ');
 }
 
 function createCloneCommand({
-  projectPath,
+  branchName,
+  defaultBranch,
   repository,
   repositoryName
 }: {
-  projectPath: string;
+  branchName: string;
+  defaultBranch: string;
   repository: string;
   repositoryName: string;
 }) {
-  const relativePath = escapeDoubleQuotedShell(relativeClonePath(projectPath, repositoryName));
+  const projectPath = escapeDoubleQuotedShell(repositoryName);
+  const worktreePath = escapeDoubleQuotedShell(`${repositoryName}/${branchName}`);
+
+  if (isDefaultBranch(branchName, defaultBranch)) {
+    return [
+      'set -e',
+      `target="$HOME/projects/${projectPath}"`,
+      'if [ -e "$target" ]; then echo "Target already exists: $target"; exit 1; fi',
+      'mkdir -p "${target%/*}"',
+      `git clone --branch ${shellQuote(branchName)} ${shellQuote(repository)} "$target"`
+    ].join('\n');
+  }
 
   return [
     'set -e',
-    `target="$HOME/projects/${relativePath}"`,
+    `base="$HOME/projects/${projectPath}"`,
+    `target="$HOME/projects/.worktrees/${worktreePath}"`,
     'if [ -e "$target" ]; then echo "Target already exists: $target"; exit 1; fi',
+    'if [ ! -d "$base/.git" ]; then',
+    '  mkdir -p "${base%/*}"',
+    `  git clone --branch ${shellQuote(defaultBranch)} ${shellQuote(repository)} "$base"`,
+    'fi',
     'mkdir -p "${target%/*}"',
-    `git clone ${shellQuote(repository)} "$target"`
+    'cd "$base"',
+    `git fetch origin ${shellQuote(branchName)}`,
+    `if git show-ref --verify --quiet ${shellQuote(`refs/heads/${branchName}`)}; then`,
+    `  git worktree add "$target" ${shellQuote(branchName)}`,
+    'else',
+    `  git worktree add --track -b ${shellQuote(branchName)} "$target" ${shellQuote(`origin/${branchName}`)}`,
+    'fi'
   ].join('\n');
 }
 
@@ -149,20 +337,75 @@ function machineStatusClass(status?: string) {
   return 'text-neutral-500';
 }
 
+function checkoutSortValue(checkout: MachineProjectCheckout) {
+  return checkout.kind === 'main' ? `0:${checkout.path}` : `1:${checkout.branchName ?? checkout.path}`;
+}
+
+function primaryCheckout(checkouts: MachineProjectCheckout[]) {
+  return (
+    checkouts.find((checkout) => checkout.kind === 'main') ??
+    [...checkouts].sort((left, right) => checkoutSortValue(left).localeCompare(checkoutSortValue(right)))[0]
+  );
+}
+
+function fallbackWorktrees(checkouts: MachineProjectCheckout[]): MachineWorktreeInfo[] {
+  return checkouts.map((checkout) => ({
+    branchName: checkout.branchName,
+    kind: checkout.kind,
+    path: checkout.path
+  }));
+}
+
+function branchSortValue(defaultBranch: string) {
+  return (left: string, right: string) => {
+    if (isDefaultBranch(left, defaultBranch)) {
+      return -1;
+    }
+
+    if (isDefaultBranch(right, defaultBranch)) {
+      return 1;
+    }
+
+    return left.localeCompare(right);
+  };
+}
+
+function mergeBranchNames(defaultBranch: string, remoteBranches: string[], worktrees: MachineWorktreeInfo[]) {
+  const branches = new Set<string>(remoteBranches);
+
+  for (const worktree of worktrees) {
+    if (worktree.branchName) {
+      branches.add(worktree.branchName);
+    }
+  }
+
+  return Array.from(branches).sort(branchSortValue(defaultBranch));
+}
+
 export function ProjectMachinesPanel({
   connectorOverview,
+  onOpenMachine,
+  onOpenWorktreeBranch,
   project,
   projects,
   repository
 }: {
   connectorOverview: ConnectorOverviewResult;
+  onOpenMachine(machineId: string, tab?: MachineDetailTab): void;
+  onOpenWorktreeBranch(machineId: string, branchName: string, path?: string): void;
   project: ProjectSpaceRecord;
   projects: ProjectSpaceRecord[];
   repository?: GitHubCatalogRepository;
 }) {
-  const [branchState, setBranchState] = useState<Record<string, MachineBranchState>>({});
+  const [branchState, setBranchState] = useState<Record<string, MachineWorktreeState>>({});
   const [actionMessage, setActionMessage] = useState('');
-  const [busyMachineId, setBusyMachineId] = useState('');
+  const [busyCloneKey, setBusyCloneKey] = useState('');
+  const [cloneTargetState, setCloneTargetState] = useState<Record<string, MachineCloneTargetState>>({});
+  const [machineQuery, setMachineQuery] = useState('');
+  const [repositoryBranches, setRepositoryBranches] = useState<string[]>([]);
+  const [repositoryBranchesMessage, setRepositoryBranchesMessage] = useState('');
+  const repositoryName = canonicalProjectName(project, repository);
+  const defaultBranch = defaultBranchName(project, repository);
   const localMachineId =
     connectorOverview.machines.find((machine) => machine.connector.status === 'local')?.id ??
     connectorOverview.machines[0]?.id ??
@@ -170,63 +413,169 @@ export function ProjectMachinesPanel({
   const matches = useMemo<MachineProjectMatch[]>(() => {
     return projects
       .filter((candidate) => candidate.kind !== 'github' && candidate.rootPath)
-      .filter((candidate) => matchesSelectedProject(candidate, project, repository))
       .map((candidate) => {
+        const checkout = checkoutForProjectPath(candidate, repositoryName, defaultBranch);
+
+        if (!checkout) {
+          return undefined;
+        }
+
         const machineId = getMachineId(candidate, localMachineId);
+
         return {
+          checkout,
           machineId,
-          project: candidate
         };
-      });
-  }, [localMachineId, project, projects, repository]);
-  const matchesByMachineId = useMemo(
-    () => new Map(matches.map((match) => [match.machineId, match.project])),
+      })
+      .filter((match): match is MachineProjectMatch => Boolean(match));
+  }, [defaultBranch, localMachineId, projects, repositoryName]);
+  const checkoutsByMachineId = useMemo(
+    () =>
+      matches.reduce((map, match) => {
+        const current = map.get(match.machineId) ?? [];
+        current.push(match.checkout);
+        map.set(
+          match.machineId,
+          current.sort((left, right) => checkoutSortValue(left).localeCompare(checkoutSortValue(right)))
+        );
+
+        return map;
+      }, new Map<string, MachineProjectCheckout[]>()),
     [matches]
   );
   const machineRows = useMemo(() => {
     const knownMachineIds = new Set(connectorOverview.machines.map((machine) => machine.id));
     const orphanMatches = matches
       .filter((match) => !knownMachineIds.has(match.machineId))
-      .map((match) => ({
-        machine: undefined,
-        machineId: match.machineId,
-        project: match.project
-      }));
+      .reduce((map, match) => {
+        const current = map.get(match.machineId) ?? [];
+        current.push(match.checkout);
+        map.set(match.machineId, current);
+
+        return map;
+      }, new Map<string, MachineProjectCheckout[]>());
 
     return [
       ...connectorOverview.machines.map((machine) => ({
+        checkouts: checkoutsByMachineId.get(machine.id) ?? [],
         machine,
-        machineId: machine.id,
-        project: matchesByMachineId.get(machine.id)
+        machineId: machine.id
       })),
-      ...orphanMatches
+      ...Array.from(orphanMatches.entries()).map(([machineId, checkouts]) => ({
+        checkouts: checkouts.sort((left, right) => checkoutSortValue(left).localeCompare(checkoutSortValue(right))),
+        machine: undefined,
+        machineId
+      }))
     ];
-  }, [connectorOverview.machines, matches, matchesByMachineId]);
+  }, [checkoutsByMachineId, connectorOverview.machines, matches]);
+  const filteredMachineRows = useMemo(
+    () =>
+      machineRows.filter((row) =>
+        matchesFuzzyQuery(
+          [
+            row.machineId,
+            row.machine?.name,
+            row.machine?.kind,
+            row.machine?.profile,
+            row.machine?.primaryUser,
+            row.machine?.network.localName,
+            row.machine?.network.sshUser,
+            row.machine?.network.tailscaleIp,
+            row.machine?.connector.status,
+            row.checkouts.map((checkout) => checkout.branchName).join(' '),
+            row.checkouts.map((checkout) => checkout.path).join(' ')
+          ],
+          machineQuery
+        )
+      ),
+    [machineQuery, machineRows]
+  );
   const repositoryCloneUrl = cloneUrl(repository);
-  const repositoryName = repository?.name ?? basename(project.rootPath);
-  const checkoutCount = machineRows.filter((row) => row.project).length;
+  const checkoutCount = machineRows.reduce(
+    (count, row) => count + (branchState[row.machineId]?.worktrees.length ?? row.checkouts.length),
+    0
+  );
+  const cloneBranchNames = useMemo(() => {
+    const branches = new Set<string>([defaultBranch]);
+
+    for (const branch of repositoryBranches) {
+      branches.add(branch);
+    }
+
+    return Array.from(branches).sort((left, right) => {
+      if (isDefaultBranch(left, defaultBranch)) {
+        return -1;
+      }
+
+      if (isDefaultBranch(right, defaultBranch)) {
+        return 1;
+      }
+
+      return left.localeCompare(right);
+    });
+  }, [defaultBranch, repositoryBranches]);
+
+  useEffect(() => {
+    if (!repository?.fullName) {
+      setRepositoryBranches([]);
+      setRepositoryBranchesMessage('');
+      return;
+    }
+
+    let canceled = false;
+
+    setRepositoryBranchesMessage('');
+    projectSpaceClient
+      .getGitHubRepositoryDetails(repository.fullName)
+      .then((details) => {
+        if (canceled) {
+          return;
+        }
+
+        setRepositoryBranches(details.branches.map((branch) => branch.name));
+        setRepositoryBranchesMessage(details.message ?? '');
+      })
+      .catch((error) => {
+        if (canceled) {
+          return;
+        }
+
+        setRepositoryBranches([]);
+        setRepositoryBranchesMessage(
+          error instanceof Error ? error.message : 'Could not load repository branches.'
+        );
+      });
+
+    return () => {
+      canceled = true;
+    };
+  }, [repository?.fullName]);
 
   useEffect(() => {
     let canceled = false;
 
     void Promise.all(
       machineRows
-        .filter((row) => row.project)
+        .map((row) => ({
+          ...row,
+          checkout: primaryCheckout(row.checkouts)
+        }))
+        .filter((row) => row.checkout)
         .map(async (row) => {
           if (!canRunMachineCommand(row.machine)) {
             return {
               key: row.machineId,
               state: {
-                branches: [],
                 error: row.machine
                   ? `${row.machine.name} is ${row.machine.connector.status}.`
-                  : 'Machine is not available.'
+                  : 'Machine is not available.',
+                worktrees: fallbackWorktrees(row.checkouts)
               }
             };
           }
 
           const result = await projectSpaceClient.runMachineTerminalCommand({
-            command: createBranchCommand(row.project!.rootPath),
+            command: createWorktreeCommand(row.checkout!.path),
             machineId: row.machineId
           });
 
@@ -234,10 +583,10 @@ export function ProjectMachinesPanel({
             key: row.machineId,
             state:
               result.exitCode === 0
-                ? { branches: parseBranchOutput(result.stdout) }
+                ? { worktrees: parseWorktreeOutput(result.stdout, row.checkout!.path) }
                 : {
-                    branches: [],
-                    error: result.stderr || 'Could not read branches.'
+                    error: result.stderr || 'Could not read worktrees.',
+                    worktrees: fallbackWorktrees(row.checkouts)
                   }
           };
         })
@@ -254,37 +603,64 @@ export function ProjectMachinesPanel({
     };
   }, [machineRows]);
 
-  async function openInApp(appId: string, path: string, label: string) {
-    setActionMessage('');
-    const result =
-      appId === 'codex'
-        ? await projectSpaceClient.openCodexTarget({ cwd: path })
-        : await projectSpaceClient.openPathInApp({ appId, path });
+  useEffect(() => {
+    let canceled = false;
+    const runnableRows = machineRows.filter((row) => canRunMachineCommand(row.machine));
 
-    setActionMessage(
-      result.status === 'success'
-        ? `${label} opened for ${basename(path)}.`
-        : result.message ?? `${label} could not be opened.`
-    );
-  }
+    if (cloneBranchNames.length === 0 || runnableRows.length === 0) {
+      setCloneTargetState({});
+      return;
+    }
 
-  async function cloneToMachine(machineId: string) {
+    void Promise.all(
+      runnableRows.map(async (row) => {
+        const result = await projectSpaceClient.runMachineTerminalCommand({
+          command: createCloneTargetProbeCommand(cloneBranchNames, defaultBranch, repositoryName),
+          machineId: row.machineId
+        });
+
+        return {
+          key: row.machineId,
+          state:
+            result.exitCode === 0
+              ? { targets: parseCloneTargetProbeOutput(result.stdout) }
+              : {
+                  error: result.stderr || 'Could not inspect clone targets.',
+                  targets: {}
+                }
+        };
+      })
+    ).then((results) => {
+      if (canceled) {
+        return;
+      }
+
+      setCloneTargetState(Object.fromEntries(results.map((result) => [result.key, result.state])));
+    });
+
+    return () => {
+      canceled = true;
+    };
+  }, [cloneBranchNames, defaultBranch, machineRows, repositoryName]);
+
+  async function cloneToMachine(machineId: string, branchName: string) {
     setActionMessage('');
-    setBusyMachineId(machineId);
+    setBusyCloneKey(`${machineId}:${branchName}`);
 
     const result = await projectSpaceClient.runMachineTerminalCommand({
       command: createCloneCommand({
-        projectPath: project.rootPath,
+        branchName,
+        defaultBranch,
         repository: repositoryCloneUrl,
         repositoryName
       }),
       machineId
     });
 
-    setBusyMachineId('');
+    setBusyCloneKey('');
     setActionMessage(
       result.exitCode === 0
-        ? `Clone finished on ${machineId}. Refresh after the connector reports the new checkout.`
+        ? `${branchName} cloned on ${machineId}. Refresh after the connector reports the new checkout.`
         : result.stderr || result.stdout || `Clone could not be started on ${machineId}.`
     );
   }
@@ -309,117 +685,180 @@ export function ProjectMachinesPanel({
         ) : null}
       </Surface>
 
+      <SearchField aria-label="Search project machines" value={machineQuery} onChange={setMachineQuery}>
+        <SearchFieldGroup className="rounded-lg bg-neutral-900/80">
+          <SearchFieldSearchIcon />
+          <SearchFieldInput className="text-sm" placeholder="Search machines" spellCheck={false} />
+          <SearchFieldClearButton />
+        </SearchFieldGroup>
+      </SearchField>
+
       {machineRows.length === 0 ? (
         <Text className="px-1 py-4 text-sm text-neutral-500">
           No connector machines are registered yet.
         </Text>
+      ) : filteredMachineRows.length === 0 ? (
+        <Text className="px-1 py-4 text-sm text-neutral-500">No machines found.</Text>
       ) : (
         <div className="grid gap-3">
-          {machineRows.map((row) => {
+          {filteredMachineRows.map((row) => {
             const state = branchState[row.machineId];
-            const branches = state?.branches ?? [];
-            const hasCheckout = Boolean(row.project);
-            const isLocal = row.machine?.connector.status === 'local';
-            const canOpen = isLocal && row.project;
+            const checkouts = row.checkouts;
+            const checkout = primaryCheckout(checkouts);
+            const displayedWorktrees = state?.worktrees?.length
+              ? state.worktrees
+              : fallbackWorktrees(checkouts);
+            const worktreeByBranch = new Map<string, NonNullable<WorktreeBranchOption['worktree']>>(
+              displayedWorktrees
+                .filter((worktree) => worktree.branchName)
+                .map((worktree) => [
+                  normalizeKey(worktree.branchName!),
+                  {
+                    branchName: worktree.branchName,
+                    id: `${row.machineId}:${worktree.path}`,
+                    isBase: isDefaultBranch(worktree.branchName, defaultBranch),
+                    name: worktree.branchName || basename(worktree.path),
+                    path: worktree.path
+                  }
+                ])
+            );
+            const hasCheckout = checkouts.length > 0;
+            const selectedTargetState = cloneTargetState[row.machineId];
+            const machineBranchNames = mergeBranchNames(defaultBranch, cloneBranchNames, displayedWorktrees);
+            const cloneBranchOptions = branchOptions(
+              machineBranchNames,
+              defaultBranch,
+              repositoryName,
+              selectedTargetState?.targets,
+              worktreeByBranch
+            );
+            const canNavigate = Boolean(row.machine);
+            const targetCheckPending = canRunMachineCommand(row.machine) && !selectedTargetState;
             const canClone =
-              !hasCheckout && Boolean(repositoryCloneUrl) && canRunMachineCommand(row.machine);
+              Boolean(repositoryCloneUrl) &&
+              canRunMachineCommand(row.machine) &&
+              !targetCheckPending &&
+              !selectedTargetState?.error;
+            const checkoutLabel = hasCheckout
+              ? 'checkout'
+              : targetCheckPending
+                ? 'checking target'
+                : 'not cloned';
+            const checkoutLabelClass = hasCheckout
+              ? 'text-sky-300'
+              : 'text-neutral-500';
+            const machineItemSubtitle = checkout
+              ? compactHomePath(checkout.path)
+              : row.machine
+                ? machineSubtitle(row.machine) || row.machine.connector.status
+                : 'Machine not registered';
 
             return (
               <Surface
                 key={row.machineId}
                 variant="tertiary"
-                className="min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/45 p-4"
+                role={canNavigate ? 'button' : undefined}
+                tabIndex={canNavigate ? 0 : undefined}
+                onClick={() => {
+                  if (canNavigate) {
+                    onOpenMachine(row.machineId, 'projects');
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (!canNavigate || (event.key !== 'Enter' && event.key !== ' ')) {
+                    return;
+                  }
+
+                  event.preventDefault();
+                  onOpenMachine(row.machineId, 'projects');
+                }}
+                className={cn(
+                  'min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/45 p-4 transition',
+                  canNavigate
+                    ? 'cursor-pointer hover:border-neutral-700 hover:bg-neutral-900/45 focus-visible:border-neutral-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-800'
+                    : ''
+                )}
               >
                 <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <Text className="truncate text-sm font-semibold text-neutral-100">
-                        {row.machine?.name ?? row.machineId}
-                      </Text>
-                      <Chip
-                        size="sm"
-                        className={cn(
-                          'rounded-full px-2 py-0.5',
-                          machineStatusClass(row.machine?.connector.status)
-                        )}
-                      >
-                        {row.machine?.connector.status ?? 'unknown'}
-                      </Chip>
-                      <Chip
-                        size="sm"
-                        className={cn(
-                          'rounded-full px-2 py-0.5',
-                          hasCheckout ? 'text-sky-300' : 'text-neutral-500'
-                        )}
-                      >
-                        {hasCheckout ? 'checkout' : 'not cloned'}
-                      </Chip>
-                    </div>
-                    <Text className="mt-1 block truncate font-mono text-xs text-neutral-500">
-                      {row.project
-                        ? row.project.rootPath
-                        : `~/projects/${relativeClonePath(project.rootPath, repositoryName)}`}
-                    </Text>
-                  </div>
-
-                  <div className="flex shrink-0 items-center gap-2">
-                    {hasCheckout ? (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          isDisabled={!canOpen}
-                          onPress={() =>
-                            void openInApp('terminal', row.project!.rootPath, 'Terminal')
-                          }
-                        >
-                          <Terminal className="size-4" />
-                          Start branch
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          isDisabled={!canOpen}
-                          onPress={() => void openInApp('codex', row.project!.rootPath, 'Codex')}
-                        >
-                          <Bot className="size-4" />
-                          New feature
-                        </Button>
-                      </>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        isDisabled={!canClone || busyMachineId === row.machineId}
-                        onPress={() => void cloneToMachine(row.machineId)}
-                      >
-                        <Download className="size-4" />
-                        {busyMachineId === row.machineId ? 'Cloning...' : 'Clone'}
-                      </Button>
-                    )}
+                  <div className="min-w-0 flex-1">
+                    <MachineListItem
+                      compact
+                      machine={row.machine}
+                      fallbackName={row.machineId}
+                      subtitle={machineItemSubtitle}
+                      className="px-0 py-0 hover:bg-transparent"
+                      endContent={
+                        <span className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-1.5">
+                          <Chip
+                            size="sm"
+                            className={cn(
+                              'rounded-full px-2 py-0.5',
+                              machineStatusClass(row.machine?.connector.status)
+                            )}
+                          >
+                            {row.machine?.connector.status ?? 'unknown'}
+                          </Chip>
+                          <Chip
+                            size="sm"
+                            className={cn('rounded-full px-2 py-0.5', checkoutLabelClass)}
+                          >
+                            {checkoutLabel}
+                          </Chip>
+                          {displayedWorktrees.length > 0 ? (
+                            <Chip size="sm" className="rounded-full px-2 py-0.5 text-neutral-400">
+                              {displayedWorktrees.length}{' '}
+                              {displayedWorktrees.length === 1 ? 'worktree' : 'worktrees'}
+                            </Chip>
+                          ) : null}
+                        </span>
+                      }
+                    />
                   </div>
                 </div>
 
-                <div className="mt-3 flex min-w-0 flex-wrap items-center gap-1.5">
-                  {!hasCheckout ? (
-                    <Text className="text-xs text-neutral-500">
-                      Clone source: {repositoryCloneUrl || 'No GitHub repository detected.'}
-                    </Text>
-                  ) : branches.length > 0 ? (
-                    branches.map((branch) => (
-                      <span
-                        key={branch}
-                        className="inline-flex max-w-56 items-center gap-1 rounded-full bg-neutral-900 px-2 py-0.5 text-[11px] font-medium text-neutral-300"
-                      >
-                        <GitBranchPlus className="size-3 shrink-0 text-neutral-500" />
-                        <span className="truncate">{branch}</span>
-                      </span>
-                    ))
+                <div
+                  className="mt-4 min-w-0"
+                  onClick={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => event.stopPropagation()}
+                >
+                  {cloneBranchOptions.length > 0 ? (
+                    <WorktreeBranchList
+                      busyBranchName={
+                        busyCloneKey.startsWith(`${row.machineId}:`)
+                          ? busyCloneKey.slice(row.machineId.length + 1)
+                          : ''
+                      }
+                      canClone={canClone}
+                      cloneMessage={canRunMachineCommand(row.machine) ? 'Clone' : 'Offline'}
+                      defaultBranch={defaultBranch}
+                      localPathLabel="Local"
+                      onCloneBranch={(branchName) => void cloneToMachine(row.machineId, branchName)}
+                      onSelectBase={() => onOpenWorktreeBranch(row.machineId, defaultBranch, checkout?.path)}
+                      onSelectBranch={(branchName, path) =>
+                        onOpenWorktreeBranch(row.machineId, branchName, path)
+                      }
+                      onSelectWorktree={(worktreeId) => {
+                        const branch = cloneBranchOptions.find((option) => option.worktree?.id === worktreeId);
+                        if (branch) {
+                          onOpenWorktreeBranch(row.machineId, branch.branchName, branch.worktree?.path);
+                        }
+                      }}
+                      options={cloneBranchOptions}
+                      projectName={repositoryName}
+                      selectedValue=""
+                      showMissingPath={false}
+                    />
                   ) : (
-                    <Text className="text-xs text-neutral-500">
-                      {state?.error ?? 'Loading branches...'}
+                    <Text className="block rounded-lg border border-neutral-900 px-3 py-3 text-sm text-neutral-500">
+                      No GitHub branches found for this repository.
                     </Text>
                   )}
+
+                  {selectedTargetState?.error || repositoryBranchesMessage ? (
+                    <Text className="mt-3 block text-xs text-neutral-500">
+                      {selectedTargetState?.error || repositoryBranchesMessage}
+                    </Text>
+                  ) : null}
                 </div>
               </Surface>
             );

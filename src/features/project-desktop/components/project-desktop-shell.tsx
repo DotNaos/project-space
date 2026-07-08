@@ -272,24 +272,19 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
             connectorOverview={desktop.connectorOverview}
             groups={desktop.groups}
             onCreateProject={desktop.createProject}
-            onOpenNewWorktree={desktop.openNewWorktreeWorkspace}
             onResizeStart={(event) => {
               event.preventDefault();
               startSidebarResize();
             }}
             onSelectMachine={desktop.openMachine}
             onSelectProject={desktop.selectProject}
-            onSelectWorkspace={desktop.selectWorkspace}
-            onSelectWorktree={desktop.selectWorktree}
             onTogglePinnedProject={desktop.togglePinnedProject}
             pinnedProjectIds={desktop.pinnedProjectIds}
             projects={desktop.projects}
             recentProjectIds={desktop.recentProjectIds}
             section={activeSection === 'machines' ? 'machines' : 'projects'}
-            selectedExplorerTarget={desktop.selectedExplorerTarget}
             selectedMachineId={desktop.selectedMachineId}
             selectedProjectId={desktop.selectedProjectId}
-            worktrees={desktop.worktrees}
           />
         ) : null}
 
@@ -313,9 +308,11 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           onOpenRoot={desktop.openRoot}
           onOpenSelectedTarget={desktop.openSelectedTargetInApp}
           onRefreshProjectDiscovery={desktop.refreshProjectDiscovery}
+          onRefreshProjectWorktrees={desktop.refreshProjectWorktrees}
           onRefreshConnectorOverview={desktop.refreshConnectorOverview}
           onRefreshGitHubCatalog={desktop.refreshGitHubCatalog}
           onSelectLauncherApp={desktop.selectLauncherApp}
+          onSelectMachineContext={desktop.selectMachineContext}
           onSelectMachineTab={desktop.selectMachineTab}
           onSelectProject={desktop.selectProject}
           onSelectProjectTab={desktop.selectProjectTab}

@@ -18,6 +18,7 @@ import type {
 import { usePaneResize } from '../hooks/use-pane-resize';
 import { DiffFileCard, DiffView, parseUnifiedDiff } from './diff-view';
 import { buildGitBranchOptions, type GitBranchOption } from './git-graph-browser';
+import { CommitSelect, DiffSourceSelect } from './git-source-selectors';
 import { PaneResizeHandle } from './pane-resize-handle';
 
 const BRANCH_SCAN_LIMIT = 300;
@@ -63,9 +64,6 @@ function Stat({ label, value }: { label: string; value: number }) {
     </div>
   );
 }
-
-const sourceSelectClass =
-  'h-8 min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/80 px-2 text-xs text-neutral-200 outline-none focus:border-neutral-500';
 
 function useCommitSource(targetPath: string) {
   const [branches, setBranches] = useState<GitBranchOption[]>([]);
@@ -358,32 +356,17 @@ export function GitChangesPanel({
           ) : null}
         </div>
         <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-          <select
-            aria-label="Diff source"
-            value={source.branchRef}
-            onChange={(event) => source.setBranchRef(event.target.value)}
-            className={cn(sourceSelectClass, 'max-w-44 shrink-0')}
-          >
-            <option value="">Working tree</option>
-            {source.branches.map((branch) => (
-              <option key={branch.label} value={branch.ref}>
-                {branch.label}
-              </option>
-            ))}
-          </select>
+          <DiffSourceSelect
+            branchRef={source.branchRef}
+            branches={source.branches}
+            onChange={source.setBranchRef}
+          />
           {isCommitMode ? (
-            <select
-              aria-label="Commit"
-              value={source.commitHash}
-              onChange={(event) => source.setCommitHash(event.target.value)}
-              className={cn(sourceSelectClass, 'max-w-96 flex-1')}
-            >
-              {source.commits.map((commit) => (
-                <option key={commit.hash} value={commit.hash}>
-                  {commit.hash.slice(0, 8)} · {commit.subject}
-                </option>
-              ))}
-            </select>
+            <CommitSelect
+              commitHash={source.commitHash}
+              commits={source.commits}
+              onChange={source.setCommitHash}
+            />
           ) : null}
           <Button
             aria-label="Refresh changes"

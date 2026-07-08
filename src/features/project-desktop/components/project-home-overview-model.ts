@@ -5,6 +5,7 @@ import type {
   ProjectSpaceRecord,
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
+import { matchesFuzzyQuery } from '@/lib/fuzzy-search';
 
 export interface LocalMatch {
   machineId: string;
@@ -63,13 +64,7 @@ export function normalizeKey(value: string) {
 }
 
 export function matchesQuery(values: Array<string | undefined>, query: string) {
-  const normalizedQuery = normalizeKey(query);
-
-  if (!normalizedQuery) {
-    return true;
-  }
-
-  return values.some((value) => normalizeKey(value ?? '').includes(normalizedQuery));
+  return matchesFuzzyQuery(values, query);
 }
 
 function projectKeys(project: ProjectSpaceRecord) {

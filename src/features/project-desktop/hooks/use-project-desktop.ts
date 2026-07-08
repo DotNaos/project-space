@@ -43,6 +43,26 @@ const githubFallback: GitHubCatalogResult = {
   status: 'auth-required'
 };
 
+function githubCatalogErrorFallback(message = 'Could not load the GitHub project catalog.') {
+  return {
+    checkedAt: new Date().toISOString(),
+    message,
+    repositories: [],
+    status: 'error'
+  } satisfies GitHubCatalogResult;
+}
+
+function normalizeGitHubCatalog(catalog: GitHubCatalogResult | undefined) {
+  if (!catalog) {
+    return githubCatalogErrorFallback();
+  }
+
+  return {
+    ...catalog,
+    checkedAt: catalog.checkedAt || new Date().toISOString()
+  };
+}
+
 const appMetaFallback: AppMeta = {
   name: 'project-space',
   platform: 'unknown',
@@ -65,9 +85,7 @@ export const projectDetailTabs = [
   'history',
   'template',
   'deployments',
-  'automation',
-  'codex',
-  'terminal'
+  'codex'
 ] as const;
 export type ProjectDetailTab = (typeof projectDetailTabs)[number];
 
@@ -93,6 +111,27 @@ function normalizePath(path: string) {
 const templatePlaceholderPattern = /\{\{.*?\}\}/;
 const projectsPath = '/projects';
 const machinesPath = '/machines';
+const connectorOverviewRefreshIntervalMs = 60_000;
+const githubCatalogTimeoutMs = 12_000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        window.clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timeout);
+        reject(error);
+      }
+    );
+  });
+}
 
 function basename(path: string) {
   return path.split('/').filter(Boolean).pop() ?? path;
@@ -364,6 +403,26 @@ export function useProjectDesktop() {
     selectedLauncherApp?.label ??
     (selectedLauncherAppId ? launcherAppLabels[selectedLauncherAppId] : undefined);
 
+  useEffect(() => {
+    if (mainView !== 'project' || connectorOverview.machines.length === 0) {
+      return;
+    }
+
+    if (selectedMachine) {
+      return;
+    }
+
+    const localMachine = connectorOverview.machines.find(
+      (machine) => machine.connector.status === 'local'
+    );
+    const onlineMachine = connectorOverview.machines.find(
+      (machine) => machine.connector.status === 'online'
+    );
+    const nextMachine = localMachine ?? onlineMachine ?? connectorOverview.machines[0];
+
+    setSelectedMachineId(nextMachine.id);
+  }, [connectorOverview.machines, mainView, selectedMachine]);
+
   const selectedTargetPath =
     selectedExplorerTarget.kind === 'worktree' && selectedWorktree
       ? selectedWorktree.path
@@ -415,8 +474,11 @@ export function useProjectDesktop() {
     });
   }, [hasLoaded, mainView, project?.id]);
 
-  const refreshConnectorOverview = useCallback(async () => {
-    setIsConnectorRefreshing(true);
+  const refreshConnectorOverview = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) {
+      setIsConnectorRefreshing(true);
+    }
+
     try {
       const nextOverview = await projectSpaceClient.getConnectorOverview();
       const normalizedOverview = nextOverview ?? connectorFallback;
@@ -426,23 +488,35 @@ export function useProjectDesktop() {
       setConnectorOverview(connectorFallback);
       return connectorFallback;
     } finally {
-      setIsConnectorRefreshing(false);
+      if (!silent) {
+        setIsConnectorRefreshing(false);
+      }
     }
   }, []);
 
   const refreshGitHubCatalog = useCallback(async () => {
     setIsGitHubRefreshing(true);
     try {
-      const catalog = await projectSpaceClient.getGitHubCatalog().catch(() => githubFallback);
+      const catalog = await withTimeout(
+        projectSpaceClient.getGitHubCatalog(),
+        githubCatalogTimeoutMs,
+        'The GitHub project catalog did not respond.'
+      )
+        .catch(() => githubCatalogErrorFallback());
 
       if (catalog.status === 'connected') {
-        setGitHubCatalog(catalog);
-        return catalog;
+        const normalizedCatalog = normalizeGitHubCatalog(catalog);
+        setGitHubCatalog(normalizedCatalog);
+        return normalizedCatalog;
       }
 
       await new Promise((resolve) => setTimeout(resolve, 1_500));
-      const nextCatalog = await projectSpaceClient.getGitHubCatalog().catch(() => catalog);
-      const normalizedCatalog = nextCatalog ?? githubFallback;
+      const nextCatalog = await withTimeout(
+        projectSpaceClient.getGitHubCatalog(),
+        githubCatalogTimeoutMs,
+        'The GitHub project catalog did not respond.'
+      ).catch(() => catalog);
+      const normalizedCatalog = normalizeGitHubCatalog(nextCatalog);
       setGitHubCatalog(normalizedCatalog);
       return normalizedCatalog;
     } finally {
@@ -508,6 +582,24 @@ export function useProjectDesktop() {
 
   useEffect(() => {
     void refreshConnectorOverview();
+  }, [refreshConnectorOverview]);
+
+  useEffect(() => {
+    let isRefreshing = false;
+    const interval = window.setInterval(() => {
+      if (isRefreshing) {
+        return;
+      }
+
+      isRefreshing = true;
+      void refreshConnectorOverview({ silent: true }).finally(() => {
+        isRefreshing = false;
+      });
+    }, connectorOverviewRefreshIntervalMs);
+
+    return () => {
+      window.clearInterval(interval);
+    };
   }, [refreshConnectorOverview]);
 
   useEffect(() => {
@@ -744,14 +836,6 @@ export function useProjectDesktop() {
 
     const cachedWorktrees = projectWorktrees[project.id];
 
-    if (project.kind === 'standalone' || project.kind === 'github') {
-      if (selectedExplorerTarget.kind !== 'workspace') {
-        setSelectedExplorerTarget({ kind: 'workspace' });
-      }
-
-      return;
-    }
-
     let canceled = false;
 
     if (
@@ -863,6 +947,21 @@ export function useProjectDesktop() {
     return nextDiscovery;
   }
 
+  async function refreshProjectWorktrees() {
+    if (!project) {
+      return [];
+    }
+
+    const nextWorktrees = await projectSpaceClient.loadProjectWorktrees(project.rootPath);
+
+    setProjectWorktrees((current) => ({
+      ...current,
+      [project.id]: nextWorktrees
+    }));
+
+    return nextWorktrees;
+  }
+
   async function openSelectedTargetInApp() {
     if (!selectedLauncherApp || !selectedTargetPath) {
       return;
@@ -923,6 +1022,7 @@ export function useProjectDesktop() {
     projects,
     projectTab,
     refreshProjectDiscovery,
+    refreshProjectWorktrees,
     refreshConnectorOverview,
     refreshGitHubCatalog,
     selectedExplorerTarget,
@@ -945,10 +1045,16 @@ export function useProjectDesktop() {
       setMainView('machines');
       writeRoute('machines');
     },
-    openMachine(machineId: string) {
+    openMachine(machineId: string, tab?: MachineDetailTab) {
+      const nextTab = tab ?? machineTab;
+
       setSelectedMachineId(machineId);
+      setMachineTab(nextTab);
       setMainView('machine');
-      writeRoute('machine', machineId, false, machineTab);
+      writeRoute('machine', machineId, false, nextTab);
+    },
+    selectMachineContext(machineId: string) {
+      setSelectedMachineId(machineId);
     },
     openProjects() {
       setMainView('projects');

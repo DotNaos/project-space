@@ -210,6 +210,7 @@ export function SettingsView({
             isConnecting={isConnectingGitHub}
             onConnect={() => void connectGitHub()}
             onPoll={() => void pollGitHubLogin()}
+            onRetry={() => void onRefreshGitHubCatalog()}
           />
         )}
       </SettingsSection>

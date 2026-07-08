@@ -57,6 +57,7 @@ export interface ProjectGitStatusSummary {
 
 export type ProjectStructureViolationType =
   | 'git_repo_missing_github_remote'
+  | 'nested_project_checkout'
   | 'root_stray_file'
   | 'root_stray_folder'
   | 'worktrees_stray_file'
@@ -356,6 +357,7 @@ export interface GitHubBranchRecord {
 export interface GitHubPullRequestRecord {
   headBranch?: string;
   linkedIssueNumbers?: number[];
+  mergeCommitHash?: string;
   number: number;
   state: 'open' | 'closed' | 'merged';
   title: string;
@@ -428,6 +430,11 @@ export interface GitHubBranchCreateRequest {
   issueNumber?: number;
   name: string;
   sourceBranch?: string;
+}
+
+export interface GitHubBranchDeleteRequest {
+  fullName: string;
+  name: string;
 }
 
 export interface GitHubBranchMutationResult {
@@ -1045,6 +1052,7 @@ export interface ProjectSpaceBackend {
   ): Promise<GitHubOAuthDevicePollResult>;
   getScopeDevboxOverview(): Promise<ScopeDevboxOverviewResult>;
   createGitHubBranch(request: GitHubBranchCreateRequest): Promise<GitHubBranchMutationResult>;
+  deleteGitHubBranch(request: GitHubBranchDeleteRequest): Promise<GitHubBranchMutationResult>;
   createGitHubPullRequest(
     request: GitHubPullRequestCreateRequest
   ): Promise<GitHubPullRequestMutationResult>;

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Bot,
   ExternalLink,
@@ -8,14 +8,11 @@ import {
   LayoutDashboard,
   ListChecks,
   Rocket,
-  Server,
-  SquareTerminal
+  Server
 } from 'lucide-react';
 import {
   Button,
   Chip,
-  ListBox,
-  ListBoxItem,
   Surface,
   Tab,
   TabList,
@@ -30,20 +27,19 @@ import type {
   ProjectSpaceRecord,
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
-import type { ProjectDetailTab } from '../hooks/use-project-desktop';
-import { FileExplorer } from './file-explorer';
+import type { MachineDetailTab, ProjectDetailTab } from '../hooks/use-project-desktop';
 import { GitWorkbenchPanel } from './git-workbench-panel';
 import { ProjectCliCommandPanel } from './project-cli-command-panel';
-import { ProjectTemplateAdherencePanel } from './project-template-adherence-panel';
-import { ProjectTemplateSetupPanel } from './project-template-setup-panel';
 import { ProjectIssueDetailPanel } from './project-issue-detail-panel';
 import { ProjectMachinesPanel } from './project-machines-panel';
 import { ProjectDeploymentsPanel } from './project-deployments-panel';
 import { ProjectOverviewWorkbench } from './project-overview-workbench';
-import { ProjectCodexPanel, ProjectWorkspaceTools } from './project-workspace-tools';
+import { ProjectCodexPanel } from './project-workspace-tools';
+import { ProjectWorkspacesPanel } from './project-workspaces-panel';
+import { ProjectTemplateAdherencePanel } from './project-template-adherence-panel';
+import { ProjectTemplateSetupPanel } from './project-template-setup-panel';
 import { ProjectctlManifestPanel } from './projectctl-manifest-panel';
 import { RepositoryActivityPanel } from './repository-activity-panel';
-import { ScopeDevboxJobPanel } from './scope-devbox-job-panel';
 
 const templateStatusTitle: Record<FullstackTemplateCheck['status'], string> = {
   implemented: 'Implemented',
@@ -170,134 +166,6 @@ function OverviewTab({
   );
 }
 
-function WorkspacesTab({
-  onOpenNewWorktree,
-  onSelectWorkspace,
-  onSelectWorktree,
-  project,
-  selectedExplorerTarget,
-  selectedTargetPath,
-  worktrees
-}: {
-  onOpenNewWorktree(): void;
-  onSelectWorkspace(): void;
-  onSelectWorktree(worktreeId: string): void;
-  project: ProjectSpaceRecord;
-  selectedExplorerTarget: ExplorerTarget;
-  selectedTargetPath: string;
-  worktrees: ProjectWorktreeRecord[];
-}) {
-  const activeItemId =
-    selectedExplorerTarget.kind === 'workspace'
-      ? 'workspace'
-      : `worktree:${selectedExplorerTarget.worktreeId}`;
-
-  return (
-    <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
-      <Surface
-        variant="tertiary"
-        className="flex min-h-0 flex-col rounded-lg border border-neutral-800 bg-neutral-950/45 p-3"
-      >
-        <div className="mb-2 flex items-center justify-between gap-2 px-1">
-          <Text className="text-sm font-semibold text-neutral-100">Working targets</Text>
-          <Button size="sm" variant="ghost" onPress={onOpenNewWorktree}>
-            <GitBranchPlus className="size-4" />
-            New worktree
-          </Button>
-        </div>
-
-        <ListBox
-          aria-label={`${project.name} targets`}
-          disallowEmptySelection
-          selectedKeys={new Set([activeItemId])}
-          selectionMode="single"
-          onAction={(key) => {
-            const value = String(key);
-
-            if (value === 'workspace') {
-              onSelectWorkspace();
-              return;
-            }
-
-            if (value.startsWith('worktree:')) {
-              onSelectWorktree(value.slice('worktree:'.length));
-            }
-          }}
-          className="space-y-1"
-        >
-          <ListBoxItem
-            id="workspace"
-            textValue="Workspace"
-            className={cn(
-              'rounded-xl transition',
-              selectedExplorerTarget.kind === 'workspace'
-                ? 'bg-neutral-700/70 text-neutral-50'
-                : 'text-neutral-400 hover:bg-neutral-800/70 hover:text-neutral-100'
-            )}
-          >
-            <div className="flex w-full items-center gap-2 px-3 py-2 text-left">
-              <span className="min-w-0 flex-1 truncate text-sm font-medium">Workspace</span>
-              {project.kind === 'workspace' ? (
-                <Chip size="sm" variant="soft" className="shrink-0 uppercase tracking-[0.16em]">
-                  root
-                </Chip>
-              ) : null}
-            </div>
-          </ListBoxItem>
-          {worktrees.map((worktree) => {
-            const isSelected =
-              selectedExplorerTarget.kind === 'worktree' &&
-              selectedExplorerTarget.worktreeId === worktree.id;
-            const tone =
-              worktree.status === 'broken' ? 'broken' : worktree.isBase ? 'base' : 'default';
-
-            return (
-              <ListBoxItem
-                key={worktree.id}
-                id={`worktree:${worktree.id}`}
-                textValue={worktree.name}
-                className={cn(
-                  'rounded-xl transition',
-                  isSelected
-                    ? 'bg-neutral-700/70 text-neutral-50'
-                    : tone === 'base'
-                      ? 'bg-emerald-500/6 text-emerald-100 hover:bg-emerald-500/10'
-                      : tone === 'broken'
-                        ? 'bg-amber-500/6 text-amber-100 hover:bg-amber-500/10'
-                        : 'text-neutral-400 hover:bg-neutral-800/70 hover:text-neutral-100'
-                )}
-              >
-                <div className="flex w-full items-center gap-2 px-3 py-2 text-left">
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                    {worktree.name}
-                  </span>
-                  {tone !== 'default' ? (
-                    <Chip
-                      color={tone === 'base' ? 'success' : 'warning'}
-                      size="sm"
-                      variant="soft"
-                      className="shrink-0 uppercase tracking-[0.16em]"
-                    >
-                      {tone === 'base' ? 'base' : 'broken'}
-                    </Chip>
-                  ) : null}
-                </div>
-              </ListBoxItem>
-            );
-          })}
-        </ListBox>
-      </Surface>
-
-      <Surface
-        variant="tertiary"
-        className="flex min-h-[24rem] flex-col overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950/45"
-      >
-        <FileExplorer rootPath={selectedTargetPath || undefined} />
-      </Surface>
-    </div>
-  );
-}
-
 function GitHubProjectOverview({
   onOpenIssue,
   project,
@@ -400,18 +268,19 @@ const projectTabItems: Array<{
   { icon: Server, id: 'machines', label: 'Machines' },
   { icon: GitBranchPlus, id: 'workspaces', label: 'Workspaces' },
   { icon: GitGraph, id: 'history', label: 'History' },
-  { icon: SquareTerminal, id: 'terminal', label: 'Terminal' },
   { icon: Bot, id: 'codex', label: 'Codex' },
   { icon: FileCheck2, id: 'template', label: 'Template' },
-  { icon: Rocket, id: 'deployments', label: 'Deployments' },
-  { icon: Bot, id: 'automation', label: 'Automation' }
+  { icon: Rocket, id: 'deployments', label: 'Deployments' }
 ];
 
 export interface ProjectDetailProps {
   connectorOverview: ConnectorOverviewResult;
   launcherError: string;
+  onOpenMachine(machineId: string, tab?: MachineDetailTab): void;
   onOpenNewWorktree(): void;
+  onOpenWorktreeBranch(machineId: string, branchName: string, path?: string): void;
   onOpenIssue(issueNumber: number): void;
+  onRefreshWorktrees(): Promise<ProjectWorktreeRecord[]>;
   onSelectTab(tab: ProjectDetailTab): void;
   onSelectWorkspace(): void;
   onSelectWorktree(worktreeId: string): void;
@@ -421,6 +290,7 @@ export interface ProjectDetailProps {
   selectedIssueNumber?: number;
   selectedRepository?: ProjectSpaceRecord['github'];
   selectedTargetPath: string;
+  selectedMachineId: string;
   tab: ProjectDetailTab;
   worktrees: ProjectWorktreeRecord[];
 }
@@ -428,8 +298,11 @@ export interface ProjectDetailProps {
 export function ProjectDetail({
   connectorOverview,
   launcherError,
+  onOpenMachine,
   onOpenNewWorktree,
+  onOpenWorktreeBranch,
   onOpenIssue,
+  onRefreshWorktrees,
   onSelectTab,
   onSelectWorkspace,
   onSelectWorktree,
@@ -439,12 +312,12 @@ export function ProjectDetail({
   selectedIssueNumber,
   selectedRepository,
   selectedTargetPath,
+  selectedMachineId,
   tab,
   worktrees
 }: ProjectDetailProps) {
   const [templateRefreshKey, setTemplateRefreshKey] = useState(0);
   const [templateRelativePath, setTemplateRelativePath] = useState('');
-
   const containsOwnScroll = tab === 'history' || tab === 'issues';
   const templateTargetPath = joinTargetPath(selectedTargetPath, templateRelativePath);
 
@@ -508,6 +381,8 @@ export function ProjectDetail({
         {tab === 'machines' ? (
           <ProjectMachinesPanel
             connectorOverview={connectorOverview}
+            onOpenMachine={onOpenMachine}
+            onOpenWorktreeBranch={onOpenWorktreeBranch}
             project={project}
             projects={projects}
             repository={selectedRepository}
@@ -515,19 +390,27 @@ export function ProjectDetail({
         ) : null}
 
         {tab === 'workspaces' ? (
-          <WorkspacesTab
+          <ProjectWorkspacesPanel
+            connectorOverview={connectorOverview}
             onOpenNewWorktree={onOpenNewWorktree}
+            onRefreshWorktrees={onRefreshWorktrees}
             onSelectWorkspace={onSelectWorkspace}
             onSelectWorktree={onSelectWorktree}
             project={project}
+            repository={selectedRepository}
             selectedExplorerTarget={selectedExplorerTarget}
-            selectedTargetPath={selectedTargetPath}
+            selectedMachineId={selectedMachineId}
             worktrees={worktrees}
           />
         ) : null}
 
         {tab === 'history' ? (
           <GitWorkbenchPanel
+            connectorOverview={connectorOverview}
+            onOpenMachine={onOpenMachine}
+            project={project}
+            projects={projects}
+            repository={selectedRepository}
             repositoryFullName={selectedRepository?.fullName}
             targetPath={selectedTargetPath}
           />
@@ -554,10 +437,12 @@ export function ProjectDetail({
               onSelectWorktree={onSelectWorktree}
               onTemplateRelativePathChange={setTemplateRelativePath}
               onTemplateChanged={() => setTemplateRefreshKey((current) => current + 1)}
+              preferredMachineId={selectedMachineId}
               project={project}
               relativePath={templateRelativePath}
               resolvedTargetPath={templateTargetPath}
               selectedExplorerTarget={selectedExplorerTarget}
+              showMachineSelector={false}
               targetRootPath={selectedTargetPath}
               worktrees={worktrees}
             />
@@ -579,17 +464,7 @@ export function ProjectDetail({
           />
         ) : null}
 
-        {tab === 'automation' ? (
-          <ScopeDevboxJobPanel
-            connector={connectorOverview}
-            projectName={project.name}
-            targetPath={selectedTargetPath}
-          />
-        ) : null}
-
         {tab === 'codex' ? <ProjectCodexPanel targetPath={selectedTargetPath} /> : null}
-
-        {tab === 'terminal' ? <ProjectWorkspaceTools targetPath={selectedTargetPath} /> : null}
       </div>
     </div>
   );
