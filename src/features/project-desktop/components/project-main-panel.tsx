@@ -9,7 +9,7 @@ import type {
   ProjectStructureViolationRecord,
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import type {
   MachineDetailTab,
   ProjectDetailTab,
@@ -142,6 +142,16 @@ function normalizeComparablePath(value: string | undefined) {
   return value?.replace(/^~(?=\/)/, '').replace(/\/+$/, '').toLowerCase() ?? '';
 }
 
+function tabNeedsRepository(tab: ProjectDetailTab) {
+  return (
+    tab === 'issues' ||
+    tab === 'machines' ||
+    tab === 'workspaces' ||
+    tab === 'history' ||
+    tab === 'deployments'
+  );
+}
+
 export interface ProjectMainPanelProps {
   account?: RailAccount;
   appMeta: AppMeta;
@@ -237,6 +247,32 @@ export function ProjectMainPanel({
     () => resolveProjectRepository(project, githubCatalog),
     [githubCatalog, project]
   );
+
+  useEffect(() => {
+    if (
+      mainView !== 'project' ||
+      !project ||
+      project.github ||
+      selectedRepository ||
+      !tabNeedsRepository(projectTab) ||
+      isGitHubRefreshing ||
+      githubCatalog.checkedAt ||
+      githubCatalog.status === 'connected'
+    ) {
+      return;
+    }
+
+    void onRefreshGitHubCatalog();
+  }, [
+    githubCatalog.checkedAt,
+    githubCatalog.status,
+    isGitHubRefreshing,
+    mainView,
+    onRefreshGitHubCatalog,
+    project,
+    projectTab,
+    selectedRepository
+  ]);
 
   function openProjectWorktreeBranch(machineId: string, branchName: string, path?: string) {
     onSelectMachineContext(machineId);

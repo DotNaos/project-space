@@ -30,9 +30,11 @@ function useGitWorkbenchData({
   const [isLoading, setIsLoading] = useState(false);
 
   async function refresh() {
-    if (!targetPath) {
+    if (!targetPath && !repositoryFullName) {
       setStatus(undefined);
-      setMessage('No workspace target is selected.');
+      setGithubBranches([]);
+      setPullRequests([]);
+      setMessage('No GitHub repository is linked to this project.');
       return;
     }
 
@@ -41,7 +43,9 @@ function useGitWorkbenchData({
 
     try {
       const [nextStatus, details] = await Promise.all([
-        projectSpaceClient.getGitStatus(targetPath),
+        targetPath
+          ? projectSpaceClient.getGitStatus(targetPath)
+          : Promise.resolve<GitStatusResult | undefined>(undefined),
         repositoryFullName
           ? projectSpaceClient.getGitHubRepositoryDetails(repositoryFullName).catch(() => undefined)
           : Promise.resolve(undefined)
@@ -126,7 +130,9 @@ export function GitWorkbenchPanel({
         <Text className="hidden min-w-0 truncate text-xs text-neutral-600 sm:block">
           {data.status?.isRepository
             ? `${data.status.branchName}${data.status.upstream ? ` → ${data.status.upstream}` : ''} · ${data.status.repositoryRoot}`
-            : data.message || 'Git status'}
+            : repositoryFullName
+              ? repositoryFullName
+              : data.message || 'Git status'}
         </Text>
       </div>
 
