@@ -788,13 +788,8 @@ async function loadProjectWorktrees(projectPath: string): Promise<ProjectWorktre
 async function loadMergedConnectorOverview() {
   const connector = await getConnectorOverview();
   const registeredMachines = getRegisteredConnectorMachines();
-  const knownMachineIds = new Set(connector.machines.map((machine) => machine.id));
-  const localMachines =
-    registeredMachines.length > 0
-      ? connector.machines.filter(
-          (machine) => machine.connector.serviceName !== 'project-space-web'
-        )
-      : connector.machines;
+  const localMachines = connector.machines.filter((machine) => !isWebHubMachine(machine));
+  const knownMachineIds = new Set(localMachines.map((machine) => machine.id));
 
   return {
     ...connector,
@@ -803,6 +798,12 @@ async function loadMergedConnectorOverview() {
       ...registeredMachines.filter((machine) => !knownMachineIds.has(machine.id))
     ]
   };
+}
+
+export function isWebHubMachine(machine: Pick<MachineRecord, 'connector'>) {
+  const serviceName = machine.connector.serviceName ?? '';
+
+  return /^project-space(?:-[a-z0-9]+)*-web$/.test(serviceName);
 }
 
 function createMachineSshTarget(machine: MachineRecord) {
