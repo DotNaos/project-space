@@ -16,6 +16,7 @@ import type {
   GitHubCatalogResult,
   GitHubBranchCreateRequest,
   GitHubBranchDeleteRequest,
+  GitHubHistoryRequest,
   GitHubBranchMutationResult,
   GitHubIssueCommentCreateRequest,
   GitHubIssueCommentMutationResult,
@@ -314,6 +315,13 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
 
   getGitHistory(request: GitHistoryRequest): Promise<GitHistoryResult> {
     return this.request('/api/git/history', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  getGitHubHistory(request: GitHubHistoryRequest): Promise<GitHistoryResult> {
+    return this.request('/api/github/history', {
       body: JSON.stringify(request),
       method: 'POST'
     });

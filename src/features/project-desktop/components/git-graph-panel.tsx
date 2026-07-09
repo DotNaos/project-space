@@ -292,7 +292,7 @@ export function GitGraphPanel({
   pullRequests?: GitHubPullRequestRecord[];
   repository?: GitHubCatalogRepository;
   repositoryFullName?: string;
-  targetPath: string;
+  targetPath?: string;
 }) {
   const [allCommits, setAllCommits] = useState<GraphCommit[]>([]);
   const [commits, setCommits] = useState<GraphCommit[]>([]);
@@ -319,21 +319,46 @@ export function GitGraphPanel({
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isDetailCollapsed, setIsDetailCollapsed] = useState(false);
 
+  async function loadHistory(ref?: string) {
+    if (repositoryFullName) {
+      return projectSpaceClient.getGitHubHistory({
+        fullName: repositoryFullName,
+        limit: GRAPH_COMMIT_LIMIT,
+        ref
+      });
+    }
+
+    if (targetPath) {
+      return projectSpaceClient.getGitHistory({
+        cwd: targetPath,
+        limit: GRAPH_COMMIT_LIMIT,
+        ref,
+        repositoryFullName
+      });
+    }
+
+    return undefined;
+  }
+
   async function refresh() {
-    if (!targetPath) {
+    if (!repositoryFullName && !targetPath) {
       setAllCommits([]);
       setCommits([]);
+      setError('No GitHub repository is linked to this project.');
       return;
     }
 
     setIsLoading(true);
     setError('');
     try {
-      const allResult = await projectSpaceClient.getGitHistory({
-        cwd: targetPath,
-        limit: GRAPH_COMMIT_LIMIT,
-        repositoryFullName
-      });
+      const allResult = await loadHistory();
+
+      if (!allResult) {
+        setAllCommits([]);
+        setCommits([]);
+        setError('No GitHub repository is linked to this project.');
+        return;
+      }
 
       if (!allResult.isRepository) {
         setAllCommits([]);
@@ -468,7 +493,7 @@ export function GitGraphPanel({
     let isCanceled = false;
 
     async function applyBranchFilter() {
-      if (!targetPath) {
+      if (!repositoryFullName && !targetPath) {
         setCommits([]);
         return;
       }
@@ -498,12 +523,7 @@ export function GitGraphPanel({
       try {
         const branchHistories = await Promise.all(
           selectedBranches.map((branch) =>
-            projectSpaceClient.getGitHistory({
-              cwd: targetPath,
-              limit: GRAPH_COMMIT_LIMIT,
-              ref: branch.ref,
-              repositoryFullName
-            })
+            loadHistory(branch.ref)
           )
         );
 
@@ -514,6 +534,10 @@ export function GitGraphPanel({
         const commitByHash = new Map<string, GraphCommit>();
 
         for (const history of branchHistories) {
+          if (!history) {
+            continue;
+          }
+
           for (const commit of history.commits) {
             commitByHash.set(commit.hash, commit);
           }
