@@ -501,22 +501,10 @@ export function useProjectDesktop() {
         projectSpaceClient.getGitHubCatalog(),
         githubCatalogTimeoutMs,
         'The GitHub project catalog did not respond.'
-      )
-        .catch(() => githubCatalogErrorFallback());
-
-      if (catalog.status === 'connected') {
-        const normalizedCatalog = normalizeGitHubCatalog(catalog);
-        setGitHubCatalog(normalizedCatalog);
-        return normalizedCatalog;
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 1_500));
-      const nextCatalog = await withTimeout(
-        projectSpaceClient.getGitHubCatalog(),
-        githubCatalogTimeoutMs,
-        'The GitHub project catalog did not respond.'
-      ).catch(() => catalog);
-      const normalizedCatalog = normalizeGitHubCatalog(nextCatalog);
+      ).catch((error) =>
+        githubCatalogErrorFallback(error instanceof Error ? error.message : undefined)
+      );
+      const normalizedCatalog = normalizeGitHubCatalog(catalog);
       setGitHubCatalog(normalizedCatalog);
       return normalizedCatalog;
     } finally {
@@ -601,10 +589,6 @@ export function useProjectDesktop() {
       window.clearInterval(interval);
     };
   }, [refreshConnectorOverview]);
-
-  useEffect(() => {
-    void refreshGitHubCatalog();
-  }, [refreshGitHubCatalog]);
 
   useEffect(() => {
     let canceled = false;

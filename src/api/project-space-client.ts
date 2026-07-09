@@ -69,6 +69,10 @@ import type {
 const authTokenStorageKey = 'project-space.session-token';
 let projectSpaceAuthToken = '';
 let projectSpaceAuthTokenProvider: (() => Promise<string | null>) | null = null;
+const githubRepositoryDetailsRequests = new Map<
+  string,
+  Promise<GitHubRepositoryDetailsResult>
+>();
 
 export function getProjectSpaceAuthToken() {
   return projectSpaceAuthToken;
@@ -277,8 +281,21 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
 
   getGitHubRepositoryDetails(fullName: string): Promise<GitHubRepositoryDetailsResult> {
     const query = new URLSearchParams({ fullName });
+    const cacheKey = query.toString();
+    const activeRequest = githubRepositoryDetailsRequests.get(cacheKey);
 
-    return this.request(`/api/github/repository-details?${query.toString()}`);
+    if (activeRequest) {
+      return activeRequest;
+    }
+
+    const request = this.request<GitHubRepositoryDetailsResult>(
+      `/api/github/repository-details?${cacheKey}`
+    ).finally(() => {
+      githubRepositoryDetailsRequests.delete(cacheKey);
+    });
+
+    githubRepositoryDetailsRequests.set(cacheKey, request);
+    return request;
   }
 
   updateGitHubIssue(request: GitHubIssueUpdateRequest): Promise<GitHubIssueMutationResult> {
