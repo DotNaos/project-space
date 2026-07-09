@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { launcherAppLabels } from '@/shared/project-space-api';
+import {
+  normalizeRouteKey,
+  routeProjectIdMatchesRepository
+} from './project-route-model';
 import type {
   AppMeta,
   ConnectorOverviewResult,
@@ -261,25 +265,31 @@ function resolveRouteProject(
 ): ProjectSpaceRecord | undefined {
   return projects.find((entry) => entry.id === projectId) ??
     projects.find((entry) => basename(entry.rootPath) === projectId) ??
-    projects.find((entry) => entry.name === projectId);
+    projects.find((entry) => entry.name === projectId) ??
+    projects.find((entry) =>
+      entry.github ? routeProjectIdMatchesRepository(projectId, entry.github) : false
+    );
 }
 
 function isGitHubProjectId(projectId: string) {
   return projectId.startsWith('github:');
 }
 
-function normalizeKey(value: string) {
-  return value.trim().replace(/^@/, '').toLowerCase();
+function shouldPreserveProjectRoute(
+  projectId: string | undefined,
+  routeProject: ProjectSpaceRecord | undefined
+) {
+  return Boolean(projectId && !routeProject);
 }
 
 function projectMatchesGitHubRepository(
   project: ProjectSpaceRecord,
   repo: GitHubCatalogRepository
 ) {
-  const projectName = normalizeKey(project.name);
-  const projectFolder = normalizeKey(basename(project.rootPath));
-  const repoFullName = normalizeKey(repo.fullName);
-  const repoName = normalizeKey(repo.name);
+  const projectName = normalizeRouteKey(project.name);
+  const projectFolder = normalizeRouteKey(basename(project.rootPath));
+  const repoFullName = normalizeRouteKey(repo.fullName);
+  const repoName = normalizeRouteKey(repo.name);
 
   return (
     projectName === repoFullName ||
@@ -387,7 +397,9 @@ export function useProjectDesktop() {
     return Object.fromEntries(projects.map((project) => [project.id, project]));
   }, [projects]);
 
-  const project = selectedProjectId ? projectsById[selectedProjectId] : undefined;
+  const project = selectedProjectId
+    ? projectsById[selectedProjectId] ?? resolveRouteProject(projects, selectedProjectId)
+    : undefined;
   const selectedMachine = selectedMachineId
     ? connectorOverview.machines.find((machine) => machine.id === selectedMachineId)
     : undefined;
@@ -526,9 +538,7 @@ export function useProjectDesktop() {
             : undefined;
         const shouldWaitForGitHubProject =
           initialRoute.view === 'project' &&
-          initialRoute.projectId &&
-          !routeProject &&
-          isGitHubProjectId(initialRoute.projectId);
+          shouldPreserveProjectRoute(initialRoute.projectId, routeProject);
         const selectedProjectFromRoute =
           initialRoute.view === 'project'
             ? routeProject?.id ?? (shouldWaitForGitHubProject ? initialRoute.projectId ?? '' : '')
@@ -544,16 +554,12 @@ export function useProjectDesktop() {
         setSelectedIssueNumber(initialRoute.issueNumber);
         setProjectTab(initialRoute.projectTab ?? 'overview');
         setMachineTab(initialRoute.machineTab ?? 'overview');
-        setMainView(
-          initialRoute.view === 'project' && !routeProject && !shouldWaitForGitHubProject
-            ? 'projects'
-            : initialRoute.view
-        );
+        setMainView(initialRoute.view);
 
-        if (initialRoute.view === 'project' && !shouldWaitForGitHubProject) {
+        if (initialRoute.view === 'project' && routeProject) {
           writeRoute(
-            routeProject ? 'project' : 'projects',
-            routeProject?.id ?? '',
+            'project',
+            routeProject.id,
             true,
             initialRoute.projectTab ?? 'overview',
             initialRoute.projectTab === 'issues' ? String(initialRoute.issueNumber ?? '') : ''
@@ -616,11 +622,21 @@ export function useProjectDesktop() {
       const nextRoute = parseProjectRoute(window.location.pathname);
 
       if (nextRoute.view === 'project') {
-        const nextProject = nextRoute.projectId ? projectsById[nextRoute.projectId] : undefined;
+        const nextProject = nextRoute.projectId
+          ? resolveRouteProject(projects, nextRoute.projectId)
+          : undefined;
 
         if (nextProject) {
           setSelectedExplorerTarget({ kind: 'workspace' });
-          setSelectedProjectId(nextProject.id);
+          setSelectedProjectId(nextRoute.projectId ?? nextProject.id);
+          setSelectedIssueNumber(nextRoute.issueNumber);
+          setProjectTab(nextRoute.projectTab ?? 'overview');
+          setMainView('project');
+          return;
+        }
+
+        if (nextRoute.projectId) {
+          setSelectedProjectId(nextRoute.projectId);
           setSelectedIssueNumber(nextRoute.issueNumber);
           setProjectTab(nextRoute.projectTab ?? 'overview');
           setMainView('project');
@@ -647,7 +663,7 @@ export function useProjectDesktop() {
     return () => {
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [projectsById]);
+  }, [projects]);
 
   useEffect(() => {
     let canceled = false;
@@ -677,14 +693,30 @@ export function useProjectDesktop() {
       return;
     }
 
-    if (selectedProjectId && !projectsById[selectedProjectId]) {
+    if (mainView === 'project' && selectedProjectId && !project) {
+      if (!githubCatalog.checkedAt && !isGitHubRefreshing) {
+        void refreshGitHubCatalog();
+      }
+
+      return;
+    }
+
+    if (selectedProjectId && !project) {
       setSelectedProjectId('');
       if (mainView === 'project') {
         setMainView('projects');
         writeRoute('projects', '', true);
       }
     }
-  }, [hasLoaded, mainView, projectsById, selectedProjectId]);
+  }, [
+    githubCatalog.checkedAt,
+    hasLoaded,
+    isGitHubRefreshing,
+    mainView,
+    project,
+    refreshGitHubCatalog,
+    selectedProjectId
+  ]);
 
   useEffect(() => {
     if (!hasLoaded) {
@@ -703,9 +735,14 @@ export function useProjectDesktop() {
 
     if (mainView === 'project') {
       if (project) {
+        const routeProjectId =
+          selectedProjectId && resolveRouteProject([project], selectedProjectId)
+            ? selectedProjectId
+            : project.id;
+
         writeRoute(
           'project',
-          project.id,
+          routeProjectId,
           true,
           projectTab,
           projectTab === 'issues' ? String(selectedIssueNumber ?? '') : ''
