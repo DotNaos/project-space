@@ -2,7 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import type { GitHubCatalogRepository } from '../src/shared/project-space-api';
 import {
   routeProjectIdMatchesRepository,
-  routeProjectKeys
+  routeProjectKeys,
+  shouldPreserveUnresolvedProjectRoute
 } from '../src/features/project-desktop/hooks/project-route-model';
 
 const repo: GitHubCatalogRepository = {
@@ -35,5 +36,27 @@ describe('GitHub project route matching', () => {
     expect([...routeProjectKeys('os-macbook:DotNaos__project-space')]).toEqual(
       expect.arrayContaining(['dotnaos/project-space', 'project-space'])
     );
+  });
+
+  test('preserves short GitHub project routes while the catalog is still loading', () => {
+    expect(
+      shouldPreserveUnresolvedProjectRoute({
+        githubCatalogCheckedAt: '',
+        isGitHubRefreshing: false,
+        projectId: 'project-space',
+        routeProjectResolved: false
+      })
+    ).toBe(true);
+  });
+
+  test('stops preserving unresolved project routes after catalog lookup finishes', () => {
+    expect(
+      shouldPreserveUnresolvedProjectRoute({
+        githubCatalogCheckedAt: '2026-07-09T00:00:00.000Z',
+        isGitHubRefreshing: false,
+        projectId: 'project-space',
+        routeProjectResolved: false
+      })
+    ).toBe(false);
   });
 });

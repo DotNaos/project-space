@@ -3,7 +3,8 @@ import { projectSpaceClient } from '@/api/project-space-client';
 import { launcherAppLabels } from '@/shared/project-space-api';
 import {
   normalizeRouteKey,
-  routeProjectIdMatchesRepository
+  routeProjectIdMatchesRepository,
+  shouldPreserveUnresolvedProjectRoute
 } from './project-route-model';
 import type {
   AppMeta,
@@ -269,10 +270,6 @@ function resolveRouteProject(
     projects.find((entry) =>
       entry.github ? routeProjectIdMatchesRepository(projectId, entry.github) : false
     );
-}
-
-function isGitHubProjectId(projectId: string) {
-  return projectId.startsWith('github:');
 }
 
 function shouldPreserveProjectRoute(
@@ -747,7 +744,14 @@ export function useProjectDesktop() {
           projectTab,
           projectTab === 'issues' ? String(selectedIssueNumber ?? '') : ''
         );
-      } else if (isGitHubProjectId(selectedProjectId)) {
+      } else if (
+        shouldPreserveUnresolvedProjectRoute({
+          githubCatalogCheckedAt: githubCatalog.checkedAt,
+          isGitHubRefreshing,
+          projectId: selectedProjectId,
+          routeProjectResolved: Boolean(project)
+        })
+      ) {
         writeRoute(
           'project',
           selectedProjectId,
@@ -771,7 +775,9 @@ export function useProjectDesktop() {
     projectTab,
     selectedIssueNumber,
     selectedMachineId,
-    selectedProjectId
+    selectedProjectId,
+    githubCatalog.checkedAt,
+    isGitHubRefreshing
   ]);
 
   useEffect(() => {
