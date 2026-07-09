@@ -77,7 +77,6 @@ import type {
   ProjectDirectorySelection,
   ProjectDiscoveryResult,
   ProjectGroupRecord,
-  GitHubCatalogRepository,
   ProjectNavigationItem,
   ProjectSpaceBackend,
   ProjectSpaceRecord,
@@ -126,57 +125,6 @@ async function listDirectoryEntries(path: string) {
   }
 }
 
-function parseGitHubRemote(remoteUrl: string): GitHubCatalogRepository | undefined {
-  const trimmed = remoteUrl.trim().replace(/\.git$/, '');
-  const match = trimmed.match(/github\.com[:/](?<owner>[^/]+)\/(?<repo>[^/]+)$/i);
-
-  if (!match?.groups) {
-    return undefined;
-  }
-
-  const owner = match.groups.owner;
-  const name = match.groups.repo;
-  const fullName = `${owner}/${name}`;
-
-  return {
-    defaultBranch: undefined,
-    fullName,
-    id: repositoryIdFromFullName(fullName),
-    isPrivate: false,
-    name,
-    owner,
-    projectConfig: {
-      projectYaml: false,
-      status: 'unknown',
-      templateLock: false
-    },
-    url: `https://github.com/${fullName}`
-  };
-}
-
-function repositoryIdFromFullName(fullName: string) {
-  let hash = 0;
-
-  for (const character of fullName) {
-    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-  }
-
-  return hash;
-}
-
-async function loadGitHubRemote(path: string) {
-  try {
-    const { stdout } = await execFileAsync('git', ['-C', path, 'remote', 'get-url', 'origin'], {
-      timeout: 2_000,
-      windowsHide: true
-    });
-
-    return parseGitHubRemote(stdout);
-  } catch {
-    return undefined;
-  }
-}
-
 function makeNodeId(rootPath: string, path: string) {
   const relativePath = relative(rootPath, path).replace(/^\.\/?/, '');
 
@@ -194,7 +142,6 @@ async function createProjectRecord(
   const hasLock = existsSync(join(resolvedPath, 'template.lock.yaml'));
   const hasGoals = existsSync(join(resolvedPath, 'GOALS.md'));
   const gitStatus = await getGitStatus(resolvedPath);
-  const github = gitStatus.isRepository ? await loadGitHubRemote(resolvedPath) : undefined;
   const unstaged =
     gitStatus.summary.untracked +
     gitStatus.entries.filter(
@@ -223,7 +170,6 @@ async function createProjectRecord(
           untracked: gitStatus.summary.untracked
         }
       : undefined,
-    github,
     projectctl: {
       hasGoals,
       hasLock,
