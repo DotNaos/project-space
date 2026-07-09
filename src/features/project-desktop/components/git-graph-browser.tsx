@@ -374,7 +374,7 @@ export function GitCommitDetailsPane({
   commit?: GitHistoryCommit;
   isCollapsed?: boolean;
   onToggleCollapse?(): void;
-  targetPath: string;
+  targetPath?: string;
 }) {
   const [diff, setDiff] = useState('');
   const [isDiffLoading, setIsDiffLoading] = useState(false);

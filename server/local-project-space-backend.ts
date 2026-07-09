@@ -27,6 +27,7 @@ import {
 } from './local-git-client';
 import {
   getGitHubCatalog,
+  getGitHubHistory,
   getGitHubPipelineStatus,
   getGitHubRepositoryDetails,
   pollGitHubOAuthDeviceFlow,
@@ -905,6 +906,9 @@ export function createLocalProjectSpaceBackend(
     },
     async getGitHubRepositoryDetails(fullName: string) {
       return getGitHubRepositoryDetails(fullName);
+    },
+    async getGitHubHistory(request) {
+      return getGitHubHistory(request);
     },
     async updateGitHubIssue(request) {
       return updateGitHubIssue(request);

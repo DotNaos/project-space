@@ -3,6 +3,8 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import type {
+  GitHistoryCommit,
+  GitHistoryResult,
   GitHubAuthSource,
   GitHubBranchRecord,
   GitHubCatalogRepository,
@@ -55,8 +57,24 @@ interface GitHubApiUser {
 interface GitHubApiBranch {
   name: string;
   commit?: {
+    sha?: string;
     html_url?: string;
   };
+}
+
+interface GitHubApiCommitListItem {
+  commit?: {
+    author?: {
+      date?: string | null;
+      name?: string | null;
+    } | null;
+    committer?: {
+      date?: string | null;
+    } | null;
+    message?: string | null;
+  };
+  parents?: Array<{ sha?: string }>;
+  sha: string;
 }
 
 interface GitHubApiIssue {
@@ -427,6 +445,168 @@ function branchWebUrl(repoUrl: string, branchName: string) {
   return `${repoUrl}/tree/${encodeURIComponent(branchName).replace(/%2F/g, '/')}`;
 }
 
+function normalizeGitHubHistoryLimit(limit?: number) {
+  if (!Number.isFinite(limit)) {
+    return 100;
+  }
+
+  return Math.max(1, Math.min(300, Math.floor(limit ?? 100)));
+}
+
+function normalizeGitHubRef(ref?: string) {
+  return ref
+    ?.replace(/^refs\/heads\//, '')
+    .replace(/^origin\//, '')
+    .trim();
+}
+
+function mapGitHubCommit(
+  commit: GitHubApiCommitListItem,
+  refsByHash: Map<string, string[]>
+): GitHistoryCommit {
+  const message = commit.commit?.message ?? '';
+  const date = commit.commit?.author?.date ?? commit.commit?.committer?.date ?? '';
+
+  return {
+    author: commit.commit?.author?.name ?? '',
+    date: date.slice(0, 10),
+    hash: commit.sha,
+    parents: commit.parents?.map((parent) => parent.sha).filter((sha): sha is string => Boolean(sha)) ?? [],
+    refs: refsByHash.get(commit.sha) ?? [],
+    subject: message.split('\n')[0] ?? ''
+  };
+}
+
+async function loadGitHubBranchCommits(
+  fullName: string,
+  branchName: string,
+  token: string,
+  limit: number
+) {
+  const repoPath = fullName.split('/').map(encodeURIComponent).join('/');
+  const commits: GitHubApiCommitListItem[] = [];
+  let page = 1;
+
+  while (commits.length < limit) {
+    const perPage = Math.min(100, limit - commits.length);
+    const payload = await requestGitHub<GitHubApiCommitListItem[]>(
+      `/repos/${repoPath}/commits?sha=${encodeURIComponent(branchName)}&per_page=${perPage}&page=${page}`,
+      token
+    );
+
+    commits.push(...payload);
+
+    if (payload.length < perPage) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  return commits;
+}
+
+function addBranchRefs(
+  refsByHash: Map<string, string[]>,
+  branch: GitHubApiBranch,
+  defaultBranch?: string
+) {
+  const hash = branch.commit?.sha;
+
+  if (!hash) {
+    return;
+  }
+
+  const refs = refsByHash.get(hash) ?? [];
+  refs.push(`origin/${branch.name}`);
+
+  if (branch.name === defaultBranch) {
+    refs.push(branch.name, 'origin/HEAD');
+  }
+
+  refsByHash.set(hash, Array.from(new Set(refs)));
+}
+
+export async function getGitHubHistory({
+  fullName,
+  limit,
+  ref
+}: {
+  fullName: string;
+  limit?: number;
+  ref?: string;
+}): Promise<GitHistoryResult> {
+  const auth = await resolveToken();
+
+  if (!auth) {
+    return {
+      commits: [],
+      cwd: fullName,
+      isRepository: false,
+      message: getGitHubClientId()
+        ? 'Connect GitHub to load repository history.'
+        : githubOAuthClientIdMissingMessage,
+      repositoryRoot: fullName
+    };
+  }
+
+  try {
+    const repoPath = fullName.split('/').map(encodeURIComponent).join('/');
+    const historyLimit = normalizeGitHubHistoryLimit(limit);
+    const [repo, branches] = await Promise.all([
+      requestGitHub<GitHubApiRepository>(`/repos/${repoPath}`, auth.token),
+      requestGitHub<GitHubApiBranch[]>(
+        `/repos/${repoPath}/branches?per_page=100`,
+        auth.token
+      )
+    ]);
+    const refsByHash = new Map<string, string[]>();
+    const normalizedRef = normalizeGitHubRef(ref);
+    const branchNames = normalizedRef
+      ? [normalizedRef]
+      : branches.map((branch) => branch.name);
+
+    branches.forEach((branch) => addBranchRefs(refsByHash, branch, repo.default_branch));
+
+    const commitsByHash = new Map<string, GitHubApiCommitListItem>();
+    const perBranchLimit = normalizedRef ? historyLimit : Math.min(historyLimit, 100);
+    const histories = await mapWithConcurrency(branchNames, 4, (branchName) =>
+      loadGitHubBranchCommits(fullName, branchName, auth.token, perBranchLimit)
+    );
+
+    for (const branchCommits of histories) {
+      for (const commit of branchCommits) {
+        commitsByHash.set(commit.sha, commit);
+      }
+    }
+
+    const commits = Array.from(commitsByHash.values())
+      .sort((left, right) => {
+        const leftDate = left.commit?.author?.date ?? left.commit?.committer?.date ?? '';
+        const rightDate = right.commit?.author?.date ?? right.commit?.committer?.date ?? '';
+
+        return rightDate.localeCompare(leftDate);
+      })
+      .slice(0, historyLimit)
+      .map((commit) => mapGitHubCommit(commit, refsByHash));
+
+    return {
+      commits,
+      cwd: fullName,
+      isRepository: true,
+      repositoryRoot: fullName
+    };
+  } catch (error) {
+    return {
+      commits: [],
+      cwd: fullName,
+      isRepository: false,
+      message: error instanceof Error ? error.message : 'Could not load GitHub history.',
+      repositoryRoot: fullName
+    };
+  }
+}
+
 export async function getGitHubRepositoryDetails(
   fullName: string
 ): Promise<GitHubRepositoryDetailsResult> {
@@ -458,6 +638,7 @@ export async function getGitHubRepositoryDetails(
 
     return {
       branches: branches.map<GitHubBranchRecord>((branch) => ({
+        commitSha: branch.commit?.sha,
         isDefault: branch.name === repo.default_branch,
         linkedIssueNumbers: Array.from(
           developmentLinks.linkedIssueNumbersByBranch.get(branch.name) ?? []

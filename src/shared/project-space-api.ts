@@ -348,6 +348,7 @@ export interface GitHubCatalogRepository {
 }
 
 export interface GitHubBranchRecord {
+  commitSha?: string;
   isDefault: boolean;
   linkedIssueNumbers?: number[];
   name: string;
@@ -988,6 +989,12 @@ export interface GitHistoryRequest {
   repositoryFullName?: string;
 }
 
+export interface GitHubHistoryRequest {
+  fullName: string;
+  limit?: number;
+  ref?: string;
+}
+
 export interface GitHistoryCommit {
   author: string;
   date: string;
@@ -1014,6 +1021,7 @@ export interface ProjectSpaceBackend {
   runProjectCliCommand(request: ProjectCliCommandRequest): Promise<ProjectCliCommandResult>;
   getTemplateAdherence(request: TemplateAdherenceRequest): Promise<TemplateAdherenceReport>;
   getGitHubCatalog(): Promise<GitHubCatalogResult>;
+  getGitHubHistory(request: GitHubHistoryRequest): Promise<GitHistoryResult>;
   getGitHubPipelineStatus(fullName: string): Promise<GitHubPipelineStatusResult>;
   getGitDiff(request: GitDiffRequest): Promise<GitDiffResult>;
   getGitHistory(request: GitHistoryRequest): Promise<GitHistoryResult>;
