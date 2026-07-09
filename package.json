@@ -12,7 +12,6 @@
     "dev": "vite --host 127.0.0.1",
     "dev:electron": "vite --mode electron --host 127.0.0.1",
     "build": "tsc -b && vite build",
-    "test": "bun test",
     "build:connector:macos-arm64": "bun build --compile --target=bun-darwin-arm64 server/web-server.ts --outfile dist/project-space-connector",
     "docs:build": "cd apps/docs && bun run build",
     "docs:dev": "cd apps/docs && bun run dev",

@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import type {
   ConnectorOverviewResult,
   GitHubCatalogRepository,
+  GitHistoryCommit,
   GitHubBranchRecord,
   GitHubPullRequestRecord,
   ProjectSpaceRecord
@@ -20,22 +21,187 @@ import {
   GitCommitDetailsPane
 } from './git-graph-browser';
 import {
-  colorForBranchIndex,
-  GRAPH_COMMIT_LIMIT,
-  GRAPH_LANE_WIDTH,
-  GRAPH_ROW_HEIGHT,
-  gitGraphLaneX,
-  gitGraphSegmentPath,
-  layoutGitGraph,
-  type GitGraphRow,
-  type GraphCommit
-} from './git-graph-layout';
-import {
   canonicalRepositoryName,
   defaultRepositoryBranch,
   findProjectBranchUsages
 } from './project-branch-usage';
 import { PaneResizeHandle } from './pane-resize-handle';
+
+const COMMIT_LIMIT = 300;
+const LANE_WIDTH = 14;
+const ROW_HEIGHT = 32;
+
+const graphPalette = [
+  '#0085d9',
+  '#d9008f',
+  '#00d90a',
+  '#d98500',
+  '#a300d9',
+  '#ff4d4d',
+  '#00d9cc',
+  '#e138e8',
+  '#f5c400',
+  '#6d8cff',
+  '#00b36b',
+  '#ff6f00',
+  '#b967ff',
+  '#ff3d7f',
+  '#33d6ff',
+  '#9ad900'
+];
+
+type GraphCommit = GitHistoryCommit;
+
+interface RowSegment {
+  color: string;
+  fromColumn: number;
+  half: 'top' | 'bottom' | 'full';
+  isSynthetic?: boolean;
+  toColumn: number;
+}
+
+interface GraphRow {
+  color: string;
+  column: number;
+  commit: GraphCommit;
+  segments: RowSegment[];
+}
+
+interface Lane {
+  color: string;
+  hash: string;
+}
+
+function layoutGraph(
+  commits: GraphCommit[],
+  branchColorByTipHash: Map<string, string>
+): { maxLanes: number; rows: GraphRow[] } {
+  const lanes: Array<Lane | null> = [];
+  const rows: GraphRow[] = [];
+  let colorCursor = 0;
+  let maxLanes = 1;
+
+  function takeColor() {
+    const color = graphPalette[colorCursor % graphPalette.length];
+    colorCursor += 1;
+    return color;
+  }
+
+  function firstFreeLane() {
+    const index = lanes.findIndex((lane) => lane === null);
+    return index === -1 ? lanes.length : index;
+  }
+
+  for (const commit of commits) {
+    const waiting: number[] = [];
+    lanes.forEach((lane, index) => {
+      if (lane?.hash === commit.hash) {
+        waiting.push(index);
+      }
+    });
+
+    let column: number;
+    let color: string;
+
+    if (waiting.length > 0) {
+      column = waiting[0];
+      color = lanes[column]?.color ?? takeColor();
+    } else {
+      column = firstFreeLane();
+      color = branchColorByTipHash.get(commit.hash) ?? takeColor();
+      lanes[column] = { color, hash: commit.hash };
+    }
+
+    const segments: RowSegment[] = [];
+    const isNewLaneAtCommit = waiting.length === 0;
+
+    lanes.forEach((lane, index) => {
+      if (!lane) {
+        return;
+      }
+
+      if (lane.hash === commit.hash) {
+        if (isNewLaneAtCommit && index === column) {
+          return;
+        }
+
+        segments.push({ color: lane.color, fromColumn: index, half: 'top', toColumn: column });
+        return;
+      }
+
+      segments.push({ color: lane.color, fromColumn: index, half: 'full', toColumn: index });
+    });
+
+    for (const index of waiting) {
+      lanes[index] = null;
+    }
+
+    const [firstParent, ...otherParents] = commit.parents;
+
+    if (firstParent) {
+      lanes[column] = { color, hash: firstParent };
+      segments.push({ color, fromColumn: column, half: 'bottom', toColumn: column });
+    } else {
+      lanes[column] = null;
+    }
+
+    for (const parent of otherParents) {
+      const existing = lanes.findIndex((lane) => lane?.hash === parent);
+
+      if (existing >= 0) {
+        segments.push({
+          color: lanes[existing]?.color ?? color,
+          fromColumn: column,
+          half: 'bottom',
+          toColumn: existing
+        });
+        continue;
+      }
+
+      const free = firstFreeLane();
+      const parentColor = branchColorByTipHash.get(parent) ?? takeColor();
+      lanes[free] = { color: parentColor, hash: parent };
+      segments.push({ color: parentColor, fromColumn: column, half: 'bottom', toColumn: free });
+    }
+
+    while (lanes.length > 0 && lanes[lanes.length - 1] === null) {
+      lanes.pop();
+    }
+
+    maxLanes = Math.max(maxLanes, lanes.length, column + 1);
+    rows.push({ color, column, commit, segments });
+  }
+
+  return { maxLanes, rows };
+}
+
+function laneX(column: number) {
+  return column * LANE_WIDTH + LANE_WIDTH / 2;
+}
+
+function segmentPath(segment: RowSegment) {
+  const fromX = laneX(segment.fromColumn);
+  const toX = laneX(segment.toColumn);
+  const mid = ROW_HEIGHT / 2;
+
+  if (segment.half === 'full') {
+    return `M ${fromX} 0 L ${fromX} ${ROW_HEIGHT}`;
+  }
+
+  if (segment.half === 'top') {
+    if (fromX === toX) {
+      return `M ${fromX} 0 L ${toX} ${mid}`;
+    }
+
+    return `M ${fromX} 0 C ${fromX} ${mid}, ${toX} 0, ${toX} ${mid}`;
+  }
+
+  if (fromX === toX) {
+    return `M ${fromX} ${mid} L ${toX} ${ROW_HEIGHT}`;
+  }
+
+  return `M ${fromX} ${mid} C ${fromX} ${ROW_HEIGHT}, ${toX} ${mid}, ${toX} ${ROW_HEIGHT}`;
+}
 
 function addMergedPullRequestSegments({
   branchColorByLabel,
@@ -46,7 +212,7 @@ function addMergedPullRequestSegments({
   branchColorByLabel: Map<string, string>;
   branches: GitBranchOption[];
   pullRequests: GitHubPullRequestRecord[];
-  rows: GitGraphRow[];
+  rows: GraphRow[];
 }) {
   const nextRows = rows.map((row) => ({
     ...row,
@@ -195,6 +361,10 @@ function withoutDeletedBranchRefs(commits: GraphCommit[], deletedBranchLabels: S
   }));
 }
 
+function colorForBranchIndex(index: number) {
+  return graphPalette[index % graphPalette.length];
+}
+
 function CommitDotTooltip({
   branchColors,
   branches,
@@ -232,8 +402,8 @@ function CommitDotTooltip({
             isMerge ? 'size-3' : 'size-2.5'
           )}
           style={{
-            backgroundColor: isSelected ? '#0a0a0a' : isPullRequest ? '#e5e7eb' : color,
-            borderColor: isSelected ? color : isPullRequest ? color : '#0a0a0a',
+            backgroundColor: isPullRequest ? '#e5e7eb' : color,
+            borderColor: isPullRequest ? color : '#0a0a0a',
             filter: isMerge && !isPullRequest ? 'brightness(1.35) saturate(1.65)' : undefined,
             opacity: isBranchMuted ? 0.32 : 1,
             transform: dotScale ? `scale(${dotScale})` : undefined
@@ -331,7 +501,7 @@ export function GitGraphPanel({
     try {
       const allResult = await projectSpaceClient.getGitHistory({
         cwd: targetPath,
-        limit: GRAPH_COMMIT_LIMIT,
+        limit: COMMIT_LIMIT,
         repositoryFullName
       });
 
@@ -399,7 +569,7 @@ export function GitGraphPanel({
     return colors;
   }, [branchColorByLabel, branchOptions]);
   const { maxLanes, rows } = useMemo(() => {
-    const graph = layoutGitGraph(graphCommits, branchColorByTipHash);
+    const graph = layoutGraph(graphCommits, branchColorByTipHash);
 
     return {
       ...graph,
@@ -500,7 +670,7 @@ export function GitGraphPanel({
           selectedBranches.map((branch) =>
             projectSpaceClient.getGitHistory({
               cwd: targetPath,
-              limit: GRAPH_COMMIT_LIMIT,
+              limit: COMMIT_LIMIT,
               ref: branch.ref,
               repositoryFullName
             })
@@ -564,7 +734,7 @@ export function GitGraphPanel({
     visibleBranchKey,
     visibleBranchLabels
   ]);
-  const graphWidth = maxLanes * GRAPH_LANE_WIDTH;
+  const graphWidth = maxLanes * LANE_WIDTH;
   const selectedCommit = commits.find((commit) => commit.hash === selectedHash) ?? commits[0];
   const activeBranchLabel = useMemo(() => {
     if (!selectedCommit) {
@@ -695,7 +865,7 @@ export function GitGraphPanel({
           <Text className="truncate text-sm font-semibold text-neutral-100">Commit graph</Text>
           <Text className="shrink-0 text-xs text-neutral-500">
             {rows.length > 0
-              ? `${rows.length}${rows.length >= GRAPH_COMMIT_LIMIT ? '+' : ''} commits, all branches`
+              ? `${rows.length}${rows.length >= COMMIT_LIMIT ? '+' : ''} commits, all branches`
               : ''}
           </Text>
         </div>
@@ -801,17 +971,17 @@ export function GitGraphPanel({
                         }
                       }}
                       role="button"
-                      style={{ height: GRAPH_ROW_HEIGHT }}
+                      style={{ height: ROW_HEIGHT }}
                       tabIndex={0}
                     >
                       <span
                         className="relative shrink-0"
-                        style={{ width: graphWidth, height: GRAPH_ROW_HEIGHT }}
+                        style={{ width: graphWidth, height: ROW_HEIGHT }}
                       >
                         <svg
                           aria-hidden="true"
                           width={graphWidth}
-                          height={GRAPH_ROW_HEIGHT}
+                          height={ROW_HEIGHT}
                           className="pointer-events-none absolute inset-0"
                         >
                           {row.segments.map((segment, index) => {
@@ -821,7 +991,7 @@ export function GitGraphPanel({
 	                            return (
 	                              <path
 	                                key={index}
-	                                d={gitGraphSegmentPath(segment)}
+	                                d={segmentPath(segment)}
 	                                fill="none"
 	                                stroke={segment.color}
 		                                strokeLinecap="round"
@@ -842,8 +1012,8 @@ export function GitGraphPanel({
                         <span
                           className="absolute"
                           style={{
-                            left: gitGraphLaneX(row.column),
-                            top: GRAPH_ROW_HEIGHT / 2,
+                            left: laneX(row.column),
+                            top: ROW_HEIGHT / 2,
                             transform: 'translate(-50%, -50%)'
                           }}
                         >

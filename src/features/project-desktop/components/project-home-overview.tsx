@@ -124,20 +124,17 @@ export function ProjectHomeOverview({
   const [sourceFilterOpen, setSourceFilterOpen] = useState(false);
   const [activeSourceFilterIndex, setActiveSourceFilterIndex] = useState(0);
   const [selectedMachineId, setSelectedMachineId] = useState('');
-  const hasRequestedGitHubCatalog = isGitHubRefreshing || Boolean(githubCatalog.checkedAt);
   const isPendingGitHubCatalog =
     mode === 'projects' &&
     githubCatalog.status !== 'connected' &&
-    isGitHubRefreshing;
+    (isGitHubRefreshing || !githubCatalog.checkedAt);
 
   async function refresh(includeConnector: boolean) {
     setIsRefreshing(true);
     try {
-      const refreshTasks: Promise<unknown>[] = [];
-
-      if (mode === 'projects') {
-        refreshTasks.push(onRefreshGitHubCatalog());
-      }
+      const refreshTasks: Promise<unknown>[] = [
+        onRefreshGitHubCatalog()
+      ];
 
       if (includeConnector) {
         refreshTasks.push(onRefreshConnector());
@@ -283,7 +280,7 @@ export function ProjectHomeOverview({
     });
 
     const localOnlyRows = projects
-      .filter((project) => isVisibleLocalProject(project) && !matchedProjectIds.has(project.id))
+      .filter((project) => project.kind !== 'github' && !matchedProjectIds.has(project.id))
       .map((project) => ({
         id: `local:${project.id}`,
         isLocalOnly: true,
@@ -309,6 +306,7 @@ export function ProjectHomeOverview({
     }, {});
   }, [localMachineId, projects]);
   const activeMachineProjects = activeMachineId ? projectsByMachine[activeMachineId] ?? [] : [];
+  const githubRows = rows.filter((row) => !row.isLocalOnly);
   const recentRankByProjectId = useMemo(() => {
     return new Map(recentProjectIds.map((projectId, index) => [projectId, index]));
   }, [recentProjectIds]);
@@ -348,12 +346,12 @@ export function ProjectHomeOverview({
   }
 
   const projectSourceOptions = useMemo(() => {
-    const sources = Array.from(new Set(rows.map(sourceLabelForRow))).sort((left, right) =>
+    const sources = Array.from(new Set(githubRows.map(sourceLabelForRow))).sort((left, right) =>
       left.localeCompare(right)
     );
 
     return ['all', ...sources];
-  }, [rows]);
+  }, [githubRows]);
   const filteredProjectSourceOptions = useMemo(
     () =>
       projectSourceOptions.filter((source) =>
@@ -378,9 +376,9 @@ export function ProjectHomeOverview({
     }
   }, [activeSourceFilterIndex, filteredProjectSourceOptions.length]);
 
-  const filteredProjectRows = useMemo(
+  const filteredGithubRows = useMemo(
     () =>
-      rows
+      githubRows
         .filter((row) => sourceFilter === 'all' || sourceLabelForRow(row) === sourceFilter)
         .filter((row) =>
           matchesQuery(
@@ -396,7 +394,7 @@ export function ProjectHomeOverview({
           )
         )
         .sort(compareRows),
-    [projectQuery, projectSort, recentRankByProjectId, rows, sourceFilter]
+    [githubRows, projectQuery, projectSort, recentRankByProjectId, sourceFilter]
   );
 
   useEffect(() => {
@@ -404,18 +402,18 @@ export function ProjectHomeOverview({
   }, [projectQuery, sourceFilter, projectSort, layout]);
 
   useEffect(() => {
-    if (activeProjectSearchIndex >= filteredProjectRows.length) {
-      setActiveProjectSearchIndex(Math.max(0, filteredProjectRows.length - 1));
+    if (activeProjectSearchIndex >= filteredGithubRows.length) {
+      setActiveProjectSearchIndex(Math.max(0, filteredGithubRows.length - 1));
     }
-  }, [activeProjectSearchIndex, filteredProjectRows.length]);
-  const recentProjectRows = useMemo(() => {
+  }, [activeProjectSearchIndex, filteredGithubRows.length]);
+  const recentGithubRows = useMemo(() => {
     if (projectQuery.trim()) {
       return [];
     }
 
     const rowsByProjectId = new Map<string, MatrixRow>();
 
-    for (const row of filteredProjectRows) {
+    for (const row of filteredGithubRows) {
       if (row.repo) {
         rowsByProjectId.set(`github:${row.repo.fullName}`, row);
       }
@@ -439,7 +437,7 @@ export function ProjectHomeOverview({
     }
 
     return recentRows.slice(0, 5);
-  }, [filteredProjectRows, projectQuery, recentProjectIds]);
+  }, [filteredGithubRows, projectQuery, recentProjectIds]);
   const branchSourceProjects = useMemo(() => {
     if (mode !== 'projects') {
       return [];
@@ -457,10 +455,10 @@ export function ProjectHomeOverview({
 
     return Array.from(sourceProjects.values()).slice(0, 80);
   }, [mode, rows]);
-  const projectRowGroups = useMemo(() => {
+  const githubRowGroups = useMemo(() => {
     return [
       {
-        items: filteredProjectRows,
+        items: filteredGithubRows,
         owner:
           projectSort === 'recent'
             ? 'Recently sorted'
@@ -469,7 +467,7 @@ export function ProjectHomeOverview({
             : 'All projects'
       }
     ];
-  }, [filteredProjectRows, projectSort]);
+  }, [filteredGithubRows, projectSort]);
 
   useEffect(() => {
     const missingProjects = branchSourceProjects.filter(
@@ -565,28 +563,28 @@ export function ProjectHomeOverview({
   function handleProjectSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      if (filteredProjectRows.length === 0) {
+      if (filteredGithubRows.length === 0) {
         return;
       }
-      setActiveProjectSearchIndex((index) => moveIndex(index, 1, filteredProjectRows.length));
+      setActiveProjectSearchIndex((index) => moveIndex(index, 1, filteredGithubRows.length));
       return;
     }
 
     if (event.key === 'ArrowUp') {
       event.preventDefault();
-      if (filteredProjectRows.length === 0) {
+      if (filteredGithubRows.length === 0) {
         return;
       }
-      setActiveProjectSearchIndex((index) => moveIndex(index, -1, filteredProjectRows.length));
+      setActiveProjectSearchIndex((index) => moveIndex(index, -1, filteredGithubRows.length));
       return;
     }
 
     if (event.key === 'Enter') {
       event.preventDefault();
-      if (filteredProjectRows.length === 0) {
+      if (filteredGithubRows.length === 0) {
         return;
       }
-      const row = filteredProjectRows[activeProjectSearchIndex] ?? filteredProjectRows[0];
+      const row = filteredGithubRows[activeProjectSearchIndex] ?? filteredGithubRows[0];
       const projectId = row ? matrixRowProjectId(row) : '';
 
       if (projectId) {
@@ -929,7 +927,7 @@ export function ProjectHomeOverview({
         </div>
       </div>
 
-      {mode === 'machines' || mode === 'projects' ? (
+      {mode === 'machines' || githubCatalog.status === 'connected' ? (
         <div className="mb-4">
           {mode === 'machines' ? (
             <MainListSearch
@@ -1007,25 +1005,7 @@ export function ProjectHomeOverview({
         </>
       ) : null}
 
-      {mode === 'projects' && !hasRequestedGitHubCatalog ? (
-        <div className="mb-4 flex flex-col gap-3 rounded-lg bg-neutral-950/45 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <Text className="text-sm text-neutral-500">
-            GitHub projects are loaded only when you ask for them.
-          </Text>
-          <Button
-            className="shrink-0"
-            size="sm"
-            variant="outline"
-            isDisabled={isGitHubRefreshing}
-            onPress={() => void refresh(false)}
-          >
-            <RefreshCw className={isGitHubRefreshing ? 'size-4 animate-spin' : 'size-4'} />
-            Load GitHub projects
-          </Button>
-        </div>
-      ) : null}
-
-      {mode === 'projects' && hasRequestedGitHubCatalog && !isPendingGitHubCatalog ? (
+      {mode === 'projects' && !isPendingGitHubCatalog ? (
         <GitHubConnectPanel
           flow={githubFlow}
           githubCatalog={githubCatalog}
@@ -1054,11 +1034,11 @@ export function ProjectHomeOverview({
           ) : null}
           {layout === 'list' && !isPendingGitHubCatalog ? (
             <div className="flex min-w-[38rem] flex-col">
-              {filteredProjectRows.map((row) => (
+              {filteredGithubRows.map((row) => (
                 <ProjectListItem
                   key={row.id}
                   branches={branchesForRow(row)}
-                  isActive={filteredProjectRows[activeProjectSearchIndex]?.id === row.id}
+                  isActive={filteredGithubRows[activeProjectSearchIndex]?.id === row.id}
                   layout={layout}
                   onSelectProject={onSelectProject}
                   row={row}
@@ -1066,17 +1046,17 @@ export function ProjectHomeOverview({
               ))}
             </div>
           ) : null}
-          {layout === 'grid' && !isPendingGitHubCatalog && recentProjectRows.length > 0 && projectSort !== 'recent' ? (
+          {layout === 'grid' && !isPendingGitHubCatalog && recentGithubRows.length > 0 && projectSort !== 'recent' ? (
             <div className="mb-4">
               <Text className="mb-1 block px-3 text-xs font-medium text-neutral-600">
                 Recently opened
               </Text>
               <div className={layout === 'grid' ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-3' : 'flex min-w-[38rem] flex-col'}>
-                {recentProjectRows.map((row) => (
+                {recentGithubRows.map((row) => (
                   <ProjectListItem
                     key={`recent:${row.id}`}
                     branches={branchesForRow(row)}
-                    isActive={filteredProjectRows[activeProjectSearchIndex]?.id === row.id}
+                    isActive={filteredGithubRows[activeProjectSearchIndex]?.id === row.id}
                     layout={layout}
                     onSelectProject={onSelectProject}
                     row={row}
@@ -1085,7 +1065,7 @@ export function ProjectHomeOverview({
               </div>
             </div>
           ) : null}
-          {layout === 'grid' && !isPendingGitHubCatalog ? projectRowGroups.map((group) => (
+          {layout === 'grid' && !isPendingGitHubCatalog ? githubRowGroups.map((group) => (
             <div key={group.owner} className="mb-3 last:mb-0">
               <Text className="mb-1 block px-3 text-xs font-medium text-neutral-600">
                 {group.owner}
@@ -1095,7 +1075,7 @@ export function ProjectHomeOverview({
                   <ProjectListItem
                     key={row.id}
                     branches={branchesForRow(row)}
-                    isActive={filteredProjectRows[activeProjectSearchIndex]?.id === row.id}
+                    isActive={filteredGithubRows[activeProjectSearchIndex]?.id === row.id}
                     layout={layout}
                     onSelectProject={onSelectProject}
                     row={row}
@@ -1104,7 +1084,7 @@ export function ProjectHomeOverview({
               </div>
             </div>
           )) : null}
-          {!isPendingGitHubCatalog && filteredProjectRows.length === 0 ? (
+          {githubCatalog.status === 'connected' && filteredGithubRows.length === 0 ? (
             <div className="rounded-lg bg-neutral-950/45 px-4 py-6">
               <Text className="text-sm text-neutral-500">No projects found.</Text>
             </div>
