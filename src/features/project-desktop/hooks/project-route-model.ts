@@ -52,3 +52,21 @@ export function routeProjectIdMatchesRepository(
 
   return keys.has(repoFullName) || keys.has(repoName) || keys.has(repoSlug);
 }
+
+export function shouldPreserveUnresolvedProjectRoute({
+  githubCatalogCheckedAt,
+  isGitHubRefreshing,
+  projectId,
+  routeProjectResolved
+}: {
+  githubCatalogCheckedAt: string;
+  isGitHubRefreshing: boolean;
+  projectId: string | undefined;
+  routeProjectResolved: boolean;
+}) {
+  return Boolean(
+    projectId &&
+      !routeProjectResolved &&
+      (!githubCatalogCheckedAt || isGitHubRefreshing)
+  );
+}
