@@ -73,23 +73,23 @@ describe('machine Explorer path search', () => {
       nameQuery: '.p',
       result: result(homePath, entries),
       showHidden: false
-    }).map((entry) => entry.name)).toEqual(['.private']);
+    }).map((entry) => entry.name)).toEqual([]);
   });
 
-  test('finds hidden paths without requiring the dot in the query', () => {
+  test('applies the hidden-items toggle to path suggestions', () => {
     const projectsPath = `${homePath}/projects`;
     const entries = [directory('.worktrees', `${projectsPath}/.worktrees`)];
 
     const suggestions = explorerPathSuggestions({
       nameQuery: 'work',
       result: result(projectsPath, entries),
-      showHidden: false
+      showHidden: true
     });
 
     expect(suggestions.map((entry) => entry.name)).toEqual(['.worktrees']);
     expect(completedPathValue(suggestions[0], homePath)).toBe('~/projects/.worktrees/');
     expect(explorerPathSuggestions({
-      nameQuery: '',
+      nameQuery: 'work',
       result: result(projectsPath, entries),
       showHidden: false
     }).map((entry) => entry.name)).not.toContain('.worktrees');
