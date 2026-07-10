@@ -50,11 +50,18 @@ The preferred setup path is the Project CLI:
 
 ```bash
 project connector setup
+project connector install
 project connector status
 ```
 
-This writes `~/.config/project-space/connector.json` and configures the machine
-for both the remote Project Space server and the local development server.
+`project connector setup` writes the connector configuration. `project connector install`
+also installs and starts a macOS LaunchAgent that survives terminal closure and login restarts.
+Both commands configure one connector process for the remote Project Space server and the local
+development server at the same time.
+
+The installer stores the registration token in a private, non-versioned file next to the connector
+configuration. The LaunchAgent and its command line contain only the path to that file, never the
+token itself.
 
 The connector reads these environment variables:
 

@@ -30,6 +30,14 @@ type connectorSetupOptions struct {
 	NoDev            bool
 }
 
+type connectorInstallOptions struct {
+	SetupOptions connectorSetupOptions
+	BinaryPath   string
+	InstallDir   string
+	TokenFile    string
+	ServiceName  string
+}
+
 type connectorConnectOptions struct {
 	ConnectorOptions     connectorOptions
 	RegistrationTokenEnv string
@@ -88,29 +96,35 @@ func newConnectorSetupCommand() *cobra.Command {
 }
 
 func newConnectorInstallCommand() *cobra.Command {
-	options := connectorSetupOptions{
-		ProdURL:  defaultConnectorProdHubURL,
-		DevURL:   defaultConnectorDevHubURL,
-		TokenEnv: defaultConnectorTokenEnv,
+	options := connectorInstallOptions{
+		SetupOptions: connectorSetupOptions{
+			ProdURL:  defaultConnectorProdHubURL,
+			DevURL:   defaultConnectorDevHubURL,
+			TokenEnv: defaultConnectorTokenEnv,
+		},
 	}
 	cmd := &cobra.Command{
 		Use:   "install",
-		Short: "Alias for connector setup until service installers are platform-specific",
+		Short: "Install and start the machine connector service",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := setupConnector(options)
+			result, err := installConnectorService(options)
 			if err != nil {
 				return err
 			}
-			printConnectorConfigResult(cmd, result, options.ConnectorOptions.JSON)
+			printConnectorInstallResult(cmd, result, options.SetupOptions.ConnectorOptions.JSON)
 			return nil
 		},
 	}
-	addConnectorConfigFlags(cmd, &options.ConnectorOptions)
-	cmd.Flags().StringVar(&options.ProdURL, "prod-url", options.ProdURL, "remote Project Space hub URL")
-	cmd.Flags().StringVar(&options.DevURL, "dev-url", options.DevURL, "local development Project Space hub URL")
-	cmd.Flags().StringVar(&options.TokenEnv, "token-env", options.TokenEnv, "environment variable that contains the connector registration token")
-	cmd.Flags().BoolVar(&options.NoDev, "no-dev", false, "only configure the remote Project Space hub")
+	addConnectorConfigFlags(cmd, &options.SetupOptions.ConnectorOptions)
+	cmd.Flags().StringVar(&options.SetupOptions.ProdURL, "prod-url", options.SetupOptions.ProdURL, "remote Project Space hub URL")
+	cmd.Flags().StringVar(&options.SetupOptions.DevURL, "dev-url", options.SetupOptions.DevURL, "local development Project Space hub URL")
+	cmd.Flags().StringVar(&options.SetupOptions.TokenEnv, "token-env", options.SetupOptions.TokenEnv, "environment variable that contains the connector registration token")
+	cmd.Flags().BoolVar(&options.SetupOptions.NoDev, "no-dev", false, "only configure the remote Project Space hub")
+	cmd.Flags().StringVar(&options.BinaryPath, "binary", "", "connector binary to install")
+	cmd.Flags().StringVar(&options.InstallDir, "install-dir", "", "directory for the installed connector")
+	cmd.Flags().StringVar(&options.TokenFile, "token-file", "", "private file used by the service to load the registration token")
+	cmd.Flags().StringVar(&options.ServiceName, "service-name", "", "connector service name shown in Project Space")
 	return cmd
 }
 
