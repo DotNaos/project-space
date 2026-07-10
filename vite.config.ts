@@ -8,6 +8,7 @@ import type { Plugin, ViteDevServer } from 'vite';
 import electron from 'vite-plugin-electron/simple';
 
 import { createLocalProjectSpaceBackend } from './server/local-project-space-backend';
+import { createConnectorCommandUpgradeHandler } from './server/connector-command-hub';
 import {
   createMachineTerminalUpgradeHandler,
   createProjectTerminalUpgradeHandler
@@ -26,13 +27,16 @@ function projectSpaceApiPlugin(): Plugin {
       });
       const handleMachineTerminalUpgrade = createMachineTerminalUpgradeHandler(backend);
       const handleProjectTerminalUpgrade = createProjectTerminalUpgradeHandler();
+      const connectorCommands = createConnectorCommandUpgradeHandler();
 
       server.httpServer?.once('close', () => {
         bridge.close();
+        void connectorCommands.close();
       });
 
       server.httpServer?.on('upgrade', (request, socket, head) => {
         if (
+          !connectorCommands.handleUpgrade(request, socket, head) &&
           !handleMachineTerminalUpgrade(request, socket, head) &&
           !handleProjectTerminalUpgrade(request, socket, head)
         ) {

@@ -3,6 +3,8 @@ import type {
   CodexChatRequest,
   CodexChatResult,
   CodexChatStreamEvent,
+  CodexModelCatalogueRequest,
+  CodexModelCatalogueResult,
   CodexOpenRequest,
   CodexStatusResult,
   ConnectorOverviewResult,
@@ -408,6 +410,13 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     });
   }
 
+  getCodexModels(request: CodexModelCatalogueRequest): Promise<CodexModelCatalogueResult> {
+    return this.request('/api/codex/models', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
   runCodexChat(request: CodexChatRequest): Promise<CodexChatResult> {
     return this.request('/api/codex/chat', {
       body: JSON.stringify(request),
@@ -417,9 +426,10 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
 
   streamCodexChat(
     request: CodexChatRequest,
-    emit: (event: CodexChatStreamEvent) => void
+    emit: (event: CodexChatStreamEvent) => void,
+    signal?: AbortSignal
   ): Promise<void> {
-    return streamCodexChat(request, emit);
+    return streamCodexChat(request, emit, signal);
   }
 
   openPathInApp(request: OpenPathInAppRequest): Promise<OpenPathInAppResult> {
@@ -537,7 +547,8 @@ export const projectSpaceClient = new HttpProjectSpaceClient();
 
 export async function streamCodexChat(
   request: CodexChatRequest,
-  emit: (event: CodexChatStreamEvent) => void
+  emit: (event: CodexChatStreamEvent) => void,
+  signal?: AbortSignal
 ) {
   const token = await refreshProjectSpaceAuthToken();
   const baseUrl = resolveApiBaseUrl();
@@ -547,7 +558,8 @@ export async function streamCodexChat(
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       'Content-Type': 'application/json'
     },
-    method: 'POST'
+    method: 'POST',
+    signal
   });
 
   if (!response.ok) {

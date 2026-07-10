@@ -6,11 +6,16 @@ import { basename, dirname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import {
+  getCodexModels as getLocalCodexModels,
   getCodexStatus,
   openCodexTarget,
   runCodexChat,
   streamCodexChat as streamLocalCodexChat
 } from './local-codex-client';
+import {
+  requestConnectorModels,
+  streamConnectorCodexChat
+} from './connector-command-hub';
 import { runSshTerminalCommand, runTerminalCommand } from './local-command-runner';
 import { loadConnectorProjectDiscovery } from './connector-discovery';
 import {
@@ -820,6 +825,25 @@ function shellQuote(value: string) {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+function remoteCodexRuntime(target: string, cwd: string) {
+  const remoteCommand = [
+    `cd ${shellQuote(cwd)} || exit $?`,
+    'if [ -x /Applications/ChatGPT.app/Contents/Resources/codex ]; then',
+    'exec /Applications/ChatGPT.app/Contents/Resources/codex app-server --listen stdio://',
+    'elif [ -x /Applications/Codex.app/Contents/Resources/codex ]; then',
+    'exec /Applications/Codex.app/Contents/Resources/codex app-server --listen stdio://',
+    'else',
+    'exec codex app-server --listen stdio://',
+    'fi'
+  ].join('\n');
+
+  return {
+    args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', target, remoteCommand],
+    command: 'ssh',
+    cwd: homedir()
+  };
+}
+
 async function readDirectoryEntries(path: string): Promise<FileSystemEntry[]> {
   const entries = await listDirectoryEntries(path);
 
@@ -972,6 +996,53 @@ export function createLocalProjectSpaceBackend(
     async openCodexTarget(request) {
       return openCodexTarget(request);
     },
+    async getCodexModels(request) {
+      const overview = await loadMergedConnectorOverview();
+      const machine = overview.machines.find((entry) => entry.id === request.machineId);
+
+      if (!machine) {
+        return {
+          message: `Machine ${request.machineId} was not found.`,
+          models: [],
+          status: 'error'
+        };
+      }
+
+      if (machine.connector.status === 'local' || machine.kind === 'local') {
+        return getLocalCodexModels(request);
+      }
+
+      if (machine.connector.status !== 'online') {
+        return {
+          message: `${machine.name} is ${machine.connector.status}.`,
+          models: [],
+          status: 'error'
+        };
+      }
+
+      if (machine.sourcePath === 'connector-hub') {
+        try {
+          return await requestConnectorModels(request);
+        } catch (error) {
+          return {
+            message: error instanceof Error ? error.message : 'Could not reach the machine connector.',
+            models: [],
+            status: 'error'
+          };
+        }
+      }
+
+      const target = createMachineSshTarget(machine);
+      if (!target) {
+        return {
+          message: `${machine.name} does not have an SSH target.`,
+          models: [],
+          status: 'error'
+        };
+      }
+
+      return getLocalCodexModels(request, remoteCodexRuntime(target, request.cwd));
+    },
     async runCodexChat(request) {
       const overview = await loadMergedConnectorOverview();
       const machine = overview.machines.find((entry) => entry.id === request.machineId);
@@ -994,6 +1065,28 @@ export function createLocalProjectSpaceBackend(
         };
       }
 
+      if (machine.sourcePath === 'connector-hub') {
+        let result = '';
+        let failure = '';
+        try {
+          await streamConnectorCodexChat(request, (event) => {
+            if (event.type === 'done') {
+              result = event.response;
+            } else if (event.type === 'error') {
+              failure = event.message;
+            }
+          });
+          return failure
+            ? { message: failure, status: 'error' }
+            : { response: result, status: 'success' };
+        } catch (error) {
+          return {
+            message: error instanceof Error ? error.message : 'Could not reach the machine connector.',
+            status: 'error'
+          };
+        }
+      }
+
       const target = createMachineSshTarget(machine);
 
       if (!target) {
@@ -1003,22 +1096,9 @@ export function createLocalProjectSpaceBackend(
         };
       }
 
-      const remoteCommand = [
-        `cd ${shellQuote(request.cwd)}`,
-        'if [ -x /Applications/Codex.app/Contents/Resources/codex ]; then',
-        '/Applications/Codex.app/Contents/Resources/codex app-server --listen stdio://',
-        'else',
-        'codex app-server --listen stdio://',
-        'fi'
-      ].join(' && ');
-
-      return runCodexChat(request, {
-        args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', target, remoteCommand],
-        command: 'ssh',
-        cwd: homedir()
-      });
+      return runCodexChat(request, remoteCodexRuntime(target, request.cwd));
     },
-    async streamCodexChat(request, emit) {
+    async streamCodexChat(request, emit, signal) {
       const overview = await loadMergedConnectorOverview();
       const machine = overview.machines.find((entry) => entry.id === request.machineId);
 
@@ -1028,12 +1108,24 @@ export function createLocalProjectSpaceBackend(
       }
 
       if (machine.connector.status === 'local' || machine.kind === 'local') {
-        await streamLocalCodexChat(request, emit);
+        await streamLocalCodexChat(request, emit, undefined, signal);
         return;
       }
 
       if (machine.connector.status !== 'online') {
         emit({ message: `${machine.name} is ${machine.connector.status}.`, type: 'error' });
+        return;
+      }
+
+      if (machine.sourcePath === 'connector-hub') {
+        try {
+          await streamConnectorCodexChat(request, emit);
+        } catch (error) {
+          emit({
+            message: error instanceof Error ? error.message : 'Could not reach the machine connector.',
+            type: 'error'
+          });
+        }
         return;
       }
 
@@ -1044,20 +1136,12 @@ export function createLocalProjectSpaceBackend(
         return;
       }
 
-      const remoteCommand = [
-        `cd ${shellQuote(request.cwd)}`,
-        'if [ -x /Applications/Codex.app/Contents/Resources/codex ]; then',
-        '/Applications/Codex.app/Contents/Resources/codex app-server --listen stdio://',
-        'else',
-        'codex app-server --listen stdio://',
-        'fi'
-      ].join(' && ');
-
-      await streamLocalCodexChat(request, emit, {
-        args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', target, remoteCommand],
-        command: 'ssh',
-        cwd: homedir()
-      });
+      await streamLocalCodexChat(
+        request,
+        emit,
+        remoteCodexRuntime(target, request.cwd),
+        signal
+      );
     },
     async openPathInApp(request) {
       return openPathInApp(request);

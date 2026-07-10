@@ -48,7 +48,7 @@ export function resolveProjectConnectorTargets(
 export function connectorRegistrationHeaders(
   target: ProjectConnectorHubTarget
 ): Record<string, string> {
-  const token = connectorRegistrationToken(target);
+  const token = connectorRegistrationTokenForTarget(target);
 
   return token
     ? {
@@ -56,6 +56,10 @@ export function connectorRegistrationHeaders(
         'X-Project-Connector-Token': token
       }
     : {};
+}
+
+export function connectorRegistrationTokenForTarget(target: ProjectConnectorHubTarget) {
+  return connectorRegistrationToken(target) ?? '';
 }
 
 function readConfiguredConnectorTargets() {
@@ -129,12 +133,30 @@ function readLegacyConnectorTargets(options: ResolveProjectConnectorTargetsOptio
 }
 
 function normalizeConnectorTarget(target: ProjectConnectorHubTarget): ProjectConnectorHubTarget {
+  const url = target.url?.trim().replace(/\/+$/, '');
   return {
     name: target.name?.trim() || targetNameFromURL(target.url ?? target.wsUrl ?? 'hub'),
     registrationTokenEnv: target.registrationTokenEnv?.trim() || defaultConnectorTokenEnv,
-    url: target.url?.trim().replace(/\/+$/, ''),
-    wsUrl: target.wsUrl?.trim()
+    url,
+    wsUrl: target.wsUrl?.trim() || connectorWebSocketUrl(url)
   };
+}
+
+function connectorWebSocketUrl(raw?: string) {
+  if (!raw) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(raw);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    url.pathname = '/api/connectors/socket';
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return undefined;
+  }
 }
 
 function connectorRegistrationToken(target: ProjectConnectorHubTarget) {

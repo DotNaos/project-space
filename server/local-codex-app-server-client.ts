@@ -5,7 +5,9 @@ import { createInterface } from 'node:readline';
 import type {
   CodexChatRequest,
   CodexChatResult,
-  CodexChatStreamEvent
+  CodexChatStreamEvent,
+  CodexModelCatalogueResult,
+  CodexModelRecord
 } from '../src/shared/project-space-api';
 
 interface CodexRpcMessage {
@@ -57,6 +59,43 @@ function readTurnId(result: unknown) {
 
   const turn = (result as { turn?: { id?: unknown } }).turn;
   return typeof turn?.id === 'string' ? turn.id : '';
+}
+
+function readModelPage(result: unknown) {
+  if (!result || typeof result !== 'object') {
+    return { models: [] as CodexModelRecord[] };
+  }
+
+  const page = result as { data?: unknown; nextCursor?: unknown };
+  const models = Array.isArray(page.data)
+    ? page.data.flatMap((entry) => {
+        if (!entry || typeof entry !== 'object') {
+          return [];
+        }
+        const model = entry as Record<string, unknown>;
+        if (
+          model.hidden === true ||
+          typeof model.id !== 'string' ||
+          typeof model.model !== 'string' ||
+          typeof model.displayName !== 'string'
+        ) {
+          return [];
+        }
+
+        return [{
+          description: typeof model.description === 'string' ? model.description : '',
+          displayName: model.displayName,
+          id: model.id,
+          isDefault: model.isDefault === true,
+          model: model.model
+        }];
+      })
+    : [];
+
+  return {
+    models,
+    nextCursor: typeof page.nextCursor === 'string' ? page.nextCursor : undefined
+  };
 }
 
 function handleCodexTurnMessage(
@@ -216,7 +255,32 @@ class CodexAppServerClient {
     await this.notify('initialized', null);
   }
 
-  async startThread(cwd: string, systemPrompt?: string) {
+  async listModels() {
+    const models: CodexModelRecord[] = [];
+    const seenCursors = new Set<string>();
+    let cursor: string | undefined;
+
+    do {
+      const result = await this.call('model/list', {
+        cursor,
+        includeHidden: false
+      });
+      const page = readModelPage(result);
+      models.push(...page.models);
+      cursor = page.nextCursor;
+
+      if (cursor && seenCursors.has(cursor)) {
+        throw new Error('Codex returned a repeated model catalogue cursor.');
+      }
+      if (cursor) {
+        seenCursors.add(cursor);
+      }
+    } while (cursor);
+
+    return models;
+  }
+
+  async startThread(cwd: string, systemPrompt?: string, selectedModel?: string) {
     const params: Record<string, unknown> = {
       approvalPolicy: 'never',
       baseInstructions:
@@ -226,10 +290,13 @@ class CodexAppServerClient {
       ephemeral: true,
       sandbox: 'read-only'
     };
-    const model = process.env.PROJECT_SPACE_CODEX_MODEL ?? process.env.CODEX_MODEL;
+    const model =
+      selectedModel?.trim() ||
+      process.env.PROJECT_SPACE_CODEX_MODEL?.trim() ||
+      process.env.CODEX_MODEL?.trim();
 
-    if (model?.trim()) {
-      params.model = model.trim();
+    if (model) {
+      params.model = model;
     }
 
     const result = await this.call('thread/start', params);
@@ -364,13 +431,15 @@ export async function runCodexAppServerChat({
   codexHome,
   emit,
   request,
-  runtime
+  runtime,
+  signal
 }: {
   codexCliPath?: string;
   codexHome: string;
   emit?: CodexChatStreamEmitter;
   request: CodexChatRequest;
   runtime?: CodexChatRuntime;
+  signal?: AbortSignal;
 }): Promise<CodexChatResult> {
   const cwd = resolve(request.cwd);
   const child = spawn(
@@ -388,10 +457,16 @@ export async function runCodexAppServerChat({
     }
   );
   const client = new CodexAppServerClient(child);
+  const abort = () => child.kill('SIGTERM');
+  signal?.addEventListener('abort', abort, { once: true });
 
   try {
+    if (signal?.aborted) {
+      abort();
+      return { message: 'Codex chat was cancelled.', status: 'error' };
+    }
     await client.initialize();
-    const threadId = await client.startThread(cwd, request.systemPrompt);
+    const threadId = await client.startThread(cwd, request.systemPrompt, request.model);
     const response = await client.runTurn(threadId, chatPrompt(request), emit);
 
     return {
@@ -401,6 +476,51 @@ export async function runCodexAppServerChat({
   } catch (error) {
     return {
       message: error instanceof Error ? error.message : 'Codex chat failed.',
+      status: 'error'
+    };
+  } finally {
+    signal?.removeEventListener('abort', abort);
+    await client.close();
+  }
+}
+
+export async function loadCodexAppServerModels({
+  codexCliPath,
+  codexHome,
+  cwd,
+  runtime
+}: {
+  codexCliPath?: string;
+  codexHome: string;
+  cwd: string;
+  runtime?: CodexChatRuntime;
+}): Promise<CodexModelCatalogueResult> {
+  const child = spawn(
+    runtime?.command ?? codexCliPath!,
+    runtime?.args ?? ['app-server', '--listen', 'stdio://'],
+    {
+      cwd: runtime?.cwd ?? resolve(cwd),
+      env: {
+        ...process.env,
+        ...(runtime?.env ?? {}),
+        CODEX_HOME: runtime?.env?.CODEX_HOME ?? process.env.CODEX_HOME ?? codexHome
+      },
+      stdio: 'pipe',
+      windowsHide: true
+    }
+  );
+  const client = new CodexAppServerClient(child);
+
+  try {
+    await client.initialize();
+    const models = await client.listModels();
+    return models.length > 0
+      ? { models, status: 'success' }
+      : { message: 'Codex returned no available models.', models: [], status: 'error' };
+  } catch (error) {
+    return {
+      message: error instanceof Error ? error.message : 'Could not load Codex models.',
+      models: [],
       status: 'error'
     };
   } finally {
