@@ -203,6 +203,12 @@ remote production hub and the local development hub:
 The token stays in the environment. The config stores only the environment
 variable name, so the secret is not written into the repo or the config file.
 
+On macOS, `project connector install` performs the same setup and installs a
+LaunchAgent. It copies the connector into `~/.local/bin`, starts it immediately,
+and keeps it running after terminals close and across logins. The service reads
+the registration token from a private `0600` file outside the repository; the
+token is not embedded in the LaunchAgent or its process arguments.
+
 Use `project connector connect <name> <url>` to add or update a single hub.
 
 ## Sync Template Snapshot
