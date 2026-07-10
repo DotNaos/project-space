@@ -76,6 +76,25 @@ describe('machine Explorer path search', () => {
     }).map((entry) => entry.name)).toEqual(['.private']);
   });
 
+  test('finds hidden paths without requiring the dot in the query', () => {
+    const projectsPath = `${homePath}/projects`;
+    const entries = [directory('.worktrees', `${projectsPath}/.worktrees`)];
+
+    const suggestions = explorerPathSuggestions({
+      nameQuery: 'work',
+      result: result(projectsPath, entries),
+      showHidden: false
+    });
+
+    expect(suggestions.map((entry) => entry.name)).toEqual(['.worktrees']);
+    expect(completedPathValue(suggestions[0], homePath)).toBe('~/projects/.worktrees/');
+    expect(explorerPathSuggestions({
+      nameQuery: '',
+      result: result(projectsPath, entries),
+      showHidden: false
+    }).map((entry) => entry.name)).not.toContain('.worktrees');
+  });
+
   test('Tab-style completion adds a slash only for folders', () => {
     expect(completedPathValue(directory('projects'), homePath)).toBe('~/projects/');
     expect(completedPathValue(file('notes.md'), homePath)).toBe('~/notes.md');

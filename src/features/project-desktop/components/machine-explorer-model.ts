@@ -69,10 +69,10 @@ export function explorerPathSuggestions({
   }
 
   const query = nameQuery.toLocaleLowerCase();
-  const explicitlySearchingHidden = nameQuery.startsWith('.');
+  const hasNameQuery = nameQuery.length > 0;
 
   return result.entries
-    .filter((entry) => showHidden || explicitlySearchingHidden || !entry.name.startsWith('.'))
+    .filter((entry) => showHidden || hasNameQuery || !entry.name.startsWith('.'))
     .filter((entry) => !query || entry.name.toLocaleLowerCase().includes(query))
     .sort((left, right) => {
       const leftName = left.name.toLocaleLowerCase();
