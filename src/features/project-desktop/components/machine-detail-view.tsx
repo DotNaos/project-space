@@ -18,7 +18,12 @@ import {
   MachineDeviceIcon,
   MachineOsMark
 } from './machine-visuals';
-import { formatOptionalTime, machineSubtitle } from './project-main-model';
+import {
+  formatOptionalTime,
+  getProjectMachineId,
+  isVisibleProject,
+  machineSubtitle
+} from './project-main-model';
 import { MachineProjectsPanel } from './machine-projects-panel';
 import { MachineExplorerPanel } from './machine-explorer-panel';
 
@@ -306,6 +311,10 @@ export function MachineDetailView({
 
   const origin =
     machine.connector.origin ?? machine.network.tailscaleIp ?? machine.connector.installCommand;
+  const machineProjects = projects
+    .filter(isVisibleProject)
+    .filter((project) => project.kind !== 'github')
+    .filter((project) => getProjectMachineId(project, localMachineId) === machine.id);
 
   return (
     <div className={`mx-auto flex min-h-full w-full flex-col gap-4 ${tab === 'explorer' ? 'max-w-[100rem]' : 'max-w-5xl'}`}>
@@ -386,7 +395,9 @@ export function MachineDetailView({
 
       {tab === 'terminal' ? <MachineTerminalPanel machine={machine} /> : null}
 
-      {tab === 'explorer' ? <MachineExplorerPanel key={machine.id} machine={machine} /> : null}
+      {tab === 'explorer' ? (
+        <MachineExplorerPanel key={machine.id} machine={machine} projects={machineProjects} />
+      ) : null}
 
       {tab === 'projects' ? (
         <MachineProjectsPanel

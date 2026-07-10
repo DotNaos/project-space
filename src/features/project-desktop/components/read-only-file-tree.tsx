@@ -1,14 +1,29 @@
-import { useEffect, useState } from 'react';
-import { ChevronRight, Folder, FolderOpen, LoaderCircle, ShieldAlert } from 'lucide-react';
-import { Text } from '@/app/dotnaos-ui';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ChevronRight,
+  ChevronsDown,
+  ChevronsUp,
+  Folder,
+  FolderOpen,
+  LoaderCircle,
+  ShieldAlert,
+  Star
+} from 'lucide-react';
+import { Button, Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type { FileSystemEntry, MachineFileSystemDirectoryResult } from '@/shared/project-space-api';
+import {
+  collapseDeepestExpanded,
+  expansionFrontier,
+  visibleTreeDirectories
+} from './machine-explorer-model';
 
 interface ReadOnlyFileTreeProps {
   currentPath: string;
   defaultPath: string;
   homePath: string;
   loadDirectory(path: string): Promise<MachineFileSystemDirectoryResult>;
+  onOpenDefault(): void;
   onOpenDirectory(path: string): void;
   showHidden: boolean;
 }
@@ -16,9 +31,11 @@ interface ReadOnlyFileTreeProps {
 interface DirectoryNodeProps {
   currentPath: string;
   entry: FileSystemEntry;
+  expandedPaths: ReadonlySet<string>;
   level: number;
-  loadDirectory(path: string): Promise<MachineFileSystemDirectoryResult>;
-  onOpenDirectory(path: string): void;
+  loadingPaths: ReadonlySet<string>;
+  onToggle(entry: FileSystemEntry): void;
+  resultsByPath: ReadonlyMap<string, MachineFileSystemDirectoryResult>;
   showHidden: boolean;
 }
 
@@ -26,55 +43,50 @@ function isSelected(currentPath: string, path: string) {
   return currentPath.replace(/\/+$/, '') === path.replace(/\/+$/, '');
 }
 
-function DirectoryNode({
-  currentPath,
-  entry,
-  level,
-  loadDirectory,
-  onOpenDirectory,
-  showHidden
-}: DirectoryNodeProps) {
-  const [expanded, setExpanded] = useState(false);
-  const [result, setResult] = useState<MachineFileSystemDirectoryResult>();
-  const [loading, setLoading] = useState(false);
-  const selected = isSelected(currentPath, entry.path);
+async function loadWithConcurrencyLimit(
+  paths: string[],
+  load: (path: string) => Promise<MachineFileSystemDirectoryResult>,
+  concurrency = 4
+) {
+  let nextIndex = 0;
 
-  async function toggle() {
-    onOpenDirectory(entry.path);
-    if (expanded) {
-      setExpanded(false);
-      return;
-    }
-
-    setExpanded(true);
-    if (result) {
-      return;
-    }
-    setLoading(true);
-    try {
-      setResult(await loadDirectory(entry.path));
-    } catch {
-      setResult({
-        entries: [],
-        message: 'The machine connector is not available right now.',
-        path: entry.path,
-        status: 'error'
-      });
-    } finally {
-      setLoading(false);
+  async function worker() {
+    while (nextIndex < paths.length) {
+      const path = paths[nextIndex];
+      nextIndex += 1;
+      if (path) {
+        await load(path);
+      }
     }
   }
 
-  const directories = result?.entries.filter(
-    (child) => child.kind === 'directory' && (showHidden || !child.name.startsWith('.'))
-  ) ?? [];
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, paths.length) }, () => worker())
+  );
+}
+
+function DirectoryNode({
+  currentPath,
+  entry,
+  expandedPaths,
+  level,
+  loadingPaths,
+  onToggle,
+  resultsByPath,
+  showHidden
+}: DirectoryNodeProps) {
+  const expanded = expandedPaths.has(entry.path);
+  const loading = loadingPaths.has(entry.path);
+  const result = resultsByPath.get(entry.path);
+  const selected = isSelected(currentPath, entry.path);
+  const directories = visibleTreeDirectories(result?.entries, showHidden);
 
   return (
     <div>
       <button
         aria-expanded={expanded}
         type="button"
-        onClick={() => void toggle()}
+        onClick={() => onToggle(entry)}
         className={cn(
           'group flex min-h-9 w-full min-w-0 items-center gap-2 rounded-md pr-2 text-left text-sm transition',
           selected
@@ -111,9 +123,11 @@ function DirectoryNode({
                 key={child.path}
                 currentPath={currentPath}
                 entry={child}
+                expandedPaths={expandedPaths}
                 level={level + 1}
-                loadDirectory={loadDirectory}
-                onOpenDirectory={onOpenDirectory}
+                loadingPaths={loadingPaths}
+                onToggle={onToggle}
+                resultsByPath={resultsByPath}
                 showHidden={showHidden}
               />
             ))
@@ -136,14 +150,67 @@ export function ReadOnlyFileTree({
   defaultPath,
   homePath,
   loadDirectory,
+  onOpenDefault,
   onOpenDirectory,
   showHidden
 }: ReadOnlyFileTreeProps) {
+  const resultsRef = useRef(new Map<string, MachineFileSystemDirectoryResult>());
+  const pendingRef = useRef(new Map<string, Promise<MachineFileSystemDirectoryResult>>());
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set());
+  const [loadingPaths, setLoadingPaths] = useState<Set<string>>(() => new Set());
+  const [resultsByPath, setResultsByPath] = useState<Map<string, MachineFileSystemDirectoryResult>>(
+    () => new Map()
+  );
   const [root, setRoot] = useState<MachineFileSystemDirectoryResult>();
   const [loading, setLoading] = useState(true);
 
+  const ensureLoaded = useCallback(
+    async (path: string) => {
+      const cached = resultsRef.current.get(path);
+      if (cached) {
+        return cached;
+      }
+
+      const pending = pendingRef.current.get(path);
+      if (pending) {
+        return pending;
+      }
+
+      setLoadingPaths((current) => new Set(current).add(path));
+      const request = loadDirectory(path)
+        .catch(() => ({
+          entries: [],
+          message: 'The machine connector is not available right now.',
+          path,
+          status: 'error' as const
+        }))
+        .then((result) => {
+          resultsRef.current.set(path, result);
+          setResultsByPath(new Map(resultsRef.current));
+          return result;
+        })
+        .finally(() => {
+          pendingRef.current.delete(path);
+          setLoadingPaths((current) => {
+            const next = new Set(current);
+            next.delete(path);
+            return next;
+          });
+        });
+
+      pendingRef.current.set(path, request);
+      return request;
+    },
+    [loadDirectory]
+  );
+
   useEffect(() => {
     let canceled = false;
+    resultsRef.current = new Map();
+    pendingRef.current = new Map();
+    setResultsByPath(new Map());
+    setExpandedPaths(new Set());
+    setLoadingPaths(new Set());
     setLoading(true);
     void loadDirectory(homePath)
       .then((result) => {
@@ -171,12 +238,83 @@ export function ReadOnlyFileTree({
     };
   }, [homePath, loadDirectory]);
 
-  const directories = root?.entries.filter(
-    (entry) => entry.kind === 'directory' && (showHidden || !entry.name.startsWith('.'))
-  ) ?? [];
+  const treeOptions = {
+    expandedPaths,
+    resultsByPath,
+    rootEntries: root?.entries,
+    showHidden
+  };
+  const directories = visibleTreeDirectories(root?.entries, showHidden);
+  const frontier = expansionFrontier(treeOptions);
+
+  function toggle(entry: FileSystemEntry) {
+    onOpenDirectory(entry.path);
+    if (expandedPaths.has(entry.path)) {
+      setExpandedPaths((current) => {
+        const next = new Set(current);
+        next.delete(entry.path);
+        return next;
+      });
+      return;
+    }
+
+    setExpandedPaths((current) => new Set(current).add(entry.path));
+    void ensureLoaded(entry.path);
+  }
+
+  function expandOneLevel() {
+    const paths = expansionFrontier(treeOptions);
+    if (paths.length === 0) {
+      return;
+    }
+    setExpandedPaths((current) => new Set([...current, ...paths]));
+    void loadWithConcurrencyLimit(paths, ensureLoaded);
+  }
+
+  function collapseOneLevel() {
+    setExpandedPaths(collapseDeepestExpanded(treeOptions));
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center justify-between border-b border-neutral-800 px-3 py-3">
+        <Text className="text-xs font-semibold text-neutral-300">~</Text>
+        <div className="flex items-center gap-0.5">
+          <Button
+            aria-label="Collapse one folder level"
+            title="Collapse one folder level"
+            isDisabled={expandedPaths.size === 0}
+            isIconOnly
+            size="sm"
+            variant="ghost"
+            onPress={collapseOneLevel}
+          >
+            <ChevronsUp className="size-3.5" />
+          </Button>
+          <Button
+            aria-label="Expand one folder level"
+            title="Expand one folder level"
+            isDisabled={frontier.length === 0 || loadingPaths.size > 0}
+            isIconOnly
+            size="sm"
+            variant="ghost"
+            onPress={expandOneLevel}
+          >
+            <ChevronsDown className="size-3.5" />
+          </Button>
+          <Button
+            aria-label="Open default projects folder"
+            title="Open default projects folder"
+            isIconOnly
+            size="sm"
+            variant="ghost"
+            onPress={onOpenDefault}
+          >
+            <Star className="size-3.5" />
+          </Button>
+        </div>
+      </div>
+
       <button
         type="button"
         onClick={() => onOpenDirectory(homePath)}
@@ -207,9 +345,11 @@ export function ReadOnlyFileTree({
               <DirectoryNode
                 currentPath={currentPath}
                 entry={entry}
+                expandedPaths={expandedPaths}
                 level={0}
-                loadDirectory={loadDirectory}
-                onOpenDirectory={onOpenDirectory}
+                loadingPaths={loadingPaths}
+                onToggle={toggle}
+                resultsByPath={resultsByPath}
                 showHidden={showHidden}
               />
               {isSelected(defaultPath, entry.path) ? (

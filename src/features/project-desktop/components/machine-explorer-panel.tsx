@@ -8,6 +8,7 @@ import {
   EyeOff,
   FileText,
   Folder,
+  FolderKanban,
   Home,
   Info,
   LoaderCircle,
@@ -22,30 +23,12 @@ import type {
   FileSystemEntry,
   MachineFileSystemDirectoryResult,
   MachineFileSystemFileResult,
-  MachineRecord
+  MachineRecord,
+  ProjectSpaceRecord
 } from '@/shared/project-space-api';
+import { ExplorerPathSearch } from './explorer-path-search';
+import { homePathLabel, projectForEntry } from './machine-explorer-model';
 import { ReadOnlyFileTree } from './read-only-file-tree';
-
-function homePathLabel(path: string, homePath: string) {
-  if (path === homePath) {
-    return '~';
-  }
-  return path.startsWith(`${homePath}/`) ? `~${path.slice(homePath.length)}` : path;
-}
-
-function enteredPath(value: string, homePath: string) {
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === '~') {
-    return homePath;
-  }
-  if (trimmed.startsWith('~/')) {
-    return `${homePath}/${trimmed.slice(2)}`;
-  }
-  if (trimmed.startsWith('/')) {
-    return trimmed;
-  }
-  return `${homePath}/${trimmed}`;
-}
 
 function formatBytes(size?: number) {
   if (size === undefined) {
@@ -138,7 +121,13 @@ function FileViewer({
   );
 }
 
-export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
+export function MachineExplorerPanel({
+  machine,
+  projects
+}: {
+  machine: MachineRecord;
+  projects: ProjectSpaceRecord[];
+}) {
   const [homePath, setHomePath] = useState('');
   const [defaultPath, setDefaultPath] = useState('');
   const [currentPath, setCurrentPath] = useState('');
@@ -297,23 +286,12 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
       className="flex h-[calc(100vh-15rem)] min-h-[28rem] shrink-0 overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950/45"
     >
       <aside className="flex w-64 shrink-0 flex-col border-r border-neutral-800">
-        <div className="flex items-center justify-between border-b border-neutral-800 px-3 py-3">
-          <Text className="text-xs font-semibold text-neutral-300">~</Text>
-          <Button
-            aria-label="Open default projects folder"
-            isIconOnly
-            size="sm"
-            variant="ghost"
-            onPress={() => openDirectory(defaultPath)}
-          >
-            <Star className="size-3.5" />
-          </Button>
-        </div>
         <ReadOnlyFileTree
           currentPath={currentPath}
           defaultPath={defaultPath}
           homePath={homePath}
           loadDirectory={loadDirectory}
+          onOpenDefault={() => openDirectory(defaultPath)}
           onOpenDirectory={openDirectory}
           showHidden={showHidden}
         />
@@ -334,23 +312,18 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
           <Button aria-label="Forward" isDisabled={historyIndex >= history.length - 1} isIconOnly size="sm" variant="ghost" onPress={() => moveHistory(1)}>
             <ArrowRight className="size-4" />
           </Button>
-          <form
-            className="flex min-w-48 flex-1 gap-1"
-            onSubmit={(event) => {
-              event.preventDefault();
-              openDirectory(enteredPath(pathInput, homePath));
-            }}
-          >
-            <input
-              aria-label="Explorer path"
-              value={pathInput}
-              onChange={(event) => setPathInput(event.target.value)}
-              className="h-8 w-full rounded-lg border border-neutral-700 bg-black/30 px-3 font-mono text-xs text-neutral-200 outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-700/40"
-            />
-            <Button aria-label="Open path" isIconOnly size="sm" type="submit" variant="secondary">
-              <ArrowRight className="size-3.5" />
-            </Button>
-          </form>
+          <ExplorerPathSearch
+            currentDirectory={directory}
+            currentPath={currentPath}
+            homePath={homePath}
+            loadDirectory={loadDirectory}
+            onOpenEntry={(entry) => void openEntry(entry)}
+            onOpenPath={openDirectory}
+            onValueChange={setPathInput}
+            projects={projects}
+            showHidden={showHidden}
+            value={pathInput}
+          />
           <Button size="sm" variant="outline" onPress={() => openDirectory(defaultPath)}>
             <Star className="size-3.5" />
             ~/projects
@@ -387,7 +360,14 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
         </div>
 
         {selectedFile ? (
-          <FileViewer file={selectedFile} homePath={homePath} onBack={() => setSelectedFile(undefined)} />
+          <FileViewer
+            file={selectedFile}
+            homePath={homePath}
+            onBack={() => {
+              setSelectedFile(undefined);
+              setPathInput(homePathLabel(currentPath, homePath));
+            }}
+          />
         ) : loading && !directory ? (
           <div className="flex flex-1 items-center justify-center text-sm text-neutral-500">
             <LoaderCircle className="mr-2 size-4 animate-spin" />
@@ -409,49 +389,63 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
           <div className="flex flex-1 items-center justify-center text-sm text-neutral-500">This folder is empty.</div>
         ) : (
           <div className="min-h-0 flex-1 overflow-auto">
-            <table className="w-full min-w-[34rem] border-collapse text-left text-sm">
+            <table className="w-full min-w-[42rem] border-collapse text-left text-sm">
               <thead className="sticky top-0 z-10 bg-neutral-950/95 text-xs text-neutral-500 backdrop-blur">
                 <tr className="border-b border-neutral-800">
                   <th className="px-4 py-3 font-medium">Name</th>
+                  <th className="w-28 px-4 py-3 font-medium">Project</th>
                   <th className="w-28 px-4 py-3 font-medium">Type</th>
                   <th className="w-48 px-4 py-3 font-medium">Modified</th>
                   <th className="w-24 px-4 py-3 text-right font-medium">Size</th>
                 </tr>
               </thead>
               <tbody>
-                {displayedEntries.map((entry) => (
-                  <tr
-                    key={entry.path}
-                    tabIndex={0}
-                    onClick={() => void openEntry(entry)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        void openEntry(entry);
-                      }
-                    }}
-                    className={cn(
-                      'cursor-pointer border-b border-neutral-800/70 text-neutral-300 transition hover:bg-neutral-900/70 focus:bg-neutral-900 focus:outline-none'
-                    )}
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex min-w-0 items-center gap-3">
-                        {entry.kind === 'directory' ? (
-                          <Folder className="size-4 shrink-0 text-neutral-400" />
+                {displayedEntries.map((entry) => {
+                  const project = projectForEntry(entry, projects);
+                  return (
+                    <tr
+                      key={entry.path}
+                      tabIndex={0}
+                      onClick={() => void openEntry(entry)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          void openEntry(entry);
+                        }
+                      }}
+                      className={cn(
+                        'cursor-pointer border-b border-neutral-800/70 text-neutral-300 transition hover:bg-neutral-900/70 focus:bg-neutral-900 focus:outline-none'
+                      )}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          {entry.kind === 'directory' ? (
+                            <Folder className="size-4 shrink-0 text-neutral-400" />
+                          ) : (
+                            <FileIcon filename={entry.name} grayscale size={17} className="shrink-0 opacity-80" />
+                          )}
+                          <span className="truncate">{entry.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-xs">
+                        {project ? (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-blue-400/10 px-1.5 py-0.5 font-medium text-blue-300">
+                            <FolderKanban className="size-3" />
+                            Project
+                          </span>
                         ) : (
-                          <FileIcon filename={entry.name} grayscale size={17} className="shrink-0 opacity-80" />
+                          <span className="text-neutral-700">—</span>
                         )}
-                        <span className="truncate">{entry.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-neutral-500">
-                      {entry.kind === 'directory' ? 'Folder' : 'File'}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-neutral-500">{formatModified(entry.modifiedAt)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs text-neutral-600">
-                      {entry.kind === 'file' ? formatBytes(entry.sizeBytes) : '—'}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-neutral-500">
+                        {entry.kind === 'directory' ? 'Folder' : 'File'}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-neutral-500">{formatModified(entry.modifiedAt)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-xs text-neutral-600">
+                        {entry.kind === 'file' ? formatBytes(entry.sizeBytes) : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
