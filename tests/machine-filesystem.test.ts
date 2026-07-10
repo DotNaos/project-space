@@ -27,6 +27,13 @@ describe('machine filesystem', () => {
     const directory = await mkdtemp(join(homedir(), '.project-space-explorer-test-'));
     testDirectories.push(directory);
     await mkdir(join(directory, 'nested'));
+    await mkdir(join(directory, 'repo'));
+    await mkdir(join(directory, 'repo', '.git'));
+    await mkdir(join(directory, 'worktree'));
+    await writeFile(join(directory, 'worktree', '.git'), 'gitdir: ../repo/.git/worktrees/worktree');
+    await mkdir(join(directory, 'not-a-repo'));
+    await mkdir(join(directory, 'symlink-marker'));
+    await symlink(tmpdir(), join(directory, 'symlink-marker', '.git'));
     await writeFile(join(directory, 'note.txt'), 'hello\nworld');
 
     const { backend, machineId } = await localMachineId();
@@ -34,8 +41,25 @@ describe('machine filesystem', () => {
     expect(listing.status).toBe('success');
     expect(listing.entries.map((entry) => [entry.kind, entry.name])).toEqual([
       ['directory', 'nested'],
+      ['directory', 'not-a-repo'],
+      ['directory', 'repo'],
+      ['directory', 'symlink-marker'],
+      ['directory', 'worktree'],
       ['file', 'note.txt']
     ]);
+    expect(
+      Object.fromEntries(
+        listing.entries
+          .filter((entry) => entry.kind === 'directory')
+          .map((entry) => [entry.name, entry.isProject])
+      )
+    ).toEqual({
+      nested: false,
+      'not-a-repo': false,
+      repo: true,
+      'symlink-marker': false,
+      worktree: true
+    });
     expect(listing.entries.find((entry) => entry.name === 'note.txt')?.sizeBytes).toBe(11);
 
     const file = await backend.readMachineFile({ machineId, path: join(directory, 'note.txt') });

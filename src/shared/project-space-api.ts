@@ -204,6 +204,7 @@ export interface FileSystemEntry {
   name: string;
   path: string;
   kind: 'file' | 'directory';
+  isProject?: boolean;
   modifiedAt?: string;
   sizeBytes?: number;
 }

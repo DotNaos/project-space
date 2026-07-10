@@ -5,16 +5,14 @@ import { Button } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type {
   FileSystemEntry,
-  MachineFileSystemDirectoryResult,
-  ProjectSpaceRecord
+  MachineFileSystemDirectoryResult
 } from '@/shared/project-space-api';
 import {
   completedPathValue,
   enteredPath,
   explorerPathQuery,
   explorerPathSuggestions,
-  homePathLabel,
-  projectForEntry
+  homePathLabel
 } from './machine-explorer-model';
 
 interface ExplorerPathSearchProps {
@@ -25,7 +23,6 @@ interface ExplorerPathSearchProps {
   onOpenEntry(entry: FileSystemEntry): void;
   onOpenPath(path: string): void;
   onValueChange(value: string): void;
-  projects: ProjectSpaceRecord[];
   showHidden: boolean;
   value: string;
 }
@@ -38,7 +35,6 @@ export function ExplorerPathSearch({
   onOpenEntry,
   onOpenPath,
   onValueChange,
-  projects,
   showHidden,
   value
 }: ExplorerPathSearchProps) {
@@ -235,7 +231,6 @@ export function ExplorerPathSearch({
             <div id={listBoxId} role="listbox" aria-label="Path suggestions" className="max-h-80 overflow-y-auto p-1">
               {suggestions.length > 0 ? (
                 suggestions.map((entry, index) => {
-                  const project = projectForEntry(entry, projects);
                   return (
                     <div
                       aria-selected={index === activeIndex}
@@ -263,7 +258,7 @@ export function ExplorerPathSearch({
                           {homePathLabel(entry.path, homePath)}
                         </div>
                       </div>
-                      {project ? (
+                      {entry.isProject ? (
                         <span className="flex shrink-0 items-center gap-1 rounded-md bg-blue-400/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-300">
                           <FolderKanban className="size-3" />
                           Project

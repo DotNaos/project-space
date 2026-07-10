@@ -138,6 +138,7 @@ function hasFileSystemEntry(value: unknown) {
     isRecord(value) &&
     typeof value.name === 'string' &&
     typeof value.path === 'string' &&
+    (value.isProject === undefined || typeof value.isProject === 'boolean') &&
     (value.kind === 'file' || value.kind === 'directory')
   );
 }

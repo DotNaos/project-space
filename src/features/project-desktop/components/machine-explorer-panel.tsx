@@ -23,11 +23,10 @@ import type {
   FileSystemEntry,
   MachineFileSystemDirectoryResult,
   MachineFileSystemFileResult,
-  MachineRecord,
-  ProjectSpaceRecord
+  MachineRecord
 } from '@/shared/project-space-api';
 import { ExplorerPathSearch } from './explorer-path-search';
-import { homePathLabel, projectForEntry } from './machine-explorer-model';
+import { explorerBreadcrumbs, homePathLabel } from './machine-explorer-model';
 import { ReadOnlyFileTree } from './read-only-file-tree';
 
 function formatBytes(size?: number) {
@@ -121,13 +120,7 @@ function FileViewer({
   );
 }
 
-export function MachineExplorerPanel({
-  machine,
-  projects
-}: {
-  machine: MachineRecord;
-  projects: ProjectSpaceRecord[];
-}) {
+export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
   const [homePath, setHomePath] = useState('');
   const [defaultPath, setDefaultPath] = useState('');
   const [currentPath, setCurrentPath] = useState('');
@@ -148,6 +141,14 @@ export function MachineExplorerPanel({
   const displayedEntries = useMemo(
     () => directory?.entries.filter((entry) => showHidden || !entry.name.startsWith('.')) ?? [],
     [directory?.entries, showHidden]
+  );
+  const breadcrumbs = useMemo(
+    () => explorerBreadcrumbs({
+      homePath,
+      path: selectedFile?.path ?? currentPath,
+      selectedFile: Boolean(selectedFile)
+    }),
+    [currentPath, homePath, selectedFile]
   );
 
   const openDirectory = useCallback((path: string, recordHistory = true) => {
@@ -320,7 +321,6 @@ export function MachineExplorerPanel({
             onOpenEntry={(entry) => void openEntry(entry)}
             onOpenPath={openDirectory}
             onValueChange={setPathInput}
-            projects={projects}
             showHidden={showHidden}
             value={pathInput}
           />
@@ -342,16 +342,30 @@ export function MachineExplorerPanel({
         </div>
 
         <div className="flex items-center justify-between gap-3 border-b border-neutral-800 px-4 py-3">
-          <div className="flex min-w-0 items-center gap-1 text-sm text-neutral-300">
-            {homePathLabel(selectedFile?.path ?? currentPath, homePath)
-              .split('/')
-              .map((part, index) => (
-                <span key={`${part}-${index}`} className="flex min-w-0 items-center gap-1">
+          <nav aria-label="Current path" className="flex min-w-0 items-center gap-1 text-sm text-neutral-300">
+            {breadcrumbs.map((breadcrumb, index) => {
+              const isCurrent = index === breadcrumbs.length - 1;
+              return (
+                <span key={breadcrumb.path} className="flex min-w-0 items-center gap-1">
                   {index > 0 ? <ChevronRight className="size-3.5 shrink-0 text-neutral-700" /> : null}
-                  <span className="truncate">{part}</span>
+                  {breadcrumb.isDirectory && !isCurrent ? (
+                    <button
+                      type="button"
+                      title={`Open ${homePathLabel(breadcrumb.path, homePath)}`}
+                      onClick={() => openDirectory(breadcrumb.path)}
+                      className="min-w-0 truncate rounded px-1 py-0.5 text-neutral-500 transition hover:bg-neutral-800 hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-600"
+                    >
+                      {breadcrumb.label}
+                    </button>
+                  ) : (
+                    <span aria-current={isCurrent ? 'page' : undefined} className="truncate px-1 text-neutral-200">
+                      {breadcrumb.label}
+                    </span>
+                  )}
                 </span>
-              ))}
-          </div>
+              );
+            })}
+          </nav>
           <div className="flex shrink-0 items-center gap-2 text-xs text-neutral-500">
             {loading ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
             <LockKeyhole className="size-3.5" />
@@ -401,7 +415,6 @@ export function MachineExplorerPanel({
               </thead>
               <tbody>
                 {displayedEntries.map((entry) => {
-                  const project = projectForEntry(entry, projects);
                   return (
                     <tr
                       key={entry.path}
@@ -427,7 +440,7 @@ export function MachineExplorerPanel({
                         </div>
                       </td>
                       <td className="px-4 py-3 text-xs">
-                        {project ? (
+                        {entry.isProject ? (
                           <span className="inline-flex items-center gap-1 rounded-md bg-blue-400/10 px-1.5 py-0.5 font-medium text-blue-300">
                             <FolderKanban className="size-3" />
                             Project
