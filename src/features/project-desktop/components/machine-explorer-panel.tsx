@@ -342,18 +342,21 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
         </div>
 
         <div className="flex items-center justify-between gap-3 border-b border-neutral-800 px-4 py-3">
-          <nav aria-label="Current path" className="flex min-w-0 items-center gap-1 text-sm text-neutral-300">
+          <nav
+            aria-label="Current path"
+            className="flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap text-sm text-neutral-300"
+          >
             {breadcrumbs.map((breadcrumb, index) => {
               const isCurrent = index === breadcrumbs.length - 1;
               return (
-                <span key={breadcrumb.path} className="flex min-w-0 items-center gap-1">
+                <span key={breadcrumb.path} className="flex shrink-0 items-center gap-1">
                   {index > 0 ? <ChevronRight className="size-3.5 shrink-0 text-neutral-700" /> : null}
                   {breadcrumb.isDirectory && !isCurrent ? (
                     <button
                       type="button"
                       title={`Open ${homePathLabel(breadcrumb.path, homePath)}`}
                       onClick={() => openDirectory(breadcrumb.path)}
-                      className="min-w-0 truncate rounded px-1 py-0.5 text-neutral-500 transition hover:bg-neutral-800 hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-600"
+                      className="rounded px-1 py-0.5 text-neutral-500 transition hover:bg-neutral-800 hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-600"
                     >
                       {breadcrumb.label}
                     </button>
