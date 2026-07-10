@@ -26,7 +26,11 @@ import type {
   MachineRecord
 } from '@/shared/project-space-api';
 import { ExplorerPathSearch } from './explorer-path-search';
-import { explorerBreadcrumbs, homePathLabel } from './machine-explorer-model';
+import {
+  explorerBreadcrumbs,
+  homePathLabel,
+  isHiddenFileSystemName
+} from './machine-explorer-model';
 import { ReadOnlyFileTree } from './read-only-file-tree';
 
 function formatBytes(size?: number) {
@@ -139,7 +143,10 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
     [machine.id]
   );
   const displayedEntries = useMemo(
-    () => directory?.entries.filter((entry) => showHidden || !entry.name.startsWith('.')) ?? [],
+    () =>
+      directory?.entries.filter(
+        (entry) => showHidden || !isHiddenFileSystemName(entry.name)
+      ) ?? [],
     [directory?.entries, showHidden]
   );
   const breadcrumbs = useMemo(
@@ -349,6 +356,7 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
           >
             {breadcrumbs.map((breadcrumb, index) => {
               const isCurrent = index === breadcrumbs.length - 1;
+              const hidden = isHiddenFileSystemName(breadcrumb.label);
               return (
                 <span key={breadcrumb.path} className="flex shrink-0 items-center gap-1">
                   {index > 0 ? <ChevronRight className="size-3.5 shrink-0 text-neutral-700" /> : null}
@@ -357,12 +365,18 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
                       type="button"
                       title={`Open ${homePathLabel(breadcrumb.path, homePath)}`}
                       onClick={() => openDirectory(breadcrumb.path)}
-                      className="rounded px-1 py-0.5 text-neutral-500 transition hover:bg-neutral-800 hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-600"
+                      className={cn(
+                        'rounded px-1 py-0.5 transition hover:bg-neutral-800 hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-600',
+                        hidden ? 'text-neutral-400' : 'text-neutral-300'
+                      )}
                     >
                       {breadcrumb.label}
                     </button>
                   ) : (
-                    <span aria-current={isCurrent ? 'page' : undefined} className="truncate px-1 text-neutral-200">
+                    <span
+                      aria-current={isCurrent ? 'page' : undefined}
+                      className={cn('truncate px-1', hidden ? 'text-neutral-400' : 'text-neutral-200')}
+                    >
                       {breadcrumb.label}
                     </span>
                   )}
@@ -419,6 +433,7 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
               </thead>
               <tbody>
                 {displayedEntries.map((entry) => {
+                  const hidden = isHiddenFileSystemName(entry.name);
                   return (
                     <tr
                       key={entry.path}
@@ -430,15 +445,26 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
                         }
                       }}
                       className={cn(
-                        'cursor-pointer border-b border-neutral-800/70 text-neutral-300 transition hover:bg-neutral-900/70 focus:bg-neutral-900 focus:outline-none'
+                        'cursor-pointer border-b border-neutral-800/70 transition hover:bg-neutral-900/70 focus:bg-neutral-900 focus:outline-none',
+                        hidden ? 'text-neutral-400' : 'text-neutral-300'
                       )}
                     >
                       <td className="px-4 py-3">
                         <div className="flex min-w-0 items-center gap-3">
                           {entry.kind === 'directory' ? (
-                            <Folder className="size-4 shrink-0 text-neutral-400" />
+                            <Folder
+                              className={cn(
+                                'size-4 shrink-0',
+                                hidden ? 'text-neutral-600' : 'text-neutral-400'
+                              )}
+                            />
                           ) : (
-                            <FileIcon filename={entry.name} grayscale size={17} className="shrink-0 opacity-80" />
+                            <FileIcon
+                              filename={entry.name}
+                              grayscale
+                              size={17}
+                              className={cn('shrink-0', hidden ? 'opacity-50' : 'opacity-80')}
+                            />
                           )}
                           <span className="truncate">{entry.name}</span>
                         </div>

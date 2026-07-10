@@ -5,6 +5,10 @@ export interface ExplorerPathQuery {
   nameQuery: string;
 }
 
+export function isHiddenFileSystemName(name: string) {
+  return name.startsWith('.');
+}
+
 export function normalizeExplorerPath(path: string) {
   const normalized = path.trim().replace(/\/+$/, '');
   return normalized || '/';
@@ -71,7 +75,7 @@ export function explorerPathSuggestions({
   const query = nameQuery.toLocaleLowerCase();
 
   return result.entries
-    .filter((entry) => showHidden || !entry.name.startsWith('.'))
+    .filter((entry) => showHidden || !isHiddenFileSystemName(entry.name))
     .filter((entry) => !query || entry.name.toLocaleLowerCase().includes(query))
     .sort((left, right) => {
       const leftName = left.name.toLocaleLowerCase();
@@ -148,7 +152,7 @@ export function visibleTreeDirectories(
   return (entries ?? []).filter(
     (entry) =>
       entry.kind === 'directory' &&
-      (showHidden || !entry.name.startsWith('.'))
+      (showHidden || !isHiddenFileSystemName(entry.name))
   );
 }
 

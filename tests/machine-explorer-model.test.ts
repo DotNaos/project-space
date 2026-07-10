@@ -8,7 +8,8 @@ import {
   explorerBreadcrumbs,
   explorerPathQuery,
   explorerPathSuggestions,
-  homePathLabel
+  homePathLabel,
+  isHiddenFileSystemName
 } from '../src/features/project-desktop/components/machine-explorer-model';
 
 const homePath = '/Users/oli';
@@ -26,6 +27,11 @@ function result(path: string, entries: FileSystemEntry[]): MachineFileSystemDire
 }
 
 describe('machine Explorer path search', () => {
+  test('recognizes dot-prefixed entries as hidden', () => {
+    expect(isHiddenFileSystemName('.worktrees')).toBe(true);
+    expect(isHiddenFileSystemName('project-space')).toBe(false);
+  });
+
   test('expands home labels and derives the directory that should be searched', () => {
     expect(enteredPath('~/projects', homePath)).toBe('/Users/oli/projects');
     expect(homePathLabel('/Users/oli/projects', homePath)).toBe('~/projects');
