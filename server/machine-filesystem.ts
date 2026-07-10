@@ -99,8 +99,18 @@ export async function readHomeDirectory(path: string): Promise<MachineFileSystem
         .filter((entry) => entry.isDirectory() || entry.isFile())
         .map(async (entry) => {
           const entryPath = resolve(resolvedPath, entry.name);
-          const metadata = await lstat(entryPath).catch(() => undefined);
+          const [metadata, gitMarker] = await Promise.all([
+            lstat(entryPath).catch(() => undefined),
+            entry.isDirectory()
+              ? lstat(resolve(entryPath, '.git')).catch(() => undefined)
+              : undefined
+          ]);
           return {
+            isProject: Boolean(
+              gitMarker &&
+              !gitMarker.isSymbolicLink() &&
+              (gitMarker.isDirectory() || gitMarker.isFile())
+            ),
             kind: entry.isDirectory() ? 'directory' as const : 'file' as const,
             modifiedAt: metadata?.mtime.toISOString(),
             name: entry.name,

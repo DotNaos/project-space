@@ -85,6 +85,17 @@ describe('connector command channel', () => {
         type: 'terminal.result'
       })
     ).toBe(false);
+    expect(
+      isConnectorHubMessage({
+        id: 'bad-project-marker',
+        payload: {
+          entries: [{ isProject: 'yes', kind: 'directory', name: 'repo', path: '/tmp/repo' }],
+          path: '/tmp',
+          status: 'success'
+        },
+        type: 'filesystem.directory.result'
+      })
+    ).toBe(false);
   });
 
   test('relays machine commands and filesystem reads without SSH', async () => {
@@ -158,7 +169,15 @@ describe('connector command channel', () => {
       },
       async readMachineDirectory(request) {
         return {
-          entries: [{ kind: 'file' as const, name: 'note.txt', path: `${request.path}/note.txt` }],
+          entries: [
+            {
+              isProject: true,
+              kind: 'directory' as const,
+              name: 'repo',
+              path: `${request.path}/repo`
+            },
+            { kind: 'file' as const, name: 'note.txt', path: `${request.path}/note.txt` }
+          ],
           path: request.path,
           status: 'success' as const
         };
@@ -231,7 +250,10 @@ describe('connector command channel', () => {
         machineId: 'test-machine',
         path: '/tmp'
       });
-      expect(directory.entries.map((entry) => entry.name)).toEqual(['note.txt']);
+      expect(directory.entries.map((entry) => [entry.name, entry.isProject])).toEqual([
+        ['repo', true],
+        ['note.txt', undefined]
+      ]);
 
       const file = await requestConnectorFile({
         machineId: 'test-machine',
@@ -255,7 +277,10 @@ describe('connector command channel', () => {
         machineId: 'test-machine',
         path: '/tmp'
       });
-      expect(routedDirectory.entries.map((entry) => entry.name)).toEqual(['note.txt']);
+      expect(routedDirectory.entries.map((entry) => [entry.name, entry.isProject])).toEqual([
+        ['repo', true],
+        ['note.txt', undefined]
+      ]);
     } finally {
       await server.close();
       bridge.close();

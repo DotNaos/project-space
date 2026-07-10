@@ -5,10 +5,10 @@ import {
   completedPathValue,
   enteredPath,
   expansionFrontier,
+  explorerBreadcrumbs,
   explorerPathQuery,
   explorerPathSuggestions,
-  homePathLabel,
-  projectForEntry
+  homePathLabel
 } from '../src/features/project-desktop/components/machine-explorer-model';
 
 const homePath = '/Users/oli';
@@ -81,12 +81,28 @@ describe('machine Explorer path search', () => {
     expect(completedPathValue(file('notes.md'), homePath)).toBe('~/notes.md');
   });
 
-  test('marks only an exact catalogue project root', () => {
-    const projects = [{ name: 'project-space', rootPath: '/Users/oli/projects/project-space' }];
-    expect(projectForEntry(directory('project-space', '/Users/oli/projects/project-space'), projects)?.name)
-      .toBe('project-space');
-    expect(projectForEntry(directory('project-space-old', '/Users/oli/projects/project-space-old'), projects))
-      .toBeUndefined();
+  test('builds cumulative breadcrumbs and keeps the final file non-directory', () => {
+    expect(explorerBreadcrumbs({ homePath, path: homePath })).toEqual([
+      { isDirectory: true, label: '~', path: '/Users/oli' }
+    ]);
+    expect(explorerBreadcrumbs({
+      homePath,
+      path: '/Users/oli/projects/project-space/src'
+    })).toEqual([
+      { isDirectory: true, label: '~', path: '/Users/oli' },
+      { isDirectory: true, label: 'projects', path: '/Users/oli/projects' },
+      { isDirectory: true, label: 'project-space', path: '/Users/oli/projects/project-space' },
+      { isDirectory: true, label: 'src', path: '/Users/oli/projects/project-space/src' }
+    ]);
+    expect(explorerBreadcrumbs({
+      homePath,
+      path: '/Users/oli/projects/project-space/README.md',
+      selectedFile: true
+    }).at(-1)).toEqual({
+      isDirectory: false,
+      label: 'README.md',
+      path: '/Users/oli/projects/project-space/README.md'
+    });
   });
 });
 

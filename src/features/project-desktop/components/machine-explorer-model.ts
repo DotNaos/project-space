@@ -96,12 +96,50 @@ export function completedPathValue(entry: FileSystemEntry, homePath: string) {
   return entry.kind === 'directory' ? `${label.replace(/\/+$/, '')}/` : label;
 }
 
-export function projectForEntry<T extends { rootPath: string }>(
-  entry: FileSystemEntry,
-  projects: T[]
-) {
-  const entryPath = normalizeExplorerPath(entry.path);
-  return projects.find((project) => normalizeExplorerPath(project.rootPath) === entryPath);
+export interface ExplorerBreadcrumb {
+  isDirectory: boolean;
+  label: string;
+  path: string;
+}
+
+export function explorerBreadcrumbs({
+  homePath,
+  path,
+  selectedFile = false
+}: {
+  homePath: string;
+  path: string;
+  selectedFile?: boolean;
+}): ExplorerBreadcrumb[] {
+  const normalizedHome = normalizeExplorerPath(homePath);
+  const normalizedPath = normalizeExplorerPath(path);
+
+  if (
+    normalizedPath !== normalizedHome &&
+    !normalizedPath.startsWith(`${normalizedHome}/`)
+  ) {
+    return [{ isDirectory: !selectedFile, label: normalizedPath, path: normalizedPath }];
+  }
+
+  const relativePath = normalizedPath === normalizedHome
+    ? ''
+    : normalizedPath.slice(normalizedHome.length + 1);
+  const parts = relativePath.split('/').filter(Boolean);
+  const breadcrumbs: ExplorerBreadcrumb[] = [
+    { isDirectory: true, label: '~', path: normalizedHome }
+  ];
+  let segmentPath = normalizedHome;
+
+  parts.forEach((part, index) => {
+    segmentPath = `${segmentPath}/${part}`;
+    breadcrumbs.push({
+      isDirectory: !selectedFile || index < parts.length - 1,
+      label: part,
+      path: segmentPath
+    });
+  });
+
+  return breadcrumbs;
 }
 
 export function visibleTreeDirectories(
