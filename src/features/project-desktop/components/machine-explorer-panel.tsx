@@ -211,6 +211,7 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
     }
     let canceled = false;
     setLoading(true);
+    setDirectory(undefined);
     setPathInput(homePathLabel(currentPath, homePath));
     void loadDirectory(currentPath)
       .then((result) => {
@@ -387,6 +388,11 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
 
         {selectedFile ? (
           <FileViewer file={selectedFile} homePath={homePath} onBack={() => setSelectedFile(undefined)} />
+        ) : loading && !directory ? (
+          <div className="flex flex-1 items-center justify-center text-sm text-neutral-500">
+            <LoaderCircle className="mr-2 size-4 animate-spin" />
+            Loading folder…
+          </div>
         ) : directory?.status === 'error' ? (
           <div className="flex flex-1 items-center justify-center px-6 text-center">
             <div className="max-w-md">
