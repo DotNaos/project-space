@@ -20,11 +20,28 @@ interface ProjectConnectorWebSocketOptions {
 
 const reconnectDelayMs = 5_000;
 const registryIntervalMs = 30_000;
+const filesystemCommandTimeoutMs = 8_000;
 
 function sendJson(socket: WebSocket, payload: unknown) {
   if (socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(payload));
   }
+}
+
+function settleWithin<T>(promise: Promise<T>, fallback: T) {
+  return new Promise<T>((resolve) => {
+    const timeout = setTimeout(() => resolve(fallback), filesystemCommandTimeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timeout);
+        resolve(fallback);
+      }
+    );
+  });
 }
 
 export function startProjectConnectorWebSocket({
@@ -244,7 +261,13 @@ export function startProjectConnectorWebSocket({
         }
 
         if (message.type === 'filesystem.root') {
-          void backend.getMachineFileSystemRoot(message.payload).then((result) => {
+          void settleWithin(backend.getMachineFileSystemRoot(message.payload), {
+            defaultPath: '',
+            errorCode: 'permission-denied',
+            homePath: '',
+            message: 'The machine did not respond while opening its home directory.',
+            status: 'error'
+          }).then((result) => {
             if (socket) {
               sendJson(socket, {
                 id: message.id,
@@ -257,7 +280,13 @@ export function startProjectConnectorWebSocket({
         }
 
         if (message.type === 'filesystem.directory') {
-          void backend.readMachineDirectory(message.payload).then((result) => {
+          void settleWithin(backend.readMachineDirectory(message.payload), {
+            entries: [],
+            errorCode: 'permission-denied',
+            message: 'macOS blocked this folder. Grant Full Disk Access to the Project Space connector and retry.',
+            path: message.payload.path,
+            status: 'error'
+          }).then((result) => {
             if (socket) {
               sendJson(socket, {
                 id: message.id,
@@ -270,7 +299,13 @@ export function startProjectConnectorWebSocket({
         }
 
         if (message.type === 'filesystem.file') {
-          void backend.readMachineFile(message.payload).then((result) => {
+          void settleWithin(backend.readMachineFile(message.payload), {
+            errorCode: 'permission-denied',
+            message: 'macOS blocked this file. Grant Full Disk Access to the Project Space connector and retry.',
+            name: message.payload.path.split('/').pop() ?? message.payload.path,
+            path: message.payload.path,
+            status: 'error'
+          }).then((result) => {
             if (socket) {
               sendJson(socket, {
                 id: message.id,
