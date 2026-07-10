@@ -12,7 +12,8 @@ import {
   enteredPath,
   explorerPathQuery,
   explorerPathSuggestions,
-  homePathLabel
+  homePathLabel,
+  isHiddenFileSystemName
 } from './machine-explorer-model';
 
 interface ExplorerPathSearchProps {
@@ -231,6 +232,7 @@ export function ExplorerPathSearch({
             <div id={listBoxId} role="listbox" aria-label="Path suggestions" className="max-h-80 overflow-y-auto p-1">
               {suggestions.length > 0 ? (
                 suggestions.map((entry, index) => {
+                  const hidden = isHiddenFileSystemName(entry.name);
                   return (
                     <div
                       aria-selected={index === activeIndex}
@@ -243,14 +245,28 @@ export function ExplorerPathSearch({
                       className={cn(
                         'flex cursor-pointer items-center gap-3 rounded-md px-2.5 py-2 text-left',
                         index === activeIndex
-                          ? 'bg-neutral-800 text-neutral-50'
-                          : 'text-neutral-300 hover:bg-neutral-900'
+                          ? hidden
+                            ? 'bg-neutral-800 text-neutral-300'
+                            : 'bg-neutral-800 text-neutral-50'
+                          : hidden
+                            ? 'text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200'
+                            : 'text-neutral-300 hover:bg-neutral-900'
                       )}
                     >
                       {entry.kind === 'directory' ? (
-                        <Folder className="size-4 shrink-0 text-neutral-400" />
+                        <Folder
+                          className={cn(
+                            'size-4 shrink-0',
+                            hidden ? 'text-neutral-600' : 'text-neutral-400'
+                          )}
+                        />
                       ) : (
-                        <FileIcon filename={entry.name} grayscale size={16} className="shrink-0 opacity-75" />
+                        <FileIcon
+                          filename={entry.name}
+                          grayscale
+                          size={16}
+                          className={cn('shrink-0', hidden ? 'opacity-50' : 'opacity-75')}
+                        />
                       )}
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-xs font-medium">{entry.name}</div>

@@ -15,6 +15,7 @@ import type { FileSystemEntry, MachineFileSystemDirectoryResult } from '@/shared
 import {
   collapseDeepestExpanded,
   expansionFrontier,
+  isHiddenFileSystemName,
   visibleTreeDirectories
 } from './machine-explorer-model';
 
@@ -79,6 +80,7 @@ function DirectoryNode({
   const loading = loadingPaths.has(entry.path);
   const result = resultsByPath.get(entry.path);
   const selected = isSelected(currentPath, entry.path);
+  const hidden = isHiddenFileSystemName(entry.name);
   const directories = visibleTreeDirectories(result?.entries, showHidden);
 
   return (
@@ -90,8 +92,12 @@ function DirectoryNode({
         className={cn(
           'group flex min-h-9 w-full min-w-0 items-center gap-2 rounded-md pr-2 text-left text-sm transition',
           selected
-            ? 'bg-neutral-800 text-neutral-50'
-            : 'text-neutral-400 hover:bg-neutral-900 hover:text-neutral-100'
+            ? hidden
+              ? 'bg-neutral-800 text-neutral-300'
+              : 'bg-neutral-800 text-neutral-50'
+            : hidden
+              ? 'text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200'
+              : 'text-neutral-300 hover:bg-neutral-900 hover:text-neutral-100'
         )}
         style={{ paddingLeft: `${level * 15 + 10}px` }}
       >
@@ -99,9 +105,21 @@ function DirectoryNode({
           className={cn('size-3.5 shrink-0 text-neutral-600 transition-transform', expanded && 'rotate-90')}
         />
         {expanded ? (
-          <FolderOpen className="size-4 shrink-0 text-neutral-300" />
+          <FolderOpen
+            className={cn(
+              'size-4 shrink-0',
+              hidden ? 'text-neutral-500' : 'text-neutral-300'
+            )}
+          />
         ) : (
-          <Folder className="size-4 shrink-0 text-neutral-500 group-hover:text-neutral-300" />
+          <Folder
+            className={cn(
+              'size-4 shrink-0',
+              hidden
+                ? 'text-neutral-700 group-hover:text-neutral-500'
+                : 'text-neutral-500 group-hover:text-neutral-300'
+            )}
+          />
         )}
         <span className="min-w-0 flex-1 truncate">{entry.name}</span>
         {loading ? <LoaderCircle className="size-3.5 shrink-0 animate-spin text-neutral-500" /> : null}
