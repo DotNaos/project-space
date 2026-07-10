@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import type {
   CodexChatMessageRecord,
+  CodexModelRecord,
   MachineRecord,
   ProjectStructureActionRequest,
   ProjectStructureActionType,
   ProjectStructureViolationRecord
 } from '@/shared/project-space-api';
-import { streamCodexChat } from '@/api/project-space-client';
+import { projectSpaceClient, streamCodexChat } from '@/api/project-space-client';
 import { Text } from '@/app/dotnaos-ui';
 import {
   ArrowUp,
@@ -19,6 +20,7 @@ import {
   X
 } from 'lucide-react';
 import { IssueMarkdown } from './issue-markdown';
+import { CodexModelSelect } from './codex-model-select';
 
 type GeneratedRepairActionStatus = 'accepted' | 'declined' | 'failed' | 'running';
 
@@ -64,6 +66,10 @@ export function MachineProjectsCodexChat({
   >({});
   const [isRunning, setIsRunning] = useState(false);
   const [messages, setMessages] = useState<CodexChatMessageRecord[]>([]);
+  const [models, setModels] = useState<CodexModelRecord[]>([]);
+  const [model, setModel] = useState('');
+  const [modelError, setModelError] = useState('');
+  const [modelsLoading, setModelsLoading] = useState(true);
   const [prompt, setPrompt] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -74,9 +80,61 @@ export function MachineProjectsCodexChat({
     });
   }, [isRunning, messages]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setModelsLoading(true);
+    setModelError('');
+    setModels([]);
+    setModel('');
+
+    void projectSpaceClient
+      .getCodexModels({ cwd, machineId: machine.id })
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        if (result.status === 'error' || result.models.length === 0) {
+          setModels([]);
+          setModel('');
+          setModelError(result.message ?? 'Codex returned no available models.');
+          return;
+        }
+
+        setModels(result.models);
+        setModel((current) =>
+          result.models.some((entry) => entry.model === current)
+            ? current
+            : (result.models.find((entry) => entry.isDefault) ?? result.models[0]).model
+        );
+      })
+      .catch((loadError) => {
+        if (!cancelled) {
+          setModels([]);
+          setModel('');
+          setModelError(
+            loadError instanceof Error ? loadError.message : 'Could not load Codex models.'
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setModelsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cwd, machine.id]);
+
   async function sendMessage() {
     const requestText = prompt.trim();
-    if (!requestText || isRunning) {
+    if (
+      !requestText ||
+      isRunning ||
+      modelsLoading ||
+      !models.some((entry) => entry.model === model)
+    ) {
       return;
     }
 
@@ -107,6 +165,7 @@ export function MachineProjectsCodexChat({
           cwd,
           machineId: machine.id,
           messages: history,
+          model,
           prompt: requestText,
           systemPrompt
         },
@@ -228,6 +287,12 @@ export function MachineProjectsCodexChat({
             {machine.name} · {violations.length} violations
           </Text>
         </div>
+        <CodexModelSelect
+          disabled={modelsLoading || isRunning}
+          models={models}
+          onChange={setModel}
+          value={model}
+        />
         {isRunning ? <Loader2 className="size-4 animate-spin text-neutral-400" /> : null}
       </div>
 
@@ -279,6 +344,13 @@ export function MachineProjectsCodexChat({
         </div>
       ) : null}
 
+      {modelError ? (
+        <div className="mx-3 mb-2 flex items-start gap-2 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-100">
+          <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
+          <span>{modelError}</span>
+        </div>
+      ) : null}
+
       <div className="flex shrink-0 items-end gap-2 border-t border-neutral-900 px-3 py-3">
         <textarea
           rows={1}
@@ -296,7 +368,12 @@ export function MachineProjectsCodexChat({
         <button
           type="button"
           aria-label="Ask Codex"
-          disabled={isRunning || !prompt.trim()}
+          disabled={
+            isRunning ||
+            modelsLoading ||
+            !prompt.trim() ||
+            !models.some((entry) => entry.model === model)
+          }
           onClick={() => void sendMessage()}
           className="grid size-11 shrink-0 place-items-center rounded-full bg-neutral-100 text-neutral-950 transition active:scale-95 hover:bg-white disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
         >

@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 
 import { runCommand } from './local-command-runner';
 import {
+  loadCodexAppServerModels,
   runCodexAppServerChat,
   type CodexChatRuntime,
   type CodexChatStreamEmitter
@@ -13,6 +14,8 @@ import type {
   CodexChatRequest,
   CodexChatResult,
   CodexOpenRequest,
+  CodexModelCatalogueRequest,
+  CodexModelCatalogueResult,
   CodexStatusResult,
   OpenPathInAppResult
 } from '../src/shared/project-space-api';
@@ -25,7 +28,9 @@ async function resolveCodexCliPath() {
   const candidates = [
     process.env.PROJECT_SPACE_CODEX_CLI,
     '/Applications/Codex.app/Contents/Resources/codex',
-    join(homedir(), 'Applications', 'Codex.app', 'Contents', 'Resources', 'codex')
+    '/Applications/ChatGPT.app/Contents/Resources/codex',
+    join(homedir(), 'Applications', 'Codex.app', 'Contents', 'Resources', 'codex'),
+    join(homedir(), 'Applications', 'ChatGPT.app', 'Contents', 'Resources', 'codex')
   ].filter((path): path is string => Boolean(path));
 
   for (const candidate of candidates) {
@@ -120,10 +125,34 @@ export async function runCodexChat(
   });
 }
 
+export async function getCodexModels(
+  request: CodexModelCatalogueRequest,
+  runtime?: CodexChatRuntime
+): Promise<CodexModelCatalogueResult> {
+  const cwd = resolve(request.cwd);
+  const codexCliPath = runtime ? undefined : await resolveCodexCliPath();
+
+  if (!runtime && !codexCliPath) {
+    return {
+      message: 'Codex CLI is not available on this machine.',
+      models: [],
+      status: 'error'
+    };
+  }
+
+  return loadCodexAppServerModels({
+    codexCliPath,
+    codexHome: resolveCodexHome(),
+    cwd,
+    runtime
+  });
+}
+
 export async function streamCodexChat(
   request: CodexChatRequest,
   emit: CodexChatStreamEmitter,
-  runtime?: CodexChatRuntime
+  runtime?: CodexChatRuntime,
+  signal?: AbortSignal
 ) {
   const cwd = resolve(request.cwd);
   const codexCliPath = runtime ? undefined : await resolveCodexCliPath();
@@ -138,7 +167,8 @@ export async function streamCodexChat(
     codexHome: resolveCodexHome(),
     emit,
     request: { ...request, cwd },
-    runtime
+    runtime,
+    signal
   });
 
   if (result.status === 'success' && result.response) {

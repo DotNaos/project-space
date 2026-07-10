@@ -561,6 +561,7 @@ export interface CodexChatRequest {
   cwd: string;
   machineId: string;
   messages: CodexChatMessageRecord[];
+  model?: string;
   prompt: string;
   systemPrompt?: string;
 }
@@ -575,6 +576,25 @@ export type CodexChatStreamEvent =
   | { delta: string; type: 'delta' }
   | { response: string; type: 'done' }
   | { message: string; type: 'error' };
+
+export interface CodexModelCatalogueRequest {
+  cwd: string;
+  machineId: string;
+}
+
+export interface CodexModelRecord {
+  description: string;
+  displayName: string;
+  id: string;
+  isDefault: boolean;
+  model: string;
+}
+
+export interface CodexModelCatalogueResult {
+  message?: string;
+  models: CodexModelRecord[];
+  status: 'success' | 'error';
+}
 
 export interface OpenPathInAppRequest {
   appId: string;
@@ -1043,10 +1063,12 @@ export interface ProjectSpaceBackend {
   loadProjectWorktrees(projectPath: string): Promise<ProjectWorktreeRecord[]>;
   openCodexSkills(): Promise<OpenPathInAppResult>;
   openCodexTarget(request: CodexOpenRequest): Promise<OpenPathInAppResult>;
+  getCodexModels(request: CodexModelCatalogueRequest): Promise<CodexModelCatalogueResult>;
   runCodexChat(request: CodexChatRequest): Promise<CodexChatResult>;
   streamCodexChat(
     request: CodexChatRequest,
-    emit: (event: CodexChatStreamEvent) => void
+    emit: (event: CodexChatStreamEvent) => void,
+    signal?: AbortSignal
   ): Promise<void>;
   openPathInApp(request: OpenPathInAppRequest): Promise<OpenPathInAppResult>;
   readDirectory(path: string): Promise<FileSystemEntry[]>;

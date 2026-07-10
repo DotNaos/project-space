@@ -4,6 +4,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { extname, join, normalize, resolve } from 'node:path';
 
 import { createLocalProjectSpaceBackend } from './local-project-space-backend';
+import { createConnectorCommandUpgradeHandler } from './connector-command-hub';
 import { registerConnectorProjectRegistry } from './connector-hub';
 import {
   createMachineTerminalUpgradeHandler,
@@ -20,6 +21,7 @@ import {
 import type {
   ConnectorProjectRegistryResult,
   CodexChatRequest,
+  CodexModelCatalogueRequest,
   OpenPathInAppRequest,
   CodexOpenRequest,
   GitHubOAuthDevicePollRequest,
@@ -608,6 +610,12 @@ function createApiHandler(backend: ProjectSpaceBackend) {
         return true;
       }
 
+      if (request.method === 'POST' && url.pathname === '/api/codex/models') {
+        const payload = await readJson<CodexModelCatalogueRequest>(request);
+        writeJson(response, 200, await backend.getCodexModels(payload));
+        return true;
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/codex/chat') {
         const payload = await readJson<CodexChatRequest>(request);
         writeJson(response, 200, await backend.runCodexChat(payload));
@@ -792,9 +800,11 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   }));
   const handleMachineTerminalUpgrade = createMachineTerminalUpgradeHandler(backend);
   const handleProjectTerminalUpgrade = createProjectTerminalUpgradeHandler();
+  const connectorCommands = createConnectorCommandUpgradeHandler();
 
   server.on('upgrade', (request, socket, head) => {
     if (
+      !connectorCommands.handleUpgrade(request, socket, head) &&
       !handleMachineTerminalUpgrade(request, socket, head) &&
       !handleProjectTerminalUpgrade(request, socket, head)
     ) {
@@ -813,17 +823,34 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   }
 
   return {
-    close: () =>
-      new Promise<void>((resolveClose, rejectClose) => {
-        server.close((error) => {
-          if (error) {
-            rejectClose(error);
+    close: async () => {
+      await connectorCommands.close();
+      await new Promise<void>((resolveClose, rejectClose) => {
+        let settled = false;
+        const finish = (error?: Error | null) => {
+          if (settled) {
             return;
           }
-
-          resolveClose();
+          settled = true;
+          clearTimeout(closeFallback);
+          if (error) {
+            rejectClose(error);
+          } else {
+            resolveClose();
+          }
+        };
+        const closeFallback = setTimeout(() => {
+          if (!server.listening) {
+            finish();
+          } else {
+            finish(new Error('Project Space server did not close.'));
+          }
+        }, 250);
+        server.close((error) => {
+          finish(error);
         });
-      }),
+      });
+    },
     origin: `http://${host}:${address.port}`,
     server
   };

@@ -1,18 +1,16 @@
-import type {
-  ProjectCliCommandRequest,
-  ProjectSpaceBackend
-} from '../src/shared/project-space-api';
+import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
+import {
+  isConnectorMachineMessage,
+  parseConnectorMessage,
+  type ConnectorHubMessage,
+  type ConnectorMachineMessage
+} from './connector-command-protocol';
 import {
   connectorRegistrationHeaders,
+  connectorRegistrationTokenForTarget,
   resolveProjectConnectorTargets,
   type ProjectConnectorHubTarget
 } from './project-connector-config';
-
-interface ConnectorCommandMessage {
-  id?: string;
-  payload?: ProjectCliCommandRequest;
-  type: 'project-cli.run';
-}
 
 interface ProjectConnectorWebSocketOptions {
   backend: ProjectSpaceBackend;
@@ -26,14 +24,6 @@ const registryIntervalMs = 30_000;
 function sendJson(socket: WebSocket, payload: unknown) {
   if (socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(payload));
-  }
-}
-
-function parseMessage(data: MessageEvent['data']) {
-  try {
-    return JSON.parse(typeof data === 'string' ? data : String(data)) as ConnectorCommandMessage;
-  } catch {
-    return undefined;
   }
 }
 
@@ -104,17 +94,25 @@ export function startProjectConnectorWebSocket({
     let socket: WebSocket | undefined;
     let registryTimer: ReturnType<typeof setInterval> | undefined;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    const runningChats = new Map<string, AbortController>();
 
-    async function publishRegistry() {
+    async function publishRegistry(register = false) {
       if (!socket || socket.readyState !== WebSocket.OPEN) {
         return;
       }
 
       const registry = await backend.getConnectorProjectRegistry();
-      sendJson(socket, {
-        payload: registry,
-        type: 'connector.registry'
-      });
+      const message: ConnectorHubMessage = register
+        ? {
+            payload: registry,
+            token: connectorRegistrationTokenForTarget(target),
+            type: 'connector.register'
+          }
+        : {
+            payload: registry,
+            type: 'connector.registry'
+          };
+      sendJson(socket, message);
     }
 
     function scheduleReconnect() {
@@ -136,16 +134,90 @@ export function startProjectConnectorWebSocket({
       socket = new WebSocket(resolvedHubUrl);
 
       socket.addEventListener('open', () => {
-        void publishRegistry();
+        void publishRegistry(true);
         registryTimer = setInterval(() => {
           void publishRegistry();
         }, registryIntervalMs);
       });
 
       socket.addEventListener('message', (event) => {
-        const message = parseMessage(event.data);
+        const message = parseConnectorMessage(event.data);
 
-        if (message?.type !== 'project-cli.run' || !message.payload) {
+        if (!isConnectorMachineMessage(message) || !socket) {
+          return;
+        }
+
+        if (message.type === 'connector.command.cancel') {
+          runningChats.get(message.id)?.abort();
+          return;
+        }
+
+        if (message.type === 'codex.models') {
+          void backend
+            .getCodexModels(message.payload)
+            .then((result) => {
+              if (socket) {
+                sendJson(socket, {
+                  id: message.id,
+                  payload: result,
+                  type: 'codex.models.result'
+                } satisfies ConnectorHubMessage);
+              }
+            })
+            .catch((error) => {
+              if (socket) {
+                sendJson(socket, {
+                  id: message.id,
+                  payload: {
+                    message: error instanceof Error ? error.message : 'Could not load Codex models.',
+                    models: [],
+                    status: 'error'
+                  },
+                  type: 'codex.models.result'
+                } satisfies ConnectorHubMessage);
+              }
+            });
+          return;
+        }
+
+        if (message.type === 'codex.chat') {
+          const controller = new AbortController();
+          runningChats.set(message.id, controller);
+          void backend
+            .streamCodexChat(message.payload, (event) => {
+              if (socket) {
+                sendJson(socket, {
+                  id: message.id,
+                  payload: event,
+                  type: 'codex.chat.event'
+                } satisfies ConnectorHubMessage);
+              }
+            }, controller.signal)
+            .catch((error) => {
+              if (socket) {
+                sendJson(socket, {
+                  id: message.id,
+                  payload: {
+                    message: error instanceof Error ? error.message : 'Codex chat failed.',
+                    type: 'error'
+                  },
+                  type: 'codex.chat.event'
+                } satisfies ConnectorHubMessage);
+              }
+            })
+            .finally(() => {
+              runningChats.delete(message.id);
+              if (socket) {
+                sendJson(socket, {
+                  id: message.id,
+                  type: 'codex.chat.complete'
+                } satisfies ConnectorHubMessage);
+              }
+            });
+          return;
+        }
+
+        if (message.type !== 'project-cli.run') {
           return;
         }
 
@@ -158,11 +230,15 @@ export function startProjectConnectorWebSocket({
             id: message.id,
             payload: result,
             type: 'project-cli.result'
-          });
+          } satisfies ConnectorHubMessage);
         });
       });
 
       socket.addEventListener('close', () => {
+        for (const controller of runningChats.values()) {
+          controller.abort();
+        }
+        runningChats.clear();
         if (registryTimer) {
           clearInterval(registryTimer);
           registryTimer = undefined;
