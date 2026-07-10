@@ -334,7 +334,7 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
             <ArrowRight className="size-4" />
           </Button>
           <form
-            className="min-w-48 flex-1"
+            className="flex min-w-48 flex-1 gap-1"
             onSubmit={(event) => {
               event.preventDefault();
               openDirectory(enteredPath(pathInput, homePath));
@@ -346,6 +346,9 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
               onChange={(event) => setPathInput(event.target.value)}
               className="h-8 w-full rounded-lg border border-neutral-700 bg-black/30 px-3 font-mono text-xs text-neutral-200 outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-700/40"
             />
+            <Button aria-label="Open path" isIconOnly size="sm" type="submit" variant="secondary">
+              <ArrowRight className="size-3.5" />
+            </Button>
           </form>
           <Button size="sm" variant="outline" onPress={() => openDirectory(defaultPath)}>
             <Star className="size-3.5" />
