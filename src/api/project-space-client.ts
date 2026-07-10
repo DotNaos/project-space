@@ -36,6 +36,12 @@ import type {
   GitStageRequest,
   GitStatusResult,
   LauncherAppRecord,
+  MachineFileSystemDirectoryRequest,
+  MachineFileSystemDirectoryResult,
+  MachineFileSystemFileRequest,
+  MachineFileSystemFileResult,
+  MachineFileSystemRequest,
+  MachineFileSystemRootResult,
   MachineTerminalCommandRequest,
   OpenPathInAppRequest,
   OpenPathInAppResult,
@@ -391,8 +397,11 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     return this.request('/api/projects/state');
   }
 
-  loadProjectWorktrees(projectPath: string): Promise<ProjectWorktreeRecord[]> {
+  loadProjectWorktrees(projectPath: string, machineId?: string): Promise<ProjectWorktreeRecord[]> {
     const query = new URLSearchParams({ projectPath });
+    if (machineId) {
+      query.set('machineId', machineId);
+    }
 
     return this.request(`/api/projects/worktrees?${query.toString()}`);
   }
@@ -443,6 +452,33 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     const query = new URLSearchParams({ path });
 
     return this.request(`/api/filesystem/directory?${query.toString()}`);
+  }
+
+  getMachineFileSystemRoot(
+    request: MachineFileSystemRequest
+  ): Promise<MachineFileSystemRootResult> {
+    return this.request('/api/machines/filesystem/root', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  readMachineDirectory(
+    request: MachineFileSystemDirectoryRequest
+  ): Promise<MachineFileSystemDirectoryResult> {
+    return this.request('/api/machines/filesystem/directory', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  readMachineFile(
+    request: MachineFileSystemFileRequest
+  ): Promise<MachineFileSystemFileResult> {
+    return this.request('/api/machines/filesystem/file', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
   }
 
   runTerminalCommand(request: TerminalCommandRequest): Promise<TerminalCommandResult> {

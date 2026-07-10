@@ -204,6 +204,62 @@ export interface FileSystemEntry {
   name: string;
   path: string;
   kind: 'file' | 'directory';
+  modifiedAt?: string;
+  sizeBytes?: number;
+}
+
+export type MachineFileSystemErrorCode =
+  | 'disconnected'
+  | 'failed'
+  | 'not-found'
+  | 'outside-home'
+  | 'permission-denied'
+  | 'too-large'
+  | 'unsupported';
+
+export interface MachineFileSystemRequest {
+  machineId: string;
+}
+
+export interface MachineFileSystemDirectoryRequest extends MachineFileSystemRequest {
+  path: string;
+}
+
+export interface MachineFileSystemFileRequest extends MachineFileSystemRequest {
+  path: string;
+}
+
+export interface MachineFileSystemRootResult {
+  defaultPath: string;
+  homePath: string;
+  message?: string;
+  errorCode?: MachineFileSystemErrorCode;
+  status: 'success' | 'error';
+}
+
+export interface MachineFileSystemDirectoryResult {
+  entries: FileSystemEntry[];
+  path: string;
+  message?: string;
+  errorCode?: MachineFileSystemErrorCode;
+  status: 'success' | 'error';
+}
+
+export interface MachineFileSystemFileResult {
+  content?: string;
+  modifiedAt?: string;
+  name: string;
+  path: string;
+  sizeBytes?: number;
+  truncated?: boolean;
+  message?: string;
+  errorCode?: MachineFileSystemErrorCode;
+  status: 'success' | 'error';
+}
+
+export interface MachineProjectWorktreesRequest {
+  machineId: string;
+  projectPath: string;
 }
 
 export interface ToolLaunchRequest {
@@ -669,6 +725,7 @@ export interface ConnectorProjectRegistryResult {
   checkedAt: string;
   connector: {
     battery?: MachineBatteryRecord;
+    capabilities?: string[];
     kind?: string;
     machineId: string;
     machineName: string;
@@ -1060,7 +1117,7 @@ export interface ProjectSpaceBackend {
   loadProjectctlOverview(projectPath: string): Promise<ProjectctlOverviewResult>;
   loadProjectctlPreview(projectPath: string): Promise<ProjectctlPlanResult>;
   loadProjectsState(): Promise<ProjectsState>;
-  loadProjectWorktrees(projectPath: string): Promise<ProjectWorktreeRecord[]>;
+  loadProjectWorktrees(projectPath: string, machineId?: string): Promise<ProjectWorktreeRecord[]>;
   openCodexSkills(): Promise<OpenPathInAppResult>;
   openCodexTarget(request: CodexOpenRequest): Promise<OpenPathInAppResult>;
   getCodexModels(request: CodexModelCatalogueRequest): Promise<CodexModelCatalogueResult>;
@@ -1072,6 +1129,15 @@ export interface ProjectSpaceBackend {
   ): Promise<void>;
   openPathInApp(request: OpenPathInAppRequest): Promise<OpenPathInAppResult>;
   readDirectory(path: string): Promise<FileSystemEntry[]>;
+  getMachineFileSystemRoot(
+    request: MachineFileSystemRequest
+  ): Promise<MachineFileSystemRootResult>;
+  readMachineDirectory(
+    request: MachineFileSystemDirectoryRequest
+  ): Promise<MachineFileSystemDirectoryResult>;
+  readMachineFile(
+    request: MachineFileSystemFileRequest
+  ): Promise<MachineFileSystemFileResult>;
   runTerminalCommand(request: TerminalCommandRequest): Promise<TerminalCommandResult>;
   runMachineTerminalCommand(request: MachineTerminalCommandRequest): Promise<TerminalCommandResult>;
   saveProjectsState(state: ProjectsState): Promise<void>;

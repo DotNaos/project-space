@@ -94,7 +94,7 @@ export const projectDetailTabs = [
 ] as const;
 export type ProjectDetailTab = (typeof projectDetailTabs)[number];
 
-export const machineDetailTabs = ['overview', 'projects', 'terminal'] as const;
+export const machineDetailTabs = ['overview', 'projects', 'explorer', 'terminal'] as const;
 export type MachineDetailTab = (typeof machineDetailTabs)[number];
 
 function parseProjectDetailTab(segment: string | undefined): ProjectDetailTab {
@@ -874,7 +874,7 @@ export function useProjectDesktop() {
     }
 
     void projectSpaceClient
-      .loadProjectWorktrees(project.rootPath)
+      .loadProjectWorktrees(project.rootPath, selectedMachineId || undefined)
       .then((nextWorktrees) => {
         if (canceled) {
           return;
@@ -908,6 +908,7 @@ export function useProjectDesktop() {
     project?.id,
     project?.kind,
     project?.rootPath,
+    selectedMachineId,
     selectedExplorerTarget.kind,
     selectedExplorerTarget.kind === 'worktree' ? selectedExplorerTarget.worktreeId : ''
   ]);
@@ -979,7 +980,10 @@ export function useProjectDesktop() {
       return [];
     }
 
-    const nextWorktrees = await projectSpaceClient.loadProjectWorktrees(project.rootPath);
+    const nextWorktrees = await projectSpaceClient.loadProjectWorktrees(
+      project.rootPath,
+      selectedMachineId || undefined
+    );
 
     setProjectWorktrees((current) => ({
       ...current,

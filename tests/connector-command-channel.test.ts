@@ -1,12 +1,21 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import {
   isConnectorCommandChannelAvailable,
+  requestConnectorDirectory,
+  requestConnectorFile,
+  requestConnectorFileSystemRoot,
   requestConnectorModels,
+  requestConnectorProjectWorktrees,
+  requestConnectorTerminalCommand,
   streamConnectorCodexChat
 } from '../server/connector-command-hub';
-import { isConnectorHubMessage } from '../server/connector-command-protocol';
+import {
+  isConnectorHubMessage,
+  isConnectorMachineMessage
+} from '../server/connector-command-protocol';
 import { startProjectConnectorWebSocket } from '../server/project-connector-websocket';
 import { createProjectSpaceServer } from '../server/project-space-http';
+import { createLocalProjectSpaceBackend } from '../server/local-project-space-backend';
 import type {
   CodexChatStreamEvent,
   ConnectorProjectRegistryResult,
@@ -62,9 +71,23 @@ describe('connector command channel', () => {
         type: 'connector.register'
       })
     ).toBe(false);
+    expect(
+      isConnectorMachineMessage({
+        id: 'bad-terminal',
+        payload: { machineId: 'test-machine' },
+        type: 'terminal.run'
+      })
+    ).toBe(false);
+    expect(
+      isConnectorHubMessage({
+        id: 'bad-terminal-result',
+        payload: { stdout: 'missing result fields' },
+        type: 'terminal.result'
+      })
+    ).toBe(false);
   });
 
-  test('relays model catalogues and streamed chat without SSH', async () => {
+  test('relays machine commands and filesystem reads without SSH', async () => {
     process.env.PROJECT_CONNECTOR_CONFIG = '/tmp/project-space-missing-connector-config.json';
     delete process.env.PROJECT_CONNECTOR_HUBS;
     process.env.PROJECT_CONNECTOR_REGISTRATION_TOKEN = 'test-connector-token';
@@ -72,6 +95,13 @@ describe('connector command channel', () => {
     const registry: ConnectorProjectRegistryResult = {
       checkedAt: new Date().toISOString(),
       connector: {
+        capabilities: [
+          'filesystem.directory',
+          'filesystem.file',
+          'filesystem.root',
+          'terminal.run',
+          'worktrees.list'
+        ],
         machineId: 'test-machine',
         machineName: 'Test machine'
       },
@@ -102,13 +132,59 @@ describe('connector command channel', () => {
       async streamCodexChat(_request, emit) {
         emit({ delta: 'Hello', type: 'delta' });
         emit({ response: 'Hello', type: 'done' });
+      },
+      async runMachineTerminalCommand(request) {
+        return {
+          command: request.command,
+          cwd: '/tmp',
+          durationMs: 4,
+          exitCode: 0,
+          stderr: '',
+          stdout: 'connector terminal'
+        };
+      },
+      async loadProjectWorktrees() {
+        return [{
+          branchName: 'main',
+          id: '/tmp/project',
+          isBase: true,
+          name: 'project',
+          path: '/tmp/project',
+          status: 'ready' as const
+        }];
+      },
+      async getMachineFileSystemRoot() {
+        return { defaultPath: '/tmp/projects', homePath: '/tmp', status: 'success' as const };
+      },
+      async readMachineDirectory(request) {
+        return {
+          entries: [{ kind: 'file' as const, name: 'note.txt', path: `${request.path}/note.txt` }],
+          path: request.path,
+          status: 'success' as const
+        };
+      },
+      async readMachineFile(request) {
+        return {
+          content: 'hello',
+          name: 'note.txt',
+          path: request.path,
+          status: 'success' as const
+        };
       }
     } as Pick<
       ProjectSpaceBackend,
-      'getConnectorProjectRegistry' | 'getCodexModels' | 'streamCodexChat'
+      | 'getConnectorProjectRegistry'
+      | 'getCodexModels'
+      | 'streamCodexChat'
+      | 'runMachineTerminalCommand'
+      | 'loadProjectWorktrees'
+      | 'getMachineFileSystemRoot'
+      | 'readMachineDirectory'
+      | 'readMachineFile'
     > as ProjectSpaceBackend;
 
-    const server = await createProjectSpaceServer({ backend, host: '127.0.0.1', port: 0 });
+    const hubBackend = createLocalProjectSpaceBackend();
+    const server = await createProjectSpaceServer({ backend: hubBackend, host: '127.0.0.1', port: 0 });
     const bridge = startProjectConnectorWebSocket({
       backend,
       hubHttpUrl: server.origin,
@@ -135,6 +211,96 @@ describe('connector command channel', () => {
         { delta: 'Hello', type: 'delta' },
         { response: 'Hello', type: 'done' }
       ]);
+
+      const terminal = await requestConnectorTerminalCommand({
+        command: 'pwd',
+        machineId: 'test-machine'
+      });
+      expect(terminal.stdout).toBe('connector terminal');
+
+      const worktrees = await requestConnectorProjectWorktrees({
+        machineId: 'test-machine',
+        projectPath: '/tmp/project'
+      });
+      expect(worktrees.map((worktree) => worktree.branchName)).toEqual(['main']);
+
+      const root = await requestConnectorFileSystemRoot({ machineId: 'test-machine' });
+      expect(root).toEqual({ defaultPath: '/tmp/projects', homePath: '/tmp', status: 'success' });
+
+      const directory = await requestConnectorDirectory({
+        machineId: 'test-machine',
+        path: '/tmp'
+      });
+      expect(directory.entries.map((entry) => entry.name)).toEqual(['note.txt']);
+
+      const file = await requestConnectorFile({
+        machineId: 'test-machine',
+        path: '/tmp/note.txt'
+      });
+      expect(file.content).toBe('hello');
+
+      const routedTerminal = await hubBackend.runMachineTerminalCommand({
+        command: 'pwd',
+        machineId: 'test-machine'
+      });
+      expect(routedTerminal.stdout).toBe('connector terminal');
+
+      const routedWorktrees = await hubBackend.loadProjectWorktrees(
+        '/tmp/project',
+        'test-machine'
+      );
+      expect(routedWorktrees.map((worktree) => worktree.branchName)).toEqual(['main']);
+
+      const routedDirectory = await hubBackend.readMachineDirectory({
+        machineId: 'test-machine',
+        path: '/tmp'
+      });
+      expect(routedDirectory.entries.map((entry) => entry.name)).toEqual(['note.txt']);
+    } finally {
+      await server.close();
+      bridge.close();
+    }
+  });
+
+  test('rejects unsupported commands immediately for older connectors', async () => {
+    process.env.PROJECT_CONNECTOR_CONFIG = '/tmp/project-space-missing-connector-config.json';
+    delete process.env.PROJECT_CONNECTOR_HUBS;
+    process.env.PROJECT_CONNECTOR_REGISTRATION_TOKEN = 'test-connector-token';
+
+    const registry: ConnectorProjectRegistryResult = {
+      checkedAt: new Date().toISOString(),
+      connector: { machineId: 'older-machine', machineName: 'Older machine' },
+      discovery: {
+        groups: [],
+        projects: [],
+        rootItems: [],
+        rootPath: '/tmp',
+        structureViolations: []
+      }
+    };
+    const connectorBackend = {
+      async getConnectorProjectRegistry() {
+        return registry;
+      }
+    } as Pick<ProjectSpaceBackend, 'getConnectorProjectRegistry'> as ProjectSpaceBackend;
+    const hubBackend = createLocalProjectSpaceBackend();
+    const server = await createProjectSpaceServer({ backend: hubBackend, host: '127.0.0.1', port: 0 });
+    const bridge = startProjectConnectorWebSocket({
+      backend: connectorBackend,
+      hubHttpUrl: server.origin,
+      hubUrl: server.origin.replace(/^http/, 'ws') + '/api/connectors/socket'
+    });
+
+    try {
+      await waitForChannel('older-machine');
+      const startedAt = Date.now();
+      const result = await hubBackend.runMachineTerminalCommand({
+        command: 'pwd',
+        machineId: 'older-machine'
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Update or restart');
+      expect(Date.now() - startedAt).toBeLessThan(1_000);
     } finally {
       await server.close();
       bridge.close();
