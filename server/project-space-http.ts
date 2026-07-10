@@ -41,6 +41,9 @@ import type {
   GitHubIssueUpdateRequest,
   GitHubPullRequestCreateRequest,
   GitStageRequest,
+  MachineFileSystemDirectoryRequest,
+  MachineFileSystemFileRequest,
+  MachineFileSystemRequest,
   ProjectDeployRequest,
   ProjectDirectorySelection,
   ProjectSpaceBackend,
@@ -378,13 +381,14 @@ function createApiHandler(backend: ProjectSpaceBackend) {
 
       if (request.method === 'GET' && url.pathname === '/api/projects/worktrees') {
         const projectPath = url.searchParams.get('projectPath');
+        const machineId = url.searchParams.get('machineId') ?? undefined;
 
         if (!projectPath) {
           writeJson(response, 400, { error: 'Missing projectPath.' });
           return true;
         }
 
-        writeJson(response, 200, await backend.loadProjectWorktrees(projectPath));
+        writeJson(response, 200, await backend.loadProjectWorktrees(projectPath, machineId));
         return true;
       }
 
@@ -427,6 +431,24 @@ function createApiHandler(backend: ProjectSpaceBackend) {
         }
 
         writeJson(response, 200, await backend.readDirectory(path));
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/machines/filesystem/root') {
+        const payload = await readJson<MachineFileSystemRequest>(request);
+        writeJson(response, 200, await backend.getMachineFileSystemRoot(payload));
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/machines/filesystem/directory') {
+        const payload = await readJson<MachineFileSystemDirectoryRequest>(request);
+        writeJson(response, 200, await backend.readMachineDirectory(payload));
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/machines/filesystem/file') {
+        const payload = await readJson<MachineFileSystemFileRequest>(request);
+        writeJson(response, 200, await backend.readMachineFile(payload));
         return true;
       }
 

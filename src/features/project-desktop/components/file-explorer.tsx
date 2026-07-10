@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { FileIcon, Icon } from '@dotnaos/react-ui';
 import { ChevronLeft, ChevronRight, Folder, FolderOpen } from 'lucide-react';
 import { ScrollShadow, Text } from '@/app/dotnaos-ui';
@@ -8,6 +8,7 @@ import type { FileSystemEntry, GitStatusEntry } from '@/shared/project-space-api
 
 interface FileExplorerProps {
   gitStatus?: FileExplorerGitStatus;
+  machineId?: string;
   onBack?(): void;
   rootPath?: string;
 }
@@ -144,15 +145,18 @@ interface FileTreeNodeProps {
   entry: FileSystemEntry;
   gitStatus?: FileExplorerGitStatus;
   level: number;
+  loadDirectory(path: string): Promise<FileSystemEntry[]>;
 }
 
 function FileTreeNode({
   entry,
   gitStatus,
-  level
+  level,
+  loadDirectory
 }: FileTreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<FileSystemEntry[]>([]);
+  const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -162,19 +166,28 @@ function FileTreeNode({
 
     let canceled = false;
 
-    void projectSpaceClient.readDirectory(entry.path).then((nextEntries) => {
-      if (canceled) {
-        return;
-      }
-
-      setChildren(nextEntries);
-      setLoaded(true);
-    });
+    void loadDirectory(entry.path)
+      .then((nextEntries) => {
+        if (!canceled) {
+          setChildren(nextEntries);
+          setError('');
+        }
+      })
+      .catch((nextError) => {
+        if (!canceled) {
+          setError(nextError instanceof Error ? nextError.message : 'Could not load folder.');
+        }
+      })
+      .finally(() => {
+        if (!canceled) {
+          setLoaded(true);
+        }
+      });
 
     return () => {
       canceled = true;
     };
-  }, [entry.kind, entry.path, expanded, loaded]);
+  }, [entry.kind, entry.path, expanded, loadDirectory, loaded]);
 
   const expandable = entry.kind === 'directory';
   const gitTone = gitToneForEntry(entry, gitStatus);
@@ -237,7 +250,14 @@ function FileTreeNode({
       </button>
 
       {expandable && expanded ? (
-        children.length > 0 ? (
+        error ? (
+          <Text
+            style={{ paddingLeft: `${(level + 1) * 16 + 27}px` }}
+            className="block truncate py-1 text-xs text-rose-300/70"
+          >
+            {error}
+          </Text>
+        ) : children.length > 0 ? (
           <div>
             {children.map((child) => (
               <FileTreeNode
@@ -245,6 +265,7 @@ function FileTreeNode({
                 entry={child}
                 gitStatus={gitStatus}
                 level={level + 1}
+                loadDirectory={loadDirectory}
               />
             ))}
           </div>
@@ -276,10 +297,23 @@ function BackToWorkspaceRow({ onBack }: { onBack(): void }) {
 
 export function FileExplorer({
   gitStatus,
+  machineId,
   onBack,
   rootPath
 }: FileExplorerProps) {
   const [entries, setEntries] = useState<FileSystemEntry[]>([]);
+  const [error, setError] = useState('');
+  const loadDirectory = useCallback(async (path: string) => {
+    if (!machineId) {
+      return projectSpaceClient.readDirectory(path);
+    }
+
+    const result = await projectSpaceClient.readMachineDirectory({ machineId, path });
+    if (result.status === 'error') {
+      throw new Error(result.message ?? 'Could not load directory.');
+    }
+    return result.entries;
+  }, [machineId]);
 
   useEffect(() => {
     if (!rootPath) {
@@ -289,18 +323,24 @@ export function FileExplorer({
 
     let canceled = false;
 
-    void projectSpaceClient.readDirectory(rootPath).then((nextEntries) => {
-      if (canceled) {
-        return;
-      }
-
-      setEntries(nextEntries);
-    });
+    void loadDirectory(rootPath)
+      .then((nextEntries) => {
+        if (!canceled) {
+          setEntries(nextEntries);
+          setError('');
+        }
+      })
+      .catch((nextError) => {
+        if (!canceled) {
+          setEntries([]);
+          setError(nextError instanceof Error ? nextError.message : 'Could not load folder.');
+        }
+      });
 
     return () => {
       canceled = true;
     };
-  }, [rootPath]);
+  }, [loadDirectory, rootPath]);
 
   if (!rootPath) {
     return (
@@ -320,8 +360,15 @@ export function FileExplorer({
         <Text className="px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-neutral-500">
           {pathBasename(rootPath)}
         </Text>
+        {error ? <Text className="block px-3 py-2 text-xs text-rose-300/70">{error}</Text> : null}
         {entries.map((entry) => (
-          <FileTreeNode key={entry.path} entry={entry} gitStatus={gitStatus} level={0} />
+          <FileTreeNode
+            key={entry.path}
+            entry={entry}
+            gitStatus={gitStatus}
+            level={0}
+            loadDirectory={loadDirectory}
+          />
         ))}
       </div>
     </ScrollShadow>

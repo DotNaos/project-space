@@ -217,6 +217,71 @@ export function startProjectConnectorWebSocket({
           return;
         }
 
+        if (message.type === 'terminal.run') {
+          void backend.runMachineTerminalCommand(message.payload).then((result) => {
+            if (socket) {
+              sendJson(socket, {
+                id: message.id,
+                payload: result,
+                type: 'terminal.result'
+              } satisfies ConnectorHubMessage);
+            }
+          });
+          return;
+        }
+
+        if (message.type === 'worktrees.list') {
+          void backend.loadProjectWorktrees(message.payload.projectPath).then((result) => {
+            if (socket) {
+              sendJson(socket, {
+                id: message.id,
+                payload: result,
+                type: 'worktrees.result'
+              } satisfies ConnectorHubMessage);
+            }
+          });
+          return;
+        }
+
+        if (message.type === 'filesystem.root') {
+          void backend.getMachineFileSystemRoot(message.payload).then((result) => {
+            if (socket) {
+              sendJson(socket, {
+                id: message.id,
+                payload: result,
+                type: 'filesystem.root.result'
+              } satisfies ConnectorHubMessage);
+            }
+          });
+          return;
+        }
+
+        if (message.type === 'filesystem.directory') {
+          void backend.readMachineDirectory(message.payload).then((result) => {
+            if (socket) {
+              sendJson(socket, {
+                id: message.id,
+                payload: result,
+                type: 'filesystem.directory.result'
+              } satisfies ConnectorHubMessage);
+            }
+          });
+          return;
+        }
+
+        if (message.type === 'filesystem.file') {
+          void backend.readMachineFile(message.payload).then((result) => {
+            if (socket) {
+              sendJson(socket, {
+                id: message.id,
+                payload: result,
+                type: 'filesystem.file.result'
+              } satisfies ConnectorHubMessage);
+            }
+          });
+          return;
+        }
+
         if (message.type !== 'project-cli.run') {
           return;
         }

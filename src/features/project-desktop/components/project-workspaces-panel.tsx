@@ -327,34 +327,50 @@ export function ProjectWorkspacesPanel({
 
     setActionMessage('');
     setBusyBranchName(branchName);
+    try {
+      const result = await projectSpaceClient.runMachineTerminalCommand({
+        command: createCloneCommand({
+          branchName,
+          defaultBranch,
+          repository: repositoryCloneUrl,
+          repositoryName
+        }),
+        machineId: selectedMachine.id
+      });
 
-    const result = await projectSpaceClient.runMachineTerminalCommand({
-      command: createCloneCommand({
-        branchName,
-        defaultBranch,
-        repository: repositoryCloneUrl,
-        repositoryName
-      }),
-      machineId: selectedMachine.id
-    });
+      if (result.exitCode !== 0) {
+        setActionMessage(result.stderr || result.stdout || `Could not clone ${branchName}.`);
+        return;
+      }
 
-    setBusyBranchName('');
+      let nextWorktrees: ProjectWorktreeRecord[];
+      try {
+        nextWorktrees = await onRefreshWorktrees();
+      } catch {
+        setActionMessage(
+          `${branchName} was cloned on ${selectedMachine.name}, but the worktree list could not be refreshed.`
+        );
+        return;
+      }
 
-    if (result.exitCode !== 0) {
-      setActionMessage(result.stderr || result.stdout || `Could not clone ${branchName}.`);
-      return;
-    }
+      const nextWorktree = nextWorktrees.find(
+        (worktree) => normalizeKey(worktree.branchName || worktree.name) === normalizeKey(branchName)
+      );
 
-    const nextWorktrees = await onRefreshWorktrees();
-    const nextWorktree = nextWorktrees.find(
-      (worktree) => normalizeKey(worktree.branchName || worktree.name) === normalizeKey(branchName)
-    );
+      if (!nextWorktree) {
+        setActionMessage(
+          `${branchName} was cloned on ${selectedMachine.name}, but it is not visible in the worktree list yet.`
+        );
+        return;
+      }
 
-    if (nextWorktree) {
       onSelectWorktree(nextWorktree.id);
+      setActionMessage(`${branchName} cloned on ${selectedMachine.name}.`);
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : `Could not clone ${branchName}.`);
+    } finally {
+      setBusyBranchName('');
     }
-
-    setActionMessage(`${branchName} cloned on ${selectedMachine.name}.`);
   }
 
   return (
@@ -422,7 +438,11 @@ export function ProjectWorkspacesPanel({
           className="flex min-h-[24rem] flex-col overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950/45"
         >
           {selectedExplorerPath ? (
-            <FileExplorer gitStatus={fileGitStatus} rootPath={selectedExplorerPath} />
+            <FileExplorer
+              gitStatus={fileGitStatus}
+              machineId={selectedMachine?.id}
+              rootPath={selectedExplorerPath}
+            />
           ) : (
             <div className="flex min-h-[24rem] items-center justify-center px-6 text-center">
               <Text className="max-w-sm text-sm text-neutral-500">

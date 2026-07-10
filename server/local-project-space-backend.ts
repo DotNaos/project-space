@@ -13,7 +13,12 @@ import {
   streamCodexChat as streamLocalCodexChat
 } from './local-codex-client';
 import {
+  requestConnectorDirectory,
+  requestConnectorFile,
+  requestConnectorFileSystemRoot,
   requestConnectorModels,
+  requestConnectorProjectWorktrees,
+  requestConnectorTerminalCommand,
   streamConnectorCodexChat
 } from './connector-command-hub';
 import { runSshTerminalCommand, runTerminalCommand } from './local-command-runner';
@@ -54,6 +59,7 @@ import {
   openPathInApp
 } from './local-launcher-apps';
 import { getConnectorOverview } from './local-machine-registry';
+import { readHomeDirectory, readHomeFile } from './machine-filesystem';
 import { runProjectCliCommand } from './local-project-cli-client';
 import { getTemplateAdherence } from './local-template-adherence';
 import {
@@ -102,6 +108,13 @@ const projectSpaceDirectory = `${homedir()}/.project-space`;
 const projectsStateFile = `${projectSpaceDirectory}/projects.json`;
 const discoveryRoot = join(homedir(), 'projects');
 const execFileAsync = promisify(execFile);
+const connectorCommandCapabilities = [
+  'filesystem.directory',
+  'filesystem.file',
+  'filesystem.root',
+  'terminal.run',
+  'worktrees.list'
+];
 
 const standaloneProjectMarkers = new Set([
   '.git',
@@ -598,7 +611,7 @@ async function scanProjectContainerWorktrees(projectPath: string): Promise<Proje
             status = 'broken';
           }
         }
-      } catch {
+      } catch (error) {
         status = 'ready';
       }
 
@@ -890,6 +903,7 @@ export function createLocalProjectSpaceBackend(
         checkedAt: new Date().toISOString(),
         connector: {
           battery: localMachine?.battery,
+          capabilities: connectorCommandCapabilities,
           kind: process.env.PROJECT_CONNECTOR_MACHINE_KIND ?? localMachine?.kind,
           machineId: localMachine?.id ?? machineName,
           machineName,
@@ -987,8 +1001,30 @@ export function createLocalProjectSpaceBackend(
     async loadProjectsState() {
       return readProjectsState();
     },
-    async loadProjectWorktrees(projectPath: string) {
-      return loadProjectWorktrees(projectPath);
+    async loadProjectWorktrees(projectPath: string, machineId?: string) {
+      if (!machineId) {
+        return loadProjectWorktrees(projectPath);
+      }
+
+      const overview = await loadMergedConnectorOverview();
+      const machine = overview.machines.find((entry) => entry.id === machineId);
+      if (!machine) {
+        throw new Error(`Machine ${machineId} was not found.`);
+      }
+      if (machine.connector.status === 'local' || machine.kind === 'local') {
+        return loadProjectWorktrees(projectPath);
+      }
+      if (machine.connector.status !== 'online' || machine.sourcePath !== 'connector-hub') {
+        throw new Error(`${machine.name} cannot provide its worktrees right now.`);
+      }
+
+      try {
+        return await requestConnectorProjectWorktrees({ machineId, projectPath });
+      } catch (error) {
+        throw new Error(
+          error instanceof Error ? error.message : 'Could not load worktrees from the machine connector.'
+        );
+      }
     },
     async openCodexSkills() {
       return openCodexSkills();
@@ -1149,6 +1185,121 @@ export function createLocalProjectSpaceBackend(
     async readDirectory(path: string) {
       return readDirectoryEntries(path);
     },
+    async getMachineFileSystemRoot(request) {
+      const overview = await loadMergedConnectorOverview();
+      const machine = overview.machines.find((entry) => entry.id === request.machineId);
+      if (!machine) {
+        return {
+          defaultPath: '',
+          errorCode: 'disconnected',
+          homePath: '',
+          message: 'This machine is not in the connector registry.',
+          status: 'error'
+        };
+      }
+      if (machine.connector.status === 'local' || machine.kind === 'local') {
+        return {
+          defaultPath: join(homedir(), 'projects'),
+          homePath: homedir(),
+          status: 'success'
+        };
+      }
+      if (machine.connector.status !== 'online' || machine.sourcePath !== 'connector-hub') {
+        return {
+          defaultPath: '',
+          errorCode: 'disconnected',
+          homePath: '',
+          message: `${machine.name} is ${machine.connector.status}.`,
+          status: 'error'
+        };
+      }
+
+      try {
+        return await requestConnectorFileSystemRoot(request);
+      } catch (error) {
+        return {
+          defaultPath: '',
+          errorCode: 'disconnected',
+          homePath: '',
+          message: error instanceof Error ? error.message : 'The machine connector is not available right now.',
+          status: 'error'
+        };
+      }
+    },
+    async readMachineDirectory(request) {
+      const overview = await loadMergedConnectorOverview();
+      const machine = overview.machines.find((entry) => entry.id === request.machineId);
+      if (!machine) {
+        return {
+          entries: [],
+          errorCode: 'disconnected',
+          message: 'This machine is not in the connector registry.',
+          path: request.path,
+          status: 'error'
+        };
+      }
+      if (machine.connector.status === 'local' || machine.kind === 'local') {
+        return readHomeDirectory(request.path);
+      }
+      if (machine.connector.status !== 'online' || machine.sourcePath !== 'connector-hub') {
+        return {
+          entries: [],
+          errorCode: 'disconnected',
+          message: `${machine.name} is ${machine.connector.status}.`,
+          path: request.path,
+          status: 'error'
+        };
+      }
+
+      try {
+        return await requestConnectorDirectory(request);
+      } catch (error) {
+        return {
+          entries: [],
+          errorCode: 'disconnected',
+          message: error instanceof Error ? error.message : 'The machine connector is not available right now.',
+          path: request.path,
+          status: 'error'
+        };
+      }
+    },
+    async readMachineFile(request) {
+      const overview = await loadMergedConnectorOverview();
+      const machine = overview.machines.find((entry) => entry.id === request.machineId);
+      if (!machine) {
+        return {
+          errorCode: 'disconnected',
+          message: 'This machine is not in the connector registry.',
+          name: basename(request.path),
+          path: request.path,
+          status: 'error'
+        };
+      }
+      if (machine.connector.status === 'local' || machine.kind === 'local') {
+        return readHomeFile(request.path);
+      }
+      if (machine.connector.status !== 'online' || machine.sourcePath !== 'connector-hub') {
+        return {
+          errorCode: 'disconnected',
+          message: `${machine.name} is ${machine.connector.status}.`,
+          name: basename(request.path),
+          path: request.path,
+          status: 'error'
+        };
+      }
+
+      try {
+        return await requestConnectorFile(request);
+      } catch (error) {
+        return {
+          errorCode: 'disconnected',
+          message: error instanceof Error ? error.message : 'The machine connector is not available right now.',
+          name: basename(request.path),
+          path: request.path,
+          status: 'error'
+        };
+      }
+    },
     async runTerminalCommand(request) {
       return runTerminalCommand(request);
     },
@@ -1183,6 +1334,21 @@ export function createLocalProjectSpaceBackend(
           stderr: `${machine.name} is ${machine.connector.status}.`,
           stdout: ''
         };
+      }
+
+      if (machine.sourcePath === 'connector-hub') {
+        try {
+          return await requestConnectorTerminalCommand(request);
+        } catch (error) {
+          return {
+            command: request.command,
+            cwd: `machine:${machine.id}`,
+            durationMs: 0,
+            exitCode: 1,
+            stderr: error instanceof Error ? error.message : 'The machine connector is not available right now.',
+            stdout: ''
+          };
+        }
       }
 
       const target = createMachineSshTarget(machine);
