@@ -132,7 +132,7 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
   const [loading, setLoading] = useState(true);
   const [rootMessage, setRootMessage] = useState('');
   const [refreshVersion, setRefreshVersion] = useState(0);
-  const [showHidden, setShowHidden] = useState(false);
+  const [showHidden, setShowHidden] = useState(true);
 
   const loadDirectory = useCallback(
     (path: string) => projectSpaceClient.readMachineDirectory({ machineId: machine.id, path }),
@@ -331,13 +331,14 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
           </Button>
           <Button
             aria-label={showHidden ? 'Hide hidden files' : 'Show hidden files'}
+            aria-pressed={showHidden}
             title={showHidden ? 'Hide hidden files' : 'Show hidden files'}
-            isIconOnly
             size="sm"
-            variant="ghost"
+            variant="outline"
             onPress={() => setShowHidden((value) => !value)}
           >
             {showHidden ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+            {showHidden ? 'Hide hidden files' : 'Show hidden files'}
           </Button>
         </div>
 

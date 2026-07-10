@@ -93,6 +93,11 @@ describe('machine Explorer path search', () => {
       result: result(projectsPath, entries),
       showHidden: false
     }).map((entry) => entry.name)).not.toContain('.worktrees');
+    expect(explorerPathSuggestions({
+      nameQuery: '',
+      result: result(projectsPath, entries),
+      showHidden: true
+    }).map((entry) => entry.name)).toContain('.worktrees');
   });
 
   test('Tab-style completion adds a slash only for folders', () => {
