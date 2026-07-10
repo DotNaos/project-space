@@ -128,6 +128,15 @@ export function ExplorerPathSearch({
     setOpen(true);
   }
 
+  function openTypedPath() {
+    requestVersion.current += 1;
+    inputRef.current?.blur();
+    setFocused(false);
+    setLoading(false);
+    setOpen(false);
+    onOpenPath(enteredPath(value, homePath));
+  }
+
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const active = open ? suggestions[activeIndex] : undefined;
@@ -135,8 +144,7 @@ export function ExplorerPathSearch({
       choose(active);
       return;
     }
-    setOpen(false);
-    onOpenPath(enteredPath(value, homePath));
+    openTypedPath();
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -155,6 +163,16 @@ export function ExplorerPathSearch({
     if (event.key === 'Tab' && open && suggestions[activeIndex]) {
       event.preventDefault();
       complete(suggestions[activeIndex]);
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const active = open ? suggestions[activeIndex] : undefined;
+      if (active) {
+        choose(active);
+      } else {
+        openTypedPath();
+      }
       return;
     }
     if (event.key === 'Escape') {
@@ -278,10 +296,7 @@ export function ExplorerPathSearch({
         size="sm"
         type="button"
         variant="secondary"
-        onPress={() => {
-          setOpen(false);
-          onOpenPath(enteredPath(value, homePath));
-        }}
+        onPress={openTypedPath}
       >
         <ArrowRight className="size-3.5" />
       </Button>
