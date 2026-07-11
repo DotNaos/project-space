@@ -17,6 +17,7 @@ import {
   requestConnectorTerminalCommand,
   streamConnectorCodexChat
 } from './connector-command-hub';
+import { isConnectorHubMachine, isHubLocalMachine } from './connector-hub';
 import {
   getCodexModels as getLocalCodexModels,
   runCodexChat,
@@ -64,17 +65,18 @@ function directoryMutationError(message: string): MachineDirectoryMutationResult
 async function runDirectoryMutation(
   machineId: string,
   localAction: () => Promise<MachineDirectoryMutationResult>,
-  connectorAction: () => Promise<MachineDirectoryMutationResult>
+  connectorAction: () => Promise<MachineDirectoryMutationResult>,
+  loadConnectorOverview: typeof loadMergedConnectorOverview = loadMergedConnectorOverview
 ) {
-  const overview = await loadMergedConnectorOverview();
+  const overview = await loadConnectorOverview();
   const machine = overview.machines.find((entry) => entry.id === machineId);
   if (!machine) {
     return directoryMutationError('This machine is not in the connector registry.');
   }
-  if (machine.connector.status === 'local' || machine.kind === 'local') {
+  if (isHubLocalMachine(machine)) {
     return localAction();
   }
-  if (machine.connector.status !== 'online' || machine.sourcePath !== 'connector-hub') {
+  if (!isConnectorHubMachine(machine) || machine.connector.status !== 'online') {
     return directoryMutationError(`${machine.name} is ${machine.connector.status}.`);
   }
   try {
@@ -86,7 +88,9 @@ async function runDirectoryMutation(
   }
 }
 
-export function createLocalProjectMachineBackend(): Pick<
+export function createLocalProjectMachineBackend(
+  loadConnectorOverview: typeof loadMergedConnectorOverview = loadMergedConnectorOverview
+): Pick<
   ProjectSpaceBackend,
   MachineBackendMethod
 > {
@@ -96,15 +100,15 @@ export function createLocalProjectMachineBackend(): Pick<
         return loadLocalProjectWorktrees(projectPath);
       }
 
-      const overview = await loadMergedConnectorOverview();
+      const overview = await loadConnectorOverview();
       const machine = overview.machines.find((entry) => entry.id === machineId);
       if (!machine) {
         throw new Error(`Machine ${machineId} was not found.`);
       }
-      if (machine.connector.status === 'local' || machine.kind === 'local') {
+      if (isHubLocalMachine(machine)) {
         return loadLocalProjectWorktrees(projectPath);
       }
-      if (machine.connector.status !== 'online' || machine.sourcePath !== 'connector-hub') {
+      if (!isConnectorHubMachine(machine) || machine.connector.status !== 'online') {
         throw new Error(`${machine.name} cannot provide its worktrees right now.`);
       }
 
@@ -119,7 +123,7 @@ export function createLocalProjectMachineBackend(): Pick<
       }
     },
     async getCodexModels(request) {
-      const overview = await loadMergedConnectorOverview();
+      const overview = await loadConnectorOverview();
       const machine = overview.machines.find((entry) => entry.id === request.machineId);
 
       if (!machine) {
@@ -130,7 +134,7 @@ export function createLocalProjectMachineBackend(): Pick<
         };
       }
 
-      if (machine.connector.status === 'local' || machine.kind === 'local') {
+      if (isHubLocalMachine(machine)) {
         return getLocalCodexModels(request);
       }
 
@@ -142,7 +146,7 @@ export function createLocalProjectMachineBackend(): Pick<
         };
       }
 
-      if (machine.sourcePath === 'connector-hub') {
+      if (isConnectorHubMachine(machine)) {
         try {
           return await requestConnectorModels(request);
         } catch (error) {
@@ -167,7 +171,7 @@ export function createLocalProjectMachineBackend(): Pick<
       return getLocalCodexModels(request, remoteCodexRuntime(target, request.cwd));
     },
     async runCodexChat(request) {
-      const overview = await loadMergedConnectorOverview();
+      const overview = await loadConnectorOverview();
       const machine = overview.machines.find((entry) => entry.id === request.machineId);
 
       if (!machine) {
@@ -177,7 +181,7 @@ export function createLocalProjectMachineBackend(): Pick<
         };
       }
 
-      if (machine.connector.status === 'local' || machine.kind === 'local') {
+      if (isHubLocalMachine(machine)) {
         return runCodexChat(request);
       }
 
@@ -188,7 +192,7 @@ export function createLocalProjectMachineBackend(): Pick<
         };
       }
 
-      if (machine.sourcePath === 'connector-hub') {
+      if (isConnectorHubMachine(machine)) {
         let result = '';
         let failure = '';
         try {
@@ -223,7 +227,7 @@ export function createLocalProjectMachineBackend(): Pick<
       return runCodexChat(request, remoteCodexRuntime(target, request.cwd));
     },
     async streamCodexChat(request, emit, signal) {
-      const overview = await loadMergedConnectorOverview();
+      const overview = await loadConnectorOverview();
       const machine = overview.machines.find((entry) => entry.id === request.machineId);
 
       if (!machine) {
@@ -231,7 +235,7 @@ export function createLocalProjectMachineBackend(): Pick<
         return;
       }
 
-      if (machine.connector.status === 'local' || machine.kind === 'local') {
+      if (isHubLocalMachine(machine)) {
         await streamLocalCodexChat(request, emit, undefined, signal);
         return;
       }
@@ -241,7 +245,7 @@ export function createLocalProjectMachineBackend(): Pick<
         return;
       }
 
-      if (machine.sourcePath === 'connector-hub') {
+      if (isConnectorHubMachine(machine)) {
         try {
           await streamConnectorCodexChat(request, emit);
         } catch (error) {
@@ -272,7 +276,7 @@ export function createLocalProjectMachineBackend(): Pick<
       return readLocalDirectoryEntries(path);
     },
     async getMachineFileSystemRoot(request) {
-      const overview = await loadMergedConnectorOverview();
+      const overview = await loadConnectorOverview();
       const machine = overview.machines.find((entry) => entry.id === request.machineId);
       if (!machine) {
         return {
@@ -283,14 +287,14 @@ export function createLocalProjectMachineBackend(): Pick<
           status: 'error'
         };
       }
-      if (machine.connector.status === 'local' || machine.kind === 'local') {
+      if (isHubLocalMachine(machine)) {
         return {
           defaultPath: join(homedir(), 'projects'),
           homePath: homedir(),
           status: 'success'
         };
       }
-      if (machine.connector.status !== 'online' || machine.sourcePath !== 'connector-hub') {
+      if (!isConnectorHubMachine(machine) || machine.connector.status !== 'online') {
         return {
           defaultPath: '',
           errorCode: 'disconnected',
@@ -316,7 +320,7 @@ export function createLocalProjectMachineBackend(): Pick<
       }
     },
     async readMachineDirectory(request) {
-      const overview = await loadMergedConnectorOverview();
+      const overview = await loadConnectorOverview();
       const machine = overview.machines.find((entry) => entry.id === request.machineId);
       if (!machine) {
         return {
@@ -327,10 +331,10 @@ export function createLocalProjectMachineBackend(): Pick<
           status: 'error'
         };
       }
-      if (machine.connector.status === 'local' || machine.kind === 'local') {
+      if (isHubLocalMachine(machine)) {
         return readHomeDirectory(request.path);
       }
-      if (machine.connector.status !== 'online' || machine.sourcePath !== 'connector-hub') {
+      if (!isConnectorHubMachine(machine) || machine.connector.status !== 'online') {
         return {
           entries: [],
           errorCode: 'disconnected',
@@ -356,7 +360,7 @@ export function createLocalProjectMachineBackend(): Pick<
       }
     },
     async readMachineFile(request) {
-      const overview = await loadMergedConnectorOverview();
+      const overview = await loadConnectorOverview();
       const machine = overview.machines.find((entry) => entry.id === request.machineId);
       if (!machine) {
         return {
@@ -367,10 +371,10 @@ export function createLocalProjectMachineBackend(): Pick<
           status: 'error'
         };
       }
-      if (machine.connector.status === 'local' || machine.kind === 'local') {
+      if (isHubLocalMachine(machine)) {
         return readHomeFile(request.path);
       }
-      if (machine.connector.status !== 'online' || machine.sourcePath !== 'connector-hub') {
+      if (!isConnectorHubMachine(machine) || machine.connector.status !== 'online') {
         return {
           errorCode: 'disconnected',
           message: `${machine.name} is ${machine.connector.status}.`,
@@ -399,25 +403,28 @@ export function createLocalProjectMachineBackend(): Pick<
       return runDirectoryMutation(
         request.machineId,
         () => createHomeFolder(request.parentPath, request.name),
-        () => requestConnectorFolderCreate(request)
+        () => requestConnectorFolderCreate(request),
+        loadConnectorOverview
       );
     },
     async renameMachineDirectory(request) {
       return runDirectoryMutation(
         request.machineId,
         () => renameHomeFolder(request.path, request.name),
-        () => requestConnectorFolderRename(request)
+        () => requestConnectorFolderRename(request),
+        loadConnectorOverview
       );
     },
     async deleteMachineDirectories(request) {
       return runDirectoryMutation(
         request.machineId,
         () => deleteHomeFolders(request.paths),
-        () => requestConnectorFolderDelete(request)
+        () => requestConnectorFolderDelete(request),
+        loadConnectorOverview
       );
     },
     async runMachineTerminalCommand(request) {
-      const overview = await loadMergedConnectorOverview();
+      const overview = await loadConnectorOverview();
       const machine = overview.machines.find((entry) => entry.id === request.machineId);
 
       if (!machine) {
@@ -431,7 +438,7 @@ export function createLocalProjectMachineBackend(): Pick<
         };
       }
 
-      if (machine.connector.status === 'local' || machine.kind === 'local') {
+      if (isHubLocalMachine(machine)) {
         return runTerminalCommand({
           command: request.command,
           cwd: homedir()
@@ -449,7 +456,7 @@ export function createLocalProjectMachineBackend(): Pick<
         };
       }
 
-      if (machine.sourcePath === 'connector-hub') {
+      if (isConnectorHubMachine(machine)) {
         try {
           return await requestConnectorTerminalCommand(request);
         } catch (error) {

@@ -156,12 +156,13 @@ export async function createConnectorInstaller(origin: string, userId: string) {
     );
   }
   const release = connectorInstallerReleaseConfig();
+  const machineId = `connector-${randomUUID()}`;
 
   const credential = await createConnectorCredential({
+    machineId,
     ttlSeconds: connectorEnrollmentTtlSeconds,
     userId
   });
-  const machineId = `connector-${randomUUID()}`;
 
   return {
     command: connectorInstallCommand(
@@ -242,17 +243,6 @@ install -m 0755 "$tmp_dir/project-space-connector" "$install_dir/project-space-c
 install -m 0755 "$tmp_dir/project" "$install_dir/project"
 
 machine_id="$assigned_machine_id"
-if [ -f "$machine_id_file" ]; then
-  existing_machine_id="$(tr -d '\\r\\n' < "$machine_id_file")"
-  if [[ "$existing_machine_id" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$ ]]; then
-    machine_id="$existing_machine_id"
-  fi
-elif [ -f "$config_file" ]; then
-  existing_machine_id="$(sed -n 's/.*"machineId"[[:space:]]*:[[:space:]]*"\\([A-Za-z0-9._:-]*\\)".*/\\1/p' "$config_file" | head -n 1)"
-  if [[ "$existing_machine_id" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$ ]]; then
-    machine_id="$existing_machine_id"
-  fi
-fi
 
 printf '%s\n' "$registration_token" > "$credential_file"
 printf '%s' "$command_public_key_b64" | openssl base64 -d -A > "$command_public_key_file"

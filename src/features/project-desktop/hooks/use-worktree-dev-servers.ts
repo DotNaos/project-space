@@ -214,7 +214,6 @@ export function useWorktreeDevServers({
         if (targetKeyRef.current === requestKey) {
           setOverview((current) => current ? { ...current, settings } : current);
           setError('');
-          await refresh();
         }
       } catch (nextError) {
         if (targetKeyRef.current === requestKey) {
@@ -229,7 +228,7 @@ export function useWorktreeDevServers({
         }
       }
     },
-    [machineId, projectId, refresh, targetKey]
+    [machineId, projectId, targetKey]
   );
 
   const hasActiveServers = Boolean(

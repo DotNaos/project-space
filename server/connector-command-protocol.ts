@@ -125,7 +125,12 @@ export type ConnectorMachineMessage =
   | { id: string; payload: MachineDirectoryDeleteRequest; type: 'filesystem.folder.delete' };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object';
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, allowedKeys: readonly string[]) {
+  const allowed = new Set(allowedKeys);
+  return Object.keys(value).every((key) => allowed.has(key));
 }
 
 function hasCommandId(value: Record<string, unknown>) {
@@ -138,6 +143,88 @@ function isCanonicalMachineId(value: unknown): value is string {
 
 function isBoundedString(value: unknown, maximum = 4_096): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= maximum;
+}
+
+function isBoundedMetadata(value: unknown, maximum = 256): value is string {
+  return (
+    isBoundedString(value, maximum) &&
+    value.trim() === value &&
+    ![...value].some((character) => {
+      const code = character.charCodeAt(0);
+      return code < 32 || code === 127;
+    })
+  );
+}
+
+function isOptionalMetadata(value: unknown, maximum = 256) {
+  return value === undefined || isBoundedMetadata(value, maximum);
+}
+
+function hasUntrustedNetworkMetadata(value: unknown) {
+  return (
+    value === undefined ||
+    (isRecord(value) &&
+      hasOnlyKeys(value, ['localName', 'sshUser', 'tailscaleIp']) &&
+      isOptionalMetadata(value.localName) &&
+      isOptionalMetadata(value.sshUser) &&
+      isOptionalMetadata(value.tailscaleIp))
+  );
+}
+
+function hasBatteryMetadata(value: unknown) {
+  if (value === undefined) {
+    return true;
+  }
+  if (!isRecord(value) || !hasOnlyKeys(value, ['percentage', 'state'])) {
+    return false;
+  }
+
+  const validPercentage =
+    typeof value.percentage === 'number' &&
+    Number.isFinite(value.percentage) &&
+    value.percentage >= 0 &&
+    value.percentage <= 100;
+  const validState =
+    value.state === undefined ||
+    value.state === 'charged' ||
+    value.state === 'charging' ||
+    value.state === 'discharging' ||
+    value.state === 'unknown';
+  return validPercentage && validState;
+}
+
+function hasConnectorMetadata(connector: Record<string, unknown>) {
+  const validKind =
+    connector.kind === undefined ||
+    (isBoundedMetadata(connector.kind, 128) && connector.kind.toLowerCase() !== 'local');
+  const validCapabilities =
+    connector.capabilities === undefined ||
+    (Array.isArray(connector.capabilities) &&
+      connector.capabilities.length <= 64 &&
+      connector.capabilities.every((entry) => isBoundedMetadata(entry, 128)));
+
+  return (
+    hasOnlyKeys(connector, [
+      'battery',
+      'capabilities',
+      'kind',
+      'machineId',
+      'machineName',
+      'network',
+      'origin',
+      'primaryUser',
+      'serviceName'
+    ]) &&
+    isCanonicalMachineId(connector.machineId) &&
+    isBoundedMetadata(connector.machineName) &&
+    hasBatteryMetadata(connector.battery) &&
+    hasUntrustedNetworkMetadata(connector.network) &&
+    isOptionalMetadata(connector.origin, 2_048) &&
+    isOptionalMetadata(connector.primaryUser) &&
+    isOptionalMetadata(connector.serviceName) &&
+    validKind &&
+    validCapabilities
+  );
 }
 
 function hasProject(value: unknown) {
@@ -193,12 +280,7 @@ export function isConnectorProjectRegistryPayload(value: unknown): value is Conn
   const { connector, discovery } = value;
   return (
     isBoundedString(value.checkedAt, 64) &&
-    isCanonicalMachineId(connector.machineId) &&
-    isBoundedString(connector.machineName, 256) &&
-    (connector.capabilities === undefined ||
-      (Array.isArray(connector.capabilities) &&
-        connector.capabilities.length <= 64 &&
-        connector.capabilities.every((entry) => isBoundedString(entry, 128)))) &&
+    hasConnectorMetadata(connector) &&
     Array.isArray(discovery.groups) &&
     discovery.groups.length <= 1_000 &&
     discovery.groups.every(hasGroup) &&

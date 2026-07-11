@@ -16,9 +16,9 @@ talks to the connector endpoint that you explicitly run on a trusted machine.
 ## Install from Project Space
 
 Open Settings in the hosted app and explicitly generate an account installer.
-The command is valid for 15 minutes and is bound to the signed-in account only
-when that connector first registers. Generating another unused command revokes
-the previous pending enrollment.
+The command is valid for 15 minutes and is bound to both the signed-in account
+and a server-assigned machine ID. Generating another unused command revokes the
+previous pending enrollment.
 
 The installer downloads one pinned, checksum-verified macOS arm64 bundle. It
 installs both `project-space-connector` and the `project` CLI under
@@ -50,10 +50,10 @@ macOS connector needed by this feature.
 For the hosted multi-user app, copy the account-specific command from Project
 Space settings. The installer creates a private credential file, installs the
 hub command-signing public key, assigns an opaque `connector-<uuid>` machine ID,
-and starts a macOS LaunchAgent. A reinstall preserves the existing machine ID.
-PostgreSQL creates the account membership only when the short-lived enrollment
-first authenticates, then extends that bound machine credential for normal
-connector operation.
+and starts a macOS LaunchAgent. A newly generated installer replaces any local
+legacy identity with its assigned machine ID. PostgreSQL verifies that exact ID
+before it creates the account membership, then extends the bound credential for
+normal connector operation.
 
 Reinstall legacy connectors once through the account-specific command. The old
 shared registration token is not accepted when database-backed enrollment is
@@ -104,6 +104,11 @@ The connector opens an outbound authenticated WebSocket to the hub. Its API
 does not need a public or Tailscale Serve endpoint. The hub revalidates the
 stored credential on registry refreshes and closes a revoked or expired
 connection.
+
+Machine kind, host names, SSH users, and network data reported by a connector
+are display metadata, not trust signals. A connector registry can never select
+execution on the hosted server or make that server initiate SSH. Supported
+operations are routed back through the authenticated connector channel.
 
 ## Worktree Development Servers
 

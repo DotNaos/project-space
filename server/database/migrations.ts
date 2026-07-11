@@ -147,6 +147,30 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
         updated_at timestamptz not null default now()
       )
     `
+  },
+  {
+    id: '0006_connector_credential_expected_machine',
+    sql: `
+      alter table connector_credentials
+        add column expected_machine_id text;
+
+      update connector_credentials
+         set revoked_at = coalesce(revoked_at, now())
+       where machine_id is null;
+
+      update connector_credentials
+         set expected_machine_id = coalesce(
+           machine_id,
+           'revoked-enrollment-' || id::text
+         );
+
+      alter table connector_credentials
+        alter column expected_machine_id set not null,
+        add constraint connector_credentials_expected_machine_id_not_blank
+          check (btrim(expected_machine_id) <> ''),
+        add constraint connector_credentials_machine_matches_expected
+          check (machine_id is null or machine_id = expected_machine_id);
+    `
   }
 ];
 

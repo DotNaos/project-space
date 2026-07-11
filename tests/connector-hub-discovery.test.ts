@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   getRegisteredConnectorDiscovery,
+  getRegisteredConnectorMachines,
   getRegisteredConnectorRegistries,
   registerConnectorProjectRegistry
 } from '../server/connector-hub';
@@ -63,5 +64,45 @@ describe('connector discovery ownership', () => {
       (entry) => entry.registry.connector.machineId === machineId
     );
     expect(retained?.registry.discovery.projects[0]?.id).toBe('good-project');
+  });
+
+  test('rejects the reserved local kind from connector-controlled metadata', () => {
+    const payload = registry('untrusted-local-kind', 'project');
+    payload.connector.kind = 'LoCaL';
+
+    expect(() => registerConnectorProjectRegistry(payload)).toThrow('invalid');
+    expect(
+      getRegisteredConnectorMachines().some((machine) => machine.id === 'untrusted-local-kind')
+    ).toBe(false);
+  });
+
+  test('rejects malformed battery metadata before it reaches the machine UI', () => {
+    const payload = registry('untrusted-battery', 'project');
+    payload.connector.battery = { percentage: '100' } as unknown as {
+      percentage: number;
+    };
+
+    expect(() => registerConnectorProjectRegistry(payload)).toThrow('invalid');
+  });
+
+  test('does not materialize connector kind or network as execution metadata', () => {
+    const payload = registry('untrusted-execution-metadata', 'project');
+    payload.connector.kind = 'linux';
+    payload.connector.network = {
+      localName: 'attacker.invalid',
+      sshUser: 'root',
+      tailscaleIp: '203.0.113.17'
+    };
+    registerConnectorProjectRegistry(payload);
+
+    const machine = getRegisteredConnectorMachines().find(
+      (entry) => entry.id === 'untrusted-execution-metadata'
+    );
+    expect(machine).toMatchObject({
+      connector: { status: 'online' },
+      kind: 'connector',
+      network: {},
+      sourcePath: 'connector-hub'
+    });
   });
 });

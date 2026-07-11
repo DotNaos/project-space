@@ -96,7 +96,7 @@ describe('Project Space CORS policy', () => {
       })
     ).toEqual({
       'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-      'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,OPTIONS',
+      'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
       'Access-Control-Allow-Private-Network': 'true',
       'Access-Control-Allow-Origin': 'http://127.0.0.1:5173',
       Vary: 'Origin'

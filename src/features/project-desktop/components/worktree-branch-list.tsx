@@ -123,7 +123,7 @@ export function WorktreeBranchList({
                   : 'text-neutral-300 hover:bg-neutral-900/80 hover:text-neutral-100'
               )}
             >
-              <div className="flex min-w-0 items-center">
+              <div className="flex min-w-0 flex-col sm:flex-row sm:items-center">
                 <button
                   type="button"
                   onClick={() => {
@@ -166,7 +166,9 @@ export function WorktreeBranchList({
                   ) : null}
                 </button>
                 {renderWorktreeAction ? (
-                  <div className="shrink-0 pr-2">{renderWorktreeAction(worktree)}</div>
+                  <div className="flex shrink-0 justify-start px-2 pb-2 pl-10 sm:justify-end sm:pb-0 sm:pl-0">
+                    {renderWorktreeAction(worktree)}
+                  </div>
                 ) : null}
               </div>
               {renderWorktreeDetails?.(worktree)}

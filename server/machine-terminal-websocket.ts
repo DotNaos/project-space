@@ -15,6 +15,8 @@ import {
 } from './local-auth-store';
 import { ProjectSpaceAccessError } from './authorized-project-space-backend';
 import type { MachineRecord, ProjectSpaceBackend } from '../src/shared/project-space-api';
+import { isConnectorHubMachine, isHubLocalMachine } from './connector-hub';
+import { createMachineSshTarget } from './local-project-machines';
 
 interface TerminalClientMessage {
   cols?: number;
@@ -177,20 +179,30 @@ function ensureNodePtySpawnHelperExecutable() {
 }
 
 function isMachineConnected(machine: MachineRecord) {
-  return machine.connector.status === 'local' || machine.connector.status === 'online';
+  return isHubLocalMachine(machine) || machine.connector.status === 'online';
 }
 
-function createMachineSshTarget(machine: MachineRecord) {
-  const host = machine.network.localName ?? machine.name ?? machine.network.tailscaleIp;
-
-  if (!host) {
-    return '';
+export function resolveMachineTerminalTransport(machine: MachineRecord) {
+  if (isConnectorHubMachine(machine)) {
+    return { kind: 'connector' as const };
   }
-
-  return machine.network.sshUser ? `${machine.network.sshUser}@${host}` : host;
+  if (isHubLocalMachine(machine)) {
+    return { kind: 'local' as const };
+  }
+  const target = createMachineSshTarget(machine);
+  return target ? { kind: 'ssh' as const, target } : { kind: 'unavailable' as const };
 }
 
 async function createTerminalProcess(machine: MachineRecord, cols: number, rows: number) {
+  const transport = resolveMachineTerminalTransport(machine);
+  if (transport.kind === 'connector') {
+    throw new ProjectSpaceAccessError(
+      `${machine.name} must open interactive terminals through its machine connector.`
+    );
+  }
+  if (transport.kind === 'unavailable') {
+    throw new Error(`${machine.name} does not have an SSH target.`);
+  }
   ensureNodePtySpawnHelperExecutable();
   const { spawn: spawnPty } = await import('node-pty');
 
@@ -202,20 +214,14 @@ async function createTerminalProcess(machine: MachineRecord, cols: number, rows:
     rows
   };
 
-  if (machine.connector.status === 'local' || machine.kind === 'local') {
+  if (transport.kind === 'local') {
     const shell = getCommandShell();
     return spawnPty(shell, ['-l'], ptyOptions);
   }
 
-  const target = createMachineSshTarget(machine);
-
-  if (!target) {
-    throw new Error(`${machine.name} does not have an SSH target.`);
-  }
-
   return spawnPty(
     'ssh',
-    ['-tt', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', target],
+    ['-tt', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', transport.target],
     ptyOptions
   );
 }

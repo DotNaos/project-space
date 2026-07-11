@@ -29,7 +29,7 @@ export function projectSpaceCorsHeaders(environment: NodeJS.ProcessEnv = process
 
     return {
       'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-      'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,OPTIONS',
+      'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
       'Access-Control-Allow-Private-Network': 'true',
       'Access-Control-Allow-Origin': origin.origin,
       Vary: 'Origin'

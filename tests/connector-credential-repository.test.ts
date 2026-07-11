@@ -57,6 +57,7 @@ describe('connector credential repository', () => {
     const repository = createRepository(client);
 
     const created = await repository.createConnectorCredential({
+      machineId: ' assigned-macbook ',
       ttlSeconds: 86_400,
       userId: ' user-a '
     });
@@ -80,6 +81,7 @@ describe('connector credential repository', () => {
       credentialId,
       'user-a',
       tokenHash,
+      'assigned-macbook',
       86_400
     ]);
     expect(client.calls[0]?.sql).toBe('begin');
@@ -95,6 +97,7 @@ describe('connector credential repository', () => {
         expect(values).toEqual([tokenHash]);
         return [{
           expires_at: expiresAt,
+          expected_machine_id: 'macbook',
           id: credentialId,
           machine_id: null,
           owner_user_id: 'user-a'
@@ -138,9 +141,39 @@ describe('connector credential repository', () => {
     expect(bindingCall?.sql).toContain('last_seen_at = now()');
     expect(bindingCall?.sql).toContain('when machine_id is null');
     expect(bindingCall?.sql).toContain('and (machine_id is null or machine_id = $2)');
+    expect(bindingCall?.sql).toContain('and expected_machine_id = $2');
     expect(bindingCall?.values).toEqual([credentialId, 'macbook', 365 * 24 * 60 * 60]);
     expect(client.calls.at(-1)?.sql).toBe('commit');
     expect(JSON.stringify(client.calls)).not.toContain(token);
+  });
+
+  test('refuses first bind when the connector reports a different machine than its enrollment', async () => {
+    const client = new ScriptedQueryClient((sql) => {
+      if (sql.includes('from connector_credentials') && sql.includes('for update')) {
+        return [{
+          expected_machine_id: 'assigned-macbook',
+          expires_at: expiresAt,
+          id: credentialId,
+          machine_id: null,
+          owner_user_id: 'user-a'
+        }];
+      }
+
+      return [];
+    });
+    const repository = createRepository(client);
+
+    await expect(repository.authenticateConnectorCredential({
+      machineId: 'attacker-machine',
+      token
+    })).resolves.toBeNull();
+    expect(
+      client.calls.some((call) => call.sql.includes('insert into machine_memberships'))
+    ).toBe(false);
+    expect(
+      client.calls.some((call) => call.sql.includes('pg_advisory_xact_lock'))
+    ).toBe(false);
+    expect(client.calls.at(-1)?.sql).toBe('commit');
   });
 
   test('refuses a token that is already bound to a different machine', async () => {
@@ -148,6 +181,7 @@ describe('connector credential repository', () => {
       if (sql.includes('from connector_credentials') && sql.includes('for update')) {
         return [{
           expires_at: expiresAt,
+          expected_machine_id: 'desktop',
           id: credentialId,
           machine_id: 'desktop',
           owner_user_id: 'user-a'
@@ -177,6 +211,7 @@ describe('connector credential repository', () => {
       if (sql.includes('from connector_credentials') && sql.includes('for update')) {
         return [{
           expires_at: expiresAt,
+          expected_machine_id: 'macbook',
           id: credentialId,
           machine_id: null,
           owner_user_id: 'user-a'

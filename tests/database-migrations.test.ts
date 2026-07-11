@@ -40,7 +40,8 @@ describe('database migrations', () => {
       '0002_machine_memberships_and_run_settings',
       '0003_dev_server_sessions',
       '0004_connector_credentials',
-      '0005_user_project_states'
+      '0005_user_project_states',
+      '0006_connector_credential_expected_machine'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -52,6 +53,12 @@ describe('database migrations', () => {
     expect(sql).toContain('foreign key (machine_id, user_id)');
     expect(sql).toContain('create table if not exists dev_server_sessions');
     expect(sql).toContain('foreign key (machine_id, owner_user_id)');
+    expect(sql).toContain('add column expected_machine_id text');
+    expect(sql).toContain("'revoked-enrollment-' || id::text");
+    expect(sql).toContain('alter column expected_machine_id set not null');
+    expect(sql).toContain('connector_credentials_expected_machine_id_not_blank');
+    expect(sql).toContain('connector_credentials_machine_matches_expected');
+    expect(sql).toContain('machine_id is null or machine_id = expected_machine_id');
     expect(sql).toContain('create table if not exists user_project_states');
     expect(sql).toContain('user_id text primary key');
     expect(sql).toContain('state jsonb not null');
@@ -83,6 +90,7 @@ describe('database migrations', () => {
     expect(client.calls.some((call) => call.sql === databaseMigrations[2].sql)).toBe(true);
     expect(client.calls.some((call) => call.sql === databaseMigrations[3].sql)).toBe(true);
     expect(client.calls.some((call) => call.sql === databaseMigrations[4].sql)).toBe(true);
+    expect(client.calls.some((call) => call.sql === databaseMigrations[5].sql)).toBe(true);
     expect(client.calls.at(-1)?.sql).toBe('commit');
     expect(client.applied).toEqual(
       new Map(

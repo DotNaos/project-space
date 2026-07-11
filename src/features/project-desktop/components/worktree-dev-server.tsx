@@ -6,7 +6,8 @@ import {
   LoaderCircle,
   Play,
   RotateCcw,
-  Square
+  Square,
+  X
 } from 'lucide-react';
 
 import { Button, Text } from '@/app/dotnaos-ui';
@@ -53,6 +54,26 @@ function visibleTailscaleUrl(server: WorktreeDevServerRecord | undefined) {
       : undefined;
   } catch {
     return undefined;
+  }
+}
+
+function copyTextWithSelection(value: string) {
+  const input = document.createElement('textarea');
+  input.value = value;
+  input.readOnly = true;
+  input.style.position = 'fixed';
+  input.style.opacity = '0';
+  input.style.pointerEvents = 'none';
+  document.body.append(input);
+  input.select();
+  input.setSelectionRange(0, value.length);
+
+  try {
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    input.remove();
   }
 }
 
@@ -167,12 +188,14 @@ export function WorktreeDevServerDetails({
   machineName?: string;
   server?: WorktreeDevServerRecord;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<
+    'idle' | 'copying' | 'copied' | 'error'
+  >('idle');
   const [, setFreshnessTick] = useState(0);
   const url = visibleTailscaleUrl(server);
 
   useEffect(() => {
-    setCopied(false);
+    setCopyState('idle');
   }, [url]);
 
   useEffect(() => {
@@ -197,13 +220,30 @@ export function WorktreeDevServerDetails({
       return;
     }
 
+    setCopyState('copying');
+    let copied = false;
+    let timeout = 0;
     try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1_500);
+      const clipboardWrite = navigator.clipboard?.writeText
+        ? navigator.clipboard.writeText(url)
+        : Promise.reject(new Error('Clipboard API is unavailable.'));
+      await Promise.race([
+        clipboardWrite,
+        new Promise<never>((_, reject) => {
+          timeout = window.setTimeout(
+            () => reject(new Error('Clipboard write timed out.')),
+            750
+          );
+        })
+      ]);
+      copied = true;
     } catch {
-      setCopied(false);
+      copied = copyTextWithSelection(url);
+    } finally {
+      window.clearTimeout(timeout);
     }
+    setCopyState(copied ? 'copied' : 'error');
+    window.setTimeout(() => setCopyState('idle'), 2_000);
   }
 
   return (
@@ -211,7 +251,7 @@ export function WorktreeDevServerDetails({
       aria-live="polite"
       className="ml-10 mr-3 border-l border-neutral-800 px-3 pb-3 pt-1 text-xs"
     >
-      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+      <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3">
         <span
           className={cn(
             'font-medium',
@@ -224,27 +264,43 @@ export function WorktreeDevServerDetails({
         </span>
 
         {url ? (
-          <>
+          <div className="flex w-full min-w-0 items-center gap-1.5 sm:w-auto">
             <a
               href={url}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex min-w-0 items-center gap-1.5 font-mono text-neutral-100 underline decoration-neutral-700 underline-offset-4 transition hover:decoration-neutral-200"
+              className="inline-flex min-w-0 flex-1 items-center gap-1.5 font-mono text-neutral-100 underline decoration-neutral-700 underline-offset-4 transition hover:decoration-neutral-200 sm:flex-initial"
             >
-              <span className="max-w-[24rem] truncate">{url}</span>
-              <ExternalLink className="size-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate sm:max-w-[24rem]">{url}</span>
+              <ExternalLink className="-order-1 size-3.5 shrink-0 sm:order-none" />
             </a>
             <Button
-              aria-label="Copy Tailscale URL"
+              aria-label={
+                copyState === 'copied'
+                  ? 'Tailscale URL copied'
+                  : copyState === 'copying'
+                    ? 'Copying Tailscale URL'
+                    : copyState === 'error'
+                      ? 'Could not copy Tailscale URL'
+                      : 'Copy Tailscale URL'
+              }
               size="sm"
               variant="ghost"
               isIconOnly
               onPress={() => void copyUrl()}
-              className="min-h-7"
+              className="-order-1 min-h-7 shrink-0 sm:order-none"
             >
-              {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+              {copyState === 'copying' ? (
+                <LoaderCircle className="size-3.5 animate-spin" />
+              ) : copyState === 'copied' ? (
+                <Check className="size-3.5" />
+              ) : copyState === 'error' ? (
+                <X className="size-3.5 text-red-300" />
+              ) : (
+                <Copy className="size-3.5" />
+              )}
             </Button>
-          </>
+          </div>
         ) : null}
       </div>
 
@@ -252,7 +308,7 @@ export function WorktreeDevServerDetails({
         <Text className="mt-1.5 block max-w-3xl text-red-300/80">{server.lastError}</Text>
       ) : null}
       {server.localUrl && url ? (
-        <Text className="mt-1 block font-mono text-[11px] text-neutral-600">
+        <Text className="mt-1 block truncate font-mono text-[11px] text-neutral-600">
           Local {server.localUrl}
         </Text>
       ) : null}

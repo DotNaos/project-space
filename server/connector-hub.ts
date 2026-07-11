@@ -15,6 +15,17 @@ interface RegisteredConnector {
 
 const registryTtlMs = 2 * 60 * 1000;
 const registries = new Map<string, RegisteredConnector>();
+export const connectorHubSourcePath = 'connector-hub';
+
+export function isConnectorHubMachine(machine: Pick<MachineRecord, 'sourcePath'>) {
+  return machine.sourcePath === connectorHubSourcePath;
+}
+
+export function isHubLocalMachine(
+  machine: Pick<MachineRecord, 'connector' | 'sourcePath'>
+) {
+  return !isConnectorHubMachine(machine) && machine.connector.status === 'local';
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -89,7 +100,7 @@ export function registerConnectorProjectRegistry(registry: ConnectorProjectRegis
 
   registries.set(machineId, {
     receivedAt: nowIso(),
-    registry
+    registry: structuredClone(registry)
   });
 }
 
@@ -112,12 +123,12 @@ export function getRegisteredConnectorMachines(): MachineRecord[] {
       status: 'online'
     },
     id: registry.connector.machineId,
-    kind: registry.connector.kind ?? 'connector',
+    kind: 'connector',
     name: registry.connector.machineName,
-    network: registry.connector.network ?? {},
+    network: {},
     primaryUser: registry.connector.primaryUser,
     roles: ['connector'],
-    sourcePath: 'connector-hub'
+    sourcePath: connectorHubSourcePath
   }));
 }
 

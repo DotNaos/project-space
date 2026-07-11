@@ -13,6 +13,7 @@ import type {
 
 interface ConnectorCredentialRow {
   created_at: Date | string;
+  expected_machine_id: string;
   expires_at: Date | string;
   id: string;
   last_seen_at: Date | string | null;
@@ -129,6 +130,7 @@ export class ConnectorCredentialRepository {
   }
 
   async create(input: CreateConnectorCredentialInput): Promise<CreatedConnectorCredential> {
+    const machineId = requireValue(input.machineId, 'machineId');
     const userId = requireValue(input.userId, 'userId');
     const ttlSeconds = normalizeTtl(input.ttlSeconds);
     const token = this.createToken();
@@ -152,10 +154,12 @@ export class ConnectorCredentialRepository {
       );
 
       const result = await transaction.query<ConnectorCredentialRow>(
-        `insert into connector_credentials (id, owner_user_id, token_hash, expires_at)
-         values ($1, $2, $3, now() + ($4 * interval '1 second'))
+        `insert into connector_credentials (
+           id, owner_user_id, token_hash, expected_machine_id, expires_at
+         )
+         values ($1, $2, $3, $4, now() + ($5 * interval '1 second'))
          returning id, owner_user_id, machine_id, expires_at`,
-        [this.options.createId(), userId, hashToken(token), ttlSeconds]
+        [this.options.createId(), userId, hashToken(token), machineId, ttlSeconds]
       );
 
       return result.rows[0];
@@ -188,7 +192,7 @@ export class ConnectorCredentialRepository {
     try {
       return await runTransaction(this.client, async (transaction) => {
         const credentialResult = await transaction.query<ConnectorCredentialRow>(
-          `select id, owner_user_id, machine_id, expires_at
+          `select id, owner_user_id, expected_machine_id, machine_id, expires_at
              from connector_credentials
             where token_hash = $1
               and revoked_at is null
@@ -198,7 +202,11 @@ export class ConnectorCredentialRepository {
         );
         const credential = credentialResult.rows[0];
 
-        if (!credential || (credential.machine_id && credential.machine_id !== machineId)) {
+        if (
+          !credential ||
+          credential.expected_machine_id !== machineId ||
+          (credential.machine_id !== null && credential.machine_id !== machineId)
+        ) {
           return null;
         }
 
@@ -225,6 +233,7 @@ export class ConnectorCredentialRepository {
                   end,
                   last_seen_at = now()
             where id = $1
+              and expected_machine_id = $2
               and (machine_id is null or machine_id = $2)
               and revoked_at is null
               and expires_at > now()

@@ -102,6 +102,7 @@ export interface TransitionDevServerSessionInput extends DevServerSessionKey {
 }
 
 export interface CreateConnectorCredentialInput {
+  machineId: string;
   ttlSeconds?: number;
   userId: string;
 }
