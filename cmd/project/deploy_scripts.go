@@ -221,6 +221,20 @@ persist_verified() {
   printf '%%s\n' "$verified_commit" > "$verified_tmp" && chmod 600 "$verified_tmp" && mv -f "$verified_tmp" "$verified_file" || return 1
 }
 
+retry_public_get() {
+  public_url="$1"
+  public_attempt=1
+  while [ "$public_attempt" -le 10 ]; do
+    public_response="$(curl --fail --silent --max-time 2 "$public_url" 2>/dev/null)" && {
+      printf '%%s' "$public_response"
+      return 0
+    }
+    public_attempt=$((public_attempt + 1))
+    sleep 2
+  done
+  return 1
+}
+
 write_env() {
   deploy_commit="$1"
   deploy_version="$(git show "$deploy_commit:package.json" | jq -er '.version')" || return 1
@@ -266,12 +280,12 @@ verify_release() {
   image_commit="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image_id")" || return 1
   if [ "$strict_health" = true ]; then [ "$image_commit" = "$verify_commit" ] || return 1; fi
   docker exec "$web_container" bun -e "const r=await fetch('http://127.0.0.1:4173/api/health');const b=await r.json();if(!r.ok||b.ok!==true)process.exit(1)" >/dev/null || return 1
-  meta="$(curl --fail --silent --show-error --max-time 20 "$web_url/api/app/meta")" || return 1
+  meta="$(retry_public_get "$web_url/api/app/meta")" || return 1
   meta_commit="$(printf '%%s' "$meta" | jq -er '.commit')" || return 1
   [ "$meta_commit" = "$verify_commit" ] || return 1
-  health="$(curl --fail --silent --show-error --max-time 20 "$web_url/api/health")" || return 1
+  health="$(retry_public_get "$web_url/api/health")" || return 1
   printf '%%s' "$health" | jq -e '.ok == true' >/dev/null || return 1
-  curl --fail --silent --show-error --max-time 20 --output /dev/null "$web_url/" || return 1
+  retry_public_get "$web_url/" >/dev/null || return 1
   event evidence runningBuildCommit "$running_commit"
   event evidence containerImageId "$image_id"
   event evidence composeHealthy true
