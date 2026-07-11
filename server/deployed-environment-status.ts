@@ -82,12 +82,20 @@ export async function getDeployedEnvironmentStatus(
   const run = options.run ?? runProjectBinary;
   const cwd = resolve(options.cwd ?? process.env.PROJECT_SPACE_BACKEND_REPO_PATH ?? process.cwd());
   const normalizedRepository = repositoryFullName.trim().toLowerCase();
+  const safeGitEnvironment = {
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'safe.directory',
+    GIT_CONFIG_VALUE_0: cwd
+  };
   if (!repositoryName.test(repositoryFullName)) {
     return { checkedAt, environments: [], repositoryFullName, status: 'unauthorized' };
   }
   if (!options.run) {
     try {
-      const { stdout } = await execFileAsync('git', ['config', '--get', 'remote.origin.url'], { cwd });
+      const { stdout } = await execFileAsync('git', ['config', '--get', 'remote.origin.url'], {
+        cwd,
+        env: { ...process.env, ...safeGitEnvironment }
+      });
       const match = stdout.trim().match(/github\.com[/:]([^/]+\/[^/.]+)(?:\.git)?$/i);
       if (match?.[1]?.toLowerCase() !== normalizedRepository) {
         return { checkedAt, environments: [], repositoryFullName, status: 'unauthorized' };
@@ -96,7 +104,12 @@ export async function getDeployedEnvironmentStatus(
       return { checkedAt, environments: [], repositoryFullName, status: 'unavailable' };
     }
   }
-  const result = await run(['deploy', 'status', '--all-envs', '--format', 'json'], cwd);
+  const result = options.run
+    ? await run(['deploy', 'status', '--all-envs', '--format', 'json'], cwd)
+    : await runProjectBinary(['deploy', 'status', '--all-envs', '--format', 'json'], cwd, {
+        environment: safeGitEnvironment,
+        timeoutMs: 120_000
+      });
   if (result.exitCode !== 0) {
     return { checkedAt, environments: [], repositoryFullName, status: 'unavailable' };
   }
