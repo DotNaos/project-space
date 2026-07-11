@@ -32,6 +32,8 @@ services:
       PROJECT_CONNECTOR_REGISTRATION_TOKEN: ${PROJECT_CONNECTOR_REGISTRATION_TOKEN:-}
       PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64: ${PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64:-}
       PROJECT_CONNECTOR_SERVICE_NAME: ${PROJECT_COMPOSE_NAME:-project-space-prod}-web
+      PROJECT_DEPLOY_ENVIRONMENT: ${PROJECT_ENV:-prod}
+      PROJECT_DEPLOY_STATE_ROOT: /workspace/deploy-state
     healthcheck:
       test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:4173/api/health'); const b=await r.json(); if(!r.ok||b.ok!==true) process.exit(1)"]
       interval: 10s
@@ -42,6 +44,7 @@ services:
     restart: unless-stopped
     volumes:
       - ..:/workspace/backend-repo:ro
+      - /opt/platform/state:/workspace/deploy-state:ro
       - ../ssh:/root/.ssh:ro
     depends_on:
       db:

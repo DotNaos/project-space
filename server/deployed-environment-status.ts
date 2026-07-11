@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { execFile } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 
 import { runProjectBinary, type ProjectBinaryRunResult } from './local-project-cli-client';
@@ -74,6 +75,33 @@ export function sanitizeDeployedEnvironment(raw: RawEnvironment): DeployedEnviro
   };
 }
 
+async function reconcileCurrentEnvironment(
+  environment: DeployedEnvironmentStatus,
+  checkedAt: string,
+  repositoryFullName: string
+) {
+  const currentId = process.env.PROJECT_DEPLOY_ENVIRONMENT?.trim();
+  const buildCommit = process.env.PROJECT_SPACE_BUILD_COMMIT?.trim().toLowerCase();
+  const stateRoot = process.env.PROJECT_DEPLOY_STATE_ROOT?.trim();
+  if (!currentId || environment.id !== currentId || !stateRoot || !buildCommit || !fullSha.test(buildCommit)) {
+    return environment;
+  }
+  try {
+    const projectName = process.env.PROJECT_SPACE_BUILD_NAME?.trim() || 'project-space';
+    const verified = (await readFile(`${stateRoot}/${projectName}-${currentId}/verified.sha`, 'utf8')).trim().toLowerCase();
+    if (verified !== buildCommit) return { ...environment, verification: 'inconsistent' as const };
+    return {
+      ...environment,
+      deployedSha: buildCommit,
+      githubUrl: `https://github.com/${repositoryFullName}/commit/${buildCommit}`,
+      verification: 'healthy' as const,
+      verifiedAt: checkedAt
+    };
+  } catch {
+    return environment;
+  }
+}
+
 export async function getDeployedEnvironmentStatus(
   repositoryFullName: string,
   options: { cwd?: string; run?: (args: string[], cwd: string) => Promise<ProjectBinaryRunResult> } = {}
@@ -124,16 +152,16 @@ export async function getDeployedEnvironmentStatus(
     }
     return {
       checkedAt,
-      environments: matchingEnvironments.map((environment) => {
+      environments: await Promise.all(matchingEnvironments.map(async (environment) => {
         const sanitized = sanitizeDeployedEnvironment(environment);
-        return {
+        return reconcileCurrentEnvironment({
           ...sanitized,
           githubUrl: sanitized.deployedSha
             ? `https://github.com/${repositoryFullName}/commit/${sanitized.deployedSha}`
             : undefined,
           verifiedAt: checkedAt
-        };
-      }),
+        }, checkedAt, repositoryFullName);
+      })),
       repositoryFullName,
       status: 'available'
     };
