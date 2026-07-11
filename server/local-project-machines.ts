@@ -10,7 +10,7 @@ import { configuredConnectorMachineId } from './project-connector-config';
 
 export async function loadMergedConnectorOverview() {
   const connector = await getConnectorOverview();
-  const registeredMachines = getRegisteredConnectorMachines();
+  const registeredMachines = await getRegisteredConnectorMachines();
   const assignedMachineId = configuredConnectorMachineId();
   const localMachines = connector.machines
     .filter((machine) => !isWebHubMachine(machine))

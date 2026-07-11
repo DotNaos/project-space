@@ -38,7 +38,16 @@ export function formatRelativeTime(timestamp: number) {
 }
 
 export function machineSubtitle(machine: MachineRecord) {
-  return [machine.kind, machine.profile, machine.network.localName].filter(Boolean).join(' / ');
+  const identity = [machine.kind, machine.profile, machine.network.localName]
+    .filter(Boolean)
+    .join(' / ');
+  if (machine.connector.status !== 'offline') {
+    return identity;
+  }
+  const lastSeen = formatOptionalTime(machine.connector.lastSeen);
+  return [`Offline · last seen ${lastSeen} · last-known projects`, identity]
+    .filter(Boolean)
+    .join(' / ');
 }
 
 export function getMachineId(project: ProjectSpaceRecord) {

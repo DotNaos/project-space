@@ -6,6 +6,7 @@ import type { DatabaseQueryClient } from './database/client';
 import { runDatabaseMigrations } from './database/migrations';
 import type { TransactionalDatabaseQueryClient } from './machine-connection-database-store';
 import { PostgresProjectChatRepository } from './project-chat/postgres-store';
+import { ConnectorMachineSnapshotStore } from './connector-machine-snapshot-store';
 import type {
   AuthenticateConnectorCredentialInput,
   CreateDevServerSessionInput,
@@ -64,6 +65,7 @@ interface GitHubOAuthTokenRow {
 let pool: pg.Pool | null = null;
 let repository: ProjectSpaceDatabaseRepository | null = null;
 let projectChatRepository: PostgresProjectChatRepository | null = null;
+let connectorMachineSnapshotStore: ConnectorMachineSnapshotStore | null = null;
 let schemaReady: Promise<void> | null = null;
 
 function databaseUrl() {
@@ -229,6 +231,18 @@ export async function getMachineConnectionDatabaseClient(): Promise<
   await ensureDatabaseSchema();
 
   return createPoolQueryClient(databasePool);
+}
+
+export async function getConnectorMachineSnapshotStore() {
+  const databasePool = getPool();
+  if (!databasePool) {
+    return null;
+  }
+  await ensureDatabaseSchema();
+  connectorMachineSnapshotStore ??= new ConnectorMachineSnapshotStore(
+    createPoolQueryClient(databasePool)
+  );
+  return connectorMachineSnapshotStore;
 }
 
 export async function readGitHubOAuthToken(

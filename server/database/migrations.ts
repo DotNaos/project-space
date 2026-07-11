@@ -364,6 +364,28 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
     `
   },
   {
+    id: '0010_connector_machine_snapshots',
+    sql: `
+      create table connector_machine_snapshots (
+        machine_id text primary key check (btrim(machine_id) <> ''),
+        machine_name text not null check (btrim(machine_name) <> ''),
+        registry jsonb not null check (jsonb_typeof(registry) = 'object'),
+        first_seen_at timestamptz not null,
+        last_seen_at timestamptz not null check (last_seen_at >= first_seen_at),
+        removed_at timestamptz,
+        removed_by_user_id text,
+        check (
+          (removed_at is null and removed_by_user_id is null) or
+          (removed_at is not null and removed_by_user_id is not null and btrim(removed_by_user_id) <> '')
+        )
+      );
+
+      create index connector_machine_snapshots_last_seen_idx
+        on connector_machine_snapshots (last_seen_at desc)
+        where removed_at is null;
+    `
+  },
+  {
     id: '0011_github_catalog_cache',
     sql: `
       create table if not exists github_catalog_cache (
@@ -415,9 +437,7 @@ export async function runDatabaseMigrations(
       const appliedChecksum = applied.get(migration.id);
 
       if (appliedChecksum && appliedChecksum !== checksum) {
-        throw new Error(
-          `Database migration ${migration.id} changed after it was applied.`
-        );
+        throw new Error(`Database migration ${migration.id} changed after it was applied.`);
       }
       if (appliedChecksum) {
         continue;

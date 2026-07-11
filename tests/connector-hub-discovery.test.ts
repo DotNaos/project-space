@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, setSystemTime, test } from 'bun:test';
 
 import {
   getRegisteredConnectorDiscovery,
@@ -23,7 +23,12 @@ function registry(machineId: string, localProjectId: string): ConnectorProjectRe
         }
       ],
       rootItems: [
-        { id: localProjectId, kind: 'project', label: localProjectId, projectId: localProjectId }
+        {
+          id: localProjectId,
+          kind: 'project',
+          label: localProjectId,
+          projectId: localProjectId
+        }
       ],
       rootPath: `/${machineId}`,
       structureViolations: []
@@ -32,11 +37,13 @@ function registry(machineId: string, localProjectId: string): ConnectorProjectRe
 }
 
 describe('connector discovery ownership', () => {
-  test('always namespaces connector IDs and retains structural machine ownership', () => {
-    registerConnectorProjectRegistry(registry('collision-a', 'collision-b:project'));
-    registerConnectorProjectRegistry(registry('collision-a:collision-b', 'project'));
+  afterEach(() => setSystemTime());
 
-    const projects = getRegisteredConnectorDiscovery().projects.filter((project) =>
+  test('always namespaces connector IDs and retains structural machine ownership', async () => {
+    await registerConnectorProjectRegistry(registry('collision-a', 'collision-b:project'));
+    await registerConnectorProjectRegistry(registry('collision-a:collision-b', 'project'));
+
+    const projects = (await getRegisteredConnectorDiscovery()).projects.filter((project) =>
       project.machineId?.startsWith('collision-a')
     );
     expect(projects).toHaveLength(2);
@@ -46,11 +53,11 @@ describe('connector discovery ownership', () => {
     );
   });
 
-  test('rejects a malformed refresh without replacing the last valid registry', () => {
+  test('rejects a malformed refresh without replacing the last valid registry', async () => {
     const machineId = 'malformed-refresh-machine';
-    registerConnectorProjectRegistry(registry(machineId, 'good-project'));
+    await registerConnectorProjectRegistry(registry(machineId, 'good-project'));
 
-    expect(() =>
+    await expect(
       registerConnectorProjectRegistry({
         ...registry(machineId, 'replacement'),
         discovery: {
@@ -58,34 +65,36 @@ describe('connector discovery ownership', () => {
           projects: [null]
         }
       } as unknown as ConnectorProjectRegistryResult)
-    ).toThrow('invalid');
+    ).rejects.toThrow('invalid');
 
-    const retained = getRegisteredConnectorRegistries().find(
+    const retained = (await getRegisteredConnectorRegistries()).find(
       (entry) => entry.registry.connector.machineId === machineId
     );
     expect(retained?.registry.discovery.projects[0]?.id).toBe('good-project');
   });
 
-  test('rejects the reserved local kind from connector-controlled metadata', () => {
+  test('rejects the reserved local kind from connector-controlled metadata', async () => {
     const payload = registry('untrusted-local-kind', 'project');
     payload.connector.kind = 'LoCaL';
 
-    expect(() => registerConnectorProjectRegistry(payload)).toThrow('invalid');
+    await expect(registerConnectorProjectRegistry(payload)).rejects.toThrow('invalid');
     expect(
-      getRegisteredConnectorMachines().some((machine) => machine.id === 'untrusted-local-kind')
+      (await getRegisteredConnectorMachines()).some(
+        (machine) => machine.id === 'untrusted-local-kind'
+      )
     ).toBe(false);
   });
 
-  test('rejects malformed battery metadata before it reaches the machine UI', () => {
+  test('rejects malformed battery metadata before it reaches the machine UI', async () => {
     const payload = registry('untrusted-battery', 'project');
     payload.connector.battery = { percentage: '100' } as unknown as {
       percentage: number;
     };
 
-    expect(() => registerConnectorProjectRegistry(payload)).toThrow('invalid');
+    await expect(registerConnectorProjectRegistry(payload)).rejects.toThrow('invalid');
   });
 
-  test('does not materialize connector kind or network as execution metadata', () => {
+  test('does not materialize connector kind or network as execution metadata', async () => {
     const payload = registry('untrusted-execution-metadata', 'project');
     payload.connector.kind = 'linux';
     payload.connector.network = {
@@ -93,9 +102,9 @@ describe('connector discovery ownership', () => {
       sshUser: 'root',
       tailscaleIp: '203.0.113.17'
     };
-    registerConnectorProjectRegistry(payload);
+    await registerConnectorProjectRegistry(payload);
 
-    const machine = getRegisteredConnectorMachines().find(
+    const machine = (await getRegisteredConnectorMachines()).find(
       (entry) => entry.id === 'untrusted-execution-metadata'
     );
     expect(machine).toMatchObject({
@@ -104,5 +113,39 @@ describe('connector discovery ownership', () => {
       network: {},
       sourcePath: 'connector-hub'
     });
+  });
+
+  test('keeps a stale machine and projects offline, then reconnects without duplication', async () => {
+    const machineId = 'persistent-transition-machine';
+    setSystemTime(new Date('2026-07-11T00:00:00.000Z'));
+    await registerConnectorProjectRegistry(registry(machineId, 'before-restart'));
+    expect(
+      (await getRegisteredConnectorMachines()).find((machine) => machine.id === machineId)
+        ?.connector.status
+    ).toBe('online');
+
+    setSystemTime(new Date('2026-07-11T00:03:00.000Z'));
+    const offlineMachines = (await getRegisteredConnectorMachines()).filter(
+      (machine) => machine.id === machineId
+    );
+    expect(offlineMachines).toHaveLength(1);
+    expect(offlineMachines[0]?.connector.status).toBe('offline');
+    expect(
+      (await getRegisteredConnectorDiscovery()).projects.some(
+        (project) => project.machineId === machineId && project.name === 'before-restart'
+      )
+    ).toBe(true);
+
+    await registerConnectorProjectRegistry(registry(machineId, 'after-reconnect'));
+    const onlineMachines = (await getRegisteredConnectorMachines()).filter(
+      (machine) => machine.id === machineId
+    );
+    expect(onlineMachines).toHaveLength(1);
+    expect(onlineMachines[0]?.connector.status).toBe('online');
+    expect(
+      (await getRegisteredConnectorDiscovery()).projects.some(
+        (project) => project.machineId === machineId && project.name === 'after-reconnect'
+      )
+    ).toBe(true);
   });
 });

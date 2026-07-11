@@ -600,7 +600,7 @@ export function createConnectorCommandUpgradeHandler(
         }
 
         try {
-          registerConnectorProjectRegistry(message.payload);
+          await registerConnectorProjectRegistry(message.payload);
         } catch {
           socket.close(1008, 'Connector registration failed.');
           return;
@@ -642,7 +642,7 @@ export function createConnectorCommandUpgradeHandler(
         if (!(await revalidateCredential()) || socket.readyState !== WebSocket.OPEN) {
           return;
         }
-        registerConnectorProjectRegistry(message.payload);
+        await registerConnectorProjectRegistry(message.payload);
         updateConnectorCapabilities(machineId, message.payload.connector.capabilities ?? []);
         return;
       }

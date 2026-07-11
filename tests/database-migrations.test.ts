@@ -21,7 +21,10 @@ class MigrationTestClient implements DatabaseQueryClient {
 
     if (sql.includes('select id, checksum') && sql.includes('project_space_schema_migrations')) {
       return {
-        rows: [...this.applied].map(([id, checksum]) => ({ id, checksum })) as Row[]
+        rows: [...this.applied].map(([id, checksum]) => ({
+          id,
+          checksum
+        })) as Row[]
       };
     }
 
@@ -45,6 +48,7 @@ describe('database migrations', () => {
       '0007_project_chat',
       '0008_machine_connections',
       '0009_project_chat_human_profiles',
+      '0010_connector_machine_snapshots',
       '0011_github_catalog_cache'
     ]);
 
@@ -62,6 +66,9 @@ describe('database migrations', () => {
     expect(sql).toContain('alter column expected_machine_id set not null');
     expect(sql).toContain('connector_credentials_expected_machine_id_not_blank');
     expect(sql).toContain('connector_credentials_machine_matches_expected');
+    expect(sql).toContain('connector_machine_snapshots');
+    expect(sql).toContain('registry jsonb not null');
+    expect(sql).toContain('removed_by_user_id text');
     expect(sql).toContain('machine_id is null or machine_id = expected_machine_id');
     expect(sql).toContain('create table if not exists user_project_states');
     expect(sql).toContain('user_id text primary key');
@@ -88,7 +95,7 @@ describe('database migrations', () => {
     expect(sql).toContain('avatar_data_url_override text');
     expect(sql).toContain('revision bigint not null default 1');
     expect(sql).toContain('insert into project_chat_human_profiles');
-    expect(sql).toContain("set profile_revision = 1");
+    expect(sql).toContain('set profile_revision = 1');
     expect(sql).toContain('project_chat_members_profile_revision_positive');
     expect(sql).toContain('project_chat_members_role_origin_consistent');
     expect(sql).toContain("role = 'agent' and origin is not null and avatar_url is null");
@@ -111,9 +118,9 @@ describe('database migrations', () => {
 
     expect(client.calls[0]?.sql).toBe('begin');
     expect(client.calls.some((call) => call.sql.includes('pg_advisory_xact_lock'))).toBe(true);
-    expect(
-      client.calls.some((call) => call.sql.includes('project_space_schema_migrations'))
-    ).toBe(true);
+    expect(client.calls.some((call) => call.sql.includes('project_space_schema_migrations'))).toBe(
+      true
+    );
     expect(client.calls.some((call) => call.sql === alreadyApplied.sql)).toBe(false);
     expect(client.calls.some((call) => call.sql === databaseMigrations[1].sql)).toBe(true);
     expect(client.calls.some((call) => call.sql === databaseMigrations[2].sql)).toBe(true);
@@ -123,11 +130,11 @@ describe('database migrations', () => {
     expect(client.calls.some((call) => call.sql === databaseMigrations[6].sql)).toBe(true);
     expect(client.calls.some((call) => call.sql === databaseMigrations[7].sql)).toBe(true);
     expect(client.calls.some((call) => call.sql === databaseMigrations[8].sql)).toBe(true);
+    expect(client.calls.some((call) => call.sql === databaseMigrations[9].sql)).toBe(true);
+    expect(client.calls.some((call) => call.sql === databaseMigrations[10].sql)).toBe(true);
     expect(client.calls.at(-1)?.sql).toBe('commit');
     expect(client.applied).toEqual(
-      new Map(
-        databaseMigrations.map((migration) => [migration.id, migrationChecksum(migration)])
-      )
+      new Map(databaseMigrations.map((migration) => [migration.id, migrationChecksum(migration)]))
     );
 
     const firstRunCallCount = client.calls.length;
