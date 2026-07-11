@@ -21,6 +21,12 @@ import type {
   ProjectWorktreeRecord,
   TerminalCommandResult
 } from '../src/shared/project-space-api';
+import {
+  isConnectorDevServerResult,
+  isConnectorDevServerWireRequest,
+  type ConnectorDevServerResult,
+  type ConnectorDevServerWireRequest
+} from './connector-dev-server-contract';
 
 export type ConnectorHubMessage =
   | {
@@ -50,6 +56,21 @@ export type ConnectorHubMessage =
       id: string;
       payload: ProjectCliCommandResult;
       type: 'project-cli.result';
+    }
+  | {
+      id: string;
+      payload: ConnectorDevServerResult;
+      type: 'dev-server.inspect.result';
+    }
+  | {
+      id: string;
+      payload: ConnectorDevServerResult;
+      type: 'dev-server.start.result';
+    }
+  | {
+      id: string;
+      payload: ConnectorDevServerResult;
+      type: 'dev-server.stop.result';
     }
   | {
       id: string;
@@ -91,6 +112,9 @@ export type ConnectorMachineMessage =
   | { id: string; payload: CodexModelCatalogueRequest; type: 'codex.models' }
   | { id: string; payload: CodexChatRequest; type: 'codex.chat' }
   | { id: string; payload: ProjectCliCommandRequest; type: 'project-cli.run' }
+  | { id: string; payload: ConnectorDevServerWireRequest; type: 'dev-server.inspect' }
+  | { id: string; payload: ConnectorDevServerWireRequest; type: 'dev-server.start' }
+  | { id: string; payload: ConnectorDevServerWireRequest; type: 'dev-server.stop' }
   | { id: string; payload: MachineTerminalCommandRequest; type: 'terminal.run' }
   | { id: string; payload: MachineProjectWorktreesRequest; type: 'worktrees.list' }
   | { id: string; payload: MachineFileSystemRequest; type: 'filesystem.root' }
@@ -108,28 +132,92 @@ function hasCommandId(value: Record<string, unknown>) {
   return typeof value.id === 'string' && value.id.length > 0;
 }
 
-function hasRegistryPayload(value: Record<string, unknown>) {
-  if (
-    !isRecord(value.payload) ||
-    !isRecord(value.payload.connector) ||
-    !isRecord(value.payload.discovery)
-  ) {
+function isCanonicalMachineId(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(value);
+}
+
+function isBoundedString(value: unknown, maximum = 4_096): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= maximum;
+}
+
+function hasProject(value: unknown) {
+  return (
+    isRecord(value) &&
+    isBoundedString(value.id, 512) &&
+    isBoundedString(value.name, 256) &&
+    isBoundedString(value.rootPath) &&
+    (value.kind === 'workspace' || value.kind === 'standalone' || value.kind === 'github') &&
+    (value.groupId === undefined || isBoundedString(value.groupId, 512))
+  );
+}
+
+function hasGroup(value: unknown) {
+  return (
+    isRecord(value) &&
+    isBoundedString(value.id, 512) &&
+    isBoundedString(value.name, 256) &&
+    isBoundedString(value.rootPath) &&
+    Array.isArray(value.childProjectIds) &&
+    value.childProjectIds.length <= 5_000 &&
+    value.childProjectIds.every((id) => isBoundedString(id, 512))
+  );
+}
+
+function hasRootItem(value: unknown) {
+  if (!isRecord(value) || !isBoundedString(value.id, 512) || !isBoundedString(value.label, 256)) {
     return false;
   }
+  return value.kind === 'project'
+    ? isBoundedString(value.projectId, 512)
+    : value.kind === 'group' && isBoundedString(value.groupId, 512);
+}
+
+function hasStructureViolation(value: unknown) {
   return (
-    typeof value.payload.checkedAt === 'string' &&
-    typeof value.payload.connector.machineId === 'string' &&
-    value.payload.connector.machineId.length > 0 &&
-    typeof value.payload.connector.machineName === 'string' &&
-    (value.payload.connector.capabilities === undefined ||
-      (Array.isArray(value.payload.connector.capabilities) &&
-        value.payload.connector.capabilities.every((entry) => typeof entry === 'string'))) &&
-    Array.isArray(value.payload.discovery.groups) &&
-    Array.isArray(value.payload.discovery.projects) &&
-    Array.isArray(value.payload.discovery.rootItems) &&
-    typeof value.payload.discovery.rootPath === 'string' &&
-    Array.isArray(value.payload.discovery.structureViolations)
+    isRecord(value) &&
+    isBoundedString(value.id, 512) &&
+    isBoundedString(value.type, 128) &&
+    (value.severity === 'warning' || value.severity === 'error') &&
+    isBoundedString(value.path) &&
+    isBoundedString(value.relativePath) &&
+    isBoundedString(value.name, 256) &&
+    isBoundedString(value.title, 512) &&
+    isBoundedString(value.detail, 4_096)
   );
+}
+
+export function isConnectorProjectRegistryPayload(value: unknown): value is ConnectorProjectRegistryResult {
+  if (!isRecord(value) || !isRecord(value.connector) || !isRecord(value.discovery)) {
+    return false;
+  }
+  const { connector, discovery } = value;
+  return (
+    isBoundedString(value.checkedAt, 64) &&
+    isCanonicalMachineId(connector.machineId) &&
+    isBoundedString(connector.machineName, 256) &&
+    (connector.capabilities === undefined ||
+      (Array.isArray(connector.capabilities) &&
+        connector.capabilities.length <= 64 &&
+        connector.capabilities.every((entry) => isBoundedString(entry, 128)))) &&
+    Array.isArray(discovery.groups) &&
+    discovery.groups.length <= 1_000 &&
+    discovery.groups.every(hasGroup) &&
+    Array.isArray(discovery.projects) &&
+    discovery.projects.length <= 5_000 &&
+    discovery.projects.every(hasProject) &&
+    Array.isArray(discovery.rootItems) &&
+    discovery.rootItems.length <= 6_000 &&
+    discovery.rootItems.every(hasRootItem) &&
+    typeof discovery.rootPath === 'string' &&
+    discovery.rootPath.length <= 4_096 &&
+    Array.isArray(discovery.structureViolations) &&
+    discovery.structureViolations.length <= 5_000 &&
+    discovery.structureViolations.every(hasStructureViolation)
+  );
+}
+
+function hasRegistryPayload(value: Record<string, unknown>) {
+  return isConnectorProjectRegistryPayload(value.payload);
 }
 
 function hasStatus(value: unknown): value is Record<string, unknown> {
@@ -228,6 +316,13 @@ export function isConnectorHubMessage(value: unknown): value is ConnectorHubMess
   if (value.type === 'project-cli.result') {
     return hasCommandId(value) && isRecord(value.payload);
   }
+  if (
+    value.type === 'dev-server.inspect.result' ||
+    value.type === 'dev-server.start.result' ||
+    value.type === 'dev-server.stop.result'
+  ) {
+    return hasCommandId(value) && isConnectorDevServerResult(value.payload);
+  }
   if (value.type === 'terminal.result') {
     return hasCommandId(value) && hasTerminalResult(value.payload);
   }
@@ -291,6 +386,17 @@ export function isConnectorMachineMessage(value: unknown): value is ConnectorMac
   }
   if (value.type === 'project-cli.run') {
     return true;
+  }
+  if (
+    value.type === 'dev-server.inspect' ||
+    value.type === 'dev-server.start' ||
+    value.type === 'dev-server.stop'
+  ) {
+    const operation = value.type.slice('dev-server.'.length);
+    return (
+      isConnectorDevServerWireRequest(value.payload) &&
+      value.payload.grant.operation === operation
+    );
   }
   if (value.type === 'terminal.run') {
     return typeof value.payload.machineId === 'string' && typeof value.payload.command === 'string';

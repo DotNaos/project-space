@@ -2,6 +2,45 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 
 import pg from 'pg';
 
+import type { DatabaseQueryClient } from './database/client';
+import { runDatabaseMigrations } from './database/migrations';
+import type {
+  AuthenticateConnectorCredentialInput,
+  CreateDevServerSessionInput,
+  CreateConnectorCredentialInput,
+  DevServerSessionKey,
+  DevServerSessionListFilter,
+  MachineMembershipKey,
+  ProjectRunSettingsKey,
+  RevokeConnectorCredentialInput,
+  TransitionDevServerSessionInput,
+  UpsertUserProjectsStateInput,
+  UpsertProjectRunSettingsInput
+} from './database/models';
+import { ProjectSpaceDatabaseRepository } from './database/repository';
+
+export type {
+  AuthenticateConnectorCredentialInput,
+  AuthenticatedConnectorCredential,
+  CreateDevServerSessionInput,
+  CreateConnectorCredentialInput,
+  CreatedConnectorCredential,
+  DevServerSession,
+  DevServerSessionKey,
+  DevServerSessionListFilter,
+  DevServerSessionState,
+  MachineMembership,
+  MachineMembershipKey,
+  MachineMembershipRole,
+  ProjectRunSettings,
+  ProjectRunSettingsKey,
+  RevokeConnectorCredentialInput,
+  StoredConnectorCredential,
+  TransitionDevServerSessionInput,
+  UpsertUserProjectsStateInput,
+  UpsertProjectRunSettingsInput
+} from './database/models';
+
 interface StoredGitHubOAuthToken {
   accessToken: string;
   createdAt: string;
@@ -21,6 +60,7 @@ interface GitHubOAuthTokenRow {
 }
 
 let pool: pg.Pool | null = null;
+let repository: ProjectSpaceDatabaseRepository | null = null;
 let schemaReady: Promise<void> | null = null;
 
 function databaseUrl() {
@@ -44,6 +84,43 @@ function getPool() {
   });
 
   return pool;
+}
+
+function createQueryClient(queryable: pg.Pool | pg.PoolClient): DatabaseQueryClient {
+  return {
+    async query<Row>(sql: string, values?: readonly unknown[]) {
+      const result = await queryable.query(sql, values ? [...values] : undefined);
+
+      return {
+        rowCount: result.rowCount,
+        rows: result.rows as Row[]
+      };
+    }
+  };
+}
+
+function createPoolQueryClient(databasePool: pg.Pool): DatabaseQueryClient {
+  return {
+    ...createQueryClient(databasePool),
+    async transaction<Result>(
+      operation: (client: DatabaseQueryClient) => Promise<Result>
+    ) {
+      const connection = await databasePool.connect();
+      const client = createQueryClient(connection);
+
+      try {
+        await client.query('begin');
+        const result = await operation(client);
+        await client.query('commit');
+        return result;
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        connection.release();
+      }
+    }
+  };
 }
 
 function encryptionKey() {
@@ -82,28 +159,42 @@ function decrypt(row: Pick<GitHubOAuthTokenRow, 'encrypted_access_token' | 'iv' 
   ]).toString('utf8');
 }
 
-async function ensureSchema() {
-  const client = getPool();
+async function migrateDatabase() {
+  const databasePool = getPool();
 
-  if (!client) {
+  if (!databasePool) {
     return;
   }
 
-  schemaReady ??= client.query(`
-    create table if not exists github_oauth_tokens (
-      user_id text primary key,
-      login text,
-      encrypted_access_token text not null,
-      iv text not null,
-      tag text not null,
-      scope text,
-      token_type text,
-      created_at timestamptz not null default now(),
-      updated_at timestamptz not null default now()
-    )
-  `).then(() => undefined);
+  const connection = await databasePool.connect();
+
+  try {
+    await runDatabaseMigrations(createQueryClient(connection));
+  } finally {
+    connection.release();
+  }
+}
+
+export async function ensureDatabaseSchema() {
+  schemaReady ??= migrateDatabase().catch((error) => {
+    schemaReady = null;
+    throw error;
+  });
 
   await schemaReady;
+}
+
+async function getDatabaseRepository() {
+  const databasePool = getPool();
+
+  if (!databasePool) {
+    throw new Error('DATABASE_URL is required to use multi-user Project Space data.');
+  }
+
+  await ensureDatabaseSchema();
+  repository ??= new ProjectSpaceDatabaseRepository(createPoolQueryClient(databasePool));
+
+  return repository;
 }
 
 export async function readGitHubOAuthToken(
@@ -115,7 +206,7 @@ export async function readGitHubOAuthToken(
     return null;
   }
 
-  await ensureSchema();
+  await ensureDatabaseSchema();
 
   const result = await client.query<GitHubOAuthTokenRow>(
     `select login, encrypted_access_token, iv, tag, scope, token_type, created_at
@@ -148,7 +239,7 @@ export async function writeGitHubOAuthToken(
     throw new Error('DATABASE_URL is required to persist GitHub login for this account.');
   }
 
-  await ensureSchema();
+  await ensureDatabaseSchema();
 
   const encrypted = encrypt(token.accessToken);
 
@@ -175,4 +266,85 @@ export async function writeGitHubOAuthToken(
       token.tokenType ?? null
     ]
   );
+}
+
+export async function claimMachineMembership(input: MachineMembershipKey) {
+  return (await getDatabaseRepository()).claimMachineMembership(input);
+}
+
+export async function hasMachineMembership(input: MachineMembershipKey) {
+  return (await getDatabaseRepository()).hasMachineMembership(input);
+}
+
+export async function isMachineClaimed(machineId: string) {
+  return (await getDatabaseRepository()).isMachineClaimed(machineId);
+}
+
+export async function readMachineMembership(input: MachineMembershipKey) {
+  return (await getDatabaseRepository()).readMachineMembership(input);
+}
+
+export async function listMachineMemberships(userId: string) {
+  return (await getDatabaseRepository()).listMachineMemberships(userId);
+}
+
+export async function readProjectRunSettings(input: ProjectRunSettingsKey) {
+  return (await getDatabaseRepository()).readProjectRunSettings(input);
+}
+
+export async function upsertProjectRunSettings(input: UpsertProjectRunSettingsInput) {
+  return (await getDatabaseRepository()).upsertProjectRunSettings(input);
+}
+
+export async function deleteProjectRunSettings(input: ProjectRunSettingsKey) {
+  return (await getDatabaseRepository()).deleteProjectRunSettings(input);
+}
+
+export async function readUserProjectsState(userId: string) {
+  return (await getDatabaseRepository()).readUserProjectsState(userId);
+}
+
+export async function upsertUserProjectsState(input: UpsertUserProjectsStateInput) {
+  return (await getDatabaseRepository()).upsertUserProjectsState(input);
+}
+
+export async function createDevServerSession(input: CreateDevServerSessionInput) {
+  return (await getDatabaseRepository()).createDevServerSession(input);
+}
+
+export async function readDevServerSession(input: DevServerSessionKey) {
+  return (await getDatabaseRepository()).readDevServerSession(input);
+}
+
+export async function listDevServerSessions(
+  userId: string,
+  filter?: DevServerSessionListFilter
+) {
+  return (await getDatabaseRepository()).listDevServerSessions(userId, filter);
+}
+
+export async function transitionDevServerSession(input: TransitionDevServerSessionInput) {
+  return (await getDatabaseRepository()).transitionDevServerSession(input);
+}
+
+export async function deleteDevServerSession(input: DevServerSessionKey) {
+  return (await getDatabaseRepository()).deleteDevServerSession(input);
+}
+
+export async function createConnectorCredential(input: CreateConnectorCredentialInput) {
+  return (await getDatabaseRepository()).createConnectorCredential(input);
+}
+
+export async function authenticateConnectorCredential(
+  input: AuthenticateConnectorCredentialInput
+) {
+  return (await getDatabaseRepository()).authenticateConnectorCredential(input);
+}
+
+export async function listConnectorCredentials(userId: string) {
+  return (await getDatabaseRepository()).listConnectorCredentials(userId);
+}
+
+export async function revokeConnectorCredential(input: RevokeConnectorCredentialInput) {
+  return (await getDatabaseRepository()).revokeConnectorCredential(input);
 }

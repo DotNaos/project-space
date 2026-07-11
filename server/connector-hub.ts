@@ -6,6 +6,7 @@ import type {
   ProjectSpaceRecord,
   ProjectStructureViolationRecord
 } from '../src/shared/project-space-api';
+import { isConnectorProjectRegistryPayload } from './connector-command-protocol';
 
 interface RegisteredConnector {
   receivedAt: string;
@@ -31,14 +32,18 @@ function pruneStaleRegistries() {
   }
 }
 
-function normalizeProject(machineId: string, project: ProjectSpaceRecord): ProjectSpaceRecord {
-  if (project.id.includes(':')) {
-    return project;
-  }
+function connectorScopedId(kind: 'group' | 'item' | 'project' | 'violation', machineId: string, id: string) {
+  return `connector-${kind}:${Buffer.from(machineId).toString('base64url')}:${Buffer.from(id).toString('base64url')}`;
+}
 
+function normalizeProject(machineId: string, project: ProjectSpaceRecord): ProjectSpaceRecord {
   return {
     ...project,
-    id: `${machineId}:${project.id}`
+    groupId: project.groupId
+      ? connectorScopedId('group', machineId, project.groupId)
+      : undefined,
+    id: connectorScopedId('project', machineId, project.id),
+    machineId
   };
 }
 
@@ -46,14 +51,18 @@ function normalizeRootItem(
   machineId: string,
   item: ProjectNavigationItem
 ): ProjectNavigationItem {
-  if (item.kind !== 'project' || !item.projectId || item.projectId.includes(':')) {
-    return item;
+  if (item.kind === 'group') {
+    return {
+      ...item,
+      groupId: connectorScopedId('group', machineId, item.groupId),
+      id: connectorScopedId('item', machineId, item.id)
+    };
   }
 
   return {
     ...item,
-    id: `${machineId}:${item.id}`,
-    projectId: `${machineId}:${item.projectId}`
+    id: connectorScopedId('item', machineId, item.id),
+    projectId: connectorScopedId('project', machineId, item.projectId)
   };
 }
 
@@ -61,18 +70,17 @@ function normalizeStructureViolation(
   machineId: string,
   violation: ProjectStructureViolationRecord
 ): ProjectStructureViolationRecord {
-  if (violation.machineId) {
-    return violation;
-  }
-
   return {
     ...violation,
-    id: `${machineId}:${violation.id}`,
+    id: connectorScopedId('violation', machineId, violation.id),
     machineId
   };
 }
 
 export function registerConnectorProjectRegistry(registry: ConnectorProjectRegistryResult) {
+  if (!isConnectorProjectRegistryPayload(registry)) {
+    throw new Error('Connector registry payload is invalid.');
+  }
   const machineId = registry.connector.machineId.trim();
 
   if (!machineId) {
@@ -115,6 +123,7 @@ export function getRegisteredConnectorMachines(): MachineRecord[] {
 
 export function getRegisteredConnectorDiscovery(): ProjectDiscoveryResult {
   const entries = getRegisteredConnectorRegistries();
+  const groups: ProjectDiscoveryResult['groups'] = [];
   const projects: ProjectSpaceRecord[] = [];
   const rootItems: ProjectNavigationItem[] = [];
   const structureViolations: ProjectStructureViolationRecord[] = [];
@@ -125,6 +134,15 @@ export function getRegisteredConnectorDiscovery(): ProjectDiscoveryResult {
       normalizeProject(machineId, project)
     );
 
+    groups.push(
+      ...registry.discovery.groups.map((group) => ({
+        ...group,
+        childProjectIds: group.childProjectIds.map((id) =>
+          connectorScopedId('project', machineId, id)
+        ),
+        id: connectorScopedId('group', machineId, group.id)
+      }))
+    );
     projects.push(...nextProjects);
     rootItems.push(
       ...registry.discovery.rootItems.map((item) => normalizeRootItem(machineId, item))
@@ -137,7 +155,7 @@ export function getRegisteredConnectorDiscovery(): ProjectDiscoveryResult {
   }
 
   return {
-    groups: [],
+    groups: groups.sort((left, right) => left.name.localeCompare(right.name)),
     projects: projects.sort((left, right) => left.name.localeCompare(right.name)),
     rootItems: rootItems.sort((left, right) => left.label.localeCompare(right.label)),
     rootPath: entries

@@ -10,8 +10,15 @@ import type {
   ProjectSpaceRecord,
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
+import { useWorktreeDevServers } from '../hooks/use-worktree-dev-servers';
 import { FileExplorer } from './file-explorer';
+import { DevServerSettings } from './dev-server-settings';
 import { WorktreeBranchList, type CloneTargetInfo, type WorktreeBranchOption } from './worktree-branch-list';
+import {
+  DevServerAccessNotice,
+  WorktreeDevServerAction,
+  WorktreeDevServerDetails
+} from './worktree-dev-server';
 import {
   WorktreeGitClientPanel,
   type WorktreeGitStatusSnapshot
@@ -193,9 +200,15 @@ export function ProjectWorkspacesPanel({
   const [repositoryBranches, setRepositoryBranches] = useState<string[]>([]);
   const [repositoryMessage, setRepositoryMessage] = useState('');
   const selectedMachine =
-    connectorOverview.machines.find((machine) => machine.id === selectedMachineId) ??
+    connectorOverview.machines.find(
+      (machine) => machine.id === (project.machineId ?? selectedMachineId)
+    ) ??
     connectorOverview.machines.find((machine) => machine.connector.status === 'local') ??
     connectorOverview.machines[0];
+  const devServers = useWorktreeDevServers({
+    machineId: selectedMachine?.id,
+    projectId: project.id
+  });
   const repositoryName = repository?.name ?? project.github?.name ?? project.name;
   const defaultBranch =
     repository?.defaultBranch ?? project.github?.defaultBranch ?? project.gitStatus?.branchName ?? 'main';
@@ -394,6 +407,18 @@ export function ProjectWorkspacesPanel({
               </Button>
             </div>
 
+            <DevServerAccessNotice
+              access={devServers.access}
+              machineName={selectedMachine?.name}
+            />
+            <DevServerSettings
+              access={devServers.access}
+              hasActiveServers={devServers.hasActiveServers}
+              isSaving={devServers.isSavingSettings}
+              onSave={devServers.updateSettings}
+              settings={devServers.settings}
+            />
+
             {branchOptions.length > 0 ? (
               <WorktreeBranchList
                 busyBranchName={busyBranchName}
@@ -405,6 +430,22 @@ export function ProjectWorkspacesPanel({
                 onSelectWorktree={onSelectWorktree}
                 options={branchOptions}
                 projectName={repositoryName}
+                renderWorktreeAction={(worktree) => (
+                  <WorktreeDevServerAction
+                    access={devServers.access}
+                    isChecking={devServers.isChecking}
+                    isPending={devServers.pendingWorktreeId === worktree.id}
+                    onStart={() => void devServers.start(worktree.id)}
+                    onStop={() => void devServers.stop(worktree.id)}
+                    server={devServers.serversByWorktreeId.get(worktree.id)}
+                  />
+                )}
+                renderWorktreeDetails={(worktree) => (
+                  <WorktreeDevServerDetails
+                    machineName={selectedMachine?.name}
+                    server={devServers.serversByWorktreeId.get(worktree.id)}
+                  />
+                )}
                 selectedValue={selectedWorktree?.id ?? ''}
               />
             ) : (
@@ -420,6 +461,11 @@ export function ProjectWorkspacesPanel({
             {actionMessage || repositoryMessage ? (
               <Text className="mt-3 block px-1 text-xs text-neutral-500">
                 {actionMessage || repositoryMessage}
+              </Text>
+            ) : null}
+            {devServers.error ? (
+              <Text className="mt-2 block px-1 text-xs text-red-300/80">
+                {devServers.error}
               </Text>
             ) : null}
           </Surface>

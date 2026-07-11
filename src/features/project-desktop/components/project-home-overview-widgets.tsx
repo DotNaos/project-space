@@ -433,14 +433,22 @@ export function AddMachineDialog({
   hasCopiedInstallCommand,
   installCommand,
   installScriptHref,
+  installerError,
+  installerExpiresAt,
+  isGeneratingInstaller,
   onClose,
-  onCopy
+  onCopy,
+  onGenerate
 }: {
   hasCopiedInstallCommand: boolean;
   installCommand: string;
   installScriptHref: string;
+  installerError: string;
+  installerExpiresAt: string;
+  isGeneratingInstaller: boolean;
   onClose(): void;
   onCopy(): void;
+  onGenerate(): void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end bg-black/70 p-4 sm:items-center sm:justify-center">
@@ -457,27 +465,53 @@ export function AddMachineDialog({
           </Button>
         </div>
 
-        <div className="mt-4 rounded-lg bg-black px-3 py-3">
-          <div className="mb-2 flex items-center gap-2 text-xs font-medium text-neutral-500">
-            <Terminal className="size-3.5" />
-            macOS arm64
+        {installCommand ? (
+          <div className="mt-4 rounded-lg bg-black px-3 py-3">
+            <div className="mb-2 flex items-center gap-2 text-xs font-medium text-neutral-500">
+              <Terminal className="size-3.5" />
+              macOS arm64
+            </div>
+            <code className="block whitespace-pre-wrap break-all font-mono text-sm text-neutral-100">
+              {installCommand}
+            </code>
           </div>
-          <code className="block whitespace-pre-wrap break-all font-mono text-sm text-neutral-100">
-            {installCommand}
-          </code>
-        </div>
+        ) : (
+          <div className="mt-4 rounded-lg bg-black px-3 py-4">
+            <Text className="block text-sm text-neutral-400">
+              Generate a short-lived command when you are ready to run it on the Mac.
+            </Text>
+          </div>
+        )}
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button size="sm" onPress={onCopy}>
-            {hasCopiedInstallCommand ? <Check className="size-4" /> : <Copy className="size-4" />}
-            {hasCopiedInstallCommand ? 'Copied' : 'Copy command'}
-          </Button>
-          <a href={installScriptHref} target="_blank" rel="noreferrer">
-            <Button size="sm" variant="outline">
-              <ExternalLink className="size-4" />
-              Open script
+          {installCommand ? (
+            <>
+              <Button size="sm" onPress={onCopy}>
+                {hasCopiedInstallCommand ? <Check className="size-4" /> : <Copy className="size-4" />}
+                {hasCopiedInstallCommand ? 'Copied' : 'Copy command'}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                isDisabled={isGeneratingInstaller}
+                onPress={onGenerate}
+              >
+                {isGeneratingInstaller ? <RefreshCw className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                Replace command
+              </Button>
+              <a href={installScriptHref} target="_blank" rel="noreferrer">
+                <Button size="sm" variant="ghost">
+                  <ExternalLink className="size-4" />
+                  Open script
+                </Button>
+              </a>
+            </>
+          ) : (
+            <Button size="sm" isDisabled={isGeneratingInstaller} onPress={onGenerate}>
+              {isGeneratingInstaller ? <RefreshCw className="size-4 animate-spin" /> : <Terminal className="size-4" />}
+              Generate account installer
             </Button>
-          </a>
+          )}
           <a href="/connector" target="_blank" rel="noreferrer">
             <Button size="sm" variant="ghost">
               Install guide
@@ -485,8 +519,20 @@ export function AddMachineDialog({
           </a>
         </div>
 
+        {installCommand && installerExpiresAt ? (
+          <Text className="mt-3 block text-xs text-neutral-500">
+            This enrollment expires at {new Date(installerExpiresAt).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit'
+            })}. A replacement revokes this unused command.
+          </Text>
+        ) : null}
+        {installerError ? (
+          <Text className="mt-3 block text-xs text-red-300/80">{installerError}</Text>
+        ) : null}
+
         <Text className="mt-3 block text-xs text-neutral-600">
-          Linux packaging is not published yet. Build from source or run a matching connector binary with PROJECT_CONNECTOR_HUB_URL set to this site.
+          The verified bundle installs both the connector and Project CLI. Linux packaging is not published yet.
         </Text>
       </div>
     </div>

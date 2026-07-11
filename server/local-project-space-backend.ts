@@ -1,35 +1,15 @@
-import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { readdir } from 'node:fs/promises';
-import { homedir, hostname } from 'node:os';
-import { basename, dirname, join, relative, resolve } from 'node:path';
-import { promisify } from 'node:util';
+import { hostname } from 'node:os';
 
 import {
-  getCodexModels as getLocalCodexModels,
   getCodexStatus,
-  openCodexTarget,
-  runCodexChat,
-  streamCodexChat as streamLocalCodexChat
+  openCodexTarget
 } from './local-codex-client';
-import {
-  requestConnectorDirectory,
-  requestConnectorFile,
-  requestConnectorFolderCreate,
-  requestConnectorFolderDelete,
-  requestConnectorFolderRename,
-  requestConnectorFileSystemRoot,
-  requestConnectorModels,
-  requestConnectorProjectWorktrees,
-  requestConnectorTerminalCommand,
-  streamConnectorCodexChat
-} from './connector-command-hub';
-import { runSshTerminalCommand, runTerminalCommand } from './local-command-runner';
+import { registerLocalConnectorDevServerExecutor } from './connector-command-hub';
+import type { ConnectorDevServerAdapter } from './connector-dev-server-contract';
+import { createLocalDevServerAdapter } from './local-dev-server-adapter';
+import { runTerminalCommand } from './local-command-runner';
 import { loadConnectorProjectDiscovery } from './connector-discovery';
-import {
-  getRegisteredConnectorDiscovery,
-  getRegisteredConnectorMachines
-} from './connector-hub';
+import { getRegisteredConnectorDiscovery } from './connector-hub';
 import {
   commitGitChanges,
   getGitDiff,
@@ -63,12 +43,17 @@ import {
 } from './local-launcher-apps';
 import { getConnectorOverview } from './local-machine-registry';
 import {
-  createHomeFolder,
-  deleteHomeFolders,
-  readHomeDirectory,
-  readHomeFile,
-  renameHomeFolder
-} from './machine-filesystem';
+  discoverLocalProjects,
+  localProjectsDiscoveryRoot,
+  mergeProjectDiscoveries,
+  readProjectsState,
+  writeProjectsState
+} from './local-project-discovery';
+import {
+  isWebHubMachine,
+  loadMergedConnectorOverview
+} from './local-project-machines';
+import { createLocalProjectMachineBackend } from './local-project-machine-backend';
 import { runProjectCliCommand } from './local-project-cli-client';
 import { getTemplateAdherence } from './local-template-adherence';
 import {
@@ -81,9 +66,9 @@ import {
   getPlatformOverview
 } from './local-platform-operations';
 import { readAppMeta } from './app-meta';
+import { configuredConnectorMachineId } from './project-connector-config';
 import {
   applyProjectStructureAction,
-  collectProjectStructureViolations,
   listProjectTrash,
   restoreProjectTrashEntry
 } from './project-structure-violations';
@@ -93,16 +78,8 @@ import {
 } from './local-scope-devbox-jobs';
 import type {
   AppMeta,
-  FileSystemEntry,
-  MachineRecord,
   ProjectDirectorySelection,
-  ProjectDiscoveryResult,
-  ProjectGroupRecord,
-  GitHubCatalogRepository,
-  ProjectNavigationItem,
   ProjectSpaceBackend,
-  ProjectSpaceRecord,
-  ProjectWorktreeRecord,
   ProjectsState,
   ToolLaunchRequest,
   ToolLaunchResult
@@ -113,10 +90,36 @@ interface LocalProjectSpaceBackendOptions {
   selectProjectDirectory?: () => Promise<ProjectDirectorySelection>;
 }
 
-const projectSpaceDirectory = `${homedir()}/.project-space`;
-const projectsStateFile = `${projectSpaceDirectory}/projects.json`;
-const discoveryRoot = join(homedir(), 'projects');
-const execFileAsync = promisify(execFile);
+async function localConnectorIdentity() {
+  const connector = await getConnectorOverview();
+  const localMachine =
+    connector.machines.find((machine) => machine.connector.status === 'local') ??
+    connector.machines[0];
+  const machineName = localMachine?.name ?? hostname().split('.')[0];
+  return {
+    connector,
+    localMachine,
+    machineId: configuredConnectorMachineId() ?? localMachine?.id ?? machineName,
+    machineName
+  };
+}
+
+function scopeDiscoveryToMachine<Discovery extends Awaited<ReturnType<typeof discoverLocalProjects>>>(
+  discovery: Discovery,
+  machineId: string
+): Discovery {
+  return {
+    ...discovery,
+    projects: discovery.projects.map((project) => ({ ...project, machineId })),
+    structureViolations: (discovery.structureViolations ?? []).map((violation) => ({
+      ...violation,
+      machineId
+    }))
+  };
+}
+
+export type LocalProjectSpaceBackend = ProjectSpaceBackend & ConnectorDevServerAdapter;
+export { isWebHubMachine };
 const connectorCommandCapabilities = [
   'filesystem.directory',
   'filesystem.file',
@@ -124,774 +127,29 @@ const connectorCommandCapabilities = [
   'filesystem.folder.delete',
   'filesystem.folder.rename',
   'filesystem.root',
+  'dev-server.inspect',
+  'dev-server.start',
+  'dev-server.stop',
   'terminal.run',
   'worktrees.list'
 ];
 
-const standaloneProjectMarkers = new Set([
-  '.git',
-  'package.json',
-  'pnpm-lock.yaml',
-  'pnpm-workspace.yaml',
-  'Cargo.toml',
-  'pyproject.toml',
-  'go.mod'
-]);
-
-
-async function runCommand(command: string, args: string[]) {
-  const { stdout } = await execFileAsync(command, args, {
-    windowsHide: true
-  });
-
-  return stdout;
-}
-
-async function listDirectoryEntries(path: string) {
-  try {
-    return await readdir(path, {
-      withFileTypes: true
-    });
-  } catch {
-    return [];
-  }
-}
-
-function parseGitHubRemote(remoteUrl: string): GitHubCatalogRepository | undefined {
-  const trimmed = remoteUrl.trim().replace(/\.git$/, '');
-  const match = trimmed.match(/github\.com[:/](?<owner>[^/]+)\/(?<repo>[^/]+)$/i);
-
-  if (!match?.groups) {
-    return undefined;
-  }
-
-  const owner = match.groups.owner;
-  const name = match.groups.repo;
-  const fullName = `${owner}/${name}`;
-
-  return {
-    defaultBranch: undefined,
-    fullName,
-    id: repositoryIdFromFullName(fullName),
-    isPrivate: false,
-    name,
-    owner,
-    projectConfig: {
-      projectYaml: false,
-      status: 'unknown',
-      templateLock: false
-    },
-    url: `https://github.com/${fullName}`
-  };
-}
-
-function repositoryIdFromFullName(fullName: string) {
-  let hash = 0;
-
-  for (const character of fullName) {
-    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-  }
-
-  return hash;
-}
-
-async function loadGitHubRemote(path: string) {
-  try {
-    const { stdout } = await execFileAsync('git', ['-C', path, 'remote', 'get-url', 'origin'], {
-      timeout: 2_000,
-      windowsHide: true
-    });
-
-    return parseGitHubRemote(stdout);
-  } catch {
-    return undefined;
-  }
-}
-
-function makeNodeId(rootPath: string, path: string) {
-  const relativePath = relative(rootPath, path).replace(/^\.\/?/, '');
-
-  return relativePath.length > 0 ? relativePath.replace(/[\\/]+/g, '__') : basename(path);
-}
-
-async function createProjectRecord(
-  rootPath: string,
-  path: string,
-  kind: ProjectSpaceRecord['kind'],
-  groupId?: string
-): Promise<ProjectSpaceRecord> {
-  const resolvedPath = resolve(path);
-  const hasProject = existsSync(join(resolvedPath, 'project.yaml'));
-  const hasLock = existsSync(join(resolvedPath, 'template.lock.yaml'));
-  const hasGoals = existsSync(join(resolvedPath, 'GOALS.md'));
-  const gitStatus = await getGitStatus(resolvedPath);
-  const github = gitStatus.isRepository ? await loadGitHubRemote(resolvedPath) : undefined;
-  const unstaged =
-    gitStatus.summary.untracked +
-    gitStatus.entries.filter(
-      (entry) => entry.displayStatus !== '??' && Boolean(entry.worktreeStatus.trim())
-    ).length;
-  const status =
-    hasProject && hasLock
-      ? 'managed'
-      : hasProject || hasLock || hasGoals
-        ? 'partial'
-        : 'unmanaged';
-
-  return {
-    id: makeNodeId(rootPath, resolvedPath),
-    kind,
-    groupId,
-    name: basename(resolvedPath),
-    rootPath: resolvedPath,
-    gitStatus: gitStatus.isRepository
-      ? {
-          branchName: gitStatus.branchName,
-          changed: gitStatus.summary.changed,
-          hasUnstagedChanges: unstaged > 0,
-          staged: gitStatus.summary.staged,
-          unstaged,
-          untracked: gitStatus.summary.untracked
-        }
-      : undefined,
-    github,
-    projectctl: {
-      hasGoals,
-      hasLock,
-      hasProject,
-      status
-    }
-  };
-}
-
-function createGroupRecord(
-  rootPath: string,
-  path: string,
-  childProjectIds: string[]
-): ProjectGroupRecord {
-  const resolvedPath = resolve(path);
-
-  return {
-    childProjectIds,
-    id: makeNodeId(rootPath, resolvedPath),
-    name: basename(resolvedPath),
-    rootPath: resolvedPath
-  };
-}
-
-function hasWorkspaceFileMarker(path: string, entryNames: Set<string>) {
-  return Array.from(entryNames).some((entryName) => {
-    return entryName.endsWith('.code-workspace') && existsSync(join(path, entryName));
-  });
-}
-
-function hasStrongWorkspaceMarker(path: string, entryNames: Set<string>) {
-  return entryNames.has('base') || basename(path).endsWith('.worktrees');
-}
-
-async function classifyProjectDirectory(path: string): Promise<ProjectSpaceRecord['kind'] | null> {
-  const entries = await listDirectoryEntries(path);
-  const entryNames = new Set(entries.map((entry) => entry.name));
-
-  if (hasStrongWorkspaceMarker(path, entryNames) || hasWorkspaceFileMarker(path, entryNames)) {
-    return 'workspace';
-  }
-
-  if (Array.from(entryNames).some((entryName) => standaloneProjectMarkers.has(entryName))) {
-    return 'standalone';
-  }
-
-  return null;
-}
-
-async function shouldPreferGroupOverWorkspace(path: string) {
-  const entries = await listDirectoryEntries(path);
-  const entryNames = new Set(entries.map((entry) => entry.name));
-
-  return !hasStrongWorkspaceMarker(path, entryNames) && hasWorkspaceFileMarker(path, entryNames);
-}
-
-async function discoverProjectChildren(groupPath: string): Promise<ProjectSpaceRecord[]> {
-  const childEntries = await listDirectoryEntries(groupPath);
-  const groupId = makeNodeId(discoveryRoot, groupPath);
-  const projects: ProjectSpaceRecord[] = [];
-
-  for (const childDirectory of childEntries.filter((entry) => entry.isDirectory())) {
-    const childPath = resolve(groupPath, childDirectory.name);
-    const kind = await classifyProjectDirectory(childPath);
-
-    if (kind) {
-      projects.push(await createProjectRecord(discoveryRoot, childPath, kind, groupId));
-    }
-  }
-
-  return projects.sort((left, right) => left.name.localeCompare(right.name));
-}
-
-async function loadGitCommonDir(path: string) {
-  try {
-    return (
-      await runCommand('git', [
-        '-C',
-        path,
-        'rev-parse',
-        '--path-format=absolute',
-        '--git-common-dir'
-      ])
-    ).trim();
-  } catch {
-    return '';
-  }
-}
-
-async function shouldTreatAsWorktreeProject(
-  childProjects: ProjectSpaceRecord[]
-) {
-  if (childProjects.length < 2) {
-    return false;
-  }
-
-  const commonDirs = new Set<string>();
-
-  for (const childProject of childProjects) {
-    const gitCommonDir = await loadGitCommonDir(childProject.rootPath);
-
-    if (!gitCommonDir) {
-      return false;
-    }
-
-    commonDirs.add(gitCommonDir);
-
-    if (commonDirs.size > 1) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function readProjectsState(): ProjectsState {
-  const emptyState: ProjectsState = {
-    activeGroupId: '',
-    pinnedProjectIds: [],
-    recentProjectIds: [],
-    selectedExplorerTarget: { kind: 'workspace' },
-    selectedLauncherAppId: '',
-    selectedProjectId: ''
-  };
-
-  try {
-    if (!existsSync(projectsStateFile)) {
-      return emptyState;
-    }
-
-    const parsed = JSON.parse(readFileSync(projectsStateFile, 'utf-8')) as Partial<ProjectsState> & {
-      selectedWorktreeId?: string;
-    };
-
-    return {
-      activeGroupId: parsed.activeGroupId ?? '',
-      pinnedProjectIds: normalizePinnedProjectIds(parsed.pinnedProjectIds),
-      recentProjectIds: normalizeProjectIds(parsed.recentProjectIds),
-      selectedExplorerTarget:
-        parsed.selectedExplorerTarget?.kind === 'worktree' &&
-        typeof parsed.selectedExplorerTarget.worktreeId === 'string'
-          ? {
-              kind: 'worktree',
-              worktreeId: parsed.selectedExplorerTarget.worktreeId
-            }
-          : parsed.selectedWorktreeId
-            ? {
-                kind: 'worktree',
-                worktreeId: parsed.selectedWorktreeId
-              }
-            : { kind: 'workspace' },
-      selectedLauncherAppId: parsed.selectedLauncherAppId ?? '',
-      selectedProjectId: parsed.selectedProjectId ?? ''
-    };
-  } catch {
-    return emptyState;
-  }
-}
-
-function normalizePinnedProjectIds(value: unknown) {
-  return normalizeProjectIds(value);
-}
-
-function normalizeProjectIds(value: unknown) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return Array.from(
-    new Set(value.filter((projectId): projectId is string => typeof projectId === 'string'))
-  );
-}
-
-function writeProjectsState(state: ProjectsState) {
-  mkdirSync(projectSpaceDirectory, { recursive: true });
-  writeFileSync(
-    projectsStateFile,
-    JSON.stringify(
-      {
-        ...state,
-        pinnedProjectIds: normalizePinnedProjectIds(state.pinnedProjectIds),
-        recentProjectIds: normalizeProjectIds(state.recentProjectIds).slice(0, 8)
-      },
-      null,
-      2
-    )
-  );
-}
-
-function mergeDiscoveries(
-  localDiscovery: ProjectDiscoveryResult,
-  remoteDiscovery: ProjectDiscoveryResult
-): ProjectDiscoveryResult {
-  return {
-    groups: [...localDiscovery.groups, ...remoteDiscovery.groups],
-    projects: [...localDiscovery.projects, ...remoteDiscovery.projects].sort((left, right) =>
-      left.name.localeCompare(right.name)
-    ),
-    rootItems: [...localDiscovery.rootItems, ...remoteDiscovery.rootItems].sort((left, right) =>
-      left.label.localeCompare(right.label)
-    ),
-    rootPath: [localDiscovery.rootPath, remoteDiscovery.rootPath].filter(Boolean).join(', '),
-    structureViolations: [
-      ...(localDiscovery.structureViolations ?? []),
-      ...(remoteDiscovery.structureViolations ?? [])
-    ].sort((left, right) => left.relativePath.localeCompare(right.relativePath))
-  };
-}
-
-async function discoverProjects(): Promise<ProjectDiscoveryResult> {
-  if (!existsSync(discoveryRoot)) {
-    return {
-      groups: [],
-      projects: [],
-      rootItems: [],
-      rootPath: discoveryRoot,
-      structureViolations: []
-    };
-  }
-
-  const rootEntries = await listDirectoryEntries(discoveryRoot);
-  const groups: ProjectGroupRecord[] = [];
-  const projects: ProjectSpaceRecord[] = [];
-  const rootItems: ProjectNavigationItem[] = [];
-  const structureViolations = await collectProjectStructureViolations(discoveryRoot);
-
-  for (const rootDirectory of rootEntries.filter((entry) => entry.isDirectory())) {
-    const rootChildPath = resolve(discoveryRoot, rootDirectory.name);
-    const projectKind = await classifyProjectDirectory(rootChildPath);
-    const childProjects =
-      projectKind === 'workspace' || !projectKind
-        ? await discoverProjectChildren(rootChildPath)
-        : [];
-
-    if (childProjects.length > 0 && (await shouldTreatAsWorktreeProject(childProjects))) {
-      const project = await createProjectRecord(discoveryRoot, rootChildPath, 'workspace');
-      projects.push(project);
-      rootItems.push({
-        id: project.id,
-        kind: 'project',
-        label: project.name,
-        projectId: project.id
-      });
-      continue;
-    }
-
-    if (
-      childProjects.length > 0 &&
-      (!projectKind ||
-        (projectKind === 'workspace' && (await shouldPreferGroupOverWorkspace(rootChildPath))))
-    ) {
-      projects.push(...childProjects);
-
-      const group = createGroupRecord(
-        discoveryRoot,
-        rootChildPath,
-        childProjects.map((project) => project.id)
-      );
-
-      groups.push(group);
-      rootItems.push({
-        groupId: group.id,
-        id: group.id,
-        kind: 'group',
-        label: group.name
-      });
-      continue;
-    }
-
-    if (projectKind) {
-      const project = await createProjectRecord(discoveryRoot, rootChildPath, projectKind);
-      projects.push(project);
-      rootItems.push({
-        id: project.id,
-        kind: 'project',
-        label: project.name,
-        projectId: project.id
-      });
-    }
-  }
-
-  return {
-    groups: groups.sort((left, right) => left.name.localeCompare(right.name)),
-    projects: projects.sort((left, right) => left.name.localeCompare(right.name)),
-    rootItems: rootItems.sort((left, right) => left.label.localeCompare(right.label)),
-    rootPath: discoveryRoot,
-    structureViolations
-  };
-}
-
-function createBaseWorktree(projectPath: string): ProjectWorktreeRecord {
-  const resolvedPath = resolve(projectPath);
-
-  return {
-    id: resolvedPath,
-    name: basename(resolvedPath),
-    path: resolvedPath,
-    isBase: true,
-    status: 'ready'
-  };
-}
-
-function parseWorktreeList(output: string, basePath: string): ProjectWorktreeRecord[] {
-  const normalizedBasePath = resolve(basePath);
-
-  return output
-    .trim()
-    .split('\n\n')
-    .reduce<ProjectWorktreeRecord[]>((entries, block) => {
-      const lines = block.split('\n').filter(Boolean);
-      const worktreeLine = lines.find((line) => line.startsWith('worktree '));
-
-      if (!worktreeLine) {
-        return entries;
-      }
-
-      const worktreePath = resolve(worktreeLine.slice('worktree '.length));
-      const branchLine = lines.find((line) => line.startsWith('branch '));
-      const branchRef = branchLine?.slice('branch '.length).trim();
-
-      entries.push({
-        branchName: branchRef?.replace('refs/heads/', ''),
-        id: worktreePath,
-        isBase: worktreePath === normalizedBasePath,
-        name: basename(worktreePath),
-        path: worktreePath,
-        status: 'ready'
-      });
-
-      return entries;
-    }, [])
-    .sort((left, right) => {
-      if (left.isBase !== right.isBase) {
-        return left.isBase ? -1 : 1;
-      }
-
-      return left.name.localeCompare(right.name);
-    });
-}
-
-async function scanProjectContainerWorktrees(projectPath: string): Promise<ProjectWorktreeRecord[]> {
-  const entries = await listDirectoryEntries(projectPath);
-
-  return entries
-    .filter((entry) => entry.isDirectory())
-    .reduce<ProjectWorktreeRecord[]>((worktrees, entry) => {
-      const worktreePath = resolve(projectPath, entry.name);
-      const gitPath = join(worktreePath, '.git');
-
-      if (!existsSync(gitPath)) {
-        return worktrees;
-      }
-
-      let status: ProjectWorktreeRecord['status'] = 'ready';
-
-      try {
-        const gitPointer = readFileSync(gitPath, 'utf-8').trim();
-
-        if (gitPointer.startsWith('gitdir:')) {
-          const gitDirPath = gitPointer.slice('gitdir:'.length).trim();
-          const resolvedGitDir = gitDirPath.startsWith('/')
-            ? gitDirPath
-            : resolve(worktreePath, gitDirPath);
-
-          if (!existsSync(resolvedGitDir)) {
-            status = 'broken';
-          }
-        }
-      } catch (error) {
-        status = 'ready';
-      }
-
-      worktrees.push({
-        id: worktreePath,
-        isBase: entry.name === 'base',
-        name: entry.name,
-        path: worktreePath,
-        status
-      });
-
-      return worktrees;
-    }, [])
-    .sort((left, right) => {
-      if (left.isBase !== right.isBase) {
-        return left.isBase ? -1 : 1;
-      }
-
-      if (left.status !== right.status) {
-        return left.status === 'ready' ? -1 : 1;
-      }
-
-      return left.name.localeCompare(right.name);
-    });
-}
-
-async function readWorktreeBranchName(worktreePath: string) {
-  try {
-    const branch = (
-      await runCommand('git', ['-C', worktreePath, 'branch', '--show-current'])
-    ).trim();
-
-    return branch || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function canonicalProjectsRootFor(projectPath: string, projectName: string) {
-  const parentPath = dirname(projectPath);
-
-  if (basename(parentPath) === projectName) {
-    return dirname(parentPath);
-  }
-
-  return parentPath;
-}
-
-function canonicalProjectPaths(projectPath: string, projectName: string) {
-  const projectsRoot = canonicalProjectsRootFor(projectPath, projectName);
-
-  return {
-    mainPath: resolve(projectsRoot, projectName),
-    projectsRoot,
-    worktreesRoot: resolve(projectsRoot, '.worktrees', projectName)
-  };
-}
-
-function isPathInside(parentPath: string, childPath: string) {
-  const relativePath = relative(resolve(parentPath), resolve(childPath));
-
-  return Boolean(relativePath) && !relativePath.startsWith('..') && !relativePath.startsWith('/');
-}
-
-async function scanCanonicalWorktrees(
-  projectPath: string,
-  projectName: string
-): Promise<ProjectWorktreeRecord[]> {
-  const { worktreesRoot } = canonicalProjectPaths(projectPath, projectName);
-  const entries = await listDirectoryEntries(worktreesRoot);
-
-  const worktrees: Array<ProjectWorktreeRecord | undefined> = await Promise.all(
-    entries
-      .filter((entry) => entry.isDirectory())
-      .map(async (entry) => {
-        const worktreePath = resolve(worktreesRoot, entry.name);
-        const gitPath = join(worktreePath, '.git');
-
-        if (!existsSync(gitPath)) {
-          return undefined;
-        }
-
-        let status: ProjectWorktreeRecord['status'] = 'ready';
-
-        try {
-          const gitPointer = readFileSync(gitPath, 'utf-8').trim();
-
-          if (gitPointer.startsWith('gitdir:')) {
-            const gitDirPath = gitPointer.slice('gitdir:'.length).trim();
-            const resolvedGitDir = gitDirPath.startsWith('/')
-              ? gitDirPath
-              : resolve(worktreePath, gitDirPath);
-
-            if (!existsSync(resolvedGitDir)) {
-              status = 'broken';
-            }
-          }
-        } catch {
-          status = 'ready';
-        }
-
-        return {
-          branchName: await readWorktreeBranchName(worktreePath),
-          id: worktreePath,
-          isBase: false,
-          name: entry.name,
-          path: worktreePath,
-          status
-        } satisfies ProjectWorktreeRecord;
-      })
-  );
-
-  return worktrees
-    .filter((entry): entry is ProjectWorktreeRecord => entry !== undefined)
-    .sort((left, right) => left.name.localeCompare(right.name));
-}
-
-function mergeWorktreeRecords(worktrees: ProjectWorktreeRecord[]) {
-  const recordsByPath = new Map<string, ProjectWorktreeRecord>();
-
-  for (const worktree of worktrees) {
-    recordsByPath.set(resolve(worktree.path), worktree);
-  }
-
-  return Array.from(recordsByPath.values()).sort((left, right) => {
-    if (left.isBase !== right.isBase) {
-      return left.isBase ? -1 : 1;
-    }
-
-    if (left.status !== right.status) {
-      return left.status === 'ready' ? -1 : 1;
-    }
-
-    return (left.branchName || left.name).localeCompare(right.branchName || right.name);
-  });
-}
-
-async function loadProjectWorktrees(projectPath: string): Promise<ProjectWorktreeRecord[]> {
-  const resolvedProjectPath = resolve(projectPath);
-
-  try {
-    const gitCommonDir = (
-      await runCommand('git', [
-        '-C',
-        resolvedProjectPath,
-        'rev-parse',
-        '--path-format=absolute',
-        '--git-common-dir'
-      ])
-    ).trim();
-    const basePath = dirname(gitCommonDir);
-    const worktreeList = await runCommand('git', [
-      '-C',
-      resolvedProjectPath,
-      'worktree',
-      'list',
-      '--porcelain'
-    ]);
-    const parsedWorktrees = parseWorktreeList(worktreeList, basePath);
-    const projectName = basename(basePath);
-    const { mainPath, worktreesRoot } = canonicalProjectPaths(basePath, projectName);
-    const canonicalParsedWorktrees = parsedWorktrees.filter((worktree) => {
-      if (worktree.isBase) {
-        return resolve(worktree.path) === mainPath;
-      }
-
-      return isPathInside(worktreesRoot, worktree.path);
-    });
-    const canonicalWorktrees = await scanCanonicalWorktrees(
-      basePath,
-      projectName
-    );
-
-    return mergeWorktreeRecords([
-      ...canonicalParsedWorktrees,
-      ...(canonicalParsedWorktrees.length === 0 && resolve(basePath) === mainPath
-        ? [createBaseWorktree(basePath)]
-        : []),
-      ...canonicalWorktrees
-    ]);
-  } catch {
-    const scannedWorktrees = await scanProjectContainerWorktrees(resolvedProjectPath);
-    const canonicalWorktrees = await scanCanonicalWorktrees(
-      resolvedProjectPath,
-      basename(resolvedProjectPath)
-    );
-
-    return mergeWorktreeRecords([...scannedWorktrees, ...canonicalWorktrees]);
-  }
-}
-
-async function loadMergedConnectorOverview() {
-  const connector = await getConnectorOverview();
-  const registeredMachines = getRegisteredConnectorMachines();
-  const localMachines = connector.machines.filter((machine) => !isWebHubMachine(machine));
-  const knownMachineIds = new Set(localMachines.map((machine) => machine.id));
-
-  return {
-    ...connector,
-    machines: [
-      ...localMachines,
-      ...registeredMachines.filter((machine) => !knownMachineIds.has(machine.id))
-    ]
-  };
-}
-
-export function isWebHubMachine(machine: Pick<MachineRecord, 'connector'>) {
-  const serviceName = machine.connector.serviceName ?? '';
-
-  return /^project-space(?:-[a-z0-9]+)*-web$/.test(serviceName);
-}
-
-function createMachineSshTarget(machine: MachineRecord) {
-  const host = machine.network.tailscaleIp ?? machine.network.localName ?? machine.name;
-
-  if (!host) {
-    return '';
-  }
-
-  return machine.network.sshUser ? `${machine.network.sshUser}@${host}` : host;
-}
-
-function shellQuote(value: string) {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-function remoteCodexRuntime(target: string, cwd: string) {
-  const remoteCommand = [
-    `cd ${shellQuote(cwd)} || exit $?`,
-    'if [ -x /Applications/ChatGPT.app/Contents/Resources/codex ]; then',
-    'exec /Applications/ChatGPT.app/Contents/Resources/codex app-server --listen stdio://',
-    'elif [ -x /Applications/Codex.app/Contents/Resources/codex ]; then',
-    'exec /Applications/Codex.app/Contents/Resources/codex app-server --listen stdio://',
-    'else',
-    'exec codex app-server --listen stdio://',
-    'fi'
-  ].join('\n');
-
-  return {
-    args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', target, remoteCommand],
-    command: 'ssh',
-    cwd: homedir()
-  };
-}
-
-async function readDirectoryEntries(path: string): Promise<FileSystemEntry[]> {
-  const entries = await listDirectoryEntries(path);
-
-  return entries
-    .filter((entry) => entry.isDirectory() || entry.isFile())
-    .map((entry) => ({
-      kind: entry.isDirectory() ? 'directory' as const : 'file' as const,
-      name: entry.name,
-      path: resolve(path, entry.name)
-    }))
-    .sort((left, right) => {
-      if (left.kind !== right.kind) {
-        return left.kind === 'directory' ? -1 : 1;
-      }
-
-      return left.name.localeCompare(right.name);
-    });
-}
-
 export function createLocalProjectSpaceBackend(
   options: LocalProjectSpaceBackendOptions = {}
-): ProjectSpaceBackend {
+): LocalProjectSpaceBackend {
+  const devServerAdapter = createLocalDevServerAdapter();
+  const registeredLocalMachines = new Set<string>();
+
+  function registerLocalDevServer(machineId: string) {
+    if (!registeredLocalMachines.has(machineId)) {
+      registerLocalConnectorDevServerExecutor(machineId, devServerAdapter);
+      registeredLocalMachines.add(machineId);
+    }
+  }
+
+  registerLocalDevServer(configuredConnectorMachineId() ?? hostname().split('.')[0]);
   return {
+    ...createLocalProjectMachineBackend(),
     async getAppMeta() {
       return options.getAppMeta?.() ?? readAppMeta();
     },
@@ -902,14 +160,13 @@ export function createLocalProjectSpaceBackend(
       return loadMergedConnectorOverview();
     },
     async getConnectorProjectRegistry() {
-      const [connector, discovery] = await Promise.all([
-        getConnectorOverview(),
-        discoverProjects()
+      const [identity, rawDiscovery] = await Promise.all([
+        localConnectorIdentity(),
+        discoverLocalProjects()
       ]);
-      const localMachine =
-        connector.machines.find((machine) => machine.connector.status === 'local') ??
-        connector.machines[0];
-      const machineName = localMachine?.name ?? hostname().split('.')[0];
+      const { connector, localMachine, machineId, machineName } = identity;
+      const discovery = scopeDiscoveryToMachine(rawDiscovery, machineId);
+      registerLocalDevServer(machineId);
 
       return {
         checkedAt: new Date().toISOString(),
@@ -917,7 +174,7 @@ export function createLocalProjectSpaceBackend(
           battery: localMachine?.battery,
           capabilities: connectorCommandCapabilities,
           kind: process.env.PROJECT_CONNECTOR_MACHINE_KIND ?? localMachine?.kind,
-          machineId: localMachine?.id ?? machineName,
+          machineId,
           machineName,
           network: {
             ...localMachine?.network,
@@ -942,6 +199,9 @@ export function createLocalProjectSpaceBackend(
     },
     async runProjectCliCommand(request) {
       return runProjectCliCommand(request);
+    },
+    async runDevServerCommand(request) {
+      return devServerAdapter.runDevServerCommand(request);
     },
     async getTemplateAdherence(request) {
       return getTemplateAdherence(request);
@@ -984,25 +244,34 @@ export function createLocalProjectSpaceBackend(
     },
     async loadProjectDiscovery() {
       if (process.env.PROJECT_SPACE_DISCOVERY_SOURCE === 'connector') {
-        return (await loadConnectorProjectDiscovery()) ?? {
+        const identity = await localConnectorIdentity();
+        const discovery = (await loadConnectorProjectDiscovery()) ?? {
           groups: [],
           projects: [],
           rootItems: [],
           rootPath: 'connector',
           structureViolations: []
         };
+        return scopeDiscoveryToMachine(discovery, identity.machineId);
       }
 
-      return mergeDiscoveries(await discoverProjects(), getRegisteredConnectorDiscovery());
+      const [identity, localDiscovery] = await Promise.all([
+        localConnectorIdentity(),
+        discoverLocalProjects()
+      ]);
+      return mergeProjectDiscoveries(
+        scopeDiscoveryToMachine(localDiscovery, identity.machineId),
+        getRegisteredConnectorDiscovery()
+      );
     },
     async applyProjectStructureAction(request) {
-      return applyProjectStructureAction(discoveryRoot, request);
+      return applyProjectStructureAction(localProjectsDiscoveryRoot, request);
     },
     async listProjectTrash() {
-      return listProjectTrash(discoveryRoot);
+      return listProjectTrash(localProjectsDiscoveryRoot);
     },
     async restoreProjectTrashEntry(request) {
-      return restoreProjectTrashEntry(discoveryRoot, request);
+      return restoreProjectTrashEntry(localProjectsDiscoveryRoot, request);
     },
     async loadProjectctlOverview(projectPath: string) {
       return getProjectctlOverview(projectPath);
@@ -1013,429 +282,19 @@ export function createLocalProjectSpaceBackend(
     async loadProjectsState() {
       return readProjectsState();
     },
-    async loadProjectWorktrees(projectPath: string, machineId?: string) {
-      if (!machineId) {
-        return loadProjectWorktrees(projectPath);
-      }
-
-      const overview = await loadMergedConnectorOverview();
-      const machine = overview.machines.find((entry) => entry.id === machineId);
-      if (!machine) {
-        throw new Error(`Machine ${machineId} was not found.`);
-      }
-      if (machine.connector.status === 'local' || machine.kind === 'local') {
-        return loadProjectWorktrees(projectPath);
-      }
-      if (machine.connector.status !== 'online' || machine.sourcePath !== 'connector-hub') {
-        throw new Error(`${machine.name} cannot provide its worktrees right now.`);
-      }
-
-      try {
-        return await requestConnectorProjectWorktrees({ machineId, projectPath });
-      } catch (error) {
-        throw new Error(
-          error instanceof Error ? error.message : 'Could not load worktrees from the machine connector.'
-        );
-      }
-    },
-    async openCodexSkills() {
+async openCodexSkills() {
       return openCodexSkills();
     },
     async openCodexTarget(request) {
       return openCodexTarget(request);
     },
-    async getCodexModels(request) {
-      const overview = await loadMergedConnectorOverview();
-      const machine = overview.machines.find((entry) => entry.id === request.machineId);
-
-      if (!machine) {
-        return {
-          message: `Machine ${request.machineId} was not found.`,
-          models: [],
-          status: 'error'
-        };
-      }
-
-      if (machine.connector.status === 'local' || machine.kind === 'local') {
-        return getLocalCodexModels(request);
-      }
-
-      if (machine.connector.status !== 'online') {
-        return {
-          message: `${machine.name} is ${machine.connector.status}.`,
-          models: [],
-          status: 'error'
-        };
-      }
-
-      if (machine.sourcePath === 'connector-hub') {
-        try {
-          return await requestConnectorModels(request);
-        } catch (error) {
-          return {
-            message: error instanceof Error ? error.message : 'Could not reach the machine connector.',
-            models: [],
-            status: 'error'
-          };
-        }
-      }
-
-      const target = createMachineSshTarget(machine);
-      if (!target) {
-        return {
-          message: `${machine.name} does not have an SSH target.`,
-          models: [],
-          status: 'error'
-        };
-      }
-
-      return getLocalCodexModels(request, remoteCodexRuntime(target, request.cwd));
-    },
-    async runCodexChat(request) {
-      const overview = await loadMergedConnectorOverview();
-      const machine = overview.machines.find((entry) => entry.id === request.machineId);
-
-      if (!machine) {
-        return {
-          message: `Machine ${request.machineId} was not found.`,
-          status: 'error'
-        };
-      }
-
-      if (machine.connector.status === 'local' || machine.kind === 'local') {
-        return runCodexChat(request);
-      }
-
-      if (machine.connector.status !== 'online') {
-        return {
-          message: `${machine.name} is ${machine.connector.status}.`,
-          status: 'error'
-        };
-      }
-
-      if (machine.sourcePath === 'connector-hub') {
-        let result = '';
-        let failure = '';
-        try {
-          await streamConnectorCodexChat(request, (event) => {
-            if (event.type === 'done') {
-              result = event.response;
-            } else if (event.type === 'error') {
-              failure = event.message;
-            }
-          });
-          return failure
-            ? { message: failure, status: 'error' }
-            : { response: result, status: 'success' };
-        } catch (error) {
-          return {
-            message: error instanceof Error ? error.message : 'Could not reach the machine connector.',
-            status: 'error'
-          };
-        }
-      }
-
-      const target = createMachineSshTarget(machine);
-
-      if (!target) {
-        return {
-          message: `${machine.name} does not have an SSH target.`,
-          status: 'error'
-        };
-      }
-
-      return runCodexChat(request, remoteCodexRuntime(target, request.cwd));
-    },
-    async streamCodexChat(request, emit, signal) {
-      const overview = await loadMergedConnectorOverview();
-      const machine = overview.machines.find((entry) => entry.id === request.machineId);
-
-      if (!machine) {
-        emit({ message: `Machine ${request.machineId} was not found.`, type: 'error' });
-        return;
-      }
-
-      if (machine.connector.status === 'local' || machine.kind === 'local') {
-        await streamLocalCodexChat(request, emit, undefined, signal);
-        return;
-      }
-
-      if (machine.connector.status !== 'online') {
-        emit({ message: `${machine.name} is ${machine.connector.status}.`, type: 'error' });
-        return;
-      }
-
-      if (machine.sourcePath === 'connector-hub') {
-        try {
-          await streamConnectorCodexChat(request, emit);
-        } catch (error) {
-          emit({
-            message: error instanceof Error ? error.message : 'Could not reach the machine connector.',
-            type: 'error'
-          });
-        }
-        return;
-      }
-
-      const target = createMachineSshTarget(machine);
-
-      if (!target) {
-        emit({ message: `${machine.name} does not have an SSH target.`, type: 'error' });
-        return;
-      }
-
-      await streamLocalCodexChat(
-        request,
-        emit,
-        remoteCodexRuntime(target, request.cwd),
-        signal
-      );
-    },
-    async openPathInApp(request) {
+async openPathInApp(request) {
       return openPathInApp(request);
     },
-    async readDirectory(path: string) {
-      return readDirectoryEntries(path);
-    },
-    async getMachineFileSystemRoot(request) {
-      const overview = await loadMergedConnectorOverview();
-      const machine = overview.machines.find((entry) => entry.id === request.machineId);
-      if (!machine) {
-        return {
-          defaultPath: '',
-          errorCode: 'disconnected',
-          homePath: '',
-          message: 'This machine is not in the connector registry.',
-          status: 'error'
-        };
-      }
-      if (machine.connector.status === 'local' || machine.kind === 'local') {
-        return {
-          defaultPath: join(homedir(), 'projects'),
-          homePath: homedir(),
-          status: 'success'
-        };
-      }
-      if (machine.connector.status !== 'online' || machine.sourcePath !== 'connector-hub') {
-        return {
-          defaultPath: '',
-          errorCode: 'disconnected',
-          homePath: '',
-          message: `${machine.name} is ${machine.connector.status}.`,
-          status: 'error'
-        };
-      }
-
-      try {
-        return await requestConnectorFileSystemRoot(request);
-      } catch (error) {
-        return {
-          defaultPath: '',
-          errorCode: 'disconnected',
-          homePath: '',
-          message: error instanceof Error ? error.message : 'The machine connector is not available right now.',
-          status: 'error'
-        };
-      }
-    },
-    async readMachineDirectory(request) {
-      const overview = await loadMergedConnectorOverview();
-      const machine = overview.machines.find((entry) => entry.id === request.machineId);
-      if (!machine) {
-        return {
-          entries: [],
-          errorCode: 'disconnected',
-          message: 'This machine is not in the connector registry.',
-          path: request.path,
-          status: 'error'
-        };
-      }
-      if (machine.connector.status === 'local' || machine.kind === 'local') {
-        return readHomeDirectory(request.path);
-      }
-      if (machine.connector.status !== 'online' || machine.sourcePath !== 'connector-hub') {
-        return {
-          entries: [],
-          errorCode: 'disconnected',
-          message: `${machine.name} is ${machine.connector.status}.`,
-          path: request.path,
-          status: 'error'
-        };
-      }
-
-      try {
-        return await requestConnectorDirectory(request);
-      } catch (error) {
-        return {
-          entries: [],
-          errorCode: 'disconnected',
-          message: error instanceof Error ? error.message : 'The machine connector is not available right now.',
-          path: request.path,
-          status: 'error'
-        };
-      }
-    },
-    async readMachineFile(request) {
-      const overview = await loadMergedConnectorOverview();
-      const machine = overview.machines.find((entry) => entry.id === request.machineId);
-      if (!machine) {
-        return {
-          errorCode: 'disconnected',
-          message: 'This machine is not in the connector registry.',
-          name: basename(request.path),
-          path: request.path,
-          status: 'error'
-        };
-      }
-      if (machine.connector.status === 'local' || machine.kind === 'local') {
-        return readHomeFile(request.path);
-      }
-      if (machine.connector.status !== 'online' || machine.sourcePath !== 'connector-hub') {
-        return {
-          errorCode: 'disconnected',
-          message: `${machine.name} is ${machine.connector.status}.`,
-          name: basename(request.path),
-          path: request.path,
-          status: 'error'
-        };
-      }
-
-      try {
-        return await requestConnectorFile(request);
-      } catch (error) {
-        return {
-          errorCode: 'disconnected',
-          message: error instanceof Error ? error.message : 'The machine connector is not available right now.',
-          name: basename(request.path),
-          path: request.path,
-          status: 'error'
-        };
-      }
-    },
-    async createMachineDirectory(request) {
-      const overview = await loadMergedConnectorOverview();
-      const machine = overview.machines.find((entry) => entry.id === request.machineId);
-      if (!machine) {
-        return { affectedPaths: [], errorCode: 'disconnected', message: 'This machine is not in the connector registry.', status: 'error' };
-      }
-      if (machine.connector.status === 'local' || machine.kind === 'local') {
-        return createHomeFolder(request.parentPath, request.name);
-      }
-      if (machine.connector.status !== 'online' || machine.sourcePath !== 'connector-hub') {
-        return { affectedPaths: [], errorCode: 'disconnected', message: `${machine.name} is ${machine.connector.status}.`, status: 'error' };
-      }
-      try {
-        return await requestConnectorFolderCreate(request);
-      } catch (error) {
-        return { affectedPaths: [], errorCode: 'disconnected', message: error instanceof Error ? error.message : 'The machine connector is not available right now.', status: 'error' };
-      }
-    },
-    async renameMachineDirectory(request) {
-      const overview = await loadMergedConnectorOverview();
-      const machine = overview.machines.find((entry) => entry.id === request.machineId);
-      if (!machine) {
-        return { affectedPaths: [], errorCode: 'disconnected', message: 'This machine is not in the connector registry.', status: 'error' };
-      }
-      if (machine.connector.status === 'local' || machine.kind === 'local') {
-        return renameHomeFolder(request.path, request.name);
-      }
-      if (machine.connector.status !== 'online' || machine.sourcePath !== 'connector-hub') {
-        return { affectedPaths: [], errorCode: 'disconnected', message: `${machine.name} is ${machine.connector.status}.`, status: 'error' };
-      }
-      try {
-        return await requestConnectorFolderRename(request);
-      } catch (error) {
-        return { affectedPaths: [], errorCode: 'disconnected', message: error instanceof Error ? error.message : 'The machine connector is not available right now.', status: 'error' };
-      }
-    },
-    async deleteMachineDirectories(request) {
-      const overview = await loadMergedConnectorOverview();
-      const machine = overview.machines.find((entry) => entry.id === request.machineId);
-      if (!machine) {
-        return { affectedPaths: [], errorCode: 'disconnected', message: 'This machine is not in the connector registry.', status: 'error' };
-      }
-      if (machine.connector.status === 'local' || machine.kind === 'local') {
-        return deleteHomeFolders(request.paths);
-      }
-      if (machine.connector.status !== 'online' || machine.sourcePath !== 'connector-hub') {
-        return { affectedPaths: [], errorCode: 'disconnected', message: `${machine.name} is ${machine.connector.status}.`, status: 'error' };
-      }
-      try {
-        return await requestConnectorFolderDelete(request);
-      } catch (error) {
-        return { affectedPaths: [], errorCode: 'disconnected', message: error instanceof Error ? error.message : 'The machine connector is not available right now.', status: 'error' };
-      }
-    },
-    async runTerminalCommand(request) {
+async runTerminalCommand(request) {
       return runTerminalCommand(request);
     },
-    async runMachineTerminalCommand(request) {
-      const overview = await loadMergedConnectorOverview();
-      const machine = overview.machines.find((entry) => entry.id === request.machineId);
-
-      if (!machine) {
-        return {
-          command: request.command,
-          cwd: `machine:${request.machineId}`,
-          durationMs: 0,
-          exitCode: 1,
-          stderr: `Machine ${request.machineId} was not found.`,
-          stdout: ''
-        };
-      }
-
-      if (machine.connector.status === 'local' || machine.kind === 'local') {
-        return runTerminalCommand({
-          command: request.command,
-          cwd: homedir()
-        });
-      }
-
-      if (machine.connector.status !== 'online') {
-        return {
-          command: request.command,
-          cwd: `machine:${machine.id}`,
-          durationMs: 0,
-          exitCode: 1,
-          stderr: `${machine.name} is ${machine.connector.status}.`,
-          stdout: ''
-        };
-      }
-
-      if (machine.sourcePath === 'connector-hub') {
-        try {
-          return await requestConnectorTerminalCommand(request);
-        } catch (error) {
-          return {
-            command: request.command,
-            cwd: `machine:${machine.id}`,
-            durationMs: 0,
-            exitCode: 1,
-            stderr: error instanceof Error ? error.message : 'The machine connector is not available right now.',
-            stdout: ''
-          };
-        }
-      }
-
-      const target = createMachineSshTarget(machine);
-
-      if (!target) {
-        return {
-          command: request.command,
-          cwd: `machine:${machine.id}`,
-          durationMs: 0,
-          exitCode: 1,
-          stderr: `${machine.name} does not have an SSH target.`,
-          stdout: ''
-        };
-      }
-
-      return runSshTerminalCommand({
-        command: request.command,
-        target
-      });
-    },
-    async saveProjectsState(state: ProjectsState) {
+async saveProjectsState(state: ProjectsState) {
       writeProjectsState(state);
     },
     async selectProjectDirectory() {

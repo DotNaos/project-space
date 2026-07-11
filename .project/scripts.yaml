@@ -1,0 +1,16 @@
+version: 1
+scripts:
+  dev:
+    command:
+      - bun
+      - run
+      - dev
+      - --
+      - --host
+      - "{host}"
+      - --port
+      - "{port}"
+      - --strictPort
+    healthCheck:
+      path: /
+      timeoutSeconds: 45

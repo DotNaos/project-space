@@ -3,7 +3,12 @@ import { Bot, CheckCircle2, RefreshCw, SquareTerminal } from 'lucide-react';
 import { WTerm } from '@wterm/dom';
 import '@wterm/dom/css';
 import { Button, Chip, Surface, Text } from '@/app/dotnaos-ui';
-import { projectSpaceClient, refreshProjectSpaceAuthToken } from '@/api/project-space-client';
+import {
+  isProjectSpaceApiRequestAllowed,
+  projectSpaceClient,
+  refreshProjectSpaceAuthToken,
+  resolveProjectSpaceApiBaseUrl
+} from '@/api/project-space-client';
 import type {
   CodexStatusResult,
   OpenPathInAppResult
@@ -34,18 +39,11 @@ function CodexStatusRow({ label, value }: { label: string; value?: string }) {
 
 function terminalBaseUrl() {
   const currentUrl = new URL(window.location.href);
-  const isLocalVite =
-    (currentUrl.hostname === '127.0.0.1' || currentUrl.hostname === 'localhost') &&
-    currentUrl.port.startsWith('517');
-
-  if (isLocalVite) {
-    return window.location.origin;
-  }
-
   return (
-    import.meta.env.VITE_PROJECT_SPACE_API_BASE_URL ||
-    currentUrl.searchParams.get('projectSpaceApi') ||
-    window.location.origin
+    resolveProjectSpaceApiBaseUrl(
+      currentUrl.toString(),
+      import.meta.env.VITE_PROJECT_SPACE_API_BASE_URL
+    ) || currentUrl.origin
   );
 }
 
@@ -103,17 +101,19 @@ const ProjectTerminalSession = memo(function ProjectTerminalSession({
 
         const { cols, rows } = sizeRef.current;
         const url = new URL('/api/projects/terminal', terminalBaseUrl());
+        if (!isProjectSpaceApiRequestAllowed(window.location.href, url.toString())) {
+          throw new Error('Project Space refused a terminal connection to an untrusted origin.');
+        }
         const sessionToken = await refreshProjectSpaceAuthToken();
 
         url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
         url.searchParams.set('cwd', targetPath);
         url.searchParams.set('cols', String(cols));
         url.searchParams.set('rows', String(rows));
-        if (sessionToken) {
-          url.searchParams.set('session', sessionToken);
-        }
-
-        const socket = new WebSocket(url);
+        const protocols = sessionToken
+          ? ['project-space', `project-space-auth.${sessionToken}`]
+          : ['project-space'];
+        const socket = new WebSocket(url, protocols);
         socketRef.current = socket;
 
         onStatusChange('connecting');

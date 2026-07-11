@@ -1,6 +1,11 @@
+import { generateKeyPairSync } from 'node:crypto';
+
 import { afterEach, describe, expect, test } from 'bun:test';
 import {
   isConnectorCommandChannelAvailable,
+  requestConnectorDevServerInspect,
+  requestConnectorDevServerStart,
+  requestConnectorDevServerStop,
   requestConnectorDirectory,
   requestConnectorFile,
   requestConnectorFileSystemRoot,
@@ -10,12 +15,14 @@ import {
   requestConnectorModels,
   requestConnectorProjectWorktrees,
   requestConnectorTerminalCommand,
+  registerLocalConnectorDevServerExecutor,
   streamConnectorCodexChat
 } from '../server/connector-command-hub';
 import {
   isConnectorHubMessage,
   isConnectorMachineMessage
 } from '../server/connector-command-protocol';
+import type { ConnectorDevServerAdapter } from '../server/connector-dev-server-contract';
 import { startProjectConnectorWebSocket } from '../server/project-connector-websocket';
 import { createProjectSpaceServer } from '../server/project-space-http';
 import { createLocalProjectSpaceBackend } from '../server/local-project-space-backend';
@@ -28,6 +35,8 @@ import type {
 const originalConfig = process.env.PROJECT_CONNECTOR_CONFIG;
 const originalHubs = process.env.PROJECT_CONNECTOR_HUBS;
 const originalToken = process.env.PROJECT_CONNECTOR_REGISTRATION_TOKEN;
+const originalSigningPrivateKey = process.env.PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY;
+const originalSigningPublicKey = process.env.PROJECT_CONNECTOR_COMMAND_SIGNING_PUBLIC_KEY;
 
 function restore(name: string, value: string | undefined) {
   if (value === undefined) {
@@ -41,7 +50,19 @@ afterEach(() => {
   restore('PROJECT_CONNECTOR_CONFIG', originalConfig);
   restore('PROJECT_CONNECTOR_HUBS', originalHubs);
   restore('PROJECT_CONNECTOR_REGISTRATION_TOKEN', originalToken);
+  restore('PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY', originalSigningPrivateKey);
+  restore('PROJECT_CONNECTOR_COMMAND_SIGNING_PUBLIC_KEY', originalSigningPublicKey);
 });
+
+function configureCommandSigningKeys() {
+  const keys = generateKeyPairSync('ed25519');
+  process.env.PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY = keys.privateKey
+    .export({ format: 'pem', type: 'pkcs8' })
+    .toString();
+  process.env.PROJECT_CONNECTOR_COMMAND_SIGNING_PUBLIC_KEY = keys.publicKey
+    .export({ format: 'pem', type: 'spki' })
+    .toString();
+}
 
 async function waitForChannel(machineId: string) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -106,6 +127,48 @@ describe('connector command channel', () => {
         type: 'filesystem.directory.result'
       })
     ).toBe(false);
+  });
+
+  test('uses the same signed execution boundary for a selected local machine', async () => {
+    const actors: Array<{ generation: number; userId: string }> = [];
+    const unregister = registerLocalConnectorDevServerExecutor('selected-local-machine', {
+      async runDevServerCommand(request) {
+        actors.push(request.actor);
+        return {
+          capability: 'configured',
+          checkedAt: new Date().toISOString(),
+          generation: request.actor.generation,
+          localPort: 5173,
+          localUrl: 'http://127.0.0.1:5173',
+          machineId: request.machineId,
+          projectId: request.projectId,
+          publicPort: 45173,
+          runTarget: request.runTarget,
+          state: 'running',
+          tailscaleIPv4: '100.80.135.9',
+          tailscaleUrl: 'http://100.80.135.9:45173',
+          worktreeId: request.worktreeId
+        };
+      }
+    });
+
+    try {
+      const result = await requestConnectorDevServerStart(
+        {
+          allowedHosts: [],
+          machineId: 'selected-local-machine',
+          projectId: 'selected-local-machine:project',
+          runTarget: 'dev',
+          worktreeId: '/tmp/local-project',
+          worktreePath: '/tmp/local-project'
+        },
+        { generation: 9, userId: 'user_local' }
+      );
+      expect(result.tailscaleUrl).toBe('http://100.80.135.9:45173');
+      expect(actors).toEqual([{ generation: 9, userId: 'user_local' }]);
+    } finally {
+      unregister();
+    }
   });
 
   test('relays machine commands and filesystem reads without SSH', async () => {
@@ -338,6 +401,227 @@ describe('connector command channel', () => {
     }
   });
 
+  test('relays signed dev-server commands with actor and per-user host settings', async () => {
+    process.env.PROJECT_CONNECTOR_CONFIG = '/tmp/project-space-missing-connector-config.json';
+    delete process.env.PROJECT_CONNECTOR_HUBS;
+    process.env.PROJECT_CONNECTOR_REGISTRATION_TOKEN = 'test-connector-token';
+    configureCommandSigningKeys();
+
+    const registry: ConnectorProjectRegistryResult = {
+      checkedAt: new Date().toISOString(),
+      connector: {
+        capabilities: ['dev-server.inspect', 'dev-server.start', 'dev-server.stop'],
+        machineId: 'dev-server-machine',
+        machineName: 'Dev server machine'
+      },
+      discovery: {
+        groups: [],
+        projects: [],
+        rootItems: [],
+        rootPath: '/tmp',
+        structureViolations: []
+      }
+    };
+    const executions: Parameters<ConnectorDevServerAdapter['runDevServerCommand']>[0][] = [];
+    const connectorBackend = {
+      async getConnectorProjectRegistry() {
+        return registry;
+      },
+      async runDevServerCommand(request) {
+        executions.push(request);
+        const running = request.operation === 'start';
+        return {
+          capability: 'configured' as const,
+          checkedAt: new Date().toISOString(),
+          generation: request.actor.generation,
+          machineId: request.machineId,
+          projectId: request.projectId,
+          runTarget: request.runTarget,
+          state: running ? ('running' as const) : ('stopped' as const),
+          worktreeId: request.worktreeId,
+          ...(running
+            ? {
+                localPort: 5173,
+                localUrl: 'http://127.0.0.1:5173',
+                publicPort: 45173,
+                tailscaleIPv4: '100.80.135.9',
+                tailscaleUrl: 'http://100.80.135.9:45173'
+              }
+            : {})
+        };
+      }
+    } as Pick<ProjectSpaceBackend, 'getConnectorProjectRegistry'> & ConnectorDevServerAdapter;
+    const hubBackend = createLocalProjectSpaceBackend();
+    const server = await createProjectSpaceServer({ backend: hubBackend, host: '127.0.0.1', port: 0 });
+    const bridge = startProjectConnectorWebSocket({
+      backend: connectorBackend as ProjectSpaceBackend & ConnectorDevServerAdapter,
+      hubHttpUrl: server.origin,
+      hubUrl: server.origin.replace(/^http/, 'ws') + '/api/connectors/socket'
+    });
+    const request = {
+      allowedHosts: ['Phone.Example', '100.80.135.9'],
+      machineId: 'dev-server-machine',
+      projectId: 'dev-server-machine:project-space',
+      runTarget: 'dev',
+      worktreeId: '/tmp/project-space-worktree',
+      worktreePath: '/tmp/project-space-worktree'
+    };
+    const actor = { generation: 4, userId: 'user_test' };
+
+    try {
+      await waitForChannel('dev-server-machine');
+      const inspected = await requestConnectorDevServerInspect(request, actor);
+      const started = await requestConnectorDevServerStart(request, actor);
+      const stopped = await requestConnectorDevServerStop(request, actor);
+
+      expect(inspected.state).toBe('stopped');
+      expect(started).toMatchObject({
+        state: 'running',
+        tailscaleUrl: 'http://100.80.135.9:45173'
+      });
+      expect(stopped.state).toBe('stopped');
+      expect(executions.map((execution) => execution.operation)).toEqual([
+        'inspect',
+        'start',
+        'stop'
+      ]);
+      expect(executions[1]).toMatchObject({
+        actor: { generation: 4, userId: 'user_test' },
+        allowedHosts: ['100.80.135.9', 'phone.example'],
+        worktreePath: '/tmp/project-space-worktree'
+      });
+    } finally {
+      await server.close();
+      bridge.close();
+    }
+  });
+
+  test('times out a dev-server command that never responds', async () => {
+    process.env.PROJECT_CONNECTOR_CONFIG = '/tmp/project-space-missing-connector-config.json';
+    delete process.env.PROJECT_CONNECTOR_HUBS;
+    process.env.PROJECT_CONNECTOR_REGISTRATION_TOKEN = 'test-connector-token';
+    configureCommandSigningKeys();
+    const registry: ConnectorProjectRegistryResult = {
+      checkedAt: new Date().toISOString(),
+      connector: {
+        capabilities: ['dev-server.start'],
+        machineId: 'timeout-machine',
+        machineName: 'Timeout machine'
+      },
+      discovery: {
+        groups: [],
+        projects: [],
+        rootItems: [],
+        rootPath: '/tmp',
+        structureViolations: []
+      }
+    };
+    const connectorBackend = {
+      async getConnectorProjectRegistry() {
+        return registry;
+      },
+      async runDevServerCommand() {
+        return await new Promise<never>(() => undefined);
+      }
+    } as Pick<ProjectSpaceBackend, 'getConnectorProjectRegistry'> & ConnectorDevServerAdapter;
+    const server = await createProjectSpaceServer({
+      backend: createLocalProjectSpaceBackend(),
+      host: '127.0.0.1',
+      port: 0
+    });
+    const bridge = startProjectConnectorWebSocket({
+      backend: connectorBackend as ProjectSpaceBackend & ConnectorDevServerAdapter,
+      hubUrl: server.origin.replace(/^http/, 'ws') + '/api/connectors/socket'
+    });
+
+    try {
+      await waitForChannel('timeout-machine');
+      await expect(
+        requestConnectorDevServerStart(
+          {
+            allowedHosts: [],
+            machineId: 'timeout-machine',
+            projectId: 'timeout-machine:project',
+            runTarget: 'dev',
+            worktreeId: '/tmp/timeout-project',
+            worktreePath: '/tmp/timeout-project'
+          },
+          { generation: 1, userId: 'user_timeout' },
+          { timeoutMs: 30 }
+        )
+      ).rejects.toThrow('timed out');
+    } finally {
+      bridge.close();
+      await server.close();
+    }
+  });
+
+  test('fails an in-flight dev-server command when its connector disconnects', async () => {
+    process.env.PROJECT_CONNECTOR_CONFIG = '/tmp/project-space-missing-connector-config.json';
+    delete process.env.PROJECT_CONNECTOR_HUBS;
+    process.env.PROJECT_CONNECTOR_REGISTRATION_TOKEN = 'test-connector-token';
+    configureCommandSigningKeys();
+    let markExecutionStarted!: () => void;
+    const executionStarted = new Promise<void>((resolve) => {
+      markExecutionStarted = resolve;
+    });
+    const registry: ConnectorProjectRegistryResult = {
+      checkedAt: new Date().toISOString(),
+      connector: {
+        capabilities: ['dev-server.start'],
+        machineId: 'disconnect-machine',
+        machineName: 'Disconnect machine'
+      },
+      discovery: {
+        groups: [],
+        projects: [],
+        rootItems: [],
+        rootPath: '/tmp',
+        structureViolations: []
+      }
+    };
+    const connectorBackend = {
+      async getConnectorProjectRegistry() {
+        return registry;
+      },
+      async runDevServerCommand() {
+        markExecutionStarted();
+        return await new Promise<never>(() => undefined);
+      }
+    } as Pick<ProjectSpaceBackend, 'getConnectorProjectRegistry'> & ConnectorDevServerAdapter;
+    const server = await createProjectSpaceServer({
+      backend: createLocalProjectSpaceBackend(),
+      host: '127.0.0.1',
+      port: 0
+    });
+    const bridge = startProjectConnectorWebSocket({
+      backend: connectorBackend as ProjectSpaceBackend & ConnectorDevServerAdapter,
+      hubUrl: server.origin.replace(/^http/, 'ws') + '/api/connectors/socket'
+    });
+
+    try {
+      await waitForChannel('disconnect-machine');
+      const result = requestConnectorDevServerStart(
+        {
+          allowedHosts: [],
+          machineId: 'disconnect-machine',
+          projectId: 'disconnect-machine:project',
+          runTarget: 'dev',
+          worktreeId: '/tmp/disconnect-project',
+          worktreePath: '/tmp/disconnect-project'
+        },
+        { generation: 1, userId: 'user_disconnect' },
+        { timeoutMs: 5_000 }
+      );
+      await executionStarted;
+      bridge.close();
+      await expect(result).rejects.toThrow('not connected');
+    } finally {
+      bridge.close();
+      await server.close();
+    }
+  });
+
   test('rejects unsupported commands immediately for older connectors', async () => {
     process.env.PROJECT_CONNECTOR_CONFIG = '/tmp/project-space-missing-connector-config.json';
     delete process.env.PROJECT_CONNECTOR_HUBS;
@@ -377,6 +661,19 @@ describe('connector command channel', () => {
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain('Update or restart');
       expect(Date.now() - startedAt).toBeLessThan(1_000);
+      await expect(
+        requestConnectorDevServerStart(
+          {
+            allowedHosts: [],
+            machineId: 'older-machine',
+            projectId: 'older-machine:project',
+            runTarget: 'dev',
+            worktreeId: '/tmp/project',
+            worktreePath: '/tmp/project'
+          },
+          { generation: 1, userId: 'user_test' }
+        )
+      ).rejects.toThrow('Update or restart');
     } finally {
       await server.close();
       bridge.close();

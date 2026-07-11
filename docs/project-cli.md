@@ -149,6 +149,120 @@ Fixed policy:
 
 The token value is stored directly in 1Password and is never printed.
 
+## Run And Serve Project Scripts
+
+Projects declare a small, shared script catalog in `.project/scripts.yaml`:
+
+```yaml
+version: 1
+scripts:
+  dev:
+    command:
+      - bun
+      - run
+      - dev
+      - --
+      - --host
+      - "{host}"
+      - --port
+      - "{port}"
+      - --strictPort
+    healthCheck:
+      path: /health
+      timeoutSeconds: 45
+```
+
+`command` is always an argument list. It is never passed through a shell.
+`{host}` and `{port}` are replaced before the process starts. The same values
+are also available as `PROJECT_HOST` and `PROJECT_PORT`.
+
+Run a script in the foreground, like `npm run`:
+
+```sh
+project run dev
+project run dev <directory>
+project run test --format json
+```
+
+`project run` inherits the current terminal environment. In JSON mode, child
+output goes to stderr and the final result is printed as one JSON object on
+stdout.
+
+Run a managed dev server and publish it through Tailscale:
+
+```sh
+project serve
+project serve dev <directory>
+project serve dev <directory> --allowed-host preview.example.com
+project serve status <directory> --script dev --json
+project serve stop <directory> --script dev --json
+project serve reconcile --json
+```
+
+`project serve` defaults to the `dev` script and current directory. If its only
+argument is an existing directory, it runs `dev` there.
+
+Managed servers listen on a free `127.0.0.1` port. The CLI creates one exact
+raw Tailscale TCP route and reports a DNS-free URL such as
+`http://100.80.135.9:44000`. MagicDNS and Tailscale certificate domains are not
+required. Stop removes only the recorded port when its current target still
+matches the recorded local server. It never resets unrelated Tailscale routes.
+
+`--allowed-host` is repeatable and accepts explicit hostnames or IP addresses
+only. Every validated value is available to project tooling in the
+comma-separated `PROJECT_ALLOWED_HOSTS` variable. For compatibility, the Vite
+`__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` variable is also set when exactly one
+extra host is configured; Vite interprets a comma-separated value as one
+literal hostname. Raw Tailscale IPv4 URLs normally do not need an extra Vite
+host entry.
+
+If `healthCheck` is configured, both the local and Tailscale URL must return a
+2xx or 3xx response before the session becomes `running`. Without it, the CLI
+checks the TCP listener. In both cases, it also verifies that the selected port
+belongs to the managed process group. `tailscale` and `lsof` must be available
+on the connector machine.
+
+The managed process receives a small allowlist of runtime and toolchain
+environment variables. Connector registration tokens, Clerk keys, database
+URLs, and other server secrets are not inherited. A private supervisor keeps a
+bounded 64 KiB log tail outside the worktree. Startup failures include a short,
+sanitized tail in `lastError`; the CLI never creates an unbounded project log.
+
+Session state and locks live in the current operating-system user's durable
+state directory, outside the worktree (`~/Library/Application Support/Project
+Space/serve` on macOS or `$XDG_STATE_HOME/project-space/serve`). A session is
+identified by canonical directory and script. App-user ownership and access
+remain in Project Space's database; the machine-local state contains only the
+real process and route identity. `project serve reconcile` checks all recorded
+sessions and removes stale processes or exact routes after connector restarts.
+
+Machine-readable serve output always contains the same fields:
+
+```json
+{
+  "schemaVersion": 1,
+  "operation": "start",
+  "script": "dev",
+  "directory": "/absolute/worktree",
+  "capability": "configured",
+  "state": "running",
+  "pid": 7001,
+  "localPort": 43117,
+  "localUrl": "http://127.0.0.1:43117",
+  "publicPort": 44000,
+  "publicUrl": "http://100.80.135.9:44000",
+  "tailscaleIPv4": "100.80.135.9",
+  "allowedHosts": [],
+  "startedAt": "2026-07-11T12:00:00Z",
+  "checkedAt": "2026-07-11T12:00:01Z",
+  "lastError": null
+}
+```
+
+`capability` is `configured` or `unavailable`. Runtime `state` is `stopped`,
+`starting`, `running`, `stopping`, or `error`. Nullable runtime fields remain
+present so connector clients can decode one stable shape.
+
 ## Deploy
 
 ```sh
@@ -194,6 +308,12 @@ Flags override config. Values from `deploy/deploy.yaml` are used directly,
 without confirmation prompts. Secret values are read from 1Password only for
 real deploys; dry-runs show only secret references.
 
+Production also requires a dedicated Ed25519 connector command-signing key.
+`deploy/deploy.yaml` reads its dotenv-safe PKCS8 base64 value from
+`op://projects/project-connector-command-signing-key/private_key_b64`. Do not
+reuse the connector registration token for command signing. The web installer
+derives and installs only the matching public key on connector machines.
+
 ## Connector Setup
 
 ```sh
@@ -206,6 +326,12 @@ project connector connect prod https://projects.os-home.net
 `project connector setup` writes the machine connector config to
 `~/.config/project-space/connector.json`. By default it configures both the
 remote production hub and the local development hub:
+
+For the hosted multi-user app, use the account-specific installer shown in
+Project Space settings instead of this shared-token setup path. That installer
+uses a server-assigned machine ID, a per-user credential file, and the hub's
+Ed25519 command public key. The commands below remain useful for local or
+manually managed development hubs.
 
 ```json
 {
@@ -224,8 +350,8 @@ remote production hub and the local development hub:
 }
 ```
 
-The token stays in the environment. The config stores only the environment
-variable name, so the secret is not written into the repo or the config file.
+The local-development token stays in the environment. Hosted production
+connectors instead read their bound credential from a private file.
 
 On macOS, `project connector install` performs the same setup and installs a
 LaunchAgent. It copies the connector into `~/.local/bin`, starts it immediately,

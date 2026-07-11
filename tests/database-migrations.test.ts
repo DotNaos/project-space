@@ -1,0 +1,113 @@
+import { describe, expect, test } from 'bun:test';
+
+import type { DatabaseQueryClient } from '../server/database/client';
+import {
+  databaseMigrations,
+  migrationChecksum,
+  runDatabaseMigrations
+} from '../server/database/migrations';
+
+interface QueryCall {
+  sql: string;
+  values: readonly unknown[];
+}
+
+class MigrationTestClient implements DatabaseQueryClient {
+  readonly calls: QueryCall[] = [];
+  readonly applied = new Map<string, string>();
+
+  async query<Row>(sql: string, values: readonly unknown[] = []) {
+    this.calls.push({ sql, values });
+
+    if (sql.includes('select id, checksum') && sql.includes('project_space_schema_migrations')) {
+      return {
+        rows: [...this.applied].map(([id, checksum]) => ({ id, checksum })) as Row[]
+      };
+    }
+
+    if (sql.includes('insert into project_space_schema_migrations')) {
+      this.applied.set(String(values[0]), String(values[1]));
+    }
+
+    return { rows: [] as Row[] };
+  }
+}
+
+describe('database migrations', () => {
+  test('defines the multi-user tables and their ownership constraints', () => {
+    expect(databaseMigrations.map((migration) => migration.id)).toEqual([
+      '0001_github_oauth_tokens',
+      '0002_machine_memberships_and_run_settings',
+      '0003_dev_server_sessions',
+      '0004_connector_credentials',
+      '0005_user_project_states'
+    ]);
+
+    const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
+
+    expect(sql).toContain('create table if not exists github_oauth_tokens');
+    expect(sql).toContain('create table if not exists machine_memberships');
+    expect(sql).toContain('create table if not exists user_project_run_settings');
+    expect(sql).toContain('allowed_hosts text[]');
+    expect(sql).toContain('foreign key (machine_id, user_id)');
+    expect(sql).toContain('create table if not exists dev_server_sessions');
+    expect(sql).toContain('foreign key (machine_id, owner_user_id)');
+    expect(sql).toContain('create table if not exists user_project_states');
+    expect(sql).toContain('user_id text primary key');
+    expect(sql).toContain('state jsonb not null');
+    expect(sql).toContain('dev_server_sessions_one_active_per_worktree');
+    expect(sql).toContain("where state in ('starting', 'running', 'stopping')");
+    expect(sql).toContain('create table if not exists connector_credentials');
+    expect(sql).toContain('token_hash text not null unique');
+    expect(sql).toContain('machine_id text check');
+    expect(sql).toContain('expires_at timestamptz not null');
+    expect(sql).toContain('last_seen_at timestamptz');
+    expect(sql).toContain('revoked_at timestamptz');
+    expect(sql).toContain('foreign key (machine_id, owner_user_id)');
+  });
+
+  test('applies pending migrations once under a transaction and records checksums', async () => {
+    const client = new MigrationTestClient();
+    const alreadyApplied = databaseMigrations[0];
+    client.applied.set(alreadyApplied.id, migrationChecksum(alreadyApplied));
+
+    await runDatabaseMigrations(client);
+
+    expect(client.calls[0]?.sql).toBe('begin');
+    expect(client.calls.some((call) => call.sql.includes('pg_advisory_xact_lock'))).toBe(true);
+    expect(
+      client.calls.some((call) => call.sql.includes('project_space_schema_migrations'))
+    ).toBe(true);
+    expect(client.calls.some((call) => call.sql === alreadyApplied.sql)).toBe(false);
+    expect(client.calls.some((call) => call.sql === databaseMigrations[1].sql)).toBe(true);
+    expect(client.calls.some((call) => call.sql === databaseMigrations[2].sql)).toBe(true);
+    expect(client.calls.some((call) => call.sql === databaseMigrations[3].sql)).toBe(true);
+    expect(client.calls.some((call) => call.sql === databaseMigrations[4].sql)).toBe(true);
+    expect(client.calls.at(-1)?.sql).toBe('commit');
+    expect(client.applied).toEqual(
+      new Map(
+        databaseMigrations.map((migration) => [migration.id, migrationChecksum(migration)])
+      )
+    );
+
+    const firstRunCallCount = client.calls.length;
+    await runDatabaseMigrations(client);
+
+    const secondRunCalls = client.calls.slice(firstRunCallCount);
+    expect(
+      secondRunCalls.some((call) =>
+        databaseMigrations.some((migration) => migration.sql === call.sql)
+      )
+    ).toBe(false);
+  });
+
+  test('rolls back when an applied migration was modified', async () => {
+    const client = new MigrationTestClient();
+    client.applied.set(databaseMigrations[0].id, 'unexpected-checksum');
+
+    await expect(runDatabaseMigrations(client)).rejects.toThrow(
+      'Database migration 0001_github_oauth_tokens changed after it was applied.'
+    );
+    expect(client.calls.at(-1)?.sql).toBe('rollback');
+  });
+});
