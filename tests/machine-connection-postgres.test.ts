@@ -3,6 +3,10 @@ import { generateKeyPairSync, randomUUID, sign } from 'node:crypto';
 import { describe, expect, test } from 'bun:test';
 import pg from 'pg';
 
+import {
+  isConnectorCommandChannelAuthenticated,
+  isConnectorCommandChannelAvailable
+} from '../server/connector-command-hub';
 import { ConnectorCredentialRepository } from '../server/database/connector-credentials';
 import type { DatabaseQueryClient } from '../server/database/client';
 import { databaseMigrations } from '../server/database/migrations';
@@ -10,10 +14,15 @@ import {
   DatabaseMachineConnectionStore,
   type TransactionalDatabaseQueryClient
 } from '../server/machine-connection-database-store';
+import { createMachineConnectionRuntime } from '../server/machine-connection-runtime';
 import {
   MachineConnectionService,
   machineApprovalProofMessage
 } from '../server/machine-connection-service';
+import type { ProjectChatRuntime } from '../server/project-chat/runtime';
+import { startAuthenticatedProjectConnectorRuntime } from '../server/project-connector-runtime';
+import { createProjectSpaceServer } from '../server/project-space-http';
+import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
 
 const testDatabaseUrl = process.env.PROJECT_SPACE_TEST_DATABASE_URL;
 const postgresTest = testDatabaseUrl ? test : test.skip;
@@ -66,6 +75,49 @@ function machineKeyPair() {
   const jwk = publicKey.export({ format: 'jwk' });
   if (!jwk.x) throw new Error('Ed25519 key export did not include x.');
   return { privateKey, publicKey: jwk.x };
+}
+
+function connectorBackend() {
+  return {
+    async getConnectorProjectRegistry() {
+      return {
+        checkedAt: new Date().toISOString(),
+        connector: {
+          machineId: 'untrusted-placeholder',
+          machineName: 'PostgreSQL E2E machine'
+        },
+        discovery: {
+          groups: [],
+          projects: [],
+          rootItems: [],
+          rootPath: '/tmp',
+          structureViolations: []
+        }
+      };
+    }
+  } as unknown as ProjectSpaceBackend;
+}
+
+const silentProjectChatRuntime: ProjectChatRuntime = {
+  async handleRequest() {
+    return false;
+  },
+  start() {},
+  stop() {}
+};
+
+async function waitForChannel(machineId: string, online: boolean) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (isConnectorCommandChannelAvailable(machineId) === online) {
+      return;
+    }
+    await Bun.sleep(10);
+  }
+  throw new Error(`Machine connector did not become ${online ? 'online' : 'offline'}.`);
+}
+
+async function responseJson(response: Response) {
+  return await response.json() as Record<string, unknown>;
 }
 
 async function connectMachine(
@@ -184,6 +236,118 @@ describe('machine connection PostgreSQL integration', () => {
           [randomUUID(), 'f'.repeat(64), keys.publicKey]
         );
         await expect(store.cleanupOldRequests()).resolves.toBe(1);
+
+        const runtime = createMachineConnectionRuntime({
+          databaseClient: client,
+          isMachineOnline: isConnectorCommandChannelAuthenticated,
+          publicOrigin: 'http://127.0.0.1',
+          rateLimitSecret: Buffer.alloc(32, 5),
+          readAuthenticatedUserId: async (request) =>
+            request.headers.authorization === 'Bearer browser-session'
+              ? 'user_postgres_http'
+              : null
+        });
+        const server = await createProjectSpaceServer({
+          host: '127.0.0.1',
+          machineConnectionRuntime: runtime,
+          port: 0,
+          projectChatRuntime: silentProjectChatRuntime
+        });
+        let bridge: { close(): void } | null = null;
+        try {
+          const httpKeys = machineKeyPair();
+          const createdResponse = await fetch(`${server.origin}/api/machine-connections`, {
+            body: JSON.stringify({
+              architecture: 'amd64',
+              clientVersion: '0.4.0',
+              hostname: 'postgres-http-machine',
+              name: 'PostgreSQL HTTP Machine',
+              operatingSystem: 'linux',
+              publicKey: httpKeys.publicKey
+            }),
+            headers: { 'Content-Type': 'application/json' },
+            method: 'POST'
+          });
+          const createdHttp = await responseJson(createdResponse);
+          expect(createdResponse.status).toBe(201);
+
+          const approvalResponse = await fetch(
+            `${server.origin}/api/machine-connections/${createdHttp.requestId}/approve`,
+            {
+              headers: { Authorization: 'Bearer browser-session' },
+              method: 'POST'
+            }
+          );
+          expect(approvalResponse.status).toBe(200);
+
+          const pollResponse = await fetch(
+            `${server.origin}/api/machine-connections/${createdHttp.requestId}`,
+            { headers: { Authorization: `Bearer ${createdHttp.pollToken}` } }
+          );
+          const approvedHttp = await responseJson(pollResponse);
+          expect(approvedHttp.status).toBe('approved');
+          const httpSignature = sign(
+            null,
+            machineApprovalProofMessage(
+              String(createdHttp.requestId),
+              String(approvedHttp.approvalChallenge)
+            ),
+            httpKeys.privateKey
+          ).toString('base64url');
+          const exchangeResponse = await fetch(
+            `${server.origin}/api/machine-connections/${createdHttp.requestId}/exchange`,
+            {
+              body: JSON.stringify({ signature: httpSignature }),
+              headers: {
+                Authorization: `Bearer ${createdHttp.pollToken}`,
+                'Content-Type': 'application/json'
+              },
+              method: 'POST'
+            }
+          );
+          const connectedHttp = await responseJson(exchangeResponse);
+          expect(exchangeResponse.status).toBe(200);
+          const httpMachineId = String(connectedHttp.machineId);
+          const httpCredential = String(connectedHttp.credential);
+
+          bridge = await startAuthenticatedProjectConnectorRuntime({
+            backend: connectorBackend(),
+            credential: {
+              backendUrl: server.origin,
+              credential: httpCredential,
+              machineId: httpMachineId,
+              version: 'project-space.connector-runtime/v1'
+            },
+            reconnectDelayMs: 10,
+            registryIntervalMs: 10
+          });
+          await waitForChannel(httpMachineId, true);
+
+          const onlineResponse = await fetch(
+            `${server.origin}/api/machines/${httpMachineId}/connection`,
+            { headers: { Authorization: `Bearer ${httpCredential}` } }
+          );
+          expect(await responseJson(onlineResponse)).toMatchObject({ status: 'online' });
+
+          const revokeResponse = await fetch(
+            `${server.origin}/api/machines/${httpMachineId}/revoke`,
+            {
+              headers: { Authorization: `Bearer ${httpCredential}` },
+              method: 'POST'
+            }
+          );
+          expect(await responseJson(revokeResponse)).toMatchObject({ status: 'revoked' });
+          await waitForChannel(httpMachineId, false);
+
+          const revokedResponse = await fetch(
+            `${server.origin}/api/machines/${httpMachineId}/connection`,
+            { headers: { Authorization: `Bearer ${httpCredential}` } }
+          );
+          expect(await responseJson(revokedResponse)).toMatchObject({ status: 'revoked' });
+        } finally {
+          bridge?.close();
+          await server.close();
+        }
       } finally {
         await pool.end();
       }
