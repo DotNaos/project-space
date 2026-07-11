@@ -165,6 +165,11 @@ export interface ProjectChatClient {
   listMentions(request?: ProjectChatMentionListRequest): Promise<ProjectChatMentionListResult>;
   read(request?: ProjectChatReadRequest): Promise<ProjectChatReadResult>;
   send(request: ProjectChatSendRequest): Promise<ProjectChatSendResult>;
+  subscribe(
+    request: ProjectChatReadRequest,
+    onMessage: (message: ProjectChatMessageRecord) => void,
+    onError?: (error: unknown) => void
+  ): () => void;
   updateProfile(request: ProjectChatProfileUpdateRequest): Promise<ProjectChatProfileUpdateResult>;
   updatePresence(request: ProjectChatPresenceRequest): Promise<ProjectChatMemberRecord>;
 }

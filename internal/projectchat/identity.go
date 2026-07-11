@@ -63,8 +63,7 @@ func (provider EnvironmentAgentProfileProvider) AgentProfile(context.Context) (A
 		DisplayName: strings.TrimSpace(displayName),
 		TaskTitle:   strings.TrimSpace(taskTitle),
 	}
-	if !validProfileText(profile.DisplayName, maxAgentNameCharacters, false) ||
-		!validProfileText(profile.TaskTitle, maxTaskTitleCharacters, true) {
+	if validateAgentProfile(profile) != nil {
 		return AgentProfile{}, ErrInvalidAgentName
 	}
 	return profile, nil
@@ -83,4 +82,8 @@ func validProfileText(value string, maxCharacters int, allowEmpty bool) bool {
 		}
 	}
 	return true
+}
+
+func ValidAgentProfile(profile AgentProfile) bool {
+	return validateAgentProfile(profile) == nil
 }

@@ -13,6 +13,7 @@ import {
   type ProjectChatSendInput
 } from './contracts';
 import type { ProjectChatService } from './service';
+import { ProjectChatRealtimeHub } from './realtime';
 import { writeJson } from '../project-space-http-response';
 
 const PROJECT_CHAT_MAX_HTTP_BODY_BYTES = 16 * 1024;
@@ -32,7 +33,8 @@ type ProjectChatRoute =
   | 'profile-get'
   | 'profile-update'
   | 'read'
-  | 'send';
+  | 'send'
+  | 'stream';
 
 class ProjectChatHttpInputError extends Error {
   constructor(
@@ -67,7 +69,8 @@ export class ProjectChatAccessError extends Error {
 
 export function createProjectChatHttpApi(
   service: ProjectChatService,
-  resolveContext: ProjectChatContextResolver
+  resolveContext: ProjectChatContextResolver,
+  realtime = new ProjectChatRealtimeHub()
 ) {
   return async function handleProjectChatHttpRequest(
     request: IncomingMessage,
@@ -83,7 +86,14 @@ export function createProjectChatHttpApi(
 
     try {
       const context = await resolveContext(request);
+      if (route === 'stream') {
+        await streamMessages(request, response, url, service, context, realtime);
+        return true;
+      }
       const result = await handleRoute(route, request, url, service, context);
+      if (route === 'send') {
+        realtime.publish((result as { message: Awaited<ReturnType<ProjectChatService['sendMessage']>> }).message);
+      }
       writeJson(response, 200, result);
     } catch (error) {
       writeProjectChatError(response, error);
@@ -140,6 +150,8 @@ async function handleRoute(
       requireMatchingIdempotencyHeader(request, input);
       return { message: await service.sendMessage(context, input) };
     }
+    case 'stream':
+      throw new Error('Project Chat streams are handled before JSON routes.');
   }
 }
 
@@ -163,8 +175,85 @@ function projectChatRoute(method: string | undefined, pathname: string): Project
       return 'read';
     case 'POST /api/project-chat/messages':
       return 'send';
+    case 'GET /api/project-chat/stream':
+      return 'stream';
     default:
       return undefined;
+  }
+}
+
+async function streamMessages(
+  request: IncomingMessage,
+  response: ServerResponse,
+  url: URL,
+  service: ProjectChatService,
+  context: ProjectChatContext,
+  realtime: ProjectChatRealtimeHub
+) {
+  const input = queryInput(url) as unknown as ProjectChatReadInput;
+  const channelId = input.channelId ?? 'general';
+  let cursor = input.afterSequence ?? 0;
+
+  // Authenticate membership and validate the cursor before committing stream headers.
+  await service.readMessages(context, { afterSequence: cursor, channelId, limit: 1 });
+
+  response.statusCode = 200;
+  response.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  response.setHeader('Connection', 'keep-alive');
+  response.setHeader('X-Accel-Buffering', 'no');
+  response.flushHeaders?.();
+  response.write('retry: 1000\n\n');
+
+  const writeMessage = (message: Awaited<ReturnType<ProjectChatService['sendMessage']>>) => {
+    if (message.sequence <= cursor || response.destroyed) {
+      return;
+    }
+    cursor = message.sequence;
+    response.write(`id: ${message.sequence}\nevent: message\ndata: ${JSON.stringify(message)}\n\n`);
+  };
+  const heartbeat = setInterval(() => {
+    if (!response.destroyed) response.write(': keep-alive\n\n');
+  }, 15_000);
+  let closed = false;
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    clearInterval(heartbeat);
+    unsubscribe();
+  };
+  request.once('aborted', cleanup);
+  response.once('close', cleanup);
+
+  let draining = Promise.resolve();
+  const drain = () => {
+    draining = draining.then(async () => {
+      if (closed) return;
+      for (;;) {
+        const page = await service.readMessages(context, {
+          afterSequence: cursor,
+          channelId,
+          limit: 100
+        });
+        page.messages.forEach(writeMessage);
+        if (!page.hasMore) break;
+      }
+    }).catch(() => {
+      cleanup();
+      if (!response.destroyed) response.end('event: error\ndata: {"code":"stream_failed"}\n\n');
+    });
+    return draining;
+  };
+  const unsubscribe = realtime.subscribe(channelId, () => {
+    void drain();
+  });
+
+  try {
+    await drain();
+  } catch (error) {
+    cleanup();
+    if (!response.headersSent) {
+      throw error;
+    }
   }
 }
 

@@ -8,6 +8,7 @@ import {
   type ProjectChatJoinResult,
   type ProjectChatMemberListResult,
   type ProjectChatMemberRecord,
+  type ProjectChatMessageRecord,
   type ProjectChatMentionListRequest,
   type ProjectChatMentionListResult,
   type ProjectChatPresenceRequest,
@@ -193,6 +194,49 @@ export function createProjectChatClient(options: ProjectChatClientOptions): Proj
         method: 'POST'
       });
     },
+    subscribe(value, onMessage, onError) {
+      const controller = new AbortController();
+      let cursor = value.afterSequence ?? 0;
+
+      void (async () => {
+        while (!controller.signal.aborted) {
+          try {
+            const token = safeAuthToken(
+              options.getAuthToken ? await options.getAuthToken() : options.authToken
+            );
+            const query = new URLSearchParams({
+              afterSequence: String(cursor),
+              channelId: value.channelId ?? PROJECT_CHAT_GENERAL_CHANNEL_ID
+            });
+            const response = await fetchImplementation(`${baseUrl}/api/project-chat/stream?${query}`, {
+              headers: {
+                Accept: 'text/event-stream',
+                ...(token ? { Authorization: `Bearer ${token}` } : {})
+              },
+              signal: controller.signal
+            });
+            if (!response.ok || !response.body) {
+              await readProjectChatResponse(response);
+              throw new Error('Project Chat returned an invalid live stream.');
+            }
+            for await (const event of projectChatServerEvents(response.body)) {
+              if (event.event !== 'message') continue;
+              const message = JSON.parse(event.data) as ProjectChatMessageRecord;
+              if (message.sequence > cursor) {
+                cursor = message.sequence;
+                onMessage(message);
+              }
+            }
+          } catch (error) {
+            if (controller.signal.aborted) break;
+            onError?.(error);
+          }
+          await abortableDelay(1_000, controller.signal);
+        }
+      })();
+
+      return () => controller.abort();
+    },
     updateProfile(value: ProjectChatProfileUpdateRequest) {
       return request<ProjectChatProfileUpdateResult>('/api/project-chat/profile', {
         body: JSON.stringify(value),
@@ -206,4 +250,47 @@ export function createProjectChatClient(options: ProjectChatClientOptions): Proj
       });
     }
   };
+}
+
+interface ProjectChatServerEvent {
+  data: string;
+  event: string;
+}
+
+export async function* projectChatServerEvents(
+  stream: ReadableStream<Uint8Array>
+): AsyncGenerator<ProjectChatServerEvent> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+      let boundary = buffer.indexOf('\n\n');
+      while (boundary >= 0) {
+        const block = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const fields = block.split('\n').filter((line) => !line.startsWith(':'));
+        const event = fields.find((line) => line.startsWith('event:'))?.slice(6).trim() ?? 'message';
+        const data = fields.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n');
+        if (data) yield { data, event };
+        boundary = buffer.indexOf('\n\n');
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function abortableDelay(milliseconds: number, signal: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    if (signal.aborted) return resolve();
+    const timer = setTimeout(resolve, milliseconds);
+    signal.addEventListener('abort', () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
 }

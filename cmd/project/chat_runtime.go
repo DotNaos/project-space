@@ -13,6 +13,7 @@ import (
 type chatRuntimeDependencies struct {
 	LookupEnv          func(string) (string, bool)
 	NewCredentialStore func() (machineconnect.CredentialStore, error)
+	NewProfileStore    func() (projectchat.AgentProfileStore, error)
 	NewClient          func(projectchat.Config) (projectchat.ClientAPI, error)
 }
 
@@ -29,6 +30,7 @@ func newDefaultChatCommand() *cobra.Command {
 
 func newDefaultChatCommandWithRuntime(dependencies chatRuntimeDependencies) *cobra.Command {
 	dependencies = normalizeChatRuntimeDependencies(dependencies)
+	profileStore, profileStoreErr := dependencies.NewProfileStore()
 	client := &lazyProjectChatClient{
 		load: func() (projectchat.ClientAPI, error) {
 			return loadProjectChatRuntimeClient(dependencies)
@@ -41,7 +43,8 @@ func newDefaultChatCommandWithRuntime(dependencies chatRuntimeDependencies) *cob
 		ProfileProvider: projectchat.EnvironmentAgentProfileProvider{
 			LookupEnv: dependencies.LookupEnv,
 		},
-		Client: client,
+		ProfileStore: profileStoreOrError{store: profileStore, err: profileStoreErr},
+		Client:       client,
 	})
 }
 
@@ -52,12 +55,36 @@ func normalizeChatRuntimeDependencies(dependencies chatRuntimeDependencies) chat
 	if dependencies.NewCredentialStore == nil {
 		dependencies.NewCredentialStore = machineconnect.NewDefaultCredentialStore
 	}
+	if dependencies.NewProfileStore == nil {
+		dependencies.NewProfileStore = func() (projectchat.AgentProfileStore, error) {
+			return projectchat.NewDefaultAgentProfileStore()
+		}
+	}
 	if dependencies.NewClient == nil {
 		dependencies.NewClient = func(config projectchat.Config) (projectchat.ClientAPI, error) {
 			return projectchat.NewClient(config)
 		}
 	}
 	return dependencies
+}
+
+type profileStoreOrError struct {
+	store projectchat.AgentProfileStore
+	err   error
+}
+
+func (store profileStoreOrError) Load(threadID string) (projectchat.AgentProfile, error) {
+	if store.err != nil || store.store == nil {
+		return projectchat.AgentProfile{}, projectchat.ErrUnavailable
+	}
+	return store.store.Load(threadID)
+}
+
+func (store profileStoreOrError) Save(threadID string, profile projectchat.AgentProfile) error {
+	if store.err != nil || store.store == nil {
+		return projectchat.ErrUnavailable
+	}
+	return store.store.Save(threadID, profile)
 }
 
 func loadProjectChatRuntimeClient(dependencies chatRuntimeDependencies) (projectchat.ClientAPI, error) {

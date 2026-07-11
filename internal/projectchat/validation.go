@@ -99,6 +99,7 @@ func validateMessage(message Message, channelID string) error {
 
 func validateAgentProfile(profile AgentProfile) error {
 	if strings.TrimSpace(profile.DisplayName) != profile.DisplayName ||
+		strings.EqualFold(profile.DisplayName, "Codex") ||
 		strings.TrimSpace(profile.TaskTitle) != profile.TaskTitle ||
 		!validProfileText(profile.DisplayName, maxAgentNameCharacters, false) ||
 		!validProfileText(profile.TaskTitle, maxTaskTitleCharacters, true) {
