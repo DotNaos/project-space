@@ -25,12 +25,37 @@ export interface ProjectChatChannelRecord {
 }
 
 export interface ProjectChatMemberRecord {
+  avatarUrl?: string;
   displayName: string;
   handle: string;
   memberId: string;
   origin?: ProjectChatOriginRecord;
   presence: ProjectChatPresenceRecord;
   role: ProjectChatRole;
+}
+
+export interface ProjectChatHumanProfileRecord {
+  avatarSource: 'account' | 'custom' | 'none';
+  avatarUrl?: string;
+  defaultAvatarUrl?: string;
+  defaultDisplayName: string;
+  displayName: string;
+  handle: string;
+  revision: number;
+  updatedAt: string;
+}
+
+export interface ProjectChatProfileUpdateRequest {
+  avatarDataUrl?: string | null;
+  displayName?: string | null;
+}
+
+export interface ProjectChatProfileResult {
+  profile: ProjectChatHumanProfileRecord;
+}
+
+export interface ProjectChatProfileUpdateResult extends ProjectChatProfileResult {
+  member: ProjectChatMemberRecord;
 }
 
 export interface ProjectChatSenderRecord {
@@ -134,10 +159,12 @@ export interface ProjectChatApiErrorPayload {
 
 export interface ProjectChatClient {
   acknowledge(request: ProjectChatAcknowledgeRequest): Promise<ProjectChatAcknowledgeResult>;
+  getProfile(): Promise<ProjectChatProfileResult>;
   join(request?: ProjectChatJoinRequest): Promise<ProjectChatJoinResult>;
   listMembers(): Promise<ProjectChatMemberListResult>;
   listMentions(request?: ProjectChatMentionListRequest): Promise<ProjectChatMentionListResult>;
   read(request?: ProjectChatReadRequest): Promise<ProjectChatReadResult>;
   send(request: ProjectChatSendRequest): Promise<ProjectChatSendResult>;
+  updateProfile(request: ProjectChatProfileUpdateRequest): Promise<ProjectChatProfileUpdateResult>;
   updatePresence(request: ProjectChatPresenceRequest): Promise<ProjectChatMemberRecord>;
 }

@@ -1,8 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { MachineConnectionRuntime } from '../machine-connection-runtime';
 
-import { authenticateConnectorMachineToken } from '../connector-registration-auth';
 import {
-  authenticateConnectorCredential,
   getProjectChatRepository,
   isDatabaseConfigured
 } from '../local-database-store';
@@ -16,6 +15,7 @@ import {
   type ProjectChatAuthenticatedMachine,
   type ProjectChatHumanSession
 } from './auth-context';
+import { readProjectChatAccountProfile } from './account-profile';
 import { createProjectChatHttpApi, ProjectChatAccessError } from './http-api';
 import { InMemoryProjectChatRepository } from './memory-store';
 import type { ProjectChatRepository } from './repository';
@@ -75,9 +75,7 @@ export async function createProjectChatRuntime(
         throw new ProjectChatAccessError(503);
       }
     : createProjectChatAuthContextResolver({
-        authenticateMachine: options.authenticateMachine ?? defaultMachineAuthenticator(
-          persistentDatabaseConfigured
-        ),
+        authenticateMachine: options.authenticateMachine ?? (async () => null),
         authRequired,
         localDevelopmentHuman: options.localDevelopmentHuman ?? {
           displayName: 'Olli',
@@ -102,39 +100,47 @@ export async function createProjectChatRuntime(
   };
 }
 
-function defaultMachineAuthenticator(databaseConfigured: boolean) {
+export function projectChatMachineAuthenticator(
+  runtime: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'> | undefined
+) {
   return async function authenticateMachine(input: {
     machineId: string;
     token: string;
   }): Promise<ProjectChatAuthenticatedMachine | null> {
-    if (databaseConfigured) {
-      const credential = await authenticateConnectorCredential(input).catch(() => null);
-      return credential
-        ? { machineId: credential.machineId, userId: credential.userId }
-        : null;
-    }
-
-    const authenticated = await authenticateConnectorMachineToken(
-      input.token,
-      input.machineId
-    );
-    return authenticated
-      ? { machineId: input.machineId, userId: 'local-development-user' }
+    const identity = await runtime
+      ?.resolveMachineCredentialIdentity(input.token, input.machineId);
+    return identity
+      ? {
+          hostId: identity.hostId,
+          machineId: identity.machineId,
+          userId: identity.userId
+        }
       : null;
   };
 }
 
 async function defaultHumanSessionReader(request: IncomingMessage) {
   const session = await readAuthSessionFromRequest(request);
-  return session ? projectChatHumanSession(session) : null;
+  if (!session) {
+    return null;
+  }
+  const accountProfile = await readProjectChatAccountProfile(session.userId);
+  return projectChatHumanSession(session, accountProfile);
 }
 
 function projectChatHumanSession(
-  session: ProjectSpaceAuthSession
+  session: ProjectSpaceAuthSession,
+  accountProfile: {
+    avatarUrl?: string;
+    defaultsResolved?: boolean;
+    displayName?: string;
+  } = {}
 ): ProjectChatHumanSession {
   return {
-    displayName: displayNameFromLogin(session.login),
+    avatarUrl: accountProfile.avatarUrl,
+    displayName: accountProfile.displayName ?? displayNameFromLogin(session.login),
     login: session.login,
+    profileDefaultsResolved: accountProfile.defaultsResolved !== false,
     userId: session.userId
   };
 }

@@ -52,6 +52,14 @@ const message = {
   sequence: 8
 };
 
+const profile = {
+  avatarSource: 'none',
+  defaultDisplayName: 'Olli',
+  displayName: 'Olli',
+  handle: 'olli',
+  updatedAt: '2026-07-11T00:00:00.000Z'
+};
+
 interface StubCall {
   context: ProjectChatContext;
   input?: unknown;
@@ -64,6 +72,8 @@ function stubService() {
     listMembers: [] as StubCall[],
     mentions: [] as StubCall[],
     presence: [] as StubCall[],
+    profileGet: [] as StubCall[],
+    profileUpdate: [] as StubCall[],
     read: [] as StubCall[],
     send: [] as StubCall[]
   };
@@ -79,6 +89,10 @@ function stubService() {
     async getMentionState(callContext: ProjectChatContext, input: unknown) {
       calls.mentions.push({ context: callContext, input });
       return { channelId: 'general', messages: [message], unreadCount: 1 };
+    },
+    async getProfile(callContext: ProjectChatContext) {
+      calls.profileGet.push({ context: callContext });
+      return profile;
     },
     async join(callContext: ProjectChatContext, input: unknown) {
       calls.join.push({ context: callContext, input });
@@ -114,6 +128,10 @@ function stubService() {
     async updatePresence(callContext: ProjectChatContext, input: unknown) {
       calls.presence.push({ context: callContext, input });
       return member;
+    },
+    async updateProfile(callContext: ProjectChatContext, input: unknown) {
+      calls.profileUpdate.push({ context: callContext, input });
+      return { member, profile };
     }
   } as unknown as ProjectChatService;
   return { calls, service };
@@ -179,6 +197,14 @@ describe('Project Chat HTTP endpoint contract', () => {
       postJson({ state: 'working' }, auth)
     );
     const members = await fetch(`${origin}/api/project-chat/members`, { headers: auth });
+    const ownProfile = await fetch(`${origin}/api/project-chat/profile`, { headers: auth });
+    const updatedProfile = await fetch(
+      `${origin}/api/project-chat/profile`,
+      {
+        ...postJson({ avatarDataUrl: null, displayName: 'Olli' }, auth),
+        method: 'PUT'
+      }
+    );
     const send = await fetch(`${origin}/api/project-chat/messages`, postJson(
       { body: 'Hello agents', channelId: 'general', idempotencyKey: 'send-1' },
       { ...auth, 'Idempotency-Key': 'send-1' }
@@ -199,6 +225,8 @@ describe('Project Chat HTTP endpoint contract', () => {
     expect(await responseJson(join)).toMatchObject({ channel: { channelId: 'general' }, member });
     expect(await responseJson(presence)).toEqual(member);
     expect(await responseJson(members)).toEqual({ members: [member] });
+    expect(await responseJson(ownProfile)).toEqual({ profile });
+    expect(await responseJson(updatedProfile)).toEqual({ member, profile });
     expect(await responseJson(send)).toEqual({ message });
     expect(await responseJson(read)).toEqual({
       afterSequence: 7,
@@ -218,7 +246,7 @@ describe('Project Chat HTTP endpoint contract', () => {
       messages: [message],
       unreadCount: 1
     });
-    expect([join, presence, members, send, read, ack, mentions].every(
+    expect([join, presence, members, ownProfile, updatedProfile, send, read, ack, mentions].every(
       (response) => response.status === 200 && response.headers.get('cache-control') === 'no-store'
     )).toBe(true);
     expect(calls.read[0]?.input).toEqual({
@@ -227,8 +255,12 @@ describe('Project Chat HTTP endpoint contract', () => {
       limit: 12
     });
     expect(calls.mentions[0]?.input).toEqual({ channelId: 'general', limit: 9 });
+    expect(calls.profileUpdate[0]?.input).toEqual({
+      avatarDataUrl: null,
+      displayName: 'Olli'
+    });
     expect(Object.values(calls).flat().every((call) => call.context === context)).toBe(true);
-    expect(resolverCalls).toBe(7);
+    expect(resolverCalls).toBe(9);
   });
 
   test('does not authenticate or consume requests outside the Project Chat route contract', async () => {
@@ -353,6 +385,7 @@ describe('Project Chat HTTP boundary security', () => {
   test('maps every service error code without leaking generic exception details', async () => {
     const expected = [
       ['invalid_request', 400],
+      ['forbidden', 403],
       ['not_member', 403],
       ['name_conflict', 409],
       ['idempotency_conflict', 409],

@@ -376,21 +376,24 @@ project chat read
 
 Codex supplies `CODEX_THREAD_ID`; callers do not copy or pass their task ID as
 a command argument. The agent name and current task title are descriptive
-metadata supplied by the invoking agent workflow. The machine ID, account, and
-authorization come only from the existing connector configuration and its
-private credential.
+metadata supplied by the invoking agent workflow. The machine ID, account,
+backend URL, and authorization come only from the authenticated Project Connect
+Machine Credential Store (Keychain/Credential Manager on native systems and the
+protected credential file on Linux/WSL).
 
 `send` appends one idempotent message to `#general`. `read` prints unread pages
 with `Message from`, role, origin task ID, host, machine, timestamp, and a quoted
 plain-text body. It advances the read cursor only after the full page has been
 written successfully, so a failed output is repeated rather than lost.
 
-The command accepts HTTPS hubs and an explicit loopback `dev` hub. It rejects
-remote plain HTTP, redirects, unsafe credential files, missing agent identity,
-and malformed Codex task IDs. Messages and profile metadata that look like
-credentials are rejected before storage.
+The stored Project Connect backend may use HTTPS or an explicit loopback URL.
+The command rejects remote plain HTTP, redirects, a missing Project Connect
+identity, missing agent identity, and malformed Codex task IDs. It never reads
+the old connector configuration or registration-token environment variables as
+a fallback. Messages and profile metadata that look like credentials are
+rejected before storage.
 
-Use `project connector connect <name> <url>` to add or update a single hub.
+Run `project connect` to establish or refresh this authenticated machine identity.
 
 ## Sync Template Snapshot
 

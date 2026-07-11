@@ -1,6 +1,7 @@
 import {
   PROJECT_CHAT_GENERAL_CHANNEL_ID,
   PROJECT_CHAT_MAX_BODY_LENGTH,
+  PROJECT_CHAT_MAX_DISPLAY_NAME_LENGTH,
   ProjectChatError,
   type ProjectChatAcknowledgeInput,
   type ProjectChatActor,
@@ -8,11 +9,17 @@ import {
   type ProjectChatJoinInput,
   type ProjectChatMentionStateInput,
   type ProjectChatPresenceInput,
+  type ProjectChatProfileUpdateInput,
   type ProjectChatReadInput,
   type ProjectChatSendInput
 } from './contracts';
+import {
+  normalizeProjectChatProviderAvatarUrl,
+  parseProjectChatAvatarDataUrl
+} from './avatar';
 
 const CONTROL_CHARACTER = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
+const UNSAFE_METADATA_TEXT = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u;
 const SAFE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/;
 const SAFE_CODEX_THREAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SAFE_HANDLE = /^[a-z0-9][a-z0-9_-]*$/;
@@ -53,8 +60,20 @@ function boundedString(
   return result;
 }
 
-function optionalBoundedString(value: unknown, name: string, max: number) {
-  return value === undefined ? undefined : boundedString(value, name, { max });
+function boundedMetadataString(value: unknown, name: string, max: number) {
+  const input = boundedString(value, name, { max });
+  if (UNSAFE_METADATA_TEXT.test(input)) {
+    invalid(`${name} contains unsupported characters.`);
+  }
+  const result = input.normalize('NFKC').replace(/\s+/gu, ' ');
+  if (UNSAFE_METADATA_TEXT.test(result) || result.length > max) {
+    invalid(`${name} contains unsupported characters.`);
+  }
+  return result;
+}
+
+function optionalBoundedMetadataString(value: unknown, name: string, max: number) {
+  return value === undefined ? undefined : boundedMetadataString(value, name, max);
 }
 
 function identifier(value: unknown, name: string, max = 128) {
@@ -131,9 +150,15 @@ export function validateProjectChatContext(context: ProjectChatContext) {
   switch (actor.kind) {
     case 'human':
       identifier(actor.accountId, 'accountId');
-      boundedString(actor.displayName, 'displayName', { max: 48 });
+      boundedMetadataString(actor.displayName, 'displayName', PROJECT_CHAT_MAX_DISPLAY_NAME_LENGTH);
       if (!SAFE_HANDLE.test(actor.handle) || actor.handle.length > 32) {
         invalid('The authenticated human handle is invalid.');
+      }
+      if (
+        actor.avatarUrl !== undefined &&
+        normalizeProjectChatProviderAvatarUrl(actor.avatarUrl) !== actor.avatarUrl
+      ) {
+        invalid('The authenticated human avatar is invalid.');
       }
       break;
     case 'agent':
@@ -144,7 +169,7 @@ export function validateProjectChatContext(context: ProjectChatContext) {
       break;
     case 'system':
       identifier(actor.serviceId, 'serviceId');
-      boundedString(actor.displayName, 'displayName', { max: 48 });
+      boundedMetadataString(actor.displayName, 'displayName', PROJECT_CHAT_MAX_DISPLAY_NAME_LENGTH);
       if (!SAFE_HANDLE.test(actor.handle) || actor.handle.length > 32) {
         invalid('The authenticated system handle is invalid.');
       }
@@ -164,8 +189,12 @@ export function parseProjectChatJoinInput(actor: ProjectChatActor, input: unknow
     return {};
   }
   return {
-    displayName: boundedString(value.displayName, 'displayName', { max: 48 }),
-    taskTitle: optionalBoundedString(value.taskTitle, 'taskTitle', 160)
+    displayName: boundedMetadataString(
+      value.displayName,
+      'displayName',
+      PROJECT_CHAT_MAX_DISPLAY_NAME_LENGTH
+    ),
+    taskTitle: optionalBoundedMetadataString(value.taskTitle, 'taskTitle', 160)
   } satisfies Required<Pick<ProjectChatJoinInput, 'displayName'>> & Pick<ProjectChatJoinInput, 'taskTitle'>;
 }
 
@@ -180,11 +209,34 @@ export function parseProjectChatPresenceInput(actor: ProjectChatActor, input: un
   }
   const taskTitle = value.taskTitle === null || value.taskTitle === ''
     ? null
-    : optionalBoundedString(value.taskTitle, 'taskTitle', 160);
+    : optionalBoundedMetadataString(value.taskTitle, 'taskTitle', 160);
   return {
     state: value.state,
     taskTitle
   } satisfies ProjectChatPresenceInput;
+}
+
+export function parseProjectChatProfileUpdateInput(input: unknown) {
+  const value = objectInput(input);
+  exactKeys(value, ['displayName', 'avatarDataUrl']);
+  if (value.displayName === undefined && value.avatarDataUrl === undefined) {
+    invalid('At least one profile field must be updated.');
+  }
+
+  const displayName = value.displayName === null
+    ? null
+    : optionalBoundedMetadataString(
+        value.displayName,
+        'displayName',
+        PROJECT_CHAT_MAX_DISPLAY_NAME_LENGTH
+      );
+  const avatarDataUrl = value.avatarDataUrl === null
+    ? null
+    : value.avatarDataUrl === undefined
+      ? undefined
+      : parseProjectChatAvatarDataUrl(value.avatarDataUrl);
+
+  return { avatarDataUrl, displayName } satisfies ProjectChatProfileUpdateInput;
 }
 
 export function parseProjectChatSendInput(input: unknown) {

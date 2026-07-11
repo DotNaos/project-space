@@ -534,6 +534,10 @@ export class DatabaseMachineConnectionStore implements MachineConnectionStore {
                 case when credential.expires_at <= now() then credential.expires_at end
               ) as effective_revoked_at
          from machine_identities mi
+         join machine_memberships membership
+           on membership.machine_id = mi.id
+          and membership.user_id = mi.owner_user_id
+          and membership.role = 'owner'
          join connector_credentials credential
            on credential.id = mi.current_credential_id
           and credential.machine_id = mi.id

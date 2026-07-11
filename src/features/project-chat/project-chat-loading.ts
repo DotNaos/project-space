@@ -4,7 +4,9 @@ import {
   type ProjectChatChannelId,
   type ProjectChatJoinResult,
   type ProjectChatMemberListResult,
+  type ProjectChatMemberRecord,
   type ProjectChatMentionListResult,
+  type ProjectChatProfileResult,
   type ProjectChatReadResult
 } from '../../shared/project-chat-api';
 
@@ -87,7 +89,16 @@ export interface ProjectChatInitialLoadResult {
   joinResult: ProjectChatJoinResult;
   memberResult: ProjectChatMemberListResult;
   mentionResult: ProjectChatMentionListResult;
+  profileResult: ProjectChatProfileResult;
   readResult: ProjectChatReadResult;
+}
+
+export interface ProjectChatRefreshResult {
+  memberResult: ProjectChatMemberListResult;
+  mentionResult: ProjectChatMentionListResult;
+  profileResult: ProjectChatProfileResult;
+  readResult: ProjectChatReadResult;
+  refreshedViewer: ProjectChatMemberRecord;
 }
 
 export async function loadInitialProjectChat(
@@ -95,11 +106,28 @@ export async function loadInitialProjectChat(
 ): Promise<ProjectChatInitialLoadResult> {
   const joinResult = await client.join();
   const channelId = joinResult.channel.channelId;
-  const [readResult, memberResult, mentionResult] = await Promise.all([
+  const [readResult, memberResult, mentionResult, profileResult] = await Promise.all([
     readProjectChatPages(client, channelId),
     client.listMembers(),
-    client.listMentions({ channelId, limit: 50 })
+    client.listMentions({ channelId, limit: 50 }),
+    client.getProfile()
   ]);
 
-  return { joinResult, memberResult, mentionResult, readResult };
+  return { joinResult, memberResult, mentionResult, profileResult, readResult };
+}
+
+export async function refreshProjectChat(
+  client: ProjectChatClient,
+  channelId: ProjectChatChannelId,
+  afterSequence: number
+): Promise<ProjectChatRefreshResult> {
+  const refreshedViewer = await client.updatePresence({ state: 'working' });
+  const [readResult, memberResult, mentionResult, profileResult] = await Promise.all([
+    readProjectChatPages(client, channelId, afterSequence),
+    client.listMembers(),
+    client.listMentions({ channelId, limit: 50 }),
+    client.getProfile()
+  ]);
+
+  return { memberResult, mentionResult, profileResult, readResult, refreshedViewer };
 }

@@ -31,23 +31,25 @@ can be added without changing message semantics.
 
 Every request runs as one server-derived actor:
 
-- A **human** comes from the authenticated Clerk account. The server supplies the account ID,
-  display name, and handle. Request JSON cannot choose or override them.
+- A **human** comes from the authenticated Clerk account. Clerk, then the connected GitHub account,
+  supplies the default name and profile image. Project Chat stores a per-account display-name and
+  raster-image override; the browser can update only those bounded profile fields. The server still
+  supplies the account ID, stable handle, and human role.
 - An **agent** presents a valid machine credential from the Project Connect flow and the current
   `CODEX_THREAD_ID`. The server binds the account, machine, host, and thread origin. The agent may
   supply a display name and task title as descriptive metadata, not as authority.
 - A **system** actor can only be created by trusted server code. Public requests cannot claim this
   role.
 
-The actor role, account, machine, host, and thread origin never come from untrusted message JSON.
+The actor role, account, handle, machine, host, and thread origin never come from untrusted message JSON.
 An agent request without a valid machine credential or thread ID fails closed; it never falls back
 to the human identity.
 
 ## Membership And Presence
 
-Joining creates or refreshes one member for the trusted actor and ensures `#general` exists. Human
-and system names come entirely from their trusted identity. Agent names must be unique enough to
-produce a unique mention handle.
+Joining creates or refreshes one member for the trusted actor and ensures `#general` exists. A
+human's stored override is resolved over the latest account defaults, so a later join cannot replace
+the chosen chat name or photo. Agent names must be unique enough to produce a unique mention handle.
 
 The CLI makes membership implicit:
 
@@ -104,6 +106,8 @@ or secret match. The initial endpoints are:
 |---|---|---|
 | `POST` | `/join` | Create or refresh the authenticated member and return `#general`. |
 | `POST` | `/presence` | Refresh `working` or `idle` presence and optional agent task metadata. |
+| `GET` | `/profile` | Read the authenticated human's effective profile and account defaults. |
+| `PUT` | `/profile` | Update or reset the authenticated human's bounded name/photo override. |
 | `GET` | `/members` | List members with computed presence and trusted origin metadata. |
 | `GET` | `/messages` | Read messages after an explicit sequence or the member's stored cursor. |
 | `POST` | `/messages` | Append one message with its idempotency key. |
@@ -112,7 +116,9 @@ or secret match. The initial endpoints are:
 
 `channelId` is fixed to `general` in the first release. Reads default to 100 messages and are capped
 at 200; mention lists default to 50 and are capped at 100. Message bodies are capped at 4,000
-characters. The agent client sends its machine bearer credential and `X-Codex-Thread-ID`; the web
+characters. Custom photos are raster-only PNG, JPEG, or WebP data, limited to 256 KiB and 1024 px
+per dimension after strict server-side decoding checks; SVG and arbitrary remote override URLs are
+rejected. The agent client sends its machine bearer credential and `X-Codex-Thread-ID`; the web
 client uses the authenticated Clerk session through the shared server adapter.
 
 ## CLI Contract
@@ -131,7 +137,10 @@ role, origin thread, host, machine, time, channel, and quoted body.
 Reading follows **print, then acknowledge**. The CLI advances the cursor only after the complete
 page reaches standard output. If printing or acknowledgement fails, a later read safely repeats the
 page. This makes missed information less likely than duplicate display. The command refuses to run
-without a trusted agent name, thread identity, and machine credential.
+without a trusted agent name, thread identity, and machine credential. It loads the backend URL,
+machine ID, and credential only from Project Connect's OS-backed Machine Credential Store. Old
+connector configuration, registration-token environment variables, and shared tokens are not
+fallback authentication paths.
 
 ## Safety Limits
 
@@ -144,7 +153,8 @@ Project Chat is coordination infrastructure, not a secret store.
   authorization headers, credentials, or scanner matches.
 - Scanning is defense in depth, not a guarantee. Participants must never intentionally paste a
   secret into Project Chat.
-- Input uses exact fields, bounded text, safe identifiers, and plain-text rendering. The UI does not
+- Input uses exact fields, NFKC-normalized single-line metadata, bounded text, safe identifiers, and
+  plain-text rendering. Control and bidirectional override characters are rejected. The UI does not
   interpret message bodies as HTML or Markdown.
 - Default per-actor, per-space limits are 10 joins per minute, 120 sends per minute, and 120 presence
   updates per minute. A rejected request returns `rate_limited` and a retry delay.
@@ -159,8 +169,9 @@ keeps the channel list narrow, gives the message stream most of the width, and o
 participants, task details, and thread origin without turning every section into a card. It shows
 timestamps, agent status, unread mentions, connection errors, and the task an agent is working on.
 
-People and agents never use human profile photos. Agents use a soft blue-and-white shader orb based
-on the supplied cloud-like reference; the human uses a separate abstract symbol. The orb is built
+Humans use their account image or validated Project Chat photo, with initials as a fallback. Agents
+always use a soft blue-and-white shader orb based on the supplied cloud-like reference, even if a
+client attempts to supply image-like data. The orb is built
 from CSS gradients and masks instead of one WebGL context per participant. That keeps long member
 and message lists inexpensive and avoids browser context limits. Message-row orbs are static; only
 the selected or active presence may use slow ambient movement. `prefers-reduced-motion` disables all
@@ -191,8 +202,9 @@ isolated components:
    and concurrency tests.
 3. Run the Go tests for the HTTP client and CLI, including missing identity, redirect rejection,
    bounded responses, output failure, pagination, and print-then-ack behavior.
-4. In the browser, join as the Clerk-authenticated human, send a message, mention an agent, inspect
-   its task origin, and check desktop and narrow layouts with reduced motion enabled.
+4. In the browser, join as the Clerk-authenticated human, change and reset the chat name/photo, send
+   a message, mention an agent, inspect its task origin, and check desktop and 390-pixel layouts with
+   reduced motion enabled.
 5. From a registered machine, send with `project chat send`, read as another agent, and confirm the
    second read is empty only after the first output and acknowledgement succeeded.
 6. Confirm an invalid credential, missing thread ID, forged role, oversized message, secret-like

@@ -1,8 +1,33 @@
 import type {
+  ProjectChatHumanProfileRecord,
   ProjectChatMemberRecord,
   ProjectChatMessageRecord,
-  ProjectChatPresenceState
+  ProjectChatPresenceState,
+  ProjectChatProfileUpdateRequest,
+  ProjectChatSenderRecord
 } from '@/shared/project-chat-api';
+
+export const PROJECT_CHAT_MAX_DISPLAY_NAME_LENGTH = 48;
+
+export type ProjectChatAvatarUpdate = string | null | undefined;
+
+export interface ProjectChatParticipantIdentity extends ProjectChatSenderRecord {
+  avatarUrl?: string;
+}
+
+export interface ProjectChatProfileGenerationGuard {
+  acceptProfileRevision(revision: number): boolean;
+  beginMutation(): number;
+  captureRefresh(): ProjectChatProfileRefreshToken;
+  canApplyRefresh(refresh: ProjectChatProfileRefreshToken, revision: number): boolean;
+  finishMutation(generation: number): boolean;
+  isRefreshCurrent(refresh: ProjectChatProfileRefreshToken): boolean;
+}
+
+export interface ProjectChatProfileRefreshToken {
+  generation: number;
+  sequence: number;
+}
 
 export interface ProjectChatTextSegment {
   kind: 'mention' | 'text';
@@ -18,6 +43,224 @@ export interface ProjectChatThreadSummary {
   memberName: string;
   taskTitle: string;
   threadId: string;
+}
+
+export function createProjectChatProfileGenerationGuard(): ProjectChatProfileGenerationGuard {
+  let generation = 0;
+  let latestAcceptedRefreshSequence = 0;
+  let latestProfileRevision = 0;
+  let pendingMutation: number | undefined;
+  let refreshSequence = 0;
+
+  function acceptProfileRevision(revision: number) {
+    if (
+      !Number.isSafeInteger(revision)
+      || revision < 1
+      || revision < latestProfileRevision
+    ) {
+      return false;
+    }
+    latestProfileRevision = revision;
+    return true;
+  }
+
+  return {
+    acceptProfileRevision,
+    beginMutation() {
+      generation += 1;
+      pendingMutation = generation;
+      return generation;
+    },
+    captureRefresh() {
+      refreshSequence += 1;
+      return { generation, sequence: refreshSequence };
+    },
+    canApplyRefresh(refresh, revision) {
+      if (
+        pendingMutation !== undefined
+        || refresh.generation !== generation
+        || !Number.isSafeInteger(revision)
+        || revision < 1
+        || revision < latestProfileRevision
+        || (revision === latestProfileRevision
+          && refresh.sequence < latestAcceptedRefreshSequence)
+      ) {
+        return false;
+      }
+      latestProfileRevision = revision;
+      latestAcceptedRefreshSequence = refresh.sequence;
+      return true;
+    },
+    finishMutation(mutationGeneration) {
+      if (pendingMutation !== mutationGeneration) {
+        return false;
+      }
+      pendingMutation = undefined;
+      generation += 1;
+      return true;
+    },
+    isRefreshCurrent(refresh) {
+      return pendingMutation === undefined && refresh.generation === generation;
+    }
+  };
+}
+
+export async function runProjectChatProfileMutation<Result>(
+  guard: ProjectChatProfileGenerationGuard,
+  mutate: () => Promise<Result>,
+  reconcile: (result?: Result) => Promise<boolean>
+) {
+  const mutationGeneration = guard.beginMutation();
+  try {
+    const result = await mutate();
+    const finished = guard.finishMutation(mutationGeneration);
+    if (!finished) {
+      return { applyResult: false, result };
+    }
+    let reconciled = false;
+    try {
+      reconciled = await reconcile(result);
+    } catch {
+      // The mutation response remains a safe fallback when reconciliation fails.
+    }
+    return {
+      applyResult: !reconciled,
+      result
+    };
+  } catch (error) {
+    guard.finishMutation(mutationGeneration);
+    try {
+      await reconcile();
+    } catch {
+      // Preserve the mutation failure. The caller's reconciliation path reports its own state.
+    }
+    throw error;
+  }
+}
+
+export function projectChatMessageIdentity(
+  message: ProjectChatMessageRecord,
+  member?: ProjectChatMemberRecord
+) {
+  const currentHuman = member?.role === 'human' && message.sender.role === 'human'
+    && member.memberId === message.sender.memberId
+    ? member
+    : undefined;
+  return {
+    avatarUrl: currentHuman?.avatarUrl,
+    displayName: currentHuman?.displayName ?? message.sender.displayName,
+    role: message.sender.role
+  };
+}
+
+export function projectChatMemberWithProfile(
+  member: ProjectChatMemberRecord,
+  profile: ProjectChatHumanProfileRecord
+) {
+  if (member.role !== 'human') {
+    return member;
+  }
+
+  return {
+    ...member,
+    avatarUrl: profile.avatarUrl,
+    displayName: profile.displayName,
+    handle: profile.handle
+  } satisfies ProjectChatMemberRecord;
+}
+
+export function projectChatIdentitySnapshot(
+  viewer: ProjectChatMemberRecord,
+  members: ProjectChatMemberRecord[],
+  profile: ProjectChatHumanProfileRecord
+) {
+  const currentViewer = projectChatMemberWithProfile(viewer, profile);
+  return {
+    members: members.some((member) => member.memberId === currentViewer.memberId)
+      ? members.map((member) => (
+          member.memberId === currentViewer.memberId ? currentViewer : member
+        ))
+      : [...members, currentViewer],
+    viewer: currentViewer
+  };
+}
+
+export function projectChatProfileUpdateRequest(
+  profile: ProjectChatHumanProfileRecord,
+  displayName: string,
+  displayNameTouched: boolean,
+  avatarUpdate: ProjectChatAvatarUpdate
+) {
+  const normalizedName = displayName.normalize('NFKC').trim().replace(/\s+/gu, ' ');
+  if (!normalizedName || normalizedName.length > PROJECT_CHAT_MAX_DISPLAY_NAME_LENGTH) {
+    throw new Error(
+      `Display name must be between 1 and ${PROJECT_CHAT_MAX_DISPLAY_NAME_LENGTH} characters.`
+    );
+  }
+
+  const request: ProjectChatProfileUpdateRequest = {};
+  if (displayNameTouched && normalizedName !== profile.displayName) {
+    request.displayName = normalizedName === profile.defaultDisplayName
+      ? null
+      : normalizedName;
+  }
+  if (avatarUpdate !== undefined) {
+    request.avatarDataUrl = avatarUpdate;
+  }
+
+  return Object.keys(request).length > 0 ? request : undefined;
+}
+
+export function projectChatThreadParticipants(
+  messages: ProjectChatMessageRecord[],
+  members: ProjectChatMemberRecord[],
+  thread: ProjectChatThreadSummary
+) {
+  const snapshots = new Map<string, ProjectChatParticipantIdentity>();
+
+  for (const message of messages) {
+    if (message.sender.origin?.threadId === thread.threadId) {
+      snapshots.set(message.sender.memberId, message.sender);
+      continue;
+    }
+
+    if (message.mentions.some((mention) => mention.memberId === thread.memberId)) {
+      snapshots.set(message.sender.memberId, message.sender);
+    }
+  }
+
+  const threadMember = members.find((member) => member.memberId === thread.memberId);
+  if (!snapshots.has(thread.memberId)) {
+    snapshots.set(thread.memberId, threadMember?.role === 'agent'
+      ? threadMember
+      : {
+          displayName: thread.memberName,
+          handle: thread.memberName,
+          memberId: thread.memberId,
+          role: 'agent'
+        });
+  }
+
+  return [...snapshots.values()].map((snapshot) => {
+    const current = members.find((member) => (
+      member.memberId === snapshot.memberId && member.role === snapshot.role
+    ));
+    if (!current) {
+      return {
+        ...snapshot,
+        avatarUrl: undefined
+      };
+    }
+
+    return {
+      avatarUrl: current.role === 'human' ? current.avatarUrl : undefined,
+      displayName: current.displayName,
+      handle: current.handle,
+      memberId: current.memberId,
+      origin: current.origin,
+      role: current.role
+    } satisfies ProjectChatParticipantIdentity;
+  });
 }
 
 export function sortProjectChatMessages(messages: ProjectChatMessageRecord[]) {

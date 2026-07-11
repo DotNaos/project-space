@@ -185,6 +185,59 @@ describe('in-memory Project Chat repository', () => {
     }))).rejects.toBeInstanceOf(ProjectChatHandleConflictError);
   });
 
+  test('keeps the stored human handle during a profile-only update', async () => {
+    const store = await readyStore();
+    await store.ensureHumanProfile({
+      accountId: 'user-olli',
+      createdAt,
+      defaultDisplayName: 'Olli Account',
+      revision: 1,
+      spaceId,
+      updatedAt: createdAt
+    });
+    const human = member({
+      actorKey: '["human","user-olli"]',
+      displayName: 'Olli Account',
+      handle: 'olli',
+      memberId: 'member-human',
+      origin: undefined,
+      profileRevision: 1,
+      role: 'human'
+    });
+    await store.upsertMember(human);
+    await store.upsertMember(member({
+      actorKey: 'other-agent',
+      displayName: 'Taken',
+      handle: 'taken',
+      memberId: 'member-taken'
+    }));
+
+    await expect(store.updateHumanProfileAndMember({
+      accountId: 'user-olli',
+      displayNameOverride: 'Olli Chat',
+      spaceId,
+      updatedAt: '2026-07-11T00:01:00.000Z'
+    }, {
+      ...human,
+      handle: 'taken'
+    })).resolves.toMatchObject({
+      member: {
+        displayName: 'Olli Chat',
+        handle: 'olli',
+        memberId: 'member-human'
+      },
+      profile: {
+        displayNameOverride: 'Olli Chat',
+        revision: 2
+      }
+    });
+
+    expect(await store.findMemberByActorKey(spaceId, 'other-agent')).toMatchObject({
+      handle: 'taken',
+      memberId: 'member-taken'
+    });
+  });
+
   test('returns defensive copies instead of mutable store state', async () => {
     const store = await readyStore();
     const stored = await store.appendMessage({

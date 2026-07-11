@@ -36,6 +36,16 @@ class TestMachineConnectionRuntime implements MachineConnectionRuntime {
     return token === 'machine-secret' && machineId === 'machine-runtime';
   }
 
+  async resolveMachineCredentialIdentity(token: string, machineId: string) {
+    return token === 'machine-secret' && machineId === 'machine-runtime'
+      ? {
+          hostId: 'runtime-host',
+          machineId: 'machine-runtime',
+          userId: 'runtime-user'
+        }
+      : null;
+  }
+
   async handleRequest(
     request: IncomingMessage,
     response: ServerResponse,

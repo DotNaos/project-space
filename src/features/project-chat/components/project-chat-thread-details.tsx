@@ -2,43 +2,31 @@ import { ArrowLeft, ExternalLink, X } from 'lucide-react';
 import { Button, Text } from '@/app/dotnaos-ui';
 import type {
   ProjectChatMemberRecord,
-  ProjectChatMessageRecord,
-  ProjectChatSenderRecord
+  ProjectChatMessageRecord
 } from '@/shared/project-chat-api';
 import {
   effectiveProjectChatPresence,
   formatProjectChatActivity,
   projectChatPresenceLabel,
+  projectChatThreadParticipants,
   shortProjectChatId,
   type ProjectChatThreadSummary
 } from '../project-chat-model';
 import { ParticipantVisual, PresenceDot } from './participant-visual';
 
-function participantsForThread(
-  messages: ProjectChatMessageRecord[],
-  thread: ProjectChatThreadSummary
-) {
-  const participants = new Map<string, ProjectChatSenderRecord>();
-
-  for (const message of messages) {
-    if (message.sender.origin?.threadId === thread.threadId) {
-      participants.set(message.sender.memberId, message.sender);
-      continue;
-    }
-
-    if (message.mentions.some((mention) => mention.memberId === thread.memberId)) {
-      participants.set(message.sender.memberId, message.sender);
-    }
-  }
-
-  return [...participants.values()];
-}
-
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({
+  label,
+  value,
+  valueClassName = 'truncate'
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+}) {
   return (
     <div className="flex gap-4 border-t border-neutral-900 py-3 text-[10px]">
       <dt className="text-neutral-400">{label}</dt>
-      <dd className="ml-auto max-w-[65%] truncate text-right text-neutral-400">{value}</dd>
+      <dd className={`ml-auto max-w-[65%] text-right text-neutral-400 ${valueClassName}`}>{value}</dd>
     </div>
   );
 }
@@ -71,18 +59,12 @@ export function ProjectChatThreadDetails({
     );
   }
 
-  const member = members.find((entry) => entry.memberId === thread.memberId);
+  const member = members.find((entry) => (
+    entry.memberId === thread.memberId && entry.role === 'agent'
+  ));
   const presence = member ? effectiveProjectChatPresence(member, now) : 'offline';
-  const participants = participantsForThread(messages, thread);
-  if (member && !participants.some((participant) => participant.memberId === member.memberId)) {
-    participants.unshift({
-      displayName: member.displayName,
-      handle: member.handle,
-      memberId: member.memberId,
-      origin: member.origin,
-      role: member.role
-    });
-  }
+  const participants = projectChatThreadParticipants(messages, members, thread);
+  const threadMemberName = member?.displayName ?? thread.memberName;
 
   return (
     <aside className="flex h-full min-h-0 flex-col border-l border-neutral-800/80 bg-neutral-950/65">
@@ -104,7 +86,7 @@ export function ProjectChatThreadDetails({
         <div className="flex items-center gap-3">
           <ParticipantVisual active={presence === 'working'} role="agent" selected size={42} />
           <div className="min-w-0">
-            <Text as="h2" className="truncate text-sm font-semibold text-neutral-100">{thread.memberName}</Text>
+            <Text as="h2" className="truncate text-sm font-semibold text-neutral-100">{threadMemberName}</Text>
             <span className="mt-1 flex items-center gap-1.5 text-[9px] text-neutral-400">
               <PresenceDot state={presence} />
               {projectChatPresenceLabel(presence)}
@@ -118,6 +100,11 @@ export function ProjectChatThreadDetails({
         </div>
 
         <dl className="mt-5">
+          <DetailRow
+            label="Source thread"
+            value={thread.threadId}
+            valueClassName="break-all font-mono text-[9px] leading-4"
+          />
           <DetailRow label="Host" value={thread.hostId} />
           <DetailRow label="Machine" value={thread.machineId} />
           <DetailRow label="Last activity" value={formatProjectChatActivity(thread.lastActivityAt, now)} />
@@ -129,7 +116,12 @@ export function ProjectChatThreadDetails({
           <div className="mt-3 space-y-2.5">
             {participants.map((participant) => (
               <div className="flex items-center gap-2.5" key={participant.memberId}>
-                <ParticipantVisual role={participant.role} size={24} />
+                <ParticipantVisual
+                  avatarUrl={participant.avatarUrl}
+                  displayName={participant.displayName}
+                  role={participant.role}
+                  size={24}
+                />
                 <Text className="min-w-0 flex-1 truncate text-[10px] text-neutral-400">{participant.displayName}</Text>
                 <Text className="text-[10px] capitalize text-neutral-400">{participant.role}</Text>
               </div>

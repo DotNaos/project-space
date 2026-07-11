@@ -10,25 +10,30 @@ import {
   type ProjectChatChannelRecord,
   type ProjectChatClock,
   type ProjectChatContext,
+  type ProjectChatHumanProfile,
+  type ProjectChatHumanProfileRecord,
   type ProjectChatIdGenerator,
   type ProjectChatJoinInput,
-  type ProjectChatMember,
   type ProjectChatMemberRecord,
   type ProjectChatMentionStateInput,
-  type ProjectChatMessage,
   type ProjectChatMessageRecord,
   type ProjectChatOrigin,
   type ProjectChatPresenceInput,
   type ProjectChatPresenceRecord,
+  type ProjectChatProfileUpdateInput,
   type ProjectChatReadInput,
   type ProjectChatSendInput
 } from './contracts';
 import {
-  ProjectChatCursorOutOfRangeError,
-  ProjectChatHandleConflictError,
-  ProjectChatIdempotencyConflictError,
   type ProjectChatRepository
 } from './repository';
+import {
+  mapProjectChatRepositoryError,
+  publicProjectChatChannel,
+  publicProjectChatMember,
+  publicProjectChatMessage,
+  resolveProjectChatMentions
+} from './service-output';
 import {
   InMemoryProjectChatRateLimiter,
   defaultProjectChatRateLimits,
@@ -43,6 +48,7 @@ import {
   parseProjectChatJoinInput,
   parseProjectChatMentionStateInput,
   parseProjectChatPresenceInput,
+  parseProjectChatProfileUpdateInput,
   parseProjectChatReadInput,
   parseProjectChatSendInput,
   projectChatActorKey,
@@ -106,13 +112,18 @@ export class ProjectChatService {
 
     const actorKey = projectChatActorKey(context.actor);
     const existing = await this.repository.findMemberByActorKey(context.spaceId, actorKey);
-    const identity = memberIdentity(context.actor, profile);
+    const humanProfile = context.actor.kind === 'human'
+      ? this.humanProfileRecord(context, now)
+      : undefined;
+    const identity = memberIdentity(context.actor, profile, humanProfile);
     const record: ProjectChatMemberRecord = {
       spaceId: context.spaceId,
       actorKey,
       memberId: existing?.memberId ?? this.idGenerator.next('member'),
       displayName: identity.displayName,
       handle: identity.handle,
+      avatarUrl: identity.avatarUrl,
+      profileRevision: humanProfile?.revision,
       role: identity.role,
       origin: identity.origin,
       joinedAt: existing?.joinedAt ?? now.toISOString(),
@@ -127,7 +138,12 @@ export class ProjectChatService {
 
     try {
       const channel = await this.repository.ensureChannel(channelRecord);
-      const member = await this.repository.upsertMember(record);
+      const member = humanProfile
+        ? (await this.repository.ensureHumanProfileAndMember(humanProfile, record, {
+            refreshDefaults: context.actor.kind === 'human'
+              && context.actor.profileDefaultsResolved !== false
+          })).member
+        : await this.repository.upsertMember(record);
       const presence = await this.repository.setPresence(this.presenceRecord(
         context.spaceId,
         member.memberId,
@@ -135,12 +151,79 @@ export class ProjectChatService {
         now
       ));
       return {
-        channel: publicChannel(channel),
-        member: publicMember(member, presence, now)
+        channel: publicProjectChatChannel(channel),
+        member: publicProjectChatMember(member, presence, now)
       };
     } catch (error) {
-      throw mapRepositoryError(error);
+      throw mapProjectChatRepositoryError(error);
     }
+  }
+
+  async getProfile(context: ProjectChatContext): Promise<ProjectChatHumanProfile> {
+    validateProjectChatContext(context);
+    const actor = requireHumanActor(context);
+    const existing = await this.repository.findHumanProfileAndMember(
+      context.spaceId,
+      actor.accountId,
+      projectChatActorKey(context.actor)
+    );
+    if (!existing.member) {
+      throw new ProjectChatError('not_member', 'Project Chat membership is required.');
+    }
+    const state = existing.profile
+      ? { member: existing.member, profile: existing.profile }
+      : await this.repository.ensureHumanProfileAndMember(
+          this.humanProfileRecord(context, this.clock.now()),
+          existing.member,
+          { refreshDefaults: actor.profileDefaultsResolved !== false }
+        );
+    return publicHumanProfile(state.member.handle, state.profile);
+  }
+
+  async updateProfile(
+    context: ProjectChatContext,
+    input: ProjectChatProfileUpdateInput
+  ) {
+    validateProjectChatContext(context);
+    const actor = requireHumanActor(context);
+    const now = this.clock.now();
+    await this.consumeRateLimit(context, 'join', now);
+    const update = parseProjectChatProfileUpdateInput(input);
+    rejectSensitiveMetadata(update.displayName ?? undefined);
+    const existing = await this.repository.findHumanProfileAndMember(
+      context.spaceId,
+      actor.accountId,
+      projectChatActorKey(context.actor)
+    );
+    if (!existing.member) {
+      throw new ProjectChatError('not_member', 'Project Chat membership is required.');
+    }
+    if (!existing.profile) {
+      throw new Error('Project Chat human profile is unavailable.');
+    }
+
+    const { member: updatedMember, profile } = await this.repository.updateHumanProfileAndMember({
+      accountId: actor.accountId,
+      ...(update.avatarDataUrl === undefined
+        ? {}
+        : { avatarDataUrlOverride: update.avatarDataUrl }),
+      ...(update.displayName === undefined
+        ? {}
+        : { displayNameOverride: update.displayName }),
+      spaceId: context.spaceId,
+      updatedAt: now.toISOString()
+    }, {
+      ...existing.member,
+      handle: actor.handle,
+      origin: undefined,
+      role: 'human',
+      updatedAt: now.toISOString()
+    });
+    const presence = await this.repository.getPresence(context.spaceId, updatedMember.memberId);
+    return {
+      member: publicProjectChatMember(updatedMember, presence, now),
+      profile: publicHumanProfile(updatedMember.handle, profile)
+    };
   }
 
   async updatePresence(context: ProjectChatContext, input: ProjectChatPresenceInput) {
@@ -164,7 +247,7 @@ export class ProjectChatService {
       update.state,
       now
     ));
-    return publicMember(member, presence, now);
+    return publicProjectChatMember(member, presence, now);
   }
 
   async sendMessage(context: ProjectChatContext, input: ProjectChatSendInput) {
@@ -182,7 +265,7 @@ export class ProjectChatService {
     const sender = await this.requireMember(context);
     await this.repository.purgeExpired(now.toISOString());
     const members = await this.repository.listMembers(context.spaceId);
-    const mentions = resolveMentions(request.body, members);
+    const mentions = resolveProjectChatMentions(request.body, members);
     const message: Omit<ProjectChatMessageRecord, 'sequence'> = {
       spaceId: context.spaceId,
       senderMemberId: sender.memberId,
@@ -206,9 +289,9 @@ export class ProjectChatService {
         idempotencyKey: request.idempotencyKey,
         message
       });
-      return publicMessage(result.message);
+      return publicProjectChatMessage(result.message);
     } catch (error) {
-      throw mapRepositoryError(error);
+      throw mapProjectChatRepositoryError(error);
     }
   }
 
@@ -232,14 +315,14 @@ export class ProjectChatService {
       const lastSequence = page.messages.at(-1)?.sequence ?? afterSequence;
       return {
         channelId: request.channelId!,
-        messages: page.messages.map(publicMessage),
+        messages: page.messages.map(publicProjectChatMessage),
         afterSequence,
         nextSequence: page.hasMore ? lastSequence : page.latestSequence,
         latestSequence: page.latestSequence,
         hasMore: page.hasMore
       };
     } catch (error) {
-      throw mapRepositoryError(error);
+      throw mapProjectChatRepositoryError(error);
     }
   }
 
@@ -258,7 +341,7 @@ export class ProjectChatService {
       });
       return { channelId: request.channelId!, sequence, updatedAt };
     } catch (error) {
-      throw mapRepositoryError(error);
+      throw mapProjectChatRepositoryError(error);
     }
   }
 
@@ -271,7 +354,11 @@ export class ProjectChatService {
       this.repository.listPresences(context.spaceId)
     ]);
     const presenceByMember = new Map(presences.map((presence) => [presence.memberId, presence]));
-    return members.map((member) => publicMember(member, presenceByMember.get(member.memberId), now));
+    return members.map((member) => publicProjectChatMember(
+      member,
+      presenceByMember.get(member.memberId),
+      now
+    ));
   }
 
   async getMentionState(context: ProjectChatContext, input: ProjectChatMentionStateInput = {}) {
@@ -296,7 +383,7 @@ export class ProjectChatService {
     return {
       channelId: request.channelId!,
       unreadCount: result.unreadCount,
-      messages: result.messages.map(publicMessage)
+      messages: result.messages.map(publicProjectChatMessage)
     };
   }
 
@@ -313,6 +400,19 @@ export class ProjectChatService {
       throw new ProjectChatError('not_member', 'Project Chat membership is required.');
     }
     return member;
+  }
+
+  private humanProfileRecord(context: ProjectChatContext, now: Date) {
+    const actor = requireHumanActor(context);
+    return {
+      accountId: actor.accountId,
+      createdAt: now.toISOString(),
+      defaultAvatarUrl: actor.avatarUrl,
+      defaultDisplayName: actor.displayName,
+      revision: 1,
+      spaceId: context.spaceId,
+      updatedAt: now.toISOString()
+    } satisfies ProjectChatHumanProfileRecord;
   }
 
   private async consumeRateLimit(
@@ -388,10 +488,23 @@ function validRateLimitRule(rule: ProjectChatRateLimitRule, action: ProjectChatR
   return { ...rule };
 }
 
-function memberIdentity(actor: ProjectChatActor, profile: ProjectChatJoinInput) {
+function memberIdentity(
+  actor: ProjectChatActor,
+  profile: ProjectChatJoinInput,
+  humanProfile?: ProjectChatHumanProfileRecord
+) {
   switch (actor.kind) {
-    case 'human':
-      return { displayName: actor.displayName, handle: actor.handle, role: 'human' as const };
+    case 'human': {
+      if (!humanProfile) {
+        throw new Error('Project Chat human profile is unavailable.');
+      }
+      return {
+        avatarUrl: humanProfile.avatarDataUrlOverride ?? humanProfile.defaultAvatarUrl,
+        displayName: humanProfile.displayNameOverride ?? humanProfile.defaultDisplayName,
+        handle: actor.handle,
+        role: 'human' as const
+      };
+    }
     case 'agent': {
       const displayName = profile.displayName!;
       const origin: ProjectChatOrigin = {
@@ -401,6 +514,7 @@ function memberIdentity(actor: ProjectChatActor, profile: ProjectChatJoinInput) 
         taskTitle: profile.taskTitle
       };
       return {
+        avatarUrl: undefined,
         displayName,
         handle: normalizeProjectChatHandle(displayName),
         role: 'agent' as const,
@@ -408,89 +522,39 @@ function memberIdentity(actor: ProjectChatActor, profile: ProjectChatJoinInput) 
       };
     }
     case 'system':
-      return { displayName: actor.displayName, handle: actor.handle, role: 'system' as const };
+      return {
+        avatarUrl: undefined,
+        displayName: actor.displayName,
+        handle: actor.handle,
+        role: 'system' as const
+      };
   }
 }
 
-function resolveMentions(body: string, members: ProjectChatMemberRecord[]) {
-  const byHandle = new Map(members.map((member) => [member.handle.toLowerCase(), member]));
-  const mentions = [];
-  const seen = new Set<string>();
-  const pattern = /(^|[^A-Za-z0-9_])@([A-Za-z0-9][A-Za-z0-9_-]{0,31})/g;
-  for (const match of body.matchAll(pattern)) {
-    const member = byHandle.get(match[2].toLowerCase());
-    if (!member || seen.has(member.memberId)) {
-      continue;
-    }
-    seen.add(member.memberId);
-    mentions.push({
-      memberId: member.memberId,
-      displayName: member.displayName,
-      handle: member.handle
-    });
-  }
-  return mentions;
-}
-
-function publicChannel(record: ProjectChatChannelRecord) {
+function publicHumanProfile(
+  handle: string,
+  profile: ProjectChatHumanProfileRecord
+): ProjectChatHumanProfile {
+  const avatarUrl = profile.avatarDataUrlOverride ?? profile.defaultAvatarUrl;
   return {
-    channelId: record.channelId,
-    displayName: record.name,
-    description: 'Human and agent coordination',
-    createdAt: record.createdAt
+    avatarSource: profile.avatarDataUrlOverride
+      ? 'custom'
+      : profile.defaultAvatarUrl
+        ? 'account'
+        : 'none',
+    ...(avatarUrl ? { avatarUrl } : {}),
+    ...(profile.defaultAvatarUrl ? { defaultAvatarUrl: profile.defaultAvatarUrl } : {}),
+    defaultDisplayName: profile.defaultDisplayName,
+    displayName: profile.displayNameOverride ?? profile.defaultDisplayName,
+    handle,
+    revision: profile.revision,
+    updatedAt: profile.updatedAt
   };
 }
 
-function publicMessage(record: ProjectChatMessageRecord): ProjectChatMessage {
-  return {
-    id: record.id,
-    channelId: record.channelId,
-    sequence: record.sequence,
-    body: record.body,
-    sender: structuredClone(record.sender),
-    mentions: structuredClone(record.mentions),
-    createdAt: record.createdAt,
-    expiresAt: record.expiresAt
-  };
-}
-
-function publicMember(
-  member: ProjectChatMemberRecord,
-  presence: ProjectChatPresenceRecord | undefined | null,
-  now: Date
-): ProjectChatMember {
-  const isFresh = presence !== undefined && presence !== null
-    && new Date(presence.expiresAt).getTime() > now.getTime();
-  return {
-    memberId: member.memberId,
-    displayName: member.displayName,
-    handle: member.handle,
-    role: member.role,
-    origin: member.origin ? structuredClone(member.origin) : undefined,
-    presence: presence
-      ? {
-          state: isFresh ? presence.state : 'offline',
-          lastSeenAt: presence.lastSeenAt,
-          expiresAt: presence.expiresAt
-        }
-      : { state: 'offline', lastSeenAt: member.updatedAt },
-    joinedAt: member.joinedAt,
-    updatedAt: member.updatedAt
-  };
-}
-
-function mapRepositoryError(error: unknown): unknown {
-  if (error instanceof ProjectChatHandleConflictError) {
-    return new ProjectChatError('name_conflict', 'This Project Chat name is already in use.');
+function requireHumanActor(context: ProjectChatContext) {
+  if (context.actor.kind !== 'human') {
+    throw new ProjectChatError('forbidden', 'Only the authenticated human can edit this profile.');
   }
-  if (error instanceof ProjectChatIdempotencyConflictError) {
-    return new ProjectChatError(
-      'idempotency_conflict',
-      'The request key was already used for a different message.'
-    );
-  }
-  if (error instanceof ProjectChatCursorOutOfRangeError) {
-    return new ProjectChatError('cursor_out_of_range', 'The requested chat cursor is not available.');
-  }
-  return error;
+  return context.actor;
 }

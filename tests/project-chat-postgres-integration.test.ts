@@ -3,13 +3,19 @@ import { describe, expect, test } from 'bun:test';
 import pg from 'pg';
 
 import type { DatabaseQueryClient } from '../server/database/client';
-import { runDatabaseMigrations } from '../server/database/migrations';
+import {
+  databaseMigrations,
+  runDatabaseMigrations,
+  type DatabaseMigration
+} from '../server/database/migrations';
 import type { ProjectChatClock, ProjectChatContext } from '../server/project-chat/contracts';
 import { PostgresProjectChatRepository } from '../server/project-chat/postgres-store';
 import { ProjectChatService } from '../server/project-chat/service';
+import { projectChatActorKey } from '../server/project-chat/validation';
 
 const databaseUrl = process.env.PROJECT_CHAT_TEST_DATABASE_URL ?? '';
 const postgresTest = databaseUrl ? test : test.skip;
+const customAvatar = 'data:image/webp;base64,UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEAAUAmJaQAA3AA/v89';
 
 function databaseClient(pool: pg.Pool): DatabaseQueryClient {
   return {
@@ -40,7 +46,10 @@ function databaseClient(pool: pg.Pool): DatabaseQueryClient {
   };
 }
 
-async function migrateDatabase(pool: pg.Pool) {
+async function migrateDatabase(
+  pool: pg.Pool,
+  migrations: readonly DatabaseMigration[] = databaseMigrations
+) {
   const connection = await pool.connect();
   const client: DatabaseQueryClient = {
     async query<Row>(sql: string, values?: readonly unknown[]) {
@@ -49,7 +58,7 @@ async function migrateDatabase(pool: pg.Pool) {
     }
   };
   try {
-    await runDatabaseMigrations(client);
+    await runDatabaseMigrations(client, migrations);
   } finally {
     connection.release();
   }
@@ -82,6 +91,72 @@ function agentContext(name: string): ProjectChatContext {
 }
 
 describe('Project Chat PostgreSQL integration', () => {
+  postgresTest('backfills existing human members before enforcing profile revisions', async () => {
+    const schema = `project_chat_migration_${randomUUID().replaceAll('-', '')}`;
+    const adminPool = new pg.Pool({ connectionString: databaseUrl, max: 2 });
+    await adminPool.query(`create schema "${schema}"`);
+    const pool = new pg.Pool({
+      connectionString: databaseUrl,
+      max: 4,
+      options: `-c search_path=${schema}`
+    });
+    try {
+      await migrateDatabase(pool, databaseMigrations.slice(0, -1));
+      await pool.query(
+        `insert into project_chat_members (
+           space_id, actor_key, member_id, display_name, handle, role, origin,
+           joined_at, updated_at
+         ) values
+           ('legacy-space', $1, 'legacy-human', 'Legacy Human', 'legacy-human',
+            'human', null, '2026-07-11T00:00:00Z', '2026-07-11T00:01:00Z'),
+           ('legacy-space', $2, 'legacy-agent', 'Legacy Agent', 'legacy-agent',
+            'agent', $3::jsonb, '2026-07-11T00:00:00Z', '2026-07-11T00:01:00Z')`,
+        [
+          JSON.stringify(['human', 'legacy-user']),
+          JSON.stringify(['agent', 'legacy-user', 'legacy-machine', '019f503f-f91d-72e3-a8fb-86f167209b9f']),
+          JSON.stringify({
+            hostId: 'legacy-host',
+            machineId: 'legacy-machine',
+            threadId: '019f503f-f91d-72e3-a8fb-86f167209b9f'
+          })
+        ]
+      );
+
+      await migrateDatabase(pool);
+
+      const members = await pool.query<{
+        avatar_url: string | null;
+        profile_revision: string | null;
+        role: string;
+      }>(
+        `select role, avatar_url, profile_revision
+           from project_chat_members
+          order by role desc`
+      );
+      expect(members.rows).toEqual([
+        { avatar_url: null, profile_revision: '1', role: 'human' },
+        { avatar_url: null, profile_revision: null, role: 'agent' }
+      ]);
+      const profiles = await pool.query<{
+        account_id: string;
+        default_display_name: string;
+        revision: string;
+      }>(
+        `select account_id, default_display_name, revision
+           from project_chat_human_profiles`
+      );
+      expect(profiles.rows).toEqual([{
+        account_id: 'legacy-user',
+        default_display_name: 'Legacy Human',
+        revision: '1'
+      }]);
+    } finally {
+      await pool.end();
+      await adminPool.query(`drop schema "${schema}" cascade`);
+      await adminPool.end();
+    }
+  }, 30_000);
+
   postgresTest('survives reconnects with monotonic concurrent appends, cursors, and mentions', async () => {
     const schema = `project_chat_test_${randomUUID().replaceAll('-', '')}`;
     const adminPool = new pg.Pool({ connectionString: databaseUrl, max: 2 });
@@ -99,12 +174,145 @@ describe('Project Chat PostgreSQL integration', () => {
       await migrateDatabase(firstPool);
       await migrateDatabase(firstPool);
 
-      const firstService = new ProjectChatService({
-        repository: new PostgresProjectChatRepository(firstClient)
-      });
+      const firstRepository = new PostgresProjectChatRepository(firstClient);
+      const firstService = new ProjectChatService({ repository: firstRepository });
       const mira = agentContext('mira');
       const atlas = agentContext('atlas');
+
+      const orderingContext: ProjectChatContext = {
+        actor: {
+          accountId: 'user-ordering',
+          displayName: 'Initial Account',
+          handle: 'ordering',
+          kind: 'human'
+        },
+        spaceId: 'profile-default-ordering-space'
+      };
+      const orderingService = new ProjectChatService({
+        clock: { now: () => new Date('2026-07-11T09:00:00.000Z') },
+        repository: firstRepository
+      });
+      await orderingService.join(orderingContext);
+      const orderingMember = await firstRepository.findMemberByActorKey(
+        orderingContext.spaceId,
+        projectChatActorKey(orderingContext.actor)
+      );
+      if (!orderingMember) {
+        throw new Error('PostgreSQL integration did not create the ordering member.');
+      }
+      const newerDefaults = await firstRepository.ensureHumanProfileAndMember({
+        accountId: 'user-ordering',
+        createdAt: '2026-07-11T09:00:00.000Z',
+        defaultAvatarUrl: 'https://img.clerk.test/newer.png',
+        defaultDisplayName: 'Newer Account',
+        revision: 1,
+        spaceId: orderingContext.spaceId,
+        updatedAt: '2026-07-11T09:02:00.000Z'
+      }, {
+        ...orderingMember,
+        handle: 'newer-handle'
+      }, { refreshDefaults: true });
+      const delayedSave = await firstRepository.updateHumanProfileAndMember({
+        accountId: 'user-ordering',
+        displayNameOverride: 'Delayed Custom',
+        spaceId: orderingContext.spaceId,
+        updatedAt: '2026-07-11T09:01:00.000Z'
+      }, {
+        ...newerDefaults.member,
+        handle: 'older-save-handle',
+        updatedAt: '2026-07-11T09:01:00.000Z'
+      });
+      expect(delayedSave.profile).toMatchObject({
+        defaultDisplayName: 'Newer Account',
+        displayNameOverride: 'Delayed Custom',
+        updatedAt: '2026-07-11T09:02:00.000Z'
+      });
+      expect(delayedSave.member).toMatchObject({
+        displayName: 'Delayed Custom',
+        handle: 'newer-handle',
+        updatedAt: '2026-07-11T09:02:00.000Z'
+      });
+      const delayedOlderDefaults = await firstRepository.ensureHumanProfileAndMember({
+        accountId: 'user-ordering',
+        createdAt: '2026-07-11T09:00:00.000Z',
+        defaultAvatarUrl: 'https://img.clerk.test/older.png',
+        defaultDisplayName: 'Older Account',
+        revision: 1,
+        spaceId: orderingContext.spaceId,
+        updatedAt: '2026-07-11T09:01:30.000Z'
+      }, {
+        ...delayedSave.member,
+        handle: 'older-handle'
+      }, { refreshDefaults: true });
+      expect(delayedOlderDefaults.profile).toEqual(delayedSave.profile);
+      expect(delayedOlderDefaults.member).toMatchObject({
+        avatarUrl: 'https://img.clerk.test/newer.png',
+        displayName: 'Delayed Custom',
+        handle: 'newer-handle',
+        profileRevision: delayedSave.profile.revision,
+        updatedAt: '2026-07-11T09:02:00.000Z'
+      });
+
       await firstService.join(humanContext);
+      const staleHumanMember = await firstRepository.findMemberByActorKey(
+        humanContext.spaceId,
+        projectChatActorKey(humanContext.actor)
+      );
+      if (!staleHumanMember) {
+        throw new Error('PostgreSQL integration did not create the human member.');
+      }
+      const profileBeforeFailure = await firstRepository.findHumanProfile(
+        humanContext.spaceId,
+        humanContext.actor.accountId
+      );
+      await firstPool.query(`
+        create function reject_project_chat_human_member_update()
+        returns trigger language plpgsql as $$
+        begin
+          raise exception 'forced Project Chat member update failure';
+        end
+        $$;
+        create trigger reject_project_chat_human_member_update
+          before update on project_chat_members
+          for each row when (new.role = 'human')
+          execute function reject_project_chat_human_member_update();
+      `);
+      try {
+        await expect(firstService.updateProfile(humanContext, {
+          displayName: 'Must Roll Back'
+        })).rejects.toThrow();
+      } finally {
+        await firstPool.query(`
+          drop trigger reject_project_chat_human_member_update on project_chat_members;
+          drop function reject_project_chat_human_member_update();
+        `);
+      }
+      await expect(firstRepository.findHumanProfile(
+        humanContext.spaceId,
+        humanContext.actor.accountId
+      )).resolves.toEqual(profileBeforeFailure);
+      await expect(firstRepository.findMemberByActorKey(
+        humanContext.spaceId,
+        projectChatActorKey(humanContext.actor)
+      )).resolves.toEqual(staleHumanMember);
+
+      await firstService.updateProfile(humanContext, {
+        avatarDataUrl: customAvatar,
+        displayName: 'Olli Chat'
+      });
+      await firstRepository.upsertMember({
+        ...staleHumanMember,
+        avatarUrl: undefined,
+        displayName: 'Stale Account Name',
+        updatedAt: new Date(Date.parse(staleHumanMember.updatedAt) + 10_000).toISOString()
+      });
+      await expect(firstRepository.findMemberByActorKey(
+        humanContext.spaceId,
+        projectChatActorKey(humanContext.actor)
+      )).resolves.toMatchObject({
+        avatarUrl: customAvatar,
+        displayName: 'Olli Chat'
+      });
       await firstService.join(mira, { displayName: 'Mira', taskTitle: 'Project Chat' });
       await firstService.join(atlas, { displayName: 'Atlas', taskTitle: 'Review' });
 
@@ -150,6 +358,11 @@ describe('Project Chat PostgreSQL integration', () => {
       await migrateDatabase(secondPool);
       const secondRepository = new PostgresProjectChatRepository(secondClient);
       const secondService = new ProjectChatService({ repository: secondRepository });
+      await expect(secondService.getProfile(humanContext)).resolves.toMatchObject({
+        avatarSource: 'custom',
+        avatarUrl: customAvatar,
+        displayName: 'Olli Chat'
+      });
       const afterRestart = await secondService.readMessages(humanContext);
       expect(afterRestart.messages[0]?.sequence).toBe(26);
       expect(afterRestart.messages.at(-1)?.sequence).toBe(52);

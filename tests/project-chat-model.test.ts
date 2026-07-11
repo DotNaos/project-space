@@ -1,13 +1,19 @@
 import { describe, expect, test } from 'bun:test';
 import type {
   ProjectChatClient,
+  ProjectChatHumanProfileRecord,
   ProjectChatMemberRecord,
   ProjectChatMessageRecord
 } from '../src/shared/project-chat-api';
 import {
   effectiveProjectChatPresence,
   formatProjectChatActivity,
+  projectChatIdentitySnapshot,
+  projectChatMemberWithProfile,
+  projectChatMessageIdentity,
+  projectChatProfileUpdateRequest,
   projectChatTextSegments,
+  projectChatThreadParticipants,
   projectChatThreads,
   shortProjectChatId,
   sortProjectChatMessages
@@ -16,7 +22,8 @@ import {
   cursorAfterLocalSend,
   loadInitialProjectChat,
   mergeVisibleProjectChatMessages,
-  readProjectChatPages
+  readProjectChatPages,
+  refreshProjectChat
 } from '../src/features/project-chat/project-chat-loading';
 import { isProjectChatMessageSafe } from '../src/features/project-chat/project-chat-message-safety';
 import {
@@ -65,6 +72,21 @@ function message(overrides: Partial<ProjectChatMessageRecord> = {}): ProjectChat
   };
 }
 
+function humanProfile(
+  overrides: Partial<ProjectChatHumanProfileRecord> = {}
+): ProjectChatHumanProfileRecord {
+  return {
+    avatarSource: 'custom',
+    avatarUrl: 'data:image/webp;base64,current-avatar',
+    defaultDisplayName: 'Olli',
+    displayName: 'Olli Chat',
+    handle: 'olli',
+    revision: 1,
+    updatedAt: '2026-07-11T04:00:00.000Z',
+    ...overrides
+  };
+}
+
 describe('Project Chat chronological model', () => {
   test('sorts append-only records by room sequence without mutating the input', () => {
     const messages = [
@@ -109,6 +131,155 @@ describe('Project Chat chronological model', () => {
   test('shortens thread identifiers without losing both identifying ends', () => {
     expect(shortProjectChatId('019f4f2b-e97e-7180-9122-4187159dbe51')).toBe('019f…be51');
     expect(shortProjectChatId('short-id')).toBe('short-id');
+  });
+
+  test('uses the current human profile without allowing it to rewrite agent identity', () => {
+    const humanMessage = message({
+      sender: {
+        displayName: 'Old Human',
+        handle: 'olli',
+        memberId: 'human-olli',
+        role: 'human'
+      }
+    });
+    const currentHuman: ProjectChatMemberRecord = {
+      avatarUrl: 'data:image/webp;base64,current-avatar',
+      displayName: 'Olli Current',
+      handle: 'olli',
+      memberId: 'human-olli',
+      presence: { lastSeenAt: humanMessage.createdAt, state: 'offline' },
+      role: 'human'
+    };
+    expect(projectChatMessageIdentity(humanMessage, currentHuman)).toEqual({
+      avatarUrl: currentHuman.avatarUrl,
+      displayName: 'Olli Current',
+      role: 'human'
+    });
+    expect(projectChatMessageIdentity(message(), {
+      ...currentHuman,
+      displayName: 'Fake Mira',
+      memberId: 'agent-mira'
+    })).toEqual({
+      avatarUrl: undefined,
+      displayName: 'Mira',
+      role: 'agent'
+    });
+  });
+
+  test('applies a refreshed human profile to the current viewer only', () => {
+    const currentHuman: ProjectChatMemberRecord = {
+      displayName: 'Old Human',
+      handle: 'old-handle',
+      memberId: 'human-olli',
+      presence: { lastSeenAt: '2026-07-11T04:00:00.000Z', state: 'working' },
+      role: 'human'
+    };
+    expect(projectChatMemberWithProfile(currentHuman, humanProfile())).toEqual({
+      ...currentHuman,
+      avatarUrl: 'data:image/webp;base64,current-avatar',
+      displayName: 'Olli Chat',
+      handle: 'olli'
+    });
+    expect(projectChatMemberWithProfile(agent(), humanProfile())).toEqual(agent());
+  });
+
+  test('builds initial viewer and member state from the same refreshed profile', () => {
+    const staleViewer: ProjectChatMemberRecord = {
+      displayName: 'Old Human',
+      handle: 'old-handle',
+      memberId: 'human-olli',
+      presence: { lastSeenAt: '2026-07-11T04:00:00.000Z', state: 'working' },
+      role: 'human'
+    };
+    const identity = projectChatIdentitySnapshot(
+      staleViewer,
+      [agent(), staleViewer],
+      humanProfile({ displayName: 'New Human', handle: 'new-handle', revision: 2 })
+    );
+
+    expect(identity.viewer).toMatchObject({
+      displayName: 'New Human',
+      handle: 'new-handle'
+    });
+    expect(identity.members).toEqual([
+      agent(),
+      expect.objectContaining({
+        displayName: 'New Human',
+        handle: 'new-handle',
+        memberId: 'human-olli'
+      })
+    ]);
+  });
+
+  test('builds avatar-only profile updates without resubmitting an untouched stale name', () => {
+    expect(projectChatProfileUpdateRequest(
+      humanProfile(),
+      'Stale name from an older drawer render',
+      false,
+      null
+    )).toEqual({ avatarDataUrl: null });
+    expect(projectChatProfileUpdateRequest(
+      humanProfile(),
+      'Olli',
+      true,
+      undefined
+    )).toEqual({ displayName: null });
+  });
+
+  test('uses current member details for thread participants while preserving agent roles', () => {
+    const humanMessage = message({
+      id: 'human-message',
+      mentions: [{ displayName: 'Mira', handle: 'Mira', memberId: 'agent-mira' }],
+      sender: {
+        displayName: 'Old Human',
+        handle: 'olli',
+        memberId: 'human-olli',
+        role: 'human'
+      },
+      sequence: 2
+    });
+    const currentHuman: ProjectChatMemberRecord = {
+      avatarUrl: 'data:image/webp;base64,current-human',
+      displayName: 'Current Human',
+      handle: 'olli',
+      memberId: 'human-olli',
+      presence: { lastSeenAt: humanMessage.createdAt, state: 'offline' },
+      role: 'human'
+    };
+    const currentAgent = agent({
+      avatarUrl: 'https://example.test/agent-must-not-use-this.png',
+      displayName: 'Mira Current'
+    });
+    const thread = projectChatThreads([message(), humanMessage])[0]!;
+
+    expect(projectChatThreadParticipants(
+      [message(), humanMessage],
+      [currentAgent, currentHuman],
+      thread
+    )).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        avatarUrl: undefined,
+        displayName: 'Mira Current',
+        memberId: 'agent-mira',
+        role: 'agent'
+      }),
+      expect.objectContaining({
+        avatarUrl: 'data:image/webp;base64,current-human',
+        displayName: 'Current Human',
+        memberId: 'human-olli',
+        role: 'human'
+      })
+    ]));
+
+    expect(projectChatThreadParticipants(
+      [message()],
+      [{ ...currentHuman, displayName: 'Spoofed agent', memberId: 'agent-mira' }],
+      thread
+    )[0]).toEqual(expect.objectContaining({
+      avatarUrl: undefined,
+      displayName: 'Mira',
+      role: 'agent'
+    }));
   });
 });
 
@@ -196,6 +367,18 @@ describe('Project Chat loading flow', () => {
           member: agent()
         };
       },
+      async getProfile() {
+        requireMembership('profile');
+        return {
+          profile: {
+            avatarSource: 'none',
+            defaultDisplayName: 'Olli',
+            displayName: 'Olli',
+            handle: 'olli',
+            updatedAt: '2026-07-11T04:00:00.000Z'
+          }
+        };
+      },
       async listMembers() {
         requireMembership('members');
         return { members: [agent()] };
@@ -221,7 +404,52 @@ describe('Project Chat loading flow', () => {
       expect.objectContaining({ joinResult: expect.objectContaining({ member: agent() }) })
     );
     expect(order[0]).toBe('join');
-    expect(order.slice(1)).toEqual(expect.arrayContaining(['read', 'members', 'mentions']));
+    expect(order.slice(1)).toEqual(expect.arrayContaining(['read', 'members', 'mentions', 'profile']));
+  });
+
+  test('refreshes the current profile together with viewer presence and room data', async () => {
+    const operations: string[] = [];
+    const client = {
+      async getProfile() {
+        operations.push('profile');
+        return { profile: humanProfile({ displayName: 'Fresh Human' }) };
+      },
+      async listMembers() {
+        operations.push('members');
+        return { members: [agent()] };
+      },
+      async listMentions() {
+        operations.push('mentions');
+        return { channelId: 'general', messages: [], unreadCount: 0 };
+      },
+      async read() {
+        operations.push('read');
+        return {
+          afterSequence: 0,
+          channelId: 'general',
+          hasMore: false,
+          latestSequence: 0,
+          messages: [],
+          nextSequence: 0
+        };
+      },
+      async updatePresence() {
+        operations.push('presence');
+        return {
+          displayName: 'Old Human',
+          handle: 'olli',
+          memberId: 'human-olli',
+          presence: { lastSeenAt: '2026-07-11T04:00:00.000Z', state: 'working' },
+          role: 'human'
+        } satisfies ProjectChatMemberRecord;
+      }
+    } as ProjectChatClient;
+
+    const result = await refreshProjectChat(client, 'general', 0);
+    expect(operations[0]).toBe('presence');
+    expect(operations).toEqual(expect.arrayContaining(['read', 'members', 'mentions', 'profile']));
+    expect(result.profileResult.profile.displayName).toBe('Fresh Human');
+    expect(result.refreshedViewer.memberId).toBe('human-olli');
   });
 
   test('follows advancing cursors until every message page is loaded', async () => {
@@ -373,6 +601,42 @@ describe('Project Chat HTTP client boundary', () => {
       channelId: 'general',
       idempotencyKey: 'request-1'
     });
+  });
+
+  test('updates only human profile fields without exposing identity authority', async () => {
+    let capturedBody = '';
+    let capturedMethod = '';
+    let capturedToken = '';
+    const client = createProjectChatClient({
+      authToken: 'human-session-token',
+      fetchImplementation: async (_input, init) => {
+        capturedBody = String(init?.body);
+        capturedMethod = init?.method ?? '';
+        capturedToken = new Headers(init?.headers).get('Authorization') ?? '';
+        return Response.json({
+          member: {
+            displayName: 'Olli Chat', handle: 'olli', memberId: 'human-olli',
+            presence: { lastSeenAt: '2026-07-11T04:00:00.000Z', state: 'working' },
+            role: 'human'
+          },
+          profile: {
+            avatarSource: 'none', defaultDisplayName: 'Olli', displayName: 'Olli Chat',
+            handle: 'olli', revision: 1, updatedAt: '2026-07-11T04:00:00.000Z'
+          }
+        });
+      }
+    });
+
+    await client.updateProfile({ avatarDataUrl: null, displayName: 'Olli Chat' });
+    expect(capturedMethod).toBe('PUT');
+    expect(capturedToken).toBe('Bearer human-session-token');
+    expect(JSON.parse(capturedBody)).toEqual({
+      avatarDataUrl: null,
+      displayName: 'Olli Chat'
+    });
+    expect(capturedBody).not.toContain('role');
+    expect(capturedBody).not.toContain('memberId');
+    expect(capturedBody).not.toContain('origin');
   });
 
   test('rejects credential-bearing base URLs before making a request', () => {

@@ -1,15 +1,22 @@
 import type { DatabaseQueryClient } from '../database/client';
 import type {
-  ProjectChatChannelRecord, ProjectChatMemberRecord, ProjectChatMessageRecord,
+  ProjectChatChannelRecord, ProjectChatHumanProfileRecord, ProjectChatMemberRecord, ProjectChatMessageRecord,
   ProjectChatOrigin, ProjectChatPresenceRecord, ProjectChatSender, ProjectChatMention
 } from './contracts';
 import {
   ProjectChatCursorOutOfRangeError,
   ProjectChatHandleConflictError,
   ProjectChatIdempotencyConflictError,
+  memberWithHumanProfile,
   type ProjectChatAppendInput,
+  type ProjectChatHumanProfileUpdate,
   type ProjectChatRepository
 } from './repository';
+import {
+  ensurePostgresHumanProfile,
+  findPostgresHumanProfile,
+  updatePostgresHumanProfile
+} from './postgres-human-profile';
 
 interface ChannelRow {
   channel_id: string; created_at: Date | string; last_sequence: number | string;
@@ -17,9 +24,10 @@ interface ChannelRow {
 }
 
 interface MemberRow {
-  actor_key: string; display_name: string; handle: string;
+  actor_key: string; avatar_url: string | null; display_name: string; handle: string;
   joined_at: Date | string; member_id: string;
   origin: ProjectChatOrigin | string | null;
+  profile_revision: number | string | null;
   role: ProjectChatMemberRecord['role']; space_id: string; updated_at: Date | string;
 }
 
@@ -58,6 +66,17 @@ function jsonValue<Value>(value: Value | string): Value {
   return typeof value === 'string' ? JSON.parse(value) as Value : value;
 }
 
+function optionalPositiveInteger(value: number | string | null | undefined, column: string) {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    throw new Error(`Invalid ${column} returned by the database.`);
+  }
+  return parsed;
+}
+
 function mapChannel(row: ChannelRow): ProjectChatChannelRecord {
   return {
     channelId: row.channel_id,
@@ -70,11 +89,13 @@ function mapChannel(row: ChannelRow): ProjectChatChannelRecord {
 function mapMember(row: MemberRow): ProjectChatMemberRecord {
   return {
     actorKey: row.actor_key,
+    avatarUrl: row.avatar_url ?? undefined,
     displayName: row.display_name,
     handle: row.handle,
     joinedAt: toIsoString(row.joined_at),
     memberId: row.member_id,
     origin: row.origin === null ? undefined : jsonValue(row.origin),
+    profileRevision: optionalPositiveInteger(row.profile_revision, 'profile_revision'),
     role: row.role,
     spaceId: row.space_id,
     updatedAt: toIsoString(row.updated_at)
@@ -135,6 +156,75 @@ async function runTransaction<Result>(
 export class PostgresProjectChatRepository implements ProjectChatRepository {
   constructor(private readonly client: DatabaseQueryClient) {}
 
+  async ensureHumanProfile(
+    profile: ProjectChatHumanProfileRecord,
+    options?: { refreshDefaults?: boolean }
+  ) {
+    return ensurePostgresHumanProfile(this.client, profile, options);
+  }
+
+  async ensureHumanProfileAndMember(
+    profile: ProjectChatHumanProfileRecord,
+    member: ProjectChatMemberRecord,
+    options?: { refreshDefaults?: boolean }
+  ) {
+    return runTransaction(this.client, async (transaction) => {
+      const storedProfile = await ensurePostgresHumanProfile(transaction, profile, options);
+      const transactionRepository = new PostgresProjectChatRepository(transaction);
+      const defaultsWereStale = options?.refreshDefaults !== false
+        && profile.updatedAt < storedProfile.updatedAt;
+      if (defaultsWereStale) {
+        const existingMember = await transactionRepository.findMemberByActorKey(
+          member.spaceId,
+          member.actorKey
+        );
+        if (existingMember?.role === 'human') {
+          return { member: existingMember, profile: storedProfile };
+        }
+      }
+      const updatedMember = await transactionRepository.upsertMember(
+        memberWithHumanProfile(member, storedProfile)
+      );
+      return { member: updatedMember, profile: storedProfile };
+    });
+  }
+
+  async findHumanProfile(spaceId: string, accountId: string) {
+    return findPostgresHumanProfile(this.client, spaceId, accountId);
+  }
+
+  async findHumanProfileAndMember(spaceId: string, accountId: string, actorKey: string) {
+    return runTransaction(this.client, async (transaction) => {
+      const profile = await findPostgresHumanProfile(
+        transaction,
+        spaceId,
+        accountId,
+        { forShare: true }
+      );
+      const transactionRepository = new PostgresProjectChatRepository(transaction);
+      const member = await transactionRepository.findMemberByActorKey(
+        spaceId,
+        actorKey,
+        { forShare: true }
+      );
+      return { member, profile };
+    });
+  }
+
+  async updateHumanProfileAndMember(
+    input: ProjectChatHumanProfileUpdate,
+    member: ProjectChatMemberRecord
+  ) {
+    return runTransaction(this.client, async (transaction) => {
+      const profile = await updatePostgresHumanProfile(transaction, input);
+      const transactionRepository = new PostgresProjectChatRepository(transaction);
+      const updatedMember = await transactionRepository.updateHumanMemberProfile(
+        memberWithHumanProfile(member, profile)
+      );
+      return { member: updatedMember, profile };
+    });
+  }
+
   async ensureChannel(channel: ProjectChatChannelRecord) {
     const result = await this.client.query<ChannelRow>(
       `insert into project_chat_channels (
@@ -148,12 +238,39 @@ export class PostgresProjectChatRepository implements ProjectChatRepository {
     return mapChannel(requireRow(result.rows[0], 'Project Chat channel'));
   }
 
-  async findMemberByActorKey(spaceId: string, actorKey: string) {
+  async findMemberByActorKey(
+    spaceId: string,
+    actorKey: string,
+    options: { forShare?: boolean } = {}
+  ) {
     const result = await this.client.query<MemberRow>(
-      `${memberSelect} where space_id = $1 and actor_key = $2`,
+      `${memberSelect} where space_id = $1 and actor_key = $2
+       ${options.forShare ? 'for share' : ''}`,
       [spaceId, actorKey]
     );
     return result.rows[0] ? mapMember(result.rows[0]) : null;
+  }
+
+  private async updateHumanMemberProfile(member: ProjectChatMemberRecord) {
+    const result = await this.client.query<MemberRow>(
+      `update project_chat_members
+          set display_name = $3,
+              avatar_url = $4,
+              profile_revision = $5,
+              updated_at = $6
+        where space_id = $1 and actor_key = $2 and role = 'human'
+        returning space_id, actor_key, member_id, display_name, handle, avatar_url, role,
+                  origin, profile_revision, joined_at, updated_at`,
+      [
+        member.spaceId,
+        member.actorKey,
+        member.displayName,
+        member.avatarUrl ?? null,
+        member.profileRevision ?? null,
+        member.updatedAt
+      ]
+    );
+    return mapMember(requireRow(result.rows[0], 'Project Chat human member'));
   }
 
   async findMemberById(spaceId: string, memberId: string) {
@@ -168,30 +285,41 @@ export class PostgresProjectChatRepository implements ProjectChatRepository {
     try {
       const result = await this.client.query<MemberRow>(
         `insert into project_chat_members (
-           space_id, actor_key, member_id, display_name, handle, role, origin,
-           joined_at, updated_at
-         ) values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
+           space_id, actor_key, member_id, display_name, handle, avatar_url, role, origin,
+           profile_revision, joined_at, updated_at
+         ) values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)
          on conflict (space_id, actor_key) do update set
            display_name = excluded.display_name,
            handle = excluded.handle,
+           avatar_url = excluded.avatar_url,
            role = excluded.role,
            origin = excluded.origin,
+           profile_revision = excluded.profile_revision,
            updated_at = excluded.updated_at
-         returning space_id, actor_key, member_id, display_name, handle, role,
-                   origin, joined_at, updated_at`,
+         where excluded.role <> 'human'
+            or project_chat_members.profile_revision is null
+            or excluded.profile_revision >= project_chat_members.profile_revision
+         returning space_id, actor_key, member_id, display_name, handle, avatar_url, role,
+                   origin, profile_revision, joined_at, updated_at`,
         [
           member.spaceId,
           member.actorKey,
           member.memberId,
           member.displayName,
           member.handle,
+          member.avatarUrl ?? null,
           member.role,
           member.origin ? JSON.stringify(member.origin) : null,
+          member.profileRevision ?? null,
           member.joinedAt,
           member.updatedAt
         ]
       );
-      return mapMember(requireRow(result.rows[0], 'Project Chat member'));
+      if (result.rows[0]) {
+        return mapMember(result.rows[0]);
+      }
+      const current = await this.findMemberByActorKey(member.spaceId, member.actorKey);
+      return requireRow(current ?? undefined, 'Project Chat member');
     } catch (error) {
       if (isConstraint(error, handleConstraintName)) {
         throw new ProjectChatHandleConflictError();
@@ -465,7 +593,7 @@ export class PostgresProjectChatRepository implements ProjectChatRepository {
 }
 
 const memberSelect = `select space_id, actor_key, member_id, display_name, handle,
-                             role, origin, joined_at, updated_at
+                             avatar_url, role, origin, profile_revision, joined_at, updated_at
                         from project_chat_members`;
 const presenceSelect = `select space_id, member_id, state, last_seen_at, expires_at
                           from project_chat_presences`;

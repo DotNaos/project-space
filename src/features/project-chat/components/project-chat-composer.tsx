@@ -1,16 +1,18 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { ArrowUp, CircleAlert, Loader2 } from 'lucide-react';
+import { ArrowUp, CircleAlert, Loader2, UserRoundPen } from 'lucide-react';
 import { Button, Text } from '@/app/dotnaos-ui';
 import { PROJECT_CHAT_MAX_BODY_LENGTH } from '@/shared/project-chat-api';
 import { isProjectChatMessageSafe } from '../project-chat-message-safety';
 
 export function ProjectChatComposer({
   disabled = false,
+  onEditProfile,
   onSend,
   viewerName = 'Olli',
   viewerRole = 'Human'
 }: {
   disabled?: boolean;
+  onEditProfile?(): void;
   onSend(body: string): Promise<void> | void;
   viewerName?: string;
   viewerRole?: string;
@@ -79,9 +81,21 @@ export function ProjectChatComposer({
           />
           <div className="mt-1.5 flex min-w-0 items-center gap-2">
             <Text className="hidden text-[10px] text-neutral-400 sm:block">Shift ↵ for new line</Text>
-            <Text className="ml-auto truncate text-[10px] text-neutral-400">
-              Sending as {viewerName} · {viewerRole}
-            </Text>
+            {onEditProfile ? (
+              <button
+                aria-label={`Edit profile for ${viewerName}`}
+                className="ml-auto flex min-h-11 min-w-0 items-center gap-1.5 text-[10px] text-neutral-400 hover:text-neutral-100"
+                onClick={onEditProfile}
+                type="button"
+              >
+                <span className="truncate">Sending as {viewerName} · {viewerRole}</span>
+                <UserRoundPen className="size-3.5 shrink-0" />
+              </button>
+            ) : (
+              <Text className="ml-auto truncate text-[10px] text-neutral-400">
+                Sending as {viewerName} · {viewerRole}
+              </Text>
+            )}
             <Button
               aria-label="Send message"
               isDisabled={disabled || isSending || !body.trim()}

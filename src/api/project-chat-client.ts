@@ -11,6 +11,9 @@ import {
   type ProjectChatMentionListRequest,
   type ProjectChatMentionListResult,
   type ProjectChatPresenceRequest,
+  type ProjectChatProfileResult,
+  type ProjectChatProfileUpdateRequest,
+  type ProjectChatProfileUpdateResult,
   type ProjectChatReadRequest,
   type ProjectChatReadResult,
   type ProjectChatSendRequest,
@@ -155,6 +158,9 @@ export function createProjectChatClient(options: ProjectChatClientOptions): Proj
         method: 'POST'
       });
     },
+    getProfile() {
+      return request<ProjectChatProfileResult>('/api/project-chat/profile');
+    },
     join(value: ProjectChatJoinRequest = {}) {
       return request<ProjectChatJoinResult>('/api/project-chat/join', {
         body: JSON.stringify(value),
@@ -185,6 +191,12 @@ export function createProjectChatClient(options: ProjectChatClientOptions): Proj
       return request<ProjectChatSendResult>('/api/project-chat/messages', {
         body: JSON.stringify(value),
         method: 'POST'
+      });
+    },
+    updateProfile(value: ProjectChatProfileUpdateRequest) {
+      return request<ProjectChatProfileUpdateResult>('/api/project-chat/profile', {
+        body: JSON.stringify(value),
+        method: 'PUT'
       });
     },
     updatePresence(value: ProjectChatPresenceRequest) {
