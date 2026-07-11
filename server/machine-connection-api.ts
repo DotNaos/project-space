@@ -5,6 +5,7 @@ import {
   MachineConnectionError,
   type MachineConnectionService
 } from './machine-connection-service';
+import { projectSpaceCorsHeaders } from './project-space-http-response';
 
 const maximumBodyBytes = 32 * 1024;
 
@@ -18,6 +19,7 @@ class RequestBodyError extends Error {}
 
 function writeJson(response: ServerResponse, statusCode: number, payload: unknown) {
   response.writeHead(statusCode, {
+    ...projectSpaceCorsHeaders(),
     'Cache-Control': 'no-store',
     'Content-Type': 'application/json; charset=utf-8',
     'X-Content-Type-Options': 'nosniff'
