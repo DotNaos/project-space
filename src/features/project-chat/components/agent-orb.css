@@ -1,0 +1,103 @@
+.project-chat-agent-orb {
+  --agent-orb-blue: #727cf5;
+  --agent-orb-blue-soft: #9baef8;
+  --agent-orb-lilac: #d9e0ff;
+  --agent-orb-size: 36px;
+  --agent-orb-delay: 0s;
+
+  position: relative;
+  display: block;
+  width: var(--agent-orb-size);
+  aspect-ratio: 1;
+  flex: 0 0 auto;
+  overflow: hidden;
+  contain: paint;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 999px;
+  -webkit-clip-path: circle(50% at 50% 50%);
+  clip-path: circle(50% at 50% 50%);
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 54% 78%, rgb(255 255 255 / 68%) 0 9%, transparent 42%),
+    linear-gradient(
+      180deg,
+      var(--agent-orb-blue) 0%,
+      #818bf7 31%,
+      var(--agent-orb-blue-soft) 46%,
+      #c6d2fb 57%,
+      var(--agent-orb-lilac) 100%
+    );
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 8%),
+    0 4px 16px rgb(75 88 210 / 16%);
+}
+
+.project-chat-agent-orb::before {
+  position: absolute;
+  z-index: 1;
+  inset: 16% -15% -10%;
+  content: '';
+  background: linear-gradient(180deg, #fbfcff 0%, #f6f8ff 50%, #e1e6ff 100%);
+  -webkit-mask:
+    radial-gradient(ellipse 19% 16% at 3% 43%, #000 0 42%, rgb(0 0 0 / 82%) 54%, transparent 81%),
+    radial-gradient(ellipse 23% 18% at 19% 42%, #000 0 39%, rgb(0 0 0 / 79%) 55%, transparent 82%),
+    radial-gradient(ellipse 28% 20% at 38% 37%, #000 0 40%, rgb(0 0 0 / 80%) 57%, transparent 83%),
+    radial-gradient(ellipse 23% 17% at 57% 43%, #000 0 42%, rgb(0 0 0 / 77%) 57%, transparent 84%),
+    radial-gradient(ellipse 27% 20% at 76% 38%, #000 0 39%, rgb(0 0 0 / 80%) 57%, transparent 83%),
+    radial-gradient(ellipse 20% 17% at 97% 45%, #000 0 42%, rgb(0 0 0 / 78%) 57%, transparent 82%),
+    linear-gradient(180deg, transparent 0 39%, rgb(0 0 0 / 70%) 53%, #000 68%);
+  mask:
+    radial-gradient(ellipse 19% 16% at 3% 43%, #000 0 42%, rgb(0 0 0 / 82%) 54%, transparent 81%),
+    radial-gradient(ellipse 23% 18% at 19% 42%, #000 0 39%, rgb(0 0 0 / 79%) 55%, transparent 82%),
+    radial-gradient(ellipse 28% 20% at 38% 37%, #000 0 40%, rgb(0 0 0 / 80%) 57%, transparent 83%),
+    radial-gradient(ellipse 23% 17% at 57% 43%, #000 0 42%, rgb(0 0 0 / 77%) 57%, transparent 84%),
+    radial-gradient(ellipse 27% 20% at 76% 38%, #000 0 39%, rgb(0 0 0 / 80%) 57%, transparent 83%),
+    radial-gradient(ellipse 20% 17% at 97% 45%, #000 0 42%, rgb(0 0 0 / 78%) 57%, transparent 82%),
+    linear-gradient(180deg, transparent 0 39%, rgb(0 0 0 / 70%) 53%, #000 68%);
+  opacity: 0.97;
+  transform: translate3d(-1.5%, 0, 0) scale(1.03);
+  transform-origin: 50% 48%;
+}
+
+.project-chat-agent-orb::after {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  border-radius: inherit;
+  content: '';
+  background:
+    radial-gradient(ellipse 29% 10% at 21% 42%, rgb(82 107 238 / 18%) 0 18%, transparent 78%),
+    radial-gradient(ellipse 34% 11% at 74% 40%, rgb(85 110 242 / 16%) 0 18%, transparent 77%),
+    radial-gradient(circle at 50% 48%, transparent 58%, rgb(80 87 150 / 9%) 100%);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+
+.project-chat-agent-orb[data-motion='ambient']::before {
+  animation: project-chat-orb-cloud-drift 16s ease-in-out var(--agent-orb-delay) infinite alternate;
+  will-change: transform;
+}
+
+.project-chat-agent-orb[data-motion='ambient']::after {
+  animation: project-chat-orb-shade-drift 21s ease-in-out var(--agent-orb-delay) infinite alternate;
+  will-change: transform;
+}
+
+@keyframes project-chat-orb-cloud-drift {
+  0% { transform: translate3d(-2.5%, 1%, 0) scale(1.025, 1.04); }
+  52% { transform: translate3d(1%, -1%, 0) scale(1.055, 1.02); }
+  100% { transform: translate3d(3.2%, 0.6%, 0) scale(1.035, 1.055); }
+}
+
+@keyframes project-chat-orb-shade-drift {
+  from { transform: translate3d(-1.5%, 0, 0) scale(1.015); }
+  to { transform: translate3d(1.5%, 1%, 0) scale(1.04); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .project-chat-agent-orb[data-motion='ambient']::before,
+  .project-chat-agent-orb[data-motion='ambient']::after {
+    animation: none;
+    will-change: auto;
+  }
+}

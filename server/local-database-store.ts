@@ -4,6 +4,7 @@ import pg from 'pg';
 
 import type { DatabaseQueryClient } from './database/client';
 import { runDatabaseMigrations } from './database/migrations';
+import { PostgresProjectChatRepository } from './project-chat/postgres-store';
 import type {
   AuthenticateConnectorCredentialInput,
   CreateDevServerSessionInput,
@@ -61,6 +62,7 @@ interface GitHubOAuthTokenRow {
 
 let pool: pg.Pool | null = null;
 let repository: ProjectSpaceDatabaseRepository | null = null;
+let projectChatRepository: PostgresProjectChatRepository | null = null;
 let schemaReady: Promise<void> | null = null;
 
 function databaseUrl() {
@@ -195,6 +197,21 @@ async function getDatabaseRepository() {
   repository ??= new ProjectSpaceDatabaseRepository(createPoolQueryClient(databasePool));
 
   return repository;
+}
+
+export async function getProjectChatRepository() {
+  const databasePool = getPool();
+
+  if (!databasePool) {
+    throw new Error('DATABASE_URL is required to persist Project Chat messages.');
+  }
+
+  await ensureDatabaseSchema();
+  projectChatRepository ??= new PostgresProjectChatRepository(
+    createPoolQueryClient(databasePool)
+  );
+
+  return projectChatRepository;
 }
 
 export async function readGitHubOAuthToken(

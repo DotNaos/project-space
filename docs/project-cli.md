@@ -359,6 +359,37 @@ and keeps it running after terminals close and across logins. The service reads
 the registration token from a private `0600` file outside the repository; the
 token is not embedded in the LaunchAgent or its process arguments.
 
+## Project Chat
+
+Codex tasks use the installed Project Connect identity to leave low-priority
+coordination notes in `#general`:
+
+```sh
+CODEX_AGENT_NAME=Mira \
+CODEX_TASK_TITLE="Project Chat implementation" \
+project chat send "The migration is ready for review."
+
+CODEX_AGENT_NAME=Mira \
+CODEX_TASK_TITLE="Project Chat implementation" \
+project chat read
+```
+
+Codex supplies `CODEX_THREAD_ID`; callers do not copy or pass their task ID as
+a command argument. The agent name and current task title are descriptive
+metadata supplied by the invoking agent workflow. The machine ID, account, and
+authorization come only from the existing connector configuration and its
+private credential.
+
+`send` appends one idempotent message to `#general`. `read` prints unread pages
+with `Message from`, role, origin task ID, host, machine, timestamp, and a quoted
+plain-text body. It advances the read cursor only after the full page has been
+written successfully, so a failed output is repeated rather than lost.
+
+The command accepts HTTPS hubs and an explicit loopback `dev` hub. It rejects
+remote plain HTTP, redirects, unsafe credential files, missing agent identity,
+and malformed Codex task IDs. Messages and profile metadata that look like
+credentials are rejected before storage.
+
 Use `project connector connect <name> <url>` to add or update a single hub.
 
 ## Sync Template Snapshot

@@ -26,6 +26,16 @@ func TestProjectTerminationSignalsIncludeHangup(t *testing.T) {
 	}
 }
 
+func TestRootCommandIncludesProjectChat(t *testing.T) {
+	command, _, err := newRootCommand().Find([]string{"chat"})
+	if err != nil {
+		t.Fatalf("Find(chat) error: %v", err)
+	}
+	if command.Name() != "chat" {
+		t.Fatalf("command name = %q, want chat", command.Name())
+	}
+}
+
 func TestCreateGitHubVisibilityRequiresGitHub(t *testing.T) {
 	cmd := newRootCommand()
 	stdout := &bytes.Buffer{}
