@@ -282,7 +282,7 @@ export function createLocalProjectSpaceBackend(
       ]);
       return mergeProjectDiscoveries(
         scopeDiscoveryToMachine(localDiscovery, identity.machineId),
-        getRegisteredConnectorDiscovery()
+        await getRegisteredConnectorDiscovery()
       );
     },
     async applyProjectStructureAction(request) {

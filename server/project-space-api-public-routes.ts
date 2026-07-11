@@ -64,7 +64,7 @@ export function createProjectSpacePublicApiRoutes(backend: ProjectSpaceBackend) 
         return true;
       }
 
-      registerConnectorProjectRegistry(payload);
+      await registerConnectorProjectRegistry(payload);
       writeJson(response, 200, { ok: true });
       return true;
     }

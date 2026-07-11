@@ -39,6 +39,7 @@ import type {
 } from '@/shared/project-space-api';
 import { isMachineConnected } from './machine-visuals';
 import { MachineListItem } from './machine-list-item';
+import { machineSubtitle } from './project-main-model';
 import {
   AddMachineDialog,
   BranchChips,
@@ -807,7 +808,7 @@ export function ProjectHomeOverview({
       <MachineListItem
         key={machine.id}
         machine={machine}
-        subtitle={[machine.kind, machine.profile, machine.network.localName].filter(Boolean).join(' / ') || 'machine'}
+        subtitle={machineSubtitle(machine) || 'machine'}
         isSelected={isSelected}
         className={cn(
           'border bg-neutral-900/40 p-4 hover:border-neutral-700 hover:bg-neutral-900/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-300',
@@ -837,7 +838,7 @@ export function ProjectHomeOverview({
         key={machine.id}
         compact
         machine={machine}
-        subtitle={[machine.kind, machine.profile, machine.network.localName].filter(Boolean).join(' / ') || 'machine'}
+        subtitle={machineSubtitle(machine) || 'machine'}
         isSelected={isSelected}
         className="hover:bg-neutral-900/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-300"
         endContent={
