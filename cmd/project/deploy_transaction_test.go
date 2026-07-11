@@ -219,6 +219,19 @@ func TestDeploySuccessPersistsExactRequestedCommit(t *testing.T) {
 	}
 }
 
+func TestDeployRetriesTransientPublicIngressFailure(t *testing.T) {
+	output, err, stateRoot, stateDir, _ := runDeployScenario(t, "transient")
+	if err != nil {
+		t.Fatalf("transient public verification: %v\n%s", err, output)
+	}
+	for _, path := range []string{filepath.Join(stateRoot, "checkout"), filepath.Join(stateRoot, "runtime"), filepath.Join(stateDir, "verified.sha")} {
+		value, readErr := os.ReadFile(path)
+		if readErr != nil || strings.TrimSpace(string(value)) != testRequestedCommit {
+			t.Fatalf("exact commit after transient ingress at %s = %q, %v", path, value, readErr)
+		}
+	}
+}
+
 func TestDeployScriptCleansBuildInputsButPreservesRuntimeSSH(t *testing.T) {
 	_, _, script := deployScriptFixture(t.TempDir())
 	if !strings.Contains(script, "git clean -fdx -e ssh/") {
@@ -253,6 +266,7 @@ func runDeployScenario(t *testing.T, failureMode string) ([]byte, error, string,
 	mustWriteExecutable(t, filepath.Join(fakeBin, "git"), fakeGitScript)
 	mustWriteExecutable(t, filepath.Join(fakeBin, "docker"), fakeDockerScript)
 	mustWriteExecutable(t, filepath.Join(fakeBin, "curl"), fakeCurlScript)
+	mustWriteExecutable(t, filepath.Join(fakeBin, "sleep"), "#!/bin/sh\nexit 0\n")
 
 	project := deployProject{
 		Name: "project-space", Environment: "prod", RemoteURL: "https://example.invalid/repo.git",
@@ -385,6 +399,12 @@ exit 1
 const fakeCurlScript = `#!/bin/sh
 url=""
 for value in "$@"; do case "$value" in http*) url="$value";; esac; done
+if [ "$DEPLOY_FAILURE_MODE" = transient ] && [ "$(cat "$FAKE_STATE/runtime")" = "$REQUESTED_COMMIT" ]; then
+  transient_count="$(cat "$FAKE_STATE/transient-count" 2>/dev/null || echo 0)"
+  transient_count=$((transient_count + 1))
+  printf '%s\n' "$transient_count" > "$FAKE_STATE/transient-count"
+  [ "$transient_count" -gt 2 ] || exit 22
+fi
 case "$url" in
   */api/app/meta) printf '{"commit":"%s"}' "$(cat "$FAKE_STATE/runtime")" ;;
   */api/health)
