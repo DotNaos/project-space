@@ -596,9 +596,21 @@ export interface GitHubCatalogResult {
     source: GitHubAuthSource;
   };
   checkedAt: string;
+  cache?: {
+    lastUpdated?: string;
+    state: 'miss' | 'fresh' | 'stale' | 'refreshing' | 'refresh-failed';
+  };
   message?: string;
   repositories: GitHubCatalogRepository[];
   status: GitHubCatalogStatus;
+  timings?: {
+    authMs?: number;
+    cacheReadMs?: number;
+    githubMs?: number;
+    normalizationMs?: number;
+    tokenLookupMs?: number;
+    totalMs?: number;
+  };
 }
 
 export interface GitHubOAuthDeviceStartResult {
@@ -1130,7 +1142,7 @@ export interface ProjectSpaceBackend {
   getConnectorProjectRegistry(): Promise<ConnectorProjectRegistryResult>;
   runProjectCliCommand(request: ProjectCliCommandRequest): Promise<ProjectCliCommandResult>;
   getTemplateAdherence(request: TemplateAdherenceRequest): Promise<TemplateAdherenceReport>;
-  getGitHubCatalog(): Promise<GitHubCatalogResult>;
+  getGitHubCatalog(options?: { forceRefresh?: boolean }): Promise<GitHubCatalogResult>;
   getGitHubHistory(request: GitHubHistoryRequest): Promise<GitHistoryResult>;
   getGitHubPipelineStatus(fullName: string): Promise<GitHubPipelineStatusResult>;
   getGitDiff(request: GitDiffRequest): Promise<GitDiffResult>;

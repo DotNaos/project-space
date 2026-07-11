@@ -278,8 +278,8 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     });
   }
 
-  getGitHubCatalog(): Promise<GitHubCatalogResult> {
-    return this.request('/api/github/catalog');
+  getGitHubCatalog(options: { forceRefresh?: boolean } = {}): Promise<GitHubCatalogResult> {
+    return this.request(`/api/github/catalog${options.forceRefresh ? '?refresh=1' : ''}`);
   }
 
   createGitHubIssue(request: GitHubIssueCreateRequest): Promise<GitHubIssueMutationResult> {

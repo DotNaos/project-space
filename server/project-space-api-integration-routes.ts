@@ -49,7 +49,10 @@ export function createProjectSpaceIntegrationApiRoutes(backend: ProjectSpaceBack
     }
 
     if (request.method === 'GET' && url.pathname === '/api/github/catalog') {
-      writeJson(response, 200, await backend.getGitHubCatalog());
+      response.setHeader('Cache-Control', 'private, no-store');
+      writeJson(response, 200, await backend.getGitHubCatalog({
+        forceRefresh: url.searchParams.get('refresh') === '1'
+      }));
       return true;
     }
 

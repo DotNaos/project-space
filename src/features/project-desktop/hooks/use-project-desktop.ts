@@ -48,7 +48,7 @@ const githubFallback: GitHubCatalogResult = {
   status: 'auth-required'
 };
 
-function githubCatalogErrorFallback(message = 'Could not load the GitHub project catalog.') {
+function githubCatalogErrorFallback(message = 'Could not load the GitHub project catalog.'): GitHubCatalogResult {
   return {
     checkedAt: new Date().toISOString(),
     message,
@@ -534,23 +534,48 @@ export function useProjectDesktop() {
     }
   }, []);
 
-  const refreshGitHubCatalog = useCallback(async () => {
+  const refreshGitHubCatalog = useCallback(async (forceRefresh = false) => {
     setIsGitHubRefreshing(true);
     try {
       const catalog = await withTimeout(
-        projectSpaceClient.getGitHubCatalog(),
+        projectSpaceClient.getGitHubCatalog({ forceRefresh }),
         githubCatalogTimeoutMs,
         'The GitHub project catalog did not respond.'
       ).catch((error) =>
         githubCatalogErrorFallback(error instanceof Error ? error.message : undefined)
       );
       const normalizedCatalog = normalizeGitHubCatalog(catalog);
-      setGitHubCatalog(normalizedCatalog);
+      setGitHubCatalog((current) =>
+        normalizedCatalog.status === 'error' && current.status === 'connected'
+          ? { ...current, cache: { ...current.cache, state: 'refresh-failed' }, message: normalizedCatalog.message }
+          : normalizedCatalog
+      );
       return normalizedCatalog;
     } finally {
       setIsGitHubRefreshing(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!hasLoaded || mainView !== 'projects' || githubCatalog.checkedAt || isGitHubRefreshing) return;
+    void refreshGitHubCatalog();
+  }, [githubCatalog.checkedAt, hasLoaded, isGitHubRefreshing, mainView, refreshGitHubCatalog]);
+
+  useEffect(() => {
+    if (githubCatalog.cache?.state !== 'refreshing') return;
+    let canceled = false;
+    let timer = 0;
+    let attempts = 0;
+    const poll = () => {
+      timer = window.setTimeout(async () => {
+        const next = await refreshGitHubCatalog();
+        attempts += 1;
+        if (!canceled && next.cache?.state === 'refreshing' && attempts < 8) poll();
+      }, Math.min(1_500 * (attempts + 1), 5_000));
+    };
+    poll();
+    return () => { canceled = true; window.clearTimeout(timer); };
+  }, [githubCatalog.cache?.state, refreshGitHubCatalog]);
 
   useEffect(() => {
     void Promise.all([
