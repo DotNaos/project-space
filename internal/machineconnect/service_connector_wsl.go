@@ -133,6 +133,7 @@ if ($null -ne $task) {
   Stop-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction SilentlyContinue
   Unregister-ScheduledTask -TaskPath $taskPath -TaskName $taskName -Confirm:$false -ErrorAction Stop
 }
+exit 0
 `, powershellLiteral(connector.wslTaskName))
 }
 

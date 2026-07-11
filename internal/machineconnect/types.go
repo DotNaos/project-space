@@ -93,6 +93,21 @@ type CredentialLocker interface {
 	Lock(context.Context) (release func() error, err error)
 }
 
+// CredentialPurger removes the complete local machine identity. Normal
+// disconnects use CredentialStore.Delete so reconnecting can keep the stable
+// machine key; uninstallers use Purge to remove all installation state. A
+// caller must hold CredentialLocker for the same store when it is available.
+type CredentialPurger interface {
+	Purge() error
+}
+
+// ConnectorRuntimeLocker waits until no connector supervisor is using the
+// local credential and prevents a new supervisor from loading it. Uninstall
+// uses this barrier after stopping the service and before purging identity.
+type ConnectorRuntimeLocker interface {
+	LockConnectorRuntime(context.Context) (release func() error, err error)
+}
+
 type ApprovalPresenter interface {
 	Present(context.Context, string) error
 }

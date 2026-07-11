@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.10.0.schema.json
+
+PackageIdentifier: DotNaos.Project
+PackageVersion: '{{VERSION}}'
+InstallerType: inno
+Scope: user
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+UpgradeBehavior: install
+ProductCode: '{D0B7D247-B537-41B4-9F36-73C61CB16B54}_is1'
+Commands:
+  - project
+  - project-space-connector
+AppsAndFeaturesEntries:
+  - DisplayName: Project
+    DisplayVersion: '{{VERSION}}'
+    Publisher: DotNaos
+    ProductCode: '{D0B7D247-B537-41B4-9F36-73C61CB16B54}_is1'
+InstallationMetadata:
+  DefaultInstallLocation: '%LocalAppData%\Programs\Project Space'
+Installers:
+  - Architecture: x64
+    InstallerUrl: '{{INSTALLER_URL}}'
+    InstallerSha256: '{{INSTALLER_SHA256}}'
+ManifestType: installer
+ManifestVersion: 1.10.0

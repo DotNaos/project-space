@@ -7,12 +7,16 @@ import (
 	"errors"
 	"os/user"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"unicode/utf16"
 )
 
 func TestWSLServiceConnectorReplacesAndStartsWindowsScheduledTask(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the WSL supervisor runs inside the Linux distribution")
+	}
 	t.Setenv("PROJECT_CONNECTOR_REGISTRATION_TOKEN", "must-not-reach-task")
 	runner := &scriptedServiceRunner{responses: []serviceCommandResponse{
 		{output: "not-found\n"},
@@ -256,6 +260,9 @@ func TestWSLScheduledTaskNamesIsolateDistributionsAndUsers(t *testing.T) {
 	for index, connector := range connectors {
 		startScript := connector.wslStartScript()
 		stopScript := connector.wslStopScript()
+		if !strings.Contains(stopScript, "exit 0") {
+			t.Fatalf("WSL task stop is not idempotent under Windows PowerShell 5.1")
+		}
 		for _, script := range []string{startScript, stopScript} {
 			if !strings.Contains(script, powershellLiteral(connector.wslTaskName)) {
 				t.Fatalf("start/stop script did not use its exact task name %q", connector.wslTaskName)

@@ -17,7 +17,7 @@ function keyPair() {
   return { privateKey, publicKey: jwk.x };
 }
 
-function setup() {
+function setup(options: { onMachineRevoked?(machineId: string): void | Promise<void> } = {}) {
   let now = new Date("2026-07-11T10:00:00.000Z");
   const onlineMachines = new Map<string, string>();
   const store = new MemoryMachineConnectionStore();
@@ -25,6 +25,7 @@ function setup() {
     isMachineOnline: (machineId, credential) =>
       onlineMachines.get(machineId) === credential,
     now: () => now,
+    onMachineRevoked: options.onMachineRevoked,
     publicOrigin: "https://projects.os-home.net",
     requestLifetimeMs: 600_000,
     store,
@@ -53,8 +54,7 @@ function metadata(publicKey: string) {
   };
 }
 
-async function approvedConnection() {
-  const context = setup();
+async function approvedConnection(context = setup()) {
   const keys = keyPair();
   const created = await context.service.createRequest(metadata(keys.publicKey));
   await context.service.approveRequest(created.requestId, "user_oli");
@@ -349,6 +349,22 @@ describe("machine connection state machine", () => {
     expect(store.machines.get(machine.machineId)?.revokedAt).toBe(
       firstRevokedAt,
     );
+  });
+
+  test("evicts the live machine channel immediately after durable revocation", async () => {
+    const evicted: string[] = [];
+    const { service, created, signature } = await approvedConnection(
+      setup({ onMachineRevoked: (machineId) => evicted.push(machineId) }),
+    );
+    const machine = await service.exchangeApproval(
+      created.requestId,
+      created.pollToken,
+      signature,
+    );
+
+    await service.revokeMachine(machine.machineId, machine.credential);
+
+    expect(evicted).toEqual([machine.machineId]);
   });
 
   test("does not mutate machine activity for an invalid credential", async () => {

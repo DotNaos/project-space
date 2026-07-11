@@ -20,7 +20,10 @@ type FileStore struct {
 	path string
 }
 
-const maximumLocalMachineStateBytes = 16 * 1024
+const (
+	maximumLocalMachineStateBytes        = 16 * 1024
+	machineCredentialTemporaryFilePrefix = ".machine-credential-"
+)
 
 var ErrFileCredentialStoreUnsupported = errors.New(
 	"private file credential storage is not supported on this operating system",
@@ -201,7 +204,7 @@ func (store *FileStore) writeState(state localMachineState) error {
 	if len(body) > maximumLocalMachineStateBytes {
 		return errors.New("save machine credential: state file is too large")
 	}
-	temporary, err := os.CreateTemp(directory, ".machine-credential-*")
+	temporary, err := os.CreateTemp(directory, machineCredentialTemporaryFilePrefix)
 	if err != nil {
 		return fmt.Errorf("create temporary machine credential: %w", err)
 	}
@@ -246,6 +249,52 @@ func (store *FileStore) Delete() error {
 	return store.writeState(state)
 }
 
+func (store *FileStore) Purge() error {
+	directory := filepath.Dir(store.path)
+	if err := rejectDirectorySymlink(directory); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if err := rejectSymlink(store.path); err != nil {
+		return err
+	}
+	if err := purgeCredentialTemporaryFiles(directory); err != nil {
+		return err
+	}
+	if err := os.Remove(store.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove machine identity: %w", err)
+	}
+	return nil
+}
+
+func purgeCredentialTemporaryFiles(directory string) error {
+	entries, err := os.ReadDir(directory)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect temporary machine identities: %w", err)
+	}
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), machineCredentialTemporaryFilePrefix) {
+			continue
+		}
+		path := filepath.Join(directory, entry.Name())
+		info, err := os.Lstat(path)
+		if err != nil {
+			return fmt.Errorf("inspect temporary machine identity: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return errors.New("temporary machine identity path is not a regular file")
+		}
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("remove temporary machine identity: %w", err)
+		}
+	}
+	return nil
+}
+
 func credentialPath(explicit string) (string, error) {
 	if strings.TrimSpace(explicit) != "" {
 		resolved, err := filepath.Abs(explicit)
@@ -254,9 +303,9 @@ func credentialPath(explicit string) (string, error) {
 		}
 		return resolved, nil
 	}
-	configDirectory, err := os.UserConfigDir()
+	configDirectory, err := defaultCredentialDirectory()
 	if err != nil {
-		return "", fmt.Errorf("resolve user config directory: %w", err)
+		return "", fmt.Errorf("resolve machine credential directory: %w", err)
 	}
 	return filepath.Join(configDirectory, "project-space", "machine-credential.json"), nil
 }

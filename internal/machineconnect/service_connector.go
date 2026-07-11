@@ -17,10 +17,6 @@ const (
 	machineConnectorLaunchLabel = "net.os-home.project-space.machine-connector-supervisor"
 )
 
-var ErrNativeWindowsServiceUnsupported = errors.New(
-	"native Windows connector services are not supported yet; install and run Project CLI inside WSL",
-)
-
 // ServiceConnectorOptions describes the current Project CLI executable and the
 // per-user service domain that should keep `project connector run` alive.
 type ServiceConnectorOptions struct {
@@ -29,21 +25,24 @@ type ServiceConnectorOptions struct {
 	HomeDir    string
 	LinuxUser  string
 	UserID     string
+	WindowsSID string
 	WSLDistro  string
 }
 
 // ServiceConnector starts and stops the authenticated connector through the
 // host's per-user service manager. It never handles machine credentials.
 type ServiceConnector struct {
-	executable  string
-	goos        string
-	homeDir     string
-	linuxUser   string
-	userID      string
-	wslDistro   string
-	wslTaskName string
-	runner      serviceCommandRunner
-	files       serviceFileSystem
+	executable      string
+	goos            string
+	homeDir         string
+	linuxUser       string
+	userID          string
+	windowsSID      string
+	wslDistro       string
+	windowsTaskName string
+	wslTaskName     string
+	runner          serviceCommandRunner
+	files           serviceFileSystem
 }
 
 var _ Connector = (*ServiceConnector)(nil)
@@ -75,6 +74,20 @@ func serviceConnectorOptionsWithDefaults(
 	effectiveGOOS := options.GOOS
 	if effectiveGOOS == "" {
 		effectiveGOOS = runtime.GOOS
+	}
+	if effectiveGOOS == "windows" {
+		if options.WindowsSID != "" {
+			return options, nil
+		}
+		if currentUser == nil {
+			return ServiceConnectorOptions{}, errors.New("resolve current Windows user: user lookup is unavailable")
+		}
+		resolvedUser, err := currentUser()
+		if err != nil {
+			return ServiceConnectorOptions{}, fmt.Errorf("resolve current Windows user: %w", err)
+		}
+		options.WindowsSID = resolvedUser.Uid
+		return options, nil
 	}
 	if effectiveGOOS != "linux" {
 		return options, nil
@@ -155,6 +168,14 @@ func newServiceConnector(
 		connector.linuxUser = linuxUser
 		connector.wslTaskName = wslScheduledTaskName(wslDistro, linuxUser)
 	}
+	if goos == "windows" {
+		windowsSID := strings.TrimSpace(options.WindowsSID)
+		if windowsSID != options.WindowsSID || !validWindowsSID(windowsSID) {
+			return nil, errors.New("Windows connector user SID is invalid")
+		}
+		connector.windowsSID = windowsSID
+		connector.windowsTaskName = nativeWindowsScheduledTaskName(windowsSID)
+	}
 	if goos != "darwin" {
 		return connector, nil
 	}
@@ -199,7 +220,7 @@ func (connector *ServiceConnector) Start(ctx context.Context) error {
 	case "darwin":
 		return connector.startLaunchd(ctx)
 	case "windows":
-		return ErrNativeWindowsServiceUnsupported
+		return connector.startWindowsScheduledTask(ctx)
 	default:
 		return fmt.Errorf("machine connector service control is not supported on %s", connector.goos)
 	}
@@ -218,7 +239,7 @@ func (connector *ServiceConnector) Stop(ctx context.Context) error {
 	case "darwin":
 		return connector.stopLaunchd(ctx)
 	case "windows":
-		return ErrNativeWindowsServiceUnsupported
+		return connector.stopWindowsScheduledTask(ctx)
 	default:
 		return fmt.Errorf("machine connector service control is not supported on %s", connector.goos)
 	}

@@ -14,6 +14,7 @@ export interface MachineConnectionBackendOptions {
     machineId: string,
     credential: string
   ): boolean | Promise<boolean>;
+  onMachineRevoked?(machineId: string): void | Promise<void>;
   publicOrigin: string;
   rateLimitSecret: Uint8Array;
   readAuthenticatedUserId(request: IncomingMessage): Promise<string | null>;
@@ -29,6 +30,7 @@ export function createMachineConnectionBackend(
   });
   const service = new MachineConnectionService({
     isMachineOnline: options.isMachineOnline,
+    onMachineRevoked: options.onMachineRevoked,
     publicOrigin: options.publicOrigin,
     store
   });

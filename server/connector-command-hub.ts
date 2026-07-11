@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual } from 'node:crypto';
 import type { Duplex } from 'node:stream';
 import type { IncomingMessage } from 'node:http';
 
@@ -24,6 +24,19 @@ import {
   type ConnectorHubMessage,
   type ConnectorMachineMessage
 } from './connector-command-protocol';
+import {
+  connectorHasCapability,
+  connectorSocket,
+  disconnectConnectorSession,
+  registerConnectorSession,
+  removeConnectorSession,
+  sendConnectorJson,
+  updateConnectorCapabilities
+} from './connector-command-session-registry';
+export {
+  isConnectorCommandChannelAuthenticated,
+  isConnectorCommandChannelAvailable
+} from './connector-command-session-registry';
 import type {
   CodexChatRequest,
   CodexChatStreamEvent,
@@ -86,19 +99,10 @@ interface PendingCommand {
 const connectorSocketPath = '/api/connectors/socket';
 const commandTimeoutMs = 10 * 60_000;
 const defaultCredentialRevalidationIntervalMs = 30_000;
-const sockets = new Map<string, WebSocket>();
-const socketCapabilities = new Map<string, Set<string>>();
-const socketCredentialHashes = new Map<string, Buffer>();
 const pendingCommands = new Map<string, PendingCommand>();
 
 export { registerLocalConnectorDevServerExecutor };
 export type { ConnectorDevServerRequestOptions };
-
-function sendJson(socket: WebSocket, payload: ConnectorMachineMessage) {
-  if (socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(payload));
-  }
-}
 
 export type AuthenticateConnectorCredential = (
   token: string,
@@ -135,11 +139,11 @@ function unavailableError(machineId: string) {
 }
 
 function socketForMachine(machineId: string, capability?: string) {
-  const socket = sockets.get(machineId);
+  const socket = connectorSocket(machineId);
   if (!socket || socket.readyState !== WebSocket.OPEN) {
     throw unavailableError(machineId);
   }
-  if (capability && !socketCapabilities.get(machineId)?.has(capability)) {
+  if (capability && !connectorHasCapability(machineId, capability)) {
     throw new Error(
       `The connector on ${machineId} does not support this action yet. Update or restart the Project Space connector on that machine.`
     );
@@ -165,9 +169,9 @@ function failPending(id: string, error: Error) {
   pendingCommands.delete(id);
   clearTimeout(pending.timeout);
   if (pending.kind === 'chat') {
-    const socket = sockets.get(pending.machineId);
+    const socket = connectorSocket(pending.machineId);
     if (socket?.readyState === WebSocket.OPEN) {
-      sendJson(socket, { id, type: 'connector.command.cancel' });
+      sendConnectorJson(socket, { id, type: 'connector.command.cancel' });
     }
   }
   pending.reject(error);
@@ -326,23 +330,13 @@ function handleConnectorResult(machineId: string, message: ConnectorHubMessage) 
   }
 }
 
-export function isConnectorCommandChannelAvailable(machineId: string) {
-  return sockets.get(machineId)?.readyState === WebSocket.OPEN;
-}
-
-export function isConnectorCommandChannelAuthenticated(
-  machineId: string,
-  credential: string
-) {
-  if (!credential || credential.length > 4_096 || !isConnectorCommandChannelAvailable(machineId)) {
+export function disconnectConnectorCommandChannel(machineId: string) {
+  const socket = disconnectConnectorSession(machineId);
+  if (!socket) {
     return false;
   }
-  const registeredHash = socketCredentialHashes.get(machineId);
-  if (!registeredHash) {
-    return false;
-  }
-  const presentedHash = createHash('sha256').update(credential, 'utf8').digest();
-  return timingSafeEqual(registeredHash, presentedHash);
+  failCommandsForMachine(machineId);
+  return true;
 }
 
 function devServerCapability(operation: ConnectorDevServerOperation) {
@@ -363,7 +357,7 @@ async function requestConnectorDevServerCommand(
   actor: ConnectorDevServerActor,
   options: ConnectorDevServerRequestOptions = {}
 ) {
-  const openSocket = sockets.get(request.machineId);
+  const openSocket = connectorSocket(request.machineId);
   if (openSocket?.readyState === WebSocket.OPEN) {
     const socket = socketForMachine(request.machineId, devServerCapability(operation));
     const wireRequest = createConnectorDevServerWireRequest(
@@ -388,7 +382,7 @@ async function requestConnectorDevServerCommand(
       payload: wireRequest,
       type: devServerMessageType(operation)
     } as ConnectorMachineMessage;
-    sendJson(socket, message);
+    sendConnectorJson(socket, message);
     return (await result) as ConnectorDevServerResult;
   }
 
@@ -435,7 +429,7 @@ export async function requestConnectorModels(
   const socket = socketForMachine(request.machineId);
   const id = commandId();
   const result = createPendingCommand(id, request.machineId, 'models');
-  sendJson(socket, { id, payload: request, type: 'codex.models' });
+  sendConnectorJson(socket, { id, payload: request, type: 'codex.models' });
   return ((await result) as CodexModelCatalogueResult | undefined) ?? {
     message: 'The connector returned no model catalogue.',
     models: [],
@@ -449,7 +443,7 @@ export async function requestConnectorTerminalCommand(
   const socket = socketForMachine(request.machineId, 'terminal.run');
   const id = commandId();
   const result = createPendingCommand(id, request.machineId, 'terminal');
-  sendJson(socket, { id, payload: request, type: 'terminal.run' });
+  sendConnectorJson(socket, { id, payload: request, type: 'terminal.run' });
   return (await result) as TerminalCommandResult;
 }
 
@@ -459,7 +453,7 @@ export async function requestConnectorProjectWorktrees(
   const socket = socketForMachine(request.machineId, 'worktrees.list');
   const id = commandId();
   const result = createPendingCommand(id, request.machineId, 'worktrees');
-  sendJson(socket, { id, payload: request, type: 'worktrees.list' });
+  sendConnectorJson(socket, { id, payload: request, type: 'worktrees.list' });
   return (await result) as ProjectWorktreeRecord[];
 }
 
@@ -469,7 +463,7 @@ export async function requestConnectorFileSystemRoot(
   const socket = socketForMachine(request.machineId, 'filesystem.root');
   const id = commandId();
   const result = createPendingCommand(id, request.machineId, 'filesystem-root');
-  sendJson(socket, { id, payload: request, type: 'filesystem.root' });
+  sendConnectorJson(socket, { id, payload: request, type: 'filesystem.root' });
   return (await result) as MachineFileSystemRootResult;
 }
 
@@ -479,7 +473,7 @@ export async function requestConnectorDirectory(
   const socket = socketForMachine(request.machineId, 'filesystem.directory');
   const id = commandId();
   const result = createPendingCommand(id, request.machineId, 'filesystem-directory');
-  sendJson(socket, { id, payload: request, type: 'filesystem.directory' });
+  sendConnectorJson(socket, { id, payload: request, type: 'filesystem.directory' });
   return (await result) as MachineFileSystemDirectoryResult;
 }
 
@@ -489,7 +483,7 @@ export async function requestConnectorFile(
   const socket = socketForMachine(request.machineId, 'filesystem.file');
   const id = commandId();
   const result = createPendingCommand(id, request.machineId, 'filesystem-file');
-  sendJson(socket, { id, payload: request, type: 'filesystem.file' });
+  sendConnectorJson(socket, { id, payload: request, type: 'filesystem.file' });
   return (await result) as MachineFileSystemFileResult;
 }
 
@@ -499,7 +493,7 @@ export async function requestConnectorFolderCreate(
   const socket = socketForMachine(request.machineId, 'filesystem.folder.create');
   const id = commandId();
   const result = createPendingCommand(id, request.machineId, 'folder-create');
-  sendJson(socket, { id, payload: request, type: 'filesystem.folder.create' });
+  sendConnectorJson(socket, { id, payload: request, type: 'filesystem.folder.create' });
   return (await result) as MachineDirectoryMutationResult;
 }
 
@@ -509,7 +503,7 @@ export async function requestConnectorFolderRename(
   const socket = socketForMachine(request.machineId, 'filesystem.folder.rename');
   const id = commandId();
   const result = createPendingCommand(id, request.machineId, 'folder-rename');
-  sendJson(socket, { id, payload: request, type: 'filesystem.folder.rename' });
+  sendConnectorJson(socket, { id, payload: request, type: 'filesystem.folder.rename' });
   return (await result) as MachineDirectoryMutationResult;
 }
 
@@ -519,7 +513,7 @@ export async function requestConnectorFolderDelete(
   const socket = socketForMachine(request.machineId, 'filesystem.folder.delete');
   const id = commandId();
   const result = createPendingCommand(id, request.machineId, 'folder-delete');
-  sendJson(socket, { id, payload: request, type: 'filesystem.folder.delete' });
+  sendConnectorJson(socket, { id, payload: request, type: 'filesystem.folder.delete' });
   return (await result) as MachineDirectoryMutationResult;
 }
 
@@ -530,7 +524,7 @@ export async function streamConnectorCodexChat(
   const socket = socketForMachine(request.machineId);
   const id = commandId();
   const result = createPendingCommand(id, request.machineId, 'chat', emit);
-  sendJson(socket, { id, payload: request, type: 'codex.chat' });
+  sendConnectorJson(socket, { id, payload: request, type: 'codex.chat' });
   await result;
 }
 
@@ -614,18 +608,15 @@ export function createConnectorCommandUpgradeHandler(
         machineId = requestedMachineId;
         registrationToken = message.token;
         registrationPending = false;
-        const previous = sockets.get(machineId);
+        const previous = connectorSocket(machineId);
         if (previous && previous !== socket) {
           failCommandsForMachine(machineId);
         }
-        sockets.set(machineId, socket);
-        socketCredentialHashes.set(
+        registerConnectorSession(
           machineId,
-          createHash('sha256').update(registrationToken, 'utf8').digest()
-        );
-        socketCapabilities.set(
-          machineId,
-          new Set(message.payload.connector.capabilities ?? [])
+          socket,
+          registrationToken,
+          message.payload.connector.capabilities ?? []
         );
         if (previous && previous !== socket) {
           previous.close(1012, 'Connector replaced.');
@@ -634,7 +625,7 @@ export function createConnectorCommandUpgradeHandler(
         credentialRevalidationTimer = setInterval(() => {
           void revalidateCredential();
         }, revalidationIntervalMs);
-        sendJson(socket, { type: 'connector.registered' });
+        sendConnectorJson(socket, { type: 'connector.registered' });
         return;
       }
 
@@ -652,10 +643,7 @@ export function createConnectorCommandUpgradeHandler(
           return;
         }
         registerConnectorProjectRegistry(message.payload);
-        socketCapabilities.set(
-          machineId,
-          new Set(message.payload.connector.capabilities ?? [])
-        );
+        updateConnectorCapabilities(machineId, message.payload.connector.capabilities ?? []);
         return;
       }
 
@@ -667,10 +655,7 @@ export function createConnectorCommandUpgradeHandler(
       if (credentialRevalidationTimer) {
         clearInterval(credentialRevalidationTimer);
       }
-      if (machineId && sockets.get(machineId) === socket) {
-        sockets.delete(machineId);
-        socketCredentialHashes.delete(machineId);
-        socketCapabilities.delete(machineId);
+      if (machineId && removeConnectorSession(machineId, socket)) {
         failCommandsForMachine(machineId);
       }
     });

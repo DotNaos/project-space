@@ -74,6 +74,24 @@ func TestRootCommandHelpListsMachineConnectionCommands(t *testing.T) {
 	}
 }
 
+func TestRootCommandPrintsBuildVersion(t *testing.T) {
+	previousVersion := projectMachineClientVersion
+	projectMachineClientVersion = "0.3.0-test"
+	t.Cleanup(func() { projectMachineClientVersion = previousVersion })
+
+	command := newRootCommand()
+	output := &bytes.Buffer{}
+	command.SetOut(output)
+	command.SetErr(output)
+	command.SetArgs([]string{"--version"})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("execute root version: %v", err)
+	}
+	if !strings.Contains(output.String(), "0.3.0-test") {
+		t.Fatalf("root version output = %q", output.String())
+	}
+}
+
 func TestRootCommandKeepsConnectorRunDiscoverable(t *testing.T) {
 	command, _, err := newRootCommand().Find([]string{"connector", "run"})
 	if err != nil {

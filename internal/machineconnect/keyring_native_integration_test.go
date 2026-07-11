@@ -1,4 +1,4 @@
-//go:build darwin || windows
+//go:build darwin
 
 package machineconnect
 
@@ -17,6 +17,11 @@ func TestNativeKeyringCredentialStoreIntegration(t *testing.T) {
 	backend := nativeKeyringBackend{}
 	service := fmt.Sprintf("net.os-home.project-space.test.%d", os.Getpid())
 	account := fmt.Sprintf("machine-%d", time.Now().UnixNano())
+	if _, err := backend.Get(service, account); err == nil {
+		t.Fatal("missing native keyring item unexpectedly exists")
+	} else if !backend.IsNotFound(err) {
+		t.Fatalf("missing native keyring item returned %T: %v", err, err)
+	}
 	store, err := newKeyringCredentialStore(
 		backend,
 		service,

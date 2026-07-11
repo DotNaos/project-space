@@ -81,6 +81,8 @@ type memoryStore struct {
 	saveErr     error
 	saveCalls   int
 	deleteCalls int
+	purgeCalls  int
+	purgeErr    error
 }
 
 func (store *memoryStore) LoadKey() (MachineKey, error) {
@@ -114,6 +116,16 @@ func (store *memoryStore) Save(credential Credential) error {
 func (store *memoryStore) Delete() error {
 	store.deleteCalls++
 	store.credential = nil
+	return nil
+}
+
+func (store *memoryStore) Purge() error {
+	store.purgeCalls++
+	if store.purgeErr != nil {
+		return store.purgeErr
+	}
+	store.credential = nil
+	store.key = nil
 	return nil
 }
 
@@ -422,6 +434,76 @@ func TestWorkflowDisconnectFinishesLocalCleanupAfterRevocation(t *testing.T) {
 	if connector.stopCtxErr != nil || store.credential != nil {
 		t.Fatalf("disconnect inherited cancellation: stop=%v store=%#v", connector.stopCtxErr, store)
 	}
+}
+
+func TestWorkflowUninstallPurgesIdentityWhenBackendIsOffline(t *testing.T) {
+	now := time.Now().UTC()
+	credential := testCredential(now)
+	key := testMachineKey(t)
+	store := &memoryStore{credential: &credential, key: &key}
+	connector := &recordingConnector{}
+	backend := &fakeBackend{revokeErr: errors.New("backend unavailable")}
+	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, connector, &fakeClock{now: now})
+
+	result, err := workflow.Uninstall(context.Background())
+	if err != nil {
+		t.Fatalf("offline uninstall: %v", err)
+	}
+	if !result.RevocationPending {
+		t.Fatal("offline uninstall did not report pending server revocation")
+	}
+	if store.credential != nil || store.key != nil || store.purgeCalls != 1 {
+		t.Fatalf("offline uninstall did not purge identity: %#v", store)
+	}
+	if backend.revokeCalls != 1 || connector.stopCalls != 1 {
+		t.Fatalf("offline uninstall lifecycle = backend %#v connector %#v", backend, connector)
+	}
+}
+
+func TestWorkflowUninstallPreservesIdentityWhenServiceStopFails(t *testing.T) {
+	now := time.Now().UTC()
+	credential := testCredential(now)
+	key := testMachineKey(t)
+	store := &memoryStore{credential: &credential, key: &key}
+	stopErr := errors.New("service stop failed")
+	connector := &recordingConnector{stopErr: stopErr}
+	backend := &fakeBackend{revokeErr: errors.New("backend unavailable")}
+	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, connector, &fakeClock{now: now})
+
+	result, err := workflow.Uninstall(context.Background())
+	if !errors.Is(err, stopErr) || !result.RevocationPending {
+		t.Fatalf("failed uninstall = result %#v error %v", result, err)
+	}
+	if store.credential == nil || store.key == nil || store.purgeCalls != 0 {
+		t.Fatalf("failed service stop destroyed retryable identity: %#v", store)
+	}
+}
+
+func TestWorkflowUninstallPurgesUnreadableStateWithoutDecoding(t *testing.T) {
+	now := time.Now().UTC()
+	loadErr := errors.New("protected state is corrupt")
+	store := &memoryStore{purgeErr: nil}
+	storeWithLoadError := &loadErrorCredentialStore{memoryStore: store, loadErr: loadErr}
+	connector := &recordingConnector{}
+	backend := &fakeBackend{}
+	workflow := newTestWorkflow(t, backend, storeWithLoadError, &recordingPresenter{}, connector, &fakeClock{now: now})
+
+	result, err := workflow.Uninstall(context.Background())
+	if err != nil {
+		t.Fatalf("uninstall unreadable state: %v", err)
+	}
+	if !result.RevocationPending || store.purgeCalls != 1 || backend.revokeCalls != 0 {
+		t.Fatalf("unreadable uninstall result = %#v store %#v backend %#v", result, store, backend)
+	}
+}
+
+type loadErrorCredentialStore struct {
+	*memoryStore
+	loadErr error
+}
+
+func (store *loadErrorCredentialStore) Load() (Credential, error) {
+	return Credential{}, store.loadErr
 }
 
 func newTestWorkflow(

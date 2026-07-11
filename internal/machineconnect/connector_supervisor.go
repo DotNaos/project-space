@@ -110,10 +110,17 @@ func newConnectorSupervisor(
 	}, nil
 }
 
-func (supervisor *ConnectorSupervisor) Run(ctx context.Context) error {
+func (supervisor *ConnectorSupervisor) Run(ctx context.Context) (returnErr error) {
 	if ctx == nil {
 		return errors.New("connector supervisor context is missing")
 	}
+	lifetime, err := newConnectorSupervisorLifetime(supervisor.store)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		returnErr = errors.Join(returnErr, lifetime.Close())
+	}()
 	credential, err := supervisor.store.Load()
 	if err != nil {
 		return fmt.Errorf("load connector machine credential: %w", err)
@@ -146,6 +153,12 @@ func (supervisor *ConnectorSupervisor) Run(ctx context.Context) error {
 			return ctx.Err()
 		}
 		return fmt.Errorf("start connector companion: %w", err)
+	}
+	if err := lifetime.Attach(command.Process); err != nil {
+		_ = stdin.Close()
+		_ = command.Process.Kill()
+		_ = command.Wait()
+		return err
 	}
 
 	writeDone := make(chan error, 1)

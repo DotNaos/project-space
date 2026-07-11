@@ -4,7 +4,10 @@ import {
   createMachineConnectionBackend,
   type MachineConnectionBackendOptions
 } from './machine-connection-backend';
-import { isConnectorCommandChannelAuthenticated } from './connector-command-hub';
+import {
+  disconnectConnectorCommandChannel,
+  isConnectorCommandChannelAuthenticated
+} from './connector-command-hub';
 import {
   readMachineConnectionPublicOrigin,
   readMachineConnectionRateLimitSecret
@@ -59,7 +62,14 @@ const nodeScheduler: MachineConnectionRuntimeScheduler = {
 export function createMachineConnectionRuntime(
   options: MachineConnectionRuntimeOptions
 ): MachineConnectionRuntime {
-  const backend = createMachineConnectionBackend(options);
+  const backend = createMachineConnectionBackend({
+    ...options,
+    onMachineRevoked:
+      options.onMachineRevoked ??
+      ((machineId) => {
+        disconnectConnectorCommandChannel(machineId);
+      })
+  });
   const scheduler = options.scheduler ?? nodeScheduler;
   const cleanupIntervalMs = options.cleanupIntervalMs ?? defaultCleanupIntervalMs;
   if (!Number.isSafeInteger(cleanupIntervalMs) || cleanupIntervalMs < 1_000) {

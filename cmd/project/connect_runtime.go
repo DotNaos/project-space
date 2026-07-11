@@ -61,7 +61,7 @@ func defaultConnectorRunDependencies() connectorRunDependencies {
 	return connectorRunDependencies{
 		NewStore: machineconnect.NewDefaultCredentialStore,
 		ResolveBinary: func() (string, error) {
-			return resolveConnectorBinary("")
+			return resolveConnectorBinary()
 		},
 		NewSupervisor: func(
 			store machineconnect.CredentialStore,

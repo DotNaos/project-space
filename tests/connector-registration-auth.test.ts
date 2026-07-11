@@ -6,6 +6,7 @@ import { WebSocket } from 'ws';
 
 import {
   createConnectorCommandUpgradeHandler,
+  disconnectConnectorCommandChannel,
   isConnectorCommandChannelAuthenticated,
   isConnectorCommandChannelAvailable
 } from '../server/connector-command-hub';
@@ -163,6 +164,42 @@ describe('connector credential authentication', () => {
 
       expect(code).toBe(1008);
       expect(isConnectorCommandChannelAvailable('periodic-machine')).toBe(false);
+    } finally {
+      server.closeAllConnections();
+      await commands.close();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test('removes a revoked machine from the command channel immediately', async () => {
+    const commands = createConnectorCommandUpgradeHandler({
+      async authenticateConnectorCredential() {
+        return true;
+      }
+    });
+    const server = createServer();
+    server.on('upgrade', (request, socket, head) => {
+      if (!commands.handleUpgrade(request, socket, head)) {
+        socket.destroy();
+      }
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Test server did not expose a port.');
+    }
+
+    try {
+      const socket = await connect(`ws://127.0.0.1:${address.port}/api/connectors/socket`);
+      socket.send(registrationMessage('immediate-revocation-machine', 'credential'));
+      await once(socket, 'message');
+      const closed = once(socket, 'close');
+
+      expect(disconnectConnectorCommandChannel('immediate-revocation-machine')).toBe(true);
+      expect(isConnectorCommandChannelAvailable('immediate-revocation-machine')).toBe(false);
+      const [code] = (await closed) as [number, Buffer];
+      expect(code).toBe(1008);
+      expect(disconnectConnectorCommandChannel('immediate-revocation-machine')).toBe(false);
     } finally {
       server.closeAllConnections();
       await commands.close();

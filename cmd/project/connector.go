@@ -65,6 +65,7 @@ func newConnectorCommand() *cobra.Command {
 	cmd.AddCommand(newConnectorInstallCommand())
 	cmd.AddCommand(newConnectorConnectCommand())
 	cmd.AddCommand(newConnectorRunCommand())
+	cmd.AddCommand(newConnectorMachineServiceCommand())
 	cmd.AddCommand(newConnectorStatusCommand())
 	return cmd
 }
