@@ -3,8 +3,6 @@ package worktreeownership
 import (
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -48,20 +46,6 @@ type Result struct {
 	Worktrees string `json:"worktreesRoot"`
 }
 
-type repository struct {
-	baseRef       string
-	defaultBranch string
-	mainPath      string
-	project       string
-	worktrees     []worktree
-	worktreesRoot string
-}
-
-type worktree struct {
-	branch string
-	path   string
-}
-
 func Prepare(options PrepareOptions) (Result, error) {
 	if err := validateThreadID(options.ThreadID); err != nil {
 		return Result{}, err
@@ -74,46 +58,83 @@ func Prepare(options PrepareOptions) (Result, error) {
 		return Result{}, errors.New("issue title is required when an issue is provided")
 	}
 
-	repo, currentPath, err := inspectRepository(options.StartPath)
+	_, currentPath, err := inspectRepository(options.StartPath)
 	if err != nil {
 		return Result{}, err
 	}
-	if existing, ok := ownedWorktree(repo, options.ThreadID); ok {
-		return resultFor(repo, existing, options, "ready"), nil
-	}
+	result := Result{}
+	err = withOwnershipLock(currentPath, func() error {
+		repo, _, inspectErr := inspectRepository(currentPath)
+		if inspectErr != nil {
+			return inspectErr
+		}
+		existing, ok, ownedErr := ownedWorktree(repo, options.ThreadID)
+		if ownedErr != nil {
+			return ownedErr
+		}
+		if ok {
+			managed, _, configErr := worktreeConfigValue(existing.path, managedConfigKey)
+			if configErr != nil {
+				return configErr
+			}
+			if managed != "true" {
+				if _, configErr := git(repo.mainPath, "config", "extensions.worktreeConfig", "true"); configErr != nil {
+					return fmt.Errorf("enable worktree-specific configuration: %w", configErr)
+				}
+				if readTaskName(existing.path) == "" {
+					if _, configErr := git(existing.path, "config", "--worktree", taskConfigKey, existing.branch); configErr != nil {
+						return fmt.Errorf("record worktree task: %w", configErr)
+					}
+				}
+				if _, configErr := git(existing.path, "config", "--worktree", managedConfigKey, "true"); configErr != nil {
+					return fmt.Errorf("finish worktree ownership: %w", configErr)
+				}
+			}
+			result = resultFor(repo, existing, options, "ready")
+			return nil
+		}
 
-	if _, err := git(repo.mainPath, "fetch", "--prune", "origin"); err != nil {
-		return Result{}, fmt.Errorf("update %s: %w", repo.baseRef, err)
-	}
-	if _, err := git(currentPath, "config", "extensions.worktreeConfig", "true"); err != nil {
-		return Result{}, fmt.Errorf("enable worktree-specific configuration: %w", err)
-	}
+		if _, fetchErr := git(repo.mainPath, "fetch", "--prune", "origin"); fetchErr != nil {
+			return fmt.Errorf("update %s: %w", repo.baseRef, fetchErr)
+		}
+		if _, configErr := git(repo.mainPath, "config", "extensions.worktreeConfig", "true"); configErr != nil {
+			return fmt.Errorf("enable worktree-specific configuration: %w", configErr)
+		}
 
-	task := strings.TrimSpace(options.TaskName)
-	branchPrefix := "task-"
-	if options.IssueNumber > 0 {
-		task = strings.TrimSpace(options.IssueTitle)
-		branchPrefix = fmt.Sprintf("issue-%d-", options.IssueNumber)
-	}
-	baseBranch := branchPrefix + Slug(task)
-	branch, targetPath, err := availableTarget(repo, baseBranch, options.ThreadID)
+		task := strings.TrimSpace(options.TaskName)
+		branchPrefix := "task-"
+		if options.IssueNumber > 0 {
+			task = strings.TrimSpace(options.IssueTitle)
+			branchPrefix = fmt.Sprintf("issue-%d-", options.IssueNumber)
+		}
+		branch, targetPath, targetErr := availableTarget(repo, branchPrefix+Slug(task), options.ThreadID)
+		if targetErr != nil {
+			return targetErr
+		}
+		if insideErr := ensureInside(repo.worktreesRoot, targetPath); insideErr != nil {
+			return insideErr
+		}
+		if _, addErr := git(repo.mainPath, "worktree", "add", "-b", branch, targetPath, repo.baseRef); addErr != nil {
+			return fmt.Errorf("create worktree: %w", addErr)
+		}
+
+		createdRepo, createdPath, createdErr := inspectRepository(targetPath)
+		if createdErr != nil {
+			return cleanupCreatedWorktree(repo, targetPath, branch, options.ThreadID, createdErr)
+		}
+		if _, validateErr := validateDedicatedWorktree(createdRepo, createdPath); validateErr != nil {
+			return cleanupCreatedWorktree(repo, targetPath, branch, options.ThreadID, validateErr)
+		}
+		if configureErr := configureOwnership(createdPath, options.ThreadID, task, options.IssueNumber); configureErr != nil {
+			return cleanupCreatedWorktree(repo, targetPath, branch, options.ThreadID, configureErr)
+		}
+		result = resultFor(createdRepo, worktree{branch: branch, path: createdPath}, options, "created")
+		return nil
+	})
 	if err != nil {
 		return Result{}, err
 	}
-	if err := ensureInside(repo.worktreesRoot, targetPath); err != nil {
-		return Result{}, err
-	}
-	if _, err := git(repo.mainPath, "worktree", "add", "-b", branch, targetPath, repo.baseRef); err != nil {
-		return Result{}, fmt.Errorf("create worktree: %w", err)
-	}
-
-	if err := configureOwnership(targetPath, options.ThreadID, task, options.IssueNumber); err != nil {
-		_, _ = git(repo.mainPath, "worktree", "remove", "--force", targetPath)
-		_, _ = git(repo.mainPath, "branch", "-D", branch)
-		return Result{}, err
-	}
-	created := worktree{branch: branch, path: targetPath}
-	return resultFor(repo, created, options, "created"), nil
+	return result, nil
 }
 
 func Check(options CheckOptions) (Result, error) {
@@ -121,50 +142,83 @@ func Check(options CheckOptions) (Result, error) {
 		return Result{}, err
 	}
 	options.ThreadID = strings.TrimSpace(options.ThreadID)
-	repo, currentPath, err := inspectRepository(options.StartPath)
+	initialRepo, currentPath, err := inspectRepository(options.StartPath)
 	if err != nil {
 		return Result{}, err
 	}
+	if _, err := validateDedicatedWorktree(initialRepo, currentPath); err != nil {
+		return Result{}, err
+	}
+	result := Result{}
+	err = withOwnershipLock(currentPath, func() error {
+		repo, lockedPath, inspectErr := inspectRepository(currentPath)
+		if inspectErr != nil {
+			return inspectErr
+		}
+		branch, validateErr := validateDedicatedWorktree(repo, lockedPath)
+		if validateErr != nil {
+			return validateErr
+		}
+		managed, _, configErr := worktreeConfigValue(lockedPath, managedConfigKey)
+		if configErr != nil {
+			return configErr
+		}
+		if managed != "true" {
+			return errors.New("worktree is not managed by the Project CLI; run project worktree prepare here to claim it")
+		}
+		owner, _, configErr := worktreeConfigValue(lockedPath, ownerConfigKey)
+		if configErr != nil {
+			return configErr
+		}
+		if owner == "" {
+			return errors.New("worktree has no Codex owner; run project worktree prepare here to claim it")
+		}
+		if owner != options.ThreadID {
+			return ownerConflict(owner, options.ThreadID)
+		}
+		existing, ok, ownedErr := ownedWorktree(repo, options.ThreadID)
+		if ownedErr != nil {
+			return ownedErr
+		}
+		if !ok || !samePath(existing.path, lockedPath) {
+			return errors.New("worktree ownership could not be confirmed; run project worktree prepare before continuing")
+		}
+		result = Result{
+			BaseRef:   repo.baseRef,
+			Branch:    branch,
+			Issue:     readIssueNumber(lockedPath),
+			Owner:     owner,
+			Path:      lockedPath,
+			Project:   repo.project,
+			Status:    "ready",
+			Task:      readTaskName(lockedPath),
+			Worktrees: repo.worktreesRoot,
+		}
+		return nil
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	return result, nil
+}
+
+func validateDedicatedWorktree(repo repository, currentPath string) (string, error) {
 	if samePath(currentPath, repo.mainPath) {
-		return Result{}, errors.New("the main worktree is read-only for implementation; run project worktree prepare <task>")
+		return "", errors.New("the main worktree is read-only for implementation; run project worktree prepare <task>")
 	}
 	branch, err := git(currentPath, "branch", "--show-current")
 	if err != nil {
-		return Result{}, fmt.Errorf("read current branch: %w", err)
+		return "", fmt.Errorf("read current branch: %w", err)
 	}
 	branch = strings.TrimSpace(branch)
 	if branch == "" || branch == repo.defaultBranch {
-		return Result{}, errors.New("a dedicated non-main branch is required")
+		return "", errors.New("a dedicated non-main branch is required")
 	}
 	expectedPath := filepath.Join(repo.worktreesRoot, branch)
 	if !samePath(currentPath, expectedPath) {
-		return Result{}, fmt.Errorf("worktree must use the project standard path %s", expectedPath)
+		return "", fmt.Errorf("worktree must use the project standard path %s", expectedPath)
 	}
-	managed, _ := git(currentPath, "config", "--worktree", "--get", managedConfigKey)
-	if strings.TrimSpace(managed) != "true" {
-		return Result{}, errors.New("worktree is not managed by the Project CLI; prepare a new worktree instead of adopting it implicitly")
-	}
-	owner, _ := git(currentPath, "config", "--worktree", "--get", ownerConfigKey)
-	owner = strings.TrimSpace(owner)
-	if owner == "" {
-		return Result{}, errors.New("worktree has no Codex owner; prepare a new worktree")
-	}
-	if owner != options.ThreadID {
-		return Result{}, fmt.Errorf("worktree belongs to Codex thread %s, not the current thread %s; prepare a new worktree", owner, options.ThreadID)
-	}
-	issue := readIssueNumber(currentPath)
-	task, _ := git(currentPath, "config", "--worktree", "--get", taskConfigKey)
-	return Result{
-		BaseRef:   repo.baseRef,
-		Branch:    branch,
-		Issue:     issue,
-		Owner:     owner,
-		Path:      currentPath,
-		Project:   repo.project,
-		Status:    "ready",
-		Task:      strings.TrimSpace(task),
-		Worktrees: repo.worktreesRoot,
-	}, nil
+	return branch, nil
 }
 
 func Slug(value string) string {
@@ -179,131 +233,64 @@ func Slug(value string) string {
 	return slug
 }
 
-func inspectRepository(startPath string) (repository, string, error) {
-	if strings.TrimSpace(startPath) == "" {
-		return repository{}, "", errors.New("start path is required")
-	}
-	root, err := git(startPath, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return repository{}, "", fmt.Errorf("find repository: %w", err)
-	}
-	currentPath, err := filepath.Abs(strings.TrimSpace(root))
-	if err != nil {
-		return repository{}, "", err
-	}
-	defaultBranch := defaultBranch(currentPath)
-	entries, err := listWorktrees(currentPath)
-	if err != nil {
-		return repository{}, "", err
-	}
-	mainPath := ""
-	for _, entry := range entries {
-		if entry.branch == defaultBranch {
-			mainPath = entry.path
-			break
-		}
-	}
-	if mainPath == "" {
-		return repository{}, "", fmt.Errorf("no worktree has the default branch %q checked out", defaultBranch)
-	}
-	project := filepath.Base(mainPath)
-	worktreesRoot := filepath.Join(filepath.Dir(mainPath), ".worktrees", project)
-	return repository{
-		baseRef:       "origin/" + defaultBranch,
-		defaultBranch: defaultBranch,
-		mainPath:      mainPath,
-		project:       project,
-		worktrees:     entries,
-		worktreesRoot: worktreesRoot,
-	}, currentPath, nil
-}
-
-func defaultBranch(path string) string {
-	ref, err := git(path, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
-	if err == nil {
-		parts := strings.Split(strings.TrimSpace(ref), "/")
-		if len(parts) > 1 && parts[len(parts)-1] != "" {
-			return parts[len(parts)-1]
-		}
-	}
-	return "main"
-}
-
-func listWorktrees(path string) ([]worktree, error) {
-	output, err := git(path, "worktree", "list", "--porcelain")
-	if err != nil {
-		return nil, fmt.Errorf("list worktrees: %w", err)
-	}
-	var entries []worktree
-	current := worktree{}
-	for _, line := range strings.Split(output, "\n") {
-		if line == "" {
-			if current.path != "" {
-				entries = append(entries, current)
-				current = worktree{}
-			}
-			continue
-		}
-		if strings.HasPrefix(line, "worktree ") {
-			current.path = strings.TrimPrefix(line, "worktree ")
-		}
-		if strings.HasPrefix(line, "branch refs/heads/") {
-			current.branch = strings.TrimPrefix(line, "branch refs/heads/")
-		}
-	}
-	if current.path != "" {
-		entries = append(entries, current)
-	}
-	return entries, nil
-}
-
-func ownedWorktree(repo repository, threadID string) (worktree, bool) {
-	for _, entry := range repo.worktrees {
-		if samePath(entry.path, repo.mainPath) {
-			continue
-		}
-		if entry.branch == "" || !samePath(entry.path, filepath.Join(repo.worktreesRoot, entry.branch)) {
-			continue
-		}
-		managed, _ := git(entry.path, "config", "--worktree", "--get", managedConfigKey)
-		owner, _ := git(entry.path, "config", "--worktree", "--get", ownerConfigKey)
-		if strings.TrimSpace(managed) == "true" && strings.TrimSpace(owner) == threadID {
-			return entry, true
-		}
-	}
-	return worktree{}, false
-}
-
-func availableTarget(repo repository, baseBranch string, threadID string) (string, string, error) {
-	candidates := []string{baseBranch, baseBranch + "-" + shortThreadID(threadID)}
-	for index := 2; index <= 20; index++ {
-		candidates = append(candidates, baseBranch+"-"+shortThreadID(threadID)+"-"+strconv.Itoa(index))
-	}
-	for _, branch := range candidates {
-		path := filepath.Join(repo.worktreesRoot, branch)
-		if branchExists(repo.mainPath, branch) || pathExists(path) {
-			continue
-		}
-		return branch, path, nil
-	}
-	return "", "", errors.New("could not derive an unused branch and worktree path")
-}
-
 func configureOwnership(path string, threadID string, task string, issue int) error {
 	values := [][2]string{
-		{managedConfigKey, "true"},
-		{ownerConfigKey, threadID},
 		{taskConfigKey, task},
 	}
 	if issue > 0 {
 		values = append(values, [2]string{issueConfigKey, strconv.Itoa(issue)})
 	}
+	values = append(values, [2]string{ownerConfigKey, threadID})
+	values = append(values, [2]string{managedConfigKey, "true"})
 	for _, value := range values {
 		if _, err := git(path, "config", "--worktree", value[0], value[1]); err != nil {
 			return fmt.Errorf("record worktree ownership: %w", err)
 		}
 	}
 	return nil
+}
+
+func cleanupCreatedWorktree(repo repository, targetPath string, branch string, threadID string, cause error) error {
+	preserve := func(reason string) error {
+		return fmt.Errorf("%w; preserving newly created worktree %s because %s", cause, targetPath, reason)
+	}
+	if !samePath(targetPath, filepath.Join(repo.worktreesRoot, branch)) {
+		return preserve("its path no longer matches the expected branch")
+	}
+	actualBranch, err := git(targetPath, "branch", "--show-current")
+	if err != nil || strings.TrimSpace(actualBranch) != branch {
+		return preserve("its checked-out branch changed")
+	}
+	status, err := git(targetPath, "status", "--porcelain")
+	if err != nil || strings.TrimSpace(status) != "" {
+		return preserve("it contains changes")
+	}
+	head, headErr := git(targetPath, "rev-parse", "HEAD")
+	base, baseErr := git(repo.mainPath, "rev-parse", repo.baseRef)
+	if headErr != nil || baseErr != nil || strings.TrimSpace(head) != strings.TrimSpace(base) {
+		return preserve("its commit no longer matches the prepared base")
+	}
+	owner, _, configErr := worktreeConfigValue(targetPath, ownerConfigKey)
+	if configErr != nil {
+		return preserve("its ownership configuration cannot be read")
+	}
+	managed, _, configErr := worktreeConfigValue(targetPath, managedConfigKey)
+	if configErr != nil {
+		return preserve("its ownership configuration cannot be read")
+	}
+	if owner != "" && owner != threadID {
+		return preserve("another Codex thread owns it")
+	}
+	if managed == "true" {
+		return preserve("its ownership setup already completed")
+	}
+	if _, err := git(repo.mainPath, "worktree", "remove", targetPath); err != nil {
+		return fmt.Errorf("%w (also failed to remove unused worktree %s: %v)", cause, targetPath, err)
+	}
+	if _, err := git(repo.mainPath, "update-ref", "-d", "refs/heads/"+branch, strings.TrimSpace(head)); err != nil {
+		return fmt.Errorf("%w (also preserved branch %s because it changed during cleanup: %v)", cause, branch, err)
+	}
+	return cause
 }
 
 func resultFor(repo repository, entry worktree, options PrepareOptions, status string) Result {
@@ -344,56 +331,4 @@ func validateThreadID(threadID string) error {
 		return errors.New("CODEX_THREAD_ID is not a valid Codex thread identifier")
 	}
 	return nil
-}
-
-func ensureInside(parent string, child string) error {
-	relative, err := filepath.Rel(parent, child)
-	if err != nil {
-		return err
-	}
-	if relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("worktree path %s is outside %s", child, parent)
-	}
-	return nil
-}
-
-func shortThreadID(threadID string) string {
-	compact := strings.ReplaceAll(threadID, "-", "")
-	if len(compact) <= 8 {
-		return compact
-	}
-	return compact[len(compact)-8:]
-}
-
-func branchExists(path string, branch string) bool {
-	for _, ref := range []string{"refs/heads/" + branch, "refs/remotes/origin/" + branch} {
-		if _, err := git(path, "show-ref", "--verify", "--quiet", ref); err == nil {
-			return true
-		}
-	}
-	return false
-}
-
-func pathExists(path string) bool {
-	_, err := os.Lstat(path)
-	return err == nil || !os.IsNotExist(err)
-}
-
-func samePath(left string, right string) bool {
-	leftPath, _ := filepath.Abs(left)
-	rightPath, _ := filepath.Abs(right)
-	return filepath.Clean(leftPath) == filepath.Clean(rightPath)
-}
-
-func git(path string, args ...string) (string, error) {
-	command := exec.Command("git", append([]string{"-C", path}, args...)...)
-	output, err := command.CombinedOutput()
-	if err != nil {
-		message := strings.TrimSpace(string(output))
-		if message == "" {
-			message = err.Error()
-		}
-		return "", errors.New(message)
-	}
-	return string(output), nil
 }

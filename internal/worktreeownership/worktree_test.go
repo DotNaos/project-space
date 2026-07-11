@@ -1,10 +1,12 @@
 package worktreeownership
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -78,6 +80,188 @@ func TestPrepareReusesOneWorktreeForSameThread(t *testing.T) {
 	}
 }
 
+func TestClaimOwnsExistingStandardWorktreeAndThenConfirmsIt(t *testing.T) {
+	mainPath := setupRepository(t)
+	worktreePath := addStandardWorktree(t, mainPath, "task-existing-worktree")
+
+	claimed, err := Claim(ClaimOptions{StartPath: worktreePath, ThreadID: firstThread})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed.Status != "claimed" || claimed.Path != worktreePath || claimed.Owner != firstThread {
+		t.Fatalf("unexpected claim result: %#v", claimed)
+	}
+	if status := commandOutput(t, worktreePath, "git", "status", "--porcelain"); status != "" {
+		t.Fatalf("claim dirtied worktree: %q", status)
+	}
+
+	confirmed, err := Claim(ClaimOptions{StartPath: worktreePath, ThreadID: firstThread})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if confirmed.Status != "ready" || confirmed.Path != worktreePath {
+		t.Fatalf("unexpected confirmation: %#v", confirmed)
+	}
+	if _, err := Check(CheckOptions{StartPath: worktreePath, ThreadID: firstThread}); err != nil {
+		t.Fatalf("claimed worktree did not pass check: %v", err)
+	}
+}
+
+func TestClaimedWorktreeMayContinueWithChangesAndCommits(t *testing.T) {
+	mainPath := setupRepository(t)
+	worktreePath := addStandardWorktree(t, mainPath, "task-owned-active-work")
+	if _, err := Claim(ClaimOptions{StartPath: worktreePath, ThreadID: firstThread}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreePath, "active.txt"), []byte("in progress\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	dirty, err := Claim(ClaimOptions{StartPath: worktreePath, ThreadID: firstThread})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dirty.Status != "ready" {
+		t.Fatalf("owned dirty worktree was not reusable: %#v", dirty)
+	}
+	if _, err := Claim(ClaimOptions{StartPath: worktreePath, ThreadID: secondThread}); err == nil || !strings.Contains(err.Error(), "belongs to Codex thread") {
+		t.Fatalf("foreign thread was not rejected: %v", err)
+	}
+
+	command(t, worktreePath, "git", "add", "active.txt")
+	command(t, worktreePath, "git", "commit", "-m", "Continue owned work")
+	committed, err := Claim(ClaimOptions{StartPath: worktreePath, ThreadID: firstThread})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if committed.Status != "ready" {
+		t.Fatalf("owned committed worktree was not reusable: %#v", committed)
+	}
+}
+
+func TestConcurrentClaimsHaveExactlyOneOwner(t *testing.T) {
+	mainPath := setupRepository(t)
+	worktreePath := addStandardWorktree(t, mainPath, "task-concurrent-claim")
+	type outcome struct {
+		result Result
+		err    error
+	}
+	start := make(chan struct{})
+	outcomes := make(chan outcome, 2)
+	var wait sync.WaitGroup
+	for _, threadID := range []string{firstThread, secondThread} {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			result, err := Claim(ClaimOptions{StartPath: worktreePath, ThreadID: threadID})
+			outcomes <- outcome{result: result, err: err}
+		}()
+	}
+	close(start)
+	wait.Wait()
+	close(outcomes)
+
+	winners := 0
+	conflicts := 0
+	winner := ""
+	for outcome := range outcomes {
+		if outcome.err == nil {
+			winners++
+			winner = outcome.result.Owner
+			continue
+		}
+		if strings.Contains(outcome.err.Error(), "belongs to Codex thread") {
+			conflicts++
+			continue
+		}
+		t.Fatalf("unexpected claim error: %v", outcome.err)
+	}
+	if winners != 1 || conflicts != 1 {
+		t.Fatalf("winners=%d conflicts=%d, want one each", winners, conflicts)
+	}
+	if _, err := Check(CheckOptions{StartPath: worktreePath, ThreadID: winner}); err != nil {
+		t.Fatalf("winning owner did not pass check: %v", err)
+	}
+}
+
+func TestClaimRejectsDirtyUnownedWorktree(t *testing.T) {
+	mainPath := setupRepository(t)
+	worktreePath := addStandardWorktree(t, mainPath, "task-dirty-unowned")
+	if err := os.WriteFile(filepath.Join(worktreePath, "unowned.txt"), []byte("unknown\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Claim(ClaimOptions{StartPath: worktreePath, ThreadID: firstThread})
+	if err == nil || !strings.Contains(err.Error(), "contains changes") {
+		t.Fatalf("expected dirty-worktree rejection, got %v", err)
+	}
+	if owner := readWorktreeConfig(worktreePath, ownerConfigKey); owner != "" {
+		t.Fatalf("dirty worktree was unexpectedly claimed by %q", owner)
+	}
+}
+
+func TestClaimRejectsCleanUnownedWorktreeWithExistingCommit(t *testing.T) {
+	mainPath := setupRepository(t)
+	worktreePath := addStandardWorktree(t, mainPath, "task-committed-unowned")
+	if err := os.WriteFile(filepath.Join(worktreePath, "committed.txt"), []byte("unknown\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	command(t, worktreePath, "git", "add", "committed.txt")
+	command(t, worktreePath, "git", "commit", "-m", "Unknown existing work")
+	if status := commandOutput(t, worktreePath, "git", "status", "--porcelain"); status != "" {
+		t.Fatalf("fixture is not clean: %q", status)
+	}
+
+	_, err := Claim(ClaimOptions{StartPath: worktreePath, ThreadID: firstThread})
+	if err == nil || !strings.Contains(err.Error(), "HEAD does not match origin/main") {
+		t.Fatalf("expected committed-work rejection, got %v", err)
+	}
+	if owner := readWorktreeConfig(worktreePath, ownerConfigKey); owner != "" {
+		t.Fatalf("committed worktree was unexpectedly claimed by %q", owner)
+	}
+}
+
+func TestCleanupRemovesOnlyUnchangedCreatedWorktree(t *testing.T) {
+	mainPath := setupRepository(t)
+	branch := "task-cleanup-created"
+	worktreePath := addStandardWorktree(t, mainPath, branch)
+	repo, _, err := inspectRepository(mainPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cause := errors.New("configuration failed")
+
+	err = cleanupCreatedWorktree(repo, worktreePath, branch, firstThread, cause)
+	if !errors.Is(err, cause) {
+		t.Fatalf("cleanup did not preserve the original error: %v", err)
+	}
+	if pathExists(worktreePath) || branchExists(mainPath, branch) {
+		t.Fatalf("clean candidate was not fully removed: path=%v branch=%v", pathExists(worktreePath), branchExists(mainPath, branch))
+	}
+}
+
+func TestCleanupPreservesChangedCreatedWorktree(t *testing.T) {
+	mainPath := setupRepository(t)
+	branch := "task-preserve-created"
+	worktreePath := addStandardWorktree(t, mainPath, branch)
+	repo, _, err := inspectRepository(mainPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreePath, "keep.txt"), []byte("keep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err = cleanupCreatedWorktree(repo, worktreePath, branch, firstThread, errors.New("configuration failed"))
+	if err == nil || !strings.Contains(err.Error(), "preserving newly created worktree") {
+		t.Fatalf("changed candidate was not preserved safely: %v", err)
+	}
+	if !pathExists(worktreePath) || !branchExists(mainPath, branch) {
+		t.Fatalf("changed candidate was removed: path=%v branch=%v", pathExists(worktreePath), branchExists(mainPath, branch))
+	}
+}
+
 func TestDifferentThreadGetsDifferentWorktreeAndCannotUseFirst(t *testing.T) {
 	mainPath := setupRepository(t)
 	first, err := Prepare(PrepareOptions{
@@ -114,11 +298,17 @@ func TestCheckRejectsMainAndUnmanagedWorktrees(t *testing.T) {
 	if _, err := Check(CheckOptions{StartPath: mainPath, ThreadID: firstThread}); err == nil || !strings.Contains(err.Error(), "main worktree") {
 		t.Fatalf("expected main rejection, got %v", err)
 	}
+	if _, err := Claim(ClaimOptions{StartPath: mainPath, ThreadID: firstThread}); err == nil || !strings.Contains(err.Error(), "main worktree") {
+		t.Fatalf("expected main claim rejection, got %v", err)
+	}
 
 	outsidePath := filepath.Join(t.TempDir(), "outside")
 	command(t, mainPath, "git", "worktree", "add", "-b", "manual-branch", outsidePath, "origin/main")
 	if _, err := Check(CheckOptions{StartPath: outsidePath, ThreadID: firstThread}); err == nil || !strings.Contains(err.Error(), "standard path") {
 		t.Fatalf("expected path rejection, got %v", err)
+	}
+	if _, err := Claim(ClaimOptions{StartPath: outsidePath, ThreadID: firstThread}); err == nil || !strings.Contains(err.Error(), "standard path") {
+		t.Fatalf("expected outside-path claim rejection, got %v", err)
 	}
 }
 
@@ -130,9 +320,28 @@ func TestMissingThreadIDFailsClosed(t *testing.T) {
 	if _, err := Check(CheckOptions{StartPath: mainPath}); err == nil || !strings.Contains(err.Error(), "CODEX_THREAD_ID") {
 		t.Fatalf("expected missing thread rejection, got %v", err)
 	}
+	if _, err := Claim(ClaimOptions{StartPath: mainPath}); err == nil || !strings.Contains(err.Error(), "CODEX_THREAD_ID") {
+		t.Fatalf("expected missing thread rejection, got %v", err)
+	}
 	if _, err := Prepare(PrepareOptions{StartPath: mainPath, TaskName: "task", ThreadID: "not-a-thread"}); err == nil || !strings.Contains(err.Error(), "valid Codex thread") {
 		t.Fatalf("expected invalid thread rejection, got %v", err)
 	}
+}
+
+func addStandardWorktree(t *testing.T, mainPath string, branch string) string {
+	t.Helper()
+	canonicalMainPath, err := filepath.EvalSymlinks(mainPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktreePath := filepath.Join(
+		filepath.Dir(canonicalMainPath),
+		".worktrees",
+		filepath.Base(canonicalMainPath),
+		branch,
+	)
+	command(t, mainPath, "git", "worktree", "add", "-b", branch, worktreePath, "origin/main")
+	return worktreePath
 }
 
 func TestSlugUsesStableBranchSafeNames(t *testing.T) {

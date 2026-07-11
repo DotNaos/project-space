@@ -43,14 +43,21 @@ func newWorktreePrepareCommand() *cobra.Command {
 			if issueNumber > 0 && len(args) > 0 {
 				return errors.New("use either --issue or a task name, not both")
 			}
-			if issueNumber == 0 && len(args) == 0 {
-				return errors.New("task name is required unless --issue is used")
-			}
 			cwd, err := os.Getwd()
 			if err != nil {
 				return err
 			}
 			threadID := strings.TrimSpace(os.Getenv("CODEX_THREAD_ID"))
+			if issueNumber == 0 && len(args) == 0 {
+				result, claimErr := worktreeownership.Claim(worktreeownership.ClaimOptions{
+					StartPath: cwd,
+					ThreadID:  threadID,
+				})
+				if claimErr != nil {
+					return claimErr
+				}
+				return printWorktreeResult(cmd, result, "", format)
+			}
 			options := worktreeownership.PrepareOptions{
 				IssueNumber: issueNumber,
 				StartPath:   cwd,
