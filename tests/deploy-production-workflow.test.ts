@@ -35,6 +35,7 @@ describe('production deployment workflow contract', () => {
     expect(workflow).not.toContain('export-env: true');
     expect(workflow).toContain('-o "$RUNNER_TEMP/project"');
     expect(workflow).not.toContain('-o bin/project');
+    expect(workflow).toContain("deploy-result.json | tee -a \"$GITHUB_STEP_SUMMARY\"");
     expect(actionReferences.length).toBeGreaterThanOrEqual(7);
     expect(actionReferences.every((reference) => /^[0-9a-f]{40}$/.test(reference))).toBe(true);
     expect(workflow).toContain('StrictHostKeyChecking yes');

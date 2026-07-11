@@ -228,7 +228,7 @@ jobs:
             "Live origin healthy: `\(.evidence.liveOriginHealthy)`\n" +
             "Rollback: `\(.rollback.status // "not needed")`\n" +
             "Live URL: https://projects.os-home.net"
-          ' deploy-result.json >> "$GITHUB_STEP_SUMMARY"
+          ' deploy-result.json | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Independently confirm exact live commit
         if: steps.deployment.outputs.exit_code == '0'
