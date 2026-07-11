@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -160,7 +161,7 @@ func TestDeployTransactionRechecksMainUnderLockBeforeMutation(t *testing.T) {
 }
 
 func TestDeployFailureRollsBackAndVerifiesPreviousCommit(t *testing.T) {
-	output, err, stateRoot, stateDir := runDeployScenario(t, "compose")
+	output, err, stateRoot, stateDir, _ := runDeployScenario(t, "compose")
 	if err == nil {
 		t.Fatal("expected failed deployment after successful rollback")
 	}
@@ -168,22 +169,26 @@ func TestDeployFailureRollsBackAndVerifiesPreviousCommit(t *testing.T) {
 }
 
 func TestFirstLegacyRollbackKeepsCompatibilityForRetry(t *testing.T) {
-	output, err, _, stateDir := runDeployScenario(t, "legacy-compose")
+	output, err, _, stateDir, rerun := runDeployScenario(t, "legacy-compose")
 	if err == nil || !bytes.Contains(output, []byte(deployEventPrefix+"rollback|status|rollback_succeeded")) {
 		t.Fatalf("legacy rollback result: %v\n%s", err, output)
 	}
-	compatibility, readErr := os.ReadFile(filepath.Join(stateDir, "verified.compat"))
-	if readErr != nil || strings.TrimSpace(string(compatibility)) != testPreviousCommit {
+	compatibility, readErr := os.ReadFile(filepath.Join(stateDir, "compat", testPreviousCommit))
+	if readErr != nil || strings.TrimSpace(string(compatibility)) != "compat" {
 		t.Fatalf("legacy compatibility state = %q, %v", compatibility, readErr)
 	}
 	_, _, script := deployScriptFixture(t.TempDir())
-	if !strings.Contains(script, `previous_strict=false`) || !strings.Contains(script, `"$compatibility_file"`) {
+	if !strings.Contains(script, `previous_strict=false`) || !strings.Contains(script, `"$compatibility_dir/$previous"`) {
 		t.Fatal("retry path does not restore legacy compatibility mode")
+	}
+	retryOutput, retryErr := rerun("compose")
+	if retryErr == nil || !bytes.Contains(retryOutput, []byte(deployEventPrefix+"rollback|status|rollback_succeeded")) {
+		t.Fatalf("legacy retry did not remain rollback-compatible: %v\n%s", retryErr, retryOutput)
 	}
 }
 
 func TestDeployHealthFailureRollsBackAndVerifiesPreviousCommit(t *testing.T) {
-	output, err, stateRoot, stateDir := runDeployScenario(t, "health")
+	output, err, stateRoot, stateDir, _ := runDeployScenario(t, "health")
 	if err == nil {
 		t.Fatal("expected failed health verification after successful rollback")
 	}
@@ -191,7 +196,7 @@ func TestDeployHealthFailureRollsBackAndVerifiesPreviousCommit(t *testing.T) {
 }
 
 func TestInterruptedDeployRollsBackAndVerifiesPreviousCommit(t *testing.T) {
-	output, err, stateRoot, stateDir := runDeployScenario(t, "interrupt")
+	output, err, stateRoot, stateDir, _ := runDeployScenario(t, "interrupt")
 	if err == nil {
 		t.Fatal("expected interrupted deployment to return a failure")
 	}
@@ -199,7 +204,7 @@ func TestInterruptedDeployRollsBackAndVerifiesPreviousCommit(t *testing.T) {
 }
 
 func TestDeploySuccessPersistsExactRequestedCommit(t *testing.T) {
-	output, err, stateRoot, stateDir := runDeployScenario(t, "")
+	output, err, stateRoot, stateDir, _ := runDeployScenario(t, "")
 	if err != nil {
 		t.Fatalf("successful deployment: %v\n%s", err, output)
 	}
@@ -221,7 +226,7 @@ func TestDeployScriptCleansBuildInputsButPreservesRuntimeSSH(t *testing.T) {
 	}
 }
 
-func runDeployScenario(t *testing.T, failureMode string) ([]byte, error, string, string) {
+func runDeployScenario(t *testing.T, failureMode string) ([]byte, error, string, string, func(string) ([]byte, error)) {
 	t.Helper()
 	root := t.TempDir()
 	fakeBin := filepath.Join(root, "bin")
@@ -256,18 +261,23 @@ func runDeployScenario(t *testing.T, failureMode string) ([]byte, error, string,
 	}
 	options := deployOptions{LockTimeout: time.Second, ProjectDomain: "projects.example", APIDomain: "api.projects.example"}
 	script := deployTransactionScriptForPaths(project, options, filepath.Join(root, "deploy.lock"), stateDir)
-	command := exec.Command("sh", "-s")
-	command.Stdin = strings.NewReader(script)
-	command.Env = append(os.Environ(),
-		"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"FAKE_STATE="+stateRoot,
-		"REMOTE_PATH="+remotePath,
-		"REQUESTED_COMMIT="+testRequestedCommit,
-		"PREVIOUS_COMMIT="+testPreviousCommit,
-		"DEPLOY_FAILURE_MODE="+strings.TrimPrefix(failureMode, "legacy-"),
-	)
-	output, err := command.CombinedOutput()
-	return output, err, stateRoot, stateDir
+	legacyImage := strings.HasPrefix(failureMode, "legacy-")
+	run := func(mode string) ([]byte, error) {
+		command := exec.Command("sh", "-s")
+		command.Stdin = strings.NewReader(script)
+		command.Env = append(os.Environ(),
+			"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
+			"FAKE_STATE="+stateRoot,
+			"REMOTE_PATH="+remotePath,
+			"REQUESTED_COMMIT="+testRequestedCommit,
+			"PREVIOUS_COMMIT="+testPreviousCommit,
+			"DEPLOY_FAILURE_MODE="+mode,
+			"LEGACY_IMAGE="+strconv.FormatBool(legacyImage),
+		)
+		return command.CombinedOutput()
+	}
+	output, err := run(strings.TrimPrefix(failureMode, "legacy-"))
+	return output, err, stateRoot, stateDir, run
 }
 
 func assertRollbackRestoredPrevious(t *testing.T, output []byte, stateRoot string, stateDir string) {
@@ -364,7 +374,10 @@ if [ "$1" = inspect ]; then
   esac
   exit 0
 fi
-if [ "$1" = image ]; then cat "$FAKE_STATE/runtime"; exit 0; fi
+if [ "$1" = image ]; then
+  if [ "$LEGACY_IMAGE" = true ] && [ "$(cat "$FAKE_STATE/runtime")" = "$PREVIOUS_COMMIT" ]; then echo unknown; else cat "$FAKE_STATE/runtime"; fi
+  exit 0
+fi
 if [ "$1" = exec ]; then exit 0; fi
 exit 1
 `

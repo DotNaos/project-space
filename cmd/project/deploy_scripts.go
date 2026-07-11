@@ -172,7 +172,7 @@ compose_project=%s
 lock_path=%s
 state_dir=%s
 verified_file="$state_dir/verified.sha"
-compatibility_file="$state_dir/verified.compat"
+compatibility_dir="$state_dir/compat"
 web_url=%s
 
 event phase checking running
@@ -213,12 +213,12 @@ persist_verified() {
   verified_commit="$1"
   verified_strict="$2"
   if [ "$verified_strict" = false ]; then
-    compatibility_tmp="$(mktemp "$state_dir/verified.compat.tmp.XXXXXX")" || return 1
-    printf '%%s\n' "$verified_commit" > "$compatibility_tmp" && chmod 600 "$compatibility_tmp" && mv -f "$compatibility_tmp" "$compatibility_file" || return 1
+    mkdir -p "$compatibility_dir" || return 1
+    compatibility_tmp="$(mktemp "$compatibility_dir/$verified_commit.tmp.XXXXXX")" || return 1
+    printf 'compat\n' > "$compatibility_tmp" && chmod 600 "$compatibility_tmp" && mv -f "$compatibility_tmp" "$compatibility_dir/$verified_commit" || return 1
   fi
   verified_tmp="$(mktemp "$state_dir/verified.sha.tmp.XXXXXX")" || return 1
   printf '%%s\n' "$verified_commit" > "$verified_tmp" && chmod 600 "$verified_tmp" && mv -f "$verified_tmp" "$verified_file" || return 1
-  if [ "$verified_strict" = true ]; then rm -f -- "$compatibility_file" || return 1; fi
 }
 
 write_env() {
@@ -313,7 +313,7 @@ if ! printf '%%s' "$previous" | grep -Eq '^[0-9a-f]{40}$'; then
   previous_strict=false
   persist_verified "$previous" false || fail_state failed_before_deploy 'cannot persist verified state' 70
 else
-  if [ -f "$compatibility_file" ] && [ "$(tr -d '\r\n' < "$compatibility_file")" = "$previous" ]; then previous_strict=false; fi
+  if [ -f "$compatibility_dir/$previous" ]; then previous_strict=false; fi
   git cat-file -e "$previous^{commit}" || fail_state failed_before_deploy 'recorded verified commit is unavailable' 70
   git merge-base --is-ancestor "$previous" "refs/remotes/origin/$branch" || fail_state failed_before_deploy 'recorded verified commit is not on production branch' 70
   if ! verify_release "$previous" false "$previous_strict"; then
@@ -336,7 +336,7 @@ rollback_interrupted() {
     event evidence reset true
     event rollback status running
     event rollback commit "$previous"
-    if restore_release "$previous" "$previous_strict"; then
+    if restore_release "$previous" "$previous_strict" && persist_verified "$previous" "$previous_strict"; then
       event rollback status rollback_succeeded
       event rollback verifiedCommit "$previous"
     else
@@ -366,7 +366,7 @@ event rollback status running
 event rollback commit "$previous"
 git cat-file -e "$previous^{commit}" || { event rollback status rollback_failed; fail_state rollback_failed 'cannot find rollback commit' 71; }
 git merge-base --is-ancestor "$previous" "refs/remotes/origin/$branch" || { event rollback status rollback_failed; fail_state rollback_failed 'rollback commit is not on production branch' 71; }
-if restore_release "$previous" "$previous_strict"; then
+if restore_release "$previous" "$previous_strict" && persist_verified "$previous" "$previous_strict"; then
   transaction_complete=true
   trap - 0 1 2 15
   event rollback status rollback_succeeded
