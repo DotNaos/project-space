@@ -1,0 +1,250 @@
+name: Deploy production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Full current main SHA to recover or redeploy
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: project-space-production
+  cancel-in-progress: false
+
+env:
+  REQUESTED_COMMIT: ${{ inputs.commit || github.sha }}
+
+jobs:
+  validate:
+    name: Validate exact commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    outputs:
+      superseded: ${{ steps.current-main.outputs.superseded }}
+
+    steps:
+      - name: Record queued state
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]] || {
+            echo 'Manual production recovery must be dispatched from main.' >&2
+            exit 64
+          }
+          echo 'queued -> checking -> validating' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check out requested commit
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ env.REQUESTED_COMMIT }}
+          persist-credentials: false
+
+      - name: Reject a superseded commit
+        id: current-main
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$REQUESTED_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'Requested commit must be a full lowercase Git SHA.' >&2
+            exit 64
+          fi
+          git fetch --no-tags origin main
+          main_head="$(git rev-parse refs/remotes/origin/main)"
+          if [[ "$REQUESTED_COMMIT" != "$main_head" ]]; then
+            echo 'superseded=true' >> "$GITHUB_OUTPUT"
+            printf 'Superseded: requested `%s`; current main is `%s`. Production was untouched.\n' \
+              "$REQUESTED_COMMIT" "$main_head" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'superseded=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Go
+        if: steps.current-main.outputs.superseded != 'true'
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Bun
+        if: steps.current-main.outputs.superseded != 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        if: steps.current-main.outputs.superseded != 'true'
+        run: bun install --frozen-lockfile
+
+      - name: Validate TypeScript
+        if: steps.current-main.outputs.superseded != 'true'
+        run: |
+          bun test
+          bun run check
+          bun run build
+
+      - name: Validate Go and build the Project CLI
+        if: steps.current-main.outputs.superseded != 'true'
+        run: |
+          go test ./...
+          go vet ./...
+          go build -trimpath -o bin/project ./cmd/project
+
+      - name: Validate the exact deployment plan
+        if: steps.current-main.outputs.superseded != 'true'
+        run: |
+          ./bin/project deploy --env prod --commit "$REQUESTED_COMMIT" --dry-run --format json > deploy-plan.json
+          jq -e --arg sha "$REQUESTED_COMMIT" \
+            '.status == "validated" and .buildCommit == $sha and .evidence.mainHeadCommit == $sha' \
+            deploy-plan.json >/dev/null
+          printf 'Validated exact commit `%s`; production remains untouched.\n' "$REQUESTED_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy exact commit to VPS
+    needs: validate
+    if: needs.validate.outputs.superseded != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment:
+      name: Production
+      url: https://projects.os-home.net
+
+    steps:
+      - name: Check out requested commit
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ env.REQUESTED_COMMIT }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build the validated Project CLI
+        run: go build -trimpath -o bin/project ./cmd/project
+
+      - name: Load deploy-only secrets from 1Password
+        id: deploy-secrets
+        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SSH_PRIVATE_KEY: op://projects/Project Space Production Deploy SSH/private_key
+          TS_OAUTH_CLIENT_ID: op://projects/Project Space Production Tailscale CI Client ID/credential
+          TS_OAUTH_SECRET: op://projects/Project Space Production Tailscale CI Secret/credential
+          CLERK_PUBLISHABLE_KEY: op://projects/clerk-project/publishable_key
+          CLERK_SECRET_KEY: op://projects/clerk-project/secret_key
+          GITHUB_OAUTH_CLIENT_ID: op://projects/GitHub OAuth App/client_id
+          PROJECT_GITHUB_TOKEN: op://projects/GitHub Personal Access Token/token
+          PROJECT_CONNECTOR_REGISTRATION_TOKEN: op://projects/Project Space Connector Registration Token/password
+          PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64: op://projects/project-connector-command-signing-key/private_key_b64
+          PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET: op://projects/project-space-machine-rate-limit/password
+          VITE_CLERK_PUBLISHABLE_KEY: op://projects/clerk-project/publishable_key
+
+      - name: Configure pinned SSH identity
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ steps.deploy-secrets.outputs.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          umask 077
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/project-space-production"
+          printf '%s\n' '${{ vars.PROJECT_SPACE_SSH_KNOWN_HOSTS }}' > "$HOME/.ssh/known_hosts"
+          cat > "$HOME/.ssh/config" <<SSH_CONFIG
+          Host project-space-production
+            HostName ${{ vars.PROJECT_SPACE_DEPLOY_IP }}
+            User deploy
+            IdentityFile ~/.ssh/project-space-production
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+            ForwardAgent no
+            ForwardX11 no
+            BatchMode yes
+            PasswordAuthentication no
+            KbdInteractiveAuthentication no
+          SSH_CONFIG
+          chmod 600 "$HOME/.ssh/config" "$HOME/.ssh/known_hosts" "$HOME/.ssh/project-space-production"
+
+      - name: Connect the ephemeral CI identity to Tailscale
+        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
+        with:
+          oauth-client-id: ${{ steps.deploy-secrets.outputs.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ steps.deploy-secrets.outputs.TS_OAUTH_SECRET }}
+          tags: tag:ci-project-space-deploy
+          ping: ${{ vars.PROJECT_SPACE_DEPLOY_IP }}
+
+      - name: Deploy, verify, and roll back on failure
+        id: deployment
+        shell: bash
+        env:
+          CLERK_PUBLISHABLE_KEY: ${{ steps.deploy-secrets.outputs.CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ steps.deploy-secrets.outputs.CLERK_SECRET_KEY }}
+          GITHUB_OAUTH_CLIENT_ID: ${{ steps.deploy-secrets.outputs.GITHUB_OAUTH_CLIENT_ID }}
+          GITHUB_TOKEN: ${{ steps.deploy-secrets.outputs.PROJECT_GITHUB_TOKEN }}
+          PROJECT_CONNECTOR_REGISTRATION_TOKEN: ${{ steps.deploy-secrets.outputs.PROJECT_CONNECTOR_REGISTRATION_TOKEN }}
+          PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64: ${{ steps.deploy-secrets.outputs.PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64 }}
+          PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET: ${{ steps.deploy-secrets.outputs.PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ steps.deploy-secrets.outputs.VITE_CLERK_PUBLISHABLE_KEY }}
+        run: |
+          set +e
+          ./bin/project deploy \
+            --env prod \
+            --host project-space-production \
+            --commit "$REQUESTED_COMMIT" \
+            --format json > deploy-result.json 2> deploy-error.log
+          exit_code=$?
+          set -e
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+
+      - name: Report deployment evidence
+        if: always()
+        shell: bash
+        run: |
+          if [[ ! -s deploy-result.json ]]; then
+            echo 'Deployment produced no machine-readable result.' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          jq -r '
+            "Requested commit: `\(.evidence.requestedCommit // .buildCommit)`\n" +
+            "Previous verified commit: `\(.evidence.previousVerifiedCommit // "none")`\n" +
+            "Validation: `passed`\n" +
+            "Final state: `\(.status)`\n" +
+            "Lock owner: `\(.evidence.lockOwner // "not acquired")`\n" +
+            "Lock acquired at: `\(.evidence.lockAcquiredAt // "not acquired")`\n" +
+            "Remote checkout: `\(.evidence.remoteCheckoutCommit // "unverified")`\n" +
+            "Running build: `\(.evidence.runningBuildCommit // "unverified")`\n" +
+            "Compose healthy: `\(.evidence.composeHealthy)`\n" +
+            "HTTP healthy: `\(.evidence.httpHealthy)`\n" +
+            "Live origin healthy: `\(.evidence.liveOriginHealthy)`\n" +
+            "Rollback: `\(.rollback.status // "not needed")`\n" +
+            "Live URL: https://projects.os-home.net"
+          ' deploy-result.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Independently confirm exact live commit
+        if: steps.deployment.outputs.exit_code == '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          main_head="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          remote_head="$(ssh project-space-production 'cd /opt/platform/apps/project-space && git rev-parse HEAD')"
+          running_head="$(curl --fail --silent --show-error --max-time 20 https://projects.os-home.net/api/app/meta | jq -er '.commit')"
+          health="$(curl --fail --silent --show-error --max-time 20 https://projects.os-home.net/api/health | jq -er '.ok')"
+          [[ "$main_head" == "$REQUESTED_COMMIT" ]]
+          [[ "$remote_head" == "$REQUESTED_COMMIT" ]]
+          [[ "$running_head" == "$REQUESTED_COMMIT" ]]
+          [[ "$health" == true ]]
+          curl --fail --silent --show-error --max-time 20 --output /dev/null https://projects.os-home.net/
+
+      - name: Fail the GitHub deployment when rollout failed
+        if: steps.deployment.outputs.exit_code != '0'
+        run: exit "${{ steps.deployment.outputs.exit_code }}"

@@ -187,6 +187,9 @@ func resolveDeploySecrets(sources map[string]string) (map[string]deploySecretVal
 		}
 		value := strings.TrimSpace(os.Getenv(name))
 		if value != "" {
+			if strings.ContainsAny(value, "\r\n\x00") {
+				return nil, fmt.Errorf("secret %s contains unsupported control characters", name)
+			}
 			secrets[name] = deploySecretValue{Value: value, Source: "$" + name}
 			continue
 		}
@@ -200,6 +203,9 @@ func resolveDeploySecrets(sources map[string]string) (map[string]deploySecretVal
 		value = strings.TrimRight(output, "\r\n")
 		if value == "" {
 			return nil, fmt.Errorf("secret %s from 1Password was empty", name)
+		}
+		if strings.ContainsAny(value, "\r\n\x00") {
+			return nil, fmt.Errorf("secret %s contains unsupported control characters", name)
 		}
 		secrets[name] = deploySecretValue{Value: value, Source: source}
 	}

@@ -20,6 +20,8 @@ RUN bun run build
 FROM oven/bun:1 AS runner
 
 WORKDIR /workspace
+ARG PROJECT_SPACE_BUILD_COMMIT=unknown
+LABEL org.opencontainers.image.revision=$PROJECT_SPACE_BUILD_COMMIT
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git openssh-client \
   && rm -rf /var/lib/apt/lists/*

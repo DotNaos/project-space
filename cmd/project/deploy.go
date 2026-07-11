@@ -23,25 +23,32 @@ type deployOptions struct {
 	AcmeEmail     string
 	Secrets       map[string]deploySecretValue
 	DryRun        bool
+	Commit        string
+	LockTimeout   time.Duration
 }
 
 type deployProject struct {
-	Name           string   `json:"name"`
-	BuildCommit    string   `json:"buildCommit,omitempty"`
-	BuildRef       string   `json:"buildRef,omitempty"`
-	BuildTime      string   `json:"buildTime,omitempty"`
-	BuildVersion   string   `json:"buildVersion,omitempty"`
-	Environment    string   `json:"environment"`
-	RemoteURL      string   `json:"remoteUrl"`
-	RemoteRef      string   `json:"remoteRef"`
-	RemotePath     string   `json:"remotePath"`
-	Branch         string   `json:"branch"`
-	ComposeProject string   `json:"composeProject"`
-	WebURL         string   `json:"webUrl"`
-	APIURL         string   `json:"apiUrl"`
-	DocsURL        string   `json:"docsUrl"`
-	Steps          []string `json:"steps,omitempty"`
-	Status         string   `json:"status,omitempty"`
+	Name           string          `json:"name"`
+	BuildCommit    string          `json:"buildCommit,omitempty"`
+	BuildRef       string          `json:"buildRef,omitempty"`
+	BuildTime      string          `json:"buildTime,omitempty"`
+	BuildVersion   string          `json:"buildVersion,omitempty"`
+	Environment    string          `json:"environment"`
+	RemoteURL      string          `json:"remoteUrl"`
+	RemoteRef      string          `json:"remoteRef"`
+	RemotePath     string          `json:"remotePath"`
+	Branch         string          `json:"branch"`
+	ComposeProject string          `json:"composeProject"`
+	WebURL         string          `json:"webUrl"`
+	APIURL         string          `json:"apiUrl"`
+	DocsURL        string          `json:"docsUrl"`
+	Steps          []string        `json:"steps,omitempty"`
+	Status         string          `json:"status,omitempty"`
+	RemoteStatus   string          `json:"remoteStatus,omitempty"`
+	Phases         []deployPhase   `json:"phases,omitempty"`
+	Evidence       *deployEvidence `json:"evidence,omitempty"`
+	Rollback       *deployRollback `json:"rollback,omitempty"`
+	Error          string          `json:"error,omitempty"`
 }
 
 func newDeployCommand() *cobra.Command {
@@ -60,11 +67,13 @@ func newDeployCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			result, err := deployProjectToVPS(cmd, resolved, options)
-			if err != nil {
-				return err
+			result, deployErr := deployProjectToVPS(cmd, resolved, options)
+			if result.Name != "" {
+				if err := printDeployResult(cmd, result, options); err != nil {
+					return err
+				}
 			}
-			return printDeployResult(cmd, result, options)
+			return deployErr
 		},
 	}
 	addDeployFlags(cmd, &options)
@@ -111,34 +120,11 @@ func addDeployFlags(cmd *cobra.Command, options *deployOptions) {
 	cmd.Flags().StringVar(&options.APIDomain, "api-domain", "", "project API domain")
 	cmd.Flags().StringVar(&options.AcmeEmail, "email", "", "Traefik ACME email")
 	cmd.Flags().BoolVar(&options.DryRun, "dry-run", false, "print planned remote actions without changing the VPS")
+	cmd.Flags().StringVar(&options.Commit, "commit", "", "full Git commit SHA to deploy")
+	cmd.Flags().DurationVar(&options.LockTimeout, "lock-timeout", 15*time.Minute, "maximum time to wait for the remote deployment lock")
 	must(cmd.RegisterFlagCompletionFunc("env", fixedValuesCompletion("prod", "beta")))
 	must(cmd.RegisterFlagCompletionFunc("format", fixedValuesCompletion("pretty", "json")))
 	must(cmd.RegisterFlagCompletionFunc("path", directoryCompletion))
-}
-
-func deployProjectToVPS(cmd *cobra.Command, projectRoot string, options deployOptions) (deployProject, error) {
-	project, options, err := resolveDeployProject(cmd, projectRoot, options, !options.DryRun)
-	if err != nil {
-		return deployProject{}, err
-	}
-	steps := deploySteps(project, options)
-	project.Steps = steps
-	if options.DryRun {
-		return project, nil
-	}
-	for _, step := range steps {
-		if step == composeUpStep(project, options) || step == composeStatusStep(project, options) {
-			if _, err := runRemoteScript(options.Host, deployComposeScript(project, options, strings.Contains(step, " up "))); err != nil {
-				return deployProject{}, fmt.Errorf("remote deploy step failed: %w", err)
-			}
-			continue
-		}
-
-		if _, err := runCommand("", nil, "ssh", options.Host, step); err != nil {
-			return deployProject{}, fmt.Errorf("remote deploy step failed: %w", err)
-		}
-	}
-	return project, nil
 }
 
 func deployProjectStatus(cmd *cobra.Command, projectRoot string, options deployOptions) (deployProject, error) {
@@ -146,11 +132,19 @@ func deployProjectStatus(cmd *cobra.Command, projectRoot string, options deployO
 	if err != nil {
 		return deployProject{}, err
 	}
+	clearLocalBuildMetadata(&project)
 	status, err := readDeployRemoteStatus(project, options)
 	if err != nil {
 		return deployProject{}, err
 	}
-	project.Status = status
+	project.RemoteStatus = status
+	parseDeployEvents(&project, status)
+	if project.Evidence != nil {
+		project.BuildCommit = project.Evidence.RunningBuildCommit
+	}
+	if project.Status == "" {
+		project.Status = "unhealthy"
+	}
 	return project, nil
 }
 
@@ -161,18 +155,7 @@ func readDeployRemoteStatus(project deployProject, options deployOptions) (strin
 	if options.APIDomain == "" {
 		options.APIDomain = "status-api.local"
 	}
-	env := deployStatusEnv(project, options)
-	statusScript := strings.Join([]string{
-		"set -e",
-		"echo SSH ok",
-		"docker --version",
-		"docker compose version",
-		"if docker info >/dev/null 2>&1; then echo docker api ok; else echo docker api unavailable; fi",
-		"if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx private-platform-traefik; then echo traefik running; else echo traefik missing; fi",
-		"if docker network inspect traefik-public >/dev/null 2>&1; then echo traefik-public network ok; else echo traefik-public network missing; fi",
-		fmt.Sprintf("if [ -d %s/.git ]; then echo repo present; else echo repo missing; fi", shellQuote(project.RemotePath)),
-		fmt.Sprintf("if [ -d %s/.git ]; then cd %s && %s docker compose --env-file .env -p %s -f deploy/compose.yml -f deploy/ingress.labels.yml ps 2>/dev/null || echo app status unavailable; else true; fi", shellQuote(project.RemotePath), shellQuote(project.RemotePath), env, shellQuote(project.ComposeProject)),
-	}, "\n")
+	statusScript := deployStatusEvidenceScript(project)
 	output, err := runCommand("", nil, "ssh", options.Host, statusScript)
 	if err != nil {
 		return "", fmt.Errorf("read deployment status: %w", err)
@@ -203,16 +186,31 @@ func deployProjectStatusReport(cmd *cobra.Command, projectRoot string, options d
 		if err != nil {
 			return deployStatusReport{}, err
 		}
+		clearLocalBuildMetadata(&project)
 		status, err := readDeployRemoteStatus(project, envOptions)
 		if err != nil {
 			project.Status = "status unavailable: " + err.Error()
 		} else {
-			project.Status = status
+			project.RemoteStatus = status
+			parseDeployEvents(&project, status)
+			if project.Evidence != nil {
+				project.BuildCommit = project.Evidence.RunningBuildCommit
+			}
+			if project.Status == "" {
+				project.Status = "unhealthy"
+			}
 		}
 		report.ProjectName = project.Name
 		report.Environments = append(report.Environments, project)
 	}
 	return report, nil
+}
+
+func clearLocalBuildMetadata(project *deployProject) {
+	project.BuildCommit = ""
+	project.BuildRef = ""
+	project.BuildTime = ""
+	project.BuildVersion = ""
 }
 
 func resolveDeployProject(cmd *cobra.Command, projectRoot string, options deployOptions, requireRuntimeValues bool) (deployProject, deployOptions, error) {
@@ -336,6 +334,10 @@ func packageVersion(projectRoot string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return packageVersionFromJSON(body)
+}
+
+func packageVersionFromJSON(body []byte) (string, error) {
 	var packageJSON struct {
 		Version string `json:"version"`
 	}

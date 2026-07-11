@@ -16,6 +16,8 @@ RUN bun run build
 FROM oven/bun:1 AS runner
 
 WORKDIR /workspace
+ARG PROJECT_SPACE_BUILD_COMMIT=unknown
+LABEL org.opencontainers.image.revision=$PROJECT_SPACE_BUILD_COMMIT
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME=0.0.0.0
