@@ -6,8 +6,8 @@ $ErrorActionPreference = 'Stop'
 
 $renderer = Join-Path $PSScriptRoot 'render-winget-manifests.ps1'
 $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('project-space-winget-' + [System.Guid]::NewGuid().ToString('N'))
-$version = '0.3.0'
-$url = 'https://github.com/DotNaos/project-space/releases/download/v0.3.0/project-space-machine-tools-windows-x64-setup.exe'
+$version = '0.3.1'
+$url = 'https://github.com/DotNaos/project-space/releases/download/v0.3.1/project-space-machine-tools-windows-x64-setup.exe'
 $sha256 = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
 $installerScriptPath = Join-Path $PSScriptRoot 'project-space.iss'
 $innoInstallScriptPath = Join-Path $PSScriptRoot 'install-inno-setup.ps1'
@@ -158,7 +158,7 @@ try {
     }
   }
 
-  Assert-RendererRejects 'v0.3.0' $url $sha256 'The renderer accepted a version with a v prefix.'
+  Assert-RendererRejects 'v0.3.1' $url $sha256 'The renderer accepted a version with a v prefix.'
   Assert-RendererRejects $version 'http://example.com/project-space-machine-tools-windows-x64-setup.exe' $sha256 'The renderer accepted an insecure installer URL.'
   Assert-RendererRejects $version $url 'not-a-sha256' 'The renderer accepted an invalid SHA-256.'
 
