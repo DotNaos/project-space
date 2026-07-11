@@ -180,6 +180,19 @@ export function createAuthorizedProjectSpaceBackend(
       return backend.getConnectorProjectRegistry();
     },
 
+    async getDeployedEnvironmentStatus(repositoryFullName) {
+      const details = await backend.getGitHubRepositoryDetails(repositoryFullName);
+      if (details.status !== 'connected') {
+        return {
+          checkedAt: new Date().toISOString(),
+          environments: [],
+          repositoryFullName,
+          status: 'unauthorized' as const
+        };
+      }
+      return backend.getDeployedEnvironmentStatus(repositoryFullName);
+    },
+
     async getCodexStatus() {
       policy.requireLocalHostAccess();
       return backend.getCodexStatus();

@@ -55,6 +55,7 @@ import {
 } from './local-project-machines';
 import { createLocalProjectMachineBackend } from './local-project-machine-backend';
 import { runProjectCliCommand } from './local-project-cli-client';
+import { getDeployedEnvironmentStatus } from './deployed-environment-status';
 import { getTemplateAdherence } from './local-template-adherence';
 import {
   getProjectctlOverview,
@@ -217,6 +218,9 @@ export function createLocalProjectSpaceBackend(
         },
         discovery
       };
+    },
+    async getDeployedEnvironmentStatus(repositoryFullName) {
+      return getDeployedEnvironmentStatus(repositoryFullName);
     },
     async runProjectCliCommand(request) {
       return runProjectCliCommand(request);

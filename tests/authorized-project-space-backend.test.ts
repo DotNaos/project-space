@@ -85,6 +85,26 @@ function hostedFor(machineIds: string[], userId = 'user-a') {
 }
 
 describe('authorized Project Space backend', () => {
+  test('returns no environment metadata when repository authorization fails', async () => {
+    let statusDispatches = 0;
+    const backend = createAuthorizedProjectSpaceBackend(
+      backendWith({
+        async getGitHubRepositoryDetails() {
+          return { branches: [], checkedAt: '', issues: [], pullRequests: [], status: 'error' };
+        },
+        async getDeployedEnvironmentStatus(repositoryFullName) {
+          statusDispatches += 1;
+          return { checkedAt: '', environments: [], repositoryFullName, status: 'available' };
+        }
+      }),
+      hostedFor(['machine-a'])
+    );
+    expect(await backend.getDeployedEnvironmentStatus('private/repository')).toMatchObject({
+      environments: [], status: 'unauthorized'
+    });
+    expect(statusDispatches).toBe(0);
+  });
+
   test('filters machine and project discovery structurally for one user', async () => {
     const backend = createAuthorizedProjectSpaceBackend(
       backendWith({

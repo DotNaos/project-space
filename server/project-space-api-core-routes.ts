@@ -77,6 +77,17 @@ export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
     url: URL,
     userId: string
   ) {
+    if (request.method === 'GET' && url.pathname === '/api/deployed-environments/status') {
+      const repositoryFullName = url.searchParams.get('repositoryFullName');
+      if (!repositoryFullName) {
+        writeJson(response, 400, { error: 'Missing repositoryFullName.' });
+        return true;
+      }
+      response.setHeader('Cache-Control', 'private, no-store');
+      writeJson(response, 200, await backend.getDeployedEnvironmentStatus(repositoryFullName));
+      return true;
+    }
+
     if (request.method === 'POST' && url.pathname === '/api/connectors/install-command') {
       response.setHeader('Cache-Control', 'no-store');
       writeJson(response, 200, await createConnectorInstaller(requestPublicOrigin(request), userId));

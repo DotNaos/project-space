@@ -10,6 +10,7 @@ import type {
   GitHubPullRequestRecord,
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
+import type { DeployedEnvironmentStatusResult } from '@/shared/project-space-api';
 import { usePaneResize } from '../hooks/use-pane-resize';
 import type { MachineDetailTab } from '../hooks/use-project-desktop';
 import { GitBranchDeleteDialog } from './git-branch-delete-dialog';
@@ -36,6 +37,8 @@ import {
   findProjectBranchUsages
 } from './project-branch-usage';
 import { PaneResizeHandle } from './pane-resize-handle';
+import { commitsBehindRef, correlateEnvironments } from './git-environment-correlation';
+import { EnvironmentMarker, GitEnvironmentSummary, SelectedCommitEnvironments } from './git-environment-status';
 
 function addMergedPullRequestSegments({
   branchColorByLabel,
@@ -298,6 +301,8 @@ export function GitGraphPanel({
   const [commits, setCommits] = useState<GraphCommit[]>([]);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [environmentResult, setEnvironmentResult] = useState<DeployedEnvironmentStatusResult | null>(null);
+  const [environmentState, setEnvironmentState] = useState<'loading' | 'available' | 'unauthorized' | 'unavailable'>('loading');
   const [isBranchFilterActive, setIsBranchFilterActive] = useState(false);
   const [selectedHash, setSelectedHash] = useState('');
   const [selectedBranchLabel, setSelectedBranchLabel] = useState('');
@@ -344,14 +349,28 @@ export function GitGraphPanel({
     if (!repositoryFullName && !targetPath) {
       setAllCommits([]);
       setCommits([]);
+      setEnvironmentResult(null);
+      setEnvironmentState('unavailable');
       setError('No GitHub repository is linked to this project.');
       return;
     }
 
     setIsLoading(true);
+    setEnvironmentResult(null);
+    setEnvironmentState('loading');
     setError('');
     try {
-      const allResult = await loadHistory();
+      const [historyOutcome, environmentOutcome] = await Promise.allSettled([
+        loadHistory(),
+        repositoryFullName
+          ? projectSpaceClient.getDeployedEnvironmentStatus(repositoryFullName).catch(() => null)
+          : Promise.resolve(null)
+      ]);
+      const environments = environmentOutcome.status === 'fulfilled' ? environmentOutcome.value : null;
+      setEnvironmentResult(environments);
+      setEnvironmentState(environments?.status ?? 'unavailable');
+      if (historyOutcome.status === 'rejected') throw historyOutcome.reason;
+      const allResult = historyOutcome.value;
 
       if (!allResult) {
         setAllCommits([]);
@@ -590,6 +609,24 @@ export function GitGraphPanel({
   ]);
   const graphWidth = maxLanes * GRAPH_LANE_WIDTH;
   const selectedCommit = commits.find((commit) => commit.hash === selectedHash) ?? commits[0];
+  const environmentCorrelation = useMemo(
+    () => correlateEnvironments(allCommits, environmentResult?.environments ?? []),
+    [allCommits, environmentResult]
+  );
+  const loadedEnvironmentHashes = useMemo(
+    () => new Set(allCommits.map((commit) => commit.hash)),
+    [allCommits]
+  );
+  const environmentDrift = useMemo(() => {
+    const result = new Map<string, number | undefined>();
+    for (const environment of environmentResult?.environments ?? []) {
+      const branch = coloredBranchOptions.find((option) => option.label === environment.sourceRef);
+      result.set(environment.id, environment.deployedSha && branch?.tip?.hash
+        ? commitsBehindRef(allCommits, environment.deployedSha, branch.tip.hash)
+        : undefined);
+    }
+    return result;
+  }, [allCommits, coloredBranchOptions, environmentResult]);
   const activeBranchLabel = useMemo(() => {
     if (!selectedCommit) {
       return '';
@@ -713,7 +750,7 @@ export function GitGraphPanel({
       variant="tertiary"
       className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950/45"
     >
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-neutral-800 px-4 py-3">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-neutral-800 px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
           <GitCommitHorizontal className="size-4 shrink-0 text-neutral-400" />
           <Text className="truncate text-sm font-semibold text-neutral-100">Commit graph</Text>
@@ -723,11 +760,19 @@ export function GitGraphPanel({
               : ''}
           </Text>
         </div>
+        <GitEnvironmentSummary
+          driftByEnvironment={environmentDrift}
+          environments={environmentResult?.environments ?? []}
+          loadedHashes={loadedEnvironmentHashes}
+          selectedHash={selectedCommit?.hash}
+          status={environmentState}
+          onSelect={(hash) => selectCommit(hash, { scroll: true })}
+        />
         <Button
           aria-label="Refresh history"
           size="sm"
           variant="ghost"
-          isDisabled={!targetPath || isLoading}
+          isDisabled={(!targetPath && !repositoryFullName) || isLoading}
           onPress={() => void refresh()}
         >
           <RefreshCw className={isLoading ? 'size-4 animate-spin' : 'size-4'} />
@@ -886,6 +931,11 @@ export function GitGraphPanel({
                       </span>
 
                       <span className="flex w-[18rem] min-w-0 shrink-0 items-center gap-1.5 sm:w-[22rem]">
+                        {(environmentCorrelation.byCommit.get(row.commit.hash) ?? []).map(
+                          (environment) => (
+                            <EnvironmentMarker key={environment.id} environment={environment} />
+                          )
+                        )}
                         <RefChips refs={row.commit.refs} />
                         {prLabel ? (
                           <Chip
@@ -938,6 +988,13 @@ export function GitGraphPanel({
               isCollapsed={isDetailCollapsed}
               onToggleCollapse={() => setIsDetailCollapsed((current) => !current)}
               targetPath={targetPath}
+            />
+            <SelectedCommitEnvironments
+              environments={
+                selectedCommit
+                  ? environmentCorrelation.byCommit.get(selectedCommit.hash) ?? []
+                  : []
+              }
             />
           </div>
           </div>

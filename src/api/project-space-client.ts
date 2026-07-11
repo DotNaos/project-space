@@ -250,6 +250,12 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     return this.request('/api/connectors/project-registry');
   }
 
+  getDeployedEnvironmentStatus(repositoryFullName: string) {
+    return this.request<import('@/shared/project-space-api').DeployedEnvironmentStatusResult>(
+      `/api/deployed-environments/status?repositoryFullName=${encodeURIComponent(repositoryFullName)}`
+    );
+  }
+
   getConnectorInstallCommand(): Promise<ConnectorInstallerResult> {
     return this.request('/api/connectors/install-command', { method: 'POST' });
   }
