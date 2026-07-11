@@ -17,7 +17,7 @@ COPY --from=deps /workspace/node_modules /workspace/node_modules
 COPY . .
 RUN bun run build
 
-FROM golang:1.24-bookworm AS cli-build
+FROM golang:1.26-bookworm AS cli-build
 WORKDIR /workspace
 COPY go.mod go.sum ./
 RUN go mod download
