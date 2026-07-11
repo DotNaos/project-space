@@ -155,3 +155,10 @@ func (store *keyringCredentialStore) Delete() error {
 	state.Credential = nil
 	return store.writeState(state)
 }
+
+func (store *keyringCredentialStore) Purge() error {
+	if err := store.backend.Delete(store.service, store.account); err != nil && !store.backend.IsNotFound(err) {
+		return errors.New("remove machine identity from secure storage")
+	}
+	return nil
+}

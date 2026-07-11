@@ -7,41 +7,148 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/DotNaos/project-space/internal/machineconnect"
 )
 
-func TestResolveConnectorBinaryFindsExecutableSibling(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("native Windows connector services are not supported")
+func TestResolveAuthenticatedConnectorBinaryFindsPhysicalSibling(t *testing.T) {
+	directory := t.TempDir()
+	projectExecutable := filepath.Join(directory, projectExecutableName(runtime.GOOS))
+	if err := os.WriteFile(projectExecutable, []byte("project"), 0o700); err != nil {
+		t.Fatalf("write Project CLI fixture: %v", err)
 	}
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatalf("resolve test executable: %v", err)
-	}
-	companion := filepath.Join(filepath.Dir(executable), "project-space-connector")
-	if err := os.WriteFile(companion, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+	companion := filepath.Join(directory, connectorBinaryName(runtime.GOOS))
+	if err := os.WriteFile(companion, []byte("connector"), 0o700); err != nil {
 		t.Fatalf("write sibling connector: %v", err)
 	}
-	t.Cleanup(func() { _ = os.Remove(companion) })
+
+	resolved, err := resolveAuthenticatedConnectorBinary(projectExecutable, runtime.GOOS)
+	if err != nil {
+		t.Fatalf("resolve sibling connector: %v", err)
+	}
+	physicalCompanion, err := filepath.EvalSymlinks(companion)
+	if err != nil {
+		t.Fatalf("resolve physical connector fixture: %v", err)
+	}
+	if resolved != physicalCompanion {
+		t.Fatalf("resolved connector = %q, want %q", resolved, physicalCompanion)
+	}
+}
+
+func TestAuthenticatedConnectorResolutionRejectsCWDAndPATHCandidates(t *testing.T) {
+	projectDirectory := t.TempDir()
+	projectExecutable := filepath.Join(projectDirectory, projectExecutableName(runtime.GOOS))
+	if err := os.WriteFile(projectExecutable, []byte("project"), 0o700); err != nil {
+		t.Fatalf("write Project CLI fixture: %v", err)
+	}
+
+	workingDirectory := t.TempDir()
+	distDirectory := filepath.Join(workingDirectory, "dist")
+	if err := os.MkdirAll(distDirectory, 0o700); err != nil {
+		t.Fatalf("create dist fixture: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(distDirectory, connectorBinaryName(runtime.GOOS)),
+		[]byte("cwd connector"),
+		0o700,
+	); err != nil {
+		t.Fatalf("write CWD connector fixture: %v", err)
+	}
+	pathDirectory := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(pathDirectory, connectorBinaryName(runtime.GOOS)),
+		[]byte("PATH connector"),
+		0o700,
+	); err != nil {
+		t.Fatalf("write PATH connector fixture: %v", err)
+	}
 
 	originalWorkingDirectory, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("resolve working directory: %v", err)
 	}
-	if err := os.Chdir(t.TempDir()); err != nil {
+	if err := os.Chdir(workingDirectory); err != nil {
 		t.Fatalf("change working directory: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(originalWorkingDirectory) })
-	t.Setenv("PATH", "")
+	t.Setenv("PATH", pathDirectory)
 
-	resolved, err := resolveConnectorBinary("")
-	if err != nil {
-		t.Fatalf("resolve sibling connector: %v", err)
+	if resolved, err := resolveAuthenticatedConnectorBinary(projectExecutable, runtime.GOOS); err == nil {
+		t.Fatalf("resolved non-sibling connector %q", resolved)
 	}
-	if resolved != companion {
-		t.Fatalf("resolved connector = %q, want %q", resolved, companion)
+}
+
+func TestAuthenticatedConnectorResolutionRejectsSymlinkedSibling(t *testing.T) {
+	directory := t.TempDir()
+	projectExecutable := filepath.Join(directory, projectExecutableName(runtime.GOOS))
+	if err := os.WriteFile(projectExecutable, []byte("project"), 0o700); err != nil {
+		t.Fatalf("write Project CLI fixture: %v", err)
+	}
+	companionName := connectorBinaryName(runtime.GOOS)
+	outside := filepath.Join(t.TempDir(), companionName)
+	if err := os.WriteFile(outside, []byte("outside connector"), 0o700); err != nil {
+		t.Fatalf("write outside connector fixture: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(directory, companionName)); err != nil {
+		t.Skipf("create connector symlink: %v", err)
+	}
+
+	if resolved, err := resolveAuthenticatedConnectorBinary(projectExecutable, runtime.GOOS); err == nil {
+		t.Fatalf("resolved symlinked connector %q", resolved)
+	}
+}
+
+func projectExecutableName(goos string) string {
+	if goos == "windows" {
+		return "project.exe"
+	}
+	return "project"
+}
+
+func TestConnectorInstallerResolutionPreservesExplicitDevelopmentBinary(t *testing.T) {
+	name := connectorBinaryName(runtime.GOOS)
+	explicit := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(explicit, []byte("development connector"), 0o700); err != nil {
+		t.Fatalf("write explicit connector fixture: %v", err)
+	}
+
+	resolved, err := resolveConnectorInstallerBinary(explicit)
+	if err != nil {
+		t.Fatalf("resolve explicit development connector: %v", err)
+	}
+	if resolved != explicit {
+		t.Fatalf("resolved development connector = %q, want %q", resolved, explicit)
+	}
+}
+
+func TestConnectorBinaryNameUsesWindowsExecutableSuffix(t *testing.T) {
+	if got := connectorBinaryName("windows"); got != "project-space-connector.exe" {
+		t.Fatalf("Windows connector binary name = %q", got)
+	}
+	if got := connectorBinaryName("linux"); got != "project-space-connector" {
+		t.Fatalf("Linux connector binary name = %q", got)
+	}
+}
+
+func TestUsableConnectorBinaryAcceptsWindowsExeWithoutUnixModeBits(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "project-space-connector.exe")
+	if err := os.WriteFile(path, []byte("MZ"), 0o600); err != nil {
+		t.Fatalf("write Windows connector fixture: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("inspect Windows connector fixture: %v", err)
+	}
+	if !usableConnectorBinary(path, info, "windows") {
+		t.Fatal("Windows connector executable was rejected for lacking Unix mode bits")
+	}
+	if usableConnectorBinary(strings.TrimSuffix(path, ".exe"), info, "windows") {
+		t.Fatal("Windows connector accepted a non-EXE path")
+	}
+	if usableConnectorBinary(path, info, "linux") {
+		t.Fatal("Linux connector accepted a non-executable file")
 	}
 }
 

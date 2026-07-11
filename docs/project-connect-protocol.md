@@ -151,8 +151,10 @@ does not sign the user out or affect their other machines.
 ## Storage and failure rules
 
 - The private Ed25519 key never leaves the enrolled machine.
-- macOS uses the login Keychain and native Windows uses Credential Manager. Neither platform
-  silently falls back to a plaintext file.
+- macOS uses the login Keychain. Native Windows stores the complete machine identity in a
+  current-user DPAPI-protected file under LocalAppData so the same user can access it from desktop
+  PowerShell and Windows OpenSSH. Windows never uses machine-wide DPAPI scope, and neither platform
+  silently falls back to plaintext storage.
 - Headless Linux and WSL use `~/.config/project-space/machine-credential.json` with a `0700`
   directory, a `0600` file, atomic replacement, a bounded state size, and a cross-process lock.
 - Normal Linux runs `project connector run` as a transient systemd user service. WSL instead

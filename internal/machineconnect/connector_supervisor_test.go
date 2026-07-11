@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,10 +18,11 @@ import (
 const supervisorTestToken = "supervisor-test-machine-token"
 
 type supervisorTestStore struct {
-	credential Credential
-	err        error
-	loadCalls  int
-	keyLoads   int
+	credential      Credential
+	err             error
+	loadCalls       int
+	keyLoads        int
+	runtimeLockPath string
 }
 
 func (store *supervisorTestStore) Load() (Credential, error) {
@@ -36,6 +38,10 @@ func (store *supervisorTestStore) LoadKey() (MachineKey, error) {
 func (*supervisorTestStore) SaveKey(MachineKey) error { return nil }
 func (*supervisorTestStore) Save(Credential) error    { return nil }
 func (*supervisorTestStore) Delete() error            { return nil }
+
+func (store *supervisorTestStore) connectorRuntimeLockPath() string {
+	return store.runtimeLockPath
+}
 
 type supervisorHelperResult struct {
 	Version              string `json:"version"`
@@ -54,7 +60,7 @@ type supervisorHelperResult struct {
 
 func TestConnectorSupervisorPassesMinimalCredentialOverStdin(t *testing.T) {
 	credential := supervisorCredential(t)
-	store := &supervisorTestStore{credential: credential}
+	store := newSupervisorTestStore(t, credential, nil)
 	t.Setenv("PROJECT_CONNECTOR_REGISTRATION_TOKEN", supervisorTestToken)
 	t.Setenv("PROJECT_CONNECTOR_EU_REGISTRATION_TOKEN", "old-named-token")
 	t.Setenv("PROJECT_CONNECTOR_TOKEN", "old-short-token")
@@ -110,7 +116,7 @@ func TestConnectorSupervisorPassesMinimalCredentialOverStdin(t *testing.T) {
 
 func TestConnectorSupervisorPropagatesLoadStartExitAndContextErrors(t *testing.T) {
 	t.Run("load", func(t *testing.T) {
-		store := &supervisorTestStore{err: ErrCredentialNotFound}
+		store := newSupervisorTestStore(t, Credential{}, ErrCredentialNotFound)
 		supervisor, err := NewConnectorSupervisor(store, ConnectorSupervisorOptions{Executable: "missing"})
 		if err != nil {
 			t.Fatalf("create supervisor: %v", err)
@@ -122,7 +128,7 @@ func TestConnectorSupervisorPropagatesLoadStartExitAndContextErrors(t *testing.T
 	})
 
 	t.Run("start", func(t *testing.T) {
-		store := &supervisorTestStore{credential: supervisorCredential(t)}
+		store := newSupervisorTestStore(t, supervisorCredential(t), nil)
 		supervisor, err := NewConnectorSupervisor(store, ConnectorSupervisorOptions{
 			Executable: t.TempDir() + "/missing-connector",
 			Stdout:     io.Discard,
@@ -137,7 +143,7 @@ func TestConnectorSupervisorPropagatesLoadStartExitAndContextErrors(t *testing.T
 	})
 
 	t.Run("exit", func(t *testing.T) {
-		supervisor := supervisorForHelper(t, "exit", &supervisorTestStore{credential: supervisorCredential(t)}, io.Discard, io.Discard)
+		supervisor := supervisorForHelper(t, "exit", newSupervisorTestStore(t, supervisorCredential(t), nil), io.Discard, io.Discard)
 		err := supervisor.Run(context.Background())
 		var exitErr *exec.ExitError
 		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 23 {
@@ -146,7 +152,7 @@ func TestConnectorSupervisorPropagatesLoadStartExitAndContextErrors(t *testing.T
 	})
 
 	t.Run("context", func(t *testing.T) {
-		supervisor := supervisorForHelper(t, "block", &supervisorTestStore{credential: supervisorCredential(t)}, io.Discard, io.Discard)
+		supervisor := supervisorForHelper(t, "block", newSupervisorTestStore(t, supervisorCredential(t), nil), io.Discard, io.Discard)
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
 		err := supervisor.Run(ctx)
@@ -293,6 +299,15 @@ func supervisorCredential(t *testing.T) Credential {
 		MachineName: "OS PC",
 		Token:       supervisorTestToken,
 		IssuedAt:    time.Now().UTC(),
+	}
+}
+
+func newSupervisorTestStore(t *testing.T, credential Credential, err error) *supervisorTestStore {
+	t.Helper()
+	return &supervisorTestStore{
+		credential:      credential,
+		err:             err,
+		runtimeLockPath: filepath.Join(t.TempDir(), "connector.runtime.lock"),
 	}
 }
 

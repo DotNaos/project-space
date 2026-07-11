@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -69,6 +70,7 @@ func (files *recordingServiceFiles) RemoveFile(path string) error {
 }
 
 func TestSystemdServiceConnectorStartsHardenedTransientUserUnit(t *testing.T) {
+	skipNativeWindowsForeignServiceTest(t)
 	runner := &scriptedServiceRunner{responses: []serviceCommandResponse{
 		{output: "not-found\n"},
 		{},
@@ -214,6 +216,7 @@ func TestSystemdServiceConnectorStopIsIdempotent(t *testing.T) {
 }
 
 func TestLaunchdServiceConnectorWritesPrivateCredentialFreeAgent(t *testing.T) {
+	skipNativeWindowsForeignServiceTest(t)
 	runner := &scriptedServiceRunner{responses: []serviceCommandResponse{
 		{err: errors.New("service absent")},
 		{output: "Could not find service", err: errors.New("service absent")},
@@ -285,6 +288,7 @@ func TestLaunchdServiceConnectorWritesPrivateCredentialFreeAgent(t *testing.T) {
 }
 
 func TestLaunchdServiceConnectorStartAndStopAreIdempotent(t *testing.T) {
+	skipNativeWindowsForeignServiceTest(t)
 	t.Run("start replaces loaded service", func(t *testing.T) {
 		runner := &scriptedServiceRunner{responses: []serviceCommandResponse{{}, {}, {}}}
 		connector := testServiceConnector(t, ServiceConnectorOptions{
@@ -327,27 +331,8 @@ func TestLaunchdServiceConnectorStartAndStopAreIdempotent(t *testing.T) {
 	})
 }
 
-func TestNativeWindowsServiceConnectorReturnsWSLGuidance(t *testing.T) {
-	runner := &scriptedServiceRunner{}
-	connector := testServiceConnector(t, ServiceConnectorOptions{
-		Executable: `C:\Program Files\Project\project.exe`,
-		GOOS:       "windows",
-	}, runner, &recordingServiceFiles{})
-	for _, operation := range []struct {
-		name string
-		run  func(context.Context) error
-	}{{"start", connector.Start}, {"stop", connector.Stop}} {
-		err := operation.run(context.Background())
-		if !errors.Is(err, ErrNativeWindowsServiceUnsupported) || !strings.Contains(err.Error(), "WSL") {
-			t.Fatalf("%s native Windows error = %v", operation.name, err)
-		}
-	}
-	if len(runner.calls) != 0 {
-		t.Fatalf("native Windows invoked service manager: %#v", runner.calls)
-	}
-}
-
 func TestServiceConnectorDoesNotHideMissingServiceManagers(t *testing.T) {
+	skipNativeWindowsForeignServiceTest(t)
 	for name, options := range map[string]ServiceConnectorOptions{
 		"linux": {
 			Executable: "/usr/local/bin/project",
@@ -381,6 +366,7 @@ func TestServiceConnectorDoesNotHideMissingServiceManagers(t *testing.T) {
 }
 
 func TestOSServiceFileSystemUsesPrivateAtomicFiles(t *testing.T) {
+	skipNativeWindowsForeignServiceTest(t)
 	root := t.TempDir()
 	directory := filepath.Join(root, "LaunchAgents")
 	files := osServiceFileSystem{}
@@ -430,6 +416,13 @@ func TestOSServiceFileSystemUsesPrivateAtomicFiles(t *testing.T) {
 	matches, err := filepath.Glob(filepath.Join(directory, ".machine-connector-*.tmp"))
 	if err != nil || len(matches) != 0 {
 		t.Fatalf("temporary files after atomic write = %#v, err=%v", matches, err)
+	}
+}
+
+func skipNativeWindowsForeignServiceTest(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("systemd and launchd service contracts run on Unix hosts")
 	}
 }
 

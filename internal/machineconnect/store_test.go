@@ -60,6 +60,78 @@ func TestFileStorePersistsCredentialWithPrivatePermissions(t *testing.T) {
 	if _, err := store.LoadKey(); err != nil {
 		t.Fatalf("machine key was deleted with credential: %v", err)
 	}
+	staleTemporary := filepath.Join(directory, machineCredentialTemporaryFilePrefix+"stale")
+	if err := os.WriteFile(staleTemporary, []byte("stale sensitive state"), 0o600); err != nil {
+		t.Fatalf("seed stale temporary identity: %v", err)
+	}
+	unrelated := filepath.Join(directory, "keep-me")
+	if err := os.WriteFile(unrelated, []byte("unrelated"), 0o600); err != nil {
+		t.Fatalf("seed unrelated file: %v", err)
+	}
+	if err := store.Purge(); err != nil {
+		t.Fatalf("purge machine identity: %v", err)
+	}
+	if err := store.Purge(); err != nil {
+		t.Fatalf("idempotent purge machine identity: %v", err)
+	}
+	if _, err := store.LoadKey(); !errors.Is(err, ErrMachineKeyNotFound) {
+		t.Fatalf("load key after purge = %v, want machine key not found", err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("credential state remains after purge: %v", err)
+	}
+	if _, err := os.Stat(staleTemporary); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale temporary identity remains after purge: %v", err)
+	}
+	if body, err := os.ReadFile(unrelated); err != nil || string(body) != "unrelated" {
+		t.Fatalf("purge changed unrelated file: body=%q error=%v", body, err)
+	}
+}
+
+func TestFileStorePurgeRejectsSymlinkedParentAndTemporaryState(t *testing.T) {
+	requirePrivateFileCredentialStore(t)
+	root := t.TempDir()
+	targetDirectory := filepath.Join(root, "target")
+	if err := os.Mkdir(targetDirectory, 0o700); err != nil {
+		t.Fatalf("create target directory: %v", err)
+	}
+	linkedDirectory := filepath.Join(root, "linked")
+	if err := os.Symlink(targetDirectory, linkedDirectory); err != nil {
+		t.Skipf("create directory symlink: %v", err)
+	}
+	sentinel := filepath.Join(targetDirectory, "machine-credential.json")
+	if err := os.WriteFile(sentinel, []byte("do not remove"), 0o600); err != nil {
+		t.Fatalf("write sentinel: %v", err)
+	}
+	store, err := NewFileStore(filepath.Join(linkedDirectory, "machine-credential.json"))
+	if err != nil {
+		t.Fatalf("new linked store: %v", err)
+	}
+	if err := store.Purge(); err == nil {
+		t.Fatal("purge through symlinked parent unexpectedly succeeded")
+	}
+	if body, err := os.ReadFile(sentinel); err != nil || string(body) != "do not remove" {
+		t.Fatalf("purge changed symlink target: body=%q error=%v", body, err)
+	}
+
+	directStore, err := NewFileStore(filepath.Join(targetDirectory, "owned.json"))
+	if err != nil {
+		t.Fatalf("new direct store: %v", err)
+	}
+	outside := filepath.Join(root, "outside")
+	if err := os.WriteFile(outside, []byte("outside"), 0o600); err != nil {
+		t.Fatalf("write outside sentinel: %v", err)
+	}
+	temporaryLink := filepath.Join(targetDirectory, machineCredentialTemporaryFilePrefix+"link")
+	if err := os.Symlink(outside, temporaryLink); err != nil {
+		t.Skipf("create temporary symlink: %v", err)
+	}
+	if err := directStore.Purge(); err == nil {
+		t.Fatal("purge accepted a temporary identity symlink")
+	}
+	if body, err := os.ReadFile(outside); err != nil || string(body) != "outside" {
+		t.Fatalf("purge changed temporary symlink target: body=%q error=%v", body, err)
+	}
 }
 
 func TestFileStoreRefusesCredentialSymlink(t *testing.T) {
@@ -296,6 +368,6 @@ func TestFileCredentialStateIsExplicitlyUnsupportedOnWindows(t *testing.T) {
 func requirePrivateFileCredentialStore(t *testing.T) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
-		t.Skip("native Windows credentials use Credential Manager, not POSIX file modes")
+		t.Skip("native Windows credentials use a DPAPI-protected store, not POSIX file modes")
 	}
 }

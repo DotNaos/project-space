@@ -8,7 +8,7 @@ import { readAndStartAuthenticatedProjectConnectorRuntime } from './project-conn
 import { createProjectSpaceServer } from './project-space-http';
 import { startProjectConnectorWebSocket } from './project-connector-websocket';
 
-const version = '0.2.0';
+const version = '0.3.0';
 const command = process.argv[2] ?? 'serve';
 
 if (command === '--help' || command === '-h' || command === 'help') {

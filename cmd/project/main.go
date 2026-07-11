@@ -28,6 +28,7 @@ func newRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "project",
 		Short:         "Template-aware Project CLI",
+		Version:       projectMachineClientVersion,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

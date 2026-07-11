@@ -35,6 +35,7 @@ interface MachineConnectionServiceOptions {
     credential: string,
   ) => boolean | Promise<boolean>;
   now?: () => Date;
+  onMachineRevoked?: (machineId: string) => void | Promise<void>;
   pollIntervalMs?: number;
   publicOrigin: string;
   requestLifetimeMs?: number;
@@ -105,6 +106,7 @@ export class MachineConnectionService {
     credential: string,
   ) => boolean | Promise<boolean>;
   private readonly now: () => Date;
+  private readonly onMachineRevoked: (machineId: string) => void | Promise<void>;
   private readonly pollIntervalMs: number;
   private readonly publicOrigin: string;
   private readonly requestLifetimeMs: number;
@@ -125,6 +127,7 @@ export class MachineConnectionService {
     this.store = options.store;
     this.isMachineOnline = options.isMachineOnline ?? (() => false);
     this.now = options.now ?? (() => new Date());
+    this.onMachineRevoked = options.onMachineRevoked ?? (() => {});
     this.requestLifetimeMs =
       options.requestLifetimeMs ?? defaultRequestLifetimeMs;
     this.pollIntervalMs = options.pollIntervalMs ?? defaultPollIntervalMs;
@@ -440,6 +443,7 @@ export class MachineConnectionService {
         "invalid_credential",
       );
     }
+    await this.onMachineRevoked(machineId);
     return { machineId, status: "revoked" as const };
   }
 

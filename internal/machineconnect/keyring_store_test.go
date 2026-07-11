@@ -103,6 +103,15 @@ func TestKeyringCredentialStoreRoundTripAndDelete(t *testing.T) {
 	if _, err := store.LoadKey(); err != nil {
 		t.Fatalf("load key after credential delete: %v", err)
 	}
+	if err := store.Purge(); err != nil {
+		t.Fatalf("purge machine identity: %v", err)
+	}
+	if err := store.Purge(); err != nil {
+		t.Fatalf("idempotent purge machine identity: %v", err)
+	}
+	if _, err := store.LoadKey(); !errors.Is(err, ErrMachineKeyNotFound) {
+		t.Fatalf("load key after purge = %v, want machine key not found", err)
+	}
 }
 
 func TestKeyringCredentialStoreUsesCrossProcessLock(t *testing.T) {

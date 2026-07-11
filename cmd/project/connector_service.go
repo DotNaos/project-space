@@ -57,7 +57,7 @@ func installConnectorService(options connectorInstallOptions) (connectorInstallR
 	if err != nil {
 		return connectorInstallResult{}, err
 	}
-	sourceBinary, err := resolveConnectorBinary(options.BinaryPath)
+	sourceBinary, err := resolveConnectorInstallerBinary(options.BinaryPath)
 	if err != nil {
 		return connectorInstallResult{}, err
 	}
@@ -120,18 +120,53 @@ func resolveConnectorServicePaths(configPath string, options connectorInstallOpt
 	}, nil
 }
 
-func resolveConnectorBinary(explicitPath string) (string, error) {
+// resolveConnectorBinary is the authenticated runtime boundary used by
+// `project connector run`. The authenticated connector must be the bundled
+// sibling of the running CLI.
+func resolveConnectorBinary() (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve Project CLI executable: %w", err)
+	}
+	return resolveAuthenticatedConnectorBinary(executable, runtime.GOOS)
+}
+
+func resolveAuthenticatedConnectorBinary(projectExecutable string, goos string) (string, error) {
+	projectExecutable, err := filepath.Abs(projectExecutable)
+	if err != nil {
+		return "", fmt.Errorf("resolve Project CLI executable: %w", err)
+	}
+	projectExecutable, err = filepath.EvalSymlinks(projectExecutable)
+	if err != nil {
+		return "", fmt.Errorf("resolve Project CLI executable: %w", err)
+	}
+	candidate := filepath.Join(filepath.Dir(projectExecutable), connectorBinaryName(goos))
+	info, err := os.Lstat(candidate)
+	if err != nil {
+		return "", fmt.Errorf("inspect bundled connector binary: %w", err)
+	}
+	if !usableConnectorBinary(candidate, info, goos) {
+		return "", fmt.Errorf("bundled connector binary is not a usable regular file: %s", candidate)
+	}
+	return candidate, nil
+}
+
+// resolveConnectorInstallerBinary preserves the explicit development lookup
+// used by the legacy macOS connector installer. It is never used by the
+// authenticated machine connector runtime.
+func resolveConnectorInstallerBinary(explicitPath string) (string, error) {
+	binaryName := connectorBinaryName(runtime.GOOS)
 	candidates := []string{}
 	if strings.TrimSpace(explicitPath) != "" {
 		candidates = append(candidates, explicitPath)
 	}
 	if cwd, err := os.Getwd(); err == nil {
-		candidates = append(candidates, filepath.Join(cwd, "dist", "project-space-connector"))
+		candidates = append(candidates, filepath.Join(cwd, "dist", binaryName))
 	}
 	if executable, err := os.Executable(); err == nil {
-		candidates = append(candidates, filepath.Join(filepath.Dir(executable), "project-space-connector"))
+		candidates = append(candidates, filepath.Join(filepath.Dir(executable), binaryName))
 	}
-	if found, err := exec.LookPath("project-space-connector"); err == nil {
+	if found, err := exec.LookPath(binaryName); err == nil {
 		candidates = append(candidates, found)
 	}
 
@@ -141,11 +176,28 @@ func resolveConnectorBinary(explicitPath string) (string, error) {
 			continue
 		}
 		info, err := os.Stat(resolved)
-		if err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+		if err == nil && usableConnectorBinary(resolved, info, runtime.GOOS) {
 			return resolved, nil
 		}
 	}
 	return "", fmt.Errorf("connector binary not found; build it or pass --binary")
+}
+
+func connectorBinaryName(goos string) string {
+	if goos == "windows" {
+		return "project-space-connector.exe"
+	}
+	return "project-space-connector"
+}
+
+func usableConnectorBinary(path string, info os.FileInfo, goos string) bool {
+	if info == nil || info.IsDir() || !info.Mode().IsRegular() {
+		return false
+	}
+	if goos == "windows" {
+		return strings.EqualFold(filepath.Ext(path), ".exe")
+	}
+	return info.Mode()&0o111 != 0
 }
 
 func resolveConnectorServiceName(explicitName string) (string, error) {

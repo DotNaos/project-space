@@ -57,6 +57,10 @@ type DoctorResult struct {
 	State            ConnectionState `json:"status,omitempty"`
 }
 
+type UninstallResult struct {
+	RevocationPending bool
+}
+
 func NewWorkflow(
 	backend Backend,
 	store CredentialStore,
@@ -296,6 +300,63 @@ func (workflow *Workflow) Disconnect(ctx context.Context) (returnErr error) {
 		return errors.Join(stopErr, deleteErr)
 	}
 	return nil
+}
+
+// Uninstall performs best-effort backend revocation and complete local removal
+// under one credential mutation lock. Backend failures do not block an offline
+// uninstall, but local service or identity cleanup failures do.
+func (workflow *Workflow) Uninstall(ctx context.Context) (
+	result UninstallResult,
+	returnErr error,
+) {
+	if ctx == nil {
+		return UninstallResult{}, errors.New("machine uninstall context is missing")
+	}
+	release, err := workflow.lockCredentialMutation(ctx)
+	if err != nil {
+		return UninstallResult{}, err
+	}
+	defer func() {
+		returnErr = errors.Join(returnErr, release())
+	}()
+
+	credential, loadErr := workflow.store.Load()
+	switch {
+	case loadErr == nil:
+		revokeCtx, cancelRevoke := workflow.cleanupContext(ctx)
+		if err := workflow.backend.Revoke(revokeCtx, credential); err != nil {
+			result.RevocationPending = true
+		}
+		cancelRevoke()
+	case errors.Is(loadErr, ErrCredentialNotFound):
+	case loadErr != nil:
+		// Corrupt or unreadable local state cannot be revoked safely. Purge it
+		// without decoding and tell the caller that server cleanup may remain.
+		result.RevocationPending = true
+	}
+
+	stopCtx, cancelStop := workflow.cleanupContext(ctx)
+	stopErr := workflow.connector.Stop(stopCtx)
+	cancelStop()
+	if stopErr != nil {
+		return result, stopErr
+	}
+	purger, ok := workflow.store.(CredentialPurger)
+	if !ok {
+		return result, errors.New("machine credential store does not support complete removal")
+	}
+	runtimeRelease := func() error { return nil }
+	if runtimeLocker, ok := workflow.store.(ConnectorRuntimeLocker); ok {
+		barrierCtx, cancelBarrier := workflow.cleanupContext(ctx)
+		runtimeRelease, err = runtimeLocker.LockConnectorRuntime(barrierCtx)
+		cancelBarrier()
+		if err != nil {
+			return result, err
+		}
+	}
+	purgeErr := purger.Purge()
+	releaseErr := runtimeRelease()
+	return result, errors.Join(purgeErr, releaseErr)
 }
 
 func (workflow *Workflow) lockCredentialMutation(ctx context.Context) (func() error, error) {
