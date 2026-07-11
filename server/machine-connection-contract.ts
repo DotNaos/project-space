@@ -28,6 +28,7 @@ export interface MachineConnectRequestRecord extends MachineConnectMetadata {
 
 export interface MachineIdentityRecord {
   architecture: MachineArchitecture;
+  clientVersion: string;
   createdAt: string;
   credentialHash: string;
   hostname: string;

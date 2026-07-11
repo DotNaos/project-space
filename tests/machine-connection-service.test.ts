@@ -76,8 +76,12 @@ async function connectWithKey(
   service: MachineConnectionService,
   keys: ReturnType<typeof keyPair>,
   userId: string,
+  clientVersion = "0.3.0",
 ) {
-  const created = await service.createRequest(metadata(keys.publicKey));
+  const created = await service.createRequest({
+    ...metadata(keys.publicKey),
+    clientVersion,
+  });
   await service.approveRequest(created.requestId, userId);
   const approved = await service.pollRequest(
     created.requestId,
@@ -88,10 +92,7 @@ async function connectWithKey(
   }
   const signature = sign(
     null,
-    machineApprovalProofMessage(
-      created.requestId,
-      approved.approvalChallenge,
-    ),
+    machineApprovalProofMessage(created.requestId, approved.approvalChallenge),
     keys.privateKey,
   ).toString("base64url");
   return service.exchangeApproval(
@@ -188,7 +189,9 @@ describe("machine connection state machine", () => {
     const keys = keyPair();
     const created = await service.createRequest(metadata(keys.publicKey));
 
-    expect(service.approveRequest(created.requestId, "user_oli")).rejects.toMatchObject({
+    expect(
+      service.approveRequest(created.requestId, "user_oli"),
+    ).rejects.toMatchObject({
       code: "expired",
     } satisfies Partial<MachineConnectionError>);
     expect(store.requests.get(created.requestId)?.status).toBe("expired");
@@ -230,11 +233,14 @@ describe("machine connection state machine", () => {
     const keys = keyPair();
 
     const first = await connectWithKey(service, keys, "user_oli");
-    const second = await connectWithKey(service, keys, "user_oli");
+    expect(store.machines.get(first.machineId)?.clientVersion).toBe("0.3.0");
+
+    const second = await connectWithKey(service, keys, "user_oli", "0.4.0");
 
     expect(second.machineId).toBe(first.machineId);
     expect(second.credential).not.toBe(first.credential);
     expect(store.machines.size).toBe(1);
+    expect(store.machines.get(first.machineId)?.clientVersion).toBe("0.4.0");
     expect(
       service.getConnectionStatus(first.machineId, first.credential),
     ).rejects.toMatchObject({
@@ -255,7 +261,8 @@ describe("machine connection state machine", () => {
   });
 
   test("uses the live connector channel as online evidence and rejects a revoked machine", async () => {
-    const { service, setOnline, created, signature } = await approvedConnection();
+    const { service, setOnline, created, signature } =
+      await approvedConnection();
     const machine = await service.exchangeApproval(
       created.requestId,
       created.pollToken,
@@ -338,7 +345,9 @@ describe("machine connection state machine", () => {
       machineId: machine.machineId,
       status: "revoked",
     });
-    expect(store.machines.get(machine.machineId)?.revokedAt).toBe(firstRevokedAt);
+    expect(store.machines.get(machine.machineId)?.revokedAt).toBe(
+      firstRevokedAt,
+    );
   });
 
   test("does not mutate machine activity for an invalid credential", async () => {

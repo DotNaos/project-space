@@ -345,6 +345,7 @@ export class MachineConnectionService {
     const credential = base64Url(randomBytes(32));
     const machine: MachineIdentityRecord = {
       architecture: current.architecture,
+      clientVersion: current.clientVersion,
       createdAt: now,
       credentialHash: secretHash(credential),
       hostname: current.hostname,

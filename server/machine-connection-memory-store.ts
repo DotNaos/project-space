@@ -56,6 +56,7 @@ export class MemoryMachineConnectionStore implements MachineConnectionStore {
       ? {
           ...copyMachine(existing),
           architecture: machine.architecture,
+          clientVersion: machine.clientVersion,
           credentialHash: machine.credentialHash,
           hostname: machine.hostname,
           lastSeenAt: undefined,
