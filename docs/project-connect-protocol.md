@@ -160,7 +160,9 @@ does not sign the user out or affect their other machines.
   manager when the last Windows-owned `wsl.exe` client exits. The task owns a long-running
   `wsl.exe -d <distribution> --user <linux-user> -- <absolute-project-cli> connector run` process,
   starts again at Windows logon, and contains no machine credential or private key. Disconnect stops
-  and removes the task and also cleans up a stale systemd unit from older builds.
+  and removes only the task namespaced to that exact WSL distribution and Linux user. Both paths
+  also clean up a stale systemd unit from older builds when its user bus still exists; an unavailable
+  WSL systemd user manager does not block Scheduled Task startup or removal.
 - Revocation deletes the local runtime credential but retains the identity key so a later approved
   connection rotates access onto the same machine ID.
 - Credentials never appear in command arguments, approval URLs, logs, shell history, or tracked

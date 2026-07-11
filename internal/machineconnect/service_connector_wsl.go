@@ -6,14 +6,18 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode/utf16"
 )
 
-const machineConnectorWindowsTask = "Project Space Machine Connector Supervisor"
+const (
+	machineConnectorWindowsTaskPrefix = "Project Space Machine Connector Supervisor"
+	maximumWindowsTaskNameLength      = 238
+)
 
 func (connector *ServiceConnector) startWSLScheduledTask(ctx context.Context) error {
-	if err := connector.stopSystemd(ctx); err != nil {
+	if err := connector.cleanupStaleWSLSystemd(ctx); err != nil {
 		return fmt.Errorf("remove stale WSL machine connector systemd service: %w", err)
 	}
 	if _, err := connector.runPowerShell(ctx, connector.wslStartScript()); err != nil {
@@ -23,15 +27,46 @@ func (connector *ServiceConnector) startWSLScheduledTask(ctx context.Context) er
 }
 
 func (connector *ServiceConnector) stopWSLScheduledTask(ctx context.Context) error {
-	_, taskErr := connector.runPowerShell(ctx, wslStopScript())
+	_, taskErr := connector.runPowerShell(ctx, connector.wslStopScript())
 	if taskErr != nil {
 		taskErr = fmt.Errorf("stop WSL machine connector scheduled task: %w", taskErr)
 	}
-	systemdErr := connector.stopSystemd(ctx)
+	systemdErr := connector.cleanupStaleWSLSystemd(ctx)
 	if systemdErr != nil {
 		systemdErr = fmt.Errorf("remove stale WSL machine connector systemd service: %w", systemdErr)
 	}
 	return errors.Join(taskErr, systemdErr)
+}
+
+func (connector *ServiceConnector) cleanupStaleWSLSystemd(ctx context.Context) error {
+	err := connector.stopSystemd(ctx)
+	if err == nil || systemdUserManagerUnavailable(err) {
+		return nil
+	}
+	return err
+}
+
+func systemdUserManagerUnavailable(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if commandUnavailable(err) {
+		return true
+	}
+	detail := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"failed to connect to bus",
+		"no medium found",
+		"system has not been booted with systemd",
+		"transport endpoint is not connected",
+		"user manager is not available",
+		"could not be found",
+	} {
+		if strings.Contains(detail, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func (connector *ServiceConnector) runPowerShell(
@@ -85,10 +120,10 @@ try {
   Remove-ProjectConnectorTask
   throw
 }
-`, powershellLiteral(machineConnectorWindowsTask), powershellLiteral(actionArguments))
+`, powershellLiteral(connector.wslTaskName), powershellLiteral(actionArguments))
 }
 
-func wslStopScript() string {
+func (connector *ServiceConnector) wslStopScript() string {
 	return fmt.Sprintf(`$ErrorActionPreference = 'Stop'
 Import-Module ScheduledTasks -ErrorAction Stop
 $taskName = %s
@@ -98,7 +133,17 @@ if ($null -ne $task) {
   Stop-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction SilentlyContinue
   Unregister-ScheduledTask -TaskPath $taskPath -TaskName $taskName -Confirm:$false -ErrorAction Stop
 }
-`, powershellLiteral(machineConnectorWindowsTask))
+`, powershellLiteral(connector.wslTaskName))
+}
+
+func wslScheduledTaskName(distro string, linuxUser string) string {
+	name := machineConnectorWindowsTaskPrefix +
+		"~d" + strconv.Itoa(len(distro)) + "~" + distro +
+		"~u" + strconv.Itoa(len(linuxUser)) + "~" + linuxUser
+	if len(name) > maximumWindowsTaskNameLength {
+		panic("validated WSL identity exceeded the Windows Scheduled Task name limit")
+	}
+	return name
 }
 
 func powershellLiteral(value string) string {

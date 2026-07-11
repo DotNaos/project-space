@@ -35,14 +35,15 @@ type ServiceConnectorOptions struct {
 // ServiceConnector starts and stops the authenticated connector through the
 // host's per-user service manager. It never handles machine credentials.
 type ServiceConnector struct {
-	executable string
-	goos       string
-	homeDir    string
-	linuxUser  string
-	userID     string
-	wslDistro  string
-	runner     serviceCommandRunner
-	files      serviceFileSystem
+	executable  string
+	goos        string
+	homeDir     string
+	linuxUser   string
+	userID      string
+	wslDistro   string
+	wslTaskName string
+	runner      serviceCommandRunner
+	files       serviceFileSystem
 }
 
 var _ Connector = (*ServiceConnector)(nil)
@@ -152,6 +153,7 @@ func newServiceConnector(
 		}
 		connector.wslDistro = wslDistro
 		connector.linuxUser = linuxUser
+		connector.wslTaskName = wslScheduledTaskName(wslDistro, linuxUser)
 	}
 	if goos != "darwin" {
 		return connector, nil

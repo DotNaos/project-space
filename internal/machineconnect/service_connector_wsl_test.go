@@ -41,7 +41,7 @@ func TestWSLServiceConnectorReplacesAndStartsWindowsScheduledTask(t *testing.T) 
 	}
 	script := decodePowerShellCommand(t, powerShellCall.arguments[len(powerShellCall.arguments)-1])
 	for _, required := range []string{
-		machineConnectorWindowsTask,
+		connector.wslTaskName,
 		"Register-ScheduledTask",
 		"Start-ScheduledTask",
 		"New-ScheduledTaskTrigger -AtLogOn -User $identity",
@@ -67,6 +67,54 @@ func TestWSLServiceConnectorReplacesAndStartsWindowsScheduledTask(t *testing.T) 
 		if strings.Contains(joinedCalls+script, forbidden) {
 			t.Errorf("scheduled task command exposed forbidden value %q", forbidden)
 		}
+	}
+}
+
+func TestWSLServiceConnectorStartsWithoutSystemdUserManager(t *testing.T) {
+	for name, unavailable := range map[string]serviceCommandResponse{
+		"missing systemctl": {err: missingServiceCommand("systemctl")},
+		"missing user bus": {
+			output: "Failed to connect to bus: No medium found\n",
+			err:    errors.New("exit status 1"),
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			runner := &scriptedServiceRunner{responses: []serviceCommandResponse{unavailable, {}}}
+			connector := testServiceConnector(t, ServiceConnectorOptions{
+				Executable: "/opt/project/bin/project",
+				GOOS:       "linux",
+				LinuxUser:  "oli",
+				WSLDistro:  "Ubuntu-24.04",
+			}, runner, &recordingServiceFiles{})
+
+			if err := connector.Start(context.Background()); err != nil {
+				t.Fatalf("start without systemd user manager: %v", err)
+			}
+			if got := serviceCommandNames(runner.calls); !reflect.DeepEqual(got, []string{"systemctl", "powershell.exe"}) {
+				t.Fatalf("start commands = %#v", got)
+			}
+		})
+	}
+}
+
+func TestWSLServiceConnectorKeepsScheduledTaskFailuresHard(t *testing.T) {
+	runner := &scriptedServiceRunner{responses: []serviceCommandResponse{
+		{output: "Failed to connect to bus: No medium found\n", err: errors.New("exit status 1")},
+		{err: errors.New("scheduled task registration failed")},
+	}}
+	connector := testServiceConnector(t, ServiceConnectorOptions{
+		Executable: "/opt/project/bin/project",
+		GOOS:       "linux",
+		LinuxUser:  "oli",
+		WSLDistro:  "Ubuntu-24.04",
+	}, runner, &recordingServiceFiles{})
+
+	err := connector.Start(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "scheduled task registration failed") {
+		t.Fatalf("scheduled task failure was hidden: %v", err)
+	}
+	if got := serviceCommandNames(runner.calls); !reflect.DeepEqual(got, []string{"systemctl", "powershell.exe"}) {
+		t.Fatalf("failure commands = %#v", got)
 	}
 }
 
@@ -101,6 +149,26 @@ func TestWSLServiceConnectorStopsTaskAndStaleSystemdUnit(t *testing.T) {
 	}
 	if strings.Contains(script, "/opt/project/bin/project") || strings.Contains(script, "connector run") {
 		t.Fatal("scheduled task stop embedded executable or runtime arguments")
+	}
+}
+
+func TestWSLServiceConnectorStopDoesNotRequireSystemd(t *testing.T) {
+	runner := &scriptedServiceRunner{responses: []serviceCommandResponse{
+		{},
+		{output: "Failed to connect to bus: No such file or directory\n", err: errors.New("exit status 1")},
+	}}
+	connector := testServiceConnector(t, ServiceConnectorOptions{
+		Executable: "/opt/project/bin/project",
+		GOOS:       "linux",
+		LinuxUser:  "oli",
+		WSLDistro:  "Ubuntu-24.04",
+	}, runner, &recordingServiceFiles{})
+
+	if err := connector.Stop(context.Background()); err != nil {
+		t.Fatalf("stop without systemd user manager: %v", err)
+	}
+	if got := serviceCommandNames(runner.calls); !reflect.DeepEqual(got, []string{"powershell.exe", "systemctl"}) {
+		t.Fatalf("stop commands = %#v", got)
 	}
 }
 
@@ -152,6 +220,60 @@ func TestWSLServiceConnectorDefaultsFromRuntimeIdentity(t *testing.T) {
 	)
 	if err != nil || macOptions.WSLDistro != "" || userLookups != 0 {
 		t.Fatalf("non-Linux defaults unexpectedly enabled WSL: options=%#v lookups=%d err=%v", macOptions, userLookups, err)
+	}
+}
+
+func TestWSLScheduledTaskNamesIsolateDistributionsAndUsers(t *testing.T) {
+	identities := []struct {
+		distro string
+		user   string
+	}{
+		{distro: "Ubuntu", user: "dev-oli"},
+		{distro: "Ubuntu-dev", user: "oli"},
+		{distro: "Debian", user: "oli"},
+	}
+	connectors := make([]*ServiceConnector, 0, len(identities))
+	seen := map[string]bool{}
+	for _, identity := range identities {
+		connector := testServiceConnector(t, ServiceConnectorOptions{
+			Executable: "/opt/project/bin/project",
+			GOOS:       "linux",
+			LinuxUser:  identity.user,
+			WSLDistro:  identity.distro,
+		}, &scriptedServiceRunner{}, &recordingServiceFiles{})
+		if seen[connector.wslTaskName] {
+			t.Fatalf("scheduled task name collision for %#v: %q", identity, connector.wslTaskName)
+		}
+		seen[connector.wslTaskName] = true
+		if !strings.HasPrefix(connector.wslTaskName, machineConnectorWindowsTaskPrefix) ||
+			len(connector.wslTaskName) > maximumWindowsTaskNameLength ||
+			strings.ContainsAny(connector.wslTaskName, `\/:*?"<>|`) {
+			t.Fatalf("invalid Windows Scheduled Task name %q", connector.wslTaskName)
+		}
+		connectors = append(connectors, connector)
+	}
+
+	for index, connector := range connectors {
+		startScript := connector.wslStartScript()
+		stopScript := connector.wslStopScript()
+		for _, script := range []string{startScript, stopScript} {
+			if !strings.Contains(script, powershellLiteral(connector.wslTaskName)) {
+				t.Fatalf("start/stop script did not use its exact task name %q", connector.wslTaskName)
+			}
+		}
+		for otherIndex, other := range connectors {
+			if index != otherIndex && strings.Contains(stopScript, powershellLiteral(other.wslTaskName)) {
+				t.Fatalf("disconnect for %q targeted %q", connector.wslTaskName, other.wslTaskName)
+			}
+		}
+	}
+
+	maximumName := wslScheduledTaskName(
+		"A"+strings.Repeat(" ", 126)+"Z",
+		"a"+strings.Repeat("b", 31),
+	)
+	if len(maximumName) > maximumWindowsTaskNameLength || strings.ContainsAny(maximumName, `\/:*?"<>|`) {
+		t.Fatalf("maximum valid task name is not Windows-safe: length=%d name=%q", len(maximumName), maximumName)
 	}
 }
 
