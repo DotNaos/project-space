@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/DotNaos/project-space/internal/approval"
 	"github.com/DotNaos/project-space/internal/projectvalidator"
 	"github.com/spf13/cobra"
 )
@@ -202,6 +203,9 @@ func validate(target string, options projectvalidator.OutputOptions) error {
 			return err
 		}
 		if stat, err := os.Stat(resolved); err == nil && stat.IsDir() {
+			if err := verifyDeclaredApprovals(resolved); err != nil {
+				return err
+			}
 			report, err := projectvalidator.ValidateProject(resolved)
 			if err != nil {
 				return err
@@ -229,12 +233,36 @@ func validate(target string, options projectvalidator.OutputOptions) error {
 		}
 	}
 	report, err := projectvalidator.ValidateProject(mustGetwd())
+	if err := verifyDeclaredApprovals(mustGetwd()); err != nil {
+		return err
+	}
 	if err != nil {
 		return err
 	}
 	projectvalidator.PrintProjectReportWithOptions(report, options)
 	if !report.OK {
 		os.Exit(1)
+	}
+	return nil
+}
+
+func verifyDeclaredApprovals(root string) error {
+	policyPath := filepath.Join(root, defaultApprovalPolicy)
+	if _, err := os.Stat(policyPath); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	trustRoot := os.Getenv("PROJECT_APPROVAL_TRUST_ROOT")
+	if trustRoot == "" {
+		return fmt.Errorf("approval policy is declared but PROJECT_APPROVAL_TRUST_ROOT is not set")
+	}
+	report, err := approval.Verify(root, defaultApprovalPolicy, trustRoot)
+	if err != nil {
+		return fmt.Errorf("verify human approvals: %w", err)
+	}
+	if !report.OK {
+		return fmt.Errorf("required human approvals are missing, stale, or invalid")
 	}
 	return nil
 }
