@@ -1,11 +1,13 @@
 ## Parallel Codex Work
 
-- Before changing the repository, list the active Codex tasks and inspect any task working in this repository. Identify its issue, branch, worktree, and likely file ownership before choosing where to work.
-- Use one dedicated GitHub issue, branch, and worktree for each non-trivial repository change. Create or confirm the issue before implementation, name the branch after that issue, and place the worktree in the repository's standard worktree directory.
-- Do not implement changes in the shared `main` worktree when another Codex instance may be active. Treat one worktree as owned by one task; separate Codex tasks must not share it.
-- If the current worktree is dirty, belongs to another task, or contains changes whose ownership is unclear, leave those changes untouched and move the new task to a fresh worktree based on the latest `origin/main`. Do not solve the collision by stashing, committing, resetting, or moving another task's files.
+- Before changing the repository, list the active Codex tasks and inspect every active task working in this repository. Identify its branch, worktree, owner thread, and likely file ownership before choosing where to work. The agent must perform this check itself instead of waiting for the user to mention parallel work.
+- Never implement changes in the shared `main` worktree. It is read-only orientation and bootstrap space only: do not edit files, run generators or builds, create commits, or use it as an integration area.
+- Every repository mutation requires a dedicated branch and a Project-managed worktree under `~/projects/.worktrees/{project}/{branch}`. GitHub issues are recommended for larger work but are not required for every change.
+- Before editing, run `project worktree check`. If it fails because the current thread does not own the worktree, run `project worktree prepare <task-name>` or `project worktree prepare --issue <number>` from any checkout and continue exclusively in the returned path.
+- Project-managed worktrees are owned by the current `CODEX_THREAD_ID`. The same Codex chat may reuse its worktree for multiple related changes without creating additional issues. A different Codex chat must use a different worktree and must never adopt or overwrite the existing owner implicitly.
+- If `CODEX_THREAD_ID` is unavailable, do not mutate the repository. Continue the work in a Codex chat that has a thread ID, then prepare its worktree.
+- If the current worktree is dirty, belongs to another task, or contains changes whose ownership is unclear, leave those changes untouched and prepare a fresh worktree based on the latest `origin/main`. Do not solve the collision by stashing, committing, resetting, or moving another task's files.
 - Integrate completed work through its dedicated branch and pull request. Reconcile with the latest `main` inside that task's worktree before merging, rather than using the shared worktree as an integration area.
-- Reuse an existing task worktree only when the user explicitly asks to continue that same issue and no other active Codex task owns it.
 
 ## Project Space Deployments
 
