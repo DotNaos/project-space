@@ -73,7 +73,7 @@ export interface ProjectBinaryRunResult {
 export async function runProjectBinary(
   args: string[],
   cwd: string,
-  options: { timeoutMs?: number } = {}
+  options: { environment?: NodeJS.ProcessEnv; timeoutMs?: number } = {}
 ): Promise<ProjectBinaryRunResult> {
   const startedAt = Date.now();
   const timeoutMs = options.timeoutMs ?? commandTimeoutMs;
@@ -92,7 +92,7 @@ export async function runProjectBinary(
   const execute = () => new Promise<ProjectBinaryRunResult>((resolveCommand) => {
     const child = spawn(binary, args, {
       cwd,
-      env: { ...process.env, NO_COLOR: '1' },
+      env: { ...process.env, ...options.environment, NO_COLOR: '1' },
       windowsHide: true
     });
     let stdout = '';
