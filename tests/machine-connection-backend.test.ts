@@ -19,6 +19,10 @@ interface QueryCall {
 class CompositionDatabase implements DatabaseQueryClient {
   readonly calls: QueryCall[] = [];
   cleanupCount = 0;
+  credentialExpired = false;
+  credentialRevoked = false;
+  identityRevoked = false;
+  membershipBound = true;
   requestCleanupCount = 0;
   recentAttemptCount = 0;
 
@@ -47,8 +51,36 @@ class CompositionDatabase implements DatabaseQueryClient {
         { expired_by_boundary: false, status: values[2] },
       ]);
     }
-    if (sql.includes("join connector_credentials")) {
+    if (
+      sql.includes("from machine_identities mi") &&
+      sql.includes("join connector_credentials")
+    ) {
+      if (values[0] !== "machine-1" || !this.membershipBound) {
+        return this.result([]);
+      }
       return this.result([this.machineRow()]);
+    }
+    if (sql.includes("from machine_identities") && sql.includes("for update")) {
+      return values[0] === "machine-1"
+        ? this.result([{
+            current_credential_id: "credential-1",
+            revoked_at: this.identityRevoked ? this.revokedAt() : null,
+          }])
+        : this.result([]);
+    }
+    if (sql.includes("from connector_credentials") && sql.includes("for update")) {
+      return this.result([{
+        credential_expired: this.credentialExpired,
+        credential_id: "credential-1",
+        credential_matches: values[2] === this.credentialHash(),
+        credential_revoked_at: this.credentialRevoked ? this.revokedAt() : null,
+      }]);
+    }
+    if (sql.includes("update connector_credentials")) {
+      return this.result([{ id: "credential-1" }]);
+    }
+    if (sql.includes("update machine_identities")) {
+      return this.result([{ id: "machine-1" }]);
     }
     if (sql.includes("with expired as")) {
       return {
@@ -66,16 +98,18 @@ class CompositionDatabase implements DatabaseQueryClient {
   }
 
   private machineRow() {
+    const effectivelyRevoked =
+      this.credentialExpired || this.credentialRevoked || this.identityRevoked;
     return {
       architecture: "amd64",
       client_version: "0.2.0",
       created_at: new Date("2026-07-01T00:00:00.000Z"),
-      credential_expires_at: new Date("2099-01-01T00:00:00.000Z"),
-      credential_hash: createHash("sha256")
-        .update("machine-credential", "utf8")
-        .digest("hex"),
+      credential_expires_at: this.credentialExpired
+        ? this.revokedAt()
+        : new Date("2099-01-01T00:00:00.000Z"),
+      credential_hash: this.credentialHash(),
       current_credential_id: "credential-1",
-      effective_revoked_at: null,
+      effective_revoked_at: effectivelyRevoked ? this.revokedAt() : null,
       hostname: "os-pc",
       id: "machine-1",
       last_seen_at: null,
@@ -83,8 +117,18 @@ class CompositionDatabase implements DatabaseQueryClient {
       operating_system: "linux",
       owner_user_id: "user-oli",
       public_key: Buffer.alloc(32, 4).toString("base64url"),
-      revoked_at: null,
+      revoked_at: this.identityRevoked ? this.revokedAt() : null,
     };
+  }
+
+  private credentialHash() {
+    return createHash("sha256")
+      .update("machine-credential", "utf8")
+      .digest("hex");
+  }
+
+  private revokedAt() {
+    return new Date("2026-07-01T00:00:00.000Z");
   }
 
   private requestRow() {
@@ -156,6 +200,98 @@ async function startBackend(
 }
 
 describe("machine connection backend composition", () => {
+  test("resolves only the current bound machine credential to trusted identity", async () => {
+    const validDatabase = new CompositionDatabase();
+    const validBackend = createMachineConnectionBackend(
+      backendOptions(validDatabase),
+    );
+
+    await expect(
+      validBackend.resolveMachineCredentialIdentity(
+        "machine-credential",
+        "machine-1",
+      ),
+    ).resolves.toEqual({
+      hostId: "os-pc",
+      machineId: "machine-1",
+      userId: "user-oli",
+    });
+    await expect(
+      validBackend.authenticateConnectorCredential(
+        "machine-credential",
+        "machine-1",
+      ),
+    ).resolves.toBe(true);
+
+    const rejectedCases = [
+      {
+        configure() {},
+        machineId: "machine-1",
+        name: "wrong token",
+        token: "wrong-token",
+      },
+      {
+        configure() {},
+        machineId: "machine-other",
+        name: "wrong machine",
+        token: "machine-credential",
+      },
+      {
+        configure(database: CompositionDatabase) {
+          database.identityRevoked = true;
+        },
+        machineId: "machine-1",
+        name: "revoked identity",
+        token: "machine-credential",
+      },
+      {
+        configure(database: CompositionDatabase) {
+          database.credentialRevoked = true;
+        },
+        machineId: "machine-1",
+        name: "revoked credential",
+        token: "machine-credential",
+      },
+      {
+        configure(database: CompositionDatabase) {
+          database.credentialExpired = true;
+        },
+        machineId: "machine-1",
+        name: "expired credential",
+        token: "machine-credential",
+      },
+      {
+        configure(database: CompositionDatabase) {
+          database.membershipBound = false;
+        },
+        machineId: "machine-1",
+        name: "unbound membership",
+        token: "machine-credential",
+      },
+    ];
+
+    for (const rejected of rejectedCases) {
+      const database = new CompositionDatabase();
+      rejected.configure(database);
+      const backend = createMachineConnectionBackend(backendOptions(database));
+
+      await expect(
+        backend.resolveMachineCredentialIdentity(
+          rejected.token,
+          rejected.machineId,
+        ),
+        rejected.name,
+      ).resolves.toBeNull();
+      await expect(
+        backend.authenticateConnectorCredential(
+          rejected.token,
+          rejected.machineId,
+        ),
+        rejected.name,
+      ).resolves.toBe(false);
+    }
+  });
+
   test("passes authenticated browser approval and live presence into the service", async () => {
     const database = new CompositionDatabase();
     const authenticatedHeaders: Array<string | undefined> = [];

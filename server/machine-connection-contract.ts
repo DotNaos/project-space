@@ -41,6 +41,12 @@ export interface MachineIdentityRecord {
   revokedAt?: string;
 }
 
+export interface TrustedMachineCredentialIdentity {
+  hostId: string;
+  machineId: string;
+  userId: string;
+}
+
 export interface MachineConnectRequestResult {
   approvalUrl: string;
   expiresAt: string;

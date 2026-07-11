@@ -33,14 +33,22 @@ export function createMachineConnectionBackend(
     store
   });
 
+  async function resolveMachineCredentialIdentity(token: string, machineId: string) {
+    try {
+      const machine = await service.markMachineOnline(machineId, token);
+      return {
+        hostId: machine.hostname,
+        machineId: machine.id,
+        userId: machine.ownerUserId
+      };
+    } catch {
+      return null;
+    }
+  }
+
   return {
     async authenticateConnectorCredential(token: string, machineId: string) {
-      try {
-        await service.markMachineOnline(machineId, token);
-        return true;
-      } catch {
-        return false;
-      }
+      return (await resolveMachineCredentialIdentity(token, machineId)) !== null;
     },
     cleanupExpiredRequests: () => store.cleanupOldRequests(),
     cleanupRateLimitEvents: () => rateLimiter.cleanupOldEvents(),
@@ -48,6 +56,7 @@ export function createMachineConnectionBackend(
       allowCreateRequest: (request) => rateLimiter.allowCreateRequest(request),
       readAuthenticatedUserId: options.readAuthenticatedUserId,
       service
-    })
+    }),
+    resolveMachineCredentialIdentity
   };
 }

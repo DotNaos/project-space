@@ -24,6 +24,7 @@ export { MachineConnectionError } from "./machine-connection-error";
 
 const defaultRequestLifetimeMs = 10 * 60_000;
 const defaultPollIntervalMs = 2_000;
+const invalidCredentialHash = secretHash("invalid-machine-credential");
 const machineNamePattern = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/;
 const hostnamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const versionPattern = /^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$/;
@@ -409,6 +410,7 @@ export class MachineConnectionService {
   }
 
   async markMachineOnline(machineId: string, credential: string) {
+    await this.authenticateMachine(machineId, credential);
     const result = await this.store.markMachineOnline(
       machineId,
       secretHash(credential),
@@ -446,12 +448,13 @@ export class MachineConnectionService {
     credential: string,
     allowRevoked = false,
   ) {
-    const machine = await this.store.getMachine(machineId);
-    if (
-      !machine ||
-      !credential ||
-      !equalSecretHash(machine.credentialHash, credential)
-    ) {
+    const machine = machineId ? await this.store.getMachine(machineId) : null;
+    const suppliedCredential = typeof credential === "string" ? credential : "";
+    const credentialMatches = equalSecretHash(
+      machine?.credentialHash ?? invalidCredentialHash,
+      suppliedCredential,
+    );
+    if (!machine || !suppliedCredential || !credentialMatches) {
       throw new MachineConnectionError(
         "Machine credential is invalid.",
         "invalid_credential",

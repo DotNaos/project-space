@@ -532,6 +532,9 @@ describe("database machine connection store", () => {
     });
     const machineQuery = client.calls[0]?.sql ?? "";
     expect(machineQuery).toContain("credential.id = mi.current_credential_id");
+    expect(machineQuery).toContain("join machine_memberships membership");
+    expect(machineQuery).toContain("membership.user_id = mi.owner_user_id");
+    expect(machineQuery).toContain("membership.role = 'owner'");
     expect(machineQuery).not.toContain("order by");
     expect(machineQuery).toContain("credential.expires_at <= now()");
     await expect(store.getRequest(requestId)).rejects.toThrow(

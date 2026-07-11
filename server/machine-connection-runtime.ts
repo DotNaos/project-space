@@ -14,6 +14,7 @@ import {
   readAuthSessionFromRequest
 } from './local-auth-store';
 import { getMachineConnectionDatabaseClient } from './local-database-store';
+import type { TrustedMachineCredentialIdentity } from './machine-connection-contract';
 
 const defaultCleanupIntervalMs = 60 * 60 * 1_000;
 
@@ -36,6 +37,10 @@ export interface MachineConnectionRuntime {
     url: URL
   ): Promise<boolean>;
   runMaintenance(): Promise<void>;
+  resolveMachineCredentialIdentity(
+    token: string,
+    machineId: string
+  ): Promise<TrustedMachineCredentialIdentity | null>;
   start(): void;
   stop(): Promise<void>;
 }
@@ -97,6 +102,7 @@ export function createMachineConnectionRuntime(
   return {
     authenticateConnectorCredential: backend.authenticateConnectorCredential,
     handleRequest: backend.handleRequest,
+    resolveMachineCredentialIdentity: backend.resolveMachineCredentialIdentity,
     runMaintenance,
     start() {
       if (started) {
