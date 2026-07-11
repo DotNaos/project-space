@@ -5,6 +5,30 @@ description: Commands and workflows for the Project CLI.
 
 The `project` CLI is the local command-line interface for Project. It calls the same Project functionality that is also exposed through API surfaces.
 
+## Prepare An Isolated Codex Worktree
+
+```sh
+project worktree prepare <task-name>
+project worktree prepare --issue <number>
+project worktree prepare <task-name> --format json
+project worktree check
+project worktree check --format json
+```
+
+Every repository mutation runs on a dedicated branch in
+`~/projects/.worktrees/{project}/{branch}`. Issues are optional, but larger tasks
+should normally use `--issue`. The current `CODEX_THREAD_ID` owns the prepared
+worktree through worktree-specific Git configuration, so the ownership metadata
+does not dirty the checkout.
+
+`check` fails in the shared default-branch worktree, outside the standard path,
+without a Codex thread ID, in unmanaged worktrees, and when a different Codex
+thread owns the current worktree. The same chat may reuse its existing worktree
+for multiple related changes.
+
+See [Codex Worktree Ownership](./codex-worktrees.md) for the complete workflow
+and collision rules.
+
 ## Create A Project
 
 ```sh
