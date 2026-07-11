@@ -12,10 +12,12 @@ import (
 type connectorRunSupervisor struct {
 	runCalls int
 	runErr   error
+	ctxErr   error
 }
 
-func (supervisor *connectorRunSupervisor) Run(context.Context) error {
+func (supervisor *connectorRunSupervisor) Run(ctx context.Context) error {
 	supervisor.runCalls++
+	supervisor.ctxErr = ctx.Err()
 	return supervisor.runErr
 }
 
@@ -84,5 +86,42 @@ func TestConnectorRunStopsBeforeLaunchingWhenCredentialStoreFails(t *testing.T) 
 	}
 	if supervisor.runCalls != 0 {
 		t.Fatal("supervisor ran after store failure")
+	}
+}
+
+func TestConnectorRunPropagatesCommandCancellation(t *testing.T) {
+	store := &commandStore{}
+	supervisor := &connectorRunSupervisor{}
+	command := newConnectorRunCommandWithDependencies(connectorRunDependencies{
+		NewStore:      func() (machineconnect.CredentialStore, error) { return store, nil },
+		ResolveBinary: func() (string, error) { return "/opt/project/project-space-connector", nil },
+		NewSupervisor: func(
+			machineconnect.CredentialStore,
+			string,
+			io.Writer,
+			io.Writer,
+		) (connectorSupervisor, error) {
+			return supervisor, nil
+		},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	command.SetContext(ctx)
+
+	if err := command.Execute(); err != nil {
+		t.Fatalf("execute cancelled connector run: %v", err)
+	}
+	if !errors.Is(supervisor.ctxErr, context.Canceled) {
+		t.Fatalf("supervisor context error = %v, want cancellation", supervisor.ctxErr)
+	}
+}
+
+func TestConnectorCommandRegistersAuthenticatedRun(t *testing.T) {
+	command, _, err := newConnectorCommand().Find([]string{"run"})
+	if err != nil {
+		t.Fatalf("find connector run: %v", err)
+	}
+	if command == nil || command.Name() != "run" {
+		t.Fatalf("connector run command = %#v", command)
 	}
 }

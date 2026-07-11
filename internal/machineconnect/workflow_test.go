@@ -17,6 +17,9 @@ type fakeBackend struct {
 	credential      Credential
 	connections     []ConnectionState
 	revokeErr       error
+	exchangeHook    func()
+	revokeHook      func()
+	revokeCtxErr    error
 	healthCalls     int
 	createCalls     int
 	pollCalls       int
@@ -48,6 +51,9 @@ func (backend *fakeBackend) PollRequest(context.Context, Request) (Approval, err
 func (backend *fakeBackend) Exchange(_ context.Context, _ Request, exchangeCode string, _ MachineKey) (Credential, error) {
 	backend.exchangeCalls++
 	backend.exchangedCode = exchangeCode
+	if backend.exchangeHook != nil {
+		backend.exchangeHook()
+	}
 	return backend.credential, nil
 }
 
@@ -60,8 +66,12 @@ func (backend *fakeBackend) Connection(context.Context, Credential) (ConnectionS
 	return backend.connections[index], nil
 }
 
-func (backend *fakeBackend) Revoke(context.Context, Credential) error {
+func (backend *fakeBackend) Revoke(ctx context.Context, _ Credential) error {
 	backend.revokeCalls++
+	backend.revokeCtxErr = ctx.Err()
+	if backend.revokeHook != nil {
+		backend.revokeHook()
+	}
 	return backend.revokeErr
 }
 
@@ -131,6 +141,21 @@ func (connector *recordingConnector) Start(context.Context) error {
 func (connector *recordingConnector) Stop(context.Context) error {
 	connector.stopCalls++
 	return connector.stopErr
+}
+
+type contextRecordingConnector struct {
+	startCtxErr error
+	stopCtxErr  error
+}
+
+func (connector *contextRecordingConnector) Start(ctx context.Context) error {
+	connector.startCtxErr = ctx.Err()
+	return ctx.Err()
+}
+
+func (connector *contextRecordingConnector) Stop(ctx context.Context) error {
+	connector.stopCtxErr = ctx.Err()
+	return nil
 }
 
 type fakeClock struct {
@@ -312,6 +337,37 @@ func TestWorkflowRevokesCredentialThatCannotBeSaved(t *testing.T) {
 	}
 }
 
+func TestWorkflowCleanupSurvivesCancellationAfterExchange(t *testing.T) {
+	now := time.Now().UTC()
+	ctx, cancel := context.WithCancel(context.Background())
+	backend := &fakeBackend{
+		request: Request{
+			ID: "request-cancelled-cleanup", PollToken: "poll-secret",
+			ApprovalURL: "https://projects.os-home.net/connect/request-cancelled-cleanup",
+			ExpiresAt:   now.Add(time.Minute), PollInterval: time.Second,
+		},
+		approvals:    []Approval{{State: ApprovalApproved, Challenge: "challenge"}},
+		credential:   testCredential(now),
+		exchangeHook: cancel,
+	}
+	store := &memoryStore{}
+	connector := &contextRecordingConnector{}
+	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, connector, &fakeClock{now: now})
+
+	if _, err := workflow.Connect(ctx, testMachine()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("connect error = %v, want context cancellation", err)
+	}
+	if connector.startCtxErr != context.Canceled {
+		t.Fatalf("start context error = %v, want cancellation", connector.startCtxErr)
+	}
+	if connector.stopCtxErr != nil || backend.revokeCtxErr != nil {
+		t.Fatalf("cleanup inherited cancellation: stop=%v revoke=%v", connector.stopCtxErr, backend.revokeCtxErr)
+	}
+	if backend.revokeCalls != 1 || store.credential != nil || store.deleteCalls != 1 {
+		t.Fatalf("cancelled connection was not rolled back: backend=%#v store=%#v", backend, store)
+	}
+}
+
 func TestWorkflowKeepsCredentialWhenRollbackCannotRevokeIt(t *testing.T) {
 	now := time.Now().UTC()
 	backend := &fakeBackend{
@@ -348,6 +404,23 @@ func TestWorkflowDisconnectDeletesCredentialEvenWhenStopFails(t *testing.T) {
 	err := workflow.Disconnect(context.Background())
 	if err == nil || store.credential != nil || backend.revokeCalls != 1 || connector.stopCalls != 1 {
 		t.Fatalf("disconnect cleanup mismatch: err=%v store=%#v backend=%#v connector=%#v", err, store, backend, connector)
+	}
+}
+
+func TestWorkflowDisconnectFinishesLocalCleanupAfterRevocation(t *testing.T) {
+	now := time.Now().UTC()
+	credential := testCredential(now)
+	ctx, cancel := context.WithCancel(context.Background())
+	store := &memoryStore{credential: &credential}
+	connector := &contextRecordingConnector{}
+	backend := &fakeBackend{revokeHook: cancel}
+	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, connector, &fakeClock{now: now})
+
+	if err := workflow.Disconnect(ctx); err != nil {
+		t.Fatalf("disconnect: %v", err)
+	}
+	if connector.stopCtxErr != nil || store.credential != nil {
+		t.Fatalf("disconnect inherited cancellation: stop=%v store=%#v", connector.stopCtxErr, store)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 
 const (
 	defaultApprovalTimeout = 10 * time.Minute
+	defaultCleanupTimeout  = 15 * time.Second
 	defaultOnlineTimeout   = 45 * time.Second
 	defaultOnlineInterval  = time.Second
 	minimumPollInterval    = 250 * time.Millisecond
@@ -20,6 +21,7 @@ const (
 
 type WorkflowOptions struct {
 	ApprovalTimeout time.Duration
+	CleanupTimeout  time.Duration
 	KeyRandom       io.Reader
 	OnlineTimeout   time.Duration
 	OnlineInterval  time.Duration
@@ -75,6 +77,9 @@ func NewWorkflow(
 	if options.OnlineTimeout <= 0 {
 		options.OnlineTimeout = defaultOnlineTimeout
 	}
+	if options.CleanupTimeout <= 0 {
+		options.CleanupTimeout = defaultCleanupTimeout
+	}
 	if options.OnlineInterval <= 0 {
 		options.OnlineInterval = defaultOnlineInterval
 	}
@@ -97,6 +102,9 @@ func (workflow *Workflow) Connect(ctx context.Context, machine Machine) (
 	result ConnectResult,
 	returnErr error,
 ) {
+	if ctx == nil {
+		return ConnectResult{}, errors.New("machine connection context is missing")
+	}
 	if err := validateMachine(machine); err != nil {
 		return ConnectResult{}, err
 	}
@@ -153,7 +161,9 @@ func (workflow *Workflow) Connect(ctx context.Context, machine Machine) (
 		return ConnectResult{}, err
 	}
 	if err := workflow.store.Save(credential); err != nil {
-		revokeErr := workflow.backend.Revoke(ctx, credential)
+		cleanupCtx, cancelCleanup := workflow.cleanupContext(ctx)
+		defer cancelCleanup()
+		revokeErr := workflow.backend.Revoke(cleanupCtx, credential)
 		if revokeErr != nil {
 			return ConnectResult{}, errors.Join(
 				err,
@@ -184,13 +194,21 @@ func (workflow *Workflow) rollbackFirstConnection(
 	credential Credential,
 	cause error,
 ) error {
-	stopErr := workflow.connector.Stop(ctx)
-	revokeErr := workflow.backend.Revoke(ctx, credential)
+	revokeCtx, cancelRevoke := workflow.cleanupContext(ctx)
+	revokeErr := workflow.backend.Revoke(revokeCtx, credential)
+	cancelRevoke()
+	stopCtx, cancelStop := workflow.cleanupContext(ctx)
+	stopErr := workflow.connector.Stop(stopCtx)
+	cancelStop()
 	if revokeErr != nil {
 		return errors.Join(cause, stopErr, fmt.Errorf("revoke incomplete machine connection: %w", revokeErr))
 	}
 	deleteErr := workflow.store.Delete()
 	return errors.Join(cause, stopErr, deleteErr)
+}
+
+func (workflow *Workflow) cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), workflow.options.CleanupTimeout)
 }
 
 func (workflow *Workflow) loadOrCreateMachineKey() (MachineKey, error) {
@@ -270,7 +288,9 @@ func (workflow *Workflow) Disconnect(ctx context.Context) (returnErr error) {
 	if err := workflow.backend.Revoke(ctx, credential); err != nil {
 		return err
 	}
-	stopErr := workflow.connector.Stop(ctx)
+	cleanupCtx, cancelCleanup := workflow.cleanupContext(ctx)
+	defer cancelCleanup()
+	stopErr := workflow.connector.Stop(cleanupCtx)
 	deleteErr := workflow.store.Delete()
 	if stopErr != nil || deleteErr != nil {
 		return errors.Join(stopErr, deleteErr)

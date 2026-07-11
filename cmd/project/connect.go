@@ -41,10 +41,10 @@ type browserApprovalPresenter struct {
 	openURL func(context.Context, string) error
 }
 
-type passiveMachineConnector struct{}
-
-func (passiveMachineConnector) Start(context.Context) error { return nil }
-func (passiveMachineConnector) Stop(context.Context) error  { return nil }
+// projectSpaceMachineBackendURL may be overridden by official release builds
+// with -ldflags "-X main.projectSpaceMachineBackendURL=https://...".
+var projectSpaceMachineBackendURL = defaultConnectorProdHubURL
+var projectMachineClientVersion = "dev"
 
 func newConnectCommand() *cobra.Command {
 	return newConnectCommandWithDependencies(defaultMachineConnectionDependencies())
@@ -57,6 +57,8 @@ func newConnectCommandWithDependencies(dependencies machineConnectionCommandDepe
 		Short: "Connect this machine to Project Space",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			ctx, stopSignals := commandTerminationContext(command.Context())
+			defer stopSignals()
 			hostname, err := dependencies.Hostname()
 			if err != nil {
 				return fmt.Errorf("resolve machine hostname: %w", err)
@@ -75,7 +77,7 @@ func newConnectCommandWithDependencies(dependencies machineConnectionCommandDepe
 			if err != nil {
 				return err
 			}
-			result, err := workflow.Connect(command.Context(), machineconnect.Machine{
+			result, err := workflow.Connect(ctx, machineconnect.Machine{
 				Name:          machineName,
 				Hostname:      hostname,
 				OS:            dependencies.GOOS,
@@ -135,7 +137,7 @@ func machineConnectionWorkflow(
 }
 
 func defaultMachineConnectionDependencies() machineConnectionCommandDependencies {
-	backend, err := machineconnect.NewHTTPBackend(defaultConnectorProdHubURL, &http.Client{})
+	backend, err := machineconnect.NewHTTPBackend(projectSpaceMachineBackendURL, &http.Client{})
 	if err != nil {
 		panic(err)
 	}
@@ -143,16 +145,20 @@ func defaultMachineConnectionDependencies() machineConnectionCommandDependencies
 	if err != nil {
 		panic(err)
 	}
+	connector, err := machineconnect.NewServiceConnector(machineconnect.ServiceConnectorOptions{})
+	if err != nil {
+		panic(err)
+	}
 	return machineConnectionCommandDependencies{
 		Backend:   backend,
 		Store:     store,
-		Connector: passiveMachineConnector{},
+		Connector: connector,
 		Clock:     machineconnect.RealClock{},
 		Hostname:  os.Hostname,
 		Headless:  isHeadlessMachine,
 		GOOS:      runtime.GOOS,
 		GOARCH:    runtime.GOARCH,
-		Version:   "dev",
+		Version:   projectMachineClientVersion,
 		OpenURL:   openMachineApprovalURL,
 	}
 }

@@ -97,11 +97,13 @@ func newDisconnectCommandWithDependencies(dependencies machineConnectionCommandD
 		Short: "Disconnect this machine from Project Space",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			ctx, stopSignals := commandTerminationContext(command.Context())
+			defer stopSignals()
 			workflow, err := machineConnectionWorkflow(dependencies, silentApprovalPresenter{})
 			if err != nil {
 				return err
 			}
-			if err := workflow.Disconnect(command.Context()); err != nil {
+			if err := workflow.Disconnect(ctx); err != nil {
 				return err
 			}
 			if jsonOutput {

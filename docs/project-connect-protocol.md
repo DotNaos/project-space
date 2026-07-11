@@ -161,8 +161,9 @@ does not sign the user out or affect their other machines.
   files.
 - Connection requests expire after ten minutes and are single-use.
 - First-time setup installs no background service before exchange succeeds.
-- Failed service installation keeps the credential private and reports `RegisteredOffline`; it
-  does not claim success.
+- Failed first-time service installation or online acknowledgement stops the partial service,
+  revokes the new credential, and removes the local runtime credential. If revocation itself
+  cannot be confirmed, the local credential is retained so `project disconnect` can retry safely.
 - Re-running `project connect` first validates the existing credential and reuses the same machine.
 - Hosted production fails closed when its database-backed machine authentication is unavailable;
   it never downgrades to a shared connector token.

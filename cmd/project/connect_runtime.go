@@ -33,6 +33,8 @@ func newConnectorRunCommandWithDependencies(dependencies connectorRunDependencie
 		Short: "Run the authenticated Project Space connector",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			ctx, stopSignals := commandTerminationContext(command.Context())
+			defer stopSignals()
 			store, err := dependencies.NewStore()
 			if err != nil {
 				return err
@@ -50,7 +52,7 @@ func newConnectorRunCommandWithDependencies(dependencies connectorRunDependencie
 			if err != nil {
 				return err
 			}
-			return supervisor.Run(command.Context())
+			return supervisor.Run(ctx)
 		},
 	}
 }

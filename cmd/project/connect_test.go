@@ -16,6 +16,7 @@ type commandBackend struct {
 	approval    machineconnect.Approval
 	credential  machineconnect.Credential
 	state       machineconnect.ConnectionState
+	created     machineconnect.Machine
 	healthCalls int
 	createCalls int
 	revokeCalls int
@@ -26,8 +27,9 @@ func (backend *commandBackend) Health(context.Context) error {
 	return nil
 }
 
-func (backend *commandBackend) CreateRequest(context.Context, machineconnect.Machine, machineconnect.MachineKey) (machineconnect.Request, error) {
+func (backend *commandBackend) CreateRequest(_ context.Context, machine machineconnect.Machine, _ machineconnect.MachineKey) (machineconnect.Request, error) {
 	backend.createCalls++
+	backend.created = machine
 	return backend.request, nil
 }
 
@@ -126,6 +128,9 @@ func TestConnectCommandKeepsApprovalOutOfJSONOutput(t *testing.T) {
 	if backend.healthCalls != 1 || backend.createCalls != 1 {
 		t.Fatalf("backend workflow did not run: %#v", backend)
 	}
+	if backend.created.ClientVersion != dependencies.Version {
+		t.Fatalf("client version = %q, want %q", backend.created.ClientVersion, dependencies.Version)
+	}
 }
 
 func TestConnectCommandNoOpenUsesPrintableFallback(t *testing.T) {
@@ -173,6 +178,13 @@ func TestWSLCanUseTheWindowsBrowserEvenOverSSH(t *testing.T) {
 	t.Setenv("SSH_CONNECTION", "client server")
 	if isHeadlessMachine() {
 		t.Fatal("WSL should use explorer.exe on the Windows host")
+	}
+}
+
+func TestDefaultMachineConnectionDependenciesUsePlatformService(t *testing.T) {
+	dependencies := defaultMachineConnectionDependencies()
+	if _, ok := dependencies.Connector.(*machineconnect.ServiceConnector); !ok {
+		t.Fatalf("default connector = %T, want *machineconnect.ServiceConnector", dependencies.Connector)
 	}
 }
 
