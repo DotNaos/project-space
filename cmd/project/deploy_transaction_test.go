@@ -167,6 +167,21 @@ func TestDeployFailureRollsBackAndVerifiesPreviousCommit(t *testing.T) {
 	assertRollbackRestoredPrevious(t, output, stateRoot, stateDir)
 }
 
+func TestFirstLegacyRollbackKeepsCompatibilityForRetry(t *testing.T) {
+	output, err, _, stateDir := runDeployScenario(t, "legacy-compose")
+	if err == nil || !bytes.Contains(output, []byte(deployEventPrefix+"rollback|status|rollback_succeeded")) {
+		t.Fatalf("legacy rollback result: %v\n%s", err, output)
+	}
+	compatibility, readErr := os.ReadFile(filepath.Join(stateDir, "verified.compat"))
+	if readErr != nil || strings.TrimSpace(string(compatibility)) != testPreviousCommit {
+		t.Fatalf("legacy compatibility state = %q, %v", compatibility, readErr)
+	}
+	_, _, script := deployScriptFixture(t.TempDir())
+	if !strings.Contains(script, `previous_strict=false`) || !strings.Contains(script, `"$compatibility_file"`) {
+		t.Fatal("retry path does not restore legacy compatibility mode")
+	}
+}
+
 func TestDeployHealthFailureRollsBackAndVerifiesPreviousCommit(t *testing.T) {
 	output, err, stateRoot, stateDir := runDeployScenario(t, "health")
 	if err == nil {
@@ -222,7 +237,9 @@ func runDeployScenario(t *testing.T, failureMode string) ([]byte, error, string,
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	mustWriteDeployTestFile(t, filepath.Join(stateDir, "verified.sha"), testPreviousCommit+"\n")
+	if failureMode != "legacy-compose" {
+		mustWriteDeployTestFile(t, filepath.Join(stateDir, "verified.sha"), testPreviousCommit+"\n")
+	}
 	mustWriteDeployTestFile(t, filepath.Join(stateRoot, "checkout"), testPreviousCommit+"\n")
 	mustWriteDeployTestFile(t, filepath.Join(stateRoot, "runtime"), testPreviousCommit+"\n")
 
@@ -247,7 +264,7 @@ func runDeployScenario(t *testing.T, failureMode string) ([]byte, error, string,
 		"REMOTE_PATH="+remotePath,
 		"REQUESTED_COMMIT="+testRequestedCommit,
 		"PREVIOUS_COMMIT="+testPreviousCommit,
-		"DEPLOY_FAILURE_MODE="+failureMode,
+		"DEPLOY_FAILURE_MODE="+strings.TrimPrefix(failureMode, "legacy-"),
 	)
 	output, err := command.CombinedOutput()
 	return output, err, stateRoot, stateDir

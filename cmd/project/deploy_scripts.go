@@ -172,6 +172,7 @@ compose_project=%s
 lock_path=%s
 state_dir=%s
 verified_file="$state_dir/verified.sha"
+compatibility_file="$state_dir/verified.compat"
 web_url=%s
 
 event phase checking running
@@ -210,8 +211,14 @@ compose() { docker compose --env-file .env -p "$compose_project" -f deploy/compo
 
 persist_verified() {
   verified_commit="$1"
+  verified_strict="$2"
+  if [ "$verified_strict" = false ]; then
+    compatibility_tmp="$(mktemp "$state_dir/verified.compat.tmp.XXXXXX")" || return 1
+    printf '%%s\n' "$verified_commit" > "$compatibility_tmp" && chmod 600 "$compatibility_tmp" && mv -f "$compatibility_tmp" "$compatibility_file" || return 1
+  fi
   verified_tmp="$(mktemp "$state_dir/verified.sha.tmp.XXXXXX")" || return 1
   printf '%%s\n' "$verified_commit" > "$verified_tmp" && chmod 600 "$verified_tmp" && mv -f "$verified_tmp" "$verified_file" || return 1
+  if [ "$verified_strict" = true ]; then rm -f -- "$compatibility_file" || return 1; fi
 }
 
 write_env() {
@@ -304,15 +311,16 @@ if ! printf '%%s' "$previous" | grep -Eq '^[0-9a-f]{40}$'; then
   git merge-base --is-ancestor "$previous" "refs/remotes/origin/$branch" || fail_state failed_before_deploy 'running release is not on production branch' 70
   verify_release "$previous" false false || fail_state failed_before_deploy 'running release is not fully verifiable' 70
   previous_strict=false
-  persist_verified "$previous" || fail_state failed_before_deploy 'cannot persist verified state' 70
+  persist_verified "$previous" false || fail_state failed_before_deploy 'cannot persist verified state' 70
 else
+  if [ -f "$compatibility_file" ] && [ "$(tr -d '\r\n' < "$compatibility_file")" = "$previous" ]; then previous_strict=false; fi
   git cat-file -e "$previous^{commit}" || fail_state failed_before_deploy 'recorded verified commit is unavailable' 70
   git merge-base --is-ancestor "$previous" "refs/remotes/origin/$branch" || fail_state failed_before_deploy 'recorded verified commit is not on production branch' 70
-  if ! verify_release "$previous" false true; then
+  if ! verify_release "$previous" false "$previous_strict"; then
     event evidence reset true
     event rollback status recovering_interrupted_deploy
     event rollback commit "$previous"
-    restore_release "$previous" true || fail_state rollback_failed 'cannot recover recorded release after an interrupted deployment' 71
+    restore_release "$previous" "$previous_strict" || fail_state rollback_failed 'cannot recover recorded release after an interrupted deployment' 71
     event rollback status rollback_succeeded
     event rollback verifiedCommit "$previous"
   fi
@@ -343,7 +351,7 @@ trap rollback_interrupted 0 1 2 15
 event evidence reset true
 event phase deploy running
 mutation_started=true
-if deploy_release "$requested" && persist_verified "$requested"; then
+if deploy_release "$requested" && persist_verified "$requested" true; then
   transaction_complete=true
   trap - 0 1 2 15
   event phase deploy success
