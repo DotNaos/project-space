@@ -2,7 +2,9 @@ import { resolve } from 'node:path';
 
 import { createLocalProjectSpaceBackend } from './local-project-space-backend';
 import { reconcileProjectServeSessions } from './local-project-cli-client';
+import { createConfiguredMachineConnectionRuntime } from './machine-connection-runtime';
 import { resolveProjectConnectorTargets } from './project-connector-config';
+import { readAndStartAuthenticatedProjectConnectorRuntime } from './project-connector-runtime';
 import { createProjectSpaceServer } from './project-space-http';
 import { startProjectConnectorWebSocket } from './project-connector-websocket';
 
@@ -23,6 +25,8 @@ Environment:
   PROJECT_CONNECTOR_HUBS  Optional comma-separated or JSON hub list for one-off runs.
   CLERK_SECRET_KEY  Clerk secret key for Project Space login.
   PROJECT_SPACE_ALLOWED_EMAILS  Optional comma-separated Clerk email allowlist.
+  PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET  Independent secret for public machine enrollment limits.
+  PROJECT_SPACE_PUBLIC_ORIGIN  Public HTTPS origin used for machine approval links.
   GITHUB_OAUTH_CLIENT_ID  GitHub OAuth app client ID for repository connection.
   PROJECT_SPACE_AUTH_DISABLED=1  Disable login protection for trusted local debugging only.
 
@@ -49,30 +53,54 @@ if (command !== 'serve') {
   process.exit(1);
 }
 
-const port = Number(process.env.PORT ?? process.env.PROJECT_SPACE_PORT ?? 4173);
-const host = process.env.PROJECT_SPACE_HOST ?? '127.0.0.1';
-const staticRoot = resolve(process.cwd(), 'dist/renderer');
-if (resolveProjectConnectorTargets().length > 0) {
-  await reconcileProjectServeSessions();
-}
-const backend = createLocalProjectSpaceBackend();
+const authenticatedRuntime = await readAndStartAuthenticatedProjectConnectorRuntime();
 
-const server = await createProjectSpaceServer({
-  backend,
-  host,
-  port,
-  staticRoot
-});
-const bridge = startProjectConnectorWebSocket({ backend });
+if (authenticatedRuntime) {
+  const runtime = authenticatedRuntime;
+  let stopping = false;
+  function stopAuthenticatedRuntime() {
+    if (stopping) return;
+    stopping = true;
+    try {
+      runtime.close();
+    } finally {
+      process.exit(0);
+    }
+  }
 
-function shutdown() {
-  bridge.close();
-  void server.close().finally(() => {
-    process.exit(0);
+  process.once('SIGINT', stopAuthenticatedRuntime);
+  process.once('SIGTERM', stopAuthenticatedRuntime);
+  console.log('Project Space authenticated machine connector running.');
+} else {
+  const port = Number(process.env.PORT ?? process.env.PROJECT_SPACE_PORT ?? 4173);
+  const host = process.env.PROJECT_SPACE_HOST ?? '127.0.0.1';
+  const staticRoot = resolve(process.cwd(), 'dist/renderer');
+  if (resolveProjectConnectorTargets().length > 0) {
+    await reconcileProjectServeSessions();
+  }
+  const backend = createLocalProjectSpaceBackend();
+  const machineConnectionRuntime = await createConfiguredMachineConnectionRuntime();
+  const server = await createProjectSpaceServer({
+    backend,
+    host,
+    machineConnectionRuntime: machineConnectionRuntime ?? undefined,
+    port,
+    staticRoot
   });
+  const bridge = startProjectConnectorWebSocket({ backend });
+  let stopping = false;
+
+  function shutdown() {
+    if (stopping) return;
+    stopping = true;
+    bridge.close();
+    void server.close().finally(() => {
+      process.exit(0);
+    });
+  }
+
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
+
+  console.log(`Project Space fullstack server running at ${server.origin}`);
 }
-
-process.once('SIGINT', shutdown);
-process.once('SIGTERM', shutdown);
-
-console.log(`Project Space fullstack server running at ${server.origin}`);

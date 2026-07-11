@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import type { Duplex } from 'node:stream';
 import type { IncomingMessage } from 'node:http';
 
@@ -88,6 +88,7 @@ const commandTimeoutMs = 10 * 60_000;
 const defaultCredentialRevalidationIntervalMs = 30_000;
 const sockets = new Map<string, WebSocket>();
 const socketCapabilities = new Map<string, Set<string>>();
+const socketCredentialHashes = new Map<string, Buffer>();
 const pendingCommands = new Map<string, PendingCommand>();
 
 export { registerLocalConnectorDevServerExecutor };
@@ -327,6 +328,21 @@ function handleConnectorResult(machineId: string, message: ConnectorHubMessage) 
 
 export function isConnectorCommandChannelAvailable(machineId: string) {
   return sockets.get(machineId)?.readyState === WebSocket.OPEN;
+}
+
+export function isConnectorCommandChannelAuthenticated(
+  machineId: string,
+  credential: string
+) {
+  if (!credential || credential.length > 4_096 || !isConnectorCommandChannelAvailable(machineId)) {
+    return false;
+  }
+  const registeredHash = socketCredentialHashes.get(machineId);
+  if (!registeredHash) {
+    return false;
+  }
+  const presentedHash = createHash('sha256').update(credential, 'utf8').digest();
+  return timingSafeEqual(registeredHash, presentedHash);
 }
 
 function devServerCapability(operation: ConnectorDevServerOperation) {
@@ -603,6 +619,10 @@ export function createConnectorCommandUpgradeHandler(
           failCommandsForMachine(machineId);
         }
         sockets.set(machineId, socket);
+        socketCredentialHashes.set(
+          machineId,
+          createHash('sha256').update(registrationToken, 'utf8').digest()
+        );
         socketCapabilities.set(
           machineId,
           new Set(message.payload.connector.capabilities ?? [])
@@ -649,6 +669,7 @@ export function createConnectorCommandUpgradeHandler(
       }
       if (machineId && sockets.get(machineId) === socket) {
         sockets.delete(machineId);
+        socketCredentialHashes.delete(machineId);
         socketCapabilities.delete(machineId);
         failCommandsForMachine(machineId);
       }

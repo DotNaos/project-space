@@ -4,7 +4,10 @@ import type {
   DatabaseQueryClient,
   DatabaseQueryResult
 } from '../server/database/client';
-import { createMachineConnectionRuntime } from '../server/machine-connection-runtime';
+import {
+  createConfiguredMachineConnectionRuntime,
+  createMachineConnectionRuntime
+} from '../server/machine-connection-runtime';
 
 class MaintenanceDatabase implements DatabaseQueryClient {
   cleanupCalls: string[] = [];
@@ -67,6 +70,15 @@ function runtimeOptions(databaseClient: MaintenanceDatabase) {
 }
 
 describe('machine connection runtime', () => {
+  test('stays disabled without an explicit public origin and fails closed without a rate secret', async () => {
+    await expect(createConfiguredMachineConnectionRuntime({})).resolves.toBeNull();
+    await expect(
+      createConfiguredMachineConnectionRuntime({
+        PROJECT_SPACE_PUBLIC_ORIGIN: 'https://projects.os-home.net'
+      })
+    ).rejects.toThrow('rate-limit secret is not configured securely');
+  });
+
   test('runs bounded maintenance immediately, periodically, and only once at a time', async () => {
     const database = new MaintenanceDatabase();
     const scheduled = createScheduler();

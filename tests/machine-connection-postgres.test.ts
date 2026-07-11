@@ -6,7 +6,6 @@ import pg from 'pg';
 import { ConnectorCredentialRepository } from '../server/database/connector-credentials';
 import type { DatabaseQueryClient } from '../server/database/client';
 import { databaseMigrations } from '../server/database/migrations';
-import { machineConnectionMigrationSql } from '../server/database/machine-connection-migration';
 import {
   DatabaseMachineConnectionStore,
   type TransactionalDatabaseQueryClient
@@ -114,16 +113,16 @@ describe('machine connection PostgreSQL integration', () => {
           for (const migration of databaseMigrations) {
             await migrationConnection.query(migration.sql);
           }
-          await migrationConnection.query(machineConnectionMigrationSql);
         } finally {
           migrationConnection.release();
         }
 
         const client = transactionalClient(pool);
-        const onlineMachines = new Set<string>();
+        const onlineMachines = new Map<string, string>();
         const store = new DatabaseMachineConnectionStore(client);
         const service = new MachineConnectionService({
-          isMachineOnline: (machineId) => onlineMachines.has(machineId),
+          isMachineOnline: (machineId, credential) =>
+            onlineMachines.get(machineId) === credential,
           now: () => new Date('2026-07-11T12:00:00.000Z'),
           publicOrigin: 'https://projects.os-home.net',
           store
@@ -157,7 +156,7 @@ describe('machine connection PostgreSQL integration', () => {
         ).resolves.toMatchObject({ machineId: second.machineId });
 
         await service.markMachineOnline(second.machineId, second.credential);
-        onlineMachines.add(second.machineId);
+        onlineMachines.set(second.machineId, second.credential);
         await expect(
           service.getConnectionStatus(second.machineId, second.credential)
         ).resolves.toMatchObject({ status: 'online' });

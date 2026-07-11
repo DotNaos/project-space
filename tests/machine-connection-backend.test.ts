@@ -159,11 +159,11 @@ describe("machine connection backend composition", () => {
   test("passes authenticated browser approval and live presence into the service", async () => {
     const database = new CompositionDatabase();
     const authenticatedHeaders: Array<string | undefined> = [];
-    const onlineChecks: string[] = [];
+    const onlineChecks: Array<{ credential: string; machineId: string }> = [];
     const backend = createMachineConnectionBackend(
       backendOptions(database, {
-        isMachineOnline(machineId) {
-          onlineChecks.push(machineId);
+        isMachineOnline(machineId, credential) {
+          onlineChecks.push({ credential, machineId });
           return true;
         },
         async readAuthenticatedUserId(request) {
@@ -199,7 +199,9 @@ describe("machine connection backend composition", () => {
       machineId: "machine-1",
       status: "online",
     });
-    expect(onlineChecks).toEqual(["machine-1"]);
+    expect(onlineChecks).toEqual([
+      { credential: "machine-credential", machineId: "machine-1" },
+    ]);
   });
 
   test("gates request creation through the limiter and delegates bounded cleanup", async () => {

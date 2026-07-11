@@ -4,6 +4,7 @@ import pg from 'pg';
 
 import type { DatabaseQueryClient } from './database/client';
 import { runDatabaseMigrations } from './database/migrations';
+import type { TransactionalDatabaseQueryClient } from './machine-connection-database-store';
 import { PostgresProjectChatRepository } from './project-chat/postgres-store';
 import type {
   AuthenticateConnectorCredentialInput,
@@ -101,7 +102,9 @@ function createQueryClient(queryable: pg.Pool | pg.PoolClient): DatabaseQueryCli
   };
 }
 
-function createPoolQueryClient(databasePool: pg.Pool): DatabaseQueryClient {
+function createPoolQueryClient(
+  databasePool: pg.Pool
+): TransactionalDatabaseQueryClient {
   return {
     ...createQueryClient(databasePool),
     async transaction<Result>(
@@ -212,6 +215,20 @@ export async function getProjectChatRepository() {
   );
 
   return projectChatRepository;
+}
+
+export async function getMachineConnectionDatabaseClient(): Promise<
+  TransactionalDatabaseQueryClient
+> {
+  const databasePool = getPool();
+
+  if (!databasePool) {
+    throw new Error('DATABASE_URL is required to connect machines.');
+  }
+
+  await ensureDatabaseSchema();
+
+  return createPoolQueryClient(databasePool);
 }
 
 export async function readGitHubOAuthToken(

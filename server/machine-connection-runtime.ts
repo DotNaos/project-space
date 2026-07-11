@@ -4,6 +4,16 @@ import {
   createMachineConnectionBackend,
   type MachineConnectionBackendOptions
 } from './machine-connection-backend';
+import { isConnectorCommandChannelAuthenticated } from './connector-command-hub';
+import {
+  readMachineConnectionPublicOrigin,
+  readMachineConnectionRateLimitSecret
+} from './machine-connection-environment';
+import {
+  isProjectSpaceAuthRequired,
+  readAuthSessionFromRequest
+} from './local-auth-store';
+import { getMachineConnectionDatabaseClient } from './local-database-store';
 
 const defaultCleanupIntervalMs = 60 * 60 * 1_000;
 
@@ -19,6 +29,7 @@ export interface MachineConnectionRuntimeOptions extends MachineConnectionBacken
 }
 
 export interface MachineConnectionRuntime {
+  authenticateConnectorCredential(token: string, machineId: string): Promise<boolean>;
   handleRequest(
     request: IncomingMessage,
     response: ServerResponse,
@@ -84,6 +95,7 @@ export function createMachineConnectionRuntime(
   }
 
   return {
+    authenticateConnectorCredential: backend.authenticateConnectorCredential,
     handleRequest: backend.handleRequest,
     runMaintenance,
     start() {
@@ -105,4 +117,28 @@ export function createMachineConnectionRuntime(
       await maintenance;
     }
   };
+}
+
+export async function createConfiguredMachineConnectionRuntime(
+  environment: NodeJS.ProcessEnv = process.env
+) {
+  const publicOrigin = readMachineConnectionPublicOrigin(environment);
+  if (!publicOrigin) {
+    return null;
+  }
+  const rateLimitSecret = readMachineConnectionRateLimitSecret(environment);
+  const databaseClient = await getMachineConnectionDatabaseClient();
+
+  return createMachineConnectionRuntime({
+    databaseClient,
+    isMachineOnline: isConnectorCommandChannelAuthenticated,
+    publicOrigin,
+    rateLimitSecret,
+    async readAuthenticatedUserId(request) {
+      if (!isProjectSpaceAuthRequired()) {
+        return 'local-development-user';
+      }
+      return (await readAuthSessionFromRequest(request))?.userId ?? null;
+    }
+  });
 }

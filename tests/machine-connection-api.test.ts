@@ -16,10 +16,11 @@ afterEach(async () => {
 });
 
 async function startApi(allowCreateRequest = true) {
-  const onlineMachines = new Set<string>();
+  const onlineMachines = new Map<string, string>();
   const store = new MemoryMachineConnectionStore();
   const service = new MachineConnectionService({
-    isMachineOnline: (machineId) => onlineMachines.has(machineId),
+    isMachineOnline: (machineId, credential) =>
+      onlineMachines.get(machineId) === credential,
     publicOrigin: 'https://projects.os-home.net',
     store
   });
@@ -43,8 +44,8 @@ async function startApi(allowCreateRequest = true) {
   const result = {
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
     origin: `http://127.0.0.1:${address.port}`,
-    setOnline(machineId: string, online: boolean) {
-      if (online) onlineMachines.add(machineId);
+    setOnline(machineId: string, credential?: string) {
+      if (credential) onlineMachines.set(machineId, credential);
       else onlineMachines.delete(machineId);
     },
     service
@@ -128,7 +129,7 @@ describe('machine connection API', () => {
     expect(machine.machineName).toBe('os-pc-wsl');
 
     await api.service.markMachineOnline(String(machine.machineId), String(machine.credential));
-    api.setOnline(String(machine.machineId), true);
+    api.setOnline(String(machine.machineId), String(machine.credential));
     const status = await fetch(
       `${api.origin}/api/machines/${machine.machineId}/connection`,
       { headers: { Authorization: `Bearer ${machine.credential}` } }

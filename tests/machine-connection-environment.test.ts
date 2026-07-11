@@ -1,11 +1,37 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  readMachineConnectionPublicOrigin,
   machineConnectionRateLimitSecretEnvironment,
   readMachineConnectionRateLimitSecret
 } from '../server/machine-connection-environment';
 
 describe('machine connection environment', () => {
+  test('requires HTTPS except for an explicit loopback origin', () => {
+    expect(
+      readMachineConnectionPublicOrigin({
+        PROJECT_SPACE_PUBLIC_ORIGIN: 'https://projects.os-home.net'
+      })
+    ).toBe('https://projects.os-home.net');
+    expect(
+      readMachineConnectionPublicOrigin({
+        PROJECT_SPACE_PUBLIC_ORIGIN: 'http://127.0.0.1:4173'
+      })
+    ).toBe('http://127.0.0.1:4173');
+    expect(readMachineConnectionPublicOrigin({})).toBeNull();
+
+    for (const value of [
+      'http://projects.os-home.net',
+      'https://user:password@projects.os-home.net',
+      'https://projects.os-home.net/path',
+      ' https://projects.os-home.net'
+    ]) {
+      expect(() =>
+        readMachineConnectionPublicOrigin({ PROJECT_SPACE_PUBLIC_ORIGIN: value })
+      ).toThrow('not configured securely');
+    }
+  });
+
   test('requires an independent bounded secret and returns a private copy', () => {
     const source = 'a'.repeat(64);
     const environment = {

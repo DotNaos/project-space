@@ -29,7 +29,10 @@ const hostnamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const versionPattern = /^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$/;
 
 interface MachineConnectionServiceOptions {
-  isMachineOnline?: (machineId: string) => boolean | Promise<boolean>;
+  isMachineOnline?: (
+    machineId: string,
+    credential: string,
+  ) => boolean | Promise<boolean>;
   now?: () => Date;
   pollIntervalMs?: number;
   publicOrigin: string;
@@ -98,6 +101,7 @@ function normalizeMetadata(
 export class MachineConnectionService {
   private readonly isMachineOnline: (
     machineId: string,
+    credential: string,
   ) => boolean | Promise<boolean>;
   private readonly now: () => Date;
   private readonly pollIntervalMs: number;
@@ -394,7 +398,8 @@ export class MachineConnectionService {
   ): Promise<MachineConnectionStatusResult> {
     const machine = await this.authenticateMachine(machineId, credential, true);
     const online =
-      !machine.revokedAt && (await this.isMachineOnline(machine.id));
+      !machine.revokedAt &&
+      (await this.isMachineOnline(machine.id, credential));
     return {
       lastSeenAt: machine.lastSeenAt,
       machineId: machine.id,

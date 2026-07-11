@@ -42,7 +42,8 @@ describe('database migrations', () => {
       '0004_connector_credentials',
       '0005_user_project_states',
       '0006_connector_credential_expected_machine',
-      '0007_project_chat'
+      '0007_project_chat',
+      '0008_machine_connections'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -83,6 +84,10 @@ describe('database migrations', () => {
     expect(sql).toContain('project_chat_idempotency_identity_unique');
     expect(sql).toContain('references project_chat_messages (space_id, id)');
     expect(sql).toContain('on delete cascade');
+    expect(sql).toContain('create table machine_identities');
+    expect(sql).toContain('create table machine_connection_requests');
+    expect(sql).toContain('create table machine_connection_rate_events');
+    expect(sql).toContain('machine_identities_current_credential_fk');
   });
 
   test('applies pending migrations once under a transaction and records checksums', async () => {
@@ -103,6 +108,8 @@ describe('database migrations', () => {
     expect(client.calls.some((call) => call.sql === databaseMigrations[3].sql)).toBe(true);
     expect(client.calls.some((call) => call.sql === databaseMigrations[4].sql)).toBe(true);
     expect(client.calls.some((call) => call.sql === databaseMigrations[5].sql)).toBe(true);
+    expect(client.calls.some((call) => call.sql === databaseMigrations[6].sql)).toBe(true);
+    expect(client.calls.some((call) => call.sql === databaseMigrations[7].sql)).toBe(true);
     expect(client.calls.at(-1)?.sql).toBe('commit');
     expect(client.applied).toEqual(
       new Map(

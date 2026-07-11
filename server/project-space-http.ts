@@ -9,6 +9,7 @@ import {
   createMachineTerminalUpgradeHandler,
   createProjectTerminalUpgradeHandler
 } from './machine-terminal-websocket';
+import type { MachineConnectionRuntime } from './machine-connection-runtime';
 import { createProjectSpaceApiHandler } from './project-space-api-handler';
 import {
   createProjectChatRuntime,
@@ -18,9 +19,10 @@ import { writeJson, writeText } from './project-space-http-response';
 import { serveProjectSpaceStatic } from './project-space-static';
 import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
 
-interface ProjectSpaceHttpOptions {
+export interface ProjectSpaceHttpOptions {
   backend?: ProjectSpaceBackend;
   host?: string;
+  machineConnectionRuntime?: MachineConnectionRuntime;
   port?: number;
   projectChatRuntime?: ProjectChatRuntime;
   staticRoot?: string;
@@ -34,7 +36,10 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     ? Promise.resolve(options.projectChatRuntime)
     : createProjectChatRuntime();
   const handleApiRequest = projectChatRuntime.then((runtime) =>
-    createProjectSpaceApiHandler(backend, runtime)
+    createProjectSpaceApiHandler(backend, {
+      machineConnection: options.machineConnectionRuntime,
+      projectChat: runtime
+    })
   );
 
   return async function handleProjectSpaceRequest(
@@ -75,6 +80,7 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   const backend = options.backend ?? createLocalProjectSpaceBackend();
   const authorizedBackend = createAuthorizedProjectSpaceBackend(backend);
   const projectChatRuntime = options.projectChatRuntime ?? await createProjectChatRuntime();
+  const machineConnectionRuntime = options.machineConnectionRuntime;
   const server = createServer(
     createProjectSpaceRequestHandler({
       ...options,
@@ -85,7 +91,15 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   const handleMachineTerminalUpgrade = createMachineTerminalUpgradeHandler(authorizedBackend);
   const handleProjectTerminalUpgrade = createProjectTerminalUpgradeHandler();
   const connectorCommands = createConnectorCommandUpgradeHandler({
-    authenticateConnectorCredential: authenticateConnectorMachineToken
+    async authenticateConnectorCredential(token, machineId) {
+      if (
+        machineConnectionRuntime &&
+        await machineConnectionRuntime.authenticateConnectorCredential(token, machineId)
+      ) {
+        return true;
+      }
+      return authenticateConnectorMachineToken(token, machineId);
+    }
   });
 
   server.on('upgrade', (request, socket, head) => {
@@ -98,8 +112,9 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
     }
   });
 
-  projectChatRuntime.start();
   try {
+    projectChatRuntime.start();
+    machineConnectionRuntime?.start();
     await new Promise<void>((resolveListen, rejectListen) => {
       server.once('error', rejectListen);
       server.listen(options.port ?? 0, host, () => {
@@ -109,6 +124,8 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
     });
   } catch (error) {
     projectChatRuntime.stop();
+    await machineConnectionRuntime?.stop();
+    await connectorCommands.close();
     throw error;
   }
 
@@ -120,6 +137,7 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   return {
     close: async () => {
       projectChatRuntime.stop();
+      await machineConnectionRuntime?.stop();
       await connectorCommands.close();
       await new Promise<void>((resolveClose, rejectClose) => {
         let settled = false;

@@ -19,10 +19,11 @@ function keyPair() {
 
 function setup() {
   let now = new Date("2026-07-11T10:00:00.000Z");
-  const onlineMachines = new Set<string>();
+  const onlineMachines = new Map<string, string>();
   const store = new MemoryMachineConnectionStore();
   const service = new MachineConnectionService({
-    isMachineOnline: (machineId) => onlineMachines.has(machineId),
+    isMachineOnline: (machineId, credential) =>
+      onlineMachines.get(machineId) === credential,
     now: () => now,
     publicOrigin: "https://projects.os-home.net",
     requestLifetimeMs: 600_000,
@@ -33,8 +34,8 @@ function setup() {
       now = new Date(now.getTime() + milliseconds);
     },
     service,
-    setOnline(machineId: string, online: boolean) {
-      if (online) onlineMachines.add(machineId);
+    setOnline(machineId: string, credential?: string) {
+      if (credential) onlineMachines.set(machineId, credential);
       else onlineMachines.delete(machineId);
     },
     store,
@@ -275,13 +276,13 @@ describe("machine connection state machine", () => {
     ).toMatchObject({
       status: "offline",
     });
-    setOnline(machine.machineId, true);
+    setOnline(machine.machineId, machine.credential);
     expect(
       await service.getConnectionStatus(machine.machineId, machine.credential),
     ).toMatchObject({
       status: "online",
     });
-    setOnline(machine.machineId, false);
+    setOnline(machine.machineId);
     expect(
       await service.getConnectionStatus(machine.machineId, machine.credential),
     ).toMatchObject({
