@@ -124,6 +124,75 @@ func TestChatCommandsRequireRegisteredAgentName(t *testing.T) {
 	}
 }
 
+func TestChatNamePersistsHumanNameForCurrentThread(t *testing.T) {
+	store := &projectchat.FileAgentProfileStore{Path: t.TempDir() + "/profiles.json"}
+	client := &fakeProjectChatClient{sendResult: chatTestMessage(1, "hello")}
+	dependencies := chatTestDependencies(client)
+	dependencies.ProfileStore = store
+	dependencies.ProfileProvider = projectchat.AgentProfileProviderFunc(func(context.Context) (projectchat.AgentProfile, error) {
+		return projectchat.AgentProfile{DisplayName: "Environment Name", TaskTitle: "Realtime chat"}, nil
+	})
+
+	nameCommand := newChatCommand(dependencies)
+	nameOutput := &bytes.Buffer{}
+	nameCommand.SetArgs([]string{"name", "Nora"})
+	nameCommand.SetOut(nameOutput)
+	nameCommand.SetErr(&bytes.Buffer{})
+	if err := nameCommand.Execute(); err != nil {
+		t.Fatalf("name command: %v", err)
+	}
+	if !strings.Contains(nameOutput.String(), "Nora") {
+		t.Fatalf("name output = %q", nameOutput.String())
+	}
+
+	sendCommand := newChatCommand(dependencies)
+	sendCommand.SetArgs([]string{"send", "hello"})
+	sendCommand.SetOut(&bytes.Buffer{})
+	sendCommand.SetErr(&bytes.Buffer{})
+	if err := sendCommand.Execute(); err != nil {
+		t.Fatalf("send command: %v", err)
+	}
+	if got := client.lastPresenceProfile(); got.DisplayName != "Nora" || got.TaskTitle != "Realtime chat" {
+		t.Fatalf("stored profile = %#v", got)
+	}
+	stored, err := store.Load(chatTestThreadID)
+	if err != nil {
+		t.Fatalf("load stored profile: %v", err)
+	}
+	if stored.DisplayName != "Nora" || stored.TaskTitle != "" {
+		t.Fatalf("persisted profile = %#v, want durable name without task title", stored)
+	}
+}
+
+func TestChatNameRejectsCodex(t *testing.T) {
+	dependencies := chatTestDependencies(&fakeProjectChatClient{})
+	dependencies.ProfileStore = &projectchat.FileAgentProfileStore{Path: t.TempDir() + "/profiles.json"}
+	command := newChatCommand(dependencies)
+	command.SetArgs([]string{"name", "Codex"})
+	command.SetOut(&bytes.Buffer{})
+	command.SetErr(&bytes.Buffer{})
+
+	if err := command.Execute(); !errors.Is(err, projectchat.ErrInvalidAgentName) {
+		t.Fatalf("Execute() error = %v, want invalid agent name", err)
+	}
+}
+
+func TestChatHelpIncludesAgentManual(t *testing.T) {
+	command := newChatCommand(chatCommandDependencies{})
+	output := &bytes.Buffer{}
+	command.SetArgs([]string{"--help"})
+	command.SetOut(output)
+	command.SetErr(&bytes.Buffer{})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"Agent manual:", "project chat name Nora", "CODEX_THREAD_ID", "Do not use \"Codex\""} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("help does not contain %q:\n%s", expected, output.String())
+		}
+	}
+}
+
 func TestNewChatIdempotencyKeyIsRandomAndHeaderSafe(t *testing.T) {
 	first, err := newChatIdempotencyKey()
 	if err != nil {
@@ -310,6 +379,7 @@ type fakeProjectChatClient struct {
 	beforeAcknowledge func() error
 	joinCalls         int
 	presenceCalls     int
+	presenceProfile   projectchat.AgentProfile
 	presenceError     error
 }
 
@@ -327,12 +397,19 @@ func (client *fakeProjectChatClient) Join(
 func (client *fakeProjectChatClient) UpdatePresence(
 	_ context.Context,
 	_ string,
-	_ projectchat.AgentProfile,
+	profile projectchat.AgentProfile,
 ) error {
 	client.mu.Lock()
 	defer client.mu.Unlock()
 	client.presenceCalls++
+	client.presenceProfile = profile
 	return client.presenceError
+}
+
+func (client *fakeProjectChatClient) lastPresenceProfile() projectchat.AgentProfile {
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	return client.presenceProfile
 }
 
 func (client *fakeProjectChatClient) Send(

@@ -28,6 +28,7 @@ import {
 import { isProjectChatMessageSafe } from '../src/features/project-chat/project-chat-message-safety';
 import {
   createProjectChatClient,
+  projectChatServerEvents,
   ProjectChatRequestError
 } from '../src/api/project-chat-client';
 
@@ -570,6 +571,21 @@ describe('Project Chat client-side secret warning', () => {
 });
 
 describe('Project Chat HTTP client boundary', () => {
+  test('parses fragmented server events while ignoring heartbeats', async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(': keep-alive\n\nid: 1\nevent: mes'));
+        controller.enqueue(encoder.encode('sage\ndata: {"sequence":1}\n\n'));
+        controller.close();
+      }
+    });
+
+    const events = [];
+    for await (const event of projectChatServerEvents(stream)) events.push(event);
+    expect(events).toEqual([{ data: '{"sequence":1}', event: 'message' }]);
+  });
+
   test('uses injected authentication and sends only the typed message request', async () => {
     let capturedBody = '';
     let capturedToken = '';

@@ -181,6 +181,59 @@ function postJson(body: unknown, headers: Record<string, string> = {}): RequestI
 }
 
 describe('Project Chat HTTP endpoint contract', () => {
+  test('streams durable backfill and newly sent messages without polling', async () => {
+    const stored = [{ ...message, id: 'message-7', sequence: 7 }];
+    const { service: baseService } = stubService();
+    const service = {
+      ...baseService,
+      async readMessages(_callContext: ProjectChatContext, input: { afterSequence?: number }) {
+        const afterSequence = input.afterSequence ?? 0;
+        const messages = stored.filter((entry) => entry.sequence > afterSequence);
+        return {
+          afterSequence,
+          channelId: 'general',
+          hasMore: false,
+          latestSequence: stored.at(-1)?.sequence ?? 0,
+          messages,
+          nextSequence: messages.at(-1)?.sequence ?? afterSequence
+        };
+      },
+      async sendMessage() {
+        const sent = { ...message, id: 'message-8', sequence: 8 };
+        stored.push(sent);
+        return sent;
+      }
+    } as unknown as ProjectChatService;
+    const origin = await startApi(service);
+    const controller = new AbortController();
+    const stream = await fetch(
+      `${origin}/api/project-chat/stream?channelId=general&afterSequence=6`,
+      { signal: controller.signal }
+    );
+    expect(stream.status).toBe(200);
+    expect(stream.headers.get('content-type')).toContain('text/event-stream');
+    const reader = stream.body!.getReader();
+    const decoder = new TextDecoder();
+    let received = '';
+    while (!received.includes('id: 7')) {
+      const chunk = await reader.read();
+      received += decoder.decode(chunk.value);
+    }
+
+    await fetch(`${origin}/api/project-chat/messages`, postJson({
+      body: 'Hello agents', channelId: 'general', idempotencyKey: 'live-send-1'
+    }));
+    while (!received.includes('id: 8')) {
+      const chunk = await reader.read();
+      received += decoder.decode(chunk.value);
+    }
+    controller.abort();
+
+    expect(received).toContain('event: message');
+    expect(received.match(/id: 7/g)).toHaveLength(1);
+    expect(received.match(/id: 8/g)).toHaveLength(1);
+  });
+
   test('routes every endpoint, preserves envelopes, and wraps only messages and members', async () => {
     const { calls, service } = stubService();
     let resolverCalls = 0;

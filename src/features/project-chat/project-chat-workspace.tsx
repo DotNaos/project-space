@@ -48,12 +48,10 @@ function connectionStateForFailure(error: unknown): ProjectChatConnectionState {
 
 export function ProjectChatWorkspace({
   client,
-  onOpenThread,
-  pollIntervalMs = 60_000
+  onOpenThread
 }: {
   client: ProjectChatClient;
   onOpenThread?: ProjectChatPageProps['onOpenThread'];
-  pollIntervalMs?: number;
 }) {
   const [channel, setChannel] = useState<ProjectChatChannelRecord>({
     channelId: PROJECT_CHAT_GENERAL_CHANNEL_ID,
@@ -170,16 +168,21 @@ export function ProjectChatWorkspace({
   }, [load]);
 
   useEffect(() => {
-    if (connectionState === 'loading' || connectionState === 'denied') {
+    if (connectionState !== 'ready') {
       return;
     }
-
-    const timer = window.setInterval(
-      () => void (connectionState === 'ready' ? refresh() : load()),
-      pollIntervalMs
-    );
-    return () => window.clearInterval(timer);
-  }, [connectionState, load, pollIntervalMs, refresh]);
+    return client.subscribe({
+      afterSequence: latestSequenceRef.current,
+      channelId: channel.channelId
+    }, (message) => {
+      setMessages((current) => mergeVisibleProjectChatMessages(current, [message]));
+      latestSequenceRef.current = Math.max(latestSequenceRef.current, message.sequence);
+      setConnectionState('ready');
+      setErrorMessage('');
+    }, (error) => {
+      setErrorMessage(error instanceof Error ? error.message : 'Live Project Chat disconnected.');
+    });
+  }, [channel.channelId, client, connectionState]);
 
   async function send(body: string) {
     const result = await client.send({

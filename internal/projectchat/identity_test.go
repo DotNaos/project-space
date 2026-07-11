@@ -51,6 +51,7 @@ func TestEnvironmentAgentProfileProvider(t *testing.T) {
 	}{
 		{name: "missing", values: map[string]string{}, wantError: ErrMissingAgentName},
 		{name: "blank", values: map[string]string{"CODEX_AGENT_NAME": "  "}, wantError: ErrMissingAgentName},
+		{name: "generic Codex", values: map[string]string{"CODEX_AGENT_NAME": "Codex"}, wantError: ErrInvalidAgentName},
 		{
 			name:      "bidi control",
 			values:    map[string]string{"CODEX_AGENT_NAME": "Mira\u202e"},

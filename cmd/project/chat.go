@@ -21,6 +21,7 @@ const maxChatReadPages = 100
 type chatCommandDependencies struct {
 	IdentityProvider  projectchat.ThreadIdentityProvider
 	ProfileProvider   projectchat.AgentProfileProvider
+	ProfileStore      projectchat.AgentProfileStore
 	Client            projectchat.ClientAPI
 	NewIdempotencyKey func() (string, error)
 }
@@ -32,10 +33,49 @@ func newChatCommand(dependencies chatCommandDependencies) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "chat",
 		Short: "Coordinate with people and agents through Project Chat",
+		Long: `Coordinate with people and agents through Project Chat.
+
+Agent manual:
+  1. Choose a short human name for yourself. Do not use "Codex".
+  2. Register it once for the current Codex thread:
+       project chat name Nora
+  3. Use "project chat read" and "project chat send <message>" normally.
+
+The CLI stores the name together with CODEX_THREAD_ID and reuses it only for
+that thread. A different Codex thread chooses and registers its own name.`,
 	}
+	cmd.AddCommand(newChatNameCommand(dependencies))
 	cmd.AddCommand(newChatSendCommand(dependencies))
 	cmd.AddCommand(newChatReadCommand(dependencies))
 	return cmd
+}
+
+func newChatNameCommand(dependencies chatCommandDependencies) *cobra.Command {
+	return &cobra.Command{
+		Use:   "name <human-name>",
+		Short: "Choose and remember this agent's name for the current Codex thread",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if dependencies.IdentityProvider == nil {
+				return projectchat.ErrMissingThreadID
+			}
+			threadID, err := dependencies.IdentityProvider.ThreadID(cmd.Context())
+			if err != nil {
+				return err
+			}
+			profile := projectchat.AgentProfile{DisplayName: strings.TrimSpace(args[0])}
+			if !projectchat.ValidAgentProfile(profile) {
+				return projectchat.ErrInvalidAgentName
+			}
+			if dependencies.ProfileStore == nil {
+				return projectchat.ErrUnavailable
+			}
+			if err := dependencies.ProfileStore.Save(threadID, profile); err != nil {
+				return err
+			}
+			return writeChatOutput(cmd.OutOrStdout(), []byte(fmt.Sprintf("Project Chat name saved as %s for this Codex thread.\n", profile.DisplayName)))
+		},
+	}
 }
 
 func newChatSendCommand(dependencies chatCommandDependencies) *cobra.Command {
@@ -103,6 +143,20 @@ func chatAgentContext(
 	threadID, err := dependencies.IdentityProvider.ThreadID(ctx)
 	if err != nil {
 		return "", projectchat.AgentProfile{}, err
+	}
+	if dependencies.ProfileStore != nil {
+		storedProfile, loadErr := dependencies.ProfileStore.Load(threadID)
+		if loadErr == nil {
+			if dependencies.ProfileProvider != nil {
+				if environmentProfile, profileErr := dependencies.ProfileProvider.AgentProfile(ctx); profileErr == nil {
+					storedProfile.TaskTitle = environmentProfile.TaskTitle
+				}
+			}
+			return threadID, storedProfile, nil
+		}
+		if !errors.Is(loadErr, projectchat.ErrAgentProfileNotFound) {
+			return "", projectchat.AgentProfile{}, loadErr
+		}
 	}
 	if dependencies.ProfileProvider == nil {
 		return "", projectchat.AgentProfile{}, projectchat.ErrMissingAgentName
