@@ -1,11 +1,12 @@
 ## Parallel Codex Work
 
 - Before changing the repository, list the active Codex tasks and inspect any task working in this repository. Identify its issue, branch, worktree, and likely file ownership before choosing where to work.
-- Use one dedicated GitHub issue, branch, and worktree for each non-trivial repository change. Create or confirm the issue before implementation, name the branch after that issue, and place the worktree in the repository's standard worktree directory.
+- Use a dedicated branch and worktree for every repository change. For larger tasks, a GitHub issue is the standard source of scope and naming; small, clearly described changes may use a task-named branch without creating an issue first. Place every worktree in the repository's standard worktree directory.
+- At the start of implementation, the persistent main Codex task runs `project worktree prepare` inside the chosen worktree. It must confirm that `CODEX_THREAD_ID` matches the worktree owner or claim an unowned linked worktree for that task. Subagents work under the main task's claim and must not claim the worktree with their own subagent thread IDs. A side chat without `CODEX_THREAD_ID`, the shared main worktree, or a worktree owned by another task must not be used for implementation.
 - Do not implement changes in the shared `main` worktree when another Codex instance may be active. Treat one worktree as owned by one task; separate Codex tasks must not share it.
 - If the current worktree is dirty, belongs to another task, or contains changes whose ownership is unclear, leave those changes untouched and move the new task to a fresh worktree based on the latest `origin/main`. Do not solve the collision by stashing, committing, resetting, or moving another task's files.
 - Integrate completed work through its dedicated branch and pull request. Reconcile with the latest `main` inside that task's worktree before merging, rather than using the shared worktree as an integration area.
-- Reuse an existing task worktree only when the user explicitly asks to continue that same issue and no other active Codex task owns it.
+- Reuse an existing task worktree when the request continues work owned by the same persistent Codex task; related follow-ups in that task do not need another issue. Never reuse it for a different persistent task.
 
 ## Project Space Deployments
 
