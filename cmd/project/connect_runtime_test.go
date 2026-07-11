@@ -4,10 +4,46 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/DotNaos/project-space/internal/machineconnect"
 )
+
+func TestResolveConnectorBinaryFindsExecutableSibling(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("native Windows connector services are not supported")
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test executable: %v", err)
+	}
+	companion := filepath.Join(filepath.Dir(executable), "project-space-connector")
+	if err := os.WriteFile(companion, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatalf("write sibling connector: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Remove(companion) })
+
+	originalWorkingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("resolve working directory: %v", err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("change working directory: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(originalWorkingDirectory) })
+	t.Setenv("PATH", "")
+
+	resolved, err := resolveConnectorBinary("")
+	if err != nil {
+		t.Fatalf("resolve sibling connector: %v", err)
+	}
+	if resolved != companion {
+		t.Fatalf("resolved connector = %q, want %q", resolved, companion)
+	}
+}
 
 type connectorRunSupervisor struct {
 	runCalls int

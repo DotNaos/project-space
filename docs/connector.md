@@ -41,9 +41,11 @@ bun run build:machine-tools:macos-arm64
 shasum -a 256 dist/project-space-machine-tools-darwin-arm64.tar.gz
 ```
 
-Homebrew, Linux, Windows, and the final `project connect` enrollment flow are
-being handled separately. This installer deliberately covers only the current
-macOS connector needed by this feature.
+The `project` Homebrew formula builds and installs both `project` and the
+`project-space-connector` companion for the current macOS or Linux host. Keeping
+the executables beside each other lets `project connect` start the companion
+without an extra path setting. Native Windows packaging remains separate; use
+the Linux formula inside WSL for the current Windows workflow.
 
 ## Configure the Connector
 
