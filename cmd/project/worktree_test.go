@@ -2,77 +2,121 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/DotNaos/project-space/internal/worktreeownership"
 )
 
-const commandTestThreadID = "019f49e1-cc3d-7243-bc12-75c74c786457"
+const worktreeCommandThread = "019f49e1-cc3d-7243-bc12-75c74c786457"
 
-func TestWorktreePrepareClaimsThenConfirmsCurrentTask(t *testing.T) {
-	worktree := createCommandTestWorktree(t)
-	t.Chdir(worktree)
-	t.Setenv("CODEX_THREAD_ID", commandTestThreadID)
-
-	first := newWorktreeCommand()
-	firstOutput := &bytes.Buffer{}
-	first.SetOut(firstOutput)
-	first.SetArgs([]string{"prepare"})
-	if err := first.Execute(); err != nil {
-		t.Fatalf("first prepare: %v", err)
+func TestWorktreeCommandExposesPrepareAndCheck(t *testing.T) {
+	command := newWorktreeCommand()
+	if _, _, err := command.Find([]string{"prepare"}); err != nil {
+		t.Fatalf("prepare command missing: %v", err)
 	}
-	if !strings.Contains(firstOutput.String(), "Worktree claimed") || !strings.Contains(firstOutput.String(), commandTestThreadID) {
-		t.Fatalf("unexpected first output: %q", firstOutput.String())
-	}
-
-	second := newWorktreeCommand()
-	secondOutput := &bytes.Buffer{}
-	second.SetOut(secondOutput)
-	second.SetArgs([]string{"prepare"})
-	if err := second.Execute(); err != nil {
-		t.Fatalf("second prepare: %v", err)
-	}
-	if !strings.Contains(secondOutput.String(), "Worktree ownership confirmed") {
-		t.Fatalf("unexpected second output: %q", secondOutput.String())
+	if _, _, err := command.Find([]string{"check"}); err != nil {
+		t.Fatalf("check command missing: %v", err)
 	}
 }
 
-func TestWorktreePrepareRejectsSideChat(t *testing.T) {
-	worktree := createCommandTestWorktree(t)
-	t.Chdir(worktree)
-	t.Setenv("CODEX_THREAD_ID", "")
+func TestReadGitHubIssueRequiresOpenIssue(t *testing.T) {
+	oldRunner := runExternalCommand
+	t.Cleanup(func() { runExternalCommand = oldRunner })
+	runExternalCommand = func(_ string, _ []byte, name string, args ...string) (string, error) {
+		if name != "gh" || strings.Join(args, " ") != "issue view 123 --json number,state,title,url" {
+			return "", errors.New("unexpected command")
+		}
+		return `{"number":123,"state":"OPEN","title":"Owned worktrees","url":"https://github.com/example/repo/issues/123"}`, nil
+	}
+
+	issue, err := readGitHubIssue(".", 123)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issue.Number != 123 || issue.Title != "Owned worktrees" {
+		t.Fatalf("unexpected issue: %#v", issue)
+	}
+
+	runExternalCommand = func(_ string, _ []byte, _ string, _ ...string) (string, error) {
+		return `{"number":123,"state":"CLOSED","title":"Owned worktrees","url":"https://github.com/example/repo/issues/123"}`, nil
+	}
+	if _, err := readGitHubIssue(".", 123); err == nil || !strings.Contains(err.Error(), "not open") {
+		t.Fatalf("expected closed issue rejection, got %v", err)
+	}
+}
+
+func TestPrintWorktreeResultAsJSON(t *testing.T) {
+	command := newWorktreeCommand()
+	output := &bytes.Buffer{}
+	command.SetOut(output)
+	err := printWorktreeResult(command, worktreeownership.Result{
+		BaseRef:   "origin/main",
+		Branch:    "task-owned-worktrees",
+		Owner:     "thread-123",
+		Path:      "/projects/.worktrees/repo/task-owned-worktrees",
+		Project:   "repo",
+		Status:    "created",
+		Task:      "owned worktrees",
+		Worktrees: "/projects/.worktrees/repo",
+	}, "", "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), `"ownerThreadId": "thread-123"`) ||
+		!strings.Contains(output.String(), `"status": "created"`) {
+		t.Fatalf("unexpected JSON: %s", output.String())
+	}
+}
+
+func TestPrepareWithoutTaskClaimsCurrentStandardWorktree(t *testing.T) {
+	worktreePath := setupWorktreeCommandRepository(t)
+	t.Chdir(worktreePath)
+	t.Setenv("CODEX_THREAD_ID", worktreeCommandThread)
 
 	command := newWorktreeCommand()
-	command.SetArgs([]string{"prepare"})
-	err := command.Execute()
-	if err == nil || !strings.Contains(err.Error(), "no persistent Codex thread") {
-		t.Fatalf("error = %v, want persistent-thread guidance", err)
+	output := &bytes.Buffer{}
+	command.SetOut(output)
+	command.SetArgs([]string{"prepare", "--format", "json"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), `"status": "claimed"`) ||
+		!strings.Contains(output.String(), `"ownerThreadId": "`+worktreeCommandThread+`"`) {
+		t.Fatalf("unexpected claim output: %s", output.String())
 	}
 }
 
-func createCommandTestWorktree(t *testing.T) string {
+func setupWorktreeCommandRepository(t *testing.T) string {
 	t.Helper()
-	repository := t.TempDir()
-	runCommandGit(t, repository, "init", "--initial-branch=main")
-	runCommandGit(t, repository, "config", "user.email", "codex@example.test")
-	runCommandGit(t, repository, "config", "user.name", "Codex Test")
-	if err := os.WriteFile(filepath.Join(repository, "README.md"), []byte("test\n"), 0o600); err != nil {
-		t.Fatalf("write fixture: %v", err)
+	root := t.TempDir()
+	remote := filepath.Join(root, "remote.git")
+	mainPath := filepath.Join(root, "project-space")
+	runWorktreeCommandGit(t, root, "init", "--bare", "--initial-branch=main", remote)
+	runWorktreeCommandGit(t, root, "clone", remote, mainPath)
+	runWorktreeCommandGit(t, mainPath, "config", "user.email", "codex@example.test")
+	runWorktreeCommandGit(t, mainPath, "config", "user.name", "Codex Test")
+	if err := os.WriteFile(filepath.Join(mainPath, "README.md"), []byte("test\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	runCommandGit(t, repository, "add", "README.md")
-	runCommandGit(t, repository, "commit", "-m", "Initial commit")
-	worktree := filepath.Join(t.TempDir(), "feature-command")
-	runCommandGit(t, repository, "worktree", "add", "-b", "feature-command", worktree)
-	return worktree
+	runWorktreeCommandGit(t, mainPath, "add", "README.md")
+	runWorktreeCommandGit(t, mainPath, "commit", "-m", "Initial commit")
+	runWorktreeCommandGit(t, mainPath, "push", "-u", "origin", "main")
+	runWorktreeCommandGit(t, mainPath, "remote", "set-head", "origin", "main")
+	worktreePath := filepath.Join(root, ".worktrees", "project-space", "task-command-claim")
+	runWorktreeCommandGit(t, mainPath, "worktree", "add", "-b", "task-command-claim", worktreePath, "origin/main")
+	return worktreePath
 }
 
-func runCommandGit(t *testing.T, directory string, args ...string) {
+func runWorktreeCommandGit(t *testing.T, directory string, args ...string) {
 	t.Helper()
-	commandArgs := append([]string{"-C", directory}, args...)
-	output, err := exec.Command("git", commandArgs...).CombinedOutput()
-	if err != nil {
+	command := exec.Command("git", args...)
+	command.Dir = directory
+	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
 	}
 }
