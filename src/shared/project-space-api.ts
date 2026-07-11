@@ -893,6 +893,27 @@ export interface DeployCliStatusReport {
   projectRoot?: string;
 }
 
+export type DeployedEnvironmentVerification =
+  | 'healthy' | 'unhealthy' | 'inconsistent' | 'unavailable';
+
+export interface DeployedEnvironmentStatus {
+  deployedSha?: string;
+  displayName: string;
+  id: string;
+  githubUrl?: string;
+  liveUrl?: string;
+  sourceRef?: string;
+  verification: DeployedEnvironmentVerification;
+  verifiedAt?: string;
+}
+
+export interface DeployedEnvironmentStatusResult {
+  checkedAt: string;
+  environments: DeployedEnvironmentStatus[];
+  repositoryFullName: string;
+  status: 'available' | 'unauthorized' | 'unavailable';
+}
+
 export interface DeploymentRecordSummary {
   appSlug: string;
   createdAt?: string;
@@ -1140,6 +1161,7 @@ export interface ProjectSpaceBackend {
   getCodexStatus(): Promise<CodexStatusResult>;
   getConnectorOverview(): Promise<ConnectorOverviewResult>;
   getConnectorProjectRegistry(): Promise<ConnectorProjectRegistryResult>;
+  getDeployedEnvironmentStatus(repositoryFullName: string): Promise<DeployedEnvironmentStatusResult>;
   runProjectCliCommand(request: ProjectCliCommandRequest): Promise<ProjectCliCommandResult>;
   getTemplateAdherence(request: TemplateAdherenceRequest): Promise<TemplateAdherenceReport>;
   getGitHubCatalog(options?: { forceRefresh?: boolean }): Promise<GitHubCatalogResult>;

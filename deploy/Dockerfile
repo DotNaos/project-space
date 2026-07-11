@@ -17,6 +17,14 @@ COPY --from=deps /workspace/node_modules /workspace/node_modules
 COPY . .
 RUN bun run build
 
+FROM golang:1.24-bookworm AS cli-build
+WORKDIR /workspace
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+RUN CGO_ENABLED=0 go build -trimpath -o /project ./cmd/project
+
 FROM oven/bun:1 AS runner
 
 WORKDIR /workspace
@@ -30,6 +38,7 @@ ENV PROJECT_SPACE_HOST=0.0.0.0
 ENV PROJECT_SPACE_PORT=4173
 
 COPY --from=build /workspace/bin /workspace/bin
+COPY --from=cli-build /project /workspace/bin/project
 COPY --from=build /workspace/dist/renderer /workspace/dist/renderer
 COPY --from=build /workspace/package.json /workspace/package.json
 COPY --from=build /workspace/node_modules /workspace/node_modules
