@@ -29,6 +29,8 @@ type machineConnectionCommandDependencies struct {
 	Workflow  machineconnect.WorkflowOptions
 }
 
+type machineConnectionCommandDependencyFactory func() (machineConnectionCommandDependencies, error)
+
 type connectCommandOptions struct {
 	MachineName string
 	NoOpen      bool
@@ -47,16 +49,26 @@ var projectSpaceMachineBackendURL = defaultConnectorProdHubURL
 var projectMachineClientVersion = "dev"
 
 func newConnectCommand() *cobra.Command {
-	return newConnectCommandWithDependencies(defaultMachineConnectionDependencies())
+	return newConnectCommandWithDependencyFactory(defaultMachineConnectionDependencies)
 }
 
 func newConnectCommandWithDependencies(dependencies machineConnectionCommandDependencies) *cobra.Command {
+	return newConnectCommandWithDependencyFactory(fixedMachineConnectionDependencies(dependencies))
+}
+
+func newConnectCommandWithDependencyFactory(
+	loadDependencies machineConnectionCommandDependencyFactory,
+) *cobra.Command {
 	options := connectCommandOptions{}
 	command := &cobra.Command{
 		Use:   "connect",
 		Short: "Connect this machine to Project Space",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			dependencies, err := loadDependencies()
+			if err != nil {
+				return err
+			}
 			ctx, stopSignals := commandTerminationContext(command.Context())
 			defer stopSignals()
 			hostname, err := dependencies.Hostname()
@@ -136,18 +148,26 @@ func machineConnectionWorkflow(
 	)
 }
 
-func defaultMachineConnectionDependencies() machineConnectionCommandDependencies {
+func fixedMachineConnectionDependencies(
+	dependencies machineConnectionCommandDependencies,
+) machineConnectionCommandDependencyFactory {
+	return func() (machineConnectionCommandDependencies, error) {
+		return dependencies, nil
+	}
+}
+
+func defaultMachineConnectionDependencies() (machineConnectionCommandDependencies, error) {
 	backend, err := machineconnect.NewHTTPBackend(projectSpaceMachineBackendURL, &http.Client{})
 	if err != nil {
-		panic(err)
+		return machineConnectionCommandDependencies{}, fmt.Errorf("configure Project Space backend: %w", err)
 	}
 	store, err := machineconnect.NewDefaultCredentialStore()
 	if err != nil {
-		panic(err)
+		return machineConnectionCommandDependencies{}, fmt.Errorf("configure machine credential store: %w", err)
 	}
 	connector, err := machineconnect.NewServiceConnector(machineconnect.ServiceConnectorOptions{})
 	if err != nil {
-		panic(err)
+		return machineConnectionCommandDependencies{}, fmt.Errorf("configure machine connector service: %w", err)
 	}
 	return machineConnectionCommandDependencies{
 		Backend:   backend,
@@ -160,7 +180,7 @@ func defaultMachineConnectionDependencies() machineConnectionCommandDependencies
 		GOARCH:    runtime.GOARCH,
 		Version:   projectMachineClientVersion,
 		OpenURL:   openMachineApprovalURL,
-	}
+	}, nil
 }
 
 func isHeadlessMachine() bool {

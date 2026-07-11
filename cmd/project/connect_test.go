@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -182,9 +183,62 @@ func TestWSLCanUseTheWindowsBrowserEvenOverSSH(t *testing.T) {
 }
 
 func TestDefaultMachineConnectionDependenciesUsePlatformService(t *testing.T) {
-	dependencies := defaultMachineConnectionDependencies()
+	dependencies, err := defaultMachineConnectionDependencies()
+	if err != nil {
+		t.Fatalf("default dependencies: %v", err)
+	}
 	if _, ok := dependencies.Connector.(*machineconnect.ServiceConnector); !ok {
 		t.Fatalf("default connector = %T, want *machineconnect.ServiceConnector", dependencies.Connector)
+	}
+}
+
+func TestMachineConnectionCommandHelpDoesNotResolveRuntimeDependencies(t *testing.T) {
+	previousBackendURL := projectSpaceMachineBackendURL
+	projectSpaceMachineBackendURL = "://invalid"
+	t.Cleanup(func() {
+		projectSpaceMachineBackendURL = previousBackendURL
+	})
+
+	commands := []struct {
+		name    string
+		command interface {
+			Execute() error
+			SetArgs([]string)
+			SetOut(io.Writer)
+			SetErr(io.Writer)
+		}
+	}{
+		{name: "connect", command: newConnectCommand()},
+		{name: "status", command: newMachineStatusCommand()},
+		{name: "doctor", command: newMachineDoctorCommand()},
+		{name: "disconnect", command: newDisconnectCommand()},
+	}
+
+	for _, candidate := range commands {
+		t.Run(candidate.name, func(t *testing.T) {
+			candidate.command.SetArgs([]string{"--help"})
+			candidate.command.SetOut(&bytes.Buffer{})
+			candidate.command.SetErr(&bytes.Buffer{})
+			if err := candidate.command.Execute(); err != nil {
+				t.Fatalf("help resolved runtime dependencies: %v", err)
+			}
+		})
+	}
+}
+
+func TestMachineConnectionCommandReturnsDependencyErrorWithoutPanicking(t *testing.T) {
+	previousBackendURL := projectSpaceMachineBackendURL
+	projectSpaceMachineBackendURL = "://invalid"
+	t.Cleanup(func() {
+		projectSpaceMachineBackendURL = previousBackendURL
+	})
+
+	command := newConnectCommand()
+	command.SetOut(&bytes.Buffer{})
+	command.SetErr(&bytes.Buffer{})
+	err := command.Execute()
+	if err == nil || !strings.Contains(err.Error(), "configure Project Space backend") {
+		t.Fatalf("dependency error = %v", err)
 	}
 }
 

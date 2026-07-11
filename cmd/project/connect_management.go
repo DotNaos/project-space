@@ -13,16 +13,26 @@ type silentApprovalPresenter struct{}
 func (silentApprovalPresenter) Present(context.Context, string) error { return nil }
 
 func newMachineStatusCommand() *cobra.Command {
-	return newMachineStatusCommandWithDependencies(defaultMachineConnectionDependencies())
+	return newMachineStatusCommandWithDependencyFactory(defaultMachineConnectionDependencies)
 }
 
 func newMachineStatusCommandWithDependencies(dependencies machineConnectionCommandDependencies) *cobra.Command {
+	return newMachineStatusCommandWithDependencyFactory(fixedMachineConnectionDependencies(dependencies))
+}
+
+func newMachineStatusCommandWithDependencyFactory(
+	loadDependencies machineConnectionCommandDependencyFactory,
+) *cobra.Command {
 	jsonOutput := false
 	command := &cobra.Command{
 		Use:   "status",
 		Short: "Show this machine's Project Space connection",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			dependencies, err := loadDependencies()
+			if err != nil {
+				return err
+			}
 			workflow, err := machineConnectionWorkflow(dependencies, silentApprovalPresenter{})
 			if err != nil {
 				return err
@@ -52,16 +62,26 @@ func newMachineStatusCommandWithDependencies(dependencies machineConnectionComma
 }
 
 func newMachineDoctorCommand() *cobra.Command {
-	return newMachineDoctorCommandWithDependencies(defaultMachineConnectionDependencies())
+	return newMachineDoctorCommandWithDependencyFactory(defaultMachineConnectionDependencies)
 }
 
 func newMachineDoctorCommandWithDependencies(dependencies machineConnectionCommandDependencies) *cobra.Command {
+	return newMachineDoctorCommandWithDependencyFactory(fixedMachineConnectionDependencies(dependencies))
+}
+
+func newMachineDoctorCommandWithDependencyFactory(
+	loadDependencies machineConnectionCommandDependencyFactory,
+) *cobra.Command {
 	jsonOutput := false
 	command := &cobra.Command{
 		Use:   "doctor",
 		Short: "Check this machine's Project Space connection",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			dependencies, err := loadDependencies()
+			if err != nil {
+				return err
+			}
 			workflow, err := machineConnectionWorkflow(dependencies, silentApprovalPresenter{})
 			if err != nil {
 				return err
@@ -87,16 +107,26 @@ func newMachineDoctorCommandWithDependencies(dependencies machineConnectionComma
 }
 
 func newDisconnectCommand() *cobra.Command {
-	return newDisconnectCommandWithDependencies(defaultMachineConnectionDependencies())
+	return newDisconnectCommandWithDependencyFactory(defaultMachineConnectionDependencies)
 }
 
 func newDisconnectCommandWithDependencies(dependencies machineConnectionCommandDependencies) *cobra.Command {
+	return newDisconnectCommandWithDependencyFactory(fixedMachineConnectionDependencies(dependencies))
+}
+
+func newDisconnectCommandWithDependencyFactory(
+	loadDependencies machineConnectionCommandDependencyFactory,
+) *cobra.Command {
 	jsonOutput := false
 	command := &cobra.Command{
 		Use:   "disconnect",
 		Short: "Disconnect this machine from Project Space",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			dependencies, err := loadDependencies()
+			if err != nil {
+				return err
+			}
 			ctx, stopSignals := commandTerminationContext(command.Context())
 			defer stopSignals()
 			workflow, err := machineConnectionWorkflow(dependencies, silentApprovalPresenter{})
