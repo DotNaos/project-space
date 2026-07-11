@@ -1,3 +1,12 @@
+## Parallel Codex Work
+
+- Before changing the repository, list the active Codex tasks and inspect any task working in this repository. Identify its issue, branch, worktree, and likely file ownership before choosing where to work.
+- Use one dedicated GitHub issue, branch, and worktree for each non-trivial repository change. Create or confirm the issue before implementation, name the branch after that issue, and place the worktree in the repository's standard worktree directory.
+- Do not implement changes in the shared `main` worktree when another Codex instance may be active. Treat one worktree as owned by one task; separate Codex tasks must not share it.
+- If the current worktree is dirty, belongs to another task, or contains changes whose ownership is unclear, leave those changes untouched and move the new task to a fresh worktree based on the latest `origin/main`. Do not solve the collision by stashing, committing, resetting, or moving another task's files.
+- Integrate completed work through its dedicated branch and pull request. Reconcile with the latest `main` inside that task's worktree before merging, rather than using the shared worktree as an integration area.
+- Reuse an existing task worktree only when the user explicitly asks to continue that same issue and no other active Codex task owns it.
+
 ## Project Space Deployments
 
 - Do not deploy Project Space to Vercel. Vercel is not the production target for this app.
