@@ -33,6 +33,8 @@ describe('production deployment workflow contract', () => {
     expect(workflow).toContain("steps.current-main.outputs.superseded != 'true'");
     expect(workflow).toContain('persist-credentials: false');
     expect(workflow).not.toContain('export-env: true');
+    expect(workflow).toContain('-o "$RUNNER_TEMP/project"');
+    expect(workflow).not.toContain('-o bin/project');
     expect(actionReferences.length).toBeGreaterThanOrEqual(7);
     expect(actionReferences.every((reference) => /^[0-9a-f]{40}$/.test(reference))).toBe(true);
     expect(workflow).toContain('StrictHostKeyChecking yes');

@@ -94,12 +94,12 @@ jobs:
         run: |
           go test ./...
           go vet ./...
-          go build -trimpath -o bin/project ./cmd/project
+          go build -trimpath -o "$RUNNER_TEMP/project" ./cmd/project
 
       - name: Validate the exact deployment plan
         if: steps.current-main.outputs.superseded != 'true'
         run: |
-          ./bin/project deploy --env prod --commit "$REQUESTED_COMMIT" --dry-run --format json > deploy-plan.json
+          "$RUNNER_TEMP/project" deploy --env prod --commit "$REQUESTED_COMMIT" --dry-run --format json > deploy-plan.json
           jq -e --arg sha "$REQUESTED_COMMIT" \
             '.status == "validated" and .buildCommit == $sha and .evidence.mainHeadCommit == $sha' \
             deploy-plan.json >/dev/null
@@ -130,7 +130,7 @@ jobs:
           cache: true
 
       - name: Build the validated Project CLI
-        run: go build -trimpath -o bin/project ./cmd/project
+        run: go build -trimpath -o "$RUNNER_TEMP/project" ./cmd/project
 
       - name: Load deploy-only secrets from 1Password
         id: deploy-secrets
@@ -197,7 +197,7 @@ jobs:
           VITE_CLERK_PUBLISHABLE_KEY: ${{ steps.deploy-secrets.outputs.VITE_CLERK_PUBLISHABLE_KEY }}
         run: |
           set +e
-          ./bin/project deploy \
+          "$RUNNER_TEMP/project" deploy \
             --env prod \
             --host project-space-production \
             --commit "$REQUESTED_COMMIT" \
