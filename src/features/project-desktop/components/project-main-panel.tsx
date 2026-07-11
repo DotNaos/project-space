@@ -181,7 +181,7 @@ export interface ProjectMainPanelProps {
   onOpenSelectedTarget(): void;
   onRefreshProjectDiscovery(): Promise<unknown>;
   onRefreshConnectorOverview(): Promise<ConnectorOverviewResult>;
-  onRefreshGitHubCatalog(): Promise<GitHubCatalogResult>;
+  onRefreshGitHubCatalog(forceRefresh?: boolean): Promise<GitHubCatalogResult>;
   onRefreshProjectWorktrees(): Promise<ProjectWorktreeRecord[]>;
   onSelectLauncherApp(appId: string): void;
   onSelectMachineContext(machineId: string): void;

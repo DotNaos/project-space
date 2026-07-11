@@ -70,7 +70,7 @@ interface ProjectHomeOverviewProps {
   isGitHubRefreshing: boolean;
   mode: 'machines' | 'projects';
   onRefreshConnector(): Promise<ConnectorOverviewResult>;
-  onRefreshGitHubCatalog(): Promise<GitHubCatalogResult>;
+  onRefreshGitHubCatalog(forceRefresh?: boolean): Promise<GitHubCatalogResult>;
   onSelectMachine(machineId: string): void;
   projects: ProjectSpaceRecord[];
   onSelectProject(projectId: string): void;
@@ -138,7 +138,7 @@ export function ProjectHomeOverview({
       const refreshTasks: Promise<unknown>[] = [];
 
       if (mode === 'projects') {
-        refreshTasks.push(onRefreshGitHubCatalog());
+        refreshTasks.push(onRefreshGitHubCatalog(true));
       }
 
       if (includeConnector) {
@@ -177,7 +177,7 @@ export function ProjectHomeOverview({
       }
 
       if (result.status === 'connected') {
-        await onRefreshGitHubCatalog();
+        await onRefreshGitHubCatalog(true);
       }
     } finally {
       setIsConnectingGitHub(false);
@@ -1008,20 +1008,20 @@ export function ProjectHomeOverview({
         </>
       ) : null}
 
-      {mode === 'projects' && !hasRequestedGitHubCatalog ? (
-        <div className="mb-4 flex flex-col gap-3 rounded-lg bg-neutral-950/45 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <Text className="text-sm text-neutral-500">
-            GitHub projects are loaded only when you ask for them.
+      {mode === 'projects' && githubCatalog.cache ? (
+        <div className="mb-3 flex items-center justify-between gap-3 border-b border-neutral-900 pb-3">
+          <Text className="text-xs text-neutral-500">
+            {githubCatalog.cache.state === 'refreshing'
+              ? 'Showing saved projects · Updating in the background…'
+              : githubCatalog.cache.state === 'refresh-failed'
+                ? 'Update failed · Showing the last saved projects'
+                : githubCatalog.cache.lastUpdated
+                  ? `Project catalog updated ${new Date(githubCatalog.cache.lastUpdated).toLocaleString()}`
+                  : 'Project catalog is not cached yet'}
           </Text>
-          <Button
-            className="shrink-0"
-            size="sm"
-            variant="outline"
-            isDisabled={isGitHubRefreshing}
-            onPress={() => void refresh(false)}
-          >
+          <Button size="sm" variant="outline" isDisabled={isGitHubRefreshing} onPress={() => void refresh(false)}>
             <RefreshCw className={isGitHubRefreshing ? 'size-4 animate-spin' : 'size-4'} />
-            Load GitHub projects
+            Refresh
           </Button>
         </div>
       ) : null}

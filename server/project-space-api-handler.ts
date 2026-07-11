@@ -13,6 +13,7 @@ import { writeEmpty, writeJson } from './project-space-http-response';
 import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
 import type { MachineConnectionRuntime } from './machine-connection-runtime';
 import type { ProjectChatRuntime } from './project-chat/runtime';
+import { runWithGitHubCatalogRequestTiming } from './github-catalog-timing';
 
 interface ProjectSpaceApiHandlerOptions {
   machineConnection?: Pick<MachineConnectionRuntime, 'handleRequest'>;
@@ -32,6 +33,7 @@ export function createProjectSpaceApiHandler(
     response: ServerResponse,
     url: URL
   ) {
+    const requestStartedAt = performance.now();
     try {
       if (request.method === 'OPTIONS') {
         writeEmpty(response);
@@ -54,12 +56,13 @@ export function createProjectSpaceApiHandler(
       }
 
       const authSession = await readAuthSessionFromRequest(request);
+      const authMs = performance.now() - requestStartedAt;
       if (isProjectSpaceAuthRequired() && !authSession) {
         writeJson(response, 401, { error: 'Login required.' });
         return true;
       }
 
-      return await runWithAuthSession(authSession, async () => {
+      return await runWithGitHubCatalogRequestTiming({ authMs, requestStartedAt }, () => runWithAuthSession(authSession, async () => {
         if (
           await handleCoreRoute(
             request,
@@ -71,7 +74,7 @@ export function createProjectSpaceApiHandler(
           return true;
         }
         return await handleIntegrationRoute(request, response, url);
-      });
+      }));
     } catch (error) {
       writeJson(response, error instanceof ProjectSpaceAccessError ? error.statusCode : 500, {
         error: error instanceof Error ? error.message : 'Unexpected backend error.'

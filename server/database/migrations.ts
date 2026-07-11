@@ -362,6 +362,24 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
             (role = 'system' and origin is null and avatar_url is null and profile_revision is null)
           );
     `
+  },
+  {
+    id: '0011_github_catalog_cache',
+    sql: `
+      create table if not exists github_catalog_cache (
+        user_id text not null check (btrim(user_id) <> ''),
+        scope text not null check (btrim(scope) <> ''),
+        catalog jsonb not null check (jsonb_typeof(catalog) = 'object'),
+        etag text,
+        last_error text check (last_error is null or char_length(last_error) <= 240),
+        last_refresh_at timestamptz,
+        updated_at timestamptz not null,
+        primary key (user_id, scope)
+      );
+
+      create index if not exists github_catalog_cache_retention_idx
+        on github_catalog_cache (updated_at);
+    `
   }
 ];
 

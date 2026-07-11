@@ -227,8 +227,8 @@ export function createLocalProjectSpaceBackend(
     async getTemplateAdherence(request) {
       return getTemplateAdherence(request);
     },
-    async getGitHubCatalog() {
-      return getGitHubCatalog();
+    async getGitHubCatalog(options) {
+      return getGitHubCatalog(options);
     },
     async createGitHubIssue(request) {
       return createGitHubIssue(request);

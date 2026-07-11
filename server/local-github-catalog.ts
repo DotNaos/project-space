@@ -15,17 +15,20 @@ import type {
   GitHubOAuthDeviceStartResult,
   GitHubPipelineStatusResult,
   GitHubRepositoryDetailsResult,
-  GitHubProjectConfigStatus,
   GitHubWorkflowRunConclusion,
   GitHubWorkflowRunSummary
 } from '../src/shared/project-space-api';
 import { loadRepositoryDevelopmentLinks } from './local-github-development-links';
 import { getCurrentAuthSession, isProjectSpaceAuthRequired } from './local-auth-store';
 import {
+  getMachineConnectionDatabaseClient,
   isDatabaseConfigured,
   readGitHubOAuthToken,
   writeGitHubOAuthToken
 } from './local-database-store';
+import { PostgresGitHubCatalogCacheStore } from './github-catalog-cache-store';
+import { GitHubCatalogService } from './github-catalog-service';
+import { getGitHubCatalogRequestTiming } from './github-catalog-timing';
 
 interface StoredGitHubToken {
   accessToken: string;
@@ -102,7 +105,20 @@ const githubTokenFile = join(projectSpaceDirectory, 'github-oauth.json');
 const githubApiBaseUrl = 'https://api.github.com';
 const githubDeviceCodeUrl = 'https://github.com/login/device/code';
 const githubAccessTokenUrl = 'https://github.com/login/oauth/access_token';
+const githubRequestTimeoutMs = 6_000;
+const catalogRefreshTimeoutMs = 10_000;
+const catalogDatabaseTimeoutMs = 2_000;
 export const githubOAuthClientIdMissingMessage = 'Set GITHUB_OAUTH_CLIENT_ID to enable GitHub OAuth.';
+
+function bounded<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    operation,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    })
+  ]).finally(() => clearTimeout(timer));
+}
 
 export function getGitHubClientId() {
   return (
@@ -153,6 +169,7 @@ export async function requestGitHub<T>(
 ): Promise<T> {
   const response = await fetch(`${githubApiBaseUrl}${path}`, {
     ...init,
+    signal: init.signal ?? AbortSignal.timeout(githubRequestTimeoutMs),
     headers: {
       Accept: 'application/vnd.github+json',
       Authorization: `Bearer ${token}`,
@@ -279,40 +296,40 @@ async function listRepositories(token: string) {
   );
 }
 
-async function fileExists(repo: GitHubApiRepository, fileName: string, token: string) {
-  const branch = repo.default_branch ? `?ref=${encodeURIComponent(repo.default_branch)}` : '';
+async function listRepositoriesConditional(token: string, etag?: string, signal?: AbortSignal) {
   const response = await fetch(
-    `${githubApiBaseUrl}/repos/${repo.full_name}/contents/${fileName}${branch}`,
+    `${githubApiBaseUrl}/user/repos?affiliation=owner,collaborator,organization_member&sort=updated&direction=desc&per_page=100`,
     {
       headers: {
         Accept: 'application/vnd.github+json',
         Authorization: `Bearer ${token}`,
+        ...(etag ? { 'If-None-Match': etag } : {}),
         'X-GitHub-Api-Version': '2022-11-28'
-      }
+      },
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(githubRequestTimeoutMs)]) : AbortSignal.timeout(githubRequestTimeoutMs)
     }
   );
-
-  if (response.status === 404 || response.status === 409) {
-    return false;
-  }
-
-  if (!response.ok) {
-    throw new Error(`GitHub contents request failed with ${response.status}.`);
-  }
-
-  return true;
+  if (response.status === 304) return { etag, notModified: true as const, repositories: [] };
+  if (!response.ok) throw new Error(`GitHub repository request failed with ${response.status}.`);
+  return {
+    etag: response.headers.get('etag') ?? undefined,
+    notModified: false as const,
+    repositories: await response.json() as GitHubApiRepository[]
+  };
 }
 
 async function mapWithConcurrency<T, R>(
   items: T[],
   concurrency: number,
-  mapper: (item: T) => Promise<R>
+  mapper: (item: T) => Promise<R>,
+  signal?: AbortSignal
 ) {
   const results: R[] = [];
   let nextIndex = 0;
 
   async function worker() {
     while (nextIndex < items.length) {
+      if (signal?.aborted) throw signal.reason;
       const index = nextIndex;
       nextIndex += 1;
       results[index] = await mapper(items[index]);
@@ -326,39 +343,7 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
-function projectConfigStatus(
-  projectYaml: boolean,
-  templateLock: boolean
-): GitHubProjectConfigStatus {
-  if (projectYaml && templateLock) {
-    return 'complete';
-  }
-
-  if (projectYaml || templateLock) {
-    return 'partial';
-  }
-
-  return 'missing';
-}
-
-async function toCatalogRepository(
-  repo: GitHubApiRepository,
-  token: string
-): Promise<GitHubCatalogRepository> {
-  let projectYaml = false;
-  let templateLock = false;
-  let status: GitHubProjectConfigStatus = 'missing';
-
-  try {
-    [projectYaml, templateLock] = await Promise.all([
-      fileExists(repo, 'project.yaml', token),
-      fileExists(repo, 'template.lock.yaml', token)
-    ]);
-    status = projectConfigStatus(projectYaml, templateLock);
-  } catch {
-    status = 'unknown';
-  }
-
+function toCatalogRepository(repo: GitHubApiRepository): GitHubCatalogRepository {
   return {
     defaultBranch: repo.default_branch,
     description: repo.description ?? undefined,
@@ -368,9 +353,9 @@ async function toCatalogRepository(
     name: repo.name,
     owner: repo.owner.login,
     projectConfig: {
-      projectYaml,
-      status,
-      templateLock
+      projectYaml: false,
+      status: 'unknown',
+      templateLock: false
     },
     pushedAt: repo.pushed_at ?? undefined,
     updatedAt: repo.updated_at ?? undefined,
@@ -378,26 +363,34 @@ async function toCatalogRepository(
   };
 }
 
-export async function getGitHubCatalog(): Promise<GitHubCatalogResult> {
+async function refreshGitHubCatalog(etag?: string, signal?: AbortSignal) {
+  const startedAt = performance.now();
+  const tokenStartedAt = performance.now();
   const auth = await resolveToken();
+  const tokenLookupMs = performance.now() - tokenStartedAt;
 
   if (!auth) {
-    return createEmptyCatalog(
+    return { catalog: createEmptyCatalog(
       getGitHubClientId() ? 'auth-required' : 'not-configured',
       getGitHubClientId()
         ? 'Connect GitHub to load the remote project catalog.'
         : githubOAuthClientIdMissingMessage
-    );
+    ), timings: { tokenLookupMs, totalMs: performance.now() - startedAt } };
   }
 
   try {
-    const repositories = await mapWithConcurrency(
-      await listRepositories(auth.token),
-      6,
-      (repo) => toCatalogRepository(repo, auth.token)
-    );
+    const githubStartedAt = performance.now();
+    const listed = await listRepositoriesConditional(auth.token, etag, signal);
+    const githubListMs = performance.now() - githubStartedAt;
+    if (listed.notModified) {
+      return { catalog: createEmptyCatalog('connected'), etag: listed.etag, notModified: true, timings: { githubMs: githubListMs, tokenLookupMs, totalMs: performance.now() - startedAt } };
+    }
+    const normalizationStartedAt = performance.now();
+    const repositories = listed.repositories.map(toCatalogRepository);
+    const normalizationMs = performance.now() - normalizationStartedAt;
+    const githubMs = normalizationStartedAt - githubStartedAt;
 
-    return {
+    const catalog = {
       auth: {
         login: auth.login,
         source: auth.source
@@ -405,13 +398,46 @@ export async function getGitHubCatalog(): Promise<GitHubCatalogResult> {
       checkedAt: new Date().toISOString(),
       repositories,
       status: 'connected'
-    };
+    } satisfies GitHubCatalogResult;
+    return { catalog, etag: listed.etag, timings: { githubMs, normalizationMs, tokenLookupMs, totalMs: performance.now() - startedAt } };
   } catch (error) {
-    return createEmptyCatalog(
+    return { catalog: createEmptyCatalog(
       'error',
       error instanceof Error ? error.message : 'Could not load GitHub repositories.'
-    );
+    ), timings: { tokenLookupMs, totalMs: performance.now() - startedAt } };
   }
+}
+
+function refreshGitHubCatalogWithDeadline(etag?: string) {
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new Error('GitHub catalog refresh timed out.')),
+    catalogRefreshTimeoutMs
+  );
+  return refreshGitHubCatalog(etag, controller.signal).finally(() => clearTimeout(timer));
+}
+
+export async function getGitHubCatalog(options: { forceRefresh?: boolean } = {}): Promise<GitHubCatalogResult> {
+  const requestStartedAt = performance.now();
+  const session = getCurrentAuthSession();
+  if (!session || !isDatabaseConfigured()) {
+    const result = await refreshGitHubCatalogWithDeadline();
+    return { ...result.catalog, timings: { ...result.timings, authMs: getGitHubCatalogRequestTiming()?.authMs, totalMs: performance.now() - requestStartedAt } };
+  }
+  const client = await bounded(getMachineConnectionDatabaseClient(), catalogDatabaseTimeoutMs, 'Catalog database timed out.');
+  const postgresStore = new PostgresGitHubCatalogCacheStore(client);
+  const store = {
+    read: (userId: string, scope: string) => bounded(postgresStore.read(userId, scope), catalogDatabaseTimeoutMs, 'Catalog cache read timed out.'),
+    write: (snapshot: Parameters<typeof postgresStore.write>[0]) => bounded(postgresStore.write(snapshot), catalogDatabaseTimeoutMs, 'Catalog cache write timed out.'),
+    markRefreshing: (userId: string, scope: string, attemptedAt: string) => bounded(postgresStore.markRefreshing(userId, scope, attemptedAt), catalogDatabaseTimeoutMs, 'Catalog cache update timed out.'),
+    markFailed: (userId: string, scope: string, message: string, attemptedAt: string) => bounded(postgresStore.markFailed(userId, scope, message, attemptedAt), catalogDatabaseTimeoutMs, 'Catalog cache update timed out.')
+  };
+  const service = new GitHubCatalogService({ refresh: refreshGitHubCatalogWithDeadline, store, userId: session.userId });
+  const result = await service.get(options.forceRefresh);
+  const timing = getGitHubCatalogRequestTiming();
+  const sanitized = { ...result, timings: { ...result.timings, authMs: timing?.authMs, totalMs: timing ? performance.now() - timing.requestStartedAt : performance.now() - requestStartedAt } };
+  console.info(JSON.stringify({ event: 'github_catalog_request', cache: sanitized.cache?.state ?? 'none', status: sanitized.status, timings: sanitized.timings }));
+  return sanitized;
 }
 
 function createEmptyRepositoryDetails(

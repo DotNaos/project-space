@@ -85,7 +85,7 @@ export interface SettingsViewProps {
   connectorOverview: ConnectorOverviewResult;
   githubCatalog: GitHubCatalogResult;
   isGitHubRefreshing: boolean;
-  onRefreshGitHubCatalog(): Promise<GitHubCatalogResult>;
+  onRefreshGitHubCatalog(forceRefresh?: boolean): Promise<GitHubCatalogResult>;
 }
 
 export function SettingsView({
@@ -150,7 +150,7 @@ export function SettingsView({
       }
 
       if (result.status === 'connected') {
-        await onRefreshGitHubCatalog();
+        await onRefreshGitHubCatalog(true);
       }
     } finally {
       setIsConnectingGitHub(false);
@@ -256,7 +256,7 @@ export function SettingsView({
             size="sm"
             variant="outline"
             isDisabled={isGitHubRefreshing}
-            onPress={() => void onRefreshGitHubCatalog()}
+            onPress={() => void onRefreshGitHubCatalog(true)}
           >
             <RefreshCw className={isGitHubRefreshing ? 'size-4 animate-spin' : 'size-4'} />
             Refresh catalog
@@ -268,7 +268,7 @@ export function SettingsView({
             isConnecting={isConnectingGitHub}
             onConnect={() => void connectGitHub()}
             onPoll={() => void pollGitHubLogin()}
-            onRetry={() => void onRefreshGitHubCatalog()}
+            onRetry={() => void onRefreshGitHubCatalog(true)}
           />
         )}
       </SettingsSection>
