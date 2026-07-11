@@ -10,6 +10,10 @@ import type {
   MachineFileSystemFileResult,
   MachineFileSystemRequest,
   MachineFileSystemRootResult,
+  MachineDirectoryCreateRequest,
+  MachineDirectoryDeleteRequest,
+  MachineDirectoryMutationResult,
+  MachineDirectoryRenameRequest,
   MachineProjectWorktreesRequest,
   MachineTerminalCommandRequest,
   ProjectCliCommandRequest,
@@ -71,6 +75,14 @@ export type ConnectorHubMessage =
       id: string;
       payload: MachineFileSystemFileResult;
       type: 'filesystem.file.result';
+    }
+  | {
+      id: string;
+      payload: MachineDirectoryMutationResult;
+      type:
+        | 'filesystem.folder.create.result'
+        | 'filesystem.folder.rename.result'
+        | 'filesystem.folder.delete.result';
     };
 
 export type ConnectorMachineMessage =
@@ -83,7 +95,10 @@ export type ConnectorMachineMessage =
   | { id: string; payload: MachineProjectWorktreesRequest; type: 'worktrees.list' }
   | { id: string; payload: MachineFileSystemRequest; type: 'filesystem.root' }
   | { id: string; payload: MachineFileSystemDirectoryRequest; type: 'filesystem.directory' }
-  | { id: string; payload: MachineFileSystemFileRequest; type: 'filesystem.file' };
+  | { id: string; payload: MachineFileSystemFileRequest; type: 'filesystem.file' }
+  | { id: string; payload: MachineDirectoryCreateRequest; type: 'filesystem.folder.create' }
+  | { id: string; payload: MachineDirectoryRenameRequest; type: 'filesystem.folder.rename' }
+  | { id: string; payload: MachineDirectoryDeleteRequest; type: 'filesystem.folder.delete' };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object';
@@ -173,6 +188,14 @@ function hasFileResult(value: unknown) {
   );
 }
 
+function hasFolderMutationResult(value: unknown) {
+  return (
+    hasStatus(value) &&
+    Array.isArray(value.affectedPaths) &&
+    value.affectedPaths.every((path) => typeof path === 'string')
+  );
+}
+
 export function isConnectorHubMessage(value: unknown): value is ConnectorHubMessage {
   if (!isRecord(value) || typeof value.type !== 'string') {
     return false;
@@ -228,6 +251,13 @@ export function isConnectorHubMessage(value: unknown): value is ConnectorHubMess
       value.payload.entries.every(hasFileSystemEntry)
     );
   }
+  if (
+    value.type === 'filesystem.folder.create.result' ||
+    value.type === 'filesystem.folder.rename.result' ||
+    value.type === 'filesystem.folder.delete.result'
+  ) {
+    return hasCommandId(value) && hasFolderMutationResult(value.payload);
+  }
   return (
     value.type === 'filesystem.file.result' &&
     hasCommandId(value) &&
@@ -276,6 +306,27 @@ export function isConnectorMachineMessage(value: unknown): value is ConnectorMac
   }
   if (value.type === 'filesystem.directory' || value.type === 'filesystem.file') {
     return typeof value.payload.machineId === 'string' && typeof value.payload.path === 'string';
+  }
+  if (value.type === 'filesystem.folder.create') {
+    return (
+      typeof value.payload.machineId === 'string' &&
+      typeof value.payload.parentPath === 'string' &&
+      typeof value.payload.name === 'string'
+    );
+  }
+  if (value.type === 'filesystem.folder.rename') {
+    return (
+      typeof value.payload.machineId === 'string' &&
+      typeof value.payload.path === 'string' &&
+      typeof value.payload.name === 'string'
+    );
+  }
+  if (value.type === 'filesystem.folder.delete') {
+    return (
+      typeof value.payload.machineId === 'string' &&
+      Array.isArray(value.payload.paths) &&
+      value.payload.paths.every((path) => typeof path === 'string')
+    );
   }
   return false;
 }

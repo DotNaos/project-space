@@ -3,125 +3,53 @@ import { FileIcon } from '@dotnaos/react-ui';
 import {
   ArrowLeft,
   ArrowRight,
-  ChevronRight,
   Eye,
   EyeOff,
-  FileText,
   Folder,
   FolderKanban,
   Home,
   Info,
   LoaderCircle,
-  LockKeyhole,
   RotateCw,
   Star
 } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { Button, Surface, Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
-import type {
-  FileSystemEntry,
-  MachineFileSystemDirectoryResult,
-  MachineFileSystemFileResult,
-  MachineRecord
-} from '@/shared/project-space-api';
-import { ExplorerPathSearch } from './explorer-path-search';
+import type { FileSystemEntry, MachineFileSystemDirectoryResult, MachineFileSystemFileResult, MachineRecord } from '@/shared/project-space-api';
+import { formatExplorerFileSize, formatExplorerModifiedDate } from './explorer-file-format';
 import {
-  explorerBreadcrumbs,
+  ExplorerFolderContextMenu,
+  ExplorerFolderDialog,
+  ExplorerFolderToolbar,
+  ExplorerSelectionCheckbox,
+  type ExplorerContextMenuState,
+  type ExplorerFolderDialogState
+} from './explorer-folder-actions';
+import { ExplorerAddressBar } from './explorer-path-search';
+import {
   homePathLabel,
   isHiddenFileSystemName
 } from './machine-explorer-model';
+import { MachineExplorerFileViewer } from './machine-explorer-file-viewer';
 import { ReadOnlyFileTree } from './read-only-file-tree';
 
-function formatBytes(size?: number) {
-  if (size === undefined) {
-    return '—';
-  }
-  if (size < 1024) {
-    return `${size} B`;
-  }
-  if (size < 1024 * 1024) {
-    return `${Math.max(1, Math.round(size / 1024))} KB`;
-  }
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+function pathIsAtOrBelow(path: string, ancestor: string) {
+  const normalizedPath = path.replace(/\/+$/, '');
+  const normalizedAncestor = ancestor.replace(/\/+$/, '');
+  return normalizedPath === normalizedAncestor || normalizedPath.startsWith(`${normalizedAncestor}/`);
 }
 
-function formatModified(value?: string) {
-  if (!value) {
-    return '—';
-  }
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium'
-  }).format(new Date(value));
+function replacePathPrefix(path: string, previousPrefix: string, nextPrefix: string) {
+  return pathIsAtOrBelow(path, previousPrefix)
+    ? `${nextPrefix}${path.slice(previousPrefix.replace(/\/+$/, '').length)}`
+    : path;
 }
 
-function FileViewer({
-  file,
-  homePath,
-  onBack
-}: {
-  file: MachineFileSystemFileResult;
-  homePath: string;
-  onBack(): void;
-}) {
-  const lines = useMemo(() => (file.content ?? '').split('\n'), [file.content]);
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800 px-4 py-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <Button size="sm" variant="ghost" onPress={onBack}>
-            <ArrowLeft className="size-4" />
-            Back
-          </Button>
-          <FileText className="size-4 shrink-0 text-neutral-400" />
-          <div className="min-w-0">
-            <Text className="block truncate text-sm font-semibold text-neutral-100">{file.name}</Text>
-            <Text className="block truncate text-xs text-neutral-500">
-              {formatBytes(file.sizeBytes)} · {formatModified(file.modifiedAt)}
-            </Text>
-          </div>
-        </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onPress={() => void navigator.clipboard?.writeText(homePathLabel(file.path, homePath))}
-        >
-          Copy path
-        </Button>
-      </div>
-
-      {file.status === 'error' ? (
-        <div className="flex flex-1 items-center justify-center px-6 text-center">
-          <div className="max-w-md">
-            <Info className="mx-auto mb-3 size-5 text-amber-300" />
-            <Text className="block text-sm font-medium text-neutral-200">File cannot be displayed</Text>
-            <Text className="mt-1 block text-xs text-neutral-500">
-              {file.message ?? 'This file is unavailable.'}
-            </Text>
-          </div>
-        </div>
-      ) : (
-        <div className="min-h-0 flex-1 overflow-auto bg-black/25 font-mono text-[12px] leading-5">
-          <div className="min-w-max py-3">
-            {lines.map((line, index) => (
-              <div key={`${index}-${line.slice(0, 24)}`} className="flex min-h-5">
-                <span className="w-14 shrink-0 select-none border-r border-neutral-800 pr-3 text-right text-neutral-700">
-                  {index + 1}
-                </span>
-                <span className="whitespace-pre px-4 text-neutral-300">{line || ' '}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="flex items-center justify-between border-t border-neutral-800 px-4 py-2 text-xs text-neutral-500">
-        <span>{file.truncated ? 'Preview truncated at 5,000 lines.' : 'File contents are read-only.'}</span>
-        <span>{lines.length} lines</span>
-      </div>
-    </div>
-  );
+function parentPath(path: string) {
+  const normalized = path.replace(/\/+$/, '');
+  const separator = normalized.lastIndexOf('/');
+  return separator <= 0 ? '/' : normalized.slice(0, separator);
 }
 
 export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
@@ -137,6 +65,11 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
   const [rootMessage, setRootMessage] = useState('');
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [showHidden, setShowHidden] = useState(true);
+  const [selectedFolderPaths, setSelectedFolderPaths] = useState<Set<string>>(() => new Set());
+  const [contextMenu, setContextMenu] = useState<ExplorerContextMenuState>();
+  const [folderDialog, setFolderDialog] = useState<ExplorerFolderDialogState>();
+  const [folderActionBusy, setFolderActionBusy] = useState(false);
+  const [folderActionError, setFolderActionError] = useState('');
 
   const loadDirectory = useCallback(
     (path: string) => projectSpaceClient.readMachineDirectory({ machineId: machine.id, path }),
@@ -149,14 +82,20 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
       ) ?? [],
     [directory?.entries, showHidden]
   );
-  const breadcrumbs = useMemo(
-    () => explorerBreadcrumbs({
-      homePath,
-      path: selectedFile?.path ?? currentPath,
-      selectedFile: Boolean(selectedFile)
-    }),
-    [currentPath, homePath, selectedFile]
+  const displayedFolders = useMemo(
+    () => displayedEntries.filter((entry) => entry.kind === 'directory'),
+    [displayedEntries]
   );
+  const selectedFolders = useMemo(
+    () => displayedFolders.filter((entry) => selectedFolderPaths.has(entry.path)),
+    [displayedFolders, selectedFolderPaths]
+  );
+  const allFoldersSelected = displayedFolders.length > 0 && selectedFolders.length === displayedFolders.length;
+  const contextDeleteEntries = contextMenu && selectedFolderPaths.has(contextMenu.entry.path) && selectedFolders.length > 0
+    ? selectedFolders
+    : contextMenu
+      ? [contextMenu.entry]
+      : [];
 
   const openDirectory = useCallback((path: string, recordHistory = true) => {
     setSelectedFile(undefined);
@@ -169,6 +108,18 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
       });
     }
   }, [historyIndex]);
+  const closeContextMenu = useCallback(() => setContextMenu(undefined), []);
+  const closeFolderDialog = useCallback(() => {
+    if (!folderActionBusy) {
+      setFolderDialog(undefined);
+      setFolderActionError('');
+    }
+  }, [folderActionBusy]);
+
+  useEffect(() => {
+    setSelectedFolderPaths(new Set());
+    setContextMenu(undefined);
+  }, [currentPath, showHidden]);
 
   useEffect(() => {
     let canceled = false;
@@ -257,6 +208,146 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
     setLoading(false);
   }
 
+  function setFolderSelected(path: string, selected: boolean) {
+    setSelectedFolderPaths((current) => {
+      const next = new Set(current);
+      if (selected) {
+        next.add(path);
+      } else {
+        next.delete(path);
+      }
+      return next;
+    });
+  }
+
+  function openFolderContextMenu(entry: FileSystemEntry, clientX: number, clientY: number) {
+    if (entry.kind !== 'directory') {
+      return;
+    }
+    const isDisplayedFolder = displayedFolders.some((folder) => folder.path === entry.path);
+    if (!isDisplayedFolder) {
+      setSelectedFolderPaths(new Set());
+    } else if (!selectedFolderPaths.has(entry.path)) {
+      setSelectedFolderPaths(new Set([entry.path]));
+    }
+    const menuWidth = 208;
+    const menuHeight = 150;
+    setContextMenu({
+      entry,
+      left: Math.max(8, Math.min(clientX, window.innerWidth - menuWidth - 8)),
+      top: Math.max(8, Math.min(clientY, window.innerHeight - menuHeight - 8))
+    });
+  }
+
+  function openCreateDialog(parentPath: string) {
+    setFolderActionError('');
+    setFolderDialog({ kind: 'create', parentPath });
+  }
+
+  function openRenameDialog(entry: FileSystemEntry) {
+    setFolderActionError('');
+    setFolderDialog({ entry, kind: 'rename' });
+  }
+
+  function openDeleteDialog(entries: FileSystemEntry[]) {
+    if (entries.length === 0) {
+      return;
+    }
+    setFolderActionError('');
+    setFolderDialog({ entries, kind: 'delete' });
+  }
+
+  async function createFolder(parentPath: string, name: string) {
+    setFolderActionBusy(true);
+    setFolderActionError('');
+    try {
+      const result = await projectSpaceClient.createMachineDirectory({
+        machineId: machine.id,
+        name,
+        parentPath
+      });
+      if (result.status === 'error') {
+        setFolderActionError(result.message ?? 'The folder could not be created.');
+        return;
+      }
+      setFolderDialog(undefined);
+      setRefreshVersion((value) => value + 1);
+    } catch (error) {
+      setFolderActionError(error instanceof Error ? error.message : 'The folder could not be created.');
+    } finally {
+      setFolderActionBusy(false);
+    }
+  }
+
+  async function renameFolder(entry: FileSystemEntry, name: string) {
+    setFolderActionBusy(true);
+    setFolderActionError('');
+    try {
+      const result = await projectSpaceClient.renameMachineDirectory({
+        machineId: machine.id,
+        name,
+        path: entry.path
+      });
+      if (result.status === 'error') {
+        setFolderActionError(result.message ?? 'The folder could not be renamed.');
+        return;
+      }
+      const renamedPath = result.affectedPaths[0];
+      if (renamedPath && pathIsAtOrBelow(currentPath, entry.path)) {
+        const nextCurrentPath = replacePathPrefix(currentPath, entry.path, renamedPath);
+        setHistory((current) => current.map((path) => replacePathPrefix(path, entry.path, renamedPath)));
+        setSelectedFile(undefined);
+        setCurrentPath(nextCurrentPath);
+      }
+      setFolderDialog(undefined);
+      setSelectedFolderPaths(new Set());
+      setRefreshVersion((value) => value + 1);
+    } catch (error) {
+      setFolderActionError(error instanceof Error ? error.message : 'The folder could not be renamed.');
+    } finally {
+      setFolderActionBusy(false);
+    }
+  }
+
+  async function deleteFolders(entries: FileSystemEntry[]) {
+    setFolderActionBusy(true);
+    setFolderActionError('');
+    try {
+      const result = await projectSpaceClient.deleteMachineDirectories({
+        machineId: machine.id,
+        paths: entries.map((entry) => entry.path)
+      });
+      const deletedPaths = result.affectedPaths;
+      let nextCurrentPath = currentPath;
+      while (deletedPaths.some((path) => pathIsAtOrBelow(nextCurrentPath, path))) {
+        nextCurrentPath = parentPath(nextCurrentPath);
+      }
+      if (nextCurrentPath !== currentPath) {
+        openDirectory(nextCurrentPath);
+      }
+      if (result.status === 'error') {
+        setFolderActionError(result.message ?? 'The selected folders could not be deleted.');
+        if (deletedPaths.length > 0) {
+          const deleted = new Set(deletedPaths);
+          const remainingEntries = entries.filter((entry) => !deleted.has(entry.path));
+          setFolderDialog(remainingEntries.length > 0
+            ? { entries: remainingEntries, kind: 'delete' }
+            : undefined);
+          setSelectedFolderPaths(new Set(remainingEntries.map((entry) => entry.path)));
+          setRefreshVersion((value) => value + 1);
+        }
+        return;
+      }
+      setFolderDialog(undefined);
+      setSelectedFolderPaths(new Set());
+      setRefreshVersion((value) => value + 1);
+    } catch (error) {
+      setFolderActionError(error instanceof Error ? error.message : 'The selected folders could not be deleted.');
+    } finally {
+      setFolderActionBusy(false);
+    }
+  }
+
   function moveHistory(offset: number) {
     const nextIndex = historyIndex + offset;
     const nextPath = history[nextIndex];
@@ -300,7 +391,9 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
           homePath={homePath}
           loadDirectory={loadDirectory}
           onOpenDefault={() => openDirectory(defaultPath)}
+          onOpenContextMenu={openFolderContextMenu}
           onOpenDirectory={openDirectory}
+          refreshVersion={refreshVersion}
           showHidden={showHidden}
         />
         <div className="flex items-center gap-2 border-t border-neutral-800 px-3 py-2 text-[11px] text-neutral-600">
@@ -320,11 +413,14 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
           <Button aria-label="Forward" isDisabled={historyIndex >= history.length - 1} isIconOnly size="sm" variant="ghost" onPress={() => moveHistory(1)}>
             <ArrowRight className="size-4" />
           </Button>
-          <ExplorerPathSearch
+          <ExplorerAddressBar
             currentDirectory={directory}
             currentPath={currentPath}
+            displayPath={selectedFile?.path ?? currentPath}
+            displayPathIsFile={Boolean(selectedFile)}
             homePath={homePath}
             loadDirectory={loadDirectory}
+            onOpenBreadcrumb={openDirectory}
             onOpenEntry={(entry) => void openEntry(entry)}
             onOpenPath={openDirectory}
             onValueChange={setPathInput}
@@ -349,50 +445,31 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
           </Button>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-b border-neutral-800 px-4 py-3">
-          <nav
-            aria-label="Current path"
-            className="flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap text-sm text-neutral-300"
-          >
-            {breadcrumbs.map((breadcrumb, index) => {
-              const isCurrent = index === breadcrumbs.length - 1;
-              const hidden = isHiddenFileSystemName(breadcrumb.label);
-              return (
-                <span key={breadcrumb.path} className="flex shrink-0 items-center gap-1">
-                  {index > 0 ? <ChevronRight className="size-3.5 shrink-0 text-neutral-700" /> : null}
-                  {breadcrumb.isDirectory && !isCurrent ? (
-                    <button
-                      type="button"
-                      title={`Open ${homePathLabel(breadcrumb.path, homePath)}`}
-                      onClick={() => openDirectory(breadcrumb.path)}
-                      className={cn(
-                        'rounded px-1 py-0.5 transition hover:bg-neutral-800 hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-600',
-                        hidden ? 'text-neutral-400' : 'text-neutral-300'
-                      )}
-                    >
-                      {breadcrumb.label}
-                    </button>
-                  ) : (
-                    <span
-                      aria-current={isCurrent ? 'page' : undefined}
-                      className={cn('truncate px-1', hidden ? 'text-neutral-400' : 'text-neutral-200')}
-                    >
-                      {breadcrumb.label}
-                    </span>
-                  )}
-                </span>
-              );
-            })}
-          </nav>
-          <div className="flex shrink-0 items-center gap-2 text-xs text-neutral-500">
-            {loading ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
-            <LockKeyhole className="size-3.5" />
-            Read-only
-          </div>
-        </div>
+        {!selectedFile ? (
+          <ExplorerFolderToolbar
+            allSelected={allFoldersSelected}
+            folderCount={displayedFolders.length}
+            selectedCount={selectedFolders.length}
+            someSelected={selectedFolders.length > 0}
+            onClearSelection={() => setSelectedFolderPaths(new Set())}
+            onDelete={() => openDeleteDialog(selectedFolders)}
+            onNewFolder={() => openCreateDialog(currentPath)}
+            onRename={() => {
+              const selected = selectedFolders[0];
+              if (selected) {
+                openRenameDialog(selected);
+              }
+            }}
+            onToggleAll={(checked) => {
+              setSelectedFolderPaths(checked
+                ? new Set(displayedFolders.map((entry) => entry.path))
+                : new Set());
+            }}
+          />
+        ) : null}
 
         {selectedFile ? (
-          <FileViewer
+          <MachineExplorerFileViewer
             file={selectedFile}
             homePath={homePath}
             onBack={() => {
@@ -424,6 +501,18 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
             <table className="w-full min-w-[42rem] border-collapse text-left text-sm">
               <thead className="sticky top-0 z-10 bg-neutral-950/95 text-xs text-neutral-500 backdrop-blur">
                 <tr className="border-b border-neutral-800">
+                  <th className="w-10 px-3 py-3 text-center font-medium">
+                    <ExplorerSelectionCheckbox
+                      checked={allFoldersSelected}
+                      indeterminate={selectedFolders.length > 0 && !allFoldersSelected}
+                      label={allFoldersSelected ? 'Clear folder selection' : 'Select all folders'}
+                      onChange={(checked) => {
+                        setSelectedFolderPaths(checked
+                          ? new Set(displayedFolders.map((entry) => entry.path))
+                          : new Set());
+                      }}
+                    />
+                  </th>
                   <th className="px-4 py-3 font-medium">Name</th>
                   <th className="w-28 px-4 py-3 font-medium">Project</th>
                   <th className="w-28 px-4 py-3 font-medium">Type</th>
@@ -434,21 +523,51 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
               <tbody>
                 {displayedEntries.map((entry) => {
                   const hidden = isHiddenFileSystemName(entry.name);
+                  const selected = selectedFolderPaths.has(entry.path);
                   return (
                     <tr
+                      aria-selected={entry.kind === 'directory' ? selected : undefined}
                       key={entry.path}
                       tabIndex={0}
-                      onClick={() => void openEntry(entry)}
+                      onClick={(event) => {
+                        if (entry.kind === 'directory' && (event.metaKey || event.ctrlKey)) {
+                          setFolderSelected(entry.path, !selected);
+                          return;
+                        }
+                        void openEntry(entry);
+                      }}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        openFolderContextMenu(entry, event.clientX, event.clientY);
+                      }}
                       onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
+                        if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                          event.preventDefault();
+                          const bounds = event.currentTarget.getBoundingClientRect();
+                          openFolderContextMenu(entry, bounds.left + 36, bounds.top + bounds.height / 2);
+                        } else if (event.key === 'Enter') {
                           void openEntry(entry);
+                        } else if (entry.kind === 'directory' && event.key === ' ') {
+                          event.preventDefault();
+                          setFolderSelected(entry.path, !selected);
                         }
                       }}
                       className={cn(
                         'cursor-pointer border-b border-neutral-800/70 transition hover:bg-neutral-900/70 focus:bg-neutral-900 focus:outline-none',
-                        hidden ? 'text-neutral-400' : 'text-neutral-300'
+                        hidden ? 'text-neutral-400' : 'text-neutral-300',
+                        selected && 'bg-neutral-800/70'
                       )}
                     >
+                      <td className="px-3 py-3 text-center">
+                        {entry.kind === 'directory' ? (
+                          <ExplorerSelectionCheckbox
+                            checked={selected}
+                            label={`Select ${entry.name}`}
+                            onChange={(checked) => setFolderSelected(entry.path, checked)}
+                          />
+                        ) : null}
+                      </td>
                       <td className="px-4 py-3">
                         <div className="flex min-w-0 items-center gap-3">
                           {entry.kind === 'directory' ? (
@@ -482,9 +601,9 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
                       <td className="px-4 py-3 text-xs text-neutral-500">
                         {entry.kind === 'directory' ? 'Folder' : 'File'}
                       </td>
-                      <td className="px-4 py-3 text-xs text-neutral-500">{formatModified(entry.modifiedAt)}</td>
+                      <td className="px-4 py-3 text-xs text-neutral-500">{formatExplorerModifiedDate(entry.modifiedAt)}</td>
                       <td className="px-4 py-3 text-right font-mono text-xs text-neutral-600">
-                        {entry.kind === 'file' ? formatBytes(entry.sizeBytes) : '—'}
+                        {entry.kind === 'file' ? formatExplorerFileSize(entry.sizeBytes) : '—'}
                       </td>
                     </tr>
                   );
@@ -496,9 +615,28 @@ export function MachineExplorerPanel({ machine }: { machine: MachineRecord }) {
 
         <div className="flex items-center justify-between border-t border-neutral-800 px-4 py-2 text-[11px] text-neutral-600">
           <span>{displayedEntries.length} items</span>
-          <span className="flex items-center gap-1.5"><LockKeyhole className="size-3" /> Read-only</span>
+          <span>Files are read-only</span>
         </div>
       </div>
+
+      <ExplorerFolderContextMenu
+        deleteEntries={contextDeleteEntries}
+        menu={contextMenu}
+        onClose={closeContextMenu}
+        onCreate={openCreateDialog}
+        onDelete={openDeleteDialog}
+        onRename={openRenameDialog}
+      />
+      <ExplorerFolderDialog
+        busy={folderActionBusy}
+        dialog={folderDialog}
+        error={folderActionError}
+        homePath={homePath}
+        onCancel={closeFolderDialog}
+        onCreate={(parentPath, name) => void createFolder(parentPath, name)}
+        onDelete={(entries) => void deleteFolders(entries)}
+        onRename={(entry, name) => void renameFolder(entry, name)}
+      />
     </Surface>
   );
 }

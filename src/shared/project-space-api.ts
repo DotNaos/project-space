@@ -230,6 +230,35 @@ export interface MachineFileSystemFileRequest extends MachineFileSystemRequest {
   path: string;
 }
 
+export interface MachineDirectoryCreateRequest extends MachineFileSystemRequest {
+  name: string;
+  parentPath: string;
+}
+
+export interface MachineDirectoryRenameRequest extends MachineFileSystemRequest {
+  name: string;
+  path: string;
+}
+
+export interface MachineDirectoryDeleteRequest extends MachineFileSystemRequest {
+  paths: string[];
+}
+
+export type MachineDirectoryMutationErrorCode =
+  | MachineFileSystemErrorCode
+  | 'already-exists'
+  | 'invalid-name'
+  | 'not-directory'
+  | 'protected'
+  | 'symlink';
+
+export interface MachineDirectoryMutationResult {
+  affectedPaths: string[];
+  errorCode?: MachineDirectoryMutationErrorCode;
+  message?: string;
+  status: 'success' | 'error';
+}
+
 export interface MachineFileSystemRootResult {
   defaultPath: string;
   homePath: string;
@@ -1139,6 +1168,15 @@ export interface ProjectSpaceBackend {
   readMachineFile(
     request: MachineFileSystemFileRequest
   ): Promise<MachineFileSystemFileResult>;
+  createMachineDirectory(
+    request: MachineDirectoryCreateRequest
+  ): Promise<MachineDirectoryMutationResult>;
+  renameMachineDirectory(
+    request: MachineDirectoryRenameRequest
+  ): Promise<MachineDirectoryMutationResult>;
+  deleteMachineDirectories(
+    request: MachineDirectoryDeleteRequest
+  ): Promise<MachineDirectoryMutationResult>;
   runTerminalCommand(request: TerminalCommandRequest): Promise<TerminalCommandResult>;
   runMachineTerminalCommand(request: MachineTerminalCommandRequest): Promise<TerminalCommandResult>;
   saveProjectsState(state: ProjectsState): Promise<void>;

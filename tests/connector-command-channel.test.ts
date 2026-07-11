@@ -4,6 +4,9 @@ import {
   requestConnectorDirectory,
   requestConnectorFile,
   requestConnectorFileSystemRoot,
+  requestConnectorFolderCreate,
+  requestConnectorFolderDelete,
+  requestConnectorFolderRename,
   requestConnectorModels,
   requestConnectorProjectWorktrees,
   requestConnectorTerminalCommand,
@@ -62,6 +65,13 @@ describe('connector command channel', () => {
       })
     ).toBe(false);
     expect(
+      isConnectorMachineMessage({
+        id: 'bad-folder-delete',
+        payload: { machineId: 'test-machine', paths: ['/tmp/folder', 42] },
+        type: 'filesystem.folder.delete'
+      })
+    ).toBe(false);
+    expect(
       isConnectorHubMessage({
         checkedAt: new Date().toISOString(),
         payload: {
@@ -109,6 +119,9 @@ describe('connector command channel', () => {
         capabilities: [
           'filesystem.directory',
           'filesystem.file',
+          'filesystem.folder.create',
+          'filesystem.folder.delete',
+          'filesystem.folder.rename',
           'filesystem.root',
           'terminal.run',
           'worktrees.list'
@@ -189,6 +202,15 @@ describe('connector command channel', () => {
           path: request.path,
           status: 'success' as const
         };
+      },
+      async createMachineDirectory(request) {
+        return { affectedPaths: [`${request.parentPath}/${request.name}`], status: 'success' as const };
+      },
+      async renameMachineDirectory(request) {
+        return { affectedPaths: [`/tmp/${request.name}`], status: 'success' as const };
+      },
+      async deleteMachineDirectories(request) {
+        return { affectedPaths: request.paths, status: 'success' as const };
       }
     } as Pick<
       ProjectSpaceBackend,
@@ -200,6 +222,9 @@ describe('connector command channel', () => {
       | 'getMachineFileSystemRoot'
       | 'readMachineDirectory'
       | 'readMachineFile'
+      | 'createMachineDirectory'
+      | 'renameMachineDirectory'
+      | 'deleteMachineDirectories'
     > as ProjectSpaceBackend;
 
     const hubBackend = createLocalProjectSpaceBackend();
@@ -261,6 +286,26 @@ describe('connector command channel', () => {
       });
       expect(file.content).toBe('hello');
 
+      const created = await requestConnectorFolderCreate({
+        machineId: 'test-machine',
+        name: 'created',
+        parentPath: '/tmp'
+      });
+      expect(created.affectedPaths).toEqual(['/tmp/created']);
+
+      const renamed = await requestConnectorFolderRename({
+        machineId: 'test-machine',
+        name: 'renamed',
+        path: '/tmp/created'
+      });
+      expect(renamed.affectedPaths).toEqual(['/tmp/renamed']);
+
+      const deleted = await requestConnectorFolderDelete({
+        machineId: 'test-machine',
+        paths: ['/tmp/renamed', '/tmp/second']
+      });
+      expect(deleted.affectedPaths).toEqual(['/tmp/renamed', '/tmp/second']);
+
       const routedTerminal = await hubBackend.runMachineTerminalCommand({
         command: 'pwd',
         machineId: 'test-machine'
@@ -281,6 +326,12 @@ describe('connector command channel', () => {
         ['repo', true],
         ['note.txt', undefined]
       ]);
+
+      const routedDelete = await hubBackend.deleteMachineDirectories({
+        machineId: 'test-machine',
+        paths: ['/tmp/renamed']
+      });
+      expect(routedDelete.affectedPaths).toEqual(['/tmp/renamed']);
     } finally {
       await server.close();
       bridge.close();

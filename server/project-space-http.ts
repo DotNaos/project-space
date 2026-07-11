@@ -44,6 +44,9 @@ import type {
   MachineFileSystemDirectoryRequest,
   MachineFileSystemFileRequest,
   MachineFileSystemRequest,
+  MachineDirectoryCreateRequest,
+  MachineDirectoryDeleteRequest,
+  MachineDirectoryRenameRequest,
   ProjectDeployRequest,
   ProjectDirectorySelection,
   ProjectSpaceBackend,
@@ -449,6 +452,24 @@ function createApiHandler(backend: ProjectSpaceBackend) {
       if (request.method === 'POST' && url.pathname === '/api/machines/filesystem/file') {
         const payload = await readJson<MachineFileSystemFileRequest>(request);
         writeJson(response, 200, await backend.readMachineFile(payload));
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/machines/filesystem/folders/create') {
+        const payload = await readJson<MachineDirectoryCreateRequest>(request);
+        writeJson(response, 200, await backend.createMachineDirectory(payload));
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/machines/filesystem/folders/rename') {
+        const payload = await readJson<MachineDirectoryRenameRequest>(request);
+        writeJson(response, 200, await backend.renameMachineDirectory(payload));
+        return true;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/machines/filesystem/folders/delete') {
+        const payload = await readJson<MachineDirectoryDeleteRequest>(request);
+        writeJson(response, 200, await backend.deleteMachineDirectories(payload));
         return true;
       }
 
