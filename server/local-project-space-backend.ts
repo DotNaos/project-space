@@ -15,6 +15,9 @@ import {
 import {
   requestConnectorDirectory,
   requestConnectorFile,
+  requestConnectorFolderCreate,
+  requestConnectorFolderDelete,
+  requestConnectorFolderRename,
   requestConnectorFileSystemRoot,
   requestConnectorModels,
   requestConnectorProjectWorktrees,
@@ -59,7 +62,13 @@ import {
   openPathInApp
 } from './local-launcher-apps';
 import { getConnectorOverview } from './local-machine-registry';
-import { readHomeDirectory, readHomeFile } from './machine-filesystem';
+import {
+  createHomeFolder,
+  deleteHomeFolders,
+  readHomeDirectory,
+  readHomeFile,
+  renameHomeFolder
+} from './machine-filesystem';
 import { runProjectCliCommand } from './local-project-cli-client';
 import { getTemplateAdherence } from './local-template-adherence';
 import {
@@ -111,6 +120,9 @@ const execFileAsync = promisify(execFile);
 const connectorCommandCapabilities = [
   'filesystem.directory',
   'filesystem.file',
+  'filesystem.folder.create',
+  'filesystem.folder.delete',
+  'filesystem.folder.rename',
   'filesystem.root',
   'terminal.run',
   'worktrees.list'
@@ -1298,6 +1310,60 @@ export function createLocalProjectSpaceBackend(
           path: request.path,
           status: 'error'
         };
+      }
+    },
+    async createMachineDirectory(request) {
+      const overview = await loadMergedConnectorOverview();
+      const machine = overview.machines.find((entry) => entry.id === request.machineId);
+      if (!machine) {
+        return { affectedPaths: [], errorCode: 'disconnected', message: 'This machine is not in the connector registry.', status: 'error' };
+      }
+      if (machine.connector.status === 'local' || machine.kind === 'local') {
+        return createHomeFolder(request.parentPath, request.name);
+      }
+      if (machine.connector.status !== 'online' || machine.sourcePath !== 'connector-hub') {
+        return { affectedPaths: [], errorCode: 'disconnected', message: `${machine.name} is ${machine.connector.status}.`, status: 'error' };
+      }
+      try {
+        return await requestConnectorFolderCreate(request);
+      } catch (error) {
+        return { affectedPaths: [], errorCode: 'disconnected', message: error instanceof Error ? error.message : 'The machine connector is not available right now.', status: 'error' };
+      }
+    },
+    async renameMachineDirectory(request) {
+      const overview = await loadMergedConnectorOverview();
+      const machine = overview.machines.find((entry) => entry.id === request.machineId);
+      if (!machine) {
+        return { affectedPaths: [], errorCode: 'disconnected', message: 'This machine is not in the connector registry.', status: 'error' };
+      }
+      if (machine.connector.status === 'local' || machine.kind === 'local') {
+        return renameHomeFolder(request.path, request.name);
+      }
+      if (machine.connector.status !== 'online' || machine.sourcePath !== 'connector-hub') {
+        return { affectedPaths: [], errorCode: 'disconnected', message: `${machine.name} is ${machine.connector.status}.`, status: 'error' };
+      }
+      try {
+        return await requestConnectorFolderRename(request);
+      } catch (error) {
+        return { affectedPaths: [], errorCode: 'disconnected', message: error instanceof Error ? error.message : 'The machine connector is not available right now.', status: 'error' };
+      }
+    },
+    async deleteMachineDirectories(request) {
+      const overview = await loadMergedConnectorOverview();
+      const machine = overview.machines.find((entry) => entry.id === request.machineId);
+      if (!machine) {
+        return { affectedPaths: [], errorCode: 'disconnected', message: 'This machine is not in the connector registry.', status: 'error' };
+      }
+      if (machine.connector.status === 'local' || machine.kind === 'local') {
+        return deleteHomeFolders(request.paths);
+      }
+      if (machine.connector.status !== 'online' || machine.sourcePath !== 'connector-hub') {
+        return { affectedPaths: [], errorCode: 'disconnected', message: `${machine.name} is ${machine.connector.status}.`, status: 'error' };
+      }
+      try {
+        return await requestConnectorFolderDelete(request);
+      } catch (error) {
+        return { affectedPaths: [], errorCode: 'disconnected', message: error instanceof Error ? error.message : 'The machine connector is not available right now.', status: 'error' };
       }
     },
     async runTerminalCommand(request) {

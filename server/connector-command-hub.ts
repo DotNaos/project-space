@@ -22,6 +22,10 @@ import type {
   MachineFileSystemFileResult,
   MachineFileSystemRequest,
   MachineFileSystemRootResult,
+  MachineDirectoryCreateRequest,
+  MachineDirectoryDeleteRequest,
+  MachineDirectoryMutationResult,
+  MachineDirectoryRenameRequest,
   MachineProjectWorktreesRequest,
   MachineTerminalCommandRequest,
   ProjectWorktreeRecord,
@@ -33,11 +37,12 @@ type ConnectorCommandResult =
   | MachineFileSystemDirectoryResult
   | MachineFileSystemFileResult
   | MachineFileSystemRootResult
+  | MachineDirectoryMutationResult
   | ProjectWorktreeRecord[]
   | TerminalCommandResult;
 
 interface PendingCommand {
-  kind: 'chat' | 'filesystem-directory' | 'filesystem-file' | 'filesystem-root' | 'models' | 'terminal' | 'worktrees';
+  kind: 'chat' | 'filesystem-directory' | 'filesystem-file' | 'filesystem-root' | 'folder-create' | 'folder-delete' | 'folder-rename' | 'models' | 'terminal' | 'worktrees';
   machineId: string;
   onChatEvent?: (event: CodexChatStreamEvent) => void;
   reject(error: Error): void;
@@ -203,6 +208,24 @@ function handleConnectorResult(machineId: string, message: ConnectorHubMessage) 
     }
     return;
   }
+  if (message.type === 'filesystem.folder.create.result') {
+    if (pendingCommands.get(message.id)?.kind === 'folder-create') {
+      finishPending(message.id, message.payload);
+    }
+    return;
+  }
+  if (message.type === 'filesystem.folder.rename.result') {
+    if (pendingCommands.get(message.id)?.kind === 'folder-rename') {
+      finishPending(message.id, message.payload);
+    }
+    return;
+  }
+  if (message.type === 'filesystem.folder.delete.result') {
+    if (pendingCommands.get(message.id)?.kind === 'folder-delete') {
+      finishPending(message.id, message.payload);
+    }
+    return;
+  }
 
   if (message.type === 'codex.chat.complete') {
     finishPending(message.id);
@@ -285,6 +308,36 @@ export async function requestConnectorFile(
   const result = createPendingCommand(id, request.machineId, 'filesystem-file');
   sendJson(socket, { id, payload: request, type: 'filesystem.file' });
   return (await result) as MachineFileSystemFileResult;
+}
+
+export async function requestConnectorFolderCreate(
+  request: MachineDirectoryCreateRequest
+): Promise<MachineDirectoryMutationResult> {
+  const socket = socketForMachine(request.machineId, 'filesystem.folder.create');
+  const id = commandId();
+  const result = createPendingCommand(id, request.machineId, 'folder-create');
+  sendJson(socket, { id, payload: request, type: 'filesystem.folder.create' });
+  return (await result) as MachineDirectoryMutationResult;
+}
+
+export async function requestConnectorFolderRename(
+  request: MachineDirectoryRenameRequest
+): Promise<MachineDirectoryMutationResult> {
+  const socket = socketForMachine(request.machineId, 'filesystem.folder.rename');
+  const id = commandId();
+  const result = createPendingCommand(id, request.machineId, 'folder-rename');
+  sendJson(socket, { id, payload: request, type: 'filesystem.folder.rename' });
+  return (await result) as MachineDirectoryMutationResult;
+}
+
+export async function requestConnectorFolderDelete(
+  request: MachineDirectoryDeleteRequest
+): Promise<MachineDirectoryMutationResult> {
+  const socket = socketForMachine(request.machineId, 'filesystem.folder.delete');
+  const id = commandId();
+  const result = createPendingCommand(id, request.machineId, 'folder-delete');
+  sendJson(socket, { id, payload: request, type: 'filesystem.folder.delete' });
+  return (await result) as MachineDirectoryMutationResult;
 }
 
 export async function streamConnectorCodexChat(

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { createLocalProjectSpaceBackend } from '../server/local-project-space-backend';
 
 const testDirectories: string[] = [];
@@ -101,5 +101,82 @@ describe('machine filesystem', () => {
       path: join(directory, 'outside-link')
     });
     expect(symlinkEscape.errorCode).toBe('outside-home');
+  });
+
+  test('creates, renames, and batch deletes folders inside home', async () => {
+    const directory = await mkdtemp(join(homedir(), '.project-space-explorer-test-'));
+    testDirectories.push(directory);
+    const { backend, machineId } = await localMachineId();
+
+    const created = await backend.createMachineDirectory({
+      machineId,
+      name: 'created',
+      parentPath: directory
+    });
+    expect(created).toEqual({ affectedPaths: [join(directory, 'created')], status: 'success' });
+
+    const renamed = await backend.renameMachineDirectory({
+      machineId,
+      name: 'renamed',
+      path: join(directory, 'created')
+    });
+    expect(renamed).toEqual({ affectedPaths: [join(directory, 'renamed')], status: 'success' });
+
+    await mkdir(join(directory, 'second'));
+    const deleted = await backend.deleteMachineDirectories({
+      machineId,
+      paths: [join(directory, 'renamed'), join(directory, 'second')]
+    });
+    expect(deleted.status).toBe('success');
+    await expect(access(join(directory, 'renamed'))).rejects.toThrow();
+    await expect(access(join(directory, 'second'))).rejects.toThrow();
+  });
+
+  test('rejects unsafe folder mutations without changing valid folders', async () => {
+    const directory = await mkdtemp(join(homedir(), '.project-space-explorer-test-'));
+    testDirectories.push(directory);
+    await mkdir(join(directory, 'existing'));
+    await mkdir(join(directory, 'keep'));
+    await writeFile(join(directory, 'file.txt'), 'not a folder');
+    await symlink(join(directory, 'existing'), join(directory, 'folder-link'));
+    const { backend, machineId } = await localMachineId();
+
+    const invalidName = await backend.createMachineDirectory({
+      machineId,
+      name: '../escape',
+      parentPath: directory
+    });
+    expect(invalidName.errorCode).toBe('invalid-name');
+
+    const createOverwrite = await backend.createMachineDirectory({
+      machineId,
+      name: 'existing',
+      parentPath: directory
+    });
+    expect(createOverwrite.errorCode).toBe('already-exists');
+
+    const renameOverwrite = await backend.renameMachineDirectory({
+      machineId,
+      name: 'existing',
+      path: join(directory, 'keep')
+    });
+    expect(renameOverwrite.errorCode).toBe('already-exists');
+
+    const fileRename = await backend.renameMachineDirectory({
+      machineId,
+      name: 'other.txt',
+      path: join(directory, 'file.txt')
+    });
+    expect(fileRename.errorCode).toBe('not-directory');
+
+    const symlinkDelete = await backend.deleteMachineDirectories({
+      machineId,
+      paths: [join(directory, 'keep'), join(directory, 'folder-link')]
+    });
+    expect(symlinkDelete.errorCode).toBe('symlink');
+    await access(join(directory, 'keep'));
+
+    const homeDelete = await backend.deleteMachineDirectories({ machineId, paths: [homedir()] });
+    expect(homeDelete.errorCode).toBe('protected');
   });
 });

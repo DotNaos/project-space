@@ -42,6 +42,10 @@ import type {
   MachineFileSystemFileResult,
   MachineFileSystemRequest,
   MachineFileSystemRootResult,
+  MachineDirectoryCreateRequest,
+  MachineDirectoryDeleteRequest,
+  MachineDirectoryMutationResult,
+  MachineDirectoryRenameRequest,
   MachineTerminalCommandRequest,
   OpenPathInAppRequest,
   OpenPathInAppResult,
@@ -476,6 +480,33 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     request: MachineFileSystemFileRequest
   ): Promise<MachineFileSystemFileResult> {
     return this.request('/api/machines/filesystem/file', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  createMachineDirectory(
+    request: MachineDirectoryCreateRequest
+  ): Promise<MachineDirectoryMutationResult> {
+    return this.request('/api/machines/filesystem/folders/create', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  renameMachineDirectory(
+    request: MachineDirectoryRenameRequest
+  ): Promise<MachineDirectoryMutationResult> {
+    return this.request('/api/machines/filesystem/folders/rename', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  deleteMachineDirectories(
+    request: MachineDirectoryDeleteRequest
+  ): Promise<MachineDirectoryMutationResult> {
+    return this.request('/api/machines/filesystem/folders/delete', {
       body: JSON.stringify(request),
       method: 'POST'
     });

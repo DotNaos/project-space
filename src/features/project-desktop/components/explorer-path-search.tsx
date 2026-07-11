@@ -1,6 +1,21 @@
-import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type MouseEvent
+} from 'react';
 import { FileIcon } from '@dotnaos/react-ui';
-import { ArrowRight, Folder, FolderKanban, LoaderCircle, Search } from 'lucide-react';
+import {
+  ArrowRight,
+  ChevronRight,
+  Folder,
+  FolderKanban,
+  LoaderCircle,
+  Search
+} from 'lucide-react';
 import { Button } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type {
@@ -10,17 +25,21 @@ import type {
 import {
   completedPathValue,
   enteredPath,
+  explorerBreadcrumbs,
   explorerPathQuery,
   explorerPathSuggestions,
   homePathLabel,
   isHiddenFileSystemName
 } from './machine-explorer-model';
 
-interface ExplorerPathSearchProps {
+export interface ExplorerAddressBarProps {
   currentDirectory?: MachineFileSystemDirectoryResult;
   currentPath: string;
+  displayPath?: string;
+  displayPathIsFile?: boolean;
   homePath: string;
   loadDirectory(path: string): Promise<MachineFileSystemDirectoryResult>;
+  onOpenBreadcrumb?(path: string): void;
   onOpenEntry(entry: FileSystemEntry): void;
   onOpenPath(path: string): void;
   onValueChange(value: string): void;
@@ -28,26 +47,42 @@ interface ExplorerPathSearchProps {
   value: string;
 }
 
-export function ExplorerPathSearch({
+export function ExplorerAddressBar({
   currentDirectory,
   currentPath,
+  displayPath = currentPath,
+  displayPathIsFile = false,
   homePath,
   loadDirectory,
   onOpenEntry,
   onOpenPath,
+  onOpenBreadcrumb = onOpenPath,
   onValueChange,
   showHidden,
   value
-}: ExplorerPathSearchProps) {
+}: ExplorerAddressBarProps) {
   const listBoxId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const requestVersion = useRef(0);
   const cache = useRef(new Map<string, MachineFileSystemDirectoryResult>());
   const [activeIndex, setActiveIndex] = useState(0);
+  const [editing, setEditing] = useState(false);
   const [focused, setFocused] = useState(false);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<FileSystemEntry[]>([]);
+  const breadcrumbs = explorerBreadcrumbs({
+    homePath,
+    path: displayPath,
+    selectedFile: displayPathIsFile
+  });
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
 
   useEffect(() => {
     if (currentDirectory?.status === 'success') {
@@ -110,6 +145,7 @@ export function ExplorerPathSearch({
     requestVersion.current += 1;
     inputRef.current?.blur();
     setFocused(false);
+    setEditing(false);
     setLoading(false);
     setOpen(false);
     onValueChange(homePathLabel(entry.path, homePath));
@@ -129,9 +165,27 @@ export function ExplorerPathSearch({
     requestVersion.current += 1;
     inputRef.current?.blur();
     setFocused(false);
+    setEditing(false);
     setLoading(false);
     setOpen(false);
     onOpenPath(enteredPath(value, homePath));
+  }
+
+  function leaveEditMode() {
+    requestVersion.current += 1;
+    setEditing(false);
+    setFocused(false);
+    setLoading(false);
+    setOpen(false);
+    onValueChange(homePathLabel(displayPath, homePath));
+  }
+
+  function startEditing(event?: MouseEvent<HTMLDivElement>) {
+    if (event && event.target !== event.currentTarget) {
+      return;
+    }
+    onValueChange(homePathLabel(displayPath, homePath));
+    setEditing(true);
   }
 
   function handleSubmit(event: FormEvent) {
@@ -174,57 +228,126 @@ export function ExplorerPathSearch({
     }
     if (event.key === 'Escape') {
       event.preventDefault();
-      requestVersion.current += 1;
-      setLoading(false);
-      setOpen(false);
+      leaveEditMode();
     }
   }
 
   const showPopover = focused && open;
 
   return (
-    <form className="flex min-w-48 flex-1 gap-1" onSubmit={handleSubmit}>
-      <div className="relative min-w-0 flex-1">
-        <Search className="pointer-events-none absolute top-2 left-3 z-10 size-3.5 text-neutral-600" />
-        <input
-          aria-activedescendant={
-            showPopover && suggestions[activeIndex]
-              ? `${listBoxId}-option-${activeIndex}`
-              : undefined
+    <form className="min-w-48 flex-1" onSubmit={handleSubmit}>
+      <div
+        aria-label="Current path. Click empty space to edit."
+        className={cn(
+          'relative flex h-8 min-w-0 items-center rounded-lg border bg-black/30 transition',
+          editing
+            ? 'border-neutral-500 ring-2 ring-neutral-700/40'
+            : 'cursor-text border-neutral-700 hover:border-neutral-600'
+        )}
+        onClick={editing ? undefined : startEditing}
+        onKeyDown={editing ? undefined : (event) => {
+          if (
+            event.target === event.currentTarget &&
+            (event.key === 'Enter' || event.key === ' ')
+          ) {
+            event.preventDefault();
+            onValueChange(homePathLabel(displayPath, homePath));
+            setEditing(true);
           }
-          aria-autocomplete="list"
-          aria-controls={listBoxId}
-          aria-expanded={showPopover}
-          aria-label="Explorer path search"
-          autoComplete="off"
-          ref={inputRef}
-          role="combobox"
-          spellCheck={false}
-          value={value}
-          onBlur={() => {
-            requestVersion.current += 1;
-            setFocused(false);
-            setLoading(false);
-            setOpen(false);
-          }}
-          onChange={(event) => {
-            requestVersion.current += 1;
-            setSuggestions([]);
-            setActiveIndex(0);
-            setLoading(true);
-            setOpen(true);
-            onValueChange(event.target.value);
-          }}
-          onFocus={() => {
-            setFocused(true);
-            setOpen(true);
-          }}
-          onKeyDown={handleKeyDown}
-          className="h-8 w-full rounded-lg border border-neutral-700 bg-black/30 pr-8 pl-9 font-mono text-xs text-neutral-200 outline-none transition placeholder:text-neutral-700 focus:border-neutral-500 focus:ring-2 focus:ring-neutral-700/40"
-          placeholder="Search paths in your home folder"
-        />
-        {loading ? (
-          <LoaderCircle className="pointer-events-none absolute top-2 right-3 size-3.5 animate-spin text-neutral-600" />
+        }}
+        role="group"
+        tabIndex={editing ? -1 : 0}
+      >
+        <Search className="pointer-events-none ml-3 size-3.5 shrink-0 text-neutral-600" />
+        {editing ? (
+          <input
+            aria-activedescendant={
+              showPopover && suggestions[activeIndex]
+                ? `${listBoxId}-option-${activeIndex}`
+                : undefined
+            }
+            aria-autocomplete="list"
+            aria-controls={listBoxId}
+            aria-expanded={showPopover}
+            aria-label="Explorer path search"
+            autoComplete="off"
+            ref={inputRef}
+            role="combobox"
+            spellCheck={false}
+            value={value}
+            onBlur={leaveEditMode}
+            onChange={(event) => {
+              requestVersion.current += 1;
+              setSuggestions([]);
+              setActiveIndex(0);
+              setLoading(true);
+              setOpen(true);
+              onValueChange(event.target.value);
+            }}
+            onFocus={() => {
+              setFocused(true);
+              setOpen(true);
+            }}
+            onKeyDown={handleKeyDown}
+            className="h-full min-w-0 flex-1 bg-transparent px-2 font-mono text-xs text-neutral-200 outline-none placeholder:text-neutral-700"
+            placeholder="Search paths in your home folder"
+          />
+        ) : (
+          <nav
+            aria-label="Current path"
+            className="flex min-w-0 max-w-full items-center gap-0.5 overflow-x-auto whitespace-nowrap px-2 text-xs text-neutral-300"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {breadcrumbs.map((breadcrumb, index) => {
+              const isCurrent = index === breadcrumbs.length - 1;
+              const hidden = isHiddenFileSystemName(breadcrumb.label);
+              return (
+                <span key={breadcrumb.path} className="flex shrink-0 items-center gap-0.5">
+                  {index > 0 ? (
+                    <ChevronRight className="size-3.5 shrink-0 text-neutral-700" />
+                  ) : null}
+                  {breadcrumb.isDirectory && !isCurrent ? (
+                    <button
+                      type="button"
+                      title={`Open ${homePathLabel(breadcrumb.path, homePath)}`}
+                      onClick={() => onOpenBreadcrumb(breadcrumb.path)}
+                      className={cn(
+                        'rounded px-1 py-0.5 transition hover:bg-neutral-800 hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-600',
+                        hidden ? 'text-neutral-400' : 'text-neutral-300'
+                      )}
+                    >
+                      {breadcrumb.label}
+                    </button>
+                  ) : (
+                    <span
+                      aria-current={isCurrent ? 'page' : undefined}
+                      className={cn('truncate px-1', hidden ? 'text-neutral-400' : 'text-neutral-200')}
+                    >
+                      {breadcrumb.label}
+                    </span>
+                  )}
+                </span>
+              );
+            })}
+          </nav>
+        )}
+        {editing ? (
+          loading ? (
+            <LoaderCircle className="mr-3 size-3.5 shrink-0 animate-spin text-neutral-600" />
+          ) : (
+            <Button
+              aria-label="Open typed path"
+              isIconOnly
+              size="sm"
+              type="button"
+              variant="ghost"
+              className="mr-0.5 size-7 min-w-7"
+              onMouseDown={(event) => event.preventDefault()}
+              onPress={openTypedPath}
+            >
+              <ArrowRight className="size-3.5" />
+            </Button>
+          )
         ) : null}
 
         {showPopover ? (
@@ -301,16 +424,6 @@ export function ExplorerPathSearch({
           </div>
         ) : null}
       </div>
-      <Button
-        aria-label="Open typed path"
-        isIconOnly
-        size="sm"
-        type="button"
-        variant="secondary"
-        onPress={openTypedPath}
-      >
-        <ArrowRight className="size-3.5" />
-      </Button>
     </form>
   );
 }

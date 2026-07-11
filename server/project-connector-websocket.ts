@@ -317,6 +317,68 @@ export function startProjectConnectorWebSocket({
           return;
         }
 
+        if (message.type === 'filesystem.folder.create') {
+          void settleWithin(backend.createMachineDirectory(message.payload), {
+            affectedPaths: [],
+            errorCode: 'failed',
+            message: 'The machine did not respond while creating the folder.',
+            status: 'error'
+          }).then((result) => {
+            if (socket) {
+              sendJson(socket, {
+                id: message.id,
+                payload: result,
+                type: 'filesystem.folder.create.result'
+              } satisfies ConnectorHubMessage);
+            }
+          });
+          return;
+        }
+
+        if (message.type === 'filesystem.folder.rename') {
+          void settleWithin(backend.renameMachineDirectory(message.payload), {
+            affectedPaths: [],
+            errorCode: 'failed',
+            message: 'The machine did not respond while renaming the folder.',
+            status: 'error'
+          }).then((result) => {
+            if (socket) {
+              sendJson(socket, {
+                id: message.id,
+                payload: result,
+                type: 'filesystem.folder.rename.result'
+              } satisfies ConnectorHubMessage);
+            }
+          });
+          return;
+        }
+
+        if (message.type === 'filesystem.folder.delete') {
+          void backend.deleteMachineDirectories(message.payload).then((result) => {
+            if (socket) {
+              sendJson(socket, {
+                id: message.id,
+                payload: result,
+                type: 'filesystem.folder.delete.result'
+              } satisfies ConnectorHubMessage);
+            }
+          }).catch(() => {
+            if (socket) {
+              sendJson(socket, {
+                id: message.id,
+                payload: {
+                  affectedPaths: [],
+                  errorCode: 'failed',
+                  message: 'The folders could not be deleted.',
+                  status: 'error'
+                },
+                type: 'filesystem.folder.delete.result'
+              } satisfies ConnectorHubMessage);
+            }
+          });
+          return;
+        }
+
         if (message.type !== 'project-cli.run') {
           return;
         }

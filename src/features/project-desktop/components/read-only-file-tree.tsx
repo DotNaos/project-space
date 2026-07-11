@@ -25,7 +25,9 @@ interface ReadOnlyFileTreeProps {
   homePath: string;
   loadDirectory(path: string): Promise<MachineFileSystemDirectoryResult>;
   onOpenDefault(): void;
+  onOpenContextMenu(entry: FileSystemEntry, clientX: number, clientY: number): void;
   onOpenDirectory(path: string): void;
+  refreshVersion: number;
   showHidden: boolean;
 }
 
@@ -35,6 +37,7 @@ interface DirectoryNodeProps {
   expandedPaths: ReadonlySet<string>;
   level: number;
   loadingPaths: ReadonlySet<string>;
+  onOpenContextMenu(entry: FileSystemEntry, clientX: number, clientY: number): void;
   onToggle(entry: FileSystemEntry): void;
   resultsByPath: ReadonlyMap<string, MachineFileSystemDirectoryResult>;
   showHidden: boolean;
@@ -72,6 +75,7 @@ function DirectoryNode({
   expandedPaths,
   level,
   loadingPaths,
+  onOpenContextMenu,
   onToggle,
   resultsByPath,
   showHidden
@@ -89,6 +93,18 @@ function DirectoryNode({
         aria-expanded={expanded}
         type="button"
         onClick={() => onToggle(entry)}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpenContextMenu(entry, event.clientX, event.clientY);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+            event.preventDefault();
+            const bounds = event.currentTarget.getBoundingClientRect();
+            onOpenContextMenu(entry, bounds.left + 28, bounds.top + bounds.height / 2);
+          }
+        }}
         className={cn(
           'group flex min-h-9 w-full min-w-0 items-center gap-2 rounded-md pr-2 text-left text-sm transition',
           selected
@@ -144,6 +160,7 @@ function DirectoryNode({
                 expandedPaths={expandedPaths}
                 level={level + 1}
                 loadingPaths={loadingPaths}
+                onOpenContextMenu={onOpenContextMenu}
                 onToggle={onToggle}
                 resultsByPath={resultsByPath}
                 showHidden={showHidden}
@@ -169,7 +186,9 @@ export function ReadOnlyFileTree({
   homePath,
   loadDirectory,
   onOpenDefault,
+  onOpenContextMenu,
   onOpenDirectory,
+  refreshVersion,
   showHidden
 }: ReadOnlyFileTreeProps) {
   const resultsRef = useRef(new Map<string, MachineFileSystemDirectoryResult>());
@@ -254,7 +273,7 @@ export function ReadOnlyFileTree({
     return () => {
       canceled = true;
     };
-  }, [homePath, loadDirectory]);
+  }, [homePath, loadDirectory, refreshVersion]);
 
   const treeOptions = {
     expandedPaths,
@@ -366,6 +385,7 @@ export function ReadOnlyFileTree({
                 expandedPaths={expandedPaths}
                 level={0}
                 loadingPaths={loadingPaths}
+                onOpenContextMenu={onOpenContextMenu}
                 onToggle={toggle}
                 resultsByPath={resultsByPath}
                 showHidden={showHidden}

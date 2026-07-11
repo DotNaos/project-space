@@ -1,9 +1,11 @@
 import { constants } from 'node:fs';
-import { lstat, open, readdir, realpath } from 'node:fs/promises';
+import { lstat, mkdir, open, readdir, realpath, rename, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, relative, resolve } from 'node:path';
+import { basename, dirname, relative, resolve } from 'node:path';
 import type {
   FileSystemEntry,
+  MachineDirectoryMutationErrorCode,
+  MachineDirectoryMutationResult,
   MachineFileSystemDirectoryResult,
   MachineFileSystemErrorCode,
   MachineFileSystemFileResult
@@ -71,6 +73,176 @@ async function resolveHomeScopedPath(inputPath: string) {
     throw Object.assign(new Error('Path resolves outside the home directory.'), { code: 'OUTSIDE_HOME' });
   }
   return resolvedPath;
+}
+
+function mutationErrorCode(error: unknown): MachineDirectoryMutationErrorCode {
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = String(error.code);
+    if (
+      code === 'ALREADY_EXISTS' ||
+      code === 'INVALID_NAME' ||
+      code === 'NOT_DIRECTORY' ||
+      code === 'PROTECTED' ||
+      code === 'SYMLINK'
+    ) {
+      return {
+        ALREADY_EXISTS: 'already-exists',
+        INVALID_NAME: 'invalid-name',
+        NOT_DIRECTORY: 'not-directory',
+        PROTECTED: 'protected',
+        SYMLINK: 'symlink'
+      }[code] as MachineDirectoryMutationErrorCode;
+    }
+    if (code === 'EEXIST' || code === 'ENOTEMPTY') {
+      return 'already-exists';
+    }
+  }
+  return fileSystemErrorCode(error);
+}
+
+function mutationErrorMessage(code: MachineDirectoryMutationErrorCode) {
+  if (code === 'already-exists') {
+    return 'A folder with this name already exists.';
+  }
+  if (code === 'invalid-name') {
+    return 'Enter a folder name without path separators.';
+  }
+  if (code === 'not-directory') {
+    return 'Only folders can be changed with this action.';
+  }
+  if (code === 'protected') {
+    return 'The home directory itself cannot be renamed or deleted.';
+  }
+  if (code === 'symlink') {
+    return 'Symbolic links cannot be changed with folder actions.';
+  }
+  return fileSystemErrorMessage(code);
+}
+
+function failMutation(error: unknown): MachineDirectoryMutationResult {
+  const errorCode = mutationErrorCode(error);
+  return {
+    affectedPaths: [],
+    errorCode,
+    message: mutationErrorMessage(errorCode),
+    status: 'error'
+  };
+}
+
+function validateFolderName(name: string) {
+  if (
+    !name.trim() ||
+    name === '.' ||
+    name === '..' ||
+    name.includes('/') ||
+    name.includes('\\') ||
+    name.includes('\0')
+  ) {
+    throw Object.assign(new Error('Invalid folder name.'), { code: 'INVALID_NAME' });
+  }
+}
+
+async function resolveMutableDirectory(inputPath: string, allowHome = false) {
+  const homePath = resolve(homedir());
+  const expandedPath = inputPath === '~'
+    ? homePath
+    : inputPath.startsWith('~/')
+      ? resolve(homePath, inputPath.slice(2))
+      : resolve(inputPath);
+  if (!isPathAtOrInside(homePath, expandedPath)) {
+    throw Object.assign(new Error('Path is outside the home directory.'), { code: 'OUTSIDE_HOME' });
+  }
+
+  const before = await lstat(expandedPath);
+  if (before.isSymbolicLink()) {
+    throw Object.assign(new Error('Symbolic links are not supported.'), { code: 'SYMLINK' });
+  }
+  if (!before.isDirectory()) {
+    throw Object.assign(new Error('Path is not a directory.'), { code: 'NOT_DIRECTORY' });
+  }
+
+  const [resolvedPath, resolvedHome] = await Promise.all([
+    realpath(expandedPath),
+    realpath(homePath)
+  ]);
+  if (!isPathAtOrInside(resolvedHome, resolvedPath)) {
+    throw Object.assign(new Error('Path resolves outside the home directory.'), { code: 'OUTSIDE_HOME' });
+  }
+  if (!allowHome && resolvedPath === resolvedHome) {
+    throw Object.assign(new Error('The home directory is protected.'), { code: 'PROTECTED' });
+  }
+
+  const after = await lstat(resolvedPath);
+  if (before.dev !== after.dev || before.ino !== after.ino || after.isSymbolicLink()) {
+    throw Object.assign(new Error('Directory changed while it was being checked.'), { code: 'SYMLINK' });
+  }
+  return resolvedPath;
+}
+
+async function assertPathDoesNotExist(path: string) {
+  try {
+    await lstat(path);
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return;
+    }
+    throw error;
+  }
+  throw Object.assign(new Error('Destination exists.'), { code: 'ALREADY_EXISTS' });
+}
+
+export async function createHomeFolder(
+  parentPath: string,
+  name: string
+): Promise<MachineDirectoryMutationResult> {
+  try {
+    validateFolderName(name);
+    const resolvedParent = await resolveMutableDirectory(parentPath, true);
+    const targetPath = resolve(resolvedParent, name);
+    await assertPathDoesNotExist(targetPath);
+    await mkdir(targetPath);
+    return { affectedPaths: [targetPath], status: 'success' };
+  } catch (error) {
+    return failMutation(error);
+  }
+}
+
+export async function renameHomeFolder(
+  path: string,
+  name: string
+): Promise<MachineDirectoryMutationResult> {
+  try {
+    validateFolderName(name);
+    const resolvedPath = await resolveMutableDirectory(path);
+    const resolvedParent = await resolveMutableDirectory(dirname(resolvedPath), true);
+    const targetPath = resolve(resolvedParent, name);
+    await assertPathDoesNotExist(targetPath);
+    await rename(resolvedPath, targetPath);
+    return { affectedPaths: [targetPath], status: 'success' };
+  } catch (error) {
+    return failMutation(error);
+  }
+}
+
+export async function deleteHomeFolders(paths: string[]): Promise<MachineDirectoryMutationResult> {
+  const affectedPaths: string[] = [];
+  try {
+    if (paths.length === 0) {
+      throw Object.assign(new Error('No folders selected.'), { code: 'NOT_DIRECTORY' });
+    }
+    const resolvedPaths = [
+      ...new Set(await Promise.all(paths.map((path) => resolveMutableDirectory(path))))
+    ].sort((left, right) => right.length - left.length);
+
+    for (const path of resolvedPaths) {
+      await resolveMutableDirectory(path);
+      await rm(path, { recursive: true });
+      affectedPaths.push(path);
+    }
+    return { affectedPaths: resolvedPaths, status: 'success' };
+  } catch (error) {
+    return { ...failMutation(error), affectedPaths };
+  }
 }
 
 export async function readHomeDirectory(path: string): Promise<MachineFileSystemDirectoryResult> {
