@@ -155,6 +155,12 @@ does not sign the user out or affect their other machines.
   silently falls back to a plaintext file.
 - Headless Linux and WSL use `~/.config/project-space/machine-credential.json` with a `0700`
   directory, a `0600` file, atomic replacement, a bounded state size, and a cross-process lock.
+- Normal Linux runs `project connector run` as a transient systemd user service. WSL instead
+  registers a Scheduled Task for the current Windows user because WSL tears down its systemd user
+  manager when the last Windows-owned `wsl.exe` client exits. The task owns a long-running
+  `wsl.exe -d <distribution> --user <linux-user> -- <absolute-project-cli> connector run` process,
+  starts again at Windows logon, and contains no machine credential or private key. Disconnect stops
+  and removes the task and also cleans up a stale systemd unit from older builds.
 - Revocation deletes the local runtime credential but retains the identity key so a later approved
   connection rotates access onto the same machine ID.
 - Credentials never appear in command arguments, approval URLs, logs, shell history, or tracked
