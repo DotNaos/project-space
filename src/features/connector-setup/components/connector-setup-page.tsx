@@ -25,12 +25,6 @@ const manualCommands = [
   './project-space-connector'
 ];
 
-const tailscaleCommands = [
-  'tailscale status',
-  'tailscale serve --bg --yes 4173',
-  'tailscale serve status --json'
-];
-
 function tokenClassName(token: string, isCommand: boolean) {
   if (/^https?:\/\//.test(token)) {
     return 'text-neutral-200 underline decoration-neutral-500/40 underline-offset-2';
@@ -231,23 +225,18 @@ export function ConnectorSetupPage() {
 
           <StepCard icon={Network} label="2" title="Expose through Tailscale">
             <Text className="text-sm leading-6 text-neutral-400">
-              Keep the connector private to your tailnet. Tailscale Serve gives the hosted UI an
-              HTTPS endpoint that still stays inside your private network.
+              Keep the connector private. It opens an authenticated outbound connection to Project
+              Space, so the connector itself needs no public or Tailscale Serve endpoint.
             </Text>
-            <CommandBlock commands={tailscaleCommands} />
+            <CommandBlock commands={['tailscale status', 'project-space-connector']} />
           </StepCard>
 
           <StepCard icon={Terminal} label="3" title="Use it from Project Space">
             <Text className="text-sm leading-6 text-neutral-400">
-              Open the web UI and point it at the connector endpoint. Local app mode can use
-              localhost; hosted mode should use the Tailscale HTTPS URL.
+              Open the web UI normally. The account-specific installer enrolls this machine for
+              your signed-in user; no API URL override is required.
             </Text>
-            <CommandBlock
-              commands={[
-                'https://projects.os-home.net',
-                'https://projects.os-home.net/?projectSpaceApi=https://your-machine.tailnet.ts.net'
-              ]}
-            />
+            <CommandBlock commands={['https://projects.os-home.net']} />
           </StepCard>
         </section>
 

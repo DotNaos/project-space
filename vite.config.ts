@@ -8,7 +8,11 @@ import type { Plugin, ViteDevServer } from 'vite';
 import electron from 'vite-plugin-electron/simple';
 
 import { createLocalProjectSpaceBackend } from './server/local-project-space-backend';
+import { reconcileProjectServeSessions } from './server/local-project-cli-client';
+import { resolveProjectConnectorTargets } from './server/project-connector-config';
+import { createAuthorizedProjectSpaceBackend } from './server/authorized-project-space-backend';
 import { createConnectorCommandUpgradeHandler } from './server/connector-command-hub';
+import { authenticateConnectorMachineToken } from './server/connector-registration-auth';
 import {
   createMachineTerminalUpgradeHandler,
   createProjectTerminalUpgradeHandler
@@ -16,21 +20,35 @@ import {
 import { startProjectConnectorWebSocket } from './server/project-connector-websocket';
 import { createProjectSpaceRequestHandler } from './server/project-space-http';
 
+const configuredAllowedHosts = (process.env.PROJECT_ALLOWED_HOSTS ?? '')
+  .split(',')
+  .map((host) => host.trim())
+  .filter(Boolean);
+const connectorBridgeEnabled = process.env.PROJECT_SPACE_ENABLE_CONNECTOR_BRIDGE === '1';
+
 function projectSpaceApiPlugin(): Plugin {
   return {
     name: 'project-space-api',
     configureServer(server: ViteDevServer) {
+      if (connectorBridgeEnabled && resolveProjectConnectorTargets().length > 0) {
+        void reconcileProjectServeSessions();
+      }
       const backend = createLocalProjectSpaceBackend();
-      const bridge = startProjectConnectorWebSocket({ backend });
+      const authorizedBackend = createAuthorizedProjectSpaceBackend(backend);
+      const bridge = connectorBridgeEnabled
+        ? startProjectConnectorWebSocket({ backend })
+        : undefined;
       const handler = createProjectSpaceRequestHandler({
         backend
       });
-      const handleMachineTerminalUpgrade = createMachineTerminalUpgradeHandler(backend);
+      const handleMachineTerminalUpgrade = createMachineTerminalUpgradeHandler(authorizedBackend);
       const handleProjectTerminalUpgrade = createProjectTerminalUpgradeHandler();
-      const connectorCommands = createConnectorCommandUpgradeHandler();
+      const connectorCommands = createConnectorCommandUpgradeHandler({
+        authenticateConnectorCredential: authenticateConnectorMachineToken
+      });
 
       server.httpServer?.once('close', () => {
-        bridge.close();
+        bridge?.close();
         void connectorCommands.close();
       });
 
@@ -90,6 +108,7 @@ export default defineConfig(({ mode }) => ({
     }
   },
   server: {
+    ...(configuredAllowedHosts.length > 0 ? { allowedHosts: configuredAllowedHosts } : {}),
     port: process.env.PORT ? Number(process.env.PORT) : 5173,
     strictPort: true
   },

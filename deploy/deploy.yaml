@@ -5,6 +5,7 @@ secrets:
   GITHUB_OAUTH_CLIENT_ID: op://projects/GitHub OAuth App/client_id
   GITHUB_TOKEN: op://projects/GitHub Personal Access Token/token
   PROJECT_CONNECTOR_REGISTRATION_TOKEN: op://projects/Project Space Connector Registration Token/password
+  PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64: op://projects/project-connector-command-signing-key/private_key_b64
   VITE_CLERK_PUBLISHABLE_KEY: op://projects/clerk-project/publishable_key
 environments:
   prod:

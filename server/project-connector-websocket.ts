@@ -1,4 +1,10 @@
 import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
+import { ConnectorDevServerCommandExecutor } from './connector-dev-server-executor';
+import {
+  connectorDevServerErrorResult,
+  type ConnectorDevServerAdapter,
+  type ConnectorDevServerOperation
+} from './connector-dev-server-contract';
 import {
   isConnectorMachineMessage,
   parseConnectorMessage,
@@ -6,6 +12,7 @@ import {
   type ConnectorMachineMessage
 } from './connector-command-protocol';
 import {
+  connectorCommandGrantPublicKeyForTarget,
   connectorRegistrationHeaders,
   connectorRegistrationTokenForTarget,
   resolveProjectConnectorTargets,
@@ -13,7 +20,7 @@ import {
 } from './project-connector-config';
 
 interface ProjectConnectorWebSocketOptions {
-  backend: ProjectSpaceBackend;
+  backend: ProjectSpaceBackend & Partial<ConnectorDevServerAdapter>;
   hubHttpUrl?: string;
   hubUrl?: string;
 }
@@ -112,6 +119,23 @@ export function startProjectConnectorWebSocket({
     let registryTimer: ReturnType<typeof setInterval> | undefined;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     const runningChats = new Map<string, AbortController>();
+    const adapter: ConnectorDevServerAdapter =
+      typeof backend.runDevServerCommand === 'function'
+        ? (backend as ConnectorDevServerAdapter)
+        : {
+            async runDevServerCommand(request) {
+              return connectorDevServerErrorResult(
+                request,
+                request.actor.generation,
+                'This connector does not provide dev-server commands.',
+                'unavailable'
+              );
+            }
+          };
+    const commandGrantPublicKey = connectorCommandGrantPublicKeyForTarget(target);
+    const devServerExecutor = commandGrantPublicKey
+      ? new ConnectorDevServerCommandExecutor(adapter, commandGrantPublicKey)
+      : undefined;
 
     async function publishRegistry(register = false) {
       if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -194,6 +218,38 @@ export function startProjectConnectorWebSocket({
                 } satisfies ConnectorHubMessage);
               }
             });
+          return;
+        }
+
+        if (
+          message.type === 'dev-server.inspect' ||
+          message.type === 'dev-server.start' ||
+          message.type === 'dev-server.stop'
+        ) {
+          const operation = message.type.slice('dev-server.'.length) as ConnectorDevServerOperation;
+          const resultType = `${message.type}.result` as
+            | 'dev-server.inspect.result'
+            | 'dev-server.start.result'
+            | 'dev-server.stop.result';
+          const execution = devServerExecutor
+            ? devServerExecutor.execute(operation, message.payload)
+            : Promise.resolve(
+                connectorDevServerErrorResult(
+                  message.payload,
+                  message.payload.grant.generation,
+                  'Connector command verification is not configured.',
+                  'unavailable'
+                )
+              );
+          void execution.then((result) => {
+            if (socket) {
+              sendJson(socket, {
+                id: message.id,
+                payload: result,
+                type: resultType
+              } satisfies ConnectorHubMessage);
+            }
+          });
           return;
         }
 

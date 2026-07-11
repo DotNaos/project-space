@@ -7,7 +7,12 @@ import type {
   CodexModelCatalogueResult,
   CodexOpenRequest,
   CodexStatusResult,
+  ConnectorCredentialRecord,
+  ConnectorInstallerResult,
   ConnectorOverviewResult,
+  DevServerActionRequest,
+  DevServerInspectRequest,
+  DevServerOverviewResult,
   FileSystemEntry,
   GitActionResult,
   GitCommitRequest,
@@ -66,6 +71,8 @@ import type {
   ProjectTrashRestoreResult,
   ProjectctlOverviewResult,
   ProjectctlPlanResult,
+  ProjectRunSettingsRecord,
+  ProjectRunSettingsUpdateRequest,
   ProjectsState,
   ProjectWorktreeRecord,
   ScopeDevboxOverviewResult,
@@ -125,37 +132,59 @@ export async function refreshProjectSpaceAuthToken() {
   return projectSpaceAuthToken;
 }
 
-function resolveApiBaseUrl() {
-  const currentUrl = new URL(window.location.href);
-  const queryBaseUrl = currentUrl.searchParams.get('projectSpaceApi');
+const loopbackHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+function isLoopbackUrl(url: URL) {
+  return ['http:', 'https:'].includes(url.protocol) && loopbackHosts.has(url.hostname.toLowerCase());
+}
 
-  if (queryBaseUrl) {
-    return queryBaseUrl.replace(/\/+$/, '');
-  }
+function isPlainLoopbackOrigin(url: URL) {
+  return isLoopbackUrl(url) && !url.username && !url.password &&
+    url.pathname === '/' && !url.search && !url.hash;
+}
+export function resolveProjectSpaceApiBaseUrl(currentHref: string, explicit?: string | null) {
+  try {
+    const current = new URL(currentHref);
+    if (!isLoopbackUrl(current)) return '';
 
-  const explicitBaseUrl = import.meta.env.VITE_PROJECT_SPACE_API_BASE_URL;
-
-  if (explicitBaseUrl) {
-    const explicitUrl = new URL(explicitBaseUrl, currentUrl);
-    const explicitHost = explicitUrl.hostname.toLowerCase();
-    const currentHost = currentUrl.hostname.toLowerCase();
-    const explicitIsLoopback =
-      explicitHost === 'localhost' ||
-      explicitHost === '127.0.0.1' ||
-      explicitHost === '::1' ||
-      explicitHost === '[::1]';
-    const currentIsLoopback =
-      currentHost === 'localhost' ||
-      currentHost === '127.0.0.1' ||
-      currentHost === '::1' ||
-      currentHost === '[::1]';
-
-    if (!explicitIsLoopback || currentIsLoopback) {
-      return explicitUrl.toString().replace(/\/+$/, '');
+    for (const value of [current.searchParams.get('projectSpaceApi'), explicit]) {
+      if (!value) continue;
+      try {
+        const candidate = new URL(value);
+        if (isPlainLoopbackOrigin(candidate)) {
+          return candidate.origin === current.origin ? '' : candidate.origin;
+        }
+      } catch { continue; }
     }
-  }
-
+  } catch { return ''; }
   return '';
+}
+
+export function isProjectSpaceApiRequestAllowed(currentHref: string, requestHref: string) {
+  try {
+    const current = new URL(currentHref);
+    const request = new URL(requestHref, current);
+    return (
+      ['http:', 'https:'].includes(request.protocol) &&
+      !request.username && !request.password &&
+      (request.origin === current.origin || (isLoopbackUrl(current) && isLoopbackUrl(request)))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function resolveApiBaseUrl() {
+  return typeof window === 'undefined' ? ''
+    : resolveProjectSpaceApiBaseUrl(window.location.href, import.meta.env.VITE_PROJECT_SPACE_API_BASE_URL);
+}
+
+function resolveApiRequestUrl(baseUrl: string, path: string) {
+  if (typeof window === 'undefined') throw new Error('API requests require a browser window.');
+  const requestUrl = new URL(`${baseUrl}${path}`, window.location.href);
+  if (!isProjectSpaceApiRequestAllowed(window.location.href, requestUrl.toString())) {
+    throw new Error('Project Space refused an API request to an untrusted origin.');
+  }
+  return requestUrl.toString();
 }
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
@@ -180,15 +209,17 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
   private readonly baseUrl = resolveApiBaseUrl();
 
   private async request<T>(path: string, init?: RequestInit) {
+    const requestUrl = resolveApiRequestUrl(this.baseUrl, path);
     const token = await refreshProjectSpaceAuthToken();
 
-    return fetch(`${this.baseUrl}${path}`, {
+    return fetch(requestUrl, {
       ...init,
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
         ...init?.headers
-      }
+      },
+      redirect: 'error'
     }).then((response) => readJsonResponse<T>(response));
   }
 
@@ -219,8 +250,18 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     return this.request('/api/connectors/project-registry');
   }
 
-  getConnectorInstallCommand(): Promise<{ command: string; scriptUrl: string }> {
-    return this.request('/api/connectors/install-command');
+  getConnectorInstallCommand(): Promise<ConnectorInstallerResult> {
+    return this.request('/api/connectors/install-command', { method: 'POST' });
+  }
+
+  listConnectorCredentials(): Promise<{ credentials: ConnectorCredentialRecord[] }> {
+    return this.request('/api/connectors/credentials');
+  }
+
+  revokeConnectorCredential(credentialId: string): Promise<{ revoked: boolean }> {
+    return this.request(`/api/connectors/credentials/${encodeURIComponent(credentialId)}`, {
+      method: 'DELETE'
+    });
   }
 
   runProjectCliCommand(request: ProjectCliCommandRequest): Promise<ProjectCliCommandResult> {
@@ -408,6 +449,36 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     }
 
     return this.request(`/api/projects/worktrees?${query.toString()}`);
+  }
+
+  inspectDevServers(request: DevServerInspectRequest): Promise<DevServerOverviewResult> {
+    return this.request('/api/dev-servers/inspect', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  startDevServer(request: DevServerActionRequest): Promise<DevServerOverviewResult> {
+    return this.request('/api/dev-servers/start', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  stopDevServer(request: DevServerActionRequest): Promise<DevServerOverviewResult> {
+    return this.request('/api/dev-servers/stop', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  updateProjectRunSettings(
+    request: ProjectRunSettingsUpdateRequest
+  ): Promise<ProjectRunSettingsRecord> {
+    return this.request('/api/dev-servers/settings', {
+      body: JSON.stringify(request),
+      method: 'PUT'
+    });
   }
 
   openCodexSkills(): Promise<OpenPathInAppResult> {
@@ -617,15 +688,17 @@ export async function streamCodexChat(
   emit: (event: CodexChatStreamEvent) => void,
   signal?: AbortSignal
 ) {
-  const token = await refreshProjectSpaceAuthToken();
   const baseUrl = resolveApiBaseUrl();
-  const response = await fetch(`${baseUrl}/api/codex/chat/stream`, {
+  const requestUrl = resolveApiRequestUrl(baseUrl, '/api/codex/chat/stream');
+  const token = await refreshProjectSpaceAuthToken();
+  const response = await fetch(requestUrl, {
     body: JSON.stringify(request),
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       'Content-Type': 'application/json'
     },
     method: 'POST',
+    redirect: 'error',
     signal
   });
 

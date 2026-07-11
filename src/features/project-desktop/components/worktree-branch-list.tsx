@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Download, GitBranch } from 'lucide-react';
 import { Button, Chip } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
@@ -80,6 +81,8 @@ export function WorktreeBranchList({
   onSelectWorktree,
   options,
   projectName,
+  renderWorktreeAction,
+  renderWorktreeDetails,
   selectedValue,
   showMissingPath = true
 }: {
@@ -94,6 +97,8 @@ export function WorktreeBranchList({
   onSelectWorktree(worktreeId: string): void;
   options: WorktreeBranchOption[];
   projectName: string;
+  renderWorktreeAction?(worktree: WorktreeBranchLocal): ReactNode;
+  renderWorktreeDetails?(worktree: WorktreeBranchLocal): ReactNode;
   selectedValue: string;
   showMissingPath?: boolean;
 }) {
@@ -109,53 +114,65 @@ export function WorktreeBranchList({
 
         if (worktree) {
           return (
-            <button
+            <div
               key={option.branchName}
-              type="button"
-              onClick={() => {
-                if (onSelectBranch) {
-                  onSelectBranch(option.branchName, worktree.path, worktree);
-                  return;
-                }
-
-                if (worktree.isBase) {
-                  onSelectBase();
-                } else {
-                  onSelectWorktree(worktree.id);
-                }
-              }}
               className={cn(
-                'group flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 text-left transition',
+                'overflow-hidden rounded-lg transition',
                 isSelected
-                  ? 'bg-neutral-700/70 text-neutral-50'
+                  ? 'bg-neutral-800/80 text-neutral-50 ring-1 ring-inset ring-neutral-700/70'
                   : 'text-neutral-300 hover:bg-neutral-900/80 hover:text-neutral-100'
               )}
             >
-              <GitBranch className="size-4 shrink-0 text-neutral-500 group-hover:text-neutral-300" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold">{option.branchName}</span>
-                <span className="mt-0.5 block truncate text-xs text-neutral-500">
-                  {localPathLabel}{' '}
-                  <span className="font-semibold text-neutral-300">
-                    <ColoredProjectPath
-                      branchName={option.branchName}
-                      path={compactHomePath(worktree.path)}
-                      projectName={projectName}
-                    />
-                  </span>
-                </span>
-              </span>
-              {isBase ? (
-                <Chip
-                  color="success"
-                  size="sm"
-                  variant="soft"
-                  className="shrink-0 uppercase tracking-[0.16em]"
+              <div className="flex min-w-0 flex-col sm:flex-row sm:items-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onSelectBranch) {
+                      onSelectBranch(option.branchName, worktree.path, worktree);
+                      return;
+                    }
+
+                    if (worktree.isBase) {
+                      onSelectBase();
+                    } else {
+                      onSelectWorktree(worktree.id);
+                    }
+                  }}
+                  className="group flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-neutral-100/70"
                 >
-                  base
-                </Chip>
-              ) : null}
-            </button>
+                  <GitBranch className="size-4 shrink-0 text-neutral-500 group-hover:text-neutral-300" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold">{option.branchName}</span>
+                    <span className="mt-0.5 block truncate text-xs text-neutral-500">
+                      {localPathLabel}{' '}
+                      <span className="font-semibold text-neutral-300">
+                        <ColoredProjectPath
+                          branchName={option.branchName}
+                          path={compactHomePath(worktree.path)}
+                          projectName={projectName}
+                        />
+                      </span>
+                    </span>
+                  </span>
+                  {isBase ? (
+                    <Chip
+                      color="default"
+                      size="sm"
+                      variant="soft"
+                      className="shrink-0 uppercase tracking-[0.16em] text-neutral-400"
+                    >
+                      base
+                    </Chip>
+                  ) : null}
+                </button>
+                {renderWorktreeAction ? (
+                  <div className="flex shrink-0 justify-start px-2 pb-2 pl-10 sm:justify-end sm:pb-0 sm:pl-0">
+                    {renderWorktreeAction(worktree)}
+                  </div>
+                ) : null}
+              </div>
+              {renderWorktreeDetails?.(worktree)}
+            </div>
           );
         }
 

@@ -1,6 +1,8 @@
 import { resolve } from 'node:path';
 
 import { createLocalProjectSpaceBackend } from './local-project-space-backend';
+import { reconcileProjectServeSessions } from './local-project-cli-client';
+import { resolveProjectConnectorTargets } from './project-connector-config';
 import { createProjectSpaceServer } from './project-space-http';
 import { startProjectConnectorWebSocket } from './project-connector-websocket';
 
@@ -50,6 +52,9 @@ if (command !== 'serve') {
 const port = Number(process.env.PORT ?? process.env.PROJECT_SPACE_PORT ?? 4173);
 const host = process.env.PROJECT_SPACE_HOST ?? '127.0.0.1';
 const staticRoot = resolve(process.cwd(), 'dist/renderer');
+if (resolveProjectConnectorTargets().length > 0) {
+  await reconcileProjectServeSessions();
+}
 const backend = createLocalProjectSpaceBackend();
 
 const server = await createProjectSpaceServer({

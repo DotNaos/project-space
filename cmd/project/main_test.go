@@ -2,9 +2,29 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"strings"
+	"syscall"
 	"testing"
 )
+
+func TestProjectTerminationSignalsIncludeHangup(t *testing.T) {
+	wanted := map[os.Signal]bool{
+		os.Interrupt:    false,
+		syscall.SIGTERM: false,
+		syscall.SIGHUP:  false,
+	}
+	for _, signal := range projectTerminationSignals() {
+		if _, exists := wanted[signal]; exists {
+			wanted[signal] = true
+		}
+	}
+	for signal, found := range wanted {
+		if !found {
+			t.Fatalf("termination signal %v is not registered", signal)
+		}
+	}
+}
 
 func TestCreateGitHubVisibilityRequiresGitHub(t *testing.T) {
 	cmd := newRootCommand()

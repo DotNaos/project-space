@@ -14,6 +14,8 @@
     "build": "tsc -b && vite build",
     "test": "bun test",
     "build:connector:macos-arm64": "bun build --compile --target=bun-darwin-arm64 server/web-server.ts --outfile dist/project-space-connector",
+    "build:project-cli:macos-arm64": "mkdir -p dist && CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o dist/project ./cmd/project",
+    "build:machine-tools:macos-arm64": "bun run build:connector:macos-arm64 && bun run build:project-cli:macos-arm64 && COPYFILE_DISABLE=1 tar -czf dist/project-space-machine-tools-darwin-arm64.tar.gz -C dist project-space-connector project",
     "docs:build": "cd apps/docs && bun run build",
     "docs:dev": "cd apps/docs && bun run dev",
     "docs:typecheck": "cd apps/docs && bun run typecheck",

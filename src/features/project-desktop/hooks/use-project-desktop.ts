@@ -417,6 +417,13 @@ export function useProjectDesktop() {
       return;
     }
 
+    if (project?.machineId) {
+      if (selectedMachineId !== project.machineId) {
+        setSelectedMachineId(project.machineId);
+      }
+      return;
+    }
+
     if (selectedMachine) {
       return;
     }
@@ -430,7 +437,7 @@ export function useProjectDesktop() {
     const nextMachine = localMachine ?? onlineMachine ?? connectorOverview.machines[0];
 
     setSelectedMachineId(nextMachine.id);
-  }, [connectorOverview.machines, mainView, selectedMachine]);
+  }, [connectorOverview.machines, mainView, project?.machineId, selectedMachine, selectedMachineId]);
 
   const selectedTargetPath =
     selectedExplorerTarget.kind === 'worktree' && selectedWorktree
@@ -540,13 +547,20 @@ export function useProjectDesktop() {
           initialRoute.view === 'project'
             ? routeProject?.id ?? (shouldWaitForGitHubProject ? initialRoute.projectId ?? '' : '')
             : state.selectedProjectId;
+        const selectedProjectRecord = selectedProjectFromRoute
+          ? resolveRouteProject(sanitizedDiscovery.projects, selectedProjectFromRoute)
+          : undefined;
 
         setDiscovery(sanitizedDiscovery);
         setPinnedProjectIds(state.pinnedProjectIds ?? []);
         setRecentProjectIds(state.recentProjectIds ?? []);
         setSelectedExplorerTarget(state.selectedExplorerTarget);
         setSelectedLauncherAppId(state.selectedLauncherAppId);
-        setSelectedMachineId(initialRoute.view === 'machine' ? initialRoute.machineId ?? '' : '');
+        setSelectedMachineId(
+          initialRoute.view === 'machine'
+            ? initialRoute.machineId ?? ''
+            : selectedProjectRecord?.machineId ?? ''
+        );
         setSelectedProjectId(selectedProjectFromRoute);
         setSelectedIssueNumber(initialRoute.issueNumber);
         setProjectTab(initialRoute.projectTab ?? 'overview');
@@ -626,6 +640,7 @@ export function useProjectDesktop() {
         if (nextProject) {
           setSelectedExplorerTarget({ kind: 'workspace' });
           setSelectedProjectId(nextRoute.projectId ?? nextProject.id);
+          setSelectedMachineId(nextProject.machineId ?? '');
           setSelectedIssueNumber(nextRoute.issueNumber);
           setProjectTab(nextRoute.projectTab ?? 'overview');
           setMainView('project');
@@ -874,7 +889,10 @@ export function useProjectDesktop() {
     }
 
     void projectSpaceClient
-      .loadProjectWorktrees(project.rootPath, selectedMachineId || undefined)
+      .loadProjectWorktrees(
+        project.rootPath,
+        project.machineId ?? (selectedMachineId || undefined)
+      )
       .then((nextWorktrees) => {
         if (canceled) {
           return;
@@ -908,6 +926,7 @@ export function useProjectDesktop() {
     project?.id,
     project?.kind,
     project?.rootPath,
+    project?.machineId,
     selectedMachineId,
     selectedExplorerTarget.kind,
     selectedExplorerTarget.kind === 'worktree' ? selectedExplorerTarget.worktreeId : ''
@@ -982,7 +1001,7 @@ export function useProjectDesktop() {
 
     const nextWorktrees = await projectSpaceClient.loadProjectWorktrees(
       project.rootPath,
-      selectedMachineId || undefined
+      project.machineId ?? (selectedMachineId || undefined)
     );
 
     setProjectWorktrees((current) => ({
@@ -1146,6 +1165,7 @@ export function useProjectDesktop() {
 
       setSelectedExplorerTarget(nextSelectedExplorerTarget);
       setSelectedProjectId(projectId);
+      setSelectedMachineId(nextProject?.machineId ?? '');
       setSelectedIssueNumber(undefined);
       setMainView('project');
       writeRoute(

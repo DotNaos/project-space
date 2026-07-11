@@ -1,3 +1,5 @@
+export type * from './dev-server-api';
+
 export type WorkspaceTool = 'ide' | 'terminal' | 'git' | 'dev-server';
 
 export interface AppMeta {
@@ -36,6 +38,7 @@ export interface FullstackTemplateCheck {
 
 export interface ProjectSpaceRecord {
   id: string;
+  machineId?: string;
   name: string;
   rootPath: string;
   kind: 'workspace' | 'standalone' | 'github';

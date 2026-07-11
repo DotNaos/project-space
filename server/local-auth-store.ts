@@ -145,12 +145,22 @@ export async function readAuthSessionFromRequest(request: IncomingMessage) {
   return readProjectSpaceAuthSession(readAuthTokenFromRequest(request));
 }
 
-export async function readAuthSessionFromUrl(url: URL) {
+export async function readAuthSessionFromWebSocketRequest(
+  request: IncomingMessage,
+  _url: URL
+) {
   if (!isProjectSpaceAuthRequired()) {
     return null;
   }
-
-  return readProjectSpaceAuthSession(url.searchParams.get('session'));
+  const protocols = String(request.headers['sec-websocket-protocol'] ?? '')
+    .split(',')
+    .map((protocol) => protocol.trim());
+  const authProtocol = protocols.find((protocol) =>
+    protocol.startsWith('project-space-auth.')
+  );
+  const protocolToken = authProtocol?.slice('project-space-auth.'.length) ?? '';
+  const token = protocolToken && protocolToken.length <= 4_096 ? protocolToken : '';
+  return readProjectSpaceAuthSession(token);
 }
 
 export async function getProjectSpaceAuthSessionResult(

@@ -6,6 +6,19 @@ import { WebSocket, WebSocketServer } from 'ws';
 
 import { registerConnectorProjectRegistry } from './connector-hub';
 import {
+  type ConnectorDevServerActor,
+  type ConnectorDevServerOperation,
+  type ConnectorDevServerResult,
+  type ConnectorDevServerTrustedRequest
+} from './connector-dev-server-contract';
+import {
+  connectorDevServerSigningKey,
+  createConnectorDevServerWireRequest,
+  executeLocalConnectorDevServerCommand,
+  registerLocalConnectorDevServerExecutor,
+  type ConnectorDevServerRequestOptions
+} from './connector-dev-server-routing';
+import {
   isConnectorHubMessage,
   parseConnectorMessage,
   type ConnectorHubMessage,
@@ -39,10 +52,30 @@ type ConnectorCommandResult =
   | MachineFileSystemRootResult
   | MachineDirectoryMutationResult
   | ProjectWorktreeRecord[]
+  | ConnectorDevServerResult
   | TerminalCommandResult;
 
 interface PendingCommand {
-  kind: 'chat' | 'filesystem-directory' | 'filesystem-file' | 'filesystem-root' | 'folder-create' | 'folder-delete' | 'folder-rename' | 'models' | 'terminal' | 'worktrees';
+  devServerTarget?: {
+    generation: number;
+    projectId: string;
+    runTarget: string;
+    worktreeId: string;
+  };
+  kind:
+    | 'chat'
+    | 'dev-server-inspect'
+    | 'dev-server-start'
+    | 'dev-server-stop'
+    | 'filesystem-directory'
+    | 'filesystem-file'
+    | 'filesystem-root'
+    | 'folder-create'
+    | 'folder-delete'
+    | 'folder-rename'
+    | 'models'
+    | 'terminal'
+    | 'worktrees';
   machineId: string;
   onChatEvent?: (event: CodexChatStreamEvent) => void;
   reject(error: Error): void;
@@ -52,9 +85,13 @@ interface PendingCommand {
 
 const connectorSocketPath = '/api/connectors/socket';
 const commandTimeoutMs = 10 * 60_000;
+const defaultCredentialRevalidationIntervalMs = 30_000;
 const sockets = new Map<string, WebSocket>();
 const socketCapabilities = new Map<string, Set<string>>();
 const pendingCommands = new Map<string, PendingCommand>();
+
+export { registerLocalConnectorDevServerExecutor };
+export type { ConnectorDevServerRequestOptions };
 
 function sendJson(socket: WebSocket, payload: ConnectorMachineMessage) {
   if (socket.readyState === WebSocket.OPEN) {
@@ -62,7 +99,20 @@ function sendJson(socket: WebSocket, payload: ConnectorMachineMessage) {
   }
 }
 
-function isValidRegistrationToken(actual: string) {
+export type AuthenticateConnectorCredential = (
+  token: string,
+  machineId: string
+) => Promise<boolean>;
+
+interface ConnectorCommandUpgradeHandlerOptions {
+  authenticateConnectorCredential?: AuthenticateConnectorCredential;
+  credentialRevalidationIntervalMs?: number;
+}
+
+export async function authenticateConnectorCredential(
+  actual: string,
+  _machineId: string
+) {
   const expected = process.env.PROJECT_CONNECTOR_REGISTRATION_TOKEN ?? '';
   if (!expected || !actual) {
     return false;
@@ -126,14 +176,19 @@ function createPendingCommand(
   id: string,
   machineId: string,
   kind: PendingCommand['kind'],
-  onChatEvent?: (event: CodexChatStreamEvent) => void
+  onChatEvent?: (event: CodexChatStreamEvent) => void,
+  options: {
+    devServerTarget?: PendingCommand['devServerTarget'];
+    timeoutMs?: number;
+  } = {}
 ) {
   return new Promise<ConnectorCommandResult | undefined>((resolve, reject) => {
     const timeout = setTimeout(() => {
       failPending(id, new Error(`The connector command on ${machineId} timed out.`));
-    }, commandTimeoutMs);
+    }, options.timeoutMs ?? commandTimeoutMs);
 
     pendingCommands.set(id, {
+      devServerTarget: options.devServerTarget,
       kind,
       machineId,
       onChatEvent,
@@ -169,6 +224,34 @@ function handleConnectorResult(machineId: string, message: ConnectorHubMessage) 
     if (pending && pending.machineId !== machineId) {
       return;
     }
+  }
+
+  if (
+    message.type === 'dev-server.inspect.result' ||
+    message.type === 'dev-server.start.result' ||
+    message.type === 'dev-server.stop.result'
+  ) {
+    const pending = pendingCommands.get(message.id);
+    const expectedKind = message.type.replace('.result', '').replace('.', '-') as
+      | 'dev-server-inspect'
+      | 'dev-server-start'
+      | 'dev-server-stop';
+    const target = pending?.devServerTarget;
+    if (!pending || pending.kind !== expectedKind || !target) {
+      return;
+    }
+    if (
+      message.payload.machineId !== pending.machineId ||
+      message.payload.projectId !== target.projectId ||
+      message.payload.worktreeId !== target.worktreeId ||
+      message.payload.runTarget !== target.runTarget ||
+      message.payload.generation !== target.generation
+    ) {
+      failPending(message.id, new Error('The connector returned dev-server state for a different target.'));
+      return;
+    }
+    finishPending(message.id, message.payload);
+    return;
   }
 
   if (message.type === 'codex.models.result') {
@@ -244,6 +327,90 @@ function handleConnectorResult(machineId: string, message: ConnectorHubMessage) 
 
 export function isConnectorCommandChannelAvailable(machineId: string) {
   return sockets.get(machineId)?.readyState === WebSocket.OPEN;
+}
+
+function devServerCapability(operation: ConnectorDevServerOperation) {
+  return `dev-server.${operation}`;
+}
+
+function devServerPendingKind(operation: ConnectorDevServerOperation): PendingCommand['kind'] {
+  return `dev-server-${operation}`;
+}
+
+function devServerMessageType(operation: ConnectorDevServerOperation) {
+  return `dev-server.${operation}` as const;
+}
+
+async function requestConnectorDevServerCommand(
+  operation: ConnectorDevServerOperation,
+  request: ConnectorDevServerTrustedRequest,
+  actor: ConnectorDevServerActor,
+  options: ConnectorDevServerRequestOptions = {}
+) {
+  const openSocket = sockets.get(request.machineId);
+  if (openSocket?.readyState === WebSocket.OPEN) {
+    const socket = socketForMachine(request.machineId, devServerCapability(operation));
+    const wireRequest = createConnectorDevServerWireRequest(
+      operation,
+      request,
+      actor,
+      connectorDevServerSigningKey(options),
+      options
+    );
+    const id = commandId();
+    const result = createPendingCommand(id, request.machineId, devServerPendingKind(operation), undefined, {
+      devServerTarget: {
+        generation: actor.generation,
+        projectId: request.projectId,
+        runTarget: request.runTarget,
+        worktreeId: request.worktreeId
+      },
+      timeoutMs: options.timeoutMs
+    });
+    const message: ConnectorMachineMessage = {
+      id,
+      payload: wireRequest,
+      type: devServerMessageType(operation)
+    } as ConnectorMachineMessage;
+    sendJson(socket, message);
+    return (await result) as ConnectorDevServerResult;
+  }
+
+  const localExecution = executeLocalConnectorDevServerCommand(
+    operation,
+    request,
+    actor,
+    options,
+    commandTimeoutMs
+  );
+  if (localExecution) {
+    return localExecution;
+  }
+  throw unavailableError(request.machineId);
+}
+
+export function requestConnectorDevServerInspect(
+  request: ConnectorDevServerTrustedRequest,
+  actor: ConnectorDevServerActor,
+  options?: ConnectorDevServerRequestOptions
+) {
+  return requestConnectorDevServerCommand('inspect', request, actor, options);
+}
+
+export function requestConnectorDevServerStart(
+  request: ConnectorDevServerTrustedRequest,
+  actor: ConnectorDevServerActor,
+  options?: ConnectorDevServerRequestOptions
+) {
+  return requestConnectorDevServerCommand('start', request, actor, options);
+}
+
+export function requestConnectorDevServerStop(
+  request: ConnectorDevServerTrustedRequest,
+  actor: ConnectorDevServerActor,
+  options?: ConnectorDevServerRequestOptions
+) {
+  return requestConnectorDevServerCommand('stop', request, actor, options);
 }
 
 export async function requestConnectorModels(
@@ -351,7 +518,16 @@ export async function streamConnectorCodexChat(
   await result;
 }
 
-export function createConnectorCommandUpgradeHandler() {
+export function createConnectorCommandUpgradeHandler(
+  options: ConnectorCommandUpgradeHandlerOptions = {}
+) {
+  const authenticate =
+    options.authenticateConnectorCredential ?? authenticateConnectorCredential;
+  const revalidationIntervalMs =
+    options.credentialRevalidationIntervalMs ?? defaultCredentialRevalidationIntervalMs;
+  if (!Number.isSafeInteger(revalidationIntervalMs) || revalidationIntervalMs <= 0) {
+    throw new Error('credentialRevalidationIntervalMs must be a positive integer.');
+  }
   const webSocketServer = new WebSocketServer({
     maxPayload: 2 * 1024 * 1024,
     noServer: true
@@ -359,26 +535,69 @@ export function createConnectorCommandUpgradeHandler() {
 
   webSocketServer.on('connection', (socket) => {
     let machineId = '';
+    let registrationToken = '';
+    let registrationPending = false;
+    let credentialRevalidationTimer: ReturnType<typeof setInterval> | undefined;
+    let credentialRevalidation: Promise<boolean> | undefined;
     const registrationTimeout = setTimeout(() => {
       if (!machineId) {
         socket.close(1008, 'Connector registration timed out.');
       }
     }, 10_000);
 
-    socket.on('message', (data) => {
+    async function revalidateCredential() {
+      if (!machineId || !registrationToken || socket.readyState !== WebSocket.OPEN) {
+        return false;
+      }
+      if (credentialRevalidation) {
+        return credentialRevalidation;
+      }
+
+      const attempt = authenticate(registrationToken, machineId).catch(() => false);
+      credentialRevalidation = attempt;
+      const authenticated = await attempt;
+      if (credentialRevalidation === attempt) {
+        credentialRevalidation = undefined;
+      }
+      if (!authenticated && socket.readyState === WebSocket.OPEN) {
+        socket.close(1008, 'Connector credential expired or was revoked.');
+      }
+      return authenticated;
+    }
+
+    socket.on('message', async (data) => {
       const message = parseConnectorMessage(data);
       if (!isConnectorHubMessage(message)) {
         return;
       }
 
       if (message.type === 'connector.register') {
-        if (!isValidRegistrationToken(message.token)) {
+        if (machineId || registrationPending) {
+          socket.close(1008, 'Connector already registered.');
+          return;
+        }
+        registrationPending = true;
+        const requestedMachineId = message.payload.connector.machineId;
+        const authenticated = await authenticate(message.token, requestedMachineId).catch(
+          () => false
+        );
+        if (!authenticated) {
           socket.close(1008, 'Connector registration failed.');
           return;
         }
+        if (socket.readyState !== WebSocket.OPEN) {
+          return;
+        }
 
-        registerConnectorProjectRegistry(message.payload);
-        machineId = message.payload.connector.machineId;
+        try {
+          registerConnectorProjectRegistry(message.payload);
+        } catch {
+          socket.close(1008, 'Connector registration failed.');
+          return;
+        }
+        machineId = requestedMachineId;
+        registrationToken = message.token;
+        registrationPending = false;
         const previous = sockets.get(machineId);
         if (previous && previous !== socket) {
           failCommandsForMachine(machineId);
@@ -392,6 +611,9 @@ export function createConnectorCommandUpgradeHandler() {
           previous.close(1012, 'Connector replaced.');
         }
         clearTimeout(registrationTimeout);
+        credentialRevalidationTimer = setInterval(() => {
+          void revalidateCredential();
+        }, revalidationIntervalMs);
         sendJson(socket, { type: 'connector.registered' });
         return;
       }
@@ -404,6 +626,9 @@ export function createConnectorCommandUpgradeHandler() {
       if (message.type === 'connector.registry') {
         if (message.payload.connector.machineId !== machineId) {
           socket.close(1008, 'Connector machine changed.');
+          return;
+        }
+        if (!(await revalidateCredential()) || socket.readyState !== WebSocket.OPEN) {
           return;
         }
         registerConnectorProjectRegistry(message.payload);
@@ -419,6 +644,9 @@ export function createConnectorCommandUpgradeHandler() {
 
     socket.on('close', () => {
       clearTimeout(registrationTimeout);
+      if (credentialRevalidationTimer) {
+        clearInterval(credentialRevalidationTimer);
+      }
       if (machineId && sockets.get(machineId) === socket) {
         sockets.delete(machineId);
         socketCapabilities.delete(machineId);

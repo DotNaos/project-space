@@ -5,7 +5,11 @@ import type {
   ProjectSpaceRecord,
   ProjectStructureViolationRecord
 } from '@/shared/project-space-api';
-import { refreshProjectSpaceAuthToken } from '@/api/project-space-client';
+import {
+  isProjectSpaceApiRequestAllowed,
+  refreshProjectSpaceAuthToken,
+  resolveProjectSpaceApiBaseUrl
+} from '@/api/project-space-client';
 import { Button, Surface, Tab, TabIndicator, TabList, Tabs, Text } from '@/app/dotnaos-ui';
 import { Files, FolderKanban, LayoutDashboard, Terminal as TerminalIcon } from 'lucide-react';
 import type { MachineDetailTab } from '../hooks/use-project-desktop';
@@ -94,19 +98,23 @@ const MachineTerminalSession = memo(function MachineTerminalSession({
 
         const { cols, rows } = sizeRef.current;
         const baseUrl =
-          import.meta.env.VITE_PROJECT_SPACE_API_BASE_URL ||
-          new URL(window.location.href).searchParams.get('projectSpaceApi') ||
-          window.location.origin;
+          resolveProjectSpaceApiBaseUrl(
+            window.location.href,
+            import.meta.env.VITE_PROJECT_SPACE_API_BASE_URL
+          ) || window.location.origin;
         const url = new URL(`/api/machines/${encodeURIComponent(machineId)}/terminal`, baseUrl);
+        if (!isProjectSpaceApiRequestAllowed(window.location.href, url.toString())) {
+          throw new Error('Project Space refused a terminal connection to an untrusted origin.');
+        }
         const sessionToken = await refreshProjectSpaceAuthToken();
 
         url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
         url.searchParams.set('cols', String(cols));
         url.searchParams.set('rows', String(rows));
-        if (sessionToken) {
-          url.searchParams.set('session', sessionToken);
-        }
-        const socket = new WebSocket(url);
+        const protocols = sessionToken
+          ? ['project-space', `project-space-auth.${sessionToken}`]
+          : ['project-space'];
+        const socket = new WebSocket(url, protocols);
         socketRef.current = socket;
 
         onStatusChange('connecting');

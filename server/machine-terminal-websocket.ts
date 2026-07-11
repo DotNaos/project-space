@@ -10,10 +10,13 @@ import { WebSocketServer, WebSocket } from 'ws';
 
 import {
   isProjectSpaceAuthRequired,
-  readAuthSessionFromUrl,
+  readAuthSessionFromWebSocketRequest,
   runWithAuthSession
 } from './local-auth-store';
+import { ProjectSpaceAccessError } from './authorized-project-space-backend';
 import type { MachineRecord, ProjectSpaceBackend } from '../src/shared/project-space-api';
+import { isConnectorHubMachine, isHubLocalMachine } from './connector-hub';
+import { createMachineSshTarget } from './local-project-machines';
 
 interface TerminalClientMessage {
   cols?: number;
@@ -24,6 +27,11 @@ interface TerminalClientMessage {
 
 const terminalPathPattern = /^\/api\/machines\/([^/]+)\/terminal$/;
 const projectTerminalPathPattern = /^\/api\/projects\/terminal$/;
+const terminalMaxPayloadBytes = 64 * 1024;
+const terminalMaxQueuedBytes = 128 * 1024;
+const terminalMaxQueuedMessages = 64;
+const terminalColumnBounds = { fallback: 100, maximum: 500, minimum: 20 } as const;
+const terminalRowBounds = { fallback: 28, maximum: 200, minimum: 8 } as const;
 const shellCandidates = ['/bin/zsh', '/usr/bin/zsh', '/bin/bash', '/usr/bin/bash', '/bin/sh'];
 const require = createRequire(import.meta.url);
 
@@ -41,11 +49,80 @@ function parseMessage(data: WebSocket.RawData): TerminalClientMessage | undefine
   }
 }
 
+interface TerminalDimensionBounds {
+  fallback: number;
+  maximum: number;
+  minimum: number;
+}
+
+function boundedDimension(value: string | null, bounds: TerminalDimensionBounds) {
+  const parsed = Number(value ?? bounds.fallback);
+  return Number.isFinite(parsed)
+    ? Math.min(bounds.maximum, Math.max(bounds.minimum, Math.floor(parsed)))
+    : bounds.fallback;
+}
+
+function isValidResizeDimension(value: unknown, bounds: TerminalDimensionBounds): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value >= bounds.minimum &&
+    value <= bounds.maximum
+  );
+}
+
+function decodeMachineId(pathname: string) {
+  try {
+    return decodeURIComponent(pathname.match(terminalPathPattern)?.[1] ?? '');
+  } catch {
+    throw new ProjectSpaceAccessError('Invalid machine identifier.');
+  }
+}
+
+function rawDataBytes(data: WebSocket.RawData) {
+  if (Array.isArray(data)) {
+    return data.reduce((total, entry) => total + entry.byteLength, 0);
+  }
+  return data.byteLength;
+}
+
+function queueMessagesUntilAuthenticated(socket: WebSocket) {
+  const messages: WebSocket.RawData[] = [];
+  let queuedBytes = 0;
+  const onMessage = (data: WebSocket.RawData) => {
+    const nextBytes = rawDataBytes(data);
+    if (
+      messages.length >= terminalMaxQueuedMessages ||
+      queuedBytes + nextBytes > terminalMaxQueuedBytes
+    ) {
+      socket.close(1009, 'Too much terminal input before authentication.');
+      return;
+    }
+    queuedBytes += nextBytes;
+    messages.push(data);
+  };
+  socket.on('message', onMessage);
+  return { messages, onMessage };
+}
+
 function sanitizeEnv() {
   const env: Record<string, string> = {};
+  const allowed = new Set([
+    'HOME',
+    'LANG',
+    'LC_ALL',
+    'LOGNAME',
+    'PATH',
+    'SHELL',
+    'TERM',
+    'TMPDIR',
+    'TZ',
+    'USER'
+  ]);
 
   for (const [key, value] of Object.entries(process.env)) {
-    if (typeof value === 'string') {
+    if (typeof value === 'string' && (allowed.has(key) || key.startsWith('LC_'))) {
       env[key] = value;
     }
   }
@@ -102,20 +179,30 @@ function ensureNodePtySpawnHelperExecutable() {
 }
 
 function isMachineConnected(machine: MachineRecord) {
-  return machine.connector.status === 'local' || machine.connector.status === 'online';
+  return isHubLocalMachine(machine) || machine.connector.status === 'online';
 }
 
-function createMachineSshTarget(machine: MachineRecord) {
-  const host = machine.network.localName ?? machine.name ?? machine.network.tailscaleIp;
-
-  if (!host) {
-    return '';
+export function resolveMachineTerminalTransport(machine: MachineRecord) {
+  if (isConnectorHubMachine(machine)) {
+    return { kind: 'connector' as const };
   }
-
-  return machine.network.sshUser ? `${machine.network.sshUser}@${host}` : host;
+  if (isHubLocalMachine(machine)) {
+    return { kind: 'local' as const };
+  }
+  const target = createMachineSshTarget(machine);
+  return target ? { kind: 'ssh' as const, target } : { kind: 'unavailable' as const };
 }
 
 async function createTerminalProcess(machine: MachineRecord, cols: number, rows: number) {
+  const transport = resolveMachineTerminalTransport(machine);
+  if (transport.kind === 'connector') {
+    throw new ProjectSpaceAccessError(
+      `${machine.name} must open interactive terminals through its machine connector.`
+    );
+  }
+  if (transport.kind === 'unavailable') {
+    throw new Error(`${machine.name} does not have an SSH target.`);
+  }
   ensureNodePtySpawnHelperExecutable();
   const { spawn: spawnPty } = await import('node-pty');
 
@@ -127,20 +214,14 @@ async function createTerminalProcess(machine: MachineRecord, cols: number, rows:
     rows
   };
 
-  if (machine.connector.status === 'local' || machine.kind === 'local') {
+  if (transport.kind === 'local') {
     const shell = getCommandShell();
     return spawnPty(shell, ['-l'], ptyOptions);
   }
 
-  const target = createMachineSshTarget(machine);
-
-  if (!target) {
-    throw new Error(`${machine.name} does not have an SSH target.`);
-  }
-
   return spawnPty(
     'ssh',
-    ['-tt', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', target],
+    ['-tt', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', transport.target],
     ptyOptions
   );
 }
@@ -165,7 +246,7 @@ async function createProjectTerminalProcess(cwd: string, cols: number, rows: num
   });
 }
 
-function applyTerminalMessage(pty: IPty, message: TerminalClientMessage | undefined) {
+export function applyTerminalMessage(pty: IPty, message: TerminalClientMessage | undefined) {
   if (!message) {
     return;
   }
@@ -177,10 +258,10 @@ function applyTerminalMessage(pty: IPty, message: TerminalClientMessage | undefi
 
   if (
     message.type === 'resize' &&
-    typeof message.cols === 'number' &&
-    typeof message.rows === 'number'
+    isValidResizeDimension(message.cols, terminalColumnBounds) &&
+    isValidResizeDimension(message.rows, terminalRowBounds)
   ) {
-    pty.resize(Math.max(20, message.cols), Math.max(8, message.rows));
+    pty.resize(message.cols, message.rows);
   }
 }
 
@@ -201,7 +282,11 @@ function attachPtyToSocket(socket: WebSocket, pty: IPty) {
   });
 
   socket.on('message', (data) => {
-    applyTerminalMessage(pty, parseMessage(data));
+    try {
+      applyTerminalMessage(pty, parseMessage(data));
+    } catch {
+      socket.close(1011, 'Terminal input failed.');
+    }
   });
 
   socket.on('close', () => {
@@ -213,23 +298,19 @@ function attachPtyToSocket(socket: WebSocket, pty: IPty) {
 
 export function createMachineTerminalUpgradeHandler(backend: ProjectSpaceBackend) {
   const webSocketServer = new WebSocketServer({
+    maxPayload: terminalMaxPayloadBytes,
     noServer: true
   });
 
   webSocketServer.on('connection', async (socket, request) => {
-    const queuedMessages: WebSocket.RawData[] = [];
-    const queueMessage = (data: WebSocket.RawData) => {
-      queuedMessages.push(data);
-    };
-    const url = new URL(request.url ?? '/', 'http://127.0.0.1');
-    const machineId = decodeURIComponent(url.pathname.match(terminalPathPattern)?.[1] ?? '');
-    const cols = Math.max(20, Number(url.searchParams.get('cols') ?? 100));
-    const rows = Math.max(8, Number(url.searchParams.get('rows') ?? 28));
-
-    socket.on('message', queueMessage);
+    const queue = queueMessagesUntilAuthenticated(socket);
 
     try {
-      const authSession = await readAuthSessionFromUrl(url);
+      const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+      const machineId = decodeMachineId(url.pathname);
+      const cols = boundedDimension(url.searchParams.get('cols'), terminalColumnBounds);
+      const rows = boundedDimension(url.searchParams.get('rows'), terminalRowBounds);
+      const authSession = await readAuthSessionFromWebSocketRequest(request, url);
 
       if (isProjectSpaceAuthRequired() && !authSession) {
         sendJson(socket, {
@@ -249,7 +330,10 @@ export function createMachineTerminalUpgradeHandler(backend: ProjectSpaceBackend
           data: `Machine ${machineId} was not found.\r\n`,
           type: 'output'
         });
-        socket.close();
+        socket.close(
+          isProjectSpaceAuthRequired() ? 1008 : 1000,
+          isProjectSpaceAuthRequired() ? 'Machine access denied.' : 'Machine not found.'
+        );
         return;
       }
 
@@ -263,20 +347,23 @@ export function createMachineTerminalUpgradeHandler(backend: ProjectSpaceBackend
       }
 
       const pty = await createTerminalProcess(machine, cols, rows);
-      socket.off('message', queueMessage);
+      socket.off('message', queue.onMessage);
       attachPtyToSocket(socket, pty);
 
-      for (const message of queuedMessages) {
+      for (const message of queue.messages) {
         applyTerminalMessage(pty, parseMessage(message));
       }
       });
     } catch (error) {
-      socket.off('message', queueMessage);
+      socket.off('message', queue.onMessage);
       sendJson(socket, {
         data: `${error instanceof Error ? error.message : 'Could not start terminal.'}\r\n`,
         type: 'output'
       });
-      socket.close();
+      socket.close(
+        error instanceof ProjectSpaceAccessError ? 1008 : 1011,
+        error instanceof ProjectSpaceAccessError ? 'Machine access denied.' : 'Terminal failed.'
+      );
     }
   });
 
@@ -301,23 +388,19 @@ export function createMachineTerminalUpgradeHandler(backend: ProjectSpaceBackend
 
 export function createProjectTerminalUpgradeHandler() {
   const webSocketServer = new WebSocketServer({
+    maxPayload: terminalMaxPayloadBytes,
     noServer: true
   });
 
   webSocketServer.on('connection', async (socket, request) => {
-    const queuedMessages: WebSocket.RawData[] = [];
-    const queueMessage = (data: WebSocket.RawData) => {
-      queuedMessages.push(data);
-    };
+    const queue = queueMessagesUntilAuthenticated(socket);
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
     const cwd = url.searchParams.get('cwd') ?? '';
-    const cols = Math.max(20, Number(url.searchParams.get('cols') ?? 100));
-    const rows = Math.max(8, Number(url.searchParams.get('rows') ?? 28));
-
-    socket.on('message', queueMessage);
+    const cols = boundedDimension(url.searchParams.get('cols'), terminalColumnBounds);
+    const rows = boundedDimension(url.searchParams.get('rows'), terminalRowBounds);
 
     try {
-      const authSession = await readAuthSessionFromUrl(url);
+      const authSession = await readAuthSessionFromWebSocketRequest(request, url);
 
       if (isProjectSpaceAuthRequired() && !authSession) {
         sendJson(socket, {
@@ -328,17 +411,26 @@ export function createProjectTerminalUpgradeHandler() {
         return;
       }
 
+      if (isProjectSpaceAuthRequired()) {
+        sendJson(socket, {
+          data: 'Project terminals are disabled in the hosted multi-user app.\r\n',
+          type: 'output'
+        });
+        socket.close(1008, 'Hosted project terminals are disabled.');
+        return;
+      }
+
       await runWithAuthSession(authSession, async () => {
         const pty = await createProjectTerminalProcess(cwd, cols, rows);
-        socket.off('message', queueMessage);
+        socket.off('message', queue.onMessage);
         attachPtyToSocket(socket, pty);
 
-        for (const message of queuedMessages) {
+        for (const message of queue.messages) {
           applyTerminalMessage(pty, parseMessage(message));
         }
       });
     } catch (error) {
-      socket.off('message', queueMessage);
+      socket.off('message', queue.onMessage);
       sendJson(socket, {
         data: `${error instanceof Error ? error.message : 'Could not start terminal.'}\r\n`,
         type: 'output'

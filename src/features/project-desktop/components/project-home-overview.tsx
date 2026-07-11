@@ -54,7 +54,6 @@ import {
   getMachineId,
   getProjectMachineId,
   getTemplateStatus,
-  installScriptUrl,
   isVisibleLocalProject,
   matchesQuery,
   mergeBranchChips,
@@ -110,7 +109,10 @@ export function ProjectHomeOverview({
   const [githubFlow, setGitHubFlow] = useState<GitHubOAuthDeviceStartResult>();
   const [isConnectingGitHub, setIsConnectingGitHub] = useState(false);
   const [isInstallDialogOpen, setIsInstallDialogOpen] = useState(false);
-  const [installCommand, setInstallCommand] = useState(`curl -fsSL ${installScriptUrl()} | bash`);
+  const [installCommand, setInstallCommand] = useState('');
+  const [installerExpiresAt, setInstallerExpiresAt] = useState('');
+  const [installerError, setInstallerError] = useState('');
+  const [isGeneratingInstaller, setIsGeneratingInstaller] = useState(false);
   const [installScriptHref, setInstallScriptHref] = useState('/connector/install.sh');
   const [hasCopiedInstallCommand, setHasCopiedInstallCommand] = useState(false);
   const [layout, setLayout] = useState<'grid' | 'list'>('list');
@@ -183,9 +185,28 @@ export function ProjectHomeOverview({
   }
 
   async function copyInstallCommand() {
+    if (!installCommand) {
+      return;
+    }
     await navigator.clipboard?.writeText(installCommand);
     setHasCopiedInstallCommand(true);
     window.setTimeout(() => setHasCopiedInstallCommand(false), 1_500);
+  }
+
+  async function generateInstallCommand() {
+    setIsGeneratingInstaller(true);
+    setInstallerError('');
+    try {
+      const result = await projectSpaceClient.getConnectorInstallCommand();
+      setInstallCommand(result.command);
+      setInstallerExpiresAt(result.expiresAt);
+      setInstallScriptHref(result.scriptUrl);
+      setHasCopiedInstallCommand(false);
+    } catch (error) {
+      setInstallerError(error instanceof Error ? error.message : 'Could not create an installer.');
+    } finally {
+      setIsGeneratingInstaller(false);
+    }
   }
 
   const machines = useMemo(() => {
@@ -649,30 +670,6 @@ export function ProjectHomeOverview({
     }
   }, [activeMachineId, localMachineId, machines, machinesById]);
 
-  useEffect(() => {
-    if (!isInstallDialogOpen) {
-      return;
-    }
-
-    let canceled = false;
-
-    projectSpaceClient
-      .getConnectorInstallCommand()
-      .then((result) => {
-        if (canceled) {
-          return;
-        }
-
-        setInstallCommand(result.command);
-        setInstallScriptHref(result.scriptUrl);
-      })
-      .catch(() => undefined);
-
-    return () => {
-      canceled = true;
-    };
-  }, [isInstallDialogOpen]);
-
   function renderLayoutTabs() {
     return (
       <Tabs
@@ -878,8 +875,12 @@ export function ProjectHomeOverview({
           hasCopiedInstallCommand={hasCopiedInstallCommand}
           installCommand={installCommand}
           installScriptHref={installScriptHref}
+          installerError={installerError}
+          installerExpiresAt={installerExpiresAt}
+          isGeneratingInstaller={isGeneratingInstaller}
           onClose={() => setIsInstallDialogOpen(false)}
           onCopy={() => void copyInstallCommand()}
+          onGenerate={() => void generateInstallCommand()}
         />
       ) : null}
       <div className="mb-3 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
