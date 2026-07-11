@@ -372,4 +372,22 @@ describe("machine connection state machine", () => {
     } satisfies Partial<MachineConnectionError>);
     expect(store.requests.size).toBe(0);
   });
+
+  test("accepts a human-readable machine name while keeping hostname strict", async () => {
+    const { service, store } = setup();
+    const keys = keyPair();
+    const created = await service.createRequest({
+      ...metadata(keys.publicKey),
+      name: "Office PC",
+    });
+
+    expect(created.requestId).toBeTruthy();
+    expect(store.requests.get(created.requestId)?.name).toBe("Office PC");
+    expect(
+      service.createRequest({
+        ...metadata(keys.publicKey),
+        hostname: "office pc",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+  });
 });

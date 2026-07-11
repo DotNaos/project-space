@@ -24,7 +24,8 @@ export { MachineConnectionError } from "./machine-connection-error";
 
 const defaultRequestLifetimeMs = 10 * 60_000;
 const defaultPollIntervalMs = 2_000;
-const machineNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const machineNamePattern = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/;
+const hostnamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const versionPattern = /^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$/;
 
 interface MachineConnectionServiceOptions {
@@ -61,7 +62,7 @@ function normalizeMetadata(
 
   if (
     !machineNamePattern.test(normalized.name) ||
-    !machineNamePattern.test(normalized.hostname) ||
+    !hostnamePattern.test(normalized.hostname) ||
     !versionPattern.test(normalized.clientVersion) ||
     !["amd64", "arm64"].includes(normalized.architecture) ||
     !["darwin", "linux", "windows"].includes(normalized.operatingSystem)

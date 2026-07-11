@@ -373,12 +373,16 @@ func validateMachine(machine Machine) error {
 		"architecture":     machine.Architecture,
 		"client version":   machine.ClientVersion,
 	} {
-		if strings.TrimSpace(value) == "" || len(value) > 256 || strings.ContainsAny(value, "\r\n\x00") {
+		if strings.TrimSpace(value) == "" || strings.TrimSpace(value) != value ||
+			len(value) > 256 || strings.ContainsAny(value, "\r\n\x00") {
 			return fmt.Errorf("%s is invalid", field)
 		}
 	}
-	if !validMachineLabel(machine.Name) || !validMachineLabel(machine.Hostname) {
-		return errors.New("machine name and hostname must use letters, numbers, dots, underscores, or hyphens")
+	if !validMachineName(machine.Name) {
+		return errors.New("machine name must use letters, numbers, spaces, dots, underscores, or hyphens")
+	}
+	if !validMachineLabel(machine.Hostname) {
+		return errors.New("hostname must use letters, numbers, dots, underscores, or hyphens")
 	}
 	if machine.OS != "darwin" && machine.OS != "linux" && machine.OS != "windows" {
 		return errors.New("operating system is not supported")
@@ -390,6 +394,20 @@ func validateMachine(machine Machine) error {
 		return errors.New("client version is invalid")
 	}
 	return nil
+}
+
+func validMachineName(value string) bool {
+	if len(value) == 0 || len(value) > 64 {
+		return false
+	}
+	for index, character := range value {
+		allowed := character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' || index > 0 && strings.ContainsRune(" ._-", character)
+		if !allowed {
+			return false
+		}
+	}
+	return true
 }
 
 func validMachineLabel(value string) bool {

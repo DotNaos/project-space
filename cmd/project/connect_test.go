@@ -138,7 +138,7 @@ func TestConnectCommandNoOpenUsesPrintableFallback(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	command.SetOut(stdout)
 	command.SetErr(stderr)
-	command.SetArgs([]string{"--no-open", "--name", "wsl-worker"})
+	command.SetArgs([]string{"--no-open", "--name", "Office PC"})
 
 	if err := command.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
