@@ -6,6 +6,7 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile
       args:
+        PROJECT_SPACE_BUILD_COMMIT: ${PROJECT_SPACE_BUILD_COMMIT:-unknown}
         VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:-}
     environment:
       CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
@@ -31,7 +32,13 @@ services:
       PROJECT_CONNECTOR_REGISTRATION_TOKEN: ${PROJECT_CONNECTOR_REGISTRATION_TOKEN:-}
       PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64: ${PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64:-}
       PROJECT_CONNECTOR_SERVICE_NAME: ${PROJECT_COMPOSE_NAME:-project-space-prod}-web
-    image: project-space-web:local
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:4173/api/health'); const b=await r.json(); if(!r.ok||b.ok!==true) process.exit(1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    image: project-space-web:${PROJECT_SPACE_BUILD_COMMIT:-local}
     restart: unless-stopped
     volumes:
       - ..:/workspace/backend-repo:ro
@@ -44,7 +51,15 @@ services:
     build:
       context: ..
       dockerfile: apps/docs/Dockerfile
-    image: project-space-docs:local
+      args:
+        PROJECT_SPACE_BUILD_COMMIT: ${PROJECT_SPACE_BUILD_COMMIT:-unknown}
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:3000/'); if(!r.ok) process.exit(1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    image: project-space-docs:${PROJECT_SPACE_BUILD_COMMIT:-local}
     restart: unless-stopped
 
   db:

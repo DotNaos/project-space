@@ -267,6 +267,7 @@ present so connector clients can decode one stable shape.
 
 ```sh
 project deploy --env prod
+project deploy --env prod --commit <full-current-main-sha>
 project deploy --env beta
 project deploy --env prod --dry-run --format json
 project deploy status --env prod
@@ -307,6 +308,20 @@ docs. The docs URL is derived from the app domain at `/docs`.
 Flags override config. Values from `deploy/deploy.yaml` are used directly,
 without confirmation prompts. Secret values are read from 1Password only for
 real deploys; dry-runs show only secret references.
+
+Production deploys resolve one full Git SHA and re-check it against current
+`origin/main` both before connecting and again while holding the VPS deployment
+lock. The lock at `/opt/platform/locks/project-space-prod.lock` covers checkout,
+container replacement, verification, and any rollback. A successful JSON result
+contains matching remote-checkout, running-build, image, service-health, HTTP,
+and live-origin evidence. A failed rollout restores only the atomically recorded
+last verified commit and verifies that rollback before returning.
+
+The `Deploy production` GitHub Actions workflow validates every new `main`
+commit without production secrets, then deploys that exact SHA through the
+GitHub `Production` environment. See
+[Production deployment](production-deployment.md) for workflow recovery,
+failure states, secret configuration, and the safe disable procedure.
 
 Production also requires a dedicated Ed25519 connector command-signing key.
 `deploy/deploy.yaml` reads its dotenv-safe PKCS8 base64 value from

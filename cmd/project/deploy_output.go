@@ -18,8 +18,10 @@ func printDeployResult(cmd *cobra.Command, project deployProject, options deploy
 	}
 	if options.DryRun {
 		fmt.Fprintln(cmd.OutOrStdout(), "Deploy dry run")
-	} else {
+	} else if project.Status == "success" {
 		fmt.Fprintln(cmd.OutOrStdout(), "Deploy complete")
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "Deploy %s\n", project.Status)
 	}
 	printDeployProjectSummary(cmd, project)
 	if options.DryRun {
@@ -45,10 +47,6 @@ func printDeployStatusReport(cmd *cobra.Command, report deployStatusReport, form
 	for _, project := range report.Environments {
 		fmt.Fprintln(cmd.OutOrStdout())
 		printDeployProjectSummary(cmd, project)
-		if project.Status != "" {
-			fmt.Fprintln(cmd.OutOrStdout(), "Remote:")
-			fmt.Fprintln(cmd.OutOrStdout(), project.Status)
-		}
 	}
 	return nil
 }
@@ -59,6 +57,19 @@ func printDeployProjectSummary(cmd *cobra.Command, project deployProject) {
 	fmt.Fprintf(cmd.OutOrStdout(), "Remote path: %s\n", project.RemotePath)
 	fmt.Fprintf(cmd.OutOrStdout(), "Branch: %s\n", project.Branch)
 	fmt.Fprintf(cmd.OutOrStdout(), "Compose project: %s\n", project.ComposeProject)
+	if project.Status != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "Status: %s\n", project.Status)
+	}
+	if project.Evidence != nil {
+		if project.Evidence.LockOwner != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "Lock: %s at %s\n", project.Evidence.LockOwner, project.Evidence.LockAcquiredAt)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Remote checkout: %s\n", project.Evidence.RemoteCheckoutCommit)
+		fmt.Fprintf(cmd.OutOrStdout(), "Running build: %s\n", project.Evidence.RunningBuildCommit)
+		fmt.Fprintf(cmd.OutOrStdout(), "Services healthy: %t\n", project.Evidence.ComposeHealthy)
+		fmt.Fprintf(cmd.OutOrStdout(), "HTTP healthy: %t\n", project.Evidence.HTTPHealthy)
+		fmt.Fprintf(cmd.OutOrStdout(), "Live origin healthy: %t\n", project.Evidence.LiveOriginHealthy)
+	}
 	if project.WebURL != "" {
 		fmt.Fprintf(cmd.OutOrStdout(), "Web: %s\n", project.WebURL)
 	}

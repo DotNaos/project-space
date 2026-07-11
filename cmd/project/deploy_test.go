@@ -86,16 +86,25 @@ func TestDeployComposeScriptUsesSecretValuesOnlyAtRuntime(t *testing.T) {
 		`mv -f -- "$project_env_tmp" .env`,
 		"PROJECT_DOMAIN=example.com",
 		"PROJECT_API_DOMAIN=api.example.com",
-		"GITHUB_TOKEN=github-token-value",
-		"GITHUB_OAUTH_CLIENT_ID=oauth-client-id",
-		"CLERK_PUBLISHABLE_KEY=clerk-publishable-value",
-		"CLERK_SECRET_KEY=clerk-secret-value",
-		"PROJECT_CONNECTOR_REGISTRATION_TOKEN=connector-registration-token-value",
+		"GITHUB_TOKEN='github-token-value'",
+		"GITHUB_OAUTH_CLIENT_ID='oauth-client-id'",
+		"CLERK_PUBLISHABLE_KEY='clerk-publishable-value'",
+		"CLERK_SECRET_KEY='clerk-secret-value'",
+		"PROJECT_CONNECTOR_REGISTRATION_TOKEN='connector-registration-token-value'",
 		"docker compose --env-file .env -p example-prod -f deploy/compose.yml -f deploy/ingress.labels.yml up -d --build",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("runtime deploy script missing %q:\n%s", want, script)
 		}
+	}
+}
+
+func TestDeployEnvironmentQuotesSecretInterpolationCharacters(t *testing.T) {
+	content := deployEnvFileContent(deployProject{}, deployOptions{Secrets: map[string]deploySecretValue{
+		"SPECIAL": {Value: `abc$HOME#suffix'\\tail`},
+	}}, true)
+	if !strings.Contains(content, `SPECIAL='abc$HOME#suffix\'\\\\tail'`) {
+		t.Fatalf("secret was not dotenv-escaped: %s", content)
 	}
 }
 
@@ -142,7 +151,7 @@ func TestDeployComposeScriptWritesEnvironmentFileAtomicallyWithOwnerOnlyPermissi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET="+strings.Repeat("s", 32)) {
+	if !strings.Contains(string(body), "PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET='"+strings.Repeat("s", 32)+"'") {
 		t.Fatalf(".env missing configured secret")
 	}
 	matches, err := filepath.Glob(filepath.Join(root, ".env.tmp.*"))
