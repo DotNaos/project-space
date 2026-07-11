@@ -67,7 +67,7 @@ func (connector *ServiceConnector) stopSystemd(ctx context.Context) error {
 }
 
 func (connector *ServiceConnector) removeSystemdUnit(ctx context.Context) error {
-	_, stopErr := connector.runner.Run(
+	stopOutput, stopErr := connector.runner.Run(
 		ctx,
 		"systemctl",
 		"--user",
@@ -75,23 +75,24 @@ func (connector *ServiceConnector) removeSystemdUnit(ctx context.Context) error 
 		machineConnectorSystemdUnit,
 	)
 	if stopErr != nil {
+		stopFailure := systemdServiceError("stop machine connector systemd service", stopOutput, stopErr)
 		if commandUnavailable(stopErr) || ctx.Err() != nil {
-			return fmt.Errorf("stop machine connector systemd service: %w", stopErr)
+			return stopFailure
 		}
 		loaded, inspectErr := connector.systemdUnitLoaded(ctx)
 		if inspectErr != nil {
 			return errors.Join(
-				fmt.Errorf("stop machine connector systemd service: %w", stopErr),
+				stopFailure,
 				inspectErr,
 			)
 		}
 		if loaded {
-			return fmt.Errorf("stop machine connector systemd service: %w", stopErr)
+			return stopFailure
 		}
 		return nil
 	}
 
-	_, resetErr := connector.runner.Run(
+	resetOutput, resetErr := connector.runner.Run(
 		ctx,
 		"systemctl",
 		"--user",
@@ -102,17 +103,17 @@ func (connector *ServiceConnector) removeSystemdUnit(ctx context.Context) error 
 		return nil
 	}
 	if commandUnavailable(resetErr) || ctx.Err() != nil {
-		return fmt.Errorf("reset machine connector systemd service: %w", resetErr)
+		return systemdServiceError("reset machine connector systemd service", resetOutput, resetErr)
 	}
 	loaded, inspectErr := connector.systemdUnitLoaded(ctx)
 	if inspectErr != nil {
 		return errors.Join(
-			fmt.Errorf("reset machine connector systemd service: %w", resetErr),
+			systemdServiceError("reset machine connector systemd service", resetOutput, resetErr),
 			inspectErr,
 		)
 	}
 	if loaded {
-		return fmt.Errorf("reset machine connector systemd service: %w", resetErr)
+		return systemdServiceError("reset machine connector systemd service", resetOutput, resetErr)
 	}
 	return nil
 }
@@ -128,7 +129,7 @@ func (connector *ServiceConnector) systemdUnitLoaded(ctx context.Context) (bool,
 		machineConnectorSystemdUnit,
 	)
 	if err != nil {
-		return false, fmt.Errorf("inspect machine connector systemd service: %w", err)
+		return false, systemdServiceError("inspect machine connector systemd service", output, err)
 	}
 	switch state := strings.TrimSpace(string(output)); state {
 	case "not-found":
@@ -138,4 +139,15 @@ func (connector *ServiceConnector) systemdUnitLoaded(ctx context.Context) (bool,
 	default:
 		return false, fmt.Errorf("inspect machine connector systemd service: unexpected load state %q", state)
 	}
+}
+
+func systemdServiceError(action string, output []byte, err error) error {
+	detail := strings.Join(strings.Fields(string(output)), " ")
+	if len(detail) > 512 {
+		detail = detail[:512] + "..."
+	}
+	if detail == "" {
+		return fmt.Errorf("%s: %w", action, err)
+	}
+	return fmt.Errorf("%s: %w (%s)", action, err, detail)
 }

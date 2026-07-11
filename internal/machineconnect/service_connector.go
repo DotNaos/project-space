@@ -27,18 +27,23 @@ type ServiceConnectorOptions struct {
 	Executable string
 	GOOS       string
 	HomeDir    string
+	LinuxUser  string
 	UserID     string
+	WSLDistro  string
 }
 
 // ServiceConnector starts and stops the authenticated connector through the
 // host's per-user service manager. It never handles machine credentials.
 type ServiceConnector struct {
-	executable string
-	goos       string
-	homeDir    string
-	userID     string
-	runner     serviceCommandRunner
-	files      serviceFileSystem
+	executable  string
+	goos        string
+	homeDir     string
+	linuxUser   string
+	userID      string
+	wslDistro   string
+	wslTaskName string
+	runner      serviceCommandRunner
+	files       serviceFileSystem
 }
 
 var _ Connector = (*ServiceConnector)(nil)
@@ -54,7 +59,41 @@ type serviceFileSystem interface {
 }
 
 func NewServiceConnector(options ServiceConnectorOptions) (*ServiceConnector, error) {
+	var err error
+	options, err = serviceConnectorOptionsWithDefaults(options, os.Getenv, user.Current)
+	if err != nil {
+		return nil, err
+	}
 	return newServiceConnector(options, execServiceCommandRunner{}, osServiceFileSystem{})
+}
+
+func serviceConnectorOptionsWithDefaults(
+	options ServiceConnectorOptions,
+	getenv func(string) string,
+	currentUser func() (*user.User, error),
+) (ServiceConnectorOptions, error) {
+	effectiveGOOS := options.GOOS
+	if effectiveGOOS == "" {
+		effectiveGOOS = runtime.GOOS
+	}
+	if effectiveGOOS != "linux" {
+		return options, nil
+	}
+	if options.WSLDistro == "" && getenv != nil {
+		options.WSLDistro = getenv("WSL_DISTRO_NAME")
+	}
+	if options.WSLDistro == "" || options.LinuxUser != "" {
+		return options, nil
+	}
+	if currentUser == nil {
+		return ServiceConnectorOptions{}, errors.New("resolve current WSL user: user lookup is unavailable")
+	}
+	resolvedUser, err := currentUser()
+	if err != nil {
+		return ServiceConnectorOptions{}, fmt.Errorf("resolve current WSL user: %w", err)
+	}
+	options.LinuxUser = resolvedUser.Username
+	return options, nil
 }
 
 func newServiceConnector(
@@ -95,6 +134,27 @@ func newServiceConnector(
 		runner:     runner,
 		files:      files,
 	}
+	wslDistro := strings.TrimSpace(options.WSLDistro)
+	linuxUser := strings.TrimSpace(options.LinuxUser)
+	if wslDistro != "" || linuxUser != "" {
+		if goos != "linux" {
+			return nil, errors.New("WSL connector service requires linux")
+		}
+		if options.Executable != "" &&
+			(strings.TrimSpace(options.Executable) != options.Executable ||
+				strings.ContainsAny(options.Executable, "\x00\r\n")) {
+			return nil, errors.New("WSL connector executable is invalid")
+		}
+		if wslDistro != options.WSLDistro || !validWSLDistro(wslDistro) {
+			return nil, errors.New("WSL distribution name is invalid")
+		}
+		if linuxUser != options.LinuxUser || !validLinuxUser(linuxUser) {
+			return nil, errors.New("WSL Linux user is invalid")
+		}
+		connector.wslDistro = wslDistro
+		connector.linuxUser = linuxUser
+		connector.wslTaskName = wslScheduledTaskName(wslDistro, linuxUser)
+	}
 	if goos != "darwin" {
 		return connector, nil
 	}
@@ -132,6 +192,9 @@ func (connector *ServiceConnector) Start(ctx context.Context) error {
 	}
 	switch connector.goos {
 	case "linux":
+		if connector.wslDistro != "" {
+			return connector.startWSLScheduledTask(ctx)
+		}
 		return connector.startSystemd(ctx)
 	case "darwin":
 		return connector.startLaunchd(ctx)
@@ -148,6 +211,9 @@ func (connector *ServiceConnector) Stop(ctx context.Context) error {
 	}
 	switch connector.goos {
 	case "linux":
+		if connector.wslDistro != "" {
+			return connector.stopWSLScheduledTask(ctx)
+		}
 		return connector.stopSystemd(ctx)
 	case "darwin":
 		return connector.stopLaunchd(ctx)
