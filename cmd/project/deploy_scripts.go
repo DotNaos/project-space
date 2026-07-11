@@ -224,8 +224,8 @@ persist_verified() {
 retry_public_get() {
   public_url="$1"
   public_attempt=1
-  while [ "$public_attempt" -le 20 ]; do
-    public_response="$(curl --fail --silent --max-time 20 "$public_url" 2>/dev/null)" && {
+  while [ "$public_attempt" -le 10 ]; do
+    public_response="$(curl --fail --silent --max-time 2 "$public_url" 2>/dev/null)" && {
       printf '%%s' "$public_response"
       return 0
     }

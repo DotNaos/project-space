@@ -232,6 +232,13 @@ func TestDeployRetriesTransientPublicIngressFailure(t *testing.T) {
 	}
 }
 
+func TestDeployPublicRetryWindowIsBounded(t *testing.T) {
+	_, _, script := deployScriptFixture(t.TempDir())
+	if !strings.Contains(script, `public_attempt" -le 10`) || !strings.Contains(script, `--max-time 2`) || !strings.Contains(script, `sleep 2`) {
+		t.Fatalf("public retry window is not bounded:\n%s", script)
+	}
+}
+
 func TestDeployScriptCleansBuildInputsButPreservesRuntimeSSH(t *testing.T) {
 	_, _, script := deployScriptFixture(t.TempDir())
 	if !strings.Contains(script, "git clean -fdx -e ssh/") {
