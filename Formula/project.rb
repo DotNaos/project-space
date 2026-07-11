@@ -1,22 +1,27 @@
+# frozen_string_literal: true
+
+# Installs the Project CLI from the Project Space source tree.
 class Project < Formula
   desc "Template-aware Project CLI"
   homepage "https://github.com/DotNaos/project-space"
   head "https://github.com/DotNaos/project-space.git", using: :git, branch: "main"
 
+  depends_on "bun" => :build
   depends_on "go" => :build
 
   def install
-    system "go", "build", "-o", libexec/"project", "./cmd/project"
-    pkgshare.install "templates/project-template"
-    (zsh_completion/"_project").write Utils.safe_popen_read(libexec/"project", "completion", "zsh")
-    (bin/"project").write <<~SH
-      #!/bin/bash
-      export PROJECT_SPACE_TEMPLATE_ROOT="#{pkgshare}/project-template"
-      exec "#{libexec}/project" "$@"
-    SH
+    ldflags = "-X main.projectMachineClientVersion=#{version}"
+    system "bun", "install", "--frozen-lockfile"
+    system "bun", "run", "build:connector:native"
+    system "go", "build", "-trimpath", "-ldflags=#{ldflags}", "-o", bin/"project", "./cmd/project"
+    bin.install "dist/project-space-connector"
+    generate_completions_from_executable bin/"project", "completion", shells: [:zsh]
   end
 
   test do
+    assert_predicate bin/"project-space-connector", :executable?
+    system bin/"project-space-connector", "--help"
     system bin/"project", "--help"
+    system bin/"project", "init", "--help"
   end
 end

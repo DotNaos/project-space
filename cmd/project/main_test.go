@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -26,13 +27,60 @@ func TestProjectTerminationSignalsIncludeHangup(t *testing.T) {
 	}
 }
 
-func TestRootCommandIncludesProjectChat(t *testing.T) {
-	command, _, err := newRootCommand().Find([]string{"chat"})
-	if err != nil {
-		t.Fatalf("Find(chat) error: %v", err)
+func TestRootCommandIncludesExpectedCommands(t *testing.T) {
+	want := []string{
+		"__runtime-supervisor",
+		"adopt",
+		"chat",
+		"connect",
+		"connector",
+		"create",
+		"deploy",
+		"disconnect",
+		"doctor",
+		"init",
+		"module",
+		"run",
+		"serve",
+		"status",
+		"template",
+		"token",
+		"validate",
+		"worktree",
 	}
-	if command.Name() != "chat" {
-		t.Fatalf("command name = %q, want chat", command.Name())
+	root := newRootCommand()
+	got := make([]string, 0, len(root.Commands()))
+	for _, command := range root.Commands() {
+		got = append(got, command.Name())
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("root commands = %q, want %q", got, want)
+	}
+}
+
+func TestRootCommandHelpListsMachineConnectionCommands(t *testing.T) {
+	command := newRootCommand()
+	output := &bytes.Buffer{}
+	command.SetOut(output)
+	command.SetErr(output)
+	command.SetArgs([]string{"--help"})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("execute root help: %v", err)
+	}
+	for _, name := range []string{"connect", "disconnect", "doctor", "status"} {
+		if !strings.Contains(output.String(), "  "+name+" ") {
+			t.Errorf("root help does not list %q:\n%s", name, output.String())
+		}
+	}
+}
+
+func TestRootCommandKeepsConnectorRunDiscoverable(t *testing.T) {
+	command, _, err := newRootCommand().Find([]string{"connector", "run"})
+	if err != nil {
+		t.Fatalf("Find(connector run) error: %v", err)
+	}
+	if command.CommandPath() != "project connector run" {
+		t.Fatalf("command path = %q, want project connector run", command.CommandPath())
 	}
 }
 

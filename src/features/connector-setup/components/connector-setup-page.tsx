@@ -12,6 +12,7 @@ import {
   Network,
   Terminal
 } from 'lucide-react';
+import { MachineConnectionApprovalPage } from './machine-connection-approval-page';
 
 const homebrewCommands = [
   'brew tap DotNaos/project-space https://github.com/DotNaos/project-space.git',
@@ -169,6 +170,12 @@ function GraphRow({ from, to }: { from: string; to: string }) {
 }
 
 export function ConnectorSetupPage() {
+  const connectionRequestId = new URLSearchParams(window.location.search).get('request')?.trim();
+
+  if (connectionRequestId) {
+    return <MachineConnectionApprovalPage requestId={connectionRequestId} />;
+  }
+
   return (
     <main className="min-h-screen bg-app-canvas px-8 py-8 text-neutral-100">
       <div className="mx-auto grid max-w-6xl gap-6">

@@ -11,11 +11,17 @@ import { createProjectSpacePublicApiRoutes } from './project-space-api-public-ro
 import { ProjectSpaceAccessError } from './authorized-project-space-backend';
 import { writeEmpty, writeJson } from './project-space-http-response';
 import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
+import type { MachineConnectionRuntime } from './machine-connection-runtime';
 import type { ProjectChatRuntime } from './project-chat/runtime';
+
+interface ProjectSpaceApiHandlerOptions {
+  machineConnection?: Pick<MachineConnectionRuntime, 'handleRequest'>;
+  projectChat?: Pick<ProjectChatRuntime, 'handleRequest'>;
+}
 
 export function createProjectSpaceApiHandler(
   backend: ProjectSpaceBackend,
-  projectChat?: Pick<ProjectChatRuntime, 'handleRequest'>
+  options: ProjectSpaceApiHandlerOptions = {}
 ) {
   const handlePublicRoute = createProjectSpacePublicApiRoutes(backend);
   const handleCoreRoute = createProjectSpaceCoreApiRoutes(backend);
@@ -36,7 +42,14 @@ export function createProjectSpaceApiHandler(
         return true;
       }
 
-      if (projectChat && await projectChat.handleRequest(request, response, url)) {
+      if (
+        options.machineConnection &&
+        await options.machineConnection.handleRequest(request, response, url)
+      ) {
+        return true;
+      }
+
+      if (options.projectChat && await options.projectChat.handleRequest(request, response, url)) {
         return true;
       }
 

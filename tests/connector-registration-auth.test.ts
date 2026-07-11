@@ -6,6 +6,7 @@ import { WebSocket } from 'ws';
 
 import {
   createConnectorCommandUpgradeHandler,
+  isConnectorCommandChannelAuthenticated,
   isConnectorCommandChannelAvailable
 } from '../server/connector-command-hub';
 import type { ConnectorProjectRegistryResult } from '../src/shared/project-space-api';
@@ -72,6 +73,15 @@ describe('connector credential authentication', () => {
       const [message] = (await once(accepted, 'message')) as [Buffer];
       expect(JSON.parse(message.toString())).toEqual({ type: 'connector.registered' });
       expect(isConnectorCommandChannelAvailable('bound-machine')).toBe(true);
+      expect(
+        isConnectorCommandChannelAuthenticated(
+          'bound-machine',
+          'machine-specific-credential'
+        )
+      ).toBe(true);
+      expect(
+        isConnectorCommandChannelAuthenticated('bound-machine', 'rotated-credential')
+      ).toBe(false);
       expect(authentications).toEqual([
         ['wrong-credential', 'bound-machine'],
         ['machine-specific-credential', 'bound-machine']

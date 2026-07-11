@@ -19,12 +19,15 @@ func deploySteps(project deployProject, options deployOptions) []string {
 }
 
 func composeUpStep(project deployProject, options deployOptions) string {
-	return fmt.Sprintf(
-		"set -e; cd %s; cat > .env <<'PROJECT_SPACE_ENV'\n%s\nPROJECT_SPACE_ENV\ndocker compose --env-file .env -p %s -f deploy/compose.yml -f deploy/ingress.labels.yml up -d --build",
-		shellQuote(project.RemotePath),
-		deployEnvFileContent(project, options, false),
-		shellQuote(project.ComposeProject),
-	)
+	return strings.Join([]string{
+		"set -e",
+		"cd " + shellQuote(project.RemotePath),
+		deployEnvFileWriteScript(project, options, false),
+		fmt.Sprintf(
+			"docker compose --env-file .env -p %s -f deploy/compose.yml -f deploy/ingress.labels.yml up -d --build",
+			shellQuote(project.ComposeProject),
+		),
+	}, "\n")
 }
 
 func composeStatusStep(project deployProject, options deployOptions) string {
@@ -77,6 +80,27 @@ func deployEnvFileContent(project deployProject, options deployOptions, includeS
 	return strings.Join(lines, "\n")
 }
 
+func deployEnvFileWriteScript(
+	project deployProject,
+	options deployOptions,
+	includeSecretValues bool,
+) string {
+	return strings.Join([]string{
+		"umask 077",
+		`project_env_tmp="$(mktemp .env.tmp.XXXXXX)"`,
+		`cleanup_project_env() { [ -z "$project_env_tmp" ] || rm -f -- "$project_env_tmp"; }`,
+		"trap cleanup_project_env 0",
+		`trap 'cleanup_project_env; exit 1' 1 2 15`,
+		`cat > "$project_env_tmp" <<'PROJECT_SPACE_ENV'`,
+		deployEnvFileContent(project, options, includeSecretValues),
+		"PROJECT_SPACE_ENV",
+		`chmod 600 "$project_env_tmp"`,
+		`mv -f -- "$project_env_tmp" .env`,
+		"project_env_tmp=",
+		"trap - 1 2 15",
+	}, "\n")
+}
+
 func secretSourceLabel(source string) string {
 	if source == "" {
 		return "<secret>"
@@ -92,9 +116,7 @@ func deployComposeScript(project deployProject, options deployOptions, up bool) 
 	return strings.Join([]string{
 		"set -e",
 		"cd " + shellQuote(project.RemotePath),
-		"cat > .env <<'PROJECT_SPACE_ENV'",
-		deployEnvFileContent(project, options, true),
-		"PROJECT_SPACE_ENV",
+		deployEnvFileWriteScript(project, options, true),
 		command,
 	}, "\n")
 }

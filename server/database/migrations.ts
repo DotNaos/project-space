@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import type { DatabaseQueryClient } from './client';
+import { machineConnectionMigrationSql } from './machine-connection-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -296,6 +297,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
       create index if not exists project_chat_idempotency_expiry_idx
         on project_chat_idempotency (expires_at);
     `
+  },
+  {
+    id: '0008_machine_connections',
+    sql: machineConnectionMigrationSql
   }
 ];
 

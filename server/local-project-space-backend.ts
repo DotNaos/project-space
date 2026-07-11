@@ -86,11 +86,12 @@ import type {
 } from '../src/shared/project-space-api';
 
 interface LocalProjectSpaceBackendOptions {
+  connectorMachineId?: string;
   getAppMeta?: () => AppMeta | Promise<AppMeta>;
   selectProjectDirectory?: () => Promise<ProjectDirectorySelection>;
 }
 
-async function localConnectorIdentity() {
+async function localConnectorIdentity(connectorMachineId?: string) {
   const connector = await getConnectorOverview();
   const localMachine =
     connector.machines.find((machine) => machine.connector.status === 'local') ??
@@ -99,8 +100,24 @@ async function localConnectorIdentity() {
   return {
     connector,
     localMachine,
-    machineId: configuredConnectorMachineId() ?? localMachine?.id ?? machineName,
+    machineId:
+      connectorMachineId ?? configuredConnectorMachineId() ?? localMachine?.id ?? machineName,
     machineName
+  };
+}
+
+async function loadConnectorOverviewForMachine(connectorMachineId?: string) {
+  if (!connectorMachineId) {
+    return loadMergedConnectorOverview();
+  }
+
+  const connector = await getConnectorOverview();
+  const localMachine = connector.machines.find(
+    (machine) => machine.connector.status === 'local'
+  );
+  return {
+    ...connector,
+    machines: localMachine ? [{ ...localMachine, id: connectorMachineId }] : []
   };
 }
 
@@ -138,6 +155,8 @@ export function createLocalProjectSpaceBackend(
   options: LocalProjectSpaceBackendOptions = {}
 ): LocalProjectSpaceBackend {
   const devServerAdapter = createLocalDevServerAdapter();
+  const loadConnectorOverview = () =>
+    loadConnectorOverviewForMachine(options.connectorMachineId);
   const registeredLocalMachines = new Set<string>();
 
   function registerLocalDevServer(machineId: string) {
@@ -147,9 +166,11 @@ export function createLocalProjectSpaceBackend(
     }
   }
 
-  registerLocalDevServer(configuredConnectorMachineId() ?? hostname().split('.')[0]);
+  registerLocalDevServer(
+    options.connectorMachineId ?? configuredConnectorMachineId() ?? hostname().split('.')[0]
+  );
   return {
-    ...createLocalProjectMachineBackend(),
+    ...createLocalProjectMachineBackend(loadConnectorOverview),
     async getAppMeta() {
       return options.getAppMeta?.() ?? readAppMeta();
     },
@@ -157,11 +178,11 @@ export function createLocalProjectSpaceBackend(
       return getCodexStatus();
     },
     async getConnectorOverview() {
-      return loadMergedConnectorOverview();
+      return loadConnectorOverview();
     },
     async getConnectorProjectRegistry() {
       const [identity, rawDiscovery] = await Promise.all([
-        localConnectorIdentity(),
+        localConnectorIdentity(options.connectorMachineId),
         discoverLocalProjects()
       ]);
       const { connector, localMachine, machineId, machineName } = identity;
@@ -244,7 +265,7 @@ export function createLocalProjectSpaceBackend(
     },
     async loadProjectDiscovery() {
       if (process.env.PROJECT_SPACE_DISCOVERY_SOURCE === 'connector') {
-        const identity = await localConnectorIdentity();
+        const identity = await localConnectorIdentity(options.connectorMachineId);
         const discovery = (await loadConnectorProjectDiscovery()) ?? {
           groups: [],
           projects: [],
@@ -256,7 +277,7 @@ export function createLocalProjectSpaceBackend(
       }
 
       const [identity, localDiscovery] = await Promise.all([
-        localConnectorIdentity(),
+        localConnectorIdentity(options.connectorMachineId),
         discoverLocalProjects()
       ]);
       return mergeProjectDiscoveries(

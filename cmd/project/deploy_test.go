@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,7 +35,11 @@ func TestDeployStepsUseExistingComposeFiles(t *testing.T) {
 	steps := strings.Join(deploySteps(project, options), "\n")
 	for _, want := range []string{
 		"docker network inspect traefik-public",
-		"cat > .env <<'PROJECT_SPACE_ENV'",
+		"umask 077",
+		`project_env_tmp="$(mktemp .env.tmp.XXXXXX)"`,
+		`cat > "$project_env_tmp" <<'PROJECT_SPACE_ENV'`,
+		`chmod 600 "$project_env_tmp"`,
+		`mv -f -- "$project_env_tmp" .env`,
 		"-p example-prod -f deploy/compose.yml -f deploy/ingress.labels.yml",
 		"PROJECT_DOMAIN=example.com",
 		"PROJECT_API_DOMAIN=api.example.com",
@@ -74,7 +79,11 @@ func TestDeployComposeScriptUsesSecretValuesOnlyAtRuntime(t *testing.T) {
 
 	script := deployComposeScript(project, options, true)
 	for _, want := range []string{
-		"cat > .env <<'PROJECT_SPACE_ENV'",
+		"umask 077",
+		`project_env_tmp="$(mktemp .env.tmp.XXXXXX)"`,
+		`cat > "$project_env_tmp" <<'PROJECT_SPACE_ENV'`,
+		`chmod 600 "$project_env_tmp"`,
+		`mv -f -- "$project_env_tmp" .env`,
 		"PROJECT_DOMAIN=example.com",
 		"PROJECT_API_DOMAIN=api.example.com",
 		"GITHUB_TOKEN=github-token-value",
@@ -87,6 +96,61 @@ func TestDeployComposeScriptUsesSecretValuesOnlyAtRuntime(t *testing.T) {
 		if !strings.Contains(script, want) {
 			t.Fatalf("runtime deploy script missing %q:\n%s", want, script)
 		}
+	}
+}
+
+func TestDeployComposeScriptWritesEnvironmentFileAtomicallyWithOwnerOnlyPermissions(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	if err := os.Mkdir(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteDeployTestFile(t, filepath.Join(binDir, "docker"), "#!/bin/sh\nexit 0\n")
+	if err := os.Chmod(filepath.Join(binDir, "docker"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("OLD=value\n"), 0o666); err != nil {
+		t.Fatal(err)
+	}
+
+	project := deployProject{
+		Environment:    "prod",
+		RemotePath:     root,
+		ComposeProject: "example-prod",
+	}
+	options := deployOptions{
+		ProjectDomain: "example.com",
+		Secrets: map[string]deploySecretValue{
+			"PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET": {Value: strings.Repeat("s", 32)},
+		},
+	}
+	command := exec.Command("sh", "-c", deployComposeScript(project, options, true))
+	command.Env = append(os.Environ(), "PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("run deploy compose script: %v\n%s", err, output)
+	}
+
+	environmentPath := filepath.Join(root, ".env")
+	info, err := os.Stat(environmentPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf(".env permissions = %o, want 600", got)
+	}
+	body, err := os.ReadFile(environmentPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET="+strings.Repeat("s", 32)) {
+		t.Fatalf(".env missing configured secret")
+	}
+	matches, err := filepath.Glob(filepath.Join(root, ".env.tmp.*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temporary environment files remain: %v", matches)
 	}
 }
 
