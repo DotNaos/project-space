@@ -4,6 +4,7 @@ import type {
   ProjectChatContext,
   ProjectChatHumanActor
 } from './contracts';
+import { normalizeProjectChatProviderAvatarUrl } from './avatar';
 import { ProjectChatAccessError } from './http-api';
 
 const MACHINE_ID_HEADER = 'x-project-machine-id';
@@ -30,11 +31,14 @@ type MaybePromise<T> = T | Promise<T>;
 export interface ProjectChatHumanSession {
   userId: string;
   login: string;
+  avatarUrl?: string;
   displayName?: string;
+  profileDefaultsResolved?: boolean;
 }
 
 export interface ProjectChatAuthenticatedMachine {
   userId: string;
+  hostId?: string;
   machineId: string;
 }
 
@@ -129,9 +133,11 @@ async function resolveAgentContext(
 
   let rawHostId: string;
   try {
-    rawHostId = dependencies.hostIdForMachine
-      ? await dependencies.hostIdForMachine(authenticatedMachineId)
-      : authenticatedMachineId;
+    rawHostId = authenticated.hostId ?? (
+      dependencies.hostIdForMachine
+        ? await dependencies.hostIdForMachine(authenticatedMachineId)
+        : authenticatedMachineId
+    );
   } catch {
     throw new ProjectChatAccessError(403);
   }
@@ -235,7 +241,17 @@ function humanActor(session: ProjectChatHumanSession): ProjectChatHumanActor {
   const displaySource = session.displayName?.trim() ? session.displayName : login;
   const displayName = trustedDisplayName(displaySource);
   const handle = humanHandle(login, accountId);
-  return { accountId, displayName, handle, kind: 'human' };
+  const avatarUrl = normalizeProjectChatProviderAvatarUrl(session.avatarUrl);
+  return {
+    accountId,
+    ...(avatarUrl ? { avatarUrl } : {}),
+    displayName,
+    handle,
+    kind: 'human',
+    ...(session.profileDefaultsResolved === false
+      ? { profileDefaultsResolved: false }
+      : {})
+  };
 }
 
 function trustedDisplayName(value: string) {

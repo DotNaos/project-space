@@ -13,6 +13,7 @@ import type { MachineConnectionRuntime } from './machine-connection-runtime';
 import { createProjectSpaceApiHandler } from './project-space-api-handler';
 import {
   createProjectChatRuntime,
+  projectChatMachineAuthenticator,
   type ProjectChatRuntime
 } from './project-chat/runtime';
 import { writeJson, writeText } from './project-space-http-response';
@@ -28,13 +29,20 @@ export interface ProjectSpaceHttpOptions {
   staticRoot?: string;
 }
 
+function resolveProjectChatRuntime(options: ProjectSpaceHttpOptions) {
+  if (options.projectChatRuntime) {
+    return Promise.resolve(options.projectChatRuntime);
+  }
+  return createProjectChatRuntime({
+    authenticateMachine: projectChatMachineAuthenticator(options.machineConnectionRuntime)
+  });
+}
+
 export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOptions = {}) {
   const backend = createAuthorizedProjectSpaceBackend(
     options.backend ?? createLocalProjectSpaceBackend()
   );
-  const projectChatRuntime = options.projectChatRuntime
-    ? Promise.resolve(options.projectChatRuntime)
-    : createProjectChatRuntime();
+  const projectChatRuntime = resolveProjectChatRuntime(options);
   const handleApiRequest = projectChatRuntime.then((runtime) =>
     createProjectSpaceApiHandler(backend, {
       machineConnection: options.machineConnectionRuntime,
@@ -79,7 +87,7 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   const host = options.host ?? '127.0.0.1';
   const backend = options.backend ?? createLocalProjectSpaceBackend();
   const authorizedBackend = createAuthorizedProjectSpaceBackend(backend);
-  const projectChatRuntime = options.projectChatRuntime ?? await createProjectChatRuntime();
+  const projectChatRuntime = await resolveProjectChatRuntime(options);
   const machineConnectionRuntime = options.machineConnectionRuntime;
   const server = createServer(
     createProjectSpaceRequestHandler({

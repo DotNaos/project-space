@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
 import { InMemoryProjectChatRepository } from '../server/project-chat/memory-store';
-import { createProjectChatRuntime } from '../server/project-chat/runtime';
+import {
+  createProjectChatRuntime,
+  projectChatMachineAuthenticator
+} from '../server/project-chat/runtime';
 import { createProjectSpaceServer } from '../server/project-space-http';
 
 async function withRuntimeServer(
@@ -112,7 +115,7 @@ describe('Project Chat production runtime', () => {
     const runtime = await createProjectChatRuntime({
       async authenticateMachine(input) {
         return input.machineId === 'machine-one' && input.token === 'machine-secret'
-          ? { machineId: 'machine-one', userId: 'user-olli' }
+          ? { hostId: 'os-macbook', machineId: 'machine-one', userId: 'user-olli' }
           : null;
       },
       authRequired: () => true,
@@ -144,7 +147,7 @@ describe('Project Chat production runtime', () => {
         member: {
           displayName: 'Mira',
           origin: {
-            hostId: 'machine-one',
+            hostId: 'os-macbook',
             machineId: 'machine-one',
             threadId: '019f4f2b-e97e-7180-9122-4187159dbe51'
           },
@@ -177,6 +180,43 @@ describe('Project Chat production runtime', () => {
       });
       expect(spoofedPartialAgent.status).toBe(403);
     });
+  });
+
+  test('derives agent identity only from the trusted Project Connect runtime', async () => {
+    const calls: Array<{ machineId: string; token: string }> = [];
+    const authenticate = projectChatMachineAuthenticator({
+      async resolveMachineCredentialIdentity(token, machineId) {
+        calls.push({ machineId, token });
+        return token === 'current-machine-secret' && machineId === 'machine-current'
+          ? {
+              hostId: 'os-macbook',
+              machineId: 'machine-current',
+              userId: 'user-olli'
+            }
+          : null;
+      }
+    });
+
+    await expect(authenticate({
+      machineId: 'machine-current',
+      token: 'current-machine-secret'
+    })).resolves.toEqual({
+      hostId: 'os-macbook',
+      machineId: 'machine-current',
+      userId: 'user-olli'
+    });
+    await expect(authenticate({
+      machineId: 'legacy-machine',
+      token: 'legacy-shared-token'
+    })).resolves.toBeNull();
+    await expect(projectChatMachineAuthenticator(undefined)({
+      machineId: 'machine-current',
+      token: 'current-machine-secret'
+    })).resolves.toBeNull();
+    expect(calls).toEqual([
+      { machineId: 'machine-current', token: 'current-machine-secret' },
+      { machineId: 'legacy-machine', token: 'legacy-shared-token' }
+    ]);
   });
 
   test('returns a safe 503 instead of falling back to process memory in hosted mode', async () => {

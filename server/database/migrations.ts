@@ -301,6 +301,67 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: '0008_machine_connections',
     sql: machineConnectionMigrationSql
+  },
+  {
+    id: '0009_project_chat_human_profiles',
+    sql: `
+      create table project_chat_human_profiles (
+        space_id text not null check (btrim(space_id) <> ''),
+        account_id text not null check (btrim(account_id) <> ''),
+        default_display_name text not null
+          check (btrim(default_display_name) <> '' and char_length(default_display_name) <= 48),
+        default_avatar_url text
+          check (default_avatar_url is null or char_length(default_avatar_url) <= 2048),
+        display_name_override text
+          check (
+            display_name_override is null or
+            (btrim(display_name_override) <> '' and char_length(display_name_override) <= 48)
+          ),
+        avatar_data_url_override text
+          check (
+            avatar_data_url_override is null or
+            octet_length(avatar_data_url_override) <= 400000
+          ),
+        revision bigint not null default 1 check (revision > 0),
+        created_at timestamptz not null,
+        updated_at timestamptz not null check (updated_at >= created_at),
+        primary key (space_id, account_id)
+      );
+
+      alter table project_chat_members
+        add column avatar_url text,
+        add column profile_revision bigint;
+
+      insert into project_chat_human_profiles (
+        space_id, account_id, default_display_name, default_avatar_url,
+        display_name_override, avatar_data_url_override, revision, created_at, updated_at
+      )
+      select space_id, actor_key::jsonb ->> 1, display_name, null,
+             null, null, 1, joined_at, updated_at
+        from project_chat_members
+       where role = 'human'
+      on conflict (space_id, account_id) do nothing;
+
+      update project_chat_members
+         set profile_revision = 1
+       where role = 'human';
+
+      alter table project_chat_members
+        add constraint project_chat_members_display_name_length
+          check (char_length(display_name) <= 48),
+        add constraint project_chat_members_handle_length
+          check (char_length(handle) <= 32),
+        add constraint project_chat_members_avatar_size
+          check (avatar_url is null or octet_length(avatar_url) <= 400000),
+        add constraint project_chat_members_profile_revision_positive
+          check (profile_revision is null or profile_revision > 0),
+        add constraint project_chat_members_role_origin_consistent
+          check (
+            (role = 'human' and origin is null and profile_revision is not null) or
+            (role = 'agent' and origin is not null and avatar_url is null and profile_revision is null) or
+            (role = 'system' and origin is null and avatar_url is null and profile_revision is null)
+          );
+    `
   }
 ];
 

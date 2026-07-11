@@ -8,6 +8,7 @@ import {
   type ProjectChatJoinInput,
   type ProjectChatMentionStateInput,
   type ProjectChatPresenceInput,
+  type ProjectChatProfileUpdateInput,
   type ProjectChatReadInput,
   type ProjectChatSendInput
 } from './contracts';
@@ -15,6 +16,7 @@ import type { ProjectChatService } from './service';
 import { writeJson } from '../project-space-http-response';
 
 const PROJECT_CHAT_MAX_HTTP_BODY_BYTES = 16 * 1024;
+const PROJECT_CHAT_MAX_PROFILE_HTTP_BODY_BYTES = 384 * 1024;
 const NUMERIC_QUERY_FIELDS = new Set(['afterSequence', 'limit']);
 
 type ProjectChatContextResolver = (
@@ -27,6 +29,8 @@ type ProjectChatRoute =
   | 'members'
   | 'mentions'
   | 'presence'
+  | 'profile-get'
+  | 'profile-update'
   | 'read'
   | 'send';
 
@@ -116,6 +120,16 @@ async function handleRoute(
         context,
         await readJsonObject<ProjectChatPresenceInput>(request)
       );
+    case 'profile-get':
+      return { profile: await service.getProfile(context) };
+    case 'profile-update':
+      return service.updateProfile(
+        context,
+        await readJsonObject<ProjectChatProfileUpdateInput>(
+          request,
+          PROJECT_CHAT_MAX_PROFILE_HTTP_BODY_BYTES
+        )
+      );
     case 'read':
       return service.readMessages(
         context,
@@ -141,6 +155,10 @@ function projectChatRoute(method: string | undefined, pathname: string): Project
       return 'mentions';
     case 'POST /api/project-chat/presence':
       return 'presence';
+    case 'GET /api/project-chat/profile':
+      return 'profile-get';
+    case 'PUT /api/project-chat/profile':
+      return 'profile-update';
     case 'GET /api/project-chat/messages':
       return 'read';
     case 'POST /api/project-chat/messages':
@@ -150,7 +168,10 @@ function projectChatRoute(method: string | undefined, pathname: string): Project
   }
 }
 
-async function readJsonObject<T extends object>(request: IncomingMessage): Promise<T> {
+async function readJsonObject<T extends object>(
+  request: IncomingMessage,
+  maximumBytes = PROJECT_CHAT_MAX_HTTP_BODY_BYTES
+): Promise<T> {
   const declaredLength = request.headers['content-length'];
   if (
     Array.isArray(declaredLength) ||
@@ -158,7 +179,7 @@ async function readJsonObject<T extends object>(request: IncomingMessage): Promi
   ) {
     throw invalidRequest('The request has an invalid content length.');
   }
-  if (declaredLength !== undefined && Number(declaredLength) > PROJECT_CHAT_MAX_HTTP_BODY_BYTES) {
+  if (declaredLength !== undefined && Number(declaredLength) > maximumBytes) {
     throw requestTooLarge();
   }
 
@@ -167,7 +188,7 @@ async function readJsonObject<T extends object>(request: IncomingMessage): Promi
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     byteLength += buffer.byteLength;
-    if (byteLength > PROJECT_CHAT_MAX_HTTP_BODY_BYTES) {
+    if (byteLength > maximumBytes) {
       throw requestTooLarge();
     }
     chunks.push(buffer);
@@ -247,6 +268,7 @@ function projectChatErrorStatus(code: ProjectChatErrorCode) {
   const statuses: Record<ProjectChatErrorCode, number> = {
     content_rejected: 422,
     cursor_out_of_range: 409,
+    forbidden: 403,
     idempotency_conflict: 409,
     invalid_request: 400,
     name_conflict: 409,

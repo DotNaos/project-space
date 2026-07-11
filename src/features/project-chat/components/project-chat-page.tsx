@@ -4,8 +4,11 @@ import { Hash, PanelRight, X } from 'lucide-react';
 import { Button, Text } from '@/app/dotnaos-ui';
 import type {
   ProjectChatChannelRecord,
+  ProjectChatHumanProfileRecord,
   ProjectChatMemberRecord,
-  ProjectChatMessageRecord
+  ProjectChatMessageRecord,
+  ProjectChatProfileUpdateRequest,
+  ProjectChatProfileUpdateResult
 } from '@/shared/project-chat-api';
 import {
   effectiveProjectChatPresence,
@@ -14,6 +17,7 @@ import {
 } from '../project-chat-model';
 import { ProjectChatComposer } from './project-chat-composer';
 import { ProjectChatFeed, type ProjectChatConnectionState } from './project-chat-feed';
+import { ProjectChatProfileDrawer } from './project-chat-profile-drawer';
 import {
   ProjectChatInspector,
   type ProjectChatInspectorTab
@@ -35,6 +39,8 @@ export interface ProjectChatPageProps {
   onRetry?(): void;
   onRetryMention?(): void;
   onSend(body: string): Promise<void> | void;
+  onUpdateProfile?(request: ProjectChatProfileUpdateRequest): Promise<ProjectChatProfileUpdateResult>;
+  profile?: ProjectChatHumanProfileRecord;
   unreadMentionCount?: number;
   viewer?: ProjectChatMemberRecord;
 }
@@ -53,6 +59,8 @@ export function ProjectChatPage({
   onRetry,
   onRetryMention,
   onSend,
+  onUpdateProfile,
+  profile,
   unreadMentionCount = 0,
   viewer
 }: ProjectChatPageProps) {
@@ -60,6 +68,7 @@ export function ProjectChatPage({
   const [activeTab, setActiveTab] = useState<ProjectChatInspectorTab>('mentions');
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [compactDetailsOpen, setCompactDetailsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const initialThread = threads[0];
   const [selectedMemberId, setSelectedMemberId] = useState<string | undefined>(
@@ -138,6 +147,14 @@ export function ProjectChatPage({
   function openInspector() {
     setCompactDetailsOpen(false);
     setInspectorOpen(true);
+  }
+
+  function openProfile() {
+    if (!profile || viewer?.role !== 'human' || !onUpdateProfile) {
+      return;
+    }
+    closeInspector();
+    setProfileOpen(true);
   }
 
   function openCompactThreadDetails() {
@@ -239,8 +256,13 @@ export function ProjectChatPage({
 
   return (
     <div className="relative grid h-full min-h-0 grid-cols-[176px_minmax(0,1fr)] overflow-hidden bg-[#080808] text-neutral-100 max-[719px]:grid-cols-[minmax(0,1fr)] min-[1100px]:grid-cols-[176px_minmax(0,1fr)_236px] min-[1360px]:grid-cols-[176px_minmax(0,1fr)_236px_278px]">
-      <div className="contents" inert={inspectorOpen || undefined}>
-        <ProjectChatSidebar messageCount={messages.length} now={now} viewer={viewer} />
+      <div className="contents" inert={inspectorOpen || profileOpen || undefined}>
+        <ProjectChatSidebar
+          messageCount={messages.length}
+          now={now}
+          onEditProfile={openProfile}
+          viewer={viewer}
+        />
 
       <section className="flex min-h-0 min-w-0 flex-col bg-neutral-950/25">
         <header className="flex h-[68px] shrink-0 items-center gap-3 border-b border-neutral-800/80 px-4 sm:px-5">
@@ -284,9 +306,10 @@ export function ProjectChatPage({
         />
         <ProjectChatComposer
           disabled={connectionState !== 'ready'}
+          onEditProfile={profile && viewer?.role === 'human' ? openProfile : undefined}
           onSend={onSend}
           viewerName={viewer?.displayName}
-          viewerRole={viewer?.role === 'agent' ? 'Agent' : viewer?.role === 'system' ? 'System' : 'Human'}
+          viewerRole="Human"
         />
       </section>
 
@@ -349,6 +372,14 @@ export function ProjectChatPage({
           </div>
         </div>
       ), document.body) : null}
+      {onUpdateProfile ? (
+        <ProjectChatProfileDrawer
+          onClose={() => setProfileOpen(false)}
+          onSave={onUpdateProfile}
+          open={profileOpen}
+          profile={profile}
+        />
+      ) : null}
     </div>
   );
 }

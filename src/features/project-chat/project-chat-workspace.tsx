@@ -4,14 +4,22 @@ import {
   PROJECT_CHAT_GENERAL_CHANNEL_ID,
   type ProjectChatChannelRecord,
   type ProjectChatClient,
+  type ProjectChatHumanProfileRecord,
   type ProjectChatMemberRecord,
-  type ProjectChatMessageRecord
+  type ProjectChatMessageRecord,
+  type ProjectChatProfileUpdateRequest
 } from '@/shared/project-chat-api';
+import {
+  createProjectChatProfileGenerationGuard,
+  projectChatIdentitySnapshot,
+  runProjectChatProfileMutation,
+  type ProjectChatProfileGenerationGuard
+} from './project-chat-model';
 import {
   cursorAfterLocalSend,
   loadInitialProjectChat,
   mergeVisibleProjectChatMessages,
-  readProjectChatPages
+  refreshProjectChat
 } from './project-chat-loading';
 import {
   ProjectChatPage,
@@ -59,8 +67,14 @@ export function ProjectChatWorkspace({
   const [mentionError, setMentionError] = useState('');
   const [failedAcknowledgeSequence, setFailedAcknowledgeSequence] = useState<number>();
   const [messages, setMessages] = useState<ProjectChatMessageRecord[]>([]);
+  const [profile, setProfile] = useState<ProjectChatHumanProfileRecord>();
   const [unreadMentionCount, setUnreadMentionCount] = useState(0);
   const [viewer, setViewer] = useState<ProjectChatMemberRecord>();
+  const profileGenerationRef = useRef<ProjectChatProfileGenerationGuard | null>(null);
+  if (!profileGenerationRef.current) {
+    profileGenerationRef.current = createProjectChatProfileGenerationGuard();
+  }
+  const profileGeneration = profileGenerationRef.current;
   const latestSequenceRef = useRef(0);
 
   const load = useCallback(async () => {
@@ -69,44 +83,76 @@ export function ProjectChatWorkspace({
       return;
     }
 
+    const refreshGeneration = profileGeneration.captureRefresh();
     setErrorMessage('');
     try {
-      const { joinResult, readResult, memberResult, mentionResult } = await loadInitialProjectChat(client);
+      const {
+        joinResult,
+        readResult,
+        memberResult,
+        mentionResult,
+        profileResult
+      } = await loadInitialProjectChat(client);
       setChannel(joinResult.channel);
-      setViewer(joinResult.member);
       setMessages(mergeVisibleProjectChatMessages([], readResult.messages));
       latestSequenceRef.current = Math.max(latestSequenceRef.current, readResult.nextSequence);
-      setMembers(memberResult.members);
       setMentionMessages(mergeVisibleProjectChatMessages([], mentionResult.messages));
       setUnreadMentionCount(mentionResult.unreadCount);
+      if (profileGeneration.canApplyRefresh(refreshGeneration, profileResult.profile.revision)) {
+        const identity = projectChatIdentitySnapshot(
+          joinResult.member,
+          memberResult.members,
+          profileResult.profile
+        );
+        setViewer(identity.viewer);
+        setMembers(identity.members);
+        setProfile(profileResult.profile);
+      }
       setConnectionState('ready');
     } catch (error) {
       setConnectionState(connectionStateForFailure(error));
       setErrorMessage(error instanceof Error ? error.message : 'Project Chat could not be loaded.');
     }
-  }, [client]);
+  }, [client, profileGeneration]);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (minimumProfileRevision = 0) => {
+    const refreshGeneration = profileGeneration.captureRefresh();
     try {
-      const refreshedViewer = await client.updatePresence({ state: 'working' });
-      const [readResult, memberResult, mentionResult] = await Promise.all([
-        readProjectChatPages(client, channel.channelId, latestSequenceRef.current),
-        client.listMembers(),
-        client.listMentions({ channelId: channel.channelId, limit: 50 })
-      ]);
+      const {
+        memberResult,
+        mentionResult,
+        profileResult,
+        readResult,
+        refreshedViewer
+      } = await refreshProjectChat(client, channel.channelId, latestSequenceRef.current);
+      const identity = projectChatIdentitySnapshot(
+        refreshedViewer,
+        memberResult.members,
+        profileResult.profile
+      );
       setMessages((current) => mergeVisibleProjectChatMessages(current, readResult.messages));
       latestSequenceRef.current = Math.max(latestSequenceRef.current, readResult.nextSequence);
-      setMembers(memberResult.members);
       setMentionMessages(mergeVisibleProjectChatMessages([], mentionResult.messages));
       setUnreadMentionCount(mentionResult.unreadCount);
-      setViewer(refreshedViewer);
+      const authoritativeProfile = profileResult.profile.revision >= minimumProfileRevision;
+      const canApplyIdentity = authoritativeProfile && profileGeneration.canApplyRefresh(
+        refreshGeneration,
+        profileResult.profile.revision
+      );
+      if (canApplyIdentity) {
+        setMembers(identity.members);
+        setProfile(profileResult.profile);
+        setViewer(identity.viewer);
+      }
       setConnectionState('ready');
       setErrorMessage('');
+      return authoritativeProfile;
     } catch (error) {
       setConnectionState(connectionStateForFailure(error));
       setErrorMessage(error instanceof Error ? error.message : 'Project Chat could not be refreshed.');
+      return !profileGeneration.isRefreshCurrent(refreshGeneration);
     }
-  }, [channel.channelId, client]);
+  }, [channel.channelId, client, profileGeneration]);
 
   useEffect(() => {
     void load();
@@ -148,6 +194,27 @@ export function ProjectChatWorkspace({
     );
   }
 
+  async function updateProfile(request: ProjectChatProfileUpdateRequest) {
+    const { applyResult, result } = await runProjectChatProfileMutation(
+      profileGeneration,
+      () => client.updateProfile(request),
+      (result) => refresh(result?.profile.revision)
+    );
+    if (applyResult && profileGeneration.acceptProfileRevision(result.profile.revision)) {
+      setProfile(result.profile);
+      setViewer(result.member);
+      setMembers((current) => {
+        const found = current.some((member) => member.memberId === result.member.memberId);
+        return found
+          ? current.map((member) => member.memberId === result.member.memberId
+              ? result.member
+              : member)
+          : [...current, result.member];
+      });
+    }
+    return result;
+  }
+
   async function acknowledgeMention(throughSequence: number) {
     await client.acknowledge({ channelId: channel.channelId, throughSequence });
     const mentionResult = await client.listMentions({ channelId: channel.channelId, limit: 50 });
@@ -185,6 +252,8 @@ export function ProjectChatWorkspace({
         ? undefined
         : () => requestMentionAcknowledge(failedAcknowledgeSequence)}
       onSend={send}
+      onUpdateProfile={updateProfile}
+      profile={profile}
       unreadMentionCount={unreadMentionCount}
       viewer={viewer}
     />

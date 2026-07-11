@@ -43,7 +43,8 @@ describe('database migrations', () => {
       '0005_user_project_states',
       '0006_connector_credential_expected_machine',
       '0007_project_chat',
-      '0008_machine_connections'
+      '0008_machine_connections',
+      '0009_project_chat_human_profiles'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -82,6 +83,14 @@ describe('database migrations', () => {
     expect(sql).toContain('create table if not exists project_chat_cursors');
     expect(sql).toContain('create table if not exists project_chat_idempotency');
     expect(sql).toContain('project_chat_idempotency_identity_unique');
+    expect(sql).toContain('create table project_chat_human_profiles');
+    expect(sql).toContain('avatar_data_url_override text');
+    expect(sql).toContain('revision bigint not null default 1');
+    expect(sql).toContain('insert into project_chat_human_profiles');
+    expect(sql).toContain("set profile_revision = 1");
+    expect(sql).toContain('project_chat_members_profile_revision_positive');
+    expect(sql).toContain('project_chat_members_role_origin_consistent');
+    expect(sql).toContain("role = 'agent' and origin is not null and avatar_url is null");
     expect(sql).toContain('references project_chat_messages (space_id, id)');
     expect(sql).toContain('on delete cascade');
     expect(sql).toContain('create table machine_identities');
@@ -110,6 +119,7 @@ describe('database migrations', () => {
     expect(client.calls.some((call) => call.sql === databaseMigrations[5].sql)).toBe(true);
     expect(client.calls.some((call) => call.sql === databaseMigrations[6].sql)).toBe(true);
     expect(client.calls.some((call) => call.sql === databaseMigrations[7].sql)).toBe(true);
+    expect(client.calls.some((call) => call.sql === databaseMigrations[8].sql)).toBe(true);
     expect(client.calls.at(-1)?.sql).toBe('commit');
     expect(client.applied).toEqual(
       new Map(

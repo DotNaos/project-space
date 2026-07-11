@@ -7,10 +7,12 @@ import { ParticipantVisual, PresenceDot } from './participant-visual';
 export function ProjectChatSidebar({
   messageCount,
   now,
+  onEditProfile,
   viewer
 }: {
   messageCount: number;
   now: Date;
+  onEditProfile?(): void;
   viewer?: ProjectChatMemberRecord;
 }) {
   const viewerState = viewer ? effectiveProjectChatPresence(viewer, now) : 'offline';
@@ -49,8 +51,19 @@ export function ProjectChatSidebar({
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2.5 border-t border-neutral-800/80 p-3">
-        <ParticipantVisual role={viewer?.role ?? 'human'} size={30} />
+      <button
+        aria-label="Edit your Project Chat profile"
+        className="flex min-h-14 shrink-0 items-center gap-2.5 border-t border-neutral-800/80 p-3 text-left hover:bg-neutral-900/70 disabled:cursor-default disabled:hover:bg-transparent"
+        disabled={!onEditProfile || viewer?.role !== 'human'}
+        onClick={onEditProfile}
+        type="button"
+      >
+        <ParticipantVisual
+          avatarUrl={viewer?.avatarUrl}
+          displayName={viewer?.displayName}
+          role={viewer?.role ?? 'human'}
+          size={30}
+        />
         <div className="min-w-0 flex-1">
           <Text className="block truncate text-xs font-medium text-neutral-200">
             {viewer?.displayName ?? 'Olli'}
@@ -60,7 +73,7 @@ export function ProjectChatSidebar({
           </Text>
         </div>
         <PresenceDot state={viewerState} />
-      </div>
+      </button>
     </aside>
   );
 }

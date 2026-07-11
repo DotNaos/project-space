@@ -1,5 +1,6 @@
 import type {
   ProjectChatChannelRecord,
+  ProjectChatHumanProfileRecord,
   ProjectChatMemberRecord,
   ProjectChatMessageRecord,
   ProjectChatPresenceRecord
@@ -8,7 +9,9 @@ import {
   ProjectChatCursorOutOfRangeError,
   ProjectChatHandleConflictError,
   ProjectChatIdempotencyConflictError,
+  memberWithHumanProfile,
   type ProjectChatAppendInput,
+  type ProjectChatHumanProfileUpdate,
   type ProjectChatRepository
 } from './repository';
 
@@ -20,6 +23,7 @@ interface IdempotencyRecord {
 
 export interface ProjectChatMemorySnapshot {
   channels: ProjectChatChannelRecord[];
+  humanProfiles?: ProjectChatHumanProfileRecord[];
   members: ProjectChatMemberRecord[];
   presences: ProjectChatPresenceRecord[];
   messages: ProjectChatMessageRecord[];
@@ -46,6 +50,7 @@ function memberKey(spaceId: string, memberId: string) {
 
 export class InMemoryProjectChatRepository implements ProjectChatRepository {
   private readonly channels = new Map<string, ProjectChatChannelRecord>();
+  private readonly humanProfiles = new Map<string, ProjectChatHumanProfileRecord>();
   private readonly membersById = new Map<string, ProjectChatMemberRecord>();
   private readonly memberIdByActor = new Map<string, string>();
   private readonly memberIdByHandle = new Map<string, string>();
@@ -63,6 +68,12 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
     }
     for (const channel of snapshot.channels) {
       this.channels.set(channelKey(channel.spaceId, channel.channelId), copy(channel));
+    }
+    for (const profile of snapshot.humanProfiles ?? []) {
+      this.humanProfiles.set(compoundKey(profile.spaceId, profile.accountId), copy({
+        ...profile,
+        revision: profile.revision ?? 1
+      }));
     }
     for (const member of snapshot.members) {
       this.restoreMember(copy(member));
@@ -92,6 +103,7 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
   async snapshot(): Promise<ProjectChatMemorySnapshot> {
     return this.exclusive(() => ({
       channels: [...this.channels.values()].map(copy),
+      humanProfiles: [...this.humanProfiles.values()].map(copy),
       members: [...this.membersById.values()].map(copy),
       presences: [...this.presences.values()].map(copy),
       messages: [...this.messagesById.values()].sort((a, b) => a.sequence - b.sequence).map(copy),
@@ -99,6 +111,101 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
       cursors: [...this.cursors.entries()],
       idempotency: [...this.idempotency.entries()].map(([key, value]) => [key, copy(value)])
     }));
+  }
+
+  async ensureHumanProfile(
+    profile: ProjectChatHumanProfileRecord,
+    options: { refreshDefaults?: boolean } = {}
+  ) {
+    return this.exclusive(() => this.ensureHumanProfileRecord(profile, options));
+  }
+
+  async ensureHumanProfileAndMember(
+    profile: ProjectChatHumanProfileRecord,
+    member: ProjectChatMemberRecord,
+    options: { refreshDefaults?: boolean } = {}
+  ) {
+    return this.exclusive(() => {
+      const profileKey = compoundKey(profile.spaceId, profile.accountId);
+      const previousProfile = this.humanProfiles.get(profileKey);
+      const storedProfile = this.ensureHumanProfileRecord(profile, options);
+      try {
+        const existingMemberId = this.memberIdByActor.get(
+          compoundKey(member.spaceId, member.actorKey)
+        );
+        const existingMember = existingMemberId
+          ? this.membersById.get(memberKey(member.spaceId, existingMemberId))
+          : undefined;
+        const defaultsWereStale = options.refreshDefaults !== false
+          && profile.updatedAt < storedProfile.updatedAt;
+        if (defaultsWereStale && existingMember?.role === 'human') {
+          return { member: copy(existingMember), profile: storedProfile };
+        }
+        const updatedMember = this.upsertMemberRecord(
+          memberWithHumanProfile(member, storedProfile)
+        );
+        return { member: updatedMember, profile: storedProfile };
+      } catch (error) {
+        if (previousProfile) {
+          this.humanProfiles.set(profileKey, previousProfile);
+        } else {
+          this.humanProfiles.delete(profileKey);
+        }
+        throw error;
+      }
+    });
+  }
+
+  async findHumanProfile(spaceId: string, accountId: string) {
+    return this.exclusive(() => {
+      const profile = this.humanProfiles.get(compoundKey(spaceId, accountId));
+      return profile ? copy(profile) : null;
+    });
+  }
+
+  async findHumanProfileAndMember(spaceId: string, accountId: string, actorKey: string) {
+    return this.exclusive(() => {
+      const profile = this.humanProfiles.get(compoundKey(spaceId, accountId));
+      const memberId = this.memberIdByActor.get(compoundKey(spaceId, actorKey));
+      const member = memberId ? this.membersById.get(memberKey(spaceId, memberId)) : undefined;
+      return {
+        member: member ? copy(member) : null,
+        profile: profile ? copy(profile) : null
+      };
+    });
+  }
+
+  async updateHumanProfileAndMember(
+    input: ProjectChatHumanProfileUpdate,
+    member: ProjectChatMemberRecord
+  ) {
+    return this.exclusive(() => {
+      const profileKey = compoundKey(input.spaceId, input.accountId);
+      const previousProfile = this.humanProfiles.get(profileKey);
+      const existingMemberId = this.memberIdByActor.get(
+        compoundKey(member.spaceId, member.actorKey)
+      );
+      const existingMember = existingMemberId
+        ? this.membersById.get(memberKey(member.spaceId, existingMemberId))
+        : undefined;
+      const profile = this.updateHumanProfileRecord(input);
+      try {
+        const memberIdentity = existingMember?.role === 'human'
+          ? existingMember
+          : member;
+        const updatedMember = this.upsertMemberRecord(
+          memberWithHumanProfile(memberIdentity, profile)
+        );
+        return { member: updatedMember, profile };
+      } catch (error) {
+        if (previousProfile) {
+          this.humanProfiles.set(profileKey, previousProfile);
+        } else {
+          this.humanProfiles.delete(profileKey);
+        }
+        throw error;
+      }
+    });
   }
 
   async ensureChannel(channel: ProjectChatChannelRecord) {
@@ -130,26 +237,7 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
   }
 
   async upsertMember(member: ProjectChatMemberRecord) {
-    return this.exclusive(() => {
-      const actorIndexKey = compoundKey(member.spaceId, member.actorKey);
-      const existingId = this.memberIdByActor.get(actorIndexKey);
-      const existing = existingId
-        ? this.membersById.get(memberKey(member.spaceId, existingId))
-        : undefined;
-      const handleIndexKey = compoundKey(member.spaceId, member.handle.toLowerCase());
-      const handleOwner = this.memberIdByHandle.get(handleIndexKey);
-      if (handleOwner && handleOwner !== existing?.memberId) {
-        throw new ProjectChatHandleConflictError();
-      }
-      const next = existing
-        ? { ...member, joinedAt: existing.joinedAt, memberId: existing.memberId }
-        : member;
-      if (existing && existing.handle.toLowerCase() !== next.handle.toLowerCase()) {
-        this.memberIdByHandle.delete(compoundKey(member.spaceId, existing.handle.toLowerCase()));
-      }
-      this.restoreMember(copy(next));
-      return copy(next);
-    });
+    return this.exclusive(() => this.upsertMemberRecord(member));
   }
 
   async listMembers(spaceId: string) {
@@ -308,6 +396,88 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
       }
       return removed;
     });
+  }
+
+  private ensureHumanProfileRecord(
+    profile: ProjectChatHumanProfileRecord,
+    options: { refreshDefaults?: boolean }
+  ) {
+    const key = compoundKey(profile.spaceId, profile.accountId);
+    const existing = this.humanProfiles.get(key);
+    const refreshDefaults = options.refreshDefaults !== false
+      && (!existing || profile.updatedAt >= existing.updatedAt);
+    const next = existing
+      ? {
+          ...existing,
+          ...(refreshDefaults
+            ? {
+                defaultAvatarUrl: profile.defaultAvatarUrl,
+                defaultDisplayName: profile.defaultDisplayName,
+                revision: existing.revision + 1
+              }
+              : {}),
+          updatedAt: refreshDefaults ? profile.updatedAt : existing.updatedAt
+        }
+      : copy(profile);
+    this.humanProfiles.set(key, copy(next));
+    return copy(next);
+  }
+
+  private updateHumanProfileRecord(input: ProjectChatHumanProfileUpdate) {
+    const key = compoundKey(input.spaceId, input.accountId);
+    const existing = this.humanProfiles.get(key);
+    if (!existing) {
+      throw new Error('Project Chat human profile has not been created.');
+    }
+    const next = {
+      ...existing,
+      revision: existing.revision + 1,
+      updatedAt: input.updatedAt > existing.updatedAt ? input.updatedAt : existing.updatedAt
+    };
+    if (Object.hasOwn(input, 'displayNameOverride')) {
+      if (input.displayNameOverride === null) {
+        delete next.displayNameOverride;
+      } else if (input.displayNameOverride !== undefined) {
+        next.displayNameOverride = input.displayNameOverride;
+      }
+    }
+    if (Object.hasOwn(input, 'avatarDataUrlOverride')) {
+      if (input.avatarDataUrlOverride === null) {
+        delete next.avatarDataUrlOverride;
+      } else if (input.avatarDataUrlOverride !== undefined) {
+        next.avatarDataUrlOverride = input.avatarDataUrlOverride;
+      }
+    }
+    this.humanProfiles.set(key, copy(next));
+    return copy(next);
+  }
+
+  private upsertMemberRecord(member: ProjectChatMemberRecord) {
+    const actorIndexKey = compoundKey(member.spaceId, member.actorKey);
+    const existingId = this.memberIdByActor.get(actorIndexKey);
+    const existing = existingId
+      ? this.membersById.get(memberKey(member.spaceId, existingId))
+      : undefined;
+    if (
+      existing?.role === 'human' &&
+      member.role === 'human' &&
+      (existing.profileRevision ?? 0) > (member.profileRevision ?? 0)
+    ) {
+      return copy(existing);
+    }
+    const handleIndexKey = compoundKey(member.spaceId, member.handle.toLowerCase());
+    const handleOwner = this.memberIdByHandle.get(handleIndexKey);
+    if (handleOwner && handleOwner !== existing?.memberId) {
+      throw new ProjectChatHandleConflictError();
+    }
+    const next = existing
+      ? { ...member, joinedAt: existing.joinedAt, memberId: existing.memberId }
+      : member;
+    if (existing && existing.handle.toLowerCase() !== next.handle.toLowerCase()) {
+      this.memberIdByHandle.delete(compoundKey(member.spaceId, existing.handle.toLowerCase()));
+    }
+    this.restoreMember(copy(next));
+    return copy(next);
   }
 
   private restoreMember(member: ProjectChatMemberRecord) {

@@ -9,6 +9,7 @@ import type {
   ProjectChatMessageRecord,
   ProjectChatPresenceRecord
 } from '../server/project-chat/contracts';
+import { updatePostgresHumanProfile } from '../server/project-chat/postgres-human-profile';
 import { PostgresProjectChatRepository } from '../server/project-chat/postgres-store';
 import {
   ProjectChatCursorOutOfRangeError,
@@ -91,14 +92,31 @@ function memberRow(overrides: Record<string, unknown> = {}) {
   const member = memberRecord();
   return {
     actor_key: member.actorKey,
+    avatar_url: member.avatarUrl ?? null,
     display_name: member.displayName,
     handle: member.handle,
     joined_at: member.joinedAt,
     member_id: member.memberId,
     origin: member.origin,
+    profile_revision: member.profileRevision ?? null,
     role: member.role,
     space_id: member.spaceId,
     updated_at: member.updatedAt,
+    ...overrides
+  };
+}
+
+function humanProfileRow(overrides: Record<string, unknown> = {}) {
+  return {
+    account_id: 'user-olli',
+    avatar_data_url_override: null,
+    created_at: createdAt,
+    default_avatar_url: 'https://img.clerk.test/olli.png',
+    default_display_name: 'Olli Account',
+    display_name_override: null,
+    revision: 1,
+    space_id: 'space-a',
+    updated_at: createdAt,
     ...overrides
   };
 }
@@ -158,6 +176,143 @@ function databaseConflict(constraint: string) {
 }
 
 describe('PostgresProjectChatRepository', () => {
+  test('persists provider defaults separately from human profile overrides', async () => {
+    const baseRow = humanProfileRow();
+    const client = new RecordingClient([
+      rows([baseRow]),
+      rows([baseRow]),
+      rows([{
+        ...baseRow,
+        avatar_data_url_override: 'data:image/webp;base64,avatar',
+        display_name_override: 'Olli Chat'
+      }])
+    ]);
+    const repository = new PostgresProjectChatRepository(client);
+
+    await expect(repository.ensureHumanProfile({
+      accountId: 'user-olli',
+      createdAt,
+      defaultAvatarUrl: 'https://img.clerk.test/olli.png',
+      defaultDisplayName: 'Olli Account',
+      revision: 1,
+      spaceId: 'space-a',
+      updatedAt: createdAt
+    }, { refreshDefaults: false })).resolves.toMatchObject({
+      defaultDisplayName: 'Olli Account',
+      displayNameOverride: undefined
+    });
+    await expect(repository.findHumanProfile('space-a', 'user-olli')).resolves.toMatchObject({
+      accountId: 'user-olli',
+      spaceId: 'space-a'
+    });
+    await expect(updatePostgresHumanProfile(client, {
+      accountId: 'user-olli',
+      avatarDataUrlOverride: 'data:image/webp;base64,avatar',
+      displayNameOverride: 'Olli Chat',
+      spaceId: 'space-a',
+      updatedAt: createdAt
+    })).resolves.toMatchObject({
+      avatarDataUrlOverride: 'data:image/webp;base64,avatar',
+      displayNameOverride: 'Olli Chat'
+    });
+
+    expect(client.calls[0]?.sql).toContain('on conflict (space_id, account_id)');
+    expect(client.calls[0]?.values.at(-1)).toBe(false);
+    expect(client.calls[1]?.values).toEqual(['space-a', 'user-olli']);
+    expect(client.calls[2]?.values).toEqual([
+      'space-a', 'user-olli', true, 'Olli Chat', true,
+      'data:image/webp;base64,avatar', createdAt
+    ]);
+  });
+
+  test('reads a human profile and member under one locked transaction snapshot', async () => {
+    const client = new RecordingClient([
+      rows([humanProfileRow({ default_display_name: 'Current Account', revision: 3 })]),
+      rows([memberRow({
+        actor_key: '["human","user-olli"]',
+        display_name: 'Current Account',
+        handle: 'current-handle',
+        profile_revision: 3,
+        role: 'human'
+      })])
+    ]);
+    const repository = new PostgresProjectChatRepository(client);
+
+    await expect(repository.findHumanProfileAndMember(
+      'space-a',
+      'user-olli',
+      '["human","user-olli"]'
+    )).resolves.toMatchObject({
+      member: { handle: 'current-handle', profileRevision: 3 },
+      profile: { defaultDisplayName: 'Current Account', revision: 3 }
+    });
+    expect(client.events).toEqual(['begin', 'select', 'select', 'commit']);
+    expect(client.calls[0]?.sql).toContain('for share');
+    expect(client.calls[1]?.sql).toContain('for share');
+  });
+
+  test('updates a human profile and visible member in one transaction', async () => {
+    const profileRow = humanProfileRow({
+      avatar_data_url_override: 'data:image/webp;base64,avatar',
+      display_name_override: 'Olli Chat',
+      revision: 2
+    });
+    const humanMember = memberRecord({
+      actorKey: '["human","user-olli"]',
+      avatarUrl: 'https://img.clerk.test/olli.png',
+      displayName: 'Olli Account',
+      handle: 'olli',
+      origin: undefined,
+      profileRevision: 1,
+      role: 'human'
+    });
+    const updatedMemberRow = memberRow({
+      actor_key: humanMember.actorKey,
+      avatar_url: 'data:image/webp;base64,avatar',
+      display_name: 'Olli Chat',
+      handle: 'olli',
+      origin: null,
+      profile_revision: 2,
+      role: 'human'
+    });
+    const input = {
+      accountId: 'user-olli',
+      avatarDataUrlOverride: 'data:image/webp;base64,avatar',
+      displayNameOverride: 'Olli Chat',
+      spaceId: 'space-a',
+      updatedAt: createdAt
+    };
+    const client = new RecordingClient([rows([profileRow]), rows([updatedMemberRow])]);
+    const repository = new PostgresProjectChatRepository(client);
+
+    await expect(repository.updateHumanProfileAndMember(input, humanMember)).resolves.toEqual({
+      member: expect.objectContaining({
+        avatarUrl: 'data:image/webp;base64,avatar',
+        displayName: 'Olli Chat',
+        profileRevision: 2,
+        role: 'human'
+      }),
+      profile: expect.objectContaining({
+        avatarDataUrlOverride: 'data:image/webp;base64,avatar',
+        displayNameOverride: 'Olli Chat',
+        revision: 2
+      })
+    });
+    expect(client.events).toEqual(['begin', 'update', 'update', 'commit']);
+    expect(client.calls[1]?.values).toEqual([
+      'space-a', humanMember.actorKey, 'Olli Chat',
+      'data:image/webp;base64,avatar', 2, createdAt
+    ]);
+
+    const failure = new Error('forced member update failure');
+    const failingClient = new RecordingClient([rows([profileRow]), failure]);
+    const failingRepository = new PostgresProjectChatRepository(failingClient);
+    await expect(
+      failingRepository.updateHumanProfileAndMember(input, humanMember)
+    ).rejects.toBe(failure);
+    expect(failingClient.events).toEqual(['begin', 'update', 'update', 'rollback']);
+  });
+
   test('maps channel, member, and presence rows while keeping JSON parameterized', async () => {
     const member = memberRecord();
     const presence: ProjectChatPresenceRecord = {
@@ -195,9 +350,46 @@ describe('PostgresProjectChatRepository', () => {
     await expect(repository.upsertMember(member)).resolves.toEqual(member);
     await expect(repository.setPresence(presence)).resolves.toEqual(presence);
 
-    expect(client.calls[1]?.sql).toContain('$7::jsonb');
-    expect(client.calls[1]?.values[6]).toBe(JSON.stringify(member.origin));
+    expect(client.calls[1]?.sql).toContain('$8::jsonb');
+    expect(client.calls[1]?.values[7]).toBe(JSON.stringify(member.origin));
     expect(client.calls.every((call) => !call.sql.includes(member.displayName))).toBe(true);
+  });
+
+  test('returns the newer human member when a stale profile revision loses the upsert', async () => {
+    const currentRow = memberRow({
+      actor_key: '["human","user-olli"]',
+      avatar_url: 'data:image/webp;base64,current',
+      display_name: 'Current Human',
+      handle: 'olli',
+      origin: null,
+      profile_revision: 2,
+      role: 'human'
+    });
+    const client = new RecordingClient([
+      rows([], 0),
+      rows([currentRow])
+    ]);
+    const repository = new PostgresProjectChatRepository(client);
+
+    await expect(repository.upsertMember(memberRecord({
+      actorKey: '["human","user-olli"]',
+      avatarUrl: undefined,
+      displayName: 'Stale Human',
+      handle: 'olli',
+      origin: undefined,
+      profileRevision: 1,
+      role: 'human'
+    }))).resolves.toMatchObject({
+      avatarUrl: 'data:image/webp;base64,current',
+      displayName: 'Current Human',
+      profileRevision: 2,
+      role: 'human'
+    });
+
+    expect(client.calls[0]?.sql).toContain(
+      'excluded.profile_revision >= project_chat_members.profile_revision'
+    );
+    expect(client.calls[1]?.sql).toContain('where space_id = $1 and actor_key = $2');
   });
 
   test('maps only the named handle constraint to a domain conflict', async () => {

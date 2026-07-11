@@ -1,5 +1,6 @@
 import type {
   ProjectChatChannelRecord,
+  ProjectChatHumanProfileRecord,
   ProjectChatMemberRecord,
   ProjectChatMessageRecord,
   ProjectChatPresenceRecord
@@ -26,7 +27,43 @@ export interface ProjectChatUnreadMentions {
   unreadCount: number;
 }
 
+export interface ProjectChatHumanProfileUpdate {
+  accountId: string;
+  avatarDataUrlOverride?: string | null;
+  displayNameOverride?: string | null;
+  spaceId: string;
+  updatedAt: string;
+}
+
+export interface ProjectChatHumanProfileUpdateResult {
+  member: ProjectChatMemberRecord;
+  profile: ProjectChatHumanProfileRecord;
+}
+
+export interface ProjectChatHumanProfileState {
+  member: ProjectChatMemberRecord | null;
+  profile: ProjectChatHumanProfileRecord | null;
+}
+
 export interface ProjectChatRepository {
+  ensureHumanProfileAndMember(
+    profile: ProjectChatHumanProfileRecord,
+    member: ProjectChatMemberRecord,
+    options?: { refreshDefaults?: boolean }
+  ): Promise<ProjectChatHumanProfileUpdateResult>;
+  findHumanProfile(
+    spaceId: string,
+    accountId: string
+  ): Promise<ProjectChatHumanProfileRecord | null>;
+  findHumanProfileAndMember(
+    spaceId: string,
+    accountId: string,
+    actorKey: string
+  ): Promise<ProjectChatHumanProfileState>;
+  updateHumanProfileAndMember(
+    input: ProjectChatHumanProfileUpdate,
+    member: ProjectChatMemberRecord
+  ): Promise<ProjectChatHumanProfileUpdateResult>;
   ensureChannel(channel: ProjectChatChannelRecord): Promise<ProjectChatChannelRecord>;
   findMemberByActorKey(spaceId: string, actorKey: string): Promise<ProjectChatMemberRecord | null>;
   findMemberById(spaceId: string, memberId: string): Promise<ProjectChatMemberRecord | null>;
@@ -61,6 +98,24 @@ export interface ProjectChatRepository {
     updatedAt: string;
   }): Promise<number>;
   purgeExpired(now: string): Promise<number>;
+}
+
+export function memberWithHumanProfile(
+  member: ProjectChatMemberRecord,
+  profile: ProjectChatHumanProfileRecord
+): ProjectChatMemberRecord {
+  if (member.role !== 'human' || member.spaceId !== profile.spaceId) {
+    throw new Error('Project Chat human profile does not match its member.');
+  }
+  return {
+    ...member,
+    avatarUrl: profile.avatarDataUrlOverride ?? profile.defaultAvatarUrl,
+    displayName: profile.displayNameOverride ?? profile.defaultDisplayName,
+    origin: undefined,
+    profileRevision: profile.revision,
+    role: 'human',
+    updatedAt: profile.updatedAt
+  };
 }
 
 export class ProjectChatHandleConflictError extends Error {

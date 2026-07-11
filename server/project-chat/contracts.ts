@@ -2,6 +2,7 @@ export const PROJECT_CHAT_GENERAL_CHANNEL_ID = 'general';
 export const PROJECT_CHAT_DEFAULT_RETENTION_MS = 24 * 60 * 60 * 1_000;
 export const PROJECT_CHAT_DEFAULT_PRESENCE_TTL_MS = 90 * 1_000;
 export const PROJECT_CHAT_MAX_BODY_LENGTH = 4_000;
+export const PROJECT_CHAT_MAX_DISPLAY_NAME_LENGTH = 48;
 
 export type ProjectChatRole = 'human' | 'agent' | 'system';
 export type ProjectChatLivePresenceState = 'working' | 'idle';
@@ -21,6 +22,9 @@ export interface ProjectChatHumanActor {
   accountId: string;
   displayName: string;
   handle: string;
+  avatarUrl?: string;
+  /** False when the account provider could not be resolved for this request. */
+  profileDefaultsResolved?: boolean;
 }
 
 export interface ProjectChatAgentActor {
@@ -69,6 +73,13 @@ export interface ProjectChatSendInput {
   channelId?: string;
   body: string;
   idempotencyKey: string;
+}
+
+export interface ProjectChatProfileUpdateInput {
+  /** `null` restores the server-derived account name. */
+  displayName?: string | null;
+  /** `null` restores the server-derived account image. */
+  avatarDataUrl?: string | null;
 }
 
 export interface ProjectChatReadInput {
@@ -129,11 +140,28 @@ export interface ProjectChatMember {
   memberId: string;
   displayName: string;
   handle: string;
+  avatarUrl?: string;
   role: ProjectChatRole;
   origin?: ProjectChatOrigin;
   presence: ProjectChatPresence;
   joinedAt: string;
   updatedAt: string;
+}
+
+export interface ProjectChatHumanProfile {
+  avatarSource: 'account' | 'custom' | 'none';
+  avatarUrl?: string;
+  defaultAvatarUrl?: string;
+  defaultDisplayName: string;
+  displayName: string;
+  handle: string;
+  revision: number;
+  updatedAt: string;
+}
+
+export interface ProjectChatProfileUpdateResult {
+  member: ProjectChatMember;
+  profile: ProjectChatHumanProfile;
 }
 
 export interface ProjectChatChannel {
@@ -170,6 +198,7 @@ export interface ProjectChatMentionState {
 }
 
 export type ProjectChatErrorCode =
+  | 'forbidden'
   | 'invalid_request'
   | 'not_member'
   | 'name_conflict'
@@ -196,9 +225,24 @@ export interface ProjectChatMemberRecord {
   memberId: string;
   displayName: string;
   handle: string;
+  avatarUrl?: string;
   role: ProjectChatRole;
   origin?: ProjectChatOrigin;
+  /** Monotonic guard that prevents stale human joins from replacing a newer profile. */
+  profileRevision?: number;
   joinedAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectChatHumanProfileRecord {
+  accountId: string;
+  avatarDataUrlOverride?: string;
+  createdAt: string;
+  defaultAvatarUrl?: string;
+  defaultDisplayName: string;
+  displayNameOverride?: string;
+  revision: number;
+  spaceId: string;
   updatedAt: string;
 }
 

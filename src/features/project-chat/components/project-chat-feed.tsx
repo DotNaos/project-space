@@ -9,6 +9,7 @@ import {
   effectiveProjectChatPresence,
   formatProjectChatTime,
   projectChatDateLabel,
+  projectChatMessageIdentity,
   projectChatTextSegments,
   shortProjectChatId,
   sortProjectChatMessages
@@ -111,13 +112,19 @@ function ChatMessage({
   const mentionedViewer = Boolean(
     viewerMemberId && message.mentions.some((mention) => mention.memberId === viewerMemberId)
   );
+  const identity = projectChatMessageIdentity(message, member);
 
   return (
     <article
       className="group grid grid-cols-[34px_minmax(0,1fr)] gap-3 py-2.5 [contain-intrinsic-size:auto_72px] [content-visibility:auto]"
       data-project-chat-message-id={message.id}
     >
-      <ParticipantVisual role={message.sender.role} size={32} />
+      <ParticipantVisual
+        avatarUrl={identity.avatarUrl}
+        displayName={identity.displayName}
+        role={message.sender.role}
+        size={32}
+      />
       <div className="min-w-0">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <button
@@ -125,7 +132,7 @@ function ChatMessage({
             onClick={() => onSelect(message)}
             type="button"
           >
-            {message.sender.displayName}
+            {identity.displayName}
           </button>
           <span className="border border-neutral-800 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.12em] text-neutral-400">
             {message.sender.role}
