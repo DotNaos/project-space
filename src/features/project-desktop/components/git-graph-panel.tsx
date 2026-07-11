@@ -847,6 +847,11 @@ export function GitGraphPanel({
                       ? `merged #${commitPullRequest.number}`
                       : `PR #${commitPullRequest.number}`
                     : pullRequestLabel(row.commit.subject);
+                  const commitEnvironments =
+                    environmentCorrelation.byCommit.get(row.commit.hash) ?? [];
+                  const hasHealthyEnvironment = commitEnvironments.some(
+                    (environment) => environment.verification === 'healthy'
+                  );
 
                   return (
                     <div
@@ -860,7 +865,11 @@ export function GitGraphPanel({
                       }}
                       className={cn(
                         'group flex min-w-0 cursor-pointer items-center gap-3 px-3 outline-none transition hover:bg-neutral-900/50 focus-visible:bg-neutral-900/70',
-                        isSelected && 'bg-neutral-800/70 hover:bg-neutral-800/70'
+                        isSelected && 'bg-neutral-800/70 hover:bg-neutral-800/70',
+                        hasHealthyEnvironment &&
+                          'bg-emerald-500/[0.09] shadow-[inset_3px_0_0_rgb(52_211_153)] hover:bg-emerald-500/[0.14]',
+                        hasHealthyEnvironment && isSelected &&
+                          'bg-emerald-500/[0.18] hover:bg-emerald-500/[0.18]'
                       )}
                       onClick={() => selectCommit(row.commit.hash)}
                       onKeyDown={(event) => {
@@ -931,7 +940,7 @@ export function GitGraphPanel({
                       </span>
 
                       <span className="flex w-[18rem] min-w-0 shrink-0 items-center gap-1.5 sm:w-[22rem]">
-                        {(environmentCorrelation.byCommit.get(row.commit.hash) ?? []).map(
+                        {commitEnvironments.map(
                           (environment) => (
                             <EnvironmentMarker key={environment.id} environment={environment} />
                           )
