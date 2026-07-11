@@ -41,7 +41,8 @@ describe('database migrations', () => {
       '0003_dev_server_sessions',
       '0004_connector_credentials',
       '0005_user_project_states',
-      '0006_connector_credential_expected_machine'
+      '0006_connector_credential_expected_machine',
+      '0007_project_chat'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -71,6 +72,17 @@ describe('database migrations', () => {
     expect(sql).toContain('last_seen_at timestamptz');
     expect(sql).toContain('revoked_at timestamptz');
     expect(sql).toContain('foreign key (machine_id, owner_user_id)');
+    expect(sql).toContain('create table if not exists project_chat_channels');
+    expect(sql).toContain('create table if not exists project_chat_members');
+    expect(sql).toContain('project_chat_members_space_actor_unique');
+    expect(sql).toContain('project_chat_members_space_handle_unique');
+    expect(sql).toContain('create table if not exists project_chat_messages');
+    expect(sql).toContain('create table if not exists project_chat_message_mentions');
+    expect(sql).toContain('create table if not exists project_chat_cursors');
+    expect(sql).toContain('create table if not exists project_chat_idempotency');
+    expect(sql).toContain('project_chat_idempotency_identity_unique');
+    expect(sql).toContain('references project_chat_messages (space_id, id)');
+    expect(sql).toContain('on delete cascade');
   });
 
   test('applies pending migrations once under a transaction and records checksums', async () => {

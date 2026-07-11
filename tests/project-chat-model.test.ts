@@ -1,0 +1,434 @@
+import { describe, expect, test } from 'bun:test';
+import type {
+  ProjectChatClient,
+  ProjectChatMemberRecord,
+  ProjectChatMessageRecord
+} from '../src/shared/project-chat-api';
+import {
+  effectiveProjectChatPresence,
+  formatProjectChatActivity,
+  projectChatTextSegments,
+  projectChatThreads,
+  shortProjectChatId,
+  sortProjectChatMessages
+} from '../src/features/project-chat/project-chat-model';
+import {
+  cursorAfterLocalSend,
+  loadInitialProjectChat,
+  mergeVisibleProjectChatMessages,
+  readProjectChatPages
+} from '../src/features/project-chat/project-chat-loading';
+import { isProjectChatMessageSafe } from '../src/features/project-chat/project-chat-message-safety';
+import {
+  createProjectChatClient,
+  ProjectChatRequestError
+} from '../src/api/project-chat-client';
+
+function agent(overrides: Partial<ProjectChatMemberRecord> = {}): ProjectChatMemberRecord {
+  return {
+    displayName: 'Mira',
+    handle: 'Mira',
+    memberId: 'agent-mira',
+    origin: {
+      hostId: 'os-macbook',
+      machineId: 'machine-1',
+      taskTitle: 'Project Chat UI',
+      threadId: '019f4f2b-e97e-7180-9122-4187159dbe51'
+    },
+    presence: {
+      expiresAt: '2026-07-11T04:02:00.000Z',
+      lastSeenAt: '2026-07-11T04:00:00.000Z',
+      state: 'working'
+    },
+    role: 'agent',
+    ...overrides
+  };
+}
+
+function message(overrides: Partial<ProjectChatMessageRecord> = {}): ProjectChatMessageRecord {
+  return {
+    body: 'Project Chat is ready.',
+    channelId: 'general',
+    createdAt: '2026-07-11T04:00:00.000Z',
+    expiresAt: '2026-07-12T04:00:00.000Z',
+    id: 'message-1',
+    mentions: [],
+    sender: {
+      displayName: 'Mira',
+      handle: 'Mira',
+      memberId: 'agent-mira',
+      origin: agent().origin,
+      role: 'agent'
+    },
+    sequence: 1,
+    ...overrides
+  };
+}
+
+describe('Project Chat chronological model', () => {
+  test('sorts append-only records by room sequence without mutating the input', () => {
+    const messages = [
+      message({ id: 'third', sequence: 3 }),
+      message({ id: 'first', sequence: 1 }),
+      message({ id: 'second', sequence: 2 })
+    ];
+
+    expect(sortProjectChatMessages(messages).map((entry) => entry.id)).toEqual([
+      'first',
+      'second',
+      'third'
+    ]);
+    expect(messages.map((entry) => entry.id)).toEqual(['third', 'first', 'second']);
+  });
+
+  test('keeps the latest activity for each unique origin thread', () => {
+    const messages = [
+      message({ createdAt: '2026-07-11T04:00:00.000Z', sequence: 1 }),
+      message({ createdAt: '2026-07-11T04:03:00.000Z', id: 'message-2', sequence: 2 })
+    ];
+
+    expect(projectChatThreads(messages)).toEqual([
+      expect.objectContaining({
+        lastActivityAt: '2026-07-11T04:03:00.000Z',
+        taskTitle: 'Project Chat UI',
+        threadId: '019f4f2b-e97e-7180-9122-4187159dbe51'
+      })
+    ]);
+  });
+
+  test('surfaces origin threads for agents who have not posted yet', () => {
+    expect(projectChatThreads([], [agent()])).toEqual([
+      expect.objectContaining({
+        memberId: 'agent-mira',
+        taskTitle: 'Project Chat UI',
+        threadId: '019f4f2b-e97e-7180-9122-4187159dbe51'
+      })
+    ]);
+  });
+
+  test('shortens thread identifiers without losing both identifying ends', () => {
+    expect(shortProjectChatId('019f4f2b-e97e-7180-9122-4187159dbe51')).toBe('019f…be51');
+    expect(shortProjectChatId('short-id')).toBe('short-id');
+  });
+});
+
+describe('Project Chat trusted presence display', () => {
+  test('shows working only while server evidence is fresh', () => {
+    const member = agent();
+    expect(effectiveProjectChatPresence(member, new Date('2026-07-11T04:01:00.000Z'))).toBe('working');
+    expect(effectiveProjectChatPresence(member, new Date('2026-07-11T04:02:00.000Z'))).toBe('offline');
+  });
+
+  test('never infers active state without an expiry timestamp', () => {
+    const member = agent({ presence: { lastSeenAt: '2026-07-11T04:00:00.000Z', state: 'working' } });
+    expect(effectiveProjectChatPresence(member, new Date('2026-07-11T04:00:30.000Z'))).toBe('offline');
+  });
+
+  test('formats relative activity against an injected clock', () => {
+    expect(
+      formatProjectChatActivity(
+        '2026-07-11T03:48:00.000Z',
+        new Date('2026-07-11T04:00:00.000Z')
+      )
+    ).toBe('12m ago');
+  });
+});
+
+describe('Project Chat plain-text mention rendering', () => {
+  test('marks only server-resolved mention handles', () => {
+    const segments = projectChatTextSegments(
+      message({
+        body: '@Mira please sync with @Atlas. Mira@example.com stays plain.',
+        mentions: [
+          { displayName: 'Mira', handle: 'Mira', memberId: 'agent-mira' },
+          { displayName: 'Atlas', handle: 'Atlas', memberId: 'agent-atlas' }
+        ]
+      })
+    );
+
+    expect(segments.filter((segment) => segment.kind === 'mention')).toEqual([
+      { kind: 'mention', memberId: 'agent-mira', value: '@Mira' },
+      { kind: 'mention', memberId: 'agent-atlas', value: '@Atlas' }
+    ]);
+    expect(segments.map((segment) => segment.value).join('')).toBe(
+      '@Mira please sync with @Atlas. Mira@example.com stays plain.'
+    );
+  });
+
+  test('leaves HTML-looking input as ordinary text', () => {
+    const body = '<img src=x onerror=alert(1)> @Unknown';
+    expect(projectChatTextSegments(message({ body, mentions: [] }))).toEqual([
+      { kind: 'text', value: body }
+    ]);
+  });
+
+  test('does not highlight a resolved handle inside a longer identifier', () => {
+    const segments = projectChatTextSegments(
+      message({
+        body: '@Mirabelle is not @Mira',
+        mentions: [{ displayName: 'Mira', handle: 'Mira', memberId: 'agent-mira' }]
+      })
+    );
+
+    expect(segments.filter((segment) => segment.kind === 'mention')).toEqual([
+      { kind: 'mention', memberId: 'agent-mira', value: '@Mira' }
+    ]);
+  });
+});
+
+describe('Project Chat loading flow', () => {
+  test('joins before starting membership-protected reads', async () => {
+    let joined = false;
+    const order: string[] = [];
+    const requireMembership = (operation: string) => {
+      order.push(operation);
+      if (!joined) {
+        throw new Error(`${operation} raced ahead of join`);
+      }
+    };
+    const client = {
+      async join() {
+        order.push('join');
+        await Promise.resolve();
+        joined = true;
+        return {
+          channel: { channelId: 'general', description: 'Shared room', displayName: 'general' },
+          member: agent()
+        };
+      },
+      async listMembers() {
+        requireMembership('members');
+        return { members: [agent()] };
+      },
+      async listMentions() {
+        requireMembership('mentions');
+        return { channelId: 'general', messages: [], unreadCount: 0 };
+      },
+      async read() {
+        requireMembership('read');
+        return {
+          afterSequence: 0,
+          channelId: 'general',
+          hasMore: false,
+          latestSequence: 0,
+          messages: [],
+          nextSequence: 0
+        };
+      }
+    } as ProjectChatClient;
+
+    await expect(loadInitialProjectChat(client)).resolves.toEqual(
+      expect.objectContaining({ joinResult: expect.objectContaining({ member: agent() }) })
+    );
+    expect(order[0]).toBe('join');
+    expect(order.slice(1)).toEqual(expect.arrayContaining(['read', 'members', 'mentions']));
+  });
+
+  test('follows advancing cursors until every message page is loaded', async () => {
+    const requestedCursors: number[] = [];
+    const client = {
+      async read(request: { afterSequence?: number }) {
+        const afterSequence = request.afterSequence ?? 0;
+        requestedCursors.push(afterSequence);
+        const firstPage = afterSequence === 0;
+        return {
+          afterSequence,
+          channelId: 'general',
+          hasMore: firstPage,
+          latestSequence: 2,
+          messages: [message({
+            id: firstPage ? 'message-1' : 'message-2',
+            sequence: firstPage ? 1 : 2
+          })],
+          nextSequence: firstPage ? 1 : 2
+        };
+      }
+    } as Pick<ProjectChatClient, 'read'>;
+
+    const result = await readProjectChatPages(client, 'general', 0);
+    expect(requestedCursors).toEqual([0, 1]);
+    expect(result.messages.map((entry) => entry.sequence)).toEqual([1, 2]);
+    expect(result.nextSequence).toBe(2);
+    expect(result.hasMore).toBe(false);
+  });
+
+  test('rejects a non-advancing server cursor instead of looping forever', async () => {
+    const client = {
+      async read() {
+        return {
+          afterSequence: 4,
+          channelId: 'general',
+          hasMore: true,
+          latestSequence: 5,
+          messages: [message({ sequence: 5 })],
+          nextSequence: 4
+        };
+      }
+    } as Pick<ProjectChatClient, 'read'>;
+
+    await expect(readProjectChatPages(client, 'general', 4)).rejects.toThrow(
+      'non-advancing message cursor'
+    );
+  });
+
+  test('does not skip unseen concurrent messages after a local send', () => {
+    expect(cursorAfterLocalSend(9, 10)).toBe(10);
+    expect(cursorAfterLocalSend(9, 11)).toBe(9);
+  });
+
+  test('prunes expired records and bounds the rendered transcript', () => {
+    const current = Array.from({ length: 505 }, (_, index) => message({
+      expiresAt: '2026-07-12T04:00:00.000Z',
+      id: `message-${index + 1}`,
+      sequence: index + 1
+    }));
+    const visible = mergeVisibleProjectChatMessages(
+      current,
+      [message({ expiresAt: '2026-07-11T03:00:00.000Z', id: 'expired', sequence: 506 })],
+      new Date('2026-07-11T04:00:00.000Z')
+    );
+
+    expect(visible).toHaveLength(500);
+    expect(visible[0].sequence).toBe(6);
+    expect(visible.some((entry) => entry.id === 'expired')).toBe(false);
+  });
+
+  test('jumps to a bounded recent window when a room has deep history', async () => {
+    const requestedCursors: number[] = [];
+    const client = {
+      async read(request: { afterSequence?: number }) {
+        const afterSequence = request.afterSequence ?? 0;
+        requestedCursors.push(afterSequence);
+        return afterSequence === 0
+          ? {
+              afterSequence,
+              channelId: 'general',
+              hasMore: true,
+              latestSequence: 1_000,
+              messages: [message({ sequence: 1 })],
+              nextSequence: 100
+            }
+          : {
+              afterSequence,
+              channelId: 'general',
+              hasMore: false,
+              latestSequence: 1_000,
+              messages: [message({ id: 'recent', sequence: 1_000 })],
+              nextSequence: 1_000
+            };
+      }
+    } as Pick<ProjectChatClient, 'read'>;
+
+    const result = await readProjectChatPages(client);
+    expect(requestedCursors).toEqual([0, 500]);
+    expect(result.messages.map((entry) => entry.id)).toEqual(['recent']);
+  });
+});
+
+describe('Project Chat client-side secret warning', () => {
+  test('allows ordinary coordination messages', () => {
+    expect(isProjectChatMessageSafe('The password policy should require 16 characters.')).toBe(true);
+    expect(isProjectChatMessageSafe('@Mira PR #128 is ready for review.')).toBe(true);
+  });
+
+  test('blocks representative secrets without returning match details', () => {
+    expect(isProjectChatMessageSafe(`github_pat_${'a'.repeat(30)}`)).toBe(false);
+    expect(isProjectChatMessageSafe(`glpat-${'a'.repeat(30)}`)).toBe(false);
+    expect(isProjectChatMessageSafe(`sk_live_${'a'.repeat(30)}`)).toBe(false);
+    expect(isProjectChatMessageSafe(`AWS_SECRET_ACCESS_KEY=${'a'.repeat(40)}`)).toBe(false);
+    expect(isProjectChatMessageSafe('password=correct-horse-battery-staple')).toBe(false);
+    expect(isProjectChatMessageSafe('postgres://service:super-secret@database.internal/project')).toBe(false);
+  });
+});
+
+describe('Project Chat HTTP client boundary', () => {
+  test('uses injected authentication and sends only the typed message request', async () => {
+    let capturedBody = '';
+    let capturedToken = '';
+    let capturedUrl = '';
+    const client = createProjectChatClient({
+      authToken: 'test-session-token',
+      baseUrl: 'https://projects.example.test/',
+      fetchImplementation: async (input, init) => {
+        capturedBody = String(init?.body);
+        capturedToken = new Headers(init?.headers).get('Authorization') ?? '';
+        capturedUrl = String(input);
+        return new Response(JSON.stringify({ message: message() }), {
+          headers: { 'Content-Type': 'application/json' },
+          status: 200
+        });
+      }
+    });
+
+    await client.send({
+      body: 'Ready for review.',
+      channelId: 'general',
+      idempotencyKey: 'request-1'
+    });
+
+    expect(capturedUrl).toBe('https://projects.example.test/api/project-chat/messages');
+    expect(capturedToken).toBe('Bearer test-session-token');
+    expect(JSON.parse(capturedBody)).toEqual({
+      body: 'Ready for review.',
+      channelId: 'general',
+      idempotencyKey: 'request-1'
+    });
+  });
+
+  test('rejects credential-bearing base URLs before making a request', () => {
+    expect(() => createProjectChatClient({
+      baseUrl: 'https://user:password@projects.example.test'
+    })).toThrow('without credentials');
+  });
+
+  test('requires HTTPS for remote servers but permits loopback development', () => {
+    expect(() => createProjectChatClient({ baseUrl: 'http://projects.example.test' })).toThrow(
+      'requires HTTPS'
+    );
+    expect(() => createProjectChatClient({ baseUrl: 'http://project-chat.localhost:45873' })).not.toThrow();
+    expect(() => createProjectChatClient({ baseUrl: 'http://127.0.0.1:45873' })).not.toThrow();
+    expect(() => createProjectChatClient({ baseUrl: 'http://127.evil.com' })).toThrow(
+      'requires HTTPS'
+    );
+    expect(() => createProjectChatClient({ baseUrl: 'http://127.0.0.1.evil.com' })).toThrow(
+      'requires HTTPS'
+    );
+  });
+
+  test('can explicitly clear stale task metadata during a presence update', async () => {
+    let capturedBody = '';
+    const member = agent();
+    const client = createProjectChatClient({
+      fetchImplementation: async (_input, init) => {
+        capturedBody = String(init?.body);
+        return new Response(JSON.stringify(member), {
+          headers: { 'Content-Type': 'application/json' },
+          status: 200
+        });
+      }
+    });
+
+    await client.updatePresence({ state: 'idle', taskTitle: null });
+    expect(JSON.parse(capturedBody)).toEqual({ state: 'idle', taskTitle: null });
+  });
+
+  test('preserves structured server failures without echoing request data', async () => {
+    const client = createProjectChatClient({
+      fetchImplementation: async () => new Response(JSON.stringify({
+        error: { code: 'message_rejected', message: 'Message was not accepted.' }
+      }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 400
+      })
+    });
+
+    try {
+      await client.listMembers();
+      throw new Error('Expected listMembers to fail.');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProjectChatRequestError);
+      expect((error as ProjectChatRequestError).code).toBe('message_rejected');
+      expect((error as ProjectChatRequestError).status).toBe(400);
+    }
+  });
+});

@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useAuth, useClerk, useSignIn, useUser } from '@clerk/react';
-import { FolderKanban, House, Server, Settings, TriangleAlert } from 'lucide-react';
+import {
+  FolderKanban,
+  House,
+  MessageSquare,
+  Server,
+  Settings,
+  TriangleAlert
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button, Surface, Text } from '@/app/dotnaos-ui';
 import {
@@ -27,6 +34,10 @@ function isCompactViewport() {
 }
 
 function sectionForView(view: ProjectMainView): AppSection {
+  if (view === 'chat') {
+    return 'chat';
+  }
+
   if (view === 'projects' || view === 'project') {
     return 'projects';
   }
@@ -44,6 +55,7 @@ function sectionForView(view: ProjectMainView): AppSection {
 
 interface MobileTabBarProps {
   activeSection: AppSection;
+  onOpenChat(): void;
   onOpenMachines(): void;
   onOpenProjects(): void;
   onOpenRoot(): void;
@@ -52,6 +64,7 @@ interface MobileTabBarProps {
 
 function MobileTabBar({
   activeSection,
+  onOpenChat,
   onOpenMachines,
   onOpenProjects,
   onOpenRoot,
@@ -63,6 +76,12 @@ function MobileTabBar({
       isActive: activeSection === 'home',
       label: 'Home',
       onPress: onOpenRoot
+    },
+    {
+      icon: MessageSquare,
+      isActive: activeSection === 'chat',
+      label: 'Chat',
+      onPress: onOpenChat
     },
     {
       icon: FolderKanban,
@@ -89,7 +108,7 @@ function MobileTabBar({
       aria-label="Primary"
       className="app-no-drag pointer-events-auto absolute inset-x-0 bottom-0 z-50 border-t border-neutral-800/90 bg-app-panel/95 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-16px_40px_rgba(0,0,0,0.35)] backdrop-blur"
     >
-      <div className="grid grid-cols-4 gap-1">
+      <div className="grid grid-cols-5 gap-1">
         {items.map((item) => {
           const Icon = item.icon;
 
@@ -100,14 +119,14 @@ function MobileTabBar({
               aria-current={item.isActive ? 'page' : undefined}
               onClick={item.onPress}
               className={cn(
-                'flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-2 text-[11px] font-medium transition',
+                'flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-0.5 text-[10px] font-medium transition',
                 item.isActive
                   ? 'bg-neutral-800 text-neutral-50'
                   : 'text-neutral-500 hover:bg-neutral-900/70 hover:text-neutral-200'
               )}
             >
               <Icon className="size-5" strokeWidth={1.9} />
-              <span className="max-w-full truncate">{item.label}</span>
+              <span className="max-w-full truncate text-[10px] leading-4">{item.label}</span>
             </button>
           );
         })}
@@ -257,6 +276,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
             activeSection={activeSection}
             hasContextPanel={hasContextPanel}
             isContextPanelOpen={isPanelOpen}
+            onOpenChat={desktop.openChat}
             onOpenHome={desktop.openRoot}
             onOpenMachines={desktop.openMachines}
             onOpenProjects={desktop.openProjects}
@@ -338,6 +358,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
       {isCompact ? (
         <MobileTabBar
           activeSection={activeSection}
+          onOpenChat={desktop.openChat}
           onOpenMachines={desktop.openMachines}
           onOpenProjects={desktop.openProjects}
           onOpenRoot={desktop.openRoot}

@@ -1,0 +1,386 @@
+import { describe, expect, test } from 'bun:test';
+
+import type {
+  DatabaseQueryClient,
+  DatabaseQueryResult
+} from '../server/database/client';
+import type {
+  ProjectChatMemberRecord,
+  ProjectChatMessageRecord,
+  ProjectChatPresenceRecord
+} from '../server/project-chat/contracts';
+import { PostgresProjectChatRepository } from '../server/project-chat/postgres-store';
+import {
+  ProjectChatCursorOutOfRangeError,
+  ProjectChatHandleConflictError,
+  ProjectChatIdempotencyConflictError
+} from '../server/project-chat/repository';
+
+interface QueryCall {
+  sql: string;
+  values: readonly unknown[];
+}
+
+type Response =
+  | DatabaseQueryResult<unknown>
+  | Error
+  | ((call: QueryCall) => DatabaseQueryResult<unknown> | Promise<DatabaseQueryResult<unknown>>);
+
+class RecordingClient implements DatabaseQueryClient {
+  readonly calls: QueryCall[] = [];
+  readonly events: string[] = [];
+
+  constructor(private readonly responses: Response[]) {}
+
+  async query<Row>(sql: string, values: readonly unknown[] = []) {
+    const call = { sql, values };
+    this.calls.push(call);
+    this.events.push(sql.trim().split(/\s+/, 1)[0] ?? 'query');
+    const response = this.responses.shift();
+    if (!response) {
+      throw new Error(`Unexpected query: ${sql}`);
+    }
+    if (response instanceof Error) {
+      throw response;
+    }
+    const result = typeof response === 'function' ? await response(call) : response;
+    return result as DatabaseQueryResult<Row>;
+  }
+
+  async transaction<Result>(operation: (client: DatabaseQueryClient) => Promise<Result>) {
+    this.events.push('begin');
+    try {
+      const result = await operation(this);
+      this.events.push('commit');
+      return result;
+    } catch (error) {
+      this.events.push('rollback');
+      throw error;
+    }
+  }
+}
+
+function rows<Row>(values: Row[], rowCount = values.length): DatabaseQueryResult<Row> {
+  return { rowCount, rows: values };
+}
+
+const createdAt = '2026-07-11T10:00:00.000Z';
+const expiresAt = '2026-07-12T10:00:00.000Z';
+
+function memberRecord(overrides: Partial<ProjectChatMemberRecord> = {}): ProjectChatMemberRecord {
+  return {
+    actorKey: 'agent:machine-a:thread-a',
+    displayName: 'Galileo',
+    handle: 'galileo',
+    joinedAt: createdAt,
+    memberId: 'member-a',
+    origin: {
+      hostId: 'host-a',
+      machineId: 'machine-a',
+      taskTitle: 'Postgres repository',
+      threadId: 'thread-a'
+    },
+    role: 'agent',
+    spaceId: 'space-a',
+    updatedAt: createdAt,
+    ...overrides
+  };
+}
+
+function memberRow(overrides: Record<string, unknown> = {}) {
+  const member = memberRecord();
+  return {
+    actor_key: member.actorKey,
+    display_name: member.displayName,
+    handle: member.handle,
+    joined_at: member.joinedAt,
+    member_id: member.memberId,
+    origin: member.origin,
+    role: member.role,
+    space_id: member.spaceId,
+    updated_at: member.updatedAt,
+    ...overrides
+  };
+}
+
+function messageRecord(
+  overrides: Partial<ProjectChatMessageRecord> = {}
+): ProjectChatMessageRecord {
+  return {
+    body: 'Hello @olli',
+    channelId: 'general',
+    createdAt,
+    expiresAt,
+    id: 'message-a',
+    mentions: [{ displayName: 'Olli', handle: 'olli', memberId: 'member-human' }],
+    sender: {
+      displayName: 'Galileo',
+      handle: 'galileo',
+      memberId: 'member-a',
+      origin: {
+        hostId: 'host-a',
+        machineId: 'machine-a',
+        threadId: 'thread-a'
+      },
+      role: 'agent'
+    },
+    senderMemberId: 'member-a',
+    sequence: 8,
+    spaceId: 'space-a',
+    ...overrides
+  };
+}
+
+function messageRow(overrides: Record<string, unknown> = {}) {
+  const message = messageRecord();
+  return {
+    body: message.body,
+    channel_id: message.channelId,
+    created_at: message.createdAt,
+    expires_at: message.expiresAt,
+    id: message.id,
+    mentions: message.mentions,
+    sender: message.sender,
+    sender_member_id: message.senderMemberId,
+    sequence: message.sequence,
+    space_id: message.spaceId,
+    ...overrides
+  };
+}
+
+function appendInput(body = 'Hello @olli') {
+  const { sequence: _sequence, ...message } = messageRecord({ body });
+  return { idempotencyKey: 'request-a', message };
+}
+
+function databaseConflict(constraint: string) {
+  return Object.assign(new Error('unique violation'), { code: '23505', constraint });
+}
+
+describe('PostgresProjectChatRepository', () => {
+  test('maps channel, member, and presence rows while keeping JSON parameterized', async () => {
+    const member = memberRecord();
+    const presence: ProjectChatPresenceRecord = {
+      expiresAt,
+      lastSeenAt: createdAt,
+      memberId: member.memberId,
+      spaceId: member.spaceId,
+      state: 'working'
+    };
+    const client = new RecordingClient([
+      rows([{
+        channel_id: 'general',
+        created_at: createdAt,
+        last_sequence: 0,
+        name: 'General',
+        space_id: 'space-a'
+      }]),
+      rows([memberRow()]),
+      rows([{
+        expires_at: expiresAt,
+        last_seen_at: createdAt,
+        member_id: member.memberId,
+        space_id: member.spaceId,
+        state: 'working'
+      }])
+    ]);
+    const repository = new PostgresProjectChatRepository(client);
+
+    await expect(repository.ensureChannel({
+      channelId: 'general',
+      createdAt,
+      name: 'General',
+      spaceId: 'space-a'
+    })).resolves.toEqual({ channelId: 'general', createdAt, name: 'General', spaceId: 'space-a' });
+    await expect(repository.upsertMember(member)).resolves.toEqual(member);
+    await expect(repository.setPresence(presence)).resolves.toEqual(presence);
+
+    expect(client.calls[1]?.sql).toContain('$7::jsonb');
+    expect(client.calls[1]?.values[6]).toBe(JSON.stringify(member.origin));
+    expect(client.calls.every((call) => !call.sql.includes(member.displayName))).toBe(true);
+  });
+
+  test('maps only the named handle constraint to a domain conflict', async () => {
+    const client = new RecordingClient([
+      databaseConflict('project_chat_members_space_handle_unique')
+    ]);
+    const repository = new PostgresProjectChatRepository(client);
+
+    await expect(repository.upsertMember(memberRecord())).rejects.toBeInstanceOf(
+      ProjectChatHandleConflictError
+    );
+  });
+
+  test('appends atomically after idempotency lock and allocates one channel sequence', async () => {
+    const client = new RecordingClient([
+      rows([]),
+      rows([]),
+      rows([{ last_sequence: '8' }]),
+      rows([]),
+      rows([]),
+      rows([])
+    ]);
+    const repository = new PostgresProjectChatRepository(client);
+
+    await expect(repository.appendMessage(appendInput())).resolves.toEqual({
+      inserted: true,
+      message: messageRecord()
+    });
+
+    expect(client.events).toEqual([
+      'begin', 'select', 'select', 'update', 'insert', 'insert', 'insert', 'commit'
+    ]);
+    expect(client.calls[0]?.sql).toContain('pg_advisory_xact_lock');
+    expect(client.calls[1]?.values).toEqual(['space-a', 'general', 'member-a', 'request-a']);
+    expect(client.calls[2]?.sql).toContain('last_sequence = last_sequence + 1');
+    expect(client.calls[2]?.values).toEqual(['space-a', 'general']);
+    expect(client.calls[3]?.values).toEqual([
+      'space-a',
+      'general',
+      'message-a',
+      8,
+      'Hello @olli',
+      JSON.stringify(messageRecord().sender),
+      'member-a',
+      JSON.stringify(messageRecord().mentions),
+      createdAt,
+      expiresAt
+    ]);
+    expect(client.calls[4]?.values).toEqual(['space-a', 'message-a', ['member-human']]);
+  });
+
+  test('replays identical idempotent appends and rejects changed content', async () => {
+    const replayClient = new RecordingClient([
+      rows([]),
+      rows([{ ...messageRow(), idempotency_body: 'Hello @olli' }])
+    ]);
+    const replayRepository = new PostgresProjectChatRepository(replayClient);
+
+    await expect(replayRepository.appendMessage(appendInput())).resolves.toEqual({
+      inserted: false,
+      message: messageRecord()
+    });
+    expect(replayClient.events).toEqual(['begin', 'select', 'select', 'commit']);
+
+    const conflictClient = new RecordingClient([
+      rows([]),
+      rows([{ ...messageRow(), idempotency_body: 'original body' }])
+    ]);
+    const conflictRepository = new PostgresProjectChatRepository(conflictClient);
+    await expect(conflictRepository.appendMessage(appendInput('changed body'))).rejects.toBeInstanceOf(
+      ProjectChatIdempotencyConflictError
+    );
+    expect(conflictClient.events.at(-1)).toBe('rollback');
+  });
+
+  test('maps the named idempotency unique constraint after rolling back', async () => {
+    const client = new RecordingClient([
+      rows([]),
+      rows([]),
+      rows([{ last_sequence: 8 }]),
+      rows([]),
+      rows([]),
+      databaseConflict('project_chat_idempotency_identity_unique')
+    ]);
+    const repository = new PostgresProjectChatRepository(client);
+
+    await expect(repository.appendMessage(appendInput())).rejects.toBeInstanceOf(
+      ProjectChatIdempotencyConflictError
+    );
+    expect(client.events.at(-1)).toBe('rollback');
+  });
+
+  test('captures the channel head before reading and bounds the page to that snapshot', async () => {
+    const client = new RecordingClient([
+      rows([{ last_sequence: '12' }]),
+      rows([
+        messageRow({ id: 'message-9', sequence: 9 }),
+        messageRow({ id: 'message-10', sequence: 10 }),
+        messageRow({ id: 'message-11', sequence: 11 })
+      ])
+    ]);
+    const repository = new PostgresProjectChatRepository(client);
+
+    const page = await repository.readMessages({
+      afterSequence: 8,
+      channelId: 'general',
+      limit: 2,
+      now: createdAt,
+      spaceId: 'space-a'
+    });
+
+    expect(page.latestSequence).toBe(12);
+    expect(page.hasMore).toBe(true);
+    expect(page.messages.map((message) => message.sequence)).toEqual([9, 10]);
+    expect(client.calls[0]?.sql).toContain('from project_chat_channels');
+    expect(client.calls[1]?.sql).toContain('messages.sequence <= $4');
+    expect(client.calls[1]?.values).toEqual(['space-a', 'general', 8, 12, createdAt, 3]);
+    expect(client.events).toEqual(['begin', 'select', 'select', 'commit']);
+  });
+
+  test('scopes member and mention reads across every join by space', async () => {
+    const client = new RecordingClient([
+      rows([memberRow({ space_id: 'space-b' })]),
+      rows([{ ...messageRow({ space_id: 'space-b' }), unread_count: '1' }])
+    ]);
+    const repository = new PostgresProjectChatRepository(client);
+
+    await repository.findMemberByActorKey('space-b', 'actor-b');
+    const mentions = await repository.listUnreadMentions({
+      afterSequence: 0,
+      channelId: 'general',
+      limit: 20,
+      memberId: 'member-b',
+      now: createdAt,
+      spaceId: 'space-b'
+    });
+
+    expect(client.calls[0]?.values).toEqual(['space-b', 'actor-b']);
+    expect(client.calls[1]?.sql).toContain('messages.space_id = message_mentions.space_id');
+    expect(client.calls[1]?.sql).toContain('message_mentions.space_id = $1');
+    expect(client.calls[1]?.values).toEqual([
+      'space-b', 'member-b', 'general', 0, createdAt, 20
+    ]);
+    expect(mentions.unreadCount).toBe(1);
+  });
+
+  test('acknowledges monotonically after a transactional range check', async () => {
+    const client = new RecordingClient([
+      rows([{ last_sequence: 12 }]),
+      rows([{ sequence: 9 }])
+    ]);
+    const repository = new PostgresProjectChatRepository(client);
+
+    await expect(repository.acknowledgeCursor({
+      channelId: 'general',
+      memberId: 'member-a',
+      spaceId: 'space-a',
+      throughSequence: 7,
+      updatedAt: createdAt
+    })).resolves.toBe(9);
+    expect(client.calls[0]?.sql).toContain('for share');
+    expect(client.calls[1]?.sql).toContain('greatest(project_chat_cursors.sequence');
+    expect(client.events).toEqual(['begin', 'select', 'insert', 'commit']);
+
+    const invalidClient = new RecordingClient([rows([{ last_sequence: 4 }])]);
+    const invalidRepository = new PostgresProjectChatRepository(invalidClient);
+    await expect(invalidRepository.acknowledgeCursor({
+      channelId: 'general',
+      memberId: 'member-a',
+      spaceId: 'space-a',
+      throughSequence: 5,
+      updatedAt: createdAt
+    })).rejects.toBeInstanceOf(ProjectChatCursorOutOfRangeError);
+    expect(invalidClient.events).toEqual(['begin', 'select', 'rollback']);
+  });
+
+  test('purges expired messages without changing channel sequence state', async () => {
+    const client = new RecordingClient([rows([{ id: 'one' }, { id: 'two' }], 2)]);
+    const repository = new PostgresProjectChatRepository(client);
+
+    await expect(repository.purgeExpired(createdAt)).resolves.toBe(2);
+    expect(client.calls[0]?.sql).toContain('delete from project_chat_messages');
+    expect(client.calls[0]?.sql).not.toContain('project_chat_channels');
+    expect(client.calls[0]?.values).toEqual([createdAt]);
+  });
+});

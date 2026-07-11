@@ -1,4 +1,4 @@
-import { FolderKanban, House, LogOut, Server, Settings } from 'lucide-react';
+import { FolderKanban, House, LogOut, MessageSquare, Server, Settings } from 'lucide-react';
 import {
   Button,
   Dropdown,
@@ -13,7 +13,7 @@ import {
 import { cn } from '@/lib/utils';
 import { SidebarToggleButton } from './sidebar-toggle-button';
 
-export type AppSection = 'home' | 'projects' | 'machines' | 'settings';
+export type AppSection = 'home' | 'chat' | 'projects' | 'machines' | 'settings';
 
 export interface RailAccount {
   email?: string;
@@ -123,6 +123,7 @@ interface AppRailProps {
   activeSection: AppSection;
   hasContextPanel: boolean;
   isContextPanelOpen: boolean;
+  onOpenChat(): void;
   onOpenHome(): void;
   onOpenMachines(): void;
   onOpenProjects(): void;
@@ -135,6 +136,7 @@ export function AppRail({
   activeSection,
   hasContextPanel,
   isContextPanelOpen,
+  onOpenChat,
   onOpenHome,
   onOpenMachines,
   onOpenProjects,
@@ -167,6 +169,13 @@ export function AppRail({
           label="Home"
           testId="sidebar-home"
           onPress={onOpenHome}
+        />
+        <RailItem
+          icon={MessageSquare}
+          isActive={activeSection === 'chat'}
+          label="Project Chat"
+          testId="sidebar-chat"
+          onPress={onOpenChat}
         />
         <RailItem
           icon={FolderKanban}

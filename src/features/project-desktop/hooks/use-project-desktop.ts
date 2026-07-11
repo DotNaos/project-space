@@ -76,6 +76,7 @@ const appMetaFallback: AppMeta = {
 
 export type ProjectMainView =
   | 'root'
+  | 'chat'
   | 'machines'
   | 'machine'
   | 'projects'
@@ -114,6 +115,7 @@ function normalizePath(path: string) {
 }
 
 const templatePlaceholderPattern = /\{\{.*?\}\}/;
+const chatPath = '/chat';
 const projectsPath = '/projects';
 const machinesPath = '/machines';
 const connectorOverviewRefreshIntervalMs = 60_000;
@@ -173,7 +175,11 @@ function projectPath(projectId: string) {
 
 const settingsPath = '/settings';
 
-function routeForView(view: ProjectMainView, projectId = '', tab = '', detail = '') {
+export function routeForView(view: ProjectMainView, projectId = '', tab = '', detail = '') {
+  if (view === 'chat') {
+    return chatPath;
+  }
+
   if (view === 'machines') {
     return machinesPath;
   }
@@ -209,7 +215,7 @@ function routeForView(view: ProjectMainView, projectId = '', tab = '', detail = 
   return '/';
 }
 
-interface ParsedProjectRoute {
+export interface ParsedProjectRoute {
   issueNumber?: number;
   machineId?: string;
   machineTab?: MachineDetailTab;
@@ -218,7 +224,11 @@ interface ParsedProjectRoute {
   view: ProjectMainView;
 }
 
-function parseProjectRoute(pathname: string): ParsedProjectRoute {
+export function parseProjectRoute(pathname: string): ParsedProjectRoute {
+  if (pathname === chatPath || pathname === `${chatPath}/`) {
+    return { view: 'chat' };
+  }
+
   if (pathname === settingsPath || pathname === `${settingsPath}/`) {
     return { view: 'settings' };
   }
@@ -258,6 +268,10 @@ function parseProjectRoute(pathname: string): ParsedProjectRoute {
   }
 
   return { view: 'root' };
+}
+
+export function initialProjectMainView(pathname: string): ProjectMainView {
+  return parseProjectRoute(pathname).view === 'chat' ? 'chat' : 'root';
 }
 
 function resolveRouteProject(
@@ -306,7 +320,13 @@ function createGitHubProjectRecord(repo: GitHubCatalogRepository): ProjectSpaceR
   };
 }
 
-function writeRoute(view: ProjectMainView, projectId = '', replace = false, tab = '', detail = '') {
+export function writeRoute(
+  view: ProjectMainView,
+  projectId = '',
+  replace = false,
+  tab = '',
+  detail = ''
+) {
   if (typeof window === 'undefined') {
     return;
   }
@@ -348,7 +368,11 @@ export function useProjectDesktop() {
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [pinnedProjectIds, setPinnedProjectIds] = useState<string[]>([]);
   const [recentProjectIds, setRecentProjectIds] = useState<string[]>([]);
-  const [mainView, setMainView] = useState<ProjectMainView>('root');
+  const [mainView, setMainView] = useState<ProjectMainView>(() => {
+    return typeof window === 'undefined'
+      ? 'root'
+      : initialProjectMainView(window.location.pathname);
+  });
   const [projectTab, setProjectTab] = useState<ProjectDetailTab>('overview');
   const [machineTab, setMachineTab] = useState<MachineDetailTab>('overview');
   const [selectedIssueNumber, setSelectedIssueNumber] = useState<number | undefined>();
@@ -1090,6 +1114,10 @@ export function useProjectDesktop() {
     openRoot() {
       setMainView('root');
       writeRoute('root');
+    },
+    openChat() {
+      setMainView('chat');
+      writeRoute('chat');
     },
     openMachines() {
       setMainView('machines');

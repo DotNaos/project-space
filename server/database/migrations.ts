@@ -171,6 +171,131 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
         add constraint connector_credentials_machine_matches_expected
           check (machine_id is null or machine_id = expected_machine_id);
     `
+  },
+  {
+    id: '0007_project_chat',
+    sql: `
+      create table if not exists project_chat_channels (
+        space_id text not null check (btrim(space_id) <> ''),
+        channel_id text not null check (btrim(channel_id) <> ''),
+        name text not null check (btrim(name) <> ''),
+        last_sequence bigint not null default 0 check (last_sequence >= 0),
+        created_at timestamptz not null default now(),
+        primary key (space_id, channel_id)
+      );
+
+      create table if not exists project_chat_members (
+        space_id text not null check (btrim(space_id) <> ''),
+        actor_key text not null check (btrim(actor_key) <> ''),
+        member_id text not null check (btrim(member_id) <> ''),
+        display_name text not null check (btrim(display_name) <> ''),
+        handle text not null check (btrim(handle) <> ''),
+        role text not null check (role in ('human', 'agent', 'system')),
+        origin jsonb,
+        joined_at timestamptz not null,
+        updated_at timestamptz not null,
+        primary key (space_id, member_id),
+        constraint project_chat_members_space_actor_unique
+          unique (space_id, actor_key),
+        check (origin is null or jsonb_typeof(origin) = 'object')
+      );
+
+      create unique index if not exists project_chat_members_space_handle_unique
+        on project_chat_members (space_id, lower(handle));
+
+      create table if not exists project_chat_presences (
+        space_id text not null,
+        member_id text not null,
+        state text not null check (state in ('working', 'idle')),
+        last_seen_at timestamptz not null,
+        expires_at timestamptz not null check (expires_at > last_seen_at),
+        primary key (space_id, member_id),
+        foreign key (space_id, member_id)
+          references project_chat_members (space_id, member_id)
+          on delete cascade
+      );
+
+      create table if not exists project_chat_messages (
+        space_id text not null,
+        channel_id text not null,
+        id text not null check (btrim(id) <> ''),
+        sequence bigint not null check (sequence > 0),
+        body text not null check (btrim(body) <> ''),
+        sender jsonb not null check (jsonb_typeof(sender) = 'object'),
+        sender_member_id text not null,
+        mentions jsonb not null default '[]'::jsonb
+          check (jsonb_typeof(mentions) = 'array'),
+        created_at timestamptz not null,
+        expires_at timestamptz not null check (expires_at > created_at),
+        primary key (space_id, id),
+        unique (space_id, channel_id, sequence),
+        foreign key (space_id, channel_id)
+          references project_chat_channels (space_id, channel_id),
+        foreign key (space_id, sender_member_id)
+          references project_chat_members (space_id, member_id)
+      );
+
+      create index if not exists project_chat_messages_channel_sequence_idx
+        on project_chat_messages (space_id, channel_id, sequence);
+
+      create index if not exists project_chat_messages_expiry_idx
+        on project_chat_messages (expires_at);
+
+      create table if not exists project_chat_message_mentions (
+        space_id text not null,
+        message_id text not null,
+        member_id text not null,
+        primary key (space_id, message_id, member_id),
+        foreign key (space_id, message_id)
+          references project_chat_messages (space_id, id)
+          on delete cascade,
+        foreign key (space_id, member_id)
+          references project_chat_members (space_id, member_id)
+          on delete cascade
+      );
+
+      create index if not exists project_chat_message_mentions_member_idx
+        on project_chat_message_mentions (space_id, member_id, message_id);
+
+      create table if not exists project_chat_cursors (
+        space_id text not null,
+        member_id text not null,
+        channel_id text not null,
+        sequence bigint not null default 0 check (sequence >= 0),
+        updated_at timestamptz not null,
+        primary key (space_id, member_id, channel_id),
+        foreign key (space_id, member_id)
+          references project_chat_members (space_id, member_id)
+          on delete cascade,
+        foreign key (space_id, channel_id)
+          references project_chat_channels (space_id, channel_id)
+          on delete cascade
+      );
+
+      create table if not exists project_chat_idempotency (
+        space_id text not null,
+        channel_id text not null,
+        sender_member_id text not null,
+        idempotency_key text not null check (btrim(idempotency_key) <> ''),
+        message_id text not null,
+        body text not null,
+        expires_at timestamptz not null,
+        constraint project_chat_idempotency_identity_unique
+          unique (space_id, channel_id, sender_member_id, idempotency_key),
+        foreign key (space_id, message_id)
+          references project_chat_messages (space_id, id)
+          on delete cascade,
+        foreign key (space_id, sender_member_id)
+          references project_chat_members (space_id, member_id)
+          on delete cascade,
+        foreign key (space_id, channel_id)
+          references project_chat_channels (space_id, channel_id)
+          on delete cascade
+      );
+
+      create index if not exists project_chat_idempotency_expiry_idx
+        on project_chat_idempotency (expires_at);
+    `
   }
 ];
 

@@ -10,6 +10,9 @@ import type {
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
 import { useCallback, useEffect, useMemo } from 'react';
+import { createProjectChatClient } from '@/api/project-chat-client';
+import { refreshProjectSpaceAuthToken } from '@/api/project-space-client';
+import { ProjectChatWorkspace } from '@/features/project-chat/project-chat-workspace';
 import type {
   MachineDetailTab,
   ProjectDetailTab,
@@ -26,6 +29,10 @@ import { ProjectRootOverview } from './project-root-overview';
 import { SettingsView } from './settings-view';
 import { resolveProjectRepository } from './project-main-model';
 import { cn } from '@/lib/utils';
+
+const projectChatClient = createProjectChatClient({
+  getAuthToken: refreshProjectSpaceAuthToken
+});
 
 function isVisibleProject(project: ProjectSpaceRecord) {
   const folder = project.rootPath.split('/').filter(Boolean).pop() ?? '';
@@ -390,6 +397,20 @@ export function ProjectMainPanel({
     project &&
     project.kind !== 'github' &&
     (projectTab === 'history' || projectTab === 'issues');
+
+  if (mainView === 'chat') {
+    return (
+      <Surface
+        variant="transparent"
+        className={cn(
+          'h-full min-h-0 overflow-hidden rounded-none bg-app-panel',
+          hasBottomTabBar && 'pb-[calc(6.75rem+env(safe-area-inset-bottom))]'
+        )}
+      >
+        <ProjectChatWorkspace client={projectChatClient} />
+      </Surface>
+    );
+  }
 
   return (
     <Surface variant="transparent" className="flex min-h-0 flex-col rounded-none bg-app-panel">
