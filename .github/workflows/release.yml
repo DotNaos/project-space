@@ -179,7 +179,9 @@ jobs:
         run: |
           winget --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          winget validate '${{ steps.package.outputs.manifest-directory }}'
+          # The hosted image can lag behind the schema required by winget-pkgs.
+          # Suppress only validation warnings; manifest errors still return non-zero.
+          winget validate --ignore-warnings '${{ steps.package.outputs.manifest-directory }}'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload release artifacts
