@@ -17,11 +17,21 @@ import type {
   MachineRecord,
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
+import { resolvedProjectMachineId } from '../../../shared/project-machine-identity';
 import { cn } from '@/lib/utils';
 import { matchesFuzzyQuery } from '@/lib/fuzzy-search';
 import type { MachineDetailTab } from '../hooks/use-project-desktop';
 import { MachineListItem } from './machine-list-item';
 import { machineSubtitle } from './project-main-model';
+import {
+  branchOptions,
+  checkoutForProjectPath,
+  parseCloneTargetProbeOutput,
+  parseWorktreeOutput,
+  type CloneTargetInfo,
+  type MachineProjectCheckout,
+  type MachineWorktreeInfo
+} from './project-machine-checkout-model';
 import {
   WorktreeBranchList,
   type WorktreeBranchOption
@@ -32,27 +42,9 @@ interface MachineProjectMatch {
   machineId: string;
 }
 
-interface MachineProjectCheckout {
-  branchName?: string;
-  kind: 'main' | 'worktree';
-  path: string;
-  project: ProjectSpaceRecord;
-}
-
-interface MachineWorktreeInfo {
-  branchName?: string;
-  kind: 'main' | 'worktree';
-  path: string;
-}
-
 interface MachineWorktreeState {
   error?: string;
   worktrees: MachineWorktreeInfo[];
-}
-
-interface CloneTargetInfo {
-  exists: boolean;
-  path: string;
 }
 
 interface MachineCloneTargetState {
@@ -68,25 +60,12 @@ function normalizeKey(value: string) {
   return value.trim().replace(/^@/, '').toLowerCase();
 }
 
-function normalizeRelativePath(value: string) {
-  return value.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-}
-
 function shellQuote(value: string) {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 function escapeDoubleQuotedShell(value: string) {
   return value.replace(/["\\$`]/g, (character) => `\\${character}`);
-}
-
-function getMachineId(project: ProjectSpaceRecord, localMachineId: string) {
-  if (project.id.includes(':')) {
-    const candidate = project.id.slice(0, project.id.indexOf(':'));
-    return candidate === 'local' ? localMachineId : candidate;
-  }
-
-  return localMachineId;
 }
 
 function canonicalProjectName(project: ProjectSpaceRecord, repository?: GitHubCatalogRepository) {
@@ -99,90 +78,6 @@ function defaultBranchName(project: ProjectSpaceRecord, repository?: GitHubCatal
 
 function isDefaultBranch(branchName: string | undefined, defaultBranch: string) {
   return normalizeKey(branchName || '') === normalizeKey(defaultBranch);
-}
-
-function relativePathUnderProjects(path: string) {
-  const normalizedPath = normalizeRelativePath(path);
-  const marker = 'projects/';
-  const markerIndex = normalizedPath.lastIndexOf(marker);
-
-  if (markerIndex >= 0) {
-    return normalizedPath.slice(markerIndex + marker.length);
-  }
-
-  return '';
-}
-
-function checkoutForProjectPath(
-  candidate: ProjectSpaceRecord,
-  projectName: string,
-  defaultBranch: string
-): MachineProjectCheckout | undefined {
-  const relativePath = relativePathUnderProjects(candidate.rootPath);
-
-  if (!relativePath) {
-    return undefined;
-  }
-
-  if (normalizeKey(relativePath) === normalizeKey(projectName)) {
-    if (!isDefaultBranch(candidate.gitStatus?.branchName, defaultBranch)) {
-      return undefined;
-    }
-
-    return {
-      branchName: candidate.gitStatus?.branchName || defaultBranch,
-      kind: 'main',
-      path: candidate.rootPath,
-      project: candidate
-    };
-  }
-
-  const worktreePrefix = `.worktrees/${projectName}/`;
-
-  if (normalizeKey(relativePath).startsWith(normalizeKey(worktreePrefix))) {
-    const branchPath = relativePath.slice(worktreePrefix.length);
-
-    if (!branchPath) {
-      return undefined;
-    }
-
-    return {
-      branchName: candidate.gitStatus?.branchName || branchPath,
-      kind: 'worktree',
-      path: candidate.rootPath,
-      project: candidate
-    };
-  }
-
-  return undefined;
-}
-
-function parseWorktreeOutput(output: string, mainPath: string): MachineWorktreeInfo[] {
-  return output
-    .trim()
-    .split('\n\n')
-    .filter(Boolean)
-    .map((block) => {
-      const lines = block.split('\n').filter(Boolean);
-      const path = lines.find((line) => line.startsWith('worktree '))?.slice('worktree '.length).trim() ?? '';
-      const branchRef = lines.find((line) => line.startsWith('branch '))?.slice('branch '.length).trim();
-      const branchName = branchRef?.replace('refs/heads/', '');
-      const kind: MachineWorktreeInfo['kind'] =
-        normalizeRelativePath(path) === normalizeRelativePath(mainPath) ? 'main' : 'worktree';
-
-      return {
-        branchName,
-        kind,
-        path
-      };
-    })
-    .filter((entry) => entry.path)
-    .sort((left, right) => {
-      const leftLabel = left.branchName || basename(left.path);
-      const rightLabel = right.branchName || basename(right.path);
-
-      return leftLabel.localeCompare(rightLabel);
-    });
 }
 
 function canRunMachineCommand(machine?: MachineRecord) {
@@ -199,14 +94,6 @@ function cloneUrl(repository?: GitHubCatalogRepository) {
   }
 
   return repository.url.endsWith('.git') ? repository.url : `${repository.url}.git`;
-}
-
-function expectedPathForBranch(repositoryName: string, branchName: string, defaultBranch: string) {
-  if (isDefaultBranch(branchName, defaultBranch)) {
-    return `~/projects/${repositoryName}`;
-  }
-
-  return `~/projects/.worktrees/${repositoryName}/${branchName}`;
 }
 
 function cloneTargetExpressionForBranch(repositoryName: string, branchName: string, defaultBranch: string) {
@@ -235,47 +122,12 @@ function createCloneTargetProbeCommand(
   ].join('\n');
 }
 
-function parseCloneTargetProbeOutput(output: string): Record<string, CloneTargetInfo> {
-  return Object.fromEntries(
-    output
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const [branchName, exists, path] = line.split('\t');
-
-        return [
-          branchName,
-          {
-            exists: exists === '1',
-            path
-          }
-        ];
-      })
-  );
-}
-
 function compactHomePath(path: string | undefined) {
   if (!path) {
     return '';
   }
 
   return path.replace(/^\/Users\/[^/]+/, '~').replace(/^\/home\/[^/]+/, '~');
-}
-
-function branchOptions(
-  branchNames: string[],
-  defaultBranch: string,
-  repositoryName: string,
-  cloneTargets: Record<string, CloneTargetInfo> | undefined,
-  worktreeByBranch: Map<string, NonNullable<WorktreeBranchOption['worktree']>>
-): WorktreeBranchOption[] {
-  return branchNames.map((branchName) => ({
-    branchName,
-    expectedPath: expectedPathForBranch(repositoryName, branchName, defaultBranch),
-    target: cloneTargets?.[branchName],
-    worktree: worktreeByBranch.get(normalizeKey(branchName))
-  }));
 }
 
 function createWorktreeCommand(projectPath: string) {
@@ -420,7 +272,7 @@ export function ProjectMachinesPanel({
           return undefined;
         }
 
-        const machineId = getMachineId(candidate, localMachineId);
+        const machineId = resolvedProjectMachineId(candidate, localMachineId);
 
         return {
           checkout,

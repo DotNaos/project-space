@@ -5,6 +5,7 @@ import type {
   MachineRecord,
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
+import { projectMachineId, resolvedProjectMachineId } from '../../../shared/project-machine-identity';
 
 export function getProjectTimestamp(project: ProjectSpaceRecord) {
   const value = project.github?.updatedAt ?? project.github?.pushedAt;
@@ -51,12 +52,11 @@ export function machineSubtitle(machine: MachineRecord) {
 }
 
 export function getMachineId(project: ProjectSpaceRecord) {
-  return project.id.includes(':') ? project.id.slice(0, project.id.indexOf(':')) : 'local';
+  return projectMachineId(project);
 }
 
 export function getProjectMachineId(project: ProjectSpaceRecord, localMachineId: string) {
-  const machineId = getMachineId(project);
-  return machineId === 'local' ? localMachineId : machineId;
+  return resolvedProjectMachineId(project, localMachineId);
 }
 
 export function formatOptionalTime(value?: string) {
