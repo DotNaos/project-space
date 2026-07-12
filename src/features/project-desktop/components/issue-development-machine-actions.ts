@@ -3,6 +3,7 @@ import type {
   MachineRecord,
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
+import { resolvedProjectMachineId } from '../../../shared/project-machine-identity';
 
 function basename(path: string) {
   return path.split('/').filter(Boolean).pop() ?? path;
@@ -18,15 +19,6 @@ function shellQuote(value: string) {
 
 function escapeDoubleQuotedShell(value: string) {
   return value.replace(/["\\$`]/g, (character) => `\\${character}`);
-}
-
-function getMachineId(project: ProjectSpaceRecord, localMachineId: string) {
-  if (project.id.includes(':')) {
-    const candidate = project.id.slice(0, project.id.indexOf(':'));
-    return candidate === 'local' ? localMachineId : candidate;
-  }
-
-  return localMachineId;
 }
 
 function matchesSelectedProject(
@@ -118,7 +110,7 @@ export function getIssueMachineRows({
     .filter((candidate) => candidate.kind !== 'github' && candidate.rootPath)
     .filter((candidate) => matchesSelectedProject(candidate, project, repoFullName))
     .map((candidate) => ({
-      machineId: getMachineId(candidate, localMachineId),
+      machineId: resolvedProjectMachineId(candidate, localMachineId),
       project: candidate
     }));
   const matchesByMachineId = new Map(matches.map((match) => [match.machineId, match.project]));

@@ -12,6 +12,7 @@ import type {
   ProjectSpaceRecord,
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
+import { projectMachineId as authoritativeProjectMachineId } from '../../../shared/project-machine-identity';
 import { TemplateSelectMenu } from './template-select-menu';
 
 interface ProjectTemplateSetupPanelProps {
@@ -39,9 +40,8 @@ function commandOutput(result?: ProjectCliCommandResult) {
 }
 
 function projectMachineId(project: ProjectSpaceRecord) {
-  const [machineId] = project.id.split(':');
-
-  return project.id.includes(':') ? machineId : '';
+  const machineId = authoritativeProjectMachineId(project);
+  return machineId === 'local' ? '' : machineId;
 }
 
 function machineStatusLabel(machine: MachineRecord) {

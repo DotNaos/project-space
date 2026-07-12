@@ -6,6 +6,7 @@ import type {
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
 import { matchesFuzzyQuery } from '@/lib/fuzzy-search';
+import { projectMachineId, resolvedProjectMachineId } from '../../../shared/project-machine-identity';
 
 export interface LocalMatch {
   machineId: string;
@@ -33,12 +34,11 @@ export const templateStatusLabels: Record<FullstackTemplateStatus, string> = {
 };
 
 export function getMachineId(project: ProjectSpaceRecord) {
-  return project.id.includes(':') ? project.id.slice(0, project.id.indexOf(':')) : 'local';
+  return projectMachineId(project);
 }
 
 export function getProjectMachineId(project: ProjectSpaceRecord, localMachineId: string) {
-  const machineId = getMachineId(project);
-  return machineId === 'local' ? localMachineId : machineId;
+  return resolvedProjectMachineId(project, localMachineId);
 }
 
 export function getTemplateStatus(project: ProjectSpaceRecord): FullstackTemplateStatus {
