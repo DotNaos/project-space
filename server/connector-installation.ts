@@ -235,13 +235,15 @@ if [ "$actual_sha256" != "$bundle_sha256" ]; then
 fi
 
 tar -xzf "$archive" -C "$tmp_dir"
-if [ ! -f "$tmp_dir/project-space-connector" ] || [ ! -f "$tmp_dir/project" ] || [ ! -f "$tmp_dir/project-approval-signer" ]; then
-  echo "Connector bundle must contain project-space-connector, project, and project-approval-signer."
+if [ ! -f "$tmp_dir/project-space-connector" ] || [ ! -f "$tmp_dir/project" ]; then
+  echo "Connector bundle must contain project-space-connector and project."
   exit 1
 fi
 install -m 0755 "$tmp_dir/project-space-connector" "$install_dir/project-space-connector"
 install -m 0755 "$tmp_dir/project" "$install_dir/project"
-install -m 0755 "$tmp_dir/project-approval-signer" "$install_dir/project-approval-signer"
+if [ -f "$tmp_dir/project-approval-signer" ]; then
+  install -m 0755 "$tmp_dir/project-approval-signer" "$install_dir/project-approval-signer"
+fi
 
 machine_id="$assigned_machine_id"
 

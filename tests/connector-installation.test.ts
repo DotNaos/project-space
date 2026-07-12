@@ -97,6 +97,7 @@ describe('connector installation origin', () => {
     expect(script).toContain('"$tmp_dir/project-space-connector" "$install_dir/project-space-connector"');
     expect(script).toContain('"$tmp_dir/project" "$install_dir/project"');
     expect(script).toContain('"$tmp_dir/project-approval-signer" "$install_dir/project-approval-signer"');
+    expect(script).toContain('if [ -f "$tmp_dir/project-approval-signer" ]; then');
     expect(script).toContain('<key>PROJECT_CLI_PATH</key>');
     expect(script).toContain('$install_dir:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin');
     expect(script).toContain('machine_id="$assigned_machine_id"');

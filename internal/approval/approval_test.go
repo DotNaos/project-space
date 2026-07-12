@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -45,6 +46,7 @@ func TestApprovalThreatCases(t *testing.T) {
 	signer := newTestSigner(t)
 	write(t, filepath.Join(root, "src", "button.ts"), "export const button = true\n")
 	write(t, filepath.Join(root, "src", "ignored.snap"), "generated\n")
+	write(t, filepath.Join(root, "src", "generated", "nested.snap"), "generated\n")
 	policyPath := writePolicy(t, root, "github.com/DotNaos/ui", "source-review", "button", "src", ".project/approvals/button.json")
 	_, _, digest, err := LoadPolicy(root, policyPath)
 	if err != nil {
@@ -54,6 +56,8 @@ func TestApprovalThreatCases(t *testing.T) {
 	if _, err := Sign(root, policyPath, trustPath, "button", signer); err != nil {
 		t.Fatal(err)
 	}
+	assertState(t, root, policyPath, trustPath, true, "approved")
+	write(t, filepath.Join(root, "src", "generated", "nested.snap"), "changed generated output\n")
 	assertState(t, root, policyPath, trustPath, true, "approved")
 
 	t.Run("tampered content is stale", func(t *testing.T) {
@@ -94,6 +98,29 @@ func TestApprovalThreatCases(t *testing.T) {
 		os.WriteFile(path, changed, 0o644)
 		assertState(t, root, policyPath, trustPath, false, "invalid")
 		Sign(root, policyPath, trustPath, "button", signer)
+	})
+	t.Run("trailing attestation value fails", func(t *testing.T) {
+		path := filepath.Join(root, ".project/approvals/button.json")
+		body, _ := os.ReadFile(path)
+		os.WriteFile(path, append(body, []byte("{}")...), 0o644)
+		assertState(t, root, policyPath, trustPath, false, "invalid")
+		os.WriteFile(path, body, 0o644)
+	})
+	t.Run("attestation symlink fails", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("symlink creation requires elevated Windows privileges")
+		}
+		path := filepath.Join(root, ".project/approvals/button.json")
+		body, _ := os.ReadFile(path)
+		external := filepath.Join(t.TempDir(), "button.json")
+		os.WriteFile(external, body, 0o644)
+		os.Remove(path)
+		if err := os.Symlink(external, path); err != nil {
+			t.Fatal(err)
+		}
+		assertState(t, root, policyPath, trustPath, false, "invalid")
+		os.Remove(path)
+		os.WriteFile(path, body, 0o644)
 	})
 	t.Run("policy change rejected by external root", func(t *testing.T) {
 		body, _ := os.ReadFile(filepath.Join(root, policyPath))
@@ -139,16 +166,24 @@ func TestPolicyRejectsTraversalAndUnknownFields(t *testing.T) {
 	}
 }
 
-func TestFormatsRejectTrailingDocuments(t *testing.T) {
+func TestPolicyRejectsSymlinksAndSelfReplacingAttestations(t *testing.T) {
 	root := t.TempDir()
-	write(t, filepath.Join(root, "policy.yaml"), "version: 1\nrepository: x\npolicyId: p\nscopes:\n- id: x\n  label: X\n  paths: [file]\n  attestation: x.json\n---\nversion: 1\n")
-	if _, _, _, err := LoadPolicy(root, "policy.yaml"); err == nil {
-		t.Fatal("trailing YAML document accepted")
+	policyPath := ".project/approvals/policy.yaml"
+	write(t, filepath.Join(root, policyPath), "version: 1\nrepository: x\npolicyId: p\nscopes:\n- id: x\n  label: X\n  paths: [file]\n  attestation: "+policyPath+"\n")
+	if _, _, _, err := LoadPolicy(root, policyPath); err == nil || !strings.Contains(err.Error(), "must not replace") {
+		t.Fatalf("self-replacing attestation error = %v", err)
 	}
-	trust := filepath.Join(t.TempDir(), "trust.json")
-	write(t, trust, `{"version":1,"repository":"x","policyId":"p","policyDigest":"d","signerId":"s","publicKeyPem":"k","keyFingerprint":"s"} {}`)
-	if _, err := LoadTrustRoot(trust); err == nil {
-		t.Fatal("trailing JSON object accepted")
+	if runtime.GOOS == "windows" {
+		return
+	}
+	external := filepath.Join(t.TempDir(), "policy.yaml")
+	write(t, external, "version: 1\nrepository: x\npolicyId: p\nscopes:\n- id: x\n  label: X\n  paths: [file]\n  attestation: x.json\n")
+	os.Remove(filepath.Join(root, policyPath))
+	if err := os.Symlink(external, filepath.Join(root, policyPath)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := LoadPolicy(root, policyPath); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("symlinked policy error = %v", err)
 	}
 }
 
@@ -161,6 +196,61 @@ func TestParsersRejectTrailingDocuments(t *testing.T) {
 	write(t, filepath.Join(root, "trust.json"), `{"version":1} {"version":1}`)
 	if _, err := LoadTrustRoot(filepath.Join(root, "trust.json")); err == nil {
 		t.Fatal("trailing trust-root value accepted")
+	}
+}
+
+func TestVerificationRejectsRepositoryOwnedTrustRoots(t *testing.T) {
+	root := t.TempDir()
+	trust := filepath.Join(root, ".project", "trust.json")
+	write(t, trust, `{}`)
+	if _, err := Verify(root, ".project/approvals/policy.yaml", trust); err == nil || !strings.Contains(err.Error(), "outside") {
+		t.Fatalf("repository-owned trust root error = %v", err)
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	externalLink := filepath.Join(t.TempDir(), "trust.json")
+	if err := os.Symlink(trust, externalLink); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Verify(root, ".project/approvals/policy.yaml", externalLink); err == nil || !strings.Contains(err.Error(), "outside") {
+		t.Fatalf("symlinked repository trust root error = %v", err)
+	}
+	if runtime.GOOS == "darwin" {
+		mixedCase := strings.ToUpper(root)
+		if _, err := os.Stat(mixedCase); err != nil {
+			t.Skip("test requires a case-insensitive macOS volume")
+		}
+		if _, err := Verify(root, ".project/approvals/policy.yaml", filepath.Join(mixedCase, ".project", "trust.json")); err == nil || !strings.Contains(err.Error(), "outside") {
+			t.Fatalf("mixed-case repository trust root error = %v", err)
+		}
+	}
+}
+
+func TestScopeHashExcludesEveryDeclaredAttestation(t *testing.T) {
+	root := t.TempDir()
+	trustPath := filepath.Join(t.TempDir(), "trusted.json")
+	policyPath := ".project/approvals/policy.yaml"
+	write(t, filepath.Join(root, "src", "button.ts"), "button\n")
+	write(t, filepath.Join(root, policyPath), "version: 1\nrepository: example/repo\npolicyId: review\nscopes:\n- id: all\n  label: All source\n  paths: [.]\n  attestation: .project/approvals/all.json\n- id: button\n  label: Button\n  paths: [src/button.ts]\n  attestation: .project/approvals/button.json\n")
+	policy, _, digest, err := LoadPolicy(root, policyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer := newTestSigner(t)
+	writeTrust(t, trustPath, policy.Repository, policy.PolicyID, digest, signer)
+	if _, err := Sign(root, policyPath, trustPath, "all", signer); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Sign(root, policyPath, trustPath, "button", signer); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Verify(root, policyPath, trustPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.OK {
+		t.Fatalf("signing one scope made another stale: %+v", report)
 	}
 }
 

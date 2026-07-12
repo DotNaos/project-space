@@ -18,7 +18,7 @@ scopes:
     attestation: .project/approvals/button.json
 ```
 
-Paths are repository-relative. Symlinks and paths escaping the repository are rejected. Files are hashed individually in sorted slash-normalized order. The signed canonical JSON payload binds the schema version, repository identity, policy identity and digest, stable scope identity, complete file list and hashes, content digest, signer fingerprint, and issue time. The signature is DER-encoded ECDSA P-256 over SHA-256 of that canonical JSON. Sidecars contain no unsigned approval boolean.
+Paths are repository-relative. Symlinks and paths escaping the repository are rejected. Files are streamed into individual hashes in sorted slash-normalized order. Every attestation sidecar declared by the policy is excluded from every scope hash, preventing one newly signed scope from making another stale. The signed canonical JSON payload binds the schema version, repository identity, policy identity and digest, stable scope identity, complete file list and hashes, content digest, signer fingerprint, and issue time. The signature is DER-encoded ECDSA P-256 over SHA-256 of that canonical JSON. Sidecars contain no unsigned approval boolean.
 
 Policy changes intentionally require a new external enrollment: the external trust root pins the canonical policy digest. This prevents an agent from deleting scopes or weakening ignores and then declaring success.
 
@@ -31,9 +31,11 @@ project approval sign --root /path/to/repo --trust-root "$HOME/.config/project/t
 project approval verify --root /path/to/repo --trust-root "$HOME/.config/project/trust/ui.json"
 ```
 
-Enrollment and signing use the macOS Secure Enclave through the bundled `project-approval-signer` component. The Project CLI accepts only the adjacent Apple-signed DotNaos helper; no environment or repository path can replace it. The private key is non-exportable. CryptoKit stores only its device-bound opaque representation under the user's Application Support directory, and every signing operation uses a fresh LocalAuthentication context. An agent can request the system prompt but cannot complete it without the device owner. Socially inducing the owner to approve the wrong operation is outside the cryptographic guarantee.
+Enrollment and signing use the macOS Secure Enclave through the bundled `project-approval-signer` component. A trusted Project CLI build accepts only its adjacent Apple-signed DotNaos helper and pins that helper's exact SHA-256 digest inside the CLI at build time. Replacing the helper therefore also requires replacing the externally pinned Project CLI. No environment or repository path can select another helper. The private key is non-exportable. CryptoKit stores only its device-bound opaque representation under the user's Application Support directory, and every signing operation uses a fresh LocalAuthentication context. An agent can request the system prompt but cannot complete it without the device owner. Socially inducing the owner to approve the wrong operation is outside the cryptographic guarantee.
 
 Verification is pure Go and portable. Signing fails honestly on non-macOS systems or when the trusted signed helper is absent. `project validate` also verifies approvals when the default policy exists; it fails closed unless `PROJECT_APPROVAL_TRUST_ROOT` points at an external trust root.
+
+The macOS machine-tools bundle includes the helper. During rollout, the connector installer remains compatible with bundles that do not yet contain the helper: those installations keep working, while approval enrollment/signing remains unavailable until a new signed bundle is published and pinned.
 
 ## External fail-closed enforcement
 
@@ -47,7 +49,7 @@ A repository script, workflow, public key, or CLI binary built from the checkout
   --format json
 ```
 
-The runner must make `/opt/project-trust/bin/project`, its expected code signature or artifact hash, `/etc/project-trust/ui.json`, and the invocation itself read-only to the repository agent. Removing repository validation scripts then cannot remove the external invocation. The external configuration pins repository ID, policy ID and digest, signer SPKI fingerprint, and the exact public key. Any missing policy, missing sidecar, replaced key, changed content, changed policy, malformed signature, or verifier error exits non-zero.
+The runner must make `/opt/project-trust/bin/project`, its expected code signature or artifact hash, `/etc/project-trust/ui.json`, and the invocation itself read-only to the repository agent. The CLI rejects a trust-root path that resolves inside the repository. Removing repository validation scripts then cannot remove the external invocation. The external configuration pins repository ID, policy ID and digest, signer SPKI fingerprint, and the exact public key. Any missing policy, missing sidecar, replaced key, changed content, changed policy, malformed signature, or verifier error exits non-zero.
 
 [`packaging/macos/trusted-approval-gate.sh`](../packaging/macos/trusted-approval-gate.sh) is the installable runner contract. An administrator copies it outside the checkout and pins both the preinstalled Project CLI hash and trust-root hash in runner-owned configuration. Running the copy in the repository is not trusted.
 
@@ -59,6 +61,6 @@ The UI repository can map Storybook component IDs to stable policy scope IDs. A 
 
 ## Rotation, revocation, and recovery
 
-Enrollment is an explicit authenticated ceremony that writes outside the repository. Rotation creates a new Secure Enclave key/trust root and requires every scope to be re-signed. Revocation removes the old fingerprint from the external runner configuration. There is no automatic key replacement or recovery from repository material. Loss of the device requires re-enrollment and fresh human review.
+Enrollment is an explicit authenticated ceremony that writes outside the repository. For a planned rotation, the operator first revokes or archives the old external trust root, removes the device-bound representation at `~/Library/Application Support/Project/Approval/secure-enclave-p256-v1.key`, then runs `project approval enroll` again and re-signs every scope. Revocation removes the old fingerprint from the external runner configuration. There is no automatic key replacement or recovery from repository material. Loss of the device requires re-enrollment and fresh human review.
 
 Identical content under the identical repository, policy, scope, and signer intentionally remains approved. Copying a sidecar to a different repository, policy, scope, content set, or signer fails.

@@ -69,6 +69,17 @@ func runHelper(arguments ...string) (string, error) {
 		return "", err
 	}
 	path := filepath.Join(filepath.Dir(executable), "project-approval-signer")
+	if expectedHelperSHA256 == "" {
+		return "", fmt.Errorf("Secure Enclave helper hash is not pinned in this Project CLI build")
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read Secure Enclave helper: %w", err)
+	}
+	digest := sha256.Sum256(body)
+	if hex.EncodeToString(digest[:]) != expectedHelperSHA256 {
+		return "", fmt.Errorf("Secure Enclave helper does not match this trusted Project CLI build")
+	}
 	requirement := `=anchor apple generic and certificate leaf[subject.OU] = "R72P4M9WMS" and identifier "com.dotnaos.project.approval-signer"`
 	if output, err := exec.Command("/usr/bin/codesign", "--verify", "--strict", "--test-requirement", requirement, path).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("Secure Enclave helper is not a trusted signed Project component: %s", strings.TrimSpace(string(output)))

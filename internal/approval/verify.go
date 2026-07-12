@@ -17,6 +17,9 @@ import (
 )
 
 func Verify(root, policyPath, trustPath string) (Report, error) {
+	if err := requireExternalTrustRoot(root, trustPath); err != nil {
+		return Report{}, err
+	}
 	policy, _, policyDigest, err := LoadPolicy(root, policyPath)
 	if err != nil {
 		return Report{}, err
@@ -47,6 +50,10 @@ func verifyScope(root string, policy Policy, digest string, trust TrustRoot, key
 	status := ScopeStatus{ID: scope.ID, Label: scope.Label, State: "invalid", Attestation: scope.Attestation}
 	path, err := confinedPath(root, scope.Attestation)
 	if err != nil {
+		status.Reason = err.Error()
+		return status
+	}
+	if err := rejectSymlinkComponents(root, path); err != nil {
 		status.Reason = err.Error()
 		return status
 	}
@@ -138,6 +145,9 @@ func parsePublicKey(root TrustRoot) (*ecdsa.PublicKey, error) {
 }
 
 func Sign(root, policyPath, trustPath, scopeID string, signer SignatureProvider) (string, error) {
+	if err := requireExternalTrustRoot(root, trustPath); err != nil {
+		return "", err
+	}
 	policy, _, digest, err := LoadPolicy(root, policyPath)
 	if err != nil {
 		return "", err
@@ -190,11 +200,31 @@ func Sign(root, policyPath, trustPath, scopeID string, signer SignatureProvider)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", err
 	}
-	temporary := path + ".tmp"
-	if err := os.WriteFile(temporary, body, 0o644); err != nil {
+	if err := rejectSymlinkComponents(root, path); err != nil {
 		return "", err
 	}
-	if err := os.Rename(temporary, path); err != nil {
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".approval-*.tmp")
+	if err != nil {
+		return "", err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return "", err
+	}
+	if _, err := temporary.Write(body); err != nil {
+		temporary.Close()
+		return "", err
+	}
+	if err := temporary.Sync(); err != nil {
+		temporary.Close()
+		return "", err
+	}
+	if err := temporary.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
 		return "", err
 	}
 	return path, nil

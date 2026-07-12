@@ -2,10 +2,8 @@ package approval
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 func EnrollTrustRoot(root, policyPath, trustPath string, signer SignatureProvider) (TrustRoot, error) {
@@ -17,9 +15,8 @@ func EnrollTrustRoot(root, policyPath, trustPath string, signer SignatureProvide
 	if err != nil {
 		return TrustRoot{}, err
 	}
-	rel, _ := filepath.Rel(rootAbs, trustAbs)
-	if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return TrustRoot{}, fmt.Errorf("trust root must be outside the mutable repository")
+	if err := requireExternalTrustRoot(rootAbs, trustAbs); err != nil {
+		return TrustRoot{}, err
 	}
 	policy, _, digest, err := LoadPolicy(rootAbs, policyPath)
 	if err != nil {
@@ -47,11 +44,28 @@ func EnrollTrustRoot(root, policyPath, trustPath string, signer SignatureProvide
 	if err := os.MkdirAll(filepath.Dir(trustAbs), 0o700); err != nil {
 		return TrustRoot{}, err
 	}
-	temporary := trustAbs + ".tmp"
-	if err := os.WriteFile(temporary, body, 0o600); err != nil {
+	temporary, err := os.CreateTemp(filepath.Dir(trustAbs), ".approval-trust-*.tmp")
+	if err != nil {
 		return TrustRoot{}, err
 	}
-	if err := os.Rename(temporary, trustAbs); err != nil {
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return TrustRoot{}, err
+	}
+	if _, err := temporary.Write(body); err != nil {
+		temporary.Close()
+		return TrustRoot{}, err
+	}
+	if err := temporary.Sync(); err != nil {
+		temporary.Close()
+		return TrustRoot{}, err
+	}
+	if err := temporary.Close(); err != nil {
+		return TrustRoot{}, err
+	}
+	if err := os.Rename(temporaryPath, trustAbs); err != nil {
 		return TrustRoot{}, err
 	}
 	return trusted, nil

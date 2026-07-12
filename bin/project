@@ -11,7 +11,11 @@ if [ "$(uname -s)" = "Darwin" ]; then
     codesign --force --sign "$identity" -i com.dotnaos.project.approval-signer --options runtime --timestamp=none "$PROJECT_SPACE_DIR/project-approval-signer" >/dev/null
   fi
 fi
-(cd "$PROJECT_SPACE_ROOT" && go build -o "$PROJECT_SPACE_BIN" ./cmd/project)
+signer_sha=""
+if [ -f "$PROJECT_SPACE_DIR/project-approval-signer" ]; then
+  signer_sha="$(shasum -a 256 "$PROJECT_SPACE_DIR/project-approval-signer" | awk '{print $1}')"
+fi
+(cd "$PROJECT_SPACE_ROOT" && go build -ldflags="-X github.com/DotNaos/project-space/internal/approvalsigner.expectedHelperSHA256=$signer_sha" -o "$PROJECT_SPACE_BIN" ./cmd/project)
 if [ -z "${PROJECT_SPACE_TEMPLATE_ROOT:-}" ] && [ -f "/Users/oli/projects/project-template/template/manifest.yaml" ]; then
   export PROJECT_SPACE_TEMPLATE_ROOT="/Users/oli/projects/project-template"
 fi

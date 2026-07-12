@@ -71,6 +71,9 @@ func validateAndQuarantine(cmd *cobra.Command, target string, options projectval
 	if err != nil {
 		return err
 	}
+	if err := verifyDeclaredApprovals(projectRoot); err != nil {
+		return err
+	}
 	report, err := projectvalidator.ValidateProject(projectRoot)
 	if err != nil {
 		return err
@@ -217,11 +220,15 @@ func validate(target string, options projectvalidator.OutputOptions) error {
 			return nil
 		}
 		if stat, err := os.Stat(resolved); err == nil && !stat.IsDir() {
-			relative, err := filepath.Rel(mustGetwd(), resolved)
+			root := mustGetwd()
+			if err := verifyDeclaredApprovals(root); err != nil {
+				return err
+			}
+			relative, err := filepath.Rel(root, resolved)
 			if err != nil {
 				return err
 			}
-			report, err := projectvalidator.ValidateProjectFile(mustGetwd(), relative)
+			report, err := projectvalidator.ValidateProjectFile(root, relative)
 			if err != nil {
 				return err
 			}

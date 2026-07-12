@@ -5,15 +5,17 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 )
 
 func BuildPayload(root string, policy Policy, policyDigest string, scope Scope, signerID string) (Payload, error) {
-	files, err := hashScope(root, scope)
+	files, err := hashScope(root, policy, scope)
 	if err != nil {
 		return Payload{}, err
 	}
@@ -27,8 +29,12 @@ func BuildPayload(root string, policy Policy, policyDigest string, scope Scope, 
 
 func CanonicalPayload(payload Payload) ([]byte, error) { return json.Marshal(payload) }
 
-func hashScope(root string, scope Scope) ([]FileHash, error) {
+func hashScope(root string, policy Policy, scope Scope) ([]FileHash, error) {
 	byPath := map[string]FileHash{}
+	attestations := make(map[string]bool, len(policy.Scopes))
+	for _, declaredScope := range policy.Scopes {
+		attestations[filepath.ToSlash(declaredScope.Attestation)] = true
+	}
 	for _, declared := range scope.Paths {
 		path, err := confinedPath(root, declared)
 		if err != nil {
@@ -42,7 +48,7 @@ func hashScope(root string, scope Scope) ([]FileHash, error) {
 			return nil, fmt.Errorf("scope %s path %s is a symlink", scope.ID, declared)
 		}
 		if !info.IsDir() {
-			if err := addFileHash(root, path, scope.Attestation, scope.Ignore, byPath); err != nil {
+			if err := addFileHash(root, path, attestations, scope.Ignore, byPath); err != nil {
 				return nil, err
 			}
 			continue
@@ -57,7 +63,7 @@ func hashScope(root string, scope Scope) ([]FileHash, error) {
 			if entry.IsDir() {
 				return nil
 			}
-			return addFileHash(root, current, scope.Attestation, scope.Ignore, byPath)
+			return addFileHash(root, current, attestations, scope.Ignore, byPath)
 		})
 		if err != nil {
 			return nil, err
@@ -74,13 +80,13 @@ func hashScope(root string, scope Scope) ([]FileHash, error) {
 	return files, nil
 }
 
-func addFileHash(root, path, attestation string, ignore []string, result map[string]FileHash) error {
-	rel, err := filepath.Rel(root, path)
+func addFileHash(root, filePath string, attestations map[string]bool, ignore []string, result map[string]FileHash) error {
+	rel, err := filepath.Rel(root, filePath)
 	if err != nil {
 		return err
 	}
 	rel = filepath.ToSlash(rel)
-	if rel == filepath.ToSlash(attestation) {
+	if attestations[rel] {
 		return nil
 	}
 	for _, pattern := range ignore {
@@ -88,20 +94,46 @@ func addFileHash(root, path, attestation string, ignore []string, result map[str
 			return nil
 		}
 	}
-	body, err := os.ReadFile(path)
+	file, err := os.Open(filePath)
 	if err != nil {
 		return err
 	}
-	sum := sha256.Sum256(body)
-	result[rel] = FileHash{Path: rel, SHA256: hex.EncodeToString(sum[:])}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return err
+	}
+	result[rel] = FileHash{Path: rel, SHA256: hex.EncodeToString(hash.Sum(nil))}
 	return nil
 }
 
 func pathMatch(pattern, name string) bool {
 	pattern = filepath.ToSlash(strings.TrimPrefix(pattern, "./"))
-	if strings.HasSuffix(pattern, "/**") {
-		return name == strings.TrimSuffix(pattern, "/**") || strings.HasPrefix(name, strings.TrimSuffix(pattern, "**"))
+	return matchGlobParts(strings.Split(pattern, "/"), strings.Split(name, "/"))
+}
+
+func matchGlobParts(pattern, name []string) bool {
+	if len(pattern) == 0 {
+		return len(name) == 0
 	}
-	matched, _ := filepath.Match(pattern, name)
-	return matched
+	if pattern[0] == "**" {
+		return matchGlobParts(pattern[1:], name) || (len(name) > 0 && matchGlobParts(pattern, name[1:]))
+	}
+	if len(name) == 0 {
+		return false
+	}
+	matched, err := path.Match(pattern[0], name[0])
+	return err == nil && matched && matchGlobParts(pattern[1:], name[1:])
+}
+
+func validateGlobPattern(pattern string) error {
+	for _, part := range strings.Split(filepath.ToSlash(strings.TrimPrefix(pattern, "./")), "/") {
+		if part == "**" {
+			continue
+		}
+		if _, err := path.Match(part, "candidate"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
