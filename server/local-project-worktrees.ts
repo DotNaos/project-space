@@ -1,146 +1,80 @@
 import { execFile } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { readdir } from 'node:fs/promises';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { existsSync, lstatSync, readFileSync } from 'node:fs';
+import { readFile, readdir } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 
 import type { ProjectWorktreeRecord } from '../src/shared/project-space-api';
 
 const execFileAsync = promisify(execFile);
 
+type WorktreeParserOptions = {
+  basePath: string;
+  gitCommonDir: string;
+  pathHealth?: (path: string, isBase: boolean) => WorktreePathHealth;
+  registrationKeys: ReadonlyMap<string, string>;
+};
+
+type WorktreePathHealth = 'present' | 'missing' | 'broken' | 'unavailable';
+
+type ParsedWorktreeBlock = {
+  branchName?: string;
+  detached: boolean;
+  headSha?: string;
+  lockedReason?: string;
+  path?: string;
+  prunableReason?: string;
+  validBranch: boolean;
+};
+
 async function runCommand(command: string, args: string[]) {
   const { stdout } = await execFileAsync(command, args, {
+    maxBuffer: 16 * 1024 * 1024,
     windowsHide: true
   });
 
   return stdout;
 }
 
-async function listDirectoryEntries(path: string) {
+function opaqueWorktreeId(gitCommonDir: string, registrationKey: string) {
+  const digest = createHash('sha256')
+    .update(resolve(gitCommonDir))
+    .update('\0')
+    .update(registrationKey)
+    .digest('hex')
+    .slice(0, 24);
+
+  return `wt_${digest}`;
+}
+
+async function loadRegistrationKeys(gitCommonDir: string, basePath: string) {
+  const registrationKeys = new Map<string, string>([[resolve(basePath), 'main']]);
+  const worktreesDirectory = resolve(gitCommonDir, 'worktrees');
+
   try {
-    return await readdir(path, {
-      withFileTypes: true
-    });
-  } catch {
-    return [];
-  }
-}
-
-function createBaseWorktree(projectPath: string): ProjectWorktreeRecord {
-  const resolvedPath = resolve(projectPath);
-
-  return {
-    id: resolvedPath,
-    name: basename(resolvedPath),
-    path: resolvedPath,
-    isBase: true,
-    status: 'ready'
-  };
-}
-
-function parseWorktreeList(output: string, basePath: string): ProjectWorktreeRecord[] {
-  const normalizedBasePath = resolve(basePath);
-
-  return output
-    .trim()
-    .split('\n\n')
-    .reduce<ProjectWorktreeRecord[]>((entries, block) => {
-      const lines = block.split('\n').filter(Boolean);
-      const worktreeLine = lines.find((line) => line.startsWith('worktree '));
-
-      if (!worktreeLine) {
-        return entries;
-      }
-
-      const worktreePath = resolve(worktreeLine.slice('worktree '.length));
-      const branchLine = lines.find((line) => line.startsWith('branch '));
-      const branchRef = branchLine?.slice('branch '.length).trim();
-
-      entries.push({
-        branchName: branchRef?.replace('refs/heads/', ''),
-        id: worktreePath,
-        isBase: worktreePath === normalizedBasePath,
-        name: basename(worktreePath),
-        path: worktreePath,
-        status: 'ready'
-      });
-
-      return entries;
-    }, [])
-    .sort((left, right) => {
-      if (left.isBase !== right.isBase) {
-        return left.isBase ? -1 : 1;
-      }
-
-      return left.name.localeCompare(right.name);
-    });
-}
-
-async function scanProjectContainerWorktrees(projectPath: string): Promise<ProjectWorktreeRecord[]> {
-  const entries = await listDirectoryEntries(projectPath);
-
-  return entries
-    .filter((entry) => entry.isDirectory())
-    .reduce<ProjectWorktreeRecord[]>((worktrees, entry) => {
-      const worktreePath = resolve(projectPath, entry.name);
-      const gitPath = join(worktreePath, '.git');
-
-      if (!existsSync(gitPath)) {
-        return worktrees;
-      }
-
-      let status: ProjectWorktreeRecord['status'] = 'ready';
-
-      try {
-        const gitPointer = readFileSync(gitPath, 'utf-8').trim();
-
-        if (gitPointer.startsWith('gitdir:')) {
-          const gitDirPath = gitPointer.slice('gitdir:'.length).trim();
-          const resolvedGitDir = gitDirPath.startsWith('/')
-            ? gitDirPath
-            : resolve(worktreePath, gitDirPath);
-
-          if (!existsSync(resolvedGitDir)) {
-            status = 'broken';
+    const entries = await readdir(worktreesDirectory, { withFileTypes: true });
+    await Promise.all(
+      entries
+        .filter((entry) => entry.isDirectory())
+        .map(async (entry) => {
+          const registrationDirectory = resolve(worktreesDirectory, entry.name);
+          try {
+            const gitdirPointer = (await readFile(resolve(registrationDirectory, 'gitdir'), 'utf8')).trim();
+            const gitdirPath = gitdirPointer.startsWith(sep)
+              ? gitdirPointer
+              : resolve(registrationDirectory, gitdirPointer);
+            registrationKeys.set(resolve(dirname(gitdirPath)), entry.name);
+          } catch {
+            // Git porcelain still reports the registration; the opaque fallback remains resolvable.
           }
-        }
-      } catch {
-        status = 'ready';
-      }
-
-      worktrees.push({
-        id: worktreePath,
-        isBase: entry.name === 'base',
-        name: entry.name,
-        path: worktreePath,
-        status
-      });
-
-      return worktrees;
-    }, [])
-    .sort((left, right) => {
-      if (left.isBase !== right.isBase) {
-        return left.isBase ? -1 : 1;
-      }
-
-      if (left.status !== right.status) {
-        return left.status === 'ready' ? -1 : 1;
-      }
-
-      return left.name.localeCompare(right.name);
-    });
-}
-
-async function readWorktreeBranchName(worktreePath: string) {
-  try {
-    const branch = (
-      await runCommand('git', ['-C', worktreePath, 'branch', '--show-current'])
-    ).trim();
-
-    return branch || undefined;
+        })
+    );
   } catch {
-    return undefined;
+    // A repository with only its main worktree has no linked-worktree registry directory.
   }
+
+  return registrationKeys;
 }
 
 function canonicalProjectsRootFor(projectPath: string, projectName: string) {
@@ -153,93 +87,220 @@ function canonicalProjectsRootFor(projectPath: string, projectName: string) {
   return parentPath;
 }
 
-function canonicalProjectPaths(projectPath: string, projectName: string) {
-  const projectsRoot = canonicalProjectsRootFor(projectPath, projectName);
-
-  return {
-    mainPath: resolve(projectsRoot, projectName),
-    projectsRoot,
-    worktreesRoot: resolve(projectsRoot, '.worktrees', projectName)
-  };
+function canonicalWorktreesRoot(basePath: string, projectName: string) {
+  return resolve(canonicalProjectsRootFor(basePath, projectName), '.worktrees', projectName);
 }
 
 function isPathInside(parentPath: string, childPath: string) {
   const relativePath = relative(resolve(parentPath), resolve(childPath));
 
-  return Boolean(relativePath) && !relativePath.startsWith('..') && !relativePath.startsWith('/');
-}
-
-async function scanCanonicalWorktrees(
-  projectPath: string,
-  projectName: string
-): Promise<ProjectWorktreeRecord[]> {
-  const { worktreesRoot } = canonicalProjectPaths(projectPath, projectName);
-  const entries = await listDirectoryEntries(worktreesRoot);
-
-  const worktrees: Array<ProjectWorktreeRecord | undefined> = await Promise.all(
-    entries
-      .filter((entry) => entry.isDirectory())
-      .map(async (entry) => {
-        const worktreePath = resolve(worktreesRoot, entry.name);
-        const gitPath = join(worktreePath, '.git');
-
-        if (!existsSync(gitPath)) {
-          return undefined;
-        }
-
-        let status: ProjectWorktreeRecord['status'] = 'ready';
-
-        try {
-          const gitPointer = readFileSync(gitPath, 'utf-8').trim();
-
-          if (gitPointer.startsWith('gitdir:')) {
-            const gitDirPath = gitPointer.slice('gitdir:'.length).trim();
-            const resolvedGitDir = gitDirPath.startsWith('/')
-              ? gitDirPath
-              : resolve(worktreePath, gitDirPath);
-
-            if (!existsSync(resolvedGitDir)) {
-              status = 'broken';
-            }
-          }
-        } catch {
-          status = 'ready';
-        }
-
-        return {
-          branchName: await readWorktreeBranchName(worktreePath),
-          id: worktreePath,
-          isBase: false,
-          name: entry.name,
-          path: worktreePath,
-          status
-        } satisfies ProjectWorktreeRecord;
-      })
+  return (
+    Boolean(relativePath) &&
+    relativePath !== '..' &&
+    !relativePath.startsWith(`..${sep}`) &&
+    !isAbsolute(relativePath)
   );
-
-  return worktrees
-    .filter((entry): entry is ProjectWorktreeRecord => entry !== undefined)
-    .sort((left, right) => left.name.localeCompare(right.name));
 }
 
-function mergeWorktreeRecords(worktrees: ProjectWorktreeRecord[]) {
-  const recordsByPath = new Map<string, ProjectWorktreeRecord>();
+function isCodexStylePath(worktreePath: string, projectName: string, worktreesRoot: string) {
+  const resolvedPath = resolve(worktreePath);
+  const pathParts = resolvedPath.split(sep).filter(Boolean);
+  const codexDirectoryIndex = pathParts.lastIndexOf('.codex');
 
-  for (const worktree of worktrees) {
-    recordsByPath.set(resolve(worktree.path), worktree);
+  if (pathParts.includes('.codex-worktrees')) {
+    return true;
+  }
+  if (codexDirectoryIndex >= 0 && pathParts[codexDirectoryIndex + 1] === 'worktrees') {
+    return true;
   }
 
-  return Array.from(recordsByPath.values()).sort((left, right) => {
-    if (left.isBase !== right.isBase) {
-      return left.isBase ? -1 : 1;
-    }
+  const tokenDirectory = dirname(resolvedPath);
+  return (
+    basename(resolvedPath) === projectName &&
+    basename(dirname(tokenDirectory)) === '.worktrees' &&
+    resolve(tokenDirectory) !== resolve(worktreesRoot)
+  );
+}
 
-    if (left.status !== right.status) {
-      return left.status === 'ready' ? -1 : 1;
-    }
+function classifyWorktree(
+  worktreePath: string,
+  basePath: string,
+  projectName: string,
+  isBase: boolean
+): ProjectWorktreeRecord['kind'] {
+  if (isBase || isPathInside(canonicalWorktreesRoot(basePath, projectName), worktreePath)) {
+    return 'project-managed';
+  }
+  if (
+    isCodexStylePath(
+      worktreePath,
+      projectName,
+      canonicalWorktreesRoot(basePath, projectName)
+    )
+  ) {
+    return 'codex';
+  }
+  return 'external';
+}
 
-    return (left.branchName || left.name).localeCompare(right.branchName || right.name);
-  });
+function worktreeStatus(
+  block: ParsedWorktreeBlock,
+  pathHealth: WorktreePathHealth,
+  identityAvailable: boolean
+): Pick<ProjectWorktreeRecord, 'status' | 'statusReason'> {
+  if (!identityAvailable) {
+    return { status: 'unavailable', statusReason: 'Git registration identity is unavailable.' };
+  }
+  if (pathHealth === 'unavailable') {
+    return { status: 'unavailable', statusReason: 'The registered worktree could not be inspected.' };
+  }
+  if (pathHealth === 'missing') {
+    return { status: 'missing', statusReason: 'The registered worktree path is missing.' };
+  }
+  if (pathHealth === 'broken') {
+    return { status: 'broken', statusReason: 'The registered worktree Git pointer is broken.' };
+  }
+  if (!block.headSha || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(block.headSha)) {
+    return { status: 'broken', statusReason: 'Git did not report a valid HEAD commit.' };
+  }
+  if (!block.validBranch || block.detached === Boolean(block.branchName)) {
+    return { status: 'broken', statusReason: 'Git reported contradictory branch state.' };
+  }
+  if (block.prunableReason !== undefined) {
+    return {
+      status: 'prunable',
+      statusReason: block.prunableReason || 'Git reports this registration as prunable.'
+    };
+  }
+  if (block.lockedReason !== undefined) {
+    return {
+      status: 'locked',
+      statusReason: block.lockedReason || 'Git has locked this worktree.'
+    };
+  }
+  return { status: 'ready' };
+}
+
+function registeredPathHealth(worktreePath: string, isBase: boolean): WorktreePathHealth {
+  try {
+    if (!existsSync(worktreePath)) return 'missing';
+    const gitPointerPath = resolve(worktreePath, '.git');
+    const gitPointerStat = lstatSync(gitPointerPath);
+
+    if (gitPointerStat.isDirectory()) return isBase ? 'present' : 'broken';
+    if (!gitPointerStat.isFile()) return 'broken';
+
+    const gitPointer = readFileSync(gitPointerPath, 'utf8').trim();
+    if (!gitPointer.startsWith('gitdir:')) return 'broken';
+    const gitDirectory = gitPointer.slice('gitdir:'.length).trim();
+    const resolvedGitDirectory = isAbsolute(gitDirectory)
+      ? gitDirectory
+      : resolve(worktreePath, gitDirectory);
+    return existsSync(resolvedGitDirectory) ? 'present' : 'broken';
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'broken' : 'unavailable';
+  }
+}
+
+function detachedLabel(
+  kind: ProjectWorktreeRecord['kind'],
+  worktreePath: string,
+  headSha?: string
+) {
+  const shortHead = headSha?.slice(0, 7) || 'unknown';
+
+  if (kind === 'codex') {
+    return `Codex · ${basename(dirname(worktreePath))} · ${shortHead}`;
+  }
+  if (kind === 'external') {
+    return `External · ${basename(dirname(worktreePath))}/${basename(worktreePath)} · ${shortHead}`;
+  }
+  return `Detached · ${basename(worktreePath)} · ${shortHead}`;
+}
+
+function parseBlock(fields: string[]): ParsedWorktreeBlock {
+  const block: ParsedWorktreeBlock = { detached: false, validBranch: true };
+
+  for (const field of fields) {
+    const separatorIndex = field.indexOf(' ');
+    const key = separatorIndex < 0 ? field : field.slice(0, separatorIndex);
+    const value = separatorIndex < 0 ? '' : field.slice(separatorIndex + 1);
+
+    if (key === 'worktree') block.path = value;
+    if (key === 'HEAD') block.headSha = value || undefined;
+    if (key === 'branch') {
+      block.validBranch = value.startsWith('refs/heads/');
+      block.branchName = block.validBranch ? value.slice('refs/heads/'.length) || undefined : undefined;
+    }
+    if (key === 'detached') block.detached = true;
+    if (key === 'locked') block.lockedReason = value;
+    if (key === 'prunable') block.prunableReason = value;
+  }
+
+  return block;
+}
+
+function splitPorcelainBlocks(output: string) {
+  const fields = output.includes('\0') ? output.split('\0') : output.split('\n');
+  const blocks: string[][] = [];
+  let current: string[] = [];
+
+  for (const field of fields) {
+    if (field) {
+      current.push(field);
+      continue;
+    }
+    if (current.length > 0) {
+      blocks.push(current);
+      current = [];
+    }
+  }
+  if (current.length > 0) blocks.push(current);
+  return blocks;
+}
+
+export function parseGitWorktreePorcelain(
+  output: string,
+  options: WorktreeParserOptions
+): ProjectWorktreeRecord[] {
+  const basePath = resolve(options.basePath);
+  const pathHealth = options.pathHealth ?? registeredPathHealth;
+  const parsedBlocks = splitPorcelainBlocks(output).map(parseBlock);
+  const projectName = basename(basePath);
+
+  return parsedBlocks
+    .reduce<ProjectWorktreeRecord[]>((records, block, index) => {
+      if (!block.path) return records;
+
+      const worktreePath = resolve(block.path);
+      const isBase = worktreePath === basePath;
+      const kind = classifyWorktree(worktreePath, basePath, projectName, isBase);
+      const registrationKey = options.registrationKeys.get(worktreePath);
+      const detached = block.detached;
+
+      records.push({
+        branchName: block.branchName,
+        detached,
+        headSha: block.headSha,
+        id: opaqueWorktreeId(options.gitCommonDir, registrationKey || `unavailable:${index}`),
+        isBase,
+        kind,
+        locked: block.lockedReason !== undefined,
+        lockedReason: block.lockedReason || undefined,
+        name:
+          block.branchName || detachedLabel(kind, worktreePath, block.headSha),
+        path: worktreePath,
+        prunable: block.prunableReason !== undefined,
+        prunableReason: block.prunableReason || undefined,
+        ...worktreeStatus(block, pathHealth(worktreePath, isBase), Boolean(registrationKey))
+      });
+      return records;
+    }, [])
+    .sort((left, right) => {
+      if (left.isBase !== right.isBase) return left.isBase ? -1 : 1;
+      if (left.status !== right.status) return left.status === 'ready' ? -1 : 1;
+      return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
+    });
 }
 
 export async function loadLocalProjectWorktrees(
@@ -257,40 +318,48 @@ export async function loadLocalProjectWorktrees(
         '--git-common-dir'
       ])
     ).trim();
-    const basePath = dirname(gitCommonDir);
     const worktreeList = await runCommand('git', [
       '-C',
       resolvedProjectPath,
       'worktree',
       'list',
-      '--porcelain'
+      '--porcelain',
+      '-z',
+      '--expire=now'
     ]);
-    const parsedWorktrees = parseWorktreeList(worktreeList, basePath);
-    const projectName = basename(basePath);
-    const { mainPath, worktreesRoot } = canonicalProjectPaths(basePath, projectName);
-    const canonicalParsedWorktrees = parsedWorktrees.filter((worktree) => {
-      if (worktree.isBase) {
-        return resolve(worktree.path) === mainPath;
-      }
+    const basePath = dirname(gitCommonDir);
+    const registrationKeys = await loadRegistrationKeys(gitCommonDir, basePath);
 
-      return isPathInside(worktreesRoot, worktree.path);
+    return parseGitWorktreePorcelain(worktreeList, {
+      basePath,
+      gitCommonDir,
+      registrationKeys
     });
-    const canonicalWorktrees = await scanCanonicalWorktrees(basePath, projectName);
-
-    return mergeWorktreeRecords([
-      ...canonicalParsedWorktrees,
-      ...(canonicalParsedWorktrees.length === 0 && resolve(basePath) === mainPath
-        ? [createBaseWorktree(basePath)]
-        : []),
-      ...canonicalWorktrees
-    ]);
   } catch {
-    const scannedWorktrees = await scanProjectContainerWorktrees(resolvedProjectPath);
-    const canonicalWorktrees = await scanCanonicalWorktrees(
-      resolvedProjectPath,
-      basename(resolvedProjectPath)
-    );
-
-    return mergeWorktreeRecords([...scannedWorktrees, ...canonicalWorktrees]);
+    // Directory scans are not authoritative and must never produce actionable worktrees.
+    return [];
   }
+}
+
+export async function resolveLocalProjectWorktree(
+  projectPath: string,
+  worktreeId: string,
+  options: { expectedHeadSha?: string } = {}
+): Promise<ProjectWorktreeRecord> {
+  if (!/^wt_[a-f0-9]{24}$/.test(worktreeId)) {
+    throw new Error('The worktree ID is invalid.');
+  }
+  const worktrees = await loadLocalProjectWorktrees(projectPath);
+  const worktree = worktrees.find((entry) => entry.id === worktreeId);
+
+  if (!worktree) {
+    throw new Error('The worktree is no longer registered for this project.');
+  }
+  if (worktree.status !== 'ready') {
+    throw new Error(`The worktree is ${worktree.status} and cannot be used.`);
+  }
+  if (options.expectedHeadSha && worktree.headSha !== options.expectedHeadSha) {
+    throw new Error('The worktree HEAD changed before the action could start.');
+  }
+  return worktree;
 }

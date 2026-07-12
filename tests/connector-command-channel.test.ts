@@ -231,14 +231,35 @@ describe('connector command channel', () => {
         };
       },
       async loadProjectWorktrees() {
-        return [{
-          branchName: 'main',
-          id: '/tmp/project',
-          isBase: true,
-          name: 'project',
-          path: '/tmp/project',
-          status: 'ready' as const
-        }];
+        return [
+          {
+            branchName: 'main',
+            detached: false,
+            headSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            id: 'wt_111111111111111111111111',
+            isBase: true,
+            kind: 'project-managed' as const,
+            locked: false,
+            name: 'main',
+            path: '/tmp/project',
+            prunable: false,
+            status: 'ready' as const
+          },
+          {
+            detached: true,
+            headSha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            id: 'wt_222222222222222222222222',
+            isBase: false,
+            kind: 'codex' as const,
+            locked: true,
+            lockedReason: 'in use',
+            name: 'Codex · a281 · bbbbbbb',
+            path: '/tmp/.codex-worktrees/a281/project',
+            prunable: false,
+            status: 'locked' as const,
+            statusReason: 'in use'
+          }
+        ];
       },
       async getMachineFileSystemRoot() {
         return { defaultPath: '/tmp/projects', homePath: '/tmp', status: 'success' as const };
@@ -379,7 +400,18 @@ describe('connector command channel', () => {
         '/tmp/project',
         'test-machine'
       );
-      expect(routedWorktrees.map((worktree) => worktree.branchName)).toEqual(['main']);
+      expect(routedWorktrees).toHaveLength(2);
+      expect(routedWorktrees[0]).toMatchObject({
+        branchName: 'main',
+        detached: false,
+        id: 'wt_111111111111111111111111',
+        status: 'ready'
+      });
+      expect(routedWorktrees[1]).toMatchObject({
+        detached: true,
+        id: 'wt_222222222222222222222222',
+        status: 'locked'
+      });
 
       const routedDirectory = await hubBackend.readMachineDirectory({
         machineId: 'test-machine',
