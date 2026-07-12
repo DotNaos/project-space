@@ -50,6 +50,7 @@ export interface ProjectChatRepository {
   listNameClaims(spaceId: string): Promise<ProjectChatNameClaimRecord[]>;
   findNameClaimByThread(spaceId: string, accountId: string, threadId: string): Promise<ProjectChatNameClaimRecord | null>;
   claimName(claim: ProjectChatNameClaimRecord): Promise<ProjectChatNameClaimRecord>;
+  restoreNameClaim(current: ProjectChatNameClaimRecord, previous: ProjectChatNameClaimRecord | null): Promise<void>;
   ensureHumanProfileAndMember(
     profile: ProjectChatHumanProfileRecord,
     member: ProjectChatMemberRecord,

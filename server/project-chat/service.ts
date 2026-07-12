@@ -135,16 +135,24 @@ export class ProjectChatService {
       if (parentThreadId) throw new ProjectChatError('invalid_request','Main-agent names cannot have a parent.');
     } else {
       if (!parentThreadId) throw new ProjectChatError('invalid_request','Specialist names require a parent thread.');
+      if (parentThreadId === context.actor.threadId) throw new ProjectChatError('invalid_request','A specialist cannot be its own parent.');
       const parent = await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, parentThreadId);
       if (!parent || parent.category !== 'mythology') throw new ProjectChatError('forbidden','The parent must be a mythology main agent in this account.');
     }
     const now = this.clock.now().toISOString();
+    const previousClaim = await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, context.actor.threadId);
     let claim;
     try { claim = await this.repository.claimName({spaceId:context.spaceId,accountId:context.actor.accountId,threadId:context.actor.threadId,actorKey:projectChatActorKey(context.actor),nameKey:entry[0],displayName:entry[1],category:entry[2],...(parentThreadId?{parentThreadId}:{}),claimedAt:now,updatedAt:now}); }
     catch (error) { if (error instanceof ProjectChatNameClaimConflictError) throw new ProjectChatError('name_conflict',error.message); throw error; }
     const parent = claim.parentThreadId ? await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, claim.parentThreadId) : null;
     const displayName = parent ? `${parent.displayName}.${claim.displayName}` : claim.displayName;
-    const joined = await this.join(context, {displayName});
+    let joined;
+    try {
+      joined = await this.join(context, {displayName});
+    } catch (error) {
+      await this.repository.restoreNameClaim(claim, previousClaim);
+      throw error;
+    }
     return { claim:{name:claim.displayName,displayName,category:claim.category,threadId:claim.threadId,...(claim.parentThreadId?{parentThreadId:claim.parentThreadId}:{})}, member:joined.member };
   }
 

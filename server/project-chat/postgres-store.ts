@@ -18,7 +18,7 @@ import {
   findPostgresHumanProfile,
   updatePostgresHumanProfile
 } from './postgres-human-profile';
-import { claimPostgresName, findPostgresNameClaim, listPostgresNameClaims } from './postgres-name-registry';
+import { claimPostgresName, findPostgresNameClaim, listPostgresNameClaims, restorePostgresNameClaim } from './postgres-name-registry';
 
 interface ChannelRow {
   channel_id: string; created_at: Date | string; last_sequence: number | string;
@@ -171,6 +171,10 @@ export class PostgresProjectChatRepository implements ProjectChatRepository {
 
   async claimName(claim: ProjectChatNameClaimRecord) {
     return claimPostgresName(this.client, claim);
+  }
+
+  async restoreNameClaim(current: ProjectChatNameClaimRecord, previous: ProjectChatNameClaimRecord | null) {
+    return restorePostgresNameClaim(this.client, current, previous);
   }
 
   async ensureHumanProfile(

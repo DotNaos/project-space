@@ -94,6 +94,23 @@ export async function claimPostgresName(
   }
 }
 
+export async function restorePostgresNameClaim(
+  client: DatabaseQueryClient,
+  current: ProjectChatNameClaimRecord,
+  previous: ProjectChatNameClaimRecord | null
+) {
+  await runTransaction(client, async (transaction) => {
+    const deleted = await transaction.query(
+      `delete from project_chat_name_claims
+        where space_id = $1 and account_id = $2 and thread_id = $3
+          and name_key = $4 and updated_at = $5`,
+      [current.spaceId, current.accountId, current.threadId, current.nameKey, current.updatedAt]
+    );
+    if ((deleted.rowCount ?? 0) === 0 || !previous) return;
+    await insertNameClaim(transaction, previous);
+  });
+}
+
 async function updateNameClaim(
   client: DatabaseQueryClient,
   claim: ProjectChatNameClaimRecord

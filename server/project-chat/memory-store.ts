@@ -146,6 +146,16 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
     });
   }
 
+  async restoreNameClaim(current: ProjectChatNameClaimRecord, previous: ProjectChatNameClaimRecord | null) {
+    return this.exclusive(() => {
+      const key=compoundKey(current.spaceId,current.nameKey);
+      const stored=this.nameClaims.get(key);
+      if (!stored || stored.accountId!==current.accountId || stored.threadId!==current.threadId || stored.updatedAt!==current.updatedAt) return;
+      this.nameClaims.delete(key);
+      if (previous) this.nameClaims.set(compoundKey(previous.spaceId,previous.nameKey),copy(previous));
+    });
+  }
+
   async ensureHumanProfile(
     profile: ProjectChatHumanProfileRecord,
     options: { refreshDefaults?: boolean } = {}
