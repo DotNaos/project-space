@@ -22,6 +22,7 @@ import {
   getGitHubCatalog,
   getGitHubHistory,
   getGitHubPipelineStatus,
+  getGitHubWorkflowRunDetail,
   getGitHubRepositoryDetails,
   pollGitHubOAuthDeviceFlow,
   startGitHubOAuthDeviceFlow
@@ -237,8 +238,11 @@ export function createLocalProjectSpaceBackend(
     async createGitHubIssue(request) {
       return createGitHubIssue(request);
     },
-    async getGitHubPipelineStatus(fullName: string) {
-      return getGitHubPipelineStatus(fullName);
+    async getGitHubPipelineStatus(fullName: string, options) {
+      return getGitHubPipelineStatus(fullName, options);
+    },
+    async getGitHubWorkflowRunDetail(fullName: string, runId: number) {
+      return getGitHubWorkflowRunDetail(fullName, runId);
     },
     async getGitHubRepositoryDetails(fullName: string) {
       return getGitHubRepositoryDetails(fullName);

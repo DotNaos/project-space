@@ -74,7 +74,27 @@ export function createProjectSpaceIntegrationApiRoutes(backend: ProjectSpaceBack
         return true;
       }
 
-      writeJson(response, 200, await backend.getGitHubPipelineStatus(fullName));
+      response.setHeader('Cache-Control', 'private, no-store');
+      const page = Number(url.searchParams.get('page') ?? '1');
+      const perPage = Number(url.searchParams.get('perPage') ?? '20');
+      if (!Number.isSafeInteger(page) || page <= 0 || !Number.isSafeInteger(perPage) || perPage <= 0 || perPage > 50) {
+        writeJson(response, 400, { error: 'Invalid workflow pagination.' });
+        return true;
+      }
+      writeJson(response, 200, await backend.getGitHubPipelineStatus(fullName, { page, perPage }));
+      return true;
+    }
+
+    const workflowRunMatch = url.pathname.match(/^\/api\/github\/workflow-runs\/(\d+)$/);
+    if (request.method === 'GET' && workflowRunMatch?.[1]) {
+      const fullName = url.searchParams.get('fullName');
+      const runId = Number(workflowRunMatch[1]);
+      if (!fullName || !Number.isSafeInteger(runId) || runId <= 0) {
+        writeJson(response, 400, { error: 'Missing or invalid fullName or run ID.' });
+        return true;
+      }
+      response.setHeader('Cache-Control', 'private, no-store');
+      writeJson(response, 200, await backend.getGitHubWorkflowRunDetail(fullName, runId));
       return true;
     }
 

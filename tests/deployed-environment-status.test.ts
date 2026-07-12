@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { getDeployedEnvironmentStatus, sanitizeDeployedEnvironment } from '../server/deployed-environment-status';
 
 const sha = 'a'.repeat(40);
@@ -52,5 +55,39 @@ describe('deployed environment status', () => {
     expect(result.environments.map((entry) => entry.id)).toEqual(['prod']);
     expect(result.environments[0]?.liveUrl).toBeUndefined();
     expect(JSON.stringify(result)).not.toContain('private.example');
+  });
+
+  test('does not promote an unhealthy current environment when the verified SHA matches', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'project-space-environment-'));
+    const previous = {
+      build: process.env.PROJECT_SPACE_BUILD_COMMIT,
+      environment: process.env.PROJECT_DEPLOY_ENVIRONMENT,
+      root: process.env.PROJECT_DEPLOY_STATE_ROOT
+    };
+    try {
+      await mkdir(join(root, 'project-space-prod'), { recursive: true });
+      await writeFile(join(root, 'project-space-prod', 'verified.sha'), `${sha}\n`);
+      process.env.PROJECT_SPACE_BUILD_COMMIT = sha;
+      process.env.PROJECT_DEPLOY_ENVIRONMENT = 'prod';
+      process.env.PROJECT_DEPLOY_STATE_ROOT = root;
+      const result = await getDeployedEnvironmentStatus('DotNaos/project-space', {
+        cwd: '.',
+        run: async () => ({ durationMs: 1, exitCode: 0, stderr: '', stdout: JSON.stringify({
+          environments: [{
+            buildCommit: sha, environment: 'prod', remoteRef: 'DotNaos/project-space', status: 'unhealthy',
+            evidence: { remoteCheckoutCommit: sha, runningBuildCommit: sha }
+          }]
+        }) })
+      });
+      expect(result.environments[0]).toMatchObject({ deployedSha: sha, verification: 'unhealthy' });
+    } finally {
+      if (previous.build === undefined) delete process.env.PROJECT_SPACE_BUILD_COMMIT;
+      else process.env.PROJECT_SPACE_BUILD_COMMIT = previous.build;
+      if (previous.environment === undefined) delete process.env.PROJECT_DEPLOY_ENVIRONMENT;
+      else process.env.PROJECT_DEPLOY_ENVIRONMENT = previous.environment;
+      if (previous.root === undefined) delete process.env.PROJECT_DEPLOY_STATE_ROOT;
+      else process.env.PROJECT_DEPLOY_STATE_ROOT = previous.root;
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

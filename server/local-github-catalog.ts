@@ -16,6 +16,10 @@ import type {
   GitHubPipelineStatusResult,
   GitHubRepositoryDetailsResult,
   GitHubWorkflowRunConclusion,
+  GitHubWorkflowRunDetailResult,
+  GitHubWorkflowJob,
+  GitHubWorkflowRunKind,
+  GitHubWorkflowRunStatus,
   GitHubWorkflowRunSummary
 } from '../src/shared/project-space-api';
 import { loadRepositoryDevelopmentLinks } from './local-github-development-links';
@@ -98,6 +102,12 @@ export interface TokenResolution {
   login?: string;
   source: GitHubAuthSource;
   token: string;
+}
+
+class GitHubRequestError extends Error {
+  constructor(readonly statusCode: number, readonly rateLimited: boolean) {
+    super(`GitHub request failed with ${statusCode}.`);
+  }
 }
 
 const projectSpaceDirectory = join(homedir(), '.project-space');
@@ -191,7 +201,9 @@ export async function requestGitHub<T>(
       // Keep the status-only message when GitHub does not return JSON.
     }
 
-    throw new Error(message);
+    const rateLimited = response.status === 429 ||
+      (response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0');
+    throw new GitHubRequestError(response.status, rateLimited);
   }
 
   if (response.status === 204) {
@@ -688,6 +700,7 @@ export async function getGitHubRepositoryDetails(
 }
 
 interface GitHubApiWorkflowRun {
+  actor?: { login?: string | null } | null;
   conclusion?: string | null;
   created_at?: string | null;
   display_title?: string | null;
@@ -698,9 +711,61 @@ interface GitHubApiWorkflowRun {
   id: number;
   name?: string | null;
   run_number?: number | null;
+  run_attempt?: number | null;
   run_started_at?: string | null;
   status?: string | null;
   updated_at?: string | null;
+  workflow_id?: number | null;
+  path?: string | null;
+}
+
+interface GitHubApiWorkflowJob {
+  completed_at?: string | null;
+  conclusion?: string | null;
+  id: number;
+  name?: string | null;
+  started_at?: string | null;
+  status?: string | null;
+  steps?: Array<{
+    completed_at?: string | null;
+    conclusion?: string | null;
+    name?: string | null;
+    number?: number | null;
+    started_at?: string | null;
+    status?: string | null;
+  }>;
+}
+
+const workflowStatuses = new Set<GitHubWorkflowRunStatus>([
+  'queued', 'in_progress', 'completed', 'waiting', 'pending', 'requested'
+]);
+const workflowConclusions = new Set<GitHubWorkflowRunConclusion>([
+  'success', 'failure', 'cancelled', 'skipped', 'timed_out', 'action_required',
+  'neutral', 'stale'
+]);
+
+function normalizeWorkflowStatus(value: unknown): GitHubWorkflowRunStatus {
+  return typeof value === 'string' && workflowStatuses.has(value as GitHubWorkflowRunStatus)
+    ? value as GitHubWorkflowRunStatus : 'unknown';
+}
+
+function normalizeWorkflowConclusion(value: unknown): GitHubWorkflowRunConclusion | undefined {
+  return typeof value === 'string' && workflowConclusions.has(value as GitHubWorkflowRunConclusion)
+    ? value as GitHubWorkflowRunConclusion : undefined;
+}
+
+function workflowKind(path?: string | null, name?: string | null): GitHubWorkflowRunKind {
+  const value = `${path ?? ''} ${name ?? ''}`.toLowerCase();
+  if (value.includes('deploy')) return 'deployment';
+  if (value.includes('release')) return 'release';
+  if (value.includes('ci') || value.includes('test') || value.includes('check')) return 'ci';
+  return 'other';
+}
+
+function durationMs(startedAt?: string | null, completedAt?: string | null) {
+  if (!startedAt || !completedAt) return undefined;
+  const duration = Date.parse(completedAt) - Date.parse(startedAt);
+  return Number.isFinite(duration) && duration >= 0 ? duration : undefined;
 }
 
 function createEmptyPipelineStatus(
@@ -715,26 +780,57 @@ function createEmptyPipelineStatus(
   };
 }
 
-function mapWorkflowRun(run: GitHubApiWorkflowRun): GitHubWorkflowRunSummary {
+export function mapWorkflowRun(run: GitHubApiWorkflowRun): GitHubWorkflowRunSummary {
+  const headSha = typeof run.head_sha === 'string' && /^[0-9a-f]{40}$/i.test(run.head_sha)
+    ? run.head_sha.toLowerCase()
+    : undefined;
   return {
+    actor: run.actor?.login ?? undefined,
+    attempt: run.run_attempt ?? undefined,
     branch: run.head_branch ?? undefined,
-    conclusion: (run.conclusion ?? undefined) as GitHubWorkflowRunConclusion | undefined,
+    conclusion: normalizeWorkflowConclusion(run.conclusion),
     createdAt: run.created_at ?? undefined,
     displayTitle: run.display_title ?? undefined,
     event: run.event ?? undefined,
-    headSha: run.head_sha ?? undefined,
+    headSha,
     id: run.id,
+    kind: workflowKind(run.path, run.name),
     name: run.name ?? undefined,
     runNumber: run.run_number ?? undefined,
     runStartedAt: run.run_started_at ?? undefined,
-    status: (run.status ?? 'completed') as GitHubWorkflowRunSummary['status'],
+    status: normalizeWorkflowStatus(run.status),
     updatedAt: run.updated_at ?? undefined,
-    url: run.html_url ?? undefined
+    url: run.html_url ?? undefined,
+    workflowId: run.workflow_id ?? undefined,
+    workflowPath: run.path ?? undefined
+  };
+}
+
+export function mapWorkflowJob(job: GitHubApiWorkflowJob, sequence: number): GitHubWorkflowJob {
+  return {
+    completedAt: job.completed_at ?? undefined,
+    conclusion: normalizeWorkflowConclusion(job.conclusion),
+    durationMs: durationMs(job.started_at, job.completed_at),
+    id: job.id,
+    name: job.name ?? `Job ${sequence}`,
+    sequence,
+    startedAt: job.started_at ?? undefined,
+    status: normalizeWorkflowStatus(job.status),
+    steps: (job.steps ?? []).map((step, index) => ({
+      completedAt: step.completed_at ?? undefined,
+      conclusion: normalizeWorkflowConclusion(step.conclusion),
+      durationMs: durationMs(step.started_at, step.completed_at),
+      name: step.name ?? `Step ${step.number ?? index + 1}`,
+      number: step.number ?? index + 1,
+      startedAt: step.started_at ?? undefined,
+      status: normalizeWorkflowStatus(step.status)
+    })).sort((left, right) => left.number - right.number)
   };
 }
 
 export async function getGitHubPipelineStatus(
-  fullName: string
+  fullName: string,
+  options: { page?: number; perPage?: number } = {}
 ): Promise<GitHubPipelineStatusResult> {
   const auth = await resolveToken();
 
@@ -747,23 +843,80 @@ export async function getGitHubPipelineStatus(
     );
   }
 
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fullName)) {
+    return createEmptyPipelineStatus('error', 'Invalid repository selector.');
+  }
+
   try {
+    const page = Number.isSafeInteger(options.page) && options.page! > 0 ? options.page! : 1;
+    const perPage = Number.isSafeInteger(options.perPage)
+      ? Math.min(50, Math.max(1, options.perPage!))
+      : 20;
     const repoPath = fullName.split('/').map(encodeURIComponent).join('/');
     const payload = await requestGitHub<{ workflow_runs?: GitHubApiWorkflowRun[] }>(
-      `/repos/${repoPath}/actions/runs?per_page=20`,
+      `/repos/${repoPath}/actions/runs?per_page=${perPage}&page=${page}`,
       auth.token
     );
 
     return {
       checkedAt: new Date().toISOString(),
+      pagination: { hasNext: (payload.workflow_runs ?? []).length === perPage, page, perPage },
       runs: (payload.workflow_runs ?? []).map(mapWorkflowRun),
       status: 'connected'
     };
   } catch (error) {
     return createEmptyPipelineStatus(
-      'error',
-      error instanceof Error ? error.message : 'Could not load GitHub workflow runs.'
+      error instanceof GitHubRequestError && error.rateLimited ? 'rate-limited' : 'error',
+      error instanceof GitHubRequestError && error.rateLimited
+        ? 'GitHub rate limited the workflow request. Try again later.'
+        : 'Could not load GitHub workflow runs.'
     );
+  }
+}
+
+export async function getGitHubWorkflowRunDetail(
+  fullName: string,
+  runId: number
+): Promise<GitHubWorkflowRunDetailResult> {
+  const auth = await resolveToken();
+  if (!auth) {
+    return {
+      checkedAt: new Date().toISOString(), jobs: [],
+      message: getGitHubClientId() ? 'Connect GitHub to load workflow run details.' : githubOAuthClientIdMissingMessage,
+      status: getGitHubClientId() ? 'auth-required' : 'not-configured'
+    };
+  }
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fullName) || !Number.isSafeInteger(runId) || runId <= 0) {
+    return { checkedAt: new Date().toISOString(), jobs: [], message: 'Invalid workflow run selector.', status: 'error' };
+  }
+  const repoPath = fullName.split('/').map(encodeURIComponent).join('/');
+  try {
+    const run = await requestGitHub<GitHubApiWorkflowRun>(`/repos/${repoPath}/actions/runs/${runId}`, auth.token);
+    try {
+      const jobs = await requestGitHub<{ jobs?: GitHubApiWorkflowJob[] }>(
+        `/repos/${repoPath}/actions/runs/${runId}/jobs?filter=all&per_page=100`, auth.token
+      );
+      return {
+        checkedAt: new Date().toISOString(),
+        jobs: (jobs.jobs ?? []).map((job, index) => mapWorkflowJob(job, index + 1)),
+        run: mapWorkflowRun(run),
+        status: 'connected'
+      };
+    } catch {
+      return {
+        checkedAt: new Date().toISOString(), jobs: [],
+        message: 'Workflow run loaded, but jobs are temporarily unavailable.',
+        partial: true, run: mapWorkflowRun(run), status: 'connected'
+      };
+    }
+  } catch (error) {
+    return {
+      checkedAt: new Date().toISOString(), jobs: [],
+      message: error instanceof GitHubRequestError && error.rateLimited
+        ? 'GitHub rate limited the workflow request. Try again later.'
+        : 'Could not load workflow run details.',
+      status: error instanceof GitHubRequestError && error.rateLimited ? 'rate-limited' : 'error'
+    };
   }
 }
 

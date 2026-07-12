@@ -105,6 +105,23 @@ describe('authorized Project Space backend', () => {
     expect(statusDispatches).toBe(0);
   });
 
+  test('refuses workflow details before dispatch when repository authorization fails', async () => {
+    let dispatches = 0;
+    const backend = createAuthorizedProjectSpaceBackend(backendWith({
+      async getGitHubRepositoryDetails() {
+        return { branches: [], checkedAt: '', issues: [], pullRequests: [], status: 'error' };
+      },
+      async getGitHubWorkflowRunDetail() {
+        dispatches += 1;
+        return { checkedAt: '', jobs: [], status: 'connected' };
+      }
+    }), hostedFor(['machine-a']));
+    expect(await backend.getGitHubWorkflowRunDetail('private/repository', 42)).toMatchObject({
+      jobs: [], status: 'unauthorized'
+    });
+    expect(dispatches).toBe(0);
+  });
+
   test('filters machine and project discovery structurally for one user', async () => {
     const backend = createAuthorizedProjectSpaceBackend(
       backendWith({

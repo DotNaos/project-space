@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { launcherAppLabels } from '@/shared/project-space-api';
 import {
+  parseWorkflowRunRoute,
   normalizeRouteKey,
   routeProjectIdMatchesRepository,
+  workflowRunRouteSuffix,
   shouldPreserveUnresolvedProjectRoute
 } from './project-route-model';
 import type {
@@ -201,6 +203,10 @@ export function routeForView(view: ProjectMainView, projectId = '', tab = '', de
       return `${base}/issues/${encodeURIComponent(detail)}`;
     }
 
+    if (tab === 'deployments') {
+      return `${base}/${workflowRunRouteSuffix(detail)}`;
+    }
+
     if (!tab || tab === 'overview') {
       return base;
     }
@@ -221,6 +227,7 @@ export interface ParsedProjectRoute {
   machineTab?: MachineDetailTab;
   projectId?: string;
   projectTab?: ProjectDetailTab;
+  workflowRunId?: number;
   view: ProjectMainView;
 }
 
@@ -253,15 +260,17 @@ export function parseProjectRoute(pathname: string): ParsedProjectRoute {
 
   if (pathname.startsWith(`${projectsPath}/`)) {
     const rest = pathname.slice(projectsPath.length + 1);
-    const [rawProjectId, rawTab, rawDetail] = rest.split('/');
+    const [rawProjectId, rawTab, rawDetail, rawRunId] = rest.split('/');
     const projectId = decodeURIComponent(rawProjectId ?? '');
     const issueNumber = rawTab === 'issues' && rawDetail ? Number(rawDetail) : undefined;
+    const workflowRunId = parseWorkflowRunRoute(rawTab, rawDetail, rawRunId);
 
     return projectId
       ? {
           issueNumber: Number.isFinite(issueNumber) ? issueNumber : undefined,
           projectId,
           projectTab: parseProjectDetailTab(rawTab),
+          workflowRunId,
           view: 'project'
         }
       : { view: 'projects' };
@@ -376,6 +385,7 @@ export function useProjectDesktop() {
   const [projectTab, setProjectTab] = useState<ProjectDetailTab>('overview');
   const [machineTab, setMachineTab] = useState<MachineDetailTab>('overview');
   const [selectedIssueNumber, setSelectedIssueNumber] = useState<number | undefined>();
+  const [selectedWorkflowRunId, setSelectedWorkflowRunId] = useState<number | undefined>();
   const [launcherApps, setLauncherApps] = useState<LauncherAppRecord[]>([]);
   const [launcherError, setLauncherError] = useState('');
   const [connectorOverview, setConnectorOverview] =
@@ -612,6 +622,7 @@ export function useProjectDesktop() {
         );
         setSelectedProjectId(selectedProjectFromRoute);
         setSelectedIssueNumber(initialRoute.issueNumber);
+        setSelectedWorkflowRunId(initialRoute.workflowRunId);
         setProjectTab(initialRoute.projectTab ?? 'overview');
         setMachineTab(initialRoute.machineTab ?? 'overview');
         setMainView(initialRoute.view);
@@ -622,7 +633,11 @@ export function useProjectDesktop() {
             routeProject.id,
             true,
             initialRoute.projectTab ?? 'overview',
-            initialRoute.projectTab === 'issues' ? String(initialRoute.issueNumber ?? '') : ''
+            initialRoute.projectTab === 'issues'
+              ? String(initialRoute.issueNumber ?? '')
+              : initialRoute.projectTab === 'deployments'
+                ? String(initialRoute.workflowRunId ?? '')
+                : ''
           );
         }
       })
@@ -691,6 +706,7 @@ export function useProjectDesktop() {
           setSelectedProjectId(nextRoute.projectId ?? nextProject.id);
           setSelectedMachineId(nextProject.machineId ?? '');
           setSelectedIssueNumber(nextRoute.issueNumber);
+          setSelectedWorkflowRunId(nextRoute.workflowRunId);
           setProjectTab(nextRoute.projectTab ?? 'overview');
           setMainView('project');
           return;
@@ -806,7 +822,11 @@ export function useProjectDesktop() {
           routeProjectId,
           true,
           projectTab,
-          projectTab === 'issues' ? String(selectedIssueNumber ?? '') : ''
+          projectTab === 'issues'
+            ? String(selectedIssueNumber ?? '')
+            : projectTab === 'deployments'
+              ? String(selectedWorkflowRunId ?? '')
+              : ''
         );
       } else if (
         shouldPreserveUnresolvedProjectRoute({
@@ -821,7 +841,11 @@ export function useProjectDesktop() {
           selectedProjectId,
           true,
           projectTab,
-          projectTab === 'issues' ? String(selectedIssueNumber ?? '') : ''
+          projectTab === 'issues'
+            ? String(selectedIssueNumber ?? '')
+            : projectTab === 'deployments'
+              ? String(selectedWorkflowRunId ?? '')
+              : ''
         );
       } else {
         writeRoute('projects', '', true);
@@ -838,6 +862,7 @@ export function useProjectDesktop() {
     project?.id,
     projectTab,
     selectedIssueNumber,
+    selectedWorkflowRunId,
     selectedMachineId,
     selectedProjectId,
     githubCatalog.checkedAt,
@@ -1126,6 +1151,7 @@ export function useProjectDesktop() {
     refreshGitHubCatalog,
     selectedExplorerTarget,
     selectedIssueNumber,
+    selectedWorkflowRunId,
     selectedLauncherApp,
     selectedLauncherAppLabel,
     selectedMachine,
@@ -1170,6 +1196,7 @@ export function useProjectDesktop() {
     selectProjectTab(nextTab: ProjectDetailTab) {
       setProjectTab(nextTab);
       setSelectedIssueNumber(undefined);
+      setSelectedWorkflowRunId(undefined);
 
       if (mainView === 'project' && selectedProjectId) {
         writeRoute('project', selectedProjectId, true, nextTab);
@@ -1286,6 +1313,22 @@ export function useProjectDesktop() {
       setSelectedIssueNumber(issueNumber);
       setMainView('project');
       writeRoute('project', selectedProjectId, false, 'issues', String(issueNumber));
+    },
+    openProjectWorkflowRun(runId: number) {
+      if (!selectedProjectId || !Number.isSafeInteger(runId) || runId <= 0) {
+        return;
+      }
+
+      setProjectTab('deployments');
+      setSelectedWorkflowRunId(runId);
+      setMainView('project');
+      writeRoute('project', selectedProjectId, false, 'deployments', String(runId));
+    },
+    closeProjectWorkflowRun() {
+      setSelectedWorkflowRunId(undefined);
+      if (selectedProjectId) {
+        writeRoute('project', selectedProjectId, false, 'deployments');
+      }
     },
     clearLauncherError() {
       setLauncherError('');

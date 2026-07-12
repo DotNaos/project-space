@@ -193,6 +193,22 @@ export function createAuthorizedProjectSpaceBackend(
       return backend.getDeployedEnvironmentStatus(repositoryFullName);
     },
 
+    async getGitHubPipelineStatus(repositoryFullName, options) {
+      const details = await backend.getGitHubRepositoryDetails(repositoryFullName);
+      if (details.status !== 'connected') {
+        return { checkedAt: new Date().toISOString(), runs: [], status: details.status === 'auth-required' ? 'auth-required' as const : 'unauthorized' as const };
+      }
+      return backend.getGitHubPipelineStatus(repositoryFullName, options);
+    },
+
+    async getGitHubWorkflowRunDetail(repositoryFullName, runId) {
+      const details = await backend.getGitHubRepositoryDetails(repositoryFullName);
+      if (details.status !== 'connected') {
+        return { checkedAt: new Date().toISOString(), jobs: [], status: details.status === 'auth-required' ? 'auth-required' as const : 'unauthorized' as const };
+      }
+      return backend.getGitHubWorkflowRunDetail(repositoryFullName, runId);
+    },
+
     async getCodexStatus() {
       policy.requireLocalHostAccess();
       return backend.getCodexStatus();

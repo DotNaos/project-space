@@ -415,7 +415,7 @@ export interface ProjectSpaceAuthDevicePollResult {
 }
 
 export type GitHubAuthSource = 'stored-oauth' | 'environment';
-export type GitHubCatalogStatus = 'connected' | 'auth-required' | 'not-configured' | 'error';
+export type GitHubCatalogStatus = 'connected' | 'auth-required' | 'unauthorized' | 'not-configured' | 'rate-limited' | 'error';
 export type GitHubProjectConfigStatus = 'complete' | 'partial' | 'missing' | 'unknown';
 
 export interface GitHubCatalogRepository {
@@ -567,7 +567,13 @@ export type GitHubWorkflowRunConclusion =
   | 'neutral'
   | 'stale';
 
+export type GitHubWorkflowRunKind = 'deployment' | 'ci' | 'release' | 'other';
+export type GitHubWorkflowRunStatus =
+  | 'queued' | 'in_progress' | 'completed' | 'waiting' | 'pending' | 'requested' | 'unknown';
+
 export interface GitHubWorkflowRunSummary {
+  actor?: string;
+  attempt?: number;
   branch?: string;
   conclusion?: GitHubWorkflowRunConclusion;
   createdAt?: string;
@@ -575,18 +581,53 @@ export interface GitHubWorkflowRunSummary {
   event?: string;
   headSha?: string;
   id: number;
+  kind: GitHubWorkflowRunKind;
   name?: string;
   runNumber?: number;
   runStartedAt?: string;
-  status: 'queued' | 'in_progress' | 'completed' | 'waiting' | 'pending' | 'requested';
+  status: GitHubWorkflowRunStatus;
   updatedAt?: string;
   url?: string;
+  workflowId?: number;
+  workflowPath?: string;
 }
 
 export interface GitHubPipelineStatusResult {
   checkedAt: string;
   message?: string;
+  pagination?: { hasNext: boolean; page: number; perPage: number };
   runs: GitHubWorkflowRunSummary[];
+  status: GitHubCatalogStatus;
+}
+
+export interface GitHubWorkflowStep {
+  completedAt?: string;
+  conclusion?: GitHubWorkflowRunConclusion;
+  durationMs?: number;
+  name: string;
+  number: number;
+  startedAt?: string;
+  status: GitHubWorkflowRunStatus;
+}
+
+export interface GitHubWorkflowJob {
+  completedAt?: string;
+  conclusion?: GitHubWorkflowRunConclusion;
+  durationMs?: number;
+  id: number;
+  name: string;
+  sequence: number;
+  startedAt?: string;
+  status: GitHubWorkflowRunStatus;
+  steps: GitHubWorkflowStep[];
+}
+
+export interface GitHubWorkflowRunDetailResult {
+  checkedAt: string;
+  jobs: GitHubWorkflowJob[];
+  message?: string;
+  partial?: boolean;
+  run?: GitHubWorkflowRunSummary;
   status: GitHubCatalogStatus;
 }
 
@@ -1166,7 +1207,8 @@ export interface ProjectSpaceBackend {
   getTemplateAdherence(request: TemplateAdherenceRequest): Promise<TemplateAdherenceReport>;
   getGitHubCatalog(options?: { forceRefresh?: boolean }): Promise<GitHubCatalogResult>;
   getGitHubHistory(request: GitHubHistoryRequest): Promise<GitHistoryResult>;
-  getGitHubPipelineStatus(fullName: string): Promise<GitHubPipelineStatusResult>;
+  getGitHubPipelineStatus(fullName: string, options?: { page?: number; perPage?: number }): Promise<GitHubPipelineStatusResult>;
+  getGitHubWorkflowRunDetail(fullName: string, runId: number): Promise<GitHubWorkflowRunDetailResult>;
   getGitDiff(request: GitDiffRequest): Promise<GitDiffResult>;
   getGitHistory(request: GitHistoryRequest): Promise<GitHistoryResult>;
   getGitStatus(cwd: string): Promise<GitStatusResult>;
