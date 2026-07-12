@@ -1,6 +1,7 @@
 package approval
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"crypto/x509"
@@ -17,6 +18,15 @@ func Verify(root, policyPath, trustPath string) (Report, error) {
 
 func VerifyWithCheckpoint(root, policyPath, trustPath, checkpointPath string) (Report, error) {
 	context, err := loadVerificationContext(root, policyPath, trustPath, checkpointPath)
+	return verifyContext(context, err)
+}
+
+func VerifyWithCheckpointAndMonotonic(root, policyPath, trustPath, checkpointPath string, monotonic MonotonicCheckpointProvider) (Report, error) {
+	context, err := loadVerificationContextWithMonotonic(root, policyPath, trustPath, checkpointPath, monotonic)
+	return verifyContext(context, err)
+}
+
+func verifyContext(context verificationContext, err error) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
@@ -33,6 +43,15 @@ func VerifyWithCheckpoint(root, policyPath, trustPath, checkpointPath string) (R
 
 func Prepare(root, policyPath, trustPath, checkpointPath, scopeID string) (Preparation, error) {
 	context, err := loadVerificationContext(root, policyPath, trustPath, checkpointPath)
+	return prepareContext(context, scopeID, err)
+}
+
+func PrepareWithMonotonic(root, policyPath, trustPath, checkpointPath, scopeID string, monotonic MonotonicCheckpointProvider) (Preparation, error) {
+	context, err := loadVerificationContextWithMonotonic(root, policyPath, trustPath, checkpointPath, monotonic)
+	return prepareContext(context, scopeID, err)
+}
+
+func prepareContext(context verificationContext, scopeID string, err error) (Preparation, error) {
 	if err != nil {
 		return Preparation{}, err
 	}
@@ -64,6 +83,11 @@ func verifyScope(context verificationContext, scope Scope) ScopeStatus {
 	if currentErr == nil {
 		status.ContentDigest = current.ContentDigest
 	}
+	anchor, anchorBody, anchorExists, anchorErr := readMonotonicAnchor(context, scope)
+	if anchorErr != nil {
+		status.Reason = anchorErr.Error()
+		return status
+	}
 	record, err := loadScopeRecord(context.root, scope)
 	if err != nil {
 		status.Reason = err.Error()
@@ -75,7 +99,9 @@ func verifyScope(context verificationContext, scope Scope) ScopeStatus {
 	}
 	if !record.Exists {
 		status.State = StateMissingHistory
-		if checkpointExpected {
+		if anchorExists {
+			status.Reason = "signed history is missing but the protected monotonic checkpoint records an accepted event"
+		} else if checkpointExpected {
 			status.Reason = "signed history is missing but the external checkpoint records an accepted event"
 		} else {
 			status.Reason = "signed approval history is missing"
@@ -83,7 +109,8 @@ func verifyScope(context verificationContext, scope Scope) ScopeStatus {
 		return status
 	}
 	if record.Legacy != nil {
-		if checkpointExpected {
+		status.Files = append([]FileHash(nil), record.Legacy.Payload.Files...)
+		if checkpointExpected || anchorExists {
 			status.State = StateReplayCheckpointMismatch
 			status.Reason = "legacy approval cannot replace checkpointed signed history"
 			return status
@@ -100,6 +127,7 @@ func verifyScope(context verificationContext, scope Scope) ScopeStatus {
 	status.Operation = latest.Payload.Operation
 	status.Sequence = latest.Payload.Sequence
 	status.EventDigest = latestDigest
+	status.Files = append([]FileHash(nil), latest.Payload.Files...)
 	if !checkpointExpected {
 		status.State = StateMissingHistory
 		status.Reason = "external checkpoint is missing for signed history"
@@ -109,6 +137,23 @@ func verifyScope(context verificationContext, scope Scope) ScopeStatus {
 		status.State = StateReplayCheckpointMismatch
 		status.Reason = "signed history tip does not match the external checkpoint"
 		return status
+	}
+	if context.monotonic != nil {
+		if !anchorExists {
+			status.State = StateMissingHistory
+			status.Reason = "protected monotonic checkpoint is missing for signed history"
+			return status
+		}
+		_, expectedAnchor, buildErr := buildMonotonicAnchor(latest.Payload)
+		if buildErr != nil {
+			status.Reason = buildErr.Error()
+			return status
+		}
+		if !bytes.Equal(anchorBody, expectedAnchor) || anchor.Sequence != latest.Payload.Sequence {
+			status.State = StateReplayCheckpointMismatch
+			status.Reason = "signed history tip does not match the protected monotonic checkpoint"
+			return status
+		}
 	}
 	if latest.Payload.Operation == OperationRevoke {
 		status.State = StateRevoked
@@ -154,6 +199,7 @@ func verifyLegacy(status ScopeStatus, attestation Attestation, current Payload, 
 	}
 	status.State = StateApproved
 	status.Operation = OperationApprove
+	status.Files = append([]FileHash(nil), attestation.Payload.Files...)
 	return status
 }
 

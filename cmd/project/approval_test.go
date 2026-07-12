@@ -10,15 +10,21 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/DotNaos/project-space/internal/approval"
 )
 
-type commandTestSigner struct{ key *ecdsa.PrivateKey }
+type commandTestSigner struct {
+	key     *ecdsa.PrivateKey
+	mu      sync.Mutex
+	anchors map[string][]byte
+}
 
 func newCommandTestSigner(t *testing.T) *commandTestSigner {
 	t.Helper()
@@ -26,7 +32,7 @@ func newCommandTestSigner(t *testing.T) *commandTestSigner {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &commandTestSigner{key: key}
+	return &commandTestSigner{key: key, anchors: make(map[string][]byte)}
 }
 
 func (signer *commandTestSigner) SignerID() (string, error) {
@@ -43,6 +49,22 @@ func (signer *commandTestSigner) PublicKeyPEM() (string, error) {
 func (signer *commandTestSigner) SignPayload(payload []byte, _ string) ([]byte, error) {
 	digest := sha256.Sum256(payload)
 	return ecdsa.SignASN1(rand.Reader, signer.key, digest[:])
+}
+func (signer *commandTestSigner) ReadCheckpoint(key string) ([]byte, bool, error) {
+	signer.mu.Lock()
+	defer signer.mu.Unlock()
+	body, exists := signer.anchors[key]
+	return append([]byte(nil), body...), exists, nil
+}
+func (signer *commandTestSigner) CommitCheckpoint(_ []byte, _ []byte, key string, expected, next []byte) error {
+	signer.mu.Lock()
+	defer signer.mu.Unlock()
+	current, exists := signer.anchors[key]
+	if (expected == nil && exists) || (expected != nil && (!exists || !bytes.Equal(current, expected))) {
+		return fmt.Errorf("protected checkpoint changed")
+	}
+	signer.anchors[key] = append([]byte(nil), next...)
+	return nil
 }
 
 func TestApprovalVerifyFailsClosedWithoutExternalTrustRoot(t *testing.T) {
@@ -132,7 +154,7 @@ func TestApprovalLifecycleCommandsExposeStableJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	previousSigner := newApprovalSigner
-	newApprovalSigner = func() approval.SignatureProvider { return signer }
+	newApprovalSigner = func() approvalSigner { return signer }
 	t.Cleanup(func() { newApprovalSigner = previousSigner })
 
 	base := []string{"--root", root, "--trust-root", trustPath, "--checkpoint", checkpointPath, "--format", "json"}

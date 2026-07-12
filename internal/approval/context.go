@@ -14,9 +14,14 @@ type verificationContext struct {
 	key            *ecdsa.PublicKey
 	checkpointPath string
 	checkpoint     *Checkpoint
+	monotonic      MonotonicCheckpointProvider
 }
 
 func loadVerificationContext(root, policyPath, trustPath, checkpointPath string) (verificationContext, error) {
+	return loadVerificationContextWithMonotonic(root, policyPath, trustPath, checkpointPath, nil)
+}
+
+func loadVerificationContextWithMonotonic(root, policyPath, trustPath, checkpointPath string, monotonic MonotonicCheckpointProvider) (verificationContext, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return verificationContext{}, err
@@ -49,7 +54,7 @@ func loadVerificationContext(root, policyPath, trustPath, checkpointPath string)
 	}
 	return verificationContext{
 		root: root, policy: policy, policyDigest: policyDigest, trust: trust, key: key,
-		checkpointPath: checkpointPath, checkpoint: checkpoint,
+		checkpointPath: checkpointPath, checkpoint: checkpoint, monotonic: monotonic,
 	}, nil
 }
 

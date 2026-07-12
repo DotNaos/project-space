@@ -59,7 +59,7 @@ func newApprovalFixture(t *testing.T) approvalFixture {
 
 func TestSignedApprovalLifecycleAndReplayProtection(t *testing.T) {
 	fixture := newApprovalFixture(t)
-	prepared, err := Prepare(fixture.root, fixture.policy, fixture.trust, fixture.checkpoint, "button")
+	prepared, err := PrepareWithMonotonic(fixture.root, fixture.policy, fixture.trust, fixture.checkpoint, "button", fixture.signer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,6 +91,12 @@ func TestSignedApprovalLifecycleAndReplayProtection(t *testing.T) {
 
 	write(t, filepath.Join(fixture.root, revoked.Attestation), string(approvedHistory))
 	assertLifecycleState(t, fixture, StateReplayCheckpointMismatch, 1, OperationApprove)
+	write(t, filepath.Join(fixture.root, revoked.Attestation), string(revokedHistory))
+
+	write(t, fixture.checkpoint, string(approvedCheckpoint))
+	write(t, filepath.Join(fixture.root, revoked.Attestation), string(approvedHistory))
+	assertLifecycleState(t, fixture, StateReplayCheckpointMismatch, 1, OperationApprove)
+	write(t, fixture.checkpoint, string(revokedCheckpoint))
 	write(t, filepath.Join(fixture.root, revoked.Attestation), string(revokedHistory))
 
 	reapproved, err := Approve(fixture.root, fixture.policy, fixture.trust, fixture.checkpoint, "button", revoked.ContentDigest, fixture.signer)
@@ -191,6 +197,38 @@ func TestContentChangesAndCancellationNeverCreateApprovalTruth(t *testing.T) {
 	if _, err := Revoke(fixture.root, fixture.policy, fixture.trust, fixture.checkpoint, "button", approved.ContentDigest, fixture.signer); err == nil {
 		t.Fatal("stale approval was revoked as if current")
 	}
+}
+
+func TestProtectedCheckpointFailureRollsBackRepositoryAndExternalState(t *testing.T) {
+	fixture := newApprovalFixture(t)
+	prepared, err := PrepareWithMonotonic(
+		fixture.root, fixture.policy, fixture.trust, fixture.checkpoint, "button", fixture.signer,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.signer.commitErr = errors.New("protected checkpoint unavailable")
+	if _, err := Approve(
+		fixture.root, fixture.policy, fixture.trust, fixture.checkpoint, "button", prepared.ContentDigest, fixture.signer,
+	); err == nil || !strings.Contains(err.Error(), "protected checkpoint") {
+		t.Fatalf("protected checkpoint failure = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(fixture.root, ".project/approvals/button.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed operation left signed history: %v", err)
+	}
+	if _, err := os.Stat(fixture.checkpoint); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed operation left external checkpoint: %v", err)
+	}
+	if len(fixture.signer.anchors) != 0 {
+		t.Fatal("failed operation advanced protected checkpoint")
+	}
+	fixture.signer.commitErr = nil
+	if _, err := Approve(
+		fixture.root, fixture.policy, fixture.trust, fixture.checkpoint, "button", prepared.ContentDigest, fixture.signer,
+	); err != nil {
+		t.Fatalf("retry after rollback: %v", err)
+	}
+	assertLifecycleState(t, fixture, StateApproved, 1, OperationApprove)
 }
 
 func TestContentChangeDuringAuthenticationWritesNothing(t *testing.T) {
@@ -385,13 +423,16 @@ func TestAuthenticationReasonKeepsCriticalBindingsFirstAndBounded(t *testing.T) 
 
 func assertLifecycleState(t *testing.T, fixture approvalFixture, state string, sequence uint64, operation string) {
 	t.Helper()
-	report, err := VerifyWithCheckpoint(fixture.root, fixture.policy, fixture.trust, fixture.checkpoint)
+	report, err := VerifyWithCheckpointAndMonotonic(fixture.root, fixture.policy, fixture.trust, fixture.checkpoint, fixture.signer)
 	if err != nil {
 		t.Fatal(err)
 	}
 	status := report.Scopes[0]
 	if status.State != state || status.Sequence != sequence || status.Operation != operation {
 		t.Fatalf("status = %+v, want state=%s sequence=%d operation=%s", status, state, sequence, operation)
+	}
+	if sequence > 0 && len(status.Files) == 0 {
+		t.Fatal("status omitted the trusted signed file manifest")
 	}
 }
 

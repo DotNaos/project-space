@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/DotNaos/project-space/internal/approval"
@@ -16,7 +17,12 @@ const defaultApprovalPolicy = ".project/approvals/policy.yaml"
 
 type approvalOptions struct{ root, policy, trustRoot, checkpoint, format string }
 
-var newApprovalSigner = func() approval.SignatureProvider { return approvalsigner.New() }
+type approvalSigner interface {
+	approval.SignatureProvider
+	approval.MonotonicCheckpointProvider
+}
+
+var newApprovalSigner = func() approvalSigner { return approvalsigner.New() }
 
 func newApprovalCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "approval", Short: "Manage cryptographic human approvals"}
@@ -61,7 +67,12 @@ func newApprovalCheckCommand(use, short string, strict bool) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		report, err := approval.VerifyWithCheckpoint(root, options.policy, options.trustRoot, options.checkpoint)
+		var report approval.Report
+		if runtime.GOOS == "darwin" {
+			report, err = approval.VerifyWithCheckpointAndMonotonic(root, options.policy, options.trustRoot, options.checkpoint, newApprovalSigner())
+		} else {
+			report, err = approval.VerifyWithCheckpoint(root, options.policy, options.trustRoot, options.checkpoint)
+		}
 		if err != nil {
 			return err
 		}
@@ -127,7 +138,12 @@ func newApprovalPrepareCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		prepared, err := approval.Prepare(root, options.policy, options.trustRoot, options.checkpoint, scope)
+		var prepared approval.Preparation
+		if runtime.GOOS == "darwin" {
+			prepared, err = approval.PrepareWithMonotonic(root, options.policy, options.trustRoot, options.checkpoint, scope, newApprovalSigner())
+		} else {
+			prepared, err = approval.Prepare(root, options.policy, options.trustRoot, options.checkpoint, scope)
+		}
 		if err != nil {
 			return err
 		}

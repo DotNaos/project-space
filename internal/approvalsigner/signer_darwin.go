@@ -63,6 +63,38 @@ func (s *Signer) SignPayload(payload []byte, reason string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(strings.TrimSpace(output))
 }
 
+func (*Signer) ReadCheckpoint(key string) ([]byte, bool, error) {
+	output, err := runHelper("checkpoint-read", base64.StdEncoding.EncodeToString([]byte(key)))
+	if err != nil {
+		return nil, false, err
+	}
+	value := strings.TrimSpace(output)
+	if value == "MISSING" {
+		return nil, false, nil
+	}
+	body, err := base64.StdEncoding.DecodeString(value)
+	if err != nil {
+		return nil, false, fmt.Errorf("native signer returned invalid protected checkpoint: %w", err)
+	}
+	return body, true, nil
+}
+
+func (*Signer) CommitCheckpoint(payload, signature []byte, key string, expected, next []byte) error {
+	expectedValue := "-"
+	if expected != nil {
+		expectedValue = base64.StdEncoding.EncodeToString(expected)
+	}
+	_, err := runHelper(
+		"checkpoint-commit",
+		base64.StdEncoding.EncodeToString(payload),
+		base64.StdEncoding.EncodeToString(signature),
+		base64.StdEncoding.EncodeToString([]byte(key)),
+		expectedValue,
+		base64.StdEncoding.EncodeToString(next),
+	)
+	return err
+}
+
 func runHelper(arguments ...string) (string, error) {
 	executable, err := os.Executable()
 	if err != nil {

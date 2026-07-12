@@ -28,7 +28,11 @@ func ApplyOperation(root, policyPath, trustPath, checkpointPath, scopeID, operat
 	if !validOperation(operation) {
 		return OperationResult{}, fmt.Errorf("unsupported approval operation %q", operation)
 	}
-	initial, err := loadVerificationContext(root, policyPath, trustPath, checkpointPath)
+	monotonic, ok := signer.(MonotonicCheckpointProvider)
+	if !ok {
+		return OperationResult{}, fmt.Errorf("approval signer does not provide a protected monotonic checkpoint")
+	}
+	initial, err := loadVerificationContextWithMonotonic(root, policyPath, trustPath, checkpointPath, monotonic)
 	if err != nil {
 		return OperationResult{}, err
 	}
@@ -40,7 +44,7 @@ func ApplyOperation(root, policyPath, trustPath, checkpointPath, scopeID, operat
 		return OperationResult{}, err
 	}
 	defer release()
-	context, err := loadVerificationContext(root, policyPath, trustPath, initial.checkpointPath)
+	context, err := loadVerificationContextWithMonotonic(root, policyPath, trustPath, initial.checkpointPath, monotonic)
 	if err != nil {
 		return OperationResult{}, err
 	}
@@ -55,6 +59,13 @@ func ApplyOperation(root, policyPath, trustPath, checkpointPath, scopeID, operat
 	record, err := loadScopeRecord(context.root, scope)
 	if err != nil {
 		return OperationResult{}, err
+	}
+	_, expectedAnchor, anchorExists, err := readMonotonicAnchor(context, scope)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	if !anchorExists {
+		expectedAnchor = nil
 	}
 	current, err := BuildPayload(context.root, context.policy, context.policyDigest, scope, context.trust.SignerID)
 	if err != nil {
@@ -106,6 +117,10 @@ func ApplyOperation(root, policyPath, trustPath, checkpointPath, scopeID, operat
 	if err != nil {
 		return OperationResult{}, err
 	}
+	_, nextAnchor, err := buildMonotonicAnchor(payload)
+	if err != nil {
+		return OperationResult{}, err
+	}
 	history := History{Version: HistoryVersion}
 	if record.History != nil {
 		history.Events = append(history.Events, record.History.Events...)
@@ -141,6 +156,14 @@ func ApplyOperation(root, policyPath, trustPath, checkpointPath, scopeID, operat
 		}
 		return OperationResult{}, fmt.Errorf("write external checkpoint: %w", err)
 	}
+	if err := monotonic.CommitCheckpoint(canonical, signature, monotonicAnchorKey(context.policy, scope), expectedAnchor, nextAnchor); err != nil {
+		historyErr := restoreRootFile(context.root, scope.Attestation, record.Body, record.Exists, 0o600)
+		checkpointErr := restoreExternalCheckpoint(context.checkpointPath, context.checkpoint)
+		if historyErr != nil || checkpointErr != nil {
+			return OperationResult{}, fmt.Errorf("commit protected monotonic checkpoint: %v; rollback history: %v; rollback external checkpoint: %v", err, historyErr, checkpointErr)
+		}
+		return OperationResult{}, fmt.Errorf("commit protected monotonic checkpoint: %w", err)
+	}
 	state := StateApproved
 	if operation == OperationRevoke {
 		state = StateRevoked
@@ -150,6 +173,17 @@ func ApplyOperation(root, policyPath, trustPath, checkpointPath, scopeID, operat
 		ScopeID: scope.ID, State: state, ContentDigest: payload.ContentDigest, SignerID: payload.SignerID,
 		Sequence: payload.Sequence, EventDigest: digest, Attestation: scope.Attestation,
 	}, nil
+}
+
+func restoreExternalCheckpoint(path string, previous *Checkpoint) error {
+	if previous != nil {
+		return writeCheckpoint(path, *previous)
+	}
+	err := os.Remove(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func validateTransition(context verificationContext, scope Scope, operation string, status ScopeStatus) error {

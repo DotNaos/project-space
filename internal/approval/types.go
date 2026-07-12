@@ -9,6 +9,7 @@ const (
 	HistoryVersion     = 2
 	TrustRootVersion   = 1
 	CheckpointVersion  = 1
+	AnchorVersion      = 1
 )
 
 const (
@@ -101,17 +102,37 @@ type SignatureProvider interface {
 	SignPayload(payload []byte, reason string) ([]byte, error)
 }
 
+type MonotonicCheckpointProvider interface {
+	ReadCheckpoint(key string) ([]byte, bool, error)
+	CommitCheckpoint(payload, signature []byte, key string, expected, next []byte) error
+}
+
+type MonotonicAnchor struct {
+	Version             int    `json:"version"`
+	Repository          string `json:"repository"`
+	PolicyID            string `json:"policyId"`
+	PolicyDigest        string `json:"policyDigest"`
+	ScopeID             string `json:"scopeId"`
+	SignerID            string `json:"signerId"`
+	Sequence            uint64 `json:"sequence"`
+	Operation           string `json:"operation"`
+	ContentDigest       string `json:"contentDigest"`
+	PreviousEventDigest string `json:"previousEventDigest"`
+	PayloadDigest       string `json:"payloadDigest"`
+}
+
 type ScopeStatus struct {
-	ID            string `json:"id"`
-	Label         string `json:"label"`
-	State         string `json:"state"`
-	Attestation   string `json:"attestation"`
-	Reason        string `json:"reason"`
-	Operation     string `json:"operation"`
-	ContentDigest string `json:"contentDigest"`
-	SignerID      string `json:"signerId"`
-	Sequence      uint64 `json:"sequence"`
-	EventDigest   string `json:"eventDigest"`
+	ID            string     `json:"id"`
+	Label         string     `json:"label"`
+	State         string     `json:"state"`
+	Attestation   string     `json:"attestation"`
+	Reason        string     `json:"reason"`
+	Operation     string     `json:"operation"`
+	ContentDigest string     `json:"contentDigest"`
+	SignerID      string     `json:"signerId"`
+	Sequence      uint64     `json:"sequence"`
+	EventDigest   string     `json:"eventDigest"`
+	Files         []FileHash `json:"files"`
 }
 
 type Report struct {

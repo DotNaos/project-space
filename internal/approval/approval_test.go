@@ -1,6 +1,7 @@
 package approval
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -9,14 +10,21 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 )
 
-type testSigner struct{ key *ecdsa.PrivateKey }
+type testSigner struct {
+	key       *ecdsa.PrivateKey
+	mu        sync.Mutex
+	anchors   map[string][]byte
+	commitErr error
+}
 
 func newTestSigner(t *testing.T) *testSigner {
 	t.Helper()
@@ -24,7 +32,7 @@ func newTestSigner(t *testing.T) *testSigner {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &testSigner{key: key}
+	return &testSigner{key: key, anchors: make(map[string][]byte)}
 }
 func (s *testSigner) SignerID() (string, error) {
 	der, _ := x509.MarshalPKIXPublicKey(&s.key.PublicKey)
@@ -38,6 +46,25 @@ func (s *testSigner) PublicKeyPEM() (string, error) {
 func (s *testSigner) SignPayload(payload []byte, _ string) ([]byte, error) {
 	digest := sha256.Sum256(payload)
 	return ecdsa.SignASN1(rand.Reader, s.key, digest[:])
+}
+func (s *testSigner) ReadCheckpoint(key string) ([]byte, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	body, exists := s.anchors[key]
+	return append([]byte(nil), body...), exists, nil
+}
+func (s *testSigner) CommitCheckpoint(_ []byte, _ []byte, key string, expected, next []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.commitErr != nil {
+		return s.commitErr
+	}
+	current, exists := s.anchors[key]
+	if (expected == nil && exists) || (expected != nil && (!exists || !bytes.Equal(current, expected))) {
+		return errors.New("protected checkpoint changed")
+	}
+	s.anchors[key] = append([]byte(nil), next...)
+	return nil
 }
 
 func TestApprovalThreatCases(t *testing.T) {
