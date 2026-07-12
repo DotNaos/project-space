@@ -10,6 +10,7 @@ import {
   formatProjectChatTime,
   projectChatDateLabel,
   projectChatMessageIdentity,
+  projectChatAgentNameIdentity,
   projectChatTextSegments,
   shortProjectChatId,
   sortProjectChatMessages
@@ -113,6 +114,7 @@ function ChatMessage({
     viewerMemberId && message.mentions.some((mention) => mention.memberId === viewerMemberId)
   );
   const identity = projectChatMessageIdentity(message, member);
+  const agentName = projectChatAgentNameIdentity(message.sender);
 
   return (
     <article
@@ -120,6 +122,8 @@ function ChatMessage({
       data-project-chat-message-id={message.id}
     >
       <ParticipantVisual
+        agentCategory={agentName?.category}
+        agentName={agentName?.name}
         avatarUrl={identity.avatarUrl}
         displayName={identity.displayName}
         role={message.sender.role}

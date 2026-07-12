@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Radio } from 'lucide-react';
 import type { ProjectChatRole } from '@/shared/project-chat-api';
+import type { ProjectChatAgentAvatarCategory } from '../project-chat-agent-avatar';
 import { AgentOrb } from './agent-orb';
+import { ProjectChatAgentAvatar } from './project-chat-agent-avatar';
 
 export function ParticipantVisual({
   active = false,
+  agentCategory,
+  agentName,
   avatarUrl,
   displayName,
   role,
@@ -12,6 +16,8 @@ export function ParticipantVisual({
   size = 36
 }: {
   active?: boolean;
+  agentCategory?: ProjectChatAgentAvatarCategory;
+  agentName?: string;
   avatarUrl?: string;
   displayName?: string;
   role: ProjectChatRole;
@@ -25,6 +31,9 @@ export function ParticipantVisual({
   }, [avatarUrl]);
 
   if (role === 'agent') {
+    if (agentCategory && agentName) {
+      return <ProjectChatAgentAvatar category={agentCategory} name={agentName} size={size} />;
+    }
     return (
       <AgentOrb
         motion={active && selected ? 'ambient' : 'none'}

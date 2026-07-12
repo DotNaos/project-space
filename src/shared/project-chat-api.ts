@@ -4,6 +4,39 @@ export const PROJECT_CHAT_MAX_BODY_LENGTH = 4_000;
 export type ProjectChatChannelId = string;
 export type ProjectChatRole = 'agent' | 'human' | 'system';
 export type ProjectChatPresenceState = 'working' | 'idle' | 'offline';
+export type ProjectChatNameCategory = 'mythology' | 'artist' | 'science' | 'detective';
+export interface ProjectChatNameEntry {
+  category: ProjectChatNameCategory;
+  claimedByCurrentThread?: boolean;
+  claimedByThreadId?: string;
+  displayName?: string;
+  name: string;
+  state: 'available' | 'claimed' | 'reserved';
+}
+export interface ProjectChatAgentName {
+  category: ProjectChatNameCategory;
+  displayName: string;
+  name: string;
+  parentThreadId?: string;
+}
+export interface ProjectChatNameListResult {
+  groups: Array<{ category: ProjectChatNameCategory; names: ProjectChatNameEntry[] }>;
+}
+export interface ProjectChatNameClaimRequest {
+  category: ProjectChatNameCategory;
+  name: string;
+  parentThreadId?: string;
+}
+export interface ProjectChatNameClaimResult {
+  claim: {
+    category: ProjectChatNameCategory;
+    displayName: string;
+    name: string;
+    parentThreadId?: string;
+    threadId: string;
+  };
+  member: ProjectChatMemberRecord;
+}
 
 export interface ProjectChatOriginRecord {
   hostId: string;
@@ -25,6 +58,7 @@ export interface ProjectChatChannelRecord {
 }
 
 export interface ProjectChatMemberRecord {
+  agentName?: ProjectChatAgentName;
   avatarUrl?: string;
   displayName: string;
   handle: string;
@@ -59,6 +93,7 @@ export interface ProjectChatProfileUpdateResult extends ProjectChatProfileResult
 }
 
 export interface ProjectChatSenderRecord {
+  agentName?: ProjectChatAgentName;
   displayName: string;
   handle: string;
   memberId: string;
@@ -158,6 +193,8 @@ export interface ProjectChatApiErrorPayload {
 }
 
 export interface ProjectChatClient {
+  listNames(): Promise<ProjectChatNameListResult>;
+  claimName(request: ProjectChatNameClaimRequest): Promise<ProjectChatNameClaimResult>;
   acknowledge(request: ProjectChatAcknowledgeRequest): Promise<ProjectChatAcknowledgeResult>;
   getProfile(): Promise<ProjectChatProfileResult>;
   join(request?: ProjectChatJoinRequest): Promise<ProjectChatJoinResult>;

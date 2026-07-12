@@ -45,7 +45,32 @@ func newDefaultChatCommandWithRuntime(dependencies chatRuntimeDependencies) *cob
 		},
 		ProfileStore: profileStoreOrError{store: profileStore, err: profileStoreErr},
 		Client:       client,
+		Registry:     client,
 	})
+}
+
+func (client *lazyProjectChatClient) ListNames(ctx context.Context, threadID string) (projectchat.NameCatalog, error) {
+	loaded, err := client.projectChatClient()
+	if err != nil {
+		return projectchat.NameCatalog{}, err
+	}
+	registry, ok := loaded.(projectchat.NameRegistryClient)
+	if !ok {
+		return projectchat.NameCatalog{}, projectchat.ErrUnavailable
+	}
+	return registry.ListNames(ctx, threadID)
+}
+
+func (client *lazyProjectChatClient) ClaimName(ctx context.Context, threadID, name string, category projectchat.NameCategory, parentThreadID string) (projectchat.NameClaim, error) {
+	loaded, err := client.projectChatClient()
+	if err != nil {
+		return projectchat.NameClaim{}, err
+	}
+	registry, ok := loaded.(projectchat.NameRegistryClient)
+	if !ok {
+		return projectchat.NameClaim{}, projectchat.ErrUnavailable
+	}
+	return registry.ClaimName(ctx, threadID, name, category, parentThreadID)
 }
 
 func normalizeChatRuntimeDependencies(dependencies chatRuntimeDependencies) chatRuntimeDependencies {

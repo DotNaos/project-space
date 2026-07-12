@@ -3,6 +3,7 @@ import type {
   ProjectChatHumanProfileRecord,
   ProjectChatMemberRecord,
   ProjectChatMessageRecord,
+  ProjectChatNameClaimRecord,
   ProjectChatPresenceRecord
 } from './contracts';
 
@@ -46,6 +47,10 @@ export interface ProjectChatHumanProfileState {
 }
 
 export interface ProjectChatRepository {
+  listNameClaims(spaceId: string): Promise<ProjectChatNameClaimRecord[]>;
+  findNameClaimByThread(spaceId: string, accountId: string, threadId: string): Promise<ProjectChatNameClaimRecord | null>;
+  claimName(claim: ProjectChatNameClaimRecord): Promise<ProjectChatNameClaimRecord>;
+  restoreNameClaim(current: ProjectChatNameClaimRecord, previous: ProjectChatNameClaimRecord | null): Promise<void>;
   ensureHumanProfileAndMember(
     profile: ProjectChatHumanProfileRecord,
     member: ProjectChatMemberRecord,
@@ -122,6 +127,13 @@ export class ProjectChatHandleConflictError extends Error {
   constructor() {
     super('The chat handle is already in use.');
     this.name = 'ProjectChatHandleConflictError';
+  }
+}
+
+export class ProjectChatNameClaimConflictError extends Error {
+  constructor(readonly reason: 'name_claimed' | 'thread_claimed') {
+    super(reason === 'name_claimed' ? 'The registry name is already claimed.' : 'This thread already has a registry name.');
+    this.name = 'ProjectChatNameClaimConflictError';
   }
 }
 

@@ -49,13 +49,15 @@ describe('database migrations', () => {
       '0008_machine_connections',
       '0009_project_chat_human_profiles',
       '0010_connector_machine_snapshots',
-      '0011_github_catalog_cache'
+      '0011_github_catalog_cache',
+      '0012_project_chat_name_registry'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
 
     expect(sql).toContain('create table if not exists github_oauth_tokens');
     expect(sql).toContain('create table if not exists machine_memberships');
+    expect(sql).toContain('create table project_chat_name_claims');
     expect(sql).toContain('create table if not exists user_project_run_settings');
     expect(sql).toContain('allowed_hosts text[]');
     expect(sql).toContain('foreign key (machine_id, user_id)');

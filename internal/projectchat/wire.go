@@ -44,6 +44,16 @@ type acknowledgementResponse struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+type nameClaimRequest struct {
+	Name           string       `json:"name"`
+	Category       NameCategory `json:"category"`
+	ParentThreadID string       `json:"parentThreadId,omitempty"`
+}
+
+type nameClaimResponse struct {
+	Claim NameClaim `json:"claim"`
+}
+
 type apiErrorEnvelope struct {
 	Error struct {
 		Code string `json:"code"`
@@ -54,6 +64,10 @@ func mapAPIError(statusCode int, body []byte) error {
 	envelope := apiErrorEnvelope{}
 	_ = json.Unmarshal(body, &envelope)
 	switch envelope.Error.Code {
+	case "name_conflict":
+		return ErrNameConflict
+	case "forbidden":
+		return ErrNameRoleForbidden
 	case "content_rejected":
 		return ErrContentRejected
 	case "not_member", "identity_not_registered", "member_not_found", "thread_not_registered":

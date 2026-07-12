@@ -3,12 +3,14 @@ import type {
   ProjectChatHumanProfileRecord,
   ProjectChatMemberRecord,
   ProjectChatMessageRecord,
+  ProjectChatNameClaimRecord,
   ProjectChatPresenceRecord
 } from './contracts';
 import {
   ProjectChatCursorOutOfRangeError,
   ProjectChatHandleConflictError,
   ProjectChatIdempotencyConflictError,
+  ProjectChatNameClaimConflictError,
   memberWithHumanProfile,
   type ProjectChatAppendInput,
   type ProjectChatHumanProfileUpdate,
@@ -22,6 +24,7 @@ interface IdempotencyRecord {
 }
 
 export interface ProjectChatMemorySnapshot {
+  nameClaims?: ProjectChatNameClaimRecord[];
   channels: ProjectChatChannelRecord[];
   humanProfiles?: ProjectChatHumanProfileRecord[];
   members: ProjectChatMemberRecord[];
@@ -49,6 +52,7 @@ function memberKey(spaceId: string, memberId: string) {
 }
 
 export class InMemoryProjectChatRepository implements ProjectChatRepository {
+  private readonly nameClaims = new Map<string, ProjectChatNameClaimRecord>();
   private readonly channels = new Map<string, ProjectChatChannelRecord>();
   private readonly humanProfiles = new Map<string, ProjectChatHumanProfileRecord>();
   private readonly membersById = new Map<string, ProjectChatMemberRecord>();
@@ -66,6 +70,7 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
     if (!snapshot) {
       return;
     }
+    for (const claim of snapshot.nameClaims ?? []) this.nameClaims.set(compoundKey(claim.spaceId, claim.nameKey), copy(claim));
     for (const channel of snapshot.channels) {
       this.channels.set(channelKey(channel.spaceId, channel.channelId), copy(channel));
     }
@@ -103,6 +108,7 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
   async snapshot(): Promise<ProjectChatMemorySnapshot> {
     return this.exclusive(() => ({
       channels: [...this.channels.values()].map(copy),
+      nameClaims: [...this.nameClaims.values()].map(copy),
       humanProfiles: [...this.humanProfiles.values()].map(copy),
       members: [...this.membersById.values()].map(copy),
       presences: [...this.presences.values()].map(copy),
@@ -111,6 +117,43 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
       cursors: [...this.cursors.entries()],
       idempotency: [...this.idempotency.entries()].map(([key, value]) => [key, copy(value)])
     }));
+  }
+
+  async listNameClaims(spaceId: string) {
+    return [...this.nameClaims.values()].filter((c) => c.spaceId === spaceId).map(copy);
+  }
+
+  async findNameClaimByThread(spaceId: string, accountId: string, threadId: string) {
+    return copy([...this.nameClaims.values()].find((c) => c.spaceId === spaceId && c.accountId === accountId && c.threadId === threadId) ?? null);
+  }
+
+  async claimName(claim: ProjectChatNameClaimRecord) {
+    return this.exclusive(() => {
+      const existingThread = [...this.nameClaims.values()].find((c) => c.spaceId === claim.spaceId && c.accountId === claim.accountId && c.threadId === claim.threadId);
+      if (existingThread) {
+        if (existingThread.nameKey === claim.nameKey) return copy(existingThread);
+        const targetKey = compoundKey(claim.spaceId, claim.nameKey);
+        if (this.nameClaims.has(targetKey)) throw new ProjectChatNameClaimConflictError('name_claimed');
+        this.nameClaims.delete(compoundKey(existingThread.spaceId, existingThread.nameKey));
+        const renamed = {...claim, claimedAt:existingThread.claimedAt};
+        this.nameClaims.set(targetKey, copy(renamed));
+        return copy(renamed);
+      }
+      const key = compoundKey(claim.spaceId, claim.nameKey);
+      if (this.nameClaims.has(key)) throw new ProjectChatNameClaimConflictError('name_claimed');
+      this.nameClaims.set(key, copy(claim));
+      return copy(claim);
+    });
+  }
+
+  async restoreNameClaim(current: ProjectChatNameClaimRecord, previous: ProjectChatNameClaimRecord | null) {
+    return this.exclusive(() => {
+      const key=compoundKey(current.spaceId,current.nameKey);
+      const stored=this.nameClaims.get(key);
+      if (!stored || stored.accountId!==current.accountId || stored.threadId!==current.threadId || stored.updatedAt!==current.updatedAt) return;
+      this.nameClaims.delete(key);
+      if (previous) this.nameClaims.set(compoundKey(previous.spaceId,previous.nameKey),copy(previous));
+    });
   }
 
   async ensureHumanProfile(

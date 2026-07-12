@@ -20,6 +20,19 @@ const (
 	legacyChatConnectorTokenFileEnvironment = "PROJECT_CONNECTOR_REGISTRATION_TOKEN_FILE"
 )
 
+func claimedChatRuntimeProfileStore() (projectchat.AgentProfileStore, error) {
+	return fixedAgentProfileStore{profile: projectchat.AgentProfile{
+		DisplayName: "Mira", Category: projectchat.NameCategoryMythology, RegistryClaim: true,
+	}}, nil
+}
+
+type fixedAgentProfileStore struct{ profile projectchat.AgentProfile }
+
+func (store fixedAgentProfileStore) Load(string) (projectchat.AgentProfile, error) {
+	return store.profile, nil
+}
+func (fixedAgentProfileStore) Save(string, projectchat.AgentProfile) error { return nil }
+
 func TestDefaultChatCommandLoadsMachineCredentialLazily(t *testing.T) {
 	var environmentLookups int
 	var storeCreations int
@@ -73,6 +86,7 @@ func TestChatRuntimeUsesMachineCredentialSnapshotAndEnvironmentIdentity(t *testi
 			"CODEX_AGENT_NAME": "Mira",
 			"CODEX_TASK_TITLE": "Project Chat Identity",
 		}),
+		NewProfileStore: claimedChatRuntimeProfileStore,
 		NewCredentialStore: func() (machineconnect.CredentialStore, error) {
 			storeCreations++
 			return store, nil
@@ -155,6 +169,7 @@ func TestChatRuntimeIgnoresLegacyConnectorEnvironment(t *testing.T) {
 	var captured projectchat.Config
 	command := newDefaultChatCommandWithRuntime(chatRuntimeDependencies{
 		LookupEnv:          lookupEnvironment,
+		NewProfileStore:    claimedChatRuntimeProfileStore,
 		NewCredentialStore: func() (machineconnect.CredentialStore, error) { return store, nil },
 		NewClient: func(config projectchat.Config) (projectchat.ClientAPI, error) {
 			captured = config
@@ -197,6 +212,7 @@ func TestChatRuntimeDoesNotFallbackToLegacySharedToken(t *testing.T) {
 			legacyChatConnectorTokenEnvironment:     "valid-legacy-shared-token",
 			legacyChatConnectorTokenFileEnvironment: "/tmp/valid-legacy-connector.token",
 		}),
+		NewProfileStore:    claimedChatRuntimeProfileStore,
 		NewCredentialStore: func() (machineconnect.CredentialStore, error) { return store, nil },
 		NewClient: func(projectchat.Config) (projectchat.ClientAPI, error) {
 			clientCreations++
@@ -259,6 +275,7 @@ func TestChatRuntimeCredentialErrorsDoNotLeak(t *testing.T) {
 					"CODEX_AGENT_NAME":                  "Mira",
 					legacyChatConnectorTokenEnvironment: secret,
 				}),
+				NewProfileStore:    claimedChatRuntimeProfileStore,
 				NewCredentialStore: test.newStore,
 			})
 			command.SetArgs([]string{"send", "hello"})
@@ -291,7 +308,7 @@ func TestDefaultChatCommandValidatesEnvironmentIdentityBeforeLoadingCredential(t
 		{
 			name:    "missing agent name",
 			env:     map[string]string{"CODEX_THREAD_ID": chatTestThreadID},
-			wantErr: projectchat.ErrMissingAgentName,
+			wantErr: projectchat.ErrNameClaimRequired,
 		},
 	}
 	for _, test := range tests {
@@ -333,6 +350,7 @@ func TestChatRuntimeEndToEndAgainstProjectChatServer(t *testing.T) {
 			"CODEX_AGENT_NAME": "Mira",
 			"CODEX_TASK_TITLE": "Project Chat identity E2E",
 		}),
+		NewProfileStore: claimedChatRuntimeProfileStore,
 		NewCredentialStore: func() (machineconnect.CredentialStore, error) {
 			return &chatRuntimeCredentialStore{credential: machineconnect.Credential{
 				BackendURL:  credential.BackendURL,

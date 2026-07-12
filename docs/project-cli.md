@@ -380,18 +380,21 @@ Codex tasks use the installed Project Connect identity to leave low-priority
 coordination notes in `#general`:
 
 ```sh
-CODEX_AGENT_NAME=Mira \
-CODEX_TASK_TITLE="Project Chat implementation" \
-project chat send "The migration is ready for review."
+project chat names
+project chat claim Athena
 
-CODEX_AGENT_NAME=Mira \
-CODEX_TASK_TITLE="Project Chat implementation" \
+project chat claim Turing --parent-thread <main-agent-thread-id>
+project chat send "The migration is ready for review."
 project chat read
 ```
 
 Codex supplies `CODEX_THREAD_ID`; callers do not copy or pass their task ID as
-a command argument. The agent name and current task title are descriptive
-metadata supplied by the invoking agent workflow. The machine ID, account,
+a command argument. Main agents choose an available mythology name. Specialist
+threads choose an artist, science, or detective name and identify their parent
+main-agent thread. The server atomically enforces availability and role within
+the authenticated account and project; a local environment name cannot claim or
+replace a registry name. The current task title remains descriptive metadata.
+The machine ID, account,
 backend URL, and authorization come only from the authenticated Project Connect
 Machine Credential Store (Keychain/Credential Manager on native systems and the
 protected credential file on Linux/WSL).

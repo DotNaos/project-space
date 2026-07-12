@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { Hash, PanelRight, X } from 'lucide-react';
+import { Hash, PanelRight, Tags, X } from 'lucide-react';
 import { Button, Text } from '@/app/dotnaos-ui';
 import type {
   ProjectChatChannelRecord,
@@ -18,6 +18,12 @@ import {
 import { ProjectChatComposer } from './project-chat-composer';
 import { ProjectChatFeed, type ProjectChatConnectionState } from './project-chat-feed';
 import { ProjectChatProfileDrawer } from './project-chat-profile-drawer';
+import {
+  ProjectChatNameRegistry,
+  type ProjectChatNameRegistryEntry,
+  type ProjectChatNameParentThread
+} from './project-chat-name-registry';
+import type { ProjectChatAgentAvatarCategory } from '../project-chat-agent-avatar';
 import {
   ProjectChatInspector,
   type ProjectChatInspectorTab
@@ -39,8 +45,12 @@ export interface ProjectChatPageProps {
   onRetry?(): void;
   onRetryMention?(): void;
   onSend(body: string): Promise<void> | void;
+  onClaimAgentName?(entry: ProjectChatNameRegistryEntry, parentThreadId?: string): Promise<void>;
   onUpdateProfile?(request: ProjectChatProfileUpdateRequest): Promise<ProjectChatProfileUpdateResult>;
   profile?: ProjectChatHumanProfileRecord;
+  registryAllowedCategory?: ProjectChatAgentAvatarCategory;
+  registryEntries?: ProjectChatNameRegistryEntry[];
+  registryParentThreads?: ProjectChatNameParentThread[];
   unreadMentionCount?: number;
   viewer?: ProjectChatMemberRecord;
 }
@@ -55,12 +65,16 @@ export function ProjectChatPage({
   messages,
   now = new Date(),
   onAcknowledgeMention,
+  onClaimAgentName,
   onOpenThread,
   onRetry,
   onRetryMention,
   onSend,
   onUpdateProfile,
   profile,
+  registryAllowedCategory,
+  registryEntries = [],
+  registryParentThreads = [],
   unreadMentionCount = 0,
   viewer
 }: ProjectChatPageProps) {
@@ -69,6 +83,7 @@ export function ProjectChatPage({
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [compactDetailsOpen, setCompactDetailsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [registryOpen, setRegistryOpen] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const initialThread = threads[0];
   const [selectedMemberId, setSelectedMemberId] = useState<string | undefined>(
@@ -256,7 +271,7 @@ export function ProjectChatPage({
 
   return (
     <div className="relative grid h-full min-h-0 grid-cols-[176px_minmax(0,1fr)] overflow-hidden bg-[#080808] text-neutral-100 max-[719px]:grid-cols-[minmax(0,1fr)] min-[1100px]:grid-cols-[176px_minmax(0,1fr)_236px] min-[1360px]:grid-cols-[176px_minmax(0,1fr)_236px_278px]">
-      <div className="contents" inert={inspectorOpen || profileOpen || undefined}>
+      <div className="contents" inert={inspectorOpen || profileOpen || registryOpen || undefined}>
         <ProjectChatSidebar
           messageCount={messages.length}
           now={now}
@@ -291,6 +306,22 @@ export function ProjectChatPage({
             >
               <PanelRight className="size-4" />
             </Button>
+            {registryEntries.length > 0 ? (
+              <Button
+                aria-label="Open agent name registry"
+                className="size-8 min-h-0"
+                isIconOnly
+                onPress={() => {
+                  closeInspector();
+                  setProfileOpen(false);
+                  setRegistryOpen(true);
+                }}
+                size="sm"
+                variant="ghost"
+              >
+                <Tags className="size-4" />
+              </Button>
+            ) : null}
           </div>
         </header>
 
@@ -380,6 +411,14 @@ export function ProjectChatPage({
           profile={profile}
         />
       ) : null}
+      <ProjectChatNameRegistry
+        allowedCategory={registryAllowedCategory}
+        entries={registryEntries}
+        onClaim={onClaimAgentName}
+        onClose={() => setRegistryOpen(false)}
+        open={registryOpen}
+        parentThreads={registryParentThreads}
+      />
     </div>
   );
 }

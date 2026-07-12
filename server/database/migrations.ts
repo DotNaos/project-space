@@ -402,6 +402,29 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
       create index if not exists github_catalog_cache_retention_idx
         on github_catalog_cache (updated_at);
     `
+  },
+  {
+    id: '0012_project_chat_name_registry',
+    sql: `
+      create table project_chat_name_claims (
+        space_id text not null check (btrim(space_id) <> ''),
+        account_id text not null check (btrim(account_id) <> ''),
+        thread_id text not null check (btrim(thread_id) <> ''),
+        actor_key text not null check (btrim(actor_key) <> ''),
+        name_key text not null check (btrim(name_key) <> ''),
+        display_name text not null check (btrim(display_name) <> ''),
+        category text not null check (category in ('mythology','artist','science','detective')),
+        parent_thread_id text,
+        claimed_at timestamptz not null,
+        updated_at timestamptz not null check (updated_at >= claimed_at),
+        primary key (space_id, name_key),
+        unique (space_id, account_id, thread_id),
+        check ((category = 'mythology' and parent_thread_id is null) or
+               (category <> 'mythology' and parent_thread_id is not null and btrim(parent_thread_id) <> ''))
+      );
+      alter table project_chat_members add column agent_name jsonb
+        check (agent_name is null or jsonb_typeof(agent_name) = 'object');
+    `
   }
 ];
 

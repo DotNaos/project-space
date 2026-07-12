@@ -73,6 +73,7 @@ export function publicProjectChatMember(
     handle: member.handle,
     ...(member.avatarUrl ? { avatarUrl: member.avatarUrl } : {}),
     role: member.role,
+    agentName: member.agentName ? structuredClone(member.agentName) : undefined,
     origin: member.origin ? structuredClone(member.origin) : undefined,
     presence: presence
       ? {

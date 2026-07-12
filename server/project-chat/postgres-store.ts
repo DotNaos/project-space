@@ -1,7 +1,8 @@
 import type { DatabaseQueryClient } from '../database/client';
 import type {
   ProjectChatChannelRecord, ProjectChatHumanProfileRecord, ProjectChatMemberRecord, ProjectChatMessageRecord,
-  ProjectChatOrigin, ProjectChatPresenceRecord, ProjectChatSender, ProjectChatMention
+  ProjectChatOrigin, ProjectChatPresenceRecord, ProjectChatSender, ProjectChatMention,
+  ProjectChatNameClaimRecord
 } from './contracts';
 import {
   ProjectChatCursorOutOfRangeError,
@@ -17,6 +18,7 @@ import {
   findPostgresHumanProfile,
   updatePostgresHumanProfile
 } from './postgres-human-profile';
+import { claimPostgresName, findPostgresNameClaim, listPostgresNameClaims, restorePostgresNameClaim } from './postgres-name-registry';
 
 interface ChannelRow {
   channel_id: string; created_at: Date | string; last_sequence: number | string;
@@ -29,6 +31,7 @@ interface MemberRow {
   origin: ProjectChatOrigin | string | null;
   profile_revision: number | string | null;
   role: ProjectChatMemberRecord['role']; space_id: string; updated_at: Date | string;
+  agent_name: ProjectChatMemberRecord['agentName'] | string | null;
 }
 
 interface PresenceRow {
@@ -54,6 +57,7 @@ interface DatabaseError {
   code?: unknown;
   constraint?: unknown;
 }
+
 
 const handleConstraintName = 'project_chat_members_space_handle_unique';
 const idempotencyConstraintName = 'project_chat_idempotency_identity_unique';
@@ -97,6 +101,7 @@ function mapMember(row: MemberRow): ProjectChatMemberRecord {
     origin: row.origin === null ? undefined : jsonValue(row.origin),
     profileRevision: optionalPositiveInteger(row.profile_revision, 'profile_revision'),
     role: row.role,
+    agentName: row.agent_name === null ? undefined : jsonValue(row.agent_name),
     spaceId: row.space_id,
     updatedAt: toIsoString(row.updated_at)
   };
@@ -155,6 +160,22 @@ async function runTransaction<Result>(
 
 export class PostgresProjectChatRepository implements ProjectChatRepository {
   constructor(private readonly client: DatabaseQueryClient) {}
+
+  async listNameClaims(spaceId: string) {
+    return listPostgresNameClaims(this.client, spaceId);
+  }
+
+  async findNameClaimByThread(spaceId: string, accountId: string, threadId: string) {
+    return findPostgresNameClaim(this.client, spaceId, accountId, threadId);
+  }
+
+  async claimName(claim: ProjectChatNameClaimRecord) {
+    return claimPostgresName(this.client, claim);
+  }
+
+  async restoreNameClaim(current: ProjectChatNameClaimRecord, previous: ProjectChatNameClaimRecord | null) {
+    return restorePostgresNameClaim(this.client, current, previous);
+  }
 
   async ensureHumanProfile(
     profile: ProjectChatHumanProfileRecord,
@@ -260,7 +281,7 @@ export class PostgresProjectChatRepository implements ProjectChatRepository {
               updated_at = $6
         where space_id = $1 and actor_key = $2 and role = 'human'
         returning space_id, actor_key, member_id, display_name, handle, avatar_url, role,
-                  origin, profile_revision, joined_at, updated_at`,
+                  origin, profile_revision, joined_at, updated_at, agent_name`,
       [
         member.spaceId,
         member.actorKey,
@@ -286,8 +307,8 @@ export class PostgresProjectChatRepository implements ProjectChatRepository {
       const result = await this.client.query<MemberRow>(
         `insert into project_chat_members (
            space_id, actor_key, member_id, display_name, handle, avatar_url, role, origin,
-           profile_revision, joined_at, updated_at
-         ) values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)
+           profile_revision, joined_at, updated_at, agent_name
+         ) values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12)
          on conflict (space_id, actor_key) do update set
            display_name = excluded.display_name,
            handle = excluded.handle,
@@ -296,11 +317,12 @@ export class PostgresProjectChatRepository implements ProjectChatRepository {
            origin = excluded.origin,
            profile_revision = excluded.profile_revision,
            updated_at = excluded.updated_at
+          ,agent_name = excluded.agent_name
          where excluded.role <> 'human'
             or project_chat_members.profile_revision is null
             or excluded.profile_revision >= project_chat_members.profile_revision
          returning space_id, actor_key, member_id, display_name, handle, avatar_url, role,
-                   origin, profile_revision, joined_at, updated_at`,
+                   origin, profile_revision, joined_at, updated_at, agent_name`,
         [
           member.spaceId,
           member.actorKey,
@@ -313,6 +335,7 @@ export class PostgresProjectChatRepository implements ProjectChatRepository {
           member.profileRevision ?? null,
           member.joinedAt,
           member.updatedAt
+          ,member.agentName ? JSON.stringify(member.agentName) : null
         ]
       );
       if (result.rows[0]) {
@@ -593,7 +616,7 @@ export class PostgresProjectChatRepository implements ProjectChatRepository {
 }
 
 const memberSelect = `select space_id, actor_key, member_id, display_name, handle,
-                             avatar_url, role, origin, profile_revision, joined_at, updated_at
+                             avatar_url, role, origin, profile_revision, joined_at, updated_at, agent_name
                         from project_chat_members`;
 const presenceSelect = `select space_id, member_id, state, last_seen_at, expires_at
                           from project_chat_presences`;
