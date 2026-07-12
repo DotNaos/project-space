@@ -43,7 +43,7 @@ export function publicProjectChatChannel(
 ) {
   return {
     channelId: record.channelId,
-    displayName: record.name,
+    displayName: record.kind === 'general' ? 'General' : record.name,
     description: record.kind === 'general'
       ? 'Human and agent coordination'
       : 'Project communication across machines and workspaces',
