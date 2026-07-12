@@ -5,6 +5,7 @@ import {
   type ProjectChatMemberRecord,
   type ProjectChatMessage,
   type ProjectChatMessageRecord,
+  type ProjectChatProject,
   type ProjectChatPresenceRecord
 } from './contracts';
 import {
@@ -36,12 +37,23 @@ export function resolveProjectChatMentions(
   return mentions;
 }
 
-export function publicProjectChatChannel(record: ProjectChatChannelRecord) {
+export function publicProjectChatChannel(
+  record: ProjectChatChannelRecord,
+  project?: ProjectChatProject
+) {
   return {
     channelId: record.channelId,
     displayName: record.name,
-    description: 'Human and agent coordination',
-    createdAt: record.createdAt
+    description: record.kind === 'general'
+      ? 'Human and agent coordination'
+      : 'Project communication across machines and workspaces',
+    createdAt: record.createdAt,
+    ...(project ? { groupLabel: project.groupLabel } : {}),
+    ...(project?.navigationProjectId
+      ? { navigationProjectId: project.navigationProjectId }
+      : {}),
+    kind: record.kind,
+    ...(record.projectId ? { projectId: record.projectId } : {})
   };
 }
 

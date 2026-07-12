@@ -425,6 +425,31 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
       alter table project_chat_members add column agent_name jsonb
         check (agent_name is null or jsonb_typeof(agent_name) = 'object');
     `
+  },
+  {
+    id: '0013_project_chat_project_channels',
+    sql: `
+      alter table project_chat_channels
+        add column kind text not null default 'general',
+        add column account_id text,
+        add column project_id text;
+
+      alter table project_chat_channels
+        alter column kind drop default,
+        add constraint project_chat_channels_kind_valid
+          check (kind in ('general', 'project')),
+        add constraint project_chat_channels_scope_consistent
+          check (
+            (kind = 'general' and channel_id = 'general' and account_id is null and project_id is null) or
+            (kind = 'project' and channel_id <> 'general' and
+             account_id is not null and project_id is not null and
+             btrim(account_id) <> '' and btrim(project_id) <> '')
+          );
+
+      create unique index project_chat_channels_project_unique
+        on project_chat_channels (space_id, account_id, project_id)
+        where kind = 'project';
+    `
   }
 ];
 

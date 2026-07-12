@@ -3,6 +3,7 @@ import {
   type ProjectChatAcknowledgeRequest,
   type ProjectChatAcknowledgeResult,
   type ProjectChatApiErrorPayload,
+  type ProjectChatChannelListResult,
   type ProjectChatClient,
   type ProjectChatJoinRequest,
   type ProjectChatJoinResult,
@@ -157,6 +158,9 @@ export function createProjectChatClient(options: ProjectChatClientOptions): Proj
 
   return {
     listNames() { return request<ProjectChatNameListResult>('/api/project-chat/names'); },
+    listChannels() {
+      return request<ProjectChatChannelListResult>('/api/project-chat/channels');
+    },
     claimName(value: ProjectChatNameClaimRequest) { return request<ProjectChatNameClaimResult>('/api/project-chat/name-claims', { body: JSON.stringify(value), method: 'POST' }); },
     acknowledge(value: ProjectChatAcknowledgeRequest) {
       return request<ProjectChatAcknowledgeResult>('/api/project-chat/ack', {
@@ -173,8 +177,11 @@ export function createProjectChatClient(options: ProjectChatClientOptions): Proj
         method: 'POST'
       });
     },
-    listMembers() {
-      return request<ProjectChatMemberListResult>('/api/project-chat/members');
+    listMembers(value: ProjectChatReadRequest = {}) {
+      const query = new URLSearchParams({
+        channelId: value.channelId ?? PROJECT_CHAT_GENERAL_CHANNEL_ID
+      });
+      return request<ProjectChatMemberListResult>(`/api/project-chat/members?${query}`);
     },
     listMentions(value: ProjectChatMentionListRequest = {}) {
       const query = new URLSearchParams({

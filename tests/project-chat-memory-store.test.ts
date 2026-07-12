@@ -59,12 +59,52 @@ function message(
 
 async function readyStore() {
   const store = new InMemoryProjectChatRepository();
-  await store.ensureChannel({ spaceId, channelId, name: 'General', createdAt });
+  await store.ensureChannel({
+    spaceId,
+    channelId,
+    kind: 'general',
+    name: 'General',
+    createdAt
+  });
   await store.upsertMember(member());
   return store;
 }
 
 describe('in-memory Project Chat repository', () => {
+  test('keeps one project channel across repeated ensures, rename, and snapshot restore', async () => {
+    const store = new InMemoryProjectChatRepository();
+    const first = await store.ensureChannel({
+      accountId: 'account-1',
+      channelId: 'channel-project-a',
+      createdAt,
+      kind: 'project',
+      name: 'Original name',
+      projectId: 'project-a',
+      spaceId
+    });
+    const renamed = await store.ensureChannel({
+      accountId: 'account-1',
+      channelId: 'channel-project-a-race',
+      createdAt,
+      kind: 'project',
+      name: 'Renamed project',
+      projectId: 'project-a',
+      spaceId
+    });
+    expect(renamed).toMatchObject({
+      channelId: first.channelId,
+      name: 'Renamed project',
+      projectId: 'project-a'
+    });
+
+    const restored = new InMemoryProjectChatRepository(await store.snapshot());
+    expect(await restored.findChannel(spaceId, first.channelId)).toMatchObject({
+      channelId: first.channelId,
+      name: 'Renamed project',
+      projectId: 'project-a'
+    });
+  });
+
   test('serializes 100 concurrent appends into one monotonic channel sequence', async () => {
     const store = await readyStore();
     const writes = await Promise.all(Array.from({ length: 100 }, (_, index) =>

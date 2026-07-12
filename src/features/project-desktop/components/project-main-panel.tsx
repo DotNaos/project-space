@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo } from 'react';
 import { createProjectChatClient } from '@/api/project-chat-client';
 import { refreshProjectSpaceAuthToken } from '@/api/project-space-client';
 import { ProjectChatWorkspace } from '@/features/project-chat/project-chat-workspace';
+import { projectChatProjectId } from '@/shared/project-chat-project';
 import type {
   MachineDetailTab,
   ProjectDetailTab,
@@ -154,6 +155,7 @@ function tabNeedsRepository(tab: ProjectDetailTab) {
     tab === 'issues' ||
     tab === 'machines' ||
     tab === 'workspaces' ||
+    tab === 'chat' ||
     tab === 'history' ||
     tab === 'deployments'
   );
@@ -260,13 +262,19 @@ export function ProjectMainPanel({
     () => resolveProjectRepository(project, githubCatalog),
     [githubCatalog, project]
   );
-
+  const selectedChatRepository = useMemo(() => (
+    project?.github
+      ? githubCatalog.repositories.find(
+          (repository) => repository.fullName.toLowerCase() === project.github!.fullName.toLowerCase()
+        ) ?? selectedRepository
+      : selectedRepository
+  ), [githubCatalog.repositories, project, selectedRepository]);
   useEffect(() => {
     if (
       mainView !== 'project' ||
       !project ||
-      project.github ||
-      selectedRepository ||
+      (project.github && projectTab !== 'chat') ||
+      (selectedRepository && projectTab !== 'chat') ||
       !tabNeedsRepository(projectTab) ||
       isGitHubRefreshing ||
       githubCatalog.checkedAt ||
@@ -402,7 +410,7 @@ export function ProjectMainPanel({
     mainView === 'project' &&
     project &&
     project.kind !== 'github' &&
-    (projectTab === 'history' || projectTab === 'issues');
+    (projectTab === 'history' || projectTab === 'issues' || projectTab === 'chat');
 
   if (mainView === 'chat') {
     return (
@@ -413,7 +421,10 @@ export function ProjectMainPanel({
           hasBottomTabBar && 'pb-[calc(6.75rem+env(safe-area-inset-bottom))]'
         )}
       >
-        <ProjectChatWorkspace client={projectChatClient} />
+        <ProjectChatWorkspace
+          client={projectChatClient}
+          recentProjectIds={recentProjectIds}
+        />
       </Surface>
     );
   }
@@ -436,7 +447,9 @@ export function ProjectMainPanel({
         )}
         style={{
           paddingBottom: containsOwnScroll
-            ? '0.5rem'
+            ? hasBottomTabBar
+              ? 'calc(6.75rem + env(safe-area-inset-bottom))'
+              : '0.5rem'
             : hasBottomTabBar
               ? 'calc(6.75rem + env(safe-area-inset-bottom))'
               : '2rem'
@@ -490,6 +503,13 @@ export function ProjectMainPanel({
           />
         ) : project ? (
           <ProjectDetail
+            chat={(
+              <ProjectChatWorkspace
+                client={projectChatClient}
+                fixedProjectId={projectChatProjectId(project, selectedChatRepository)}
+                showChannelNavigation={false}
+              />
+            )}
             connectorOverview={connectorOverview}
             launcherError={launcherError}
             onOpenMachine={onOpenMachine}

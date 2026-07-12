@@ -21,6 +21,8 @@ import { InMemoryProjectChatRepository } from './memory-store';
 import type { ProjectChatRepository } from './repository';
 import { ProjectChatRetentionWorker } from './retention-worker';
 import { ProjectChatService } from './service';
+import { createProjectChatProjectProvider } from './project-catalog';
+import type { ProjectSpaceBackend } from '../../src/shared/project-space-api';
 
 type MaybePromise<Value> = Value | Promise<Value>;
 
@@ -39,6 +41,7 @@ export interface ProjectChatRuntimeOptions {
     machineId: string;
     token: string;
   }): MaybePromise<ProjectChatAuthenticatedMachine | null>;
+  backend?: Pick<ProjectSpaceBackend, 'getConnectorOverview' | 'getGitHubCatalog' | 'loadProjectDiscovery'>;
   authRequired?: () => boolean;
   databaseConfigured?: () => boolean;
   getPersistentRepository?: () => Promise<ProjectChatRepository>;
@@ -64,7 +67,12 @@ export async function createProjectChatRuntime(
       ? await (options.getPersistentRepository ?? getProjectChatRepository)()
       : new InMemoryProjectChatRepository()
   );
-  const service = new ProjectChatService({ repository });
+  const service = new ProjectChatService({
+    repository,
+    ...(options.backend
+      ? { listProjects: createProjectChatProjectProvider({ backend: options.backend, authRequired }) }
+      : {})
+  });
   const retention = new ProjectChatRetentionWorker(service, {
     onError: options.onRetentionError ?? (() => {
       console.warn('Project Chat retention cleanup failed.');

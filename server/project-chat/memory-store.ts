@@ -47,6 +47,10 @@ function channelKey(spaceId: string, channelId: string) {
   return compoundKey(spaceId, channelId);
 }
 
+function projectChannelKey(spaceId: string, accountId: string, projectId: string) {
+  return compoundKey(spaceId, accountId, projectId);
+}
+
 function memberKey(spaceId: string, memberId: string) {
   return compoundKey(spaceId, memberId);
 }
@@ -54,6 +58,7 @@ function memberKey(spaceId: string, memberId: string) {
 export class InMemoryProjectChatRepository implements ProjectChatRepository {
   private readonly nameClaims = new Map<string, ProjectChatNameClaimRecord>();
   private readonly channels = new Map<string, ProjectChatChannelRecord>();
+  private readonly channelIdByProject = new Map<string, string>();
   private readonly humanProfiles = new Map<string, ProjectChatHumanProfileRecord>();
   private readonly membersById = new Map<string, ProjectChatMemberRecord>();
   private readonly memberIdByActor = new Map<string, string>();
@@ -72,7 +77,14 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
     }
     for (const claim of snapshot.nameClaims ?? []) this.nameClaims.set(compoundKey(claim.spaceId, claim.nameKey), copy(claim));
     for (const channel of snapshot.channels) {
-      this.channels.set(channelKey(channel.spaceId, channel.channelId), copy(channel));
+      const restored = copy(channel);
+      this.channels.set(channelKey(channel.spaceId, channel.channelId), restored);
+      if (restored.kind === 'project' && restored.accountId && restored.projectId) {
+        this.channelIdByProject.set(
+          projectChannelKey(restored.spaceId, restored.accountId, restored.projectId),
+          restored.channelId
+        );
+      }
     }
     for (const profile of snapshot.humanProfiles ?? []) {
       this.humanProfiles.set(compoundKey(profile.spaceId, profile.accountId), copy({
@@ -253,14 +265,36 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
 
   async ensureChannel(channel: ProjectChatChannelRecord) {
     return this.exclusive(() => {
+      if (channel.kind === 'project' && channel.accountId && channel.projectId) {
+        const projectKey = projectChannelKey(channel.spaceId, channel.accountId, channel.projectId);
+        const existingChannelId = this.channelIdByProject.get(projectKey);
+        const existingProjectChannel = existingChannelId
+          ? this.channels.get(channelKey(channel.spaceId, existingChannelId))
+          : undefined;
+        if (existingProjectChannel) {
+          const updated = { ...existingProjectChannel, name: channel.name };
+          this.channels.set(channelKey(updated.spaceId, updated.channelId), updated);
+          return copy(updated);
+        }
+        this.channelIdByProject.set(projectKey, channel.channelId);
+      }
       const key = channelKey(channel.spaceId, channel.channelId);
       const existing = this.channels.get(key);
       if (existing) {
-        return copy(existing);
+        const updated = { ...existing, name: channel.name };
+        this.channels.set(key, updated);
+        return copy(updated);
       }
       this.channels.set(key, copy(channel));
       this.channelSequences.set(key, this.channelSequences.get(key) ?? 0);
       return copy(channel);
+    });
+  }
+
+  async findChannel(spaceId: string, channelId: string) {
+    return this.exclusive(() => {
+      const channel = this.channels.get(channelKey(spaceId, channelId));
+      return channel ? copy(channel) : null;
     });
   }
 

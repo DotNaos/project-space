@@ -324,10 +324,13 @@ describe('PostgresProjectChatRepository', () => {
     };
     const client = new RecordingClient([
       rows([{
+        account_id: null,
         channel_id: 'general',
         created_at: createdAt,
+        kind: 'general',
         last_sequence: 0,
         name: 'General',
+        project_id: null,
         space_id: 'space-a'
       }]),
       rows([memberRow()]),
@@ -344,15 +347,62 @@ describe('PostgresProjectChatRepository', () => {
     await expect(repository.ensureChannel({
       channelId: 'general',
       createdAt,
+      kind: 'general',
       name: 'General',
       spaceId: 'space-a'
-    })).resolves.toEqual({ channelId: 'general', createdAt, name: 'General', spaceId: 'space-a' });
+    })).resolves.toEqual({
+      channelId: 'general',
+      createdAt,
+      kind: 'general',
+      name: 'General',
+      spaceId: 'space-a'
+    });
     await expect(repository.upsertMember(member)).resolves.toEqual(member);
     await expect(repository.setPresence(presence)).resolves.toEqual(presence);
 
     expect(client.calls[1]?.sql).toContain('$8::jsonb');
     expect(client.calls[1]?.values[7]).toBe(JSON.stringify(member.origin));
     expect(client.calls.every((call) => !call.sql.includes(member.displayName))).toBe(true);
+  });
+
+  test('upserts project channels by stable project identity and reads them by opaque channel id', async () => {
+    const row = {
+      account_id: 'account-1',
+      channel_id: 'channel-opaque',
+      created_at: createdAt,
+      kind: 'project',
+      last_sequence: 0,
+      name: 'Renamed project',
+      project_id: 'github:123',
+      space_id: 'space-a'
+    };
+    const client = new RecordingClient([rows([row]), rows([row])]);
+    const repository = new PostgresProjectChatRepository(client);
+
+    await expect(repository.ensureChannel({
+      accountId: 'account-1',
+      channelId: 'channel-racing-id',
+      createdAt,
+      kind: 'project',
+      name: 'Renamed project',
+      projectId: 'github:123',
+      spaceId: 'space-a'
+    })).resolves.toMatchObject({
+      channelId: 'channel-opaque',
+      name: 'Renamed project',
+      projectId: 'github:123'
+    });
+    await expect(repository.findChannel('space-a', 'channel-opaque')).resolves.toMatchObject({
+      accountId: 'account-1',
+      channelId: 'channel-opaque',
+      kind: 'project',
+      name: 'Renamed project',
+      projectId: 'github:123',
+      spaceId: 'space-a'
+    });
+    expect(client.calls[0]?.sql).toContain("on conflict (space_id, account_id, project_id) where kind = 'project'");
+    expect(client.calls[0]?.values).toContain('github:123');
+    expect(client.calls[1]?.sql).toContain('where space_id = $1 and channel_id = $2');
   });
 
   test('returns the newer human member when a stale profile revision loses the upsert', async () => {

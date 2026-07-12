@@ -60,7 +60,16 @@ export interface ProjectChatContext {
 export interface ProjectChatJoinInput {
   /** Required for agents; ignored authority never comes from this input. */
   displayName?: string;
+  /** Stable server-issued project identity. Omit for General. */
+  projectId?: string;
   taskTitle?: string;
+}
+
+export interface ProjectChatProject {
+  projectId: string;
+  displayName: string;
+  groupLabel: string;
+  navigationProjectId?: string;
 }
 
 export interface ProjectChatNameClaimInput { name: string; category: import('./name-registry').ProjectChatNameCategory; parentThreadId?: string; }
@@ -178,6 +187,9 @@ export interface ProjectChatChannel {
   displayName: string;
   description: string;
   createdAt: string;
+  groupLabel?: string;
+  kind: 'general' | 'project';
+  projectId?: string;
 }
 
 export interface ProjectChatJoinResult {
@@ -207,6 +219,7 @@ export interface ProjectChatMentionState {
 }
 
 export type ProjectChatErrorCode =
+  | 'channel_unavailable'
   | 'forbidden'
   | 'invalid_request'
   | 'not_member'
@@ -266,9 +279,12 @@ export interface ProjectChatPresenceRecord {
 }
 
 export interface ProjectChatChannelRecord {
+  accountId?: string;
   spaceId: string;
   channelId: string;
+  kind: 'general' | 'project';
   name: string;
+  projectId?: string;
   createdAt: string;
 }
 

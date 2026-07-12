@@ -10,6 +10,9 @@ mock.module('@/shared/project-space-api', () => ({
 const { initialProjectMainView, parseProjectRoute, routeForView, writeRoute } = await import(
   '../src/features/project-desktop/hooks/use-project-desktop'
 );
+const { parseProjectChatRoute, projectChatRoute } = await import(
+  '../src/features/project-chat/project-chat-route'
+);
 
 const originalWindow = globalThis.window;
 
@@ -35,6 +38,28 @@ describe('Project Chat navigation', () => {
     expect(parseProjectRoute('/chat/')).toEqual({ view: 'chat' });
   });
 
+  test('restores stable project-room routes without using display names', () => {
+    const projectId = 'github:12345';
+    expect(projectChatRoute(projectId)).toBe('/chat/projects/github%3A12345');
+    expect(parseProjectChatRoute('/chat/projects/github%3A12345')).toEqual({
+      matches: true,
+      projectId
+    });
+    expect(parseProjectRoute('/chat/projects/github%3A12345')).toEqual({ view: 'chat' });
+    expect(initialProjectMainView('/chat/projects/github%3A12345')).toBe('chat');
+  });
+
+  test('supports the direct project Chat tab route', () => {
+    expect(routeForView('project', 'github:DotNaos/project-space', 'chat')).toBe(
+      '/projects/github%3ADotNaos%2Fproject-space/chat'
+    );
+    expect(parseProjectRoute('/projects/github%3ADotNaos%2Fproject-space/chat')).toMatchObject({
+      projectId: 'github:DotNaos/project-space',
+      projectTab: 'chat',
+      view: 'project'
+    });
+  });
+
   test('shows a direct chat route before slower project discovery finishes', () => {
     expect(initialProjectMainView('/chat')).toBe('chat');
     expect(initialProjectMainView('/projects')).toBe('root');
@@ -43,6 +68,7 @@ describe('Project Chat navigation', () => {
   test('does not mistake unrelated nested paths for Project Chat', () => {
     expect(parseProjectRoute('/chatty')).toEqual({ view: 'root' });
     expect(parseProjectRoute('/chat/thread-id')).toEqual({ view: 'root' });
+    expect(parseProjectChatRoute('/chat/projects/id/extra').matches).toBe(false);
   });
 
   test('pushes chat into browser history without losing search or hash state', () => {

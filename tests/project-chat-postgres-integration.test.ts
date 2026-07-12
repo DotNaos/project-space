@@ -101,7 +101,10 @@ describe('Project Chat PostgreSQL integration', () => {
       options: `-c search_path=${schema}`
     });
     try {
-      await migrateDatabase(pool, databaseMigrations.slice(0, -1));
+      await migrateDatabase(
+        pool,
+        databaseMigrations.filter((migration) => migration.id < '0009_project_chat_human_profiles')
+      );
       await pool.query(
         `insert into project_chat_members (
            space_id, actor_key, member_id, display_name, handle, role, origin,
@@ -149,6 +152,72 @@ describe('Project Chat PostgreSQL integration', () => {
         account_id: 'legacy-user',
         default_display_name: 'Legacy Human',
         revision: '1'
+      }]);
+    } finally {
+      await pool.end();
+      await adminPool.query(`drop schema "${schema}" cascade`);
+      await adminPool.end();
+    }
+  }, 30_000);
+
+  postgresTest('keeps legacy General history attached to General through migration 0013', async () => {
+    const schema = `project_chat_channel_migration_${randomUUID().replaceAll('-', '')}`;
+    const adminPool = new pg.Pool({ connectionString: databaseUrl, max: 2 });
+    await adminPool.query(`create schema "${schema}"`);
+    const pool = new pg.Pool({
+      connectionString: databaseUrl,
+      max: 4,
+      options: `-c search_path=${schema}`
+    });
+    try {
+      await migrateDatabase(
+        pool,
+        databaseMigrations.filter(
+          (migration) => migration.id <= '0012_project_chat_name_registry'
+        )
+      );
+      await pool.query(
+        `insert into project_chat_human_profiles (
+           space_id, account_id, default_display_name, revision, created_at, updated_at
+         ) values ('legacy-space', 'legacy-user', 'Legacy User', 1,
+                   '2026-07-11T00:00:00Z', '2026-07-11T00:00:00Z');
+         insert into project_chat_members (
+           space_id, actor_key, member_id, display_name, handle, role, origin,
+           profile_revision, joined_at, updated_at
+         ) values ('legacy-space', '["human","legacy-user"]', 'legacy-member',
+                   'Legacy User', 'legacy-user', 'human', null, 1,
+                   '2026-07-11T00:00:00Z', '2026-07-11T00:00:00Z');
+         insert into project_chat_channels (
+           space_id, channel_id, name, last_sequence, created_at
+         ) values ('legacy-space', 'general', 'General', 1, '2026-07-11T00:00:00Z');
+         insert into project_chat_messages (
+           space_id, channel_id, id, sequence, body, sender, sender_member_id,
+           mentions, created_at, expires_at
+         ) values ('legacy-space', 'general', 'legacy-message', 1, 'Legacy General message',
+                   '{"memberId":"legacy-member","displayName":"Legacy User","handle":"legacy-user","role":"human"}'::jsonb,
+                   'legacy-member', '[]'::jsonb,
+                   '2026-07-11T00:00:00Z', '2027-07-11T00:00:00Z')`
+      );
+
+      await migrateDatabase(pool);
+
+      const channel = await pool.query(
+        `select channel_id, kind, account_id, project_id
+           from project_chat_channels
+          where space_id = 'legacy-space'`
+      );
+      expect(channel.rows).toEqual([{
+        account_id: null,
+        channel_id: 'general',
+        kind: 'general',
+        project_id: null
+      }]);
+      const messages = await pool.query(
+        `select channel_id, body from project_chat_messages where space_id = 'legacy-space'`
+      );
+      expect(messages.rows).toEqual([{
+        body: 'Legacy General message',
+        channel_id: 'general'
       }]);
     } finally {
       await pool.end();
