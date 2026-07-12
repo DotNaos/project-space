@@ -2,6 +2,7 @@ import type {
   DevServerActionRequest,
   DevServerConnectorResult,
   DevServerInspectRequest,
+  DevServerListConnectorResult,
   DevServerOverviewResult,
   DevServerState,
   MachineMembershipAccess,
@@ -25,15 +26,30 @@ import {
   recordFromFailure,
   recordFromResult,
   requireIdentifier,
+  validateConnectorListResult,
   validateConnectorResult,
   type ConnectorActor,
-  type ConnectorExecutionRequest
+  type ConnectorExecutionRequest,
+  type ConnectorListExecutionRequest
 } from './dev-server-validation';
 
 export interface DevServerConnectorGateway {
-  inspect(request: ConnectorExecutionRequest, actor: ConnectorActor): Promise<DevServerConnectorResult>;
-  start(request: ConnectorExecutionRequest, actor: ConnectorActor): Promise<DevServerConnectorResult>;
-  stop(request: ConnectorExecutionRequest, actor: ConnectorActor): Promise<DevServerConnectorResult>;
+  list(
+    request: ConnectorListExecutionRequest,
+    actor: ConnectorActor
+  ): Promise<DevServerListConnectorResult>;
+  inspect(
+    request: ConnectorExecutionRequest,
+    actor: ConnectorActor
+  ): Promise<DevServerConnectorResult>;
+  start(
+    request: ConnectorExecutionRequest,
+    actor: ConnectorActor
+  ): Promise<DevServerConnectorResult>;
+  stop(
+    request: ConnectorExecutionRequest,
+    actor: ConnectorActor
+  ): Promise<DevServerConnectorResult>;
 }
 
 export interface DevServerDatabaseGateway {
@@ -43,6 +59,7 @@ export interface DevServerDatabaseGateway {
     ownerUserId: string;
     projectId: string;
     runTarget?: string;
+    serverId: string;
     state?: DevServerState;
     tailscalePort?: number;
     tailscaleUrl?: string;
@@ -56,23 +73,33 @@ export interface DevServerDatabaseGateway {
       activeOnly?: boolean;
       machineId?: string;
       projectId?: string;
+      serverId?: string;
       worktreeId?: string;
     }
   ): Promise<DevServerSession[]>;
-  readMachineMembership(input: { machineId: string; userId: string }): Promise<MachineMembership | null>;
+  readMachineMembership(input: {
+    machineId: string;
+    userId: string;
+  }): Promise<MachineMembership | null>;
   readProjectRunSettings(input: {
     machineId: string;
     projectId: string;
     userId: string;
   }): Promise<ProjectRunSettings | null>;
-  transitionDevServerSession(input: TransitionDevServerSessionInput): Promise<DevServerSession | null>;
+  transitionDevServerSession(
+    input: TransitionDevServerSessionInput
+  ): Promise<DevServerSession | null>;
   upsertProjectRunSettings(input: UpsertProjectRunSettingsInput): Promise<ProjectRunSettings>;
 }
 
 export interface DevServerServiceOptions {
-  backend: Pick<ProjectSpaceBackend, 'getConnectorOverview' | 'loadProjectDiscovery' | 'loadProjectWorktrees'>;
+  backend: Pick<
+    ProjectSpaceBackend,
+    'getConnectorOverview' | 'loadProjectDiscovery' | 'loadProjectWorktrees'
+  >;
   connector: DevServerConnectorGateway;
   database: DevServerDatabaseGateway;
+  inspectConcurrency?: number;
   now?: () => Date;
   userId(): string;
 }
@@ -110,7 +137,7 @@ function transitionInput(
 ): TransitionDevServerSessionInput {
   return {
     expectedGeneration: session.generation,
-    lastError: record.state === 'error' ? record.lastError ?? 'Development server failed.' : null,
+    lastError: record.state === 'error' ? (record.lastError ?? 'Development server failed.') : null,
     lastSeenAt: checkedAt(now),
     localPort: record.localPort ?? null,
     sessionId: session.id,
@@ -118,7 +145,7 @@ function transitionInput(
     state: record.state,
     stoppedAt: record.state === 'stopped' ? checkedAt(now) : null,
     tailscalePort: record.publicPort ?? null,
-    tailscaleUrl: record.state === 'running' ? record.tailscaleUrl ?? null : null,
+    tailscaleUrl: record.state === 'running' ? (record.tailscaleUrl ?? null) : null,
     userId
   };
 }
@@ -126,6 +153,31 @@ function transitionInput(
 export function createDevServerService(options: DevServerServiceOptions) {
   const now = options.now ?? (() => new Date());
   const lockTails = new Map<string, Promise<void>>();
+  const inspectConcurrency = options.inspectConcurrency ?? 8;
+  if (
+    !Number.isSafeInteger(inspectConcurrency) ||
+    inspectConcurrency < 1 ||
+    inspectConcurrency > 32
+  ) {
+    throw new Error('Development-server inspect concurrency must be between 1 and 32.');
+  }
+  let activeInspections = 0;
+  const inspectionWaiters: Array<() => void> = [];
+
+  async function withInspectionSlot<T>(action: () => Promise<T>) {
+    if (activeInspections >= inspectConcurrency) {
+      await new Promise<void>((resolve) => inspectionWaiters.push(resolve));
+    } else {
+      activeInspections++;
+    }
+    try {
+      return await action();
+    } finally {
+      const next = inspectionWaiters.shift();
+      if (next) next();
+      else activeInspections--;
+    }
+  }
 
   async function runExclusive<T>(key: string, action: () => Promise<T>) {
     const previous = lockTails.get(key) ?? Promise.resolve();
@@ -164,14 +216,11 @@ export function createDevServerService(options: DevServerServiceOptions) {
     return { machineId, projectId };
   }
 
-  async function resolveProjectScope(
-    machineScope: ResolvedMachineScope
-  ): Promise<ResolvedScope> {
+  async function resolveProjectScope(machineScope: ResolvedMachineScope): Promise<ResolvedScope> {
     const discovery = await options.backend.loadProjectDiscovery();
     const project = discovery.projects.find(
       (candidate) =>
-        candidate.id === machineScope.projectId &&
-        candidate.machineId === machineScope.machineId
+        candidate.id === machineScope.projectId && candidate.machineId === machineScope.machineId
     );
     if (!project) {
       throw new Error('The selected project is not registered.');
@@ -193,7 +242,7 @@ export function createDevServerService(options: DevServerServiceOptions) {
     const worktreeId = requireIdentifier(worktreeIdValue, 'worktreeId', 2_048);
     const worktrees = await resolveWorktrees(scope);
     const worktree = worktrees.find((candidate) => candidate.id === worktreeId);
-    if (!worktree || worktree.status !== 'ready') {
+    if (!worktree || worktree.status !== 'ready' || !worktree.headSha) {
       throw new Error('The selected worktree is not available on this machine.');
     }
 
@@ -204,7 +253,10 @@ export function createDevServerService(options: DevServerServiceOptions) {
     if (!options.database.isConfigured()) {
       return 'database-required';
     }
-    const membership = await options.database.readMachineMembership({ machineId, userId });
+    const membership = await options.database.readMachineMembership({
+      machineId,
+      userId
+    });
     if (membership) {
       return membership.role;
     }
@@ -219,23 +271,29 @@ export function createDevServerService(options: DevServerServiceOptions) {
     });
     return stored
       ? mapSettings(stored)
-      : {
+      : ({
           allowedHosts: [],
           machineId: scope.machineId,
           projectId: scope.projectId,
           runTarget: 'dev'
-        } satisfies ProjectRunSettingsRecord;
+        } satisfies ProjectRunSettingsRecord);
   }
 
-  async function latestSession(userId: string, target: ResolvedTarget) {
+  async function latestSession(userId: string, target: ResolvedTarget, serverId: string) {
     const sessions = await options.database.listDevServerSessions(userId, {
       machineId: target.machineId,
       projectId: target.projectId,
+      serverId,
       worktreeId: target.worktree.id
     });
-    return sessions.find((session) =>
-      session.state === 'starting' || session.state === 'running' || session.state === 'stopping'
-    ) ?? sessions[0];
+    return (
+      sessions.find(
+        (session) =>
+          session.state === 'starting' ||
+          session.state === 'running' ||
+          session.state === 'stopping'
+      ) ?? sessions[0]
+    );
   }
 
   async function persistRecord(
@@ -253,59 +311,85 @@ export function createDevServerService(options: DevServerServiceOptions) {
           ownerUserId: userId,
           projectId: target.projectId,
           runTarget: record.runTarget,
+          serverId: record.serverId,
           state: record.state,
           tailscalePort: record.publicPort,
           tailscaleUrl: record.tailscaleUrl,
           worktreeId: target.worktree.id
         });
       } catch {
-        session = await latestSession(userId, target);
+        session = await latestSession(userId, target, record.serverId);
       }
     }
     if (!session) {
       return undefined;
     }
-    return options.database.transitionDevServerSession(transitionInput(session, record, userId, now));
+    return options.database.transitionDevServerSession(
+      transitionInput(session, record, userId, now)
+    );
   }
 
   function executionRequest(
     target: ResolvedTarget,
-    settings: ProjectRunSettingsRecord
+    settings: ProjectRunSettingsRecord,
+    serverId: string
   ): ConnectorExecutionRequest {
     return {
       allowedHosts: normalizeAllowedHosts(settings.allowedHosts),
+      expectedHeadSha: target.worktree.headSha!,
       machineId: target.machineId,
       projectId: target.projectId,
-      runTarget: normalizeRunTarget(settings.runTarget),
-      worktreeId: target.worktree.id,
-      worktreePath: target.worktree.path
+      runTarget: serverId,
+      serverId,
+      worktreeId: target.worktree.id
     };
   }
 
   async function inspectOne(
     userId: string,
     target: ResolvedTarget,
-    settings: ProjectRunSettingsRecord
+    settings: ProjectRunSettingsRecord,
+    server: { label: string; serverId: string }
   ) {
-    const request = executionRequest(target, settings);
-    const key = `worktree\u0000${userId}\u0000${target.machineId}\u0000${target.worktree.id}`;
+    const request = executionRequest(target, settings, server.serverId);
+    const key = `server\u0000${userId}\u0000${target.machineId}\u0000${target.worktree.id}\u0000${server.serverId}`;
     return runExclusive(key, async () => {
-      const session = await latestSession(userId, target);
+      const session = await latestSession(userId, target, server.serverId);
       const actor = { generation: session?.generation ?? 0, userId };
       try {
-        const raw = await options.connector.inspect(request, actor);
+        const raw = await withInspectionSlot(() => options.connector.inspect(request, actor));
         const result = validateConnectorResult(raw, request, actor, now);
-        const record = recordFromResult(result, request, now);
+        const record = recordFromResult(result, request, now, server.label);
         await persistRecord(userId, target, record, session);
         return record;
       } catch (error) {
-        const record = recordFromFailure(request, error, now);
+        const record = recordFromFailure(request, error, now, server.label);
         if (session) {
           await persistRecord(userId, target, record, session);
         }
         return record;
       }
     });
+  }
+
+  async function listConfiguredServers(target: ResolvedTarget, userId: string) {
+    const request: ConnectorListExecutionRequest = {
+      expectedHeadSha: target.worktree.headSha!,
+      machineId: target.machineId,
+      projectId: target.projectId,
+      worktreeId: target.worktree.id
+    };
+    const actor = { generation: 0, userId };
+    const result = validateConnectorListResult(
+      await withInspectionSlot(() => options.connector.list(request, actor)),
+      request,
+      actor,
+      now
+    );
+    if (result.capability === 'unavailable') {
+      throw new Error('Development-server inventory is unavailable.');
+    }
+    return result.servers;
   }
 
   async function inspect(request: DevServerInspectRequest): Promise<DevServerOverviewResult> {
@@ -333,12 +417,27 @@ export function createDevServerService(options: DevServerServiceOptions) {
       resolveWorktrees(scope)
     ]);
     const readyWorktrees = worktrees.filter((worktree) => worktree.status === 'ready');
-    const servers = await Promise.all(
-      readyWorktrees.map((worktree) => inspectOne(userId, { ...scope, worktree }, settings))
+    const inventories = await Promise.allSettled(
+      readyWorktrees.map(async (worktree) => {
+        const target = { ...scope, worktree };
+        const configured = await listConfiguredServers(target, userId);
+        return Promise.all(
+          configured.map((server) => inspectOne(userId, target, settings, server))
+        );
+      })
     );
+    const servers = inventories.flatMap((inventory) =>
+      inventory.status === 'fulfilled' ? inventory.value : []
+    );
+    const failedInventories = inventories.filter((inventory) => inventory.status === 'rejected');
     return {
       access,
       machineId: scope.machineId,
+      ...(failedInventories.length > 0
+        ? {
+            message: `Could not read development-server declarations for ${failedInventories.length} worktree${failedInventories.length === 1 ? '' : 's'}.`
+          }
+        : {}),
       projectId: scope.projectId,
       servers,
       settings
@@ -349,15 +448,16 @@ export function createDevServerService(options: DevServerServiceOptions) {
     userId: string,
     target: ResolvedTarget,
     state: 'starting' | 'stopping',
-    runTarget: string
+    serverId: string
   ) {
-    const existing = await latestSession(userId, target);
+    const existing = await latestSession(userId, target, serverId);
     if (!existing) {
       return options.database.createDevServerSession({
         machineId: target.machineId,
         ownerUserId: userId,
         projectId: target.projectId,
-        runTarget,
+        runTarget: serverId,
+        serverId,
         state,
         worktreeId: target.worktree.id
       });
@@ -372,7 +472,7 @@ export function createDevServerService(options: DevServerServiceOptions) {
         state,
         userId
       })) ??
-      (await latestSession(userId, target)) ??
+      (await latestSession(userId, target, serverId)) ??
       existing
     );
   }
@@ -395,8 +495,14 @@ export function createDevServerService(options: DevServerServiceOptions) {
     }
     const scope = await resolveProjectScope(machineScope);
     const target = await resolveTarget(scope, request.worktreeId);
+    const serverId = normalizeRunTarget(requireIdentifier(request.serverId, 'serverId', 64));
+    const configuredServers = await listConfiguredServers(target, userId);
+    const configuredServer = configuredServers.find((server) => server.serverId === serverId);
+    if (!configuredServer || configuredServer.capability !== 'configured') {
+      throw new Error('The selected development server is not declared in this worktree.');
+    }
     const projectKey = `project\u0000${userId}\u0000${target.machineId}\u0000${target.projectId}`;
-    const worktreeKey = `worktree\u0000${userId}\u0000${target.machineId}\u0000${target.worktree.id}`;
+    const worktreeKey = `server\u0000${userId}\u0000${target.machineId}\u0000${target.worktree.id}\u0000${serverId}`;
     await runExclusive(projectKey, async () => {
       await runExclusive(worktreeKey, async () => {
         let settings = await settingsFor(userId, target);
@@ -413,12 +519,12 @@ export function createDevServerService(options: DevServerServiceOptions) {
           );
         }
 
-        const connectorRequest = executionRequest(target, settings);
+        const connectorRequest = executionRequest(target, settings, serverId);
         const session = await prepareMutationSession(
           userId,
           target,
           operation === 'start' ? 'starting' : 'stopping',
-          settings.runTarget
+          serverId
         );
         const actor = { generation: session.generation, userId };
         try {
@@ -427,14 +533,14 @@ export function createDevServerService(options: DevServerServiceOptions) {
           await persistRecord(
             userId,
             target,
-            recordFromResult(result, connectorRequest, now),
+            recordFromResult(result, connectorRequest, now, configuredServer.label),
             session
           );
         } catch (error) {
           await persistRecord(
             userId,
             target,
-            recordFromFailure(connectorRequest, error, now),
+            recordFromFailure(connectorRequest, error, now, configuredServer.label),
             session
           );
           throw error;
@@ -454,7 +560,6 @@ export function createDevServerService(options: DevServerServiceOptions) {
     }
     const scope = await resolveProjectScope(machineScope);
     const allowedHosts = normalizeAllowedHosts(request.allowedHosts);
-    const runTarget = normalizeRunTarget(request.runTarget);
     if (request.preferredWorktreeId) {
       const worktrees = await resolveWorktrees(scope);
       if (!worktrees.some((worktree) => worktree.id === request.preferredWorktreeId)) {
@@ -465,7 +570,6 @@ export function createDevServerService(options: DevServerServiceOptions) {
     return runExclusive(projectKey, async () => {
       const currentSettings = await settingsFor(userId, scope);
       const settingsChanged =
-        runTarget !== currentSettings.runTarget ||
         allowedHosts.length !== currentSettings.allowedHosts.length ||
         allowedHosts.some((host, index) => host !== currentSettings.allowedHosts[index]);
       if (settingsChanged) {
@@ -475,9 +579,7 @@ export function createDevServerService(options: DevServerServiceOptions) {
           projectId: scope.projectId
         });
         if (activeSessions.length > 0) {
-          throw new Error(
-            'Stop active development servers before changing project run settings.'
-          );
+          throw new Error('Stop active development servers before changing project run settings.');
         }
       }
       return mapSettings(
@@ -486,7 +588,7 @@ export function createDevServerService(options: DevServerServiceOptions) {
           machineId: scope.machineId,
           preferredWorktreeId: request.preferredWorktreeId ?? null,
           projectId: scope.projectId,
-          runTarget,
+          runTarget: currentSettings.runTarget,
           userId
         })
       );

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import {
   isConnectorCommandChannelAvailable,
   requestConnectorDevServerInspect,
+  requestConnectorDevServerList,
   requestConnectorDevServerStart,
   requestConnectorDevServerStop,
   requestConnectorDirectory,
@@ -120,7 +121,14 @@ describe('connector command channel', () => {
       isConnectorHubMessage({
         id: 'bad-project-marker',
         payload: {
-          entries: [{ isProject: 'yes', kind: 'directory', name: 'repo', path: '/tmp/repo' }],
+          entries: [
+            {
+              isProject: 'yes',
+              kind: 'directory',
+              name: 'repo',
+              path: '/tmp/repo'
+            }
+          ],
           path: '/tmp',
           status: 'success'
         },
@@ -132,6 +140,9 @@ describe('connector command channel', () => {
   test('uses the same signed execution boundary for a selected local machine', async () => {
     const actors: Array<{ generation: number; userId: string }> = [];
     const unregister = registerLocalConnectorDevServerExecutor('selected-local-machine', {
+      async listDevServers() {
+        throw new Error('not used');
+      },
       async runDevServerCommand(request) {
         actors.push(request.actor);
         return {
@@ -144,6 +155,7 @@ describe('connector command channel', () => {
           projectId: request.projectId,
           publicPort: 45173,
           runTarget: request.runTarget,
+          serverId: request.serverId,
           state: 'running',
           tailscaleIPv4: '100.80.135.9',
           tailscaleUrl: 'http://100.80.135.9:45173',
@@ -156,11 +168,12 @@ describe('connector command channel', () => {
       const result = await requestConnectorDevServerStart(
         {
           allowedHosts: [],
+          expectedHeadSha: 'a'.repeat(40),
           machineId: 'selected-local-machine',
           projectId: 'selected-local-machine:project',
           runTarget: 'dev',
-          worktreeId: '/tmp/local-project',
-          worktreePath: '/tmp/local-project'
+          serverId: 'dev',
+          worktreeId: 'wt_111111111111111111111111'
         },
         { generation: 9, userId: 'user_local' }
       );
@@ -206,13 +219,15 @@ describe('connector command channel', () => {
       },
       async getCodexModels() {
         return {
-          models: [{
-            description: 'Test model',
-            displayName: 'Test Model',
-            id: 'test-model',
-            isDefault: true,
-            model: 'test-model'
-          }],
+          models: [
+            {
+              description: 'Test model',
+              displayName: 'Test Model',
+              id: 'test-model',
+              isDefault: true,
+              model: 'test-model'
+            }
+          ],
           status: 'success' as const
         };
       },
@@ -262,7 +277,11 @@ describe('connector command channel', () => {
         ];
       },
       async getMachineFileSystemRoot() {
-        return { defaultPath: '/tmp/projects', homePath: '/tmp', status: 'success' as const };
+        return {
+          defaultPath: '/tmp/projects',
+          homePath: '/tmp',
+          status: 'success' as const
+        };
       },
       async readMachineDirectory(request) {
         return {
@@ -273,7 +292,11 @@ describe('connector command channel', () => {
               name: 'repo',
               path: `${request.path}/repo`
             },
-            { kind: 'file' as const, name: 'note.txt', path: `${request.path}/note.txt` }
+            {
+              kind: 'file' as const,
+              name: 'note.txt',
+              path: `${request.path}/note.txt`
+            }
           ],
           path: request.path,
           status: 'success' as const
@@ -288,10 +311,16 @@ describe('connector command channel', () => {
         };
       },
       async createMachineDirectory(request) {
-        return { affectedPaths: [`${request.parentPath}/${request.name}`], status: 'success' as const };
+        return {
+          affectedPaths: [`${request.parentPath}/${request.name}`],
+          status: 'success' as const
+        };
       },
       async renameMachineDirectory(request) {
-        return { affectedPaths: [`/tmp/${request.name}`], status: 'success' as const };
+        return {
+          affectedPaths: [`/tmp/${request.name}`],
+          status: 'success' as const
+        };
       },
       async deleteMachineDirectories(request) {
         return { affectedPaths: request.paths, status: 'success' as const };
@@ -312,7 +341,11 @@ describe('connector command channel', () => {
     > as ProjectSpaceBackend;
 
     const hubBackend = createLocalProjectSpaceBackend();
-    const server = await createProjectSpaceServer({ backend: hubBackend, host: '127.0.0.1', port: 0 });
+    const server = await createProjectSpaceServer({
+      backend: hubBackend,
+      host: '127.0.0.1',
+      port: 0
+    });
     const bridge = startProjectConnectorWebSocket({
       backend,
       hubHttpUrl: server.origin,
@@ -321,7 +354,10 @@ describe('connector command channel', () => {
 
     try {
       await waitForChannel('test-machine');
-      const catalogue = await requestConnectorModels({ cwd: '/tmp', machineId: 'test-machine' });
+      const catalogue = await requestConnectorModels({
+        cwd: '/tmp',
+        machineId: 'test-machine'
+      });
       expect(catalogue.models.map((model) => model.model)).toEqual(['test-model']);
 
       const events: CodexChatStreamEvent[] = [];
@@ -352,8 +388,14 @@ describe('connector command channel', () => {
       });
       expect(worktrees.map((worktree) => worktree.branchName)).toEqual(['main']);
 
-      const root = await requestConnectorFileSystemRoot({ machineId: 'test-machine' });
-      expect(root).toEqual({ defaultPath: '/tmp/projects', homePath: '/tmp', status: 'success' });
+      const root = await requestConnectorFileSystemRoot({
+        machineId: 'test-machine'
+      });
+      expect(root).toEqual({
+        defaultPath: '/tmp/projects',
+        homePath: '/tmp',
+        status: 'success'
+      });
 
       const directory = await requestConnectorDirectory({
         machineId: 'test-machine',
@@ -442,7 +484,12 @@ describe('connector command channel', () => {
     const registry: ConnectorProjectRegistryResult = {
       checkedAt: new Date().toISOString(),
       connector: {
-        capabilities: ['dev-server.inspect', 'dev-server.start', 'dev-server.stop'],
+        capabilities: [
+          'dev-server.inspect',
+          'dev-server.list',
+          'dev-server.start',
+          'dev-server.stop'
+        ],
         machineId: 'dev-server-machine',
         machineName: 'Dev server machine'
       },
@@ -455,9 +502,28 @@ describe('connector command channel', () => {
       }
     };
     const executions: Parameters<ConnectorDevServerAdapter['runDevServerCommand']>[0][] = [];
+    const listExecutions: Parameters<ConnectorDevServerAdapter['listDevServers']>[0][] = [];
     const connectorBackend = {
       async getConnectorProjectRegistry() {
         return registry;
+      },
+      async listDevServers(request) {
+        listExecutions.push(request);
+        return {
+          capability: 'configured' as const,
+          checkedAt: new Date().toISOString(),
+          generation: request.actor.generation,
+          machineId: request.machineId,
+          projectId: request.projectId,
+          servers: [
+            {
+              capability: 'configured' as const,
+              label: 'Development server',
+              serverId: 'dev'
+            }
+          ],
+          worktreeId: request.worktreeId
+        };
       },
       async runDevServerCommand(request) {
         executions.push(request);
@@ -469,6 +535,7 @@ describe('connector command channel', () => {
           machineId: request.machineId,
           projectId: request.projectId,
           runTarget: request.runTarget,
+          serverId: request.serverId,
           state: running ? ('running' as const) : ('stopped' as const),
           worktreeId: request.worktreeId,
           ...(running
@@ -484,7 +551,11 @@ describe('connector command channel', () => {
       }
     } as Pick<ProjectSpaceBackend, 'getConnectorProjectRegistry'> & ConnectorDevServerAdapter;
     const hubBackend = createLocalProjectSpaceBackend();
-    const server = await createProjectSpaceServer({ backend: hubBackend, host: '127.0.0.1', port: 0 });
+    const server = await createProjectSpaceServer({
+      backend: hubBackend,
+      host: '127.0.0.1',
+      port: 0
+    });
     const bridge = startProjectConnectorWebSocket({
       backend: connectorBackend as ProjectSpaceBackend & ConnectorDevServerAdapter,
       hubHttpUrl: server.origin,
@@ -492,20 +563,39 @@ describe('connector command channel', () => {
     });
     const request = {
       allowedHosts: ['Phone.Example', '100.80.135.9'],
+      expectedHeadSha: 'a'.repeat(40),
       machineId: 'dev-server-machine',
       projectId: 'dev-server-machine:project-space',
       runTarget: 'dev',
-      worktreeId: '/tmp/project-space-worktree',
-      worktreePath: '/tmp/project-space-worktree'
+      serverId: 'dev',
+      worktreeId: 'wt_222222222222222222222222'
     };
     const actor = { generation: 4, userId: 'user_test' };
 
     try {
       await waitForChannel('dev-server-machine');
+      const inventory = await requestConnectorDevServerList(
+        {
+          expectedHeadSha: request.expectedHeadSha,
+          machineId: request.machineId,
+          projectId: request.projectId,
+          worktreeId: request.worktreeId
+        },
+        { generation: 0, userId: actor.userId }
+      );
       const inspected = await requestConnectorDevServerInspect(request, actor);
       const started = await requestConnectorDevServerStart(request, actor);
       const stopped = await requestConnectorDevServerStop(request, actor);
 
+      expect(inventory.servers).toEqual([
+        {
+          capability: 'configured',
+          label: 'Development server',
+          serverId: 'dev'
+        }
+      ]);
+      expect(listExecutions).toHaveLength(1);
+      expect(JSON.stringify(inventory)).not.toContain('command');
       expect(inspected.state).toBe('stopped');
       expect(started).toMatchObject({
         state: 'running',
@@ -520,7 +610,8 @@ describe('connector command channel', () => {
       expect(executions[1]).toMatchObject({
         actor: { generation: 4, userId: 'user_test' },
         allowedHosts: ['100.80.135.9', 'phone.example'],
-        worktreePath: '/tmp/project-space-worktree'
+        expectedHeadSha: 'a'.repeat(40),
+        worktreeId: 'wt_222222222222222222222222'
       });
     } finally {
       await server.close();
@@ -552,6 +643,9 @@ describe('connector command channel', () => {
       async getConnectorProjectRegistry() {
         return registry;
       },
+      async listDevServers() {
+        throw new Error('not used');
+      },
       async runDevServerCommand() {
         return await new Promise<never>(() => undefined);
       }
@@ -572,11 +666,12 @@ describe('connector command channel', () => {
         requestConnectorDevServerStart(
           {
             allowedHosts: [],
+            expectedHeadSha: 'a'.repeat(40),
             machineId: 'timeout-machine',
             projectId: 'timeout-machine:project',
             runTarget: 'dev',
-            worktreeId: '/tmp/timeout-project',
-            worktreePath: '/tmp/timeout-project'
+            serverId: 'dev',
+            worktreeId: 'wt_333333333333333333333333'
           },
           { generation: 1, userId: 'user_timeout' },
           { timeoutMs: 30 }
@@ -616,6 +711,9 @@ describe('connector command channel', () => {
       async getConnectorProjectRegistry() {
         return registry;
       },
+      async listDevServers() {
+        throw new Error('not used');
+      },
       async runDevServerCommand() {
         markExecutionStarted();
         return await new Promise<never>(() => undefined);
@@ -636,11 +734,12 @@ describe('connector command channel', () => {
       const result = requestConnectorDevServerStart(
         {
           allowedHosts: [],
+          expectedHeadSha: 'a'.repeat(40),
           machineId: 'disconnect-machine',
           projectId: 'disconnect-machine:project',
           runTarget: 'dev',
-          worktreeId: '/tmp/disconnect-project',
-          worktreePath: '/tmp/disconnect-project'
+          serverId: 'dev',
+          worktreeId: 'wt_444444444444444444444444'
         },
         { generation: 1, userId: 'user_disconnect' },
         { timeoutMs: 5_000 }
@@ -676,7 +775,11 @@ describe('connector command channel', () => {
       }
     } as Pick<ProjectSpaceBackend, 'getConnectorProjectRegistry'> as ProjectSpaceBackend;
     const hubBackend = createLocalProjectSpaceBackend();
-    const server = await createProjectSpaceServer({ backend: hubBackend, host: '127.0.0.1', port: 0 });
+    const server = await createProjectSpaceServer({
+      backend: hubBackend,
+      host: '127.0.0.1',
+      port: 0
+    });
     const bridge = startProjectConnectorWebSocket({
       backend: connectorBackend,
       hubHttpUrl: server.origin,
@@ -697,11 +800,12 @@ describe('connector command channel', () => {
         requestConnectorDevServerStart(
           {
             allowedHosts: [],
+            expectedHeadSha: 'a'.repeat(40),
             machineId: 'older-machine',
             projectId: 'older-machine:project',
             runTarget: 'dev',
-            worktreeId: '/tmp/project',
-            worktreePath: '/tmp/project'
+            serverId: 'dev',
+            worktreeId: 'wt_555555555555555555555555'
           },
           { generation: 1, userId: 'user_test' }
         )

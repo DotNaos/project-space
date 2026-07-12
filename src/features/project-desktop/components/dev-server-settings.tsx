@@ -18,18 +18,16 @@ export function DevServerSettings({
   access?: MachineMembershipAccess;
   hasActiveServers: boolean;
   isSaving: boolean;
-  onSave(settings: Pick<ProjectRunSettingsRecord, 'allowedHosts' | 'runTarget'>): Promise<void>;
+  onSave(settings: Pick<ProjectRunSettingsRecord, 'allowedHosts'>): Promise<void>;
   settings?: ProjectRunSettingsRecord;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [allowedHosts, setAllowedHosts] = useState('');
-  const [runTarget, setRunTarget] = useState('dev');
   const savedAllowedHosts = hostsInput(settings?.allowedHosts ?? []);
 
   useEffect(() => {
     setAllowedHosts(savedAllowedHosts);
-    setRunTarget(settings?.runTarget ?? 'dev');
-  }, [savedAllowedHosts, settings?.runTarget]);
+  }, [savedAllowedHosts]);
 
   if ((access !== 'owner' && access !== 'member') || !settings) {
     return null;
@@ -42,8 +40,7 @@ export function DevServerSettings({
         allowedHosts: allowedHosts
           .split(',')
           .map((host) => host.trim())
-          .filter(Boolean),
-        runTarget: runTarget.trim()
+          .filter(Boolean)
       });
       setExpanded(false);
     } catch {
@@ -61,41 +58,33 @@ export function DevServerSettings({
         className="px-1.5"
       >
         <Settings2 className="size-3.5" />
-        Dev server
-        <span className="font-mono text-neutral-500">project run {settings.runTarget}</span>
+        Tailnet access
       </Button>
 
       {expanded ? (
         <form className="mt-3 grid gap-3" onSubmit={(event) => void submit(event)}>
           <label className="grid gap-1.5">
-            <Text className="text-xs font-medium text-neutral-300">Run target</Text>
-            <input
-              required
-              maxLength={64}
-              value={runTarget}
-              onChange={(event) => setRunTarget(event.currentTarget.value)}
-              className="min-h-9 rounded-lg border border-neutral-700 bg-black/25 px-3 font-mono text-sm text-neutral-100 outline-none transition focus:border-neutral-400"
-              placeholder="dev"
-            />
-          </label>
-          <label className="grid gap-1.5">
             <Text className="text-xs font-medium text-neutral-300">Allowed hosts</Text>
             <input
+              name="allowedHosts"
+              autoComplete="off"
+              aria-describedby="allowed-hosts-hint"
               value={allowedHosts}
               onChange={(event) => setAllowedHosts(event.currentTarget.value)}
-              className="min-h-9 rounded-lg border border-neutral-700 bg-black/25 px-3 font-mono text-sm text-neutral-100 outline-none transition focus:border-neutral-400"
-              placeholder="preview.example.com, app.example.com"
+              className="min-h-9 rounded-lg border border-neutral-700 bg-black/25 px-3 font-mono text-sm text-neutral-100 outline-none transition focus-visible:border-violet-400 focus-visible:ring-2 focus-visible:ring-violet-400/25"
+              placeholder="preview.example.com, app.example.com…"
             />
           </label>
           <div className="flex items-center justify-between gap-3">
-            <Text className="text-[11px] text-neutral-500">
+            <Text id="allowed-hosts-hint" className="text-[11px] text-neutral-500">
               Saved for your account. The Tailscale IP is added automatically.
             </Text>
             <Button
               size="sm"
               variant="primary"
               type="submit"
-              isDisabled={isSaving || hasActiveServers || !runTarget.trim()}
+              isDisabled={isSaving || hasActiveServers}
+              className="bg-violet-500 text-white hover:bg-violet-400"
             >
               {isSaving ? 'Saving' : 'Save'}
             </Button>

@@ -35,16 +35,17 @@ project doctor
 
 ## Native Windows and WSL boundary
 
-Installation, machine connection, status, diagnostics, and disconnection work directly in native Windows PowerShell. Project runtime commands still depend on Linux process behavior, so `project run`, `project serve`, and the `project serve reconcile`, `status`, and `stop` commands must run inside Ubuntu on WSL.
+Installation, machine connection, status, diagnostics, and disconnection work directly in native Windows PowerShell. Project runtime commands still depend on Linux process behavior, so `project run`, `project prepare`, `project serve`, and their status, list, reconcile, and stop commands must run inside the selected Linux distribution on WSL. Use `wsl.exe --list --quiet` to find its exact distribution name.
 
 For example:
 
 ```powershell
-wsl.exe --distribution Ubuntu -- project run test
-wsl.exe --distribution Ubuntu -- project serve
+wsl.exe --distribution <distribution> -- project run test
+wsl.exe --distribution <distribution> -- project prepare
+wsl.exe --distribution <distribution> -- project serve
 ```
 
-The WinGet package does not install WSL or install Project inside an existing WSL distribution. Install the Linux Project CLI separately inside Ubuntu before using those runtime commands. The native Windows connector and the WSL runtime are independent; installing or stopping one does not silently replace or remove the other.
+Replace `<distribution>` with the exact name reported by WSL. The WinGet package does not install WSL or install Project inside an existing WSL distribution. Install the Linux Project CLI separately inside that distribution before using those runtime commands. The native Windows connector and the WSL runtime are independent; installing or stopping one does not silently replace or remove the other.
 
 ## Upgrade
 
@@ -81,7 +82,7 @@ winget settings --enable LocalManifestFiles
 From a checkout containing the rendered release manifests, validate and install them with:
 
 ```powershell
-$manifest = '.\dist\winget\manifests\d\DotNaos\Project\0.3.1'
+$manifest = '.\dist\winget\manifests\d\DotNaos\Project\0.4.0'
 winget validate $manifest
 winget install --manifest $manifest --accept-package-agreements --accept-source-agreements
 ```

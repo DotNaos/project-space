@@ -1,4 +1,5 @@
 export type * from './dev-server-api';
+export type * from './worktree-action-api';
 
 export type WorkspaceTool = 'ide' | 'terminal' | 'git' | 'dev-server';
 
@@ -27,7 +28,8 @@ export interface ProjectctlDiscoverySummary {
   status: 'managed' | 'partial' | 'unmanaged';
 }
 
-export type FullstackTemplateStatus = 'implemented' | 'partial' | 'not-detected' | 'template-source';
+export type FullstackTemplateStatus =
+  'implemented' | 'partial' | 'not-detected' | 'template-source';
 
 export interface FullstackTemplateCheck {
   matched: string[];
@@ -83,10 +85,7 @@ export interface ProjectStructureViolationRecord {
 }
 
 export type ProjectStructureActionType =
-  | 'move_to_poc'
-  | 'move_to_trash'
-  | 'initialize_git'
-  | 'keep_local_only';
+  'move_to_poc' | 'move_to_trash' | 'initialize_git' | 'keep_local_only';
 
 export interface ProjectStructureActionRequest {
   action: ProjectStructureActionType;
@@ -423,7 +422,8 @@ export interface ProjectSpaceAuthDevicePollResult {
 }
 
 export type GitHubAuthSource = 'stored-oauth' | 'environment';
-export type GitHubCatalogStatus = 'connected' | 'auth-required' | 'unauthorized' | 'not-configured' | 'rate-limited' | 'error';
+export type GitHubCatalogStatus =
+  'connected' | 'auth-required' | 'unauthorized' | 'not-configured' | 'rate-limited' | 'error';
 export type GitHubProjectConfigStatus = 'complete' | 'partial' | 'missing' | 'unknown';
 
 export interface GitHubCatalogRepository {
@@ -577,7 +577,7 @@ export type GitHubWorkflowRunConclusion =
 
 export type GitHubWorkflowRunKind = 'deployment' | 'ci' | 'release' | 'other';
 export type GitHubWorkflowRunStatus =
-  | 'queued' | 'in_progress' | 'completed' | 'waiting' | 'pending' | 'requested' | 'unknown';
+  'queued' | 'in_progress' | 'completed' | 'waiting' | 'pending' | 'requested' | 'unknown';
 
 export interface GitHubWorkflowRunSummary {
   actor?: string;
@@ -863,12 +863,7 @@ export interface ProjectCliCommandResult {
 }
 
 export type TemplateAdherenceEntryStatus =
-  | 'OK'
-  | 'ADDED'
-  | 'MISSING'
-  | 'CHANGED'
-  | 'WAIVED'
-  | 'VIOLATION';
+  'OK' | 'ADDED' | 'MISSING' | 'CHANGED' | 'WAIVED' | 'VIOLATION';
 
 export interface TemplateAdherenceEntry {
   code?: string;
@@ -943,7 +938,7 @@ export interface DeployCliStatusReport {
 }
 
 export type DeployedEnvironmentVerification =
-  | 'healthy' | 'unhealthy' | 'inconsistent' | 'unavailable';
+  'healthy' | 'unhealthy' | 'inconsistent' | 'unavailable';
 
 export interface DeployedEnvironmentStatus {
   deployedSha?: string;
@@ -1211,13 +1206,21 @@ export interface ProjectSpaceBackend {
   getCodexStatus(): Promise<CodexStatusResult>;
   getConnectorOverview(): Promise<ConnectorOverviewResult>;
   getConnectorProjectRegistry(): Promise<ConnectorProjectRegistryResult>;
-  getDeployedEnvironmentStatus(repositoryFullName: string): Promise<DeployedEnvironmentStatusResult>;
+  getDeployedEnvironmentStatus(
+    repositoryFullName: string
+  ): Promise<DeployedEnvironmentStatusResult>;
   runProjectCliCommand(request: ProjectCliCommandRequest): Promise<ProjectCliCommandResult>;
   getTemplateAdherence(request: TemplateAdherenceRequest): Promise<TemplateAdherenceReport>;
   getGitHubCatalog(options?: { forceRefresh?: boolean }): Promise<GitHubCatalogResult>;
   getGitHubHistory(request: GitHubHistoryRequest): Promise<GitHistoryResult>;
-  getGitHubPipelineStatus(fullName: string, options?: { page?: number; perPage?: number }): Promise<GitHubPipelineStatusResult>;
-  getGitHubWorkflowRunDetail(fullName: string, runId: number): Promise<GitHubWorkflowRunDetailResult>;
+  getGitHubPipelineStatus(
+    fullName: string,
+    options?: { page?: number; perPage?: number }
+  ): Promise<GitHubPipelineStatusResult>;
+  getGitHubWorkflowRunDetail(
+    fullName: string,
+    runId: number
+  ): Promise<GitHubWorkflowRunDetailResult>;
   getGitDiff(request: GitDiffRequest): Promise<GitDiffResult>;
   getGitHistory(request: GitHistoryRequest): Promise<GitHistoryResult>;
   getGitStatus(cwd: string): Promise<GitStatusResult>;
@@ -1229,9 +1232,7 @@ export interface ProjectSpaceBackend {
     request: ProjectStructureActionRequest
   ): Promise<ProjectStructureActionResult>;
   listProjectTrash(): Promise<ProjectTrashListResult>;
-  restoreProjectTrashEntry(
-    request: ProjectTrashRestoreRequest
-  ): Promise<ProjectTrashRestoreResult>;
+  restoreProjectTrashEntry(request: ProjectTrashRestoreRequest): Promise<ProjectTrashRestoreResult>;
   loadProjectctlOverview(projectPath: string): Promise<ProjectctlOverviewResult>;
   loadProjectctlPreview(projectPath: string): Promise<ProjectctlPlanResult>;
   loadProjectsState(): Promise<ProjectsState>;
@@ -1247,15 +1248,11 @@ export interface ProjectSpaceBackend {
   ): Promise<void>;
   openPathInApp(request: OpenPathInAppRequest): Promise<OpenPathInAppResult>;
   readDirectory(path: string): Promise<FileSystemEntry[]>;
-  getMachineFileSystemRoot(
-    request: MachineFileSystemRequest
-  ): Promise<MachineFileSystemRootResult>;
+  getMachineFileSystemRoot(request: MachineFileSystemRequest): Promise<MachineFileSystemRootResult>;
   readMachineDirectory(
     request: MachineFileSystemDirectoryRequest
   ): Promise<MachineFileSystemDirectoryResult>;
-  readMachineFile(
-    request: MachineFileSystemFileRequest
-  ): Promise<MachineFileSystemFileResult>;
+  readMachineFile(request: MachineFileSystemFileRequest): Promise<MachineFileSystemFileResult>;
   createMachineDirectory(
     request: MachineDirectoryCreateRequest
   ): Promise<MachineDirectoryMutationResult>;
@@ -1283,10 +1280,7 @@ export interface ProjectSpaceBackend {
   createGitHubIssueComment(
     request: GitHubIssueCommentCreateRequest
   ): Promise<GitHubIssueCommentMutationResult>;
-  getGitHubIssueComments(
-    fullName: string,
-    number: number
-  ): Promise<GitHubIssueCommentsResult>;
+  getGitHubIssueComments(fullName: string, number: number): Promise<GitHubIssueCommentsResult>;
   getGitHubRepositoryDetails(fullName: string): Promise<GitHubRepositoryDetailsResult>;
   updateGitHubIssue(request: GitHubIssueUpdateRequest): Promise<GitHubIssueMutationResult>;
   startScopeDevboxJob(request: ScopeDevboxStartRequest): Promise<ScopeDevboxJobRecord>;

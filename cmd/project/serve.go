@@ -55,8 +55,39 @@ func newServeCommandWithManager(managerFactory projectManagerFactory) *cobra.Com
 	bindServeOutputFlags(cmd, &options)
 	cmd.Flags().StringArrayVar(&options.AllowedHosts, "allowed-host", nil, "explicit Vite host allowed to reach this session (repeatable)")
 	cmd.AddCommand(newServeReconcileCommand(managerFactory))
+	cmd.AddCommand(newServeListCommand())
 	cmd.AddCommand(newServeStatusCommand(managerFactory))
 	cmd.AddCommand(newServeStopCommand(managerFactory))
+	return cmd
+}
+
+func newServeListCommand() *cobra.Command {
+	options := projectServeOptions{}
+	cmd := &cobra.Command{
+		Use:               "list [directory]",
+		Short:             "List trusted development servers configured by a repository",
+		Args:              cobra.MaximumNArgs(1),
+		ValidArgsFunction: directoryCompletion,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			format, err := resolvedProjectRunFormat(options.Format, options.JSON)
+			if err != nil {
+				return err
+			}
+			result, listErr := projectrun.ListServers(argumentOrCurrentDirectory(args), nil)
+			if format == "json" {
+				if err := printProjectRunJSON(cmd, result); err != nil {
+					return err
+				}
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "Configured project servers: %s\n", result.Directory)
+				for _, server := range result.Servers {
+					fmt.Fprintf(cmd.OutOrStdout(), "- %s: %s\n", server.ServerID, server.Label)
+				}
+			}
+			return listErr
+		},
+	}
+	bindServeOutputFlags(cmd, &options)
 	return cmd
 }
 

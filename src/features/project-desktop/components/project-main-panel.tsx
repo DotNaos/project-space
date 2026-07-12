@@ -176,7 +176,6 @@ export interface ProjectMainPanelProps {
   onCreateProject(): void;
   onOpenMachine(machineId: string, tab?: MachineDetailTab): void;
   onOpenMachines(): void;
-  onOpenNewWorktree(): void;
   onOpenProjects(): void;
   onOpenProjectIssue(issueNumber: number): void;
   onOpenProjectWorkflowRun(runId: number): void;
@@ -225,7 +224,6 @@ export function ProjectMainPanel({
   onCreateProject,
   onOpenMachine,
   onOpenMachines,
-  onOpenNewWorktree,
   onOpenProjects,
   onOpenProjectIssue,
   onOpenProjectWorkflowRun,
@@ -513,7 +511,6 @@ export function ProjectMainPanel({
             connectorOverview={connectorOverview}
             launcherError={launcherError}
             onOpenMachine={onOpenMachine}
-            onOpenNewWorktree={onOpenNewWorktree}
             onOpenWorktreeBranch={openProjectWorktreeBranch}
             onOpenIssue={onOpenProjectIssue}
             onOpenWorkflowRun={onOpenProjectWorkflowRun}

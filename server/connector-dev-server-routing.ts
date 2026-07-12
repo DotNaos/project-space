@@ -7,13 +7,15 @@ import {
 import { ConnectorDevServerCommandExecutor } from './connector-dev-server-executor';
 import {
   isConnectorDevServerWireRequest,
+  isConnectorDevServerListWireRequest,
   normalizeAllowedHosts,
   type ConnectorDevServerActor,
   type ConnectorDevServerAdapter,
+  type ConnectorDevServerAnyTrustedRequest,
+  type ConnectorDevServerAnyWireRequest,
+  type ConnectorDevServerListResult,
   type ConnectorDevServerOperation,
-  type ConnectorDevServerResult,
-  type ConnectorDevServerTrustedRequest,
-  type ConnectorDevServerWireRequest
+  type ConnectorDevServerResult
 } from './connector-dev-server-contract';
 
 export interface ConnectorDevServerRequestOptions {
@@ -48,7 +50,7 @@ export function registerLocalConnectorDevServerExecutor(
     throw new Error('Could not create local connector command grant keys.');
   }
   const registration = {
-    executor: new ConnectorDevServerCommandExecutor(adapter, verificationKey),
+    executor: new ConnectorDevServerCommandExecutor(adapter, verificationKey, normalizedMachineId),
     signingKey
   };
   localExecutors.set(normalizedMachineId, registration);
@@ -71,16 +73,19 @@ export function connectorDevServerSigningKey(options: ConnectorDevServerRequestO
 
 export function createConnectorDevServerWireRequest(
   operation: ConnectorDevServerOperation,
-  request: ConnectorDevServerTrustedRequest,
+  request: ConnectorDevServerAnyTrustedRequest,
   actor: ConnectorDevServerActor,
   signingKey: KeyLike,
   options: ConnectorDevServerRequestOptions
-): ConnectorDevServerWireRequest {
-  const normalizedRequest = {
-    ...request,
-    allowedHosts: normalizeAllowedHosts(request.allowedHosts)
-  };
-  const wireRequest: ConnectorDevServerWireRequest = {
+): ConnectorDevServerAnyWireRequest {
+  const normalizedRequest =
+    'allowedHosts' in request
+      ? {
+          ...request,
+          allowedHosts: normalizeAllowedHosts(request.allowedHosts)
+        }
+      : request;
+  const wireRequest: ConnectorDevServerAnyWireRequest = {
     ...normalizedRequest,
     grant: createConnectorCommandGrant(
       { actor, operation, request: normalizedRequest },
@@ -88,18 +93,17 @@ export function createConnectorDevServerWireRequest(
       { nonce: options.nonce, now: options.now, ttlMs: options.grantTtlMs }
     )
   };
-  if (!isConnectorDevServerWireRequest(wireRequest)) {
+  if (
+    !isConnectorDevServerWireRequest(wireRequest) &&
+    !isConnectorDevServerListWireRequest(wireRequest)
+  ) {
     throw new Error('The trusted dev-server request is invalid.');
   }
   return wireRequest;
 }
 
-function settleWithin(
-  promise: Promise<ConnectorDevServerResult>,
-  machineId: string,
-  timeoutMs: number
-) {
-  return new Promise<ConnectorDevServerResult>((resolve, reject) => {
+function settleWithin<T>(promise: Promise<T>, machineId: string, timeoutMs: number) {
+  return new Promise<T>((resolve, reject) => {
     const timeout = setTimeout(
       () => reject(new Error(`The connector command on ${machineId} timed out.`)),
       timeoutMs
@@ -119,7 +123,7 @@ function settleWithin(
 
 export function executeLocalConnectorDevServerCommand(
   operation: ConnectorDevServerOperation,
-  request: ConnectorDevServerTrustedRequest,
+  request: ConnectorDevServerAnyTrustedRequest,
   actor: ConnectorDevServerActor,
   options: ConnectorDevServerRequestOptions,
   defaultTimeoutMs: number

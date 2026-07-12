@@ -1,6 +1,13 @@
-version: 1
-scripts:
+version: 2
+setup:
+  - id: dependencies
+    command:
+      - bun
+      - install
+      - --frozen-lockfile
+servers:
   dev:
+    label: Project Space
     command:
       - bun
       - run

@@ -75,6 +75,11 @@ import type {
   ProjectRunSettingsUpdateRequest,
   ProjectsState,
   ProjectWorktreeRecord,
+  WorktreeMaterializeRequest,
+  WorktreeMaterializeResult,
+  WorktreeSetupInspectRequest,
+  WorktreeSetupResult,
+  WorktreeSetupRunRequest,
   ScopeDevboxOverviewResult,
   ScopeDevboxStartRequest,
   ScopeDevboxJobRecord,
@@ -89,18 +94,13 @@ import type {
 const authTokenStorageKey = 'project-space.session-token';
 let projectSpaceAuthToken = '';
 let projectSpaceAuthTokenProvider: (() => Promise<string | null>) | null = null;
-const githubRepositoryDetailsRequests = new Map<
-  string,
-  Promise<GitHubRepositoryDetailsResult>
->();
+const githubRepositoryDetailsRequests = new Map<string, Promise<GitHubRepositoryDetailsResult>>();
 
 export function getProjectSpaceAuthToken() {
   return projectSpaceAuthToken;
 }
 
-export function setProjectSpaceAuthTokenProvider(
-  provider: (() => Promise<string | null>) | null
-) {
+export function setProjectSpaceAuthTokenProvider(provider: (() => Promise<string | null>) | null) {
   projectSpaceAuthTokenProvider = provider;
 
   if (!provider) {
@@ -134,12 +134,20 @@ export async function refreshProjectSpaceAuthToken() {
 
 const loopbackHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 function isLoopbackUrl(url: URL) {
-  return ['http:', 'https:'].includes(url.protocol) && loopbackHosts.has(url.hostname.toLowerCase());
+  return (
+    ['http:', 'https:'].includes(url.protocol) && loopbackHosts.has(url.hostname.toLowerCase())
+  );
 }
 
 function isPlainLoopbackOrigin(url: URL) {
-  return isLoopbackUrl(url) && !url.username && !url.password &&
-    url.pathname === '/' && !url.search && !url.hash;
+  return (
+    isLoopbackUrl(url) &&
+    !url.username &&
+    !url.password &&
+    url.pathname === '/' &&
+    !url.search &&
+    !url.hash
+  );
 }
 export function resolveProjectSpaceApiBaseUrl(currentHref: string, explicit?: string | null) {
   try {
@@ -153,9 +161,13 @@ export function resolveProjectSpaceApiBaseUrl(currentHref: string, explicit?: st
         if (isPlainLoopbackOrigin(candidate)) {
           return candidate.origin === current.origin ? '' : candidate.origin;
         }
-      } catch { continue; }
+      } catch {
+        continue;
+      }
     }
-  } catch { return ''; }
+  } catch {
+    return '';
+  }
   return '';
 }
 
@@ -165,7 +177,8 @@ export function isProjectSpaceApiRequestAllowed(currentHref: string, requestHref
     const request = new URL(requestHref, current);
     return (
       ['http:', 'https:'].includes(request.protocol) &&
-      !request.username && !request.password &&
+      !request.username &&
+      !request.password &&
       (request.origin === current.origin || (isLoopbackUrl(current) && isLoopbackUrl(request)))
     );
   } catch {
@@ -174,8 +187,12 @@ export function isProjectSpaceApiRequestAllowed(currentHref: string, requestHref
 }
 
 function resolveApiBaseUrl() {
-  return typeof window === 'undefined' ? ''
-    : resolveProjectSpaceApiBaseUrl(window.location.href, import.meta.env.VITE_PROJECT_SPACE_API_BASE_URL);
+  return typeof window === 'undefined'
+    ? ''
+    : resolveProjectSpaceApiBaseUrl(
+        window.location.href,
+        import.meta.env.VITE_PROJECT_SPACE_API_BASE_URL
+      );
 }
 
 function resolveApiRequestUrl(baseUrl: string, path: string) {
@@ -189,9 +206,7 @@ function resolveApiRequestUrl(baseUrl: string, path: string) {
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
   const payload = (await response.json().catch(() => undefined)) as
-    | { error?: string }
-    | T
-    | undefined;
+    { error?: string } | T | undefined;
 
   if (!response.ok) {
     const message =
@@ -260,7 +275,9 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     return this.request('/api/connectors/install-command', { method: 'POST' });
   }
 
-  listConnectorCredentials(): Promise<{ credentials: ConnectorCredentialRecord[] }> {
+  listConnectorCredentials(): Promise<{
+    credentials: ConnectorCredentialRecord[];
+  }> {
     return this.request('/api/connectors/credentials');
   }
 
@@ -333,7 +350,10 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     return this.request(`/api/github/issue-comments?${query.toString()}`);
   }
 
-  getGitHubPipelineStatus(fullName: string, options: { page?: number; perPage?: number } = {}): Promise<GitHubPipelineStatusResult> {
+  getGitHubPipelineStatus(
+    fullName: string,
+    options: { page?: number; perPage?: number } = {}
+  ): Promise<GitHubPipelineStatusResult> {
     const query = new URLSearchParams({ fullName });
     if (options.page) query.set('page', String(options.page));
     if (options.perPage) query.set('perPage', String(options.perPage));
@@ -341,7 +361,10 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     return this.request(`/api/github/pipeline?${query.toString()}`);
   }
 
-  getGitHubWorkflowRunDetail(fullName: string, runId: number): Promise<import('@/shared/project-space-api').GitHubWorkflowRunDetailResult> {
+  getGitHubWorkflowRunDetail(
+    fullName: string,
+    runId: number
+  ): Promise<import('@/shared/project-space-api').GitHubWorkflowRunDetailResult> {
     const query = new URLSearchParams({ fullName });
     return this.request(`/api/github/workflow-runs/${runId}?${query.toString()}`);
   }
@@ -455,13 +478,34 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     return this.request('/api/projects/state');
   }
 
-  loadProjectWorktrees(projectPath: string, machineId?: string): Promise<ProjectWorktreeRecord[]> {
-    const query = new URLSearchParams({ projectPath });
+  loadProjectWorktrees(projectId: string, machineId?: string): Promise<ProjectWorktreeRecord[]> {
+    const query = new URLSearchParams({ projectId });
     if (machineId) {
       query.set('machineId', machineId);
     }
 
     return this.request(`/api/projects/worktrees?${query.toString()}`);
+  }
+
+  materializeWorktree(request: WorktreeMaterializeRequest): Promise<WorktreeMaterializeResult> {
+    return this.request('/api/worktrees/materialize', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  inspectWorktreeSetup(request: WorktreeSetupInspectRequest): Promise<WorktreeSetupResult> {
+    return this.request('/api/worktrees/setup/inspect', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  runWorktreeSetup(request: WorktreeSetupRunRequest): Promise<WorktreeSetupResult> {
+    return this.request('/api/worktrees/setup/run', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
   }
 
   inspectDevServers(request: DevServerInspectRequest): Promise<DevServerOverviewResult> {
@@ -560,9 +604,7 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     });
   }
 
-  readMachineFile(
-    request: MachineFileSystemFileRequest
-  ): Promise<MachineFileSystemFileResult> {
+  readMachineFile(request: MachineFileSystemFileRequest): Promise<MachineFileSystemFileResult> {
     return this.request('/api/machines/filesystem/file', {
       body: JSON.stringify(request),
       method: 'POST'
@@ -717,8 +759,7 @@ export async function streamCodexChat(
 
   if (!response.ok) {
     const payload = (await response.json().catch(() => undefined)) as
-      | { error?: string }
-      | undefined;
+      { error?: string } | undefined;
 
     throw new Error(payload?.error ?? `Request failed with ${response.status}.`);
   }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { GitBranchPlus } from 'lucide-react';
+import { GitBranchPlus, LoaderCircle } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
-import { Button, Chip, Surface, Text } from '@/app/dotnaos-ui';
+import { Button, Surface, Text } from '@/app/dotnaos-ui';
 import type {
   ConnectorOverviewResult,
   ExplorerTarget,
@@ -13,143 +13,24 @@ import type {
 import { useWorktreeDevServers } from '../hooks/use-worktree-dev-servers';
 import { FileExplorer } from './file-explorer';
 import { DevServerSettings } from './dev-server-settings';
-import { WorktreeBranchList, type CloneTargetInfo, type WorktreeBranchOption } from './worktree-branch-list';
-import {
-  DevServerAccessNotice,
-  WorktreeDevServerAction,
-  WorktreeDevServerDetails
-} from './worktree-dev-server';
+import { DevServerAccessNotice } from './worktree-dev-server';
+import { WorktreeRuntimeTable } from './worktree-runtime-table';
+import { runtimeRowsForWorktrees, unmaterializedBranchesFor } from './worktree-runtime-model';
+import { useWorktreeSetup } from '../hooks/use-worktree-setup';
 import {
   WorktreeGitClientPanel,
   type WorktreeGitStatusSnapshot
 } from './worktree-git-client-panel';
 
 function normalizeKey(value: string) {
-  return value.trim().replace(/^refs\/heads\//, '').toLowerCase();
-}
-
-function shellQuote(value: string) {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-function escapeDoubleQuotedShell(value: string) {
-  return value.replace(/["\\$`]/g, (character) => `\\${character}`);
-}
-
-function cloneUrl(repository?: GitHubCatalogRepository) {
-  if (!repository) {
-    return '';
-  }
-
-  if (repository.fullName) {
-    return `git@github.com:${repository.fullName}.git`;
-  }
-
-  return repository.url.endsWith('.git') ? repository.url : `${repository.url}.git`;
+  return value
+    .trim()
+    .replace(/^refs\/heads\//, '')
+    .toLowerCase();
 }
 
 function isDefaultBranch(branchName: string, defaultBranch: string) {
   return normalizeKey(branchName) === normalizeKey(defaultBranch);
-}
-
-function expectedPathForBranch(repositoryName: string, branchName: string, defaultBranch: string) {
-  if (isDefaultBranch(branchName, defaultBranch)) {
-    return `~/projects/${repositoryName}`;
-  }
-
-  return `~/projects/.worktrees/${repositoryName}/${branchName}`;
-}
-
-function cloneTargetExpressionForBranch(repositoryName: string, branchName: string, defaultBranch: string) {
-  const projectPath = escapeDoubleQuotedShell(repositoryName);
-  const worktreePath = escapeDoubleQuotedShell(`${repositoryName}/${branchName}`);
-
-  if (isDefaultBranch(branchName, defaultBranch)) {
-    return `$HOME/projects/${projectPath}`;
-  }
-
-  return `$HOME/projects/.worktrees/${worktreePath}`;
-}
-
-function createCloneTargetProbeCommand(
-  branchNames: string[],
-  defaultBranch: string,
-  repositoryName: string
-) {
-  return [
-    'set -e',
-    ...branchNames.flatMap((branch) => [
-      `target="${cloneTargetExpressionForBranch(repositoryName, branch, defaultBranch)}"`,
-      'if [ -e "$target" ]; then exists=1; else exists=0; fi',
-      `printf '%s\\t%s\\t%s\\n' ${shellQuote(branch)} "$exists" "$target"`
-    ])
-  ].join('\n');
-}
-
-function parseCloneTargetProbeOutput(output: string): Record<string, CloneTargetInfo> {
-  return Object.fromEntries(
-    output
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const [branchName, exists, path] = line.split('\t');
-
-        return [
-          branchName,
-          {
-            exists: exists === '1',
-            path
-          }
-        ];
-      })
-  );
-}
-
-function createCloneCommand({
-  branchName,
-  defaultBranch,
-  repository,
-  repositoryName
-}: {
-  branchName: string;
-  defaultBranch: string;
-  repository: string;
-  repositoryName: string;
-}) {
-  const projectPath = escapeDoubleQuotedShell(repositoryName);
-  const worktreePath = escapeDoubleQuotedShell(`${repositoryName}/${branchName}`);
-
-  if (isDefaultBranch(branchName, defaultBranch)) {
-    return [
-      'set -e',
-      `target="$HOME/projects/${projectPath}"`,
-      'if [ -e "$target" ]; then echo "Target already exists: $target"; exit 1; fi',
-      'mkdir -p "${target%/*}"',
-      `git clone --branch ${shellQuote(branchName)} ${shellQuote(repository)} "$target"`
-    ].join('\n');
-  }
-
-  return [
-    'set -e',
-    `base="$HOME/projects/${projectPath}"`,
-    `target="$HOME/projects/.worktrees/${worktreePath}"`,
-    'if [ -e "$target" ]; then echo "Target already exists: $target"; exit 1; fi',
-    'if [ ! -d "$base/.git" ]; then',
-    '  mkdir -p "${base%/*}"',
-    `  git clone --branch ${shellQuote(defaultBranch)} ${shellQuote(repository)} "$base"`,
-    'fi',
-    'mkdir -p "${target%/*}"',
-    'cd "$base"',
-    `git fetch origin ${shellQuote(branchName)}`,
-    `if git show-ref --verify --quiet ${shellQuote(`refs/heads/${branchName}`)}; then`,
-    `  git worktree add "$target" ${shellQuote(branchName)}`,
-    'else',
-    `  git worktree add --track -b ${shellQuote(branchName)} "$target" ${shellQuote(
-      `origin/${branchName}`
-    )}`,
-    'fi'
-  ].join('\n');
 }
 
 function canRunMachineCommand(machine?: MachineRecord) {
@@ -172,7 +53,6 @@ function branchSort(defaultBranch: string) {
 
 export function ProjectWorkspacesPanel({
   connectorOverview,
-  onOpenNewWorktree,
   onRefreshWorktrees,
   onSelectWorkspace,
   onSelectWorktree,
@@ -183,7 +63,6 @@ export function ProjectWorkspacesPanel({
   worktrees
 }: {
   connectorOverview: ConnectorOverviewResult;
-  onOpenNewWorktree(): void;
   onRefreshWorktrees(): Promise<ProjectWorktreeRecord[]>;
   onSelectWorkspace(): void;
   onSelectWorktree(worktreeId: string): void;
@@ -195,10 +74,11 @@ export function ProjectWorkspacesPanel({
 }) {
   const [actionMessage, setActionMessage] = useState('');
   const [busyBranchName, setBusyBranchName] = useState('');
-  const [cloneTargets, setCloneTargets] = useState<Record<string, CloneTargetInfo>>({});
   const [fileGitStatus, setFileGitStatus] = useState<WorktreeGitStatusSnapshot>();
   const [repositoryBranches, setRepositoryBranches] = useState<string[]>([]);
   const [repositoryMessage, setRepositoryMessage] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [selectedCreateBranch, setSelectedCreateBranch] = useState('');
   const selectedMachine =
     connectorOverview.machines.find(
       (machine) => machine.id === (project.machineId ?? selectedMachineId)
@@ -209,10 +89,23 @@ export function ProjectWorkspacesPanel({
     machineId: selectedMachine?.id,
     projectId: project.id
   });
-  const repositoryName = repository?.name ?? project.github?.name ?? project.name;
+  const worktreeIds = useMemo(
+    () =>
+      devServers.access === 'owner' || devServers.access === 'member'
+        ? worktrees.filter((worktree) => worktree.status === 'ready').map((worktree) => worktree.id)
+        : [],
+    [devServers.access, worktrees]
+  );
+  const setup = useWorktreeSetup({
+    machineId: selectedMachine?.id,
+    projectId: project.id,
+    worktreeIds
+  });
   const defaultBranch =
-    repository?.defaultBranch ?? project.github?.defaultBranch ?? project.gitStatus?.branchName ?? 'main';
-  const repositoryCloneUrl = cloneUrl(repository ?? project.github);
+    repository?.defaultBranch ??
+    project.github?.defaultBranch ??
+    project.gitStatus?.branchName ??
+    'main';
   const branchNames = useMemo(() => {
     const branches = new Set<string>([defaultBranch]);
 
@@ -221,50 +114,42 @@ export function ProjectWorkspacesPanel({
     }
 
     for (const worktree of worktrees) {
-      const branch = worktree.branchName || worktree.name;
-
-      if (branch) {
-        branches.add(branch);
+      if (worktree.branchName) {
+        branches.add(worktree.branchName);
       }
     }
 
     return Array.from(branches).sort(branchSort(defaultBranch));
   }, [defaultBranch, repositoryBranches, worktrees]);
-  const worktreeByBranch = useMemo(
-    () =>
-      new Map(
-        worktrees
-          .map((worktree) => [normalizeKey(worktree.branchName || worktree.name), worktree] as const)
-          .filter(([branch]) => Boolean(branch))
-      ),
-    [worktrees]
-  );
-  const branchOptions = useMemo<WorktreeBranchOption[]>(
-    () =>
-      branchNames.map((branchName) => ({
-        branchName,
-        expectedPath: expectedPathForBranch(repositoryName, branchName, defaultBranch),
-        target: cloneTargets[branchName],
-        worktree: worktreeByBranch.get(normalizeKey(branchName))
-      })),
-    [branchNames, cloneTargets, defaultBranch, repositoryName, worktreeByBranch]
+  const runtimeRows = useMemo(() => runtimeRowsForWorktrees(worktrees), [worktrees]);
+  const unmaterializedBranches = useMemo(
+    () => unmaterializedBranchesFor(branchNames, worktrees),
+    [branchNames, worktrees]
   );
   const selectedWorktree =
     selectedExplorerTarget.kind === 'worktree'
       ? worktrees.find((worktree) => worktree.id === selectedExplorerTarget.worktreeId)
-      : worktrees.find((worktree) => worktree.isBase) ?? worktrees[0];
-  const selectedExplorerPath = selectedWorktree?.path ?? '';
-  const canClone =
-    Boolean(repositoryCloneUrl) && Boolean(selectedMachine) && canRunMachineCommand(selectedMachine);
-  const cloneMessage = selectedMachine
+      : (worktrees.find((worktree) => worktree.isBase) ?? worktrees[0]);
+  const selectedExplorerPath = selectedWorktree?.status === 'ready' ? selectedWorktree.path : '';
+  const canCreate =
+    Boolean(repository?.fullName ?? project.github?.fullName) &&
+    Boolean(selectedMachine) &&
+    canRunMachineCommand(selectedMachine);
+  const createLabel = selectedMachine
     ? canRunMachineCommand(selectedMachine)
-      ? 'Clone'
+      ? 'Create'
       : 'Offline'
     : 'No machine';
 
   useEffect(() => {
     setFileGitStatus(undefined);
   }, [selectedWorktree?.id]);
+
+  useEffect(() => {
+    if (!unmaterializedBranches.includes(selectedCreateBranch)) {
+      setSelectedCreateBranch(unmaterializedBranches[0] ?? '');
+    }
+  }, [selectedCreateBranch, unmaterializedBranches]);
 
   useEffect(() => {
     if (!repository?.fullName) {
@@ -302,57 +187,22 @@ export function ProjectWorkspacesPanel({
     };
   }, [repository?.fullName]);
 
-  useEffect(() => {
-    if (!selectedMachine || !canRunMachineCommand(selectedMachine) || branchNames.length === 0) {
-      setCloneTargets({});
-      return;
-    }
-
-    let canceled = false;
-
-    projectSpaceClient
-      .runMachineTerminalCommand({
-        command: createCloneTargetProbeCommand(branchNames, defaultBranch, repositoryName),
-        machineId: selectedMachine.id
-      })
-      .then((result) => {
-        if (canceled) {
-          return;
-        }
-
-        setCloneTargets(result.exitCode === 0 ? parseCloneTargetProbeOutput(result.stdout) : {});
-      })
-      .catch(() => {
-        if (!canceled) {
-          setCloneTargets({});
-        }
-      });
-
-    return () => {
-      canceled = true;
-    };
-  }, [branchNames, defaultBranch, repositoryName, selectedMachine?.id, selectedMachine?.connector.status]);
-
-  async function cloneBranch(branchName: string) {
-    if (!selectedMachine || !repositoryCloneUrl || !canRunMachineCommand(selectedMachine)) {
+  async function createWorktree(branchName: string) {
+    if (!selectedMachine || !canCreate) {
       return;
     }
 
     setActionMessage('');
     setBusyBranchName(branchName);
     try {
-      const result = await projectSpaceClient.runMachineTerminalCommand({
-        command: createCloneCommand({
-          branchName,
-          defaultBranch,
-          repository: repositoryCloneUrl,
-          repositoryName
-        }),
-        machineId: selectedMachine.id
+      const result = await projectSpaceClient.materializeWorktree({
+        branchName,
+        machineId: selectedMachine.id,
+        projectId: project.id
       });
 
-      if (result.exitCode !== 0) {
-        setActionMessage(result.stderr || result.stdout || `Could not clone ${branchName}.`);
+      if (result.state === 'error') {
+        setActionMessage(result.lastError || `Could not create ${branchName}.`);
         return;
       }
 
@@ -361,26 +211,27 @@ export function ProjectWorkspacesPanel({
         nextWorktrees = await onRefreshWorktrees();
       } catch {
         setActionMessage(
-          `${branchName} was cloned on ${selectedMachine.name}, but the worktree list could not be refreshed.`
+          `${branchName} was created on ${selectedMachine.name}, but the worktree list could not be refreshed.`
         );
         return;
       }
 
-      const nextWorktree = nextWorktrees.find(
-        (worktree) => normalizeKey(worktree.branchName || worktree.name) === normalizeKey(branchName)
-      );
+      const nextWorktree = result.worktreeId
+        ? nextWorktrees.find((worktree) => worktree.id === result.worktreeId)
+        : undefined;
 
       if (!nextWorktree) {
         setActionMessage(
-          `${branchName} was cloned on ${selectedMachine.name}, but it is not visible in the worktree list yet.`
+          `${branchName} was created on ${selectedMachine.name}, but it is not visible in the worktree list yet.`
         );
         return;
       }
 
       onSelectWorktree(nextWorktree.id);
-      setActionMessage(`${branchName} cloned on ${selectedMachine.name}.`);
+      setActionMessage(`${branchName} is ready on ${selectedMachine.name}.`);
+      setShowCreate(false);
     } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : `Could not clone ${branchName}.`);
+      setActionMessage(error instanceof Error ? error.message : `Could not create ${branchName}.`);
     } finally {
       setBusyBranchName('');
     }
@@ -388,96 +239,128 @@ export function ProjectWorkspacesPanel({
 
   return (
     <div className="flex min-h-0 flex-col gap-4">
-      <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(22rem,28rem)_minmax(0,1fr)]">
-        <div className="flex min-h-0 flex-col gap-4">
-          <Surface
-            variant="tertiary"
-            className="flex min-h-0 flex-col rounded-lg border border-neutral-800 bg-neutral-950/45 p-3"
+      <Surface
+        variant="tertiary"
+        className="flex min-h-0 flex-col rounded-lg border border-neutral-800 bg-neutral-950/45 p-3"
+      >
+        <div className="mb-3 flex items-center justify-between gap-3 px-1">
+          <div className="min-w-0">
+            <Text className="text-sm font-semibold text-neutral-100">Worktrees</Text>
+            <Text className="mt-0.5 block text-xs text-neutral-500">
+              {worktrees.length} worktrees ·{' '}
+              {Array.from(devServers.serversForWorktree.values()).reduce(
+                (total, servers) => total + servers.length,
+                0
+              )}{' '}
+              servers
+            </Text>
+          </div>
+          <Button
+            size="sm"
+            variant="primary"
+            className="shrink-0 bg-sky-500 text-white hover:bg-sky-400"
+            isDisabled={unmaterializedBranches.length === 0}
+            onPress={() => setShowCreate((value) => !value)}
           >
-            <div className="mb-3 flex items-center justify-between gap-3 px-1">
-              <div className="min-w-0">
-                <Text className="text-sm font-semibold text-neutral-100">Worktrees</Text>
-                <Text className="mt-0.5 block text-xs text-neutral-500">
-                  {worktrees.length} local · {branchOptions.length} branches
-                </Text>
-              </div>
-              <Button size="sm" variant="ghost" className="shrink-0" onPress={onOpenNewWorktree}>
-                <GitBranchPlus className="size-4" />
-                New
-              </Button>
-            </div>
-
-            <DevServerAccessNotice
-              access={devServers.access}
-              machineName={selectedMachine?.name}
-            />
-            <DevServerSettings
-              access={devServers.access}
-              hasActiveServers={devServers.hasActiveServers}
-              isSaving={devServers.isSavingSettings}
-              onSave={devServers.updateSettings}
-              settings={devServers.settings}
-            />
-
-            {branchOptions.length > 0 ? (
-              <WorktreeBranchList
-                busyBranchName={busyBranchName}
-                canClone={canClone}
-                cloneMessage={cloneMessage}
-                defaultBranch={defaultBranch}
-                onCloneBranch={(branchName) => void cloneBranch(branchName)}
-                onSelectBase={onSelectWorkspace}
-                onSelectWorktree={onSelectWorktree}
-                options={branchOptions}
-                projectName={repositoryName}
-                renderWorktreeAction={(worktree) => (
-                  <WorktreeDevServerAction
-                    access={devServers.access}
-                    isChecking={devServers.isChecking}
-                    isPending={devServers.pendingWorktreeId === worktree.id}
-                    onStart={() => void devServers.start(worktree.id)}
-                    onStop={() => void devServers.stop(worktree.id)}
-                    server={devServers.serversByWorktreeId.get(worktree.id)}
-                  />
-                )}
-                renderWorktreeDetails={(worktree) => (
-                  <WorktreeDevServerDetails
-                    machineName={selectedMachine?.name}
-                    server={devServers.serversByWorktreeId.get(worktree.id)}
-                  />
-                )}
-                selectedValue={selectedWorktree?.id ?? ''}
-              />
-            ) : (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-3">
-                <Text className="block text-sm font-medium text-amber-200">
-                  No branches or local worktrees found.
-                </Text>
-                <Text className="mt-1 block text-xs text-amber-200/70">
-                  This machine has no valid checkout for this project yet.
-                </Text>
-              </div>
-            )}
-            {actionMessage || repositoryMessage ? (
-              <Text className="mt-3 block px-1 text-xs text-neutral-500">
-                {actionMessage || repositoryMessage}
-              </Text>
-            ) : null}
-            {devServers.error ? (
-              <Text className="mt-2 block px-1 text-xs text-red-300/80">
-                {devServers.error}
-              </Text>
-            ) : null}
-          </Surface>
-
-          <WorktreeGitClientPanel
-            machine={selectedMachine}
-            onStatusChange={(nextStatus) =>
-              setFileGitStatus(nextStatus?.isRepository ? nextStatus : undefined)
-            }
-            worktree={selectedWorktree}
-          />
+            <GitBranchPlus className="size-4" />
+            New worktree
+          </Button>
         </div>
+
+        {showCreate ? (
+          <div className="mb-3 flex flex-col gap-2 rounded-lg border border-sky-400/20 bg-sky-400/[0.06] p-3 sm:flex-row sm:items-end">
+            <label className="grid min-w-0 flex-1 gap-1.5">
+              <Text className="text-xs font-medium text-neutral-300">GitHub branch</Text>
+              <select
+                aria-label="GitHub branch to create on this machine"
+                value={selectedCreateBranch}
+                onChange={(event) => setSelectedCreateBranch(event.currentTarget.value)}
+                className="min-h-9 min-w-0 rounded-lg border border-neutral-700 bg-neutral-950 px-3 text-sm text-neutral-100 outline-none focus-visible:border-sky-400 focus-visible:ring-2 focus-visible:ring-sky-400/25"
+              >
+                {unmaterializedBranches.map((branchName) => (
+                  <option key={branchName} value={branchName}>
+                    {branchName}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button
+              size="sm"
+              variant="primary"
+              isDisabled={!canCreate || !selectedCreateBranch || Boolean(busyBranchName)}
+              onPress={() => void createWorktree(selectedCreateBranch)}
+              className="bg-sky-500 text-white hover:bg-sky-400"
+            >
+              {busyBranchName ? (
+                <LoaderCircle className="size-3.5 animate-spin" />
+              ) : (
+                <GitBranchPlus className="size-3.5" />
+              )}
+              {busyBranchName ? 'Creating' : createLabel}
+            </Button>
+          </div>
+        ) : null}
+
+        <DevServerAccessNotice access={devServers.access} machineName={selectedMachine?.name} />
+        <DevServerSettings
+          access={devServers.access}
+          hasActiveServers={devServers.hasActiveServers}
+          isSaving={devServers.isSavingSettings}
+          onSave={devServers.updateSettings}
+          settings={devServers.settings}
+        />
+
+        {runtimeRows.length > 0 ? (
+          <WorktreeRuntimeTable
+            access={devServers.access}
+            machineName={selectedMachine?.name}
+            onPrepare={(worktreeId, setupStepId) => void setup.prepare(worktreeId, setupStepId)}
+            onSelect={(worktreeId) => {
+              const worktree = worktrees.find((candidate) => candidate.id === worktreeId);
+              if (worktree?.isBase) onSelectWorkspace();
+              else onSelectWorktree(worktreeId);
+            }}
+            onStart={(worktreeId, serverId) => void devServers.start(worktreeId, serverId)}
+            onStop={(worktreeId, serverId) => void devServers.stop(worktreeId, serverId)}
+            pendingServerKey={devServers.pendingServerKey}
+            pendingSetupKeys={setup.pendingKeys}
+            rows={runtimeRows}
+            selectedWorktreeId={selectedWorktree?.id ?? ''}
+            serversForWorktree={devServers.serversForWorktree}
+            setupErrors={setup.errors}
+            setupEnabled={devServers.access === 'owner' || devServers.access === 'member'}
+            setupResults={setup.results}
+          />
+        ) : (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-3">
+            <Text className="block text-sm font-medium text-amber-200">
+              No branches or local worktrees found.
+            </Text>
+            <Text className="mt-1 block text-xs text-amber-200/70">
+              This machine has no valid checkout for this project yet.
+            </Text>
+          </div>
+        )}
+        {actionMessage || repositoryMessage ? (
+          <Text aria-live="polite" className="mt-3 block px-1 text-xs text-neutral-500">
+            {actionMessage || repositoryMessage}
+          </Text>
+        ) : null}
+        {devServers.error ? (
+          <Text aria-live="polite" className="mt-2 block px-1 text-xs text-red-300/80">
+            {devServers.error}
+          </Text>
+        ) : null}
+      </Surface>
+
+      <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(22rem,28rem)_minmax(0,1fr)]">
+        <WorktreeGitClientPanel
+          machine={selectedMachine}
+          onStatusChange={(nextStatus) =>
+            setFileGitStatus(nextStatus?.isRepository ? nextStatus : undefined)
+          }
+          worktree={selectedWorktree}
+        />
 
         <Surface
           variant="tertiary"

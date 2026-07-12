@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/DotNaos/project-space/internal/worktreecheckout"
 	"github.com/DotNaos/project-space/internal/worktreeownership"
 	"github.com/spf13/cobra"
 )
@@ -26,6 +29,47 @@ func newWorktreeCommand() *cobra.Command {
 	}
 	cmd.AddCommand(newWorktreePrepareCommand())
 	cmd.AddCommand(newWorktreeCheckCommand())
+	cmd.AddCommand(newWorktreeMaterializeCommand())
+	return cmd
+}
+
+type worktreeMaterializer func(context.Context, worktreecheckout.Request) (worktreecheckout.Result, error)
+
+func newWorktreeMaterializeCommand() *cobra.Command {
+	return newWorktreeMaterializeCommandWith(worktreecheckout.Materialize)
+}
+
+func newWorktreeMaterializeCommandWith(materialize worktreeMaterializer) *cobra.Command {
+	var repository, branch, commit, format string
+	cmd := &cobra.Command{
+		Use:   "materialize",
+		Short: "Materialize a server-approved GitHub branch in the Project-managed worktree root",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if format != "json" {
+				return errors.New("--format must be json")
+			}
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("find home directory: %w", err)
+			}
+			result, err := materialize(cmd.Context(), worktreecheckout.Request{
+				Repository: repository, Branch: branch, Commit: commit,
+				WorktreesRoot: filepath.Join(home, "projects", ".worktrees"),
+			})
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	}
+	cmd.Flags().StringVar(&repository, "repository", "", "server-approved GitHub owner/name")
+	cmd.Flags().StringVar(&branch, "branch", "", "server-approved exact branch identity")
+	cmd.Flags().StringVar(&commit, "commit", "", "server-approved exact commit")
+	cmd.Flags().StringVar(&format, "format", "json", "output format: json")
+	_ = cmd.MarkFlagRequired("repository")
+	_ = cmd.MarkFlagRequired("branch")
+	_ = cmd.MarkFlagRequired("commit")
 	return cmd
 }
 

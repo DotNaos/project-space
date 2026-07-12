@@ -2,9 +2,12 @@ import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
 import { ConnectorDevServerCommandExecutor } from './connector-dev-server-executor';
 import {
   connectorDevServerErrorResult,
+  connectorDevServerListErrorResult,
   type ConnectorDevServerAdapter,
   type ConnectorDevServerOperation
 } from './connector-dev-server-contract';
+import { ConnectorWorktreeActionExecutor } from './connector-worktree-action-executor';
+import type { ConnectorWorktreeActionAdapter } from './connector-worktree-action-contract';
 import {
   isConnectorMachineMessage,
   parseConnectorMessage,
@@ -22,7 +25,8 @@ import {
 } from './project-connector-runtime-binding';
 
 interface ProjectConnectorWebSocketOptions extends ProjectConnectorConnectionOptions {
-  backend: ProjectSpaceBackend & Partial<ConnectorDevServerAdapter>;
+  backend: ProjectSpaceBackend &
+    Partial<ConnectorDevServerAdapter & ConnectorWorktreeActionAdapter>;
 }
 
 const filesystemCommandTimeoutMs = 8_000;
@@ -81,7 +85,9 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         .then(async (response) => {
           if (!response.ok) {
             const detail = await response.text().catch(() => '');
-            throw new Error(`${response.status} ${response.statusText}${detail ? `: ${detail}` : ''}`);
+            throw new Error(
+              `${response.status} ${response.statusText}${detail ? `: ${detail}` : ''}`
+            );
           }
         })
         .catch((error) => {
@@ -106,7 +112,9 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
     }
 
     if (typeof WebSocket === 'undefined') {
-      console.warn(`Connector hub ${target.name} has a WebSocket URL, but WebSocket is not available.`);
+      console.warn(
+        `Connector hub ${target.name} has a WebSocket URL, but WebSocket is not available.`
+      );
       return;
     }
 
@@ -118,6 +126,9 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
       typeof backend.runDevServerCommand === 'function'
         ? (backend as ConnectorDevServerAdapter)
         : {
+            async listDevServers(request) {
+              return connectorDevServerListErrorResult(request, request.actor.generation);
+            },
             async runDevServerCommand(request) {
               return connectorDevServerErrorResult(
                 request,
@@ -129,8 +140,20 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           };
     const commandGrantPublicKey = connectorCommandGrantPublicKeyForTarget(target);
     const devServerExecutor = commandGrantPublicKey
-      ? new ConnectorDevServerCommandExecutor(adapter, commandGrantPublicKey)
+      ? new ConnectorDevServerCommandExecutor(
+          adapter,
+          commandGrantPublicKey,
+          options.runtimeCredential?.machineId
+        )
       : undefined;
+    const worktreeActionExecutor =
+      commandGrantPublicKey && typeof backend.runWorktreeAction === 'function'
+        ? new ConnectorWorktreeActionExecutor(
+            backend as ConnectorWorktreeActionAdapter,
+            commandGrantPublicKey,
+            options.runtimeCredential?.machineId
+          )
+        : undefined;
 
     function scheduleReconnect() {
       if (closed || reconnectTimer) {
@@ -264,7 +287,8 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
                 sendJson(socket, {
                   id: message.id,
                   payload: {
-                    message: error instanceof Error ? error.message : 'Could not load Codex models.',
+                    message:
+                      error instanceof Error ? error.message : 'Could not load Codex models.',
                     models: [],
                     status: 'error'
                   },
@@ -275,16 +299,54 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           return;
         }
 
+        if (message.type === 'dev-server.list') {
+          const execution = devServerExecutor
+            ? devServerExecutor.execute('list', message.payload)
+            : Promise.resolve(
+                connectorDevServerListErrorResult(message.payload, message.payload.grant.generation)
+              );
+          void execution.then((result) => {
+            if (socket) {
+              sendJson(socket, {
+                id: message.id,
+                payload: result,
+                type: 'dev-server.list.result'
+              } satisfies ConnectorHubMessage);
+            }
+          });
+          return;
+        }
+
+        if (message.type === 'worktree.action') {
+          if (!worktreeActionExecutor) {
+            socket?.close(1008, 'Worktree actions are not configured.');
+            return;
+          }
+          void worktreeActionExecutor
+            .execute(message.payload.operation, message.payload)
+            .then((result) => {
+              if (socket)
+                sendJson(socket, {
+                  id: message.id,
+                  payload: result,
+                  type: 'worktree.action.result'
+                } satisfies ConnectorHubMessage);
+            })
+            .catch(() => socket?.close(1008, 'Worktree action authorization failed.'));
+          return;
+        }
+
         if (
           message.type === 'dev-server.inspect' ||
           message.type === 'dev-server.start' ||
           message.type === 'dev-server.stop'
         ) {
-          const operation = message.type.slice('dev-server.'.length) as ConnectorDevServerOperation;
+          const operation = message.type.slice('dev-server.'.length) as Exclude<
+            ConnectorDevServerOperation,
+            'list'
+          >;
           const resultType = `${message.type}.result` as
-            | 'dev-server.inspect.result'
-            | 'dev-server.start.result'
-            | 'dev-server.stop.result';
+            'dev-server.inspect.result' | 'dev-server.start.result' | 'dev-server.stop.result';
           const execution = devServerExecutor
             ? devServerExecutor.execute(operation, message.payload)
             : Promise.resolve(
@@ -311,15 +373,19 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           const controller = new AbortController();
           runningChats.set(message.id, controller);
           void backend
-            .streamCodexChat(message.payload, (event) => {
-              if (socket) {
-                sendJson(socket, {
-                  id: message.id,
-                  payload: event,
-                  type: 'codex.chat.event'
-                } satisfies ConnectorHubMessage);
-              }
-            }, controller.signal)
+            .streamCodexChat(
+              message.payload,
+              (event) => {
+                if (socket) {
+                  sendJson(socket, {
+                    id: message.id,
+                    payload: event,
+                    type: 'codex.chat.event'
+                  } satisfies ConnectorHubMessage);
+                }
+              },
+              controller.signal
+            )
             .catch((error) => {
               if (socket) {
                 sendJson(socket, {
@@ -393,7 +459,8 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           void settleWithin(backend.readMachineDirectory(message.payload), {
             entries: [],
             errorCode: 'permission-denied',
-            message: 'macOS blocked this folder. Grant Full Disk Access to the Project Space connector and retry.',
+            message:
+              'macOS blocked this folder. Grant Full Disk Access to the Project Space connector and retry.',
             path: message.payload.path,
             status: 'error'
           }).then((result) => {
@@ -411,7 +478,8 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         if (message.type === 'filesystem.file') {
           void settleWithin(backend.readMachineFile(message.payload), {
             errorCode: 'permission-denied',
-            message: 'macOS blocked this file. Grant Full Disk Access to the Project Space connector and retry.',
+            message:
+              'macOS blocked this file. Grant Full Disk Access to the Project Space connector and retry.',
             name: message.payload.path.split('/').pop() ?? message.payload.path,
             path: message.payload.path,
             status: 'error'
@@ -464,28 +532,31 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         }
 
         if (message.type === 'filesystem.folder.delete') {
-          void backend.deleteMachineDirectories(message.payload).then((result) => {
-            if (socket) {
-              sendJson(socket, {
-                id: message.id,
-                payload: result,
-                type: 'filesystem.folder.delete.result'
-              } satisfies ConnectorHubMessage);
-            }
-          }).catch(() => {
-            if (socket) {
-              sendJson(socket, {
-                id: message.id,
-                payload: {
-                  affectedPaths: [],
-                  errorCode: 'failed',
-                  message: 'The folders could not be deleted.',
-                  status: 'error'
-                },
-                type: 'filesystem.folder.delete.result'
-              } satisfies ConnectorHubMessage);
-            }
-          });
+          void backend
+            .deleteMachineDirectories(message.payload)
+            .then((result) => {
+              if (socket) {
+                sendJson(socket, {
+                  id: message.id,
+                  payload: result,
+                  type: 'filesystem.folder.delete.result'
+                } satisfies ConnectorHubMessage);
+              }
+            })
+            .catch(() => {
+              if (socket) {
+                sendJson(socket, {
+                  id: message.id,
+                  payload: {
+                    affectedPaths: [],
+                    errorCode: 'failed',
+                    message: 'The folders could not be deleted.',
+                    status: 'error'
+                  },
+                  type: 'filesystem.folder.delete.result'
+                } satisfies ConnectorHubMessage);
+              }
+            });
           return;
         }
 

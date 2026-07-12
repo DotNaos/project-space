@@ -66,6 +66,8 @@ func newStateStore(root string) (*stateStore, error) {
 		filepath.Join(resolved, "sessions"),
 		filepath.Join(resolved, "locks"),
 		filepath.Join(resolved, "logs"),
+		filepath.Join(resolved, "setup-states"),
+		filepath.Join(resolved, "setup-logs"),
 	} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			return nil, fmt.Errorf("create runtime directory %q: %w", directory, err)

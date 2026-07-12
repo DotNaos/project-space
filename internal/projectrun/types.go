@@ -80,7 +80,7 @@ type Streams struct {
 }
 
 type ProcessRunner interface {
-	RunForeground(context.Context, Command, Streams) (int, error)
+	RunForeground(context.Context, Command, Streams, ProcessCommit) (int, error)
 	StartDetached(Command, string, ProcessCommit) (ProcessRef, error)
 	Alive(ProcessRef) bool
 	OwnsTCP(ProcessRef, string, int) (bool, error)
@@ -113,6 +113,67 @@ type PortAllocator interface {
 }
 
 type Clock func() time.Time
+
+type RepositoryInspector interface {
+	Head(context.Context, string) (string, error)
+}
+
+type SetupState string
+
+const (
+	SetupRequired    SetupState = "required"
+	SetupRunning     SetupState = "running"
+	SetupReady       SetupState = "ready"
+	SetupFailed      SetupState = "failed"
+	SetupInterrupted SetupState = "interrupted"
+	SetupStale       SetupState = "stale"
+)
+
+type SetupResult struct {
+	SchemaVersion     int        `json:"schemaVersion"`
+	Operation         string     `json:"operation"`
+	StepID            string     `json:"stepId"`
+	Directory         string     `json:"directory"`
+	Capability        Capability `json:"capability"`
+	State             SetupState `json:"state"`
+	Commit            string     `json:"commit"`
+	DeclarationDigest string     `json:"declarationDigest"`
+	StartedAt         *string    `json:"startedAt"`
+	FinishedAt        *string    `json:"finishedAt"`
+	CheckedAt         string     `json:"checkedAt"`
+	LastError         *string    `json:"lastError"`
+}
+
+type SetupCollectionResult struct {
+	SchemaVersion int           `json:"schemaVersion"`
+	Operation     string        `json:"operation"`
+	Directory     string        `json:"directory"`
+	Capability    Capability    `json:"capability"`
+	Steps         []SetupResult `json:"steps"`
+	CheckedAt     string        `json:"checkedAt"`
+	LastError     *string       `json:"lastError"`
+}
+
+type SetupExpectations struct {
+	Commit            string
+	DeclarationDigest string
+}
+
+type ServerDeclarationResult struct {
+	ServerID   string     `json:"serverId"`
+	Label      string     `json:"label"`
+	Capability Capability `json:"capability"`
+}
+
+type ServerDeclarationCollectionResult struct {
+	SchemaVersion int                       `json:"schemaVersion"`
+	Operation     string                    `json:"operation"`
+	Directory     string                    `json:"directory"`
+	Capability    Capability                `json:"capability"`
+	Servers       []ServerDeclarationResult `json:"servers"`
+	CheckedAt     string                    `json:"checkedAt"`
+	LastError     *string                   `json:"lastError"`
+}
 
 type ServeCollectionResult struct {
 	SchemaVersion int           `json:"schemaVersion"`

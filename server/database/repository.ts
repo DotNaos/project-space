@@ -57,6 +57,7 @@ interface DevServerSessionRow {
   owner_user_id: string;
   project_id: string;
   run_target: string;
+  server_id: string;
   runtime_generation: number | string;
   started_at: Date | string | null;
   state: DevServerSessionState;
@@ -81,7 +82,7 @@ const runSettingsColumns = `
 `;
 
 const sessionColumns = `
-  id, owner_user_id, machine_id, project_id, worktree_id, run_target, state,
+  id, owner_user_id, machine_id, project_id, worktree_id, run_target, server_id, state,
   runtime_generation, local_port, tailscale_port, tailscale_url, last_error,
   started_at, stopped_at, last_seen_at, created_at, updated_at
 `;
@@ -145,6 +146,7 @@ function mapSession(row: DevServerSessionRow): DevServerSession {
     ownerUserId: row.owner_user_id,
     projectId: row.project_id,
     runTarget: row.run_target,
+    serverId: row.server_id,
     startedAt: optionalIsoString(row.started_at),
     state: row.state,
     stoppedAt: optionalIsoString(row.stopped_at),
@@ -353,9 +355,9 @@ export class ProjectSpaceDatabaseRepository {
   async createDevServerSession(input: CreateDevServerSessionInput) {
     const result = await this.client.query<DevServerSessionRow>(
       `insert into dev_server_sessions (
-         id, owner_user_id, machine_id, project_id, worktree_id, run_target,
+         id, owner_user_id, machine_id, project_id, worktree_id, run_target, server_id,
          state, local_port, tailscale_port, tailscale_url
-       ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        returning ${sessionColumns}`,
       [
         this.createId(),
@@ -364,6 +366,7 @@ export class ProjectSpaceDatabaseRepository {
         requireValue(input.projectId, 'projectId'),
         requireValue(input.worktreeId, 'worktreeId'),
         requireValue(input.runTarget ?? 'dev', 'runTarget'),
+        requireValue(input.serverId, 'serverId'),
         input.state ?? 'starting',
         input.localPort ?? null,
         input.tailscalePort ?? null,
@@ -403,6 +406,7 @@ export class ProjectSpaceDatabaseRepository {
     addFilter('machine_id', filter.machineId);
     addFilter('project_id', filter.projectId);
     addFilter('worktree_id', filter.worktreeId);
+    addFilter('server_id', filter.serverId);
     if (filter.activeOnly) {
       conditions.push(`state in ('starting', 'running', 'stopping')`);
     }

@@ -13,6 +13,7 @@ const transitionPollMs = 2_000;
 function withOptimisticState(
   overview: DevServerOverviewResult | undefined,
   worktreeId: string,
+  serverId: string,
   state: WorktreeDevServerRecord['state']
 ) {
   if (!overview) {
@@ -22,7 +23,7 @@ function withOptimisticState(
   return {
     ...overview,
     servers: overview.servers.map((server) =>
-      server.worktreeId === worktreeId
+      server.worktreeId === worktreeId && server.serverId === serverId
         ? { ...server, checkedAt: new Date().toISOString(), lastError: undefined, state }
         : server
     )
@@ -40,7 +41,7 @@ export function useWorktreeDevServers({
   const [error, setError] = useState('');
   const [isChecking, setIsChecking] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
-  const [pendingWorktreeId, setPendingWorktreeId] = useState('');
+  const [pendingServerKey, setPendingServerKey] = useState('');
   const requestSequence = useRef(0);
   const targetKey = `${machineId ?? ''}\u0000${projectId}`;
   const targetKeyRef = useRef(targetKey);
@@ -89,7 +90,7 @@ export function useWorktreeDevServers({
 
     setOverview(undefined);
     setError('');
-    setPendingWorktreeId('');
+    setPendingServerKey('');
 
     async function poll() {
       const result = await refresh();
@@ -113,24 +114,39 @@ export function useWorktreeDevServers({
     };
   }, [refresh]);
 
+  const serversForWorktree = useMemo(() => {
+    const grouped = new Map<string, WorktreeDevServerRecord[]>();
+    for (const server of overview?.servers ?? []) {
+      const current = grouped.get(server.worktreeId) ?? [];
+      current.push(server);
+      grouped.set(server.worktreeId, current);
+    }
+    return grouped;
+  }, [overview?.servers]);
   const serversByWorktreeId = useMemo(
-    () => new Map(overview?.servers.map((server) => [server.worktreeId, server]) ?? []),
-    [overview?.servers]
+    () => new Map(Array.from(serversForWorktree, ([worktreeId, servers]) => [worktreeId, servers[0]!])),
+    [serversForWorktree]
   );
 
   const start = useCallback(
-    async (worktreeId: string) => {
+    async (worktreeId: string, requestedServerId?: string) => {
       if (!machineId) {
         return;
       }
 
+      const serverId = requestedServerId ?? serversByWorktreeId.get(worktreeId)?.serverId;
+      if (!serverId) {
+        setError('No trusted development server is declared for this worktree.');
+        return;
+      }
       const requestKey = targetKey;
-      setPendingWorktreeId(worktreeId);
-      setOverview((current) => withOptimisticState(current, worktreeId, 'starting'));
+      setPendingServerKey(`${worktreeId}\u0000${serverId}`);
+      setOverview((current) => withOptimisticState(current, worktreeId, serverId, 'starting'));
       try {
         const result = await projectSpaceClient.startDevServer({
           machineId,
           projectId,
+          serverId,
           worktreeId
         });
         if (
@@ -150,26 +166,32 @@ export function useWorktreeDevServers({
         }
       } finally {
         if (targetKeyRef.current === requestKey) {
-          setPendingWorktreeId('');
+          setPendingServerKey('');
         }
       }
     },
-    [machineId, projectId, refresh, targetKey]
+    [machineId, projectId, refresh, serversByWorktreeId, targetKey]
   );
 
   const stop = useCallback(
-    async (worktreeId: string) => {
+    async (worktreeId: string, requestedServerId?: string) => {
       if (!machineId) {
         return;
       }
 
+      const serverId = requestedServerId ?? serversByWorktreeId.get(worktreeId)?.serverId;
+      if (!serverId) {
+        setError('No trusted development server is declared for this worktree.');
+        return;
+      }
       const requestKey = targetKey;
-      setPendingWorktreeId(worktreeId);
-      setOverview((current) => withOptimisticState(current, worktreeId, 'stopping'));
+      setPendingServerKey(`${worktreeId}\u0000${serverId}`);
+      setOverview((current) => withOptimisticState(current, worktreeId, serverId, 'stopping'));
       try {
         const result = await projectSpaceClient.stopDevServer({
           machineId,
           projectId,
+          serverId,
           worktreeId
         });
         if (
@@ -189,15 +211,15 @@ export function useWorktreeDevServers({
         }
       } finally {
         if (targetKeyRef.current === requestKey) {
-          setPendingWorktreeId('');
+          setPendingServerKey('');
         }
       }
     },
-    [machineId, projectId, refresh, targetKey]
+    [machineId, projectId, refresh, serversByWorktreeId, targetKey]
   );
 
   const updateSettings = useCallback(
-    async ({ allowedHosts, runTarget }: Pick<ProjectRunSettingsRecord, 'allowedHosts' | 'runTarget'>) => {
+    async ({ allowedHosts }: Pick<ProjectRunSettingsRecord, 'allowedHosts'>) => {
       if (!machineId) {
         return;
       }
@@ -208,8 +230,7 @@ export function useWorktreeDevServers({
         const settings = await projectSpaceClient.updateProjectRunSettings({
           allowedHosts,
           machineId,
-          projectId,
-          runTarget
+          projectId
         });
         if (targetKeyRef.current === requestKey) {
           setOverview((current) => current ? { ...current, settings } : current);
@@ -243,9 +264,11 @@ export function useWorktreeDevServers({
     hasActiveServers,
     isChecking,
     isSavingSettings,
-    pendingWorktreeId,
+    pendingServerKey,
+    pendingWorktreeId: pendingServerKey.split('\u0000')[0] ?? '',
     refresh,
     serversByWorktreeId,
+    serversForWorktree,
     settings: overview?.settings,
     start,
     stop,

@@ -13,6 +13,7 @@ import type {
   UpsertProjectRunSettingsInput
 } from '../server/local-database-store';
 import type {
+  ConfiguredDevServerRecord,
   DevServerConnectorResult,
   ProjectWorktreeRecord
 } from '../src/shared/project-space-api';
@@ -23,10 +24,15 @@ const projectId = `${machineId}:project-a`;
 const projectPath = '/srv/projects/project-a';
 const worktree: ProjectWorktreeRecord = {
   branchName: 'feature/dev-server',
-  id: 'worktree-opaque-id',
+  detached: false,
+  headSha: 'a'.repeat(40),
+  id: 'wt_111111111111111111111111',
   isBase: false,
+  kind: 'project-managed',
+  locked: false,
   name: 'feature-dev-server',
   path: '/srv/projects/.worktrees/project-a/feature-dev-server',
+  prunable: false,
   status: 'ready'
 };
 
@@ -44,7 +50,7 @@ type ConnectorResultFactory = (
   operation: ConnectorOperation,
   request: ConnectorRequest,
   actor: ConnectorActor
-) => DevServerConnectorResult;
+) => DevServerConnectorResult | Promise<DevServerConnectorResult>;
 
 function membership(userId: string, role: 'member' | 'owner' = 'owner'): MachineMembership {
   return {
@@ -86,6 +92,7 @@ function resultFor(
     projectId: request.projectId,
     publicPort: 44419,
     runTarget: request.runTarget,
+    serverId: request.serverId,
     startedAt: '2026-07-11T11:59:00.000Z',
     state: 'running',
     tailscaleIPv4: '100.80.135.9',
@@ -137,22 +144,20 @@ class InMemoryDatabase implements DevServerDatabaseGateway {
     return this.memberships.get(this.membershipKey(input.userId, input.machineId)) ?? null;
   }
 
-  async readProjectRunSettings(input: {
-    machineId: string;
-    projectId: string;
-    userId: string;
-  }) {
+  async readProjectRunSettings(input: { machineId: string; projectId: string; userId: string }) {
     this.readSettingsUsers.push(input.userId);
-    const value = this.settings.get(
-      this.settingsKey(input.userId, input.machineId, input.projectId)
-    ) ?? null;
+    const value =
+      this.settings.get(this.settingsKey(input.userId, input.machineId, input.projectId)) ?? null;
     this.settingsReadCount += 1;
     await this.beforeSettingsRead?.(this.settingsReadCount);
     return value;
   }
 
   async upsertProjectRunSettings(input: UpsertProjectRunSettingsInput) {
-    this.upsertCalls.push({ ...input, allowedHosts: input.allowedHosts && [...input.allowedHosts] });
+    this.upsertCalls.push({
+      ...input,
+      allowedHosts: input.allowedHosts && [...input.allowedHosts]
+    });
     const key = this.settingsKey(input.userId, input.machineId, input.projectId);
     const existing = this.settings.get(key);
     const value: ProjectRunSettings = {
@@ -176,6 +181,7 @@ class InMemoryDatabase implements DevServerDatabaseGateway {
     ownerUserId: string;
     projectId: string;
     runTarget?: string;
+    serverId: string;
     state?: DevServerSession['state'];
     tailscalePort?: number;
     tailscaleUrl?: string;
@@ -191,6 +197,7 @@ class InMemoryDatabase implements DevServerDatabaseGateway {
       ownerUserId: input.ownerUserId,
       projectId: input.projectId,
       runTarget: input.runTarget ?? 'dev',
+      serverId: input.serverId,
       state: input.state ?? 'starting',
       tailscalePort: input.tailscalePort,
       tailscaleUrl: input.tailscaleUrl,
@@ -207,6 +214,7 @@ class InMemoryDatabase implements DevServerDatabaseGateway {
       activeOnly?: boolean;
       machineId?: string;
       projectId?: string;
+      serverId?: string;
       worktreeId?: string;
     } = {}
   ) {
@@ -216,6 +224,7 @@ class InMemoryDatabase implements DevServerDatabaseGateway {
         candidate.ownerUserId === userId &&
         (!filter.machineId || candidate.machineId === filter.machineId) &&
         (!filter.projectId || candidate.projectId === filter.projectId) &&
+        (!filter.serverId || candidate.serverId === filter.serverId) &&
         (!filter.worktreeId || candidate.worktreeId === filter.worktreeId) &&
         (!filter.activeOnly || ['starting', 'running', 'stopping'].includes(candidate.state))
     );
@@ -239,16 +248,21 @@ class InMemoryDatabase implements DevServerDatabaseGateway {
       state: input.state,
       updatedAt: now.toISOString()
     };
-    const assign = <Key extends keyof Pick<
-      DevServerSession,
-      | 'lastError'
-      | 'lastSeenAt'
-      | 'localPort'
-      | 'startedAt'
-      | 'stoppedAt'
-      | 'tailscalePort'
-      | 'tailscaleUrl'
-    >>(key: Key, candidate: DevServerSession[Key] | null | undefined) => {
+    const assign = <
+      Key extends keyof Pick<
+        DevServerSession,
+        | 'lastError'
+        | 'lastSeenAt'
+        | 'localPort'
+        | 'startedAt'
+        | 'stoppedAt'
+        | 'tailscalePort'
+        | 'tailscaleUrl'
+      >
+    >(
+      key: Key,
+      candidate: DevServerSession[Key] | null | undefined
+    ) => {
       if (candidate === undefined) {
         return;
       }
@@ -271,9 +285,11 @@ class InMemoryDatabase implements DevServerDatabaseGateway {
 }
 
 interface HarnessOptions {
+  configuredServers?: ConfiguredDevServerRecord[];
   configured?: boolean;
   connectorResult?: ConnectorResultFactory;
   currentUser?: string;
+  inspectConcurrency?: number;
   memberships?: MachineMembership[];
   runSettings?: ProjectRunSettings[];
   worktrees?: ProjectWorktreeRecord[];
@@ -307,6 +323,23 @@ function createHarness(options: HarnessOptions = {}) {
   };
   const connector: DevServerConnectorGateway = {
     inspect: (request, actor) => invoke('inspect', request, actor),
+    async list(request, actor) {
+      return {
+        capability: 'configured',
+        checkedAt: now.toISOString(),
+        generation: actor.generation,
+        machineId: request.machineId,
+        projectId: request.projectId,
+        servers: options.configuredServers ?? [
+          {
+            capability: 'configured',
+            label: 'Development server',
+            serverId: 'dev'
+          }
+        ],
+        worktreeId: request.worktreeId
+      };
+    },
     start: (request, actor) => invoke('start', request, actor),
     stop: (request, actor) => invoke('stop', request, actor)
   };
@@ -361,6 +394,7 @@ function createHarness(options: HarnessOptions = {}) {
     },
     connector,
     database,
+    ...(options.inspectConcurrency ? { inspectConcurrency: options.inspectConcurrency } : {}),
     now: () => new Date(now),
     userId: () => currentUser
   });
@@ -380,7 +414,12 @@ describe('development-server service authorization boundary', () => {
     const harness = createHarness({ configured: false });
 
     const inspected = await harness.service.inspect({ machineId, projectId });
-    const started = await harness.service.start({ machineId, projectId, worktreeId: worktree.id });
+    const started = await harness.service.start({
+      machineId,
+      projectId,
+      serverId: 'dev',
+      worktreeId: worktree.id
+    });
 
     expect(inspected.access).toBe('database-required');
     expect(inspected.servers).toEqual([]);
@@ -393,7 +432,12 @@ describe('development-server service authorization boundary', () => {
     const harness = createHarness();
 
     const inspected = await harness.service.inspect({ machineId, projectId });
-    const started = await harness.service.start({ machineId, projectId, worktreeId: worktree.id });
+    const started = await harness.service.start({
+      machineId,
+      projectId,
+      serverId: 'dev',
+      worktreeId: worktree.id
+    });
 
     expect(inspected.access).toBe('unclaimed');
     expect(started.access).toBe('unclaimed');
@@ -402,7 +446,12 @@ describe('development-server service authorization boundary', () => {
 
   test('access and persisted runtime state stay scoped to the authenticated user', async () => {
     const harness = createHarness({ memberships: [membership('user-a')] });
-    await harness.service.start({ machineId, projectId, worktreeId: worktree.id });
+    await harness.service.start({
+      machineId,
+      projectId,
+      serverId: 'dev',
+      worktreeId: worktree.id
+    });
     const callsAfterOwnerStart = harness.connectorCalls.length;
 
     harness.setUser('user-b');
@@ -411,7 +460,9 @@ describe('development-server service authorization boundary', () => {
     expect(otherUser.access).toBe('denied');
     expect(otherUser.servers).toEqual([]);
     expect(harness.connectorCalls).toHaveLength(callsAfterOwnerStart);
-    expect(harness.database.sessions.every((session) => session.ownerUserId === 'user-a')).toBe(true);
+    expect(harness.database.sessions.every((session) => session.ownerUserId === 'user-a')).toBe(
+      true
+    );
     expect(harness.database.listSessionUsers).not.toContain('user-b');
     expect(harness.database.readSettingsUsers).not.toContain('user-b');
   });
@@ -425,6 +476,7 @@ describe('development-server service authorization boundary', () => {
     const result = await harness.service.start({
       machineId,
       projectId,
+      serverId: 'dev',
       worktreeId: 'unknown-to-the-browser-user'
     });
 
@@ -435,30 +487,121 @@ describe('development-server service authorization boundary', () => {
 });
 
 describe('development-server service trusted execution inputs', () => {
+  test('bounds concurrent inspection fan-out across declared servers', async () => {
+    let active = 0;
+    let maximumActive = 0;
+    const harness = createHarness({
+      configuredServers: Array.from({ length: 6 }, (_, index) => ({
+        capability: 'configured' as const,
+        label: `Server ${index}`,
+        serverId: `server.${index}`
+      })),
+      connectorResult: async (_operation, request, actor) => {
+        active++;
+        maximumActive = Math.max(maximumActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        active--;
+        return resultFor(request, actor);
+      },
+      inspectConcurrency: 2,
+      memberships: [membership('user-a')]
+    });
+
+    const overview = await harness.service.inspect({ machineId, projectId });
+    expect(overview.servers).toHaveLength(6);
+    expect(maximumActive).toBe(2);
+  });
+
+  test('discovers and manages two declared servers independently in one worktree', async () => {
+    const harness = createHarness({
+      configuredServers: [
+        { capability: 'configured', label: 'Storybook', serverId: 'storybook' },
+        { capability: 'configured', label: 'Web app', serverId: 'web' }
+      ],
+      memberships: [membership('user-a')]
+    });
+
+    const overview = await harness.service.inspect({ machineId, projectId });
+    expect(overview.servers.map((server) => [server.serverId, server.serverLabel])).toEqual([
+      ['storybook', 'Storybook'],
+      ['web', 'Web app']
+    ]);
+
+    await harness.service.start({
+      machineId,
+      projectId,
+      serverId: 'storybook',
+      worktreeId: worktree.id
+    });
+    await harness.service.start({
+      machineId,
+      projectId,
+      serverId: 'web',
+      worktreeId: worktree.id
+    });
+
+    expect(
+      harness.connectorCalls
+        .filter((call) => call.operation === 'start')
+        .map((call) => call.request.serverId)
+    ).toEqual(['storybook', 'web']);
+    expect(new Set(harness.database.sessions.map((session) => session.serverId))).toEqual(
+      new Set(['storybook', 'web'])
+    );
+  });
+
+  test('rejects a browser server id that is not in the trusted declaration inventory', async () => {
+    const harness = createHarness({ memberships: [membership('user-a')] });
+
+    await expect(
+      harness.service.start({
+        machineId,
+        projectId,
+        serverId: 'browser-supplied-command',
+        worktreeId: worktree.id
+      })
+    ).rejects.toThrow('not declared');
+    expect(harness.connectorCalls).toEqual([]);
+    expect(harness.database.sessions).toEqual([]);
+  });
+
   test('resolves the exact worktree path from the backend instead of treating the browser id as a path', async () => {
     const harness = createHarness({ memberships: [membership('user-a')] });
 
-    await harness.service.start({ machineId, projectId, worktreeId: worktree.id });
+    await harness.service.start({
+      machineId,
+      projectId,
+      serverId: 'dev',
+      worktreeId: worktree.id
+    });
 
     expect(harness.connectorCalls.map((call) => call.operation)).toEqual(['start', 'inspect']);
-    expect(harness.connectorCalls.every((call) => call.request.worktreeId === worktree.id)).toBe(true);
+    expect(harness.connectorCalls.every((call) => call.request.worktreeId === worktree.id)).toBe(
+      true
+    );
     expect(
-      harness.connectorCalls.every((call) => call.request.worktreePath === worktree.path)
+      harness.connectorCalls.every((call) => call.request.expectedHeadSha === worktree.headSha)
     ).toBe(true);
-    expect(harness.connectorCalls.some((call) => call.request.worktreePath === worktree.id)).toBe(false);
+    expect(JSON.stringify(harness.connectorCalls)).not.toContain(worktree.path);
   });
 
   test('rejects an unknown worktree before any connector command can execute', async () => {
     const harness = createHarness({ memberships: [membership('user-a')] });
 
     await expect(
-      harness.service.start({ machineId, projectId, worktreeId: 'browser-supplied-path' })
+      harness.service.start({
+        machineId,
+        projectId,
+        serverId: 'dev',
+        worktreeId: 'browser-supplied-path'
+      })
     ).rejects.toThrow('The selected worktree is not available on this machine.');
     expect(harness.connectorCalls).toEqual([]);
   });
 
   test('starts with per-user allowed hosts and run target and persists the preferred worktree', async () => {
     const harness = createHarness({
+      configuredServers: [{ capability: 'configured', label: 'Storybook', serverId: 'storybook' }],
       memberships: [membership('user-a')],
       runSettings: [
         settings('user-a', {
@@ -468,14 +611,19 @@ describe('development-server service trusted execution inputs', () => {
       ]
     });
 
-    await harness.service.start({ machineId, projectId, worktreeId: worktree.id });
+    await harness.service.start({
+      machineId,
+      projectId,
+      serverId: 'storybook',
+      worktreeId: worktree.id
+    });
 
     const startCall = harness.connectorCalls.find((call) => call.operation === 'start');
     expect(startCall?.request).toMatchObject({
       allowedHosts: ['100.80.135.9', 'preview.example.test'],
+      expectedHeadSha: worktree.headSha,
       runTarget: 'storybook',
-      worktreeId: worktree.id,
-      worktreePath: worktree.path
+      worktreeId: worktree.id
     });
     expect(startCall?.actor.userId).toBe('user-a');
     expect(harness.database.upsertCalls).toEqual([
@@ -494,30 +642,39 @@ describe('development-server service trusted execution inputs', () => {
     ).toBe(worktree.id);
   });
 
-  test('does not forget an active runtime when the run target changes', async () => {
+  test('ignores a legacy browser run target instead of changing the declared server identity', async () => {
     const harness = createHarness();
     harness.database.addMembership(membership('user-a'));
 
-    await harness.service.start({ machineId, projectId, worktreeId: worktree.id });
+    await harness.service.start({
+      machineId,
+      projectId,
+      serverId: 'dev',
+      worktreeId: worktree.id
+    });
 
-    await expect(
-      harness.service.updateSettings({
-        allowedHosts: [],
-        preferredWorktreeId: worktree.id,
-        machineId,
-        projectId,
-        runTarget: 'storybook'
-      })
-    ).rejects.toThrow('Stop active development servers');
-    expect(harness.database.settings.get(`user-a\u0000${machineId}\u0000${projectId}`)?.runTarget)
-      .toBe('dev');
+    await harness.service.updateSettings({
+      allowedHosts: [],
+      preferredWorktreeId: worktree.id,
+      machineId,
+      projectId,
+      runTarget: 'browser-supplied-command'
+    });
+    expect(
+      harness.database.settings.get(`user-a\u0000${machineId}\u0000${projectId}`)?.runTarget
+    ).toBe('dev');
   });
 
   test('requires a restart before allowed hosts can change', async () => {
     const harness = createHarness();
     harness.database.addMembership(membership('user-a'));
 
-    await harness.service.start({ machineId, projectId, worktreeId: worktree.id });
+    await harness.service.start({
+      machineId,
+      projectId,
+      serverId: 'dev',
+      worktreeId: worktree.id
+    });
 
     await expect(
       harness.service.updateSettings({
@@ -552,7 +709,12 @@ describe('development-server service trusted execution inputs', () => {
       }
     };
 
-    const start = harness.service.start({ machineId, projectId, worktreeId: worktree.id });
+    const start = harness.service.start({
+      machineId,
+      projectId,
+      serverId: 'dev',
+      worktreeId: worktree.id
+    });
     await firstSettingsRead;
 
     let updateSettled = false;
@@ -588,11 +750,11 @@ describe('development-server service trusted execution inputs', () => {
 });
 
 describe('development-server service exposure verification', () => {
-  test('preserves a bounded connector error string for the worktree row', async () => {
+  test('replaces connector error details with a browser-safe message', async () => {
     const harness = createHarness({
       connectorResult: (_operation, request, actor) =>
         resultFor(request, actor, {
-          lastError: 'The configured dev command exited before it opened a port.',
+          lastError: 'token=secret at /home/oli/private/worktree',
           state: 'error'
         }),
       memberships: [membership('user-a')]
@@ -600,9 +762,7 @@ describe('development-server service exposure verification', () => {
 
     const overview = await harness.service.inspect({ machineId, projectId });
 
-    expect(overview.servers[0]?.lastError).toBe(
-      'The configured dev command exited before it opened a port.'
-    );
+    expect(overview.servers[0]?.lastError).toBe('Development server reported an error.');
   });
 
   test('emits a canonical Tailscale URL for a fresh verified 100.64/10 IPv4 and port', async () => {
@@ -641,35 +801,49 @@ describe('development-server service exposure verification', () => {
   test.each([
     ['a non-Tailscale address', '192.168.1.20', 'http://192.168.1.20:44419/'],
     ['an address immediately outside 100.64/10', '100.128.0.1', 'http://100.128.0.1:44419/'],
-    ['HTTPS instead of the verified TCP HTTP origin', '100.80.135.9', 'https://100.80.135.9:44419/'],
+    [
+      'HTTPS instead of the verified TCP HTTP origin',
+      '100.80.135.9',
+      'https://100.80.135.9:44419/'
+    ],
     ['a different host', '100.80.135.9', 'http://100.80.135.10:44419/'],
     ['a different port', '100.80.135.9', 'http://100.80.135.9:44420/'],
     ['credentials in the URL', '100.80.135.9', 'http://attacker@100.80.135.9:44419/'],
     ['a query string', '100.80.135.9', 'http://100.80.135.9:44419/?redirect=evil']
-  ])('turns %s into an error without exposing a URL', async (_label, tailscaleIPv4, tailscaleUrl) => {
-    const harness = createHarness({
-      connectorResult: (_operation, request, actor) =>
-        resultFor(request, actor, { tailscaleIPv4, tailscaleUrl }),
-      memberships: [membership('user-a')]
-    });
+  ])(
+    'turns %s into an error without exposing a URL',
+    async (_label, tailscaleIPv4, tailscaleUrl) => {
+      const harness = createHarness({
+        connectorResult: (_operation, request, actor) =>
+          resultFor(request, actor, { tailscaleIPv4, tailscaleUrl }),
+        memberships: [membership('user-a')]
+      });
 
-    const overview = await harness.service.inspect({ machineId, projectId });
+      const overview = await harness.service.inspect({ machineId, projectId });
 
-    expect(overview.servers[0]?.state).toBe('error');
-    expect(overview.servers[0]?.tailscaleUrl).toBeUndefined();
-    expect(overview.servers[0]?.publicPort).toBeUndefined();
-    expect(overview.servers[0]?.verifiedAt).toBeUndefined();
-  });
+      expect(overview.servers[0]?.state).toBe('error');
+      expect(overview.servers[0]?.tailscaleUrl).toBeUndefined();
+      expect(overview.servers[0]?.publicPort).toBeUndefined();
+      expect(overview.servers[0]?.verifiedAt).toBeUndefined();
+    }
+  );
 
   test('persists a failed start without retaining an unverified public URL', async () => {
     const harness = createHarness({
       connectorResult: (_operation, request, actor) =>
-        resultFor(request, actor, { tailscaleUrl: 'http://attacker.example:44419/' }),
+        resultFor(request, actor, {
+          tailscaleUrl: 'http://attacker.example:44419/'
+        }),
       memberships: [membership('user-a')]
     });
 
     await expect(
-      harness.service.start({ machineId, projectId, worktreeId: worktree.id })
+      harness.service.start({
+        machineId,
+        projectId,
+        serverId: 'dev',
+        worktreeId: worktree.id
+      })
     ).rejects.toThrow('The connector did not verify a canonical Tailscale TCP exposure.');
 
     expect(harness.database.sessions[0]).toMatchObject({ state: 'error' });

@@ -157,18 +157,25 @@ func assertServeJSONKeys(t *testing.T, output string) {
 }
 
 type fakeProjectCommandManager struct {
-	serveResult     projectrun.ServeResult
-	reconcileResult projectrun.ServeCollectionResult
-	runResult       projectrun.RunResult
-	startErr        error
-	startDirectory  string
-	startScript     string
-	allowedHosts    []string
-	reconcileCalls  int
-	statusDirectory string
-	statusScript    string
-	stopDirectory   string
-	stopScript      string
+	serveResult      projectrun.ServeResult
+	reconcileResult  projectrun.ServeCollectionResult
+	runResult        projectrun.RunResult
+	startErr         error
+	startDirectory   string
+	startScript      string
+	allowedHosts     []string
+	reconcileCalls   int
+	statusDirectory  string
+	statusScript     string
+	stopDirectory    string
+	stopScript       string
+	setupResult      projectrun.SetupCollectionResult
+	setupErr         error
+	prepareCalls     int
+	setupStatusCalls int
+	setupDirectory   string
+	setupStep        string
+	setupExpected    projectrun.SetupExpectations
 }
 
 func (manager *fakeProjectCommandManager) Run(
@@ -220,6 +227,41 @@ func (manager *fakeProjectCommandManager) Reconcile(
 ) (projectrun.ServeCollectionResult, error) {
 	manager.reconcileCalls++
 	return manager.reconcileResult, nil
+}
+
+func (manager *fakeProjectCommandManager) Prepare(
+	_ context.Context,
+	directory string,
+	step string,
+	streams projectrun.Streams,
+) (projectrun.SetupCollectionResult, error) {
+	manager.prepareCalls++
+	manager.setupDirectory, manager.setupStep = directory, step
+	if streams.Stdout != nil {
+		_, _ = io.WriteString(streams.Stdout, "setup child output\n")
+	}
+	return manager.setupResult, manager.setupErr
+}
+
+func (manager *fakeProjectCommandManager) PrepareExpected(
+	_ context.Context,
+	directory string,
+	step string,
+	expected projectrun.SetupExpectations,
+	streams projectrun.Streams,
+) (projectrun.SetupCollectionResult, error) {
+	manager.setupExpected = expected
+	return manager.Prepare(context.Background(), directory, step, streams)
+}
+
+func (manager *fakeProjectCommandManager) SetupStatus(
+	_ context.Context,
+	directory string,
+	step string,
+) (projectrun.SetupCollectionResult, error) {
+	manager.setupStatusCalls++
+	manager.setupDirectory, manager.setupStep = directory, step
+	return manager.setupResult, manager.setupErr
 }
 
 func runningServeFixture() projectrun.ServeResult {

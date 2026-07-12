@@ -150,33 +150,51 @@ export function WorktreeDevServerAction({
 
   if (server.state === 'starting' || server.state === 'stopping' || isPending) {
     return (
-      <Button size="sm" variant="ghost" isDisabled>
+      <Button
+        aria-label={`${server.state === 'stopping' ? 'Stopping' : 'Starting'} ${server.serverLabel}`}
+        size="sm"
+        variant="ghost"
+        isDisabled
+        title={`${server.state === 'stopping' ? 'Stopping' : 'Starting'} ${server.serverLabel}`}
+      >
         <LoaderCircle className="size-3.5 animate-spin" />
-        {server.state === 'stopping' ? 'Stopping' : 'Starting'}
+        <span className="max-w-32 truncate">
+          {server.state === 'stopping' ? 'Stopping' : 'Starting'} {server.serverLabel}
+        </span>
       </Button>
     );
   }
 
   if (server.state === 'running') {
     return (
-      <div className="flex items-center gap-2">
-        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-200">
-          <span className="size-1.5 rounded-full bg-neutral-100 shadow-[0_0_0_3px_rgba(255,255,255,0.08)]" />
-          Running
-        </span>
-        <Button size="sm" variant="ghost" onPress={onStop}>
-          <Square className="size-3" />
-          Stop
-        </Button>
-      </div>
+      <Button
+        aria-label={`Stop ${server.serverLabel}`}
+        size="sm"
+        variant="ghost"
+        onPress={onStop}
+        title={`Stop ${server.serverLabel}`}
+        className="text-red-300 hover:bg-red-500/10 hover:text-red-200"
+      >
+        <Square className="size-3" />
+        <span className="max-w-32 truncate">Stop {server.serverLabel}</span>
+      </Button>
     );
   }
 
   const retry = server.state === 'error';
   return (
-    <Button size="sm" variant={retry ? 'secondary' : 'primary'} onPress={onStart}>
+    <Button
+      aria-label={`${retry ? 'Retry' : 'Start'} ${server.serverLabel}`}
+      size="sm"
+      variant={retry ? 'secondary' : 'primary'}
+      onPress={onStart}
+      title={`${retry ? 'Retry' : 'Start'} ${server.serverLabel}`}
+      className={retry ? 'border-amber-400/30 bg-amber-400/15 text-amber-100 hover:bg-amber-400/25' : 'bg-violet-500 text-white hover:bg-violet-400'}
+    >
       {retry ? <RotateCcw className="size-3.5" /> : <Play className="size-3.5 fill-current" />}
-      {retry ? 'Retry' : `Run ${server.runTarget}`}
+      <span className="max-w-32 truncate">
+        {retry ? 'Retry' : 'Start'} {server.serverLabel}
+      </span>
     </Button>
   );
 }
@@ -248,10 +266,17 @@ export function WorktreeDevServerDetails({
 
   return (
     <div
+      aria-label={`${server.serverLabel} development server`}
       aria-live="polite"
       className="ml-10 mr-3 border-l border-neutral-800 px-3 pb-3 pt-1 text-xs"
     >
       <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3">
+        <span
+          className="max-w-full truncate font-semibold text-neutral-200 sm:max-w-48"
+          title={server.serverLabel}
+        >
+          {server.serverLabel}
+        </span>
         <span
           className={cn(
             'font-medium',
@@ -266,6 +291,17 @@ export function WorktreeDevServerDetails({
         {url ? (
           <div className="flex w-full min-w-0 items-center gap-1.5 sm:w-auto">
             <a
+              aria-label={`Open ${server.serverLabel}`}
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-lg bg-emerald-500 px-2.5 font-medium text-white transition hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70"
+            >
+              <ExternalLink className="size-3.5" />
+              Open
+            </a>
+            <a
+              aria-label={`Open ${server.serverLabel} at ${url}`}
               href={url}
               target="_blank"
               rel="noreferrer"
@@ -277,12 +313,12 @@ export function WorktreeDevServerDetails({
             <Button
               aria-label={
                 copyState === 'copied'
-                  ? 'Tailscale URL copied'
+                  ? `${server.serverLabel} Tailscale URL copied`
                   : copyState === 'copying'
-                    ? 'Copying Tailscale URL'
+                    ? `Copying ${server.serverLabel} Tailscale URL`
                     : copyState === 'error'
-                      ? 'Could not copy Tailscale URL'
-                      : 'Copy Tailscale URL'
+                      ? `Could not copy ${server.serverLabel} Tailscale URL`
+                      : `Copy ${server.serverLabel} Tailscale URL`
               }
               size="sm"
               variant="ghost"

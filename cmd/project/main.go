@@ -43,6 +43,7 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(newMachineDoctorCommand())
 	root.AddCommand(newInitCommand())
 	root.AddCommand(newModuleCommand())
+	root.AddCommand(newPrepareCommand())
 	root.AddCommand(newRuntimeLogCommand())
 	root.AddCommand(newRunCommand())
 	root.AddCommand(newServeCommand())

@@ -1,12 +1,8 @@
 export type DevServerCapability = 'configured' | 'unavailable';
 export type DevServerState = 'starting' | 'running' | 'stopping' | 'stopped' | 'error';
-export type DevServerOperation = 'inspect' | 'start' | 'stop';
+export type DevServerOperation = 'inspect' | 'list' | 'start' | 'stop';
 export type MachineMembershipAccess =
-  | 'owner'
-  | 'member'
-  | 'unclaimed'
-  | 'denied'
-  | 'database-required';
+  'owner' | 'member' | 'unclaimed' | 'denied' | 'database-required';
 
 /** Browser-safe identity for a known project on a known connector machine. */
 export interface DevServerInspectRequest {
@@ -16,7 +12,14 @@ export interface DevServerInspectRequest {
 
 /** Browser-safe identity for a known worktree. Paths are resolved by the server. */
 export interface DevServerActionRequest extends DevServerInspectRequest {
+  serverId: string;
   worktreeId: string;
+}
+
+export interface ConfiguredDevServerRecord {
+  capability: DevServerCapability;
+  label: string;
+  serverId: string;
 }
 
 export interface ProjectRunSettingsRecord {
@@ -30,12 +33,13 @@ export interface ProjectRunSettingsRecord {
 export interface ProjectRunSettingsUpdateRequest extends DevServerInspectRequest {
   allowedHosts: string[];
   preferredWorktreeId?: string;
-  runTarget: string;
+  runTarget?: string;
 }
 
 /** A short-lived grant signed by the hub and checked by the connector. */
 export interface DevServerCommandGrant {
-  allowedHosts: string[];
+  allowedHosts?: string[];
+  expectedHeadSha: string;
   expiresAt: string;
   generation: number;
   issuedAt: string;
@@ -43,19 +47,26 @@ export interface DevServerCommandGrant {
   nonce: string;
   operation: DevServerOperation;
   projectId: string;
-  runTarget: string;
+  runTarget?: string;
+  serverId?: string;
   signature: string;
   userId: string;
   worktreeId: string;
-  worktreePath: string;
 }
 
 /** Trusted hub-to-connector request. Never construct this from browser input directly. */
 export interface DevServerConnectorRequest extends DevServerActionRequest {
   allowedHosts: string[];
+  expectedHeadSha: string;
   grant: DevServerCommandGrant;
   runTarget: string;
-  worktreePath: string;
+}
+
+/** Trusted inventory request. The connector resolves declarations inside the selected worktree. */
+export interface DevServerListConnectorRequest extends DevServerInspectRequest {
+  expectedHeadSha: string;
+  grant: DevServerCommandGrant;
+  worktreeId: string;
 }
 
 export interface DevServerConnectorResult {
@@ -69,10 +80,22 @@ export interface DevServerConnectorResult {
   projectId: string;
   publicPort?: number;
   runTarget: string;
+  serverId: string;
   startedAt?: string;
   state: DevServerState;
   tailscaleIPv4?: string;
   tailscaleUrl?: string;
+  worktreeId: string;
+}
+
+export interface DevServerListConnectorResult {
+  capability: DevServerCapability;
+  checkedAt: string;
+  generation: number;
+  lastError?: string;
+  machineId: string;
+  projectId: string;
+  servers: ConfiguredDevServerRecord[];
   worktreeId: string;
 }
 
@@ -96,6 +119,17 @@ export interface DevServerRuntimeResult {
   tailscaleIPv4: string | null;
 }
 
+/** Stable JSON contract returned by `project serve list`. */
+export interface DevServerRuntimeListResult {
+  capability: DevServerCapability;
+  checkedAt: string;
+  directory: string;
+  lastError: string | null;
+  operation: 'list';
+  schemaVersion: 1;
+  servers: ConfiguredDevServerRecord[];
+}
+
 export interface WorktreeDevServerRecord {
   capability: DevServerCapability;
   checkedAt: string;
@@ -106,6 +140,8 @@ export interface WorktreeDevServerRecord {
   projectId: string;
   publicPort?: number;
   runTarget: string;
+  serverId: string;
+  serverLabel: string;
   startedAt?: string;
   state: DevServerState;
   tailscaleIPv4?: string;

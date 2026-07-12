@@ -44,6 +44,7 @@ function sessionRow(overrides: Record<string, unknown> = {}) {
     owner_user_id: 'user-a',
     project_id: 'project-space',
     run_target: 'dev',
+    server_id: 'dev',
     runtime_generation: '1',
     started_at: updatedAt,
     state: 'running',
@@ -202,6 +203,7 @@ describe('ProjectSpaceDatabaseRepository', () => {
     const sessions = await repository.listDevServerSessions('user-a', {
       activeOnly: true,
       machineId: 'macbook',
+      serverId: 'dev',
       worktreeId: 'worktree-main'
     });
 
@@ -214,8 +216,9 @@ describe('ProjectSpaceDatabaseRepository', () => {
     expect(client.calls[0]?.sql).toContain('owner_user_id = $1');
     expect(client.calls[0]?.sql).toContain('machine_id = $2');
     expect(client.calls[0]?.sql).toContain('worktree_id = $3');
+    expect(client.calls[0]?.sql).toContain('server_id = $4');
     expect(client.calls[0]?.sql).toContain("state in ('starting', 'running', 'stopping')");
-    expect(client.calls[0]?.values).toEqual(['user-a', 'macbook', 'worktree-main']);
+    expect(client.calls[0]?.values).toEqual(['user-a', 'macbook', 'worktree-main', 'dev']);
   });
 
   test('uses owner and generation as the optimistic transition guard', async () => {

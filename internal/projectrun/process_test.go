@@ -37,7 +37,7 @@ func TestRunForegroundCancellationStopsDescendants(t *testing.T) {
 				"GO_WANT_PROJECTRUN_HELPER=1",
 				"PROJECT_PORT=" + strconv.Itoa(port),
 			},
-		}, Streams{})
+		}, Streams{}, nil)
 		finished <- outcome{exitCode: exitCode, err: runErr}
 	}()
 	if err := (NetworkProber{}).Wait(context.Background(), ProbeTarget{
@@ -129,6 +129,21 @@ func TestManagedProcessIdentityAndPortOwnership(t *testing.T) {
 	}
 	if err := runner.StopGroup(process, time.Second); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestParseLinuxProcessStartTimeUsesFieldAfterParenthesizedName(t *testing.T) {
+	fields := []string{"S"}
+	for index := 0; index < 18; index++ {
+		fields = append(fields, strconv.Itoa(index+1))
+	}
+	fields = append(fields, "987654321", "0", "0")
+	startTime, err := parseLinuxProcessStartTime("42 (project supervisor) "+strings.Join(fields, " "))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if startTime != "987654321" {
+		t.Fatalf("start time = %q", startTime)
 	}
 }
 

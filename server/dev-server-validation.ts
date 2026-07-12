@@ -1,16 +1,18 @@
 import type {
   DevServerConnectorResult,
+  DevServerListConnectorResult,
   DevServerState,
   WorktreeDevServerRecord
 } from '../src/shared/project-space-api';
 
 export interface ConnectorExecutionRequest {
   allowedHosts: string[];
+  expectedHeadSha: string;
   machineId: string;
   projectId: string;
   runTarget: string;
+  serverId: string;
   worktreeId: string;
-  worktreePath: string;
 }
 
 export interface ConnectorActor {
@@ -18,8 +20,15 @@ export interface ConnectorActor {
   userId: string;
 }
 
+export interface ConnectorListExecutionRequest {
+  expectedHeadSha: string;
+  machineId: string;
+  projectId: string;
+  worktreeId: string;
+}
+
 const identifierPattern = /^[^\u0000-\u001f\u007f]+$/;
-const runTargetPattern = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,63}$/;
+const runTargetPattern = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,63}$/;
 const hostLabelPattern = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const allowedStates = new Set<DevServerState>([
   'error',
@@ -94,21 +103,15 @@ export function normalizeAllowedHosts(values: readonly string[]) {
   ) {
     throw new Error('Allowed hosts must contain at most 16 entries.');
   }
-  const normalized = [...new Set(values.map((value) => value.trim().toLowerCase()).filter(Boolean))];
+  const normalized = [
+    ...new Set(values.map((value) => value.trim().toLowerCase()).filter(Boolean))
+  ];
   if (!normalized.every(isValidHost)) {
-    throw new Error('Allowed hosts must be exact hostnames or IPv4 addresses without ports or paths.');
+    throw new Error(
+      'Allowed hosts must be exact hostnames or IPv4 addresses without ports or paths.'
+    );
   }
   return normalized.sort();
-}
-
-function safeError(error: unknown) {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === 'string'
-        ? error
-        : 'The connector command failed.';
-  return message.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 500);
 }
 
 export function checkedAt(now: () => Date) {
@@ -181,6 +184,7 @@ export function validateConnectorResult(
     result.projectId !== request.projectId ||
     result.worktreeId !== request.worktreeId ||
     result.runTarget !== request.runTarget ||
+    result.serverId !== request.serverId ||
     result.generation !== actor.generation ||
     !allowedStates.has(result.state) ||
     (result.capability !== 'configured' && result.capability !== 'unavailable')
@@ -202,7 +206,8 @@ export function validateConnectorResult(
 export function recordFromResult(
   result: DevServerConnectorResult,
   request: ConnectorExecutionRequest,
-  now: () => Date
+  now: () => Date,
+  serverLabel = request.serverId
 ): WorktreeDevServerRecord {
   const exposure = canonicalExposure(result);
   const localUrl = canonicalLocalUrl(result);
@@ -213,13 +218,15 @@ export function recordFromResult(
   return {
     capability: result.capability,
     checkedAt: observedAt,
-    lastError: result.state === 'error' ? safeError(result.lastError) : undefined,
+    lastError: result.state === 'error' ? 'Development server reported an error.' : undefined,
     localPort: result.localPort,
     localUrl,
     machineId: request.machineId,
     projectId: request.projectId,
     publicPort: exposure ? result.publicPort : undefined,
     runTarget: request.runTarget,
+    serverId: request.serverId,
+    serverLabel,
     startedAt: validIsoDate(result.startedAt),
     state: result.state,
     tailscaleIPv4: exposure?.tailscaleIPv4,
@@ -231,17 +238,42 @@ export function recordFromResult(
 
 export function recordFromFailure(
   request: ConnectorExecutionRequest,
-  error: unknown,
-  now: () => Date
+  _error: unknown,
+  now: () => Date,
+  serverLabel = request.serverId
 ): WorktreeDevServerRecord {
   return {
     capability: 'configured',
     checkedAt: checkedAt(now),
-    lastError: safeError(error),
+    lastError: 'Development server state could not be verified.',
     machineId: request.machineId,
     projectId: request.projectId,
     runTarget: request.runTarget,
+    serverId: request.serverId,
+    serverLabel,
     state: 'error',
     worktreeId: request.worktreeId
   };
+}
+
+export function validateConnectorListResult(
+  result: DevServerListConnectorResult,
+  request: ConnectorListExecutionRequest,
+  actor: ConnectorActor,
+  now: () => Date
+) {
+  const observedAt = Date.parse(result.checkedAt);
+  const ageMs = now().getTime() - observedAt;
+  if (
+    result.machineId !== request.machineId ||
+    result.projectId !== request.projectId ||
+    result.worktreeId !== request.worktreeId ||
+    result.generation !== actor.generation
+  ) {
+    throw new Error('The connector returned inventory for a different development-server request.');
+  }
+  if (!Number.isFinite(observedAt) || ageMs < -5_000 || ageMs > 30_000) {
+    throw new Error('The connector returned stale development-server inventory.');
+  }
+  return result;
 }

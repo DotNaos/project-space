@@ -450,6 +450,33 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
         on project_chat_channels (space_id, account_id, project_id)
         where kind = 'project';
     `
+  },
+  {
+    id: '0014_dev_server_sessions_per_server',
+    sql: `
+      alter table dev_server_sessions
+        add column if not exists server_id text;
+
+      update dev_server_sessions
+         set server_id = run_target
+       where server_id is null;
+
+      alter table dev_server_sessions
+        alter column server_id set not null;
+
+      alter table dev_server_sessions
+        add constraint dev_server_sessions_server_id_not_blank
+        check (btrim(server_id) <> '');
+
+      drop index if exists dev_server_sessions_one_active_per_worktree;
+
+      create unique index if not exists dev_server_sessions_one_active_per_server
+        on dev_server_sessions (machine_id, worktree_id, server_id)
+        where state in ('starting', 'running', 'stopping');
+
+      create index if not exists dev_server_sessions_server_idx
+        on dev_server_sessions (machine_id, worktree_id, server_id, updated_at desc);
+    `
   }
 ];
 

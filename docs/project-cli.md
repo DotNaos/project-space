@@ -374,6 +374,11 @@ and keeps it running after terminals close and across logins. The service reads
 the registration token from a private `0600` file outside the repository; the
 token is not embedded in the LaunchAgent or its process arguments.
 
+Approved releases also include a paired Project CLI and connector bundle for
+Linux x64 and WSL. Follow [Linux x64 installation](linux-installation.md) to
+verify and install that bundle, then use the authenticated `project connect`
+flow. The Linux bundle does not use this legacy shared-token installer.
+
 ## Project Chat
 
 Codex tasks use the installed Project Connect identity to leave low-priority

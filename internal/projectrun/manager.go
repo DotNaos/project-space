@@ -9,21 +9,23 @@ import (
 )
 
 type Dependencies struct {
-	Processes ProcessRunner
-	Tailnet   Tailnet
-	Prober    Prober
-	Ports     PortAllocator
-	StateRoot string
-	Now       Clock
+	Processes  ProcessRunner
+	Tailnet    Tailnet
+	Prober     Prober
+	Ports      PortAllocator
+	StateRoot  string
+	Now        Clock
+	Repository RepositoryInspector
 }
 
 type Manager struct {
-	processes ProcessRunner
-	tailnet   Tailnet
-	prober    Prober
-	ports     PortAllocator
-	store     *stateStore
-	now       Clock
+	processes  ProcessRunner
+	tailnet    Tailnet
+	prober     Prober
+	ports      PortAllocator
+	store      *stateStore
+	now        Clock
+	repository RepositoryInspector
 }
 
 func NewDefaultManager() (*Manager, error) {
@@ -50,17 +52,21 @@ func NewManager(dependencies Dependencies) (*Manager, error) {
 	if dependencies.Now == nil {
 		dependencies.Now = time.Now
 	}
+	if dependencies.Repository == nil {
+		dependencies.Repository = GitRepositoryInspector{}
+	}
 	store, err := newStateStore(dependencies.StateRoot)
 	if err != nil {
 		return nil, err
 	}
 	return &Manager{
-		processes: dependencies.Processes,
-		tailnet:   dependencies.Tailnet,
-		prober:    dependencies.Prober,
-		ports:     dependencies.Ports,
-		store:     store,
-		now:       dependencies.Now,
+		processes:  dependencies.Processes,
+		tailnet:    dependencies.Tailnet,
+		prober:     dependencies.Prober,
+		ports:      dependencies.Ports,
+		store:      store,
+		now:        dependencies.Now,
+		repository: dependencies.Repository,
 	}, nil
 }
 

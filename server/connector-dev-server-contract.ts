@@ -1,14 +1,14 @@
-import { isAbsolute } from 'node:path';
-
 import type {
   DevServerCommandGrant,
   DevServerCapability,
   DevServerConnectorRequest,
   DevServerConnectorResult,
+  DevServerListConnectorRequest,
+  DevServerListConnectorResult,
   DevServerOperation
 } from '../src/shared/project-space-api';
 
-export const connectorDevServerOperations = ['inspect', 'start', 'stop'] as const;
+export const connectorDevServerOperations = ['inspect', 'list', 'start', 'stop'] as const;
 
 export type ConnectorDevServerOperation = DevServerOperation;
 
@@ -20,32 +20,57 @@ export interface ConnectorDevServerActor {
 export type ConnectorDevServerCommandGrant = DevServerCommandGrant;
 export type ConnectorDevServerTrustedRequest = Omit<DevServerConnectorRequest, 'grant'>;
 export type ConnectorDevServerWireRequest = DevServerConnectorRequest;
+export type ConnectorDevServerListTrustedRequest = Omit<DevServerListConnectorRequest, 'grant'>;
+export type ConnectorDevServerListWireRequest = DevServerListConnectorRequest;
+export type ConnectorDevServerAnyTrustedRequest =
+  ConnectorDevServerTrustedRequest | ConnectorDevServerListTrustedRequest;
+export type ConnectorDevServerAnyWireRequest =
+  ConnectorDevServerWireRequest | ConnectorDevServerListWireRequest;
 
 export interface ConnectorDevServerExecutionRequest extends ConnectorDevServerTrustedRequest {
   actor: ConnectorDevServerActor;
-  operation: ConnectorDevServerOperation;
+  operation: Exclude<ConnectorDevServerOperation, 'list'>;
+}
+
+export interface ConnectorDevServerListExecutionRequest extends ConnectorDevServerListTrustedRequest {
+  actor: ConnectorDevServerActor;
+  operation: 'list';
 }
 
 export type ConnectorDevServerResult = DevServerConnectorResult;
+export type ConnectorDevServerListResult = DevServerListConnectorResult;
 
 export interface ConnectorDevServerAdapter {
+  listDevServers(
+    request: ConnectorDevServerListExecutionRequest
+  ): Promise<ConnectorDevServerListResult>;
   runDevServerCommand(
     request: ConnectorDevServerExecutionRequest
   ): Promise<ConnectorDevServerResult>;
 }
 
-const wireRequestKeys = [
+const actionWireRequestKeys = [
   'allowedHosts',
+  'expectedHeadSha',
   'grant',
   'machineId',
   'projectId',
   'runTarget',
-  'worktreeId',
-  'worktreePath'
+  'serverId',
+  'worktreeId'
 ] as const;
 
-const grantKeys = [
+const listWireRequestKeys = [
+  'expectedHeadSha',
+  'grant',
+  'machineId',
+  'projectId',
+  'worktreeId'
+] as const;
+
+const actionGrantKeys = [
   'allowedHosts',
+  'expectedHeadSha',
   'expiresAt',
   'generation',
   'issuedAt',
@@ -54,10 +79,24 @@ const grantKeys = [
   'operation',
   'projectId',
   'runTarget',
+  'serverId',
   'signature',
   'userId',
-  'worktreeId',
-  'worktreePath'
+  'worktreeId'
+] as const;
+
+const listGrantKeys = [
+  'expectedHeadSha',
+  'expiresAt',
+  'generation',
+  'issuedAt',
+  'machineId',
+  'nonce',
+  'operation',
+  'projectId',
+  'signature',
+  'userId',
+  'worktreeId'
 ] as const;
 
 const resultKeys = [
@@ -71,10 +110,22 @@ const resultKeys = [
   'projectId',
   'publicPort',
   'runTarget',
+  'serverId',
   'startedAt',
   'state',
   'tailscaleIPv4',
   'tailscaleUrl',
+  'worktreeId'
+] as const;
+
+const listResultKeys = [
+  'capability',
+  'checkedAt',
+  'generation',
+  'lastError',
+  'machineId',
+  'projectId',
+  'servers',
   'worktreeId'
 ] as const;
 
@@ -102,7 +153,15 @@ function isCanonicalText(value: unknown, maximumLength = 1024): value is string 
 }
 
 function isRunTarget(value: unknown): value is string {
-  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9:_-]{0,63}$/.test(value);
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(value);
+}
+
+function isWorktreeId(value: unknown): value is string {
+  return typeof value === 'string' && /^wt_[a-f0-9]{24}$/.test(value);
+}
+
+function isGitSha(value: unknown): value is string {
+  return typeof value === 'string' && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value);
 }
 
 function isMachineId(value: unknown): value is string {
@@ -128,9 +187,7 @@ function isHttpUrl(value: unknown): value is string {
   try {
     const url = new URL(value);
     return (
-      (url.protocol === 'http:' || url.protocol === 'https:') &&
-      !url.username &&
-      !url.password
+      (url.protocol === 'http:' || url.protocol === 'https:') && !url.username && !url.password
     );
   } catch {
     return false;
@@ -169,11 +226,12 @@ export function isNormalizedAllowedHost(value: unknown): value is string {
     return false;
   }
   const labels = hostname.split('.');
-  return labels.length >= 2 && labels.every(
-    (label) =>
-      label.length > 0 &&
-      label.length <= 63 &&
-      /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label)
+  return (
+    labels.length >= 2 &&
+    labels.every(
+      (label) =>
+        label.length > 0 && label.length <= 63 && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label)
+    )
   );
 }
 
@@ -183,7 +241,9 @@ export function normalizeAllowedHosts(hosts: readonly string[]) {
   }
   const normalized = [...new Set(hosts.map((host) => host.trim().toLowerCase()))].sort();
   if (!normalized.every(isNormalizedAllowedHost)) {
-    throw new Error('Allowed hosts must be normalized IPv4 or DNS host names without ports or paths.');
+    throw new Error(
+      'Allowed hosts must be normalized IPv4 or DNS host names without ports or paths.'
+    );
   }
   return normalized;
 }
@@ -201,21 +261,16 @@ export function isConnectorDevServerOperation(
   return connectorDevServerOperations.some((operation) => operation === value);
 }
 
-export function isConnectorDevServerGrant(
-  value: unknown
-): value is ConnectorDevServerCommandGrant {
-  if (!isRecord(value) || !hasExactlyKeys(value, grantKeys)) {
+export function isConnectorDevServerGrant(value: unknown): value is ConnectorDevServerCommandGrant {
+  if (!isRecord(value)) {
     return false;
   }
-  return (
+  const commonIsValid =
     isCanonicalText(value.userId, 256) &&
     isMachineId(value.machineId) &&
     isCanonicalText(value.projectId, 1024) &&
-    isCanonicalText(value.worktreeId, 1024) &&
-    isCanonicalText(value.worktreePath, 4096) &&
-    isAbsolute(value.worktreePath) &&
-    isRunTarget(value.runTarget) &&
-    isNormalizedAllowedHostList(value.allowedHosts) &&
+    isWorktreeId(value.worktreeId) &&
+    isGitSha(value.expectedHeadSha) &&
     isConnectorDevServerOperation(value.operation) &&
     isIsoDate(value.issuedAt) &&
     isIsoDate(value.expiresAt) &&
@@ -224,25 +279,52 @@ export function isConnectorDevServerGrant(
     typeof value.nonce === 'string' &&
     /^[A-Za-z0-9_-]{20,128}$/.test(value.nonce) &&
     typeof value.signature === 'string' &&
-    /^[A-Za-z0-9_-]{86}$/.test(value.signature)
+    /^[A-Za-z0-9_-]{86}$/.test(value.signature);
+  if (!commonIsValid) {
+    return false;
+  }
+  if (value.operation === 'list') {
+    return hasExactlyKeys(value, listGrantKeys);
+  }
+  return (
+    hasExactlyKeys(value, actionGrantKeys) &&
+    isRunTarget(value.serverId) &&
+    value.runTarget === value.serverId &&
+    isNormalizedAllowedHostList(value.allowedHosts)
   );
 }
 
 export function isConnectorDevServerWireRequest(
   value: unknown
 ): value is ConnectorDevServerWireRequest {
-  if (!isRecord(value) || !hasExactlyKeys(value, wireRequestKeys)) {
+  if (!isRecord(value) || !hasExactlyKeys(value, actionWireRequestKeys)) {
     return false;
   }
   return (
     isMachineId(value.machineId) &&
     isCanonicalText(value.projectId, 1024) &&
-    isCanonicalText(value.worktreeId, 1024) &&
-    isCanonicalText(value.worktreePath, 4096) &&
-    isAbsolute(value.worktreePath) &&
-    isRunTarget(value.runTarget) &&
+    isWorktreeId(value.worktreeId) &&
+    isGitSha(value.expectedHeadSha) &&
+    isRunTarget(value.serverId) &&
+    value.runTarget === value.serverId &&
     isNormalizedAllowedHostList(value.allowedHosts) &&
     isConnectorDevServerGrant(value.grant)
+  );
+}
+
+export function isConnectorDevServerListWireRequest(
+  value: unknown
+): value is ConnectorDevServerListWireRequest {
+  if (!isRecord(value) || !hasExactlyKeys(value, listWireRequestKeys)) {
+    return false;
+  }
+  return (
+    isMachineId(value.machineId) &&
+    isCanonicalText(value.projectId, 1024) &&
+    isWorktreeId(value.worktreeId) &&
+    isGitSha(value.expectedHeadSha) &&
+    isConnectorDevServerGrant(value.grant) &&
+    value.grant.operation === 'list'
   );
 }
 
@@ -270,7 +352,8 @@ export function isConnectorDevServerResult(value: unknown): value is ConnectorDe
     isMachineId(value.machineId) &&
     isCanonicalText(value.projectId, 1024) &&
     isCanonicalText(value.worktreeId, 1024) &&
-    isRunTarget(value.runTarget) &&
+    isRunTarget(value.serverId) &&
+    value.runTarget === value.serverId &&
     (value.lastError === undefined || typeof value.lastError === 'string') &&
     (value.localPort === undefined || isPort(value.localPort)) &&
     (value.publicPort === undefined || isPort(value.publicPort)) &&
@@ -280,6 +363,61 @@ export function isConnectorDevServerResult(value: unknown): value is ConnectorDe
       (typeof value.tailscaleIPv4 === 'string' && isIPv4(value.tailscaleIPv4))) &&
     tailscaleUrlIsValid
   );
+}
+
+export function isConnectorDevServerListResult(
+  value: unknown
+): value is ConnectorDevServerListResult {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, listResultKeys) ||
+    ![
+      'capability',
+      'checkedAt',
+      'generation',
+      'machineId',
+      'projectId',
+      'servers',
+      'worktreeId'
+    ].every((key) => key in value)
+  ) {
+    return false;
+  }
+  if (
+    (value.capability !== 'configured' && value.capability !== 'unavailable') ||
+    (value.lastError !== undefined && typeof value.lastError !== 'string') ||
+    !isIsoDate(value.checkedAt) ||
+    !Number.isSafeInteger(value.generation) ||
+    Number(value.generation) < 0 ||
+    !isMachineId(value.machineId) ||
+    !isCanonicalText(value.projectId, 1024) ||
+    !isCanonicalText(value.worktreeId, 1024) ||
+    !Array.isArray(value.servers) ||
+    value.servers.length > 64
+  ) {
+    return false;
+  }
+  const servers = value.servers as unknown[];
+  return servers.every((server, index) => {
+    if (
+      !isRecord(server) ||
+      !hasExactlyKeys(server, ['capability', 'label', 'serverId']) ||
+      !isRunTarget(server.serverId)
+    ) {
+      return false;
+    }
+    const previous = servers[index - 1];
+    const isSorted =
+      index === 0 ||
+      (isRecord(previous) &&
+        typeof previous.serverId === 'string' &&
+        previous.serverId < server.serverId);
+    return (
+      (server.capability === 'configured' || server.capability === 'unavailable') &&
+      isCanonicalText(server.label, 128) &&
+      isSorted
+    );
+  });
 }
 
 export function connectorDevServerErrorResult(
@@ -296,7 +434,24 @@ export function connectorDevServerErrorResult(
     machineId: request.machineId,
     projectId: request.projectId,
     runTarget: request.runTarget,
+    serverId: request.serverId,
     state: capability === 'unavailable' ? 'stopped' : 'error',
+    worktreeId: request.worktreeId
+  };
+}
+
+export function connectorDevServerListErrorResult(
+  request: ConnectorDevServerListTrustedRequest,
+  generation: number
+): ConnectorDevServerListResult {
+  return {
+    capability: 'unavailable',
+    checkedAt: new Date().toISOString(),
+    generation,
+    machineId: request.machineId,
+    projectId: request.projectId,
+    servers: [],
+    lastError: 'Development-server inventory is unavailable.',
     worktreeId: request.worktreeId
   };
 }
