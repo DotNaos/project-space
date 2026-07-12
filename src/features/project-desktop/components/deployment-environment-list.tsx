@@ -3,6 +3,7 @@ import { Text } from '@/app/dotnaos-ui';
 import type { DeployedEnvironmentStatus, GitHubWorkflowRunSummary } from '@/shared/project-space-api';
 import { environmentStatusLabel, environmentTone, sortEnvironments } from './deployment-status-model';
 import { StatusChip, StatusIcon } from './deployment-status-ui';
+import { PublicDeploymentLink } from './public-deployment-link';
 
 export function DeploymentEnvironmentList({ environments, loadedCommitShas, runs = [] }: {
   environments: DeployedEnvironmentStatus[];
@@ -35,7 +36,11 @@ export function DeploymentEnvironmentList({ environments, loadedCommitShas, runs
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-3 pl-7 sm:justify-end sm:pl-0">
           <span className="max-w-full truncate font-mono text-xs text-neutral-300" title={environment.deployedSha}>{environment.deployedSha ? `${environment.deployedSha.slice(0, 7)} · ${environment.deployedSha}` : 'running revision unavailable'}</span>
-          {environment.liveUrl ? <ExternalAnchor href={environment.liveUrl}>Live site</ExternalAnchor> : null}
+          {environment.liveUrl
+            ? <PublicDeploymentLink environmentName={environment.displayName} href={environment.liveUrl} />
+            : <Text className="text-xs text-neutral-600">
+                {environment.liveUrlState === 'withheld' ? 'Private URL withheld' : 'No public URL'}
+              </Text>}
           {environment.githubUrl ? <ExternalAnchor href={environment.githubUrl}>Commit</ExternalAnchor> : null}
         </div>
       </div>;

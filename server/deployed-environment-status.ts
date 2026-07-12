@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
+import { isIP } from 'node:net';
 
 import { runProjectBinary, type ProjectBinaryRunResult } from './local-project-cli-client';
 import type {
@@ -28,15 +29,36 @@ interface RawEnvironment {
   webUrl?: unknown;
 }
 
+function privateIpAddress(hostname: string) {
+  const host = hostname.replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase();
+  const mapped = host.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)?.[1];
+  const address = mapped ?? host;
+  if (isIP(address) === 4) {
+    const [first, second, third] = address.split('.').map(Number);
+    return first === 0 || first === 10 || first === 127 || first >= 224 ||
+      (first === 100 && second >= 64 && second <= 127) ||
+      (first === 169 && second === 254) ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 && second === 0 && (third === 0 || third === 2)) ||
+      (first === 192 && second === 168) ||
+      (first === 198 && (second === 18 || second === 19 || (second === 51 && third === 100))) ||
+      (first === 203 && second === 0 && third === 113);
+  }
+  if (isIP(address) === 6) {
+    return !/^[23]/.test(address);
+  }
+  return false;
+}
+
 function publicHttpsUrl(value: unknown) {
-  if (typeof value !== 'string') return undefined;
+  if (typeof value !== 'string' || !value.trim()) return undefined;
   try {
     const url = new URL(value);
-    if (url.protocol !== 'https:' || url.username || url.password) return undefined;
-    const host = url.hostname.toLowerCase();
-    if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal') ||
-      /^10\.|^127\.|^192\.168\.|^169\.254\.|^172\.(1[6-9]|2\d|3[01])\./.test(host)) return undefined;
-    return url.toString();
+    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) return undefined;
+    const host = url.hostname.toLowerCase().replace(/\.$/, '');
+    if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal') ||
+      privateIpAddress(host)) return undefined;
+    return `${url.origin}/`;
   } catch {
     return undefined;
   }
@@ -65,11 +87,17 @@ export function sanitizeDeployedEnvironment(raw: RawEnvironment): DeployedEnviro
   else if (raw.status === 'healthy' || (evidencePresent && !evidenceAgrees)) verification = 'inconsistent';
   else if (raw.status === 'unhealthy') verification = 'unhealthy';
 
+  const liveUrl = publicHttpsUrl(raw.webUrl);
   return {
     id,
     displayName: displayName(id),
     deployedSha: fullSha.test(running) ? running : undefined,
-    liveUrl: publicHttpsUrl(raw.webUrl),
+    liveUrl,
+    liveUrlState: liveUrl
+      ? 'available'
+      : typeof raw.webUrl === 'string' && raw.webUrl.trim()
+        ? 'withheld'
+        : 'not-configured',
     sourceRef: typeof raw.branch === 'string' ? raw.branch.slice(0, 256) : undefined,
     verification
   };

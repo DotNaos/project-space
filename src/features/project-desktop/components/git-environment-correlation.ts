@@ -1,21 +1,24 @@
 import type { DeployedEnvironmentStatus, GitHistoryCommit } from '@/shared/project-space-api';
+import { normalizedFullSha } from './deployment-status-model';
 
 export function correlateEnvironments(
   commits: GitHistoryCommit[],
   environments: DeployedEnvironmentStatus[]
 ) {
-  const hashes = new Set(commits.map((commit) => commit.hash));
+  const hashes = new Set(commits.map((commit) => normalizedFullSha(commit.hash)).filter(Boolean));
   const byCommit = new Map<string, DeployedEnvironmentStatus[]>();
   for (const environment of environments) {
-    if (!environment.deployedSha) continue;
-    const entries = byCommit.get(environment.deployedSha) ?? [];
+    const sha = normalizedFullSha(environment.deployedSha);
+    if (!sha) continue;
+    const entries = byCommit.get(sha) ?? [];
     entries.push(environment);
-    byCommit.set(environment.deployedSha, entries);
+    byCommit.set(sha, entries);
   }
   return {
     byCommit,
     outsideHistory: environments.filter((environment) =>
-      Boolean(environment.deployedSha) && !hashes.has(environment.deployedSha!)
+      Boolean(normalizedFullSha(environment.deployedSha)) &&
+        !hashes.has(normalizedFullSha(environment.deployedSha))
     )
   };
 }

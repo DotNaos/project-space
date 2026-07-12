@@ -9,6 +9,12 @@ import type {
 export type StatusTone = 'danger' | 'muted' | 'success' | 'warning';
 
 const environmentOrder = new Map([['prod', 0], ['dev', 1], ['beta', 2]]);
+const fullSha = /^[0-9a-f]{40}$/;
+
+export function normalizedFullSha(value?: string) {
+  const normalized = value?.toLowerCase();
+  return normalized && fullSha.test(normalized) ? normalized : undefined;
+}
 
 export function sortEnvironments(environments: DeployedEnvironmentStatus[]) {
   return [...environments].sort((left, right) =>
@@ -49,7 +55,24 @@ export function isRunInProgress(run: GitHubWorkflowRunSummary) {
 }
 
 export function isCurrentDeploymentRun(run: GitHubWorkflowRunSummary, environments: DeployedEnvironmentStatus[]) {
-  return Boolean(run.headSha && environments.some((environment) => environment.deployedSha === run.headSha));
+  if (run.status !== 'completed' || run.conclusion !== 'success') return false;
+  const runSha = normalizedFullSha(run.headSha);
+  return Boolean(runSha && environments.some(
+    (environment) => normalizedFullSha(environment.deployedSha) === runSha
+  ));
+}
+
+export type DeploymentRunContext = 'active' | 'current' | 'failed' | 'superseded' | 'other';
+
+export function deploymentRunContext(
+  run: GitHubWorkflowRunSummary,
+  environments: DeployedEnvironmentStatus[]
+): DeploymentRunContext {
+  if (isRunInProgress(run)) return 'active';
+  if (workflowStatusTone(run.status, run.conclusion) === 'danger') return 'failed';
+  if (isCurrentDeploymentRun(run, environments)) return 'current';
+  if (run.status === 'completed' && run.conclusion === 'success') return 'superseded';
+  return 'other';
 }
 
 export function deploymentRuns(runs: GitHubWorkflowRunSummary[]) {

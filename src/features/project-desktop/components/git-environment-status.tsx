@@ -2,6 +2,7 @@ import { ExternalLink, Radio, Server } from 'lucide-react';
 import { Button, Chip, Text } from '@/app/dotnaos-ui';
 import type { DeployedEnvironmentStatus } from '@/shared/project-space-api';
 import { cn } from '@/lib/utils';
+import { PublicDeploymentLink } from './public-deployment-link';
 
 function statusLabel(environment: DeployedEnvironmentStatus, loaded: boolean) {
   if (environment.verification === 'healthy' && !loaded) return 'not in loaded history';
@@ -87,7 +88,11 @@ export function SelectedCommitEnvironments({ environments }: { environments: Dep
           <span className="font-mono text-neutral-500" title={environment.deployedSha}>{environment.deployedSha}</span>
           {environment.sourceRef ? <span className="text-neutral-500">from {environment.sourceRef}</span> : null}
           {environment.verifiedAt ? <span className="text-neutral-500">verified {new Date(environment.verifiedAt).toLocaleString()}</span> : null}
-          {environment.liveUrl ? <a href={environment.liveUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-neutral-300 hover:text-white">Live <ExternalLink className="size-3" /></a> : null}
+          {environment.liveUrl
+            ? <PublicDeploymentLink environmentName={environment.displayName} href={environment.liveUrl} />
+            : <span className="text-neutral-600">
+                {environment.liveUrlState === 'withheld' ? 'Private URL withheld' : 'No public URL'}
+              </span>}
           {environment.githubUrl ? <a href={environment.githubUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-neutral-300 hover:text-white">Commit <ExternalLink className="size-3" /></a> : null}
         </div>
       ))}

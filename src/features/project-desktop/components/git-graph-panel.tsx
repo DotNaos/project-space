@@ -38,6 +38,7 @@ import {
 } from './project-branch-usage';
 import { PaneResizeHandle } from './pane-resize-handle';
 import { commitsBehindRef, correlateEnvironments } from './git-environment-correlation';
+import { normalizedFullSha } from './deployment-status-model';
 import { EnvironmentMarker, GitEnvironmentSummary, SelectedCommitEnvironments } from './git-environment-status';
 
 function addMergedPullRequestSegments({
@@ -323,6 +324,19 @@ export function GitGraphPanel({
   });
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isDetailCollapsed, setIsDetailCollapsed] = useState(false);
+
+  useEffect(() => {
+    const narrowViewport = window.matchMedia('(max-width: 639px)');
+    const collapseSidebar = () => {
+      if (narrowViewport.matches) {
+        setIsSidebarCollapsed(true);
+      }
+    };
+
+    collapseSidebar();
+    narrowViewport.addEventListener('change', collapseSidebar);
+    return () => narrowViewport.removeEventListener('change', collapseSidebar);
+  }, []);
 
   async function loadHistory(ref?: string) {
     if (repositoryFullName) {
@@ -848,7 +862,7 @@ export function GitGraphPanel({
                       : `PR #${commitPullRequest.number}`
                     : pullRequestLabel(row.commit.subject);
                   const commitEnvironments =
-                    environmentCorrelation.byCommit.get(row.commit.hash) ?? [];
+                    environmentCorrelation.byCommit.get(normalizedFullSha(row.commit.hash) ?? '') ?? [];
                   const hasHealthyEnvironment = commitEnvironments.some(
                     (environment) => environment.verification === 'healthy'
                   );
@@ -1001,7 +1015,7 @@ export function GitGraphPanel({
             <SelectedCommitEnvironments
               environments={
                 selectedCommit
-                  ? environmentCorrelation.byCommit.get(selectedCommit.hash) ?? []
+                  ? environmentCorrelation.byCommit.get(normalizedFullSha(selectedCommit.hash) ?? '') ?? []
                   : []
               }
             />

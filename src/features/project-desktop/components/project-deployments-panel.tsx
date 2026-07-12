@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, ExternalLink, GitBranch, GitCommitHorizontal, RefreshCw, Rocket, Workflow } from 'lucide-react';
 import { Accordion, Button, Surface, Text } from '@/app/dotnaos-ui';
 import { projectSpaceClient } from '@/api/project-space-client';
@@ -22,8 +22,7 @@ import {
 } from './deployment-status-model';
 import { StatusChip, StatusIcon } from './deployment-status-ui';
 import { WorkflowRunList } from './workflow-run-list';
-
-const refreshIntervalMs = 30_000;
+import { useDeploymentOverview } from '../hooks/use-deployment-overview';
 
 interface ProjectDeploymentsPanelProps {
   loadedCommitShas?: ReadonlySet<string>;
@@ -48,76 +47,19 @@ export function ProjectDeploymentsPanel(props: ProjectDeploymentsPanelProps) {
 
 function DeploymentsOverview({ loadedCommitShas, onOpenWorkflowRun, repository }: ProjectDeploymentsPanelProps) {
   const repositoryFullName = repository?.fullName;
-  const [environments, setEnvironments] = useState<DeployedEnvironmentStatusResult>();
-  const [pipeline, setPipeline] = useState<GitHubPipelineStatusResult>();
-  const [historyCommitShas, setHistoryCommitShas] = useState<ReadonlySet<string>>(new Set());
-  const [requestFailed, setRequestFailed] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(true);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasLoaded, setHasLoaded] = useState(false);
-  const refreshing = useRef(false);
-
-  const refresh = useCallback(async () => {
-    if (!repositoryFullName || refreshing.current) return;
-    refreshing.current = true;
-    setIsRefreshing(true);
-    setRequestFailed(false);
-    const [environmentOutcome, pipelineOutcome, historyOutcome] = await Promise.allSettled([
-      projectSpaceClient.getDeployedEnvironmentStatus(repositoryFullName),
-      projectSpaceClient.getGitHubPipelineStatus(repositoryFullName),
-      projectSpaceClient.getGitHubHistory({ fullName: repositoryFullName, limit: 250 })
-    ]);
-    if (environmentOutcome.status === 'fulfilled') {
-      setEnvironments((current) => environmentOutcome.value.status === 'available' || !current
-        ? environmentOutcome.value
-        : current);
-    }
-    if (pipelineOutcome.status === 'fulfilled') {
-      setPipeline((current) => pipelineOutcome.value.status === 'connected' || !current
-        ? pipelineOutcome.value
-        : current);
-    }
-    if (historyOutcome.status === 'fulfilled') {
-      setHistoryCommitShas(new Set(historyOutcome.value.commits.map((commit) => commit.hash.toLowerCase())));
-    }
-    setRequestFailed(
-      environmentOutcome.status === 'rejected' ||
-      (environmentOutcome.status === 'fulfilled' && environmentOutcome.value.status !== 'available') ||
-      pipelineOutcome.status === 'rejected' ||
-      (pipelineOutcome.status === 'fulfilled' && pipelineOutcome.value.status !== 'connected') ||
-      historyOutcome.status === 'rejected'
-    );
-    refreshing.current = false;
-    setHasLoaded(true);
-    setIsRefreshing(false);
-  }, [repositoryFullName]);
-
-  const loadMore = useCallback(async () => {
-    if (!repositoryFullName || !pipeline?.pagination?.hasNext || isLoadingMore) return;
-    setIsLoadingMore(true);
-    try {
-      const next = await projectSpaceClient.getGitHubPipelineStatus(repositoryFullName, {
-        page: pipeline.pagination.page + 1,
-        perPage: pipeline.pagination.perPage
-      });
-      if (next.status === 'connected') {
-        setPipeline({
-          ...next,
-          runs: [...pipeline.runs, ...next.runs.filter((run) => !pipeline.runs.some((existing) => existing.id === run.id))]
-        });
-      }
-    } finally {
-      setIsLoadingMore(false);
-    }
-  }, [isLoadingMore, pipeline, repositoryFullName]);
-
-  useEffect(() => {
-    void refresh();
-    const interval = window.setInterval(() => { if (!document.hidden) void refresh(); }, refreshIntervalMs);
-    return () => window.clearInterval(interval);
-  }, [refresh]);
-
-  const runs = useMemo(() => deploymentRuns(pipeline?.runs ?? []), [pipeline?.runs]);
+  const data = useDeploymentOverview(repositoryFullName, true);
+  const {
+    environments,
+    hasLoaded,
+    historyCommitShas,
+    isLoadingMore,
+    isRefreshing,
+    loadMore,
+    pipeline,
+    refresh,
+    requestFailed,
+    runs
+  } = data;
   const currentRuns = runs.filter((run) => !isHistoricalFailure(run, environments?.environments ?? []));
   const historicalFailures = runs.filter((run) => isHistoricalFailure(run, environments?.environments ?? []));
   const checkedAt = environments?.checkedAt ?? pipeline?.checkedAt;
