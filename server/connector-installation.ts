@@ -241,6 +241,9 @@ if [ ! -f "$tmp_dir/project-space-connector" ] || [ ! -f "$tmp_dir/project" ]; t
 fi
 install -m 0755 "$tmp_dir/project-space-connector" "$install_dir/project-space-connector"
 install -m 0755 "$tmp_dir/project" "$install_dir/project"
+if [ -f "$tmp_dir/project-approval-signer" ]; then
+  install -m 0755 "$tmp_dir/project-approval-signer" "$install_dir/project-approval-signer"
+fi
 
 machine_id="$assigned_machine_id"
 

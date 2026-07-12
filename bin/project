@@ -2,8 +2,20 @@
 set -euo pipefail
 
 PROJECT_SPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROJECT_SPACE_BIN="${TMPDIR:-/tmp}/project-space-project-cli"
-(cd "$PROJECT_SPACE_ROOT" && go build -o "$PROJECT_SPACE_BIN" ./cmd/project)
+PROJECT_SPACE_DIR="${TMPDIR:-/tmp}/project-space-project-cli.bundle"
+mkdir -p "$PROJECT_SPACE_DIR"
+PROJECT_SPACE_BIN="$PROJECT_SPACE_DIR/project"
+if [ "$(uname -s)" = "Darwin" ]; then
+  (cd "$PROJECT_SPACE_ROOT" && swiftc -parse-as-library internal/approvalsigner/native/ProjectApprovalSigner.swift -o "$PROJECT_SPACE_DIR/project-approval-signer")
+  if identity=$(security find-identity -p codesigning -v | sed -n 's/.*"\(Apple Development:[^"]*\)".*/\1/p' | head -1) && [ -n "$identity" ]; then
+    codesign --force --sign "$identity" -i com.dotnaos.project.approval-signer --options runtime --timestamp=none "$PROJECT_SPACE_DIR/project-approval-signer" >/dev/null
+  fi
+fi
+signer_sha=""
+if [ -f "$PROJECT_SPACE_DIR/project-approval-signer" ]; then
+  signer_sha="$(shasum -a 256 "$PROJECT_SPACE_DIR/project-approval-signer" | awk '{print $1}')"
+fi
+(cd "$PROJECT_SPACE_ROOT" && go build -ldflags="-X github.com/DotNaos/project-space/internal/approvalsigner.expectedHelperSHA256=$signer_sha" -o "$PROJECT_SPACE_BIN" ./cmd/project)
 if [ -z "${PROJECT_SPACE_TEMPLATE_ROOT:-}" ] && [ -f "/Users/oli/projects/project-template/template/manifest.yaml" ]; then
   export PROJECT_SPACE_TEMPLATE_ROOT="/Users/oli/projects/project-template"
 fi
