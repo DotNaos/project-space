@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Hash } from 'lucide-react';
+import { Text } from '@/app/dotnaos-ui';
 import { ProjectChatRequestError } from '@/api/project-chat-client';
 import {
   PROJECT_CHAT_GENERAL_CHANNEL_ID,
@@ -29,6 +31,8 @@ import {
 } from './components/project-chat-page';
 import type { ProjectChatConnectionState } from './components/project-chat-feed';
 import type { ProjectChatNameRegistryEntry } from './components/project-chat-name-registry';
+import { parseProjectChatRoute, projectChatRoute } from './project-chat-route';
+import { ProjectChatSidebar } from './components/project-chat-sidebar';
 
 function registryEntry(entry: ProjectChatNameEntry): ProjectChatNameRegistryEntry {
   return {
@@ -70,16 +74,150 @@ function connectionStateForFailure(error: unknown): ProjectChatConnectionState {
 
 export function ProjectChatWorkspace({
   client,
-  onOpenThread
+  fixedProjectId,
+  onOpenThread,
+  recentProjectIds = [],
+  showChannelNavigation = fixedProjectId === undefined
 }: {
   client: ProjectChatClient;
+  fixedProjectId?: string;
   onOpenThread?: ProjectChatPageProps['onOpenThread'];
+  recentProjectIds?: string[];
+  showChannelNavigation?: boolean;
 }) {
-  const [channel, setChannel] = useState<ProjectChatChannelRecord>({
-    channelId: PROJECT_CHAT_GENERAL_CHANNEL_ID,
-    description: 'Shared coordination stream for people and agents',
-    displayName: 'general'
-  });
+  const initialRoute = typeof window === 'undefined'
+    ? { matches: true as const, projectId: undefined }
+    : parseProjectChatRoute(window.location.pathname);
+  const [selectedProjectId, setSelectedProjectId] = useState(
+    () => fixedProjectId ?? initialRoute.projectId
+  );
+  const [channels, setChannels] = useState<ProjectChatChannelRecord[]>([]);
+  const [channelError, setChannelError] = useState('');
+  const [channelsLoading, setChannelsLoading] = useState(true);
+
+  const loadChannels = useCallback(async () => {
+    setChannelsLoading(true);
+    setChannelError('');
+    try {
+      if (fixedProjectId) {
+        const result = await client.join({ projectId: fixedProjectId });
+        setChannels([result.channel]);
+      } else {
+        await client.join();
+        const result = await client.listChannels();
+        setChannels(result.channels);
+      }
+    } catch (error) {
+      setChannelError(error instanceof Error ? error.message : 'Project rooms could not be loaded.');
+    } finally {
+      setChannelsLoading(false);
+    }
+  }, [client, fixedProjectId]);
+
+  useEffect(() => {
+    void loadChannels();
+  }, [loadChannels]);
+
+  useEffect(() => {
+    if (fixedProjectId) setSelectedProjectId(fixedProjectId);
+  }, [fixedProjectId]);
+
+  useEffect(() => {
+    if (fixedProjectId || typeof window === 'undefined') return;
+    const handlePopState = () => {
+      const route = parseProjectChatRoute(window.location.pathname);
+      if (route.matches) setSelectedProjectId(route.projectId);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [fixedProjectId]);
+
+  const selectedChannel = selectedProjectId
+    ? channels.find((channel) => channel.projectId === selectedProjectId)
+    : channels.find((channel) => channel.kind === 'general');
+
+  function selectChannel(channel: ProjectChatChannelRecord) {
+    const projectId = channel.kind === 'project' ? channel.projectId : undefined;
+    setSelectedProjectId(projectId);
+    if (!fixedProjectId && typeof window !== 'undefined') {
+      const nextPath = projectChatRoute(projectId);
+      window.history.pushState(
+        null,
+        '',
+        `${nextPath}${window.location.search}${window.location.hash}`
+      );
+    }
+  }
+
+  if (!selectedChannel) {
+    return (
+      <div className="grid h-full min-h-0 grid-cols-[224px_minmax(0,1fr)] overflow-hidden bg-[#080808] text-neutral-100 max-[719px]:grid-cols-[minmax(0,1fr)]">
+        {showChannelNavigation && channels.length > 0 ? (
+          <ProjectChatSidebar
+            channels={channels}
+            now={new Date()}
+            onSelectChannel={selectChannel}
+            recentProjectIds={recentProjectIds}
+            selectedChannelId=""
+          />
+        ) : null}
+        <div className="flex min-h-0 flex-col">
+          <header className="flex h-[68px] shrink-0 items-center gap-3 border-b border-neutral-800/80 px-5">
+            <Hash className="size-4 text-neutral-500" />
+            <Text className="text-sm font-semibold text-neutral-200">Project room</Text>
+          </header>
+          <div className="grid min-h-0 flex-1 place-items-center px-6 text-center">
+            <div>
+              <Text as="h1" className="text-base font-semibold text-neutral-100">
+                {channelsLoading ? 'Opening project room…' : 'Project room unavailable'}
+              </Text>
+              <Text className="mt-2 block max-w-sm text-sm leading-6 text-neutral-500">
+                {channelsLoading
+                  ? 'Checking the room and its project access.'
+                  : channelError || 'This project is no longer available to this account.'}
+              </Text>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <ProjectChatRoomWorkspace
+      channel={selectedChannel}
+      channels={channels}
+      client={client}
+      key={selectedChannel.channelId}
+      onOpenThread={onOpenThread}
+      onSelectChannel={showChannelNavigation ? selectChannel : undefined}
+      projectId={selectedChannel.projectId}
+      recentProjectIds={recentProjectIds}
+      showChannelNavigation={showChannelNavigation}
+    />
+  );
+}
+
+function ProjectChatRoomWorkspace({
+  channel: initialChannel,
+  channels,
+  client,
+  onOpenThread,
+  onSelectChannel,
+  projectId,
+  recentProjectIds,
+  showChannelNavigation
+}: {
+  channel: ProjectChatChannelRecord;
+  channels: ProjectChatChannelRecord[];
+  client: ProjectChatClient;
+  onOpenThread?: ProjectChatPageProps['onOpenThread'];
+  onSelectChannel?: (channel: ProjectChatChannelRecord) => void;
+  projectId?: string;
+  recentProjectIds: string[];
+  showChannelNavigation: boolean;
+}) {
+  const [channel, setChannel] = useState<ProjectChatChannelRecord>(initialChannel);
   const [connectionState, setConnectionState] = useState<ProjectChatConnectionState>('loading');
   const [errorMessage, setErrorMessage] = useState('');
   const [members, setMembers] = useState<ProjectChatMemberRecord[]>([]);
@@ -113,7 +251,7 @@ export function ProjectChatWorkspace({
         memberResult,
         mentionResult,
         profileResult
-      } = await loadInitialProjectChat(client);
+      } = await loadInitialProjectChat(client, projectId);
       setChannel(joinResult.channel);
       setMessages(mergeVisibleProjectChatMessages([], readResult.messages));
       latestSequenceRef.current = Math.max(latestSequenceRef.current, readResult.nextSequence);
@@ -135,7 +273,7 @@ export function ProjectChatWorkspace({
       setConnectionState(connectionStateForFailure(error));
       setErrorMessage(error instanceof Error ? error.message : 'Project Chat could not be loaded.');
     }
-  }, [client, profileGeneration]);
+  }, [client, profileGeneration, projectId]);
 
   const refresh = useCallback(async (minimumProfileRevision = 0) => {
     const refreshGeneration = profileGeneration.captureRefresh();
@@ -288,6 +426,7 @@ export function ProjectChatWorkspace({
   return (
     <ProjectChatPage
       channel={channel}
+      channels={channels}
       connectionState={connectionState}
       errorMessage={errorMessage}
       members={members}
@@ -297,6 +436,7 @@ export function ProjectChatWorkspace({
       onAcknowledgeMention={requestMentionAcknowledge}
       onClaimAgentName={viewer?.role === 'agent' ? claimAgentName : undefined}
       onOpenThread={onOpenThread}
+      onSelectChannel={onSelectChannel}
       onRetry={() => void load()}
       onRetryMention={failedAcknowledgeSequence === undefined
         ? undefined
@@ -311,6 +451,8 @@ export function ProjectChatWorkspace({
           ? [{ displayName: identity.displayName, threadId: member.origin.threadId }]
           : [];
       })}
+      recentProjectIds={recentProjectIds}
+      showChannelNavigation={showChannelNavigation}
       unreadMentionCount={unreadMentionCount}
       viewer={viewer}
     />

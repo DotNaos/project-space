@@ -40,16 +40,18 @@ function messagePositions(element: HTMLDivElement) {
 }
 
 function FeedState({
+  channelName,
   errorMessage,
   onRetry,
   state
 }: {
+  channelName: string;
   errorMessage?: string;
   onRetry?(): void;
   state: Exclude<ProjectChatConnectionState, 'ready'> | 'empty';
 }) {
   const configuration = state === 'loading'
-    ? { Icon: Loader2, copy: 'Loading the shared conversation…', title: 'Opening #general' }
+    ? { Icon: Loader2, copy: 'Loading the shared conversation…', title: `Opening #${channelName}` }
     : state === 'denied'
       ? { Icon: LockKeyhole, copy: 'This account is not a member of this Project Space.', title: 'Chat unavailable' }
       : state === 'error'
@@ -165,6 +167,7 @@ function ChatMessage({
 }
 
 export function ProjectChatFeed({
+  channelName,
   errorMessage,
   members,
   messages,
@@ -174,6 +177,7 @@ export function ProjectChatFeed({
   state,
   viewerMemberId
 }: {
+  channelName: string;
   errorMessage?: string;
   members: ProjectChatMemberRecord[];
   messages: ProjectChatMessageRecord[];
@@ -231,11 +235,11 @@ export function ProjectChatFeed({
   }, []);
 
   if (state === 'loading' || state === 'denied' || (state === 'error' && sortedMessages.length === 0)) {
-    return <FeedState errorMessage={errorMessage} onRetry={onRetry} state={state} />;
+    return <FeedState channelName={channelName} errorMessage={errorMessage} onRetry={onRetry} state={state} />;
   }
 
   if (sortedMessages.length === 0) {
-    return <FeedState onRetry={onRetry} state={state === 'offline' ? 'offline' : 'empty'} />;
+    return <FeedState channelName={channelName} onRetry={onRetry} state={state === 'offline' ? 'offline' : 'empty'} />;
   }
 
   let currentDateLabel = '';

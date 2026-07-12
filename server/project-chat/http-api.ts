@@ -27,6 +27,7 @@ type ProjectChatContextResolver = (
 
 type ProjectChatRoute =
   | 'ack'
+  | 'channels'
   | 'join'
   | 'members'
   | 'mentions'
@@ -95,7 +96,10 @@ export function createProjectChatHttpApi(
       }
       const result = await handleRoute(route, request, url, service, context);
       if (route === 'send') {
-        realtime.publish((result as { message: Awaited<ReturnType<ProjectChatService['sendMessage']>> }).message);
+        realtime.publish(
+          context.spaceId,
+          (result as { message: Awaited<ReturnType<ProjectChatService['sendMessage']>> }).message
+        );
       }
       writeJson(response, 200, result);
     } catch (error) {
@@ -119,10 +123,17 @@ async function handleRoute(
         context,
         await readJsonObject<ProjectChatAcknowledgeInput>(request)
       );
+    case 'channels':
+      return service.listChannels(context);
     case 'join':
       return service.join(context, await readJsonObject<ProjectChatJoinInput>(request));
     case 'members':
-      return { members: await service.listMembers(context) };
+      return {
+        members: await service.listMembers(
+          context,
+          queryInput(url) as unknown as ProjectChatReadInput
+        )
+      };
     case 'mentions':
       return service.getMentionState(
         context,
@@ -164,6 +175,8 @@ function projectChatRoute(method: string | undefined, pathname: string): Project
   switch (`${method ?? ''} ${pathname}`) {
     case 'POST /api/project-chat/ack':
       return 'ack';
+    case 'GET /api/project-chat/channels':
+      return 'channels';
     case 'POST /api/project-chat/join':
       return 'join';
     case 'GET /api/project-chat/members':
@@ -250,7 +263,7 @@ async function streamMessages(
     });
     return draining;
   };
-  const unsubscribe = realtime.subscribe(channelId, () => {
+  const unsubscribe = realtime.subscribe(context.spaceId, channelId, () => {
     void drain();
   });
 
@@ -362,6 +375,7 @@ function writeProjectChatError(response: ServerResponse, error: unknown) {
 
 function projectChatErrorStatus(code: ProjectChatErrorCode) {
   const statuses: Record<ProjectChatErrorCode, number> = {
+    channel_unavailable: 404,
     content_rejected: 422,
     cursor_out_of_range: 409,
     forbidden: 403,

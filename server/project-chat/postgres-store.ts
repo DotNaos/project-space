@@ -21,8 +21,9 @@ import {
 import { claimPostgresName, findPostgresNameClaim, listPostgresNameClaims, restorePostgresNameClaim } from './postgres-name-registry';
 
 interface ChannelRow {
+  account_id: string | null;
   channel_id: string; created_at: Date | string; last_sequence: number | string;
-  name: string; space_id: string;
+  kind: ProjectChatChannelRecord['kind']; name: string; project_id: string | null; space_id: string;
 }
 
 interface MemberRow {
@@ -83,9 +84,12 @@ function optionalPositiveInteger(value: number | string | null | undefined, colu
 
 function mapChannel(row: ChannelRow): ProjectChatChannelRecord {
   return {
+    accountId: row.account_id ?? undefined,
     channelId: row.channel_id,
     createdAt: toIsoString(row.created_at),
+    kind: row.kind,
     name: row.name,
+    projectId: row.project_id ?? undefined,
     spaceId: row.space_id
   };
 }
@@ -247,16 +251,39 @@ export class PostgresProjectChatRepository implements ProjectChatRepository {
   }
 
   async ensureChannel(channel: ProjectChatChannelRecord) {
+    const conflict = channel.kind === 'project'
+      ? `(space_id, account_id, project_id) where kind = 'project'`
+      : '(space_id, channel_id)';
     const result = await this.client.query<ChannelRow>(
       `insert into project_chat_channels (
-         space_id, channel_id, name, last_sequence, created_at
-       ) values ($1, $2, $3, 0, $4)
-       on conflict (space_id, channel_id) do update
-         set name = project_chat_channels.name
-       returning space_id, channel_id, name, last_sequence, created_at`,
-      [channel.spaceId, channel.channelId, channel.name, channel.createdAt]
+         space_id, channel_id, name, kind, account_id, project_id, last_sequence, created_at
+       ) values ($1, $2, $3, $4, $5, $6, 0, $7)
+       on conflict ${conflict} do update
+         set name = excluded.name
+       returning space_id, channel_id, name, kind, account_id, project_id,
+                 last_sequence, created_at`,
+      [
+        channel.spaceId,
+        channel.channelId,
+        channel.name,
+        channel.kind,
+        channel.accountId ?? null,
+        channel.projectId ?? null,
+        channel.createdAt
+      ]
     );
     return mapChannel(requireRow(result.rows[0], 'Project Chat channel'));
+  }
+
+  async findChannel(spaceId: string, channelId: string) {
+    const result = await this.client.query<ChannelRow>(
+      `select space_id, channel_id, name, kind, account_id, project_id,
+              last_sequence, created_at
+         from project_chat_channels
+        where space_id = $1 and channel_id = $2`,
+      [spaceId, channelId]
+    );
+    return result.rows[0] ? mapChannel(result.rows[0]) : null;
   }
 
   async findMemberByActorKey(

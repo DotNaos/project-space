@@ -55,6 +55,14 @@ export interface ProjectChatChannelRecord {
   channelId: ProjectChatChannelId;
   description: string;
   displayName: string;
+  groupLabel?: string;
+  kind: 'general' | 'project';
+  navigationProjectId?: string;
+  projectId?: string;
+}
+
+export interface ProjectChatChannelListResult {
+  channels: ProjectChatChannelRecord[];
 }
 
 export interface ProjectChatMemberRecord {
@@ -120,6 +128,7 @@ export interface ProjectChatMessageRecord {
 
 export interface ProjectChatJoinRequest {
   displayName?: string;
+  projectId?: string;
   taskTitle?: string;
 }
 
@@ -194,11 +203,12 @@ export interface ProjectChatApiErrorPayload {
 
 export interface ProjectChatClient {
   listNames(): Promise<ProjectChatNameListResult>;
+  listChannels(): Promise<ProjectChatChannelListResult>;
   claimName(request: ProjectChatNameClaimRequest): Promise<ProjectChatNameClaimResult>;
   acknowledge(request: ProjectChatAcknowledgeRequest): Promise<ProjectChatAcknowledgeResult>;
   getProfile(): Promise<ProjectChatProfileResult>;
   join(request?: ProjectChatJoinRequest): Promise<ProjectChatJoinResult>;
-  listMembers(): Promise<ProjectChatMemberListResult>;
+  listMembers(request?: ProjectChatReadRequest): Promise<ProjectChatMemberListResult>;
   listMentions(request?: ProjectChatMentionListRequest): Promise<ProjectChatMentionListResult>;
   read(request?: ProjectChatReadRequest): Promise<ProjectChatReadResult>;
   send(request: ProjectChatSendRequest): Promise<ProjectChatSendResult>;

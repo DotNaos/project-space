@@ -50,7 +50,8 @@ describe('database migrations', () => {
       '0009_project_chat_human_profiles',
       '0010_connector_machine_snapshots',
       '0011_github_catalog_cache',
-      '0012_project_chat_name_registry'
+      '0012_project_chat_name_registry',
+      '0013_project_chat_project_channels'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -93,6 +94,9 @@ describe('database migrations', () => {
     expect(sql).toContain('create table if not exists project_chat_cursors');
     expect(sql).toContain('create table if not exists project_chat_idempotency');
     expect(sql).toContain('project_chat_idempotency_identity_unique');
+    expect(sql).toContain('add column project_id text');
+    expect(sql).toContain('project_chat_channels_scope_consistent');
+    expect(sql).toContain('project_chat_channels_project_unique');
     expect(sql).toContain('create table project_chat_human_profiles');
     expect(sql).toContain('avatar_data_url_override text');
     expect(sql).toContain('revision bigint not null default 1');

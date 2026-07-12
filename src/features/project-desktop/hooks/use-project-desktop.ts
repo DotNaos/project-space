@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { launcherAppLabels } from '@/shared/project-space-api';
+import { parseProjectChatRoute } from '../../project-chat/project-chat-route';
 import {
   parseWorkflowRunRoute,
   normalizeRouteKey,
@@ -90,6 +91,7 @@ export const projectDetailTabs = [
   'issues',
   'machines',
   'workspaces',
+  'chat',
   'history',
   'template',
   'deployments',
@@ -232,7 +234,7 @@ export interface ParsedProjectRoute {
 }
 
 export function parseProjectRoute(pathname: string): ParsedProjectRoute {
-  if (pathname === chatPath || pathname === `${chatPath}/`) {
+  if (parseProjectChatRoute(pathname).matches) {
     return { view: 'chat' };
   }
 
@@ -797,6 +799,14 @@ export function useProjectDesktop() {
 
   useEffect(() => {
     if (!hasLoaded) {
+      return;
+    }
+
+    if (
+      mainView === 'chat' &&
+      typeof window !== 'undefined' &&
+      parseProjectChatRoute(window.location.pathname).matches
+    ) {
       return;
     }
 

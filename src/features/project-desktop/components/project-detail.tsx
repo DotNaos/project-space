@@ -7,6 +7,7 @@ import {
   GitGraph,
   LayoutDashboard,
   ListChecks,
+  MessageSquareText,
   Rocket,
   Server
 } from 'lucide-react';
@@ -267,6 +268,7 @@ const projectTabItems: Array<{
   { icon: ListChecks, id: 'issues', label: 'Issues' },
   { icon: Server, id: 'machines', label: 'Machines' },
   { icon: GitBranchPlus, id: 'workspaces', label: 'Workspaces' },
+  { icon: MessageSquareText, id: 'chat', label: 'Chat' },
   { icon: GitGraph, id: 'history', label: 'History' },
   { icon: Bot, id: 'codex', label: 'Codex' },
   { icon: FileCheck2, id: 'template', label: 'Template' },
@@ -274,6 +276,7 @@ const projectTabItems: Array<{
 ];
 
 export interface ProjectDetailProps {
+  chat: React.ReactNode;
   connectorOverview: ConnectorOverviewResult;
   launcherError: string;
   onOpenMachine(machineId: string, tab?: MachineDetailTab): void;
@@ -299,6 +302,7 @@ export interface ProjectDetailProps {
 }
 
 export function ProjectDetail({
+  chat,
   connectorOverview,
   launcherError,
   onOpenMachine,
@@ -324,7 +328,7 @@ export function ProjectDetail({
 }: ProjectDetailProps) {
   const [templateRefreshKey, setTemplateRefreshKey] = useState(0);
   const [templateRelativePath, setTemplateRelativePath] = useState('');
-  const containsOwnScroll = tab === 'history' || tab === 'issues';
+  const containsOwnScroll = tab === 'history' || tab === 'issues' || tab === 'chat';
   const templateTargetPath = joinTargetPath(selectedTargetPath, templateRelativePath);
 
   return (
@@ -408,6 +412,12 @@ export function ProjectDetail({
             selectedMachineId={selectedMachineId}
             worktrees={worktrees}
           />
+        ) : null}
+
+        {tab === 'chat' ? (
+          <div className="h-full min-h-0 overflow-hidden rounded-xl border border-neutral-800/80">
+            {chat}
+          </div>
         ) : null}
 
         {tab === 'history' ? (

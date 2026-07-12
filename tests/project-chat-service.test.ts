@@ -4,7 +4,8 @@ import {
   PROJECT_CHAT_DEFAULT_RETENTION_MS,
   ProjectChatError,
   type ProjectChatContext,
-  type ProjectChatIdGenerator
+  type ProjectChatIdGenerator,
+  type ProjectChatProject
 } from '../server/project-chat/contracts';
 import { InMemoryProjectChatRepository } from '../server/project-chat/memory-store';
 import type { ProjectChatRepository } from '../server/project-chat/repository';
@@ -68,6 +69,7 @@ const systemContext: ProjectChatContext = {
 };
 
 function setup(options: {
+  listProjects?: (context: ProjectChatContext) => Promise<ProjectChatProject[]>;
   sendLimit?: number;
   repository?: ProjectChatRepository;
 } = {}) {
@@ -77,6 +79,7 @@ function setup(options: {
     repository,
     clock,
     idGenerator: sequentialIds(),
+    listProjects: options.listProjects,
     rateLimits: options.sendLimit === undefined
       ? undefined
       : { send: { limit: options.sendLimit, windowMs: 60_000 } }
@@ -314,7 +317,7 @@ describe('Project Chat service messages and cursors', () => {
       channelId: 'private',
       body: 'hello',
       idempotencyKey: 'wrong-channel'
-    }), 'invalid_request');
+    }), 'channel_unavailable');
     await expectCode(service.sendMessage(context, {
       body: 'hello\u0000world',
       idempotencyKey: 'control-character'
@@ -323,6 +326,68 @@ describe('Project Chat service messages and cursors', () => {
       body: 'x'.repeat(4_001),
       idempotencyKey: 'too-large'
     }), 'invalid_request');
+  });
+
+  test('isolates General and stable project rooms across entry points, renames, and duplicate names', async () => {
+    let projects: ProjectChatProject[] = [
+      { projectId: 'project-a', displayName: 'Same name', groupLabel: '@DotNaos' },
+      { projectId: 'project-b', displayName: 'Same name', groupLabel: '@DotNaos' }
+    ];
+    const { service } = setup({ listProjects: async () => projects });
+    const general = await service.join(humanContext);
+    const roomA = await service.join(humanContext, { projectId: 'project-a' });
+    const roomB = await service.join(humanContext, { projectId: 'project-b' });
+
+    expect(roomA.channel.channelId).not.toBe(roomB.channel.channelId);
+    await service.sendMessage(humanContext, {
+      body: 'general only',
+      channelId: general.channel.channelId,
+      idempotencyKey: 'general-only'
+    });
+    await service.sendMessage(humanContext, {
+      body: 'project A only',
+      channelId: roomA.channel.channelId,
+      idempotencyKey: 'project-a-only'
+    });
+    await service.sendMessage(humanContext, {
+      body: 'project B only',
+      channelId: roomB.channel.channelId,
+      idempotencyKey: 'project-b-only'
+    });
+
+    expect((await service.readMessages(humanContext, {
+      afterSequence: 0,
+      channelId: general.channel.channelId
+    })).messages.map((message) => message.body)).toEqual(['general only']);
+    expect((await service.readMessages(humanContext, {
+      afterSequence: 0,
+      channelId: roomA.channel.channelId
+    })).messages.map((message) => message.body)).toEqual(['project A only']);
+    expect((await service.readMessages(humanContext, {
+      afterSequence: 0,
+      channelId: roomB.channel.channelId
+    })).messages.map((message) => message.body)).toEqual(['project B only']);
+
+    projects = [
+      { projectId: 'project-a', displayName: 'Renamed project', groupLabel: '@DotNaos' },
+      projects[1]!
+    ];
+    const renamed = await service.join(humanContext, { projectId: 'project-a' });
+    expect(renamed.channel).toMatchObject({
+      channelId: roomA.channel.channelId,
+      displayName: 'Renamed project',
+      projectId: 'project-a'
+    });
+    expect((await service.readMessages(humanContext, {
+      afterSequence: 0,
+      channelId: renamed.channel.channelId
+    })).messages.map((message) => message.body)).toEqual(['project A only']);
+
+    projects = [projects[1]!];
+    await expectCode(service.readMessages(humanContext, {
+      afterSequence: 0,
+      channelId: roomA.channel.channelId
+    }), 'channel_unavailable');
   });
 });
 

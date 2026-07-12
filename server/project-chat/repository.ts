@@ -70,6 +70,7 @@ export interface ProjectChatRepository {
     member: ProjectChatMemberRecord
   ): Promise<ProjectChatHumanProfileUpdateResult>;
   ensureChannel(channel: ProjectChatChannelRecord): Promise<ProjectChatChannelRecord>;
+  findChannel(spaceId: string, channelId: string): Promise<ProjectChatChannelRecord | null>;
   findMemberByActorKey(spaceId: string, actorKey: string): Promise<ProjectChatMemberRecord | null>;
   findMemberById(spaceId: string, memberId: string): Promise<ProjectChatMemberRecord | null>;
   upsertMember(member: ProjectChatMemberRecord): Promise<ProjectChatMemberRecord>;

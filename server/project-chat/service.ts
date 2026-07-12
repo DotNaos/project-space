@@ -7,7 +7,6 @@ import {
   systemProjectChatClock,
   type ProjectChatAcknowledgeInput,
   type ProjectChatActor,
-  type ProjectChatChannelRecord,
   type ProjectChatClock,
   type ProjectChatContext,
   type ProjectChatHumanProfile,
@@ -57,6 +56,10 @@ import {
 } from './validation';
 import { findProjectChatName, projectChatNameCatalog, reservedProjectChatNames, type ProjectChatNameCategory } from './name-registry';
 import { ProjectChatNameClaimConflictError } from './repository';
+import {
+  ProjectChatChannelManager,
+  type ProjectChatProjectProvider
+} from './channel-manager';
 
 export interface ProjectChatServiceOptions {
   repository: ProjectChatRepository;
@@ -66,6 +69,7 @@ export interface ProjectChatServiceOptions {
   rateLimits?: Partial<Record<ProjectChatRateLimitAction, ProjectChatRateLimitRule>>;
   retentionMs?: number;
   presenceTtlMs?: number;
+  listProjects?: ProjectChatProjectProvider;
 }
 
 export class ProjectChatService {
@@ -76,6 +80,7 @@ export class ProjectChatService {
   private readonly rateLimits: Record<ProjectChatRateLimitAction, ProjectChatRateLimitRule>;
   private readonly retentionMs: number;
   private readonly presenceTtlMs: number;
+  private readonly channels: ProjectChatChannelManager;
 
   constructor(options: ProjectChatServiceOptions) {
     this.repository = options.repository;
@@ -104,6 +109,18 @@ export class ProjectChatService {
       options.presenceTtlMs ?? PROJECT_CHAT_DEFAULT_PRESENCE_TTL_MS,
       'presenceTtlMs'
     );
+    this.channels = new ProjectChatChannelManager(
+      this.repository,
+      this.clock,
+      this.idGenerator,
+      options.listProjects ?? (async () => [])
+    );
+  }
+
+  async listChannels(context: ProjectChatContext) {
+    validateProjectChatContext(context);
+    await this.requireMember(context);
+    return this.channels.list(context);
   }
 
   async listNames(context: ProjectChatContext) {
@@ -192,15 +209,11 @@ export class ProjectChatService {
       joinedAt: existing?.joinedAt ?? now.toISOString(),
       updatedAt: now.toISOString()
     };
-    const channelRecord: ProjectChatChannelRecord = {
-      spaceId: context.spaceId,
-      channelId: PROJECT_CHAT_GENERAL_CHANNEL_ID,
-      name: 'General',
-      createdAt: now.toISOString()
-    };
-
     try {
-      const channel = await this.repository.ensureChannel(channelRecord);
+      const { channel, project } = await this.channels.ensureSelected(
+        context,
+        profile.projectId
+      );
       const member = humanProfile
         ? (await this.repository.ensureHumanProfileAndMember(humanProfile, record, {
             refreshDefaults: context.actor.kind === 'human'
@@ -214,7 +227,7 @@ export class ProjectChatService {
         now
       ));
       return {
-        channel: publicProjectChatChannel(channel),
+        channel: publicProjectChatChannel(channel, project),
         member: publicProjectChatMember(member, presence, now)
       };
     } catch (error) {
@@ -326,8 +339,16 @@ export class ProjectChatService {
     }
 
     const sender = await this.requireMember(context);
+    const channel = await this.channels.require(
+      context,
+      request.channelId ?? PROJECT_CHAT_GENERAL_CHANNEL_ID
+    );
     await this.repository.purgeExpired(now.toISOString());
-    const members = await this.repository.listMembers(context.spaceId);
+    const members = this.channels.membersForChannel(
+      context,
+      channel,
+      await this.repository.listMembers(context.spaceId)
+    );
     const mentions = resolveProjectChatMentions(request.body, members);
     const message: Omit<ProjectChatMessageRecord, 'sequence'> = {
       spaceId: context.spaceId,
@@ -363,6 +384,7 @@ export class ProjectChatService {
     validateProjectChatContext(context);
     const request = parseProjectChatReadInput(input);
     const member = await this.requireMember(context);
+    await this.channels.require(context, request.channelId!);
     const now = this.clock.now();
     await this.repository.purgeExpired(now.toISOString());
     const afterSequence = request.afterSequence
@@ -394,6 +416,7 @@ export class ProjectChatService {
     validateProjectChatContext(context);
     const request = parseProjectChatAcknowledgeInput(input);
     const member = await this.requireMember(context);
+    await this.channels.require(context, request.channelId!);
     const updatedAt = this.clock.now().toISOString();
     try {
       const sequence = await this.repository.acknowledgeCursor({
@@ -409,16 +432,18 @@ export class ProjectChatService {
     }
   }
 
-  async listMembers(context: ProjectChatContext) {
+  async listMembers(context: ProjectChatContext, input: ProjectChatReadInput = {}) {
     validateProjectChatContext(context);
     await this.requireMember(context);
+    const request = parseProjectChatReadInput(input);
+    const channel = await this.channels.require(context, request.channelId!);
     const now = this.clock.now();
     const [members, presences] = await Promise.all([
       this.repository.listMembers(context.spaceId),
       this.repository.listPresences(context.spaceId)
     ]);
     const presenceByMember = new Map(presences.map((presence) => [presence.memberId, presence]));
-    return members.map((member) => publicProjectChatMember(
+    return this.channels.membersForChannel(context, channel, members).map((member) => publicProjectChatMember(
       member,
       presenceByMember.get(member.memberId),
       now
@@ -429,6 +454,7 @@ export class ProjectChatService {
     validateProjectChatContext(context);
     const request = parseProjectChatMentionStateInput(input);
     const member = await this.requireMember(context);
+    await this.channels.require(context, request.channelId!);
     const now = this.clock.now();
     await this.repository.purgeExpired(now.toISOString());
     const afterSequence = await this.repository.getCursor(

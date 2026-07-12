@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { Hash, PanelRight, Tags, X } from 'lucide-react';
+import { ChevronDown, Hash, MessageSquareText, PanelRight, Tags, X } from 'lucide-react';
 import { Button, Text } from '@/app/dotnaos-ui';
 import type {
   ProjectChatChannelRecord,
@@ -29,10 +29,12 @@ import {
   type ProjectChatInspectorTab
 } from './project-chat-inspector';
 import { ProjectChatSidebar } from './project-chat-sidebar';
+import { ProjectChatChannelList } from './project-chat-sidebar';
 import { ProjectChatThreadDetails } from './project-chat-thread-details';
 
 export interface ProjectChatPageProps {
   channel: ProjectChatChannelRecord;
+  channels?: ProjectChatChannelRecord[];
   connectionState?: ProjectChatConnectionState;
   errorMessage?: string;
   members: ProjectChatMemberRecord[];
@@ -46,17 +48,21 @@ export interface ProjectChatPageProps {
   onRetryMention?(): void;
   onSend(body: string): Promise<void> | void;
   onClaimAgentName?(entry: ProjectChatNameRegistryEntry, parentThreadId?: string): Promise<void>;
+  onSelectChannel?(channel: ProjectChatChannelRecord): void;
   onUpdateProfile?(request: ProjectChatProfileUpdateRequest): Promise<ProjectChatProfileUpdateResult>;
   profile?: ProjectChatHumanProfileRecord;
   registryAllowedCategory?: ProjectChatAgentAvatarCategory;
   registryEntries?: ProjectChatNameRegistryEntry[];
   registryParentThreads?: ProjectChatNameParentThread[];
+  recentProjectIds?: string[];
+  showChannelNavigation?: boolean;
   unreadMentionCount?: number;
   viewer?: ProjectChatMemberRecord;
 }
 
 export function ProjectChatPage({
   channel,
+  channels = [channel],
   connectionState = 'ready',
   errorMessage,
   members,
@@ -66,6 +72,7 @@ export function ProjectChatPage({
   now = new Date(),
   onAcknowledgeMention,
   onClaimAgentName,
+  onSelectChannel,
   onOpenThread,
   onRetry,
   onRetryMention,
@@ -75,6 +82,8 @@ export function ProjectChatPage({
   registryAllowedCategory,
   registryEntries = [],
   registryParentThreads = [],
+  recentProjectIds = [],
+  showChannelNavigation = true,
   unreadMentionCount = 0,
   viewer
 }: ProjectChatPageProps) {
@@ -84,7 +93,9 @@ export function ProjectChatPage({
   const [compactDetailsOpen, setCompactDetailsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [registryOpen, setRegistryOpen] = useState(false);
+  const [channelDrawerOpen, setChannelDrawerOpen] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const channelDrawerRef = useRef<HTMLDivElement>(null);
   const initialThread = threads[0];
   const [selectedMemberId, setSelectedMemberId] = useState<string | undefined>(
     () => initialThread?.memberId ?? members.find((member) => member.role === 'agent')?.memberId
@@ -130,6 +141,15 @@ export function ProjectChatPage({
     dialogRef.current?.focus();
     return () => previouslyFocused?.focus();
   }, [inspectorOpen]);
+
+  useEffect(() => {
+    if (!channelDrawerOpen) return;
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    channelDrawerRef.current?.focus();
+    return () => previouslyFocused?.focus();
+  }, [channelDrawerOpen]);
 
   useEffect(() => {
     if (inspectorOpen && compactDetailsOpen) {
@@ -209,6 +229,28 @@ export function ProjectChatPage({
     }
   }
 
+  function handleChannelDrawerKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setChannelDrawerOpen(false);
+      return;
+    }
+    if (event.key !== 'Tab' || !channelDrawerRef.current) return;
+    const focusable = [...channelDrawerRef.current.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+    )];
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable.at(-1)!;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   function selectThread(thread: ProjectChatThreadSummary) {
     setSelectedThreadId(thread.threadId);
     setSelectedMemberId(thread.memberId);
@@ -270,18 +312,40 @@ export function ProjectChatPage({
   );
 
   return (
-    <div className="relative grid h-full min-h-0 grid-cols-[176px_minmax(0,1fr)] overflow-hidden bg-[#080808] text-neutral-100 max-[719px]:grid-cols-[minmax(0,1fr)] min-[1100px]:grid-cols-[176px_minmax(0,1fr)_236px] min-[1360px]:grid-cols-[176px_minmax(0,1fr)_236px_278px]">
-      <div className="contents" inert={inspectorOpen || profileOpen || registryOpen || undefined}>
-        <ProjectChatSidebar
-          messageCount={messages.length}
-          now={now}
-          onEditProfile={openProfile}
-          viewer={viewer}
-        />
+    <div className={showChannelNavigation
+      ? 'relative grid h-full min-h-0 grid-cols-[224px_minmax(0,1fr)] overflow-hidden bg-[#080808] text-neutral-100 max-[719px]:grid-cols-[minmax(0,1fr)] min-[1100px]:grid-cols-[224px_minmax(0,1fr)_236px] min-[1360px]:grid-cols-[224px_minmax(0,1fr)_236px_278px]'
+      : 'relative grid h-full min-h-0 grid-cols-[minmax(0,1fr)] overflow-hidden bg-[#080808] text-neutral-100 min-[1100px]:grid-cols-[minmax(0,1fr)_236px] min-[1360px]:grid-cols-[minmax(0,1fr)_236px_278px]'}>
+      <div className="contents" inert={inspectorOpen || profileOpen || registryOpen || channelDrawerOpen || undefined}>
+        {showChannelNavigation && onSelectChannel ? (
+          <ProjectChatSidebar
+            channels={channels}
+            now={now}
+            onEditProfile={openProfile}
+            onSelectChannel={onSelectChannel}
+            recentProjectIds={recentProjectIds}
+            selectedChannelId={channel.channelId}
+            viewer={viewer}
+          />
+        ) : null}
 
       <section className="flex min-h-0 min-w-0 flex-col bg-neutral-950/25">
         <header className="flex h-[68px] shrink-0 items-center gap-3 border-b border-neutral-800/80 px-4 sm:px-5">
-          <Hash className="size-4 shrink-0 text-neutral-400" strokeWidth={1.8} />
+          {showChannelNavigation ? (
+            <button
+              aria-label="Open project room list"
+              className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-neutral-900 min-[720px]:hidden"
+              onClick={() => setChannelDrawerOpen(true)}
+              type="button"
+            >
+              <Hash className="size-4 shrink-0 text-neutral-400" strokeWidth={1.8} />
+              <ChevronDown className="size-3.5 shrink-0 text-neutral-500" />
+            </button>
+          ) : null}
+          {showChannelNavigation ? (
+            <Hash className="hidden size-4 shrink-0 text-neutral-400 min-[720px]:block" strokeWidth={1.8} />
+          ) : (
+            <Hash className="size-4 shrink-0 text-neutral-400" strokeWidth={1.8} />
+          )}
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <Text as="h1" className="truncate text-sm font-semibold text-neutral-100">{channel.displayName}</Text>
@@ -326,6 +390,7 @@ export function ProjectChatPage({
         </header>
 
         <ProjectChatFeed
+          channelName={channel.displayName}
           errorMessage={errorMessage}
           members={members}
           messages={messages}
@@ -336,6 +401,7 @@ export function ProjectChatPage({
           viewerMemberId={viewer?.memberId}
         />
         <ProjectChatComposer
+          channelName={channel.displayName}
           disabled={connectionState !== 'ready'}
           onEditProfile={profile && viewer?.role === 'human' ? openProfile : undefined}
           onSend={onSend}
@@ -354,6 +420,55 @@ export function ProjectChatPage({
           thread={selectedThread}
         />
       </div>
+
+      {channelDrawerOpen && showChannelNavigation && onSelectChannel && typeof document !== 'undefined'
+        ? createPortal((
+          <div
+            aria-label="Project Chat rooms"
+            aria-modal="true"
+            className="fixed inset-0 z-[80] min-[720px]:hidden"
+            onKeyDown={handleChannelDrawerKeyDown}
+            ref={channelDrawerRef}
+            role="dialog"
+            tabIndex={-1}
+          >
+            <button
+              aria-hidden="true"
+              className="absolute inset-0 bg-black/70"
+              onClick={() => setChannelDrawerOpen(false)}
+              tabIndex={-1}
+              type="button"
+            />
+            <div className="absolute inset-y-0 left-0 flex w-[min(21rem,92vw)] flex-col border-r border-neutral-800 bg-neutral-950 shadow-2xl shadow-black">
+              <div className="flex h-[68px] shrink-0 items-center gap-3 border-b border-neutral-800 px-4">
+                <span className="grid size-8 place-items-center rounded-lg bg-neutral-100 text-neutral-950">
+                  <MessageSquareText className="size-4" />
+                </span>
+                <Text className="text-sm font-semibold text-neutral-100">Project Chat</Text>
+                <Button
+                  aria-label="Close project room list"
+                  className="ml-auto size-8 min-h-0"
+                  isIconOnly
+                  onPress={() => setChannelDrawerOpen(false)}
+                  size="sm"
+                  variant="ghost"
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+              <ProjectChatChannelList
+                channels={channels}
+                onSelectChannel={(nextChannel) => {
+                  setChannelDrawerOpen(false);
+                  onSelectChannel(nextChannel);
+                }}
+                recentProjectIds={recentProjectIds}
+                selectedChannelId={channel.channelId}
+              />
+            </div>
+          </div>
+        ), document.body)
+        : null}
       </div>
 
       {inspectorOpen && typeof document !== 'undefined' ? createPortal((

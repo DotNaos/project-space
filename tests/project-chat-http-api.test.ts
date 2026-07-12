@@ -68,6 +68,7 @@ interface StubCall {
 function stubService() {
   const calls = {
     acknowledge: [] as StubCall[],
+    listChannels: [] as StubCall[],
     join: [] as StubCall[],
     listMembers: [] as StubCall[],
     mentions: [] as StubCall[],
@@ -106,8 +107,19 @@ function stubService() {
         member
       };
     },
-    async listMembers(callContext: ProjectChatContext) {
-      calls.listMembers.push({ context: callContext });
+    async listChannels(callContext: ProjectChatContext) {
+      calls.listChannels.push({ context: callContext });
+      return {
+        channels: [{
+          channelId: 'general',
+          description: 'Human and agent coordination',
+          displayName: 'General',
+          kind: 'general'
+        }]
+      };
+    },
+    async listMembers(callContext: ProjectChatContext, input: unknown) {
+      calls.listMembers.push({ context: callContext, input });
       return [member];
     },
     async readMessages(callContext: ProjectChatContext, input: unknown) {
@@ -244,12 +256,15 @@ describe('Project Chat HTTP endpoint contract', () => {
     });
     const auth = { Authorization: 'Bearer trusted-test' };
 
+    const channels = await fetch(`${origin}/api/project-chat/channels`, { headers: auth });
     const join = await fetch(`${origin}/api/project-chat/join`, postJson({}, auth));
     const presence = await fetch(
       `${origin}/api/project-chat/presence`,
       postJson({ state: 'working' }, auth)
     );
-    const members = await fetch(`${origin}/api/project-chat/members`, { headers: auth });
+    const members = await fetch(`${origin}/api/project-chat/members?channelId=general`, {
+      headers: auth
+    });
     const ownProfile = await fetch(`${origin}/api/project-chat/profile`, { headers: auth });
     const updatedProfile = await fetch(
       `${origin}/api/project-chat/profile`,
@@ -275,6 +290,14 @@ describe('Project Chat HTTP endpoint contract', () => {
       { headers: auth }
     );
 
+    expect(await responseJson(channels)).toEqual({
+      channels: [{
+        channelId: 'general',
+        description: 'Human and agent coordination',
+        displayName: 'General',
+        kind: 'general'
+      }]
+    });
     expect(await responseJson(join)).toMatchObject({ channel: { channelId: 'general' }, member });
     expect(await responseJson(presence)).toEqual(member);
     expect(await responseJson(members)).toEqual({ members: [member] });
@@ -299,9 +322,12 @@ describe('Project Chat HTTP endpoint contract', () => {
       messages: [message],
       unreadCount: 1
     });
-    expect([join, presence, members, ownProfile, updatedProfile, send, read, ack, mentions].every(
+    expect([
+      channels, join, presence, members, ownProfile, updatedProfile, send, read, ack, mentions
+    ].every(
       (response) => response.status === 200 && response.headers.get('cache-control') === 'no-store'
     )).toBe(true);
+    expect(calls.listMembers[0]?.input).toEqual({ channelId: 'general' });
     expect(calls.read[0]?.input).toEqual({
       afterSequence: 7,
       channelId: 'general',
@@ -313,7 +339,7 @@ describe('Project Chat HTTP endpoint contract', () => {
       displayName: 'Olli'
     });
     expect(Object.values(calls).flat().every((call) => call.context === context)).toBe(true);
-    expect(resolverCalls).toBe(9);
+    expect(resolverCalls).toBe(10);
   });
 
   test('does not authenticate or consume requests outside the Project Chat route contract', async () => {

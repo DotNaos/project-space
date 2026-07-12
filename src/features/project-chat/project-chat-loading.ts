@@ -102,13 +102,14 @@ export interface ProjectChatRefreshResult {
 }
 
 export async function loadInitialProjectChat(
-  client: ProjectChatClient
+  client: ProjectChatClient,
+  projectId?: string
 ): Promise<ProjectChatInitialLoadResult> {
-  const joinResult = await client.join();
+  const joinResult = await client.join(projectId ? { projectId } : undefined);
   const channelId = joinResult.channel.channelId;
   const [readResult, memberResult, mentionResult, profileResult] = await Promise.all([
     readProjectChatPages(client, channelId),
-    client.listMembers(),
+    client.listMembers({ channelId }),
     client.listMentions({ channelId, limit: 50 }),
     client.getProfile()
   ]);
@@ -124,7 +125,7 @@ export async function refreshProjectChat(
   const refreshedViewer = await client.updatePresence({ state: 'working' });
   const [readResult, memberResult, mentionResult, profileResult] = await Promise.all([
     readProjectChatPages(client, channelId, afterSequence),
-    client.listMembers(),
+    client.listMembers({ channelId }),
     client.listMentions({ channelId, limit: 50 }),
     client.getProfile()
   ]);

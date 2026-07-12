@@ -85,13 +85,9 @@ function identifier(value: unknown, name: string, max = 128) {
 }
 
 function channelId(value: unknown) {
-  const result = value === undefined
+  return value === undefined
     ? PROJECT_CHAT_GENERAL_CHANNEL_ID
-    : identifier(value, 'channelId', 64);
-  if (result !== PROJECT_CHAT_GENERAL_CHANNEL_ID) {
-    invalid('Only the general Project Chat channel is available.');
-  }
-  return result;
+    : identifier(value, 'channelId', 128);
 }
 
 function codexThreadId(value: unknown) {
@@ -181,12 +177,15 @@ export function validateProjectChatContext(context: ProjectChatContext) {
 
 export function parseProjectChatJoinInput(actor: ProjectChatActor, input: unknown) {
   const value = objectInput(input ?? {});
-  exactKeys(value, ['displayName', 'taskTitle']);
+  exactKeys(value, ['displayName', 'projectId', 'taskTitle']);
+  const projectId = value.projectId === undefined
+    ? undefined
+    : identifier(value.projectId, 'projectId', 256);
   if (actor.kind !== 'agent') {
     if (value.displayName !== undefined || value.taskTitle !== undefined) {
       invalid('Authenticated human and system identities cannot be overridden.');
     }
-    return {};
+    return { projectId };
   }
   return {
     displayName: boundedMetadataString(
@@ -194,8 +193,10 @@ export function parseProjectChatJoinInput(actor: ProjectChatActor, input: unknow
       'displayName',
       PROJECT_CHAT_MAX_DISPLAY_NAME_LENGTH
     ),
+    projectId,
     taskTitle: optionalBoundedMetadataString(value.taskTitle, 'taskTitle', 160)
-  } satisfies Required<Pick<ProjectChatJoinInput, 'displayName'>> & Pick<ProjectChatJoinInput, 'taskTitle'>;
+  } satisfies Required<Pick<ProjectChatJoinInput, 'displayName'>> &
+    Pick<ProjectChatJoinInput, 'projectId' | 'taskTitle'>;
 }
 
 export function parseProjectChatPresenceInput(actor: ProjectChatActor, input: unknown) {

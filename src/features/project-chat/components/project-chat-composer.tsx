@@ -5,12 +5,14 @@ import { PROJECT_CHAT_MAX_BODY_LENGTH } from '@/shared/project-chat-api';
 import { isProjectChatMessageSafe } from '../project-chat-message-safety';
 
 export function ProjectChatComposer({
+  channelName = 'general',
   disabled = false,
   onEditProfile,
   onSend,
   viewerName = 'Olli',
   viewerRole = 'Human'
 }: {
+  channelName?: string;
   disabled?: boolean;
   onEditProfile?(): void;
   onSend(body: string): Promise<void> | void;
@@ -68,13 +70,13 @@ export function ProjectChatComposer({
       <div className="mx-auto max-w-3xl">
         <div className="rounded-xl border border-neutral-700/80 bg-neutral-900/80 px-3 py-2 shadow-2xl shadow-black/30 focus-within:border-neutral-500">
           <textarea
-            aria-label="Message general"
+            aria-label={`Message ${channelName}`}
             className="max-h-28 min-h-5 w-full resize-none bg-transparent text-sm leading-5 text-neutral-100 outline-none placeholder:text-neutral-400"
             disabled={disabled || isSending}
             maxLength={PROJECT_CHAT_MAX_BODY_LENGTH}
             onChange={(event) => setBody(event.currentTarget.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Message #general"
+            placeholder={`Message #${channelName}`}
             ref={textareaRef}
             rows={1}
             value={body}
