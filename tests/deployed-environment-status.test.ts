@@ -90,4 +90,33 @@ describe('deployed environment status', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  test('recovers current hosted verification when server-owned verified SHA matches', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'project-space-current-'));
+    const state = join(root, 'project-space-prod');
+    await mkdir(state, { recursive: true });
+    await writeFile(join(state, 'verified.sha'), `${sha}\n`);
+    const previous = {
+      environment: process.env.PROJECT_DEPLOY_ENVIRONMENT,
+      commit: process.env.PROJECT_SPACE_BUILD_COMMIT,
+      root: process.env.PROJECT_DEPLOY_STATE_ROOT
+    };
+    process.env.PROJECT_DEPLOY_ENVIRONMENT = 'prod';
+    process.env.PROJECT_SPACE_BUILD_COMMIT = sha;
+    process.env.PROJECT_DEPLOY_STATE_ROOT = root;
+    try {
+      const result = await getDeployedEnvironmentStatus('DotNaos/project-space', {
+        cwd: root,
+        run: async () => ({ exitCode: 0, stderr: '', stdout: JSON.stringify({ environments: [{
+          branch: 'main', environment: 'prod', remoteRef: 'DotNaos/project-space', status: 'unknown'
+        }] }) })
+      });
+      expect(result.environments[0]).toMatchObject({ deployedSha: sha, verification: 'healthy' });
+    } finally {
+      if (previous.environment === undefined) delete process.env.PROJECT_DEPLOY_ENVIRONMENT; else process.env.PROJECT_DEPLOY_ENVIRONMENT = previous.environment;
+      if (previous.commit === undefined) delete process.env.PROJECT_SPACE_BUILD_COMMIT; else process.env.PROJECT_SPACE_BUILD_COMMIT = previous.commit;
+      if (previous.root === undefined) delete process.env.PROJECT_DEPLOY_STATE_ROOT; else process.env.PROJECT_DEPLOY_STATE_ROOT = previous.root;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
