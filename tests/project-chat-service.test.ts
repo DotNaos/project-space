@@ -10,6 +10,7 @@ import {
 import { InMemoryProjectChatRepository } from '../server/project-chat/memory-store';
 import type { ProjectChatRepository } from '../server/project-chat/repository';
 import { ProjectChatService } from '../server/project-chat/service';
+import { publicProjectChatChannel } from '../server/project-chat/service-output';
 
 class TestClock {
   constructor(private timeMs = Date.parse('2026-07-11T00:00:00.000Z')) {}
@@ -110,6 +111,16 @@ async function joinAgent(
 }
 
 describe('Project Chat service identity and membership', () => {
+  test('keeps the public General label canonical for legacy channel rows', () => {
+    expect(publicProjectChatChannel({
+      channelId: 'general',
+      createdAt: '2026-07-12T00:00:00.000Z',
+      kind: 'general',
+      name: 'Project Chat',
+      spaceId: 'space-test'
+    }).displayName).toBe('General');
+  });
+
   test('derives human, agent, and system roles from trusted actors', async () => {
     const { service } = setup();
     const human = await service.join(humanContext);
