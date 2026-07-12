@@ -280,6 +280,8 @@ export interface ProjectDetailProps {
   onOpenNewWorktree(): void;
   onOpenWorktreeBranch(machineId: string, branchName: string, path?: string): void;
   onOpenIssue(issueNumber: number): void;
+  onOpenWorkflowRun(runId: number): void;
+  onCloseWorkflowRun(): void;
   onRefreshWorktrees(): Promise<ProjectWorktreeRecord[]>;
   onSelectTab(tab: ProjectDetailTab): void;
   onSelectWorkspace(): void;
@@ -288,6 +290,7 @@ export interface ProjectDetailProps {
   projects: ProjectSpaceRecord[];
   selectedExplorerTarget: ExplorerTarget;
   selectedIssueNumber?: number;
+  selectedWorkflowRunId?: number;
   selectedRepository?: ProjectSpaceRecord['github'];
   selectedTargetPath: string;
   selectedMachineId: string;
@@ -302,6 +305,8 @@ export function ProjectDetail({
   onOpenNewWorktree,
   onOpenWorktreeBranch,
   onOpenIssue,
+  onOpenWorkflowRun,
+  onCloseWorkflowRun,
   onRefreshWorktrees,
   onSelectTab,
   onSelectWorkspace,
@@ -310,6 +315,7 @@ export function ProjectDetail({
   projects,
   selectedExplorerTarget,
   selectedIssueNumber,
+  selectedWorkflowRunId,
   selectedRepository,
   selectedTargetPath,
   selectedMachineId,
@@ -458,8 +464,11 @@ export function ProjectDetail({
 
         {tab === 'deployments' ? (
           <ProjectDeploymentsPanel
+            onCloseWorkflowRun={onCloseWorkflowRun}
+            onOpenWorkflowRun={onOpenWorkflowRun}
             projectName={project.name}
             repository={selectedRepository ?? project.github}
+            selectedWorkflowRunId={selectedWorkflowRunId}
             targetPath={selectedTargetPath}
           />
         ) : null}

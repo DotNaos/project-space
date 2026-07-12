@@ -177,6 +177,8 @@ export interface ProjectMainPanelProps {
   onOpenNewWorktree(): void;
   onOpenProjects(): void;
   onOpenProjectIssue(issueNumber: number): void;
+  onOpenProjectWorkflowRun(runId: number): void;
+  onCloseProjectWorkflowRun(): void;
   onOpenRoot(): void;
   onOpenSelectedTarget(): void;
   onRefreshProjectDiscovery(): Promise<unknown>;
@@ -198,6 +200,7 @@ export interface ProjectMainPanelProps {
   selectedAppLabel?: string;
   selectedExplorerTarget: ExplorerTarget;
   selectedIssueNumber?: number;
+  selectedWorkflowRunId?: number;
   selectedMachine?: MachineRecord;
   selectedMachineId: string;
   selectedTargetPath: string;
@@ -223,6 +226,8 @@ export function ProjectMainPanel({
   onOpenNewWorktree,
   onOpenProjects,
   onOpenProjectIssue,
+  onOpenProjectWorkflowRun,
+  onCloseProjectWorkflowRun,
   onOpenRoot,
   onOpenSelectedTarget,
   onRefreshProjectDiscovery,
@@ -244,6 +249,7 @@ export function ProjectMainPanel({
   selectedAppLabel,
   selectedExplorerTarget,
   selectedIssueNumber,
+  selectedWorkflowRunId,
   selectedMachine,
   selectedMachineId,
   selectedTargetPath,
@@ -490,6 +496,8 @@ export function ProjectMainPanel({
             onOpenNewWorktree={onOpenNewWorktree}
             onOpenWorktreeBranch={openProjectWorktreeBranch}
             onOpenIssue={onOpenProjectIssue}
+            onOpenWorkflowRun={onOpenProjectWorkflowRun}
+            onCloseWorkflowRun={onCloseProjectWorkflowRun}
             onRefreshWorktrees={onRefreshProjectWorktrees}
             onSelectTab={onSelectProjectTab}
             onSelectWorkspace={onSelectWorkspace}
@@ -498,6 +506,7 @@ export function ProjectMainPanel({
             projects={projects}
             selectedExplorerTarget={selectedExplorerTarget}
             selectedIssueNumber={selectedIssueNumber}
+            selectedWorkflowRunId={selectedWorkflowRunId}
             selectedRepository={selectedRepository}
             selectedTargetPath={selectedTargetPath}
             selectedMachineId={selectedMachineId}

@@ -70,3 +70,23 @@ export function shouldPreserveUnresolvedProjectRoute({
       (!githubCatalogCheckedAt || isGitHubRefreshing)
   );
 }
+
+export function workflowRunRouteSuffix(runId?: number | string) {
+  if (runId === undefined || runId === '') return 'deployments';
+  const numericRunId = Number(runId);
+
+  return Number.isSafeInteger(numericRunId) && numericRunId > 0
+    ? `deployments/runs/${encodeURIComponent(String(numericRunId))}`
+    : 'deployments';
+}
+
+export function parseWorkflowRunRoute(
+  tab: string | undefined,
+  detail: string | undefined,
+  runId: string | undefined
+) {
+  if (tab !== 'deployments' || detail !== 'runs' || !runId) return undefined;
+  const parsed = Number(runId);
+
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}

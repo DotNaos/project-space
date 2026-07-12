@@ -333,10 +333,17 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     return this.request(`/api/github/issue-comments?${query.toString()}`);
   }
 
-  getGitHubPipelineStatus(fullName: string): Promise<GitHubPipelineStatusResult> {
+  getGitHubPipelineStatus(fullName: string, options: { page?: number; perPage?: number } = {}): Promise<GitHubPipelineStatusResult> {
     const query = new URLSearchParams({ fullName });
+    if (options.page) query.set('page', String(options.page));
+    if (options.perPage) query.set('perPage', String(options.perPage));
 
     return this.request(`/api/github/pipeline?${query.toString()}`);
+  }
+
+  getGitHubWorkflowRunDetail(fullName: string, runId: number): Promise<import('@/shared/project-space-api').GitHubWorkflowRunDetailResult> {
+    const query = new URLSearchParams({ fullName });
+    return this.request(`/api/github/workflow-runs/${runId}?${query.toString()}`);
   }
 
   getGitHubRepositoryDetails(fullName: string): Promise<GitHubRepositoryDetailsResult> {

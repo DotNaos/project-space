@@ -1,967 +1,291 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Button,
-  Chip,
-  Surface,
-  Text
-} from '@/app/dotnaos-ui';
-import {
-  CheckCircle2,
-  CircleDashed,
-  ExternalLink,
-  GitBranch,
-  History,
-  Radio,
-  RefreshCw,
-  Rocket,
-  ServerCog,
-  Workflow,
-  XCircle
-} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, ExternalLink, GitBranch, GitCommitHorizontal, RefreshCw, Rocket, Workflow } from 'lucide-react';
+import { Accordion, Button, Surface, Text } from '@/app/dotnaos-ui';
 import { projectSpaceClient } from '@/api/project-space-client';
 import type {
-  DeployCliEnvironmentReport,
-  DeployCliStatusReport,
-  DeploymentRecordSummary,
-  GitHubCatalogRepository,
+  DeployedEnvironmentStatusResult,
+  GitHubCatalogStatus,
   GitHubPipelineStatusResult,
-  GitHubWorkflowRunSummary,
-  PlatformOverviewResult
+  GitHubWorkflowJob,
+  GitHubWorkflowRunDetailResult,
+  GitHubWorkflowRunSummary
 } from '@/shared/project-space-api';
-
-interface ProjectDeploymentsPanelProps {
-  projectName: string;
-  repository?: GitHubCatalogRepository;
-  targetPath: string;
-}
+import { DeploymentEnvironmentList, EmptyLine } from './deployment-environment-list';
+import {
+  deploymentRuns,
+  formatDuration,
+  isHistoricalFailure,
+  isRunInProgress,
+  pipelineStateMessage,
+  workflowStatusLabel,
+  workflowStatusTone
+} from './deployment-status-model';
+import { StatusChip, StatusIcon } from './deployment-status-ui';
+import { WorkflowRunList } from './workflow-run-list';
 
 const refreshIntervalMs = 30_000;
-const expectedDeploymentEnvironments = ['prod', 'beta'] as const;
 
-type DeploymentTone = 'ok' | 'pending' | 'failed' | 'muted';
-type ExpectedDeploymentEnvironment = typeof expectedDeploymentEnvironments[number];
-
-interface RuntimeCheck {
-  label: string;
-  ok: boolean;
-}
-
-interface RuntimeEnvironmentStatus {
-  checks: RuntimeCheck[];
-  report: DeployCliEnvironmentReport;
-  serviceLines: string[];
-}
-
-interface RuntimeState {
-  environments: RuntimeEnvironmentStatus[];
-  host?: string;
-  message?: string;
-  state: 'idle' | 'running' | 'done' | 'unavailable' | 'error';
-}
-
-function deploymentMatchesProject(deployment: DeploymentRecordSummary, projectName: string) {
-  const expected = projectName.toLowerCase();
-  const appSlug = deployment.appSlug.toLowerCase();
-
-  return appSlug === expected || appSlug === `${expected}-beta`;
-}
-
-function deploymentUrl(deployment: DeploymentRecordSummary) {
-  if (deployment.live?.url) {
-    return deployment.live.url;
-  }
-
-  if (deployment.routeKind === 'public' && deployment.routeHost) {
-    return `https://${deployment.routeHost}`;
-  }
-
-  return '';
-}
-
-function deploymentTone(status: string): DeploymentTone {
-  const normalized = status.toLowerCase();
-
-  if (['deployed', 'running', 'ready', 'success'].includes(normalized)) {
-    return 'ok';
-  }
-
-  if (['building', 'pending', 'queued', 'planned', 'in_progress'].includes(normalized)) {
-    return 'pending';
-  }
-
-  if (['failed', 'error', 'canceled', 'cancelled', 'rolled-back'].includes(normalized)) {
-    return 'failed';
-  }
-
-  return 'muted';
-}
-
-const toneChipClass: Record<DeploymentTone, string> = {
-  failed: 'border border-red-500/30 bg-red-500/10 text-red-300',
-  muted: 'border border-neutral-700 bg-neutral-900 text-neutral-400',
-  ok: 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
-  pending: 'border border-amber-500/30 bg-amber-500/10 text-amber-300'
-};
-
-function ToneChip({ label, tone }: { label: string; tone: DeploymentTone }) {
-  return (
-    <Chip size="sm" className={toneChipClass[tone]}>
-      {label}
-    </Chip>
-  );
-}
-
-function formatDate(value?: string) {
-  if (!value) {
-    return 'unknown';
-  }
-
-  const date = new Date(value);
-
-  return Number.isNaN(date.getTime()) ? 'unknown' : date.toLocaleString();
-}
-
-function formatRelativeTime(value?: string) {
-  if (!value) {
-    return 'unknown';
-  }
-
-  const timestamp = Date.parse(value);
-
-  if (Number.isNaN(timestamp)) {
-    return 'unknown';
-  }
-
-  const deltaSeconds = Math.round((Date.now() - timestamp) / 1000);
-
-  if (deltaSeconds < 45) {
-    return 'just now';
-  }
-  if (deltaSeconds < 3600) {
-    return `${Math.max(1, Math.round(deltaSeconds / 60))}m ago`;
-  }
-  if (deltaSeconds < 86_400) {
-    return `${Math.round(deltaSeconds / 3600)}h ago`;
-  }
-
-  return `${Math.round(deltaSeconds / 86_400)}d ago`;
-}
-
-function formatRunDuration(run: GitHubWorkflowRunSummary) {
-  const start = Date.parse(run.runStartedAt ?? run.createdAt ?? '');
-  const end = run.status === 'completed' ? Date.parse(run.updatedAt ?? '') : Date.now();
-
-  if (Number.isNaN(start) || Number.isNaN(end) || end < start) {
-    return '';
-  }
-
-  const seconds = Math.round((end - start) / 1000);
-
-  if (seconds < 60) {
-    return `${seconds}s`;
-  }
-
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-}
-
-function shortRevision(revision?: string) {
-  return revision ? revision.slice(0, 7) : '';
-}
-
-function liveStatusLabel(deployment: DeploymentRecordSummary) {
-  if (!deployment.live || deployment.live.status === 'unknown') {
-    return 'not checked';
-  }
-
-  if (deployment.live.status === 'online') {
-    return deployment.live.statusCode ? `online ${deployment.live.statusCode}` : 'online';
-  }
-
-  return deployment.live.statusCode ? `offline ${deployment.live.statusCode}` : 'offline';
-}
-
-function runTone(run: GitHubWorkflowRunSummary): DeploymentTone {
-  if (run.status !== 'completed') {
-    return 'pending';
-  }
-
-  if (run.conclusion === 'success') {
-    return 'ok';
-  }
-
-  if (run.conclusion === 'failure' || run.conclusion === 'timed_out') {
-    return 'failed';
-  }
-
-  return 'muted';
-}
-
-function runLabel(run: GitHubWorkflowRunSummary) {
-  return run.status === 'completed' ? (run.conclusion ?? 'completed') : run.status.replace('_', ' ');
-}
-
-function RunStatusIcon({ run }: { run: GitHubWorkflowRunSummary }) {
-  const tone = runTone(run);
-
-  if (tone === 'pending') {
-    return <RefreshCw className="size-4 shrink-0 animate-spin text-amber-300" />;
-  }
-  if (tone === 'ok') {
-    return <CheckCircle2 className="size-4 shrink-0 text-emerald-300" />;
-  }
-  if (tone === 'failed') {
-    return <XCircle className="size-4 shrink-0 text-red-300" />;
-  }
-
-  return <CircleDashed className="size-4 shrink-0 text-neutral-500" />;
-}
-
-function ExternalLinkRow({ label, url }: { label: string; url?: string }) {
-  if (!url) {
-    return null;
-  }
-
-  return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noreferrer"
-      className="group inline-flex min-w-0 items-center gap-1 text-xs text-neutral-400 transition hover:text-neutral-100"
-    >
-      <span className="shrink-0 text-neutral-500">{label}</span>
-      <span className="min-w-0 truncate underline decoration-neutral-700 underline-offset-2 group-hover:decoration-neutral-200">
-        {url.replace(/^https?:\/\//, '')}
-      </span>
-      <ExternalLink className="size-3 shrink-0 text-neutral-500 group-hover:text-neutral-200" />
-    </a>
-  );
-}
-
-const runtimeCheckMatchers: Array<{ label: string; failed: string; ok: string }> = [
-  { failed: 'ssh failed', label: 'SSH', ok: 'ssh ok' },
-  { failed: 'docker api unavailable', label: 'Docker', ok: 'docker api ok' },
-  { failed: 'traefik missing', label: 'Traefik', ok: 'traefik running' },
-  { failed: 'traefik-public network missing', label: 'Ingress network', ok: 'traefik-public network ok' },
-  { failed: 'repo missing', label: 'Repo on VPS', ok: 'repo present' }
-];
-
-function parseRuntimeEnvironment(report: DeployCliEnvironmentReport): RuntimeEnvironmentStatus {
-  const lines = (report.status ?? '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const lowerLines = lines.map((line) => line.toLowerCase());
-  const checks: RuntimeCheck[] = [];
-  const consumed = new Set<number>();
-
-  for (const matcher of runtimeCheckMatchers) {
-    const okIndex = lowerLines.findIndex((line) => line.includes(matcher.ok));
-    const failedIndex = lowerLines.findIndex((line) => line.includes(matcher.failed));
-
-    if (okIndex >= 0) {
-      consumed.add(okIndex);
-    }
-    if (failedIndex >= 0) {
-      consumed.add(failedIndex);
-    }
-    if (okIndex >= 0 || failedIndex >= 0) {
-      checks.push({ label: matcher.label, ok: okIndex >= 0 });
-    }
-  }
-
-  const serviceLines = lines.filter((line, index) => {
-    if (consumed.has(index)) {
-      return false;
-    }
-
-    const lower = lowerLines[index];
-
-    return !lower.startsWith('docker ') && !lower.startsWith('docker compose version');
-  });
-
-  return { checks, report, serviceLines };
-}
-
-function parseRuntimeReport(stdout: string): DeployCliStatusReport | undefined {
-  const start = stdout.indexOf('{');
-  const end = stdout.lastIndexOf('}');
-
-  if (start < 0 || end <= start) {
-    return undefined;
-  }
-
-  try {
-    return JSON.parse(stdout.slice(start, end + 1)) as DeployCliStatusReport;
-  } catch {
-    return undefined;
-  }
-}
-
-function environmentSortKey(environment: string) {
-  if (environment === 'prod') {
-    return 0;
-  }
-  if (environment === 'beta') {
-    return 1;
-  }
-
-  return 2;
-}
-
-function sortDeployments(deployments: DeploymentRecordSummary[]) {
-  return [...deployments].sort((left, right) => {
-    const leftTime = Date.parse(left.createdAt || left.updatedAt || '');
-    const rightTime = Date.parse(right.createdAt || right.updatedAt || '');
-
-    return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
-  });
-}
-
-function expectedBranchForEnvironment(environment: string) {
-  if (environment === 'prod') {
-    return 'main';
-  }
-  if (environment === 'beta') {
-    return 'beta';
-  }
-
-  return undefined;
-}
-
-interface DeploymentRowProps {
-  deployment: DeploymentRecordSummary;
-  isLive?: boolean;
-  pipelineRun?: GitHubWorkflowRunSummary;
-  repositoryUrl?: string;
-}
-
-interface EnvironmentSlotRowProps {
-  environment: ExpectedDeploymentEnvironment;
+interface ProjectDeploymentsPanelProps {
+  loadedCommitShas?: ReadonlySet<string>;
+  onCloseWorkflowRun?(): void;
+  onOpenWorkflowRun?(runId: number): void;
   projectName: string;
-  repositoryUrl?: string;
+  repository?: { fullName: string; url?: string };
+  selectedWorkflowRunId?: number;
+  targetPath?: string;
 }
 
-function EnvironmentSlotRow({
-  environment,
-  projectName,
-  repositoryUrl
-}: EnvironmentSlotRowProps) {
-  const branch = expectedBranchForEnvironment(environment);
-  const branchUrl = repositoryUrl && branch
-    ? `${repositoryUrl}/tree/${encodeURIComponent(branch)}`
-    : undefined;
-
-  return (
-    <Surface
-      variant="tertiary"
-      className="grid gap-2 rounded-lg border border-dashed border-neutral-800 bg-black/10 px-3 py-3"
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <Chip size="sm" variant={environment === 'prod' ? 'primary' : 'secondary'}>
-          {environment}
-        </Chip>
-        <Text className="min-w-0 truncate text-sm font-medium text-neutral-300">
-          {environment === 'prod' ? projectName : `${projectName}-${environment}`}
-        </Text>
-        <div className="ml-auto">
-          <ToneChip label="missing" tone="muted" />
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-500">
-        {branch ? (
-          branchUrl ? (
-            <a
-              href={branchUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 transition hover:text-neutral-200"
-            >
-              <GitBranch className="size-3" />
-              {branch}
-            </a>
-          ) : (
-            <span className="inline-flex items-center gap-1">
-              <GitBranch className="size-3" />
-              {branch}
-            </span>
-          )
-        ) : null}
-        <span>No deployment recorded for this environment.</span>
-      </div>
-    </Surface>
-  );
+export function ProjectDeploymentsPanel(props: ProjectDeploymentsPanelProps) {
+  if (props.selectedWorkflowRunId && props.repository) {
+    return <WorkflowRunDetail
+      onBack={props.onCloseWorkflowRun ?? (() => undefined)}
+      repositoryFullName={props.repository.fullName}
+      runId={props.selectedWorkflowRunId}
+    />;
+  }
+  return <DeploymentsOverview {...props} />;
 }
 
-function DeploymentRow({ deployment, isLive = false, pipelineRun, repositoryUrl }: DeploymentRowProps) {
-  const url = deploymentUrl(deployment);
-  const tone = deploymentTone(deployment.status);
-  const liveOnline = deployment.live?.status === 'online';
-  const branchUrl =
-    repositoryUrl && deployment.sourceRef
-      ? `${repositoryUrl}/tree/${encodeURIComponent(deployment.sourceRef)}`
-      : undefined;
-  const needsAttention = tone === 'failed' || (isLive && deployment.live?.status === 'offline');
-
-  return (
-    <Surface
-      variant="tertiary"
-      className={
-        isLive
-          ? 'grid gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.04] px-3 py-3'
-          : 'grid gap-2 rounded-lg border border-neutral-800 bg-black/20 px-3 py-2'
-      }
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        {isLive ? (
-          <Chip size="sm" className="border border-emerald-500/40 bg-emerald-500/15 text-emerald-200">
-            <Radio className="mr-1 size-3" />
-            live
-          </Chip>
-        ) : null}
-        <Chip size="sm" variant={deployment.environment === 'prod' ? 'primary' : 'secondary'}>
-          {deployment.environment || 'env unknown'}
-        </Chip>
-        {deployment.version ? (
-          <Chip
-            size="sm"
-            className="border border-sky-500/30 bg-sky-500/10 font-mono text-sky-200"
-            title={[
-              'Automatic deployment version',
-              deployment.revision ? `Revision ${deployment.revision}` : ''
-            ].filter(Boolean).join(' · ')}
-          >
-            {deployment.version}
-          </Chip>
-        ) : deployment.revision ? (
-          <Chip
-            size="sm"
-            className="border border-neutral-700 bg-neutral-900 font-mono text-neutral-400"
-            title={deployment.revision}
-          >
-            Revision {shortRevision(deployment.revision)}
-          </Chip>
-        ) : null}
-        <Text className="min-w-0 truncate text-sm font-medium text-neutral-100">
-          {deployment.appSlug}
-        </Text>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <ToneChip label={deployment.status || 'unknown'} tone={tone} />
-          <ToneChip
-            label={liveStatusLabel(deployment)}
-            tone={
-              !deployment.live || deployment.live.status === 'unknown'
-                ? 'muted'
-                : liveOnline
-                  ? 'ok'
-                  : 'failed'
-            }
-          />
-          {pipelineRun ? (
-            <a href={pipelineRun.url} target="_blank" rel="noreferrer">
-              <ToneChip label={`CI ${runLabel(pipelineRun)}`} tone={runTone(pipelineRun)} />
-            </a>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-500">
-        {deployment.sourceRef ? (
-          branchUrl ? (
-            <a
-              href={branchUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 transition hover:text-neutral-200"
-            >
-              <GitBranch className="size-3" />
-              {deployment.sourceRef}
-            </a>
-          ) : (
-            <span className="inline-flex items-center gap-1">
-              <GitBranch className="size-3" />
-              {deployment.sourceRef}
-            </span>
-          )
-        ) : (
-          <span>no source recorded</span>
-        )}
-        <span title={formatDate(deployment.createdAt || deployment.updatedAt)}>
-          deployed {formatRelativeTime(deployment.createdAt || deployment.updatedAt)}
-        </span>
-        {typeof deployment.live?.latencyMs === 'number' ? (
-          <span>{deployment.live.latencyMs}ms response</span>
-        ) : null}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <ExternalLinkRow label="site" url={url} />
-        {pipelineRun?.url ? <ExternalLinkRow label="pipeline" url={pipelineRun.url} /> : null}
-      </div>
-
-      {needsAttention ? (
-        <Text className="text-xs text-amber-300/90">
-          {tone === 'failed'
-            ? 'Deployment did not finish. Check the pipeline run above, then redeploy from a healthy branch.'
-            : 'The live URL is not responding. Run the VPS runtime check below to see container status.'}
-        </Text>
-      ) : null}
-    </Surface>
-  );
-}
-
-export function ProjectDeploymentsPanel({
-  projectName,
-  repository,
-  targetPath
-}: ProjectDeploymentsPanelProps) {
-  const [platform, setPlatform] = useState<PlatformOverviewResult>();
-  const [pipeline, setPipeline] = useState<GitHubPipelineStatusResult>();
-  const [lastCheckedAt, setLastCheckedAt] = useState<string>();
-  const [isRefreshing, setIsRefreshing] = useState(true);
-  const [hasLoaded, setHasLoaded] = useState(false);
-  const [runtime, setRuntime] = useState<RuntimeState>({ environments: [], state: 'idle' });
-  const [refreshNonce, setRefreshNonce] = useState(0);
-  const isRefreshingRef = useRef(false);
+function DeploymentsOverview({ loadedCommitShas, onOpenWorkflowRun, repository }: ProjectDeploymentsPanelProps) {
   const repositoryFullName = repository?.fullName;
+  const [environments, setEnvironments] = useState<DeployedEnvironmentStatusResult>();
+  const [pipeline, setPipeline] = useState<GitHubPipelineStatusResult>();
+  const [historyCommitShas, setHistoryCommitShas] = useState<ReadonlySet<string>>(new Set());
+  const [requestFailed, setRequestFailed] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const refreshing = useRef(false);
+
+  const refresh = useCallback(async () => {
+    if (!repositoryFullName || refreshing.current) return;
+    refreshing.current = true;
+    setIsRefreshing(true);
+    setRequestFailed(false);
+    const [environmentOutcome, pipelineOutcome, historyOutcome] = await Promise.allSettled([
+      projectSpaceClient.getDeployedEnvironmentStatus(repositoryFullName),
+      projectSpaceClient.getGitHubPipelineStatus(repositoryFullName),
+      projectSpaceClient.getGitHubHistory({ fullName: repositoryFullName, limit: 250 })
+    ]);
+    if (environmentOutcome.status === 'fulfilled') {
+      setEnvironments((current) => environmentOutcome.value.status === 'available' || !current
+        ? environmentOutcome.value
+        : current);
+    }
+    if (pipelineOutcome.status === 'fulfilled') {
+      setPipeline((current) => pipelineOutcome.value.status === 'connected' || !current
+        ? pipelineOutcome.value
+        : current);
+    }
+    if (historyOutcome.status === 'fulfilled') {
+      setHistoryCommitShas(new Set(historyOutcome.value.commits.map((commit) => commit.hash.toLowerCase())));
+    }
+    setRequestFailed(
+      environmentOutcome.status === 'rejected' ||
+      (environmentOutcome.status === 'fulfilled' && environmentOutcome.value.status !== 'available') ||
+      pipelineOutcome.status === 'rejected' ||
+      (pipelineOutcome.status === 'fulfilled' && pipelineOutcome.value.status !== 'connected') ||
+      historyOutcome.status === 'rejected'
+    );
+    refreshing.current = false;
+    setHasLoaded(true);
+    setIsRefreshing(false);
+  }, [repositoryFullName]);
+
+  const loadMore = useCallback(async () => {
+    if (!repositoryFullName || !pipeline?.pagination?.hasNext || isLoadingMore) return;
+    setIsLoadingMore(true);
+    try {
+      const next = await projectSpaceClient.getGitHubPipelineStatus(repositoryFullName, {
+        page: pipeline.pagination.page + 1,
+        perPage: pipeline.pagination.perPage
+      });
+      if (next.status === 'connected') {
+        setPipeline({
+          ...next,
+          runs: [...pipeline.runs, ...next.runs.filter((run) => !pipeline.runs.some((existing) => existing.id === run.id))]
+        });
+      }
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [isLoadingMore, pipeline, repositoryFullName]);
 
   useEffect(() => {
-    let disposed = false;
-
-    async function refresh() {
-      if (isRefreshingRef.current) {
-        return;
-      }
-
-      isRefreshingRef.current = true;
-      setIsRefreshing(true);
-
-      const [nextPlatform, nextPipeline] = await Promise.all([
-        projectSpaceClient.getPlatformOverview().catch(() => undefined),
-        repositoryFullName
-          ? projectSpaceClient.getGitHubPipelineStatus(repositoryFullName).catch(() => undefined)
-          : Promise.resolve(undefined)
-      ]);
-
-      isRefreshingRef.current = false;
-
-      if (disposed) {
-        return;
-      }
-
-      setPlatform(nextPlatform);
-      setPipeline(nextPipeline);
-      setLastCheckedAt(new Date().toISOString());
-      setHasLoaded(true);
-      setIsRefreshing(false);
-    }
-
     void refresh();
-    const interval = setInterval(() => {
-      if (!document.hidden) {
-        void refresh();
-      }
-    }, refreshIntervalMs);
+    const interval = window.setInterval(() => { if (!document.hidden) void refresh(); }, refreshIntervalMs);
+    return () => window.clearInterval(interval);
+  }, [refresh]);
 
-    return () => {
-      disposed = true;
-      clearInterval(interval);
-    };
-  }, [repositoryFullName, projectName, refreshNonce]);
+  const runs = useMemo(() => deploymentRuns(pipeline?.runs ?? []), [pipeline?.runs]);
+  const currentRuns = runs.filter((run) => !isHistoricalFailure(run, environments?.environments ?? []));
+  const historicalFailures = runs.filter((run) => isHistoricalFailure(run, environments?.environments ?? []));
+  const checkedAt = environments?.checkedAt ?? pipeline?.checkedAt;
+  const stale = checkedAt ? Date.now() - Date.parse(checkedAt) > 120_000 : false;
 
-  async function checkRuntime() {
-    if (!targetPath) {
-      return;
-    }
+  if (!repositoryFullName) return <PageState title="Deployments unavailable">No GitHub repository is linked to this project.</PageState>;
+  if (!hasLoaded) return <PageState active title="Loading deployments">Checking deployed environments and deployment workflows…</PageState>;
 
-    setRuntime({ environments: [], state: 'running' });
+  return <div className="grid gap-6">
+    <header className="flex min-w-0 flex-wrap items-center gap-2">
+      <Rocket className="size-4 text-neutral-400" />
+      <Text className="text-sm font-semibold text-neutral-100">Deployments</Text>
+      <Text className="text-xs text-neutral-500">read-only</Text>
+      {checkedAt ? <Text className="text-xs text-neutral-500" title={new Date(checkedAt).toLocaleString()}>{stale ? 'stale data' : `checked ${new Date(checkedAt).toLocaleTimeString()}`}</Text> : null}
+      <Button aria-label="Refresh deployments" className="ml-auto" isDisabled={isRefreshing} size="sm" variant="ghost" onPress={() => void refresh()}>
+        <RefreshCw className={isRefreshing ? 'size-4 animate-spin' : 'size-4'} />Refresh
+      </Button>
+    </header>
 
+    {requestFailed ? <InlineNotice tone="warning">Some deployment information could not be refreshed. Available verified data is shown below.</InlineNotice> : null}
+
+    <section className="grid gap-2">
+      <SectionTitle icon={<Rocket className="size-4" />} title="Environments" />
+      {environments?.status === 'available'
+        ? <DeploymentEnvironmentList environments={environments.environments} loadedCommitShas={loadedCommitShas ?? historyCommitShas} runs={pipeline?.runs ?? []} />
+        : <EnvironmentState status={environments?.status} />}
+    </section>
+
+    <section className="grid gap-2">
+      <SectionTitle icon={<Workflow className="size-4" />} title="Deployment pipeline" />
+      {pipeline?.status !== 'connected'
+        ? <PipelineState message={pipeline?.message} status={pipeline?.status} />
+        : runs.length === 0
+          ? <EmptyLine>No deployment workflow runs were found. Release, pull request, and unrelated CI workflows are intentionally excluded.</EmptyLine>
+          : <>
+              <WorkflowRunList environments={environments?.environments ?? []} onOpenRun={onOpenWorkflowRun ?? (() => undefined)} runs={currentRuns} />
+              {historicalFailures.length > 0 ? <div className="mt-4 grid gap-2">
+                <Text className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-600">Historical failures</Text>
+                <Text className="text-xs text-neutral-500">These attempts are not the currently verified deployed build.</Text>
+                <WorkflowRunList environments={environments?.environments ?? []} onOpenRun={onOpenWorkflowRun ?? (() => undefined)} runs={historicalFailures} />
+              </div> : null}
+              {pipeline.pagination?.hasNext ? <Button className="mt-3 w-fit" isDisabled={isLoadingMore} size="sm" variant="ghost" onPress={() => void loadMore()}>
+                {isLoadingMore ? <RefreshCw className="size-4 animate-spin" /> : null}Load older runs
+              </Button> : null}
+            </>}
+    </section>
+  </div>;
+}
+
+function EnvironmentState({ status }: { status?: DeployedEnvironmentStatusResult['status'] }) {
+  if (status === 'unauthorized') return <InlineNotice tone="danger">This repository is not authorized to read the deployed-environment status.</InlineNotice>;
+  if (status === 'unavailable') return <InlineNotice tone="warning">Deployed-environment verification is temporarily unavailable.</InlineNotice>;
+  return <InlineNotice tone="muted">Deployed-environment status did not load.</InlineNotice>;
+}
+
+function PipelineState({ message, status }: { message?: string; status?: GitHubCatalogStatus }) {
+  return <InlineNotice tone={status === 'rate-limited' ? 'warning' : status === 'error' ? 'danger' : 'muted'}>
+    {status ? pipelineStateMessage(status, message) : 'Deployment pipeline status did not load.'}
+  </InlineNotice>;
+}
+
+export function WorkflowRunDetail({ onBack, repositoryFullName, runId }: { onBack(): void; repositoryFullName: string; runId: number }) {
+  const [result, setResult] = useState<GitHubWorkflowRunDetailResult>();
+  const [detailEnvironments, setDetailEnvironments] = useState<DeployedEnvironmentStatusResult>();
+  const [failed, setFailed] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const load = useCallback(async () => {
+    setLoading(true); setFailed(false);
     try {
-      const result = await projectSpaceClient.runProjectCliCommand({
-        command: 'deploy-status',
-        cwd: targetPath
-      });
-
-      if (result.exitCode !== 0) {
-        const output = `${result.stderr}\n${result.stdout}`.toLowerCase();
-        const cliMissing = output.includes('enoent') || output.includes('not found');
-
-        setRuntime({
-          environments: [],
-          message: cliMissing
-            ? 'The project CLI is not available on this host. Runtime checks need the desktop app or a machine with the project CLI and SSH access to the VPS.'
-            : result.stderr.trim() || result.stdout.trim() || 'Runtime check failed.',
-          state: cliMissing ? 'unavailable' : 'error'
-        });
-        return;
-      }
-
-      const report = parseRuntimeReport(result.stdout);
-
-      if (!report) {
-        setRuntime({
-          environments: [],
-          message: 'Could not parse the CLI status report.',
-          state: 'error'
-        });
-        return;
-      }
-
-      setRuntime({
-        environments: (report.environments ?? []).map(parseRuntimeEnvironment),
-        host: report.host,
-        state: 'done'
-      });
-    } catch (error) {
-      setRuntime({
-        environments: [],
-        message: error instanceof Error ? error.message : 'Runtime check failed.',
-        state: 'error'
-      });
+      const [detail, environmentStatus] = await Promise.all([
+        projectSpaceClient.getGitHubWorkflowRunDetail(repositoryFullName, runId),
+        projectSpaceClient.getDeployedEnvironmentStatus(repositoryFullName)
+      ]);
+      setResult(detail);
+      setDetailEnvironments(environmentStatus);
     }
-  }
+    catch { setFailed(true); }
+    finally { setLoading(false); }
+  }, [repositoryFullName, runId]);
+  useEffect(() => { void load(); }, [load]);
 
-  const projectDeployments = useMemo(
-    () =>
-      sortDeployments(
-        (platform?.deployments ?? []).filter((deployment) =>
-          deploymentMatchesProject(deployment, projectName)
-        )
-      ),
-    [platform?.deployments, projectName]
-  );
+  if (loading && !result) return <PageState active title="Loading workflow run">Loading jobs and steps…</PageState>;
+  if (failed && !result) return <DetailError onBack={onBack} onRetry={load}>Workflow run details could not be loaded.</DetailError>;
+  if (!result || result.status !== 'connected' || !result.run) return <DetailError onBack={onBack} onRetry={load}>{result?.status ? pipelineStateMessage(result.status, result.message) : 'Workflow run details are unavailable.'}</DetailError>;
 
-  const latestDeploymentByEnvironment = useMemo(() => {
-    const byEnvironment = new Map<string, DeploymentRecordSummary>();
-
-    for (const deployment of projectDeployments) {
-      const key = deployment.environment || 'unknown';
-
-      if (!byEnvironment.has(key)) {
-        byEnvironment.set(key, deployment);
-      }
-    }
-
-    return [...byEnvironment.values()].sort(
-      (left, right) => environmentSortKey(left.environment) - environmentSortKey(right.environment)
-    );
-  }, [projectDeployments]);
-
-  const environmentSlots = useMemo(() => {
-    const byEnvironment = new Map(
-      latestDeploymentByEnvironment.map((deployment) => [deployment.environment, deployment])
-    );
-    const unexpectedEnvironments = latestDeploymentByEnvironment
-      .map((deployment) => deployment.environment)
-      .filter((environment) =>
-        !expectedDeploymentEnvironments.includes(environment as ExpectedDeploymentEnvironment)
-      );
-    const environments = [...expectedDeploymentEnvironments, ...unexpectedEnvironments];
-
-    return environments.map((environment) => ({
-      deployment: byEnvironment.get(environment),
-      environment
-    }));
-  }, [latestDeploymentByEnvironment]);
-
-  const historyDeployments = useMemo(() => {
-    const liveIds = new Set(
-      latestDeploymentByEnvironment.map((deployment) => deployment.id || `${deployment.appSlug}-${deployment.environment}`)
-    );
-
-    return projectDeployments.filter(
-      (deployment) => !liveIds.has(deployment.id || `${deployment.appSlug}-${deployment.environment}`)
-    );
-  }, [projectDeployments, latestDeploymentByEnvironment]);
-
-  const latestRunByBranch = useMemo(() => {
-    const byBranch = new Map<string, GitHubWorkflowRunSummary>();
-
-    for (const run of pipeline?.runs ?? []) {
-      if (run.branch && !byBranch.has(run.branch)) {
-        byBranch.set(run.branch, run);
-      }
-    }
-
-    return byBranch;
-  }, [pipeline?.runs]);
-
-  const pipelineRuns = (pipeline?.runs ?? []).slice(0, 8);
-  const platformConfigured = Boolean(platform?.apiBaseUrl);
-  const isInitialLoading = isRefreshing && !hasLoaded;
-
-  return (
-    <div className="grid gap-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Rocket className="size-4 text-neutral-400" />
-        <Text className="text-sm font-semibold text-neutral-100">Deployments</Text>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          {lastCheckedAt ? (
-            <Text className="text-xs text-neutral-500" title={formatDate(lastCheckedAt)}>
-              checked {formatRelativeTime(lastCheckedAt)} · auto-refresh {refreshIntervalMs / 1000}s
-            </Text>
-          ) : null}
-          <ToneChip
-            label={
-              isInitialLoading
-                ? 'checking platform'
-                : platform?.apiReachable
-                  ? 'platform online'
-                  : platformConfigured
-                    ? 'platform offline'
-                    : 'no platform configured'
-            }
-            tone={
-              isInitialLoading
-                ? 'pending'
-                : platform?.apiReachable
-                  ? 'ok'
-                  : platformConfigured
-                    ? 'failed'
-                    : 'muted'
-            }
-          />
-          <Button
-            size="sm"
-            variant="ghost"
-            isDisabled={isRefreshing}
-            onPress={() => setRefreshNonce((nonce) => nonce + 1)}
-          >
-            <RefreshCw className={isRefreshing ? 'size-4 animate-spin' : 'size-4'} />
-            Refresh
-          </Button>
-        </div>
+  const run = result.run;
+  const correlatedEnvironments = run.headSha
+    ? (detailEnvironments?.environments ?? []).filter((environment) => environment.deployedSha === run.headSha)
+    : [];
+  const tone = workflowStatusTone(run.status, run.conclusion);
+  return <div className="grid gap-5">
+    <header className="grid gap-3 border-b border-neutral-800/70 pb-4">
+      <div className="flex min-w-0 items-center gap-2">
+        <Button aria-label="Back to deployments" isIconOnly size="sm" variant="ghost" onPress={onBack}><ArrowLeft className="size-4" /></Button>
+        <StatusIcon active={isRunInProgress(run)} tone={tone} />
+        <Text className="min-w-0 truncate text-sm font-semibold text-neutral-100">{run.displayTitle || run.name || `Run #${run.runNumber ?? run.id}`}</Text>
+        <StatusChip tone={tone}>{workflowStatusLabel(run.status, run.conclusion)}</StatusChip>
+        <Button aria-label="Refresh workflow run" className="ml-auto" isDisabled={loading} isIconOnly size="sm" variant="ghost" onPress={() => void load()}><RefreshCw className={loading ? 'size-4 animate-spin' : 'size-4'} /></Button>
       </div>
+      <RunMetadata run={run} />
+      {correlatedEnvironments.length ? <Text className="pl-10 text-xs text-emerald-300">Currently deployed to {correlatedEnvironments.map((environment) => environment.displayName).join(', ')}</Text> : null}
+      {result.partial ? <InlineNotice tone="warning">GitHub returned partial job or step information. The available read-only details are shown.</InlineNotice> : null}
+    </header>
+    <section className="grid gap-2">
+      <SectionTitle icon={<Workflow className="size-4" />} title={`Jobs (${result.jobs.length})`} />
+      {result.jobs.length ? <JobList jobs={result.jobs} /> : <EmptyLine>No jobs were returned for this workflow run.</EmptyLine>}
+    </section>
+  </div>;
+}
 
-      {isInitialLoading ? (
-        <Surface variant="tertiary" className="rounded-lg border border-neutral-800 bg-black/20 px-3 py-3">
-          <div className="flex items-center gap-3">
-            <RefreshCw className="size-4 animate-spin text-neutral-400" />
-            <Text className="text-sm text-neutral-300">
-              Loading deployments, live checks and pipeline status...
-            </Text>
-          </div>
-        </Surface>
-      ) : null}
+function RunMetadata({ run }: { run: GitHubWorkflowRunSummary }) {
+  return <div className="grid min-w-0 gap-x-4 gap-y-2 pl-10 text-xs text-neutral-500 sm:flex sm:flex-wrap sm:items-center">
+    {run.runNumber ? <span>run #{run.runNumber}</span> : null}
+    {run.event ? <span>trigger {run.event}</span> : null}
+    {run.branch ? <span className="inline-flex items-center gap-1"><GitBranch className="size-3" />{run.branch}</span> : null}
+    {run.headSha ? <span className="inline-flex min-w-0 max-w-full items-start gap-1 break-all font-mono" title={run.headSha}><GitCommitHorizontal className="mt-0.5 size-3 shrink-0" />{run.headSha}</span> : null}
+    {run.actor ? <span>by {run.actor}</span> : null}
+    {run.attempt ? <span>attempt {run.attempt}</span> : null}
+    {run.runStartedAt ? <span title={new Date(run.runStartedAt).toLocaleString()}>started {new Date(run.runStartedAt).toLocaleString()}</span> : null}
+    {run.updatedAt ? <span title={new Date(run.updatedAt).toLocaleString()}>updated {new Date(run.updatedAt).toLocaleString()}</span> : null}
+    {run.runStartedAt && run.updatedAt ? <span>{formatDuration(Date.parse(run.updatedAt) - Date.parse(run.runStartedAt))}</span> : null}
+    {run.url ? <a href={run.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-neutral-300 hover:text-white">Open on GitHub<ExternalLink className="size-3" /></a> : null}
+  </div>;
+}
 
-      {!isInitialLoading && platform?.error ? (
-        <Surface variant="tertiary" className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2">
-          <Text className="text-sm text-red-200">{platform.error}</Text>
-          <Text className="mt-1 block text-xs text-red-200/70">
-            Deployment history needs a reachable private VPS platform API. Local work is unaffected.
-          </Text>
-        </Surface>
-      ) : null}
+function JobList({ jobs }: { jobs: GitHubWorkflowJob[] }) {
+  const [expanded, setExpanded] = useState<Set<React.Key>>(() => new Set(jobs.filter((job) => job.status !== 'completed' || job.conclusion === 'failure').map((job) => String(job.id))));
+  return <Accordion allowsMultipleExpanded expandedKeys={expanded} onExpandedChange={setExpanded} className="divide-y divide-neutral-800/70 border-y border-neutral-800/70">
+    {jobs.map((job) => {
+      const tone = workflowStatusTone(job.status, job.conclusion);
+      return <Accordion.Item id={String(job.id)} key={job.id}>
+        <Accordion.Heading><Accordion.Trigger className="px-1 py-3 text-left" title={[job.startedAt && `Started ${new Date(job.startedAt).toLocaleString()}`, job.completedAt && `Completed ${new Date(job.completedAt).toLocaleString()}`].filter(Boolean).join(' · ')}>
+          <span className="flex min-w-0 items-center gap-3"><StatusIcon active={job.status !== 'completed' && job.status !== 'unknown'} tone={tone} /><span className="truncate text-sm font-medium text-neutral-100">{job.name}</span></span>
+          <span className="ml-auto flex shrink-0 items-center gap-2"><span className="hidden text-xs text-neutral-500 sm:block">{formatDuration(job.durationMs)}</span><StatusChip tone={tone}>{workflowStatusLabel(job.status, job.conclusion)}</StatusChip><Accordion.Indicator className="text-neutral-500" /></span>
+        </Accordion.Trigger></Accordion.Heading>
+        <Accordion.Panel><Accordion.Body className="pb-3 pl-7">
+          {(job.startedAt || job.completedAt) ? <Text className="mb-2 block text-xs text-neutral-600">
+            {[job.startedAt && `Started ${new Date(job.startedAt).toLocaleString()}`, job.completedAt && `Completed ${new Date(job.completedAt).toLocaleString()}`].filter(Boolean).join(' · ')}
+          </Text> : null}
+          {job.steps.length ? <div className="divide-y divide-neutral-800/50 border-l border-neutral-800/70">
+            {job.steps.map((step) => {
+              const stepTone = workflowStatusTone(step.status, step.conclusion);
+              return <div key={`${job.id}-${step.number}`} title={[step.startedAt && `Started ${new Date(step.startedAt).toLocaleString()}`, step.completedAt && `Completed ${new Date(step.completedAt).toLocaleString()}`].filter(Boolean).join(' · ')} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 py-2 pl-3 pr-1">
+                <StatusIcon active={step.status !== 'completed' && step.status !== 'unknown'} tone={stepTone} />
+                <Text className="truncate text-xs text-neutral-300">{step.number}. {step.name}</Text>
+                <span className="flex items-center gap-2"><span className="hidden text-xs text-neutral-600 lg:block">{step.startedAt ? new Date(step.startedAt).toLocaleTimeString() : ''}{step.completedAt ? `–${new Date(step.completedAt).toLocaleTimeString()}` : ''}</span><span className="hidden text-xs text-neutral-600 sm:block">{formatDuration(step.durationMs)}</span><StatusChip tone={stepTone}>{workflowStatusLabel(step.status, step.conclusion)}</StatusChip></span>
+              </div>;
+            })}
+          </div> : <Text className="text-xs text-neutral-500">No step details were returned for this job.</Text>}
+        </Accordion.Body></Accordion.Panel>
+      </Accordion.Item>;
+    })}
+  </Accordion>;
+}
 
-      {!isInitialLoading ? (
-        <section className="grid gap-2">
-          <div className="flex items-center gap-2">
-            <Radio className="size-4 text-neutral-400" />
-            <Text className="text-xs font-semibold uppercase tracking-[0.16em] text-neutral-500">
-              Environments
-            </Text>
-          </div>
-          {platform?.apiReachable ? (
-            environmentSlots.map((slot) =>
-              slot.deployment ? (
-                <DeploymentRow
-                  key={`environment-${slot.deployment.id || `${slot.deployment.appSlug}-${slot.environment}`}`}
-                  deployment={slot.deployment}
-                  isLive
-                  pipelineRun={
-                    slot.deployment.sourceRef ? latestRunByBranch.get(slot.deployment.sourceRef) : undefined
-                  }
-                  repositoryUrl={repository?.url}
-                />
-              ) : expectedDeploymentEnvironments.includes(slot.environment as ExpectedDeploymentEnvironment) ? (
-                <EnvironmentSlotRow
-                  key={`environment-missing-${slot.environment}`}
-                  environment={slot.environment as ExpectedDeploymentEnvironment}
-                  projectName={projectName}
-                  repositoryUrl={repository?.url}
-                />
-              ) : null
-            )
-          ) : (
-            <Surface variant="tertiary" className="rounded-lg border border-neutral-800 bg-black/20 px-3 py-2">
-              <Text className="text-sm text-neutral-400">
-                Connect the private VPS platform to see deployment environments for this project.
-              </Text>
-            </Surface>
-          )}
-        </section>
-      ) : null}
+function DetailError({ children, onBack, onRetry }: { children: React.ReactNode; onBack(): void; onRetry(): void }) {
+  return <div className="grid gap-4"><Button className="w-fit" size="sm" variant="ghost" onPress={onBack}><ArrowLeft className="size-4" />Deployments</Button><InlineNotice tone="warning">{children}</InlineNotice><Button className="w-fit" size="sm" variant="outline" onPress={onRetry}>Try again</Button></div>;
+}
 
-      {!isInitialLoading && historyDeployments.length > 0 ? (
-        <section className="grid gap-2">
-          <div className="flex items-center gap-2">
-            <History className="size-4 text-neutral-400" />
-            <Text className="text-xs font-semibold uppercase tracking-[0.16em] text-neutral-500">
-              Previous deployments
-            </Text>
-          </div>
-          {historyDeployments.map((deployment) => (
-            <DeploymentRow
-              key={deployment.id || `${deployment.appSlug}-${deployment.environment}-${deployment.createdAt}`}
-              deployment={deployment}
-              pipelineRun={
-                deployment.sourceRef ? latestRunByBranch.get(deployment.sourceRef) : undefined
-              }
-              repositoryUrl={repository?.url}
-            />
-          ))}
-        </section>
-      ) : null}
+function PageState({ active = false, children, title }: { active?: boolean; children: React.ReactNode; title: string }) {
+  return <Surface variant="tertiary" className="rounded-lg border border-neutral-800 bg-neutral-950/45 p-4"><div className="flex items-center gap-3"><StatusIcon active={active} tone="muted" /><div><Text className="block text-sm font-semibold text-neutral-200">{title}</Text><Text className="mt-1 block text-sm text-neutral-500">{children}</Text></div></div></Surface>;
+}
 
-      {!isInitialLoading ? (
-        <section className="grid gap-2">
-          <div className="flex items-center gap-2">
-            <Workflow className="size-4 text-neutral-400" />
-            <Text className="text-xs font-semibold uppercase tracking-[0.16em] text-neutral-500">
-              GitHub pipeline
-            </Text>
-          </div>
-          {!repositoryFullName ? (
-            <Surface variant="tertiary" className="rounded-lg border border-neutral-800 bg-black/20 px-3 py-2">
-              <Text className="text-sm text-neutral-400">
-                No GitHub repository is linked to this project, so pipeline status is unavailable.
-              </Text>
-            </Surface>
-          ) : pipeline && pipeline.status !== 'connected' ? (
-            <Surface variant="tertiary" className="rounded-lg border border-neutral-800 bg-black/20 px-3 py-2">
-              <Text className="text-sm text-neutral-400">
-                {pipeline.message ?? 'Connect GitHub to see workflow runs.'}
-              </Text>
-            </Surface>
-          ) : pipelineRuns.length > 0 ? (
-            <div className="grid gap-1.5">
-              {pipelineRuns.map((run) => (
-                <a
-                  key={run.id}
-                  href={run.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-neutral-800 bg-black/20 px-3 py-2 transition hover:border-neutral-700"
-                >
-                  <RunStatusIcon run={run} />
-                  <div className="min-w-0">
-                    <Text className="block truncate text-sm text-neutral-100 group-hover:text-white">
-                      {run.displayTitle || run.name || `Run #${run.runNumber ?? run.id}`}
-                    </Text>
-                    <Text className="block truncate text-xs text-neutral-500">
-                      {[run.name, run.branch, run.event].filter(Boolean).join(' · ')}
-                    </Text>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Text className="text-xs text-neutral-500" title={formatDate(run.updatedAt)}>
-                      {[formatRunDuration(run), formatRelativeTime(run.updatedAt)]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </Text>
-                    <ToneChip label={runLabel(run)} tone={runTone(run)} />
-                  </div>
-                </a>
-              ))}
-            </div>
-          ) : (
-            <Surface variant="tertiary" className="rounded-lg border border-neutral-800 bg-black/20 px-3 py-2">
-              <Text className="text-sm text-neutral-400">No workflow runs found for this repository.</Text>
-            </Surface>
-          )}
-        </section>
-      ) : null}
+function InlineNotice({ children, tone }: { children: React.ReactNode; tone: 'danger' | 'muted' | 'warning' }) {
+  const styles = tone === 'danger' ? 'border-rose-400/25 text-rose-200' : tone === 'warning' ? 'border-amber-400/25 text-amber-200' : 'border-neutral-800 text-neutral-400';
+  return <div className={`border-y px-1 py-3 text-sm ${styles}`}>{children}</div>;
+}
 
-      {!isInitialLoading ? (
-        <section className="grid gap-2">
-          <div className="flex items-center gap-2">
-            <ServerCog className="size-4 text-neutral-400" />
-            <Text className="text-xs font-semibold uppercase tracking-[0.16em] text-neutral-500">
-              VPS runtime
-            </Text>
-            {runtime.host ? (
-              <Text className="text-xs text-neutral-500">host {runtime.host}</Text>
-            ) : null}
-            <div className="ml-auto">
-              <Button
-                size="sm"
-                variant="ghost"
-                isDisabled={runtime.state === 'running' || !targetPath}
-                onPress={() => void checkRuntime()}
-              >
-                {runtime.state === 'running' ? (
-                  <RefreshCw className="size-4 animate-spin" />
-                ) : (
-                  <ServerCog className="size-4" />
-                )}
-                {runtime.state === 'running' ? 'Checking VPS...' : 'Check runtime'}
-              </Button>
-            </div>
-          </div>
-
-          {runtime.state === 'idle' ? (
-            <Surface variant="tertiary" className="rounded-lg border border-neutral-800 bg-black/20 px-3 py-2">
-              <Text className="text-sm text-neutral-400">
-                Run the project CLI deploy status to verify SSH, Docker, Traefik and the running
-                containers for each environment. Needs the project CLI on this machine.
-              </Text>
-            </Surface>
-          ) : null}
-
-          {runtime.state === 'unavailable' || runtime.state === 'error' ? (
-            <Surface
-              variant="tertiary"
-              className={
-                runtime.state === 'unavailable'
-                  ? 'rounded-lg border border-neutral-800 bg-black/20 px-3 py-2'
-                  : 'rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2'
-              }
-            >
-              <Text
-                className={
-                  runtime.state === 'unavailable' ? 'text-sm text-neutral-400' : 'text-sm text-red-200'
-                }
-              >
-                {runtime.message}
-              </Text>
-            </Surface>
-          ) : null}
-
-          {runtime.state === 'done'
-            ? runtime.environments.map((environment) => (
-                <Surface
-                  key={environment.report.environment}
-                  variant="tertiary"
-                  className="grid gap-2 rounded-lg border border-neutral-800 bg-black/20 px-3 py-2"
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Chip
-                      size="sm"
-                      variant={environment.report.environment === 'prod' ? 'primary' : 'secondary'}
-                    >
-                      {environment.report.environment}
-                    </Chip>
-                    {environment.checks.map((check) => (
-                      <ToneChip
-                        key={check.label}
-                        label={check.label}
-                        tone={check.ok ? 'ok' : 'failed'}
-                      />
-                    ))}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                    <ExternalLinkRow label="web" url={environment.report.webUrl} />
-                    <ExternalLinkRow label="api" url={environment.report.apiUrl} />
-                  </div>
-                  {environment.serviceLines.length > 0 ? (
-                    <pre className="max-h-48 overflow-auto rounded-md border border-neutral-900 bg-neutral-950/80 p-2 font-mono text-xs leading-relaxed text-neutral-400">
-                      {environment.serviceLines.join('\n')}
-                    </pre>
-                  ) : null}
-                </Surface>
-              ))
-            : null}
-        </section>
-      ) : null}
-    </div>
-  );
+function SectionTitle({ icon, title }: { icon: React.ReactNode; title: string }) {
+  return <div className="flex items-center gap-2 text-neutral-500">{icon}<Text className="text-[11px] font-semibold uppercase tracking-[0.14em]">{title}</Text></div>;
 }

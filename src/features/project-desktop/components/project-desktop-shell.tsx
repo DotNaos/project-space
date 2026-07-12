@@ -339,6 +339,8 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           onSelectWorkspace={desktop.selectWorkspace}
           onSelectWorktree={desktop.selectWorktree}
           onOpenProjectIssue={desktop.openProjectIssue}
+          onOpenProjectWorkflowRun={desktop.openProjectWorkflowRun}
+          onCloseProjectWorkflowRun={desktop.closeProjectWorkflowRun}
           project={desktop.project}
           projects={desktop.projects}
           projectTab={desktop.projectTab}
@@ -347,6 +349,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           selectedAppLabel={desktop.selectedLauncherAppLabel}
           selectedExplorerTarget={desktop.selectedExplorerTarget}
           selectedIssueNumber={desktop.selectedIssueNumber}
+          selectedWorkflowRunId={desktop.selectedWorkflowRunId}
           selectedMachine={desktop.selectedMachine}
           selectedMachineId={desktop.selectedMachineId}
           selectedTargetPath={desktop.selectedTargetPath}

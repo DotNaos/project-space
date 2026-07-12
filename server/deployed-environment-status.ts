@@ -94,7 +94,6 @@ async function reconcileCurrentEnvironment(
       ...environment,
       deployedSha: buildCommit,
       githubUrl: `https://github.com/${repositoryFullName}/commit/${buildCommit}`,
-      verification: 'healthy' as const,
       verifiedAt: checkedAt
     };
   } catch {
