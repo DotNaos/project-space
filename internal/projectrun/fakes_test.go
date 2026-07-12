@@ -10,18 +10,20 @@ import (
 )
 
 type fakeProcesses struct {
-	mutex      sync.Mutex
-	nextPID    int
-	started    []Command
-	stopped    []ProcessRef
-	alive      map[int]string
-	listeners  map[int]int
-	owner      bool
-	startErr   error
-	foreground int
-	runErr     error
-	tcpChecks  []int
-	tcpOpen    *bool
+	mutex             sync.Mutex
+	nextPID           int
+	started           []Command
+	stopped           []ProcessRef
+	alive             map[int]string
+	listeners         map[int]int
+	owner             bool
+	startErr          error
+	foreground        int
+	runErr            error
+	foregroundWait    bool
+	foregroundStarted chan struct{}
+	tcpChecks         []int
+	tcpOpen           *bool
 }
 
 func newFakeProcesses() *fakeProcesses {
@@ -30,14 +32,38 @@ func newFakeProcesses() *fakeProcesses {
 	}
 }
 
-func (processes *fakeProcesses) RunForeground(_ context.Context, command Command, streams Streams) (int, error) {
+func (processes *fakeProcesses) RunForeground(
+	ctx context.Context,
+	command Command,
+	streams Streams,
+	commit ProcessCommit,
+) (int, error) {
 	processes.mutex.Lock()
 	processes.started = append(processes.started, command)
+	processes.nextPID++
+	process := ProcessRef{PID: processes.nextPID, Identity: fmt.Sprintf("identity-%d", processes.nextPID)}
+	processes.alive[process.PID] = process.Identity
 	exitCode, err := processes.foreground, processes.runErr
+	wait, started := processes.foregroundWait, processes.foregroundStarted
 	processes.mutex.Unlock()
+	if commit != nil {
+		if commitErr := commit(process); commitErr != nil {
+			return -1, commitErr
+		}
+	}
+	if started != nil {
+		close(started)
+	}
+	if wait {
+		<-ctx.Done()
+		exitCode, err = -1, ctx.Err()
+	}
 	if streams.Stdout != nil {
 		_, _ = io.WriteString(streams.Stdout, "child output\n")
 	}
+	processes.mutex.Lock()
+	delete(processes.alive, process.PID)
+	processes.mutex.Unlock()
 	return exitCode, err
 }
 

@@ -26,7 +26,7 @@ func (manager *Manager) Run(
 	command := commandFor(script, root, "127.0.0.1", port, nil)
 	command.InheritEnv = true
 	startedAt := manager.timestamp()
-	exitCode, runErr := manager.processes.RunForeground(ctx, command, streams)
+	exitCode, runErr := manager.processes.RunForeground(ctx, command, streams, nil)
 	finishedAt := manager.timestamp()
 	result := RunResult{
 		SchemaVersion: SchemaVersion,
@@ -94,7 +94,7 @@ func (manager *Manager) runErrorResult(
 }
 
 func ValidateScriptName(name string) error {
-	if !scriptNamePattern.MatchString(name) {
+	if !declarationPattern.MatchString(name) {
 		return fmt.Errorf("script name %q is invalid", name)
 	}
 	return nil

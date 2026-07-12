@@ -41,6 +41,7 @@ func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 		"doctor",
 		"init",
 		"module",
+		"prepare",
 		"run",
 		"serve",
 		"status",

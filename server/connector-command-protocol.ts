@@ -23,10 +23,20 @@ import type {
 } from '../src/shared/project-space-api';
 import {
   isConnectorDevServerResult,
+  isConnectorDevServerListResult,
+  isConnectorDevServerListWireRequest,
   isConnectorDevServerWireRequest,
   type ConnectorDevServerResult,
+  type ConnectorDevServerListResult,
+  type ConnectorDevServerListWireRequest,
   type ConnectorDevServerWireRequest
 } from './connector-dev-server-contract';
+import {
+  isConnectorWorktreeActionResult,
+  isConnectorWorktreeActionWireRequest,
+  type ConnectorWorktreeActionResult,
+  type ConnectorWorktreeActionWireRequest
+} from './connector-worktree-action-contract';
 
 export type ConnectorHubMessage =
   | {
@@ -64,6 +74,11 @@ export type ConnectorHubMessage =
     }
   | {
       id: string;
+      payload: ConnectorDevServerListResult;
+      type: 'dev-server.list.result';
+    }
+  | {
+      id: string;
       payload: ConnectorDevServerResult;
       type: 'dev-server.start.result';
     }
@@ -71,6 +86,11 @@ export type ConnectorHubMessage =
       id: string;
       payload: ConnectorDevServerResult;
       type: 'dev-server.stop.result';
+    }
+  | {
+      id: string;
+      payload: ConnectorWorktreeActionResult;
+      type: 'worktree.action.result';
     }
   | {
       id: string;
@@ -112,17 +132,63 @@ export type ConnectorMachineMessage =
   | { id: string; payload: CodexModelCatalogueRequest; type: 'codex.models' }
   | { id: string; payload: CodexChatRequest; type: 'codex.chat' }
   | { id: string; payload: ProjectCliCommandRequest; type: 'project-cli.run' }
-  | { id: string; payload: ConnectorDevServerWireRequest; type: 'dev-server.inspect' }
-  | { id: string; payload: ConnectorDevServerWireRequest; type: 'dev-server.start' }
-  | { id: string; payload: ConnectorDevServerWireRequest; type: 'dev-server.stop' }
+  | {
+      id: string;
+      payload: ConnectorDevServerWireRequest;
+      type: 'dev-server.inspect';
+    }
+  | {
+      id: string;
+      payload: ConnectorDevServerListWireRequest;
+      type: 'dev-server.list';
+    }
+  | {
+      id: string;
+      payload: ConnectorDevServerWireRequest;
+      type: 'dev-server.start';
+    }
+  | {
+      id: string;
+      payload: ConnectorDevServerWireRequest;
+      type: 'dev-server.stop';
+    }
+  | {
+      id: string;
+      payload: ConnectorWorktreeActionWireRequest;
+      type: 'worktree.action';
+    }
   | { id: string; payload: MachineTerminalCommandRequest; type: 'terminal.run' }
-  | { id: string; payload: MachineProjectWorktreesRequest; type: 'worktrees.list' }
+  | {
+      id: string;
+      payload: MachineProjectWorktreesRequest;
+      type: 'worktrees.list';
+    }
   | { id: string; payload: MachineFileSystemRequest; type: 'filesystem.root' }
-  | { id: string; payload: MachineFileSystemDirectoryRequest; type: 'filesystem.directory' }
-  | { id: string; payload: MachineFileSystemFileRequest; type: 'filesystem.file' }
-  | { id: string; payload: MachineDirectoryCreateRequest; type: 'filesystem.folder.create' }
-  | { id: string; payload: MachineDirectoryRenameRequest; type: 'filesystem.folder.rename' }
-  | { id: string; payload: MachineDirectoryDeleteRequest; type: 'filesystem.folder.delete' };
+  | {
+      id: string;
+      payload: MachineFileSystemDirectoryRequest;
+      type: 'filesystem.directory';
+    }
+  | {
+      id: string;
+      payload: MachineFileSystemFileRequest;
+      type: 'filesystem.file';
+    }
+  | {
+      id: string;
+      payload: MachineDirectoryCreateRequest;
+      type: 'filesystem.folder.create';
+    }
+  | {
+      id: string;
+      payload: MachineDirectoryRenameRequest;
+      type: 'filesystem.folder.rename';
+    }
+  | {
+      id: string;
+      payload: MachineDirectoryDeleteRequest;
+      type: 'filesystem.folder.delete';
+    };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -273,7 +339,9 @@ function hasStructureViolation(value: unknown) {
   );
 }
 
-export function isConnectorProjectRegistryPayload(value: unknown): value is ConnectorProjectRegistryResult {
+export function isConnectorProjectRegistryPayload(
+  value: unknown
+): value is ConnectorProjectRegistryResult {
   if (!isRecord(value) || !isRecord(value.connector) || !isRecord(value.discovery)) {
     return false;
   }
@@ -357,11 +425,7 @@ function hasWorktree(value: unknown) {
 }
 
 function hasFileResult(value: unknown) {
-  if (
-    !hasStatus(value) ||
-    typeof value.path !== 'string' ||
-    typeof value.name !== 'string'
-  ) {
+  if (!hasStatus(value) || typeof value.path !== 'string' || typeof value.name !== 'string') {
     return false;
   }
   if (value.status === 'success' && typeof value.content !== 'string') {
@@ -401,7 +465,9 @@ export function isConnectorHubMessage(value: unknown): value is ConnectorHubMess
     return (
       hasCommandId(value) &&
       isRecord(value.payload) &&
-      (value.payload.type === 'delta' || value.payload.type === 'done' || value.payload.type === 'error')
+      (value.payload.type === 'delta' ||
+        value.payload.type === 'done' ||
+        value.payload.type === 'error')
     );
   }
   if (value.type === 'codex.models.result') {
@@ -421,6 +487,12 @@ export function isConnectorHubMessage(value: unknown): value is ConnectorHubMess
     value.type === 'dev-server.stop.result'
   ) {
     return hasCommandId(value) && isConnectorDevServerResult(value.payload);
+  }
+  if (value.type === 'dev-server.list.result') {
+    return hasCommandId(value) && isConnectorDevServerListResult(value.payload);
+  }
+  if (value.type === 'worktree.action.result') {
+    return hasCommandId(value) && isConnectorWorktreeActionResult(value.payload);
   }
   if (value.type === 'terminal.result') {
     return hasCommandId(value) && hasTerminalResult(value.payload);
@@ -453,9 +525,7 @@ export function isConnectorHubMessage(value: unknown): value is ConnectorHubMess
     return hasCommandId(value) && hasFolderMutationResult(value.payload);
   }
   return (
-    value.type === 'filesystem.file.result' &&
-    hasCommandId(value) &&
-    hasFileResult(value.payload)
+    value.type === 'filesystem.file.result' && hasCommandId(value) && hasFileResult(value.payload)
   );
 }
 
@@ -486,6 +556,9 @@ export function isConnectorMachineMessage(value: unknown): value is ConnectorMac
   if (value.type === 'project-cli.run') {
     return true;
   }
+  if (value.type === 'worktree.action') {
+    return isConnectorWorktreeActionWireRequest(value.payload);
+  }
   if (
     value.type === 'dev-server.inspect' ||
     value.type === 'dev-server.start' ||
@@ -493,8 +566,12 @@ export function isConnectorMachineMessage(value: unknown): value is ConnectorMac
   ) {
     const operation = value.type.slice('dev-server.'.length);
     return (
-      isConnectorDevServerWireRequest(value.payload) &&
-      value.payload.grant.operation === operation
+      isConnectorDevServerWireRequest(value.payload) && value.payload.grant.operation === operation
+    );
+  }
+  if (value.type === 'dev-server.list') {
+    return (
+      isConnectorDevServerListWireRequest(value.payload) && value.payload.grant.operation === 'list'
     );
   }
   if (value.type === 'terminal.run') {
@@ -502,8 +579,7 @@ export function isConnectorMachineMessage(value: unknown): value is ConnectorMac
   }
   if (value.type === 'worktrees.list') {
     return (
-      typeof value.payload.machineId === 'string' &&
-      typeof value.payload.projectPath === 'string'
+      typeof value.payload.machineId === 'string' && typeof value.payload.projectPath === 'string'
     );
   }
   if (value.type === 'filesystem.root') {

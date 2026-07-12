@@ -56,6 +56,7 @@ export interface DevServerSession {
   ownerUserId: string;
   projectId: string;
   runTarget: string;
+  serverId: string;
   startedAt?: string;
   state: DevServerSessionState;
   stoppedAt?: string;
@@ -71,6 +72,7 @@ export interface CreateDevServerSessionInput {
   ownerUserId: string;
   projectId: string;
   runTarget?: string;
+  serverId: string;
   state?: DevServerSessionState;
   tailscalePort?: number;
   tailscaleUrl?: string;
@@ -86,6 +88,7 @@ export interface DevServerSessionListFilter {
   activeOnly?: boolean;
   machineId?: string;
   projectId?: string;
+  serverId?: string;
   worktreeId?: string;
 }
 

@@ -2,6 +2,7 @@ package projectrun
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,7 +33,7 @@ func TestLoadScriptRejectsShellStringAndUnknownFields(t *testing.T) {
 	}{
 		{"shell string", "version: 1\nscripts:\n  dev:\n    command: bun run dev\n", "cannot unmarshal"},
 		{"unknown field", "version: 1\nscripts:\n  dev:\n    command: [bun, run, dev]\n    environment: {TOKEN: secret}\n", "field environment not found"},
-		{"wrong version", "version: 2\nscripts:\n  dev:\n    command: [bun, run, dev]\n", "version must be 1"},
+		{"wrong version shape", "version: 2\nscripts:\n  dev:\n    command: [bun, run, dev]\n", "version 2 uses servers"},
 		{"extra document", "version: 1\nscripts:\n  dev:\n    command: [bun, run, dev]\n---\nversion: 1\n", "multiple YAML documents"},
 	}
 	for _, test := range tests {
@@ -44,6 +45,59 @@ func TestLoadScriptRejectsShellStringAndUnknownFields(t *testing.T) {
 				t.Fatalf("error = %v, want %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestLoadDeclarationPreservesTrustedSetupOrder(t *testing.T) {
+	project := t.TempDir()
+	writeScriptsBody(t, project, "version: 2\nsetup:\n  - id: tools\n    command: [bun, install, --frozen-lockfile]\n  - id: generate\n    command: [bun, run, generate]\nservers:\n  web:\n    label: Web app\n    command: [bun, run, dev]\n")
+	declaration, err := LoadDeclaration(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(declaration.SetupNames(), ","); got != "tools,generate" {
+		t.Fatalf("setup order = %q", got)
+	}
+	if declaration.Digest == "" || declaration.Server["web"].Label != "Web app" {
+		t.Fatalf("declaration = %#v", declaration)
+	}
+}
+
+func TestLoadDeclarationBoundsStepAndServerCountsAndIdentifiers(t *testing.T) {
+	project := t.TempDir()
+	setup := make([]string, 0, maximumSetupSteps+1)
+	for index := 0; index <= maximumSetupSteps; index++ {
+		setup = append(setup, fmt.Sprintf("  - id: step.%d\n    command: [true]", index))
+	}
+	writeScriptsBody(t, project, "version: 2\nsetup:\n"+strings.Join(setup, "\n")+"\nservers:\n  dev:\n    command: [true]\n")
+	if _, err := LoadDeclaration(project); err == nil || !strings.Contains(err.Error(), "at most 64 steps") {
+		t.Fatalf("setup bound error = %v", err)
+	}
+
+	servers := make([]string, 0, maximumServers+1)
+	for index := 0; index <= maximumServers; index++ {
+		servers = append(servers, fmt.Sprintf("  server.%d:\n    command: [true]", index))
+	}
+	writeScriptsBody(t, project, "version: 2\nsetup:\n  - id: dependencies\n    command: [true]\nservers:\n"+strings.Join(servers, "\n")+"\n")
+	if _, err := LoadDeclaration(project); err == nil || !strings.Contains(err.Error(), "at most 64 entries") {
+		t.Fatalf("server bound error = %v", err)
+	}
+
+	writeScriptsBody(t, project, "version: 2\nsetup:\n  - id: "+strings.Repeat("a", 65)+"\n    command: [true]\nservers:\n  dev:\n    command: [true]\n")
+	if _, err := LoadDeclaration(project); err == nil || !strings.Contains(err.Error(), "setup step name") {
+		t.Fatalf("identifier bound error = %v", err)
+	}
+}
+
+func TestLoadDeclarationRejectsDuplicateSetupIDsAndShellCommands(t *testing.T) {
+	project := t.TempDir()
+	writeScriptsBody(t, project, "version: 2\nsetup:\n  - id: install\n    command: [bun, install]\n  - id: install\n    command: [bun, run, generate]\nservers:\n  dev:\n    command: [bun, run, dev]\n")
+	if _, err := LoadDeclaration(project); err == nil || !strings.Contains(err.Error(), "duplicated") {
+		t.Fatalf("duplicate error = %v", err)
+	}
+	writeScriptsBody(t, project, "version: 2\nsetup:\n  - id: install\n    command: bun install\nservers:\n  dev:\n    command: [bun, run, dev]\n")
+	if _, err := LoadDeclaration(project); err == nil || !strings.Contains(err.Error(), "cannot unmarshal") {
+		t.Fatalf("shell command error = %v", err)
 	}
 }
 

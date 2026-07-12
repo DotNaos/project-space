@@ -1,18 +1,28 @@
 import { resolve } from 'node:path';
 
-import type { DevServerRuntimeResult } from '../src/shared/project-space-api';
+import type {
+  DevServerRuntimeListResult,
+  DevServerRuntimeResult
+} from '../src/shared/project-space-api';
 
 import { runProjectBinary } from './local-project-cli-client';
+import { resolveLocalProjectPath } from './local-project-identity';
+import { resolveLocalProjectWorktree } from './local-project-worktrees';
 import {
   connectorDevServerErrorResult,
+  connectorDevServerListErrorResult,
+  isConnectorDevServerListResult,
   isConnectorDevServerResult,
   type ConnectorDevServerAdapter,
   type ConnectorDevServerExecutionRequest,
+  type ConnectorDevServerListExecutionRequest,
+  type ConnectorDevServerListResult,
   type ConnectorDevServerOperation,
   type ConnectorDevServerResult
 } from './connector-dev-server-contract';
 
 type ProjectServeJson = DevServerRuntimeResult;
+type ProjectServeListJson = DevServerRuntimeListResult;
 
 const serveResultKeys = [
   'allowedHosts',
@@ -33,6 +43,16 @@ const serveResultKeys = [
   'tailscaleIPv4'
 ] as const;
 
+const serveListResultKeys = [
+  'capability',
+  'checkedAt',
+  'directory',
+  'lastError',
+  'operation',
+  'schemaVersion',
+  'servers'
+] as const;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -42,7 +62,9 @@ function isNullableString(value: unknown): value is string | null {
 }
 
 function isNullablePort(value: unknown): value is number | null {
-  return value === null || (Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 65_535);
+  return (
+    value === null || (Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 65_535)
+  );
 }
 
 function isProjectServeJson(value: unknown): value is ProjectServeJson {
@@ -81,35 +103,47 @@ function isProjectServeJson(value: unknown): value is ProjectServeJson {
   );
 }
 
+function isProjectServeListJson(value: unknown): value is ProjectServeListJson {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const keys = Object.keys(value).sort();
+  return (
+    keys.length === serveListResultKeys.length &&
+    serveListResultKeys.every((key, index) => key === keys[index]) &&
+    value.schemaVersion === 1 &&
+    value.operation === 'list' &&
+    typeof value.directory === 'string' &&
+    (value.capability === 'configured' || value.capability === 'unavailable') &&
+    Array.isArray(value.servers) &&
+    value.servers.length <= 64 &&
+    value.servers.every(
+      (server) =>
+        isRecord(server) &&
+        (server.capability === 'configured' || server.capability === 'unavailable') &&
+        typeof server.label === 'string' &&
+        typeof server.serverId === 'string'
+    ) &&
+    typeof value.checkedAt === 'string' &&
+    isNullableString(value.lastError)
+  );
+}
+
 function expectedCliOperation(operation: ConnectorDevServerOperation) {
   return operation === 'inspect' ? 'status' : operation;
 }
 
-function commandArgs(request: ConnectorDevServerExecutionRequest) {
+function commandArgs(request: ConnectorDevServerExecutionRequest, worktreePath: string) {
   if (request.operation === 'inspect') {
-    return [
-      'serve',
-      'status',
-      request.worktreePath,
-      '--script',
-      request.runTarget,
-      '--json'
-    ];
+    return ['serve', 'status', worktreePath, '--script', request.runTarget, '--json'];
   }
   if (request.operation === 'stop') {
-    return [
-      'serve',
-      'stop',
-      request.worktreePath,
-      '--script',
-      request.runTarget,
-      '--json'
-    ];
+    return ['serve', 'stop', worktreePath, '--script', request.runTarget, '--json'];
   }
   return [
     'serve',
     request.runTarget,
-    request.worktreePath,
+    worktreePath,
     '--json',
     ...request.allowedHosts.flatMap((host) => ['--allowed-host', host])
   ];
@@ -131,6 +165,7 @@ function mapServeResult(
     machineId: request.machineId,
     projectId: request.projectId,
     runTarget: request.runTarget,
+    serverId: request.serverId,
     state: raw.state,
     worktreeId: request.worktreeId,
     ...(raw.lastError ? { lastError: raw.lastError } : {}),
@@ -147,10 +182,63 @@ function mapServeResult(
   return mapped;
 }
 
-export function createLocalDevServerAdapter(): ConnectorDevServerAdapter {
+export function createLocalDevServerAdapter(
+  options: {
+    resolveProjectPath?: typeof resolveLocalProjectPath;
+    resolveWorktree?: typeof resolveLocalProjectWorktree;
+    runBinary?: typeof runProjectBinary;
+  } = {}
+): ConnectorDevServerAdapter {
+  const projectPathResolver = options.resolveProjectPath ?? resolveLocalProjectPath;
+  const worktreeResolver = options.resolveWorktree ?? resolveLocalProjectWorktree;
+  const runBinary = options.runBinary ?? runProjectBinary;
+
+  async function resolvedWorktreePath(request: {
+    expectedHeadSha: string;
+    machineId: string;
+    projectId: string;
+    worktreeId: string;
+  }) {
+    const projectPath = await projectPathResolver(request.machineId, request.projectId);
+    const worktree = await worktreeResolver(projectPath, request.worktreeId, {
+      expectedHeadSha: request.expectedHeadSha
+    });
+    return worktree.path;
+  }
+
   return {
+    async listDevServers(request: ConnectorDevServerListExecutionRequest) {
+      const worktreePath = await resolvedWorktreePath(request);
+      const result = await runBinary(
+        ['serve', 'list', worktreePath, '--format', 'json'],
+        worktreePath
+      );
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(result.stdout.trim()) as unknown;
+      } catch {
+        return connectorDevServerListErrorResult(request, request.actor.generation);
+      }
+      if (!isProjectServeListJson(parsed) || resolve(parsed.directory) !== resolve(worktreePath)) {
+        return connectorDevServerListErrorResult(request, request.actor.generation);
+      }
+      const mapped: ConnectorDevServerListResult = {
+        capability: parsed.capability,
+        checkedAt: parsed.checkedAt,
+        generation: request.actor.generation,
+        ...(parsed.lastError ? { lastError: parsed.lastError.slice(0, 500) } : {}),
+        machineId: request.machineId,
+        projectId: request.projectId,
+        servers: parsed.servers,
+        worktreeId: request.worktreeId
+      };
+      return isConnectorDevServerListResult(mapped)
+        ? mapped
+        : connectorDevServerListErrorResult(request, request.actor.generation);
+    },
     async runDevServerCommand(request) {
-      const result = await runProjectBinary(commandArgs(request), request.worktreePath);
+      const worktreePath = await resolvedWorktreePath(request);
+      const result = await runBinary(commandArgs(request, worktreePath), worktreePath);
       let parsed: unknown;
       try {
         parsed = JSON.parse(result.stdout.trim()) as unknown;
@@ -173,7 +261,7 @@ export function createLocalDevServerAdapter(): ConnectorDevServerAdapter {
       if (
         parsed.operation !== expectedCliOperation(request.operation) ||
         parsed.script !== request.runTarget ||
-        resolve(parsed.directory) !== resolve(request.worktreePath)
+        resolve(parsed.directory) !== resolve(worktreePath)
       ) {
         return connectorDevServerErrorResult(
           request,

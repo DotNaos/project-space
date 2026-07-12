@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -19,7 +20,12 @@ type OSProcessRunner struct {
 	SupervisorExecutable string
 }
 
-func (OSProcessRunner) RunForeground(ctx context.Context, command Command, streams Streams) (int, error) {
+func (OSProcessRunner) RunForeground(
+	ctx context.Context,
+	command Command,
+	streams Streams,
+	commit ProcessCommit,
+) (int, error) {
 	cmd, err := prepareCommand(command)
 	if err != nil {
 		return -1, err
@@ -35,6 +41,13 @@ func (OSProcessRunner) RunForeground(ctx context.Context, command Command, strea
 		_ = syscall.Kill(-process.PID, syscall.SIGKILL)
 		_ = cmd.Wait()
 		return -1, fmt.Errorf("capture foreground process identity: %w", err)
+	}
+	if commit != nil {
+		if err := commit(process); err != nil {
+			_ = syscall.Kill(-process.PID, syscall.SIGKILL)
+			_ = cmd.Wait()
+			return -1, fmt.Errorf("commit foreground process identity: %w", err)
+		}
 	}
 	waited := make(chan error, 1)
 	go func() { waited <- cmd.Wait() }()
@@ -311,11 +324,14 @@ func cutEnvironment(entry string) (string, string, bool) {
 }
 
 func readProcessIdentity(pid int) (string, error) {
+	if runtime.GOOS == "linux" {
+		return readLinuxProcessIdentity(pid)
+	}
 	executable, err := exec.LookPath("ps")
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.Command(executable, "-ww", "-p", strconv.Itoa(pid), "-o", "lstart=", "-o", "command=")
+	cmd := exec.Command(executable, "-ww", "-p", strconv.Itoa(pid), "-o", "lstart=", "-o", "comm=")
 	cmd.Env = safeEnvironment(os.Environ())
 	body, err := cmd.Output()
 	if err != nil {
@@ -327,6 +343,41 @@ func readProcessIdentity(pid int) (string, error) {
 	}
 	sum := sha256.Sum256([]byte(identity))
 	return hex.EncodeToString(sum[:]), nil
+}
+
+func readLinuxProcessIdentity(pid int) (string, error) {
+	statPath := fmt.Sprintf("/proc/%d/stat", pid)
+	body, err := os.ReadFile(statPath)
+	if err != nil {
+		return "", fmt.Errorf("read Linux process start time: %w", err)
+	}
+	startTime, err := parseLinuxProcessStartTime(string(body))
+	if err != nil {
+		return "", fmt.Errorf("parse Linux process start time for PID %d: %w", pid, err)
+	}
+	executable, err := os.Stat(fmt.Sprintf("/proc/%d/exe", pid))
+	if err != nil {
+		return "", fmt.Errorf("inspect Linux process executable: %w", err)
+	}
+	metadata, ok := executable.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "", fmt.Errorf("inspect Linux process executable identity")
+	}
+	identity := fmt.Sprintf("linux\x00%d\x00%s\x00%d\x00%d", pid, startTime, metadata.Dev, metadata.Ino)
+	sum := sha256.Sum256([]byte(identity))
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func parseLinuxProcessStartTime(body string) (string, error) {
+	closing := strings.LastIndex(body, ") ")
+	if closing < 0 {
+		return "", fmt.Errorf("missing process name terminator")
+	}
+	fields := strings.Fields(body[closing+2:])
+	if len(fields) <= 19 || fields[19] == "" {
+		return "", fmt.Errorf("missing start-time field")
+	}
+	return fields[19], nil
 }
 
 func stopProcessGroup(process ProcessRef, timeout time.Duration) error {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DotNaos/project-space/internal/worktreecheckout"
 	"github.com/DotNaos/project-space/internal/worktreeownership"
 )
 
@@ -21,6 +23,30 @@ func TestWorktreeCommandExposesPrepareAndCheck(t *testing.T) {
 	}
 	if _, _, err := command.Find([]string{"check"}); err != nil {
 		t.Fatalf("check command missing: %v", err)
+	}
+	if _, _, err := command.Find([]string{"materialize"}); err != nil {
+		t.Fatalf("materialize command missing: %v", err)
+	}
+}
+
+func TestWorktreeMaterializeUsesOnlyValidatedIdentityFlags(t *testing.T) {
+	t.Setenv("HOME", "/home/tester")
+	var received worktreecheckout.Request
+	command := newWorktreeMaterializeCommandWith(func(_ context.Context, request worktreecheckout.Request) (worktreecheckout.Result, error) {
+		received = request
+		return worktreecheckout.Result{Branch: request.Branch, Commit: request.Commit, Path: "/home/tester/projects/.worktrees/project-space/feature/remote", Repository: request.Repository, Status: "created"}, nil
+	})
+	output := &bytes.Buffer{}
+	command.SetOut(output)
+	command.SetArgs([]string{"--repository", "DotNaos/project-space", "--branch", "feature/remote", "--commit", strings.Repeat("a", 40), "--format", "json"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if received.Repository != "DotNaos/project-space" || received.Branch != "feature/remote" || received.WorktreesRoot != "/home/tester/projects/.worktrees" {
+		t.Fatalf("unexpected request: %#v", received)
+	}
+	if !strings.Contains(output.String(), `"status":"created"`) {
+		t.Fatalf("unexpected output: %s", output.String())
 	}
 }
 

@@ -323,7 +323,6 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           onCreateProject={desktop.createProject}
           onOpenMachine={desktop.openMachine}
           onOpenMachines={desktop.openMachines}
-          onOpenNewWorktree={desktop.openNewWorktreeWorkspace}
           onOpenProjects={desktop.openProjects}
           onOpenRoot={desktop.openRoot}
           onOpenSelectedTarget={desktop.openSelectedTargetInApp}

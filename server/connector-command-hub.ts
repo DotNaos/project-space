@@ -1,12 +1,9 @@
-import { timingSafeEqual } from 'node:crypto';
-import type { Duplex } from 'node:stream';
-import type { IncomingMessage } from 'node:http';
-
-import { WebSocket, WebSocketServer } from 'ws';
-
-import { registerConnectorProjectRegistry } from './connector-hub';
+import { WebSocket } from 'ws';
 import {
   type ConnectorDevServerActor,
+  type ConnectorDevServerAnyTrustedRequest,
+  type ConnectorDevServerListResult,
+  type ConnectorDevServerListTrustedRequest,
   type ConnectorDevServerOperation,
   type ConnectorDevServerResult,
   type ConnectorDevServerTrustedRequest
@@ -18,20 +15,34 @@ import {
   registerLocalConnectorDevServerExecutor,
   type ConnectorDevServerRequestOptions
 } from './connector-dev-server-routing';
+import type {
+  ConnectorWorktreeActionActor,
+  ConnectorWorktreeActionOperation,
+  ConnectorWorktreeActionResult,
+  ConnectorWorktreeActionTrustedRequest
+} from './connector-worktree-action-contract';
 import {
-  isConnectorHubMessage,
-  parseConnectorMessage,
+  createConnectorWorktreeActionWireRequest,
+  localConnectorWorktreeAction,
+  registerLocalConnectorWorktreeActionExecutor,
+  worktreeActionSigningKey,
+  type WorktreeActionRequestOptions
+} from './connector-worktree-action-routing';
+import {
   type ConnectorHubMessage,
   type ConnectorMachineMessage
 } from './connector-command-protocol';
 import {
+  authenticateConnectorCredential,
+  createConnectorCommandUpgradeHandlerCore,
+  type AuthenticateConnectorCredential,
+  type ConnectorCommandUpgradeHandlerOptions
+} from './connector-command-upgrade-handler';
+import {
   connectorHasCapability,
   connectorSocket,
   disconnectConnectorSession,
-  registerConnectorSession,
-  removeConnectorSession,
-  sendConnectorJson,
-  updateConnectorCapabilities
+  sendConnectorJson
 } from './connector-command-session-registry';
 export {
   isConnectorCommandChannelAuthenticated,
@@ -66,20 +77,30 @@ type ConnectorCommandResult =
   | MachineDirectoryMutationResult
   | ProjectWorktreeRecord[]
   | ConnectorDevServerResult
+  | ConnectorDevServerListResult
+  | ConnectorWorktreeActionResult
   | TerminalCommandResult;
 
 interface PendingCommand {
+  worktreeActionTarget?: {
+    generation: number;
+    operation: ConnectorWorktreeActionOperation;
+    projectId: string;
+  };
   devServerTarget?: {
     generation: number;
     projectId: string;
     runTarget: string;
+    serverId: string;
     worktreeId: string;
   };
   kind:
     | 'chat'
     | 'dev-server-inspect'
+    | 'dev-server-list'
     | 'dev-server-start'
     | 'dev-server-stop'
+    | 'worktree-action'
     | 'filesystem-directory'
     | 'filesystem-file'
     | 'filesystem-root'
@@ -96,37 +117,15 @@ interface PendingCommand {
   timeout: ReturnType<typeof setTimeout>;
 }
 
-const connectorSocketPath = '/api/connectors/socket';
 const commandTimeoutMs = 10 * 60_000;
-const defaultCredentialRevalidationIntervalMs = 30_000;
 const pendingCommands = new Map<string, PendingCommand>();
 
 export { registerLocalConnectorDevServerExecutor };
+export { registerLocalConnectorWorktreeActionExecutor };
 export type { ConnectorDevServerRequestOptions };
 
-export type AuthenticateConnectorCredential = (
-  token: string,
-  machineId: string
-) => Promise<boolean>;
-
-interface ConnectorCommandUpgradeHandlerOptions {
-  authenticateConnectorCredential?: AuthenticateConnectorCredential;
-  credentialRevalidationIntervalMs?: number;
-}
-
-export async function authenticateConnectorCredential(
-  actual: string,
-  _machineId: string
-) {
-  const expected = process.env.PROJECT_CONNECTOR_REGISTRATION_TOKEN ?? '';
-  if (!expected || !actual) {
-    return false;
-  }
-
-  const expectedBytes = Buffer.from(expected);
-  const actualBytes = Buffer.from(actual);
-  return expectedBytes.length === actualBytes.length && timingSafeEqual(expectedBytes, actualBytes);
-}
+export { authenticateConnectorCredential };
+export type { AuthenticateConnectorCredential };
 
 function commandId() {
   return globalThis.crypto?.randomUUID?.() ?? `connector-${Date.now()}-${Math.random()}`;
@@ -185,6 +184,7 @@ function createPendingCommand(
   options: {
     devServerTarget?: PendingCommand['devServerTarget'];
     timeoutMs?: number;
+    worktreeActionTarget?: PendingCommand['worktreeActionTarget'];
   } = {}
 ) {
   return new Promise<ConnectorCommandResult | undefined>((resolve, reject) => {
@@ -194,6 +194,7 @@ function createPendingCommand(
 
     pendingCommands.set(id, {
       devServerTarget: options.devServerTarget,
+      worktreeActionTarget: options.worktreeActionTarget,
       kind,
       machineId,
       onChatEvent,
@@ -249,10 +250,56 @@ function handleConnectorResult(machineId: string, message: ConnectorHubMessage) 
       message.payload.machineId !== pending.machineId ||
       message.payload.projectId !== target.projectId ||
       message.payload.worktreeId !== target.worktreeId ||
+      message.payload.serverId !== target.serverId ||
       message.payload.runTarget !== target.runTarget ||
       message.payload.generation !== target.generation
     ) {
-      failPending(message.id, new Error('The connector returned dev-server state for a different target.'));
+      failPending(
+        message.id,
+        new Error('The connector returned dev-server state for a different target.')
+      );
+      return;
+    }
+    finishPending(message.id, message.payload);
+    return;
+  }
+
+  if (message.type === 'dev-server.list.result') {
+    const pending = pendingCommands.get(message.id);
+    const target = pending?.devServerTarget;
+    if (!pending || pending.kind !== 'dev-server-list' || !target) {
+      return;
+    }
+    if (
+      message.payload.machineId !== pending.machineId ||
+      message.payload.projectId !== target.projectId ||
+      message.payload.worktreeId !== target.worktreeId ||
+      message.payload.generation !== target.generation
+    ) {
+      failPending(
+        message.id,
+        new Error('The connector returned dev-server inventory for a different target.')
+      );
+      return;
+    }
+    finishPending(message.id, message.payload);
+    return;
+  }
+
+  if (message.type === 'worktree.action.result') {
+    const pending = pendingCommands.get(message.id);
+    const target = pending?.worktreeActionTarget;
+    if (!pending || pending.kind !== 'worktree-action' || !target) return;
+    if (
+      message.payload.machineId !== pending.machineId ||
+      message.payload.projectId !== target.projectId ||
+      message.payload.operation !== target.operation ||
+      message.payload.generation !== target.generation
+    ) {
+      failPending(
+        message.id,
+        new Error('The connector returned worktree action state for a different target.')
+      );
       return;
     }
     finishPending(message.id, message.payload);
@@ -353,7 +400,7 @@ function devServerMessageType(operation: ConnectorDevServerOperation) {
 
 async function requestConnectorDevServerCommand(
   operation: ConnectorDevServerOperation,
-  request: ConnectorDevServerTrustedRequest,
+  request: ConnectorDevServerAnyTrustedRequest,
   actor: ConnectorDevServerActor,
   options: ConnectorDevServerRequestOptions = {}
 ) {
@@ -368,22 +415,29 @@ async function requestConnectorDevServerCommand(
       options
     );
     const id = commandId();
-    const result = createPendingCommand(id, request.machineId, devServerPendingKind(operation), undefined, {
-      devServerTarget: {
-        generation: actor.generation,
-        projectId: request.projectId,
-        runTarget: request.runTarget,
-        worktreeId: request.worktreeId
-      },
-      timeoutMs: options.timeoutMs
-    });
+    const result = createPendingCommand(
+      id,
+      request.machineId,
+      devServerPendingKind(operation),
+      undefined,
+      {
+        devServerTarget: {
+          generation: actor.generation,
+          projectId: request.projectId,
+          runTarget: 'runTarget' in request ? request.runTarget : 'list',
+          serverId: 'serverId' in request ? request.serverId : 'list',
+          worktreeId: request.worktreeId
+        },
+        timeoutMs: options.timeoutMs
+      }
+    );
     const message: ConnectorMachineMessage = {
       id,
       payload: wireRequest,
       type: devServerMessageType(operation)
     } as ConnectorMachineMessage;
     sendConnectorJson(socket, message);
-    return (await result) as ConnectorDevServerResult;
+    return (await result) as ConnectorDevServerResult | ConnectorDevServerListResult;
   }
 
   const localExecution = executeLocalConnectorDevServerCommand(
@@ -404,7 +458,25 @@ export function requestConnectorDevServerInspect(
   actor: ConnectorDevServerActor,
   options?: ConnectorDevServerRequestOptions
 ) {
-  return requestConnectorDevServerCommand('inspect', request, actor, options);
+  return requestConnectorDevServerCommand(
+    'inspect',
+    request,
+    actor,
+    options
+  ) as Promise<ConnectorDevServerResult>;
+}
+
+export function requestConnectorDevServerList(
+  request: ConnectorDevServerListTrustedRequest,
+  actor: ConnectorDevServerActor,
+  options?: ConnectorDevServerRequestOptions
+) {
+  return requestConnectorDevServerCommand(
+    'list',
+    request,
+    actor,
+    options
+  ) as Promise<ConnectorDevServerListResult>;
 }
 
 export function requestConnectorDevServerStart(
@@ -412,7 +484,12 @@ export function requestConnectorDevServerStart(
   actor: ConnectorDevServerActor,
   options?: ConnectorDevServerRequestOptions
 ) {
-  return requestConnectorDevServerCommand('start', request, actor, options);
+  return requestConnectorDevServerCommand(
+    'start',
+    request,
+    actor,
+    options
+  ) as Promise<ConnectorDevServerResult>;
 }
 
 export function requestConnectorDevServerStop(
@@ -420,7 +497,48 @@ export function requestConnectorDevServerStop(
   actor: ConnectorDevServerActor,
   options?: ConnectorDevServerRequestOptions
 ) {
-  return requestConnectorDevServerCommand('stop', request, actor, options);
+  return requestConnectorDevServerCommand(
+    'stop',
+    request,
+    actor,
+    options
+  ) as Promise<ConnectorDevServerResult>;
+}
+
+export async function requestConnectorWorktreeAction(
+  operation: ConnectorWorktreeActionOperation,
+  request: ConnectorWorktreeActionTrustedRequest,
+  actor: ConnectorWorktreeActionActor,
+  options: WorktreeActionRequestOptions = {}
+) {
+  const openSocket = connectorSocket(request.machineId);
+  if (openSocket?.readyState === WebSocket.OPEN) {
+    const socket = socketForMachine(request.machineId, `worktree.${operation}`);
+    const id = commandId();
+    const result = createPendingCommand(id, request.machineId, 'worktree-action', undefined, {
+      timeoutMs: options.timeoutMs,
+      worktreeActionTarget: {
+        generation: actor.generation,
+        operation,
+        projectId: request.projectId
+      }
+    });
+    sendConnectorJson(socket, {
+      id,
+      payload: createConnectorWorktreeActionWireRequest(
+        operation,
+        request,
+        actor,
+        worktreeActionSigningKey(options),
+        options
+      ),
+      type: 'worktree.action'
+    });
+    return (await result) as ConnectorWorktreeActionResult;
+  }
+  const local = localConnectorWorktreeAction(operation, request, actor, options);
+  if (local) return local;
+  throw unavailableError(request.machineId);
 }
 
 export async function requestConnectorModels(
@@ -430,11 +548,13 @@ export async function requestConnectorModels(
   const id = commandId();
   const result = createPendingCommand(id, request.machineId, 'models');
   sendConnectorJson(socket, { id, payload: request, type: 'codex.models' });
-  return ((await result) as CodexModelCatalogueResult | undefined) ?? {
-    message: 'The connector returned no model catalogue.',
-    models: [],
-    status: 'error'
-  };
+  return (
+    ((await result) as CodexModelCatalogueResult | undefined) ?? {
+      message: 'The connector returned no model catalogue.',
+      models: [],
+      status: 'error'
+    }
+  );
 }
 
 export async function requestConnectorTerminalCommand(
@@ -473,7 +593,11 @@ export async function requestConnectorDirectory(
   const socket = socketForMachine(request.machineId, 'filesystem.directory');
   const id = commandId();
   const result = createPendingCommand(id, request.machineId, 'filesystem-directory');
-  sendConnectorJson(socket, { id, payload: request, type: 'filesystem.directory' });
+  sendConnectorJson(socket, {
+    id,
+    payload: request,
+    type: 'filesystem.directory'
+  });
   return (await result) as MachineFileSystemDirectoryResult;
 }
 
@@ -493,7 +617,11 @@ export async function requestConnectorFolderCreate(
   const socket = socketForMachine(request.machineId, 'filesystem.folder.create');
   const id = commandId();
   const result = createPendingCommand(id, request.machineId, 'folder-create');
-  sendConnectorJson(socket, { id, payload: request, type: 'filesystem.folder.create' });
+  sendConnectorJson(socket, {
+    id,
+    payload: request,
+    type: 'filesystem.folder.create'
+  });
   return (await result) as MachineDirectoryMutationResult;
 }
 
@@ -503,7 +631,11 @@ export async function requestConnectorFolderRename(
   const socket = socketForMachine(request.machineId, 'filesystem.folder.rename');
   const id = commandId();
   const result = createPendingCommand(id, request.machineId, 'folder-rename');
-  sendConnectorJson(socket, { id, payload: request, type: 'filesystem.folder.rename' });
+  sendConnectorJson(socket, {
+    id,
+    payload: request,
+    type: 'filesystem.folder.rename'
+  });
   return (await result) as MachineDirectoryMutationResult;
 }
 
@@ -513,7 +645,11 @@ export async function requestConnectorFolderDelete(
   const socket = socketForMachine(request.machineId, 'filesystem.folder.delete');
   const id = commandId();
   const result = createPendingCommand(id, request.machineId, 'folder-delete');
-  sendConnectorJson(socket, { id, payload: request, type: 'filesystem.folder.delete' });
+  sendConnectorJson(socket, {
+    id,
+    payload: request,
+    type: 'filesystem.folder.delete'
+  });
   return (await result) as MachineDirectoryMutationResult;
 }
 
@@ -531,164 +667,8 @@ export async function streamConnectorCodexChat(
 export function createConnectorCommandUpgradeHandler(
   options: ConnectorCommandUpgradeHandlerOptions = {}
 ) {
-  const authenticate =
-    options.authenticateConnectorCredential ?? authenticateConnectorCredential;
-  const revalidationIntervalMs =
-    options.credentialRevalidationIntervalMs ?? defaultCredentialRevalidationIntervalMs;
-  if (!Number.isSafeInteger(revalidationIntervalMs) || revalidationIntervalMs <= 0) {
-    throw new Error('credentialRevalidationIntervalMs must be a positive integer.');
-  }
-  const webSocketServer = new WebSocketServer({
-    maxPayload: 2 * 1024 * 1024,
-    noServer: true
-  });
-
-  webSocketServer.on('connection', (socket) => {
-    let machineId = '';
-    let registrationToken = '';
-    let registrationPending = false;
-    let credentialRevalidationTimer: ReturnType<typeof setInterval> | undefined;
-    let credentialRevalidation: Promise<boolean> | undefined;
-    const registrationTimeout = setTimeout(() => {
-      if (!machineId) {
-        socket.close(1008, 'Connector registration timed out.');
-      }
-    }, 10_000);
-
-    async function revalidateCredential() {
-      if (!machineId || !registrationToken || socket.readyState !== WebSocket.OPEN) {
-        return false;
-      }
-      if (credentialRevalidation) {
-        return credentialRevalidation;
-      }
-
-      const attempt = authenticate(registrationToken, machineId).catch(() => false);
-      credentialRevalidation = attempt;
-      const authenticated = await attempt;
-      if (credentialRevalidation === attempt) {
-        credentialRevalidation = undefined;
-      }
-      if (!authenticated && socket.readyState === WebSocket.OPEN) {
-        socket.close(1008, 'Connector credential expired or was revoked.');
-      }
-      return authenticated;
-    }
-
-    socket.on('message', async (data) => {
-      const message = parseConnectorMessage(data);
-      if (!isConnectorHubMessage(message)) {
-        return;
-      }
-
-      if (message.type === 'connector.register') {
-        if (machineId || registrationPending) {
-          socket.close(1008, 'Connector already registered.');
-          return;
-        }
-        registrationPending = true;
-        const requestedMachineId = message.payload.connector.machineId;
-        const authenticated = await authenticate(message.token, requestedMachineId).catch(
-          () => false
-        );
-        if (!authenticated) {
-          socket.close(1008, 'Connector registration failed.');
-          return;
-        }
-        if (socket.readyState !== WebSocket.OPEN) {
-          return;
-        }
-
-        try {
-          await registerConnectorProjectRegistry(message.payload);
-        } catch {
-          socket.close(1008, 'Connector registration failed.');
-          return;
-        }
-        machineId = requestedMachineId;
-        registrationToken = message.token;
-        registrationPending = false;
-        const previous = connectorSocket(machineId);
-        if (previous && previous !== socket) {
-          failCommandsForMachine(machineId);
-        }
-        registerConnectorSession(
-          machineId,
-          socket,
-          registrationToken,
-          message.payload.connector.capabilities ?? []
-        );
-        if (previous && previous !== socket) {
-          previous.close(1012, 'Connector replaced.');
-        }
-        clearTimeout(registrationTimeout);
-        credentialRevalidationTimer = setInterval(() => {
-          void revalidateCredential();
-        }, revalidationIntervalMs);
-        sendConnectorJson(socket, { type: 'connector.registered' });
-        return;
-      }
-
-      if (!machineId) {
-        socket.close(1008, 'Connector must register first.');
-        return;
-      }
-
-      if (message.type === 'connector.registry') {
-        if (message.payload.connector.machineId !== machineId) {
-          socket.close(1008, 'Connector machine changed.');
-          return;
-        }
-        if (!(await revalidateCredential()) || socket.readyState !== WebSocket.OPEN) {
-          return;
-        }
-        await registerConnectorProjectRegistry(message.payload);
-        updateConnectorCapabilities(machineId, message.payload.connector.capabilities ?? []);
-        return;
-      }
-
-      handleConnectorResult(machineId, message);
-    });
-
-    socket.on('close', () => {
-      clearTimeout(registrationTimeout);
-      if (credentialRevalidationTimer) {
-        clearInterval(credentialRevalidationTimer);
-      }
-      if (machineId && removeConnectorSession(machineId, socket)) {
-        failCommandsForMachine(machineId);
-      }
-    });
-  });
-
-  return {
-    async close() {
-      const clientClosures = [...webSocketServer.clients].map(
-        (socket) =>
-          new Promise<void>((resolveClient) => {
-            if (socket.readyState === WebSocket.CLOSED) {
-              resolveClient();
-              return;
-            }
-            socket.once('close', () => resolveClient());
-            socket.terminate();
-          })
-      );
-      await Promise.all(clientClosures);
-      await new Promise<void>((resolveClose) => {
-        webSocketServer.close(() => resolveClose());
-      });
-    },
-    handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer) {
-      const url = new URL(request.url ?? '/', 'http://127.0.0.1');
-      if (url.pathname !== connectorSocketPath) {
-        return false;
-      }
-
-      webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
-        webSocketServer.emit('connection', webSocket, request);
-      });
-      return true;
-    }
-  };
+  return createConnectorCommandUpgradeHandlerCore(
+    { failCommandsForMachine, handleConnectorResult },
+    options
+  );
 }

@@ -1,6 +1,7 @@
 import { Readable } from 'node:stream';
 
 import type { ConnectorDevServerAdapter } from './connector-dev-server-contract';
+import type { ConnectorWorktreeActionAdapter } from './connector-worktree-action-contract';
 import {
   connectorRuntimeCredentialVersion,
   connectorRuntimeProtocolEnvironment,
@@ -11,7 +12,8 @@ import { createLocalProjectSpaceBackend } from './local-project-space-backend';
 import { startProjectConnectorWebSocket } from './project-connector-websocket';
 import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
 
-type RuntimeBackend = ProjectSpaceBackend & Partial<ConnectorDevServerAdapter>;
+type RuntimeBackend = ProjectSpaceBackend &
+  Partial<ConnectorDevServerAdapter & ConnectorWorktreeActionAdapter>;
 
 interface AuthenticatedProjectConnectorRuntimeOptions {
   backend?: RuntimeBackend;
@@ -35,7 +37,10 @@ function startValidatedProjectConnectorRuntime({
   registryIntervalMs
 }: AuthenticatedProjectConnectorRuntimeOptions) {
   const runtimeBackend =
-    backend ?? createLocalProjectSpaceBackend({ connectorMachineId: credential.machineId });
+    backend ??
+    createLocalProjectSpaceBackend({
+      connectorMachineId: credential.machineId
+    });
   return startProjectConnectorWebSocket({
     backend: runtimeBackend,
     reconnectDelayMs,

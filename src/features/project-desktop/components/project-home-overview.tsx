@@ -7,7 +7,7 @@ import {
   List,
   Plus,
   RefreshCw,
-  SlidersHorizontal,
+  SlidersHorizontal
 } from 'lucide-react';
 import {
   Button,
@@ -129,9 +129,7 @@ export function ProjectHomeOverview({
   const [selectedMachineId, setSelectedMachineId] = useState('');
   const hasRequestedGitHubCatalog = isGitHubRefreshing || Boolean(githubCatalog.checkedAt);
   const isPendingGitHubCatalog =
-    mode === 'projects' &&
-    githubCatalog.status !== 'connected' &&
-    isGitHubRefreshing;
+    mode === 'projects' && githubCatalog.status !== 'connected' && isGitHubRefreshing;
 
   async function refresh(includeConnector: boolean) {
     setIsRefreshing(true);
@@ -324,13 +322,15 @@ export function ProjectHomeOverview({
   }, [githubCatalog, localMachineId, projects]);
 
   const projectsByMachine = useMemo(() => {
-    return projects.filter(isVisibleLocalProject).reduce<Record<string, ProjectSpaceRecord[]>>((groups, project) => {
-      const machineId = getProjectMachineId(project, localMachineId);
-      groups[machineId] = [...(groups[machineId] ?? []), project];
-      return groups;
-    }, {});
+    return projects
+      .filter(isVisibleLocalProject)
+      .reduce<Record<string, ProjectSpaceRecord[]>>((groups, project) => {
+        const machineId = getProjectMachineId(project, localMachineId);
+        groups[machineId] = [...(groups[machineId] ?? []), project];
+        return groups;
+      }, {});
   }, [localMachineId, projects]);
-  const activeMachineProjects = activeMachineId ? projectsByMachine[activeMachineId] ?? [] : [];
+  const activeMachineProjects = activeMachineId ? (projectsByMachine[activeMachineId] ?? []) : [];
   const recentRankByProjectId = useMemo(() => {
     return new Map(recentProjectIds.map((projectId, index) => [projectId, index]));
   }, [recentProjectIds]);
@@ -338,7 +338,9 @@ export function ProjectHomeOverview({
     const localRanks = row.localMatches
       .map((match) => recentRankByProjectId.get(match.project.id))
       .filter((rank): rank is number => rank !== undefined);
-    const githubRank = row.repo ? recentRankByProjectId.get(`github:${row.repo.fullName}`) : undefined;
+    const githubRank = row.repo
+      ? recentRankByProjectId.get(`github:${row.repo.fullName}`)
+      : undefined;
     const ranks = githubRank === undefined ? localRanks : [...localRanks, githubRank];
 
     return ranks.length > 0 ? Math.min(...ranks) : Number.POSITIVE_INFINITY;
@@ -487,8 +489,8 @@ export function ProjectHomeOverview({
           projectSort === 'recent'
             ? 'Recently sorted'
             : projectSort === 'unstaged'
-            ? 'Most changes'
-            : 'All projects'
+              ? 'Most changes'
+              : 'All projects'
       }
     ];
   }, [filteredProjectRows, projectSort]);
@@ -507,7 +509,7 @@ export function ProjectHomeOverview({
     void Promise.all(
       missingProjects.map(async (project) => {
         const worktrees = await projectSpaceClient
-          .loadProjectWorktrees(project.rootPath)
+          .loadProjectWorktrees(project.id, project.machineId)
           .catch(() => []);
 
         return {
@@ -750,7 +752,11 @@ export function ProjectHomeOverview({
         </DropdownTrigger>
         <DropdownPopover
           className="left-0 right-auto"
-          style={{ maxWidth: 'calc(100vw - 2rem)', minWidth: 0, width: '16rem' }}
+          style={{
+            maxWidth: 'calc(100vw - 2rem)',
+            minWidth: 0,
+            width: '16rem'
+          }}
         >
           <div className="border-b border-neutral-900 p-1.5">
             <SearchField value={sourceFilterQuery} onChange={setSourceFilterQuery}>
@@ -862,7 +868,11 @@ export function ProjectHomeOverview({
     return (
       <section className="space-y-2">
         <Text className="block text-sm font-medium text-neutral-500">{title}</Text>
-        <div className={layout === 'grid' ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-3' : 'flex flex-col'}>
+        <div
+          className={
+            layout === 'grid' ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-3' : 'flex flex-col'
+          }
+        >
           {sectionMachines.map(layout === 'grid' ? renderMachineCard : renderMachineRow)}
         </div>
       </section>
@@ -1020,7 +1030,12 @@ export function ProjectHomeOverview({
                   ? `Project catalog updated ${new Date(githubCatalog.cache.lastUpdated).toLocaleString()}`
                   : 'Project catalog is not cached yet'}
           </Text>
-          <Button size="sm" variant="outline" isDisabled={isGitHubRefreshing} onPress={() => void refresh(false)}>
+          <Button
+            size="sm"
+            variant="outline"
+            isDisabled={isGitHubRefreshing}
+            onPress={() => void refresh(false)}
+          >
             <RefreshCw className={isGitHubRefreshing ? 'size-4 animate-spin' : 'size-4'} />
             Refresh
           </Button>
@@ -1068,12 +1083,21 @@ export function ProjectHomeOverview({
               ))}
             </div>
           ) : null}
-          {layout === 'grid' && !isPendingGitHubCatalog && recentProjectRows.length > 0 && projectSort !== 'recent' ? (
+          {layout === 'grid' &&
+          !isPendingGitHubCatalog &&
+          recentProjectRows.length > 0 &&
+          projectSort !== 'recent' ? (
             <div className="mb-4">
               <Text className="mb-1 block px-3 text-xs font-medium text-neutral-600">
                 Recently opened
               </Text>
-              <div className={layout === 'grid' ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-3' : 'flex min-w-[38rem] flex-col'}>
+              <div
+                className={
+                  layout === 'grid'
+                    ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-3'
+                    : 'flex min-w-[38rem] flex-col'
+                }
+              >
                 {recentProjectRows.map((row) => (
                   <ProjectListItem
                     key={`recent:${row.id}`}
@@ -1087,25 +1111,33 @@ export function ProjectHomeOverview({
               </div>
             </div>
           ) : null}
-          {layout === 'grid' && !isPendingGitHubCatalog ? projectRowGroups.map((group) => (
-            <div key={group.owner} className="mb-3 last:mb-0">
-              <Text className="mb-1 block px-3 text-xs font-medium text-neutral-600">
-                {group.owner}
-              </Text>
-              <div className={layout === 'grid' ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-3' : 'flex min-w-[38rem] flex-col'}>
-                {group.items.map((row) => (
-                  <ProjectListItem
-                    key={row.id}
-                    branches={branchesForRow(row)}
-                    isActive={filteredProjectRows[activeProjectSearchIndex]?.id === row.id}
-                    layout={layout}
-                    onSelectProject={onSelectProject}
-                    row={row}
-                  />
-                ))}
-              </div>
-            </div>
-          )) : null}
+          {layout === 'grid' && !isPendingGitHubCatalog
+            ? projectRowGroups.map((group) => (
+                <div key={group.owner} className="mb-3 last:mb-0">
+                  <Text className="mb-1 block px-3 text-xs font-medium text-neutral-600">
+                    {group.owner}
+                  </Text>
+                  <div
+                    className={
+                      layout === 'grid'
+                        ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-3'
+                        : 'flex min-w-[38rem] flex-col'
+                    }
+                  >
+                    {group.items.map((row) => (
+                      <ProjectListItem
+                        key={row.id}
+                        branches={branchesForRow(row)}
+                        isActive={filteredProjectRows[activeProjectSearchIndex]?.id === row.id}
+                        layout={layout}
+                        onSelectProject={onSelectProject}
+                        row={row}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))
+            : null}
           {!isPendingGitHubCatalog && filteredProjectRows.length === 0 ? (
             <div className="rounded-lg bg-neutral-950/45 px-4 py-6">
               <Text className="text-sm text-neutral-500">No projects found.</Text>

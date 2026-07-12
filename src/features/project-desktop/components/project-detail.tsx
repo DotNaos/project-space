@@ -283,7 +283,6 @@ export interface ProjectDetailProps {
   connectorOverview: ConnectorOverviewResult;
   launcherError: string;
   onOpenMachine(machineId: string, tab?: MachineDetailTab): void;
-  onOpenNewWorktree(): void;
   onOpenWorktreeBranch(machineId: string, branchName: string, path?: string): void;
   onOpenIssue(issueNumber: number): void;
   onOpenWorkflowRun(runId: number): void;
@@ -309,7 +308,6 @@ export function ProjectDetail({
   connectorOverview,
   launcherError,
   onOpenMachine,
-  onOpenNewWorktree,
   onOpenWorktreeBranch,
   onOpenIssue,
   onOpenWorkflowRun,
@@ -406,7 +404,6 @@ export function ProjectDetail({
         {tab === 'workspaces' ? (
           <ProjectWorkspacesPanel
             connectorOverview={connectorOverview}
-            onOpenNewWorktree={onOpenNewWorktree}
             onRefreshWorktrees={onRefreshWorktrees}
             onSelectWorkspace={onSelectWorkspace}
             onSelectWorktree={onSelectWorktree}

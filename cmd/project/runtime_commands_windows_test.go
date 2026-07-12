@@ -20,6 +20,7 @@ func TestWindowsRuntimeCommandsKeepStableShape(t *testing.T) {
 		name  string
 		flags []string
 	}{
+		{name: "list", flags: []string{"format", "json"}},
 		{name: "reconcile", flags: []string{"format", "json"}},
 		{name: "status", flags: []string{"format", "json", "script"}},
 		{name: "stop", flags: []string{"format", "json", "script"}},
@@ -48,6 +49,7 @@ func TestWindowsRuntimeCommandsPointToWSL(t *testing.T) {
 	}{
 		{name: "run", cmd: newRunCommand(), args: []string{"test"}},
 		{name: "serve", cmd: newServeCommand(), args: []string{}},
+		{name: "serve list", cmd: newServeCommand(), args: []string{"list"}},
 		{name: "serve reconcile", cmd: newServeCommand(), args: []string{"reconcile"}},
 		{name: "serve status", cmd: newServeCommand(), args: []string{"status"}},
 		{name: "serve stop", cmd: newServeCommand(), args: []string{"stop"}},
@@ -62,7 +64,7 @@ func TestWindowsRuntimeCommandsPointToWSL(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected unsupported-platform error")
 			}
-			for _, fragment := range []string{"native Windows CLI", "WSL (Ubuntu)", "wsl.exe --distribution Ubuntu -- project"} {
+			for _, fragment := range []string{"native Windows CLI", "installed WSL distribution", "wsl.exe --distribution <distribution> -- project"} {
 				if !strings.Contains(err.Error(), fragment) {
 					t.Fatalf("error %q does not contain %q", err, fragment)
 				}

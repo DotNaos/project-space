@@ -2,11 +2,14 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import {
   requestConnectorDevServerInspect,
+  requestConnectorDevServerList,
   requestConnectorDevServerStart,
-  requestConnectorDevServerStop
+  requestConnectorDevServerStop,
+  requestConnectorWorktreeAction
 } from './connector-command-hub';
 import { createConnectorInstaller, requestPublicOrigin } from './connector-installation';
 import { createDevServerService } from './dev-server-service';
+import { createWorktreeActionService } from './worktree-action-service';
 import {
   createDevServerSession,
   isDatabaseConfigured,
@@ -24,6 +27,9 @@ import { readJson, writeJson } from './project-space-http-response';
 import type {
   DevServerActionRequest,
   DevServerInspectRequest,
+  WorktreeMaterializeRequest,
+  WorktreeSetupInspectRequest,
+  WorktreeSetupRunRequest,
   MachineDirectoryCreateRequest,
   MachineDirectoryDeleteRequest,
   MachineDirectoryRenameRequest,
@@ -42,10 +48,17 @@ import type {
 } from '../src/shared/project-space-api';
 
 export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
+  const currentUserId = () => {
+    const session = getCurrentAuthSession();
+    if (session?.userId) return session.userId;
+    if (!isProjectSpaceAuthRequired()) return 'local-development-user';
+    throw new Error('Login required.');
+  };
   const devServers = createDevServerService({
     backend,
     connector: {
       inspect: requestConnectorDevServerInspect,
+      list: requestConnectorDevServerList,
       start: requestConnectorDevServerStart,
       stop: requestConnectorDevServerStop
     },
@@ -59,16 +72,13 @@ export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
       transitionDevServerSession,
       upsertProjectRunSettings
     },
-    userId() {
-      const session = getCurrentAuthSession();
-      if (session?.userId) {
-        return session.userId;
-      }
-      if (!isProjectSpaceAuthRequired()) {
-        return 'local-development-user';
-      }
-      throw new Error('Login required.');
-    }
+    userId: currentUserId
+  });
+  const worktreeActions = createWorktreeActionService({
+    backend,
+    connector: { run: requestConnectorWorktreeAction },
+    database: { isConfigured: isDatabaseConfigured, readMachineMembership },
+    userId: currentUserId
   });
 
   return async function handleProjectSpaceCoreApiRoute(
@@ -90,7 +100,11 @@ export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
 
     if (request.method === 'POST' && url.pathname === '/api/connectors/install-command') {
       response.setHeader('Cache-Control', 'no-store');
-      writeJson(response, 200, await createConnectorInstaller(requestPublicOrigin(request), userId));
+      writeJson(
+        response,
+        200,
+        await createConnectorInstaller(requestPublicOrigin(request), userId)
+      );
       return true;
     }
 
@@ -169,14 +183,24 @@ export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/projects/worktrees') {
-      const projectPath = url.searchParams.get('projectPath');
+      const projectId = url.searchParams.get('projectId');
       const machineId = url.searchParams.get('machineId') ?? undefined;
-      if (!projectPath) {
-        writeJson(response, 400, { error: 'Missing projectPath.' });
+      if (!projectId) {
+        writeJson(response, 400, { error: 'Missing projectId.' });
         return true;
       }
-
-      writeJson(response, 200, await backend.loadProjectWorktrees(projectPath, machineId));
+      const discovery = await backend.loadProjectDiscovery();
+      const project = discovery.projects.find(
+        (candidate) =>
+          candidate.id === projectId && (!machineId || candidate.machineId === machineId)
+      );
+      if (!project) {
+        writeJson(response, 404, {
+          error: 'Project not found on the selected machine.'
+        });
+        return true;
+      }
+      writeJson(response, 200, await backend.loadProjectWorktrees(project.rootPath, machineId));
       return true;
     }
 
@@ -185,6 +209,31 @@ export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
         response,
         200,
         await devServers.inspect(await readJson<DevServerInspectRequest>(request))
+      );
+      return true;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/worktrees/materialize') {
+      writeJson(
+        response,
+        200,
+        await worktreeActions.materialize(await readJson<WorktreeMaterializeRequest>(request))
+      );
+      return true;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/worktrees/setup/inspect') {
+      writeJson(
+        response,
+        200,
+        await worktreeActions.inspectSetup(await readJson<WorktreeSetupInspectRequest>(request))
+      );
+      return true;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/worktrees/setup/run') {
+      writeJson(
+        response,
+        200,
+        await worktreeActions.runSetup(await readJson<WorktreeSetupRunRequest>(request))
       );
       return true;
     }
@@ -317,7 +366,9 @@ export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
         const overview = await backend.getConnectorOverview();
         const machine = overview.machines.find((entry) => entry.id === payload.machineId);
         if (!machine) {
-          writeJson(response, 404, { error: `Machine ${payload.machineId} was not found.` });
+          writeJson(response, 404, {
+            error: `Machine ${payload.machineId} was not found.`
+          });
           return true;
         }
         if (machine.connector.status !== 'local') {

@@ -51,7 +51,8 @@ describe('database migrations', () => {
       '0010_connector_machine_snapshots',
       '0011_github_catalog_cache',
       '0012_project_chat_name_registry',
-      '0013_project_chat_project_channels'
+      '0013_project_chat_project_channels',
+      '0014_dev_server_sessions_per_server'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -62,6 +63,8 @@ describe('database migrations', () => {
     expect(sql).toContain('create table if not exists user_project_run_settings');
     expect(sql).toContain('allowed_hosts text[]');
     expect(sql).toContain('foreign key (machine_id, user_id)');
+    expect(sql).toContain('on dev_server_sessions (machine_id, worktree_id, server_id)');
+    expect(sql).toContain('drop index if exists dev_server_sessions_one_active_per_worktree');
     expect(sql).toContain('create table if not exists dev_server_sessions');
     expect(sql).toContain('foreign key (machine_id, owner_user_id)');
     expect(sql).toContain('add column expected_machine_id text');

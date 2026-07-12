@@ -14,7 +14,7 @@ func newRunCommand() *cobra.Command {
 		"Run a configured project script in the foreground",
 		cobra.RangeArgs(1, 2),
 		"run",
-		"wsl.exe --distribution Ubuntu -- project run",
+		"wsl.exe --distribution <distribution> -- project run",
 	)
 	addWindowsRuntimeOutputFlags(cmd)
 	return cmd
@@ -26,13 +26,26 @@ func newServeCommand() *cobra.Command {
 		"Run a project script and expose it on this Tailnet",
 		cobra.MaximumNArgs(2),
 		"serve",
-		"wsl.exe --distribution Ubuntu -- project serve",
+		"wsl.exe --distribution <distribution> -- project serve",
 	)
 	addWindowsRuntimeOutputFlags(cmd)
 	cmd.Flags().StringArray("allowed-host", nil, "explicit Vite host allowed to reach this session (repeatable)")
 	cmd.AddCommand(newWindowsServeReconcileCommand())
+	cmd.AddCommand(newWindowsServeListCommand())
 	cmd.AddCommand(newWindowsServeStatusCommand())
 	cmd.AddCommand(newWindowsServeStopCommand())
+	return cmd
+}
+
+func newWindowsServeListCommand() *cobra.Command {
+	cmd := newWindowsRuntimeCommand(
+		"list [directory]",
+		"List trusted development servers configured by a repository",
+		cobra.MaximumNArgs(1),
+		"serve list",
+		"wsl.exe --distribution <distribution> -- project serve list",
+	)
+	addWindowsRuntimeOutputFlags(cmd)
 	return cmd
 }
 
@@ -42,7 +55,7 @@ func newWindowsServeReconcileCommand() *cobra.Command {
 		"Check managed project servers and clean stale sessions",
 		cobra.NoArgs,
 		"serve reconcile",
-		"wsl.exe --distribution Ubuntu -- project serve reconcile",
+		"wsl.exe --distribution <distribution> -- project serve reconcile",
 	)
 	addWindowsRuntimeOutputFlags(cmd)
 	return cmd
@@ -54,7 +67,7 @@ func newWindowsServeStatusCommand() *cobra.Command {
 		"Inspect a managed project server",
 		cobra.MaximumNArgs(1),
 		"serve status",
-		"wsl.exe --distribution Ubuntu -- project serve status",
+		"wsl.exe --distribution <distribution> -- project serve status",
 	)
 	cmd.ValidArgsFunction = directoryCompletion
 	addWindowsRuntimeOutputFlags(cmd)
@@ -68,7 +81,7 @@ func newWindowsServeStopCommand() *cobra.Command {
 		"Stop one managed project server",
 		cobra.MaximumNArgs(1),
 		"serve stop",
-		"wsl.exe --distribution Ubuntu -- project serve stop",
+		"wsl.exe --distribution <distribution> -- project serve stop",
 	)
 	cmd.ValidArgsFunction = directoryCompletion
 	addWindowsRuntimeOutputFlags(cmd)
@@ -82,7 +95,7 @@ func newRuntimeLogCommand() *cobra.Command {
 		"",
 		cobra.ExactArgs(1),
 		"runtime supervisor",
-		"wsl.exe --distribution Ubuntu -- project serve",
+		"wsl.exe --distribution <distribution> -- project serve",
 	)
 	cmd.Hidden = true
 	return cmd
@@ -101,7 +114,7 @@ func newWindowsRuntimeCommand(
 		Args:  args,
 		RunE: func(*cobra.Command, []string) error {
 			return fmt.Errorf(
-				"project %s is unavailable in the native Windows CLI; use WSL (Ubuntu) instead: %s",
+				"project %s is unavailable in the native Windows CLI; use the installed WSL distribution instead: %s",
 				commandName,
 				wslCommand,
 			)

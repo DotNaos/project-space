@@ -9,9 +9,9 @@ import { readFileSync } from 'node:fs';
 import {
   normalizeAllowedHosts,
   type ConnectorDevServerActor,
+  type ConnectorDevServerAnyTrustedRequest,
   type ConnectorDevServerCommandGrant,
-  type ConnectorDevServerOperation,
-  type ConnectorDevServerTrustedRequest
+  type ConnectorDevServerOperation
 } from './connector-dev-server-contract';
 
 const defaultGrantTtlMs = 30_000;
@@ -20,6 +20,7 @@ const clockSkewMs = 5_000;
 
 export type ConnectorCommandGrantErrorCode =
   | 'binding-mismatch'
+  | 'capacity'
   | 'expired'
   | 'future-issued'
   | 'invalid-signature'
@@ -52,7 +53,7 @@ interface VerifyConnectorCommandGrantOptions {
 interface GrantInput {
   actor: ConnectorDevServerActor;
   operation: ConnectorDevServerOperation;
-  request: ConnectorDevServerTrustedRequest;
+  request: ConnectorDevServerAnyTrustedRequest;
 }
 
 function canonicalGrantPayload(grant: Omit<ConnectorDevServerCommandGrant, 'signature'>) {
@@ -61,10 +62,11 @@ function canonicalGrantPayload(grant: Omit<ConnectorDevServerCommandGrant, 'sign
     grant.machineId,
     grant.projectId,
     grant.worktreeId,
-    grant.worktreePath,
+    grant.expectedHeadSha,
+    grant.operation,
+    grant.serverId ?? null,
     grant.runTarget,
     grant.allowedHosts,
-    grant.operation,
     grant.issuedAt,
     grant.expiresAt,
     grant.nonce,
@@ -86,18 +88,26 @@ function arraysEqual(left: readonly string[], right: readonly string[]) {
 }
 
 function replayScope(grant: ConnectorDevServerCommandGrant) {
-  return [grant.userId, grant.machineId, grant.projectId, grant.worktreeId].join('\u0000');
+  return [
+    grant.userId,
+    grant.machineId,
+    grant.projectId,
+    grant.worktreeId,
+    grant.operation === 'list' ? 'list' : grant.serverId
+  ].join('\u0000');
 }
 
 export class ConnectorCommandReplayProtection {
-  private readonly generations = new Map<string, number>();
+  private readonly generations = new Map<string, { expiresAt: number; generation: number }>();
   private readonly usedNonces = new Map<string, number>();
+
+  constructor(readonly maximumEntries = 10_000) {}
 
   accept(grant: ConnectorDevServerCommandGrant, now = Date.now()) {
     this.prune(now);
     const scope = replayScope(grant);
-    const currentGeneration = this.generations.get(scope);
-    if (currentGeneration !== undefined && grant.generation < currentGeneration) {
+    const current = this.generations.get(scope);
+    if (current !== undefined && grant.generation < current.generation) {
       throw new ConnectorCommandGrantError(
         'stale-generation',
         'The connector command belongs to an older runtime generation.'
@@ -112,10 +122,21 @@ export class ConnectorCommandReplayProtection {
       );
     }
 
-    if (currentGeneration === undefined || grant.generation > currentGeneration) {
-      this.generations.set(scope, grant.generation);
+    if (
+      this.usedNonces.size >= this.maximumEntries ||
+      (current === undefined && this.generations.size >= this.maximumEntries)
+    ) {
+      throw new ConnectorCommandGrantError(
+        'capacity',
+        'Connector command replay protection is at capacity.'
+      );
     }
-    this.usedNonces.set(nonceKey, Date.parse(grant.expiresAt) + clockSkewMs);
+    const expiresAt = Date.parse(grant.expiresAt) + clockSkewMs;
+    this.generations.set(scope, {
+      expiresAt: Math.max(current?.expiresAt ?? expiresAt, expiresAt),
+      generation: Math.max(current?.generation ?? grant.generation, grant.generation)
+    });
+    this.usedNonces.set(nonceKey, expiresAt);
   }
 
   clear() {
@@ -129,6 +150,15 @@ export class ConnectorCommandReplayProtection {
         this.usedNonces.delete(key);
       }
     }
+    for (const [key, value] of this.generations.entries()) {
+      if (value.expiresAt < now) {
+        this.generations.delete(key);
+      }
+    }
+  }
+
+  get trackedGenerationCount() {
+    return this.generations.size;
   }
 }
 
@@ -143,8 +173,7 @@ export function createConnectorCommandGrant(
     throw new Error(`Connector command grant TTL must be between 1 and ${maximumGrantTtlMs}ms.`);
   }
 
-  const unsigned: Omit<ConnectorDevServerCommandGrant, 'signature'> = {
-    allowedHosts: normalizeAllowedHosts(request.allowedHosts),
+  const common = {
     expiresAt: new Date(issuedAt + ttlMs).toISOString(),
     generation: actor.generation,
     issuedAt: new Date(issuedAt).toISOString(),
@@ -152,11 +181,21 @@ export function createConnectorCommandGrant(
     nonce: options.nonce ?? randomBytes(24).toString('base64url'),
     operation,
     projectId: request.projectId,
-    runTarget: request.runTarget,
     userId: actor.userId,
     worktreeId: request.worktreeId,
-    worktreePath: request.worktreePath
+    expectedHeadSha: request.expectedHeadSha
   };
+  const unsigned: Omit<ConnectorDevServerCommandGrant, 'signature'> =
+    operation === 'list'
+      ? common
+      : {
+          ...common,
+          allowedHosts: normalizeAllowedHosts(
+            'allowedHosts' in request ? request.allowedHosts : []
+          ),
+          runTarget: 'runTarget' in request ? request.runTarget : undefined,
+          serverId: 'serverId' in request ? request.serverId : undefined
+        };
 
   return {
     ...unsigned,
@@ -166,7 +205,7 @@ export function createConnectorCommandGrant(
 
 export function verifyConnectorCommandGrant(
   grant: ConnectorDevServerCommandGrant,
-  request: ConnectorDevServerTrustedRequest,
+  request: ConnectorDevServerAnyTrustedRequest,
   operation: ConnectorDevServerOperation,
   verificationKey: KeyLike,
   options: VerifyConnectorCommandGrantOptions = {}
@@ -197,26 +236,28 @@ export function verifyConnectorCommandGrant(
   if (expiresAt < now - clockSkewMs) {
     throw new ConnectorCommandGrantError('expired', 'The connector command grant has expired.');
   }
-  if (
-    expiresAt <= issuedAt ||
-    expiresAt - issuedAt > maximumGrantTtlMs
-  ) {
+  if (expiresAt <= issuedAt || expiresAt - issuedAt > maximumGrantTtlMs) {
     throw new ConnectorCommandGrantError(
       'invalid-ttl',
       'The connector command grant lifetime is invalid.'
     );
   }
 
-  const expectedAllowedHosts = normalizeAllowedHosts(request.allowedHosts);
-  const bindingMatches =
+  const baseBindingMatches =
     grant.operation === operation &&
     grant.machineId === request.machineId &&
     grant.projectId === request.projectId &&
     grant.worktreeId === request.worktreeId &&
-    grant.worktreePath === request.worktreePath &&
-    grant.runTarget === request.runTarget &&
-    arraysEqual(grant.allowedHosts, expectedAllowedHosts) &&
+    grant.expectedHeadSha === request.expectedHeadSha &&
     (options.expectedUserId === undefined || grant.userId === options.expectedUserId);
+  const bindingMatches =
+    operation === 'list'
+      ? baseBindingMatches && !('serverId' in request)
+      : baseBindingMatches &&
+        'serverId' in request &&
+        grant.serverId === request.serverId &&
+        grant.runTarget === request.runTarget &&
+        arraysEqual(grant.allowedHosts ?? [], normalizeAllowedHosts(request.allowedHosts));
   if (!bindingMatches) {
     throw new ConnectorCommandGrantError(
       'binding-mismatch',

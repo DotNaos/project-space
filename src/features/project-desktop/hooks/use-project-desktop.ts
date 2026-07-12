@@ -51,7 +51,9 @@ const githubFallback: GitHubCatalogResult = {
   status: 'auth-required'
 };
 
-function githubCatalogErrorFallback(message = 'Could not load the GitHub project catalog.'): GitHubCatalogResult {
+function githubCatalogErrorFallback(
+  message = 'Could not load the GitHub project catalog.'
+): GitHubCatalogResult {
   return {
     checkedAt: new Date().toISOString(),
     message,
@@ -78,13 +80,7 @@ const appMetaFallback: AppMeta = {
 };
 
 export type ProjectMainView =
-  | 'root'
-  | 'chat'
-  | 'machines'
-  | 'machine'
-  | 'projects'
-  | 'project'
-  | 'settings';
+  'root' | 'chat' | 'machines' | 'machine' | 'projects' | 'project' | 'settings';
 
 export const projectDetailTabs = [
   'overview',
@@ -252,7 +248,11 @@ export function parseProjectRoute(pathname: string): ParsedProjectRoute {
     const machineId = decodeURIComponent(rawMachineId ?? '');
 
     return machineId
-      ? { machineId, machineTab: parseMachineDetailTab(rawTab), view: 'machine' }
+      ? {
+          machineId,
+          machineTab: parseMachineDetailTab(rawTab),
+          view: 'machine'
+        }
       : { view: 'machines' };
   }
 
@@ -289,12 +289,14 @@ function resolveRouteProject(
   projects: ProjectSpaceRecord[],
   projectId: string
 ): ProjectSpaceRecord | undefined {
-  return projects.find((entry) => entry.id === projectId) ??
+  return (
+    projects.find((entry) => entry.id === projectId) ??
     projects.find((entry) => basename(entry.rootPath) === projectId) ??
     projects.find((entry) => entry.name === projectId) ??
     projects.find((entry) =>
       entry.github ? routeProjectIdMatchesRepository(projectId, entry.github) : false
-    );
+    )
+  );
 }
 
 function shouldPreserveProjectRoute(
@@ -396,9 +398,9 @@ export function useProjectDesktop() {
   const [appMeta, setAppMeta] = useState<AppMeta>(appMetaFallback);
   const [isConnectorRefreshing, setIsConnectorRefreshing] = useState(false);
   const [isGitHubRefreshing, setIsGitHubRefreshing] = useState(false);
-  const [projectWorktrees, setProjectWorktrees] = useState<
-    Record<string, ProjectWorktreeRecord[]>
-  >({});
+  const [projectWorktrees, setProjectWorktrees] = useState<Record<string, ProjectWorktreeRecord[]>>(
+    {}
+  );
   const [hasLoaded, setHasLoaded] = useState(false);
 
   const githubProjects = useMemo(() => {
@@ -431,13 +433,13 @@ export function useProjectDesktop() {
   }, [projects]);
 
   const project = selectedProjectId
-    ? projectsById[selectedProjectId] ?? resolveRouteProject(projects, selectedProjectId)
+    ? (projectsById[selectedProjectId] ?? resolveRouteProject(projects, selectedProjectId))
     : undefined;
   const selectedMachine = selectedMachineId
     ? connectorOverview.machines.find((machine) => machine.id === selectedMachineId)
     : undefined;
   const activeGroup = project?.groupId ? groupsById[project.groupId] : undefined;
-  const worktrees = project ? projectWorktrees[project.id] ?? [] : [];
+  const worktrees = project ? (projectWorktrees[project.id] ?? []) : [];
   const selectedWorktree =
     selectedExplorerTarget.kind === 'worktree'
       ? worktrees.find((entry) => entry.id === selectedExplorerTarget.worktreeId)
@@ -473,12 +475,18 @@ export function useProjectDesktop() {
     const nextMachine = localMachine ?? onlineMachine ?? connectorOverview.machines[0];
 
     setSelectedMachineId(nextMachine.id);
-  }, [connectorOverview.machines, mainView, project?.machineId, selectedMachine, selectedMachineId]);
+  }, [
+    connectorOverview.machines,
+    mainView,
+    project?.machineId,
+    selectedMachine,
+    selectedMachineId
+  ]);
 
   const selectedTargetPath =
     selectedExplorerTarget.kind === 'worktree' && selectedWorktree
       ? selectedWorktree.path
-      : project?.rootPath ?? '';
+      : (project?.rootPath ?? '');
   const selectedTargetName =
     selectedExplorerTarget.kind === 'worktree' && selectedWorktree
       ? selectedWorktree.name
@@ -559,7 +567,11 @@ export function useProjectDesktop() {
       const normalizedCatalog = normalizeGitHubCatalog(catalog);
       setGitHubCatalog((current) =>
         normalizedCatalog.status === 'error' && current.status === 'connected'
-          ? { ...current, cache: { ...current.cache, state: 'refresh-failed' }, message: normalizedCatalog.message }
+          ? {
+              ...current,
+              cache: { ...current.cache, state: 'refresh-failed' },
+              message: normalizedCatalog.message
+            }
           : normalizedCatalog
       );
       return normalizedCatalog;
@@ -569,7 +581,8 @@ export function useProjectDesktop() {
   }, []);
 
   useEffect(() => {
-    if (!hasLoaded || mainView !== 'projects' || githubCatalog.checkedAt || isGitHubRefreshing) return;
+    if (!hasLoaded || mainView !== 'projects' || githubCatalog.checkedAt || isGitHubRefreshing)
+      return;
     void refreshGitHubCatalog();
   }, [githubCatalog.checkedAt, hasLoaded, isGitHubRefreshing, mainView, refreshGitHubCatalog]);
 
@@ -579,14 +592,20 @@ export function useProjectDesktop() {
     let timer = 0;
     let attempts = 0;
     const poll = () => {
-      timer = window.setTimeout(async () => {
-        const next = await refreshGitHubCatalog();
-        attempts += 1;
-        if (!canceled && next.cache?.state === 'refreshing' && attempts < 8) poll();
-      }, Math.min(1_500 * (attempts + 1), 5_000));
+      timer = window.setTimeout(
+        async () => {
+          const next = await refreshGitHubCatalog();
+          attempts += 1;
+          if (!canceled && next.cache?.state === 'refreshing' && attempts < 8) poll();
+        },
+        Math.min(1_500 * (attempts + 1), 5_000)
+      );
     };
     poll();
-    return () => { canceled = true; window.clearTimeout(timer); };
+    return () => {
+      canceled = true;
+      window.clearTimeout(timer);
+    };
   }, [githubCatalog.cache?.state, refreshGitHubCatalog]);
 
   useEffect(() => {
@@ -606,7 +625,8 @@ export function useProjectDesktop() {
           shouldPreserveProjectRoute(initialRoute.projectId, routeProject);
         const selectedProjectFromRoute =
           initialRoute.view === 'project'
-            ? routeProject?.id ?? (shouldWaitForGitHubProject ? initialRoute.projectId ?? '' : '')
+            ? (routeProject?.id ??
+              (shouldWaitForGitHubProject ? (initialRoute.projectId ?? '') : ''))
             : state.selectedProjectId;
         const selectedProjectRecord = selectedProjectFromRoute
           ? resolveRouteProject(sanitizedDiscovery.projects, selectedProjectFromRoute)
@@ -619,8 +639,8 @@ export function useProjectDesktop() {
         setSelectedLauncherAppId(state.selectedLauncherAppId);
         setSelectedMachineId(
           initialRoute.view === 'machine'
-            ? initialRoute.machineId ?? ''
-            : selectedProjectRecord?.machineId ?? ''
+            ? (initialRoute.machineId ?? '')
+            : (selectedProjectRecord?.machineId ?? '')
         );
         setSelectedProjectId(selectedProjectFromRoute);
         setSelectedIssueNumber(initialRoute.issueNumber);
@@ -973,10 +993,7 @@ export function useProjectDesktop() {
     }
 
     void projectSpaceClient
-      .loadProjectWorktrees(
-        project.rootPath,
-        project.machineId ?? (selectedMachineId || undefined)
-      )
+      .loadProjectWorktrees(project.id, project.machineId ?? (selectedMachineId || undefined))
       .then((nextWorktrees) => {
         if (canceled) {
           return;
@@ -1052,7 +1069,9 @@ export function useProjectDesktop() {
 
     const matchingProject = findMatchingProject(nextDiscovery.projects, selection.path);
     if (!matchingProject) {
-      setLauncherError(`Autodiscovery currently only loads projects from ${nextDiscovery.rootPath}.`);
+      setLauncherError(
+        `Autodiscovery currently only loads projects from ${nextDiscovery.rootPath}.`
+      );
       return;
     }
 
@@ -1084,7 +1103,7 @@ export function useProjectDesktop() {
     }
 
     const nextWorktrees = await projectSpaceClient.loadProjectWorktrees(
-      project.rootPath,
+      project.id,
       project.machineId ?? (selectedMachineId || undefined)
     );
 
@@ -1106,14 +1125,14 @@ export function useProjectDesktop() {
       path: selectedTargetPath
     });
 
-    setLauncherError(result.status === 'error' ? result.message ?? 'Could not open path.' : '');
+    setLauncherError(result.status === 'error' ? (result.message ?? 'Could not open path.') : '');
   }
 
   async function openCodexSkills() {
     const result = await projectSpaceClient.openCodexSkills();
 
     setLauncherError(
-      result.status === 'error' ? result.message ?? 'Could not open the skills folder.' : ''
+      result.status === 'error' ? (result.message ?? 'Could not open the skills folder.') : ''
     );
   }
 
@@ -1128,9 +1147,7 @@ export function useProjectDesktop() {
     });
 
     setLauncherError(
-      result.status === 'error'
-        ? result.message ?? 'Could not open the project in Terminal.'
-        : ''
+      result.status === 'error' ? (result.message ?? 'Could not open the project in Terminal.') : ''
     );
   }
 
@@ -1258,12 +1275,7 @@ export function useProjectDesktop() {
       setSelectedMachineId(nextProject?.machineId ?? '');
       setSelectedIssueNumber(undefined);
       setMainView('project');
-      writeRoute(
-        'project',
-        projectId,
-        false,
-        projectTab
-      );
+      writeRoute('project', projectId, false, projectTab);
       setLauncherError('');
       const nextRecentProjectIds = pushRecentProject(projectId);
       persistProjectsState({
