@@ -3,7 +3,7 @@ import { commitsBehindRef, correlateEnvironments } from '../src/features/project
 
 const commit = (hash: string) => ({ author: '', date: '', hash, parents: [], refs: [], subject: '' });
 const environment = (id: string, deployedSha: string, verification: 'healthy' | 'unhealthy' | 'inconsistent' = 'healthy') => ({
-  deployedSha, displayName: id, id, verification
+  deployedSha, displayName: id, id, liveUrlState: 'not-configured' as const, verification
 });
 
 describe('git environment correlation', () => {
@@ -12,6 +12,19 @@ describe('git environment correlation', () => {
     const result = correlateEnvironments([commit(sha)], [environment('prod', sha), environment('beta', sha)]);
     expect(result.byCommit.get(sha)?.map((entry) => entry.id)).toEqual(['prod', 'beta']);
     expect(result.byCommit.has(`${sha.slice(0, 39)}2`)).toBe(false);
+    expect(correlateEnvironments([commit('abc1234')], [environment('short', 'abc1234')]).byCommit.size).toBe(0);
+    expect(correlateEnvironments([commit('z'.repeat(40))], [environment('invalid', 'z'.repeat(40))]).byCommit.size).toBe(0);
+  });
+
+  test('retains every public URL only on the exact matching commit', () => {
+    const sha = 'a'.repeat(40);
+    const prod = { ...environment('prod', sha), liveUrl: 'https://prod.example.com', liveUrlState: 'available' as const };
+    const dev = { ...environment('dev', sha), liveUrl: 'https://dev.example.com', liveUrlState: 'available' as const };
+    const result = correlateEnvironments([commit(sha)], [prod, dev]);
+    expect(result.byCommit.get(sha)?.map((entry) => entry.liveUrl)).toEqual([
+      'https://prod.example.com',
+      'https://dev.example.com'
+    ]);
   });
 
   test('keeps dev-only commits and outside-history deployments honest', () => {

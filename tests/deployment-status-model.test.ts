@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import type { DeployedEnvironmentStatus, GitHubWorkflowRunSummary } from '../src/shared/project-space-api';
 import {
   deploymentRuns,
+  deploymentRunContext,
   environmentStatusLabel,
   isCurrentDeploymentRun,
   isHistoricalFailure,
@@ -13,10 +14,10 @@ import {
 
 const sha = (character: string) => character.repeat(40);
 const environment = (id: string, deployedSha?: string): DeployedEnvironmentStatus => ({
-  deployedSha, displayName: id, id, verification: 'healthy'
+  deployedSha, displayName: id, id, liveUrlState: 'not-configured', verification: 'healthy'
 });
 const run = (overrides: Partial<GitHubWorkflowRunSummary> = {}): GitHubWorkflowRunSummary => ({
-  id: 1, kind: 'deployment', status: 'completed', ...overrides
+  conclusion: 'success', id: 1, kind: 'deployment', status: 'completed', ...overrides
 });
 
 describe('deployment status UI model', () => {
@@ -29,12 +30,26 @@ describe('deployment status UI model', () => {
     const deployed = sha('a');
     expect(isCurrentDeploymentRun(run({ headSha: deployed }), [environment('prod', deployed)])).toBe(true);
     expect(isCurrentDeploymentRun(run({ headSha: deployed.slice(0, 7) }), [environment('prod', deployed)])).toBe(false);
+    expect(isCurrentDeploymentRun(run({ headSha: 'ABC1234' }), [environment('prod', 'ABC1234')])).toBe(false);
+    expect(isCurrentDeploymentRun(run({ headSha: deployed.toUpperCase() }), [environment('prod', deployed)])).toBe(true);
+  });
+
+  test('classifies current, active, superseded, failed, and other recent runs honestly', () => {
+    const deployed = sha('e');
+    const environments = [environment('prod', deployed), environment('dev', deployed)];
+    expect(deploymentRunContext(run({ headSha: deployed, conclusion: 'success' }), environments)).toBe('current');
+    expect(deploymentRunContext(run({ status: 'in_progress', headSha: sha('f') }), environments)).toBe('active');
+    expect(deploymentRunContext(run({ status: 'in_progress', conclusion: undefined, headSha: deployed }), environments)).toBe('active');
+    expect(deploymentRunContext(run({ headSha: sha('1'), conclusion: 'success' }), environments)).toBe('superseded');
+    expect(deploymentRunContext(run({ headSha: sha('2'), conclusion: 'failure' }), environments)).toBe('failed');
+    expect(deploymentRunContext(run({ headSha: deployed, conclusion: 'failure' }), environments)).toBe('failed');
+    expect(deploymentRunContext(run({ headSha: sha('3'), conclusion: 'skipped' }), environments)).toBe('other');
   });
 
   test('separates failed attempts from the currently deployed state', () => {
     const deployed = sha('b');
     expect(isHistoricalFailure(run({ conclusion: 'failure', headSha: sha('c') }), [environment('prod', deployed)])).toBe(true);
-    expect(isHistoricalFailure(run({ conclusion: 'failure', headSha: deployed }), [environment('prod', deployed)])).toBe(false);
+    expect(isHistoricalFailure(run({ conclusion: 'failure', headSha: deployed }), [environment('prod', deployed)])).toBe(true);
   });
 
   test('covers every terminal and active workflow presentation', () => {

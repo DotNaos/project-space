@@ -943,6 +943,7 @@ export interface DeployedEnvironmentStatus {
   id: string;
   githubUrl?: string;
   liveUrl?: string;
+  liveUrlState: 'available' | 'not-configured' | 'withheld';
   sourceRef?: string;
   verification: DeployedEnvironmentVerification;
   verifiedAt?: string;

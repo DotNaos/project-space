@@ -19,6 +19,7 @@ import type {
 } from '@/shared/project-space-api';
 import { GitHubMark } from './github-mark';
 import { repositoryDetailsFallback } from './project-main-model';
+import { ProjectOverviewDeploymentCard } from './project-overview-deployment-card';
 
 function useRepositoryDetails(repository?: GitHubCatalogRepository) {
   const [details, setDetails] = useState<GitHubRepositoryDetailsResult>();
@@ -119,9 +120,51 @@ function StatLine({ label, value }: { label: string; value: string }) {
   );
 }
 
+function BranchesCard({
+  branches,
+  message,
+  repositoryUrl
+}: {
+  branches: GitHubRepositoryDetailsResult['branches'];
+  message: string;
+  repositoryUrl?: string;
+}) {
+  return (
+    <Surface
+      variant="tertiary"
+      className="min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/45 p-4"
+    >
+      <div className="mb-3 flex items-center gap-2">
+        <GitBranch className="size-4 text-neutral-400" />
+        <Text className="text-sm font-semibold text-neutral-100">Branches</Text>
+      </div>
+      <div className="flex max-h-36 flex-col overflow-auto">
+        {branches.slice(0, 5).map((branch) => (
+          <a
+            key={branch.name}
+            href={branch.url ?? repositoryUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex min-w-0 items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm transition hover:bg-neutral-900/60"
+          >
+            <Text className="truncate text-neutral-200">{branch.name}</Text>
+            {branch.isDefault ? (
+              <Chip size="sm" className="text-neutral-100">base</Chip>
+            ) : null}
+          </a>
+        ))}
+        {branches.length === 0 ? (
+          <Text className="text-sm text-neutral-500">{message || 'No branches loaded yet.'}</Text>
+        ) : null}
+      </div>
+    </Surface>
+  );
+}
+
 export function ProjectOverviewWorkbench({
   connectorOverview,
   launcherError,
+  onOpenDeployments,
   onOpenIssue,
   project,
   repository,
@@ -129,6 +172,7 @@ export function ProjectOverviewWorkbench({
 }: {
   connectorOverview: ConnectorOverviewResult;
   launcherError: string;
+  onOpenDeployments(): void;
   onOpenIssue(issueNumber: number): void;
   project: ProjectSpaceRecord;
   repository?: GitHubCatalogRepository;
@@ -147,7 +191,7 @@ export function ProjectOverviewWorkbench({
 
   return (
     <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.8fr)]">
-      <section className="min-w-0">
+      <section className="grid min-w-0 content-start gap-3">
         {message ? (
           <Surface
             variant="tertiary"
@@ -189,9 +233,20 @@ export function ProjectOverviewWorkbench({
             </Text>
           )}
         </Surface>
+
+        <BranchesCard
+          branches={details.branches}
+          message={message}
+          repositoryUrl={repository?.url}
+        />
       </section>
 
       <aside className="grid min-w-0 content-start gap-3">
+        <ProjectOverviewDeploymentCard
+          onOpenDeployments={onOpenDeployments}
+          repositoryFullName={repository?.fullName}
+        />
+
         <Surface
           variant="tertiary"
           className="min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/45 p-4"
@@ -248,38 +303,6 @@ export function ProjectOverviewWorkbench({
           </Text>
         </Surface>
 
-        <Surface
-          variant="tertiary"
-          className="min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/45 p-4"
-        >
-          <div className="mb-3 flex items-center gap-2">
-            <GitBranch className="size-4 text-neutral-400" />
-            <Text className="text-sm font-semibold text-neutral-100">Branches</Text>
-          </div>
-          <div className="flex max-h-36 flex-col overflow-auto">
-            {details.branches.slice(0, 5).map((branch) => (
-              <a
-                key={branch.name}
-                href={branch.url ?? repository?.url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex min-w-0 items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm transition hover:bg-neutral-900/60"
-              >
-                <Text className="truncate text-neutral-200">{branch.name}</Text>
-                {branch.isDefault ? (
-                  <Chip size="sm" className="text-neutral-100">
-                    base
-                  </Chip>
-                ) : null}
-              </a>
-            ))}
-            {details.branches.length === 0 ? (
-              <Text className="text-sm text-neutral-500">
-                {message || 'No branches loaded yet.'}
-              </Text>
-            ) : null}
-          </div>
-        </Surface>
       </aside>
     </div>
   );

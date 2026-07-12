@@ -144,6 +144,7 @@ function OverviewTab({
   connectorOverview,
   launcherError,
   onOpenIssue,
+  onOpenDeployments,
   project,
   selectedRepository,
   selectedTargetPath
@@ -151,6 +152,7 @@ function OverviewTab({
   connectorOverview: ConnectorOverviewResult;
   launcherError: string;
   onOpenIssue(issueNumber: number): void;
+  onOpenDeployments(): void;
   project: ProjectSpaceRecord;
   selectedRepository?: ProjectSpaceRecord['github'];
   selectedTargetPath: string;
@@ -160,6 +162,7 @@ function OverviewTab({
       connectorOverview={connectorOverview}
       launcherError={launcherError}
       onOpenIssue={onOpenIssue}
+      onOpenDeployments={onOpenDeployments}
       project={project}
       repository={selectedRepository}
       selectedTargetPath={selectedTargetPath}
@@ -381,6 +384,7 @@ export function ProjectDetail({
               connectorOverview={connectorOverview}
               launcherError={launcherError}
               onOpenIssue={onOpenIssue}
+              onOpenDeployments={() => onSelectTab('deployments')}
               project={project}
               selectedRepository={selectedRepository}
               selectedTargetPath={selectedTargetPath}
