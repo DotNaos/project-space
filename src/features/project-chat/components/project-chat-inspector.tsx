@@ -10,6 +10,7 @@ import {
   formatProjectChatActivity,
   formatProjectChatTime,
   projectChatPresenceLabel,
+  projectChatAgentNameIdentity,
   projectChatThreads,
   shortProjectChatId,
   type ProjectChatThreadSummary
@@ -51,6 +52,7 @@ function AgentRows({
   return (
     <div className="divide-y divide-neutral-900">
       {agents.map((member) => {
+        const agentName = projectChatAgentNameIdentity(member);
         const presence = effectiveProjectChatPresence(member, now);
         const selected = selectedMemberId === member.memberId;
         return (
@@ -61,7 +63,14 @@ function AgentRows({
             onClick={() => onSelectMember(member.memberId)}
             type="button"
           >
-            <ParticipantVisual active={presence === 'working'} role="agent" selected={selected} size={24} />
+            <ParticipantVisual
+              active={presence === 'working'}
+              agentCategory={agentName?.category}
+              agentName={agentName?.name}
+              role="agent"
+              selected={selected}
+              size={24}
+            />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[11px] font-medium text-neutral-300">{member.displayName}</span>
               <span className="block truncate text-[10px] text-neutral-400">{member.origin?.taskTitle ?? `@${member.handle}`}</span>

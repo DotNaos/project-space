@@ -137,15 +137,20 @@ describe('Project Chat production runtime', () => {
         'X-Codex-Thread-ID': '019f4f2b-e97e-7180-9122-4187159dbe51',
         'X-Project-Machine-ID': 'machine-one'
       };
+      expect((await jsonRequest(origin, '/api/project-chat/name-claims', {
+        body: JSON.stringify({name:'Athena',category:'mythology'}),
+        headers: agentHeaders,
+        method: 'POST'
+      })).status).toBe(200);
       const agentJoin = await jsonRequest(origin, '/api/project-chat/join', {
-        body: JSON.stringify({ displayName: 'Mira', taskTitle: 'Project Chat' }),
+        body: JSON.stringify({ displayName: 'Athena', taskTitle: 'Project Chat' }),
         headers: agentHeaders,
         method: 'POST'
       });
       expect(agentJoin.status).toBe(200);
       expect(agentJoin.body).toMatchObject({
         member: {
-          displayName: 'Mira',
+          displayName: 'Athena',
           origin: {
             hostId: 'os-macbook',
             machineId: 'machine-one',
@@ -168,7 +173,7 @@ describe('Project Chat production runtime', () => {
       expect(sent.body).toMatchObject({
         message: {
           mentions: [{ handle: 'olli' }],
-          sender: { displayName: 'Mira', role: 'agent' }
+          sender: { displayName: 'Athena', role: 'agent', agentName:{name:'Athena',category:'mythology',displayName:'Athena'} }
         }
       });
 

@@ -95,21 +95,29 @@ async function expectCode(promise: Promise<unknown>, code: ProjectChatError['cod
   throw new Error(`Expected ProjectChatError ${code}.`);
 }
 
+async function joinAgent(
+  service: ProjectChatService,
+  context: ProjectChatContext,
+  taskTitle?: string,
+  name: 'Athena' | 'Hermes' = 'Athena'
+) {
+  const result = await service.claimName(context, { name, category: 'mythology' });
+  const member = taskTitle ? await service.updatePresence(context, {state:'working',taskTitle}) : result.member;
+  return { member, channel: {channelId:'general',displayName:'General',description:'Human and agent coordination',createdAt:'2026-07-11T00:00:00.000Z'} };
+}
+
 describe('Project Chat service identity and membership', () => {
   test('derives human, agent, and system roles from trusted actors', async () => {
     const { service } = setup();
     const human = await service.join(humanContext);
     const miraContext = agentContext('mira');
-    const agent = await service.join(miraContext, {
-      displayName: 'Mira',
-      taskTitle: 'Build Project Chat'
-    });
+    const agent = await joinAgent(service, miraContext, 'Build Project Chat');
     const system = await service.join(systemContext);
 
     expect(human.member).toMatchObject({ displayName: 'Olli', handle: 'olli', role: 'human' });
     expect(agent.member).toMatchObject({
-      displayName: 'Mira',
-      handle: 'mira',
+      displayName: 'Athena',
+      handle: 'athena',
       role: 'agent',
       origin: {
         hostId: 'host-mira',
@@ -137,7 +145,7 @@ describe('Project Chat service identity and membership', () => {
       hostId: 'other-host'
     } as never), 'invalid_request');
 
-    await service.join(context, { displayName: 'Mira' });
+    await joinAgent(service, context);
     await expectCode(service.sendMessage(context, {
       body: 'hello',
       idempotencyKey: 'authority-attempt',
@@ -174,9 +182,9 @@ describe('Project Chat service identity and membership', () => {
 
   test('keeps mention handles unique across different actors', async () => {
     const { service } = setup();
-    await service.join(agentContext('one'), { displayName: 'Mira' });
+    await joinAgent(service, agentContext('one'));
     await expectCode(
-      service.join(agentContext('two'), { displayName: 'MIRA' }),
+      service.claimName(agentContext('two'), {name:'Athena',category:'mythology'}),
       'name_conflict'
     );
   });
@@ -187,14 +195,14 @@ describe('Project Chat service messages and cursors', () => {
     const { service } = setup();
     await service.join(humanContext);
     const miraContext = agentContext('mira');
-    await service.join(miraContext, { displayName: 'Mira' });
+    await joinAgent(service, miraContext);
 
     const message = await service.sendMessage(miraContext, {
       body: 'Ready for @OLLI, not @unknown.',
       idempotencyKey: 'mention-1'
     });
     expect(message.sequence).toBe(1);
-    expect(message.sender).toMatchObject({ role: 'agent', handle: 'mira' });
+    expect(message.sender).toMatchObject({ role: 'agent', handle: 'athena', agentName:{name:'Athena',category:'mythology',displayName:'Athena'} });
     expect(message.mentions).toEqual([
       expect.objectContaining({ displayName: 'Olli', handle: 'olli' })
     ]);
@@ -217,7 +225,7 @@ describe('Project Chat service messages and cursors', () => {
   test('deduplicates retries and rejects key reuse with different content', async () => {
     const { service } = setup();
     const context = agentContext('mira');
-    await service.join(context, { displayName: 'Mira' });
+    await joinAgent(service, context);
     const first = await service.sendMessage(context, {
       body: 'same',
       idempotencyKey: 'same-key'
@@ -237,7 +245,7 @@ describe('Project Chat service messages and cursors', () => {
   test('deduplicates concurrent retries using one idempotency key', async () => {
     const { service } = setup({ sendLimit: 200 });
     const context = agentContext('mira');
-    await service.join(context, { displayName: 'Mira' });
+    await joinAgent(service, context);
     const sent = await Promise.all(Array.from({ length: 20 }, () => service.sendMessage(context, {
       body: 'one logical message',
       idempotencyKey: 'concurrent-retry'
@@ -250,7 +258,7 @@ describe('Project Chat service messages and cursors', () => {
   test('keeps all 100 concurrent sends unique and monotonically ordered', async () => {
     const { service } = setup({ sendLimit: 200 });
     const context = agentContext('mira');
-    await service.join(context, { displayName: 'Mira' });
+    await joinAgent(service, context);
     const sent = await Promise.all(Array.from({ length: 100 }, (_, index) =>
       service.sendMessage(context, {
         body: `message ${index}`,
@@ -269,7 +277,7 @@ describe('Project Chat service messages and cursors', () => {
   test('paginates by sequence and refuses acknowledgements beyond the channel head', async () => {
     const { service } = setup();
     const context = agentContext('mira');
-    await service.join(context, { displayName: 'Mira' });
+    await joinAgent(service, context);
     for (let index = 1; index <= 3; index += 1) {
       await service.sendMessage(context, {
         body: `page ${index}`,
@@ -290,7 +298,7 @@ describe('Project Chat service messages and cursors', () => {
   test('stores plain text only and normalizes line endings', async () => {
     const { service } = setup();
     const context = agentContext('mira');
-    await service.join(context, { displayName: 'Mira' });
+    await joinAgent(service, context);
     const message = await service.sendMessage(context, {
       body: '<strong>literal text</strong>\r\nnext line',
       idempotencyKey: 'plain-text'
@@ -301,7 +309,7 @@ describe('Project Chat service messages and cursors', () => {
   test('rejects unsupported channels, control characters, and oversized bodies', async () => {
     const { service } = setup();
     const context = agentContext('mira');
-    await service.join(context, { displayName: 'Mira' });
+    await joinAgent(service, context);
     await expectCode(service.sendMessage(context, {
       channelId: 'private',
       body: 'hello',
@@ -329,7 +337,7 @@ describe('Project Chat service lifecycle and abuse protection', () => {
   test('marks stale presence offline and accepts bounded agent task updates', async () => {
     const { clock, service } = setup();
     const context = agentContext('mira');
-    await service.join(context, { displayName: 'Mira', taskTitle: 'Initial task' });
+    await joinAgent(service, context, 'Initial task');
     const idle = await service.updatePresence(context, {
       state: 'idle',
       taskTitle: 'Waiting for main'
@@ -351,7 +359,7 @@ describe('Project Chat service lifecycle and abuse protection', () => {
   test('filters and purges expired messages while preserving channel sequence', async () => {
     const { clock, repository, service } = setup();
     const context = agentContext('mira');
-    await service.join(context, { displayName: 'Mira' });
+    await joinAgent(service, context);
     await service.sendMessage(context, { body: 'temporary', idempotencyKey: 'retained-key' });
     clock.advance(PROJECT_CHAT_DEFAULT_RETENTION_MS + 1);
 
@@ -371,7 +379,7 @@ describe('Project Chat service lifecycle and abuse protection', () => {
   test('rate limits sends with a deterministic retry interval', async () => {
     const { clock, service } = setup({ sendLimit: 2 });
     const context = agentContext('mira');
-    await service.join(context, { displayName: 'Mira' });
+    await joinAgent(service, context);
     await service.sendMessage(context, { body: 'one', idempotencyKey: 'limit-1' });
     await service.sendMessage(context, { body: 'two', idempotencyKey: 'limit-2' });
     const error = await expectCode(service.sendMessage(context, {
@@ -399,7 +407,7 @@ describe('Project Chat service lifecycle and abuse protection', () => {
       }
     });
     const context = agentContext('mira');
-    await service.join(context, { displayName: 'Mira' });
+    await joinAgent(service, context);
     await expectCode(service.join(context, { displayName: 'Mira' }), 'rate_limited');
 
     await service.updatePresence(context, { state: 'working' });
@@ -422,14 +430,14 @@ describe('Project Chat service lifecycle and abuse protection', () => {
       ...first,
       actor: { ...first.actor, threadId: '019f49e1-cc3d-7243-bc12-75c74c786457' }
     } as ProjectChatContext;
-    await service.join(first, { displayName: 'Mira' });
+    await service.claimName(first, {name:'Athena',category:'mythology'});
     await expectCode(service.join(rotated, { displayName: 'Nova' }), 'rate_limited');
   });
 
   test('malformed send attempts consume the same abuse quota', async () => {
     const { service } = setup({ sendLimit: 1 });
     const context = agentContext('mira');
-    await service.join(context, { displayName: 'Mira' });
+    await joinAgent(service, context);
     await expectCode(service.sendMessage(context, {
       body: '', idempotencyKey: 'invalid-first'
     }), 'invalid_request');

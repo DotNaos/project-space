@@ -23,6 +23,8 @@ const (
 	presencePath         = "/api/project-chat/presence"
 	messagesPath         = "/api/project-chat/messages"
 	acknowledgementPath  = "/api/project-chat/ack"
+	namesPath            = "/api/project-chat/names"
+	nameClaimsPath       = "/api/project-chat/name-claims"
 )
 
 type Config struct {
@@ -30,6 +32,59 @@ type Config struct {
 	HTTPClient         *http.Client
 	CredentialProvider CredentialProvider
 	MachineID          string
+}
+
+func (client *Client) ListNames(ctx context.Context, threadID string) (NameCatalog, error) {
+	if err := validateThreadID(threadID); err != nil {
+		return NameCatalog{}, err
+	}
+	response := NameCatalog{}
+	if err := client.doJSON(ctx, http.MethodGet, namesPath, nil, threadID, "", nil, &response); err != nil {
+		return NameCatalog{}, err
+	}
+	if !validNameCatalog(response) {
+		return NameCatalog{}, ErrInvalidResponse
+	}
+	return response, nil
+}
+
+func (client *Client) ClaimName(ctx context.Context, threadID, name string, category NameCategory, parentThreadID string) (NameClaim, error) {
+	if validateThreadID(threadID) != nil || name == "" || !validNameCategory(category) {
+		return NameClaim{}, ErrInvalidRequest
+	}
+	if parentThreadID != "" && validateThreadID(parentThreadID) != nil {
+		return NameClaim{}, ErrInvalidRequest
+	}
+	response := nameClaimResponse{}
+	request := nameClaimRequest{Name: name, Category: category, ParentThreadID: parentThreadID}
+	if err := client.doJSON(ctx, http.MethodPost, nameClaimsPath, nil, threadID, "", request, &response); err != nil {
+		return NameClaim{}, err
+	}
+	if response.Claim.ThreadID != threadID || response.Claim.Name == "" || response.Claim.DisplayName == "" || !validNameCategory(response.Claim.Category) {
+		return NameClaim{}, ErrInvalidResponse
+	}
+	return response.Claim, nil
+}
+
+func validNameCategory(category NameCategory) bool {
+	return category == NameCategoryMythology || category == NameCategoryArtist || category == NameCategoryScience || category == NameCategoryDetective
+}
+
+func validNameCatalog(catalog NameCatalog) bool {
+	if len(catalog.Groups) == 0 {
+		return false
+	}
+	for _, group := range catalog.Groups {
+		if !validNameCategory(group.Category) {
+			return false
+		}
+		for _, entry := range group.Names {
+			if entry.Name == "" || entry.Category != group.Category || (entry.State != "available" && entry.State != "claimed" && entry.State != "reserved") {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 type Client struct {

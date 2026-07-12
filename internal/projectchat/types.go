@@ -24,8 +24,47 @@ func (provider ThreadIdentityProviderFunc) ThreadID(ctx context.Context) (string
 }
 
 type AgentProfile struct {
-	DisplayName string
-	TaskTitle   string
+	DisplayName    string       `json:"displayName"`
+	TaskTitle      string       `json:"taskTitle,omitempty"`
+	Category       NameCategory `json:"category,omitempty"`
+	ParentThreadID string       `json:"parentThreadId,omitempty"`
+	RegistryClaim  bool         `json:"registryClaim,omitempty"`
+}
+
+type NameCategory string
+
+const (
+	NameCategoryMythology NameCategory = "mythology"
+	NameCategoryArtist    NameCategory = "artist"
+	NameCategoryScience   NameCategory = "science"
+	NameCategoryDetective NameCategory = "detective"
+)
+
+type NameEntry struct {
+	Name                   string       `json:"name"`
+	Category               NameCategory `json:"category"`
+	State                  string       `json:"state"`
+	ClaimedByCurrentThread bool         `json:"claimedByCurrentThread,omitempty"`
+}
+
+type NameGroup struct {
+	Category NameCategory `json:"category"`
+	Names    []NameEntry  `json:"names"`
+}
+type NameCatalog struct {
+	Groups []NameGroup `json:"groups"`
+}
+type NameClaim struct {
+	Name           string       `json:"name"`
+	DisplayName    string       `json:"displayName"`
+	Category       NameCategory `json:"category"`
+	ThreadID       string       `json:"threadId"`
+	ParentThreadID string       `json:"parentThreadId,omitempty"`
+}
+
+type NameRegistryClient interface {
+	ListNames(context.Context, string) (NameCatalog, error)
+	ClaimName(context.Context, string, string, NameCategory, string) (NameClaim, error)
 }
 
 type AgentProfileProvider interface {

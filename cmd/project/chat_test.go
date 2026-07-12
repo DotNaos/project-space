@@ -124,51 +124,39 @@ func TestChatCommandsRequireRegisteredAgentName(t *testing.T) {
 	}
 }
 
-func TestChatNamePersistsHumanNameForCurrentThread(t *testing.T) {
+func TestChatClaimPersistsCanonicalServerClaimForCurrentThread(t *testing.T) {
 	store := &projectchat.FileAgentProfileStore{Path: t.TempDir() + "/profiles.json"}
-	client := &fakeProjectChatClient{sendResult: chatTestMessage(1, "hello")}
+	client := &fakeProjectChatClient{}
 	dependencies := chatTestDependencies(client)
 	dependencies.ProfileStore = store
-	dependencies.ProfileProvider = projectchat.AgentProfileProviderFunc(func(context.Context) (projectchat.AgentProfile, error) {
-		return projectchat.AgentProfile{DisplayName: "Environment Name", TaskTitle: "Realtime chat"}, nil
-	})
+	dependencies.Registry = fakeNameRegistryClient{catalog: testNameCatalog(), claim: projectchat.NameClaim{Name: "Athena", DisplayName: "Athena", Category: projectchat.NameCategoryMythology, ThreadID: chatTestThreadID}}
 
 	nameCommand := newChatCommand(dependencies)
 	nameOutput := &bytes.Buffer{}
-	nameCommand.SetArgs([]string{"name", "Nora"})
+	nameCommand.SetArgs([]string{"claim", "Athena"})
 	nameCommand.SetOut(nameOutput)
 	nameCommand.SetErr(&bytes.Buffer{})
 	if err := nameCommand.Execute(); err != nil {
 		t.Fatalf("name command: %v", err)
 	}
-	if !strings.Contains(nameOutput.String(), "Nora") {
+	if !strings.Contains(nameOutput.String(), "Athena") {
 		t.Fatalf("name output = %q", nameOutput.String())
-	}
-
-	sendCommand := newChatCommand(dependencies)
-	sendCommand.SetArgs([]string{"send", "hello"})
-	sendCommand.SetOut(&bytes.Buffer{})
-	sendCommand.SetErr(&bytes.Buffer{})
-	if err := sendCommand.Execute(); err != nil {
-		t.Fatalf("send command: %v", err)
-	}
-	if got := client.lastPresenceProfile(); got.DisplayName != "Nora" || got.TaskTitle != "Realtime chat" {
-		t.Fatalf("stored profile = %#v", got)
 	}
 	stored, err := store.Load(chatTestThreadID)
 	if err != nil {
 		t.Fatalf("load stored profile: %v", err)
 	}
-	if stored.DisplayName != "Nora" || stored.TaskTitle != "" {
-		t.Fatalf("persisted profile = %#v, want durable name without task title", stored)
+	if stored.DisplayName != "Athena" || !stored.RegistryClaim || stored.Category != projectchat.NameCategoryMythology {
+		t.Fatalf("persisted profile = %#v, want canonical registry claim", stored)
 	}
 }
 
-func TestChatNameRejectsCodex(t *testing.T) {
+func TestChatClaimRejectsUnlistedName(t *testing.T) {
 	dependencies := chatTestDependencies(&fakeProjectChatClient{})
 	dependencies.ProfileStore = &projectchat.FileAgentProfileStore{Path: t.TempDir() + "/profiles.json"}
+	dependencies.Registry = fakeNameRegistryClient{catalog: testNameCatalog()}
 	command := newChatCommand(dependencies)
-	command.SetArgs([]string{"name", "Codex"})
+	command.SetArgs([]string{"claim", "Codex"})
 	command.SetOut(&bytes.Buffer{})
 	command.SetErr(&bytes.Buffer{})
 
@@ -186,7 +174,7 @@ func TestChatHelpIncludesAgentManual(t *testing.T) {
 	if err := command.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"Agent manual:", "project chat name Nora", "CODEX_THREAD_ID", "Do not use \"Codex\""} {
+	for _, expected := range []string{"Agent manual:", "project chat names", "project chat claim Athena", "--parent-thread", "CODEX_THREAD_ID"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("help does not contain %q:\n%s", expected, output.String())
 		}
@@ -378,19 +366,39 @@ type fakeProjectChatClient struct {
 	acknowledged      []uint64
 	beforeAcknowledge func() error
 	joinCalls         int
+	joinProfile       projectchat.AgentProfile
 	presenceCalls     int
 	presenceProfile   projectchat.AgentProfile
 	presenceError     error
 }
 
+type fakeNameRegistryClient struct {
+	catalog projectchat.NameCatalog
+	claim   projectchat.NameClaim
+	err     error
+}
+
+func (client fakeNameRegistryClient) ListNames(context.Context, string) (projectchat.NameCatalog, error) {
+	return client.catalog, client.err
+}
+
+func (client fakeNameRegistryClient) ClaimName(context.Context, string, string, projectchat.NameCategory, string) (projectchat.NameClaim, error) {
+	return client.claim, client.err
+}
+
+func testNameCatalog() projectchat.NameCatalog {
+	return projectchat.NameCatalog{Groups: []projectchat.NameGroup{{Category: projectchat.NameCategoryMythology, Names: []projectchat.NameEntry{{Name: "Athena", Category: projectchat.NameCategoryMythology, State: "available"}}}}}
+}
+
 func (client *fakeProjectChatClient) Join(
 	_ context.Context,
 	_ string,
-	_ projectchat.AgentProfile,
+	profile projectchat.AgentProfile,
 ) error {
 	client.mu.Lock()
 	defer client.mu.Unlock()
 	client.joinCalls++
+	client.joinProfile = profile
 	return nil
 }
 

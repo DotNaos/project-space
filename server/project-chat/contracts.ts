@@ -63,6 +63,13 @@ export interface ProjectChatJoinInput {
   taskTitle?: string;
 }
 
+export interface ProjectChatNameClaimInput { name: string; category: import('./name-registry').ProjectChatNameCategory; parentThreadId?: string; }
+export interface ProjectChatNameClaimRecord {
+  spaceId: string; accountId: string; threadId: string; actorKey: string;
+  nameKey: string; displayName: string; category: import('./name-registry').ProjectChatNameCategory;
+  parentThreadId?: string; claimedAt: string; updatedAt: string;
+}
+
 export interface ProjectChatPresenceInput {
   state: ProjectChatLivePresenceState;
   /** `null` explicitly clears a previously stored agent task title. */
@@ -110,6 +117,7 @@ export interface ProjectChatSender {
   displayName: string;
   handle: string;
   role: ProjectChatRole;
+  agentName?: ProjectChatAgentName;
   origin?: ProjectChatOrigin;
 }
 
@@ -142,6 +150,7 @@ export interface ProjectChatMember {
   handle: string;
   avatarUrl?: string;
   role: ProjectChatRole;
+  agentName?: ProjectChatAgentName;
   origin?: ProjectChatOrigin;
   presence: ProjectChatPresence;
   joinedAt: string;
@@ -227,12 +236,14 @@ export interface ProjectChatMemberRecord {
   handle: string;
   avatarUrl?: string;
   role: ProjectChatRole;
+  agentName?: ProjectChatAgentName;
   origin?: ProjectChatOrigin;
   /** Monotonic guard that prevents stale human joins from replacing a newer profile. */
   profileRevision?: number;
   joinedAt: string;
   updatedAt: string;
 }
+export interface ProjectChatAgentName { name:string; category:import('./name-registry').ProjectChatNameCategory; displayName:string; parentThreadId?:string; }
 
 export interface ProjectChatHumanProfileRecord {
   accountId: string;

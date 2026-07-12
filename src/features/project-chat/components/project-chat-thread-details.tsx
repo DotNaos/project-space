@@ -8,6 +8,7 @@ import {
   effectiveProjectChatPresence,
   formatProjectChatActivity,
   projectChatPresenceLabel,
+  projectChatAgentNameIdentity,
   projectChatThreadParticipants,
   shortProjectChatId,
   type ProjectChatThreadSummary
@@ -65,6 +66,7 @@ export function ProjectChatThreadDetails({
   const presence = member ? effectiveProjectChatPresence(member, now) : 'offline';
   const participants = projectChatThreadParticipants(messages, members, thread);
   const threadMemberName = member?.displayName ?? thread.memberName;
+  const memberAgentName = projectChatAgentNameIdentity(member);
 
   return (
     <aside className="flex h-full min-h-0 flex-col border-l border-neutral-800/80 bg-neutral-950/65">
@@ -84,7 +86,14 @@ export function ProjectChatThreadDetails({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
         <div className="flex items-center gap-3">
-          <ParticipantVisual active={presence === 'working'} role="agent" selected size={42} />
+          <ParticipantVisual
+            active={presence === 'working'}
+            agentCategory={memberAgentName?.category}
+            agentName={memberAgentName?.name}
+            role="agent"
+            selected
+            size={42}
+          />
           <div className="min-w-0">
             <Text as="h2" className="truncate text-sm font-semibold text-neutral-100">{threadMemberName}</Text>
             <span className="mt-1 flex items-center gap-1.5 text-[9px] text-neutral-400">
@@ -114,9 +123,13 @@ export function ProjectChatThreadDetails({
         <div className="border-t border-neutral-900 pt-4">
           <Text className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">Participants</Text>
           <div className="mt-3 space-y-2.5">
-            {participants.map((participant) => (
+            {participants.map((participant) => {
+              const agentName = projectChatAgentNameIdentity(participant);
+              return (
               <div className="flex items-center gap-2.5" key={participant.memberId}>
                 <ParticipantVisual
+                  agentCategory={agentName?.category}
+                  agentName={agentName?.name}
                   avatarUrl={participant.avatarUrl}
                   displayName={participant.displayName}
                   role={participant.role}
@@ -125,7 +138,8 @@ export function ProjectChatThreadDetails({
                 <Text className="min-w-0 flex-1 truncate text-[10px] text-neutral-400">{participant.displayName}</Text>
                 <Text className="text-[10px] capitalize text-neutral-400">{participant.role}</Text>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

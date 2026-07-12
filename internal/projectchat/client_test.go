@@ -20,6 +20,40 @@ const (
 	testMachineID = "machine-1"
 )
 
+func TestClientListsAndClaimsRegistryNamesWithTrustedHeaders(t *testing.T) {
+	parentThreadID := "019f49e1-cc3d-7243-bc12-75c74c786458"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get(threadIDHeader) != testThreadID || request.Header.Get(machineIDHeader) != testMachineID {
+			t.Fatalf("missing trusted identity headers")
+		}
+		switch request.Method + " " + request.URL.Path {
+		case "GET " + namesPath:
+			writeJSON(t, writer, http.StatusOK, NameCatalog{Groups: []NameGroup{{Category: NameCategoryScience, Names: []NameEntry{{Name: "Turing", Category: NameCategoryScience, State: "available"}}}}})
+		case "POST " + nameClaimsPath:
+			body := nameClaimRequest{}
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body.Name != "Turing" || body.Category != NameCategoryScience || body.ParentThreadID != parentThreadID {
+				t.Fatalf("claim body = %#v", body)
+			}
+			writeJSON(t, writer, http.StatusCreated, nameClaimResponse{Claim: NameClaim{Name: "Turing", DisplayName: "Athena.Turing", Category: NameCategoryScience, ThreadID: testThreadID, ParentThreadID: parentThreadID}})
+		default:
+			t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+	client := newTestClient(t, server)
+	catalog, err := client.ListNames(context.Background(), testThreadID)
+	if err != nil || catalog.Groups[0].Names[0].Name != "Turing" {
+		t.Fatalf("ListNames() = %#v, %v", catalog, err)
+	}
+	claim, err := client.ClaimName(context.Background(), testThreadID, "Turing", NameCategoryScience, parentThreadID)
+	if err != nil || claim.ParentThreadID != parentThreadID {
+		t.Fatalf("ClaimName() = %#v, %v", claim, err)
+	}
+}
+
 func TestClientSendUsesVerifiedHeadersAndIdempotencyKey(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost || request.URL.Path != messagesPath {

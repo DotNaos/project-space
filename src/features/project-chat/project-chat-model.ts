@@ -6,6 +6,7 @@ import type {
   ProjectChatProfileUpdateRequest,
   ProjectChatSenderRecord
 } from '@/shared/project-chat-api';
+import type { ProjectChatAgentAvatarCategory } from './project-chat-agent-avatar';
 
 export const PROJECT_CHAT_MAX_DISPLAY_NAME_LENGTH = 48;
 
@@ -13,6 +14,47 @@ export type ProjectChatAvatarUpdate = string | null | undefined;
 
 export interface ProjectChatParticipantIdentity extends ProjectChatSenderRecord {
   avatarUrl?: string;
+}
+
+export interface ProjectChatAgentNameIdentity {
+  category: ProjectChatAgentAvatarCategory;
+  displayName: string;
+  name: string;
+}
+
+export function projectChatAgentNameIdentity(value: unknown): ProjectChatAgentNameIdentity | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  const nested = record.agentName;
+  if (!nested || typeof nested !== 'object') {
+    const flatCategory = record.category;
+    const displayName = typeof record.displayName === 'string' ? record.displayName.trim() : '';
+    const category = flatCategory === 'scientist' ? 'science' : flatCategory;
+    if (
+      !displayName
+      || !['artist', 'detective', 'gradient', 'mythology', 'science'].includes(String(category))
+    ) return undefined;
+    return {
+      category: category as ProjectChatAgentAvatarCategory,
+      displayName,
+      name: displayName.split('.').at(-1) ?? displayName
+    };
+  }
+  const agentName = nested as Record<string, unknown>;
+  const name = typeof agentName.name === 'string' ? agentName.name.trim() : '';
+  const displayName = typeof agentName.displayName === 'string'
+    ? agentName.displayName.trim()
+    : name;
+  const rawCategory = agentName.category;
+  const category = rawCategory === 'scientist' ? 'science' : rawCategory;
+  if (
+    !name
+    || !displayName
+    || !['artist', 'detective', 'gradient', 'mythology', 'science'].includes(String(category))
+  ) {
+    return undefined;
+  }
+  return { category: category as ProjectChatAgentAvatarCategory, displayName, name };
 }
 
 export interface ProjectChatProfileGenerationGuard {
@@ -253,12 +295,8 @@ export function projectChatThreadParticipants(
     }
 
     return {
+      ...current,
       avatarUrl: current.role === 'human' ? current.avatarUrl : undefined,
-      displayName: current.displayName,
-      handle: current.handle,
-      memberId: current.memberId,
-      origin: current.origin,
-      role: current.role
     } satisfies ProjectChatParticipantIdentity;
   });
 }

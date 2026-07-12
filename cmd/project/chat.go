@@ -23,6 +23,7 @@ type chatCommandDependencies struct {
 	ProfileProvider   projectchat.AgentProfileProvider
 	ProfileStore      projectchat.AgentProfileStore
 	Client            projectchat.ClientAPI
+	Registry          projectchat.NameRegistryClient
 	NewIdempotencyKey func() (string, error)
 }
 
@@ -36,46 +37,23 @@ func newChatCommand(dependencies chatCommandDependencies) *cobra.Command {
 		Long: `Coordinate with people and agents through Project Chat.
 
 Agent manual:
-  1. Choose a short human name for yourself. Do not use "Codex".
-  2. Register it once for the current Codex thread:
-       project chat name Nora
+  1. Discover names and their current state:
+       project chat names
+  2. A main agent claims a mythology name:
+       project chat claim Athena
+     A specialist claims an artist, science, or detective name and identifies
+     its parent main-agent thread:
+       project chat claim Turing --parent-thread <thread-id>
   3. Use "project chat read" and "project chat send <message>" normally.
 
-The CLI stores the name together with CODEX_THREAD_ID and reuses it only for
-that thread. A different Codex thread chooses and registers its own name.`,
+The server enforces availability, role, account, and project scope. The CLI
+stores only the canonical successful claim for CODEX_THREAD_ID.`,
 	}
-	cmd.AddCommand(newChatNameCommand(dependencies))
+	cmd.AddCommand(newChatNamesCommand(dependencies))
+	cmd.AddCommand(newChatClaimCommand(dependencies))
 	cmd.AddCommand(newChatSendCommand(dependencies))
 	cmd.AddCommand(newChatReadCommand(dependencies))
 	return cmd
-}
-
-func newChatNameCommand(dependencies chatCommandDependencies) *cobra.Command {
-	return &cobra.Command{
-		Use:   "name <human-name>",
-		Short: "Choose and remember this agent's name for the current Codex thread",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if dependencies.IdentityProvider == nil {
-				return projectchat.ErrMissingThreadID
-			}
-			threadID, err := dependencies.IdentityProvider.ThreadID(cmd.Context())
-			if err != nil {
-				return err
-			}
-			profile := projectchat.AgentProfile{DisplayName: strings.TrimSpace(args[0])}
-			if !projectchat.ValidAgentProfile(profile) {
-				return projectchat.ErrInvalidAgentName
-			}
-			if dependencies.ProfileStore == nil {
-				return projectchat.ErrUnavailable
-			}
-			if err := dependencies.ProfileStore.Save(threadID, profile); err != nil {
-				return err
-			}
-			return writeChatOutput(cmd.OutOrStdout(), []byte(fmt.Sprintf("Project Chat name saved as %s for this Codex thread.\n", profile.DisplayName)))
-		},
-	}
 }
 
 func newChatSendCommand(dependencies chatCommandDependencies) *cobra.Command {
@@ -147,6 +125,9 @@ func chatAgentContext(
 	if dependencies.ProfileStore != nil {
 		storedProfile, loadErr := dependencies.ProfileStore.Load(threadID)
 		if loadErr == nil {
+			if !storedProfile.RegistryClaim {
+				return "", projectchat.AgentProfile{}, projectchat.ErrNameClaimRequired
+			}
 			if dependencies.ProfileProvider != nil {
 				if environmentProfile, profileErr := dependencies.ProfileProvider.AgentProfile(ctx); profileErr == nil {
 					storedProfile.TaskTitle = environmentProfile.TaskTitle
@@ -157,7 +138,11 @@ func chatAgentContext(
 		if !errors.Is(loadErr, projectchat.ErrAgentProfileNotFound) {
 			return "", projectchat.AgentProfile{}, loadErr
 		}
+		return "", projectchat.AgentProfile{}, projectchat.ErrNameClaimRequired
 	}
+	// A nil store is supported for focused command tests and embedders. The
+	// production runtime always supplies a store and therefore cannot use an
+	// environment name to bypass a registry claim.
 	if dependencies.ProfileProvider == nil {
 		return "", projectchat.AgentProfile{}, projectchat.ErrMissingAgentName
 	}

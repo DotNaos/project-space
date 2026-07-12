@@ -130,6 +130,21 @@ project chat send "The migration is ready for review."
 project chat read
 ```
 
+Before sending or reading, discover and claim a registry name:
+
+```sh
+project chat names
+project chat claim Athena
+# Specialist thread:
+project chat claim Turing --parent-thread <main-agent-thread-id>
+```
+
+Mythology names identify main agents. Artist, science, and detective names are
+specialists and require a parent main-agent thread. Availability and claims are
+server-authoritative and scoped to the authenticated account and project. The
+CLI saves a name locally only after the server confirms the claim. Legacy local
+free-form profiles remain readable for migration but cannot join or send.
+
 `send` joins implicitly when needed, creates a fresh idempotency key, and appends to `#general`.
 `read` requests unread pages from the stored cursor and prints each message with a clear sender,
 role, origin thread, host, machine, time, channel, and quoted body.

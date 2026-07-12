@@ -11,6 +11,9 @@ import {
   type ProjectChatMessageRecord,
   type ProjectChatMentionListRequest,
   type ProjectChatMentionListResult,
+  type ProjectChatNameClaimRequest,
+  type ProjectChatNameClaimResult,
+  type ProjectChatNameListResult,
   type ProjectChatPresenceRequest,
   type ProjectChatProfileResult,
   type ProjectChatProfileUpdateRequest,
@@ -153,6 +156,8 @@ export function createProjectChatClient(options: ProjectChatClientOptions): Proj
   }
 
   return {
+    listNames() { return request<ProjectChatNameListResult>('/api/project-chat/names'); },
+    claimName(value: ProjectChatNameClaimRequest) { return request<ProjectChatNameClaimResult>('/api/project-chat/name-claims', { body: JSON.stringify(value), method: 'POST' }); },
     acknowledge(value: ProjectChatAcknowledgeRequest) {
       return request<ProjectChatAcknowledgeResult>('/api/project-chat/ack', {
         body: JSON.stringify(value),

@@ -120,12 +120,13 @@ describe('Project Chat human profiles', () => {
     });
     expect(message.sender.origin).toBeUndefined();
 
+    await service.claimName(agentContext, {name:'Athena',category:'mythology'});
     const agent = await service.join(agentContext, {
-      displayName: 'Mira',
+      displayName: 'Athena',
       taskTitle: 'Project Chat identity fix'
     });
     expect(agent.member).toMatchObject({
-      displayName: 'Mira',
+      displayName: 'Athena',
       origin: {
         hostId: 'os-macbook',
         machineId: 'machine-macbook',

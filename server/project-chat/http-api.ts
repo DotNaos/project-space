@@ -7,6 +7,7 @@ import {
   type ProjectChatErrorCode,
   type ProjectChatJoinInput,
   type ProjectChatMentionStateInput,
+  type ProjectChatNameClaimInput,
   type ProjectChatPresenceInput,
   type ProjectChatProfileUpdateInput,
   type ProjectChatReadInput,
@@ -29,6 +30,8 @@ type ProjectChatRoute =
   | 'join'
   | 'members'
   | 'mentions'
+  | 'names'
+  | 'name-claim'
   | 'presence'
   | 'profile-get'
   | 'profile-update'
@@ -125,6 +128,8 @@ async function handleRoute(
         context,
         queryInput(url) as unknown as ProjectChatMentionStateInput
       );
+    case 'names': return service.listNames(context);
+    case 'name-claim': return service.claimName(context, await readJsonObject<ProjectChatNameClaimInput>(request));
     case 'presence':
       return service.updatePresence(
         context,
@@ -165,6 +170,8 @@ function projectChatRoute(method: string | undefined, pathname: string): Project
       return 'members';
     case 'GET /api/project-chat/mentions':
       return 'mentions';
+    case 'GET /api/project-chat/names': return 'names';
+    case 'POST /api/project-chat/name-claims': return 'name-claim';
     case 'POST /api/project-chat/presence':
       return 'presence';
     case 'GET /api/project-chat/profile':
