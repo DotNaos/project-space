@@ -332,10 +332,27 @@ function hasWorktree(value: unknown) {
   return (
     isRecord(value) &&
     typeof value.id === 'string' &&
+    /^wt_[a-f0-9]{24}$/.test(value.id) &&
     typeof value.name === 'string' &&
     typeof value.path === 'string' &&
+    (value.branchName === undefined || typeof value.branchName === 'string') &&
+    typeof value.detached === 'boolean' &&
+    value.detached === (value.branchName === undefined) &&
+    (value.headSha === undefined ||
+      (typeof value.headSha === 'string' && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value.headSha))) &&
     typeof value.isBase === 'boolean' &&
-    (value.status === 'ready' || value.status === 'broken')
+    (value.kind === 'project-managed' || value.kind === 'codex' || value.kind === 'external') &&
+    typeof value.locked === 'boolean' &&
+    (value.lockedReason === undefined || typeof value.lockedReason === 'string') &&
+    typeof value.prunable === 'boolean' &&
+    (value.prunableReason === undefined || typeof value.prunableReason === 'string') &&
+    (value.status === 'ready' ||
+      value.status === 'locked' ||
+      value.status === 'prunable' ||
+      value.status === 'missing' ||
+      value.status === 'broken' ||
+      value.status === 'unavailable') &&
+    (value.statusReason === undefined || typeof value.statusReason === 'string')
   );
 }
 

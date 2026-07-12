@@ -5,8 +5,8 @@ description: The isolated branch and worktree workflow used by Codex chats.
 
 # Codex Worktree Ownership
 
-Repository changes never run in the shared `main` worktree. Each Codex chat
-uses a dedicated branch and a Project-managed worktree under:
+Repository changes never run in the shared `main` worktree. Worktrees created
+through the Project CLI use a dedicated branch and the Project-managed layout:
 
 ```text
 ~/projects/.worktrees/{project}/{branch}
@@ -14,6 +14,40 @@ uses a dedicated branch and a Project-managed worktree under:
 
 GitHub issues are recommended for larger tasks, but they are optional. A branch
 and an isolated worktree are required for every repository mutation.
+
+Codex Desktop creates and owns its own machine-local worktrees separately. The
+recommended root is:
+
+```text
+~/projects/.codex-worktrees
+```
+
+Project Space does not read, write, or require Codex configuration. Changing the
+Codex Desktop root affects newly created Codex worktrees only; existing
+worktrees are not moved.
+
+## Discovery And Identity
+
+Project Space discovers worktrees from `git worktree list --porcelain`, using
+the selected repository's Git metadata as the source of truth. Every registered
+worktree is included regardless of whether its path looks Project-managed,
+Codex-created, or external. Directory scans never create actionable worktree
+records.
+
+Paths classify rows for display only. They are not browser-facing identities.
+Each machine derives an opaque worktree ID from Git's own linked-worktree
+registration and resolves that ID again locally before an action can use the
+path. This keeps detached worktrees distinct even when they share a commit or
+final directory name.
+
+Registered state is reported honestly:
+
+- a branch is present only when Git reports a real local branch;
+- detached worktrees show their exact HEAD commit and a neutral label;
+- locked and prunable annotations are preserved with their reasons;
+- missing, broken, and unavailable registrations remain visible but are not
+  actionable;
+- only worktrees with `ready` status can be used for actions.
 
 ## Start Without An Issue
 

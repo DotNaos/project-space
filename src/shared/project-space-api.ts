@@ -199,8 +199,16 @@ export interface ProjectWorktreeRecord {
   name: string;
   path: string;
   branchName?: string;
+  detached: boolean;
+  headSha?: string;
   isBase: boolean;
-  status: 'ready' | 'broken';
+  kind: 'project-managed' | 'codex' | 'external';
+  locked: boolean;
+  lockedReason?: string;
+  prunable: boolean;
+  prunableReason?: string;
+  status: 'ready' | 'locked' | 'prunable' | 'missing' | 'broken' | 'unavailable';
+  statusReason?: string;
 }
 
 export interface FileSystemEntry {
