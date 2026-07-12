@@ -6,13 +6,13 @@ import Security
 enum SignerError: Error, CustomStringConvertible {
     case invalidArguments
     case invalidData
-    case authentication(String)
+    case authentication(Error?)
 
     var description: String {
         switch self {
         case .invalidArguments: return "invalid native signer arguments"
         case .invalidData: return "invalid native signer data"
-        case .authentication(let message): return message
+        case .authentication(let error): return error?.localizedDescription ?? "authentication canceled"
         }
     }
 }
@@ -44,7 +44,22 @@ private func authenticate(reason: String, context: LAContext) throws {
         semaphore.signal()
     }
     semaphore.wait()
-    if !result { throw SignerError.authentication(failure?.localizedDescription ?? "authentication canceled") }
+    if !result { throw SignerError.authentication(failure) }
+}
+
+private func isCancellation(_ error: Error) -> Bool {
+    if case SignerError.authentication(let underlying) = error, let underlying {
+        return isCancellation(underlying)
+    }
+    let value = error as NSError
+    if value.domain == LAError.errorDomain,
+       [LAError.userCancel, .appCancel, .systemCancel].contains(LAError.Code(rawValue: value.code)) {
+        return true
+    }
+    if let underlying = value.userInfo[NSUnderlyingErrorKey] as? Error {
+        return isCancellation(underlying)
+    }
+    return false
 }
 
 private func loadKey(reason: String) throws -> SecureEnclave.P256.Signing.PrivateKey {
@@ -92,6 +107,10 @@ private func run() throws {
 struct ProjectApprovalSigner {
     static func main() {
         do { try run() } catch {
+            if isCancellation(error) {
+                FileHandle.standardError.write(Data("PROJECT_AUTHENTICATION_CANCELED\n".utf8))
+                exit(2)
+            }
             FileHandle.standardError.write(Data("\(error)\n".utf8))
             exit(1)
         }

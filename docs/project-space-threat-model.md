@@ -43,6 +43,7 @@ flowchart LR
 | Approval truth | Gates agent-produced changes | Integrity |
 | Secure Enclave private key | Represents the human approver | Confidentiality, integrity |
 | External trust root and verifier | Prevent repository self-authorization | Integrity, availability |
+| External latest checkpoint | Prevent deletion, rollback, and replay of signed history | Integrity, availability |
 | Covered source digest | Defines what was reviewed | Integrity |
 
 ## Attacker model
@@ -53,15 +54,16 @@ The attacker can rewrite policy, source, sidecars, public keys, scripts, workflo
 
 ### Non-capabilities
 
-The attacker cannot export the Secure Enclave key, complete LocalAuthentication without the owner, or modify the separately administered runner gate and trust root.
+The attacker cannot export the Secure Enclave key, complete LocalAuthentication without the owner, or modify or roll back the separately administered runner gate, trust root, and latest checkpoint. The checkpoint guarantee does not hold if the repository agent has equivalent filesystem authority over that external state.
 
 ## Entry points and attack surfaces
 
 | Surface | How reached | Trust boundary | Notes | Evidence |
 |---|---|---|---|---|
 | Policy parser | `--policy` | Repository to verifier | Strict fields and confined paths | `internal/approval/load.go` |
-| Sidecar parser | policy attestation path | Repository to verifier | Strict JSON and signature check | `internal/approval/verify.go` |
-| Native signer | `approval sign/enroll` | CLI to macOS | Secure Enclave and LocalAuthentication | `internal/approvalsigner/signer_darwin.m` |
+| History parser | policy attestation path | Repository to verifier | Strict JSON, full-chain, and signature checks | `internal/approval/history.go` |
+| Checkpoint parser | fixed external path | Trusted bridge to verifier | Strict identity and per-scope tip binding | `internal/approval/checkpoint.go` |
+| Native signer | `approval sign/revoke/enroll` | CLI to macOS | Secure Enclave and fresh LocalAuthentication | `internal/approvalsigner/signer_darwin.go` |
 | Runner gate | external command | Runner to checkout | Binary/config live outside checkout | `docs/cryptographic-approvals.md` |
 
 ## Top abuse paths
@@ -72,14 +74,16 @@ The attacker cannot export the Secure Enclave key, complete LocalAuthentication 
 4. Copy a sidecar to another repository or scope → signed identities mismatch.
 5. Remove repository verification scripts → runner-owned invocation still runs and fails closed.
 6. Trigger signing programmatically → the system prompt still requires the device owner.
+7. Delete history or restore a pre-revocation approval → the external checkpoint reports missing history or replay mismatch.
+8. Roll back history and checkpoint together → prevented only by denying the repository agent write/rollback authority over the external checkpoint.
 
 ## Threat model table
 
 | Threat ID | Threat source | Prerequisites | Threat action | Impact | Impacted assets | Existing controls | Gaps | Recommended mitigations | Detection ideas | Likelihood | Impact severity | Priority |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | TM-001 | Repository agent | Checkout write access | Replace key, policy, and signature | False approval | Approval truth | External key and policy pins | Runner compromise remains | Keep verifier/config read-only and integrity-pinned | Log verifier artifact/config digest | High | High | critical |
-| TM-002 | Repository agent | Old valid sidecar | Replay after source or scope change | Stale approval accepted | Source digest | Payload binds full file set and policy | Identical context remains valid by design | Reapprove on policy/content change | Report stale reason and scope | High | High | high |
-| TM-003 | Repository agent | Ability to execute CLI | Request misleading auth prompt | Human approves wrong scope | Human authority | Localized repository/scope reason | Social engineering | Train reviewer; show scope diff before sign | Audit issued time and signer | Medium | High | high |
+| TM-002 | Repository agent | Old valid history | Replay approval after signed revocation | False approval | Approval history | Signed event chain plus external checkpoint | External checkpoint rollback authority | Keep checkpoint protected and report exact tip mismatch | Log accepted sequence/event digest | High | High | critical |
+| TM-003 | Repository agent | Ability to execute CLI | Request misleading auth prompt | Human approves wrong scope | Human authority | Prompt binds operation, repository, policy, stable scope, digest, sequence, and previous event | Social engineering | Show the same trusted values in review UI | Audit issued time, sequence, and signer | Medium | High | high |
 | TM-004 | Local attacker | Same user session | Replace native binary | Capture or alter operation | Approval truth | Runner pins trusted artifact | Developer-local CLI may be mutable | Code-sign releases and verify artifact hash | Record binary signature/hash | Low | High | high |
 | TM-005 | Malformed repository | Parser access | Traversal, symlink, or malformed envelope | Wrong bytes verified or denial | Covered source | Strict fields, confinement, symlink rejection | Resource limits are basic | Add runner time/size limits | Log safe parse category | Medium | Medium | medium |
 

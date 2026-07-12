@@ -21,7 +21,12 @@ func LoadPolicy(root, path string) (Policy, []byte, string, error) {
 	if err := rejectSymlinkComponents(root, resolved); err != nil {
 		return Policy{}, nil, "", fmt.Errorf("approval policy: %w", err)
 	}
-	body, err := os.ReadFile(resolved)
+	rootHandle, err := os.OpenRoot(root)
+	if err != nil {
+		return Policy{}, nil, "", fmt.Errorf("open repository root: %w", err)
+	}
+	defer rootHandle.Close()
+	body, err := rootHandle.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return Policy{}, nil, "", fmt.Errorf("read approval policy: %w", err)
 	}
@@ -128,6 +133,13 @@ func pathHasPhysicalAncestor(target, ancestor string) (bool, error) {
 }
 
 func evalPathAllowMissing(path string) (string, error) {
+	return evalPathAllowMissingDepth(path, 0)
+}
+
+func evalPathAllowMissingDepth(path string, depth int) (string, error) {
+	if depth > 64 {
+		return "", fmt.Errorf("too many symbolic links")
+	}
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
@@ -142,6 +154,21 @@ func evalPathAllowMissing(path string) (string, error) {
 		}
 		if !os.IsNotExist(err) {
 			return "", err
+		}
+		info, lstatErr := os.Lstat(current)
+		if lstatErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			target, readErr := os.Readlink(current)
+			if readErr != nil {
+				return "", readErr
+			}
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(filepath.Dir(current), target)
+			}
+			parts := append([]string{target}, reverseStrings(missing)...)
+			return evalPathAllowMissingDepth(filepath.Join(parts...), depth+1)
+		}
+		if lstatErr != nil && !os.IsNotExist(lstatErr) {
+			return "", lstatErr
 		}
 		parent := filepath.Dir(current)
 		if parent == current {
@@ -212,6 +239,12 @@ func validatePolicy(root string, policy Policy) error {
 	if strings.TrimSpace(policy.Repository) == "" || strings.TrimSpace(policy.PolicyID) == "" {
 		return fmt.Errorf("approval policy requires repository and policyId")
 	}
+	if err := validatePromptText(policy.Repository, "approval repository"); err != nil {
+		return err
+	}
+	if err := validatePromptText(policy.PolicyID, "approval policyId"); err != nil {
+		return err
+	}
 	if len(policy.Scopes) == 0 {
 		return fmt.Errorf("approval policy requires at least one scope")
 	}
@@ -220,6 +253,12 @@ func validatePolicy(root string, policy Policy) error {
 	for _, scope := range policy.Scopes {
 		if strings.TrimSpace(scope.ID) == "" || strings.TrimSpace(scope.Label) == "" || len(scope.Paths) == 0 || strings.TrimSpace(scope.Attestation) == "" {
 			return fmt.Errorf("approval scope is incomplete")
+		}
+		if err := validatePromptText(scope.ID, "approval scope id"); err != nil {
+			return err
+		}
+		if err := validatePromptText(scope.Label, "approval scope label"); err != nil {
+			return err
 		}
 		if seen[scope.ID] {
 			return fmt.Errorf("duplicate approval scope %q", scope.ID)

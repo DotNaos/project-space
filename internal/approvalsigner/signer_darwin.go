@@ -86,6 +86,9 @@ func runHelper(arguments ...string) (string, error) {
 	}
 	output, err := exec.Command(path, arguments...).CombinedOutput()
 	if err != nil {
+		if strings.Contains(string(output), "PROJECT_AUTHENTICATION_CANCELED") {
+			return "", ErrAuthenticationCanceled
+		}
 		return "", fmt.Errorf("Secure Enclave helper failed: %s", strings.TrimSpace(string(output)))
 	}
 	return string(output), nil
