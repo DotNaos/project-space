@@ -378,6 +378,7 @@ describe('authenticated connector companion runtime', () => {
       });
       const registry = await backend.getConnectorProjectRegistry();
       expect(registry.connector.machineId).toBe(runtimeCredential.machineId);
+      expect(registry.connector.capabilities).toContain('dev-server.list');
       expect(
         registry.discovery.projects.every(
           (project) => project.machineId === runtimeCredential.machineId
