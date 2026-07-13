@@ -9,6 +9,7 @@ import type {
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
 import { parseProjectChatRoute } from '../../project-chat/project-chat-route';
+import { parseCodexSessionRoute } from '../../codex-sessions/codex-session-route';
 import { shouldPreserveUnresolvedProjectRoute } from './project-route-model';
 import {
   connectorOverviewRefreshIntervalMs,
@@ -349,6 +350,14 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
         mainView === 'chat' &&
         typeof window !== 'undefined' &&
         parseProjectChatRoute(window.location.pathname).matches
+      ) {
+        return;
+      }
+
+      if (
+        mainView === 'codex' &&
+        typeof window !== 'undefined' &&
+        parseCodexSessionRoute(window.location.pathname).matches
       ) {
         return;
       }

@@ -1,0 +1,257 @@
+import { EventEmitter } from 'node:events';
+import { createInterface } from 'node:readline';
+import { PassThrough } from 'node:stream';
+
+import { describe, expect, test } from 'bun:test';
+
+import type { CodexChildProcess } from '../server/codex-sessions/contracts';
+import {
+  CodexOperationConflictError,
+  CodexSessionManager,
+  CodexThreadActiveError
+} from '../server/codex-sessions';
+
+type RpcMessage = {
+  id?: number | string;
+  method?: string;
+  params?: Record<string, unknown>;
+  result?: unknown;
+};
+
+class FakeCodexProcess extends EventEmitter implements CodexChildProcess {
+  exitCode: number | null = null;
+  signalCode: NodeJS.Signals | null = null;
+  readonly stderr = new PassThrough();
+  readonly stdin = new PassThrough();
+  readonly stdout = new PassThrough();
+  readonly requests: RpcMessage[] = [];
+
+  constructor(private readonly handler: (message: RpcMessage, server: FakeCodexProcess) => void) {
+    super();
+    const lines = createInterface({ input: this.stdin });
+    lines.on('line', (line) => {
+      const message = JSON.parse(line) as RpcMessage;
+      this.requests.push(message);
+      this.handler(message, this);
+    });
+  }
+
+  send(message: RpcMessage) {
+    this.stdout.write(`${JSON.stringify(message)}\n`);
+  }
+
+  kill(signal: NodeJS.Signals | number = 'SIGTERM') {
+    this.signalCode = typeof signal === 'string' ? signal : 'SIGTERM';
+    queueMicrotask(() => this.emit('close'));
+    return true;
+  }
+
+  disconnect() {
+    this.stdout.end();
+    this.emit('close');
+  }
+}
+
+function standardHandler(message: RpcMessage, server: FakeCodexProcess) {
+  if (message.method === 'initialize') server.send({ id: message.id, result: { userAgent: 'test' } });
+  if (message.method === 'thread/list') {
+    server.send({
+      id: message.id,
+      result: {
+        data: [{ id: 'thread-1', name: 'Stored thread', status: { type: 'notLoaded' } }],
+        nextCursor: null
+      }
+    });
+  }
+  if (message.method === 'thread/loaded/list') {
+    server.send({ id: message.id, result: { data: [] } });
+  }
+  if (message.method === 'thread/read') {
+    server.send({
+      id: message.id,
+      result: { thread: { id: 'thread-1', status: { type: 'notLoaded' }, turns: [] } }
+    });
+  }
+  if (message.method === 'thread/resume') {
+    server.send({ id: message.id, result: { thread: { id: 'thread-1', status: { type: 'idle' } } } });
+  }
+  if (message.method === 'turn/start') {
+    server.send({ id: message.id, result: { turn: { id: 'turn-1', status: 'inProgress' } } });
+  }
+  if (message.method === 'turn/interrupt') server.send({ id: message.id, result: {} });
+}
+
+describe('Codex app-server session manager', () => {
+  test('reuses one process and reads stored history without resuming it', async () => {
+    const processes: FakeCodexProcess[] = [];
+    const manager = new CodexSessionManager({
+      processFactory: () => {
+        const process = new FakeCodexProcess(standardHandler);
+        processes.push(process);
+        return process;
+      }
+    });
+
+    try {
+      expect((await manager.listThreads()).data[0]?.name).toBe('Stored thread');
+      expect((await manager.readThread('thread-1')).thread.turns).toEqual([]);
+      expect((await manager.listLoadedThreads()).data).toEqual([]);
+      expect(processes).toHaveLength(1);
+      expect(processes[0]?.requests.filter((request) => request.method === 'initialize')).toHaveLength(1);
+      expect(processes[0]?.requests.some((request) => request.method === 'thread/resume')).toBe(false);
+      expect(processes[0]?.requests.find((request) => request.method === 'thread/read')?.params)
+        .toEqual({ includeTurns: true, threadId: 'thread-1' });
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('deduplicates turn starts and rejects a different new turn until completion', async () => {
+    const process = new FakeCodexProcess(standardHandler);
+    const manager = new CodexSessionManager({ processFactory: () => process });
+
+    try {
+      const first = manager.startTurn({
+        operationId: 'operation-1',
+        prompt: 'Run the tests',
+        threadId: 'thread-1'
+      });
+      const retry = manager.startTurn({
+        operationId: 'operation-1',
+        prompt: 'Run the tests',
+        threadId: 'thread-1'
+      });
+      expect(await first).toEqual(await retry);
+      expect(process.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+
+      await expect(manager.startTurn({
+        operationId: 'operation-2',
+        prompt: 'Do something else',
+        threadId: 'thread-1'
+      })).rejects.toBeInstanceOf(CodexThreadActiveError);
+
+      process.send({
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } }
+      });
+      await Bun.sleep(0);
+      await manager.startTurn({
+        operationId: 'operation-3',
+        prompt: 'Now continue',
+        threadId: 'thread-1'
+      });
+      expect(process.requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('rejects a new turn when resume reports that the stored thread is already active', async () => {
+    const process = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+      if (message.method === 'thread/resume') {
+        server.send({
+          id: message.id,
+          result: {
+            thread: {
+              id: 'thread-1',
+              status: { activeFlags: ['waitingOnApproval'], type: 'active' }
+            }
+          }
+        });
+      }
+    });
+    const manager = new CodexSessionManager({ processFactory: () => process });
+    try {
+      await manager.resumeThread({ operationId: 'resume-active', threadId: 'thread-1' });
+      await expect(manager.startTurn({
+        operationId: 'turn-after-active-resume',
+        prompt: 'Do not start this',
+        threadId: 'thread-1'
+      })).rejects.toBeInstanceOf(CodexThreadActiveError);
+      expect(process.requests.some((request) => request.method === 'turn/start')).toBe(false);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('rejects operation-id reuse with changed content', async () => {
+    const manager = new CodexSessionManager({
+      processFactory: () => new FakeCodexProcess(standardHandler)
+    });
+    try {
+      await manager.resumeThread({ operationId: 'resume-1', threadId: 'thread-1' });
+      expect(() => manager.resumeThread({ operationId: 'resume-1', threadId: 'thread-2' }))
+        .toThrow(CodexOperationConflictError);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('starts a fresh long-lived process after an App Server restart', async () => {
+    const processes: FakeCodexProcess[] = [];
+    const manager = new CodexSessionManager({
+      processFactory: () => {
+        const process = new FakeCodexProcess(standardHandler);
+        processes.push(process);
+        return process;
+      }
+    });
+    try {
+      await manager.listThreads();
+      processes[0]?.disconnect();
+      await Bun.sleep(0);
+      await manager.listThreads();
+      expect(processes).toHaveLength(2);
+      expect(processes[1]?.requests.filter((request) => request.method === 'initialize'))
+        .toHaveLength(1);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('streams only allowlisted events and redacts command output and sensitive fields', async () => {
+    const process = new FakeCodexProcess(standardHandler);
+    const manager = new CodexSessionManager({ processFactory: () => process });
+    const events: unknown[] = [];
+    manager.subscribe((event) => events.push(event));
+    try {
+      await manager.listThreads();
+      process.send({
+        method: 'item/commandExecution/outputDelta',
+        params: { delta: 'TOKEN=secret', env: { TOKEN: 'secret' }, threadId: 'thread-1' }
+      });
+      process.send({ method: 'config/read', params: { token: 'secret' } });
+      process.send({
+        method: 'item/agentMessage/delta',
+        params: { delta: 'Visible response', threadId: 'thread-1', turnId: 'turn-1' }
+      });
+      process.send({
+        method: 'item/completed',
+        params: {
+          item: { aggregatedOutput: 'another-secret', id: 'item-1', type: 'commandExecution' },
+          threadId: 'thread-1',
+          turnId: 'turn-1'
+        }
+      });
+      process.send({
+        method: 'error',
+        params: {
+          error: { additionalDetails: 'hidden-secret', message: 'token is hidden-secret' },
+          threadId: 'thread-1',
+          turnId: 'turn-1'
+        }
+      });
+      await Bun.sleep(0);
+
+      expect(events).toHaveLength(4);
+      expect(JSON.stringify(events)).not.toContain('TOKEN=secret');
+      expect(JSON.stringify(events)).not.toContain('"secret"');
+      expect(JSON.stringify(events)).not.toContain('another-secret');
+      expect(JSON.stringify(events)).not.toContain('hidden-secret');
+      expect(JSON.stringify(events)).toContain('Visible response');
+    } finally {
+      await manager.close();
+    }
+  });
+});

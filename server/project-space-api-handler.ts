@@ -14,8 +14,10 @@ import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
 import type { MachineConnectionRuntime } from './machine-connection-runtime';
 import type { ProjectChatRuntime } from './project-chat/runtime';
 import { runWithGitHubCatalogRequestTiming } from './github-catalog-timing';
+import type { CodexSessionsHttpHandler } from './codex-sessions-http';
 
 interface ProjectSpaceApiHandlerOptions {
+  codexSessions?: CodexSessionsHttpHandler;
   machineConnection?: Pick<MachineConnectionRuntime, 'handleRequest'>;
   projectChat?: Pick<ProjectChatRuntime, 'handleRequest'>;
 }
@@ -63,6 +65,9 @@ export function createProjectSpaceApiHandler(
       }
 
       return await runWithGitHubCatalogRequestTiming({ authMs, requestStartedAt }, () => runWithAuthSession(authSession, async () => {
+        if (options.codexSessions && await options.codexSessions(request, response, url)) {
+          return true;
+        }
         if (
           await handleCoreRoute(
             request,

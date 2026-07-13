@@ -23,6 +23,8 @@ import {
   resolveProjectConnectorConnection,
   type ProjectConnectorConnectionOptions
 } from './project-connector-runtime-binding';
+import { CodexSessionsConnectorDispatcher } from './codex-sessions/connector-dispatch';
+import { CodexSessionManager } from './codex-sessions/manager';
 
 interface ProjectConnectorWebSocketOptions extends ProjectConnectorConnectionOptions {
   backend: ProjectSpaceBackend &
@@ -65,6 +67,8 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
 
   let closed = false;
   const cleanupTasks: Array<() => void> = [];
+  const codexSessionManager = new CodexSessionManager();
+  cleanupTasks.push(() => void codexSessionManager.close());
 
   function startHttpRegistryPublisher(target: ProjectConnectorHubTarget) {
     if (!target.url) {
@@ -154,6 +158,14 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
             options.runtimeCredential?.machineId
           )
         : undefined;
+    const codexSessionsDispatcher = commandGrantPublicKey
+      ? new CodexSessionsConnectorDispatcher({
+          expectedMachineId: options.runtimeCredential?.machineId,
+          manager: codexSessionManager,
+          verificationKey: commandGrantPublicKey
+        })
+      : undefined;
+    cleanupTasks.push(() => codexSessionsDispatcher?.close());
 
     function scheduleReconnect() {
       if (closed || reconnectTimer) {
@@ -191,6 +203,8 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           controller.abort();
         }
         runningChats.clear();
+        codexSessionsDispatcher?.cancelAll();
+        codexSessionsDispatcher?.setExpectedGeneration();
         if (registryTimer) {
           clearInterval(registryTimer);
           registryTimer = undefined;
@@ -261,12 +275,32 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         }
 
         if (message.type === 'connector.registered') {
+          codexSessionsDispatcher?.setExpectedGeneration(message.generation);
           startRegistryPublisher();
           return;
         }
 
         if (message.type === 'connector.command.cancel') {
+          if (codexSessionsDispatcher?.cancel(message.id, (result) => sendJson(socket, result))) {
+            return;
+          }
           runningChats.get(message.id)?.abort();
+          return;
+        }
+
+        if (message.type === 'codex.sessions.command') {
+          if (!codexSessionsDispatcher) {
+            socket.close(1008, 'Codex session verification is not configured.');
+            return;
+          }
+          codexSessionsDispatcher.dispatch(
+            message.id,
+            message.payload,
+            (result) => {
+              if (isCurrentConnection()) sendJson(socket, result);
+            },
+            () => socket.close(1008, 'Codex session authorization failed.')
+          );
           return;
         }
 

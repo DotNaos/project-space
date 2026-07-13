@@ -14,6 +14,7 @@ import {
   type ProjectChatThreadSummary
 } from '../project-chat-model';
 import { ParticipantVisual, PresenceDot } from './participant-visual';
+import type { CodexSessionTarget } from '../../codex-sessions/codex-session-route';
 
 function DetailRow({
   label,
@@ -46,7 +47,7 @@ export function ProjectChatThreadDetails({
   now: Date;
   onBack?(): void;
   onClose?(): void;
-  onOpenThread?(threadId: string): void;
+  onOpenThread?(target: CodexSessionTarget): void;
   thread?: ProjectChatThreadSummary;
 }) {
   if (!thread) {
@@ -148,7 +149,10 @@ export function ProjectChatThreadDetails({
         <Button
           fullWidth
           isDisabled={!onOpenThread}
-          onPress={() => onOpenThread?.(thread.threadId)}
+          onPress={() => onOpenThread?.({
+            machineId: thread.machineId,
+            threadId: thread.threadId
+          })}
           size="sm"
           variant="outline"
           className="rounded-full"

@@ -19,9 +19,12 @@ import {
 import { writeJson, writeText } from './project-space-http-response';
 import { serveProjectSpaceStatic } from './project-space-static';
 import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
+import type { CodexSessionsHttpHandler } from './codex-sessions-http';
+import { createConfiguredCodexSessionsHandler } from './codex-sessions/configured-runtime';
 
 export interface ProjectSpaceHttpOptions {
   backend?: ProjectSpaceBackend;
+  codexSessions?: CodexSessionsHttpHandler;
   host?: string;
   machineConnectionRuntime?: MachineConnectionRuntime;
   port?: number;
@@ -46,8 +49,10 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
   const rawBackend = options.backend ?? createLocalProjectSpaceBackend();
   const backend = createAuthorizedProjectSpaceBackend(rawBackend);
   const projectChatRuntime = resolveProjectChatRuntime(options, rawBackend);
+  const codexSessions = options.codexSessions ?? createConfiguredCodexSessionsHandler();
   const handleApiRequest = projectChatRuntime.then((runtime) =>
     createProjectSpaceApiHandler(backend, {
+      codexSessions,
       machineConnection: options.machineConnectionRuntime,
       projectChat: runtime
     })

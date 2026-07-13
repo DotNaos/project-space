@@ -52,7 +52,8 @@ describe('database migrations', () => {
       '0011_github_catalog_cache',
       '0012_project_chat_name_registry',
       '0013_project_chat_project_channels',
-      '0014_dev_server_sessions_per_server'
+      '0014_dev_server_sessions_per_server',
+      '0016_codex_sessions'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');

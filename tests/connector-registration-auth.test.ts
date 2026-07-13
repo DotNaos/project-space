@@ -72,7 +72,10 @@ describe('connector credential authentication', () => {
       const accepted = await connect(url);
       accepted.send(registrationMessage('bound-machine', 'machine-specific-credential'));
       const [message] = (await once(accepted, 'message')) as [Buffer];
-      expect(JSON.parse(message.toString())).toEqual({ type: 'connector.registered' });
+      expect(JSON.parse(message.toString())).toMatchObject({
+        generation: expect.any(Number),
+        type: 'connector.registered'
+      });
       expect(isConnectorCommandChannelAvailable('bound-machine')).toBe(true);
       expect(
         isConnectorCommandChannelAuthenticated(

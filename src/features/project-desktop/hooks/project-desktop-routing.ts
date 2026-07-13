@@ -1,4 +1,5 @@
 import { parseProjectChatRoute } from '../../project-chat/project-chat-route';
+import { codexSessionRoute, parseCodexSessionRoute } from '../../codex-sessions/codex-session-route';
 import {
   normalizeRouteKey,
   parseWorkflowRunRoute,
@@ -12,7 +13,7 @@ import type {
 } from '@/shared/project-space-api';
 
 export type ProjectMainView =
-  'root' | 'chat' | 'machines' | 'machine' | 'projects' | 'project' | 'settings';
+  'root' | 'chat' | 'codex' | 'machines' | 'machine' | 'projects' | 'project' | 'settings';
 
 export const projectDetailTabs = [
   'overview',
@@ -108,6 +109,10 @@ function projectPath(projectId: string) {
 const settingsPath = '/settings';
 
 export function routeForView(view: ProjectMainView, projectId = '', tab = '', detail = '') {
+  if (view === 'codex') {
+    return codexSessionRoute();
+  }
+
   if (view === 'chat') {
     return chatPath;
   }
@@ -152,6 +157,8 @@ export function routeForView(view: ProjectMainView, projectId = '', tab = '', de
 }
 
 export interface ParsedProjectRoute {
+  codexMachineId?: string;
+  codexThreadId?: string;
   issueNumber?: number;
   machineId?: string;
   machineTab?: MachineDetailTab;
@@ -162,6 +169,15 @@ export interface ParsedProjectRoute {
 }
 
 export function parseProjectRoute(pathname: string): ParsedProjectRoute {
+  const codexRoute = parseCodexSessionRoute(pathname);
+  if (codexRoute.matches) {
+    return {
+      codexMachineId: codexRoute.machineId,
+      codexThreadId: codexRoute.threadId,
+      view: 'codex'
+    };
+  }
+
   if (parseProjectChatRoute(pathname).matches) {
     return { view: 'chat' };
   }
@@ -214,7 +230,8 @@ export function parseProjectRoute(pathname: string): ParsedProjectRoute {
 }
 
 export function initialProjectMainView(pathname: string): ProjectMainView {
-  return parseProjectRoute(pathname).view === 'chat' ? 'chat' : 'root';
+  const view = parseProjectRoute(pathname).view;
+  return view === 'chat' || view === 'codex' ? view : 'root';
 }
 
 export function resolveRouteProject(
@@ -302,5 +319,3 @@ export function findMatchingProject(projects: ProjectSpaceRecord[], path: string
       return normalizedPath === projectPath || normalizedPath.startsWith(`${projectPath}/`);
     });
 }
-
-

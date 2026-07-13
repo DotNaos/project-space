@@ -4,6 +4,7 @@ import { launcherAppLabels } from '@/shared/project-space-api';
 import { parseProjectChatRoute } from '../../project-chat/project-chat-route';
 import { useProjectWorktreeDiscovery } from './use-project-worktree-discovery';
 import { useProjectDesktopLifecycle } from './use-project-desktop-lifecycle';
+import { useCodexDesktop } from './use-codex-desktop';
 import {
   connectorOverviewRefreshIntervalMs,
   createGitHubProjectRecord,
@@ -140,6 +141,7 @@ export function useProjectDesktop() {
   const [isConnectorRefreshing, setIsConnectorRefreshing] = useState(false);
   const [isGitHubRefreshing, setIsGitHubRefreshing] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
+  const codexDesktop = useCodexDesktop({ connectorOverview, setMainView });
 
   const githubProjects = useMemo(() => {
     if (githubCatalog.status !== 'connected') {
@@ -461,6 +463,7 @@ export function useProjectDesktop() {
   }
 
   return {
+    ...codexDesktop,
     appMeta,
     connectorOverview,
     createProject,

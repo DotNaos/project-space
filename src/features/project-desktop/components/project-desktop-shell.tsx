@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuth, useClerk, useSignIn, useUser } from '@clerk/react';
 import {
   FolderKanban,
+  Bot,
   House,
   MessageSquare,
   Server,
@@ -33,9 +34,13 @@ function isCompactViewport() {
   return typeof window !== 'undefined' && window.innerWidth < COMPACT_VIEWPORT_WIDTH;
 }
 
-function sectionForView(view: ProjectMainView): AppSection {
+export function sectionForView(view: ProjectMainView): AppSection {
   if (view === 'chat') {
     return 'chat';
+  }
+
+  if (view === 'codex') {
+    return 'codex';
   }
 
   if (view === 'projects' || view === 'project') {
@@ -56,6 +61,7 @@ function sectionForView(view: ProjectMainView): AppSection {
 interface MobileTabBarProps {
   activeSection: AppSection;
   onOpenChat(): void;
+  onOpenCodex(): void;
   onOpenMachines(): void;
   onOpenProjects(): void;
   onOpenRoot(): void;
@@ -65,6 +71,7 @@ interface MobileTabBarProps {
 function MobileTabBar({
   activeSection,
   onOpenChat,
+  onOpenCodex,
   onOpenMachines,
   onOpenProjects,
   onOpenRoot,
@@ -82,6 +89,12 @@ function MobileTabBar({
       isActive: activeSection === 'chat',
       label: 'Chat',
       onPress: onOpenChat
+    },
+    {
+      icon: Bot,
+      isActive: activeSection === 'codex',
+      label: 'Codex',
+      onPress: onOpenCodex
     },
     {
       icon: FolderKanban,
@@ -108,7 +121,7 @@ function MobileTabBar({
       aria-label="Primary"
       className="app-no-drag pointer-events-auto absolute inset-x-0 bottom-0 z-50 border-t border-neutral-800/90 bg-app-panel/95 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-16px_40px_rgba(0,0,0,0.35)] backdrop-blur"
     >
-      <div className="grid grid-cols-5 gap-1">
+      <div className="grid grid-cols-6 gap-1">
         {items.map((item) => {
           const Icon = item.icon;
 
@@ -277,6 +290,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
             hasContextPanel={hasContextPanel}
             isContextPanelOpen={isPanelOpen}
             onOpenChat={desktop.openChat}
+            onOpenCodex={desktop.openCodex}
             onOpenHome={desktop.openRoot}
             onOpenMachines={desktop.openMachines}
             onOpenProjects={desktop.openProjects}
@@ -312,6 +326,8 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           account={account}
           appMeta={desktop.appMeta}
           connectorOverview={desktop.connectorOverview}
+          codexController={desktop.codexController}
+          codexMachineIds={desktop.codexMachineIds}
           githubCatalog={desktop.githubCatalog}
           hasBottomTabBar={isCompact}
           isConnectorRefreshing={desktop.isConnectorRefreshing}
@@ -321,6 +337,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           machineTab={desktop.machineTab}
           mainView={desktop.mainView}
           onCreateProject={desktop.createProject}
+          onOpenCodex={desktop.openCodex}
           onOpenMachine={desktop.openMachine}
           onOpenMachines={desktop.openMachines}
           onOpenProjects={desktop.openProjects}
@@ -345,6 +362,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           projectTab={desktop.projectTab}
           recentProjectIds={desktop.recentProjectIds}
           selectedApp={desktop.selectedLauncherApp}
+          selectedCodexOrigin={desktop.selectedCodexOrigin}
           selectedAppLabel={desktop.selectedLauncherAppLabel}
           selectedExplorerTarget={desktop.selectedExplorerTarget}
           selectedIssueNumber={desktop.selectedIssueNumber}
@@ -362,6 +380,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
         <MobileTabBar
           activeSection={activeSection}
           onOpenChat={desktop.openChat}
+          onOpenCodex={desktop.openCodex}
           onOpenMachines={desktop.openMachines}
           onOpenProjects={desktop.openProjects}
           onOpenRoot={desktop.openRoot}

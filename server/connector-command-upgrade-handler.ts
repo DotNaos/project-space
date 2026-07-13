@@ -131,7 +131,7 @@ export function createConnectorCommandUpgradeHandlerCore(
         if (previous && previous !== socket) {
           dependencies.failCommandsForMachine(machineId);
         }
-        registerConnectorSession(
+        const generation = registerConnectorSession(
           machineId,
           socket,
           registrationToken,
@@ -144,7 +144,7 @@ export function createConnectorCommandUpgradeHandlerCore(
         credentialRevalidationTimer = setInterval(() => {
           void revalidateCredential();
         }, revalidationIntervalMs);
-        sendConnectorJson(socket, { type: 'connector.registered' });
+        sendConnectorJson(socket, { generation, type: 'connector.registered' });
         return;
       }
 

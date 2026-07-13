@@ -87,7 +87,7 @@ async function createRecordingConnectorHub(acknowledgeRegistrations = true) {
       messages.push(message);
       received.push({ message, socket });
       if (acknowledgeRegistrations && message.type === 'connector.register') {
-        socket.send(JSON.stringify({ type: 'connector.registered' }));
+        socket.send(JSON.stringify({ generation: 1, type: 'connector.registered' }));
       }
     });
   });
@@ -273,7 +273,7 @@ describe('authenticated connector companion runtime', () => {
       await Bun.sleep(50);
       expect(hub.messages.some((message) => message.type === 'connector.registry')).toBe(false);
 
-      hub.sockets[0]?.send(JSON.stringify({ type: 'connector.registered' }));
+      hub.sockets[0]?.send(JSON.stringify({ generation: 1, type: 'connector.registered' }));
       await waitFor(
         () => hub.messages.some((message) => message.type === 'connector.registry'),
         'registry publication after registration acknowledgement'
