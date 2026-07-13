@@ -2,6 +2,39 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { launcherAppLabels } from '@/shared/project-space-api';
 import { parseProjectChatRoute } from '../../project-chat/project-chat-route';
+import { useProjectWorktreeDiscovery } from './use-project-worktree-discovery';
+import { useProjectDesktopLifecycle } from './use-project-desktop-lifecycle';
+import {
+  connectorOverviewRefreshIntervalMs,
+  createGitHubProjectRecord,
+  findMatchingProject,
+  githubCatalogTimeoutMs,
+  initialProjectMainView,
+  parseProjectRoute,
+  projectMatchesGitHubRepository,
+  resolveRouteProject,
+  sanitizeDiscovery,
+  shouldPreserveProjectRoute,
+  withTimeout,
+  writeRoute,
+  type MachineDetailTab,
+  type ProjectDetailTab,
+  type ProjectMainView
+} from './project-desktop-routing';
+export {
+  initialProjectMainView,
+  machineDetailTabs,
+  parseProjectRoute,
+  projectDetailTabs,
+  routeForView,
+  writeRoute
+} from './project-desktop-routing';
+export type {
+  MachineDetailTab,
+  ParsedProjectRoute,
+  ProjectDetailTab,
+  ProjectMainView
+} from './project-desktop-routing';
 import {
   parseWorkflowRunRoute,
   normalizeRouteKey,
@@ -79,298 +112,6 @@ const appMetaFallback: AppMeta = {
   version: 'unknown'
 };
 
-export type ProjectMainView =
-  'root' | 'chat' | 'machines' | 'machine' | 'projects' | 'project' | 'settings';
-
-export const projectDetailTabs = [
-  'overview',
-  'issues',
-  'machines',
-  'workspaces',
-  'chat',
-  'history',
-  'template',
-  'deployments',
-  'codex'
-] as const;
-export type ProjectDetailTab = (typeof projectDetailTabs)[number];
-
-export const machineDetailTabs = ['overview', 'projects', 'explorer', 'terminal'] as const;
-export type MachineDetailTab = (typeof machineDetailTabs)[number];
-
-function parseProjectDetailTab(segment: string | undefined): ProjectDetailTab {
-  return projectDetailTabs.includes(segment as ProjectDetailTab)
-    ? (segment as ProjectDetailTab)
-    : 'overview';
-}
-
-function parseMachineDetailTab(segment: string | undefined): MachineDetailTab {
-  return machineDetailTabs.includes(segment as MachineDetailTab)
-    ? (segment as MachineDetailTab)
-    : 'overview';
-}
-
-function normalizePath(path: string) {
-  return path.replace(/\/+$/, '');
-}
-
-const templatePlaceholderPattern = /\{\{.*?\}\}/;
-const chatPath = '/chat';
-const projectsPath = '/projects';
-const machinesPath = '/machines';
-const connectorOverviewRefreshIntervalMs = 60_000;
-const githubCatalogTimeoutMs = 12_000;
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      reject(new Error(message));
-    }, timeoutMs);
-
-    promise.then(
-      (value) => {
-        window.clearTimeout(timeout);
-        resolve(value);
-      },
-      (error) => {
-        window.clearTimeout(timeout);
-        reject(error);
-      }
-    );
-  });
-}
-
-function basename(path: string) {
-  return path.split('/').filter(Boolean).pop() ?? path;
-}
-
-function sanitizeProjectName(project: ProjectSpaceRecord): string {
-  const name = project.name?.trim();
-
-  if (name && !templatePlaceholderPattern.test(name)) {
-    return name;
-  }
-
-  return basename(project.rootPath) || 'Untitled project';
-}
-
-function sanitizeDiscovery(discovery: ProjectDiscoveryResult): ProjectDiscoveryResult {
-  return {
-    ...discovery,
-    projects: discovery.projects.map((project) => ({
-      ...project,
-      name: sanitizeProjectName(project)
-    })),
-    structureViolations: discovery.structureViolations ?? []
-  };
-}
-
-function machinePath(machineId: string) {
-  return `${machinesPath}/${encodeURIComponent(machineId)}`;
-}
-
-function projectPath(projectId: string) {
-  return `${projectsPath}/${encodeURIComponent(projectId)}`;
-}
-
-const settingsPath = '/settings';
-
-export function routeForView(view: ProjectMainView, projectId = '', tab = '', detail = '') {
-  if (view === 'chat') {
-    return chatPath;
-  }
-
-  if (view === 'machines') {
-    return machinesPath;
-  }
-
-  if (view === 'machine' && projectId) {
-    const base = machinePath(projectId);
-
-    return tab && tab !== 'overview' ? `${base}/${tab}` : base;
-  }
-
-  if (view === 'projects') {
-    return projectsPath;
-  }
-
-  if (view === 'project' && projectId) {
-    const base = projectPath(projectId);
-
-    if (tab === 'issues' && detail) {
-      return `${base}/issues/${encodeURIComponent(detail)}`;
-    }
-
-    if (tab === 'deployments') {
-      return `${base}/${workflowRunRouteSuffix(detail)}`;
-    }
-
-    if (!tab || tab === 'overview') {
-      return base;
-    }
-
-    return `${base}/${tab}`;
-  }
-
-  if (view === 'settings') {
-    return settingsPath;
-  }
-
-  return '/';
-}
-
-export interface ParsedProjectRoute {
-  issueNumber?: number;
-  machineId?: string;
-  machineTab?: MachineDetailTab;
-  projectId?: string;
-  projectTab?: ProjectDetailTab;
-  workflowRunId?: number;
-  view: ProjectMainView;
-}
-
-export function parseProjectRoute(pathname: string): ParsedProjectRoute {
-  if (parseProjectChatRoute(pathname).matches) {
-    return { view: 'chat' };
-  }
-
-  if (pathname === settingsPath || pathname === `${settingsPath}/`) {
-    return { view: 'settings' };
-  }
-
-  if (pathname === machinesPath) {
-    return { view: 'machines' };
-  }
-
-  if (pathname.startsWith(`${machinesPath}/`)) {
-    const rest = pathname.slice(machinesPath.length + 1);
-    const [rawMachineId, rawTab] = rest.split('/');
-    const machineId = decodeURIComponent(rawMachineId ?? '');
-
-    return machineId
-      ? {
-          machineId,
-          machineTab: parseMachineDetailTab(rawTab),
-          view: 'machine'
-        }
-      : { view: 'machines' };
-  }
-
-  if (pathname === projectsPath || pathname === `${projectsPath}/`) {
-    return { view: 'projects' };
-  }
-
-  if (pathname.startsWith(`${projectsPath}/`)) {
-    const rest = pathname.slice(projectsPath.length + 1);
-    const [rawProjectId, rawTab, rawDetail, rawRunId] = rest.split('/');
-    const projectId = decodeURIComponent(rawProjectId ?? '');
-    const issueNumber = rawTab === 'issues' && rawDetail ? Number(rawDetail) : undefined;
-    const workflowRunId = parseWorkflowRunRoute(rawTab, rawDetail, rawRunId);
-
-    return projectId
-      ? {
-          issueNumber: Number.isFinite(issueNumber) ? issueNumber : undefined,
-          projectId,
-          projectTab: parseProjectDetailTab(rawTab),
-          workflowRunId,
-          view: 'project'
-        }
-      : { view: 'projects' };
-  }
-
-  return { view: 'root' };
-}
-
-export function initialProjectMainView(pathname: string): ProjectMainView {
-  return parseProjectRoute(pathname).view === 'chat' ? 'chat' : 'root';
-}
-
-function resolveRouteProject(
-  projects: ProjectSpaceRecord[],
-  projectId: string
-): ProjectSpaceRecord | undefined {
-  return (
-    projects.find((entry) => entry.id === projectId) ??
-    projects.find((entry) => basename(entry.rootPath) === projectId) ??
-    projects.find((entry) => entry.name === projectId) ??
-    projects.find((entry) =>
-      entry.github ? routeProjectIdMatchesRepository(projectId, entry.github) : false
-    )
-  );
-}
-
-function shouldPreserveProjectRoute(
-  projectId: string | undefined,
-  routeProject: ProjectSpaceRecord | undefined
-) {
-  return Boolean(projectId && !routeProject);
-}
-
-function projectMatchesGitHubRepository(
-  project: ProjectSpaceRecord,
-  repo: GitHubCatalogRepository
-) {
-  const projectName = normalizeRouteKey(project.name);
-  const projectFolder = normalizeRouteKey(basename(project.rootPath));
-  const repoFullName = normalizeRouteKey(repo.fullName);
-  const repoName = normalizeRouteKey(repo.name);
-
-  return (
-    projectName === repoFullName ||
-    projectName === repoName ||
-    projectFolder === repoName ||
-    projectFolder === repoFullName
-  );
-}
-
-function createGitHubProjectRecord(repo: GitHubCatalogRepository): ProjectSpaceRecord {
-  return {
-    github: repo,
-    id: `github:${repo.fullName}`,
-    kind: 'github',
-    name: repo.fullName,
-    rootPath: ''
-  };
-}
-
-export function writeRoute(
-  view: ProjectMainView,
-  projectId = '',
-  replace = false,
-  tab = '',
-  detail = ''
-) {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  const nextPath = routeForView(view, projectId, tab, detail);
-  const nextUrl = `${nextPath}${window.location.search}${window.location.hash}`;
-
-  if (window.location.pathname === nextPath) {
-    return;
-  }
-
-  if (replace) {
-    window.history.replaceState(null, '', nextUrl);
-    return;
-  }
-
-  window.history.pushState(null, '', nextUrl);
-}
-
-function findMatchingProject(projects: ProjectSpaceRecord[], path: string) {
-  const normalizedPath = normalizePath(path);
-
-  return [...projects]
-    .sort((left, right) => right.rootPath.length - left.rootPath.length)
-    .find((project) => {
-      const projectPath = normalizePath(project.rootPath);
-
-      return normalizedPath === projectPath || normalizedPath.startsWith(`${projectPath}/`);
-    });
-}
-
 export function useProjectDesktop() {
   const [discovery, setDiscovery] = useState<ProjectDiscoveryResult>(emptyDiscovery);
   const [selectedExplorerTarget, setSelectedExplorerTarget] = useState<ExplorerTarget>({
@@ -398,9 +139,6 @@ export function useProjectDesktop() {
   const [appMeta, setAppMeta] = useState<AppMeta>(appMetaFallback);
   const [isConnectorRefreshing, setIsConnectorRefreshing] = useState(false);
   const [isGitHubRefreshing, setIsGitHubRefreshing] = useState(false);
-  const [projectWorktrees, setProjectWorktrees] = useState<Record<string, ProjectWorktreeRecord[]>>(
-    {}
-  );
   const [hasLoaded, setHasLoaded] = useState(false);
 
   const githubProjects = useMemo(() => {
@@ -439,7 +177,16 @@ export function useProjectDesktop() {
     ? connectorOverview.machines.find((machine) => machine.id === selectedMachineId)
     : undefined;
   const activeGroup = project?.groupId ? groupsById[project.groupId] : undefined;
-  const worktrees = project ? (projectWorktrees[project.id] ?? []) : [];
+  const {
+    discovery: worktreeDiscovery,
+    refresh: refreshWorktreeDiscovery,
+    worktrees
+  } = useProjectWorktreeDiscovery({
+    machineId: selectedMachineId,
+    project,
+    selectedTarget: selectedExplorerTarget,
+    setSelectedTarget: setSelectedExplorerTarget
+  });
   const selectedWorktree =
     selectedExplorerTarget.kind === 'worktree'
       ? worktrees.find((entry) => entry.id === selectedExplorerTarget.worktreeId)
@@ -580,484 +327,44 @@ export function useProjectDesktop() {
     }
   }, []);
 
-  useEffect(() => {
-    if (!hasLoaded || mainView !== 'projects' || githubCatalog.checkedAt || isGitHubRefreshing)
-      return;
-    void refreshGitHubCatalog();
-  }, [githubCatalog.checkedAt, hasLoaded, isGitHubRefreshing, mainView, refreshGitHubCatalog]);
-
-  useEffect(() => {
-    if (githubCatalog.cache?.state !== 'refreshing') return;
-    let canceled = false;
-    let timer = 0;
-    let attempts = 0;
-    const poll = () => {
-      timer = window.setTimeout(
-        async () => {
-          const next = await refreshGitHubCatalog();
-          attempts += 1;
-          if (!canceled && next.cache?.state === 'refreshing' && attempts < 8) poll();
-        },
-        Math.min(1_500 * (attempts + 1), 5_000)
-      );
-    };
-    poll();
-    return () => {
-      canceled = true;
-      window.clearTimeout(timer);
-    };
-  }, [githubCatalog.cache?.state, refreshGitHubCatalog]);
-
-  useEffect(() => {
-    void Promise.all([
-      projectSpaceClient.loadProjectsState(),
-      projectSpaceClient.loadProjectDiscovery()
-    ])
-      .then(([state, nextDiscovery]) => {
-        const sanitizedDiscovery = sanitizeDiscovery(nextDiscovery);
-        const initialRoute = parseProjectRoute(window.location.pathname);
-        const routeProject =
-          initialRoute.view === 'project' && initialRoute.projectId
-            ? resolveRouteProject(sanitizedDiscovery.projects, initialRoute.projectId)
-            : undefined;
-        const shouldWaitForGitHubProject =
-          initialRoute.view === 'project' &&
-          shouldPreserveProjectRoute(initialRoute.projectId, routeProject);
-        const selectedProjectFromRoute =
-          initialRoute.view === 'project'
-            ? (routeProject?.id ??
-              (shouldWaitForGitHubProject ? (initialRoute.projectId ?? '') : ''))
-            : state.selectedProjectId;
-        const selectedProjectRecord = selectedProjectFromRoute
-          ? resolveRouteProject(sanitizedDiscovery.projects, selectedProjectFromRoute)
-          : undefined;
-
-        setDiscovery(sanitizedDiscovery);
-        setPinnedProjectIds(state.pinnedProjectIds ?? []);
-        setRecentProjectIds(state.recentProjectIds ?? []);
-        setSelectedExplorerTarget(state.selectedExplorerTarget);
-        setSelectedLauncherAppId(state.selectedLauncherAppId);
-        setSelectedMachineId(
-          initialRoute.view === 'machine'
-            ? (initialRoute.machineId ?? '')
-            : (selectedProjectRecord?.machineId ?? '')
-        );
-        setSelectedProjectId(selectedProjectFromRoute);
-        setSelectedIssueNumber(initialRoute.issueNumber);
-        setSelectedWorkflowRunId(initialRoute.workflowRunId);
-        setProjectTab(initialRoute.projectTab ?? 'overview');
-        setMachineTab(initialRoute.machineTab ?? 'overview');
-        setMainView(initialRoute.view);
-
-        if (initialRoute.view === 'project' && routeProject) {
-          writeRoute(
-            'project',
-            routeProject.id,
-            true,
-            initialRoute.projectTab ?? 'overview',
-            initialRoute.projectTab === 'issues'
-              ? String(initialRoute.issueNumber ?? '')
-              : initialRoute.projectTab === 'deployments'
-                ? String(initialRoute.workflowRunId ?? '')
-                : ''
-          );
-        }
-      })
-      .catch(() => {
-        setDiscovery(emptyDiscovery);
-      })
-      .finally(() => {
-        setHasLoaded(true);
-      });
-  }, []);
-
-  useEffect(() => {
-    void refreshConnectorOverview();
-  }, [refreshConnectorOverview]);
-
-  useEffect(() => {
-    let isRefreshing = false;
-    const interval = window.setInterval(() => {
-      if (isRefreshing) {
-        return;
-      }
-
-      isRefreshing = true;
-      void refreshConnectorOverview({ silent: true }).finally(() => {
-        isRefreshing = false;
-      });
-    }, connectorOverviewRefreshIntervalMs);
-
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [refreshConnectorOverview]);
-
-  useEffect(() => {
-    let canceled = false;
-
-    void projectSpaceClient
-      .getAppMeta()
-      .then((nextMeta) => {
-        if (!canceled) {
-          setAppMeta(nextMeta ?? appMetaFallback);
-        }
-      })
-      .catch(() => {
-        if (!canceled) {
-          setAppMeta(appMetaFallback);
-        }
-      });
-
-    return () => {
-      canceled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    function handlePopState() {
-      const nextRoute = parseProjectRoute(window.location.pathname);
-
-      if (nextRoute.view === 'project') {
-        const nextProject = nextRoute.projectId
-          ? resolveRouteProject(projects, nextRoute.projectId)
-          : undefined;
-
-        if (nextProject) {
-          setSelectedExplorerTarget({ kind: 'workspace' });
-          setSelectedProjectId(nextRoute.projectId ?? nextProject.id);
-          setSelectedMachineId(nextProject.machineId ?? '');
-          setSelectedIssueNumber(nextRoute.issueNumber);
-          setSelectedWorkflowRunId(nextRoute.workflowRunId);
-          setProjectTab(nextRoute.projectTab ?? 'overview');
-          setMainView('project');
-          return;
-        }
-
-        if (nextRoute.projectId) {
-          setSelectedProjectId(nextRoute.projectId);
-          setSelectedIssueNumber(nextRoute.issueNumber);
-          setProjectTab(nextRoute.projectTab ?? 'overview');
-          setMainView('project');
-          return;
-        }
-
-        setSelectedProjectId('');
-        setMainView('projects');
-        return;
-      }
-
-      if (nextRoute.view === 'machine') {
-        setSelectedMachineId(nextRoute.machineId ?? '');
-        setMachineTab(nextRoute.machineTab ?? 'overview');
-        setMainView('machine');
-        return;
-      }
-
-      setMainView(nextRoute.view);
-    }
-
-    window.addEventListener('popstate', handlePopState);
-
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-    };
-  }, [projects]);
-
-  useEffect(() => {
-    let canceled = false;
-
-    void projectSpaceClient
-      .loadLauncherApps()
-      .then((nextLauncherApps) => {
-        if (canceled) {
-          return;
-        }
-
-        setLauncherApps(nextLauncherApps);
-      })
-      .catch(() => {
-        if (!canceled) {
-          setLauncherApps([]);
-        }
-      });
-
-    return () => {
-      canceled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!hasLoaded) {
-      return;
-    }
-
-    if (mainView === 'project' && selectedProjectId && !project) {
-      if (!githubCatalog.checkedAt && !isGitHubRefreshing) {
-        void refreshGitHubCatalog();
-      }
-
-      return;
-    }
-
-    if (selectedProjectId && !project) {
-      setSelectedProjectId('');
-      if (mainView === 'project') {
-        setMainView('projects');
-        writeRoute('projects', '', true);
-      }
-    }
-  }, [
-    githubCatalog.checkedAt,
+  useProjectDesktopLifecycle({
+    appMetaFallback,
+    emptyDiscovery,
+    githubCatalog,
     hasLoaded,
     isGitHubRefreshing,
-    mainView,
-    project,
-    refreshGitHubCatalog,
-    selectedProjectId
-  ]);
-
-  useEffect(() => {
-    if (!hasLoaded) {
-      return;
-    }
-
-    if (
-      mainView === 'chat' &&
-      typeof window !== 'undefined' &&
-      parseProjectChatRoute(window.location.pathname).matches
-    ) {
-      return;
-    }
-
-    if (mainView === 'machine') {
-      if (selectedMachineId) {
-        writeRoute('machine', selectedMachineId, true, machineTab);
-      } else {
-        writeRoute('machines', '', true);
-      }
-
-      return;
-    }
-
-    if (mainView === 'project') {
-      if (project) {
-        const routeProjectId =
-          selectedProjectId && resolveRouteProject([project], selectedProjectId)
-            ? selectedProjectId
-            : project.id;
-
-        writeRoute(
-          'project',
-          routeProjectId,
-          true,
-          projectTab,
-          projectTab === 'issues'
-            ? String(selectedIssueNumber ?? '')
-            : projectTab === 'deployments'
-              ? String(selectedWorkflowRunId ?? '')
-              : ''
-        );
-      } else if (
-        shouldPreserveUnresolvedProjectRoute({
-          githubCatalogCheckedAt: githubCatalog.checkedAt,
-          isGitHubRefreshing,
-          projectId: selectedProjectId,
-          routeProjectResolved: Boolean(project)
-        })
-      ) {
-        writeRoute(
-          'project',
-          selectedProjectId,
-          true,
-          projectTab,
-          projectTab === 'issues'
-            ? String(selectedIssueNumber ?? '')
-            : projectTab === 'deployments'
-              ? String(selectedWorkflowRunId ?? '')
-              : ''
-        );
-      } else {
-        writeRoute('projects', '', true);
-      }
-
-      return;
-    }
-
-    writeRoute(mainView, '', true);
-  }, [
-    hasLoaded,
+    launcherApps,
     machineTab,
     mainView,
-    project?.id,
+    pinnedProjectIds,
+    project,
+    projects,
     projectTab,
+    recentProjectIds,
+    refreshConnectorOverview,
+    refreshGitHubCatalog,
+    selectedExplorerTarget,
     selectedIssueNumber,
-    selectedWorkflowRunId,
+    selectedLauncherAppId,
     selectedMachineId,
     selectedProjectId,
-    githubCatalog.checkedAt,
-    isGitHubRefreshing
-  ]);
-
-  useEffect(() => {
-    if (!hasLoaded) {
-      return;
-    }
-
-    if (launcherApps.length === 0) {
-      if (selectedLauncherAppId) {
-        setSelectedLauncherAppId('');
-      }
-
-      return;
-    }
-
-    if (!launcherApps.some((entry) => entry.id === selectedLauncherAppId)) {
-      setSelectedLauncherAppId(launcherApps[0]?.id ?? '');
-    }
-  }, [hasLoaded, launcherApps, selectedLauncherAppId]);
-
-  useEffect(() => {
-    const appsMissingIcons = launcherApps.filter((entry) => !entry.iconDataUrl && !entry.iconUrl);
-
-    if (appsMissingIcons.length === 0) {
-      return;
-    }
-
-    let canceled = false;
-
-    void Promise.all(
-      appsMissingIcons.map(async (entry) => {
-        const iconDataUrl = await projectSpaceClient
-          .loadLauncherAppIcon(entry.id)
-          .catch(() => undefined);
-
-        return {
-          iconDataUrl,
-          id: entry.id
-        };
-      })
-    ).then((resolvedIcons) => {
-      if (canceled) {
-        return;
-      }
-
-      const iconMap = new Map(
-        resolvedIcons
-          .filter((entry) => Boolean(entry.iconDataUrl))
-          .map((entry) => [entry.id, entry.iconDataUrl])
-      );
-
-      if (iconMap.size === 0) {
-        return;
-      }
-
-      setLauncherApps((current) => {
-        return current.map((entry) => {
-          const iconDataUrl = iconMap.get(entry.id);
-
-          return iconDataUrl
-            ? {
-                ...entry,
-                iconDataUrl
-              }
-            : entry;
-        });
-      });
-    });
-
-    return () => {
-      canceled = true;
-    };
-  }, [launcherApps]);
-
-  useEffect(() => {
-    if (!project) {
-      if (selectedExplorerTarget.kind !== 'workspace') {
-        setSelectedExplorerTarget({ kind: 'workspace' });
-      }
-
-      return;
-    }
-
-    const cachedWorktrees = projectWorktrees[project.id];
-
-    let canceled = false;
-
-    if (
-      selectedExplorerTarget.kind === 'worktree' &&
-      cachedWorktrees &&
-      !cachedWorktrees.some((entry) => entry.id === selectedExplorerTarget.worktreeId)
-    ) {
-      setSelectedExplorerTarget({ kind: 'workspace' });
-    }
-
-    void projectSpaceClient
-      .loadProjectWorktrees(project.id, project.machineId ?? (selectedMachineId || undefined))
-      .then((nextWorktrees) => {
-        if (canceled) {
-          return;
-        }
-
-        setProjectWorktrees((current) => ({
-          ...current,
-          [project.id]: nextWorktrees
-        }));
-
-        if (
-          selectedExplorerTarget.kind === 'worktree' &&
-          !nextWorktrees.some((entry) => entry.id === selectedExplorerTarget.worktreeId)
-        ) {
-          setSelectedExplorerTarget({ kind: 'workspace' });
-        }
-      })
-      .catch(() => {
-        if (!canceled) {
-          setProjectWorktrees((current) => ({
-            ...current,
-            [project.id]: []
-          }));
-        }
-      });
-
-    return () => {
-      canceled = true;
-    };
-  }, [
-    project?.id,
-    project?.kind,
-    project?.rootPath,
-    project?.machineId,
-    selectedMachineId,
-    selectedExplorerTarget.kind,
-    selectedExplorerTarget.kind === 'worktree' ? selectedExplorerTarget.worktreeId : ''
-  ]);
-
-  useEffect(() => {
-    if (!hasLoaded) {
-      return;
-    }
-
-    void projectSpaceClient
-      .saveProjectsState({
-        activeGroupId: project?.groupId ?? '',
-        pinnedProjectIds,
-        recentProjectIds,
-        selectedExplorerTarget,
-        selectedLauncherAppId,
-        selectedProjectId
-      })
-      .catch(() => undefined);
-  }, [
-    hasLoaded,
-    pinnedProjectIds,
-    project?.groupId,
-    recentProjectIds,
-    selectedExplorerTarget,
-    selectedLauncherAppId,
-    selectedProjectId
-  ]);
-
+    selectedWorkflowRunId,
+    setAppMeta,
+    setDiscovery,
+    setHasLoaded,
+    setLauncherApps,
+    setMachineTab,
+    setMainView,
+    setPinnedProjectIds,
+    setProjectTab,
+    setRecentProjectIds,
+    setSelectedExplorerTarget,
+    setSelectedIssueNumber,
+    setSelectedLauncherAppId,
+    setSelectedMachineId,
+    setSelectedProjectId,
+    setSelectedWorkflowRunId
+  });
   async function createProject() {
     const selection = await projectSpaceClient.selectProjectDirectory();
     if (selection.canceled || !selection.path) {
@@ -1102,17 +409,19 @@ export function useProjectDesktop() {
       return [];
     }
 
-    const nextWorktrees = await projectSpaceClient.loadProjectWorktrees(
-      project.id,
-      project.machineId ?? (selectedMachineId || undefined)
-    );
+    const nextDiscovery = await refreshWorktreeDiscovery();
 
-    setProjectWorktrees((current) => ({
-      ...current,
-      [project.id]: nextWorktrees
-    }));
+    if (!nextDiscovery) return [];
 
-    return nextWorktrees;
+    if (nextDiscovery.state !== 'ready') {
+      throw new Error(
+        nextDiscovery.state === 'blocked'
+          ? nextDiscovery.message
+          : 'The authoritative worktree scan completed without finding a checkout.'
+      );
+    }
+
+    return nextDiscovery.worktrees;
   }
 
   async function openSelectedTargetInApp() {
@@ -1188,6 +497,7 @@ export function useProjectDesktop() {
     selectedTargetPath,
     structureViolations: discovery.structureViolations,
     selectedWorktree,
+    worktreeDiscovery,
     worktrees,
     openRoot() {
       setMainView('root');

@@ -508,9 +508,10 @@ export function ProjectHomeOverview({
 
     void Promise.all(
       missingProjects.map(async (project) => {
-        const worktrees = await projectSpaceClient
-          .loadProjectWorktrees(project.id, project.machineId)
-          .catch(() => []);
+        const discovery = await projectSpaceClient
+          .discoverProjectWorktrees(project.id, project.machineId)
+          .catch(() => undefined);
+        const worktrees = discovery?.state === 'ready' ? discovery.worktrees : [];
 
         return {
           branches: branchesFromWorktrees(worktrees),

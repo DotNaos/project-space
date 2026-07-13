@@ -26,6 +26,7 @@ import type {
   ExplorerTarget,
   FullstackTemplateCheck,
   ProjectSpaceRecord,
+  ProjectWorktreeDiscoveryState,
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
 import type { MachineDetailTab, ProjectDetailTab } from '../hooks/use-project-desktop';
@@ -300,6 +301,7 @@ export interface ProjectDetailProps {
   selectedTargetPath: string;
   selectedMachineId: string;
   tab: ProjectDetailTab;
+  worktreeDiscovery: ProjectWorktreeDiscoveryState;
   worktrees: ProjectWorktreeRecord[];
 }
 
@@ -325,6 +327,7 @@ export function ProjectDetail({
   selectedTargetPath,
   selectedMachineId,
   tab,
+  worktreeDiscovery,
   worktrees
 }: ProjectDetailProps) {
   const [templateRefreshKey, setTemplateRefreshKey] = useState(0);
@@ -411,6 +414,7 @@ export function ProjectDetail({
             repository={selectedRepository}
             selectedExplorerTarget={selectedExplorerTarget}
             selectedMachineId={selectedMachineId}
+            worktreeDiscovery={worktreeDiscovery}
             worktrees={worktrees}
           />
         ) : null}

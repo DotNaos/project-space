@@ -8,6 +8,7 @@ import type {
   GitHubCatalogRepository,
   MachineRecord,
   ProjectSpaceRecord,
+  ProjectWorktreeDiscoveryState,
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
 import { useWorktreeDevServers } from '../hooks/use-worktree-dev-servers';
@@ -16,6 +17,11 @@ import { DevServerSettings } from './dev-server-settings';
 import { DevServerAccessNotice } from './worktree-dev-server';
 import { WorktreeRuntimeTable } from './worktree-runtime-table';
 import { runtimeRowsForWorktrees, unmaterializedBranchesFor } from './worktree-runtime-model';
+import { projectWorktreeDiscoverySummary } from './project-worktree-discovery-model';
+import {
+  selectedProjectWorktree,
+  selectedWorktreeExplorerPath
+} from './project-worktree-selection';
 import { useWorktreeSetup } from '../hooks/use-worktree-setup';
 import {
   WorktreeGitClientPanel,
@@ -60,6 +66,7 @@ export function ProjectWorkspacesPanel({
   repository,
   selectedExplorerTarget,
   selectedMachineId,
+  worktreeDiscovery,
   worktrees
 }: {
   connectorOverview: ConnectorOverviewResult;
@@ -70,6 +77,7 @@ export function ProjectWorkspacesPanel({
   repository?: GitHubCatalogRepository;
   selectedExplorerTarget: ExplorerTarget;
   selectedMachineId: string;
+  worktreeDiscovery: ProjectWorktreeDiscoveryState;
   worktrees: ProjectWorktreeRecord[];
 }) {
   const [actionMessage, setActionMessage] = useState('');
@@ -122,19 +130,22 @@ export function ProjectWorkspacesPanel({
     return Array.from(branches).sort(branchSort(defaultBranch));
   }, [defaultBranch, repositoryBranches, worktrees]);
   const runtimeRows = useMemo(() => runtimeRowsForWorktrees(worktrees), [worktrees]);
+  const serverCount = Array.from(devServers.serversForWorktree.values()).reduce(
+    (total, servers) => total + servers.length,
+    0
+  );
   const unmaterializedBranches = useMemo(
     () => unmaterializedBranchesFor(branchNames, worktrees),
     [branchNames, worktrees]
   );
-  const selectedWorktree =
-    selectedExplorerTarget.kind === 'worktree'
-      ? worktrees.find((worktree) => worktree.id === selectedExplorerTarget.worktreeId)
-      : (worktrees.find((worktree) => worktree.isBase) ?? worktrees[0]);
-  const selectedExplorerPath = selectedWorktree?.status === 'ready' ? selectedWorktree.path : '';
+  const selectedWorktree = selectedProjectWorktree(worktrees, selectedExplorerTarget);
+  const selectedExplorerPath = selectedWorktreeExplorerPath(selectedWorktree);
   const canCreate =
     Boolean(repository?.fullName ?? project.github?.fullName) &&
     Boolean(selectedMachine) &&
-    canRunMachineCommand(selectedMachine);
+    canRunMachineCommand(selectedMachine) &&
+    worktreeDiscovery.state !== 'checking' &&
+    worktreeDiscovery.state !== 'blocked';
   const createLabel = selectedMachine
     ? canRunMachineCommand(selectedMachine)
       ? 'Create'
@@ -150,6 +161,10 @@ export function ProjectWorkspacesPanel({
       setSelectedCreateBranch(unmaterializedBranches[0] ?? '');
     }
   }, [selectedCreateBranch, unmaterializedBranches]);
+
+  useEffect(() => {
+    if (!canCreate) setShowCreate(false);
+  }, [canCreate]);
 
   useEffect(() => {
     if (!repository?.fullName) {
@@ -247,19 +262,14 @@ export function ProjectWorkspacesPanel({
           <div className="min-w-0">
             <Text className="text-sm font-semibold text-neutral-100">Worktrees</Text>
             <Text className="mt-0.5 block text-xs text-neutral-500">
-              {worktrees.length} worktrees ·{' '}
-              {Array.from(devServers.serversForWorktree.values()).reduce(
-                (total, servers) => total + servers.length,
-                0
-              )}{' '}
-              servers
+              {projectWorktreeDiscoverySummary(worktreeDiscovery, serverCount)}
             </Text>
           </div>
           <Button
             size="sm"
             variant="primary"
             className="shrink-0 bg-sky-500 text-white hover:bg-sky-400"
-            isDisabled={unmaterializedBranches.length === 0}
+            isDisabled={!canCreate || unmaterializedBranches.length === 0}
             onPress={() => setShowCreate((value) => !value)}
           >
             <GitBranchPlus className="size-4" />
@@ -310,7 +320,21 @@ export function ProjectWorkspacesPanel({
           settings={devServers.settings}
         />
 
-        {runtimeRows.length > 0 ? (
+        {worktreeDiscovery.state === 'checking' ? (
+          <div className="flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900/40 px-3 py-3">
+            <LoaderCircle className="size-4 animate-spin text-neutral-400" />
+            <Text className="text-sm text-neutral-300">Checking registered Git worktrees…</Text>
+          </div>
+        ) : worktreeDiscovery.state === 'blocked' ? (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/8 px-3 py-3">
+            <Text className="block text-sm font-medium text-red-200">
+              Worktree discovery is blocked.
+            </Text>
+            <Text className="mt-1 block text-xs text-red-200/70">
+              {worktreeDiscovery.message}
+            </Text>
+          </div>
+        ) : worktreeDiscovery.state === 'ready' ? (
           <WorktreeRuntimeTable
             access={devServers.access}
             machineName={selectedMachine?.name}
@@ -337,7 +361,7 @@ export function ProjectWorkspacesPanel({
               No branches or local worktrees found.
             </Text>
             <Text className="mt-1 block text-xs text-amber-200/70">
-              This machine has no valid checkout for this project yet.
+              The authoritative Git scan completed successfully and found no registered worktrees.
             </Text>
           </div>
         )}

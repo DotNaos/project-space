@@ -7,6 +7,7 @@ import type {
   MachineRecord,
   ProjectSpaceRecord,
   ProjectStructureViolationRecord,
+  ProjectWorktreeDiscoveryState,
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
 import { useCallback, useEffect, useMemo } from 'react';
@@ -206,6 +207,7 @@ export interface ProjectMainPanelProps {
   selectedMachineId: string;
   selectedTargetPath: string;
   structureViolations: ProjectStructureViolationRecord[];
+  worktreeDiscovery: ProjectWorktreeDiscoveryState;
   worktrees: ProjectWorktreeRecord[];
 }
 
@@ -254,6 +256,7 @@ export function ProjectMainPanel({
   selectedMachineId,
   selectedTargetPath,
   structureViolations,
+  worktreeDiscovery,
   worktrees
 }: ProjectMainPanelProps) {
   const selectedRepository = useMemo(
@@ -528,6 +531,7 @@ export function ProjectMainPanel({
             selectedTargetPath={selectedTargetPath}
             selectedMachineId={selectedMachineId}
             tab={projectTab}
+            worktreeDiscovery={worktreeDiscovery}
             worktrees={worktrees}
           />
         ) : (

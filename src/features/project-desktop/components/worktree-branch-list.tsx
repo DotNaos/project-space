@@ -14,6 +14,8 @@ export interface WorktreeBranchLocal {
   isBase: boolean;
   name: string;
   path: string;
+  status?: 'ready' | 'locked' | 'prunable' | 'missing' | 'broken' | 'unavailable';
+  statusReason?: string;
 }
 
 export interface WorktreeBranchOption {
@@ -113,6 +115,7 @@ export function WorktreeBranchList({
         const isBase = isDefaultBranch(option.branchName, defaultBranch);
 
         if (worktree) {
+          const isReady = !worktree.status || worktree.status === 'ready';
           return (
             <div
               key={option.branchName}
@@ -126,6 +129,7 @@ export function WorktreeBranchList({
               <div className="flex min-w-0 flex-col sm:flex-row sm:items-center">
                 <button
                   type="button"
+                  disabled={!isReady}
                   onClick={() => {
                     if (onSelectBranch) {
                       onSelectBranch(option.branchName, worktree.path, worktree);
@@ -138,7 +142,7 @@ export function WorktreeBranchList({
                       onSelectWorktree(worktree.id);
                     }
                   }}
-                  className="group flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-neutral-100/70"
+                  className="group flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left outline-none transition enabled:focus-visible:ring-2 enabled:focus-visible:ring-inset enabled:focus-visible:ring-neutral-100/70 disabled:cursor-not-allowed disabled:opacity-65"
                 >
                   <GitBranch className="size-4 shrink-0 text-neutral-500 group-hover:text-neutral-300" />
                   <span className="min-w-0 flex-1">
@@ -162,6 +166,11 @@ export function WorktreeBranchList({
                       className="shrink-0 uppercase tracking-[0.16em] text-neutral-400"
                     >
                       base
+                    </Chip>
+                  ) : null}
+                  {!isReady ? (
+                    <Chip color="warning" size="sm" variant="soft" className="shrink-0">
+                      {worktree.status}
                     </Chip>
                   ) : null}
                 </button>

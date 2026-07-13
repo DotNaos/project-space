@@ -210,6 +210,39 @@ export interface ProjectWorktreeRecord {
   statusReason?: string;
 }
 
+export interface ProjectWorktreeDiscoveryEvidence {
+  checkedAt: string;
+  projectPath: string;
+  source: 'git-worktree-list';
+}
+
+export type ProjectWorktreeDiscoveryResult =
+  | {
+      evidence: ProjectWorktreeDiscoveryEvidence;
+      state: 'ready';
+      worktrees: [ProjectWorktreeRecord, ...ProjectWorktreeRecord[]];
+    }
+  | {
+      evidence: ProjectWorktreeDiscoveryEvidence;
+      state: 'proven-empty';
+      worktrees: [];
+    }
+  | {
+      checkedAt: string;
+      message: string;
+      reason:
+        | 'connector-update-required'
+        | 'project-mismatch'
+        | 'request-failed'
+        | 'scan-failed'
+        | 'source-disagreement';
+      state: 'blocked';
+    };
+
+export type ProjectWorktreeDiscoveryState =
+  | { state: 'checking' }
+  | ProjectWorktreeDiscoveryResult;
+
 export interface FileSystemEntry {
   name: string;
   path: string;

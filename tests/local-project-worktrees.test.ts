@@ -280,6 +280,6 @@ describe('Git-authoritative project worktree discovery', () => {
     mkdirSync(join(scratch, 'candidate'));
     writeFileSync(join(scratch, 'candidate', '.git'), 'gitdir: /missing/gitdir\n');
 
-    expect(await loadLocalProjectWorktrees(scratch)).toEqual([]);
+    await expect(loadLocalProjectWorktrees(scratch)).rejects.toThrow('not a git repository');
   });
 });

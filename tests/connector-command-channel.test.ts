@@ -200,7 +200,8 @@ describe('connector command channel', () => {
           'filesystem.folder.rename',
           'filesystem.root',
           'terminal.run',
-          'worktrees.list'
+          'worktrees.list',
+          'worktrees.list.v2'
         ],
         machineId: 'test-machine',
         machineName: 'Test machine'
@@ -616,6 +617,105 @@ describe('connector command channel', () => {
     } finally {
       await server.close();
       bridge.close();
+    }
+  });
+
+  test('rejects a legacy worktree connector before sending an incompatible request', async () => {
+    process.env.PROJECT_CONNECTOR_CONFIG = '/tmp/project-space-missing-connector-config.json';
+    delete process.env.PROJECT_CONNECTOR_HUBS;
+    process.env.PROJECT_CONNECTOR_REGISTRATION_TOKEN = 'test-connector-token';
+    const registry: ConnectorProjectRegistryResult = {
+      checkedAt: new Date().toISOString(),
+      connector: {
+        capabilities: ['worktrees.list'],
+        machineId: 'legacy-worktree-machine',
+        machineName: 'Legacy worktree machine'
+      },
+      discovery: {
+        groups: [],
+        projects: [],
+        rootItems: [],
+        rootPath: '/tmp',
+        structureViolations: []
+      }
+    };
+    const connectorBackend = {
+      async getConnectorProjectRegistry() {
+        return registry;
+      }
+    } as ProjectSpaceBackend;
+    const server = await createProjectSpaceServer({
+      backend: createLocalProjectSpaceBackend(),
+      host: '127.0.0.1',
+      port: 0
+    });
+    const bridge = startProjectConnectorWebSocket({
+      backend: connectorBackend,
+      hubUrl: server.origin.replace(/^http/, 'ws') + '/api/connectors/socket'
+    });
+
+    try {
+      await waitForChannel('legacy-worktree-machine');
+      await expect(
+        requestConnectorProjectWorktrees({
+          machineId: 'legacy-worktree-machine',
+          projectPath: '/tmp/project'
+        })
+      ).rejects.toThrow('Update or restart');
+    } finally {
+      bridge.close();
+      await server.close();
+    }
+  });
+
+  test('returns a connector Git discovery failure without waiting for a timeout', async () => {
+    process.env.PROJECT_CONNECTOR_CONFIG = '/tmp/project-space-missing-connector-config.json';
+    delete process.env.PROJECT_CONNECTOR_HUBS;
+    process.env.PROJECT_CONNECTOR_REGISTRATION_TOKEN = 'test-connector-token';
+    const registry: ConnectorProjectRegistryResult = {
+      checkedAt: new Date().toISOString(),
+      connector: {
+        capabilities: ['worktrees.list', 'worktrees.list.v2'],
+        machineId: 'failed-worktree-machine',
+        machineName: 'Failed worktree machine'
+      },
+      discovery: {
+        groups: [],
+        projects: [],
+        rootItems: [],
+        rootPath: '/tmp',
+        structureViolations: []
+      }
+    };
+    const connectorBackend = {
+      async getConnectorProjectRegistry() {
+        return registry;
+      },
+      async loadProjectWorktrees() {
+        throw new Error('git worktree list failed');
+      }
+    } as ProjectSpaceBackend;
+    const server = await createProjectSpaceServer({
+      backend: createLocalProjectSpaceBackend(),
+      host: '127.0.0.1',
+      port: 0
+    });
+    const bridge = startProjectConnectorWebSocket({
+      backend: connectorBackend,
+      hubUrl: server.origin.replace(/^http/, 'ws') + '/api/connectors/socket'
+    });
+
+    try {
+      await waitForChannel('failed-worktree-machine');
+      await expect(
+        requestConnectorProjectWorktrees({
+          machineId: 'failed-worktree-machine',
+          projectPath: '/tmp/project'
+        })
+      ).rejects.toThrow('git worktree list failed');
+    } finally {
+      bridge.close();
+      await server.close();
     }
   });
 

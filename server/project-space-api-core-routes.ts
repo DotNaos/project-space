@@ -46,6 +46,10 @@ import type {
   ProjectStructureActionRequest,
   ProjectTrashRestoreRequest
 } from '../src/shared/project-space-api';
+import {
+  discoverProjectWorktrees,
+  reconcileProjectWorktreeDiscovery
+} from './project-worktree-discovery';
 
 export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
   const currentUserId = () => {
@@ -189,18 +193,29 @@ export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
         writeJson(response, 400, { error: 'Missing projectId.' });
         return true;
       }
-      const discovery = await backend.loadProjectDiscovery();
-      const project = discovery.projects.find(
+      const projectDiscovery = await backend.loadProjectDiscovery();
+      const project = projectDiscovery.projects.find(
         (candidate) =>
           candidate.id === projectId && (!machineId || candidate.machineId === machineId)
       );
       if (!project) {
-        writeJson(response, 404, {
-          error: 'Project not found on the selected machine.'
+        writeJson(response, 200, {
+          checkedAt: new Date().toISOString(),
+          message: 'Project not found on the selected machine.',
+          reason: 'project-mismatch',
+          state: 'blocked'
         });
         return true;
       }
-      writeJson(response, 200, await backend.loadProjectWorktrees(project.rootPath, machineId));
+      const worktreeDiscovery = await discoverProjectWorktrees({
+        projectPath: project.rootPath,
+        scan: () => backend.loadProjectWorktrees(project.rootPath, machineId)
+      });
+      writeJson(
+        response,
+        200,
+        reconcileProjectWorktreeDiscovery(worktreeDiscovery, Boolean(project.gitStatus))
+      );
       return true;
     }
 

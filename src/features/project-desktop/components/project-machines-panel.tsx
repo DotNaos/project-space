@@ -21,16 +21,18 @@ import { resolvedProjectMachineId } from '../../../shared/project-machine-identi
 import { cn } from '@/lib/utils';
 import { matchesFuzzyQuery } from '@/lib/fuzzy-search';
 import type { MachineDetailTab } from '../hooks/use-project-desktop';
+import {
+  useMachineWorktreeDiscovery,
+  type MachineWorktreeInfo
+} from '../hooks/use-machine-worktree-discovery';
 import { MachineListItem } from './machine-list-item';
 import { machineSubtitle } from './project-main-model';
 import {
   branchOptions,
   checkoutForProjectPath,
   parseCloneTargetProbeOutput,
-  parseWorktreeOutput,
   type CloneTargetInfo,
   type MachineProjectCheckout,
-  type MachineWorktreeInfo
 } from './project-machine-checkout-model';
 import {
   WorktreeBranchList,
@@ -40,11 +42,6 @@ import {
 interface MachineProjectMatch {
   checkout: MachineProjectCheckout;
   machineId: string;
-}
-
-interface MachineWorktreeState {
-  error?: string;
-  worktrees: MachineWorktreeInfo[];
 }
 
 interface MachineCloneTargetState {
@@ -130,13 +127,6 @@ function compactHomePath(path: string | undefined) {
   return path.replace(/^\/Users\/[^/]+/, '~').replace(/^\/home\/[^/]+/, '~');
 }
 
-function createWorktreeCommand(projectPath: string) {
-  return [
-    `cd ${shellQuote(projectPath)}`,
-    'git worktree list --porcelain 2>/dev/null'
-  ].join(' && ');
-}
-
 function createCloneCommand({
   branchName,
   defaultBranch,
@@ -200,14 +190,6 @@ function primaryCheckout(checkouts: MachineProjectCheckout[]) {
   );
 }
 
-function fallbackWorktrees(checkouts: MachineProjectCheckout[]): MachineWorktreeInfo[] {
-  return checkouts.map((checkout) => ({
-    branchName: checkout.branchName,
-    kind: checkout.kind,
-    path: checkout.path
-  }));
-}
-
 function branchSortValue(defaultBranch: string) {
   return (left: string, right: string) => {
     if (isDefaultBranch(left, defaultBranch)) {
@@ -249,7 +231,6 @@ export function ProjectMachinesPanel({
   projects: ProjectSpaceRecord[];
   repository?: GitHubCatalogRepository;
 }) {
-  const [branchState, setBranchState] = useState<Record<string, MachineWorktreeState>>({});
   const [actionMessage, setActionMessage] = useState('');
   const [busyCloneKey, setBusyCloneKey] = useState('');
   const [cloneTargetState, setCloneTargetState] = useState<Record<string, MachineCloneTargetState>>({});
@@ -320,6 +301,23 @@ export function ProjectMachinesPanel({
       }))
     ];
   }, [checkoutsByMachineId, connectorOverview.machines, matches]);
+  const discoveryTargets = useMemo(
+    () =>
+      machineRows.map((row) => {
+        const checkout = primaryCheckout(row.checkouts);
+        return {
+          blockedMessage: canRunMachineCommand(row.machine)
+            ? undefined
+            : row.machine
+              ? `${row.machine.name} is ${row.machine.connector.status}.`
+              : 'Machine is not available.',
+          machineId: row.machineId,
+          projectId: checkout?.project.id
+        };
+      }),
+    [machineRows]
+  );
+  const branchState = useMachineWorktreeDiscovery(discoveryTargets);
   const filteredMachineRows = useMemo(
     () =>
       machineRows.filter((row) =>
@@ -343,8 +341,11 @@ export function ProjectMachinesPanel({
     [machineQuery, machineRows]
   );
   const repositoryCloneUrl = cloneUrl(repository);
+  const isCheckingWorktrees = machineRows.some(
+    (row) => Boolean(primaryCheckout(row.checkouts)) && !branchState[row.machineId]
+  );
   const checkoutCount = machineRows.reduce(
-    (count, row) => count + (branchState[row.machineId]?.worktrees.length ?? row.checkouts.length),
+    (count, row) => count + (branchState[row.machineId]?.worktrees.length ?? 0),
     0
   );
   const cloneBranchNames = useMemo(() => {
@@ -402,58 +403,6 @@ export function ProjectMachinesPanel({
       canceled = true;
     };
   }, [repository?.fullName]);
-
-  useEffect(() => {
-    let canceled = false;
-
-    void Promise.all(
-      machineRows
-        .map((row) => ({
-          ...row,
-          checkout: primaryCheckout(row.checkouts)
-        }))
-        .filter((row) => row.checkout)
-        .map(async (row) => {
-          if (!canRunMachineCommand(row.machine)) {
-            return {
-              key: row.machineId,
-              state: {
-                error: row.machine
-                  ? `${row.machine.name} is ${row.machine.connector.status}.`
-                  : 'Machine is not available.',
-                worktrees: fallbackWorktrees(row.checkouts)
-              }
-            };
-          }
-
-          const result = await projectSpaceClient.runMachineTerminalCommand({
-            command: createWorktreeCommand(row.checkout!.path),
-            machineId: row.machineId
-          });
-
-          return {
-            key: row.machineId,
-            state:
-              result.exitCode === 0
-                ? { worktrees: parseWorktreeOutput(result.stdout, row.checkout!.path) }
-                : {
-                    error: result.stderr || 'Could not read worktrees.',
-                    worktrees: fallbackWorktrees(row.checkouts)
-                  }
-          };
-        })
-    ).then((results) => {
-      if (canceled) {
-        return;
-      }
-
-      setBranchState(Object.fromEntries(results.map((result) => [result.key, result.state])));
-    });
-
-    return () => {
-      canceled = true;
-    };
-  }, [machineRows]);
 
   useEffect(() => {
     let canceled = false;
@@ -529,7 +478,8 @@ export function ProjectMachinesPanel({
             <Text className="text-sm font-semibold text-neutral-100">Project machines</Text>
           </div>
           <Text className="shrink-0 text-xs text-neutral-500">
-            {machineRows.length} machines · {checkoutCount} checkouts
+            {machineRows.length} machines ·{' '}
+            {isCheckingWorktrees ? 'checking worktrees' : `${checkoutCount} checkouts`}
           </Text>
         </div>
         {actionMessage ? (
@@ -557,9 +507,7 @@ export function ProjectMachinesPanel({
             const state = branchState[row.machineId];
             const checkouts = row.checkouts;
             const checkout = primaryCheckout(checkouts);
-            const displayedWorktrees = state?.worktrees?.length
-              ? state.worktrees
-              : fallbackWorktrees(checkouts);
+            const displayedWorktrees = state?.state === 'ready' ? state.worktrees : [];
             const worktreeByBranch = new Map<string, NonNullable<WorktreeBranchOption['worktree']>>(
               displayedWorktrees
                 .filter((worktree) => worktree.branchName)
@@ -567,10 +515,12 @@ export function ProjectMachinesPanel({
                   normalizeKey(worktree.branchName!),
                   {
                     branchName: worktree.branchName,
-                    id: `${row.machineId}:${worktree.path}`,
-                    isBase: isDefaultBranch(worktree.branchName, defaultBranch),
-                    name: worktree.branchName || basename(worktree.path),
-                    path: worktree.path
+                    id: worktree.id,
+                    isBase: worktree.isBase,
+                    name: worktree.name,
+                    path: worktree.path,
+                    status: worktree.status,
+                    statusReason: worktree.statusReason
                   }
                 ])
             );
@@ -673,6 +623,11 @@ export function ProjectMachinesPanel({
                   onClick={(event) => event.stopPropagation()}
                   onKeyDown={(event) => event.stopPropagation()}
                 >
+                  {state?.state === 'blocked' ? (
+                    <Text className="mb-3 block text-xs text-red-300/80">
+                      Worktree discovery blocked: {state.error}
+                    </Text>
+                  ) : null}
                   {cloneBranchOptions.length > 0 ? (
                     <WorktreeBranchList
                       busyBranchName={

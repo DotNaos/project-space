@@ -353,6 +353,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           selectedMachineId={desktop.selectedMachineId}
           selectedTargetPath={desktop.selectedTargetPath}
           structureViolations={desktop.structureViolations}
+          worktreeDiscovery={desktop.worktreeDiscovery}
           worktrees={desktop.worktrees}
         />
       </div>
