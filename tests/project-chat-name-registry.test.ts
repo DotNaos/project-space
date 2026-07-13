@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { InMemoryProjectChatRepository } from '../server/project-chat/memory-store';
+import { projectChatNameCatalog } from '../server/project-chat/name-registry';
 import { ProjectChatService } from '../server/project-chat/service';
 import type { ProjectChatContext } from '../server/project-chat/contracts';
 
@@ -8,6 +9,13 @@ const threadB='019f4b93-5703-7692-ad6e-101e32fc4be0';
 const agent=(threadId:string,accountId='account-a'):ProjectChatContext=>({spaceId:'space-a',actor:{kind:'agent',accountId,machineId:'machine-a',hostId:'host-a',threadId}});
 
 describe('Project Chat role-based name registry',()=>{
+  test('keeps a broad unique main-agent catalogue for automatic allocation',()=>{
+    const mainNames=projectChatNameCatalog.filter(([, , category])=>category==='mythology');
+    const normalized=mainNames.map(([key])=>key);
+    expect(mainNames.length).toBeGreaterThanOrEqual(40);
+    expect(new Set(normalized).size).toBe(normalized.length);
+  });
+
   test('claims a main name idempotently and rejects scoped collisions',async()=>{
     const service=new ProjectChatService({repository:new InMemoryProjectChatRepository()});
     const first=await service.claimName(agent(threadA),{name:'Athena',category:'mythology'});

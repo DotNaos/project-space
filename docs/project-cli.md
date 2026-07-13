@@ -418,6 +418,34 @@ rejected before storage.
 
 Run `project connect` to establish or refresh this authenticated machine identity.
 
+## Codex Agent Names
+
+The Codex startup skill asks the CLI for one task name and passes every name
+already visible in the Codex task list as an exclusion:
+
+```sh
+project agent name --format json --exclude Mira --exclude Rook
+```
+
+When Project Space is reachable, the command reuses this thread's existing
+main-agent claim or atomically claims a different available main-agent name.
+Concurrent conflicts are retried against the remaining catalogue. The successful
+claim is stored locally so Project Chat can use the same identity.
+
+When the machine is not connected, the thread ID is unavailable, or Project
+Space cannot be reached, the command still exits successfully. It returns a
+compact generated name from a catalogue with more than one trillion possible
+combinations and prints:
+
+```text
+WARNING: Project Space is not reachable. Wir haben jetzt einfach einen zufälligen Namen generiert, den du jetzt verwendest.
+```
+
+The JSON response contains `name`, `source` (`project-space` or `fallback`),
+and the same `warning` on the fallback path. A locally stored fallback is reused
+for the same thread while it remains offline, unless that name is now present
+in the visible-task exclusions.
+
 ## Sync Template Snapshot
 
 Project template commands expect local template state in the project:

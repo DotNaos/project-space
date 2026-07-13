@@ -31,6 +31,7 @@ func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 	want := []string{
 		"__runtime-supervisor",
 		"adopt",
+		"agent",
 		"approval",
 		"chat",
 		"connect",

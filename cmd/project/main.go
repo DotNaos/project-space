@@ -33,6 +33,7 @@ func newRootCommand() *cobra.Command {
 		SilenceErrors: true,
 	}
 	root.AddCommand(newAdoptCommand())
+	root.AddCommand(newDefaultAgentCommand())
 	root.AddCommand(newApprovalCommand())
 	root.AddCommand(newDefaultChatCommand())
 	root.AddCommand(newConnectCommand())
