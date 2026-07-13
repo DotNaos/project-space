@@ -89,6 +89,7 @@ export function createCodexSessionsService(options: {
     CodexSessionsStore,
     | 'appendEvent'
     | 'completeOperation'
+    | 'latestEventSequence'
     | 'listEvents'
     | 'listInventory'
     | 'markOperationAmbiguous'
@@ -137,11 +138,19 @@ export function createCodexSessionsService(options: {
         await options.transport.read({ ...request, userId: sessionScope.userId }),
         sessionScope
       );
-      return result;
+      return withStreamCursor(result, await options.store.latestEventSequence(sessionScope));
     } catch (error) {
-      if (error instanceof CodexThreadMissingError) return missingRead(await storedRecord(options.store, sessionScope), sessionScope);
+      if (error instanceof CodexThreadMissingError) {
+        return withStreamCursor(
+          missingRead(await storedRecord(options.store, sessionScope), sessionScope),
+          await options.store.latestEventSequence(sessionScope)
+        );
+      }
       if (!(error instanceof CodexTransportUnavailableError)) throw error;
-      return missingRead(await storedRecord(options.store, sessionScope), sessionScope, 'offline');
+      return withStreamCursor(
+        missingRead(await storedRecord(options.store, sessionScope), sessionScope, 'offline'),
+        await options.store.latestEventSequence(sessionScope)
+      );
     }
   }
 
@@ -338,6 +347,10 @@ function validateRead(result: CodexSessionReadResult, scope: SessionScope) {
     throw new CodexTransportUncertainError('The connector returned history for a different session.');
   }
   return result;
+}
+
+function withStreamCursor(result: CodexSessionReadResult, streamCursor: number) {
+  return { ...result, streamCursor };
 }
 
 function filterInventory(inventory: CodexSessionListResult, request: CodexSessionListRequest) {

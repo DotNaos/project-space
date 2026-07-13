@@ -309,7 +309,7 @@ export class CodexSessionsController {
       this.update(applyCodexReadResult(this.state, result));
       if (result.session.status === 'active' || result.session.status === 'idle') {
         this.stopStream = this.client.subscribe(
-          origin,
+          { ...origin, afterSequence: result.streamCursor },
           (event) => {
             if (version === this.selectionVersion) this.update(applyCodexStreamEvent(this.state, event));
           },

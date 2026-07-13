@@ -144,6 +144,14 @@ class MemoryStore {
       .slice(0, 500);
   }
 
+  async latestEventSequence(input: {
+    machineId: string;
+    threadId: string;
+    userId: string;
+  }) {
+    return (this.events.get(this.sessionKey(input)) ?? []).length;
+  }
+
   private machineKey(input: { machineId: string; userId: string }) {
     return `${input.userId}\0${input.machineId}`;
   }
@@ -266,11 +274,15 @@ describe('Codex sessions hosted service', () => {
     const transport = new FakeTransport();
     const service = serviceFor(store, transport);
 
+    await service.publishEvent(actor, { machineId, threadId }, {
+      eventId: 'event-before-read', status: 'active', type: 'session-status'
+    });
     const opened = await service.read(actor, { machineId, threadId });
     expect(opened.openedReadOnly).toBe(true);
+    expect(opened.streamCursor).toBe(1);
     transport.readResult = new CodexTransportUnavailableError('offline');
     const cached = await service.read(actor, { machineId, threadId });
-    expect(cached).toMatchObject({ openedReadOnly: true, session: { status: 'offline' } });
+    expect(cached).toMatchObject({ openedReadOnly: true, session: { status: 'offline' }, streamCursor: 1 });
     expect(cached.turns).toHaveLength(0);
 
     const missingTransport = new FakeTransport();

@@ -287,7 +287,7 @@ describe('Codex sessions browser client', () => {
     expect(seen).toEqual([expect.objectContaining({ header: 'operation-client-1' })]);
   });
 
-  test('reconnects a closed stream using the last stable event id', async () => {
+  test('starts at the read cursor and reconnects using the last stable event id', async () => {
     const headers: Array<string | null> = [];
     let calls = 0;
     const encoder = new TextEncoder();
@@ -314,7 +314,7 @@ describe('Codex sessions browser client', () => {
     const seen: string[] = [];
     await new Promise<void>((resolve, reject) => {
       const unsubscribe = client.subscribe(
-        { machineId: 'machine-one', threadId },
+        { afterSequence: 41, machineId: 'machine-one', threadId },
         (event) => {
           seen.push(event.eventId);
           if (seen.length === 2) {
@@ -326,7 +326,7 @@ describe('Codex sessions browser client', () => {
       );
     });
     expect(seen).toEqual(['event-1', 'event-2']);
-    expect(headers).toEqual([null, 'event-1']);
+    expect(headers).toEqual(['41', 'event-1']);
   });
 
   test('rejects credential-bearing and insecure remote base URLs', () => {

@@ -179,6 +179,18 @@ describe('Codex session durable store', () => {
     expect(database.calls[0]?.sql).toContain('on conflict');
     expect(database.calls[0]?.sql).toContain('select sequence from codex_session_events');
   });
+
+  test('returns the scoped durable event cursor used by a fresh history read', async () => {
+    const database = new FakeDatabase();
+    database.responses.push({ rows: [{ sequence: '42' }] });
+    const store = new CodexSessionsStore(database);
+
+    expect(await store.latestEventSequence(operation)).toBe(42);
+    expect(database.calls[0]?.sql).toContain('max(sequence)');
+    expect(database.calls[0]?.values).toEqual([
+      operation.userId, operation.machineId, operation.threadId
+    ]);
+  });
 });
 
 describe('Codex session migration contract', () => {

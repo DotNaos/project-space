@@ -222,6 +222,24 @@ export class CodexSessionsStore {
       : []);
   }
 
+  async latestEventSequence(input: {
+    machineId: string;
+    threadId: string;
+    userId: string;
+  }) {
+    const result = await this.client.query<{ sequence: number | string }>(
+      `select coalesce(max(sequence), 0) as sequence
+         from codex_session_events
+        where owner_user_id = $1 and machine_id = $2 and thread_id = $3`,
+      [input.userId, input.machineId, input.threadId]
+    );
+    const sequence = Number(result.rows[0]?.sequence ?? 0);
+    if (!Number.isSafeInteger(sequence) || sequence < 0) {
+      throw new Error('Could not read the Codex session event cursor.');
+    }
+    return sequence;
+  }
+
   async purgeExpiredEvents() {
     await this.client.query('delete from codex_session_events where expires_at <= now()');
   }

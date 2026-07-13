@@ -98,7 +98,9 @@ export function createCodexSessionsClient(
     subscribe(input, onEvent, onError) {
       const controller = new AbortController();
       void (async () => {
-        let lastEventId = '';
+        let lastEventId = Number.isSafeInteger(input.afterSequence) && (input.afterSequence ?? 0) >= 0
+          ? String(input.afterSequence)
+          : '';
         while (!controller.signal.aborted) {
           try {
             const response = await fetchImplementation(

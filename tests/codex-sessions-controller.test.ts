@@ -8,6 +8,7 @@ import type {
   CodexSessionOperationResult,
   CodexSessionReadRequest,
   CodexSessionReadResult,
+  CodexSessionSubscribeRequest,
   CodexSessionsClient,
   CodexSessionStreamEvent,
   CodexSessionUserInputResponse
@@ -68,7 +69,7 @@ interface FakeCalls {
   interrupts: CodexSessionInterruptRequest[];
   lists: CodexSessionListRequest[];
   reads: CodexSessionReadRequest[];
-  subscriptions: CodexSessionReadRequest[];
+  subscriptions: CodexSessionSubscribeRequest[];
 }
 
 function fakeClient(options: {
@@ -120,7 +121,7 @@ function operationIds() {
 
 describe('Codex sessions UI controller', () => {
   test('aggregates machine lists and opens selected history without any mutation', async () => {
-    const fake = fakeClient();
+    const fake = fakeClient({ readImplementation: async () => ({ ...readResult(), streamCursor: 42 }) });
     const controller = new CodexSessionsController(fake.client, operationIds());
 
     await controller.loadMachines(['machine-mac', 'machine-pc']);
@@ -137,6 +138,7 @@ describe('Codex sessions UI controller', () => {
       expect.objectContaining({ role: 'assistant', text: 'Stored answer' })
     ]);
     expect(fake.calls.reads).toEqual([origin]);
+    expect(fake.calls.subscriptions).toEqual([{ ...origin, afterSequence: 42 }]);
     expect(fake.calls.continues).toHaveLength(0);
     expect(fake.calls.approvals).toHaveLength(0);
     expect(fake.calls.inputs).toHaveLength(0);

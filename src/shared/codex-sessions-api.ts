@@ -78,7 +78,12 @@ export interface CodexSessionReadRequest {
 export interface CodexSessionReadResult {
   openedReadOnly: true;
   session: CodexSessionRecord;
+  streamCursor?: number;
   turns: CodexConversationTurnRecord[];
+}
+
+export interface CodexSessionSubscribeRequest extends CodexSessionReadRequest {
+  afterSequence?: number;
 }
 
 export interface CodexSessionContinueRequest {
@@ -170,7 +175,7 @@ export interface CodexSessionsClient {
     request: CodexSessionUserInputResponse
   ): Promise<CodexSessionOperationResult>;
   subscribe(
-    request: CodexSessionReadRequest,
+    request: CodexSessionSubscribeRequest,
     onEvent: (event: CodexSessionStreamEvent) => void,
     onError?: (error: unknown) => void
   ): () => void;
