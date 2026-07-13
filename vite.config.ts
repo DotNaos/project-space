@@ -78,7 +78,18 @@ function projectSpaceApiPlugin(): Plugin {
   };
 }
 
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ command, mode }) => {
+  if (
+    command === 'serve' &&
+    !process.env.PORTLESS_URL &&
+    process.env.PROJECT_SPACE_ALLOW_DIRECT_DEV !== '1'
+  ) {
+    throw new Error(
+      'Project Space dev servers must run through Portless. Use `bun run dev`, or `bun run dev:direct` only for exceptional local debugging.'
+    );
+  }
+
+  return ({
   plugins: [
     react(),
     tailwindcss(),
@@ -116,4 +127,5 @@ export default defineConfig(({ mode }) => ({
     outDir: 'dist/renderer',
     emptyOutDir: true
   }
-}));
+  });
+});

@@ -30,7 +30,7 @@ import { EntitySwitcher, type SwitcherEntry } from './entity-switcher';
 import { MachineDetailView } from './machine-detail-view';
 import { ProjectDetail } from './project-detail';
 import { ProjectHomeOverview } from './project-home-overview';
-import { ProjectRootOverview } from './project-root-overview';
+import { ProjectRootSummary } from './project-root-summary';
 import { SettingsView } from './settings-view';
 import { resolveProjectRepository } from './project-main-model';
 import { cn } from '@/lib/utils';
@@ -515,13 +515,25 @@ export function ProjectMainPanel({
             tab={machineTab}
           />
         ) : mainView === 'root' ? (
-          <ProjectRootOverview
-            connector={connectorOverview}
-            onOpenMachine={onOpenMachine}
-            onOpenMachines={onOpenMachines}
-            onOpenProjects={onOpenProjects}
-            onSelectProject={onSelectProject}
-            projects={projects}
+          <ProjectRootSummary
+            connector={
+              isConnectorRefreshing
+                ? { state: 'loading' }
+                : connectorOverview.connectorOrigin ||
+                    connectorOverview.machinesRepo.path ||
+                    connectorOverview.machines.length > 0 ||
+                    connectorOverview.tailscale.installed
+                  ? {
+                      checkedAt: new Date().toISOString(),
+                      state: 'ready',
+                      value: connectorOverview
+                    }
+                  : {
+                      message: 'Machine information is not available yet.',
+                      state: 'blocked'
+                    }
+            }
+            projects={projects.filter(isVisibleProject)}
             recentProjectIds={recentProjectIds}
           />
         ) : mainView === 'settings' ? (

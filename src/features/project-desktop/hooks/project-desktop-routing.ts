@@ -159,6 +159,7 @@ export function routeForView(view: ProjectMainView, projectId = '', tab = '', de
 export interface ParsedProjectRoute {
   codexMachineId?: string;
   codexThreadId?: string;
+  createIssue?: boolean;
   issueNumber?: number;
   machineId?: string;
   machineTab?: MachineDetailTab;
@@ -212,11 +213,14 @@ export function parseProjectRoute(pathname: string): ParsedProjectRoute {
     const rest = pathname.slice(projectsPath.length + 1);
     const [rawProjectId, rawTab, rawDetail, rawRunId] = rest.split('/');
     const projectId = decodeURIComponent(rawProjectId ?? '');
-    const issueNumber = rawTab === 'issues' && rawDetail ? Number(rawDetail) : undefined;
+    const createIssue = rawTab === 'issues' && rawDetail === 'new';
+    const issueNumber =
+      rawTab === 'issues' && rawDetail && !createIssue ? Number(rawDetail) : undefined;
     const workflowRunId = parseWorkflowRunRoute(rawTab, rawDetail, rawRunId);
 
     return projectId
       ? {
+          createIssue,
           issueNumber: Number.isFinite(issueNumber) ? issueNumber : undefined,
           projectId,
           projectTab: parseProjectDetailTab(rawTab),

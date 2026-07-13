@@ -64,6 +64,19 @@ describe('Project Chat navigation', () => {
     });
   });
 
+  test('keeps a direct new issue route distinct from numbered issues', () => {
+    expect(parseProjectRoute('/projects/github%3ADotNaos%2Fproject-space/issues/new')).toMatchObject({
+      createIssue: true,
+      issueNumber: undefined,
+      projectId: 'github:DotNaos/project-space',
+      projectTab: 'issues',
+      view: 'project'
+    });
+    expect(routeForView('project', 'github:DotNaos/project-space', 'issues', 'new')).toBe(
+      '/projects/github%3ADotNaos%2Fproject-space/issues/new'
+    );
+  });
+
   test('shows a direct chat route before slower project discovery finishes', () => {
     expect(initialProjectMainView('/chat')).toBe('chat');
     expect(initialProjectMainView('/projects')).toBe('root');

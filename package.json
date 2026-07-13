@@ -9,8 +9,9 @@
     "project": "./bin/project"
   },
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
-    "dev:electron": "vite --mode electron --host 127.0.0.1",
+    "dev": "portless run vite --host 127.0.0.1",
+    "dev:direct": "PROJECT_SPACE_ALLOW_DIRECT_DEV=1 vite --host 127.0.0.1",
+    "dev:electron": "portless run vite --mode electron --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "test": "bun test",
     "build:connector:native": "bun packaging/release/build-connector.ts bun dist/project-space-connector",
@@ -30,7 +31,7 @@
     "connector:serve": "tailscale serve --bg --yes 4173",
     "connector:status": "tailscale serve status --json",
     "connector:start": "bun server/web-server.ts",
-    "dev:connector": "VITE_PROJECT_SPACE_API_BASE_URL=http://127.0.0.1:45873 vite --host 127.0.0.1",
+    "dev:connector": "VITE_PROJECT_SPACE_API_BASE_URL=http://127.0.0.1:45873 portless run vite --host 127.0.0.1",
     "preview": "vite preview",
     "start": "bun server/web-server.ts"
   },

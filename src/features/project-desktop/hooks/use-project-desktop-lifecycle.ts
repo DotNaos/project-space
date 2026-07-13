@@ -180,7 +180,9 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
               true,
               initialRoute.projectTab ?? 'overview',
               initialRoute.projectTab === 'issues'
-                ? String(initialRoute.issueNumber ?? '')
+                ? initialRoute.createIssue
+                  ? 'new'
+                  : String(initialRoute.issueNumber ?? '')
                 : initialRoute.projectTab === 'deployments'
                   ? String(initialRoute.workflowRunId ?? '')
                   : ''
@@ -379,13 +381,19 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
               ? selectedProjectId
               : project.id;
   
+          const currentRoute = parseProjectRoute(window.location.pathname);
+          const issueRouteDetail =
+            projectTab === 'issues' && currentRoute.createIssue
+              ? 'new'
+              : String(selectedIssueNumber ?? '');
+
           writeRoute(
             'project',
             routeProjectId,
             true,
             projectTab,
             projectTab === 'issues'
-              ? String(selectedIssueNumber ?? '')
+              ? issueRouteDetail
               : projectTab === 'deployments'
                 ? String(selectedWorkflowRunId ?? '')
                 : ''
@@ -398,13 +406,19 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
             routeProjectResolved: Boolean(project)
           })
         ) {
+          const currentRoute = parseProjectRoute(window.location.pathname);
+          const issueRouteDetail =
+            projectTab === 'issues' && currentRoute.createIssue
+              ? 'new'
+              : String(selectedIssueNumber ?? '');
+
           writeRoute(
             'project',
             selectedProjectId,
             true,
             projectTab,
             projectTab === 'issues'
-              ? String(selectedIssueNumber ?? '')
+              ? issueRouteDetail
               : projectTab === 'deployments'
                 ? String(selectedWorkflowRunId ?? '')
                 : ''
@@ -529,4 +543,3 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
     ]);
   
 }
-

@@ -77,6 +77,8 @@ export function IssueKanbanBoard({
   const dragRef = useRef<BoardDragState | null>(null);
   const suppressClickRef = useRef(false);
   const columnRefs = useRef(new Map<IssueColumnId, HTMLElement>());
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [activeColumnIndex, setActiveColumnIndex] = useState(0);
 
   const groups = groupIssuesByColumn(issues, overrides);
 
@@ -94,7 +96,11 @@ export function IssueKanbanBoard({
     issue: GitHubIssueRecord,
     fromColumn: IssueColumnId
   ) => {
-    if (event.button !== 0 || (event.target as HTMLElement).closest('[data-no-drag]')) {
+    if (
+      event.pointerType !== 'mouse' ||
+      event.button !== 0 ||
+      (event.target as HTMLElement).closest('[data-no-drag]')
+    ) {
       return;
     }
 
@@ -212,8 +218,28 @@ export function IssueKanbanBoard({
   }, [isDragActive]);
 
   return (
-    <div className="flex h-full min-h-0 flex-1 gap-3 overflow-x-auto overflow-y-hidden pb-2">
-      {visibleColumns.map((column) => (
+    <div className="flex h-full min-h-0 flex-1 flex-col" aria-label="Issue board with local derived columns">
+      <div
+        ref={scrollerRef}
+        onScroll={(event) => {
+          const scroller = event.currentTarget;
+          const columns = Array.from(scroller.querySelectorAll<HTMLElement>('[data-board-column]'));
+          if (columns.length === 0) return;
+          const center = scroller.scrollLeft + scroller.clientWidth / 2;
+          let nearestIndex = 0;
+          let nearestDistance = Number.POSITIVE_INFINITY;
+          columns.forEach((column, index) => {
+            const distance = Math.abs(column.offsetLeft + column.offsetWidth / 2 - center);
+            if (distance < nearestDistance) {
+              nearestDistance = distance;
+              nearestIndex = index;
+            }
+          });
+          setActiveColumnIndex(nearestIndex);
+        }}
+        className="flex h-full min-h-0 flex-1 snap-x snap-mandatory gap-3 overflow-x-auto overflow-y-hidden overscroll-x-contain pb-2 sm:snap-proximity lg:snap-none"
+      >
+        {visibleColumns.map((column) => (
         <BoardColumn
           key={column.id}
           branches={branches}
@@ -238,8 +264,22 @@ export function IssueKanbanBoard({
           pullRequests={pullRequests}
           repoFullName={repoFullName}
           suppressClickRef={suppressClickRef}
-        />
-      ))}
+          />
+        ))}
+      </div>
+      {visibleColumns.length > 1 ? (
+        <div className="flex h-5 shrink-0 items-center justify-center gap-1.5 sm:hidden" aria-hidden="true">
+          {visibleColumns.map((column, index) => (
+            <span
+              key={column.id}
+              className={cn(
+                'h-1.5 rounded-full transition-all',
+                index === activeColumnIndex ? 'w-5 bg-neutral-300' : 'w-1.5 bg-neutral-700'
+              )}
+            />
+          ))}
+        </div>
+      ) : null}
       {drag?.active
         ? createPortal(
             <div
@@ -306,9 +346,10 @@ function BoardColumn({
   return (
     <section
       ref={columnRef}
+      data-board-column
       aria-label={`${column.label} column`}
       className={cn(
-        'flex h-full min-h-0 w-80 shrink-0 flex-col overflow-hidden rounded-xl border border-neutral-800/70 bg-neutral-950/40 transition-colors',
+        'flex h-full min-h-0 w-[calc(100vw-3.5rem)] max-w-[22rem] shrink-0 snap-center flex-col overflow-hidden rounded-xl border border-neutral-800/70 bg-neutral-950/40 transition-colors sm:w-[20rem] sm:snap-start md:w-[21rem] lg:w-80',
         isDropTarget && column.dropClass
       )}
     >
@@ -405,7 +446,7 @@ function BoardCard({
       }}
       style={style}
       className={cn(
-        'issue-rise-in group relative shrink-0 cursor-grab touch-none select-none rounded-lg border border-neutral-800/80 bg-neutral-900/50 transition hover:-translate-y-px hover:border-neutral-700 hover:bg-neutral-900 hover:shadow-lg hover:shadow-black/30',
+        'issue-rise-in group relative shrink-0 touch-pan-y rounded-lg border border-neutral-800/80 bg-neutral-900/50 transition hover:-translate-y-px hover:border-neutral-700 hover:bg-neutral-900 hover:shadow-lg hover:shadow-black/30 [@media(pointer:fine)]:cursor-grab [@media(pointer:fine)]:touch-none [@media(pointer:fine)]:select-none',
         isDragSource && 'opacity-30 saturate-50'
       )}
     >
@@ -451,7 +492,7 @@ function BoardCard({
       {moveTargets.length > 0 ? (
         <div
           data-no-drag
-          className="absolute right-1.5 top-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100"
+          className="absolute right-1.5 top-1.5 opacity-100 transition-opacity focus-within:opacity-100 [@media(pointer:fine)]:opacity-0 [@media(pointer:fine)]:group-hover:opacity-100"
         >
           <Dropdown>
             <DropdownTrigger
