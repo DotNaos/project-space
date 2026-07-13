@@ -1,0 +1,183 @@
+import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
+
+import type { CodexChildProcess, CodexProcessFactory, CodexRpcId } from './contracts';
+import { CodexOperationUncertainError } from './operation-ledger';
+
+type RpcMessage = {
+  error?: { code?: number; message?: string };
+  id?: CodexRpcId;
+  method?: string;
+  params?: unknown;
+  result?: unknown;
+};
+
+type PendingCall = {
+  method: string;
+  reject: (error: Error) => void;
+  resolve: (result: unknown) => void;
+};
+
+export class CodexAppServerProtocolError extends Error {
+  readonly code = 'codex_app_server_protocol_error';
+}
+
+export class CodexAppServerRequestError extends Error {
+  readonly code = 'codex_app_server_request_failed';
+
+  constructor(readonly rpcCode?: number) {
+    super('Codex app-server rejected the request.');
+  }
+}
+
+export const defaultCodexAppServerBinary =
+  '/Applications/ChatGPT.app/Contents/Resources/codex';
+
+const defaultProcessFactory: CodexProcessFactory = ({ args, command, env }) =>
+  spawn(command, [...args], {
+    env,
+    stdio: 'pipe',
+    windowsHide: true
+  }) as CodexChildProcess;
+
+export class CodexStdioTransport {
+  private nextId = 1;
+  private open = true;
+  private readonly pending = new Map<number, PendingCall>();
+  private readonly stdout: ReturnType<typeof createInterface>;
+
+  constructor(
+    private readonly child: CodexChildProcess,
+    private readonly onMessage: (message: RpcMessage) => void,
+    private readonly onTransportClose: () => void
+  ) {
+    this.stdout = createInterface({ input: child.stdout });
+    this.stdout.on('line', (line) => this.handleLine(line));
+    this.stdout.on('close', () => this.handleClose());
+    child.on('error', () => this.handleClose());
+    child.once('close', () => this.handleClose());
+    child.stderr.on('data', () => {
+      // Deliberately discard process diagnostics: they may contain local paths or secrets.
+    });
+  }
+
+  static launch(options: {
+    binaryPath?: string;
+    codexHome?: string;
+    onClose?: () => void;
+    onMessage: (message: RpcMessage) => void;
+    processFactory?: CodexProcessFactory;
+  }) {
+    const factory = options.processFactory ?? defaultProcessFactory;
+    const child = factory({
+      args: ['app-server', '--listen', 'stdio://'],
+      command: options.binaryPath ?? defaultCodexAppServerBinary,
+      env: {
+        ...process.env,
+        ...(options.codexHome ? { CODEX_HOME: options.codexHome } : {})
+      }
+    });
+    return new CodexStdioTransport(child, options.onMessage, options.onClose ?? (() => {}));
+  }
+
+  get isOpen() {
+    return this.open;
+  }
+
+  async initialize() {
+    await this.call('initialize', {
+      capabilities: { experimentalApi: false },
+      clientInfo: {
+        name: 'project-space',
+        title: 'Project Space',
+        version: '0.4.0'
+      }
+    });
+    await this.write({ method: 'initialized', params: null });
+  }
+
+  call<Result>(method: string, params?: unknown): Promise<Result> {
+    if (!this.open) {
+      return Promise.reject(new CodexOperationUncertainError('Codex app-server is unavailable.'));
+    }
+    const id = this.nextId++;
+    return new Promise<Result>((resolve, reject) => {
+      this.pending.set(id, {
+        method,
+        reject,
+        resolve: (result) => resolve(result as Result)
+      });
+      this.write(params === undefined ? { id, method } : { id, method, params }).catch(() => {
+        this.pending.delete(id);
+        reject(new CodexOperationUncertainError('Codex app-server disconnected during the request.'));
+      });
+    });
+  }
+
+  respond(id: CodexRpcId, result: unknown) {
+    if (!this.open) {
+      return Promise.reject(new CodexOperationUncertainError('Codex app-server is unavailable.'));
+    }
+    return this.write({ id, result });
+  }
+
+  async close() {
+    if (!this.open) return;
+    this.open = false;
+    this.stdout.close();
+    for (const pending of this.pending.values()) {
+      pending.reject(new CodexOperationUncertainError('Codex app-server closed during the request.'));
+    }
+    this.pending.clear();
+    if (this.child.exitCode === null && this.child.signalCode === null) {
+      this.child.kill('SIGTERM');
+    }
+  }
+
+  private handleLine(line: string) {
+    if (!line.trim() || line.length > 2_000_000) return;
+    let message: RpcMessage;
+    try {
+      message = JSON.parse(line) as RpcMessage;
+    } catch {
+      return;
+    }
+    if (!message || typeof message !== 'object') return;
+
+    if (typeof message.id === 'number' && !message.method) {
+      const pending = this.pending.get(message.id);
+      if (!pending) return;
+      this.pending.delete(message.id);
+      if (message.error) {
+        pending.reject(new CodexAppServerRequestError(message.error.code));
+      } else if ('result' in message) {
+        pending.resolve(message.result);
+      } else {
+        pending.reject(new CodexAppServerProtocolError('Codex app-server returned an invalid response.'));
+      }
+      return;
+    }
+
+    if (typeof message.method === 'string') this.onMessage(message);
+  }
+
+  private handleClose() {
+    if (!this.open) return;
+    this.open = false;
+    for (const pending of this.pending.values()) {
+      pending.reject(new CodexOperationUncertainError('Codex app-server disconnected during the request.'));
+    }
+    this.pending.clear();
+    this.onTransportClose();
+  }
+
+  private write(message: RpcMessage) {
+    return new Promise<void>((resolve, reject) => {
+      const line = `${JSON.stringify(message)}\n`;
+      this.child.stdin.write(line, (error?: Error | null) => {
+        if (error) reject(error);
+        else resolve();
+      });
+    });
+  }
+}

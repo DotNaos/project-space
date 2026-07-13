@@ -31,6 +31,7 @@ import {
 import { ProjectChatSidebar } from './project-chat-sidebar';
 import { ProjectChatChannelList } from './project-chat-sidebar';
 import { ProjectChatThreadDetails } from './project-chat-thread-details';
+import type { CodexSessionTarget } from '../../codex-sessions/codex-session-route';
 
 export interface ProjectChatPageProps {
   channel: ProjectChatChannelRecord;
@@ -43,7 +44,7 @@ export interface ProjectChatPageProps {
   messages: ProjectChatMessageRecord[];
   now?: Date;
   onAcknowledgeMention?(throughSequence: number): void;
-  onOpenThread?(threadId: string): void;
+  onOpenThread?(target: CodexSessionTarget): void;
   onRetry?(): void;
   onRetryMention?(): void;
   onSend(body: string): Promise<void> | void;

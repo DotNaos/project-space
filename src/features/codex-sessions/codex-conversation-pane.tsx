@@ -1,0 +1,199 @@
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  ArrowLeft,
+  ArrowUp,
+  Check,
+  CircleAlert,
+  Clock3,
+  Loader2,
+  PanelRight,
+  TerminalSquare,
+  X
+} from 'lucide-react';
+import { Button, Text } from '@/app/dotnaos-ui';
+import { cn } from '@/lib/utils';
+import { codexContinueBlockReason, codexThreadOrigin } from './codex-sessions-model';
+import { CodexComposerTextArea } from './codex-composer-textarea';
+import type {
+  CodexConversation,
+  CodexConversationItem,
+  CodexMachine,
+  CodexSession,
+  CodexThreadOrigin
+} from './codex-sessions-types';
+
+const activityIcon = {
+  completed: Check,
+  failed: X,
+  running: Loader2,
+  waiting: Clock3
+};
+
+function ActivityRow({ item }: { item: Extract<CodexConversationItem, { kind: 'activity' }> }) {
+  const Icon = activityIcon[item.state];
+  return (
+    <div className="ml-8 flex items-start gap-2 border-l border-neutral-800 py-1.5 pl-3 text-[10px] text-neutral-500">
+      <Icon className={cn(
+        'mt-0.5 size-3 shrink-0',
+        item.state === 'running' && 'animate-spin text-neutral-300',
+        item.state === 'failed' && 'text-red-400'
+      )} />
+      <span className="min-w-0">
+        <Text className="text-neutral-300">{item.label}</Text>
+        {item.detail ? <Text className="ml-1 text-neutral-600">{item.detail}</Text> : null}
+      </span>
+    </div>
+  );
+}
+
+function MessageItem({ item }: { item: Extract<CodexConversationItem, { kind: 'message' }> }) {
+  return (
+    <article className={cn('flex gap-3 py-4', item.role === 'user' && 'justify-end')}>
+      {item.role === 'assistant' ? (
+        <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border border-neutral-800 bg-neutral-900">
+          <TerminalSquare className="size-3 text-neutral-400" />
+        </span>
+      ) : null}
+      <div className={cn(
+        'max-w-[80ch] text-sm leading-6 text-neutral-300',
+        item.role === 'user' && 'rounded-2xl rounded-br-sm bg-neutral-800 px-3.5 py-2 text-neutral-100'
+      )}>
+        <p className="whitespace-pre-wrap">{item.text}</p>
+        {item.streaming ? (
+          <span className="mt-2 inline-flex items-center gap-1.5 text-[10px] text-neutral-500">
+            <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" /> Streaming
+          </span>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+export function CodexConversationPane({
+  conversation,
+  machine,
+  onBack,
+  onContinue,
+  onOpenDetails,
+  session
+}: {
+  conversation?: CodexConversation;
+  machine?: CodexMachine;
+  onBack?(): void;
+  onContinue?(origin: CodexThreadOrigin, message: string): Promise<void> | void;
+  onOpenDetails?(): void;
+  session?: CodexSession;
+}) {
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setDraft('');
+  }, [session?.threadId]);
+
+  useEffect(() => {
+    if (conversation?.items.some((item) => item.kind === 'message' && item.streaming)) {
+      endRef.current?.scrollIntoView({ block: 'nearest' });
+    }
+  }, [conversation?.items]);
+
+  if (!session) {
+    return (
+      <section className="grid h-full min-h-0 place-items-center bg-neutral-950 text-center">
+        <div className="max-w-xs px-6">
+          <TerminalSquare className="mx-auto size-6 text-neutral-700" />
+          <Text as="h2" className="mt-4 block text-sm font-medium text-neutral-300">Select a Codex session</Text>
+          <Text className="mt-1 block text-xs leading-5 text-neutral-500">
+            Stored history opens read-only. Continuing is a separate action.
+          </Text>
+        </div>
+      </section>
+    );
+  }
+
+  const blockReason = codexContinueBlockReason(session, machine);
+  const pendingCount = (conversation?.approvals?.length ?? 0) + (conversation?.userInputRequests?.length ?? 0);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const message = draft.trim();
+    if (!message || blockReason || !onContinue || sending) return;
+    setSending(true);
+    try {
+      await onContinue(codexThreadOrigin(session!), message);
+      setDraft('');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <section aria-label="Selected Codex conversation" className="flex h-full min-h-0 flex-col bg-neutral-950">
+      <header className="flex h-[68px] shrink-0 items-center gap-2 border-b border-neutral-800/80 px-4">
+        {onBack ? (
+          <Button aria-label="Back to sessions" className="-ml-2 size-8 min-h-0" isIconOnly onPress={onBack} size="sm" variant="ghost">
+            <ArrowLeft className="size-4" />
+          </Button>
+        ) : null}
+        <div className="min-w-0">
+          <Text as="h2" className="block truncate text-sm font-semibold text-neutral-100">{session.title}</Text>
+          <div className="mt-1 flex items-center gap-2 text-[9px] text-neutral-500">
+            <span className="rounded-full border border-neutral-800 px-1.5 py-0.5">History opened read-only</span>
+            {session.status === 'active' ? <span className="text-emerald-400">Streaming</span> : null}
+          </div>
+        </div>
+        {onOpenDetails ? (
+          <Button aria-label="Open session details" className="ml-auto size-8 min-h-0" isIconOnly onPress={onOpenDetails} size="sm" variant="ghost">
+            {pendingCount > 0 ? <CircleAlert className="size-4 text-amber-400" /> : <PanelRight className="size-4" />}
+          </Button>
+        ) : null}
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-6">
+        {conversation?.items.length ? conversation.items.map((item) => (
+          item.kind === 'message'
+            ? <MessageItem item={item} key={item.id} />
+            : <ActivityRow item={item} key={item.id} />
+        )) : (
+          <div className="grid h-full place-items-center text-center">
+            <div>
+              <Text className="block text-xs text-neutral-400">No stored conversation items were returned.</Text>
+              <Text className="mt-1 block text-[10px] text-neutral-600">The session remains unchanged.</Text>
+            </div>
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
+
+      <form className="shrink-0 border-t border-neutral-800/80 bg-neutral-950 p-3 sm:p-4" onSubmit={submit}>
+        {blockReason ? (
+          <div className="mb-2 flex items-center gap-2 text-[10px] text-neutral-500">
+            <Clock3 className="size-3 shrink-0" />
+            <Text>{blockReason}</Text>
+          </div>
+        ) : null}
+        <div className="flex items-end gap-2 rounded-xl border border-neutral-800 bg-neutral-900/70 p-2 focus-within:border-neutral-600">
+          <CodexComposerTextArea
+            aria-label="Continue this Codex session"
+            disabled={Boolean(blockReason) || !onContinue || sending}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder={blockReason ?? 'Continue this session…'}
+            value={draft}
+          />
+          <Button
+            aria-label="Send to this Codex session"
+            className="size-9 min-h-0 rounded-full"
+            isDisabled={!draft.trim() || Boolean(blockReason) || !onContinue || sending}
+            isIconOnly
+            size="sm"
+            type="submit"
+            variant="primary"
+          >
+            {sending ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowUp className="size-3.5" />}
+          </Button>
+        </div>
+      </form>
+    </section>
+  );
+}
