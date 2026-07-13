@@ -135,6 +135,7 @@ const connectorCommandCapabilities = [
   'filesystem.folder.rename',
   'filesystem.root',
   'dev-server.inspect',
+  'dev-server.list',
   'dev-server.start',
   'dev-server.stop',
   'worktree.materialize',
