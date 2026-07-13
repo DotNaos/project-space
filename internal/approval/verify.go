@@ -77,7 +77,7 @@ func prepareContext(context verificationContext, scopeID string, err error) (Pre
 func verifyScope(context verificationContext, scope Scope) ScopeStatus {
 	status := ScopeStatus{
 		ID: scope.ID, Label: scope.Label, State: StateInvalidTampered, Attestation: scope.Attestation,
-		SignerID: context.trust.SignerID,
+		SignerID: context.trust.SignerID, Files: make([]FileHash, 0),
 	}
 	current, currentErr := BuildPayload(context.root, context.policy, context.policyDigest, scope, context.trust.SignerID)
 	if currentErr == nil {

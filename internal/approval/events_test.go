@@ -66,6 +66,13 @@ func TestSignedApprovalLifecycleAndReplayProtection(t *testing.T) {
 	if prepared.State != StateMissingHistory || prepared.NextSequence != 1 || prepared.PreviousEventDigest != "" {
 		t.Fatalf("initial preparation = %+v", prepared)
 	}
+	report, err := VerifyWithCheckpointAndMonotonic(fixture.root, fixture.policy, fixture.trust, fixture.checkpoint, fixture.signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Scopes[0].Files == nil {
+		t.Fatal("initial status must encode files as an empty array")
+	}
 	approved, err := Approve(fixture.root, fixture.policy, fixture.trust, fixture.checkpoint, "button", prepared.ContentDigest, fixture.signer)
 	if err != nil {
 		t.Fatal(err)
