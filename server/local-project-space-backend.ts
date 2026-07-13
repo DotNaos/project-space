@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { hostname } from 'node:os';
 
 import { getCodexStatus, openCodexTarget } from './local-codex-client';
@@ -61,6 +62,8 @@ import { getProjectctlOverview, getProjectctlPreview } from './local-projectctl-
 import { backupProject, deployProject, getPlatformOverview } from './local-platform-operations';
 import { readAppMeta } from './app-meta';
 import { configuredConnectorMachineId } from './project-connector-config';
+import { CODEX_SESSIONS_CONNECTOR_CAPABILITY } from './codex-sessions-connector-contract';
+import { defaultCodexAppServerBinary } from './codex-sessions/stdio-transport';
 import {
   applyProjectStructureAction,
   listProjectTrash,
@@ -143,7 +146,8 @@ const connectorCommandCapabilities = [
   'worktree.setup.run',
   'terminal.run',
   'worktrees.list',
-  'worktrees.list.v2'
+  'worktrees.list.v2',
+  ...(existsSync(defaultCodexAppServerBinary) ? [CODEX_SESSIONS_CONNECTOR_CAPABILITY] : [])
 ];
 
 export function createLocalProjectSpaceBackend(

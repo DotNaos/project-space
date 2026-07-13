@@ -137,7 +137,7 @@ export function CodexSessionDetails({
                   <Text className="mt-1 block text-[10px] leading-4 text-neutral-500">{request.description}</Text>
                   <div className="mt-3 flex gap-2">
                     <Button
-                      isDisabled={!onResolveApproval}
+                      isDisabled={!onResolveApproval || !request.canAllow}
                       onPress={() => void onResolveApproval?.({ ...origin, decision: 'allow_once', requestId: request.id })}
                       size="sm"
                       variant="outline"
@@ -237,17 +237,18 @@ export function CodexSessionDetails({
             variant="danger"
           >Interrupt active turn</Button>
         ) : null}
-        <Button
-          fullWidth
-          isDisabled={!onOpenProjectChatThread}
-          onPress={() => onOpenProjectChatThread?.(origin)}
-          size="sm"
-          variant="outline"
-          className="rounded-full"
-        >
-          Open Project Chat origin
-          <ExternalLink className="size-3" />
-        </Button>
+        {onOpenProjectChatThread ? (
+          <Button
+            fullWidth
+            onPress={() => onOpenProjectChatThread(origin)}
+            size="sm"
+            variant="outline"
+            className="rounded-full"
+          >
+            Open Project Chat origin
+            <ExternalLink className="size-3" />
+          </Button>
+        ) : null}
       </div>
     </aside>
   );

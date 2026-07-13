@@ -44,6 +44,14 @@ import {
   disconnectConnectorSession,
   sendConnectorJson
 } from './connector-command-session-registry';
+import {
+  failCodexSessionCommandsForMachine,
+  handleCodexSessionsConnectorMessage
+} from './codex-sessions/connector-hub';
+export {
+  requestConnectorCodexSessions,
+  streamConnectorCodexSessions
+} from './codex-sessions/connector-hub';
 export {
   isConnectorCommandChannelAuthenticated,
   isConnectorCommandChannelAvailable
@@ -222,9 +230,11 @@ function failCommandsForMachine(machineId: string) {
       failPending(id, unavailableError(machineId));
     }
   }
+  failCodexSessionCommandsForMachine(machineId);
 }
 
 function handleConnectorResult(machineId: string, message: ConnectorHubMessage) {
+  if (handleCodexSessionsConnectorMessage(machineId, message)) return;
   if ('id' in message) {
     const pending = pendingCommands.get(message.id);
     if (pending && pending.machineId !== machineId) {

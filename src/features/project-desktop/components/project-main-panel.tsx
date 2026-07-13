@@ -14,6 +14,9 @@ import { useCallback, useEffect, useMemo } from 'react';
 import { createProjectChatClient } from '@/api/project-chat-client';
 import { refreshProjectSpaceAuthToken } from '@/api/project-space-client';
 import { ProjectChatWorkspace } from '@/features/project-chat/project-chat-workspace';
+import { CodexSessionsControllerPage } from '@/features/codex-sessions/codex-sessions-controller-page';
+import type { CodexSessionsController } from '@/features/codex-sessions/codex-sessions-controller';
+import type { CodexSessionTarget } from '@/features/codex-sessions/codex-session-route';
 import { projectChatProjectId } from '@/shared/project-chat-project';
 import type {
   MachineDetailTab,
@@ -166,6 +169,8 @@ export interface ProjectMainPanelProps {
   account?: RailAccount;
   appMeta: AppMeta;
   connectorOverview: ConnectorOverviewResult;
+  codexController: CodexSessionsController;
+  codexMachineIds: string[];
   githubCatalog: GitHubCatalogResult;
   hasBottomTabBar?: boolean;
   isConnectorRefreshing: boolean;
@@ -175,6 +180,7 @@ export interface ProjectMainPanelProps {
   machineTab: MachineDetailTab;
   mainView: ProjectMainView;
   onCreateProject(): void;
+  onOpenCodex(target?: CodexSessionTarget): void;
   onOpenMachine(machineId: string, tab?: MachineDetailTab): void;
   onOpenMachines(): void;
   onOpenProjects(): void;
@@ -199,6 +205,7 @@ export interface ProjectMainPanelProps {
   projectTab: ProjectDetailTab;
   recentProjectIds: string[];
   selectedApp?: LauncherAppRecord;
+  selectedCodexOrigin?: CodexSessionTarget;
   selectedAppLabel?: string;
   selectedExplorerTarget: ExplorerTarget;
   selectedIssueNumber?: number;
@@ -215,6 +222,8 @@ export function ProjectMainPanel({
   account,
   appMeta,
   connectorOverview,
+  codexController,
+  codexMachineIds,
   githubCatalog,
   hasBottomTabBar = false,
   isConnectorRefreshing,
@@ -224,6 +233,7 @@ export function ProjectMainPanel({
   machineTab,
   mainView,
   onCreateProject,
+  onOpenCodex,
   onOpenMachine,
   onOpenMachines,
   onOpenProjects,
@@ -248,6 +258,7 @@ export function ProjectMainPanel({
   projectTab,
   recentProjectIds,
   selectedApp,
+  selectedCodexOrigin,
   selectedAppLabel,
   selectedExplorerTarget,
   selectedIssueNumber,
@@ -424,7 +435,27 @@ export function ProjectMainPanel({
       >
         <ProjectChatWorkspace
           client={projectChatClient}
+          onOpenThread={onOpenCodex}
           recentProjectIds={recentProjectIds}
+        />
+      </Surface>
+    );
+  }
+
+  if (mainView === 'codex') {
+    return (
+      <Surface
+        variant="transparent"
+        className={cn(
+          'h-full min-h-0 overflow-hidden rounded-none bg-app-panel',
+          hasBottomTabBar && 'pb-[calc(6.75rem+env(safe-area-inset-bottom))]'
+        )}
+      >
+        <CodexSessionsControllerPage
+          controller={codexController}
+          machineIds={codexMachineIds}
+          onOpenThread={onOpenCodex}
+          selectedOrigin={selectedCodexOrigin}
         />
       </Surface>
     );
@@ -508,6 +539,7 @@ export function ProjectMainPanel({
               <ProjectChatWorkspace
                 client={projectChatClient}
                 fixedProjectId={projectChatProjectId(project, selectedChatRepository)}
+                onOpenThread={onOpenCodex}
                 showChannelNavigation={false}
               />
             )}

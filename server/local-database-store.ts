@@ -233,6 +233,12 @@ export async function getMachineConnectionDatabaseClient(): Promise<
   return createPoolQueryClient(databasePool);
 }
 
+export async function getCodexSessionsDatabaseClient(): Promise<
+  TransactionalDatabaseQueryClient
+> {
+  return getMachineConnectionDatabaseClient();
+}
+
 export async function getConnectorMachineSnapshotStore() {
   const databasePool = getPool();
   if (!databasePool) {

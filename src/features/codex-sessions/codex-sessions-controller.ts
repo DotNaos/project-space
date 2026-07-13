@@ -17,6 +17,7 @@ import type {
 } from './codex-sessions-types';
 interface ApprovalBinding {
   approvalId?: string;
+  canAllow: boolean;
   itemId?: string;
   turnId: string;
 }
@@ -167,6 +168,7 @@ export function applyCodexStreamEvent(
       ...approvalBindings,
       [event.requestId]: {
         approvalId: event.approvalId,
+        canAllow: event.canAllow !== false,
         itemId: event.itemId,
         turnId: event.turnId
       }
@@ -174,7 +176,9 @@ export function applyCodexStreamEvent(
     conversation = {
       ...conversation,
       approvals: upsertById(conversation.approvals ?? [], {
-        description: event.command ?? 'Codex needs permission to continue this turn.',
+        canAllow: event.canAllow !== false,
+        description: event.command ?? event.permissionSummary?.join('; ') ??
+          'The requested permission details could not be displayed safely. You can deny this request.',
         id: event.requestId,
         title: event.kind === 'command'
           ? 'Run command'
@@ -303,15 +307,17 @@ export class CodexSessionsController {
       const result = await this.client.read(origin);
       if (version !== this.selectionVersion) return;
       this.update(applyCodexReadResult(this.state, result));
-      this.stopStream = this.client.subscribe(
-        origin,
-        (event) => {
-          if (version === this.selectionVersion) this.update(applyCodexStreamEvent(this.state, event));
-        },
-        (error) => {
-          if (version === this.selectionVersion) this.update({ ...this.state, errorMessage: errorMessage(error) });
-        }
-      );
+      if (result.session.status === 'active' || result.session.status === 'idle') {
+        this.stopStream = this.client.subscribe(
+          origin,
+          (event) => {
+            if (version === this.selectionVersion) this.update(applyCodexStreamEvent(this.state, event));
+          },
+          (error) => {
+            if (version === this.selectionVersion) this.update({ ...this.state, errorMessage: errorMessage(error) });
+          }
+        );
+      }
     } catch (error) {
       if (version !== this.selectionVersion) return;
       const status = isMissingError(error) ? 'missing' : isOfflineError(error) ? 'offline' : 'unavailable';
@@ -324,6 +330,20 @@ export class CodexSessionsController {
           : session)
       });
     }
+  }
+
+  clearSelection() {
+    this.selectionVersion += 1;
+    this.stopStream?.();
+    this.stopStream = undefined;
+    this.update({
+      ...this.state,
+      activeTurnId: undefined,
+      approvalBindings: {},
+      inputBindings: {},
+      reading: false,
+      selectedOrigin: undefined
+    });
   }
 
   async continue(origin: CodexThreadOrigin, message: string) {
@@ -360,6 +380,12 @@ export class CodexSessionsController {
     this.requireSelectedSession(decision);
     const binding = this.state.approvalBindings[decision.requestId];
     if (!binding?.turnId) throw new CodexSessionsControllerError('missing_turn', 'The active turn is no longer available.');
+    if (decision.decision === 'allow_once' && !binding.canAllow) {
+      throw new CodexSessionsControllerError(
+        'permission_details_unavailable',
+        'Project Space cannot safely display the complete permission request.'
+      );
+    }
     const key = `approval:${decision.machineId}:${decision.threadId}:${decision.requestId}:${decision.decision}`;
     const result = await this.runOperation(key, (operationId) => this.client.approve({
       approvalId: binding.approvalId,
@@ -438,11 +464,15 @@ export class CodexSessionsController {
       : kind === 'approval'
         ? { ...conversation, approvals: conversation.approvals?.filter((entry) => entry.id !== requestId) }
         : { ...conversation, userInputRequests: conversation.userInputRequests?.filter((entry) => entry.id !== requestId) });
-    const bindings = { ...(kind === 'approval' ? this.state.approvalBindings : this.state.inputBindings) };
-    delete bindings[requestId];
-    this.update(kind === 'approval'
-      ? { ...this.state, approvalBindings: bindings, conversations }
-      : { ...this.state, conversations, inputBindings: bindings });
+    if (kind === 'approval') {
+      const approvalBindings = { ...this.state.approvalBindings };
+      delete approvalBindings[requestId];
+      this.update({ ...this.state, approvalBindings, conversations });
+      return;
+    }
+    const inputBindings = { ...this.state.inputBindings };
+    delete inputBindings[requestId];
+    this.update({ ...this.state, conversations, inputBindings });
   }
 
   private update(state: CodexSessionsControllerState) {

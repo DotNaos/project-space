@@ -39,7 +39,9 @@ function listResult(machineId = origin.machineId, online = true): CodexSessionLi
   };
 }
 
-function readResult(status: 'active' | 'idle' = 'idle'): CodexSessionReadResult {
+function readResult(
+  status: CodexSessionReadResult['session']['status'] = 'idle'
+): CodexSessionReadResult {
   const record = listResult().sessions[0];
   return {
     openedReadOnly: true,
@@ -66,13 +68,16 @@ interface FakeCalls {
   interrupts: CodexSessionInterruptRequest[];
   lists: CodexSessionListRequest[];
   reads: CodexSessionReadRequest[];
+  subscriptions: CodexSessionReadRequest[];
 }
 
 function fakeClient(options: {
   continueImplementation?(request: CodexSessionContinueRequest): Promise<CodexSessionOperationResult>;
   readImplementation?(request: CodexSessionReadRequest): Promise<CodexSessionReadResult>;
 } = {}) {
-  const calls: FakeCalls = { approvals: [], continues: [], inputs: [], interrupts: [], lists: [], reads: [] };
+  const calls: FakeCalls = {
+    approvals: [], continues: [], inputs: [], interrupts: [], lists: [], reads: [], subscriptions: []
+  };
   let onEvent: ((event: CodexSessionStreamEvent) => void) | undefined;
   const client: CodexSessionsClient = {
     async approve(request) {
@@ -99,7 +104,8 @@ function fakeClient(options: {
       calls.inputs.push(request);
       return accepted(request.operationId);
     },
-    subscribe(_request, handler) {
+    subscribe(request, handler) {
+      calls.subscriptions.push(request);
       onEvent = handler;
       return () => { onEvent = undefined; };
     }
@@ -270,5 +276,45 @@ describe('Codex sessions UI controller', () => {
       threadId: origin.threadId
     });
     expect(controller.getState().errorMessage).toBe('The Codex thread no longer exists.');
+  });
+
+  test('does not reconnect an offline thread and clears selection on list navigation', async () => {
+    const fake = fakeClient({ readImplementation: async () => readResult('offline') });
+    const controller = new CodexSessionsController(fake.client, operationIds());
+    await controller.select(origin);
+
+    expect(fake.calls.subscriptions).toHaveLength(0);
+    controller.clearSelection();
+    expect(controller.getState().selectedOrigin).toBeUndefined();
+  });
+
+  test('allows denial but blocks approval when permission details are incomplete', async () => {
+    const fake = fakeClient({ readImplementation: async () => readResult('active') });
+    const controller = new CodexSessionsController(fake.client, operationIds());
+    await controller.loadMachines([origin.machineId]);
+    await controller.select(origin);
+    fake.event({
+      approvalId: 'permissions',
+      canAllow: false,
+      eventId: 'event-permission-incomplete',
+      kind: 'permissions',
+      requestId: 'request-permission-incomplete',
+      turnId: 'turn-permission-incomplete',
+      type: 'approval-requested'
+    });
+
+    await expect(controller.resolveApproval({
+      ...origin,
+      decision: 'allow_once',
+      requestId: 'request-permission-incomplete'
+    })).rejects.toMatchObject({ code: 'permission_details_unavailable' });
+    expect(fake.calls.approvals).toHaveLength(0);
+
+    await controller.resolveApproval({
+      ...origin,
+      decision: 'deny',
+      requestId: 'request-permission-incomplete'
+    });
+    expect(fake.calls.approvals[0]).toMatchObject({ decision: 'deny' });
   });
 });

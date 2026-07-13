@@ -4,6 +4,7 @@ import {
   codexSessionsMigrationId,
   codexSessionsMigrationSql
 } from '../server/database/codex-sessions-migration';
+import { databaseMigrations } from '../server/database/migrations';
 import {
   CodexSessionsStore,
   operationFingerprint,
@@ -162,6 +163,22 @@ describe('Codex session durable store', () => {
     const store = new CodexSessionsStore(database);
     expect(await store.listInventory('user-owner', 'machine-one')).toHaveLength(1);
   });
+
+  test('returns the durable sequence for new and duplicate stream events', async () => {
+    const database = new FakeDatabase();
+    database.responses.push({ rows: [{ sequence: '42' }] });
+    const store = new CodexSessionsStore(database);
+    const sequence = await store.appendEvent({
+      event: { eventId: 'event-42', status: 'idle', type: 'session-status' },
+      machineId: operation.machineId,
+      threadId: operation.threadId,
+      userId: operation.userId
+    });
+
+    expect(sequence).toBe(42);
+    expect(database.calls[0]?.sql).toContain('on conflict');
+    expect(database.calls[0]?.sql).toContain('select sequence from codex_session_events');
+  });
 });
 
 describe('Codex session migration contract', () => {
@@ -171,5 +188,9 @@ describe('Codex session migration contract', () => {
     expect(codexSessionsMigrationSql).toContain('codex_session_operations');
     expect(codexSessionsMigrationSql).toContain('codex_session_events');
     expect(codexSessionsMigrationSql).toContain('references machine_memberships');
+    expect(databaseMigrations.at(-1)).toEqual({
+      id: codexSessionsMigrationId,
+      sql: codexSessionsMigrationSql
+    });
   });
 });

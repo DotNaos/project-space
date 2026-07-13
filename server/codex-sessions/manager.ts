@@ -92,7 +92,7 @@ export class CodexSessionManager {
 
   async listLoadedThreads(): Promise<CodexLoadedThreadListResult> {
     const result = requireRecord(await this.call<unknown>('thread/loaded/list', {}));
-    if (!Array.isArray(result.data)) throw protocolError();
+    if (!Array.isArray(result.data) || result.data.length > 10_000) throw protocolError();
     return { data: result.data.map((id) => validateIdentifier(id, 'threadId')) };
   }
 

@@ -128,6 +128,7 @@ class MemoryStore {
       events.push(structuredClone(input.event));
     }
     this.events.set(key, events);
+    return events.findIndex((event) => event.eventId === input.event.eventId) + 1;
   }
 
   async listEvents(input: {
@@ -139,7 +140,8 @@ class MemoryStore {
     const events = structuredClone(this.events.get(this.sessionKey(input)) ?? []);
     return events
       .map((event, index) => ({ event, sequence: index + 1 }))
-      .filter(({ sequence }) => sequence > (input.afterSequence ?? 0));
+      .filter(({ sequence }) => sequence > (input.afterSequence ?? 0))
+      .slice(0, 500);
   }
 
   private machineKey(input: { machineId: string; userId: string }) {
@@ -164,6 +166,11 @@ function authorize(store: MemoryStore) {
 }
 
 class FakeTransport implements CodexSessionsTransport {
+  listScopes: Array<{ machineId: string; userId: string }> = [];
+  liveEvents: CodexSessionStreamEvent[] = [];
+  mutationUsers: string[] = [];
+  readUsers: string[] = [];
+  streamUsers: string[] = [];
   listResult: CodexSessionListResult | Error = inventory();
   readResult: CodexSessionReadResult | Error = history();
   mutationCalls = 0;
@@ -186,25 +193,41 @@ class FakeTransport implements CodexSessionsTransport {
       };
   mutationWait?: Promise<void>;
 
-  async describeMachine(requestedMachineId: string) {
+  async describeMachine({ machineId: requestedMachineId }: { machineId: string }) {
     return { id: requestedMachineId, name: 'MacBook', online: false };
   }
 
-  async list() {
+  async list(scope: { machineId: string; userId: string }) {
+    this.listScopes.push(scope);
     if (this.listResult instanceof Error) throw this.listResult;
     return structuredClone(this.listResult);
   }
 
-  async read() {
+  async read(input: { userId: string }) {
+    this.readUsers.push(input.userId);
     if (this.readResult instanceof Error) throw this.readResult;
     return structuredClone(this.readResult);
   }
 
-  async mutate() {
+  async mutate(input: { userId: string }) {
+    this.mutationUsers.push(input.userId);
     this.mutationCalls++;
     await this.mutationWait;
     if (this.mutationResult instanceof Error) throw this.mutationResult;
     return structuredClone(this.mutationResult);
+  }
+
+  async stream(
+    input: { userId: string },
+    emit: (event: CodexSessionStreamEvent) => void,
+    signal: AbortSignal
+  ) {
+    this.streamUsers.push(input.userId);
+    this.liveEvents.forEach(emit);
+    if (signal.aborted) return;
+    await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), {
+      once: true
+    }));
   }
 }
 
@@ -266,6 +289,20 @@ describe('Codex sessions hosted service', () => {
     await expect(service.list({ userId: 'user-b' }, { machineId })).rejects.toBeInstanceOf(CodexSessionsAccessError);
     await expect(service.read(actor, { machineId: 'machine-b', threadId })).rejects.toBeInstanceOf(CodexSessionsAccessError);
     expect(transport.mutationCalls).toBe(0);
+  });
+
+  test('binds every connector operation to the authorized user', async () => {
+    const store = new MemoryStore();
+    const transport = new FakeTransport();
+    const service = serviceFor(store, transport);
+
+    await service.list(actor, { machineId });
+    await service.read(actor, { machineId, threadId });
+    await service.continue(actor, continuation());
+
+    expect(transport.listScopes).toEqual([{ machineId, userId: actor.userId }]);
+    expect(transport.readUsers).toEqual([actor.userId]);
+    expect(transport.mutationUsers).toEqual([actor.userId]);
   });
 
   test('joins simultaneous operations and durably replays the completed result', async () => {
@@ -368,5 +405,64 @@ describe('Codex sessions hosted service', () => {
     controller.abort();
     await streaming;
     expect(received.map((event) => event.eventId)).toEqual(['event-2', 'event-3']);
+  });
+
+  test('persists connector events before delivering them and cancels the owning stream', async () => {
+    const store = new MemoryStore();
+    const transport = new FakeTransport();
+    const event = {
+      delta: 'Live response',
+      eventId: 'live-event-1',
+      itemId: 'item-live',
+      type: 'agent-message-delta'
+    } as const;
+    transport.liveEvents = [event, event];
+    const service = serviceFor(store, transport);
+    const received: string[] = [];
+    const controller = new AbortController();
+
+    const browser = service.stream(
+      actor,
+      { machineId, threadId },
+      (next) => received.push(next.eventId),
+      controller.signal
+    );
+    const connector = service.transportStream(actor, { machineId, threadId }, controller.signal);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    await Promise.all([browser, connector]);
+
+    expect(received).toEqual(['live-event-1']);
+    expect(transport.streamUsers).toEqual([actor.userId]);
+    expect((await store.listEvents({ machineId, threadId, userId: actor.userId })))
+      .toHaveLength(1);
+  });
+
+  test('pages through more than 500 persisted events during reconnect replay', async () => {
+    const store = new MemoryStore();
+    const service = serviceFor(store, new FakeTransport());
+    for (let index = 1; index <= 501; index++) {
+      await store.appendEvent({
+        event: {
+          eventId: `event-${index}`,
+          status: 'idle',
+          type: 'session-status'
+        },
+        machineId,
+        threadId,
+        userId: actor.userId
+      });
+    }
+    const received: string[] = [];
+    const controller = new AbortController();
+    controller.abort();
+    await service.stream(
+      actor,
+      { machineId, threadId },
+      (event) => received.push(event.eventId),
+      controller.signal
+    );
+    expect(received).toHaveLength(501);
+    expect(received.at(-1)).toBe('event-501');
   });
 });

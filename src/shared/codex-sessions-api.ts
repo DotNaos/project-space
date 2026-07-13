@@ -130,9 +130,11 @@ export interface CodexSessionOperationResult {
 
 export interface CodexSessionApprovalEvent {
   approvalId?: string;
+  canAllow?: boolean;
   command?: string;
   itemId?: string;
   kind: 'command' | 'file-change' | 'permissions';
+  permissionSummary?: string[];
   requestId: string;
   turnId: string;
   type: 'approval-requested';

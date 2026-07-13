@@ -71,7 +71,7 @@ function stubService() {
         eventId: 'event-one',
         itemId: 'item-one',
         type: 'agent-message-delta'
-      });
+      }, 7);
     }
   };
   return { calls, service };
@@ -220,6 +220,22 @@ describe('Codex sessions authenticated HTTP boundary', () => {
       method: 'input',
       input: { answers: [{ questionId: 'question-one', value: 'integration-only' }] }
     });
+  });
+
+  test('replays from the scoped numeric SSE cursor and rejects opaque cursors', async () => {
+    const { calls, service } = stubService();
+    const origin = await startApi(service);
+    const path = `${origin}/api/codex/sessions/${threadId}/stream?machineId=machine-one`;
+    const response = await fetch(path, { headers: { 'Last-Event-ID': '6' } });
+    const invalid = await fetch(path, { headers: { 'Last-Event-ID': 'event-six' } });
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('id: 7');
+    expect(calls).toContainEqual({
+      input: { afterSequence: 6, machineId: 'machine-one', threadId },
+      method: 'stream'
+    });
+    expect(invalid.status).toBe(400);
   });
 });
 

@@ -95,8 +95,12 @@ export class CodexPublicEventPresenter {
       if (!turnId) return undefined;
       const itemId = stringValue(params.itemId);
       const permissionRequest = event.method === 'item/permissions/requestApproval';
+      const permission = permissionRequest
+        ? presentCodexPermissionSummary(params.permissions ?? params.requestedPermissions)
+        : undefined;
       return {
         ...(permissionRequest ? { approvalId: 'permissions' } : {}),
+        ...(permissionRequest ? { canAllow: permission?.complete === true } : {}),
         ...(safeText(params.command) ? { command: safeText(params.command) } : {}),
         eventId: eventId(event.method, threadId, turnId, requestId, itemId),
         ...(itemId ? { itemId } : {}),
@@ -105,6 +109,9 @@ export class CodexPublicEventPresenter {
           : event.method === 'item/fileChange/requestApproval'
             ? 'file-change'
             : 'command',
+        ...(permissionRequest && permission?.summary.length
+          ? { permissionSummary: permission.summary }
+          : {}),
         requestId,
         turnId,
         type: 'approval-requested'
@@ -273,6 +280,42 @@ function presentQuestions(value: unknown): CodexSessionUserInputQuestion[] {
     });
     return [{ ...(choices.length > 0 ? { choices } : {}), id, prompt }];
   });
+}
+
+export function presentCodexPermissionSummary(value: unknown) {
+  const summary: string[] = [];
+  let complete = true;
+  const visit = (entry: unknown, path: string[], depth: number) => {
+    if (summary.length >= 32 || depth > 4) {
+      complete = false;
+      return;
+    }
+    if (typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean') {
+      const label = safeText(path.join('.'));
+      const content = safeText(String(entry));
+      if (!label || !content || label === redactedText || content === redactedText) {
+        complete = false;
+        return;
+      }
+      summary.push(`${label}: ${content}`.slice(0, 240));
+      return;
+    }
+    if (Array.isArray(entry)) {
+      if (entry.length === 0) summary.push(`${path.join('.')}: none`);
+      entry.forEach((item) => visit(item, path, depth + 1));
+      return;
+    }
+    const object = record(entry);
+    if (!object) {
+      complete = false;
+      return;
+    }
+    const entries = Object.entries(object);
+    if (entries.length === 0) summary.push(`${path.join('.') || 'permissions'}: none`);
+    entries.forEach(([key, item]) => visit(item, [...path, key], depth + 1));
+  };
+  visit(value, [], 0);
+  return { complete: complete && summary.length > 0, summary };
 }
 
 function safeText(value: unknown) {

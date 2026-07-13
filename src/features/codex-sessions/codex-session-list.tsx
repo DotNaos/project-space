@@ -123,8 +123,12 @@ export function CodexSessionList({
       <div className="min-h-0 flex-1 overflow-y-auto py-2">
         {resultCount === 0 ? (
           <div className="px-5 py-10 text-center">
-            <Search className="mx-auto size-5 text-neutral-600" />
-            <Text className="mt-3 block text-xs text-neutral-400">No sessions match “{query}”.</Text>
+            {query
+              ? <Search className="mx-auto size-5 text-neutral-600" />
+              : <Bot className="mx-auto size-5 text-neutral-600" />}
+            <Text className="mt-3 block text-xs text-neutral-400">
+              {query ? `No sessions match “${query}”.` : 'No Codex sessions are available.'}
+            </Text>
           </div>
         ) : groups.map(({ machine, sections }) => (
           <section className="mb-3" key={machine.id}>

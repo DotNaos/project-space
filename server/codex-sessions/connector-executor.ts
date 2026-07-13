@@ -32,6 +32,7 @@ import {
 import {
   CodexPublicEventPresenter,
   eventThreadId,
+  presentCodexPermissionSummary,
   presentCodexSession,
   presentCodexTurns,
   publicCodexRequestId
@@ -39,6 +40,7 @@ import {
 
 type ExecutableOperation = Exclude<CodexSessionsConnectorOperation, 'stream'>;
 type PendingRequest = {
+  canAllow?: boolean;
   method: string;
   requestId: CodexRpcId;
   threadId: string;
@@ -155,6 +157,12 @@ export class CodexSessionsConnectorExecutor {
       this.options.manager.listLoadedThreads()
     ]);
     const loadedIds = new Set(loaded.data);
+    const storedIds = new Set([...active, ...archived].map((thread) => thread.id));
+    const loadedOnly = await mapWithConcurrency(
+      [...loadedIds].filter((threadId) => !storedIds.has(threadId)),
+      8,
+      (threadId) => this.options.manager.readThread(threadId, false).catch(() => undefined)
+    );
     const sessionsById = new Map([
       ...archived.map((thread) => [thread.id, presentCodexSession(thread, {
         archived: true,
@@ -167,7 +175,16 @@ export class CodexSessionsConnectorExecutor {
         loadedThreadIds: loadedIds,
         machineId: this.options.expectedMachineId,
         machineName: this.options.machineName
-      })] as const)
+      })] as const),
+      ...loadedOnly.flatMap((result) => result ? [[result.thread.id, presentCodexSession(
+        result.thread,
+        {
+          archived: result.thread.archived === true,
+          loadedThreadIds: loadedIds,
+          machineId: this.options.expectedMachineId,
+          machineName: this.options.machineName
+        }
+      )] as const] : [])
     ]);
     return {
       checkedAt: new Date(this.options.now?.() ?? Date.now()).toISOString(),
@@ -241,6 +258,9 @@ export class CodexSessionsConnectorExecutor {
     const pending = this.requirePending(request.requestId, request.threadId, request.turnId);
     try {
       if (pending.method === 'item/permissions/requestApproval') {
+        if (request.decision === 'allow-once' && pending.canAllow === false) {
+          return operationResult(request, 'rejected', request.turnId);
+        }
         await this.options.manager.respondToPermissions({
           grant: request.decision === 'allow-once' ? 'allRequested' : 'none',
           operationId: derivedOperationId(request.operationId, 'permission'),
@@ -299,7 +319,11 @@ export class CodexSessionsConnectorExecutor {
       const threadId = stringValue(params?.threadId);
       const turnId = stringValue(params?.turnId);
       if (threadId) {
+        const permission = event.method === 'item/permissions/requestApproval'
+          ? presentCodexPermissionSummary(params?.permissions ?? params?.requestedPermissions)
+          : undefined;
         this.pending.set(publicCodexRequestId(event.requestId), {
+          ...(permission ? { canAllow: permission.complete } : {}),
           method: event.method,
           requestId: event.requestId,
           threadId,
@@ -319,6 +343,24 @@ export class CodexSessionsConnectorExecutor {
     if (!presented || !threadId) return;
     for (const listener of this.subscribers.get(threadId) ?? []) listener(presented);
   }
+}
+
+async function mapWithConcurrency<Input, Result>(
+  input: Input[],
+  concurrency: number,
+  operation: (value: Input) => Promise<Result>
+) {
+  const results = new Array<Result>(input.length);
+  let index = 0;
+  const worker = async () => {
+    while (index < input.length) {
+      const current = index;
+      index += 1;
+      results[current] = await operation(input[current]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, input.length) }, worker));
+  return results;
 }
 
 async function listAllThreads(

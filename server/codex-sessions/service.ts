@@ -27,8 +27,8 @@ export interface CodexSessionStreamRequest extends CodexSessionReadRequest {
 }
 
 export interface CodexSessionsTransport {
-  describeMachine(machineId: string): Promise<CodexSessionMachineRecord>;
-  list(machineId: string): Promise<CodexSessionListResult>;
+  describeMachine(input: CodexSessionsMachineScope): Promise<CodexSessionMachineRecord>;
+  list(input: CodexSessionsMachineScope): Promise<CodexSessionListResult>;
   mutate(input: {
     kind: 'approval' | 'continue' | 'input' | 'interrupt';
     machineId: string;
@@ -38,28 +38,34 @@ export interface CodexSessionsTransport {
       | CodexSessionInterruptRequest
       | CodexSessionUserInputResponse;
     threadId: string;
+    userId: string;
   }): Promise<{
     machineId: string;
     result: CodexSessionOperationResult;
     threadId: string;
   }>;
-  read(input: CodexSessionReadRequest): Promise<CodexSessionReadResult>;
+  read(input: CodexSessionReadRequest & { userId: string }): Promise<CodexSessionReadResult>;
+  stream?(
+    input: CodexSessionReadRequest & { userId: string },
+    emit: (event: CodexSessionStreamEvent) => void,
+    signal: AbortSignal
+  ): Promise<void>;
 }
 
-interface MachineScope {
+export interface CodexSessionsMachineScope {
   machineId: string;
   userId: string;
 }
 
-interface SessionScope extends MachineScope {
+interface SessionScope extends CodexSessionsMachineScope {
   threadId: string;
 }
 
 type ScopedOperation = CodexStoredOperationInput;
 
 interface StreamSubscriber {
-  emit(event: CodexSessionStreamEvent): void;
-  queued: CodexSessionStreamEvent[];
+  emit(event: CodexSessionStreamEvent, sequence?: number): void;
+  queued: Array<{ event: CodexSessionStreamEvent; sequence?: number }>;
   ready: boolean;
   seen: Set<string>;
 }
@@ -95,7 +101,10 @@ export function createCodexSessionsService(options: {
   const activeOperations = new Map<string, Promise<CodexSessionOperationResult>>();
   const subscribers = new Map<string, Set<StreamSubscriber>>();
 
-  async function scope(actor: CodexSessionsActor, machineId: string): Promise<MachineScope> {
+  async function scope(
+    actor: CodexSessionsActor,
+    machineId: string
+  ): Promise<CodexSessionsMachineScope> {
     const userId = required(actor.userId, 'userId');
     const normalizedMachineId = required(machineId, 'machineId');
     await options.authorize({ userId }, normalizedMachineId);
@@ -105,7 +114,7 @@ export function createCodexSessionsService(options: {
   async function list(actor: CodexSessionsActor, request: CodexSessionListRequest) {
     const machineScope = await scope(actor, request.machineId);
     try {
-      const inventory = validateInventory(await options.transport.list(machineScope.machineId), machineScope.machineId);
+      const inventory = validateInventory(await options.transport.list(machineScope), machineScope.machineId);
       await options.store.saveInventory({
         ...machineScope,
         checkedAt: inventory.checkedAt,
@@ -115,7 +124,7 @@ export function createCodexSessionsService(options: {
       return filterInventory(inventory, request);
     } catch (error) {
       if (!(error instanceof CodexTransportUnavailableError)) throw error;
-      const machine = await offlineMachine(options.transport, machineScope.machineId);
+      const machine = await offlineMachine(options.transport, machineScope);
       const sessions = await options.store.listInventory(machineScope.userId, machineScope.machineId);
       return filterInventory(asOfflineInventory(machine, sessions, now), request);
     }
@@ -124,7 +133,10 @@ export function createCodexSessionsService(options: {
   async function read(actor: CodexSessionsActor, request: CodexSessionReadRequest) {
     const sessionScope = { ...(await scope(actor, request.machineId)), threadId: required(request.threadId, 'threadId') };
     try {
-      const result = validateRead(await options.transport.read(request), sessionScope);
+      const result = validateRead(
+        await options.transport.read({ ...request, userId: sessionScope.userId }),
+        sessionScope
+      );
       return result;
     } catch (error) {
       if (error instanceof CodexThreadMissingError) return missingRead(await storedRecord(options.store, sessionScope), sessionScope);
@@ -190,7 +202,8 @@ export function createCodexSessionsService(options: {
         kind,
         machineId: operation.machineId,
         request,
-        threadId: operation.threadId
+        threadId: operation.threadId,
+        userId: operation.userId
       });
       if (response.machineId !== operation.machineId || response.threadId !== operation.threadId || response.result.threadId !== operation.threadId || response.result.operationId !== operation.operationId) {
         throw new CodexTransportUncertainError('The connector returned an operation for a different target.');
@@ -218,15 +231,17 @@ export function createCodexSessionsService(options: {
   async function publishEvent(actor: CodexSessionsActor, request: CodexSessionReadRequest, event: CodexSessionStreamEvent) {
     const sessionScope = { ...(await scope(actor, request.machineId)), threadId: required(request.threadId, 'threadId') };
     required(event.eventId, 'eventId');
-    await options.store.appendEvent({ ...sessionScope, event });
-    for (const subscriber of subscribers.get(sessionKey(sessionScope)) ?? []) deliver(subscriber, event);
+    const sequence = await options.store.appendEvent({ ...sessionScope, event });
+    for (const subscriber of subscribers.get(sessionKey(sessionScope)) ?? []) {
+      deliver(subscriber, event, sequence);
+    }
     return true;
   }
 
   async function stream(
     actor: CodexSessionsActor,
     request: CodexSessionStreamRequest,
-    emit: (event: CodexSessionStreamEvent) => void,
+    emit: (event: CodexSessionStreamEvent, sequence?: number) => void,
     signal: AbortSignal
   ) {
     const sessionScope = { ...(await scope(actor, request.machineId)), threadId: required(request.threadId, 'threadId') };
@@ -236,14 +251,65 @@ export function createCodexSessionsService(options: {
     group.add(subscriber);
     subscribers.set(key, group);
     try {
-      for (const { event } of await options.store.listEvents({ ...sessionScope, afterSequence: request.afterSequence })) deliver(subscriber, event, true);
+      let afterSequence = request.afterSequence ?? 0;
+      while (true) {
+        const page = await options.store.listEvents({ ...sessionScope, afterSequence });
+        for (const { event, sequence } of page) deliver(subscriber, event, sequence, true);
+        if (page.length < 500) break;
+        const nextSequence = page.at(-1)?.sequence ?? afterSequence;
+        if (nextSequence <= afterSequence) break;
+        afterSequence = nextSequence;
+      }
       subscriber.ready = true;
-      subscriber.queued.splice(0).forEach((event) => deliver(subscriber, event, true));
+      subscriber.queued.splice(0).forEach(({ event, sequence }) => (
+        deliver(subscriber, event, sequence, true)
+      ));
       if (signal.aborted) return;
       await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
     } finally {
       group.delete(subscriber);
       if (group.size === 0) subscribers.delete(key);
+    }
+  }
+
+  async function transportStream(
+    actor: CodexSessionsActor,
+    request: CodexSessionReadRequest,
+    signal: AbortSignal
+  ) {
+    if (!options.transport.stream) return;
+    const sessionScope = {
+      ...(await scope(actor, request.machineId)),
+      threadId: required(request.threadId, 'threadId')
+    };
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener('abort', abort, { once: true });
+    let delivery = Promise.resolve();
+    let deliveryError: unknown;
+    const deliverLiveEvent = (event: CodexSessionStreamEvent) => {
+      delivery = delivery.then(async () => {
+        required(event.eventId, 'eventId');
+        const sequence = await options.store.appendEvent({ ...sessionScope, event });
+        for (const subscriber of subscribers.get(sessionKey(sessionScope)) ?? []) {
+          deliver(subscriber, event, sequence);
+        }
+      }).catch((error) => {
+        deliveryError = error;
+        controller.abort();
+      });
+    };
+    try {
+      await options.transport.stream(
+        { ...request, userId: sessionScope.userId },
+        deliverLiveEvent,
+        controller.signal
+      );
+      await delivery;
+      if (deliveryError) throw deliveryError;
+    } finally {
+      signal.removeEventListener('abort', abort);
     }
   }
 
@@ -255,7 +321,8 @@ export function createCodexSessionsService(options: {
     publishEvent,
     read,
     respondToUserInput: (actor: CodexSessionsActor, request: CodexSessionUserInputResponse) => mutate(actor, 'input', request),
-    stream
+    stream,
+    transportStream
   };
 }
 
@@ -296,13 +363,21 @@ function asOfflineInventory(
   };
 }
 
-async function offlineMachine(transport: CodexSessionsTransport, machineId: string) {
+async function offlineMachine(
+  transport: CodexSessionsTransport,
+  scope: CodexSessionsMachineScope
+) {
   try {
-    const machine = await transport.describeMachine(machineId);
-    if (machine.id !== machineId) throw new Error();
+    const machine = await transport.describeMachine(scope);
+    if (machine.id !== scope.machineId) throw new Error();
     return { ...machine, online: false, statusMessage: 'The connector is offline.' };
   } catch {
-    return { id: machineId, name: machineId, online: false, statusMessage: 'The connector is offline.' };
+    return {
+      id: scope.machineId,
+      name: scope.machineId,
+      online: false,
+      statusMessage: 'The connector is offline.'
+    };
   }
 }
 
@@ -336,14 +411,19 @@ function ambiguousResult(operation: ScopedOperation, replayed: boolean): CodexSe
   return { operationId: operation.operationId, replayed, status: 'ambiguous', threadId: operation.threadId };
 }
 
-function deliver(subscriber: StreamSubscriber, event: CodexSessionStreamEvent, force = false) {
+function deliver(
+  subscriber: StreamSubscriber,
+  event: CodexSessionStreamEvent,
+  sequence?: number,
+  force = false
+) {
   if (subscriber.seen.has(event.eventId)) return;
   if (!subscriber.ready && !force) {
-    subscriber.queued.push(event);
+    subscriber.queued.push({ event, sequence });
     return;
   }
   subscriber.seen.add(event.eventId);
-  subscriber.emit(event);
+  subscriber.emit(event, sequence);
 }
 
 function required(value: string, label: string) {

@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 
 import { WebSocket } from 'ws';
 
@@ -7,6 +7,7 @@ import type { ConnectorMachineMessage } from './connector-command-protocol';
 const sockets = new Map<string, WebSocket>();
 const capabilities = new Map<string, Set<string>>();
 const credentialHashes = new Map<string, Buffer>();
+const generations = new Map<string, number>();
 
 export function sendConnectorJson(socket: WebSocket, payload: ConnectorMachineMessage) {
   if (socket.readyState === WebSocket.OPEN) {
@@ -20,6 +21,10 @@ export function connectorSocket(machineId: string) {
 
 export function connectorHasCapability(machineId: string, capability: string) {
   return capabilities.get(machineId)?.has(capability) ?? false;
+}
+
+export function connectorSessionGeneration(machineId: string) {
+  return generations.get(machineId);
 }
 
 export function isConnectorCommandChannelAvailable(machineId: string) {
@@ -47,9 +52,12 @@ export function registerConnectorSession(
   token: string,
   advertisedCapabilities: string[]
 ) {
+  const generation = randomInt(1, 2 ** 48);
   sockets.set(machineId, socket);
   credentialHashes.set(machineId, createHash('sha256').update(token, 'utf8').digest());
   capabilities.set(machineId, new Set(advertisedCapabilities));
+  generations.set(machineId, generation);
+  return generation;
 }
 
 export function updateConnectorCapabilities(
@@ -67,6 +75,7 @@ export function removeConnectorSession(machineId: string, expected?: WebSocket) 
   sockets.delete(machineId);
   credentialHashes.delete(machineId);
   capabilities.delete(machineId);
+  generations.delete(machineId);
   return current;
 }
 

@@ -27,6 +27,11 @@ mock.module('@/app/dotnaos-ui', () => ({
     onPress?(): void;
     [key: string]: unknown;
   }) => createElement('button', { ...props, disabled: isDisabled, onClick: onPress }, children),
+  Dropdown: ({ children }: { children?: ReactNode }) => createElement('div', null, children),
+  DropdownItem: ({ children }: { children?: ReactNode }) => createElement('div', null, children),
+  DropdownMenu: ({ children }: { children?: ReactNode }) => createElement('div', null, children),
+  DropdownPopover: ({ children }: { children?: ReactNode }) => createElement('div', null, children),
+  DropdownTrigger: ({ children }: { children?: ReactNode }) => createElement('button', null, children),
   SearchField: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => (
     createElement('div', props, children)
   ),
@@ -35,11 +40,20 @@ mock.module('@/app/dotnaos-ui', () => ({
     createElement('div', props, children)
   ),
   SearchFieldInput: (props: Record<string, unknown>) => createElement('input', props),
+  Surface: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
   Text: ({ as = 'span', children, ...props }: {
     as?: ElementType;
     children?: ReactNode;
     [key: string]: unknown;
-  }) => createElement(as, props, children)
+  }) => createElement(as, props, children),
+  Tooltip: Object.assign(
+    ({ children }: { children?: ReactNode }) => createElement('div', null, children),
+    {
+      Arrow: () => null,
+      Content: ({ children }: { children?: ReactNode }) => createElement('span', null, children),
+      Trigger: ({ children }: { children?: ReactNode }) => createElement('div', null, children)
+    }
+  )
 }));
 
 const { CodexSessionsPage } = await import(

@@ -180,13 +180,26 @@ export class CodexSessionsStore {
     threadId: string;
     userId: string;
   }) {
-    await this.client.query(
-      `insert into codex_session_events (
-         owner_user_id, machine_id, thread_id, event_id, payload
-       ) values ($1, $2, $3, $4, $5::jsonb)
-       on conflict (owner_user_id, machine_id, thread_id, event_id) do nothing`,
+    const result = await this.client.query<{ sequence: number | string }>(
+      `with inserted as (
+         insert into codex_session_events (
+           owner_user_id, machine_id, thread_id, event_id, payload
+         ) values ($1, $2, $3, $4, $5::jsonb)
+         on conflict (owner_user_id, machine_id, thread_id, event_id) do nothing
+         returning sequence
+       )
+       select sequence from inserted
+       union all
+       select sequence from codex_session_events
+        where owner_user_id = $1 and machine_id = $2 and thread_id = $3 and event_id = $4
+       limit 1`,
       [input.userId, input.machineId, input.threadId, input.event.eventId, JSON.stringify(input.event)]
     );
+    const sequence = Number(result.rows[0]?.sequence);
+    if (!Number.isSafeInteger(sequence) || sequence < 1) {
+      throw new Error('Could not persist the Codex session event.');
+    }
+    return sequence;
   }
 
   async listEvents(input: {

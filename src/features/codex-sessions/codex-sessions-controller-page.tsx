@@ -6,11 +6,13 @@ import type { CodexThreadOrigin } from './codex-sessions-types';
 export function CodexSessionsControllerPage({
   controller,
   machineIds,
+  onOpenThread,
   onOpenProjectChatThread,
   selectedOrigin
 }: {
   controller: CodexSessionsController;
   machineIds: string[];
+  onOpenThread?(origin: CodexThreadOrigin): void;
   onOpenProjectChatThread?(origin: CodexThreadOrigin): void;
   selectedOrigin?: CodexThreadOrigin;
 }) {
@@ -30,6 +32,7 @@ export function CodexSessionsControllerPage({
 
   useEffect(() => {
     if (selectedOrigin) void controller.select(selectedOrigin);
+    else controller.clearSelection();
   }, [controller, selectedKey]);
 
   return (
@@ -51,7 +54,10 @@ export function CodexSessionsControllerPage({
       onResolveUserInput={async (decision) => {
         try { await controller.resolveUserInput(decision); } catch { /* Keep every answer visible for retry. */ }
       }}
-      onSelectThread={(origin) => void controller.select(origin)}
+      onSelectThread={(origin) => {
+        if (onOpenThread) onOpenThread(origin);
+        else void controller.select(origin);
+      }}
       selectedOrigin={state.selectedOrigin}
       sessions={state.sessions}
     />

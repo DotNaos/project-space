@@ -51,8 +51,8 @@ export interface CodexSessionsHttpService {
   ): Promise<CodexSessionOperationResult>;
   stream(
     context: CodexSessionsRequestContext,
-    request: CodexSessionReadRequest,
-    emit: (event: CodexSessionStreamEvent) => void,
+    request: CodexSessionReadRequest & { afterSequence?: number },
+    emit: (event: CodexSessionStreamEvent, sequence?: number) => void,
     signal: AbortSignal
   ): Promise<void>;
 }
@@ -74,11 +74,17 @@ type MachineAuthorizer = (
   machineId: string
 ) => Promise<void>;
 
+export type CodexSessionsHttpHandler = (
+  request: IncomingMessage,
+  response: ServerResponse,
+  url: URL
+) => Promise<boolean>;
+
 export function createCodexSessionsHttpApi(
   service: CodexSessionsHttpService,
   resolveContext: ContextResolver,
   requireMachineAccess: MachineAuthorizer
-) {
+): CodexSessionsHttpHandler {
   return async function handleCodexSessionsRequest(
     request: IncomingMessage,
     response: ServerResponse,
@@ -233,6 +239,7 @@ async function streamSession(
   context: CodexSessionsRequestContext,
   input: CodexSessionReadRequest
 ) {
+  const afterSequence = streamCursor(request);
   const controller = new AbortController();
   request.once('aborted', () => controller.abort());
   response.once('close', () => controller.abort());
@@ -243,12 +250,28 @@ async function streamSession(
     'X-Accel-Buffering': 'no'
   });
   response.write('retry: 1000\n\n');
-  await service.stream(context, input, (event) => {
+  await service.stream(context, {
+    ...input,
+    ...(afterSequence === undefined ? {} : { afterSequence })
+  }, (event, sequence) => {
     if (!response.destroyed) {
-      response.write(`id: ${event.eventId}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+      response.write(`id: ${sequence ?? event.eventId}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
     }
   }, controller.signal);
   if (!response.destroyed) response.end();
+}
+
+function streamCursor(request: IncomingMessage) {
+  const value = request.headers['last-event-id'];
+  if (value === undefined) return undefined;
+  if (Array.isArray(value) || !/^[0-9]{1,16}$/.test(value)) {
+    throw invalidRequest('Last-Event-ID is invalid.');
+  }
+  const cursor = Number(value);
+  if (!Number.isSafeInteger(cursor) || cursor < 0) {
+    throw invalidRequest('Last-Event-ID is invalid.');
+  }
+  return cursor;
 }
 
 async function readJsonObject(request: IncomingMessage): Promise<Record<string, unknown>> {

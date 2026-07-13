@@ -48,6 +48,7 @@ export type CodexConversationItem =
     };
 
 export interface CodexApprovalRequest {
+  canAllow: boolean;
   description: string;
   id: string;
   title: string;

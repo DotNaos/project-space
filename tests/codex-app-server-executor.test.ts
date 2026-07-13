@@ -43,6 +43,7 @@ class FakeSessionManager {
   readonly calls: Array<{ input?: unknown; method: string }> = [];
   private readonly listeners = new Set<CodexSessionEventListener>();
   active = false;
+  loadedIds = [threadId];
   paginated = false;
 
   subscribe(listener: CodexSessionEventListener) {
@@ -75,7 +76,7 @@ class FakeSessionManager {
 
   async listLoadedThreads() {
     this.calls.push({ method: 'listLoadedThreads' });
-    return { data: [threadId] };
+    return { data: this.loadedIds };
   }
 
   async readThread(id: string, includeTurns: boolean) {
@@ -208,6 +209,47 @@ describe('Codex connector executor', () => {
     executor.close();
   });
 
+  test('includes a process-loaded thread that is absent from stored lists', async () => {
+    const manager = new FakeSessionManager();
+    const loadedOnlyId = '019f5a78-3c4c-7082-bb45-5411be7d9b9e';
+    manager.loadedIds = [threadId, loadedOnlyId];
+    const { executor } = createExecutor(manager);
+    const result = await executor.execute('list', signed('list', {
+      includeArchived: false,
+      machineId
+    }, 'operation-list-loaded-only'));
+    if (result.operation !== 'list') throw new Error('unexpected result');
+    expect(result.result.sessions).toContainEqual(expect.objectContaining({
+      id: loadedOnlyId,
+      loadedByProjectSpace: true,
+      machineId
+    }));
+    expect(manager.calls).toContainEqual({
+      input: { id: loadedOnlyId, includeTurns: false },
+      method: 'readThread'
+    });
+    executor.close();
+  });
+
+  test('does not silently truncate more than 200 process-loaded threads', async () => {
+    const manager = new FakeSessionManager();
+    manager.loadedIds = [
+      threadId,
+      ...Array.from({ length: 201 }, (_, index) => (
+        `019f5a78-3c4c-7082-bb45-${(index + 1).toString(16).padStart(12, '0')}`
+      ))
+    ];
+    const { executor } = createExecutor(manager);
+    const result = await executor.execute('list', signed('list', {
+      includeArchived: false,
+      machineId
+    }, 'operation-list-many-loaded'));
+    if (result.operation !== 'list') throw new Error('unexpected result');
+    expect(result.result.sessions).toHaveLength(202);
+    expect(manager.calls.filter((call) => call.method === 'readThread')).toHaveLength(201);
+    executor.close();
+  });
+
   test('opens history read-only and strips secrets, command output, and reasoning', async () => {
     const { executor, manager } = createExecutor();
     const request: CodexSessionReadRequest = { machineId, threadId };
@@ -280,10 +322,29 @@ describe('Codex connector executor', () => {
     });
     expect(events[0]).toMatchObject({
       approvalId: 'permissions',
+      canAllow: true,
       kind: 'permissions',
+      permissionSummary: ['network: example.com'],
       requestId: 'n:70',
       turnId: 'turn-one',
       type: 'approval-requested'
+    });
+    manager.emit({
+      kind: 'request',
+      method: 'item/permissions/requestApproval',
+      params: {
+        permissions: Object.fromEntries(
+          Array.from({ length: 33 }, (_, index) => [`scope${index}`, true])
+        ),
+        threadId,
+        turnId: 'turn-one'
+      },
+      requestId: 71
+    });
+    expect(events[1]).toMatchObject({
+      canAllow: false,
+      kind: 'permissions',
+      requestId: 'n:71'
     });
 
     const approval: CodexSessionApprovalRequest = {
@@ -304,6 +365,32 @@ describe('Codex connector executor', () => {
       scope: 'turn'
     });
     expect(manager.calls.some((call) => call.method === 'respondToApproval')).toBe(false);
+
+    const incompleteApproval: CodexSessionApprovalRequest = {
+      approvalId: 'permissions',
+      decision: 'allow-once',
+      machineId,
+      operationId: 'operation-permission-incomplete',
+      requestId: 'n:71',
+      threadId,
+      turnId: 'turn-one'
+    };
+    const blocked = await executor.execute(
+      'approval',
+      signed('approval', incompleteApproval, incompleteApproval.operationId)
+    );
+    if (blocked.operation !== 'approval') throw new Error('unexpected result');
+    expect(blocked.result.status).toBe('rejected');
+    expect(manager.calls.filter((call) => call.method === 'respondToPermissions')).toHaveLength(1);
+    const denied = await executor.execute('approval', signed('approval', {
+      ...incompleteApproval,
+      decision: 'deny',
+      operationId: 'operation-permission-incomplete-deny'
+    }, 'operation-permission-incomplete-deny'));
+    if (denied.operation !== 'approval') throw new Error('unexpected result');
+    expect(denied.result.status).toBe('completed');
+    expect(manager.calls.filter((call) => call.method === 'respondToPermissions').at(-1)?.input)
+      .toMatchObject({ grant: 'none', requestId: 71 });
     stop();
     executor.close();
   });

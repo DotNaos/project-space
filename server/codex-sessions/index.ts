@@ -4,6 +4,8 @@ export * from './contracts';
 export * from './manager';
 export * from './operation-ledger';
 export * from './public-presenter';
+export * from './runtime';
+export * from './configured-runtime';
 export * from './service';
 export * from './stdio-transport';
 export * from './validation';

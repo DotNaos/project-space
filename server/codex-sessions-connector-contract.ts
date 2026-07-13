@@ -116,7 +116,7 @@ export function createCodexSessionsWireRequest(
     generation: input.generation,
     issuedAt: new Date(issuedAt).toISOString(),
     machineId,
-    nonce: options.nonce ?? randomBytes(24).toString('base64url'),
+    nonce: options.nonce ?? `n${randomBytes(24).toString('base64url')}`,
     operation: input.operation,
     operationId: input.operationId,
     payloadSha256: payloadFingerprint(input.payload),

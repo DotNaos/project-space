@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
 
 mock.module('@/api/project-space-client', () => ({
-  projectSpaceClient: {}
+  projectSpaceClient: {},
+  refreshProjectSpaceAuthToken: () => null
+}));
+mock.module('@/api/codex-sessions-client', () => ({
+  createCodexSessionsClient: () => ({})
 }));
 mock.module('@/shared/project-space-api', () => ({
   launcherAppLabels: {}

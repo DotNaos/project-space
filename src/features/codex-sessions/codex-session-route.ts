@@ -35,3 +35,15 @@ export function parseCodexSessionRoute(pathname: string) {
     return { matches: false as const };
   }
 }
+
+export function writeCodexSessionRoute(target?: Partial<CodexSessionTarget>, replace = false) {
+  if (typeof window === 'undefined') return;
+  const nextPath = codexSessionRoute(target);
+  if (window.location.pathname === nextPath) return;
+  const nextUrl = `${nextPath}${window.location.search}${window.location.hash}`;
+  if (replace) {
+    window.history.replaceState(null, '', nextUrl);
+  } else {
+    window.history.pushState(null, '', nextUrl);
+  }
+}

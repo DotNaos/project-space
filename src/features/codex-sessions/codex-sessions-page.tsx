@@ -110,9 +110,9 @@ export function CodexSessionsPage({
   return (
     <div className="relative h-full min-h-0 overflow-hidden bg-neutral-950 text-neutral-100">
       {errorMessage ? (
-        <div className="absolute left-1/2 top-3 z-20 flex max-w-[calc(100%-24px)] -translate-x-1/2 items-center gap-2 rounded-full border border-red-500/20 bg-neutral-950/95 px-3 py-2 text-[10px] text-red-200 shadow-xl">
+        <div className="absolute bottom-20 left-1/2 z-20 flex max-w-[calc(100%-24px)] -translate-x-1/2 items-center gap-2 rounded-xl border border-red-500/20 bg-neutral-950/95 px-3 py-2 text-[10px] leading-4 text-red-200 shadow-xl min-[1120px]:bottom-auto min-[1120px]:top-3 min-[1120px]:rounded-full">
           <CircleAlert className="size-3.5 shrink-0" />
-          <span className="truncate">{errorMessage}</span>
+          <span>{errorMessage}</span>
         </div>
       ) : null}
       <div className="hidden h-full min-h-0 min-[1120px]:grid min-[1120px]:grid-cols-[320px_minmax(0,1fr)_320px]">
