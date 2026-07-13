@@ -74,6 +74,7 @@ import type {
   ProjectRunSettingsRecord,
   ProjectRunSettingsUpdateRequest,
   ProjectsState,
+  ProjectWorktreeDiscoveryResult,
   ProjectWorktreeRecord,
   WorktreeMaterializeRequest,
   WorktreeMaterializeResult,
@@ -478,13 +479,26 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     return this.request('/api/projects/state');
   }
 
-  loadProjectWorktrees(projectId: string, machineId?: string): Promise<ProjectWorktreeRecord[]> {
+  discoverProjectWorktrees(
+    projectId: string,
+    machineId?: string
+  ): Promise<ProjectWorktreeDiscoveryResult> {
     const query = new URLSearchParams({ projectId });
     if (machineId) {
       query.set('machineId', machineId);
     }
 
     return this.request(`/api/projects/worktrees?${query.toString()}`);
+  }
+
+  async loadProjectWorktrees(
+    projectId: string,
+    machineId?: string
+  ): Promise<ProjectWorktreeRecord[]> {
+    const discovery = await this.discoverProjectWorktrees(projectId, machineId);
+    if (discovery.state === 'ready') return discovery.worktrees;
+    if (discovery.state === 'proven-empty') return [];
+    throw new Error(discovery.message);
   }
 
   materializeWorktree(request: WorktreeMaterializeRequest): Promise<WorktreeMaterializeResult> {

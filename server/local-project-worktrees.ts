@@ -307,38 +307,32 @@ export async function loadLocalProjectWorktrees(
   projectPath: string
 ): Promise<ProjectWorktreeRecord[]> {
   const resolvedProjectPath = resolve(projectPath);
-
-  try {
-    const gitCommonDir = (
-      await runCommand('git', [
-        '-C',
-        resolvedProjectPath,
-        'rev-parse',
-        '--path-format=absolute',
-        '--git-common-dir'
-      ])
-    ).trim();
-    const worktreeList = await runCommand('git', [
+  const gitCommonDir = (
+    await runCommand('git', [
       '-C',
       resolvedProjectPath,
-      'worktree',
-      'list',
-      '--porcelain',
-      '-z',
-      '--expire=now'
-    ]);
-    const basePath = dirname(gitCommonDir);
-    const registrationKeys = await loadRegistrationKeys(gitCommonDir, basePath);
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-common-dir'
+    ])
+  ).trim();
+  const worktreeList = await runCommand('git', [
+    '-C',
+    resolvedProjectPath,
+    'worktree',
+    'list',
+    '--porcelain',
+    '-z',
+    '--expire=now'
+  ]);
+  const basePath = dirname(gitCommonDir);
+  const registrationKeys = await loadRegistrationKeys(gitCommonDir, basePath);
 
-    return parseGitWorktreePorcelain(worktreeList, {
-      basePath,
-      gitCommonDir,
-      registrationKeys
-    });
-  } catch {
-    // Directory scans are not authoritative and must never produce actionable worktrees.
-    return [];
-  }
+  return parseGitWorktreePorcelain(worktreeList, {
+    basePath,
+    gitCommonDir,
+    registrationKeys
+  });
 }
 
 export async function resolveLocalProjectWorktree(

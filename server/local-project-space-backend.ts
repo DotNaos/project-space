@@ -141,7 +141,8 @@ const connectorCommandCapabilities = [
   'worktree.setup.inspect',
   'worktree.setup.run',
   'terminal.run',
-  'worktrees.list'
+  'worktrees.list',
+  'worktrees.list.v2'
 ];
 
 export function createLocalProjectSpaceBackend(

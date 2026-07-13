@@ -299,12 +299,15 @@ export function WorktreeGitClientPanel({
     >
       <div className="flex items-start justify-between gap-3 border-b border-neutral-800 px-4 py-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2 overflow-hidden">
             <GitBranch className="size-4 shrink-0 text-neutral-400" />
-            <Text className="text-sm font-semibold text-neutral-100">Git client</Text>
+            <Text className="shrink-0 text-sm font-semibold text-neutral-100">Git client</Text>
             {status?.branchName ? (
-              <Chip size="sm" className="rounded-full bg-neutral-800 px-2 py-0.5 text-neutral-300">
-                {status.branchName}
+              <Chip
+                size="sm"
+                className="min-w-0 rounded-full bg-neutral-800 px-2 py-0.5 text-neutral-300"
+              >
+                <span className="truncate">{status.branchName}</span>
               </Chip>
             ) : null}
           </div>

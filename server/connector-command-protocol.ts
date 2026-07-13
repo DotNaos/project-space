@@ -104,6 +104,11 @@ export type ConnectorHubMessage =
     }
   | {
       id: string;
+      payload: { message: string };
+      type: 'worktrees.error';
+    }
+  | {
+      id: string;
       payload: MachineFileSystemRootResult;
       type: 'filesystem.root.result';
     }
@@ -499,6 +504,13 @@ export function isConnectorHubMessage(value: unknown): value is ConnectorHubMess
   }
   if (value.type === 'worktrees.result') {
     return hasCommandId(value) && Array.isArray(value.payload) && value.payload.every(hasWorktree);
+  }
+  if (value.type === 'worktrees.error') {
+    return (
+      hasCommandId(value) &&
+      isRecord(value.payload) &&
+      typeof value.payload.message === 'string'
+    );
   }
   if (value.type === 'filesystem.root.result') {
     return (

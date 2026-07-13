@@ -325,6 +325,12 @@ function handleConnectorResult(machineId: string, message: ConnectorHubMessage) 
     }
     return;
   }
+  if (message.type === 'worktrees.error') {
+    if (pendingCommands.get(message.id)?.kind === 'worktrees') {
+      failPending(message.id, new Error(message.payload.message || 'Git worktree discovery failed.'));
+    }
+    return;
+  }
   if (message.type === 'filesystem.root.result') {
     if (pendingCommands.get(message.id)?.kind === 'filesystem-root') {
       finishPending(message.id, message.payload);
@@ -570,7 +576,7 @@ export async function requestConnectorTerminalCommand(
 export async function requestConnectorProjectWorktrees(
   request: MachineProjectWorktreesRequest
 ): Promise<ProjectWorktreeRecord[]> {
-  const socket = socketForMachine(request.machineId, 'worktrees.list');
+  const socket = socketForMachine(request.machineId, 'worktrees.list.v2');
   const id = commandId();
   const result = createPendingCommand(id, request.machineId, 'worktrees');
   sendConnectorJson(socket, { id, payload: request, type: 'worktrees.list' });

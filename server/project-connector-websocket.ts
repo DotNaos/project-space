@@ -424,15 +424,29 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         }
 
         if (message.type === 'worktrees.list') {
-          void backend.loadProjectWorktrees(message.payload.projectPath).then((result) => {
-            if (socket) {
-              sendJson(socket, {
-                id: message.id,
-                payload: result,
-                type: 'worktrees.result'
-              } satisfies ConnectorHubMessage);
-            }
-          });
+          void backend
+            .loadProjectWorktrees(message.payload.projectPath)
+            .then((result) => {
+              if (socket) {
+                sendJson(socket, {
+                  id: message.id,
+                  payload: result,
+                  type: 'worktrees.result'
+                } satisfies ConnectorHubMessage);
+              }
+            })
+            .catch((error) => {
+              if (socket) {
+                sendJson(socket, {
+                  id: message.id,
+                  payload: {
+                    message:
+                      error instanceof Error ? error.message : 'Git worktree discovery failed.'
+                  },
+                  type: 'worktrees.error'
+                } satisfies ConnectorHubMessage);
+              }
+            });
           return;
         }
 
