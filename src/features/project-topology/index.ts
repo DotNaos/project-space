@@ -1,4 +1,7 @@
 export * from './project-topology-actions';
+export * from './project-chat-command-center';
+export * from './project-home-command-center';
+export * from './project-space-information-architecture';
 export * from './project-topology-browser';
 export * from './project-topology-codex-controller';
 export * from './project-topology-command-center';

@@ -190,7 +190,7 @@ describe('project topology source truth', () => {
 
     expect(loaded.machines).toMatchObject({
       lastSafeAt: checkedAt,
-      reason: 'Source evidence expired before the topology snapshot was published.',
+      reason: 'Source evidence expired before the portfolio snapshot was published.',
       state: 'stale'
     });
     expect(buildProjectTopology(loaded).state).toBe('ready');

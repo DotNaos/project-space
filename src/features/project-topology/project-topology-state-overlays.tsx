@@ -16,7 +16,7 @@ export function TopologyReadBanner({
   snapshot: ProjectTopologySnapshot;
 }) {
   const content = readState.state === 'checking'
-    ? { icon: LoaderCircle, label: 'Refreshing topology evidence', tone: 'neutral' as const }
+    ? { icon: LoaderCircle, label: 'Refreshing portfolio data', tone: 'neutral' as const }
     : readState.state === 'stale'
       ? { icon: TriangleAlert, label: readState.reason, tone: 'warning' as const }
       : snapshot.warnings[0]
@@ -70,7 +70,7 @@ function TopologyRefreshButton({
 }) {
   return (
     <Button
-      aria-label="Refresh topology evidence"
+      aria-label="Refresh portfolio data"
       className="size-7 min-h-0 shrink-0 border border-neutral-800 bg-neutral-950/90 shadow-lg backdrop-blur"
       data-testid="project-topology-refresh"
       isDisabled={isRefreshing}
@@ -109,7 +109,7 @@ export function TopologyUnavailable({
         <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-red-300" />
         <span className="min-w-0">
           <Text as="h1" className="block text-sm font-semibold text-neutral-100">
-            Topology evidence is blocked
+            Portfolio data is unavailable
           </Text>
           <Text className="mt-1 block text-xs leading-5 text-neutral-400">{reason}</Text>
           <Button className="mt-3" onPress={onRetry} size="sm" variant="outline">

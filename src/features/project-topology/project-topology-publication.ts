@@ -8,8 +8,8 @@ import type {
 } from './project-topology-types';
 
 const maxReadyAgeMs = 30_000;
-const expiredReason = 'Source evidence expired before the topology snapshot was published.';
-const invalidReason = 'Source evidence was invalid at the topology publication boundary.';
+const expiredReason = 'Source evidence expired before the portfolio snapshot was published.';
+const invalidReason = 'Source evidence was invalid at the portfolio publication boundary.';
 
 export function revalidateTopologyPublication(
   inventory: ProjectTopologyInventory

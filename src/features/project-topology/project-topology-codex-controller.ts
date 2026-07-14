@@ -65,7 +65,7 @@ export function createTopologyCodexTaskController(
       ) {
         throw new TopologyCodexControllerError(
           'identity-mismatch',
-          'The opened Codex task did not match the selected topology task.'
+          'The opened Codex task did not match the selected command-center task.'
         );
       }
     }
@@ -85,7 +85,7 @@ function validateOperationResult(
   ) {
     throw new TopologyCodexControllerError(
       'identity-mismatch',
-      'The Codex operation result did not match the selected topology task.'
+      'The Codex operation result did not match the selected command-center task.'
     );
   }
   if (result.status === 'ambiguous') {

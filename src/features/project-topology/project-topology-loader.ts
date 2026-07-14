@@ -390,7 +390,7 @@ function blocked(error: unknown, checkedAt: string) {
 function errorMessage(error: unknown) {
   return error instanceof Error && error.message.trim()
     ? error.message.trim()
-    : 'Topology inventory request failed.';
+    : 'Project inventory request failed.';
 }
 
 function hasInventoryData<T>(

@@ -238,7 +238,7 @@ export class ProjectTopologyController {
 function errorMessage(error: unknown) {
   return error instanceof Error && error.message.trim()
     ? error.message.trim()
-    : 'Topology refresh failed.';
+    : 'Portfolio refresh failed.';
 }
 
 function defaultSchedule(callback: () => void, delayMs: number) {

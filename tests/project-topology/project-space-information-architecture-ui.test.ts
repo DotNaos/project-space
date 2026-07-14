@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 
-describe('project topology presentation components', () => {
+describe('Project Space command-center composition', () => {
   test('passes the isolated server-render checks', async () => {
     const child = Bun.spawn([
       'bun',
       'test',
-      './tests/project-topology/project-topology-ui.isolated.tsx'
+      './tests/project-topology/project-space-information-architecture-ui.isolated.tsx'
     ], {
       cwd: process.cwd(),
       stderr: 'pipe',
@@ -18,6 +18,6 @@ describe('project topology presentation components', () => {
     ]);
 
     expect(exitCode, `${stdout}\n${stderr}`).toBe(0);
-    expect(`${stdout}\n${stderr}`).toContain('10 pass');
+    expect(`${stdout}\n${stderr}`).toContain('2 pass');
   });
 });

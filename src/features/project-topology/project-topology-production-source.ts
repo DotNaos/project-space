@@ -132,7 +132,7 @@ export function createProjectTopologyProductionSource(
         : {
             data: localized.inventory,
             lastSafeAt: localized.inventory.checkedAt,
-            reason: 'Codex task inventory expired before it reached the topology.',
+            reason: 'Codex task inventory expired before it reached the command center.',
             state: 'stale'
           };
     },
@@ -291,7 +291,7 @@ async function guardedSourceCall<T>(
 
 function throwIfAborted(signal: AbortSignal | undefined) {
   if (!signal?.aborted) return;
-  const error = new Error('Topology source loading was cancelled.');
+  const error = new Error('Command center data loading was cancelled.');
   error.name = 'AbortError';
   throw error;
 }

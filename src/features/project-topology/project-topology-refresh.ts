@@ -9,7 +9,7 @@ import type {
 } from './project-topology-types';
 import { aggregateProjectTruth, multiMachineWarning } from './project-topology-inventory-evidence';
 
-const refreshingReason = 'Topology evidence is refreshing.';
+const refreshingReason = 'Portfolio data is refreshing.';
 
 export function beginTopologyRefresh(
   current?: ProjectTopologyReadState

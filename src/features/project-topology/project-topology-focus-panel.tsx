@@ -36,6 +36,7 @@ export interface ProjectTopologyFocusPanelProps {
   onOpenIssue(projectId: string, issueNumber: number): void;
   onOpenProjectConversation(project: TopologyProject): void;
   onOpenTask(taskId: string): void;
+  placement?: 'inline' | 'overlay';
   snapshot: ProjectTopologySnapshot;
   target: Extract<TopologyFocusTarget, { kind: 'machine' | 'project' }>;
 }
@@ -48,6 +49,7 @@ export function ProjectTopologyFocusPanel({
   onOpenIssue,
   onOpenProjectConversation,
   onOpenTask,
+  placement = 'overlay',
   snapshot,
   target
 }: ProjectTopologyFocusPanelProps) {
@@ -60,13 +62,19 @@ export function ProjectTopologyFocusPanel({
 
   return (
     <Surface
-      aria-label={`${resolved.machine?.name ?? project.name} topology details`}
+      aria-label={`${resolved.machine?.name ?? project.name} details`}
       className={cn(
-        'app-no-drag absolute inset-x-2 z-30 flex max-h-[46%] min-h-0 flex-col overflow-hidden rounded-xl border-neutral-700 bg-neutral-950/95 shadow-[0_24px_72px_rgba(0,0,0,0.55)] backdrop-blur sm:inset-x-auto sm:right-3 sm:bottom-3 sm:max-h-[calc(100%-5rem)] sm:w-80',
-        hasBottomTabBar
-          ? 'bottom-[calc(6.75rem+env(safe-area-inset-bottom))]'
-          : 'bottom-2'
+        'app-no-drag z-30 flex min-h-0 flex-col overflow-hidden border-neutral-700 bg-neutral-950/95 backdrop-blur',
+        placement === 'inline'
+          ? 'relative size-full rounded-none border-x-0 border-b-0 shadow-[0_-16px_48px_rgba(0,0,0,0.3)]'
+          : cn(
+              'absolute inset-x-2 max-h-[46%] rounded-xl shadow-[0_24px_72px_rgba(0,0,0,0.55)] sm:inset-x-auto sm:right-3 sm:bottom-3 sm:max-h-[calc(100%-5rem)] sm:w-80',
+              hasBottomTabBar
+                ? 'bottom-[calc(6.75rem+env(safe-area-inset-bottom))]'
+                : 'bottom-2'
+            )
       )}
+      data-placement={placement}
       data-testid="project-topology-focus-panel"
       variant="primary"
     >
@@ -170,7 +178,6 @@ export function ProjectTopologyFocusPanel({
                 machine={machine}
                 onFocus={() => onFocusMachine(project.id, machine.id)}
                 onOpenTask={onOpenTask}
-                projectFocused={!resolved.machine}
               />
             ))}
             {machines.length === 0 ? (
@@ -186,13 +193,11 @@ export function ProjectTopologyFocusPanel({
 function MachineContext({
   machine,
   onFocus,
-  onOpenTask,
-  projectFocused
+  onOpenTask
 }: {
   machine: TopologyMachine;
   onFocus(): void;
   onOpenTask(taskId: string): void;
-  projectFocused: boolean;
 }) {
   const taskArea = topologyMachineTaskArea(machine);
   return (
@@ -255,9 +260,6 @@ function MachineContext({
           </Text>
         ) : null}
       </div>
-      {projectFocused ? null : (
-        <EvidenceText truth={machine.inventory} />
-      )}
     </div>
   );
 }
@@ -275,7 +277,11 @@ function InventorySection<T>({
 }) {
   return (
     <section className="mt-4 first:mt-0" aria-label={label}>
-      <SectionHeading icon={icon} label={label} />
+      <SectionHeading
+        icon={icon}
+        label={label}
+        meta={result.state === 'stale' ? 'Last safe' : undefined}
+      />
       <div className="mt-2">
         {result.state === 'ready' || result.state === 'stale' ? (
           result.data instanceof Array && result.data.length === 0 ? (
@@ -290,21 +296,27 @@ function InventorySection<T>({
             {result.state === 'checking' ? 'Checking' : `Blocked · ${result.reason}`}
           </Text>
         )}
-        {result.state === 'stale' ? (
-          <Text className="mt-1 block text-[10px] text-amber-300">
-            Stale snapshot · {result.reason}
-          </Text>
-        ) : null}
       </div>
     </section>
   );
 }
 
-function SectionHeading({ icon: Icon, label }: { icon: typeof Workflow; label: string }) {
+function SectionHeading({
+  icon: Icon,
+  label,
+  meta
+}: {
+  icon: typeof Workflow;
+  label: string;
+  meta?: string;
+}) {
   return (
     <div className="flex items-center gap-2 text-neutral-400">
       <Icon aria-hidden="true" className="size-3.5" />
       <Text className="text-[10px] font-semibold uppercase tracking-[0.12em]">{label}</Text>
+      {meta ? (
+        <Text className="ml-auto text-[10px] font-medium text-amber-300">{meta}</Text>
+      ) : null}
     </div>
   );
 }
@@ -323,6 +335,6 @@ function worktreeInventoryLabel(machine: TopologyMachine) {
   if (inventory.state === 'proven-empty') return 'No worktrees';
   if (inventory.state === 'ready') return 'Worktree inventory ready';
   if (inventory.state === 'checking') return 'Checking worktrees';
-  if (inventory.state === 'stale') return `Stale worktrees · ${inventory.reason}`;
+  if (inventory.state === 'stale') return 'Last safe worktrees';
   return `Blocked worktrees · ${inventory.message}`;
 }

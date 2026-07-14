@@ -10,7 +10,7 @@ import type {
 } from './project-topology-types';
 
 export const maxReadyEvidenceAgeMs = 30_000;
-const expiredSourceReason = 'Source evidence expired before the topology snapshot was published.';
+const expiredSourceReason = 'Source evidence expired before the portfolio snapshot was published.';
 
 export function validateProjectTopologySourceResult<T>(
   result: Exclude<TopologyInventoryResult<T>, { state: 'checking' }>,
@@ -61,7 +61,7 @@ export function worktreesFromTopologySnapshot(
     const result = entries.get(scope);
     if (!result) return [scope, {
       checkedAt: clock(),
-      message: 'The topology inventory omitted this authorized project scope.',
+      message: 'The portfolio inventory omitted this authorized project scope.',
       reason: 'source-disagreement' as const,
       state: 'blocked' as const
     }] as const;

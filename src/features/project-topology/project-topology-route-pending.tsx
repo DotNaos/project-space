@@ -10,7 +10,7 @@ export function ProjectTopologyRoutePending({
   return (
     <Surface
       aria-busy="true"
-      aria-label="Project topology command center"
+      aria-label="Project command center"
       className={cn(
         'relative flex h-full min-h-0 overflow-hidden rounded-none bg-app-panel',
         hasBottomTabBar && 'pb-[calc(6.75rem+env(safe-area-inset-bottom))]'
@@ -33,7 +33,7 @@ export function ProjectTopologyRoutePending({
             role="status"
           >
             <LoaderCircle aria-hidden="true" className="size-3 animate-spin" />
-            <Text>Checking topology evidence</Text>
+            <Text>Checking portfolio data</Text>
           </span>
         </span>
       </div>

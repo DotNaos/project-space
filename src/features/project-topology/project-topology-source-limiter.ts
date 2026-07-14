@@ -31,7 +31,7 @@ class PhaseSourceScheduler implements TopologySourceScheduler {
     private readonly signal?: AbortSignal
   ) {
     if (!Number.isInteger(limit) || limit < 1) {
-      throw new RangeError('Topology source concurrency must be a positive integer.');
+      throw new RangeError('Command-center source concurrency must be a positive integer.');
     }
     if (signal?.aborted) {
       this.aborted = true;
@@ -103,7 +103,7 @@ class PhaseSourceScheduler implements TopologySourceScheduler {
 }
 
 function abortedSourceCall() {
-  const error = new Error('Topology source loading was cancelled.');
+  const error = new Error('Command-center source loading was cancelled.');
   error.name = 'AbortError';
   return error;
 }

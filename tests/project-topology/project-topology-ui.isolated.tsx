@@ -113,7 +113,6 @@ const { ProjectTopologyRoutePending } = await import(
 const { ProjectTopologyProductionRoute } = await import(
   '../../src/features/project-topology/project-topology-production-route'
 );
-
 function renderableTopology(canWrite: boolean) {
   const candidate = session(
     'machine-a',
@@ -211,7 +210,7 @@ describe('project topology presentation components', () => {
     const html = renderToStaticMarkup(<ProjectTopologyRoutePending hasBottomTabBar />);
 
     expect(html).toContain('data-testid="project-topology-route"');
-    expect(html).toContain('Checking topology evidence');
+    expect(html).toContain('Checking portfolio data');
     expect(html).toContain('role="status"');
     expect(html).toContain('aria-live="polite"');
     expect(html).not.toContain('No active tasks');
@@ -223,7 +222,7 @@ describe('project topology presentation components', () => {
     );
 
     expect(html).toContain('data-testid="project-topology-production-route"');
-    expect(html).toContain('Checking topology evidence');
+    expect(html).toContain('Checking portfolio data');
     expect(html).not.toContain('data-testid="project-topology-command-center"');
   });
 
@@ -241,11 +240,11 @@ describe('project topology presentation components', () => {
       state: 'stale'
     });
 
-    expect(blocked).toContain('Topology evidence is blocked');
+    expect(blocked).toContain('Portfolio data is unavailable');
     expect(blocked).toContain('Machine inventory is unreachable.');
     expect(blocked).not.toContain('fake-topology-canvas');
     expect(checking).toContain('fake-topology-canvas');
-    expect(checking).toContain('Refreshing topology evidence');
+    expect(checking).toContain('Refreshing portfolio data');
     expect(checking).toContain('data-testid="project-topology-refresh"');
     expect(checking).toContain('disabled=""');
     expect(checking.match(/animate-spin/g)).toHaveLength(2);
@@ -297,6 +296,49 @@ describe('project topology presentation components', () => {
     expect(html).toContain('aria-label="Open project-space project room"');
     expect(html).toContain('6.75rem');
     expect(html).not.toContain('/worktrees/project-space/issue-177-topology');
+  });
+
+  test('uses a dedicated compact detail region and explains stale evidence once', () => {
+    const topology = renderableTopology(false);
+    const project = topology.projects[0]!;
+    const staleProject = {
+      ...project,
+      branches: {
+        ...project.branches,
+        reason: 'Portfolio data is refreshing.',
+        state: 'stale' as const
+      },
+      inventory: {
+        checkedAt,
+        reason: 'Portfolio data is refreshing.',
+        state: 'stale' as const
+      },
+      issues: {
+        ...project.issues,
+        reason: 'Portfolio data is refreshing.',
+        state: 'stale' as const
+      }
+    };
+    const html = renderToStaticMarkup(
+      <ProjectTopologyFocusPanel
+        hasBottomTabBar
+        onFocusMachine={() => undefined}
+        onFocusOverview={() => undefined}
+        onFocusProject={() => undefined}
+        onOpenIssue={() => undefined}
+        onOpenProjectConversation={() => undefined}
+        onOpenTask={() => undefined}
+        placement="inline"
+        snapshot={{ ...topology, projects: [staleProject] }}
+        target={{ kind: 'project', projectId: project.id }}
+      />
+    );
+
+    expect(html).toContain('data-placement="inline"');
+    expect(html).toContain('relative size-full rounded-none');
+    expect(html).not.toContain('absolute inset-x-2');
+    expect(html.match(/Portfolio data is refreshing\./g)).toHaveLength(1);
+    expect(html.match(/Last safe/g)).toHaveLength(2);
   });
 
   test('renders a compact real task cell without a fabricated browser frame', () => {

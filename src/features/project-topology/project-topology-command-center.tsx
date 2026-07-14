@@ -203,11 +203,16 @@ function TopologySnapshotScene({
   viewport,
   workspace
 }: SnapshotSceneProps) {
+  const hasCompactFocus = viewport.width < 640
+    && (workspace.target.kind === 'project' || workspace.target.kind === 'machine');
+  const canvasHeight = hasCompactFocus
+    ? Math.max(240, Math.round(viewport.height * 0.42))
+    : viewport.height;
   const layout = useMemo(() => layoutProjectTopology(
     snapshot,
     viewport.width,
-    viewport.height
-  ), [snapshot, viewport.height, viewport.width]);
+    canvasHeight
+  ), [canvasHeight, snapshot, viewport.width]);
   const [visibleTaskIds, setVisibleTaskIds] = useState<ReadonlySet<string>>(() => new Set());
   const currentTaskIds = useMemo(() => new Set(snapshot.projects.flatMap((project) => (
     project.machines.flatMap((machine) => machine.tasks.map((task) => task.id))
@@ -291,32 +296,35 @@ function TopologySnapshotScene({
     <Surface
       className={cn(
         'relative size-full min-h-0 overflow-hidden rounded-none bg-app-panel',
+        hasCompactFocus && 'grid grid-rows-[minmax(15rem,42%)_minmax(0,1fr)]',
         hasBottomTabBar && 'pb-[calc(6.75rem+env(safe-area-inset-bottom))]'
       )}
       data-testid="project-topology-command-center"
       variant="transparent"
     >
-      <Canvas
-        layout={layout}
-        onNodeActivate={activateNode}
-        onVisibleTaskIdsChange={(taskIds) => {
-          const next = new Set(taskIds.filter((taskId) => currentTaskIds.has(taskId)).slice(0, 32));
-          setVisibleTaskIds((current) => sameSet(current, next) ? current : next);
-        }}
-        onViewportSettled={({ target, transition }) => {
-          bindings.viewportSettled(target, transition);
-        }}
-        renderNode={renderNode}
-        snapshot={snapshot}
-        viewport={{
-          bounds,
-          overview: layout.overviewViewport,
-          spring: topologySprings.focus,
-          target: workspace.target,
-          transition: workspace.transition
-        }}
-      />
-      <TopologyReadBanner onRefresh={onRefresh} readState={readState} snapshot={snapshot} />
+      <div className={cn('relative min-h-0 overflow-hidden', !hasCompactFocus && 'size-full')}>
+        <Canvas
+          layout={layout}
+          onNodeActivate={activateNode}
+          onVisibleTaskIdsChange={(taskIds) => {
+            const next = new Set(taskIds.filter((taskId) => currentTaskIds.has(taskId)).slice(0, 32));
+            setVisibleTaskIds((current) => sameSet(current, next) ? current : next);
+          }}
+          onViewportSettled={({ target, transition }) => {
+            bindings.viewportSettled(target, transition);
+          }}
+          renderNode={renderNode}
+          snapshot={snapshot}
+          viewport={{
+            bounds,
+            overview: layout.overviewViewport,
+            spring: topologySprings.focus,
+            target: workspace.target,
+            transition: workspace.transition
+          }}
+        />
+        <TopologyReadBanner onRefresh={onRefresh} readState={readState} snapshot={snapshot} />
+      </div>
       {workspace.target.kind === 'project' || workspace.target.kind === 'machine' ? (
         <ProjectTopologyFocusPanel
           hasBottomTabBar={hasBottomTabBar}
@@ -329,6 +337,7 @@ function TopologySnapshotScene({
           onOpenIssue={navigation.openIssue}
           onOpenProjectConversation={(project) => openCoordinator('project', project.id)}
           onOpenTask={bindings.openTask}
+          placement={hasCompactFocus ? 'inline' : 'overlay'}
           snapshot={snapshot}
           target={workspace.target}
         />

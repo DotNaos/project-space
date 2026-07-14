@@ -146,7 +146,7 @@ export function topologyTaskOrigin(task: TopologyTask) {
   ) {
     throw new TopologyTaskActionError(
       'identity-mismatch',
-      'The selected topology task does not have one consistent Codex identity.'
+      'The selected command-center task does not have one consistent Codex identity.'
     );
   }
   return { machineId: task.machineId, threadId: task.threadId };

@@ -430,7 +430,7 @@ export function TopologyTaskCommandCenter({
     >
       <header className="flex h-14 shrink-0 min-w-0 items-center gap-2 border-b border-neutral-800/80 px-3 sm:gap-3 sm:px-4">
         <Button
-          aria-label="Back to project topology"
+          aria-label="Back to map"
           className="size-8 min-h-0"
           data-topology-dialog-initial-focus
           isIconOnly

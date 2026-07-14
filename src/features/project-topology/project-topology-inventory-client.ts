@@ -13,7 +13,7 @@ export async function loadProjectTopologyWorktreeSnapshot(
 ): Promise<ProjectTopologyWorktreeSnapshot> {
   throwIfAborted(signal);
   if (typeof window === 'undefined') {
-    throw new Error('Topology project inventory requires a browser window.');
+    throw new Error('Project inventory requires a browser window.');
   }
   const baseUrl = resolveProjectSpaceApiBaseUrl(
     window.location.href,
@@ -24,7 +24,7 @@ export async function loadProjectTopologyWorktreeSnapshot(
     window.location.href
   );
   if (!isProjectSpaceApiRequestAllowed(window.location.href, requestUrl.toString())) {
-    throw new Error('Project Space refused a topology request to an untrusted origin.');
+    throw new Error('Project Space refused a portfolio request to an untrusted origin.');
   }
   const token = await refreshProjectSpaceAuthToken();
   throwIfAborted(signal);
@@ -40,7 +40,7 @@ export async function loadProjectTopologyWorktreeSnapshot(
     const message = payload && typeof payload === 'object' && 'error' in payload
       && typeof payload.error === 'string'
       ? payload.error
-      : `Topology project inventory failed with ${response.status}.`;
+      : `Project inventory failed with ${response.status}.`;
     throw new Error(message);
   }
   return parseProjectTopologyWorktreeSnapshot(payload);
@@ -48,7 +48,7 @@ export async function loadProjectTopologyWorktreeSnapshot(
 
 function throwIfAborted(signal: AbortSignal | undefined) {
   if (!signal?.aborted) return;
-  const error = new Error('Topology project inventory was cancelled.');
+  const error = new Error('Project inventory was cancelled.');
   error.name = 'AbortError';
   throw error;
 }
