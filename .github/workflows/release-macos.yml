@@ -304,6 +304,9 @@ jobs:
           keychain_snapshot="$RUNNER_TEMP/project-space-original-user-keychains"
           p12="$RUNNER_TEMP/project-space-release.p12"
           pem="$RUNNER_TEMP/project-space-release.pem"
+          import_p12="$RUNNER_TEMP/project-space-release-import.p12"
+          # Intentionally public: the 0600 temp files and isolated runner protect the unwrapped key.
+          import_password='project-space-ephemeral-import'
           signed="$RUNNER_TEMP/project-space-macos-signed"
           cleanup() {
             local operation_status=$?
@@ -328,7 +331,7 @@ jobs:
             if [[ -e $keychain ]]; then
               /usr/bin/security delete-keychain "$keychain" || cleanup_status=$?
             fi
-            /bin/rm -f "$p12" "$pem" || cleanup_status=$?
+            /bin/rm -f "$p12" "$pem" "$import_p12" || cleanup_status=$?
             if (( operation_status != 0 )); then
               exit "$operation_status"
             fi
@@ -361,12 +364,15 @@ jobs:
           /usr/bin/printf '%s' "$CERTIFICATE_P12_B64" | /usr/bin/base64 -D > "$p12"
           /usr/bin/openssl pkcs12 -in "$p12" -passin env:CERTIFICATE_PASSWORD \
             -nodes -out "$pem"
+          /usr/bin/openssl pkcs12 -export -in "$pem" -out "$import_p12" \
+            -passout "pass:$import_password"
           keychain_password=$(/usr/bin/openssl rand -hex 32)
           /usr/bin/security create-keychain -p "$keychain_password" "$keychain"
           /usr/bin/security set-keychain-settings -lut 900 "$keychain"
           /usr/bin/security unlock-keychain -p "$keychain_password" "$keychain"
-          /usr/bin/security import "$pem" -f pemseq -k "$keychain" -T /usr/bin/codesign
-          /bin/rm -f "$p12" "$pem"
+          /usr/bin/security import "$import_p12" -f pkcs12 -k "$keychain" \
+            -P "$import_password" -T /usr/bin/codesign
+          /bin/rm -f "$p12" "$pem" "$import_p12"
           /usr/bin/security set-key-partition-list -S apple-tool:,apple: -s \
             -k "$keychain_password" "$keychain"
           identity=''
@@ -445,13 +451,17 @@ jobs:
           fi
           /bin/rm -f \
             "$RUNNER_TEMP/project-space-release.p12" \
-            "$RUNNER_TEMP/project-space-release.pem" || cleanup_status=$?
+            "$RUNNER_TEMP/project-space-release.pem" \
+            "$RUNNER_TEMP/project-space-release-import.p12" || cleanup_status=$?
           while IFS= read -r line; do
             line="${line#*\"}"
             line="${line%\"*}"
             [[ $line != "$keychain" ]] || cleanup_status=1
           done < <(/usr/bin/security list-keychains -d user)
-          [[ ! -e $keychain && ! -e $RUNNER_TEMP/project-space-release.p12 && ! -e $RUNNER_TEMP/project-space-release.pem ]] || cleanup_status=1
+          [[ ! -e $keychain \
+            && ! -e $RUNNER_TEMP/project-space-release.p12 \
+            && ! -e $RUNNER_TEMP/project-space-release.pem \
+            && ! -e $RUNNER_TEMP/project-space-release-import.p12 ]] || cleanup_status=1
           exit "$cleanup_status"
 
       - name: Upload signed helper after cleanup
