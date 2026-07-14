@@ -112,10 +112,10 @@ export async function loadProjectTopologyInventory(
   ]);
   const checkedAt = clock();
   const projectSource = projectAttempt.ok
-    ? validateSourceResult(projectAttempt.value, checkedAt)
+    ? validateProjectTopologySourceResult(projectAttempt.value, checkedAt)
     : blocked(projectAttempt.error, checkedAt);
   const machineSource = machineAttempt.ok
-    ? validateSourceResult(machineAttempt.value, checkedAt)
+    ? validateProjectTopologySourceResult(machineAttempt.value, checkedAt)
     : blocked(machineAttempt.error, checkedAt);
   const projects: ProjectTopologyInventory['projects'] = mapInventory(
     projectSource,
@@ -196,7 +196,7 @@ export async function loadProjectTopologyInventory(
           options.signal
         );
         const observedAt = clock();
-        const validated = validateSourceResult(result, observedAt);
+        const validated = validateProjectTopologySourceResult(result, observedAt);
         if (validated.state !== 'ready') {
           throw new Error(validated.state === 'blocked'
             ? validated.reason
@@ -239,15 +239,15 @@ export async function loadProjectTopologyTaskDetails(
   options: Pick<ProjectTopologyLoadOptions, 'clock' | 'signal'> = {}
 ): Promise<ProjectTopologyInventory> {
   const clock = options.clock ?? (() => new Date().toISOString());
+  const readOnlyInventory = withoutTopologyWriteCapabilities(inventory);
 
-  const build = buildProjectTopology(inventory);
-  if (build.state !== 'ready') return inventory;
+  const build = buildProjectTopology(readOnlyInventory);
+  if (build.state !== 'ready') return readOnlyInventory;
   const tasks = [...new Map(build.snapshot.projects.flatMap((project) => (
     project.machines.flatMap((machine) => machine.tasks)
   )).map((task) => [task.id, task])).values()];
-  const loadWriteCapability = source.getCodexSessionWriteCapability?.bind(source);
   const loadTaskEvidence = source.getCodexSessionTaskEvidence?.bind(source);
-  const [conversationsByTaskId, writeCapabilitiesByTaskId, taskEvidenceByTaskId] = (
+  const [conversationsByTaskId, taskEvidenceByTaskId] = (
     await withTopologySourceLimit(sourceConcurrency, options.signal, (scheduler) => {
       const conversations = loadEntries<
         TopologyTask,
@@ -258,31 +258,30 @@ export async function loadProjectTopologyTaskDetails(
           task.threadId,
           options.signal
         );
-        return [task.id, validateSourceResult(result, clock())] as const;
+        return [task.id, validateProjectTopologySourceResult(result, clock())] as const;
       }, (task, error) => [task.id, blocked(error, clock())] as const);
-      const writeCapabilities = loadWriteCapability
-        ? loadEntries<TopologyTask, TopologyTaskWriteCapability>(tasks, scheduler, async (task) => [
-            task.id,
-            await loadWriteCapability(task.machineId, task.threadId, options.signal)
-          ] as const, (task, error) => [task.id, blocked(error, clock())] as const)
-        : undefined;
       const taskEvidence = loadTaskEvidence
         ? loadOptionalTaskEvidence(tasks, scheduler, loadTaskEvidence, options.signal)
         : undefined;
       return Promise.all([
         conversations,
-        writeCapabilities ?? Promise.resolve(undefined),
         taskEvidence ?? Promise.resolve(undefined)
       ]);
     })
   );
   return revalidateTopologyPublication({
-    ...inventory,
+    ...readOnlyInventory,
     checkedAt: clock(),
     conversationsByTaskId,
-    ...(taskEvidenceByTaskId ? { taskEvidenceByTaskId } : {}),
-    ...(writeCapabilitiesByTaskId ? { writeCapabilitiesByTaskId } : {})
+    ...(taskEvidenceByTaskId ? { taskEvidenceByTaskId } : {})
   });
+}
+
+export function withoutTopologyWriteCapabilities(
+  inventory: ProjectTopologyInventory
+): ProjectTopologyInventory {
+  const { writeCapabilitiesByTaskId: _ignored, ...readOnlyInventory } = inventory;
+  return readOnlyInventory;
 }
 
 async function loadOptionalTaskEvidence(
@@ -327,7 +326,7 @@ async function loadInventoryEntries<T>(
 ) {
   return loadEntries<string, TopologyInventoryResult<T>>(keys, scheduler, async (key) => {
     const result = await load(key);
-    return [key, validateSourceResult(result, clock())] as const;
+    return [key, validateProjectTopologySourceResult(result, clock())] as const;
   }, (key, error) => [key, blocked(error, clock())] as const);
 }
 
@@ -359,7 +358,7 @@ function hasInventoryData<T>(
   return result.state === 'ready' || result.state === 'stale';
 }
 
-function validateSourceResult<T>(
+export function validateProjectTopologySourceResult<T>(
   result: ProjectTopologySourceResult<T>,
   observedAt: string
 ): TopologyInventoryResult<T> {

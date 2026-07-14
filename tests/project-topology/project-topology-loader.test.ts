@@ -1,152 +1,20 @@
 import { describe, expect, test } from 'bun:test';
-import type {
-  ConnectorOverviewResult,
-  DeployedEnvironmentStatusResult,
-  GitHubRepositoryDetailsResult,
-  ProjectDiscoveryResult,
-  ProjectSpaceRecord,
-  ProjectWorktreeDiscoveryResult
-} from '@/shared/project-space-api';
-import type { CodexSessionRecord } from '@/shared/codex-sessions-api';
 import { applyTopologyBuild, buildProjectTopology } from '../../src/features/project-topology/project-topology-model';
-import {
-  loadProjectTopologyInventory,
-  type ProjectTopologySource
-} from '../../src/features/project-topology/project-topology-loader';
+import { loadProjectTopologyInventory } from '../../src/features/project-topology/project-topology-loader';
 import {
   checkedAt,
-  codex,
-  conversation,
   machine,
   project,
-  repositoryDetails,
   session,
-  snapshot,
-  worktrees
+  snapshot
 } from './project-topology-test-fixtures';
 import {
   topologyTaskId,
-  type TopologyTaskEvidence,
-  type TopologyTaskLocationEvidence,
-  type TopologyTaskWriteCapability
+  type TopologyTaskEvidence
 } from '../../src/features/project-topology/project-topology-types';
-interface SourceCalls {
-  deployments: string[];
-  locations: Array<[string, string]>;
-  machines: number;
-  projects: number;
-  reads: Array<[string, string]>;
-  repositories: string[];
-  sessions: string[];
-  worktrees: Array<[string, string | undefined]>;
-  writes: Array<[string, string]>;
-}
-
-interface SourceOptions {
-  canonicalLocation?: 'missing' | TopologyTaskLocationEvidence;
-  canonicalLocations?: Record<string, string>;
-  foreignCodex?: boolean;
-  machineFailure?: string;
-  machines?: ConnectorOverviewResult['machines'];
-  projectFailure?: string;
-  projects?: ProjectSpaceRecord[];
-  repositoryStatus?: GitHubRepositoryDetailsResult['status'];
-  sessionFailure?: string;
-  sessions?: CodexSessionRecord[];
-  writeCapability?: 'missing' | TopologyTaskWriteCapability;
-}
-
-function sourceHarness(options: SourceOptions = {}) {
-  const projects = options.projects ?? [
-    project('project-a', 'machine-a', '/projects/project-space')
-  ];
-  const machines = options.machines ?? [machine('machine-a')];
-  const sessions = options.sessions ?? [
-    session('machine-a', 'thread-a', '/untrusted/session-cwd', 'idle')
-  ];
-  const calls: SourceCalls = {
-    deployments: [], locations: [], machines: 0, projects: 0, reads: [],
-    repositories: [], sessions: [], worktrees: [], writes: []
-  };
-  const source: ProjectTopologySource = {
-    async discoverProjectWorktrees(projectId, machineId) {
-      calls.worktrees.push([projectId, machineId]);
-      const record = projects.find((candidate) => candidate.id === projectId);
-      return provenEmptyWorktrees(record?.rootPath ?? '/unknown');
-    },
-    async getConnectorOverview() {
-      calls.machines += 1;
-      if (options.machineFailure) throw new Error(options.machineFailure);
-      return readyEvidence(connectorOverview(machines));
-    },
-    async getDeployedEnvironmentStatus(repositoryFullName) {
-      calls.deployments.push(repositoryFullName);
-      return readyEvidence(deploymentStatus(repositoryFullName));
-    },
-    async getGitHubRepositoryDetails(repositoryFullName) {
-      calls.repositories.push(repositoryFullName);
-      return readyEvidence({
-        ...repositoryDetails('main'),
-        message: options.repositoryStatus && options.repositoryStatus !== 'connected'
-          ? 'GitHub authentication is required.'
-          : undefined,
-        status: options.repositoryStatus ?? 'connected'
-      });
-    },
-    async listCodexSessions(machineId) {
-      calls.sessions.push(machineId);
-      if (options.sessionFailure) throw new Error(options.sessionFailure);
-      if (options.foreignCodex) {
-        return readyEvidence(codex('machine-b', [
-          session('machine-b', 'foreign-thread', '/projects/foreign', 'idle')
-        ]));
-      }
-      return readyEvidence(codex(
-        machineId,
-        sessions.filter((candidate) => candidate.machineId === machineId)
-      ));
-    },
-    async loadProjectDiscovery() {
-      calls.projects += 1;
-      if (options.projectFailure) throw new Error(options.projectFailure);
-      return readyEvidence(projectDiscovery(projects));
-    },
-    async readCodexSession(machineId, threadId) {
-      calls.reads.push([machineId, threadId]);
-      const record = sessions.find((candidate) => (
-        candidate.machineId === machineId && candidate.id === threadId
-      ));
-      if (!record) throw new Error('Session not found.');
-      return readyEvidence(conversation(record));
-    },
-    async resolveCodexSessionLocation(machineId, threadId) {
-      calls.locations.push([machineId, threadId]);
-      if (options.canonicalLocation === 'missing') {
-        throw new Error('Canonical location unavailable.');
-      }
-      const canonicalCwd = options.canonicalLocations?.[
-        topologyTaskId(machineId, threadId)
-      ];
-      const location = options.canonicalLocation ?? {
-        canonicalCwd: canonicalCwd ?? '/projects/project-space/src',
-        checkedAt,
-        machineId,
-        source: 'connector-realpath',
-        threadId
-      };
-      return readyEvidence(location, location.checkedAt);
-    },
-    ...(options.writeCapability === 'missing' ? {} : {
-      async getCodexSessionWriteCapability(machineId: string, threadId: string) {
-        calls.writes.push([machineId, threadId]);
-        return options.writeCapability ?? defaultWriteCapability(machineId, threadId);
-      }
-    })
-  };
-  return { calls, source };
-}
+import { sourceHarness, type SourceOptions } from './project-topology-loader-harness';
 describe('project topology loader', () => {
-  test('joins a real task through canonical location and stable machine/thread calls', async () => {
+  test('joins a real task read-only through canonical location and stable machine/thread calls', async () => {
     const { calls, source } = sourceHarness();
     const inventory = await loadProjectTopologyInventory(source, { clock: () => checkedAt });
     const id = topologyTaskId('machine-a', 'thread-a');
@@ -156,14 +24,14 @@ describe('project topology loader', () => {
     expect(calls.sessions).toEqual(['machine-a']);
     expect(calls.locations).toEqual([['machine-a', 'thread-a']]);
     expect(calls.reads).toEqual([['machine-a', 'thread-a']]);
-    expect(calls.writes).toEqual([['machine-a', 'thread-a']]);
+    expect(calls.writes).toEqual([]);
     expect(inventory.taskLocationsByTaskId?.[id]).toMatchObject({
       canonicalCwd: '/projects/project-space/src',
       machineId: 'machine-a',
       threadId: 'thread-a'
     });
     expect(inventory.conversationsByTaskId?.[id]?.state).toBe('ready');
-    expect(inventory.writeCapabilitiesByTaskId?.[id]?.state).toBe('ready');
+    expect(inventory.writeCapabilitiesByTaskId).toBeUndefined();
     expect(task.cwd).toBe('/projects/project-space/src');
     expect(task.evidence.source).toBe('connector-canonical-cwd');
   });
@@ -302,26 +170,6 @@ describe('project topology loader', () => {
     }
   });
 
-  test('includes write authority only when the source explicitly provides it', async () => {
-    const withoutWrite = sourceHarness({ writeCapability: 'missing' });
-    const unavailableCapability: TopologyTaskWriteCapability = {
-      checkedAt,
-      reason: 'Writes are not supported by this connector.',
-      state: 'unavailable'
-    };
-    const withWrite = sourceHarness({ writeCapability: unavailableCapability });
-    const [withoutInventory, withInventory] = await Promise.all([
-      loadProjectTopologyInventory(withoutWrite.source, { clock: () => checkedAt }),
-      loadProjectTopologyInventory(withWrite.source, { clock: () => checkedAt })
-    ]);
-    const id = topologyTaskId('machine-a', 'thread-a');
-
-    expect(withoutInventory.writeCapabilitiesByTaskId).toBeUndefined();
-    expect(withoutWrite.calls.writes).toEqual([]);
-    expect(withInventory.writeCapabilitiesByTaskId?.[id]).toEqual(unavailableCapability);
-    expect(withWrite.calls.writes).toEqual([['machine-a', 'thread-a']]);
-  });
-
   test('does not call unsuccessful GitHub inventory ready', async () => {
     const { source } = sourceHarness({ repositoryStatus: 'auth-required', sessions: [] });
     const inventory = await loadProjectTopologyInventory(source, {
@@ -366,13 +214,14 @@ describe('project topology loader', () => {
       ['machine-a', 'same-thread'],
       ['machine-b', 'same-thread']
     ]);
-    expect(calls.writes).toEqual(calls.reads);
+    expect(calls.writes).toEqual([]);
     expect(new Set(result.projects[0]!.machines.flatMap((entry) => (
       entry.tasks.map((task) => task.id)
     )))).toEqual(new Set([
       topologyTaskId('machine-a', 'same-thread'),
       topologyTaskId('machine-b', 'same-thread')
     ]));
+
   });
 
   test('does not use foreign machine identities returned by Codex inventory', async () => {
@@ -384,47 +233,6 @@ describe('project topology loader', () => {
     expect(calls.reads).toEqual([]);
     expect(calls.writes).toEqual([]);
     expect(result.projects[0]!.machines[0]!.taskInventory.state).toBe('blocked');
-  });
-
-  test('captures the snapshot after delayed location and write evidence', async () => {
-    let now = Date.parse(checkedAt);
-    const iso = () => new Date(now).toISOString();
-    const { source } = sourceHarness();
-    source.resolveCodexSessionLocation = async (machineId, threadId) => {
-      now += 1_000;
-      const location = {
-        canonicalCwd: '/projects/project-space/src',
-        checkedAt: iso(),
-        machineId,
-        source: 'connector-realpath',
-        threadId
-      };
-      return { checkedAt: location.checkedAt, data: location, state: 'ready' };
-    };
-    source.getCodexSessionWriteCapability = async (machineId, threadId) => {
-      now += 1_000;
-      return {
-        canContinue: true,
-        checkedAt: iso(),
-        expiresAt: new Date(now + 5 * 60 * 1_000).toISOString(),
-        machineId,
-        sessionLastActivityAt: checkedAt,
-        state: 'ready',
-        threadId
-      };
-    };
-
-    const loaded = await loadProjectTopologyInventory(source, { clock: iso });
-    const task = snapshot(buildProjectTopology(loaded)).projects[0]!.machines[0]!.tasks[0]!;
-    const location = loaded.taskLocationsByTaskId?.[task.id];
-    const authority = loaded.writeCapabilitiesByTaskId?.[task.id];
-
-    expect(Date.parse(loaded.checkedAt)).toBeGreaterThanOrEqual(Date.parse(location!.checkedAt));
-    expect(authority?.state).toBe('ready');
-    if (authority?.state === 'ready') {
-      expect(Date.parse(loaded.checkedAt)).toBeGreaterThanOrEqual(Date.parse(authority.checkedAt));
-    }
-    expect(task.interaction.composerVisible).toBe(true);
   });
 
   test('loads decision and verification evidence through the real source boundary', async () => {
@@ -451,50 +259,3 @@ describe('project topology loader', () => {
     expect(task.activity).toBe('awaiting-decision');
   });
 });
-
-function projectDiscovery(projects: ProjectSpaceRecord[]): ProjectDiscoveryResult {
-  return { groups: [], projects, rootItems: [], rootPath: '/projects', structureViolations: [] };
-}
-
-function connectorOverview(machines: ConnectorOverviewResult['machines']): ConnectorOverviewResult {
-  return {
-    machines,
-    machinesRepo: { exists: true, path: '/machines' },
-    tailscale: {
-      connected: true,
-      installed: true,
-      ips: [],
-      peersOnline: 0,
-      serveOrigins: []
-    }
-  };
-}
-
-function provenEmptyWorktrees(projectPath: string): ProjectWorktreeDiscoveryResult {
-  const result = worktrees(projectPath, []);
-  if (result.state !== 'proven-empty') throw new Error('Expected proven-empty worktrees.');
-  return result;
-}
-
-function deploymentStatus(repositoryFullName: string): DeployedEnvironmentStatusResult {
-  return { checkedAt, environments: [], repositoryFullName, status: 'available' };
-}
-
-function defaultWriteCapability(
-  machineId: string,
-  threadId: string
-): TopologyTaskWriteCapability {
-  return {
-    canContinue: true,
-    checkedAt,
-    expiresAt: '2026-07-14T00:05:00.000Z',
-    machineId,
-    sessionLastActivityAt: checkedAt,
-    state: 'ready',
-    threadId
-  };
-}
-
-function readyEvidence<T>(data: T, evidenceCheckedAt = checkedAt) {
-  return { checkedAt: evidenceCheckedAt, data, state: 'ready' as const };
-}

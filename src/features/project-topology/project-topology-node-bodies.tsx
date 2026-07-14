@@ -32,7 +32,7 @@ import {
 
 const toneClasses: Record<TopologyStatusView['tone'], string> = {
   danger: 'text-red-300',
-  neutral: 'text-neutral-500',
+  neutral: 'text-neutral-400',
   success: 'text-emerald-400',
   warning: 'text-amber-300'
 };
@@ -67,13 +67,13 @@ export function TopologyLeadNodeBody({
       variant="primary"
     >
       <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-neutral-800 bg-neutral-900">
-        <Bot className="size-4 text-neutral-300" />
+        <Bot aria-hidden="true" className="size-4 text-neutral-300" />
       </span>
       <span className="min-w-0">
         <Text as="h2" className="block truncate text-sm font-semibold text-neutral-100">
           {lead.label}
         </Text>
-        <Text className="block truncate text-[9px] text-neutral-500">
+        <Text className="block truncate text-[10px] text-neutral-400">
           {summary
             ? `${summary.projectCount} projects · ${summary.machineCount} observed machines · ${summary.tasks.observedCount} observed tasks`
             : 'Cross-project coordination'}
@@ -84,11 +84,12 @@ export function TopologyLeadNodeBody({
           aria-label="Chat with Lead"
           className="nodrag nopan ml-auto size-8 min-h-0"
           isIconOnly
+          onClick={(event) => event.stopPropagation()}
           onPress={onOpenConversation}
           size="sm"
           variant="ghost"
         >
-          <MessageSquareText className="size-3.5" />
+          <MessageSquareText aria-hidden="true" className="size-3.5" />
         </Button>
       ) : null}
     </Surface>
@@ -118,16 +119,16 @@ export function TopologyProjectNodeBody({
       variant="primary"
     >
       <header className="flex h-14 min-w-0 items-center gap-3 border-b border-neutral-800 bg-neutral-950/85 px-3">
-        <FolderKanban className="size-3.5 shrink-0 text-neutral-500" />
+        <FolderKanban aria-hidden="true" className="size-3.5 shrink-0 text-neutral-400" />
         <span className="min-w-0">
           <Text as="h2" className="block truncate text-xs font-semibold text-neutral-100">
             {project.name}
           </Text>
-          <Text className="mt-0.5 block truncate text-[9px] text-neutral-500">
+          <Text className="mt-0.5 block truncate text-[10px] text-neutral-400">
             {project.repositoryFullName ?? project.repositoryUrl ?? 'Repository not reported'}
           </Text>
         </span>
-        <span className="ml-auto hidden shrink-0 items-center gap-2 text-[8px] text-neutral-500 min-[360px]:flex">
+        <span className="ml-auto hidden shrink-0 items-center gap-2 text-[9px] text-neutral-400 min-[360px]:flex">
           {project.machines.length > 0 ? (
             <span>{project.machines.length} machine{project.machines.length === 1 ? '' : 's'}</span>
           ) : null}
@@ -143,7 +144,7 @@ export function TopologyProjectNodeBody({
             size="sm"
             variant="ghost"
           >
-            <MessageSquareText className="size-3.5" />
+            <MessageSquareText aria-hidden="true" className="size-3.5" />
           </Button>
         ) : null}
       </header>
@@ -155,13 +156,13 @@ function MachineTaskState({ machine }: { machine: TopologyMachine }) {
   const area = topologyMachineTaskArea(machine);
   if (area.kind === 'tasks') return null;
   return (
-    <div className="flex h-8 items-center gap-2 px-3 text-[9px] text-neutral-600">
+    <div className="flex h-8 items-center gap-2 px-3 text-[10px] text-neutral-400">
       <span className="size-1.5 rounded-full bg-current" />
       <Text className="truncate">
         {area.kind === 'proven-empty' ? area.message : area.label}
       </Text>
       {area.kind === 'unavailable' && area.detail ? (
-        <Text className="ml-auto max-w-[55%] truncate text-neutral-700">{area.detail}</Text>
+        <Text className="ml-auto max-w-[55%] truncate text-neutral-500">{area.detail}</Text>
       ) : null}
     </div>
   );
@@ -188,16 +189,16 @@ export function TopologyMachineNodeBody({
       variant="primary"
     >
       <header className="flex h-12 min-w-0 items-center gap-2 border-b border-neutral-800/80 bg-neutral-950/35 px-3">
-        <Monitor className="size-3.5 shrink-0 text-neutral-500" />
+        <Monitor aria-hidden="true" className="size-3.5 shrink-0 text-neutral-400" />
         <Text as="h3" className="truncate text-[11px] font-semibold text-neutral-200">
           {machine.name}
         </Text>
         <Chip className="shrink-0 capitalize" size="sm">{machine.occupancy}</Chip>
-        <span className="ml-auto hidden shrink-0 text-[8px] min-[330px]:inline-flex">
+        <span className="ml-auto hidden shrink-0 text-[9px] min-[330px]:inline-flex">
           <StatusText status={status} />
         </span>
         {machine.tasks.length > 0 ? (
-          <span className="shrink-0 text-[8px] uppercase tracking-[0.12em] text-neutral-600">
+          <span className="shrink-0 text-[9px] uppercase tracking-[0.12em] text-neutral-500">
             {machine.tasks.length} task{machine.tasks.length === 1 ? '' : 's'}
           </span>
         ) : null}
@@ -238,7 +239,7 @@ export function TopologyTaskNodeBody({
             {header.issueLabel}
           </Text>
         ) : (
-          <Server className="size-3 shrink-0 text-neutral-600" />
+          <Server aria-hidden="true" className="size-3 shrink-0 text-neutral-500" />
         )}
         <Text as="h3" className="truncate text-[10px] font-semibold text-neutral-200">
           {header.title}
@@ -248,7 +249,7 @@ export function TopologyTaskNodeBody({
             {header.branchName}
           </Chip>
         ) : null}
-        <span className="ml-auto hidden shrink-0 text-[8px] min-[350px]:inline-flex">
+        <span className="ml-auto hidden shrink-0 text-[9px] min-[350px]:inline-flex">
           <StatusText status={statuses.activity} />
         </span>
         {onOpen ? (
@@ -261,19 +262,20 @@ export function TopologyTaskNodeBody({
             size="sm"
             variant="ghost"
           >
-            <ExternalLink className="size-3" />
+            <ExternalLink aria-hidden="true" className="size-3" />
           </Button>
         ) : null}
       </header>
       <div className={cn(
         'relative min-h-0 flex-1',
+        !browser && 'flex flex-col',
         browser && 'grid grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)]'
       )}>
         <TopologyTranscriptPreview agentLabel={header.agentLabel} transcript={task.transcript} />
         {browser ? (
           <TopologyReadOnlyBrowserFrame compact frameUrl={browser.frameUrl} title={task.title} />
         ) : (
-          <span className="pointer-events-none absolute bottom-1.5 right-2 max-w-[45%]">
+          <span className="pointer-events-none flex h-5 shrink-0 items-center justify-end border-t border-neutral-800/60 px-2">
             <TopologyBrowserCapabilityNote browser={browserCapability} compact />
           </span>
         )}

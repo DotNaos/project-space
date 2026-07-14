@@ -56,7 +56,7 @@ function TranscriptState({
   return (
     <div
       className={cn(
-        'flex min-w-0 items-start gap-2 text-neutral-500',
+        'flex min-w-0 items-start gap-2 text-neutral-400',
         compact ? 'px-2.5 py-2 text-[8px]' : 'border-b border-neutral-800/70 px-4 py-2.5 text-[10px]',
         presentation.state === 'blocked' && 'text-red-300/75',
         presentation.state === 'stale' && 'text-amber-300/75'
@@ -72,7 +72,7 @@ function TranscriptState({
       <span className="min-w-0">
         <Text className="block font-medium">{presentation.label}</Text>
         {presentation.detail && !compact ? (
-          <Text className="mt-0.5 block leading-4 text-neutral-600">
+          <Text className="mt-0.5 block leading-4 text-neutral-500">
             {presentation.detail}
           </Text>
         ) : null}
@@ -86,7 +86,7 @@ function PreviewItem({ item }: { item: TopologyTranscriptItem }) {
     const Icon = item.kind === 'agent-message' ? Bot : MessageSquareText;
     return (
       <div className="flex min-w-0 items-start gap-1.5 text-[8px] leading-3 text-neutral-400">
-        <Icon className="mt-px size-2.5 shrink-0 text-neutral-600" />
+        <Icon className="mt-px size-2.5 shrink-0 text-neutral-500" />
         <Text className="line-clamp-2">{topologyTranscriptItemText(item)}</Text>
       </div>
     );
@@ -94,7 +94,7 @@ function PreviewItem({ item }: { item: TopologyTranscriptItem }) {
   const Icon = itemIcons[item.kind];
   const StatusIcon = item.status ? statusIcons[item.status] : undefined;
   return (
-    <div className="flex min-w-0 items-center gap-1.5 text-[8px] text-neutral-500">
+    <div className="flex min-w-0 items-center gap-1.5 text-[8px] text-neutral-400">
       <Icon className="size-2.5 shrink-0" />
       <Text className="truncate">{topologyTranscriptItemText(item)}</Text>
       {StatusIcon ? (
@@ -123,12 +123,12 @@ export function TopologyTranscriptPreview({
       className="flex size-full min-w-0 flex-col overflow-hidden bg-neutral-950/75"
       data-transcript-state={presentation.state}
     >
-      <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-neutral-800/70 px-2.5 text-[8px] text-neutral-600">
+      <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-neutral-800/70 px-2.5 text-[8px] text-neutral-500">
         <span className={cn(
           'size-1.5 rounded-full',
           presentation.state === 'ready' ? 'bg-emerald-400' : 'bg-neutral-600'
         )} />
-        <Text className="truncate font-medium text-neutral-400">{agentLabel}</Text>
+        <Text className="truncate font-medium text-neutral-300">{agentLabel}</Text>
         <Text className="shrink-0">read-only task</Text>
       </div>
       {items.length > 0 ? (
@@ -139,7 +139,7 @@ export function TopologyTranscriptPreview({
         <TranscriptState compact transcript={transcript} />
       )}
       {presentation.state === 'stale' && items.length > 0 ? (
-        <Text className="shrink-0 px-2.5 pb-1.5 text-[7px] text-amber-300/70">
+        <Text className="shrink-0 px-2.5 pb-1.5 text-[8px] text-amber-300/80">
           Stale snapshot
         </Text>
       ) : null}
@@ -188,7 +188,7 @@ function ActivityItem({ item }: { item: TopologyTranscriptItem }) {
       <span className="min-w-0">
         <Text className="block text-neutral-300">{text}</Text>
         {detail && detail !== text ? (
-          <Text className="mt-0.5 block whitespace-pre-wrap text-[10px] leading-4 text-neutral-600">
+          <Text className="mt-0.5 block whitespace-pre-wrap text-[10px] leading-4 text-neutral-500">
             {detail}
           </Text>
         ) : null}

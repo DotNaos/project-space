@@ -2,6 +2,8 @@ import type {
   CodexConversationItemRecord,
   CodexSessionReadRequest,
   CodexSessionReadResult,
+  CodexSessionRecord,
+  CodexSessionStatus,
   CodexSessionStreamEvent,
   CodexSessionSubscribeRequest
 } from '@/shared/codex-sessions-api';
@@ -22,8 +24,12 @@ export interface TopologyPreviewTranscriptItem extends CodexConversationItemReco
 }
 
 interface PreviewStateBase {
+  authorityInvalidation?: { eventId: string; reason: string };
+  awaitingDecision?: boolean;
   items: TopologyPreviewTranscriptItem[];
   lastSafeAt?: string;
+  session?: CodexSessionRecord;
+  sessionStatus?: CodexSessionStatus;
 }
 
 export type TopologyPreviewStreamState =
@@ -97,6 +103,7 @@ export class ProjectTopologyPreviewStream {
     const sameOrigin = sameOriginAs(this.origin, origin);
     const items = sameOrigin ? this.state.items : [];
     const lastSafeAt = sameOrigin ? safeAt(this.state) : undefined;
+    const context = sameOrigin ? previewContext(this.state) : {};
     if (!sameOrigin) {
       this.seenEventIds.clear();
       this.seenEventOrder.length = 0;
@@ -106,7 +113,12 @@ export class ProjectTopologyPreviewStream {
     this.retryAttempt = 0;
     this.active = true;
     const generation = ++this.generation;
-    this.publish({ items, ...(lastSafeAt ? { lastSafeAt } : {}), state: 'checking' });
+    this.publish({
+      ...context,
+      items,
+      ...(lastSafeAt ? { lastSafeAt } : {}),
+      state: 'checking'
+    });
     this.readAndSubscribe(generation, origin);
   }
 
@@ -148,7 +160,15 @@ export class ProjectTopologyPreviewStream {
         const checkedAt = this.safeNow();
         const items = flattenReadItems(result);
         this.streamCursor = validCursor(result.streamCursor);
-        this.publish({ checkedAt, items, lastSafeAt: checkedAt, state: 'ready' });
+        this.publish({
+          awaitingDecision: false,
+          checkedAt,
+          items,
+          lastSafeAt: checkedAt,
+          session: result.session,
+          sessionStatus: result.session.status,
+          state: 'ready'
+        });
         this.openStream(generation, origin);
       })
       .catch((error) => {
@@ -196,17 +216,30 @@ export class ProjectTopologyPreviewStream {
   }
 
   private acceptEvent(event: CodexSessionStreamEvent) {
-    if (!validRuntimeId(event.eventId) || this.seenEventIds.has(event.eventId)) return;
-    this.seenEventIds.add(event.eventId);
-    this.seenEventOrder.push(event.eventId);
-    if (this.seenEventOrder.length > 500) {
-      const oldest = this.seenEventOrder.shift();
-      if (oldest) this.seenEventIds.delete(oldest);
+    if (!validRuntimeId(event.eventId)) return;
+    const duplicate = this.seenEventIds.has(event.eventId);
+    if (duplicate && !isRepeatedStatusTransition(this.state, event)) return;
+    if (!duplicate) {
+      this.seenEventIds.add(event.eventId);
+      this.seenEventOrder.push(event.eventId);
+      if (this.seenEventOrder.length > 500) {
+        const oldest = this.seenEventOrder.shift();
+        if (oldest) this.seenEventIds.delete(oldest);
+      }
     }
     const items = applyEvent(this.state.items, event);
     const checkedAt = this.safeNow();
+    const context = previewContext(this.state);
+    const control = controlEventState(this.state, event);
     this.retryAttempt = 0;
-    this.publish({ checkedAt, items, lastSafeAt: checkedAt, state: 'ready' });
+    this.publish({
+      ...context,
+      ...control,
+      checkedAt,
+      items,
+      lastSafeAt: checkedAt,
+      state: 'ready'
+    });
   }
 
   private failAndReconnect(
@@ -218,9 +251,10 @@ export class ProjectTopologyPreviewStream {
     if (!this.isCurrent(generation, origin)) return;
     const reason = errorMessage(error, kind);
     const lastSafeAt = safeAt(this.state);
+    const context = previewContext(this.state);
     this.publish(lastSafeAt
-      ? { items: this.state.items, lastSafeAt, reason, state: 'stale' }
-      : { items: [], reason, state: 'blocked' });
+      ? { ...context, items: this.state.items, lastSafeAt, reason, state: 'stale' }
+      : { ...context, items: [], reason, state: 'blocked' });
     this.cancelReconnect?.();
     const delay = safeDelay(this.backoffMs(this.retryAttempt++));
     this.cancelReconnect = this.schedule(() => {
@@ -259,11 +293,19 @@ export class ProjectTopologyPreviewStream {
   }
 }
 
+function isRepeatedStatusTransition(
+  current: TopologyPreviewStreamState,
+  event: CodexSessionStreamEvent
+) {
+  return event.type === 'session-status' && event.status !== current.sessionStatus;
+}
+
 function provenOrigin(task: TopologyTask): Origin | undefined {
   const validIdentity = task.id === topologyTaskId(task.machineId, task.threadId)
     && task.machineId === task.session.machineId
     && task.threadId === task.session.id;
   const validEvidence = task.evidence.source === 'connector-canonical-cwd'
+    && task.evidence.current
     && cleanEvidence(task.cwd)
     && cleanEvidence(task.evidence.matchedPath);
   return validIdentity && validEvidence
@@ -301,6 +343,59 @@ function applyEvent(
     }));
   }
   return current;
+}
+
+function controlEventState(
+  current: TopologyPreviewStreamState,
+  event: CodexSessionStreamEvent
+): Partial<PreviewStateBase> {
+  if (event.type === 'session-status') {
+    if (event.status === current.sessionStatus) return {};
+    return {
+      authorityInvalidation: {
+        eventId: event.eventId,
+        reason: `The live Codex task status changed to ${event.status}.`
+      },
+      awaitingDecision: false,
+      sessionStatus: event.status
+    };
+  }
+  if (event.type === 'approval-requested' || event.type === 'user-input-requested') {
+    return {
+      authorityInvalidation: {
+        eventId: event.eventId,
+        reason: 'The live Codex task is awaiting a decision.'
+      },
+      awaitingDecision: true,
+      sessionStatus: 'active'
+    };
+  }
+  if (event.type === 'turn-completed') {
+    return {
+      authorityInvalidation: {
+        eventId: event.eventId,
+        reason: event.reason
+          ? `The live Codex turn completed: ${event.reason}`
+          : 'The live Codex turn completed.'
+      },
+      awaitingDecision: false,
+      sessionStatus: 'idle'
+    };
+  }
+  return {};
+}
+
+function previewContext(state: TopologyPreviewStreamState): Partial<PreviewStateBase> {
+  return {
+    ...(state.authorityInvalidation
+      ? { authorityInvalidation: state.authorityInvalidation }
+      : {}),
+    ...(state.awaitingDecision === undefined
+      ? {}
+      : { awaitingDecision: state.awaitingDecision }),
+    ...(state.session ? { session: state.session } : {}),
+    ...(state.sessionStatus ? { sessionStatus: state.sessionStatus } : {})
+  };
 }
 
 function upsert(

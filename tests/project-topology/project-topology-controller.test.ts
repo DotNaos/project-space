@@ -19,8 +19,10 @@ import {
   project,
   repositoryDetails,
   session,
+  writable,
   worktrees
 } from './project-topology-test-fixtures';
+import { topologyTaskId } from '../../src/features/project-topology/project-topology-types';
 
 describe('project topology controller', () => {
   test('loads a ready snapshot and notifies subscribers', async () => {
@@ -116,6 +118,7 @@ describe('project topology controller', () => {
 
   test('publishes the portfolio before a slow transcript finishes', async () => {
     const transcript = deferred<CodexSessionReadResult>();
+    let writeCalls = 0;
     const candidate = session(
       'machine-a',
       'thread-a',
@@ -124,6 +127,10 @@ describe('project topology controller', () => {
     );
     const source: ProjectTopologySource = {
       ...readySource(),
+      async getCodexSessionWriteCapability() {
+        writeCalls += 1;
+        return writable(candidate);
+      },
       async listCodexSessions(machineId) {
         return readyEvidence(codex(machineId, [candidate]));
       },
@@ -154,15 +161,275 @@ describe('project topology controller', () => {
     await baseReady.promise;
     expect(controller.getState().state).toBe('ready');
     expect(settled).toBe(false);
+    await controller.selectTask(topologyTaskId(candidate.machineId, candidate.id));
+    expect(writeCalls).toBe(0);
 
     transcript.resolve(conversation(candidate));
     const result = await refresh;
     expect(result.state).toBe('ready');
     if (result.state === 'ready') {
       expect(result.snapshot.projects[0]!.machines[0]!.tasks[0]!.transcript.state).toBe('ready');
+      expect(result.snapshot.projects[0]!.machines[0]!.tasks[0]!.interaction.composerVisible)
+        .toBe(true);
+    }
+    expect(writeCalls).toBe(1);
+  });
+
+  test('keeps the overview read-only and grants authority only to the selected task', async () => {
+    const candidate = session('machine-a', 'thread-a', '/projects/project-a', 'idle');
+    const calls: Array<[string, string]> = [];
+    const source: ProjectTopologySource = {
+      ...readySource(),
+      async getCodexSessionWriteCapability(machineId, threadId) {
+        calls.push([machineId, threadId]);
+        return writable(candidate);
+      },
+      async listCodexSessions(machineId) {
+        return readyEvidence(codex(machineId, [candidate]));
+      },
+      async readCodexSession() {
+        return readyEvidence(conversation(candidate));
+      },
+      async resolveCodexSessionLocation(machineId, threadId) {
+        return readyEvidence({
+          canonicalCwd: '/projects/project-a',
+          checkedAt,
+          machineId,
+          source: 'connector-realpath',
+          threadId
+        });
+      }
+    };
+    const controller = new ProjectTopologyController(source, {
+      clock: () => checkedAt,
+      includeTranscripts: false
+    });
+
+    const overview = await controller.refresh();
+    expect(calls).toEqual([]);
+    expect(taskFrom(overview, candidate).interaction.composerVisible).toBe(false);
+
+    const taskId = topologyTaskId(candidate.machineId, candidate.id);
+    const focused = await controller.selectTask(taskId);
+    expect(calls).toEqual([['machine-a', 'thread-a']]);
+    expect(taskFrom(focused, candidate).interaction.composerVisible).toBe(true);
+    expect(controller.getSelectedTask(taskId)?.id).toBe(taskId);
+
+    const closed = await controller.selectTask();
+    expect(taskFrom(closed, candidate).interaction.composerVisible).toBe(false);
+    expect(controller.getSelectedTask(taskId)).toBeUndefined();
+
+    await controller.selectTask(taskId);
+    controller.dispose();
+    expect(controller.getSelectedTask(taskId)).toBeUndefined();
+    const disposed = controller.getState();
+    expect(disposed.state).toBe('checking');
+    if (disposed.state === 'checking' && disposed.previous) {
+      expect(taskFromSnapshot(disposed.previous, candidate).interaction.composerVisible)
+        .toBe(false);
+    }
+  });
+
+  test('drops a late authority response after selection changes', async () => {
+    const first = session('machine-a', 'thread-a', '/projects/project-a', 'idle');
+    const second = session('machine-a', 'thread-b', '/projects/project-a', 'idle');
+    const firstCapability = deferred<ReturnType<typeof writable>>();
+    const source: ProjectTopologySource = {
+      ...readySource(),
+      async getCodexSessionWriteCapability(_machineId, threadId) {
+        return threadId === first.id ? firstCapability.promise : writable(second);
+      },
+      async listCodexSessions(machineId) {
+        return readyEvidence(codex(machineId, [first, second]));
+      },
+      async readCodexSession(_machineId, threadId) {
+        return readyEvidence(conversation(threadId === first.id ? first : second));
+      },
+      async resolveCodexSessionLocation(machineId, threadId) {
+        return readyEvidence({
+          canonicalCwd: '/projects/project-a',
+          checkedAt,
+          machineId,
+          source: 'connector-realpath',
+          threadId
+        });
+      }
+    };
+    const controller = new ProjectTopologyController(source, {
+      clock: () => checkedAt,
+      includeTranscripts: false
+    });
+    await controller.refresh();
+
+    const oldSelection = controller.selectTask(topologyTaskId(first.machineId, first.id));
+    const current = await controller.selectTask(topologyTaskId(second.machineId, second.id));
+    firstCapability.resolve(writable(first));
+    await oldSelection;
+
+    expect(taskFrom(current, first).interaction.composerVisible).toBe(false);
+    expect(taskFrom(controller.getState(), second).interaction.composerVisible).toBe(true);
+  });
+
+  test('does not restore a late authority response after the task closes', async () => {
+    const candidate = session('machine-a', 'thread-a', '/projects/project-a', 'idle');
+    const capability = deferred<ReturnType<typeof writable>>();
+    const source: ProjectTopologySource = {
+      ...readySource(),
+      async getCodexSessionWriteCapability() {
+        return capability.promise;
+      },
+      async listCodexSessions(machineId) {
+        return readyEvidence(codex(machineId, [candidate]));
+      },
+      async readCodexSession() {
+        return readyEvidence(conversation(candidate));
+      },
+      async resolveCodexSessionLocation(machineId, threadId) {
+        return readyEvidence({
+          canonicalCwd: '/projects/project-a',
+          checkedAt,
+          machineId,
+          source: 'connector-realpath',
+          threadId
+        });
+      }
+    };
+    const controller = new ProjectTopologyController(source, {
+      clock: () => checkedAt,
+      includeTranscripts: false
+    });
+    const taskId = topologyTaskId(candidate.machineId, candidate.id);
+    await controller.refresh();
+
+    const selecting = controller.selectTask(taskId);
+    await controller.selectTask();
+    capability.resolve(writable(candidate));
+    await selecting;
+
+    expect(controller.getSelectedTask(taskId)).toBeUndefined();
+    expect(taskFrom(controller.getState(), candidate).interaction.composerVisible).toBe(false);
+  });
+
+  test('revokes expired authority and reacquires it for the preserved selection', async () => {
+    const candidate = session('machine-a', 'thread-a', '/projects/project-a', 'idle');
+    let expire = () => undefined;
+    let scheduledDelay = -1;
+    let writeCalls = 0;
+    const source: ProjectTopologySource = {
+      ...readySource(),
+      async getCodexSessionWriteCapability() {
+        writeCalls += 1;
+        return writable(candidate, { expiresAt: '2026-07-14T00:02:00.000Z' });
+      },
+      async listCodexSessions(machineId) {
+        return readyEvidence(codex(machineId, [candidate]));
+      },
+      async readCodexSession() {
+        return readyEvidence(conversation(candidate));
+      },
+      async resolveCodexSessionLocation(machineId, threadId) {
+        return readyEvidence({
+          canonicalCwd: '/projects/project-a',
+          checkedAt,
+          machineId,
+          source: 'connector-realpath',
+          threadId
+        });
+      }
+    };
+    const controller = new ProjectTopologyController(source, {
+      clock: () => checkedAt,
+      includeTranscripts: false,
+      schedule(callback, delayMs) {
+        expire = callback;
+        scheduledDelay = delayMs;
+        return () => { expire = () => undefined; };
+      }
+    });
+    const taskId = topologyTaskId(candidate.machineId, candidate.id);
+    await controller.refresh();
+    await controller.selectTask(taskId);
+    expect(controller.getSelectedTask(taskId)?.interaction.composerVisible).toBe(true);
+    expect(scheduledDelay).toBe(120_000);
+
+    expire();
+
+    expect(controller.getSelectedTask(taskId)).toBeUndefined();
+    expect(taskFrom(controller.getState(), candidate).interaction.composerVisible).toBe(false);
+
+    await controller.refresh();
+    expect(writeCalls).toBe(2);
+    expect(controller.getSelectedTask(taskId)?.interaction.composerVisible).toBe(true);
+  });
+
+  test('does not renew authority from a stale snapshot after refresh failure', async () => {
+    const candidate = session('machine-a', 'thread-a', '/projects/project-a', 'idle');
+    let discoveryFails = false;
+    let writeCalls = 0;
+    const source: ProjectTopologySource = {
+      ...readySource(() => discoveryFails),
+      async getCodexSessionWriteCapability() {
+        writeCalls += 1;
+        return writable(candidate);
+      },
+      async listCodexSessions(machineId) {
+        return readyEvidence(codex(machineId, [candidate]));
+      },
+      async readCodexSession() {
+        return readyEvidence(conversation(candidate));
+      },
+      async resolveCodexSessionLocation(machineId, threadId) {
+        return readyEvidence({
+          canonicalCwd: '/projects/project-a',
+          checkedAt,
+          machineId,
+          source: 'connector-realpath',
+          threadId
+        });
+      }
+    };
+    const controller = new ProjectTopologyController(source, {
+      clock: () => checkedAt,
+      includeTranscripts: false
+    });
+    await controller.refresh();
+    await controller.selectTask(topologyTaskId(candidate.machineId, candidate.id));
+    expect(writeCalls).toBe(1);
+
+    discoveryFails = true;
+    const stale = await controller.refresh();
+
+    expect(stale.state).toBe('stale');
+    expect(writeCalls).toBe(1);
+    expect(controller.getSelectedTask(topologyTaskId(candidate.machineId, candidate.id)))
+      .toBeUndefined();
+    if (stale.state === 'stale') {
+      expect(taskFromSnapshot(stale.snapshot, candidate).interaction.composerVisible).toBe(false);
     }
   });
 });
+
+function taskFrom(
+  state: ReturnType<ProjectTopologyController['getState']>,
+  candidate: ReturnType<typeof session>
+) {
+  if (state.state !== 'ready') throw new Error('Expected a ready topology state.');
+  return taskFromSnapshot(state.snapshot, candidate);
+}
+
+function taskFromSnapshot(
+  snapshot: Extract<ReturnType<ProjectTopologyController['getState']>, {
+    state: 'ready' | 'stale';
+  }>['snapshot'],
+  candidate: ReturnType<typeof session>
+) {
+  const id = topologyTaskId(candidate.machineId, candidate.id);
+  const task = snapshot.projects.flatMap((entry) => (
+    entry.machines.flatMap((machineEntry) => machineEntry.tasks)
+  )).find((entry) => entry.id === id);
+  if (!task) throw new Error(`Expected topology task ${id}.`);
+  return task;
+}
 
 function readySource(
   shouldFail?: () => boolean,

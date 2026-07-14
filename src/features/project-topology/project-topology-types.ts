@@ -153,8 +153,8 @@ export type TopologyTaskDelivery =
 
 export interface TopologyTranscriptItem extends CodexConversationItemRecord {
   order: number;
-  turnId: string;
-  turnStatus: CodexSessionReadResult['turns'][number]['status'];
+  turnId?: string;
+  turnStatus?: CodexSessionReadResult['turns'][number]['status'];
 }
 
 export interface TopologyTaskIssue {

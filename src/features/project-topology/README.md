@@ -14,6 +14,9 @@ source becomes Checking, Limited, Blocked, or Stale rather than an empty slot.
   every returned task has been attributed.
 - Detailed transcript reads and streams remain bound to the exact machine and
   thread identity.
+- The overview is always read-only. Write authority is requested only after one
+  current task is selected, is revoked on close, switch, refresh, unmount, lease
+  expiry, or live task-state change, and is resolved again at dispatch time.
 - The base portfolio publishes before task transcript enrichment; refreshes abort
   superseded source requests and late results cannot replace newer evidence.
 - A composer appears only with a current transcript and a short-lived write
@@ -55,10 +58,13 @@ node positioning. The existing Codex sessions controller remains the detailed
 workspace authority for real transcript streaming, approvals, user input,
 continue, and interrupt operations.
 
-Route, shell, API, connector, and package changes remain intentionally outside
-this folder until the active owners of those shared files provide stable commits.
-At that point the production adapter must implement the source contracts here,
-add the React Flow dependency, and wire the smallest possible route and rail entry.
+The minimal `/topology` route and rail entry are already isolated in the desktop
+shell, but intentionally render an honest checking state until the production
+canvas and source identity bindings can land. Package, API, and connector changes
+remain outside this folder until the active owners of those shared files provide
+stable commits. At that point the production adapter must implement the source
+contracts here and add the React Flow canvas without moving evidence logic into
+the shell.
 
 ## Evidence gates
 

@@ -38,7 +38,7 @@ describe('project topology loader scheduling', () => {
     expect(tracker.callCount('deployment')).toBe(8);
     expect(tracker.callCount('codex')).toBe(8);
     expect(tracker.callCount('read')).toBe(8);
-    expect(tracker.callCount('write')).toBe(8);
+    expect(tracker.callCount('write')).toBe(0);
     expect(tracker.callCount('evidence')).toBe(8);
   });
 
@@ -106,7 +106,7 @@ describe('project topology loader scheduling', () => {
     expect(Object.keys(inventory.taskLocationsByTaskId ?? {})).toHaveLength(0);
   });
 
-  test('ages early transcripts and blocks write authority after slow detail loading', async () => {
+  test('ages early transcripts without minting overview write authority', async () => {
     let now = Date.parse(checkedAt);
     let evidenceCalls = 0;
     const { source } = observedSource(7, async (phase, method) => {
@@ -130,10 +130,7 @@ describe('project topology loader scheduling', () => {
     expect(conversations.every((result) => (
       result.state === 'stale' && result.lastSafeAt === checkedAt
     ))).toBe(true);
-    expect(capabilities).toHaveLength(7);
-    expect(capabilities.every((capability) => (
-      capability.state === 'blocked'
-    ))).toBe(true);
+    expect(capabilities).toHaveLength(0);
     expect(Object.keys(detailed.taskLocationsByTaskId ?? {})).toHaveLength(0);
   });
 });

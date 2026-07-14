@@ -5,6 +5,7 @@ import type {
 } from '@/shared/codex-sessions-api';
 import { loadProjectTopologyInventory } from '../../src/features/project-topology/project-topology-loader';
 import { buildProjectTopology } from '../../src/features/project-topology/project-topology-model';
+import { loadProjectTopologySelectedTask } from '../../src/features/project-topology/project-topology-selected-task-loader';
 import {
   createProjectTopologyProductionSource,
   type ProjectTopologyProductionSourceOptions
@@ -69,9 +70,18 @@ describe('project topology production source adapter', () => {
       projectSpace: projectClient()
     });
     const loaded = await loadProjectTopologyInventory(source, { clock: () => checkedAt });
-    const task = snapshot(buildProjectTopology(loaded)).projects[0]!.machines[0]!.tasks[0]!;
+    const overviewTask = snapshot(buildProjectTopology(loaded))
+      .projects[0]!.machines[0]!.tasks[0]!;
+    const selected = await loadProjectTopologySelectedTask(
+      source,
+      loaded,
+      overviewTask.id,
+      { clock: () => checkedAt }
+    );
+    const task = snapshot(buildProjectTopology(selected)).projects[0]!.machines[0]!.tasks[0]!;
 
     expect(task.cwd).toBe('/projects/project-space/src');
+    expect(overviewTask.interaction.composerVisible).toBe(false);
     expect(task.interaction).toMatchObject({
       canContinue: true,
       composerVisible: true

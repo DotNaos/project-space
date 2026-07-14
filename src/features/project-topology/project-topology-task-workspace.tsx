@@ -168,8 +168,12 @@ function TaskComposer({
           >
             <ShieldCheck className="size-3.5" />
           </span>
-          <span className="ml-auto hidden min-w-0 items-center gap-1 text-[10px] text-neutral-500 sm:flex">
-            <Text className="max-w-32 truncate">{composer.model.label}</Text>
+          <span
+            aria-label={`${composer.model.label} model is read-only`}
+            className="ml-auto flex min-w-0 max-w-24 items-center gap-1 text-[10px] text-neutral-400 sm:max-w-32"
+            title={`${composer.model.label} model is read-only`}
+          >
+            <Text className="truncate">{composer.model.label}</Text>
             <ChevronDown className="size-3 shrink-0" />
           </span>
           <span
@@ -212,6 +216,20 @@ function TaskComposer({
   );
 }
 
+function ComposerCapabilityNote({ reason }: { reason?: string }) {
+  if (!reason) return null;
+  return (
+    <div
+      className="flex shrink-0 items-start gap-2 border-t border-neutral-800/80 bg-neutral-950 px-4 py-2.5 text-[11px] leading-4 text-neutral-400"
+      data-topology-composer="unavailable"
+      role="status"
+    >
+      <ShieldCheck aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-neutral-500" />
+      <Text>{reason}</Text>
+    </div>
+  );
+}
+
 function ConversationPane({
   onSend,
   onStop,
@@ -226,7 +244,11 @@ function ConversationPane({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-neutral-950">
       <TopologyTranscript transcript={task.transcript} />
-      <TaskComposer composer={view.composer} onSend={onSend} onStop={onStop} task={task} />
+      {view.composer.visible ? (
+        <TaskComposer composer={view.composer} onSend={onSend} onStop={onStop} task={task} />
+      ) : (
+        <ComposerCapabilityNote reason={view.composer.reason} />
+      )}
     </div>
   );
 }
@@ -336,6 +358,13 @@ export function TopologyTaskCommandCenter({
         })
       }
     : undefined;
+  const activityDotClass = statuses.activity.tone === 'success'
+    ? 'bg-emerald-400'
+    : statuses.activity.tone === 'danger'
+      ? 'bg-red-400'
+      : statuses.activity.tone === 'warning'
+        ? 'bg-amber-300'
+        : 'bg-neutral-500';
 
   return (
     <section
@@ -356,22 +385,22 @@ export function TopologyTaskCommandCenter({
           size="sm"
           variant="outline"
         >
-          <ArrowLeft className="size-4" />
+          <ArrowLeft aria-hidden="true" className="size-4" />
         </Button>
         <span className="min-w-0">
           <Text as="h2" className="block truncate text-xs font-semibold text-neutral-100 sm:text-sm">
             {header.issueLabel ? `${header.issueLabel} · ` : ''}{header.title}
           </Text>
-          <span className="mt-1 flex min-w-0 items-center gap-2 text-[9px] text-neutral-500">
+          <span className="mt-1 flex min-w-0 items-center gap-2 text-[9px] text-neutral-400">
             <span className={cn(
               'size-1.5 shrink-0 rounded-full',
-              statuses.activity.tone === 'success' ? 'bg-emerald-400' : 'bg-neutral-600'
+              activityDotClass
             )} />
             <Text className="truncate">{header.agentLabel} · {statuses.activity.label}</Text>
           </span>
         </span>
         {header.branchName ? (
-          <Chip className="hidden max-w-52 truncate sm:inline-flex" size="sm">
+          <Chip className="max-w-20 shrink truncate sm:max-w-52" size="sm">
             {header.branchName}
           </Chip>
         ) : null}
@@ -389,7 +418,7 @@ export function TopologyTaskCommandCenter({
           size="sm"
           variant="ghost"
         >
-          <X className="size-4" />
+          <X aria-hidden="true" className="size-4" />
         </Button>
       </header>
 

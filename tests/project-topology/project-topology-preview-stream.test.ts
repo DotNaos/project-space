@@ -319,7 +319,7 @@ describe('project topology preview transcript stream', () => {
     expect(scheduler.delays.at(-1)).toBe(100);
   });
 
-  test('keeps ordered transcript items and ignores non-transcript decision events', async () => {
+  test('keeps ordered items and exposes decision events without inventing transcript rows', async () => {
     const candidate = session('machine-a', 'thread-a', '/projects/project-space', 'idle');
     const client = new PreviewClient(async () => readResult(candidate, 'Hello'));
     const store = new ProjectTopologyPreviewStream(client, fixedOptions());
@@ -353,6 +353,47 @@ describe('project topology preview transcript stream', () => {
       'user-message', 'mcp-tool', 'status'
     ]);
     expect(store.getState().items.some((item) => item.id === 'request-a')).toBe(false);
+    expect(store.getState()).toMatchObject({
+      authorityInvalidation: {
+        eventId: 'event-approval',
+        reason: 'The live Codex task is awaiting a decision.'
+      },
+      awaitingDecision: true,
+      sessionStatus: 'active'
+    });
+  });
+
+  test('invalidates authority when live session or turn state changes', async () => {
+    const candidate = session('machine-a', 'thread-a', '/projects/project-space', 'idle');
+    const client = new PreviewClient(async () => readResult(candidate, 'Hello'));
+    const store = new ProjectTopologyPreviewStream(client, fixedOptions());
+    store.start(modelTask(candidate));
+    await settle();
+
+    client.event(0, {
+      eventId: 'event-active',
+      status: 'active',
+      type: 'session-status'
+    });
+    expect(store.getState()).toMatchObject({
+      authorityInvalidation: { eventId: 'event-active' },
+      sessionStatus: 'active'
+    });
+
+    client.event(0, {
+      eventId: 'event-completed',
+      reason: 'finished',
+      turnId: 'turn-a',
+      type: 'turn-completed'
+    });
+    expect(store.getState()).toMatchObject({
+      authorityInvalidation: {
+        eventId: 'event-completed',
+        reason: 'The live Codex turn completed: finished'
+      },
+      awaitingDecision: false,
+      sessionStatus: 'idle'
+    });
   });
 });
 

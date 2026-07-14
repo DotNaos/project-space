@@ -86,9 +86,9 @@ export function topologyTranscriptPresentation(
 
 export function topologyTranscriptPreviewItems(
   transcript: TopologyInventoryResult<TopologyTranscriptItem[]>,
-  maximum = 4
+  maximum = 3
 ) {
-  const count = Number.isFinite(maximum) ? Math.max(0, Math.floor(maximum)) : 4;
+  const count = Number.isFinite(maximum) ? Math.max(0, Math.floor(maximum)) : 3;
   return topologyTranscriptPresentation(transcript).items.slice(-count);
 }
 

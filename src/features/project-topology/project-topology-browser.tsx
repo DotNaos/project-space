@@ -44,8 +44,8 @@ export function TopologyBrowserCapabilityNote({
   return (
     <span
       className={cn(
-        'inline-flex min-w-0 items-center gap-1.5 text-neutral-600',
-        compact ? 'text-[7px]' : 'text-[9px]',
+        'inline-flex min-w-0 items-center gap-1.5 text-neutral-400',
+        compact ? 'text-[8px]' : 'text-[10px]',
         browser.state === 'blocked' && 'text-red-300/65'
       )}
       title={presentation.reason}
@@ -72,8 +72,8 @@ export function TopologyReadOnlyBrowserFrame({
       data-browser-interaction="read-only"
     >
       <div className={cn(
-        'flex shrink-0 items-center gap-1.5 border-b border-neutral-800/70 px-2.5 text-neutral-600',
-        compact ? 'h-7 text-[7px]' : 'h-9 text-[9px]'
+        'flex shrink-0 items-center gap-1.5 border-b border-neutral-800/70 px-2.5 text-neutral-500',
+        compact ? 'h-7 text-[8px]' : 'h-9 text-[10px]'
       )}>
         <Monitor className={compact ? 'size-2.5' : 'size-3'} />
         <Text className="truncate text-neutral-400">Live browser</Text>
@@ -139,11 +139,11 @@ export function TopologyDeveloperTools({
       </Tabs>
       <div
         aria-label={`${toolLabels[selected]} live stream`}
-        className="min-h-0 flex-1 overflow-auto p-3 font-mono text-[10px] leading-5 text-neutral-500"
+        className="min-h-0 flex-1 overflow-auto p-3 font-mono text-[10px] leading-5 text-neutral-400"
         role="tabpanel"
       >
         {events === undefined ? (
-          <span className="flex items-center gap-2 font-sans text-neutral-600">
+          <span className="flex items-center gap-2 font-sans text-neutral-500">
             <Radio className="size-3" />
             Live {toolLabels[selected].toLowerCase()} stream available
           </span>
@@ -156,7 +156,7 @@ export function TopologyDeveloperTools({
             ))}
           </div>
         ) : (
-          <span className="flex items-center gap-2 font-sans text-neutral-600">
+          <span className="flex items-center gap-2 font-sans text-neutral-500">
             <CircleDot className="size-3" />
             No events received in this view
           </span>
