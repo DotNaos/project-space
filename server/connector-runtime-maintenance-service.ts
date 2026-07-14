@@ -397,6 +397,7 @@ export class ConnectorRuntimeMaintenanceService {
         );
       }
     }
+    await this.reconcileDeadline(await this.options.operations.latest(request.machineId));
     const previous = connectorRuntimeFingerprint(runtime, machine.connector.capabilities ?? []);
     let operation: ConnectorRuntimeOperationRecord;
     try {
@@ -411,7 +412,7 @@ export class ConnectorRuntimeMaintenanceService {
         previousFingerprint: previous,
         previousInstanceId: runtime.instanceId,
         requestedByUserId: userId,
-        requestedReleaseId: request.releaseId,
+        requestedReleaseId: approved?.manifest.releaseId,
         target
       }, {
         at: requestedAt, machineId: request.machineId, operation: request.operation,

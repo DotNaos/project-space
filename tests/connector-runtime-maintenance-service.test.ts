@@ -3,7 +3,11 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 import { describe, expect, test } from 'bun:test';
 
 import { ConnectorRuntimeMaintenanceService } from '../server/connector-runtime-maintenance-service';
-import { MemoryConnectorRuntimeOperationStore } from '../server/connector-runtime-operation-store';
+import {
+  MemoryConnectorRuntimeOperationStore,
+  type ConnectorRuntimeAuditInput,
+  type CreateConnectorRuntimeOperationInput
+} from '../server/connector-runtime-operation-store';
 import {
   canonicalConnectorRuntimeReleaseManifest,
   connectorRuntimeReleaseManifestSchema,
@@ -92,7 +96,7 @@ class Harness {
     typeof ConnectorRuntimeMaintenanceService
   >[0]['dispatcher']['dispatch']>[0]> = [];
   dispatchError?: Error;
-  readonly operations = new MemoryConnectorRuntimeOperationStore();
+  readonly operations = new CapturingConnectorRuntimeOperationStore();
 
   service() {
     return new ConnectorRuntimeMaintenanceService({
@@ -127,6 +131,19 @@ class Harness {
   }
 }
 
+class CapturingConnectorRuntimeOperationStore extends MemoryConnectorRuntimeOperationStore {
+  readonly createInputs: CreateConnectorRuntimeOperationInput[] = [];
+
+  override async createAccepted(
+    input: CreateConnectorRuntimeOperationInput,
+    audit: ConnectorRuntimeAuditInput,
+    acceptedAt: string
+  ) {
+    this.createInputs.push(structuredClone(input));
+    return await super.createAccepted(input, audit, acceptedAt);
+  }
+}
+
 async function settleDispatch() {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -155,6 +172,16 @@ describe('connector runtime maintenance service', () => {
     expect((await harness.operations.latest('machine-1'))?.state).toBe('reconnecting');
   });
 
+  test('persists the resolved release identity for a default update', async () => {
+    const harness = new Harness();
+    await harness.service().request(
+      { machineId: 'machine-1', operation: 'update' },
+      'owner-1'
+    );
+
+    expect(harness.operations.createInputs[0]?.requestedReleaseId).toBe('v0.5.0');
+  });
+
   test('keeps restart independent and available while already current', async () => {
     const harness = new Harness();
     harness.machine = currentMachine({ connector: {
@@ -171,6 +198,7 @@ describe('connector runtime maintenance service', () => {
     );
     expect(result.operation.operation).toBe('restart');
     expect(harness.releaseCalls).toBe(0);
+    expect(harness.operations.createInputs[0]?.requestedReleaseId).toBeUndefined();
     expect(harness.dispatches[0]?.plan.operation).toBe('restart');
   });
 
@@ -253,6 +281,27 @@ describe('connector runtime maintenance service', () => {
     await expect(conflict.service().request(
       { machineId: 'machine-1', operation: 'restart' }, 'owner-1'
     )).rejects.toMatchObject({ code: 'operation-conflict' });
+  });
+
+  test('expires a stale operation before accepting a retry without a status poll', async () => {
+    const harness = new Harness();
+    const first = await harness.service().request(
+      { machineId: 'machine-1', operation: 'restart' }, 'owner-1'
+    );
+    await settleDispatch();
+    harness.currentNow = new Date(now.getTime() + 3 * 60_000);
+
+    const retry = await harness.service().request(
+      { machineId: 'machine-1', operation: 'restart' }, 'owner-1'
+    );
+
+    expect(retry.operation.id).not.toBe(first.operation.id);
+    const active = await harness.operations.listActive();
+    expect(active).toHaveLength(1);
+    expect(active[0]?.id).toBe(retry.operation.id);
+    expect(harness.operations.audits.map((audit) => audit.outcome)).toEqual([
+      'accepted', 'accepted'
+    ]);
   });
 
   test('commits only after an exact reconnect acknowledges the persisted decision', async () => {
