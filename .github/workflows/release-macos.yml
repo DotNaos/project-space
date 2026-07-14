@@ -380,13 +380,11 @@ jobs:
             [[ -n $line ]] && original_keychains+=("$line")
           done < "$keychain_snapshot"
           /usr/bin/security list-keychains -d user -s "$keychain" "${original_keychains[@]}"
-          # The import already grants codesign-only access. Current hosted runners can return
-          # errSecItemNotFound after updating this optional partition list, so the real codesign
-          # and requirement verification below remain the authoritative gate.
-          if ! /usr/bin/security set-key-partition-list -S apple-tool:,apple: -s \
-            -k "$keychain_password" "$keychain" >/dev/null 2>&1; then
-            echo 'The optional key partition update was unavailable; using the codesign-only import ACL.'
-          fi
+          # Keep the import restricted to codesign, then authorize Apple's signing partition.
+          # Do not add a key-usage selector here: current arm64 runners can fail to match the
+          # imported private key even though it is a valid code-signing identity.
+          /usr/bin/security set-key-partition-list -S apple-tool:,apple: \
+            -k "$keychain_password" "$keychain" >/dev/null
           identity=''
           identity_count=0
           while IFS= read -r line; do

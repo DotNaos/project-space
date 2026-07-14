@@ -192,7 +192,9 @@ describe('connector release and production deployment contract', () => {
     expect(sign).not.toContain('security import "$pem"');
     expect(sign).not.toContain('-P "$CERTIFICATE_PASSWORD"');
     expect(sign).not.toContain('-f pemseq');
-    expect(sign).toContain('if ! /usr/bin/security set-key-partition-list');
+    expect(sign).toContain('/usr/bin/security set-key-partition-list -S apple-tool:,apple:');
+    expect(sign).not.toContain('set-key-partition-list -S apple-tool:,apple: -s');
+    expect(sign).not.toContain('if ! /usr/bin/security set-key-partition-list');
     expect(sign.indexOf('security list-keychains -d user -s "$keychain"')).toBeLessThan(
       sign.indexOf('security set-key-partition-list')
     );
