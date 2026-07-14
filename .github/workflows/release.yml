@@ -3,7 +3,7 @@ name: Release
 on:
   pull_request:
     paths:
-      - '.github/workflows/release.yml'
+      - '.github/workflows/release*.yml'
       - 'cmd/project/**'
       - 'go.mod'
       - 'go.sum'
@@ -34,19 +34,42 @@ jobs:
     name: Cross-platform quality gates
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      version: ${{ steps.release-metadata.outputs.version }}
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Resolve release metadata
+        id: release-metadata
+        shell: bash
+        env:
+          RELEASE_REF_NAME: ${{ github.ref_name }}
+          RELEASE_REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          package_version=$(awk -F '"' '/"version"/ { print $4; exit }' package.json)
+          if [[ ! $package_version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "package.json contains an invalid release version: $package_version" >&2
+            exit 64
+          fi
+          if [[ $RELEASE_REF_TYPE == tag && $RELEASE_REF_NAME != "v${package_version}" ]]; then
+            echo "Tag $RELEASE_REF_NAME does not match package.json version $package_version." >&2
+            exit 65
+          fi
+          echo "version=$package_version" >> "$GITHUB_OUTPUT"
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.14
 
@@ -67,77 +90,10 @@ jobs:
   trust-roots:
     name: Derive connector trust roots
     needs: quality
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v6
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.14
-
-      - name: Load release trust keys from 1Password
-        if: github.ref_type == 'tag'
-        id: trust-secrets
-        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
-        env:
-          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64: op://projects/project-connector-command-signing-key/private_key_b64
-          PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64: op://projects/project-space-release-manifest-signing-key/private_key_b64
-          PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: op://projects/project-space-release-manifest-signing-key/public_key_b64
-
-      - name: Derive release trust roots
-        if: github.ref_type == 'tag'
-        env:
-          PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64: ${{ steps.trust-secrets.outputs.PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64 }}
-          PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64: ${{ steps.trust-secrets.outputs.PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64 }}
-        run: >-
-          bun packaging/release/derive-trust-roots.ts derive
-          "$RUNNER_TEMP/connector-runtime-trust-roots"
-
-      - name: Confirm stored release trust root
-        if: github.ref_type == 'tag'
-        env:
-          PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: ${{ steps.trust-secrets.outputs.PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64 }}
-        run: |
-          set -euo pipefail
-          stored_public_key="$RUNNER_TEMP/stored-release-manifest-signing-public-key.pem"
-          trap 'rm -f "$stored_public_key"' EXIT
-          umask 077
-          printf '%s' "$PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64" | \
-            base64 --decode > "$stored_public_key"
-          cmp "$stored_public_key" \
-            "$RUNNER_TEMP/connector-runtime-trust-roots/release-manifest-signing-public-key.pem"
-
-      - name: Create disposable validation trust roots
-        if: github.ref_type != 'tag'
-        run: >-
-          bun packaging/release/derive-trust-roots.ts validation-only
-          "$RUNNER_TEMP/connector-runtime-trust-roots"
-
-      - name: Validate public trust roots
-        run: |
-          bun -e '
-            const { createPublicKey } = require("node:crypto");
-            const { readFileSync } = require("node:fs");
-            for (const name of [
-              "connector-command-signing-public-key.pem",
-              "release-manifest-signing-public-key.pem"
-            ]) {
-              const key = createPublicKey(readFileSync(`${process.env.RUNNER_TEMP}/connector-runtime-trust-roots/${name}`));
-              if (key.type !== "public" || key.asymmetricKeyType !== "ed25519") process.exit(65);
-            }
-          '
-
-      - name: Upload public trust roots
-        uses: actions/upload-artifact@v4
-        with:
-          name: connector-runtime-trust-roots
-          if-no-files-found: error
-          path: ${{ runner.temp }}/connector-runtime-trust-roots/*.pem
+    uses: ./.github/workflows/release-trust-roots.yml
+    with:
+      source-sha: ${{ github.sha }}
+      version: ${{ needs.quality.outputs.version }}
 
   windows-x64:
     name: Windows x64 machine tools
@@ -145,21 +101,25 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 45
     outputs:
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
       artifact-name: ${{ steps.version.outputs.artifact-name }}
       version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.14
 
@@ -170,6 +130,9 @@ jobs:
           $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
           if ($packageVersion -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
             throw "package.json contains an invalid release version: $packageVersion"
+          }
+          if ($packageVersion -ne '${{ needs.quality.outputs.version }}') {
+            throw "Windows release version $packageVersion does not match the proven version."
           }
           if ('${{ github.ref_type }}' -eq 'tag') {
             $tag = '${{ github.ref_name }}'
@@ -263,10 +226,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload release artifacts
-        uses: actions/upload-artifact@v4
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ steps.version.outputs.artifact-name }}
           if-no-files-found: error
+          overwrite: false
           path: |
             dist/windows/project-space-machine-tools-windows-x64-setup.exe
             dist/windows/SHA256SUMS.txt
@@ -274,27 +239,29 @@ jobs:
 
   linux-x64:
     name: Linux x64 machine tools
-    needs:
-      - quality
-      - trust-roots
+    needs: [quality, trust-roots]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
       artifact-name: ${{ steps.version.outputs.artifact-name }}
       version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.14
 
@@ -308,6 +275,10 @@ jobs:
           package_version=$(bun -e "console.log(require('./package.json').version)")
           if [[ ! $package_version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "package.json contains an invalid release version: $package_version" >&2
+            exit 1
+          fi
+          if [[ $package_version != '${{ needs.quality.outputs.version }}' ]]; then
+            echo "Linux release version $package_version does not match the proven version." >&2
             exit 1
           fi
           if [[ $RELEASE_REF_TYPE == tag && $RELEASE_REF_NAME != "v${package_version}" ]]; then
@@ -342,9 +313,10 @@ jobs:
             ./cmd/project
 
       - name: Download release trust roots
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: connector-runtime-trust-roots
+          artifact-ids: ${{ needs.trust-roots.outputs.artifact-id }}
+          merge-multiple: true
           path: dist/linux
 
       - name: Build and hash deterministic bundle
@@ -355,319 +327,360 @@ jobs:
             dist/linux-release
 
       - name: Upload release artifacts
-        uses: actions/upload-artifact@v4
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ steps.version.outputs.artifact-name }}
           if-no-files-found: error
+          overwrite: false
           path: |
             dist/linux-release/project-space-machine-tools-linux-x64-v${{ steps.version.outputs.version }}.tar.gz
             dist/linux-release/project-space-machine-tools-linux-x64-v${{ steps.version.outputs.version }}.tar.gz.sha256
 
   macos-arm64:
     name: macOS arm64 machine tools
-    needs:
-      - quality
-      - trust-roots
-    runs-on: macos-15
-    timeout-minutes: 30
+    needs: [quality, trust-roots]
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/release-macos.yml
+    with:
+      source-sha: ${{ github.sha }}
+      trust-artifact-digest: ${{ needs.trust-roots.outputs.artifact-digest }}
+      trust-artifact-id: ${{ needs.trust-roots.outputs.artifact-id }}
+      trust-artifact-name: ${{ needs.trust-roots.outputs.artifact-name }}
+      version: ${{ needs.quality.outputs.version }}
+
+  manifest-prepare:
+    name: Prepare exact release manifest payload
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [quality, trust-roots, windows-x64, linux-x64, macos-arm64]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     outputs:
-      artifact-name: ${{ steps.version.outputs.artifact-name }}
-      version: ${{ steps.version.outputs.version }}
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-name: ${{ steps.metadata.outputs.artifact-name }}
+      version: ${{ needs.quality.outputs.version }}
 
     steps:
-      - name: Check out source
-        uses: actions/checkout@v6
-
-      - name: Resolve and verify release version
-        id: version
-        shell: bash
-        env:
-          RELEASE_REF_NAME: ${{ github.ref_name }}
-          RELEASE_REF_TYPE: ${{ github.ref_type }}
-        run: |
-          set -euo pipefail
-          package_version=$(awk -F '"' '/"version"/ { print $4; exit }' package.json)
-          if [[ ! $package_version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "package.json contains an invalid release version: $package_version" >&2
-            exit 1
-          fi
-          if [[ $RELEASE_REF_TYPE == tag && $RELEASE_REF_NAME != "v${package_version}" ]]; then
-            echo "Tag $RELEASE_REF_NAME does not match package.json version $package_version." >&2
-            exit 1
-          fi
-          echo "VERSION=$package_version" >> "$GITHUB_ENV"
-          echo "version=$package_version" >> "$GITHUB_OUTPUT"
-          echo "artifact-name=project-space-machine-tools-darwin-arm64-v$package_version" >> "$GITHUB_OUTPUT"
-
-      - name: Run macOS packaging checks
-        run: |
-          bash -n packaging/macos/*.sh
-          packaging/macos/test-release-packaging.sh "$VERSION"
-
-      - name: Set up Go
-        if: github.ref_type == 'tag'
-        uses: actions/setup-go@v6
+      - name: Check out exact source without credentials
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          go-version-file: go.mod
-          cache: true
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Set up Bun
-        if: github.ref_type == 'tag'
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.14
 
       - name: Install dependencies
-        if: github.ref_type == 'tag'
         run: bun install --frozen-lockfile
 
-      - name: Download release trust roots
-        if: github.ref_type == 'tag'
-        uses: actions/download-artifact@v4
+      - name: Validate platform handoff metadata
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ needs.quality.outputs.version }}
+          LINUX_VERSION: ${{ needs.linux-x64.outputs.version }}
+          MACOS_VERSION: ${{ needs.macos-arm64.outputs.version }}
+          WINDOWS_VERSION: ${{ needs.windows-x64.outputs.version }}
+        run: |
+          set -euo pipefail
+          [[ $GITHUB_REF_NAME == "v${EXPECTED_VERSION}" ]]
+          [[ $GITHUB_SHA =~ ^[0-9a-f]{40}$ ]]
+          [[ $LINUX_VERSION == "$EXPECTED_VERSION" ]]
+          [[ $MACOS_VERSION == "$EXPECTED_VERSION" ]]
+          [[ $WINDOWS_VERSION == "$EXPECTED_VERSION" ]]
+
+      - name: Download exact Windows handoff
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: connector-runtime-trust-roots
-          path: dist
+          artifact-ids: ${{ needs.windows-x64.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-windows
 
-      - name: Build unsigned macOS tools
-        if: github.ref_type == 'tag'
-        run: |
-          set -euo pipefail
-          bun run build:connector:macos-arm64
-          bun run build:project-cli:macos-arm64:unsigned
+      - name: Download exact Linux handoff
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.linux-x64.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-linux
 
-      - name: Load macOS signing certificate from 1Password
-        if: github.ref_type == 'tag'
-        id: signing-secrets
-        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
+      - name: Download exact macOS handoff
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.macos-arm64.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-macos
+
+      - name: Download exact public trust roots
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.trust-roots.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-trust-roots
+
+      - name: Normalize and authenticate release inputs
         env:
-          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          MACOS_SIGNING_CERTIFICATE_P12_B64: op://projects/Project Space macOS Release Signing/certificate_p12_b64
-          MACOS_SIGNING_CERTIFICATE_PASSWORD: op://projects/Project Space macOS Release Signing/password
-
-      - name: Install isolated macOS signing identity
-        if: github.ref_type == 'tag'
-        env:
-          CERTIFICATE_P12_B64: ${{ steps.signing-secrets.outputs.MACOS_SIGNING_CERTIFICATE_P12_B64 }}
-          CERTIFICATE_PASSWORD: ${{ steps.signing-secrets.outputs.MACOS_SIGNING_CERTIFICATE_PASSWORD }}
+          VERSION: ${{ needs.quality.outputs.version }}
         run: |
           set -euo pipefail
-          umask 077
-          [[ $(uname -m) == arm64 ]] || { echo 'The macOS release runner must be arm64.' >&2; exit 69; }
-          keychain="$RUNNER_TEMP/project-space-release.keychain-db"
-          original_keychains_file="$RUNNER_TEMP/project-space-original-user-keychains"
-          keychain_password=$(openssl rand -hex 32)
-          security list-keychains -d user > "$original_keychains_file"
-          printf '%s' "$CERTIFICATE_P12_B64" | /usr/bin/base64 -D > "$RUNNER_TEMP/project-space-release.p12"
-          /usr/bin/openssl pkcs12 \
-            -in "$RUNNER_TEMP/project-space-release.p12" \
-            -passin env:CERTIFICATE_PASSWORD \
-            -nodes \
-            -out "$RUNNER_TEMP/project-space-release.pem"
-          security create-keychain -p "$keychain_password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$keychain_password" "$keychain"
-          # macOS 15 hosted runners do not implement -x for PEM sequence imports.
-          security import "$RUNNER_TEMP/project-space-release.pem" -f pemseq -k "$keychain" -T /usr/bin/codesign
-          rm -f \
-            "$RUNNER_TEMP/project-space-release.p12" \
-            "$RUNNER_TEMP/project-space-release.pem"
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
-          identity=$(security find-identity -v -p codesigning "$keychain" | awk '/[0-9A-F]{40}/ { print $2; exit }')
-          [[ $identity =~ ^[0-9A-F]{40}$ ]] || { echo 'No valid code-signing identity was imported.' >&2; exit 78; }
-          original_keychains=()
-          while IFS= read -r line; do
-            line="${line#*\"}"
-            line="${line%\"*}"
-            [[ -n $line ]] && original_keychains+=("$line")
-          done < "$original_keychains_file"
-          if (( ${#original_keychains[@]} > 0 )); then
-            security list-keychains -d user -s "$keychain" "${original_keychains[@]}"
-          else
-            security list-keychains -d user -s "$keychain"
-          fi
-          echo "PROJECT_MACOS_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
-          echo "PROJECT_MACOS_SIGN_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
-
-      - name: Sign and validate macOS approval helper
-        if: github.ref_type == 'tag'
-        run: |
-          set -euo pipefail
-          test -n "$PROJECT_MACOS_SIGN_IDENTITY"
-          test -n "$PROJECT_MACOS_SIGN_KEYCHAIN"
-          test -x dist/project-approval-signer
-          codesign --force \
-            --keychain "$PROJECT_MACOS_SIGN_KEYCHAIN" \
-            --sign "$PROJECT_MACOS_SIGN_IDENTITY" \
-            --identifier com.dotnaos.project.approval-signer \
-            --options runtime \
-            --timestamp=none \
-            dist/project-approval-signer
-          codesign --verify --strict --test-requirement '=anchor apple generic and certificate leaf[subject.OU] = "R72P4M9WMS" and identifier "com.dotnaos.project.approval-signer"' dist/project-approval-signer
-
-      - name: Remove isolated macOS signing identity
-        if: always() && github.ref_type == 'tag'
-        run: |
-          set +e
-          restore_status=0
-          record_cleanup_failure() {
-            local status=$1
-            (( restore_status != 0 )) || restore_status=$status
-          }
-          original_keychains_file="$RUNNER_TEMP/project-space-original-user-keychains"
-          if [[ -f $original_keychains_file ]]; then
-            original_keychains=()
-            while IFS= read -r line; do
-              line="${line#*\"}"
-              line="${line%\"*}"
-              [[ -n $line ]] && original_keychains+=("$line")
-            done < "$original_keychains_file"
-            if (( ${#original_keychains[@]} > 0 )); then
-              security list-keychains -d user -s "${original_keychains[@]}" || record_cleanup_failure $?
-            else
-              security list-keychains -d user -s || record_cleanup_failure $?
-            fi
-          fi
-          keychain="$RUNNER_TEMP/project-space-release.keychain-db"
-          if [[ -e $keychain ]]; then
-            security delete-keychain "$keychain" || record_cleanup_failure $?
-          fi
-          rm -f \
-            "$RUNNER_TEMP/project-space-release.p12" \
-            "$RUNNER_TEMP/project-space-release.pem" \
-            "$original_keychains_file" || record_cleanup_failure $?
-          exit "$restore_status"
-
-      - name: Build and validate signed macOS bundle
-        if: github.ref_type == 'tag'
-        run: |
-          set -euo pipefail
-          bun run build:project-cli:macos-arm64:finalize
-          SOURCE_DATE_EPOCH=0 packaging/macos/build-machine-tools.sh \
+          bash packaging/release/normalize-platform-artifacts.sh \
             "$VERSION" \
-            dist \
-            dist/macos-release
-          codesign --verify --strict --test-requirement '=anchor apple generic and certificate leaf[subject.OU] = "R72P4M9WMS" and identifier "com.dotnaos.project.approval-signer"' dist/project-approval-signer
-          shasum -a 256 -c "dist/macos-release/project-space-machine-tools-darwin-arm64-v${VERSION}.tar.gz.sha256"
-
-      - name: Upload release artifacts
-        if: github.ref_type == 'tag'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.version.outputs.artifact-name }}
-          if-no-files-found: error
-          path: |
-            dist/macos-release/project-space-machine-tools-darwin-arm64-v${{ steps.version.outputs.version }}.tar.gz
-            dist/macos-release/project-space-machine-tools-darwin-arm64-v${{ steps.version.outputs.version }}.tar.gz.sha256
-
-  publish:
-    name: Publish GitHub release
-    if: github.ref_type == 'tag'
-    needs:
-      - windows-x64
-      - linux-x64
-      - macos-arm64
-      - trust-roots
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v6
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.14
-
-      - name: Download verified release artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ needs.windows-x64.outputs.artifact-name }}
-          path: release-assets
-
-      - name: Download verified Linux release artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ needs.linux-x64.outputs.artifact-name }}
-          path: release-assets
-
-      - name: Download verified macOS release artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ needs.macos-arm64.outputs.artifact-name }}
-          path: release-assets
-
-      - name: Download release trust roots
-        uses: actions/download-artifact@v4
-        with:
-          name: connector-runtime-trust-roots
-          path: release-trust-roots
-
-      - name: Load release manifest signing key from 1Password
-        id: manifest-secrets
-        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
-        env:
-          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64: op://projects/project-space-release-manifest-signing-key/private_key_b64
-
-      - name: Create and verify authenticated release manifest
-        env:
-          PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64: ${{ steps.manifest-secrets.outputs.PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64 }}
-          VERSION: ${{ needs.linux-x64.outputs.version }}
-        run: |
-          set -euo pipefail
+            "$RUNNER_TEMP/release-windows" \
+            "$RUNNER_TEMP/release-linux" \
+            "$RUNNER_TEMP/release-macos" \
+            "$RUNNER_TEMP/release-assets"
+          cmp packaging/release/trust-roots/connector-command-signing-public-key.pem \
+            "$RUNNER_TEMP/release-trust-roots/connector-command-signing-public-key.pem"
+          cmp packaging/release/trust-roots/release-manifest-signing-public-key.pem \
+            "$RUNNER_TEMP/release-trust-roots/release-manifest-signing-public-key.pem"
           source_epoch=$(git show -s --format=%ct "$GITHUB_SHA")
-          verification_now=$(bun -e \
-            'console.log(new Date(Number(process.argv[1]) * 1000).toISOString())' \
-            "$source_epoch")
-          bun packaging/release/release-manifest-cli.ts create \
-            --artifacts-dir release-assets \
+          current_epoch=$(date -u +%s)
+          [[ $source_epoch =~ ^[0-9]+$ ]]
+          (( source_epoch <= current_epoch + 300 ))
+          input_root="$RUNNER_TEMP/release-manifest-input"
+          mkdir -p "$input_root"
+          bun packaging/release/release-manifest-cli.ts prepare \
+            --artifacts-dir "$RUNNER_TEMP/release-assets" \
             --version "$VERSION" \
             --release-id "$GITHUB_REF_NAME" \
             --commit "$GITHUB_SHA" \
             --source-epoch "$source_epoch" \
             --validity-days 365 \
-            --output release-assets/project-space-release-manifest.json \
-            --public-key-output "$RUNNER_TEMP/project-space-release-manifest-public-key.pem"
+            --manifest-output "$input_root/release-manifest.json" \
+            --payload-output "$input_root/release-manifest-payload.bin"
+          manifest_sha=$(sha256sum "$input_root/release-manifest.json" | cut -d ' ' -f 1)
+          payload_sha=$(sha256sum "$input_root/release-manifest-payload.bin" | cut -d ' ' -f 1)
+          manifest_size=$(stat -c %s "$input_root/release-manifest.json")
+          payload_size=$(stat -c %s "$input_root/release-manifest-payload.bin")
+          cat > "$input_root/RELEASE-MANIFEST-INPUT.txt" <<RECEIPT
+          schema=project-space.release-manifest-input/v1
+          source-sha=$GITHUB_SHA
+          source-ref=$GITHUB_REF_NAME
+          version=$VERSION
+          release-id=$GITHUB_REF_NAME
+          manifest-sha256=$manifest_sha
+          manifest-size=$manifest_size
+          payload-sha256=$payload_sha
+          payload-size=$payload_size
+          RECEIPT
+          (
+            cd "$input_root"
+            printf '%s  %s\n' \
+              "$manifest_sha" release-manifest.json \
+              "$payload_sha" release-manifest-payload.bin \
+              > SHA256SUMS.txt
+            sha256sum --check --strict SHA256SUMS.txt
+          )
+
+      - name: Resolve prepared artifact name
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "artifact-name=project-space-release-manifest-input-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload immutable manifest input
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.metadata.outputs.artifact-name }}
+          path: ${{ runner.temp }}/release-manifest-input/*
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 2
+
+  manifest-sign:
+    name: Sign release manifest in isolation
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [manifest-prepare, trust-roots]
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/release-manifest-sign.yml
+    with:
+      prepared-artifact-digest: ${{ needs.manifest-prepare.outputs.artifact-digest }}
+      prepared-artifact-id: ${{ needs.manifest-prepare.outputs.artifact-id }}
+      prepared-artifact-name: ${{ needs.manifest-prepare.outputs.artifact-name }}
+      source-ref: ${{ github.ref_name }}
+      source-sha: ${{ github.sha }}
+      trust-root-artifact-digest: ${{ needs.trust-roots.outputs.artifact-digest }}
+      trust-root-artifact-id: ${{ needs.trust-roots.outputs.artifact-id }}
+      trust-root-artifact-name: ${{ needs.trust-roots.outputs.artifact-name }}
+      version: ${{ needs.manifest-prepare.outputs.version }}
+
+  release-finalize:
+    name: Assemble and verify release handoff
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [quality, trust-roots, windows-x64, linux-x64, macos-arm64, manifest-prepare, manifest-sign]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-name: ${{ steps.metadata.outputs.artifact-name }}
+      version: ${{ needs.quality.outputs.version }}
+
+    steps:
+      - name: Check out exact source without credentials
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Download exact Windows handoff
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.windows-x64.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-windows
+
+      - name: Download exact Linux handoff
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.linux-x64.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-linux
+
+      - name: Download exact macOS handoff
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.macos-arm64.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-macos
+
+      - name: Download exact public trust roots
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.trust-roots.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-trust-roots
+
+      - name: Download exact prepared manifest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.manifest-prepare.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-manifest-input
+
+      - name: Download exact manifest signature
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.manifest-sign.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-manifest-signature
+
+      - name: Assemble and verify authenticated release
+        env:
+          VERSION: ${{ needs.quality.outputs.version }}
+        run: |
+          set -euo pipefail
+          bash packaging/release/normalize-platform-artifacts.sh \
+            "$VERSION" \
+            "$RUNNER_TEMP/release-windows" \
+            "$RUNNER_TEMP/release-linux" \
+            "$RUNNER_TEMP/release-macos" \
+            "$RUNNER_TEMP/release-assets"
+          cmp packaging/release/trust-roots/connector-command-signing-public-key.pem \
+            "$RUNNER_TEMP/release-trust-roots/connector-command-signing-public-key.pem"
+          cmp packaging/release/trust-roots/release-manifest-signing-public-key.pem \
+            "$RUNNER_TEMP/release-trust-roots/release-manifest-signing-public-key.pem"
+          (
+            cd "$RUNNER_TEMP/release-manifest-input"
+            sha256sum --check --strict SHA256SUMS.txt
+          )
+          (
+            cd "$RUNNER_TEMP/release-manifest-signature"
+            sha256sum --check --strict SHA256SUMS.txt
+          )
+          grep -Fx "source-sha=$GITHUB_SHA" \
+            "$RUNNER_TEMP/release-manifest-input/RELEASE-MANIFEST-INPUT.txt"
+          grep -Fx "source-ref=$GITHUB_REF_NAME" \
+            "$RUNNER_TEMP/release-manifest-input/RELEASE-MANIFEST-INPUT.txt"
+          grep -Fx "version=$VERSION" \
+            "$RUNNER_TEMP/release-manifest-input/RELEASE-MANIFEST-INPUT.txt"
+          grep -Fx "prepared-artifact-id=${{ needs.manifest-prepare.outputs.artifact-id }}" \
+            "$RUNNER_TEMP/release-manifest-signature/RELEASE-MANIFEST-SIGNATURE.txt"
+          grep -Fx "prepared-artifact-digest=${{ needs.manifest-prepare.outputs.artifact-digest }}" \
+            "$RUNNER_TEMP/release-manifest-signature/RELEASE-MANIFEST-SIGNATURE.txt"
+          manifest_path="$RUNNER_TEMP/release-assets/project-space-release-manifest.json"
+          bun packaging/release/release-manifest-cli.ts assemble \
+            --manifest "$RUNNER_TEMP/release-manifest-input/release-manifest.json" \
+            --payload "$RUNNER_TEMP/release-manifest-input/release-manifest-payload.bin" \
+            --signature "$RUNNER_TEMP/release-manifest-signature/release-manifest-signature.bin" \
+            --public-key "$RUNNER_TEMP/release-trust-roots/release-manifest-signing-public-key.pem" \
+            --output "$manifest_path"
+          verification_now=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
           while IFS='|' read -r target filename; do
-            artifact=$(find release-assets -type f -name "$filename" -print -quit)
-            [[ -n $artifact ]] || { echo "Missing manifest artifact: $filename" >&2; exit 66; }
             bun packaging/release/release-manifest-cli.ts verify \
-              --manifest release-assets/project-space-release-manifest.json \
-              --public-key "$RUNNER_TEMP/project-space-release-manifest-public-key.pem" \
+              --manifest "$manifest_path" \
+              --public-key "$RUNNER_TEMP/release-trust-roots/release-manifest-signing-public-key.pem" \
               --target "$target" \
               --release-id "$GITHUB_REF_NAME" \
-              --artifact "$artifact" \
+              --artifact "$RUNNER_TEMP/release-assets/$filename" \
               --now "$verification_now"
           done <<TARGETS
           darwin-arm64|project-space-machine-tools-darwin-arm64-v${VERSION}.tar.gz
           linux-x64|project-space-machine-tools-linux-x64-v${VERSION}.tar.gz
           windows-x64|project-space-machine-tools-windows-x64-setup.exe
           TARGETS
-          cmp "$RUNNER_TEMP/project-space-release-manifest-public-key.pem" \
-            release-trust-roots/release-manifest-signing-public-key.pem
           for target in darwin-arm64 linux-x64; do
-            archive="release-assets/project-space-machine-tools-${target}-v${VERSION}.tar.gz"
+            archive="$RUNNER_TEMP/release-assets/project-space-machine-tools-${target}-v${VERSION}.tar.gz"
             bundle="project-space-machine-tools-${target}-v${VERSION}"
             tar -xOf "$archive" "$bundle/connector-command-signing-public-key.pem" | \
-              cmp - release-trust-roots/connector-command-signing-public-key.pem
+              cmp - "$RUNNER_TEMP/release-trust-roots/connector-command-signing-public-key.pem"
             tar -xOf "$archive" "$bundle/release-manifest-signing-public-key.pem" | \
-              cmp - release-trust-roots/release-manifest-signing-public-key.pem
+              cmp - "$RUNNER_TEMP/release-trust-roots/release-manifest-signing-public-key.pem"
           done
+          bash packaging/release/create-publish-handoff.sh \
+            "$VERSION" \
+            "$GITHUB_SHA" \
+            "$GITHUB_REF_NAME" \
+            "$RUNNER_TEMP/release-assets" \
+            "$manifest_path" \
+            "$RUNNER_TEMP/publish-handoff"
 
-      - name: Create GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Resolve final handoff name
+        id: metadata
+        shell: bash
         run: |
-          mapfile -t assets < <(find release-assets -type f -print | sort)
-          if [ "${#assets[@]}" -ne 10 ]; then
-            echo "Expected ten release assets, found ${#assets[@]}." >&2
-            exit 1
-          fi
-          gh release create "${GITHUB_REF_NAME}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --verify-tag \
-            --generate-notes \
-            "${assets[@]}"
+          set -euo pipefail
+          echo "artifact-name=project-space-github-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload immutable release handoff
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.metadata.outputs.artifact-name }}
+          path: ${{ runner.temp }}/publish-handoff/*
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 2
+
+  publish:
+    name: Publish GitHub release
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: release-finalize
+    permissions:
+      actions: read
+      contents: write
+    uses: ./.github/workflows/release-publish.yml
+    with:
+      final-handoff-artifact-digest: ${{ needs.release-finalize.outputs.artifact-digest }}
+      final-handoff-artifact-id: ${{ needs.release-finalize.outputs.artifact-id }}
+      final-handoff-artifact-name: ${{ needs.release-finalize.outputs.artifact-name }}
+      source-ref: ${{ github.ref_name }}
+      source-sha: ${{ github.sha }}
+      version: ${{ needs.release-finalize.outputs.version }}

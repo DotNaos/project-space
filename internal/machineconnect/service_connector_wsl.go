@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf16"
 )
 
 const (
 	machineConnectorWindowsTaskPrefix = "Project Space Machine Connector Supervisor"
 	maximumWindowsTaskNameLength      = 238
+	defaultWSLSystemdCleanupTimeout   = 5 * time.Second
 )
 
 func (connector *ServiceConnector) startWSLScheduledTask(ctx context.Context) error {
@@ -27,19 +29,23 @@ func (connector *ServiceConnector) startWSLScheduledTask(ctx context.Context) er
 }
 
 func (connector *ServiceConnector) stopWSLScheduledTask(ctx context.Context) error {
-	_, taskErr := connector.runPowerShell(ctx, connector.wslStopScript())
-	if taskErr != nil {
-		taskErr = fmt.Errorf("stop WSL machine connector scheduled task: %w", taskErr)
+	if err := connector.cleanupStaleWSLSystemd(ctx); err != nil {
+		return fmt.Errorf("remove stale WSL machine connector systemd service: %w", err)
 	}
-	systemdErr := connector.cleanupStaleWSLSystemd(ctx)
-	if systemdErr != nil {
-		systemdErr = fmt.Errorf("remove stale WSL machine connector systemd service: %w", systemdErr)
+	if _, err := connector.runPowerShell(ctx, connector.wslStopScript()); err != nil {
+		return fmt.Errorf("stop WSL machine connector scheduled task: %w", err)
 	}
-	return errors.Join(taskErr, systemdErr)
+	return nil
 }
 
 func (connector *ServiceConnector) cleanupStaleWSLSystemd(ctx context.Context) error {
-	err := connector.stopSystemd(ctx)
+	timeout := connector.wslSystemdCleanupTimeout
+	if timeout <= 0 {
+		timeout = defaultWSLSystemdCleanupTimeout
+	}
+	cleanupCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	err := connector.stopSystemd(cleanupCtx)
 	if err == nil || systemdUserManagerUnavailable(err) {
 		return nil
 	}

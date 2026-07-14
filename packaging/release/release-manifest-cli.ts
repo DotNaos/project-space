@@ -3,14 +3,18 @@
 import { readFile } from 'node:fs/promises';
 
 import {
+  assembleSignedReleaseManifest,
   createReleaseManifest,
   verifyReleaseManifest,
+  writePreparedReleaseManifest,
   type ReleaseTarget
 } from './release-manifest';
 
 function usage(): never {
   console.error(`Usage:
   release-manifest-cli.ts create --artifacts-dir DIR --version X.Y.Z --release-id vX.Y.Z --commit SHA --source-epoch SECONDS --output FILE [--public-key-output FILE] [--validity-days DAYS]
+  release-manifest-cli.ts prepare --artifacts-dir DIR --version X.Y.Z --release-id vX.Y.Z --commit SHA --source-epoch SECONDS --manifest-output FILE --payload-output FILE [--validity-days DAYS]
+  release-manifest-cli.ts assemble --manifest FILE --payload FILE --signature FILE --public-key FILE --output FILE
   release-manifest-cli.ts verify --manifest FILE --public-key FILE --target TARGET --release-id ID [--artifact FILE] [--now ISO]
 
 Create reads PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64 from the environment.`);
@@ -58,6 +62,34 @@ async function main() {
       sourceEpoch: Number(required(values, '--source-epoch')),
       validityDays: values.has('--validity-days') ? Number(values.get('--validity-days')) : undefined,
       version: required(values, '--version')
+    });
+    return;
+  }
+  if (command === 'prepare') {
+    only(values, [
+      '--artifacts-dir', '--commit', '--manifest-output', '--payload-output',
+      '--release-id', '--source-epoch', '--validity-days', '--version'
+    ]);
+    await writePreparedReleaseManifest({
+      artifactsDirectory: required(values, '--artifacts-dir'),
+      manifestOutputPath: required(values, '--manifest-output'),
+      payloadOutputPath: required(values, '--payload-output'),
+      releaseId: required(values, '--release-id'),
+      sourceCommit: required(values, '--commit'),
+      sourceEpoch: Number(required(values, '--source-epoch')),
+      validityDays: values.has('--validity-days') ? Number(values.get('--validity-days')) : undefined,
+      version: required(values, '--version')
+    });
+    return;
+  }
+  if (command === 'assemble') {
+    only(values, ['--manifest', '--output', '--payload', '--public-key', '--signature']);
+    await assembleSignedReleaseManifest({
+      manifestPath: required(values, '--manifest'),
+      outputPath: required(values, '--output'),
+      payloadPath: required(values, '--payload'),
+      publicKey: await readFile(required(values, '--public-key'), 'utf8'),
+      signaturePath: required(values, '--signature')
     });
     return;
   }

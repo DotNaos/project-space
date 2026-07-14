@@ -1,0 +1,697 @@
+name: Publish verified GitHub release
+on:
+  workflow_call:
+    inputs:
+      source-sha:
+        required: true
+        type: string
+      source-ref:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      final-handoff-artifact-id:
+        required: true
+        type: string
+      final-handoff-artifact-digest:
+        required: true
+        type: string
+      final-handoff-artifact-name:
+        required: true
+        type: string
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    name: Publish immutable release handoff
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PYTHONNOUSERSITE: '1'
+      PYTHONPATH: ''
+    steps:
+      - name: Validate immutable release provenance
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          EXPECTED_REF: ${{ inputs.source-ref }}
+          EXPECTED_SHA: ${{ inputs.source-sha }}
+          EXPECTED_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          PATH: /usr/bin:/bin
+        run: |
+          [[ $EXPECTED_SHA =~ ^[0-9a-f]{40}$ ]]
+          [[ $EXPECTED_VERSION =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ $EXPECTED_REF == "v${EXPECTED_VERSION}" ]]
+          [[ $GITHUB_SHA == "$EXPECTED_SHA" ]]
+          [[ $GITHUB_REF == "refs/tags/${EXPECTED_REF}" ]]
+          [[ $GITHUB_REF_NAME == "$EXPECTED_REF" ]]
+          api_root="https://api.github.com/repos/${GITHUB_REPOSITORY}/commits"
+          /usr/bin/curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$api_root/main" > "$RUNNER_TEMP/main-commit.json"
+          /usr/bin/curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$api_root/$EXPECTED_REF" > "$RUNNER_TEMP/tag-commit.json"
+          /usr/bin/python3 -I - \
+            "$RUNNER_TEMP/main-commit.json" \
+            "$RUNNER_TEMP/tag-commit.json" \
+            "$EXPECTED_SHA" <<'PY'
+          import json
+          import pathlib
+          import sys
+          main = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          tag = json.loads(pathlib.Path(sys.argv[2]).read_text())
+          expected_sha = sys.argv[3]
+          if main.get("sha") != expected_sha or tag.get("sha") != expected_sha:
+              raise SystemExit("Release tags must point at the exact current main commit.")
+          PY
+      - name: Validate immutable handoff metadata
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          ARTIFACT_DIGEST: ${{ inputs.final-handoff-artifact-digest }}
+          ARTIFACT_ID: ${{ inputs.final-handoff-artifact-id }}
+          ARTIFACT_NAME: ${{ inputs.final-handoff-artifact-name }}
+          BASH_ENV: /dev/null
+          EXPECTED_SHA: ${{ inputs.source-sha }}
+          GH_TOKEN: ${{ github.token }}
+          PATH: /usr/bin:/bin
+        run: |
+          [[ $ARTIFACT_ID =~ ^[1-9][0-9]*$ ]]
+          [[ $ARTIFACT_DIGEST =~ ^[0-9a-f]{64}$ ]]
+          [[ $ARTIFACT_NAME =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$ ]]
+          metadata="$RUNNER_TEMP/final-handoff-metadata.json"
+          /usr/bin/curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}" \
+            > "$metadata"
+          /usr/bin/python3 -I - "$metadata" "$ARTIFACT_ID" "$ARTIFACT_DIGEST" \
+            "$ARTIFACT_NAME" "$EXPECTED_SHA" "$GITHUB_RUN_ID" <<'PY'
+          import json
+          import pathlib
+          import sys
+          value = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          digest = value.get("digest", "")
+          if digest.startswith("sha256:"):
+              digest = digest.removeprefix("sha256:")
+          workflow = value.get("workflow_run") or {}
+          checks = [
+              value.get("id") == int(sys.argv[2]),
+              digest == sys.argv[3],
+              value.get("name") == sys.argv[4],
+              value.get("expired") is False,
+              workflow.get("head_sha") == sys.argv[5],
+              workflow.get("id") == int(sys.argv[6]),
+          ]
+          if not all(checks):
+              raise SystemExit("Final release artifact metadata did not match its immutable handoff.")
+          PY
+      - name: Download final release handoff
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ inputs.final-handoff-artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/final-release
+      - name: Validate exact release asset allowlist and checksums
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          EXPECTED_REF: ${{ inputs.source-ref }}
+          EXPECTED_SHA: ${{ inputs.source-sha }}
+          EXPECTED_VERSION: ${{ inputs.version }}
+          PATH: /usr/bin:/bin
+        run: |
+          /usr/bin/python3 -I - "$RUNNER_TEMP/final-release" \
+            "$RUNNER_TEMP/public-release-assets.txt" \
+            "$RUNNER_TEMP/release-manifest-payload.bin" \
+            "$RUNNER_TEMP/release-manifest-signature.bin" \
+            "$EXPECTED_SHA" "$EXPECTED_REF" "$EXPECTED_VERSION" <<'PY'
+          import base64
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import stat
+          import sys
+          def sha256_file(path):
+              digest = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+          root = pathlib.Path(sys.argv[1])
+          assets_list_path = pathlib.Path(sys.argv[2])
+          payload_output = pathlib.Path(sys.argv[3])
+          signature_output = pathlib.Path(sys.argv[4])
+          source_sha, source_ref, version = sys.argv[5:]
+          assets = [
+              "DotNaos.Project.installer.yaml",
+              "DotNaos.Project.locale.en-US.yaml",
+              "DotNaos.Project.yaml",
+              "SHA256SUMS.txt",
+              f"project-space-machine-tools-darwin-arm64-v{version}.tar.gz",
+              f"project-space-machine-tools-darwin-arm64-v{version}.tar.gz.sha256",
+              f"project-space-machine-tools-linux-x64-v{version}.tar.gz",
+              f"project-space-machine-tools-linux-x64-v{version}.tar.gz.sha256",
+              "project-space-machine-tools-windows-x64-setup.exe",
+              "project-space-release-manifest.json",
+          ]
+          handoff_names = sorted(assets + ["PUBLISH-SHA256SUMS.txt", "RELEASE-RECEIPT.txt"])
+          names = sorted(path.name for path in root.iterdir())
+          if names != handoff_names:
+              raise SystemExit("Final release handoff does not match the exact twelve-file allowlist.")
+          large_files = {
+              f"project-space-machine-tools-darwin-arm64-v{version}.tar.gz",
+              f"project-space-machine-tools-linux-x64-v{version}.tar.gz",
+              "project-space-machine-tools-windows-x64-setup.exe",
+          }
+          for path in root.iterdir():
+              details = path.lstat()
+              limit = 512 * 1024 * 1024 if path.name in large_files else 4 * 1024 * 1024
+              if (
+                  not stat.S_ISREG(details.st_mode)
+                  or details.st_uid != os.getuid()
+                  or details.st_nlink != 1
+                  or not 0 < details.st_size <= limit
+              ):
+                  raise SystemExit("Final release handoff must contain flat non-empty regular files.")
+          receipt = (
+              "schema=project-space.github-release/v1\n"
+              f"source-sha={source_sha}\n"
+              f"source-ref={source_ref}\n"
+              f"version={version}\n"
+              "asset-count=10\n"
+          ).encode()
+          if (root / "RELEASE-RECEIPT.txt").read_bytes() != receipt:
+              raise SystemExit("Final release receipt is invalid.")
+          published_handoff_names = sorted(assets + ["RELEASE-RECEIPT.txt"])
+          publish_sums = b"".join(
+              f"{sha256_file(root / name)}  {name}\n".encode()
+              for name in published_handoff_names
+          )
+          if (root / "PUBLISH-SHA256SUMS.txt").read_bytes() != publish_sums:
+              raise SystemExit("Final release handoff checksums are invalid.")
+          archives = {
+              f"project-space-machine-tools-darwin-arm64-v{version}.tar.gz":
+                  f"project-space-machine-tools-darwin-arm64-v{version}.tar.gz.sha256",
+              f"project-space-machine-tools-linux-x64-v{version}.tar.gz":
+                  f"project-space-machine-tools-linux-x64-v{version}.tar.gz.sha256",
+          }
+          for archive, checksum in archives.items():
+              expected = f"{sha256_file(root / archive)}  {archive}\n".encode()
+              if (root / checksum).read_bytes() != expected:
+                  raise SystemExit(f"Platform checksum is invalid: {checksum}")
+          installer = "project-space-machine-tools-windows-x64-setup.exe"
+          installer_sum = f"{sha256_file(root / installer)}  {installer}\n".encode()
+          if (root / "SHA256SUMS.txt").read_bytes() != installer_sum:
+              raise SystemExit("Windows installer checksum is invalid.")
+          envelope_bytes = (root / "project-space-release-manifest.json").read_bytes()
+          envelope = json.loads(envelope_bytes)
+          if set(envelope) != {"manifest", "signature"}:
+              raise SystemExit("Signed release manifest envelope is invalid.")
+          manifest = envelope["manifest"]
+          signature_text = envelope["signature"]
+          if (
+              not isinstance(manifest, dict)
+              or manifest.get("schema") != "project-space.connector-runtime-release/v1"
+              or manifest.get("buildId") != source_sha
+              or manifest.get("releaseId") != source_ref
+              or manifest.get("version") != version
+              or not isinstance(signature_text, str)
+              or not re.fullmatch(r"[A-Za-z0-9_-]{86}", signature_text)
+          ):
+              raise SystemExit("Signed release manifest provenance is invalid.")
+          canonical = json.dumps(
+              manifest, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+          ).encode()
+          canonical_envelope = json.dumps(
+              envelope, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+          ).encode()
+          if envelope_bytes != canonical_envelope + b"\n":
+              raise SystemExit("Signed release manifest envelope is not canonical.")
+          padding = "=" * (-len(signature_text) % 4)
+          signature = base64.urlsafe_b64decode(signature_text + padding)
+          canonical_signature = base64.urlsafe_b64encode(signature).rstrip(b"=").decode()
+          if len(signature) != 64 or canonical_signature != signature_text:
+              raise SystemExit("Signed release manifest signature is invalid.")
+          payload_output.write_bytes(canonical)
+          signature_output.write_bytes(signature)
+          expected_target_assets = {
+              "darwin-arm64": f"project-space-machine-tools-darwin-arm64-v{version}.tar.gz",
+              "linux-x64": f"project-space-machine-tools-linux-x64-v{version}.tar.gz",
+              "windows-x64": installer,
+          }
+          manifest_artifacts = manifest.get("artifacts")
+          if not isinstance(manifest_artifacts, list) or len(manifest_artifacts) != 3:
+              raise SystemExit("Signed release manifest targets are invalid.")
+          found_targets = set()
+          for artifact in manifest_artifacts:
+              if not isinstance(artifact, dict):
+                  raise SystemExit("Signed release manifest target is invalid.")
+              target = artifact.get("target")
+              asset = expected_target_assets.get(target)
+              if asset is None or target in found_targets or artifact.get("assetName") != asset:
+                  raise SystemExit("Signed release manifest target allowlist is invalid.")
+              found_targets.add(target)
+              size = (root / asset).stat().st_size
+              if (
+                  artifact.get("sha256") != sha256_file(root / asset)
+                  or artifact.get("sizeBytes") != size
+                  or artifact.get("downloadUrl") != f"https://github.com/DotNaos/project-space/releases/download/{source_ref}/{asset}"
+              ):
+                  raise SystemExit(f"Signed release manifest target {target} does not match its asset.")
+          if found_targets != set(expected_target_assets):
+              raise SystemExit("Signed release manifest is missing a release target.")
+          assets_list_path.write_text("".join(f"{name}\n" for name in assets))
+          PY
+          /bin/cat > "$RUNNER_TEMP/release-manifest-signing-public-key.pem" <<'PEM'
+          -----BEGIN PUBLIC KEY-----
+          MCowBQYDK2VwAyEABuZYqkn+3DcolGfvYxy3Fc8cn/XPDzL3t0J5jWE2Jug=
+          -----END PUBLIC KEY-----
+          PEM
+          /usr/bin/openssl pkeyutl -verify -pubin \
+            -inkey "$RUNNER_TEMP/release-manifest-signing-public-key.pem" \
+            -rawin \
+            -in "$RUNNER_TEMP/release-manifest-payload.bin" \
+            -sigfile "$RUNNER_TEMP/release-manifest-signature.bin"
+          /bin/rm -f \
+            "$RUNNER_TEMP/release-manifest-signing-public-key.pem" \
+            "$RUNNER_TEMP/release-manifest-payload.bin" \
+            "$RUNNER_TEMP/release-manifest-signature.bin"
+      - name: Create draft GitHub release
+        id: create
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          EXPECTED_REF: ${{ inputs.source-ref }}
+          EXPECTED_SHA: ${{ inputs.source-sha }}
+          EXPECTED_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          PATH: /usr/bin:/bin
+        run: |
+          release_api="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases"
+          recovery_classifier="$RUNNER_TEMP/classify-owned-release.py"
+          cleanup() {
+            /bin/rm -f \
+              "$recovery_classifier" \
+              "$RUNNER_TEMP/existing-release.json" \
+              "$RUNNER_TEMP/recovery-release.json"
+          }
+          trap cleanup EXIT INT TERM HUP
+          /bin/cat > "$recovery_classifier" <<'PY_CLASSIFY_OWNED_DRAFT'
+          import json
+          import pathlib
+          import re
+          import sys
+          release = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          expected_ref, expected_sha, run_id, current_attempt = sys.argv[2:]
+          current_attempt_value = int(current_attempt)
+          if not isinstance(release, dict) or release.get("tag_name") != expected_ref:
+              raise SystemExit("The exact-tag release lookup returned an invalid release.")
+          if release.get("draft") is False or release.get("published_at") is not None:
+              raise SystemExit("A published GitHub release already exists for the tag.")
+          if release.get("draft") is not True:
+              raise SystemExit("The existing GitHub release has an unknown publication state.")
+          body = release.get("body")
+          first_line = body.splitlines()[0] if isinstance(body, str) and body else ""
+          marker = re.fullmatch(
+              r"<!-- project-space-release-owner:v1:run=([1-9][0-9]*):"
+              r"attempt=([1-9][0-9]*):source=([0-9a-f]{40}):"
+              r"ref=([A-Za-z0-9][A-Za-z0-9._+-]{0,127}) -->",
+              first_line,
+          )
+          if marker is None:
+              raise SystemExit("The existing draft release is not owned by this workflow.")
+          owner_run, owner_attempt, owner_sha, owner_ref = marker.groups()
+          owner_attempt_value = int(owner_attempt)
+          release_id = release.get("id")
+          if (
+              owner_run != run_id
+              or owner_sha != expected_sha
+              or owner_ref != expected_ref
+              or not 0 < owner_attempt_value < current_attempt_value
+              or type(release_id) is not int
+              or release_id <= 0
+              or release.get("name") != expected_ref
+              or release.get("prerelease") is not False
+              or not isinstance(release.get("assets"), list)
+          ):
+              raise SystemExit("The existing draft release is not a recoverable prior attempt.")
+          print(f"draft:{release_id}")
+          PY_CLASSIFY_OWNED_DRAFT
+          lookup_status=$(/usr/bin/curl --silent --show-error \
+            --output "$RUNNER_TEMP/existing-release.json" \
+            --write-out '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$release_api/tags/$EXPECTED_REF")
+          case "$lookup_status" in
+            404) release_state=none ;;
+            200) release_state=$(/usr/bin/python3 -I "$recovery_classifier" \
+              "$RUNNER_TEMP/existing-release.json" "$EXPECTED_REF" "$EXPECTED_SHA" \
+              "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT") ;;
+            *) echo "Exact-tag release lookup failed with HTTP $lookup_status." >&2; exit 69 ;;
+          esac
+          case "$release_state" in
+            none) ;;
+            draft:*)
+              recovery_id=${release_state#draft:}
+              /usr/bin/curl --fail --silent --show-error \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H 'X-GitHub-Api-Version: 2022-11-28' \
+                "$release_api/$recovery_id" > "$RUNNER_TEMP/recovery-release.json"
+              confirmed_state=$(/usr/bin/python3 -I "$recovery_classifier" \
+                "$RUNNER_TEMP/recovery-release.json" "$EXPECTED_REF" "$EXPECTED_SHA" \
+                "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT")
+              [[ $confirmed_state == "draft:${recovery_id}" ]] || {
+                /usr/bin/printf 'Release recovery ownership changed; refusing deletion.\n' >&2
+                exit 65
+              }
+              /usr/bin/curl --fail --silent --show-error \
+                --request DELETE \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H 'X-GitHub-Api-Version: 2022-11-28' \
+                "$release_api/$recovery_id"
+              ;;
+            *)
+              /usr/bin/printf 'GitHub release recovery state is invalid.\n' >&2
+              exit 65
+              ;;
+          esac
+          /usr/bin/python3 -I - "$EXPECTED_REF" "$EXPECTED_SHA" \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
+            "$RUNNER_TEMP/create-release-request.json" <<'PY'
+          import json
+          import pathlib
+          import sys
+          marker = (
+              f"<!-- project-space-release-owner:v1:run={sys.argv[3]}:"
+              f"attempt={sys.argv[4]}:source={sys.argv[2]}:ref={sys.argv[1]} -->"
+          )
+          request = {
+              "body": marker,
+              "draft": True,
+              "generate_release_notes": True,
+              "name": sys.argv[1],
+              "prerelease": False,
+              "tag_name": sys.argv[1],
+              "target_commitish": sys.argv[2],
+          }
+          pathlib.Path(sys.argv[5]).write_text(json.dumps(request, separators=(",", ":")))
+          PY
+          /usr/bin/curl --fail --silent --show-error \
+            --request POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'Content-Type: application/json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            --data-binary @"$RUNNER_TEMP/create-release-request.json" \
+            "$release_api" > "$RUNNER_TEMP/created-release.json"
+          release_id=$(/usr/bin/python3 -I - "$RUNNER_TEMP/created-release.json" \
+            "$EXPECTED_REF" "$EXPECTED_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" <<'PY_VALIDATE_CREATED'
+          import json
+          import pathlib
+          import sys
+          release = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          marker = (
+              f"<!-- project-space-release-owner:v1:run={sys.argv[4]}:"
+              f"attempt={sys.argv[5]}:source={sys.argv[3]}:ref={sys.argv[2]} -->"
+          )
+          body = release.get("body")
+          first_line = body.splitlines()[0] if isinstance(body, str) and body else ""
+          if (
+              type(release.get("id")) is not int
+              or release["id"] <= 0
+              or release.get("tag_name") != sys.argv[2]
+              or not isinstance(release.get("target_commitish"), str)
+              or not release["target_commitish"]
+              or release.get("name") != sys.argv[2]
+              or first_line != marker
+              or release.get("draft") is not True
+              or release.get("prerelease") is not False
+              or release.get("assets") != []
+          ):
+              raise SystemExit("GitHub did not create the expected empty draft release.")
+          print(release["id"])
+          PY_VALIDATE_CREATED
+          )
+          /usr/bin/printf 'release-id=%s\n' "$release_id" >> "$GITHUB_OUTPUT"
+      - name: Upload exact public release assets
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          GH_TOKEN: ${{ github.token }}
+          PATH: /usr/bin:/bin
+          RELEASE_ID: ${{ steps.create.outputs.release-id }}
+        run: |
+          upload_api="https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets"
+          while IFS= read -r asset; do
+            local_path="$RUNNER_TEMP/final-release/$asset"
+            response="$RUNNER_TEMP/upload-${asset}.json"
+            /usr/bin/curl --fail --silent --show-error \
+              --request POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Content-Type: application/octet-stream' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              --data-binary @"$local_path" \
+              "$upload_api?name=$asset" > "$response"
+            /usr/bin/python3 -I - "$response" "$local_path" "$asset" <<'PY_VALIDATE_UPLOAD'
+          import json
+          import hashlib
+          import pathlib
+          import sys
+          def sha256_file(path):
+              value = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      value.update(chunk)
+              return value.hexdigest()
+          uploaded = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          local = pathlib.Path(sys.argv[2])
+          expected_digest = f"sha256:{sha256_file(local)}"
+          if (
+              uploaded.get("name") != sys.argv[3]
+              or uploaded.get("size") != local.stat().st_size
+              or uploaded.get("state") != "uploaded"
+              or uploaded.get("digest") != expected_digest
+          ):
+              raise SystemExit(f"GitHub did not accept the exact release asset {sys.argv[3]}.")
+          PY_VALIDATE_UPLOAD
+          done < "$RUNNER_TEMP/public-release-assets.txt"
+      - name: Verify remote draft asset names and sizes
+        id: verify-draft
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          EXPECTED_REF: ${{ inputs.source-ref }}
+          EXPECTED_SHA: ${{ inputs.source-sha }}
+          GH_TOKEN: ${{ github.token }}
+          PATH: /usr/bin:/bin
+          RELEASE_ID: ${{ steps.create.outputs.release-id }}
+        run: |
+          validator="$RUNNER_TEMP/validate-remote-release.py"
+          umask 077
+          /bin/cat > "$validator" <<'PY_VALIDATE_REMOTE'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+          def sha256_file(path):
+              digest = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+          release = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          root = pathlib.Path(sys.argv[2])
+          names = pathlib.Path(sys.argv[3]).read_text().splitlines()
+          expected_ref, expected_sha, run_id, attempt, state, release_id = sys.argv[4:]
+          marker = (
+              f"<!-- project-space-release-owner:v1:run={run_id}:"
+              f"attempt={attempt}:source={expected_sha}:ref={expected_ref} -->"
+          )
+          body = release.get("body")
+          first_line = body.splitlines()[0] if isinstance(body, str) and body else ""
+          assets = release.get("assets")
+          published = state == "published"
+          if state not in ("draft", "published"):
+              raise SystemExit("Remote release validation state is invalid.")
+          if (
+              release.get("id") != int(release_id)
+              or release.get("tag_name") != expected_ref
+              or first_line != marker
+              or release.get("draft") is published
+              or release.get("prerelease") is not False
+              or (published and not release.get("published_at"))
+              or (not published and release.get("published_at") is not None)
+              or not isinstance(assets, list)
+              or len(assets) != len(names)
+          ):
+              raise SystemExit("Remote release metadata is invalid.")
+          remote = {asset.get("name"): asset for asset in assets}
+          if set(remote) != set(names):
+              raise SystemExit("Remote release has unexpected asset names.")
+          for name in names:
+              asset = remote[name]
+              if (
+                  asset.get("state") != "uploaded"
+                  or asset.get("size") != (root / name).stat().st_size
+                  or asset.get("digest") != f"sha256:{sha256_file(root / name)}"
+              ):
+                  raise SystemExit(f"Remote release asset is incomplete: {name}")
+          PY_VALIDATE_REMOTE
+          /bin/chmod 0600 "$validator"
+          validator_sha=$(/usr/bin/sha256sum "$validator" | /usr/bin/cut -d ' ' -f 1)
+          /usr/bin/printf 'validator-sha=%s\n' "$validator_sha" >> "$GITHUB_OUTPUT"
+          /usr/bin/curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            > "$RUNNER_TEMP/remote-draft.json"
+          /usr/bin/python3 -I "$validator" "$RUNNER_TEMP/remote-draft.json" \
+            "$RUNNER_TEMP/final-release" "$RUNNER_TEMP/public-release-assets.txt" \
+            "$EXPECTED_REF" "$EXPECTED_SHA" "$GITHUB_RUN_ID" \
+            "$GITHUB_RUN_ATTEMPT" draft "$RELEASE_ID"
+      - name: Publish verified release
+        id: publish
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          EXPECTED_REF: ${{ inputs.source-ref }}
+          EXPECTED_SHA: ${{ inputs.source-sha }}
+          GH_TOKEN: ${{ github.token }}
+          PATH: /usr/bin:/bin
+          RELEASE_ID: ${{ steps.create.outputs.release-id }}
+          VALIDATOR_SHA: ${{ steps.verify-draft.outputs.validator-sha }}
+        run: |
+          for ref in "$EXPECTED_REF" main; do
+            actual=$(/usr/bin/curl --fail --silent --show-error \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${ref}" | \
+              /usr/bin/python3 -I -c 'import json,sys; print(json.load(sys.stdin)["sha"])')
+            [[ $actual == "$GITHUB_SHA" ]] || {
+              /usr/bin/printf 'Release provenance changed before publication.\n' >&2
+              exit 65
+            }
+          done
+          release_api="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}"
+          /usr/bin/printf '%s' '{"draft":false,"make_latest":"true"}' \
+            > "$RUNNER_TEMP/publish-release-request.json"
+          /usr/bin/curl --fail --silent --show-error \
+            --request PATCH \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'Content-Type: application/json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            --data-binary @"$RUNNER_TEMP/publish-release-request.json" \
+            "$release_api" > "$RUNNER_TEMP/published-release.json"
+          validator="$RUNNER_TEMP/validate-remote-release.py"
+          [[ -f $validator && ! -L $validator ]]
+          [[ $(/usr/bin/stat -c %u "$validator") == "$(/usr/bin/id -u)" ]]
+          [[ $(/usr/bin/stat -c %h "$validator") == 1 ]]
+          [[ $(/usr/bin/sha256sum "$validator" | /usr/bin/cut -d ' ' -f 1) == "$VALIDATOR_SHA" ]]
+          /usr/bin/python3 -I "$validator" "$RUNNER_TEMP/published-release.json" \
+            "$RUNNER_TEMP/final-release" "$RUNNER_TEMP/public-release-assets.txt" \
+            "$EXPECTED_REF" "$EXPECTED_SHA" "$GITHUB_RUN_ID" \
+            "$GITHUB_RUN_ATTEMPT" published "$RELEASE_ID"
+      - name: Delete incomplete draft release
+        if: ${{ always() && steps.publish.outcome != 'success' }}
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          EXPECTED_REF: ${{ inputs.source-ref }}
+          EXPECTED_SHA: ${{ inputs.source-sha }}
+          GH_TOKEN: ${{ github.token }}
+          PATH: /usr/bin:/bin
+        run: |
+          release_api="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases"
+          classifier="$RUNNER_TEMP/select-owned-release-state.py"
+          cleanup() {
+            /bin/rm -f "$classifier" "$RUNNER_TEMP/cleanup-release.json"
+          }
+          trap cleanup EXIT INT TERM HUP
+          /bin/cat > "$classifier" <<'PY'
+          import json
+          import pathlib
+          import sys
+          release = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          expected_ref, expected_sha, run_id, run_attempt = sys.argv[2:]
+          if not isinstance(release, dict) or release.get("tag_name") != expected_ref:
+              raise SystemExit("The exact-tag cleanup lookup returned an invalid release.")
+          marker = (
+              f"<!-- project-space-release-owner:v1:run={run_id}:"
+              f"attempt={run_attempt}:source={expected_sha}:ref={expected_ref} -->"
+          )
+          legacy_marker = (
+              f"<!-- project-space-release-run:{run_id}:"
+              f"{run_attempt}:{expected_sha} -->"
+          )
+          body = release.get("body")
+          first_line = body.splitlines()[0] if isinstance(body, str) and body else ""
+          if first_line not in (marker, legacy_marker):
+              print("none")
+              raise SystemExit(0)
+          release_id = release.get("id")
+          if (
+              type(release_id) is not int
+              or release_id <= 0
+              or release.get("name") != expected_ref
+              or release.get("prerelease") is not False
+          ):
+              raise SystemExit("The marked release does not match this workflow.")
+          if release.get("draft") is False:
+              if not release.get("published_at"):
+                  raise SystemExit("The marked public release has no publication proof.")
+              print(f"published:{release_id}")
+              raise SystemExit(0)
+          if release.get("draft") is not True or release.get("published_at") is not None:
+              raise SystemExit("The marked release has an unknown publication state.")
+          print(f"draft:{release_id}")
+          PY
+          release_state=none
+          for attempt in 1 2 3; do
+            lookup_status=$(/usr/bin/curl --silent --show-error \
+              --output "$RUNNER_TEMP/cleanup-release.json" \
+              --write-out '%{http_code}' \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "$release_api/tags/$EXPECTED_REF")
+            case "$lookup_status" in
+              404) release_state=none ;;
+              200) release_state=$(/usr/bin/python3 -I "$classifier" \
+                "$RUNNER_TEMP/cleanup-release.json" "$EXPECTED_REF" "$EXPECTED_SHA" \
+                "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT") ;;
+              *) echo "Exact-tag cleanup lookup failed with HTTP $lookup_status." >&2; exit 69 ;;
+            esac
+            [[ $release_state != none ]] && break
+            (( attempt == 3 )) || /bin/sleep 2
+          done
+          case "$release_state" in
+            none|published:*) exit 0 ;;
+            draft:*) release_id=${release_state#draft:} ;;
+            *) echo 'Release cleanup state is invalid.' >&2; exit 65 ;;
+          esac
+          /usr/bin/curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$release_api/$release_id" > "$RUNNER_TEMP/cleanup-release.json"
+          confirmed_state=$(/usr/bin/python3 -I "$classifier" \
+            "$RUNNER_TEMP/cleanup-release.json" "$EXPECTED_REF" "$EXPECTED_SHA" \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT")
+          [[ $confirmed_state == "draft:${release_id}" ]] || {
+            echo 'Release publication state changed during cleanup; refusing deletion.' >&2
+            exit 65
+          }
+          /usr/bin/curl --fail --silent --show-error \
+            --request DELETE \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$release_api/$release_id"

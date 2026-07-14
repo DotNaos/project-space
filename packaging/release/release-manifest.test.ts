@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, sign } from 'node:crypto';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -127,6 +127,144 @@ describe('authenticated connector runtime release manifest', () => {
     );
     expect(await verifyProcess.exited).toBe(0);
     expect(await new Response(verifyProcess.stderr).text()).toBe('');
+  });
+
+  test('prepares a deterministic payload and assembles an externally signed envelope', async () => {
+    const root = await fixture();
+    const manifestPath = join(root.root, 'prepared-manifest.json');
+    const payloadPath = join(root.root, 'prepared-payload.bin');
+    const signaturePath = join(root.root, 'prepared-signature.bin');
+    const outputPath = join(root.root, 'assembled-manifest.json');
+    const publicKeyPath = join(root.root, 'release-public-key.pem');
+    const cliPath = join(import.meta.dir, 'release-manifest-cli.ts');
+    const prepareProcess = Bun.spawn(
+      [
+        process.execPath,
+        cliPath,
+        'prepare',
+        '--artifacts-dir',
+        root.artifacts,
+        '--version',
+        version,
+        '--release-id',
+        releaseId,
+        '--commit',
+        sourceCommit,
+        '--source-epoch',
+        String(issuedAt),
+        '--validity-days',
+        '7',
+        '--manifest-output',
+        manifestPath,
+        '--payload-output',
+        payloadPath
+      ],
+      { stderr: 'pipe' }
+    );
+    expect(await prepareProcess.exited).toBe(0);
+    expect(await new Response(prepareProcess.stderr).text()).toBe('');
+
+    const payload = await readFile(payloadPath);
+    await writeFile(signaturePath, sign(null, payload, root.privateKey));
+    await writeFile(publicKeyPath, root.publicKey);
+    const assembleProcess = Bun.spawn(
+      [
+        process.execPath,
+        cliPath,
+        'assemble',
+        '--manifest',
+        manifestPath,
+        '--payload',
+        payloadPath,
+        '--signature',
+        signaturePath,
+        '--public-key',
+        publicKeyPath,
+        '--output',
+        outputPath
+      ],
+      { stderr: 'pipe' }
+    );
+    expect(await assembleProcess.exited).toBe(0);
+    expect(await new Response(assembleProcess.stderr).text()).toBe('');
+    const assembled = JSON.parse(await readFile(outputPath, 'utf8'));
+    expect(assembled.manifest.releaseId).toBe(releaseId);
+    expect(assembled.signature).toBe(
+      sign(null, payload, root.privateKey).toString('base64url')
+    );
+
+    await writeFile(payloadPath, `${payload.toString('utf8')}\n`);
+    const tamperedProcess = Bun.spawn(
+      [
+        process.execPath,
+        cliPath,
+        'assemble',
+        '--manifest',
+        manifestPath,
+        '--payload',
+        payloadPath,
+        '--signature',
+        signaturePath,
+        '--public-key',
+        publicKeyPath,
+        '--output',
+        outputPath
+      ],
+      { stderr: 'pipe' }
+    );
+    expect(await tamperedProcess.exited).toBe(1);
+    expect(await new Response(tamperedProcess.stderr).text()).toContain(
+      'payload does not match'
+    );
+
+    await writeFile(payloadPath, payload);
+    await writeFile(signaturePath, Buffer.alloc(63));
+    const shortSignatureProcess = Bun.spawn(
+      [
+        process.execPath,
+        cliPath,
+        'assemble',
+        '--manifest',
+        manifestPath,
+        '--payload',
+        payloadPath,
+        '--signature',
+        signaturePath,
+        '--public-key',
+        publicKeyPath,
+        '--output',
+        outputPath
+      ],
+      { stderr: 'pipe' }
+    );
+    expect(await shortSignatureProcess.exited).toBe(1);
+    expect(await new Response(shortSignatureProcess.stderr).text()).toContain(
+      'exactly 64 bytes'
+    );
+
+    await writeFile(signaturePath, Buffer.alloc(64));
+    const wrongSignatureProcess = Bun.spawn(
+      [
+        process.execPath,
+        cliPath,
+        'assemble',
+        '--manifest',
+        manifestPath,
+        '--payload',
+        payloadPath,
+        '--signature',
+        signaturePath,
+        '--public-key',
+        publicKeyPath,
+        '--output',
+        outputPath
+      ],
+      { stderr: 'pipe' }
+    );
+    expect(await wrongSignatureProcess.exited).toBe(1);
+    expect(await new Response(wrongSignatureProcess.stderr).text()).toContain(
+      'signature is invalid'
+    );
   });
 
   test('is deterministic and is accepted by the runtime consumer', async () => {

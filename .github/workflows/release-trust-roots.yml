@@ -1,0 +1,143 @@
+name: Release trust roots
+
+on:
+  workflow_call:
+    inputs:
+      source-sha:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+    outputs:
+      artifact-digest:
+        value: ${{ jobs.derive.outputs.artifact-digest }}
+      artifact-id:
+        value: ${{ jobs.derive.outputs.artifact-id }}
+      artifact-name:
+        value: ${{ jobs.derive.outputs.artifact-name }}
+
+permissions:
+  contents: read
+
+jobs:
+  derive:
+    name: Derive isolated connector trust roots
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-name: ${{ steps.metadata.outputs.artifact-name }}
+
+    steps:
+      - name: Validate release context
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          EXPECTED_SHA: ${{ inputs.source-sha }}
+          EXPECTED_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          PATH: /usr/bin:/bin
+        run: |
+          [[ $EXPECTED_SHA =~ ^[0-9a-f]{40}$ ]]
+          [[ $EXPECTED_VERSION =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ $GITHUB_SHA == "$EXPECTED_SHA" ]]
+          [[ $GITHUB_REF_NAME == "v${EXPECTED_VERSION}" ]]
+          api_root="https://api.github.com/repos/${GITHUB_REPOSITORY}/commits"
+          main_sha=$(/usr/bin/curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$api_root/main" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])')
+          tag_sha=$(/usr/bin/curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$api_root/$GITHUB_REF_NAME" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])')
+          [[ $main_sha == "$EXPECTED_SHA" && $tag_sha == "$EXPECTED_SHA" ]] || {
+            echo 'Release tags must point at the exact current main commit.' >&2
+            exit 65
+          }
+
+      - name: Resolve trust-root artifact name
+        id: metadata
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          PATH: /usr/bin:/bin
+        run: |
+          echo "artifact-name=connector-runtime-trust-roots-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Materialize pinned public trust roots
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          PATH: /usr/bin:/bin
+        run: |
+          public_root="$RUNNER_TEMP/connector-runtime-trust-roots"
+          umask 077
+          /bin/rm -rf "$public_root"
+          /bin/mkdir -p "$public_root"
+          /bin/cat > "$public_root/connector-command-signing-public-key.pem" <<'PEM'
+          -----BEGIN PUBLIC KEY-----
+          MCowBQYDK2VwAyEArV+hyDd0dJe9d3xrBPwyluiSux7+67nFnkmNn8mgEm4=
+          -----END PUBLIC KEY-----
+          PEM
+          /bin/cat > "$public_root/release-manifest-signing-public-key.pem" <<'PEM'
+          -----BEGIN PUBLIC KEY-----
+          MCowBQYDK2VwAyEABuZYqkn+3DcolGfvYxy3Fc8cn/XPDzL3t0J5jWE2Jug=
+          -----END PUBLIC KEY-----
+          PEM
+          /bin/chmod 0644 "$public_root"/*.pem
+
+      - name: Create disposable validation roots
+        if: github.event_name != 'push' || github.ref_type != 'tag'
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          PATH: /usr/bin:/bin
+        run: |
+          private_root="$RUNNER_TEMP/release-trust-private"
+          public_root="$RUNNER_TEMP/connector-runtime-trust-roots"
+          trap '/bin/rm -rf "$private_root"' EXIT INT TERM HUP
+          umask 077
+          /bin/rm -rf "$private_root" "$public_root"
+          /bin/mkdir -p "$private_root" "$public_root"
+          /usr/bin/openssl genpkey -algorithm Ed25519 -out "$private_root/command.pem"
+          /usr/bin/openssl genpkey -algorithm Ed25519 -out "$private_root/release.pem"
+          /usr/bin/openssl pkey -in "$private_root/command.pem" -pubout \
+            -out "$public_root/connector-command-signing-public-key.pem"
+          /usr/bin/openssl pkey -in "$private_root/release.pem" -pubout \
+            -out "$public_root/release-manifest-signing-public-key.pem"
+          /bin/chmod 0644 "$public_root"/*.pem
+
+      - name: Validate public trust roots
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          PATH: /usr/bin:/bin
+        run: |
+          root="$RUNNER_TEMP/connector-runtime-trust-roots"
+          expected=$'connector-command-signing-public-key.pem\nrelease-manifest-signing-public-key.pem'
+          actual=$(/usr/bin/find "$root" -mindepth 1 -maxdepth 1 -type f -print | /usr/bin/sed "s#^$root/##" | LC_ALL=C /usr/bin/sort)
+          [[ $actual == "$expected" ]]
+          [[ -z $(/usr/bin/find "$root" -mindepth 1 \( -type l -o ! -type f \) -print -quit) ]]
+          /usr/bin/openssl pkey -pubin -in "$root/connector-command-signing-public-key.pem" -noout
+          /usr/bin/openssl pkey -pubin -in "$root/release-manifest-signing-public-key.pem" -noout
+          command_digest=$(/usr/bin/sha256sum "$root/connector-command-signing-public-key.pem" | /usr/bin/cut -d ' ' -f 1)
+          release_digest=$(/usr/bin/sha256sum "$root/release-manifest-signing-public-key.pem" | /usr/bin/cut -d ' ' -f 1)
+          if [[ $GITHUB_EVENT_NAME == push && $GITHUB_REF_TYPE == tag ]]; then
+            [[ $command_digest == 502f8b9dbbabec58aa8d2c794c7c052d5974215e2180f9e47ed4d7cff4ee45c1 ]]
+            [[ $release_digest == aff71d44e194f87e7e958296306059d3d5b55d7c369963b61d57627e03f4a451 ]]
+          fi
+
+      - name: Upload public trust roots
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.metadata.outputs.artifact-name }}
+          if-no-files-found: error
+          overwrite: false
+          path: ${{ runner.temp }}/connector-runtime-trust-roots/*.pem
+          retention-days: 7
