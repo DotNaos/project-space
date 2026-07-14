@@ -194,6 +194,21 @@ export function issueCreationSubmissionLabels(state: IssueCreationState) {
   return state.selectedLabels.filter((name) => availableNames.has(name));
 }
 
+export function visibleIssueCreationLabels(
+  state: IssueCreationState,
+  repositoryKey: string | null
+): IssueCreationLabelsState {
+  if (state.repositoryKey === repositoryKey) return state.labels;
+  return repositoryKey
+    ? {
+        labels: [],
+        repositoryKey,
+        requestId: 'repository-transition',
+        status: 'loading'
+      }
+    : idleLabels(null);
+}
+
 export function issueCreationRequest(state: IssueCreationState) {
   if (!canSubmitIssueCreation(state) || !state.repositoryKey) {
     return null;

@@ -15,6 +15,8 @@ import type { MachineConnectionRuntime } from './machine-connection-runtime';
 import type { ProjectChatRuntime } from './project-chat/runtime';
 import { runWithGitHubCatalogRequestTiming } from './github-catalog-timing';
 import type { CodexSessionsHttpHandler } from './codex-sessions-http';
+import { createGitHubIssueCreationRoutes } from './github-issue-creation-routes';
+import { createGitHubIssueAttachmentContentRoute } from './github-issue-attachment-content-route';
 
 interface ProjectSpaceApiHandlerOptions {
   codexSessions?: CodexSessionsHttpHandler;
@@ -29,6 +31,8 @@ export function createProjectSpaceApiHandler(
   const handlePublicRoute = createProjectSpacePublicApiRoutes(backend);
   const handleCoreRoute = createProjectSpaceCoreApiRoutes(backend);
   const handleIntegrationRoute = createProjectSpaceIntegrationApiRoutes(backend);
+  const handleIssueCreationRoute = createGitHubIssueCreationRoutes();
+  const handleIssueAttachmentContentRoute = createGitHubIssueAttachmentContentRoute();
 
   return async function handleApiRequest(
     request: IncomingMessage,
@@ -65,6 +69,8 @@ export function createProjectSpaceApiHandler(
       }
 
       return await runWithGitHubCatalogRequestTiming({ authMs, requestStartedAt }, () => runWithAuthSession(authSession, async () => {
+        if (await handleIssueCreationRoute(request, response, url)) return true;
+        if (await handleIssueAttachmentContentRoute(request, response, url)) return true;
         if (options.codexSessions && await options.codexSessions(request, response, url)) {
           return true;
         }

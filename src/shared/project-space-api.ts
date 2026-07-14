@@ -529,8 +529,11 @@ export interface GitHubIssueCreateRequest {
   body?: string;
   fullName: string;
   labels?: string[];
+  operationId?: string;
   title: string;
 }
+
+export type GitHubIssueCreationState = 'complete' | 'retryable' | 'uncertain';
 
 export interface GitHubIssueUpdateRequest {
   body?: string;
@@ -545,6 +548,11 @@ export interface GitHubIssueMutationResult {
   issue?: GitHubIssueRecord;
   message?: string;
   status: GitHubCatalogStatus;
+}
+
+export interface GitHubIssueCreationResult extends GitHubIssueMutationResult {
+  creationState: GitHubIssueCreationState;
+  replayed?: boolean;
 }
 
 export interface GitHubIssueCommentsResult {
@@ -1327,7 +1335,7 @@ export interface ProjectSpaceBackend {
   createGitHubPullRequest(
     request: GitHubPullRequestCreateRequest
   ): Promise<GitHubPullRequestMutationResult>;
-  createGitHubIssue(request: GitHubIssueCreateRequest): Promise<GitHubIssueMutationResult>;
+  createGitHubIssue(request: GitHubIssueCreateRequest): Promise<GitHubIssueCreationResult>;
   createGitHubIssueComment(
     request: GitHubIssueCommentCreateRequest
   ): Promise<GitHubIssueCommentMutationResult>;

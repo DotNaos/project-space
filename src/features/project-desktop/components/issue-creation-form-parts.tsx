@@ -22,6 +22,7 @@ interface IssueCreationFormBodyProps {
   bodyLocked: boolean;
   controlsBusy: boolean;
   createdIssueNumber?: number;
+  creationUncertain: boolean;
   labelsState: IssueCreationLabelsState;
   labelWriteDenied: boolean;
   onLabelsRetry(): void;
@@ -45,6 +46,7 @@ interface IssueCreationFormHeaderProps {
 interface IssueCreationFormFooterProps {
   attachmentsUnresolved: boolean;
   createdIssueNumber?: number;
+  creationUncertain: boolean;
   disabled: boolean;
   isBusy: boolean;
   onCancel(): void;
@@ -88,6 +90,7 @@ export function IssueCreationFormBody({
   bodyLocked,
   controlsBusy,
   createdIssueNumber,
+  creationUncertain,
   labelsState,
   labelWriteDenied,
   onLabelsRetry,
@@ -181,7 +184,9 @@ export function IssueCreationFormBody({
           <p className="text-xs font-medium text-red-200">
             {createdIssueNumber
               ? `Issue #${createdIssueNumber} was created, but setup is incomplete.`
-              : 'Issue creation failed.'}
+              : creationUncertain
+                ? 'GitHub has not confirmed issue creation.'
+                : 'Issue creation failed.'}
           </p>
           <p className="mt-1 text-xs leading-5 text-neutral-400">{submissionError}</p>
         </div>
@@ -193,6 +198,7 @@ export function IssueCreationFormBody({
 export function IssueCreationFormFooter({
   attachmentsUnresolved,
   createdIssueNumber,
+  creationUncertain,
   disabled,
   isBusy,
   onCancel,
@@ -214,7 +220,9 @@ export function IssueCreationFormFooter({
         : recoveryStage === 'labels'
           ? 'Retry labels'
           : 'Retry finalization'
-      : retrying
+      : creationUncertain
+        ? 'Check GitHub again'
+        : retrying
         ? 'Retry creation'
         : 'Create issue';
 

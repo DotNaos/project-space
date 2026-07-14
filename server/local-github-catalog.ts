@@ -104,7 +104,7 @@ export interface TokenResolution {
   token: string;
 }
 
-class GitHubRequestError extends Error {
+export class GitHubRequestError extends Error {
   constructor(readonly statusCode: number, readonly rateLimited: boolean) {
     super(`GitHub request failed with ${statusCode}.`);
   }

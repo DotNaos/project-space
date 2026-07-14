@@ -10,7 +10,8 @@ import {
   issueCreationCloseDecision,
   issueCreationRequest,
   issueCreationReducer,
-  matchesIssueCreationSubmission
+  matchesIssueCreationSubmission,
+  visibleIssueCreationLabels
 } from './issue-creation-model';
 import {
   IssueCreationDiscardDialog,
@@ -24,7 +25,9 @@ import {
 import {
   finishIssueCreationWithAvailableImages,
   runIssueCreationWorkflow,
-  type IssueCreationRecoveryStage
+  type IssueCreationRecoveryStage,
+  type RepositoryIssueCapabilities,
+  type ScopedCreatedIssue
 } from './issue-creation-workflow';
 import { useIssueAttachments } from './use-issue-attachments';
 
@@ -37,20 +40,6 @@ interface IssueCreationOverlayProps {
 
 function requestId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
-}
-
-type WriteCapability = 'denied' | 'unverified';
-
-interface RepositoryIssueCapabilities {
-  attachmentWrite: WriteCapability;
-  labelWrite: WriteCapability;
-  repositoryKey: string;
-}
-
-interface ScopedCreatedIssue {
-  issue: GitHubIssueRecord;
-  recoveryBody: string;
-  repositoryKey: string;
 }
 
 export function IssueCreationOverlay({
@@ -75,11 +64,13 @@ export function IssueCreationOverlay({
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [recoveryStage, setRecoveryStage] = useState<IssueCreationRecoveryStage | null>(null);
   const [scopeRecoveryError, setScopeRecoveryError] = useState<string | null>(null);
+  const [uncertainRepositoryKey, setUncertainRepositoryKey] = useState<string | null>(null);
   const stateRef = useRef(state);
   const workflowBusyRef = useRef(false);
   const repositoryKeyRef = useRef(repositoryKey);
   const createdIssueRef = useRef<ScopedCreatedIssue | null>(null);
   const labelAbortRef = useRef<AbortController | null>(null);
+  const creationOperationIdRef = useRef(requestId());
   stateRef.current = state;
   repositoryKeyRef.current = repositoryKey;
   createdIssueRef.current = createdIssue;
@@ -89,6 +80,7 @@ export function IssueCreationOverlay({
     : null;
   const attachmentWriteDenied = currentCapabilities?.attachmentWrite === 'denied';
   const labelWriteDenied = currentCapabilities?.labelWrite === 'denied';
+  const creationUncertain = Boolean(uncertainRepositoryKey);
 
   const changeBody = useCallback((body: string) => {
     const action = { body, type: 'body-changed' as const };
@@ -98,7 +90,7 @@ export function IssueCreationOverlay({
   const attachments = useIssueAttachments({
     markdown: state.body,
     onMarkdownChange: changeBody,
-    repositoryKey,
+    repositoryKey: uncertainRepositoryKey ?? repositoryKey,
     writeDenied: attachmentWriteDenied
   });
 
@@ -115,8 +107,12 @@ export function IssueCreationOverlay({
       setScopeRecoveryError(
         `Issue #${createdIssue.issue.number} was created in ${createdIssue.repositoryKey}. Finish and view it before creating an issue in another repository.`
       );
+    } else if (uncertainRepositoryKey && uncertainRepositoryKey !== repositoryKey) {
+      setScopeRecoveryError(
+        `GitHub has not confirmed issue creation in ${uncertainRepositoryKey}. Return to that repository and check again before creating another issue.`
+      );
     }
-  }, [createdIssue, repositoryKey]);
+  }, [createdIssue, repositoryKey, uncertainRepositoryKey]);
 
   const loadLabels = useCallback(() => {
     if (!open || !repositoryKey) return;
@@ -183,6 +179,8 @@ export function IssueCreationOverlay({
     setRecoveryOpen(false);
     setRecoveryStage(null);
     setScopeRecoveryError(null);
+    setUncertainRepositoryKey(null);
+    creationOperationIdRef.current = requestId();
     setTitleTouched(false);
   }, []);
 
@@ -221,13 +219,18 @@ export function IssueCreationOverlay({
     const currentRepositoryKey = snapshot.repositoryKey;
 
     setTitleTouched(true);
-    const request = issueCreationRequest(snapshot);
+    const draftRequest = issueCreationRequest(snapshot);
+    const request = draftRequest
+      ? { ...draftRequest, operationId: creationOperationIdRef.current }
+      : null;
     if (
       !currentRepositoryKey ||
       currentRepositoryKey !== repositoryKeyRef.current ||
       !request ||
       (createdIssueRef.current !== null
         && createdIssueRef.current.repositoryKey !== currentRepositoryKey) ||
+      (uncertainRepositoryKey !== null
+        && uncertainRepositoryKey !== currentRepositoryKey) ||
       (attachmentWriteDenied && attachments.hasUnresolvedAttachments)
     ) return;
 
@@ -289,6 +292,16 @@ export function IssueCreationOverlay({
       setRecoveryStage(
         outcome.status === 'created-incomplete' ? outcome.stage : null
       );
+      if (outcome.status === 'creation-failed') {
+        if (outcome.creationState === 'uncertain') {
+          setUncertainRepositoryKey(currentRepositoryKey);
+        } else {
+          creationOperationIdRef.current = requestId();
+          setUncertainRepositoryKey(null);
+        }
+      } else {
+        setUncertainRepositoryKey(null);
+      }
       if (outcome.status === 'created-incomplete') {
         const scopedIssue = {
           issue: outcome.issue,
@@ -375,7 +388,7 @@ export function IssueCreationOverlay({
   const hasStoredAttachments = attachments.attachments.some(
     (attachment) => attachment.status === 'uploaded'
   );
-  const draftLocked = Boolean(createdIssue);
+  const draftLocked = Boolean(createdIssue) || creationUncertain;
   const createdScopeMismatch = Boolean(
     createdIssue && createdIssue.repositoryKey !== repositoryKey
   );
@@ -384,21 +397,7 @@ export function IssueCreationOverlay({
       ? 'This repository is read-only for files. Remove pasted images to create the issue.'
       : null;
   const repositoryStateCurrent = state.repositoryKey === repositoryKey;
-  const visibleLabelsState = repositoryStateCurrent
-    ? state.labels
-    : repositoryKey
-      ? {
-          labels: [],
-          repositoryKey,
-          requestId: 'repository-transition',
-          status: 'loading' as const
-        }
-      : {
-          labels: [],
-          repositoryKey: null,
-          requestId: null,
-          status: 'idle' as const
-        };
+  const visibleLabelsState = visibleIssueCreationLabels(state, repositoryKey);
   const titleInvalid = titleTouched && state.title.trim().length === 0;
 
   return (
@@ -435,6 +434,7 @@ export function IssueCreationOverlay({
                   bodyLocked={isBusy || draftLocked}
                   controlsBusy={isBusy}
                   createdIssueNumber={createdIssue?.issue.number}
+                  creationUncertain={creationUncertain}
                   labelsState={visibleLabelsState}
                   labelWriteDenied={labelWriteDenied}
                   onLabelsRetry={loadLabels}
@@ -466,6 +466,7 @@ export function IssueCreationOverlay({
                   onFinish={() => void finishAndView()}
                   recoveryStage={recoveryStage}
                   retrying={state.submission.status === 'failed'}
+                  creationUncertain={creationUncertain}
                 />
               </form>
             </Modal.Dialog>

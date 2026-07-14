@@ -28,6 +28,7 @@ const request: GitHubIssueCreateRequest = {
   body: 'Description\n\n![Pasted image](project-space-attachment://one)',
   fullName: 'DotNaos/project-space',
   labels: ['bug'],
+  operationId: '00000000-0000-4000-8000-000000000187',
   title: 'Create issue modal'
 };
 
@@ -43,9 +44,10 @@ describe('issue creation workflow', () => {
         expect(createdRequest).toEqual({
           body: 'Description',
           fullName: request.fullName,
+          operationId: request.operationId,
           title: request.title
         });
-        return { issue: issue(), status: 'connected' };
+        return { creationState: 'complete', issue: issue(), status: 'connected' };
       },
       initialBody: 'Description',
       onRemoteIssue: (remoteIssue) => observed.push(remoteIssue),
@@ -96,7 +98,7 @@ describe('issue creation workflow', () => {
     const outcome = await runIssueCreationWorkflow({
       createIssue: async () => {
         createCalls += 1;
-        return { status: 'error' };
+        return { creationState: 'retryable', status: 'error' };
       },
       existingIssue: knownIssue,
       initialBody: 'Description',
@@ -120,7 +122,11 @@ describe('issue creation workflow', () => {
   test('retains a created issue when attachment storage fails', async () => {
     const created = issue({ labels: ['bug'] });
     const outcome = await runIssueCreationWorkflow({
-      createIssue: async () => ({ issue: created, status: 'connected' }),
+      createIssue: async () => ({
+        creationState: 'complete',
+        issue: created,
+        status: 'connected'
+      }),
       initialBody: 'Description',
       onRemoteIssue: () => undefined,
       request,
@@ -144,7 +150,11 @@ describe('issue creation workflow', () => {
   test('continues storing images but reports labels GitHub silently omitted', async () => {
     const calls: string[] = [];
     const outcome = await runIssueCreationWorkflow({
-      createIssue: async () => ({ issue: issue(), status: 'connected' }),
+      createIssue: async () => ({
+        creationState: 'complete',
+        issue: issue(),
+        status: 'connected'
+      }),
       initialBody: 'Description',
       onRemoteIssue: () => undefined,
       request,
@@ -194,7 +204,33 @@ describe('issue creation workflow', () => {
 
     expect(createCalls).toBe(1);
     expect(outcome).toEqual({
+      creationState: 'uncertain',
       error: 'Connection ended before GitHub replied.',
+      status: 'creation-failed'
+    });
+  });
+
+  test('preserves a definitive retry-safe creation failure', async () => {
+    const outcome = await runIssueCreationWorkflow({
+      createIssue: async () => ({
+        creationState: 'retryable',
+        message: 'GitHub rejected the issue.',
+        status: 'error'
+      }),
+      initialBody: 'Description',
+      onRemoteIssue: () => undefined,
+      request,
+      updateIssue: async () => ({ status: 'error' }),
+      uploadAttachments: async () => ({
+        completed: true,
+        markdown: 'Description',
+        persistableMarkdown: 'Description'
+      })
+    });
+
+    expect(outcome).toEqual({
+      creationState: 'retryable',
+      error: 'GitHub rejected the issue.',
       status: 'creation-failed'
     });
   });

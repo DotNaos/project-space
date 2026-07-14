@@ -1,5 +1,6 @@
 import type {
   GitHubIssueCreateRequest,
+  GitHubIssueCreationResult,
   GitHubIssueMutationResult,
   GitHubIssueRecord,
   GitHubIssueUpdateRequest
@@ -10,8 +11,23 @@ export type IssueCreationRecoveryStage =
   | 'finalization'
   | 'labels';
 
+export type IssueCreationWriteCapability = 'denied' | 'unverified';
+
+export interface RepositoryIssueCapabilities {
+  attachmentWrite: IssueCreationWriteCapability;
+  labelWrite: IssueCreationWriteCapability;
+  repositoryKey: string;
+}
+
+export interface ScopedCreatedIssue {
+  issue: GitHubIssueRecord;
+  recoveryBody: string;
+  repositoryKey: string;
+}
+
 export type IssueCreationWorkflowOutcome =
   | {
+      creationState: 'retryable' | 'uncertain';
       error: string;
       status: 'creation-failed';
     }
@@ -34,7 +50,7 @@ interface IssueAttachmentUploadResult {
 }
 
 interface RunIssueCreationWorkflowOptions {
-  createIssue(request: GitHubIssueCreateRequest): Promise<GitHubIssueMutationResult>;
+  createIssue(request: GitHubIssueCreateRequest): Promise<GitHubIssueCreationResult>;
   existingIssue?: GitHubIssueRecord | null;
   initialBody: string;
   onRemoteIssue(issue: GitHubIssueRecord): void;
@@ -90,6 +106,21 @@ async function attemptMutation(
   }
 }
 
+async function attemptCreation(
+  mutation: () => Promise<GitHubIssueCreationResult>,
+  fallback: string
+): Promise<GitHubIssueCreationResult> {
+  try {
+    return await mutation();
+  } catch (error) {
+    return {
+      creationState: 'uncertain',
+      message: error instanceof Error ? error.message : fallback,
+      status: 'error'
+    };
+  }
+}
+
 export async function runIssueCreationWorkflow({
   createIssue,
   existingIssue,
@@ -102,10 +133,11 @@ export async function runIssueCreationWorkflow({
   let issue = existingIssue ?? null;
 
   if (!issue) {
-    const createResult = await attemptMutation(
+    const createResult = await attemptCreation(
       () => createIssue({
         body: initialBody,
         fullName: request.fullName,
+        operationId: request.operationId,
         title: request.title
       }),
       'Could not create issue.'
@@ -114,6 +146,9 @@ export async function runIssueCreationWorkflow({
 
     if (!issue) {
       return {
+        creationState: createResult.creationState === 'retryable'
+          ? 'retryable'
+          : 'uncertain',
         error: resultError(createResult, 'Could not create issue.'),
         status: 'creation-failed'
       };
