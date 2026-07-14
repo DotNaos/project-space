@@ -373,8 +373,20 @@ jobs:
           /usr/bin/security import "$import_p12" -f pkcs12 -k "$keychain" \
             -P "$import_password" -T /usr/bin/codesign
           /bin/rm -f "$p12" "$pem" "$import_p12"
-          /usr/bin/security set-key-partition-list -S apple-tool:,apple: -s \
-            -k "$keychain_password" "$keychain"
+          original_keychains=()
+          while IFS= read -r line; do
+            line="${line#*\"}"
+            line="${line%\"*}"
+            [[ -n $line ]] && original_keychains+=("$line")
+          done < "$keychain_snapshot"
+          /usr/bin/security list-keychains -d user -s "$keychain" "${original_keychains[@]}"
+          # The import already grants codesign-only access. Current hosted runners can return
+          # errSecItemNotFound after updating this optional partition list, so the real codesign
+          # and requirement verification below remain the authoritative gate.
+          if ! /usr/bin/security set-key-partition-list -S apple-tool:,apple: -s \
+            -k "$keychain_password" "$keychain" >/dev/null 2>&1; then
+            echo 'The optional key partition update was unavailable; using the codesign-only import ACL.'
+          fi
           identity=''
           identity_count=0
           while IFS= read -r line; do
@@ -384,13 +396,6 @@ jobs:
             fi
           done < <(/usr/bin/security find-identity -v -p codesigning "$keychain")
           [[ $identity_count == 1 && $identity =~ ^[0-9A-F]{40}$ ]]
-          original_keychains=()
-          while IFS= read -r line; do
-            line="${line#*\"}"
-            line="${line%\"*}"
-            [[ -n $line ]] && original_keychains+=("$line")
-          done < "$keychain_snapshot"
-          /usr/bin/security list-keychains -d user -s "$keychain" "${original_keychains[@]}"
 
           requirement='=anchor apple generic and certificate leaf[subject.OU] = "R72P4M9WMS" and identifier "com.dotnaos.project.approval-signer"'
           /usr/bin/codesign --force --keychain "$keychain" --sign "$identity" \
