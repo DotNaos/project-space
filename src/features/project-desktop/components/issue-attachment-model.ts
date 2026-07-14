@@ -122,7 +122,7 @@ export function validateIssueAttachmentCandidate({
   if (!SUPPORTED_MEDIA_TYPES.has(mediaType as IssueAttachmentMediaType)) {
     throw new IssueAttachmentValidationError(
       'unsupported-image-type',
-      'Paste a PNG, JPEG, or GIF image.'
+      'Paste a PNG, JPEG, or non-animated GIF image.'
     );
   }
 
@@ -290,6 +290,26 @@ export function hasUnresolvedIssueAttachments(state: IssueAttachmentState) {
     (attachment) =>
       attachment.repositoryKey === state.repositoryKey && attachment.status !== 'uploaded'
   );
+}
+
+export function issueAttachmentMarkdownWithoutAttachments(
+  state: IssueAttachmentState
+) {
+  return state.attachments.reduce(
+    (markdown, attachment) => removeAttachmentMarkdown(markdown, attachment),
+    state.markdown
+  );
+}
+
+export function issueAttachmentMarkdownWithUploadedAttachments(
+  state: IssueAttachmentState
+) {
+  return state.attachments
+    .filter((attachment) => attachment.status !== 'uploaded')
+    .reduce(
+      (markdown, attachment) => removeAttachmentMarkdown(markdown, attachment),
+      state.markdown
+    );
 }
 
 export function issueAttachmentReducer(

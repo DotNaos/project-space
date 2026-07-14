@@ -4,6 +4,7 @@ import { uploadGitHubIssueAttachment } from '../src/api/github-issue-attachment-
 
 const REPOSITORY = 'DotNaos/project-space';
 const ATTACHMENT_ID = '00000000-0000-4000-8000-000000000001';
+const ISSUE_NUMBER = 187;
 
 describe('GitHub issue attachment browser client', () => {
   test('sends image bytes only to the authenticated Project Space origin', async () => {
@@ -11,7 +12,7 @@ describe('GitHub issue attachment browser client', () => {
     let requestUrl = '';
     let requestInit: RequestInit | undefined;
     const result = await uploadGitHubIssueAttachment(
-      { attachmentId: ATTACHMENT_ID, fullName: REPOSITORY, image },
+      { attachmentId: ATTACHMENT_ID, fullName: REPOSITORY, image, issueNumber: ISSUE_NUMBER },
       {
         apiBaseUrl: 'http://127.0.0.1:45873',
         currentHref: 'http://localhost:5173/projects',
@@ -21,8 +22,9 @@ describe('GitHub issue attachment browser client', () => {
           return Response.json({
             attachmentId: ATTACHMENT_ID,
             fullName: REPOSITORY,
+            issueNumber: ISSUE_NUMBER,
             markdownUrl:
-              `https://github.com/DotNaos/project-space/blob/${'a'.repeat(40)}/.github/project-space/issue-attachments/${ATTACHMENT_ID}.png?raw=1`,
+              `https://github.com/DotNaos/project-space/blob/${'a'.repeat(40)}/.github/project-space/issue-attachments/${ISSUE_NUMBER}/${ATTACHMENT_ID}.png?raw=1`,
             mediaType: 'image/png',
             sizeBytes: 3,
             status: 'connected'
@@ -38,6 +40,7 @@ describe('GitHub issue attachment browser client', () => {
     );
     expect(parsedRequestUrl.searchParams.get('fullName')).toBe(REPOSITORY);
     expect(parsedRequestUrl.searchParams.get('attachmentId')).toBe(ATTACHMENT_ID);
+    expect(parsedRequestUrl.searchParams.get('issueNumber')).toBe(String(ISSUE_NUMBER));
     expect(requestInit?.method).toBe('POST');
     expect(new Headers(requestInit?.headers).get('Authorization')).toBe(
       'Bearer project-space-session'
@@ -49,11 +52,13 @@ describe('GitHub issue attachment browser client', () => {
 
   test('rejects response state from another repository or attachment request', async () => {
     for (const responseIdentity of [
-      { attachmentId: ATTACHMENT_ID, fullName: 'DotNaos/other' },
+      { attachmentId: ATTACHMENT_ID, fullName: 'DotNaos/other', issueNumber: ISSUE_NUMBER },
       {
         attachmentId: '00000000-0000-4000-8000-000000000002',
-        fullName: REPOSITORY
-      }
+        fullName: REPOSITORY,
+        issueNumber: ISSUE_NUMBER
+      },
+      { attachmentId: ATTACHMENT_ID, fullName: REPOSITORY, issueNumber: 188 }
     ]) {
       await expect(
         uploadGitHubIssueAttachment(
@@ -61,6 +66,7 @@ describe('GitHub issue attachment browser client', () => {
             attachmentId: ATTACHMENT_ID,
             fullName: REPOSITORY,
             image: new Blob([new Uint8Array([1])], { type: 'image/png' })
+            ,issueNumber: ISSUE_NUMBER
           },
           {
             currentHref: 'https://projects.os-home.net/projects',
@@ -87,6 +93,7 @@ describe('GitHub issue attachment browser client', () => {
           attachmentId: ATTACHMENT_ID,
           fullName: REPOSITORY,
           image: new Blob([new Uint8Array([1])], { type: 'image/png' })
+          ,issueNumber: ISSUE_NUMBER
         },
         {
           currentHref: 'https://projects.os-home.net/projects',
@@ -94,6 +101,7 @@ describe('GitHub issue attachment browser client', () => {
             return Response.json({
               attachmentId: ATTACHMENT_ID,
               fullName: REPOSITORY,
+              issueNumber: ISSUE_NUMBER,
               markdownUrl: 'https://attacker.example/tracker.png',
               mediaType: 'image/png',
               sizeBytes: 1,
@@ -113,6 +121,7 @@ describe('GitHub issue attachment browser client', () => {
           attachmentId: ATTACHMENT_ID,
           fullName: REPOSITORY,
           image: new Blob([new Uint8Array([1])], { type: 'image/png' })
+          ,issueNumber: ISSUE_NUMBER
         },
         {
           currentHref: 'https://projects.os-home.net/projects',
@@ -120,8 +129,9 @@ describe('GitHub issue attachment browser client', () => {
             return Response.json({
               attachmentId: ATTACHMENT_ID,
               fullName: REPOSITORY,
+              issueNumber: ISSUE_NUMBER,
               markdownUrl:
-                `https://github.com/DotNaos/other/blob/${'a'.repeat(40)}/.github/project-space/issue-attachments/${ATTACHMENT_ID}.png?raw=1`,
+                `https://github.com/DotNaos/other/blob/${'a'.repeat(40)}/.github/project-space/issue-attachments/${ISSUE_NUMBER}/${ATTACHMENT_ID}.png?raw=1`,
               mediaType: 'image/png',
               sizeBytes: 1,
               status: 'connected'
@@ -141,6 +151,7 @@ describe('GitHub issue attachment browser client', () => {
         attachmentId: ATTACHMENT_ID,
         fullName: REPOSITORY,
         image: new Blob([new Uint8Array([1])], { type: 'image/gif' })
+        ,issueNumber: ISSUE_NUMBER
       },
       {
         apiBaseUrl: 'https://attacker.example',
@@ -150,8 +161,9 @@ describe('GitHub issue attachment browser client', () => {
           return Response.json({
             attachmentId: ATTACHMENT_ID,
             fullName: REPOSITORY,
+            issueNumber: ISSUE_NUMBER,
             markdownUrl:
-              `https://github.com/DotNaos/project-space/blob/${'a'.repeat(40)}/.github/project-space/issue-attachments/${ATTACHMENT_ID}.gif?raw=1`,
+              `https://github.com/DotNaos/project-space/blob/${'a'.repeat(40)}/.github/project-space/issue-attachments/${ISSUE_NUMBER}/${ATTACHMENT_ID}.gif?raw=1`,
             mediaType: 'image/gif',
             sizeBytes: 1,
             status: 'connected'
@@ -185,10 +197,11 @@ describe('GitHub issue attachment browser client', () => {
           attachmentId: ATTACHMENT_ID,
           fullName: REPOSITORY,
           image: new Blob(['<svg/>'], { type: 'image/svg+xml' })
+          ,issueNumber: ISSUE_NUMBER
         },
         options
       )
-    ).rejects.toThrow('PNG, JPEG, or GIF');
+    ).rejects.toThrow('PNG, JPEG, or non-animated GIF');
 
     await expect(
       uploadGitHubIssueAttachment(
@@ -197,7 +210,8 @@ describe('GitHub issue attachment browser client', () => {
           fullName: REPOSITORY,
           image: new Blob([new Uint8Array(10 * 1024 * 1024 + 1)], {
             type: 'image/png'
-          })
+          }),
+          issueNumber: ISSUE_NUMBER
         },
         options
       )
@@ -208,6 +222,7 @@ describe('GitHub issue attachment browser client', () => {
           attachmentId: '00000000-0000-4000-8000-00000000000A',
           fullName: REPOSITORY,
           image: new Blob([new Uint8Array([1])], { type: 'image/png' })
+          ,issueNumber: ISSUE_NUMBER
         },
         options
       )

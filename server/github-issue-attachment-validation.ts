@@ -4,9 +4,9 @@ import { inflatePngImageData } from './github-issue-png-inflate';
 
 export const GITHUB_ISSUE_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 export const GITHUB_ISSUE_MAX_ATTACHMENT_DIMENSION = 16_384;
-export const GITHUB_ISSUE_MAX_ATTACHMENT_PIXELS = 64 * 1024 * 1024;
+export const GITHUB_ISSUE_MAX_ATTACHMENT_PIXELS = 16 * 1024 * 1024;
 
-const MAX_PNG_SCANLINE_BYTES = 64 * 1024 * 1024;
+const MAX_PNG_SCANLINE_BYTES = 32 * 1024 * 1024;
 const MAX_STRUCTURE_PARTS = 100_000;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const JPEG_START_OF_FRAME_MARKERS = new Set(

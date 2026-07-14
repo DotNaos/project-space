@@ -18,9 +18,10 @@ import { runPendingIssueAttachmentUploads } from '../src/features/project-deskto
 const REPOSITORY = 'DotNaos/project-space';
 const FIRST_ID = '19de9ca6-f47e-4b67-8242-264d3016a719';
 const SECOND_ID = '1c4ba2e6-659e-474d-904b-5095a4286209';
+const ISSUE_NUMBER = 187;
 
 function storedImageUrl(attachmentId: string) {
-  return `https://github.com/${REPOSITORY}/blob/${'a'.repeat(40)}/.github/project-space/issue-attachments/${attachmentId}.png?raw=1`;
+  return `https://github.com/${REPOSITORY}/blob/${'a'.repeat(40)}/.github/project-space/issue-attachments/${ISSUE_NUMBER}/${attachmentId}.png?raw=1`;
 }
 
 function image(type: string, size: number) {
@@ -124,6 +125,7 @@ describe('pending issue image uploads', () => {
       getImage: (id) => controller.images.get(id),
       getState: controller.getState,
       isCurrentRepository: (key) => key === REPOSITORY,
+      issueNumber: ISSUE_NUMBER,
       registerAbortController: () => undefined,
       repositoryKey: REPOSITORY,
       upload: async (request) => {
@@ -132,6 +134,7 @@ describe('pending issue image uploads', () => {
         return {
           attachmentId: request.attachmentId,
           fullName: REPOSITORY,
+          issueNumber: ISSUE_NUMBER,
           markdownUrl: storedImageUrl(request.attachmentId),
           mediaType: 'image/png',
           sizeBytes: request.image.size,
@@ -150,6 +153,8 @@ describe('pending issue image uploads', () => {
       storedImageUrl(FIRST_ID)
     );
     expect(controller.getState().markdown).toContain(issueAttachmentPlaceholder(SECOND_ID));
+    expect(firstResult.persistableMarkdown).toContain(storedImageUrl(FIRST_ID));
+    expect(firstResult.persistableMarkdown).not.toContain('project-space-attachment:');
 
     calls.length = 0;
     const retryResult = await runPendingIssueAttachmentUploads({
@@ -158,6 +163,7 @@ describe('pending issue image uploads', () => {
       getImage: (id) => controller.images.get(id),
       getState: controller.getState,
       isCurrentRepository: (key) => key === REPOSITORY,
+      issueNumber: ISSUE_NUMBER,
       registerAbortController: () => undefined,
       repositoryKey: REPOSITORY,
       upload: async (request) => {
@@ -165,6 +171,7 @@ describe('pending issue image uploads', () => {
         return {
           attachmentId: request.attachmentId,
           fullName: REPOSITORY,
+          issueNumber: ISSUE_NUMBER,
           markdownUrl: storedImageUrl(request.attachmentId),
           mediaType: 'image/png',
           sizeBytes: request.image.size,
@@ -180,6 +187,7 @@ describe('pending issue image uploads', () => {
       'uploaded'
     ]);
     expect(retryResult.markdown).not.toContain('project-space-attachment:');
+    expect(retryResult.persistableMarkdown).toBe(retryResult.markdown);
   });
 
   test('turns a bounded request timeout into a retryable failure', async () => {
@@ -198,6 +206,7 @@ describe('pending issue image uploads', () => {
       getImage: () => new Blob(['image'], { type: 'image/png' }),
       getState: () => state,
       isCurrentRepository: (key) => key === REPOSITORY,
+      issueNumber: ISSUE_NUMBER,
       registerAbortController: () => undefined,
       repositoryKey: REPOSITORY,
       timeoutMs: 5,
@@ -230,6 +239,7 @@ describe('pending issue image uploads', () => {
       getImage: () => new Blob(['image'], { type: 'image/png' }),
       getState: () => state,
       isCurrentRepository: (key) => key === REPOSITORY,
+      issueNumber: ISSUE_NUMBER,
       registerAbortController: () => undefined,
       repositoryKey: REPOSITORY,
       timeoutMs: 5,

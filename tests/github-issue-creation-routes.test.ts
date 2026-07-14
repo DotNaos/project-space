@@ -50,7 +50,14 @@ describe('GitHub issue creation routes', () => {
     const route = createGitHubIssueCreationRoutes({
       async loadMetadata(fullName) {
         requestedRepository = fullName;
-        return { fullName, labels: [{ color: '123abc', name: 'bug' }], status: 'connected' };
+        return {
+          attachmentStorage: 'per-issue-branch',
+          attachmentWrite: 'unverified',
+          fullName,
+          labels: [{ color: '123abc', name: 'bug' }],
+          labelWrite: 'unverified',
+          status: 'connected'
+        };
       }
     });
     const handled = await route(
@@ -77,6 +84,7 @@ describe('GitHub issue creation routes', () => {
         return {
           attachmentId: value.attachmentId,
           fullName: value.fullName,
+          issueNumber: value.issueNumber,
           markdownUrl:
             `https://github.com/DotNaos/project-space/blob/${'a'.repeat(40)}/image.png?raw=1`,
           mediaType: 'image/png',
@@ -92,7 +100,7 @@ describe('GitHub issue creation routes', () => {
       }),
       output.response,
       new URL(
-        'http://project.test/api/github/issue-attachments?fullName=DotNaos%2Fproject-space&attachmentId=00000000-0000-4000-8000-000000000001'
+        'http://project.test/api/github/issue-attachments?fullName=DotNaos%2Fproject-space&attachmentId=00000000-0000-4000-8000-000000000001&issueNumber=187'
       )
     );
 
@@ -101,7 +109,8 @@ describe('GitHub issue creation routes', () => {
       attachmentId: '00000000-0000-4000-8000-000000000001',
       bytes: image,
       declaredMediaType: 'image/png',
-      fullName: 'DotNaos/project-space'
+      fullName: 'DotNaos/project-space',
+      issueNumber: 187
     });
     expect(output.read().status).toBe(200);
     expect(output.read().headers.get('cache-control')).toBe('private, no-store');
@@ -113,20 +122,20 @@ describe('GitHub issue creation routes', () => {
       maximumBodyBytes: 4,
       async uploadAttachment(value) {
         calls.push(value);
-        return { attachmentId: '', fullName: '', status: 'error' };
+        return { attachmentId: '', fullName: '', issueNumber: 1, status: 'error' };
       }
     });
     const cases = [
       {
         expected: 415,
         headers: { 'content-type': 'image/svg+xml' },
-        url: 'http://project.test/api/github/issue-attachments?fullName=a%2Fb&attachmentId=00000000-0000-4000-8000-000000000001',
+        url: 'http://project.test/api/github/issue-attachments?fullName=a%2Fb&attachmentId=00000000-0000-4000-8000-000000000001&issueNumber=1',
         chunks: [Buffer.from('<svg/>')]
       },
       {
         expected: 400,
         headers: { 'content-type': 'image/png' },
-        url: 'http://project.test/api/github/issue-attachments?fullName=a%2Fb&fullName=c%2Fd&attachmentId=00000000-0000-4000-8000-000000000001',
+        url: 'http://project.test/api/github/issue-attachments?fullName=a%2Fb&fullName=c%2Fd&attachmentId=00000000-0000-4000-8000-000000000001&issueNumber=1',
         chunks: [Buffer.from([1])]
       },
       {
@@ -138,25 +147,25 @@ describe('GitHub issue creation routes', () => {
       {
         expected: 400,
         headers: { 'content-type': 'image/png' },
-        url: 'http://project.test/api/github/issue-attachments?fullName=a%2Fb&attachmentId=00000000-0000-4000-8000-00000000000A',
+        url: 'http://project.test/api/github/issue-attachments?fullName=a%2Fb&attachmentId=00000000-0000-4000-8000-00000000000A&issueNumber=1',
         chunks: [Buffer.from([1])]
       },
       {
         expected: 400,
         headers: { 'content-type': 'image/png' },
-        url: 'http://project.test/api/github/issue-attachments?fullName=a%2Fb&attachmentId=00000000-0000-4000-8000-000000000001',
+        url: 'http://project.test/api/github/issue-attachments?fullName=a%2Fb&attachmentId=00000000-0000-4000-8000-000000000001&issueNumber=1',
         chunks: []
       },
       {
         expected: 413,
         headers: { 'content-length': '5', 'content-type': 'image/png' },
-        url: 'http://project.test/api/github/issue-attachments?fullName=a%2Fb&attachmentId=00000000-0000-4000-8000-000000000001',
+        url: 'http://project.test/api/github/issue-attachments?fullName=a%2Fb&attachmentId=00000000-0000-4000-8000-000000000001&issueNumber=1',
         chunks: [Buffer.alloc(5)]
       },
       {
         expected: 413,
         headers: { 'content-type': 'image/png' },
-        url: 'http://project.test/api/github/issue-attachments?fullName=a%2Fb&attachmentId=00000000-0000-4000-8000-000000000001',
+        url: 'http://project.test/api/github/issue-attachments?fullName=a%2Fb&attachmentId=00000000-0000-4000-8000-000000000001&issueNumber=1',
         chunks: [Buffer.alloc(3), Buffer.alloc(2)]
       }
     ];
@@ -173,6 +182,73 @@ describe('GitHub issue creation routes', () => {
       expect(output.read().status).toBe(item.expected);
     }
     expect(calls).toHaveLength(0);
+  });
+
+  test('bounds active and waiting uploads before reading more request bodies', async () => {
+    let releaseFirst = () => {};
+    let firstStarted = () => {};
+    const firstStartedPromise = new Promise<void>((resolve) => {
+      firstStarted = resolve;
+    });
+    const firstReleasePromise = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let uploadCount = 0;
+    const route = createGitHubIssueCreationRoutes({
+      maximumConcurrentUploads: 1,
+      maximumWaitingUploads: 1,
+      async uploadAttachment(value) {
+        uploadCount += 1;
+        if (uploadCount === 1) {
+          firstStarted();
+          await firstReleasePromise;
+        }
+        return {
+          attachmentId: value.attachmentId,
+          fullName: value.fullName,
+          issueNumber: value.issueNumber,
+          markdownUrl:
+            `https://github.com/DotNaos/project-space/blob/${'a'.repeat(40)}/image.png?raw=1`,
+          mediaType: 'image/png',
+          sizeBytes: value.bytes.byteLength,
+          status: 'connected'
+        };
+      }
+    });
+    const url = (id: number) => new URL(
+      'http://project.test/api/github/issue-attachments'
+      + `?fullName=DotNaos%2Fproject-space&attachmentId=00000000-0000-4000-8000-${String(id).padStart(12, '0')}&issueNumber=187`
+    );
+    const run = (id: number) => {
+      const output = responseRecorder();
+      const handled = route(
+        request('POST', [Buffer.from([id])], {
+          'content-length': '1',
+          'content-type': 'image/png'
+        }),
+        output.response,
+        url(id)
+      );
+      return { handled, output };
+    };
+
+    const first = run(1);
+    await firstStartedPromise;
+    const second = run(2);
+    await Promise.resolve();
+    const third = run(3);
+    expect(await third.handled).toBe(true);
+    expect(third.output.read()).toMatchObject({
+      body: { error: 'Too many issue images are waiting to upload.' },
+      status: 429
+    });
+    expect(third.output.read().headers.get('retry-after')).toBe('1');
+
+    releaseFirst();
+    await Promise.all([first.handled, second.handled]);
+    expect(first.output.read().status).toBe(200);
+    expect(second.output.read().status).toBe(200);
+    expect(uploadCount).toBe(2);
   });
 
   test('leaves unrelated paths for the remaining API router', async () => {

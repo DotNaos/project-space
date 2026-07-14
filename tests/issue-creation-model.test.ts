@@ -193,6 +193,29 @@ describe('issue creation state', () => {
     expect(canSubmitIssueCreation(state)).toBe(true);
   });
 
+  test('clears selected labels when the repository reports labels as read-only', () => {
+    let state = loadLabels(connectedDraft());
+    state = reduce(
+      state,
+      { name: 'bug', type: 'label-toggled' },
+      {
+        repositoryKey: 'DotNaos/project-space',
+        requestId: 'labels-2',
+        type: 'labels-load-started'
+      },
+      {
+        allowSelection: false,
+        labels: state.labels.labels,
+        repositoryKey: 'DotNaos/project-space',
+        requestId: 'labels-2',
+        type: 'labels-load-succeeded'
+      }
+    );
+
+    expect(state.selectedLabels).toEqual([]);
+    expect(issueCreationSubmissionLabels(state)).toEqual([]);
+  });
+
   test('preserves the portable draft and invalidates repository-specific state on switch', () => {
     let state = loadLabels(connectedDraft('DotNaos/first'));
     state = reduce(

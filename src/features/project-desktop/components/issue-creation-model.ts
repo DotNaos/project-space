@@ -71,6 +71,7 @@ export type IssueCreationAction =
       type: 'labels-load-started';
     }
   | {
+      allowSelection?: boolean;
       labels: readonly IssueCreationLabel[];
       repositoryKey: string;
       requestId: string;
@@ -314,7 +315,9 @@ export function issueCreationReducer(
           requestId: action.requestId,
           status: 'ready'
         },
-        selectedLabels: state.selectedLabels.filter((name) => names.has(name))
+        selectedLabels: action.allowSelection === false
+          ? []
+          : state.selectedLabels.filter((name) => names.has(name))
       };
     }
     case 'labels-load-failed':

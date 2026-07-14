@@ -136,6 +136,7 @@ export function IssueBody({ issue, onIssueUpdated, repoFullName }: IssueBodyProp
           error={editError}
           initialBody={issue.body ?? ''}
           initialLabels={issue.labels}
+          issueNumber={issue.number}
           initialState={issue.state}
           initialTitle={issue.title}
           onCancel={() => {
@@ -174,6 +175,7 @@ export function IssueEditor({
   initialLabels,
   initialState,
   initialTitle,
+  issueNumber = 0,
   onCancel,
   onSubmit,
   repositoryKey = null,
@@ -185,6 +187,7 @@ export function IssueEditor({
   initialLabels: string[];
   initialState?: GitHubIssueRecord['state'];
   initialTitle: string;
+  issueNumber?: number;
   onCancel(): void;
   onSubmit(values: IssueFormValues): Promise<void>;
   repositoryKey?: string | null;
@@ -221,7 +224,7 @@ export function IssueEditor({
     submitInFlight.current = true;
     setIsSubmitting(true);
     try {
-      const uploaded = await attachments.uploadPendingAttachments();
+      const uploaded = await attachments.uploadPendingAttachments(issueNumber);
       if (!uploaded.completed) return;
 
       await onSubmit({

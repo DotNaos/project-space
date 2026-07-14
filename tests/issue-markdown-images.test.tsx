@@ -13,7 +13,7 @@ describe('issue Markdown images', () => {
     const commitSha = 'a'.repeat(40);
     const imageUrl =
       `https://github.com/DotNaos/project-space/blob/${commitSha}/`
-      + `.github/project-space/issue-attachments/${attachmentId}.png?raw=1`;
+      + `.github/project-space/issue-attachments/187/${attachmentId}.png?raw=1`;
     const html = renderToStaticMarkup(
       <IssueMarkdown
         markdown={`![Private diagram](${imageUrl})`}
@@ -31,7 +31,7 @@ describe('issue Markdown images', () => {
     const imageUrl =
       `https://github.com/DotNaos/secret/blob/${'a'.repeat(40)}/`
       + '.github/project-space/issue-attachments/'
-      + '00000000-0000-4000-8000-000000000001.png?raw=1';
+      + '187/00000000-0000-4000-8000-000000000001.png?raw=1';
     const html = renderToStaticMarkup(
       <IssueMarkdown
         markdown={`![Other repository](${imageUrl})`}

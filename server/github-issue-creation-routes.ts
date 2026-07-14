@@ -16,6 +16,8 @@ import { writeJson } from './project-space-http-response';
 interface GitHubIssueCreationRouteOptions {
   loadMetadata?(fullName: string): Promise<LocalGitHubIssueMetadataResult>;
   maximumBodyBytes?: number;
+  maximumConcurrentUploads?: number;
+  maximumWaitingUploads?: number;
   uploadAttachment?(
     request: LocalGitHubIssueAttachmentRequest
   ): Promise<LocalGitHubIssueAttachmentResult>;
@@ -29,6 +31,8 @@ class IssueAttachmentBodyError extends Error {
     super(message);
   }
 }
+
+class IssueAttachmentBusyError extends Error {}
 
 const supportedMediaTypes = new Set(['image/gif', 'image/jpeg', 'image/png']);
 const attachmentIdPattern =
@@ -92,6 +96,35 @@ export function createGitHubIssueCreationRoutes(
     Number.isSafeInteger(options.maximumBodyBytes) && (options.maximumBodyBytes ?? 0) > 0
       ? options.maximumBodyBytes!
       : GITHUB_ISSUE_MAX_ATTACHMENT_BYTES;
+  const maximumConcurrentUploads =
+    Number.isSafeInteger(options.maximumConcurrentUploads)
+      && (options.maximumConcurrentUploads ?? 0) > 0
+      ? options.maximumConcurrentUploads!
+      : 2;
+  const maximumWaitingUploads =
+    Number.isSafeInteger(options.maximumWaitingUploads)
+      && (options.maximumWaitingUploads ?? -1) >= 0
+      ? options.maximumWaitingUploads!
+      : 16;
+  let activeUploads = 0;
+  const waitingUploads: Array<() => void> = [];
+
+  async function acquireUploadSlot() {
+    if (activeUploads < maximumConcurrentUploads) {
+      activeUploads += 1;
+      return;
+    }
+    if (waitingUploads.length >= maximumWaitingUploads) {
+      throw new IssueAttachmentBusyError();
+    }
+    await new Promise<void>((resolve) => waitingUploads.push(resolve));
+  }
+
+  function releaseUploadSlot() {
+    const next = waitingUploads.shift();
+    if (next) next();
+    else activeUploads -= 1;
+  }
 
   return async function handleGitHubIssueCreationRoute(
     request: IncomingMessage,
@@ -117,12 +150,21 @@ export function createGitHubIssueCreationRoutes(
     response.setHeader('Cache-Control', 'private, no-store');
     const fullName = url.searchParams.get('fullName');
     const attachmentId = url.searchParams.get('attachmentId');
+    const rawIssueNumber = url.searchParams.get('issueNumber');
+    const issueNumber = rawIssueNumber && /^[1-9]\d*$/.test(rawIssueNumber)
+      ? Number(rawIssueNumber)
+      : 0;
     if (
       !fullName
       || !attachmentId
-      || !hasExactSearchParams(url.searchParams, ['fullName', 'attachmentId'])
+      || !hasExactSearchParams(
+        url.searchParams,
+        ['fullName', 'attachmentId', 'issueNumber']
+      )
       || !isValidGitHubRepositoryFullName(fullName)
       || !attachmentIdPattern.test(attachmentId)
+      || !Number.isSafeInteger(issueNumber)
+      || issueNumber <= 0
     ) {
       writeJson(response, 400, { error: 'Invalid attachment repository or identifier.' });
       return true;
@@ -132,23 +174,37 @@ export function createGitHubIssueCreationRoutes(
     const declaredMediaType =
       typeof rawMediaType === 'string' ? rawMediaType.trim().toLowerCase() : '';
     if (!supportedMediaTypes.has(declaredMediaType)) {
-      writeJson(response, 415, { error: 'Paste a PNG, JPEG, or GIF image.' });
+      writeJson(response, 415, { error: 'Paste a PNG, JPEG, or non-animated GIF image.' });
       return true;
     }
 
+    let hasUploadSlot = false;
     try {
+      await acquireUploadSlot();
+      hasUploadSlot = true;
       const bytes = await readGitHubIssueAttachmentBody(request, maximumBodyBytes);
       writeJson(
         response,
         200,
-        await uploadAttachment({ attachmentId, bytes, declaredMediaType, fullName })
+        await uploadAttachment({
+          attachmentId,
+          bytes,
+          declaredMediaType,
+          fullName,
+          issueNumber
+        })
       );
     } catch (error) {
       if (error instanceof IssueAttachmentBodyError) {
         writeJson(response, error.statusCode, { error: error.message });
+      } else if (error instanceof IssueAttachmentBusyError) {
+        response.setHeader('Retry-After', '1');
+        writeJson(response, 429, { error: 'Too many issue images are waiting to upload.' });
       } else {
         throw error;
       }
+    } finally {
+      if (hasUploadSlot) releaseUploadSlot();
     }
     return true;
   };

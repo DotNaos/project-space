@@ -18,7 +18,10 @@ describe('local GitHub issue metadata', () => {
       getGitHubClientId: () => 'client-id',
       async requestGitHub<T>(path: string, token: string) {
         calls.push([path, token]);
-        return (calls.length === 1
+        if (path === '/repos/DotNaos/project-space') {
+          return { permissions: { push: true } } as T;
+        }
+        return (path.endsWith('page=1')
           ? firstPage
           : [{ color: 'fedcba', description: null, name: 'last-label' }]) as T;
       },
@@ -28,10 +31,13 @@ describe('local GitHub issue metadata', () => {
     });
 
     expect(calls).toEqual([
+      ['/repos/DotNaos/project-space', 'server-only-token'],
       ['/repos/DotNaos/project-space/labels?per_page=100&page=1', 'server-only-token'],
       ['/repos/DotNaos/project-space/labels?per_page=100&page=2', 'server-only-token']
     ]);
     expect(result).toEqual({
+      attachmentStorage: 'per-issue-branch',
+      attachmentWrite: 'unverified',
       fullName: 'DotNaos/project-space',
       labels: [
         ...firstPage.map((label) => ({
@@ -41,6 +47,7 @@ describe('local GitHub issue metadata', () => {
         })),
         { color: 'fedcba', description: undefined, name: 'last-label' }
       ],
+      labelWrite: 'unverified',
       status: 'connected'
     });
   });
@@ -92,7 +99,10 @@ describe('local GitHub issue metadata', () => {
   test('rejects malformed GitHub label data without leaking it to the browser', async () => {
     const result = await loadLocalGitHubIssueMetadata('DotNaos/project-space', {
       getGitHubClientId: () => 'configured',
-      async requestGitHub<T>() {
+      async requestGitHub<T>(path: string) {
+        if (path === '/repos/DotNaos/project-space') {
+          return { permissions: { push: false } } as T;
+        }
         return [
           { color: '123abc', description: 'Valid label', name: 'bug' },
           { color: '<script>', description: null, name: 'unsafe-color' },
@@ -105,10 +115,43 @@ describe('local GitHub issue metadata', () => {
     });
 
     expect(result).toEqual({
+      attachmentStorage: 'per-issue-branch',
+      attachmentWrite: 'denied',
       fullName: 'DotNaos/project-space',
       labels: [{ color: '123abc', description: 'Valid label', name: 'bug' }],
+      labelWrite: 'unverified',
       status: 'connected'
     });
+  });
+
+  test('distinguishes file-write access from issue-label access', async () => {
+    const readOnlyFiles = await loadLocalGitHubIssueMetadata('DotNaos/project-space', {
+      getGitHubClientId: () => 'configured',
+      async requestGitHub<T>(path: string) {
+        return (path === '/repos/DotNaos/project-space'
+          ? { permissions: { push: false } }
+          : []) as T;
+      },
+      async resolveOAuthToken() {
+        return { token: 'server-only-token' };
+      }
+    });
+    expect(readOnlyFiles.attachmentWrite).toBe('denied');
+    expect(readOnlyFiles.labelWrite).toBe('unverified');
+
+    const archived = await loadLocalGitHubIssueMetadata('DotNaos/project-space', {
+      getGitHubClientId: () => 'configured',
+      async requestGitHub<T>(path: string) {
+        return (path === '/repos/DotNaos/project-space'
+          ? { archived: true, permissions: { push: true } }
+          : []) as T;
+      },
+      async resolveOAuthToken() {
+        return { token: 'server-only-token' };
+      }
+    });
+    expect(archived.attachmentWrite).toBe('denied');
+    expect(archived.labelWrite).toBe('denied');
   });
 
   test('returns request failures explicitly', async () => {
@@ -141,8 +184,11 @@ describe('GitHub issue metadata browser client', () => {
         requestUrl = input.toString();
         requestInit = init;
         return Response.json({
+          attachmentStorage: 'per-issue-branch',
+          attachmentWrite: 'unverified',
           fullName: 'DotNaos/project-space',
           labels: [{ color: '123abc', description: 'Needs work', name: 'bug' }],
+          labelWrite: 'unverified',
           status: 'connected'
         });
       },
@@ -165,8 +211,11 @@ describe('GitHub issue metadata browser client', () => {
         currentHref: 'https://projects.os-home.net/projects',
         async fetchImplementation() {
           return Response.json({
+            attachmentStorage: 'per-issue-branch',
+            attachmentWrite: 'unverified',
             fullName: 'DotNaos/other',
             labels: [],
+            labelWrite: 'unverified',
             status: 'connected'
           });
         },
@@ -181,8 +230,11 @@ describe('GitHub issue metadata browser client', () => {
         currentHref: 'https://projects.os-home.net/projects',
         async fetchImplementation() {
           return Response.json({
+            attachmentStorage: 'per-issue-branch',
+            attachmentWrite: 'unverified',
             fullName: 'DotNaos/project-space',
             labels: [{ color: '123abc', name: 42 }],
+            labelWrite: 'unverified',
             status: 'connected'
           });
         },
@@ -197,8 +249,11 @@ describe('GitHub issue metadata browser client', () => {
       async fetchImplementation(input) {
         requestUrl = input.toString();
         return Response.json({
+          attachmentStorage: 'per-issue-branch',
+          attachmentWrite: 'unverified',
           fullName: 'DotNaos/project-space',
           labels: [],
+          labelWrite: 'unverified',
           status: 'connected'
         });
       },

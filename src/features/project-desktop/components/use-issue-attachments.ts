@@ -15,6 +15,8 @@ import {
 import {
   createInitialIssueAttachmentState,
   hasUnresolvedIssueAttachments,
+  issueAttachmentMarkdownWithUploadedAttachments,
+  issueAttachmentMarkdownWithoutAttachments,
   issueAttachmentReducer,
   type IssueAttachmentAction,
   type IssueAttachmentState
@@ -40,6 +42,7 @@ export interface UseIssueAttachmentsOptions {
   repositoryKey: string | null;
   timeoutMs?: number;
   upload?: IssueAttachmentUpload;
+  writeDenied?: boolean;
 }
 
 function normalizedRepositoryKey(repositoryKey: string | null) {
@@ -76,7 +79,8 @@ export function useIssueAttachments({
   onMarkdownChange,
   repositoryKey,
   timeoutMs,
-  upload = uploadGitHubIssueAttachment
+  upload = uploadGitHubIssueAttachment,
+  writeDenied = false
 }: UseIssueAttachmentsOptions) {
   const desiredRepositoryKey = normalizedRepositoryKey(repositoryKey);
   const [state, setState] = useState<IssueAttachmentState>(() =>
@@ -90,6 +94,7 @@ export function useIssueAttachments({
   const uploadRef = useRef(upload);
   const createAttachmentIdRef = useRef(createAttachmentId);
   const createRequestIdRef = useRef(createRequestId);
+  const writeDeniedRef = useRef(writeDenied);
   const imagesRef = useRef(new Map<string, Blob>());
   const abortControllersRef = useRef(new Map<string, AbortController>());
   const uploadPromiseRef = useRef<Promise<IssueAttachmentUploadResult> | null>(null);
@@ -99,6 +104,7 @@ export function useIssueAttachments({
   uploadRef.current = upload;
   createAttachmentIdRef.current = createAttachmentId;
   createRequestIdRef.current = createRequestId;
+  writeDeniedRef.current = writeDenied;
 
   const apply = useCallback((action: IssueAttachmentAction, notify = true) => {
     const previous = stateRef.current;
@@ -170,6 +176,17 @@ export function useIssueAttachments({
     (images: readonly Blob[], cursor: number): QueueIssueAttachmentImagesResult => {
       const current = stateRef.current;
       const currentRepositoryKey = repositoryKeyRef.current;
+      if (writeDeniedRef.current) {
+        const message =
+          'This repository is read-only for files. Remove pasted images to create the issue.';
+        setError(message);
+        return {
+          acceptedCount: 0,
+          error: message,
+          markdown: current.markdown,
+          selectionEnd: Math.max(0, cursor)
+        };
+      }
       if (!currentRepositoryKey || current.repositoryKey !== currentRepositoryKey) {
         const message = 'Choose a repository before pasting an image.';
         setError(message);
@@ -291,13 +308,40 @@ export function useIssueAttachments({
     [apply]
   );
 
-  const uploadPendingAttachments = useCallback(() => {
+  const removeAllAttachments = useCallback(() => {
+    const attachmentIds = stateRef.current.attachments.map(
+      (attachment) => attachment.attachmentId
+    );
+    for (const attachmentId of attachmentIds) {
+      abortControllersRef.current.get(attachmentId)?.abort();
+      abortControllersRef.current.delete(attachmentId);
+      imagesRef.current.delete(attachmentId);
+      apply({ attachmentId, type: 'attachment-removed' }, false);
+    }
+    onMarkdownChangeRef.current(stateRef.current.markdown);
+    setError(null);
+  }, [apply]);
+
+  const uploadPendingAttachments = useCallback((issueNumber: number) => {
     if (uploadPromiseRef.current) return uploadPromiseRef.current;
+
+    if (!Number.isSafeInteger(issueNumber) || issueNumber <= 0) {
+      const result = Promise.resolve({
+        completed: false,
+        markdown: stateRef.current.markdown,
+        persistableMarkdown:
+          issueAttachmentMarkdownWithUploadedAttachments(stateRef.current)
+      });
+      setError('Create or select an issue before storing pasted images.');
+      return result;
+    }
 
     if (!hasUnresolvedIssueAttachments(stateRef.current)) {
       return Promise.resolve({
         completed: true,
-        markdown: stateRef.current.markdown
+        markdown: stateRef.current.markdown,
+        persistableMarkdown:
+          issueAttachmentMarkdownWithUploadedAttachments(stateRef.current)
       });
     }
 
@@ -305,7 +349,9 @@ export function useIssueAttachments({
     if (!currentRepositoryKey || stateRef.current.repositoryKey !== currentRepositoryKey) {
       const result = Promise.resolve({
         completed: false,
-        markdown: stateRef.current.markdown
+        markdown: stateRef.current.markdown,
+        persistableMarkdown:
+          issueAttachmentMarkdownWithUploadedAttachments(stateRef.current)
       });
       setError('Choose a repository before storing pasted images.');
       return result;
@@ -321,6 +367,7 @@ export function useIssueAttachments({
           getImage: (attachmentId) => imagesRef.current.get(attachmentId),
           getState: () => stateRef.current,
           isCurrentRepository: (key) => repositoryKeyRef.current === key,
+          issueNumber,
           registerAbortController: (attachmentId, controller) => {
             if (controller) abortControllersRef.current.set(attachmentId, controller);
             else abortControllersRef.current.delete(attachmentId);
@@ -352,8 +399,14 @@ export function useIssueAttachments({
     hasUnresolvedAttachments: hasUnresolvedIssueAttachments(state),
     isUploading,
     markdown: state.markdown,
+    markdownWithUploadedAttachments:
+      issueAttachmentMarkdownWithUploadedAttachments(state),
+    markdownWithoutAttachments: issueAttachmentMarkdownWithoutAttachments(state),
     queuePastedImages,
+    removeAllAttachments,
     removeAttachment,
     uploadPendingAttachments
   };
 }
+
+export type IssueAttachmentsController = ReturnType<typeof useIssueAttachments>;

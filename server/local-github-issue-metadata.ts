@@ -11,8 +11,13 @@ export interface LocalGitHubIssueLabel {
   name: string;
 }
 
+export type GitHubIssueWriteCapability = 'denied' | 'unverified';
+
 export interface LocalGitHubIssueMetadataResult {
+  attachmentStorage?: 'per-issue-branch';
+  attachmentWrite?: GitHubIssueWriteCapability;
   fullName: string;
+  labelWrite?: GitHubIssueWriteCapability;
   labels: LocalGitHubIssueLabel[];
   message?: string;
   status: 'connected' | 'auth-required' | 'not-configured' | 'error';
@@ -22,6 +27,12 @@ interface GitHubIssueMetadataDependencies {
   getGitHubClientId(): string;
   requestGitHub<T>(path: string, token: string): Promise<T>;
   resolveOAuthToken(): Promise<{ token: string } | null>;
+}
+
+interface GitHubRepositoryPermissionsResponse {
+  archived?: unknown;
+  disabled?: unknown;
+  permissions?: { push?: unknown };
 }
 
 const defaultDependencies: GitHubIssueMetadataDependencies = {
@@ -76,6 +87,24 @@ function safeErrorMessage(error: unknown) {
   return error.message.slice(0, 300) || 'Could not load repository labels.';
 }
 
+function repositoryWriteCapability(
+  repository: GitHubRepositoryPermissionsResponse
+): GitHubIssueWriteCapability {
+  return repository.archived === true
+    || repository.disabled === true
+    || repository.permissions?.push === false
+    ? 'denied'
+    : 'unverified';
+}
+
+function repositoryLabelWriteCapability(
+  repository: GitHubRepositoryPermissionsResponse
+): GitHubIssueWriteCapability {
+  return repository.archived === true || repository.disabled === true
+    ? 'denied'
+    : 'unverified';
+}
+
 export async function loadLocalGitHubIssueMetadata(
   fullName: string,
   dependencies: GitHubIssueMetadataDependencies = defaultDependencies
@@ -106,6 +135,15 @@ export async function loadLocalGitHubIssueMetadata(
   try {
     const labels: LocalGitHubIssueLabel[] = [];
     const repoPath = repositoryApiPath(fullName);
+    const repository = await dependencies.requestGitHub<GitHubRepositoryPermissionsResponse>(
+      `/repos/${repoPath}`,
+      auth.token
+    );
+    if (!repository || typeof repository !== 'object') {
+      throw new Error('GitHub returned invalid repository permissions.');
+    }
+    const attachmentWrite = repositoryWriteCapability(repository);
+    const labelWrite = repositoryLabelWriteCapability(repository);
 
     for (let page = 1; page <= maximumLabelPages; page += 1) {
       const response = await dependencies.requestGitHub<unknown>(
@@ -124,7 +162,14 @@ export async function loadLocalGitHubIssueMetadata(
       );
 
       if (response.length < labelsPerPage) {
-        return { fullName, labels, status: 'connected' };
+        return {
+          attachmentStorage: 'per-issue-branch',
+          attachmentWrite,
+          fullName,
+          labels,
+          labelWrite,
+          status: 'connected'
+        };
       }
     }
 

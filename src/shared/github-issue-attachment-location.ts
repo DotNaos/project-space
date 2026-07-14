@@ -8,6 +8,7 @@ export interface GitHubIssueAttachmentLocation {
   commitSha: string;
   extension: GitHubIssueAttachmentExtension;
   fullName: string;
+  issueNumber: number;
 }
 
 const attachmentIdPattern =
@@ -31,6 +32,8 @@ export function isGitHubIssueAttachmentLocation(
     && isGitHubIssueAttachmentExtension(location.extension)
     && typeof location.fullName === 'string'
     && isGitHubRepositoryFullName(location.fullName)
+    && Number.isSafeInteger(location.issueNumber)
+    && (location.issueNumber ?? 0) > 0
   );
 }
 
@@ -59,11 +62,14 @@ export function gitHubIssueAttachmentMediaType(
 }
 
 export function gitHubIssueAttachmentRepositoryPath(
-  location: Pick<GitHubIssueAttachmentLocation, 'attachmentId' | 'extension'>
+  location: Pick<
+    GitHubIssueAttachmentLocation,
+    'attachmentId' | 'extension' | 'issueNumber'
+  >
 ) {
   return (
     '.github/project-space/issue-attachments/'
-    + `${location.attachmentId}.${location.extension}`
+    + `${location.issueNumber}/${location.attachmentId}.${location.extension}`
   );
 }
 
@@ -103,15 +109,18 @@ export function parseProjectSpaceGitHubIssueAttachmentUrl(
     const commitSha = immutablePath.slice(0, separator);
     const attachmentPath = immutablePath.slice(separator + 1);
     const attachmentMatch = attachmentPath.match(
-      /^\.github\/project-space\/issue-attachments\/([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(gif|jpg|png)$/
+      /^\.github\/project-space\/issue-attachments\/([1-9]\d*)\/([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(gif|jpg|png)$/
     );
     if (!attachmentMatch || !commitShaPattern.test(commitSha)) return null;
+    const issueNumber = Number(attachmentMatch[1]);
+    if (!Number.isSafeInteger(issueNumber)) return null;
 
     return {
-      attachmentId: attachmentMatch[1],
+      attachmentId: attachmentMatch[2],
       commitSha,
-      extension: attachmentMatch[2] as GitHubIssueAttachmentExtension,
-      fullName: repositoryFullName
+      extension: attachmentMatch[3] as GitHubIssueAttachmentExtension,
+      fullName: repositoryFullName,
+      issueNumber
     };
   } catch {
     return null;
@@ -125,7 +134,8 @@ export function parseGitHubIssueAttachmentContentSearch(
     'attachmentId',
     'commitSha',
     'extension',
-    'fullName'
+    'fullName',
+    'issueNumber'
   ]);
   const entries = Array.from(searchParams.entries());
   if (
@@ -139,7 +149,8 @@ export function parseGitHubIssueAttachmentContentSearch(
     attachmentId: searchParams.get('attachmentId'),
     commitSha: searchParams.get('commitSha'),
     extension: searchParams.get('extension'),
-    fullName: searchParams.get('fullName')
+    fullName: searchParams.get('fullName'),
+    issueNumber: Number(searchParams.get('issueNumber'))
   };
 
   return isGitHubIssueAttachmentLocation(location) ? location : null;

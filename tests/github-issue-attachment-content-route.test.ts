@@ -8,7 +8,8 @@ const BASE_URL =
   + 'attachmentId=00000000-0000-4000-8000-000000000001'
   + `&commitSha=${'a'.repeat(40)}`
   + '&extension=png'
-  + '&fullName=DotNaos%2Fproject-space';
+  + '&fullName=DotNaos%2Fproject-space'
+  + '&issueNumber=187';
 
 function request(method: string) {
   return { method } as IncomingMessage;
@@ -59,7 +60,8 @@ describe('GitHub issue attachment content route', () => {
       attachmentId: '00000000-0000-4000-8000-000000000001',
       commitSha: 'a'.repeat(40),
       extension: 'png',
-      fullName: 'DotNaos/project-space'
+      fullName: 'DotNaos/project-space',
+      issueNumber: 187
     });
     const result = output.read();
     expect(result.status).toBe(200);

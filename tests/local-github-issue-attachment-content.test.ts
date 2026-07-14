@@ -15,7 +15,8 @@ const LOCATION: GitHubIssueAttachmentLocation = {
   attachmentId: '00000000-0000-4000-8000-000000000001',
   commitSha: 'a'.repeat(40),
   extension: 'gif',
-  fullName: 'DotNaos/project-space'
+  fullName: 'DotNaos/project-space',
+  issueNumber: 187
 };
 
 function dependencies(
@@ -67,7 +68,7 @@ describe('local GitHub issue attachment content', () => {
     expect(requestUrl).toBe(
       'https://api.github.com/repos/DotNaos/project-space/contents/'
       + '.github/project-space/issue-attachments/'
-      + `${LOCATION.attachmentId}.gif?ref=${LOCATION.commitSha}`
+      + `${LOCATION.issueNumber}/${LOCATION.attachmentId}.gif?ref=${LOCATION.commitSha}`
     );
     expect(requestInit?.method).toBe('GET');
     expect(requestInit?.redirect).toBe('error');

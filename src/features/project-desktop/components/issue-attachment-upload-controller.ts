@@ -4,6 +4,7 @@ import {
 } from '../../../api/github-issue-attachment-client';
 import {
   hasUnresolvedIssueAttachments,
+  issueAttachmentMarkdownWithUploadedAttachments,
   type IssueAttachmentAction,
   type IssueAttachmentState
 } from './issue-attachment-model';
@@ -11,6 +12,7 @@ import {
 export interface IssueAttachmentUploadResult {
   completed: boolean;
   markdown: string;
+  persistableMarkdown: string;
 }
 
 export type IssueAttachmentUpload = (
@@ -24,6 +26,7 @@ export interface RunPendingIssueAttachmentUploadsOptions {
   getImage(attachmentId: string): Blob | undefined;
   getState(): IssueAttachmentState;
   isCurrentRepository(repositoryKey: string): boolean;
+  issueNumber: number;
   registerAbortController(
     attachmentId: string,
     controller: AbortController | null
@@ -86,6 +89,7 @@ export async function runPendingIssueAttachmentUploads({
   getImage,
   getState,
   isCurrentRepository,
+  issueNumber,
   registerAbortController,
   repositoryKey,
   timeoutMs = defaultTimeoutMs,
@@ -131,7 +135,8 @@ export async function runPendingIssueAttachmentUploads({
           {
             attachmentId: attachment.attachmentId,
             fullName: repositoryKey,
-            image
+            image,
+            issueNumber
           },
           { signal }
         ),
@@ -173,6 +178,7 @@ export async function runPendingIssueAttachmentUploads({
   return {
     completed:
       state.repositoryKey === repositoryKey && !hasUnresolvedIssueAttachments(state),
-    markdown: state.markdown
+    markdown: state.markdown,
+    persistableMarkdown: issueAttachmentMarkdownWithUploadedAttachments(state)
   };
 }

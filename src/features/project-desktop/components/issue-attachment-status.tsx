@@ -8,6 +8,7 @@ interface IssueAttachmentStatusProps {
   disabled?: boolean;
   error?: string | null;
   onRemove(attachmentId: string): void;
+  onRemoveAll?(): void;
 }
 
 function formatBytes(sizeBytes: number) {
@@ -34,7 +35,8 @@ export function IssueAttachmentStatus({
   attachments,
   disabled = false,
   error,
-  onRemove
+  onRemove,
+  onRemoveAll
 }: IssueAttachmentStatusProps) {
   if (attachments.length === 0 && !error) return null;
   const hasPendingImages = attachments.some((attachment) => attachment.status !== 'uploaded');
@@ -45,19 +47,31 @@ export function IssueAttachmentStatus({
         <>
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-xs font-medium text-neutral-300">Pasted images</h3>
-            <p className="text-right text-[11px] text-neutral-500">
-              {attachments.length}/10 · 10 MiB each · 50 MiB total
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-right text-[11px] text-neutral-500">
+                {attachments.length}/10 · 10 MiB each · 50 MiB total
+              </p>
+              {onRemoveAll && attachments.length > 1 ? (
+                <Button
+                  isDisabled={disabled}
+                  size="sm"
+                  variant="ghost"
+                  onPress={onRemoveAll}
+                >
+                  Remove all
+                </Button>
+              ) : null}
+            </div>
           </div>
 
           <ul className="mt-2 space-y-1.5" aria-live="polite">
-            {attachments.map((attachment) => (
+            {attachments.map((attachment, index) => (
               <li
                 key={attachment.attachmentId}
                 className="flex min-w-0 items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950/60 px-2.5 py-2"
               >
                 {attachment.status === 'uploading' ? (
-                  <Spinner aria-label="Storing image" size="sm" />
+                  <Spinner aria-label={`Storing pasted image ${index + 1}`} size="sm" />
                 ) : (
                   <ImageIcon aria-hidden="true" className="size-4 shrink-0 text-neutral-500" />
                 )}
@@ -79,7 +93,7 @@ export function IssueAttachmentStatus({
                   </p>
                 </div>
                 <Button
-                  aria-label="Remove pasted image"
+                  aria-label={`Remove pasted image ${index + 1}`}
                   className="size-7 min-h-7 min-w-7 shrink-0 rounded-full p-0 text-neutral-500"
                   isIconOnly
                   isDisabled={disabled}

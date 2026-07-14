@@ -12,9 +12,10 @@ import {
 const REPOSITORY = 'DotNaos/project-space';
 const COMMIT_SHA = 'a'.repeat(40);
 const ATTACHMENT_ID = '00000000-0000-4000-8000-000000000001';
+const ISSUE_NUMBER = 187;
 const MARKDOWN_URL =
   `https://github.com/${REPOSITORY}/blob/${COMMIT_SHA}/`
-  + `.github/project-space/issue-attachments/${ATTACHMENT_ID}.png?raw=1`;
+  + `.github/project-space/issue-attachments/${ISSUE_NUMBER}/${ATTACHMENT_ID}.png?raw=1`;
 
 describe('GitHub issue attachment content client', () => {
   test('proxies only an immutable Project Space image from the current repository', () => {
@@ -26,6 +27,7 @@ describe('GitHub issue attachment content client', () => {
       + `&commitSha=${COMMIT_SHA}`
       + '&extension=png'
       + '&fullName=DotNaos%2Fproject-space'
+      + `&issueNumber=${ISSUE_NUMBER}`
     );
     expect(
       parseGitHubIssueAttachmentContentSearch(
@@ -35,7 +37,8 @@ describe('GitHub issue attachment content client', () => {
       attachmentId: ATTACHMENT_ID,
       commitSha: COMMIT_SHA,
       extension: 'png',
-      fullName: REPOSITORY
+      fullName: REPOSITORY,
+      issueNumber: ISSUE_NUMBER
     });
   });
 

@@ -17,7 +17,10 @@ export type GitHubIssueMetadataStatus =
   | 'error';
 
 export interface GitHubIssueMetadataResult {
+  attachmentStorage?: 'per-issue-branch';
+  attachmentWrite?: 'denied' | 'unverified';
   fullName: string;
+  labelWrite?: 'denied' | 'unverified';
   labels: GitHubIssueLabel[];
   message?: string;
   status: GitHubIssueMetadataStatus;
@@ -58,11 +61,19 @@ function isIssueMetadataResult(value: unknown): value is GitHubIssueMetadataResu
 
   const candidate = value as Partial<GitHubIssueMetadataResult>;
 
+  const connectedCapabilitiesValid = candidate.status !== 'connected'
+    || (
+      candidate.attachmentStorage === 'per-issue-branch'
+      && (candidate.attachmentWrite === 'denied' || candidate.attachmentWrite === 'unverified')
+      && (candidate.labelWrite === 'denied' || candidate.labelWrite === 'unverified')
+    );
+
   return (
     typeof candidate.fullName === 'string' &&
     Array.isArray(candidate.labels) &&
     candidate.labels.every(isIssueLabel) &&
     metadataStatuses.has(candidate.status as GitHubIssueMetadataStatus) &&
+    connectedCapabilitiesValid &&
     (candidate.message === undefined || typeof candidate.message === 'string')
   );
 }

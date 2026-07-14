@@ -3,18 +3,39 @@ import { createHash } from 'node:crypto';
 
 import {
   uploadLocalGitHubIssueAttachment,
-  type LocalGitHubIssueAttachmentDependencies
+  type LocalGitHubIssueAttachmentDependencies,
+  type LocalGitHubIssueAttachmentRequest
 } from '../server/local-github-issue-attachments';
 
 const REPOSITORY = 'DotNaos/project-space';
+const ISSUE_NUMBER = 187;
 const ATTACHMENT_ID = '00000000-0000-4000-8000-000000000001';
 const IMAGE_BYTES = Buffer.from('validated-image-bytes');
+const DEFAULT_SHA = 'd'.repeat(40);
+const BRANCH_SHA = 'b'.repeat(40);
+const BRANCH_NAME = `project-space-issue-${ISSUE_NUMBER}-attachments`;
+const BRANCH_REF = `refs/heads/${BRANCH_NAME}`;
+const EXPECTED_PATH =
+  `.github/project-space/issue-attachments/${ISSUE_NUMBER}/${ATTACHMENT_ID}.png`;
 
 function blobSha(bytes: Uint8Array) {
   return createHash('sha1')
     .update(`blob ${bytes.byteLength}\0`)
     .update(bytes)
     .digest('hex');
+}
+
+function request(
+  overrides: Partial<LocalGitHubIssueAttachmentRequest> = {}
+): LocalGitHubIssueAttachmentRequest {
+  return {
+    attachmentId: ATTACHMENT_ID,
+    bytes: IMAGE_BYTES,
+    declaredMediaType: 'image/png',
+    fullName: REPOSITORY,
+    issueNumber: ISSUE_NUMBER,
+    ...overrides
+  };
 }
 
 function dependencies(
@@ -32,50 +53,184 @@ function dependencies(
   };
 }
 
+function repositoryResponse(push: boolean | undefined = true) {
+  return {
+    archived: false,
+    default_branch: 'main',
+    disabled: false,
+    permissions: push === undefined ? undefined : { push }
+  };
+}
+
 describe('local GitHub issue attachments', () => {
-  test('commits a validated image to a server-chosen path and returns an immutable GitHub URL', async () => {
+  test('creates a per-issue branch and writes only there with a server-chosen path', async () => {
     const calls: Array<{ init?: RequestInit; path: string; token: string }> = [];
-    const expectedPath =
-      `.github/project-space/issue-attachments/${ATTACHMENT_ID}.png`;
     const result = await uploadLocalGitHubIssueAttachment(
-      {
-        attachmentId: ATTACHMENT_ID,
-        bytes: IMAGE_BYTES,
-        declaredMediaType: 'image/png',
-        fullName: REPOSITORY
-      },
+      request(),
       dependencies(async <T>(path: string, token: string, init?: RequestInit) => {
         calls.push({ init, path, token });
+        if (path === `/repos/${REPOSITORY}`) return repositoryResponse() as T;
+        if (path === `/repos/${REPOSITORY}/issues/${ISSUE_NUMBER}`) {
+          return { number: ISSUE_NUMBER } as T;
+        }
+        if (path.endsWith(`/git/ref/heads/${BRANCH_NAME}`)) {
+          throw new Error('GitHub request failed with 404.');
+        }
+        if (path.endsWith('/git/ref/heads/main')) {
+          return { object: { sha: DEFAULT_SHA }, ref: 'refs/heads/main' } as T;
+        }
+        if (path.endsWith('/git/refs')) {
+          return { object: { sha: DEFAULT_SHA }, ref: BRANCH_REF } as T;
+        }
         return {
-          commit: { sha: 'a'.repeat(40) },
-          content: { path: expectedPath, sha: blobSha(IMAGE_BYTES) }
+          commit: { sha: BRANCH_SHA },
+          content: { path: EXPECTED_PATH, sha: blobSha(IMAGE_BYTES) }
         } as T;
       })
     );
 
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.path).toBe(
-      `/repos/DotNaos/project-space/contents/${expectedPath}`
-    );
-    expect(calls[0]?.token).toBe('server-only-token');
-    expect(calls[0]?.init?.method).toBe('PUT');
-    const payload = JSON.parse(String(calls[0]?.init?.body));
-    expect(payload).toEqual({
+    expect(calls.map(({ init, path }) => `${init?.method ?? 'GET'} ${path}`)).toEqual([
+      `GET /repos/${REPOSITORY}`,
+      `GET /repos/${REPOSITORY}/issues/${ISSUE_NUMBER}`,
+      `GET /repos/${REPOSITORY}/git/ref/heads/${BRANCH_NAME}`,
+      `GET /repos/${REPOSITORY}/git/ref/heads/main`,
+      `POST /repos/${REPOSITORY}/git/refs`,
+      `PUT /repos/${REPOSITORY}/contents/${EXPECTED_PATH}`
+    ]);
+    const refPayload = JSON.parse(String(calls[4]?.init?.body));
+    expect(refPayload).toEqual({ ref: BRANCH_REF, sha: DEFAULT_SHA });
+    const contentPayload = JSON.parse(String(calls[5]?.init?.body));
+    expect(contentPayload).toEqual({
+      branch: BRANCH_NAME,
       content: IMAGE_BYTES.toString('base64'),
-      message: 'Add Project Space issue image'
+      message: `Add image for issue #${ISSUE_NUMBER}`
     });
+    expect(calls[5]?.token).toBe('server-only-token');
     expect(result).toEqual({
       attachmentId: ATTACHMENT_ID,
       fullName: REPOSITORY,
+      issueNumber: ISSUE_NUMBER,
       markdownUrl:
-        `https://github.com/DotNaos/project-space/blob/${'a'.repeat(40)}/${expectedPath}?raw=1`,
+        `https://github.com/${REPOSITORY}/blob/${BRANCH_SHA}/${EXPECTED_PATH}?raw=1`,
       mediaType: 'image/png',
       sizeBytes: IMAGE_BYTES.byteLength,
       status: 'connected'
     });
   });
 
-  test('validates repository and attachment scope before resolving credentials', async () => {
+  test('keeps a new issue branch after a failed write so concurrent uploads stay safe', async () => {
+    const calls: Array<{ init?: RequestInit; path: string }> = [];
+    let branchReads = 0;
+    const result = await uploadLocalGitHubIssueAttachment(
+      request(),
+      dependencies(async <T>(path, _token, init) => {
+        calls.push({ init, path });
+        if (path === `/repos/${REPOSITORY}`) return repositoryResponse() as T;
+        if (path === `/repos/${REPOSITORY}/issues/${ISSUE_NUMBER}`) {
+          return { number: ISSUE_NUMBER } as T;
+        }
+        if (path.endsWith(`/git/ref/heads/${BRANCH_NAME}`)) {
+          branchReads += 1;
+          if (branchReads === 1) throw new Error('GitHub request failed with 404.');
+          return { object: { sha: DEFAULT_SHA }, ref: BRANCH_REF } as T;
+        }
+        if (path.endsWith('/git/ref/heads/main')) {
+          return { object: { sha: DEFAULT_SHA }, ref: 'refs/heads/main' } as T;
+        }
+        if (path.endsWith('/git/refs') && init?.method === 'POST') {
+          return { object: { sha: DEFAULT_SHA }, ref: BRANCH_REF } as T;
+        }
+        if (init?.method === 'PUT') {
+          throw new Error('GitHub request failed with 500.');
+        }
+        if (path.includes('/contents/')) {
+          throw new Error('GitHub request failed with 404.');
+        }
+        throw new Error(`Unexpected request: ${path}`);
+      })
+    );
+
+    expect(result.status).toBe('error');
+    expect(branchReads).toBe(2);
+    expect(calls.some(({ init }) => init?.method === 'DELETE')).toBe(false);
+  });
+
+  test('reuses an existing per-issue branch and recovers an idempotent file retry', async () => {
+    const calls: string[] = [];
+    let branchReadCount = 0;
+    const result = await uploadLocalGitHubIssueAttachment(
+      request(),
+      dependencies(async <T>(path, _token, init) => {
+        calls.push(`${init?.method ?? 'GET'} ${path}`);
+        if (path === `/repos/${REPOSITORY}`) return repositoryResponse() as T;
+        if (path === `/repos/${REPOSITORY}/issues/${ISSUE_NUMBER}`) {
+          return { number: ISSUE_NUMBER } as T;
+        }
+        if (path.endsWith(`/git/ref/heads/${BRANCH_NAME}`)) {
+          branchReadCount += 1;
+          return {
+            object: { sha: branchReadCount === 1 ? BRANCH_SHA : 'c'.repeat(40) },
+            ref: BRANCH_REF
+          } as T;
+        }
+        if (init?.method === 'PUT') {
+          expect(JSON.parse(String(init.body)).branch).toBe(BRANCH_NAME);
+          throw new Error('GitHub request failed with 422.');
+        }
+        return { path: EXPECTED_PATH, sha: blobSha(IMAGE_BYTES) } as T;
+      })
+    );
+
+    expect(calls).toEqual([
+      `GET /repos/${REPOSITORY}`,
+      `GET /repos/${REPOSITORY}/issues/${ISSUE_NUMBER}`,
+      `GET /repos/${REPOSITORY}/git/ref/heads/${BRANCH_NAME}`,
+      `PUT /repos/${REPOSITORY}/contents/${EXPECTED_PATH}`,
+      `GET /repos/${REPOSITORY}/git/ref/heads/${BRANCH_NAME}`,
+      `GET /repos/${REPOSITORY}/contents/${EXPECTED_PATH}?ref=${'c'.repeat(40)}`
+    ]);
+    expect(result).toMatchObject({
+      markdownUrl:
+        `https://github.com/${REPOSITORY}/blob/${'c'.repeat(40)}/${EXPECTED_PATH}?raw=1`,
+      status: 'connected'
+    });
+  });
+
+  test('recovers a concurrent branch creation without accepting a client branch', async () => {
+    let branchReads = 0;
+    const result = await uploadLocalGitHubIssueAttachment(
+      request(),
+      dependencies(async <T>(path, _token, init) => {
+        if (path === `/repos/${REPOSITORY}`) return repositoryResponse() as T;
+        if (path === `/repos/${REPOSITORY}/issues/${ISSUE_NUMBER}`) {
+          return { number: ISSUE_NUMBER } as T;
+        }
+        if (path.endsWith(`/git/ref/heads/${BRANCH_NAME}`)) {
+          branchReads += 1;
+          if (branchReads === 1) throw new Error('GitHub request failed with 404.');
+          return { object: { sha: BRANCH_SHA }, ref: BRANCH_REF } as T;
+        }
+        if (path.endsWith('/git/ref/heads/main')) {
+          return { object: { sha: DEFAULT_SHA }, ref: 'refs/heads/main' } as T;
+        }
+        if (path.endsWith('/git/refs')) {
+          throw new Error('GitHub request failed with 422.');
+        }
+        if (init?.method === 'PUT') {
+          return {
+            commit: { sha: BRANCH_SHA },
+            content: { path: EXPECTED_PATH, sha: blobSha(IMAGE_BYTES) }
+          } as T;
+        }
+        throw new Error(`Unexpected request: ${path}`);
+      })
+    );
+
+    expect(result.status).toBe('connected');
+    expect(branchReads).toBe(2);
+  });
+
+  test('validates repository, issue, and attachment scope before credentials', async () => {
     let authCalls = 0;
     let githubCalls = 0;
     let validationCalls = 0;
@@ -95,20 +250,14 @@ describe('local GitHub issue attachments', () => {
       }
     };
 
-    for (const request of [
-      { attachmentId: ATTACHMENT_ID, fullName: '../secret' },
-      { attachmentId: '../../branch', fullName: REPOSITORY },
-      { attachmentId: '00000000-0000-4000-8000-00000000000A', fullName: REPOSITORY }
+    for (const item of [
+      request({ fullName: '../secret' }),
+      request({ attachmentId: '../../branch' }),
+      request({ attachmentId: '00000000-0000-4000-8000-00000000000A' }),
+      request({ issueNumber: 0 }),
+      request({ issueNumber: Number.MAX_SAFE_INTEGER + 1 })
     ]) {
-      const result = await uploadLocalGitHubIssueAttachment(
-        {
-          ...request,
-          bytes: IMAGE_BYTES,
-          declaredMediaType: 'image/png'
-        },
-        deps
-      );
-      expect(result.status).toBe('error');
+      expect((await uploadLocalGitHubIssueAttachment(item, deps)).status).toBe('error');
     }
 
     expect(authCalls).toBe(0);
@@ -124,149 +273,106 @@ describe('local GitHub issue attachments', () => {
     });
 
     const authRequired = await uploadLocalGitHubIssueAttachment(
-      {
-        attachmentId: ATTACHMENT_ID,
-        bytes: IMAGE_BYTES,
-        declaredMediaType: 'image/png',
-        fullName: REPOSITORY
-      },
+      request(),
       { ...base, resolveOAuthToken: async () => null }
     );
-    expect(authRequired.status).toBe('auth-required');
-
     const notConfigured = await uploadLocalGitHubIssueAttachment(
-      {
-        attachmentId: ATTACHMENT_ID,
-        bytes: IMAGE_BYTES,
-        declaredMediaType: 'image/png',
-        fullName: REPOSITORY
-      },
+      request(),
       {
         ...base,
         getGitHubClientId: () => '',
         resolveOAuthToken: async () => null
       }
     );
+
+    expect(authRequired.status).toBe('auth-required');
     expect(notConfigured.status).toBe('not-configured');
     expect(requestCalls).toBe(0);
   });
 
-  test('recovers an idempotent retry when the same image already exists', async () => {
-    const expectedPath =
-      `.github/project-space/issue-attachments/${ATTACHMENT_ID}.png`;
-    const calls: string[] = [];
-    const result = await uploadLocalGitHubIssueAttachment(
+  test('rejects unavailable repository writes and a mismatched issue target', async () => {
+    for (const setup of [
+      { issue: { number: ISSUE_NUMBER }, repository: repositoryResponse(false) },
       {
-        attachmentId: ATTACHMENT_ID,
-        bytes: IMAGE_BYTES,
-        declaredMediaType: 'image/png',
-        fullName: REPOSITORY
+        issue: { number: ISSUE_NUMBER },
+        repository: { ...repositoryResponse(), archived: true }
       },
-      dependencies(async <T>(path, _token, init) => {
-        calls.push(`${init?.method ?? 'GET'} ${path}`);
-        if (init?.method === 'PUT') {
-          throw new Error('GitHub request failed with 422.');
-        }
-
-        if (path.includes('/commits?')) {
-          return [{ sha: 'b'.repeat(40) }] as T;
-        }
-
-        return {
-          path: expectedPath,
-          sha: blobSha(IMAGE_BYTES)
-        } as T;
-      })
-    );
-
-    expect(calls).toEqual([
-      `PUT /repos/${REPOSITORY}/contents/${expectedPath}`,
-      `GET /repos/${REPOSITORY}/commits?path=${encodeURIComponent(expectedPath)}&per_page=1`,
-      `GET /repos/${REPOSITORY}/contents/${expectedPath}?ref=${'b'.repeat(40)}`
-    ]);
-    expect(result).toMatchObject({
-      markdownUrl: `https://github.com/${REPOSITORY}/blob/${'b'.repeat(40)}/${expectedPath}?raw=1`,
-      status: 'connected'
-    });
+      { issue: { number: ISSUE_NUMBER + 1 }, repository: repositoryResponse() },
+      {
+        issue: { number: ISSUE_NUMBER, pull_request: {} },
+        repository: repositoryResponse()
+      }
+    ]) {
+      let writeCalls = 0;
+      const result = await uploadLocalGitHubIssueAttachment(
+        request(),
+        dependencies(async <T>(path, _token, init) => {
+          if (init?.method) writeCalls += 1;
+          return (path === `/repos/${REPOSITORY}`
+            ? setup.repository
+            : setup.issue) as T;
+        })
+      );
+      expect(result.status).toBe('error');
+      expect(writeCalls).toBe(0);
+    }
   });
 
-  test('rejects an existing path with different bytes and never leaks rejected content', async () => {
-    const expectedPath =
-      `.github/project-space/issue-attachments/${ATTACHMENT_ID}.png`;
+  test('rejects an existing path with different bytes without leaking content', async () => {
     const result = await uploadLocalGitHubIssueAttachment(
-      {
-        attachmentId: ATTACHMENT_ID,
-        bytes: Buffer.from('secret-private-image'),
-        declaredMediaType: 'image/png',
-        fullName: REPOSITORY
-      },
-      dependencies(async <T>(_path, _token, init) => {
+      request({ bytes: Buffer.from('secret-private-image') }),
+      dependencies(async <T>(path, _token, init) => {
+        if (path === `/repos/${REPOSITORY}`) return repositoryResponse() as T;
+        if (path === `/repos/${REPOSITORY}/issues/${ISSUE_NUMBER}`) {
+          return { number: ISSUE_NUMBER } as T;
+        }
+        if (path.endsWith(`/git/ref/heads/${BRANCH_NAME}`)) {
+          return { object: { sha: BRANCH_SHA }, ref: BRANCH_REF } as T;
+        }
         if (init?.method === 'PUT') {
-          throw new Error('GitHub request failed with 422.');
+          throw new Error('GitHub request failed with 409.');
         }
-
-        if (_path.includes('/commits?')) {
-          return [{ sha: 'b'.repeat(40) }] as T;
-        }
-        return {
-          path: expectedPath,
-          sha: 'f'.repeat(40)
-        } as T;
+        return { path: EXPECTED_PATH, sha: 'f'.repeat(40) } as T;
       })
     );
 
     expect(result.status).toBe('error');
-    expect(result.message).toBe(
-      'GitHub could not store this issue image. Check repository write access and branch rules, then retry.'
-    );
+    expect(result.message).toContain('dedicated attachment branch');
     expect(result.message).not.toContain('secret-private-image');
   });
 
-  test('rejects retry recovery without an immutable commit', async () => {
-    const result = await uploadLocalGitHubIssueAttachment(
-      {
-        attachmentId: ATTACHMENT_ID,
-        bytes: IMAGE_BYTES,
-        declaredMediaType: 'image/png',
-        fullName: REPOSITORY
-      },
-      dependencies(async <T>(_path, _token, init) => {
-        if (init?.method === 'PUT') {
-          throw new Error('GitHub request failed with 409.');
+  test('rejects malformed GitHub refs and success data', async () => {
+    const malformedRef = await uploadLocalGitHubIssueAttachment(
+      request(),
+      dependencies(async <T>(path) => {
+        if (path === `/repos/${REPOSITORY}`) return repositoryResponse() as T;
+        if (path === `/repos/${REPOSITORY}/issues/${ISSUE_NUMBER}`) {
+          return { number: ISSUE_NUMBER } as T;
         }
-        return [{ sha: 'main' }] as T;
+        return { object: { sha: '../../../main' }, ref: BRANCH_REF } as T;
       })
     );
+    expect(malformedRef.status).toBe('error');
 
-    expect(result).toMatchObject({
-      message:
-        'GitHub could not store this issue image. Check repository write access and branch rules, then retry.',
-      status: 'error'
-    });
-    expect(result).not.toHaveProperty('markdownUrl');
-  });
-
-  test('rejects malformed GitHub success data instead of creating a browser URL', async () => {
-    const result = await uploadLocalGitHubIssueAttachment(
-      {
-        attachmentId: ATTACHMENT_ID,
-        bytes: IMAGE_BYTES,
-        declaredMediaType: 'image/png',
-        fullName: REPOSITORY
-      },
-      dependencies(async <T>() => ({
-        commit: { sha: '../../../main' },
-        content: {
-          path: `.github/project-space/issue-attachments/${ATTACHMENT_ID}.png`,
-          sha: blobSha(IMAGE_BYTES)
+    const malformedWrite = await uploadLocalGitHubIssueAttachment(
+      request(),
+      dependencies(async <T>(path) => {
+        if (path === `/repos/${REPOSITORY}`) return repositoryResponse() as T;
+        if (path === `/repos/${REPOSITORY}/issues/${ISSUE_NUMBER}`) {
+          return { number: ISSUE_NUMBER } as T;
         }
-      }) as T)
+        if (path.endsWith(`/git/ref/heads/${BRANCH_NAME}`)) {
+          return { object: { sha: BRANCH_SHA }, ref: BRANCH_REF } as T;
+        }
+        return {
+          commit: { sha: '../../../main' },
+          content: { path: EXPECTED_PATH, sha: blobSha(IMAGE_BYTES) }
+        } as T;
+      })
     );
-
-    expect(result).toMatchObject({
+    expect(malformedWrite).toMatchObject({
       message: 'GitHub returned invalid issue image data.',
       status: 'error'
     });
-    expect(result).not.toHaveProperty('markdownUrl');
   });
 });

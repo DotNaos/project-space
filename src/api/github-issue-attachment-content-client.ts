@@ -66,7 +66,8 @@ export function githubIssueAttachmentContentUrl(
     attachmentId: location.attachmentId,
     commitSha: location.commitSha,
     extension: location.extension,
-    fullName: location.fullName
+    fullName: location.fullName,
+    issueNumber: String(location.issueNumber)
   });
   return `${GITHUB_ISSUE_ATTACHMENT_CONTENT_PATH}?${search.toString()}`;
 }

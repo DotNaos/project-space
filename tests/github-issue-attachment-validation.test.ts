@@ -117,7 +117,7 @@ async function expectInvalid(bytes: unknown, declaredMediaType: unknown) {
 }
 
 describe('GitHub issue attachment validation', () => {
-  test('accepts valid PNG, JPEG, and GIF images and returns safe metadata', async () => {
+  test('accepts valid PNG, JPEG, and single-frame GIF images and returns safe metadata', async () => {
     await expect(validateGitHubIssueAttachment({
       bytes: makePng(2, 3),
       declaredMediaType: 'image/png'
@@ -175,6 +175,10 @@ describe('GitHub issue attachment validation', () => {
     excessiveGif.writeUInt16LE(10_000, 24);
     excessiveGif.writeUInt16LE(10_000, 26);
     await expectInvalid(excessiveGif, 'image/gif');
+    await expectInvalid(
+      mutatePngDimensions(makePng(1, 1), 8_191, 8_191),
+      'image/png'
+    );
   });
 
   test('rejects corrupt and truncated PNG structures and image data', async () => {

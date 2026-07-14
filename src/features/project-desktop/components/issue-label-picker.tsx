@@ -14,6 +14,7 @@ interface IssueLabelPickerProps {
   onToggle(name: string): void;
   repositoryKey: string | null;
   selectedLabels: readonly string[];
+  writeDenied?: boolean;
 }
 
 function labelStyle(color?: string, selected = false) {
@@ -41,7 +42,8 @@ export function IssueLabelPicker({
   onRetry,
   onToggle,
   repositoryKey,
-  selectedLabels
+  selectedLabels,
+  writeDenied = false
 }: IssueLabelPickerProps) {
   const [query, setQuery] = useState('');
 
@@ -113,6 +115,18 @@ export function IssueLabelPicker({
         </div>
       ) : null}
 
+      {writeDenied ? (
+        <div
+          className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/5 px-3 py-2.5"
+          role="status"
+        >
+          <p className="text-xs font-medium text-amber-200">Labels cannot be changed.</p>
+          <p className="mt-1 text-xs leading-5 text-neutral-400">
+            This repository is read-only. You can still create the issue without labels.
+          </p>
+        </div>
+      ) : null}
+
       {isLoading && !hasLabels ? (
         <div className="mt-5 flex items-center gap-2 text-xs text-neutral-400" role="status">
           <Spinner size="sm" />
@@ -141,7 +155,7 @@ export function IssueLabelPicker({
             aria-label="Search repository labels"
             className="mt-4"
             fullWidth
-            isDisabled={disabled}
+            isDisabled={disabled || writeDenied}
             value={query}
             variant="secondary"
             onChange={setQuery}
@@ -173,7 +187,7 @@ export function IssueLabelPicker({
                       : label.name
                   }
                   aria-pressed={selected}
-                  isDisabled={disabled}
+                  isDisabled={disabled || writeDenied}
                   size="sm"
                   variant="ghost"
                   style={labelStyle(label.color, selected)}

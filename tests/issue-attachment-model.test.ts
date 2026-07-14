@@ -5,6 +5,8 @@ import {
   createInitialIssueAttachmentState,
   hasUnresolvedIssueAttachments,
   issueAttachmentMarkdown,
+  issueAttachmentMarkdownWithUploadedAttachments,
+  issueAttachmentMarkdownWithoutAttachments,
   issueAttachmentPlaceholder,
   issueAttachmentReducer,
   validateIssueAttachmentCandidate,
@@ -14,13 +16,14 @@ import {
 
 const REPOSITORY = 'DotNaos/project-space';
 const ATTACHMENT_ID = '00000000-0000-4000-8000-000000000001';
+const ISSUE_NUMBER = 187;
 
 function storedImageUrl(
   attachmentId = ATTACHMENT_ID,
   extension: 'gif' | 'jpg' | 'png' = 'png',
   repository = REPOSITORY
 ) {
-  return `https://github.com/${repository}/blob/${'a'.repeat(40)}/.github/project-space/issue-attachments/${attachmentId}.${extension}?raw=1`;
+  return `https://github.com/${repository}/blob/${'a'.repeat(40)}/.github/project-space/issue-attachments/${ISSUE_NUMBER}/${attachmentId}.${extension}?raw=1`;
 }
 
 function reduce(state: IssueAttachmentState, ...actions: IssueAttachmentAction[]) {
@@ -47,7 +50,7 @@ function queue(
 }
 
 describe('issue attachment candidates', () => {
-  test('accepts only non-empty PNG, JPEG, and GIF images up to 10 MiB', () => {
+  test('accepts only non-empty PNG, JPEG, and GIF candidates up to 10 MiB', () => {
     expect(validateIssueAttachmentCandidate({ mediaType: 'image/png', sizeBytes: 1 })).toEqual({
       mediaType: 'image/png',
       sizeBytes: 1
@@ -68,10 +71,10 @@ describe('issue attachment candidates', () => {
 
     expect(() =>
       validateIssueAttachmentCandidate({ mediaType: 'image/svg+xml', sizeBytes: 100 })
-    ).toThrow('Paste a PNG, JPEG, or GIF image.');
+    ).toThrow('Paste a PNG, JPEG, or non-animated GIF image.');
     expect(() =>
       validateIssueAttachmentCandidate({ mediaType: 'image/webp', sizeBytes: 100 })
-    ).toThrow('Paste a PNG, JPEG, or GIF image.');
+    ).toThrow('Paste a PNG, JPEG, or non-animated GIF image.');
     expect(() =>
       validateIssueAttachmentCandidate({ mediaType: 'image/png', sizeBytes: 0 })
     ).toThrow('The pasted image is empty.');
@@ -300,7 +303,7 @@ describe('issue attachment draft state', () => {
     const requestId = '00000000-0000-4000-8000-000000000002';
     const markdownUrl =
       `https://github.com/DotNaos/project-space/blob/${'a'.repeat(40)}/` +
-      `.github/project-space/issue-attachments/${attachmentId}.png?raw=1`;
+      `.github/project-space/issue-attachments/${ISSUE_NUMBER}/${attachmentId}.png?raw=1`;
     let state = queue(
       createInitialIssueAttachmentState({ repositoryKey: REPOSITORY }),
       { attachmentId }
@@ -340,7 +343,7 @@ describe('issue attachment draft state', () => {
     const requestId = '00000000-0000-4000-8000-000000000002';
     const markdownUrl =
       `https://github.com/DotNaos/project-space/blob/${'b'.repeat(40)}/` +
-      `.github/project-space/issue-attachments/${attachmentId}.png?raw=1`;
+      `.github/project-space/issue-attachments/${ISSUE_NUMBER}/${attachmentId}.png?raw=1`;
     let state = queue(
       createInitialIssueAttachmentState({ repositoryKey: REPOSITORY }),
       { attachmentId }
@@ -484,6 +487,42 @@ describe('issue attachment draft state', () => {
 
     expect(state.attachments).toEqual([]);
     expect(state.markdown).not.toContain(imageUrl);
+  });
+
+  test('builds safe initial and partial issue bodies without local placeholders', () => {
+    const firstId = '00000000-0000-4000-8000-000000000001';
+    const secondId = '00000000-0000-4000-8000-000000000002';
+    let state = queue(
+      createInitialIssueAttachmentState({
+        markdown: 'Before\n\nAfter',
+        repositoryKey: REPOSITORY
+      }),
+      { attachmentId: firstId, cursor: 6 }
+    );
+    state = queue(state, { attachmentId: secondId, cursor: state.markdown.length });
+    state = reduce(
+      state,
+      {
+        attachmentId: firstId,
+        repositoryKey: REPOSITORY,
+        requestId: 'upload-first',
+        type: 'upload-started'
+      },
+      {
+        attachmentId: firstId,
+        markdownUrl: storedImageUrl(firstId),
+        repositoryKey: REPOSITORY,
+        requestId: 'upload-first',
+        type: 'upload-succeeded'
+      }
+    );
+
+    expect(issueAttachmentMarkdownWithoutAttachments(state)).not.toContain(
+      'issue-attachments'
+    );
+    const partial = issueAttachmentMarkdownWithUploadedAttachments(state);
+    expect(partial).toContain(storedImageUrl(firstId));
+    expect(partial).not.toContain(`project-space-attachment://${secondId}`);
   });
 
   test('rejects invalid, duplicate, and wrong-repository queue actions', () => {

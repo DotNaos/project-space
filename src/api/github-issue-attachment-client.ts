@@ -13,6 +13,7 @@ export type GitHubIssueAttachmentMediaType = 'image/gif' | 'image/jpeg' | 'image
 export interface GitHubIssueAttachmentResult {
   attachmentId: string;
   fullName: string;
+  issueNumber: number;
   markdownUrl?: string;
   mediaType?: GitHubIssueAttachmentMediaType;
   message?: string;
@@ -24,6 +25,7 @@ export interface UploadGitHubIssueAttachmentRequest {
   attachmentId: string;
   fullName: string;
   image: Blob;
+  issueNumber: number;
 }
 
 export interface UploadGitHubIssueAttachmentOptions {
@@ -89,6 +91,8 @@ function isResult(value: unknown): value is GitHubIssueAttachmentResult {
   if (
     typeof result.attachmentId !== 'string' ||
     typeof result.fullName !== 'string' ||
+    !Number.isSafeInteger(result.issueNumber) ||
+    (result.issueNumber ?? 0) <= 0 ||
     !statuses.has(result.status as GitHubIssueAttachmentResult['status']) ||
     (result.message !== undefined && typeof result.message !== 'string')
   ) {
@@ -108,15 +112,25 @@ function isResult(value: unknown): value is GitHubIssueAttachmentResult {
   );
 }
 
-function validateRequest({ attachmentId, fullName, image }: UploadGitHubIssueAttachmentRequest) {
-  if (!attachmentIdPattern.test(attachmentId) || !isValidRepositoryFullName(fullName)) {
+function validateRequest({
+  attachmentId,
+  fullName,
+  image,
+  issueNumber
+}: UploadGitHubIssueAttachmentRequest) {
+  if (
+    !attachmentIdPattern.test(attachmentId)
+    || !isValidRepositoryFullName(fullName)
+    || !Number.isSafeInteger(issueNumber)
+    || issueNumber <= 0
+  ) {
     throw new Error('The GitHub issue image request is invalid.');
   }
   if (
     !(image instanceof Blob) ||
     !mediaTypes.has(image.type as GitHubIssueAttachmentMediaType)
   ) {
-    throw new Error('Paste a PNG, JPEG, or GIF image.');
+    throw new Error('Paste a PNG, JPEG, or non-animated GIF image.');
   }
   if (!Number.isSafeInteger(image.size) || image.size <= 0 || image.size > maximumImageBytes) {
     throw new Error('Pasted images must be non-empty and 10 MiB or smaller.');
@@ -140,7 +154,8 @@ export async function uploadGitHubIssueAttachment(
   const baseUrl = resolveProjectSpaceApiBaseUrl(currentHref, explicitBaseUrl);
   const query = new URLSearchParams({
     attachmentId: request.attachmentId,
-    fullName: request.fullName
+    fullName: request.fullName,
+    issueNumber: String(request.issueNumber)
   });
   const requestUrl = new URL(
     `${baseUrl}/api/github/issue-attachments?${query}`,
@@ -182,7 +197,8 @@ export async function uploadGitHubIssueAttachment(
   }
   if (
     payload.fullName !== request.fullName ||
-    payload.attachmentId !== request.attachmentId
+    payload.attachmentId !== request.attachmentId ||
+    payload.issueNumber !== request.issueNumber
   ) {
     throw new Error('Project Space returned a different attachment request.');
   }
@@ -200,6 +216,7 @@ export async function uploadGitHubIssueAttachment(
     if (
       !location ||
       location.attachmentId !== request.attachmentId ||
+      location.issueNumber !== request.issueNumber ||
       gitHubIssueAttachmentMediaType(location.extension) !== request.image.type
     ) {
       throw new Error('Project Space returned an invalid GitHub issue image response.');

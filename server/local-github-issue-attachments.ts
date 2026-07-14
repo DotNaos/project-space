@@ -18,11 +18,13 @@ export interface LocalGitHubIssueAttachmentRequest {
   bytes: Uint8Array;
   declaredMediaType: string;
   fullName: string;
+  issueNumber: number;
 }
 
 export type LocalGitHubIssueAttachmentResult = {
   attachmentId: string;
   fullName: string;
+  issueNumber: number;
   message?: string;
   status: 'connected' | 'auth-required' | 'not-configured' | 'error';
 } & Partial<{
@@ -51,8 +53,25 @@ interface GitHubContentsReadResponse {
   sha?: unknown;
 }
 
-interface GitHubCommitResponse {
-  sha?: unknown;
+interface GitHubRepositoryResponse {
+  archived?: unknown;
+  default_branch?: unknown;
+  disabled?: unknown;
+  permissions?: { push?: unknown };
+}
+
+interface GitHubIssueResponse {
+  number?: unknown;
+  pull_request?: unknown;
+}
+
+interface GitHubRefResponse {
+  object?: { sha?: unknown };
+  ref?: unknown;
+}
+
+interface IssueAttachmentStorageTarget {
+  branchName: string;
 }
 
 const defaultDependencies: LocalGitHubIssueAttachmentDependencies = {
@@ -65,10 +84,16 @@ const attachmentIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const gitShaPattern = /^[0-9a-f]{40}$/;
 const storageFailureMessage =
-  'GitHub could not store this issue image. Check repository write access and branch rules, then retry.';
+  'GitHub could not store this issue image on its dedicated attachment branch. Check repository write access and branch rules, then retry.';
+const storagePermissionMessage =
+  'Issue images require repository write access. Remove the image to continue without it, or ask a maintainer for access.';
 
 function resultBase(request: LocalGitHubIssueAttachmentRequest) {
-  return { attachmentId: request.attachmentId, fullName: request.fullName };
+  return {
+    attachmentId: request.attachmentId,
+    fullName: request.fullName,
+    issueNumber: request.issueNumber
+  };
 }
 
 function issueAttachmentError(
@@ -86,8 +111,28 @@ function contentApiPath(path: string) {
   return path.split('/').map(encodeURIComponent).join('/');
 }
 
-function issueAttachmentPath(attachmentId: string, extension: string) {
-  return `.github/project-space/issue-attachments/${attachmentId}.${extension}`;
+function hasInvalidRefCharacter(value: string) {
+  return Array.from(value).some((character) => {
+    const code = character.charCodeAt(0);
+    return code <= 0x20
+      || code === 0x7f
+      || '~^:?*[\\'.includes(character);
+  });
+}
+
+function issueAttachmentPath(
+  issueNumber: number,
+  attachmentId: string,
+  extension: string
+) {
+  return (
+    `.github/project-space/issue-attachments/${issueNumber}/`
+    + `${attachmentId}.${extension}`
+  );
+}
+
+function issueAttachmentBranch(issueNumber: number) {
+  return `project-space-issue-${issueNumber}-attachments`;
 }
 
 function gitBlobSha(bytes: Uint8Array) {
@@ -110,6 +155,17 @@ function isContentConflict(error: unknown) {
   );
 }
 
+function isGitHubStatus(error: unknown, status: number) {
+  return error instanceof Error && error.message === `GitHub request failed with ${status}.`;
+}
+
+function refCommitSha(value: GitHubRefResponse, expectedRef: string) {
+  const sha = typeof value.object?.sha === 'string'
+    ? value.object.sha.toLowerCase()
+    : '';
+  return value.ref === expectedRef && gitShaPattern.test(sha) ? sha : null;
+}
+
 function connectedResult(
   request: LocalGitHubIssueAttachmentRequest,
   validated: ValidatedGitHubIssueAttachment,
@@ -129,19 +185,18 @@ async function recoverExistingAttachment(
   validated: ValidatedGitHubIssueAttachment,
   expectedPath: string,
   expectedBlobSha: string,
+  branchName: string,
   token: string,
   dependencies: LocalGitHubIssueAttachmentDependencies
 ) {
   const repoPath = repositoryApiPath(request.fullName);
-  const commits = await dependencies.requestGitHub<unknown>(
-    `/repos/${repoPath}/commits?path=${encodeURIComponent(expectedPath)}&per_page=1`,
+  const expectedRef = `refs/heads/${branchName}`;
+  const branch = await dependencies.requestGitHub<GitHubRefResponse>(
+    `/repos/${repoPath}/git/ref/heads/${contentApiPath(branchName)}`,
     token
   );
-  const commitSha =
-    Array.isArray(commits) && commits.length === 1
-      ? (commits[0] as GitHubCommitResponse | undefined)?.sha
-      : undefined;
-  if (typeof commitSha !== 'string' || !gitShaPattern.test(commitSha)) {
+  const commitSha = refCommitSha(branch, expectedRef);
+  if (!commitSha) {
     return issueAttachmentError(request, storageFailureMessage);
   }
 
@@ -160,13 +215,110 @@ async function recoverExistingAttachment(
     : issueAttachmentError(request, storageFailureMessage);
 }
 
+async function ensureIssueAttachmentBranch(
+  request: LocalGitHubIssueAttachmentRequest,
+  token: string,
+  dependencies: LocalGitHubIssueAttachmentDependencies
+) {
+  const repoPath = repositoryApiPath(request.fullName);
+  const [repository, issue] = await Promise.all([
+    dependencies.requestGitHub<GitHubRepositoryResponse>(
+      `/repos/${repoPath}`,
+      token
+    ),
+    dependencies.requestGitHub<GitHubIssueResponse>(
+      `/repos/${repoPath}/issues/${request.issueNumber}`,
+      token
+    )
+  ]);
+  if (
+    issue.number !== request.issueNumber
+    || issue.pull_request !== undefined
+  ) {
+    return issueAttachmentError(request, 'The issue image target is invalid.');
+  }
+  if (
+    repository.archived === true
+    || repository.disabled === true
+    || repository.permissions?.push === false
+  ) {
+    return issueAttachmentError(request, storagePermissionMessage);
+  }
+
+  const defaultBranch = typeof repository.default_branch === 'string'
+    ? repository.default_branch
+    : '';
+  if (
+    !defaultBranch
+    || defaultBranch.length > 255
+    || hasInvalidRefCharacter(defaultBranch)
+    || defaultBranch.includes('..')
+    || defaultBranch.includes('@{')
+  ) {
+    return issueAttachmentError(request, storageFailureMessage);
+  }
+
+  const branchName = issueAttachmentBranch(request.issueNumber);
+  const expectedRef = `refs/heads/${branchName}`;
+  const branchApiPath =
+    `/repos/${repoPath}/git/ref/heads/${contentApiPath(branchName)}`;
+  try {
+    const existing = await dependencies.requestGitHub<GitHubRefResponse>(
+      branchApiPath,
+      token
+    );
+    const existingSha = refCommitSha(existing, expectedRef);
+    return existingSha
+      ? { branchName }
+      : issueAttachmentError(request, storageFailureMessage);
+  } catch (error) {
+    if (!isGitHubStatus(error, 404)) throw error;
+  }
+
+  const defaultRefName = `refs/heads/${defaultBranch}`;
+  const defaultRef = await dependencies.requestGitHub<GitHubRefResponse>(
+    `/repos/${repoPath}/git/ref/heads/${contentApiPath(defaultBranch)}`,
+    token
+  );
+  const defaultSha = refCommitSha(defaultRef, defaultRefName);
+  if (!defaultSha) return issueAttachmentError(request, storageFailureMessage);
+
+  try {
+    const created = await dependencies.requestGitHub<GitHubRefResponse>(
+      `/repos/${repoPath}/git/refs`,
+      token,
+      {
+        body: JSON.stringify({ ref: expectedRef, sha: defaultSha }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        signal: AbortSignal.timeout(30_000)
+      }
+    );
+    return refCommitSha(created, expectedRef)
+      ? { branchName }
+      : issueAttachmentError(request, storageFailureMessage);
+  } catch (error) {
+    if (!isContentConflict(error)) throw error;
+    const existing = await dependencies.requestGitHub<GitHubRefResponse>(
+      branchApiPath,
+      token
+    );
+    const existingSha = refCommitSha(existing, expectedRef);
+    return existingSha
+      ? { branchName }
+      : issueAttachmentError(request, storageFailureMessage);
+  }
+}
+
 export async function uploadLocalGitHubIssueAttachment(
   request: LocalGitHubIssueAttachmentRequest,
   dependencies: LocalGitHubIssueAttachmentDependencies = defaultDependencies
 ): Promise<LocalGitHubIssueAttachmentResult> {
   if (
     !isValidGitHubRepositoryFullName(request.fullName) ||
-    !attachmentIdPattern.test(request.attachmentId)
+    !attachmentIdPattern.test(request.attachmentId) ||
+    !Number.isSafeInteger(request.issueNumber) ||
+    request.issueNumber <= 0
   ) {
     return issueAttachmentError(request, 'The issue image request is invalid.');
   }
@@ -180,7 +332,7 @@ export async function uploadLocalGitHubIssueAttachment(
   } catch {
     return issueAttachmentError(
       request,
-      'Paste a valid PNG, JPEG, or GIF image up to 10 MiB.'
+      'Paste a valid PNG, JPEG, or non-animated GIF image up to 10 MiB.'
     );
   }
 
@@ -196,19 +348,34 @@ export async function uploadLocalGitHubIssueAttachment(
     };
   }
 
-  const path = issueAttachmentPath(request.attachmentId, validated.extension);
+  const path = issueAttachmentPath(
+    request.issueNumber,
+    request.attachmentId,
+    validated.extension
+  );
   const expectedBlobSha = gitBlobSha(request.bytes);
   const apiPath =
     `/repos/${repositoryApiPath(request.fullName)}/contents/${contentApiPath(path)}`;
+  let storageTarget: IssueAttachmentStorageTarget | null = null;
+  let invalidWriteResponse = false;
 
   try {
+    const resolvedStorageTarget = await ensureIssueAttachmentBranch(
+      request,
+      auth.token,
+      dependencies
+    );
+    if ('status' in resolvedStorageTarget) return resolvedStorageTarget;
+    storageTarget = resolvedStorageTarget;
+
     const response = await dependencies.requestGitHub<GitHubContentsWriteResponse>(
       apiPath,
       auth.token,
       {
         body: JSON.stringify({
+          branch: storageTarget.branchName,
           content: Buffer.from(request.bytes).toString('base64'),
-          message: 'Add Project Space issue image'
+          message: `Add image for issue #${request.issueNumber}`
         }),
         headers: { 'Content-Type': 'application/json' },
         method: 'PUT',
@@ -225,7 +392,8 @@ export async function uploadLocalGitHubIssueAttachment(
       response.content?.path !== path ||
       response.content?.sha !== expectedBlobSha
     ) {
-      return issueAttachmentError(request, 'GitHub returned invalid issue image data.');
+      invalidWriteResponse = true;
+      throw new Error('GitHub returned invalid issue image data.');
     }
 
     return connectedResult(
@@ -234,21 +402,26 @@ export async function uploadLocalGitHubIssueAttachment(
       immutableMarkdownUrl(request.fullName, commitSha, path)
     );
   } catch (error) {
-    if (isContentConflict(error)) {
+    if (storageTarget) {
       try {
-        return await recoverExistingAttachment(
+        const recovered = await recoverExistingAttachment(
           request,
           validated,
           path,
           expectedBlobSha,
+          storageTarget.branchName,
           auth.token,
           dependencies
         );
+        if (recovered.status === 'connected') return recovered;
       } catch {
-        // Use the same non-sensitive failure as an ordinary write rejection.
+        // Recovery is best-effort after an ambiguous or rejected write.
       }
     }
 
-    return issueAttachmentError(request, storageFailureMessage);
+    return issueAttachmentError(
+      request,
+      invalidWriteResponse ? 'GitHub returned invalid issue image data.' : storageFailureMessage
+    );
   }
 }
