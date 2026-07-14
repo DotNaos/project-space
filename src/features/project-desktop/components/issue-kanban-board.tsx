@@ -446,7 +446,7 @@ function BoardCard({
       }}
       style={style}
       className={cn(
-        'issue-rise-in group relative shrink-0 touch-pan-y rounded-lg border border-neutral-800/80 bg-neutral-900/50 transition hover:-translate-y-px hover:border-neutral-700 hover:bg-neutral-900 hover:shadow-lg hover:shadow-black/30 [@media(pointer:fine)]:cursor-grab [@media(pointer:fine)]:touch-none [@media(pointer:fine)]:select-none',
+        'issue-rise-in group relative shrink-0 touch-auto rounded-lg border border-neutral-800/80 bg-neutral-900/50 transition hover:-translate-y-px hover:border-neutral-700 hover:bg-neutral-900 hover:shadow-lg hover:shadow-black/30 [@media(pointer:fine)]:cursor-grab [@media(pointer:fine)]:touch-none [@media(pointer:fine)]:select-none',
         isDragSource && 'opacity-30 saturate-50'
       )}
     >
