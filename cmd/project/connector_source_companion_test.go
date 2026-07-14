@@ -2,12 +2,44 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/DotNaos/project-space/internal/machineconnect"
 )
+
+func TestSourceConnectorResolvesIdentityOnlyWhenItsSupervisorRuns(t *testing.T) {
+	root := sourceConnectorCheckoutFixture(t)
+	profile, err := machineconnect.NewDevelopmentConnectorProfile(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolveCalls := 0
+	supervisor := &connectorSourceResolvingSupervisor{
+		dependencies: connectorSourceCompanionDependencies{
+			LookPath: func(string) (string, error) { return "/usr/bin/bun", nil },
+			ResolveSourceState: func(context.Context, string) (connectorSourceState, error) {
+				resolveCalls++
+				return connectorSourceState{}, errors.New("inspect current source")
+			},
+		},
+		profile: profile,
+		root:    root,
+	}
+	if resolveCalls != 0 {
+		t.Fatal("source identity was resolved before the connector started")
+	}
+	if err := supervisor.Run(context.Background()); err == nil || err.Error() != "source connector revision is invalid" {
+		t.Fatalf("source supervisor error = %v", err)
+	}
+	if resolveCalls != 1 {
+		t.Fatalf("source identity resolutions = %d, want 1 at start", resolveCalls)
+	}
+}
 
 func sourceConnectorCheckoutFixture(t *testing.T) string {
 	t.Helper()
