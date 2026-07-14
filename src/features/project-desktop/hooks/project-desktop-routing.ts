@@ -118,7 +118,7 @@ const settingsPath = '/settings';
 
 export function routeForView(view: ProjectMainView, projectId = '', tab = '', detail = '') {
   if (view === 'topology') {
-    return topologyPath;
+    return '/';
   }
 
   if (view === 'codex') {
@@ -183,7 +183,7 @@ export interface ParsedProjectRoute {
 
 export function parseProjectRoute(pathname: string): ParsedProjectRoute {
   if (pathname === topologyPath || pathname === `${topologyPath}/`) {
-    return { view: 'topology' };
+    return { view: 'root' };
   }
 
   const codexRoute = parseCodexSessionRoute(pathname);
@@ -251,7 +251,7 @@ export function parseProjectRoute(pathname: string): ParsedProjectRoute {
 
 export function initialProjectMainView(pathname: string): ProjectMainView {
   const view = parseProjectRoute(pathname).view;
-  return view === 'chat' || view === 'codex' || view === 'topology' ? view : 'root';
+  return view === 'chat' || view === 'codex' ? view : 'root';
 }
 
 export function resolveRouteProject(

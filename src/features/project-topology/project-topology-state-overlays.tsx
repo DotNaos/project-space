@@ -7,10 +7,12 @@ import type {
 } from './project-topology-types';
 
 export function TopologyReadBanner({
+  hasHomeViewSwitcher = false,
   onRefresh,
   readState,
   snapshot
 }: {
+  hasHomeViewSwitcher?: boolean;
   onRefresh(): void;
   readState: ProjectTopologyReadState;
   snapshot: ProjectTopologySnapshot;
@@ -30,7 +32,10 @@ export function TopologyReadBanner({
         : undefined;
   if (!content) {
     return (
-      <div className="app-no-drag absolute right-3 top-3 z-40">
+      <div className={cn(
+        'app-no-drag absolute right-3 z-40',
+        hasHomeViewSwitcher ? 'top-16' : 'top-3'
+      )}>
         <TopologyRefreshButton isRefreshing={false} onRefresh={onRefresh} />
       </div>
     );
@@ -40,7 +45,8 @@ export function TopologyReadBanner({
     <div
       aria-live="polite"
       className={cn(
-        'app-no-drag absolute left-1/2 top-3 z-40 flex max-w-[min(42rem,calc(100%-1.5rem))] -translate-x-1/2 items-center gap-2 rounded-full border bg-neutral-950/95 px-3 py-2 text-xs shadow-xl backdrop-blur',
+        'app-no-drag absolute left-1/2 z-40 flex max-w-[min(42rem,calc(100%-1.5rem))] -translate-x-1/2 items-center gap-2 rounded-full border bg-neutral-950/95 px-3 py-2 text-xs shadow-xl backdrop-blur',
+        hasHomeViewSwitcher ? 'top-16' : 'top-3',
         content.tone === 'warning'
           ? 'border-amber-900/70 text-amber-200'
           : 'border-neutral-800 text-neutral-300'

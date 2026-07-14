@@ -18,6 +18,7 @@ import { CodexSessionsControllerPage } from '@/features/codex-sessions/codex-ses
 import type { CodexSessionsController } from '@/features/codex-sessions/codex-sessions-controller';
 import type { CodexSessionTarget } from '@/features/codex-sessions/codex-session-route';
 import { ProjectTopologyProductionRoute } from '@/features/project-topology/project-topology-production-route';
+import { ProjectHomeCommandCenter } from '@/features/project-topology/project-home-command-center';
 import { projectChatProjectId } from '@/shared/project-chat-project';
 import type {
   MachineDetailTab,
@@ -447,6 +448,33 @@ export function ProjectMainPanel({
     project.kind !== 'github' &&
     (projectTab === 'history' || projectTab === 'issues' || projectTab === 'chat');
 
+  const rootSummary = (
+    <ProjectRootSummary
+      connector={
+        isConnectorRefreshing
+          ? { state: 'loading' }
+          : connectorOverview.connectorOrigin ||
+              connectorOverview.machinesRepo.path ||
+              connectorOverview.machines.length > 0 ||
+              connectorOverview.tailscale.installed
+            ? {
+                checkedAt: new Date().toISOString(),
+                state: 'ready',
+                value: connectorOverview
+              }
+            : {
+                message: 'Machine information is not available yet.',
+                state: 'blocked'
+              }
+      }
+      onRetry={() => {
+        void onRefreshConnectorOverview();
+      }}
+      projects={projects.filter(isVisibleProject)}
+      recentProjectIds={recentProjectIds}
+    />
+  );
+
   if (mainView === 'chat') {
     return (
       <Surface
@@ -484,11 +512,18 @@ export function ProjectMainPanel({
     );
   }
 
-  if (mainView === 'topology') {
+  if (mainView === 'root' || mainView === 'topology') {
     return (
-      <ProjectTopologyProductionRoute
+      <ProjectHomeCommandCenter
         hasBottomTabBar={hasBottomTabBar}
-        navigation={topologyNavigation}
+        map={(
+          <ProjectTopologyProductionRoute
+            hasBottomTabBar={hasBottomTabBar}
+            hasHomeViewSwitcher
+            navigation={topologyNavigation}
+          />
+        )}
+        summary={rootSummary}
       />
     );
   }
@@ -545,31 +580,6 @@ export function ProjectMainPanel({
             projects={projects}
             structureViolations={structureViolations}
             tab={machineTab}
-          />
-        ) : mainView === 'root' ? (
-          <ProjectRootSummary
-            connector={
-              isConnectorRefreshing
-                ? { state: 'loading' }
-                : connectorOverview.connectorOrigin ||
-                    connectorOverview.machinesRepo.path ||
-                    connectorOverview.machines.length > 0 ||
-                    connectorOverview.tailscale.installed
-                  ? {
-                      checkedAt: new Date().toISOString(),
-                      state: 'ready',
-                      value: connectorOverview
-                    }
-                  : {
-                      message: 'Machine information is not available yet.',
-                      state: 'blocked'
-                    }
-            }
-            onRetry={() => {
-              void onRefreshConnectorOverview();
-            }}
-            projects={projects.filter(isVisibleProject)}
-            recentProjectIds={recentProjectIds}
           />
         ) : mainView === 'settings' ? (
           <SettingsView

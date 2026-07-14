@@ -2,11 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth, useClerk, useSignIn, useUser } from '@clerk/react';
 import {
   FolderKanban,
-  Bot,
   House,
   MessageSquare,
-  Network,
-  Server,
   Settings,
   TriangleAlert
 } from 'lucide-react';
@@ -18,6 +15,10 @@ import {
 } from '@/api/project-space-client';
 import { isClerkConfigured } from '@/auth/clerk-provider';
 import type { ProjectSpaceAuthSessionResult } from '@/shared/project-space-api';
+import {
+  projectSpacePrimaryNavigation,
+  projectSpaceViewPlacement
+} from '@/features/project-topology/project-space-information-architecture';
 import { useProjectDesktop } from '../hooks/use-project-desktop';
 import type { ProjectMainView } from '../hooks/use-project-desktop';
 import { useResizableSidebar } from '../hooks/use-resizable-sidebar';
@@ -42,105 +43,45 @@ function defaultContextPanelOpen() {
 }
 
 export function sectionForView(view: ProjectMainView): AppSection {
-  if (view === 'chat') {
-    return 'chat';
-  }
-
-  if (view === 'codex') {
-    return 'codex';
-  }
-
-  if (view === 'topology') {
-    return 'topology';
-  }
-
-  if (view === 'projects' || view === 'project') {
-    return 'projects';
-  }
-
-  if (view === 'machines' || view === 'machine') {
-    return 'machines';
-  }
-
-  if (view === 'settings') {
-    return 'settings';
-  }
-
-  return 'home';
+  return projectSpaceViewPlacement(view).destination;
 }
 
 interface MobileTabBarProps {
   activeSection: AppSection;
   onOpenChat(): void;
-  onOpenCodex(): void;
-  onOpenMachines(): void;
   onOpenProjects(): void;
   onOpenRoot(): void;
-  onOpenSettings(): void;
-  onOpenTopology(): void;
 }
 
-function MobileTabBar({
+export function MobileTabBar({
   activeSection,
   onOpenChat,
-  onOpenCodex,
-  onOpenMachines,
   onOpenProjects,
-  onOpenRoot,
-  onOpenSettings,
-  onOpenTopology
+  onOpenRoot
 }: MobileTabBarProps) {
-  const items = [
-    {
-      icon: House,
-      isActive: activeSection === 'home',
-      label: 'Home',
-      onPress: onOpenRoot
-    },
-    {
-      icon: Network,
-      isActive: activeSection === 'topology',
-      label: 'Topology',
-      onPress: onOpenTopology
-    },
-    {
-      icon: MessageSquare,
-      isActive: activeSection === 'chat',
-      label: 'Chat',
-      onPress: onOpenChat
-    },
-    {
-      icon: Bot,
-      isActive: activeSection === 'codex',
-      label: 'Codex',
-      onPress: onOpenCodex
-    },
-    {
-      icon: FolderKanban,
-      isActive: activeSection === 'projects',
-      label: 'Projects',
-      onPress: onOpenProjects
-    },
-    {
-      icon: Server,
-      isActive: activeSection === 'machines',
-      label: 'Machines',
-      onPress: onOpenMachines
-    },
-    {
-      icon: Settings,
-      isActive: activeSection === 'settings',
-      label: 'Settings',
-      onPress: onOpenSettings
-    }
-  ];
+  const actions = {
+    chat: onOpenChat,
+    home: onOpenRoot,
+    projects: onOpenProjects
+  };
+  const icons = {
+    chat: MessageSquare,
+    home: House,
+    projects: FolderKanban
+  };
+  const items = projectSpacePrimaryNavigation.map((item) => ({
+    ...item,
+    icon: icons[item.destination],
+    isActive: activeSection === item.destination,
+    onPress: actions[item.destination]
+  }));
 
   return (
     <nav
       aria-label="Primary"
       className="app-no-drag pointer-events-auto absolute inset-x-0 bottom-0 z-50 border-t border-neutral-800/90 bg-app-panel/95 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-16px_40px_rgba(0,0,0,0.35)] backdrop-blur"
     >
-      <div className="grid grid-cols-7 gap-1">
+      <div className="grid grid-cols-3 gap-2">
         {items.map((item) => {
           const Icon = item.icon;
 
@@ -289,8 +230,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
   }, []);
 
   const activeSection = sectionForView(desktop.mainView);
-  const hasContextPanel =
-    !isCompact && (activeSection === 'projects' || activeSection === 'machines');
+  const hasContextPanel = !isCompact && activeSection === 'projects';
   const showContextPanel = hasContextPanel && isPanelOpen;
 
   const gridTemplateColumns = isCompact
@@ -315,12 +255,9 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
             hasContextPanel={hasContextPanel}
             isContextPanelOpen={isPanelOpen}
             onOpenChat={desktop.openChat}
-            onOpenCodex={desktop.openCodex}
             onOpenHome={desktop.openRoot}
-            onOpenMachines={desktop.openMachines}
             onOpenProjects={desktop.openProjects}
             onOpenSettings={desktop.openSettings}
-            onOpenTopology={desktop.openTopology}
             onToggleContextPanel={() => {
               setIsPanelOpen((current) => !current);
             }}
@@ -342,7 +279,9 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
             pinnedProjectIds={desktop.pinnedProjectIds}
             projects={desktop.projects}
             recentProjectIds={desktop.recentProjectIds}
-            section={activeSection === 'machines' ? 'machines' : 'projects'}
+            section={desktop.mainView === 'machines' || desktop.mainView === 'machine'
+              ? 'machines'
+              : 'projects'}
             selectedMachineId={desktop.selectedMachineId}
             selectedProjectId={desktop.selectedProjectId}
           />
@@ -404,16 +343,25 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
         />
       </div>
 
+      {isCompact && activeSection !== 'settings' ? (
+        <Button
+          aria-label="Settings"
+          isIconOnly
+          onPress={desktop.openSettings}
+          size="sm"
+          variant="ghost"
+          className="app-no-drag absolute right-3 top-3 z-[60] h-9 w-9 min-w-0 rounded-xl bg-app-panel/80 px-0 text-neutral-400 shadow-sm backdrop-blur hover:text-neutral-100"
+        >
+          <Settings className="size-4" strokeWidth={1.9} />
+        </Button>
+      ) : null}
+
       {isCompact ? (
         <MobileTabBar
           activeSection={activeSection}
           onOpenChat={desktop.openChat}
-          onOpenCodex={desktop.openCodex}
-          onOpenMachines={desktop.openMachines}
           onOpenProjects={desktop.openProjects}
           onOpenRoot={desktop.openRoot}
-          onOpenSettings={desktop.openSettings}
-          onOpenTopology={desktop.openTopology}
         />
       ) : null}
     </div>

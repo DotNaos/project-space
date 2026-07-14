@@ -6,11 +6,11 @@ import {
 } from '../../src/features/project-desktop/hooks/project-desktop-routing';
 
 describe('project topology route', () => {
-  test('round-trips the dedicated topology destination', () => {
-    expect(routeForView('topology')).toBe('/topology');
-    expect(parseProjectRoute('/topology')).toEqual({ view: 'topology' });
-    expect(parseProjectRoute('/topology/')).toEqual({ view: 'topology' });
-    expect(initialProjectMainView('/topology')).toBe('topology');
+  test('folds the old topology destination into the default Home map', () => {
+    expect(routeForView('topology')).toBe('/');
+    expect(parseProjectRoute('/topology')).toEqual({ view: 'root' });
+    expect(parseProjectRoute('/topology/')).toEqual({ view: 'root' });
+    expect(initialProjectMainView('/topology')).toBe('root');
   });
 
   test('does not claim unrelated topology-prefixed paths', () => {

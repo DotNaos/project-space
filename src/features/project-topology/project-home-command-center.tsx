@@ -10,6 +10,7 @@ import {
 export interface ProjectHomeCommandCenterProps {
   className?: string;
   defaultView?: ProjectHomeView;
+  hasBottomTabBar?: boolean;
   map: ReactNode;
   onViewChange?(view: ProjectHomeView): void;
   selectedView?: ProjectHomeView;
@@ -19,6 +20,7 @@ export interface ProjectHomeCommandCenterProps {
 export function ProjectHomeCommandCenter({
   className,
   defaultView = defaultProjectHomeView,
+  hasBottomTabBar = false,
   map,
   onViewChange,
   selectedView,
@@ -65,14 +67,25 @@ export function ProjectHomeCommandCenter({
         </Tabs.ListContainer>
 
         <Tabs.Panel
-          className="size-full min-h-0 overflow-hidden outline-none"
+          aria-hidden={view !== 'map'}
+          className={cn(
+            'size-full min-h-0 overflow-hidden outline-none',
+            view !== 'map' && 'hidden'
+          )}
           id="map"
           shouldForceMount
         >
           {map}
         </Tabs.Panel>
         <Tabs.Panel
-          className="size-full min-h-0 overflow-y-auto px-4 pb-8 pt-20 outline-none sm:px-6"
+          aria-hidden={view !== 'summary'}
+          className={cn(
+            'size-full min-h-0 overflow-y-auto px-4 pt-20 outline-none sm:px-6',
+            view !== 'summary' && 'hidden',
+            hasBottomTabBar
+              ? 'pb-[calc(6.75rem+env(safe-area-inset-bottom))]'
+              : 'pb-8'
+          )}
           id="summary"
           shouldForceMount
         >

@@ -23,7 +23,7 @@ describe('Project Space information architecture', () => {
     });
     expect(projectSpaceViewPlacement('root')).toEqual({
       destination: 'home',
-      view: 'summary'
+      view: 'map'
     });
     expect(projectSpaceViewPlacement('codex')).toEqual({
       destination: 'chat',

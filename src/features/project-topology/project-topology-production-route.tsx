@@ -19,11 +19,13 @@ import { loadProjectTopologyWorktreeSnapshot } from './project-topology-inventor
 
 export interface ProjectTopologyProductionRouteProps {
   hasBottomTabBar?: boolean;
+  hasHomeViewSwitcher?: boolean;
   navigation: ProjectTopologyNavigationActions;
 }
 
 export function ProjectTopologyProductionRoute({
   hasBottomTabBar = false,
+  hasHomeViewSwitcher = false,
   navigation
 }: ProjectTopologyProductionRouteProps) {
   const routeRef = useRef<HTMLDivElement>(null);
@@ -56,6 +58,7 @@ export function ProjectTopologyProductionRoute({
           Canvas={ProjectTopologyReactFlowCanvas}
           controller={runtime.controller}
           hasBottomTabBar={hasBottomTabBar}
+          hasHomeViewSwitcher={hasHomeViewSwitcher}
           navigation={navigation}
           taskActions={runtime.taskActions}
           transcriptRegistry={runtime.transcriptRegistry}

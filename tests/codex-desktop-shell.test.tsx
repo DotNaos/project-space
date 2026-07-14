@@ -45,26 +45,27 @@ const { AppRail } = await import(
   '../src/features/project-desktop/components/app-rail'
 );
 
-describe('Project desktop Codex navigation', () => {
-  test('renders a dedicated, active Codex rail destination', () => {
+describe('Project desktop primary navigation', () => {
+  test('keeps Codex inside Chat and limits the rail to primary destinations', () => {
     const html = renderToStaticMarkup(
       <AppRail
-        activeSection="codex"
+        activeSection="chat"
         hasContextPanel={false}
         isContextPanelOpen={false}
         onOpenChat={() => {}}
-        onOpenCodex={() => {}}
         onOpenHome={() => {}}
-        onOpenMachines={() => {}}
         onOpenProjects={() => {}}
         onOpenSettings={() => {}}
-        onOpenTopology={() => {}}
         onToggleContextPanel={() => {}}
       />
     );
 
-    expect(html).toContain('data-testid="sidebar-codex"');
-    expect(html).toContain('data-testid="sidebar-topology"');
-    expect(html).toContain('aria-label="Codex"');
+    expect(html).toContain('data-testid="sidebar-home"');
+    expect(html).toContain('data-testid="sidebar-chat"');
+    expect(html).toContain('data-testid="sidebar-projects"');
+    expect(html).toContain('data-testid="sidebar-settings"');
+    expect(html).not.toContain('data-testid="sidebar-codex"');
+    expect(html).not.toContain('data-testid="sidebar-topology"');
+    expect(html).not.toContain('data-testid="sidebar-machines"');
   });
 });

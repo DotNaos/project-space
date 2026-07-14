@@ -87,6 +87,7 @@ export interface ProjectTopologyCommandCenterProps {
   controller: ProjectTopologyStore;
   eventsByTaskId?: Record<string, TopologyBrowserToolEvents | undefined>;
   hasBottomTabBar?: boolean;
+  hasHomeViewSwitcher?: boolean;
   navigation: ProjectTopologyNavigationActions;
   taskActions?: Pick<TopologyExistingTaskActions<unknown>, 'continue' | 'interrupt'>;
   transcriptRegistry?: ProjectTopologyTranscriptRegistry;
@@ -98,6 +99,7 @@ export function ProjectTopologyCommandCenter({
   controller,
   eventsByTaskId,
   hasBottomTabBar = false,
+  hasHomeViewSwitcher = false,
   navigation,
   taskActions,
   transcriptRegistry,
@@ -164,6 +166,7 @@ export function ProjectTopologyCommandCenter({
       controller={controller}
       eventsByTaskId={eventsByTaskId}
       hasBottomTabBar={hasBottomTabBar}
+      hasHomeViewSwitcher={hasHomeViewSwitcher}
       navigation={navigation}
       onRefresh={() => void refreshTopology()}
       readState={readState}
@@ -194,6 +197,7 @@ function TopologySnapshotScene({
   controller,
   eventsByTaskId,
   hasBottomTabBar,
+  hasHomeViewSwitcher,
   navigation,
   onRefresh,
   readState,
@@ -323,7 +327,12 @@ function TopologySnapshotScene({
             transition: workspace.transition
           }}
         />
-        <TopologyReadBanner onRefresh={onRefresh} readState={readState} snapshot={snapshot} />
+        <TopologyReadBanner
+          hasHomeViewSwitcher={hasHomeViewSwitcher}
+          onRefresh={onRefresh}
+          readState={readState}
+          snapshot={snapshot}
+        />
       </div>
       {workspace.target.kind === 'project' || workspace.target.kind === 'machine' ? (
         <ProjectTopologyFocusPanel

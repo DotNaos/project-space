@@ -60,7 +60,9 @@ export function projectChatBreadcrumbs(target: ProjectChatTarget): ProjectChatCr
 export type LegacyProjectSpaceView =
   | 'chat'
   | 'codex'
+  | 'machine'
   | 'machines'
+  | 'project'
   | 'projects'
   | 'root'
   | 'settings'
@@ -74,10 +76,12 @@ export type ProjectSpaceViewPlacement =
 
 export function projectSpaceViewPlacement(view: LegacyProjectSpaceView): ProjectSpaceViewPlacement {
   if (view === 'topology') return { destination: 'home', view: 'map' };
-  if (view === 'root') return { destination: 'home', view: 'summary' };
+  if (view === 'root') return { destination: 'home', view: 'map' };
   if (view === 'chat') return { destination: 'chat', layer: 'lead' };
   if (view === 'codex') return { destination: 'chat', layer: 'agent' };
-  if (view === 'machines') return { destination: 'projects', context: 'machines' };
+  if (view === 'machine' || view === 'machines') {
+    return { destination: 'projects', context: 'machines' };
+  }
   if (view === 'settings') {
     return { destination: 'settings', section: 'machines-and-connectors' };
   }
