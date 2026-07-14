@@ -15,16 +15,22 @@ describe('connector release and production deployment contract', () => {
     const windowsPackaging = await source('packaging/windows/test-release-packaging.ps1');
     const windowsDocumentation = await source('docs/windows-installation.md');
 
-    expect(packageJson.version).toBe('0.4.1');
-    expect(buildInfo).toContain("const developmentVersion = '0.4.1';");
-    expect(windowsPackaging).toContain("$version = '0.4.1'");
-    expect(windowsPackaging).toContain('/releases/download/v0.4.1/');
-    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.1');
+    expect(packageJson.version).toBe('0.4.2');
+    expect(buildInfo).toContain("const developmentVersion = '0.4.2';");
+    expect(windowsPackaging).toContain("$version = '0.4.2'");
+    expect(windowsPackaging).toContain('/releases/download/v0.4.2/');
+    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.2');
     expect(packageJson.scripts['build:project-cli:macos-arm64']).toContain(
       'main.projectMachineClientReleaseID=v$npm_package_version'
     );
     expect(packageJson.scripts['build:project-cli:macos-arm64']).toContain(
       'main.projectMachineClientBuildID=$build_sha'
+    );
+    expect(packageJson.scripts['build:project-cli:macos-arm64']).toContain(
+      'test -n "$PROJECT_MACOS_SIGN_KEYCHAIN"'
+    );
+    expect(packageJson.scripts['build:project-cli:macos-arm64']).toContain(
+      'codesign --force --keychain "$PROJECT_MACOS_SIGN_KEYCHAIN"'
     );
   });
 
@@ -52,6 +58,9 @@ describe('connector release and production deployment contract', () => {
     expect(workflow).toContain('main.projectMachineClientBuildID=$env:GITHUB_SHA');
     expect(workflow).toContain('main.projectMachineClientReleaseID=v$VERSION');
     expect(workflow).toContain('main.projectMachineClientBuildID=$GITHUB_SHA');
+    expect(workflow).toContain(
+      'echo "PROJECT_MACOS_SIGN_KEYCHAIN=$keychain" >> "$GITHUB_ENV"'
+    );
   });
 
   test('deploys the public root and derives the approved release without fetching it', async () => {

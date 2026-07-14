@@ -456,6 +456,7 @@ jobs:
           identity=$(security find-identity -v -p codesigning "$keychain" | awk '/[0-9A-F]{40}/ { print $2; exit }')
           [[ $identity =~ ^[0-9A-F]{40}$ ]] || { echo 'No valid code-signing identity was imported.' >&2; exit 78; }
           echo "PROJECT_MACOS_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "PROJECT_MACOS_SIGN_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
 
       - name: Build and validate signed macOS bundle
         if: github.ref_type == 'tag'
