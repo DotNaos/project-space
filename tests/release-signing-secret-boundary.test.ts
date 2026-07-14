@@ -63,11 +63,16 @@ describe('release signing service-account secret boundary', () => {
     }
   });
 
-  test('reusable workflow contracts cannot accept the signing token from callers', async () => {
+  test('reusable workflow contracts declare the environment token without caller forwarding', async () => {
     for (const path of reusableSignerWorkflows) {
       const contract = workflowContract(await source(path));
-      expect(contract).not.toContain(serviceAccountSecret);
-      expect(contract).not.toMatch(/^    secrets:/m);
+      expect(contract.match(new RegExp(serviceAccountSecret, 'g'))).toHaveLength(1);
+      expect(contract).toContain(
+        `    secrets:
+      ${serviceAccountSecret}:
+        description: Supplied only by the protected release-signing environment.
+        required: false`
+      );
     }
   });
 
