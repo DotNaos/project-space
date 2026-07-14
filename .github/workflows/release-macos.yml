@@ -394,9 +394,11 @@ jobs:
             && $identity =~ ^[0-9A-F]{40}$ \
             && -n $identity_label ]]
           echo 'Validated the single isolated code-signing identity.'
-          # Keep the import restricted to codesign and update only the matching private key.
+          # Keep the import restricted to codesign. The disposable keychain contains exactly
+          # this one validated identity; the rewrapped private key can have a different internal
+          # label than its certificate, so do not apply a certificate-label selector here.
           /usr/bin/security set-key-partition-list -S apple-tool:,apple:,codesign: \
-            -l "$identity_label" -k "$keychain_password" "$keychain" >/dev/null
+            -k "$keychain_password" "$keychain" >/dev/null
           echo 'Authorized the isolated identity for codesign.'
 
           requirement='=anchor apple generic and certificate leaf[subject.OU] = "R72P4M9WMS" and identifier "com.dotnaos.project.approval-signer"'
