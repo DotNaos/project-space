@@ -60,6 +60,7 @@ describe('project topology evidence model', () => {
       current: true,
       match: 'worktree',
       matchedPath: '/projects/.worktrees/project-space/issue-177-topology',
+      sessionRevision: 'a'.repeat(64),
       source: 'connector-canonical-cwd'
     });
     expect(task.issue?.number).toBe(177);

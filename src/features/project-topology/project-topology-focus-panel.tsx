@@ -21,6 +21,7 @@ import type {
   TopologyMachine,
   TopologyProject
 } from './project-topology-types';
+import { topologyIssueNavigationProjectId } from './project-topology-actions';
 import {
   topologyMachineTaskArea,
   topologyTaskStatuses,
@@ -55,6 +56,7 @@ export function ProjectTopologyFocusPanel({
   if (!project) return null;
   const machines = resolved.machine ? [resolved.machine] : project.machines;
   const status = topologyTruthStatus(resolved.machine?.inventory ?? project.inventory);
+  const issueProjectId = topologyIssueNavigationProjectId(project, resolved.machine);
 
   return (
     <Surface
@@ -90,7 +92,7 @@ export function ProjectTopologyFocusPanel({
           </Text>
         </span>
         <Button
-          aria-label={`Chat with ${project.name} Project Lead`}
+          aria-label={`Open ${project.name} project room`}
           className="ml-auto size-8 min-h-0"
           isIconOnly
           onPress={() => onOpenProjectConversation(project)}
@@ -121,8 +123,11 @@ export function ProjectTopologyFocusPanel({
           render={(issues) => issues.map((issue) => (
             <Button
               className="h-auto min-h-8 w-full justify-start gap-2 px-2 py-1.5 text-left"
+              isDisabled={!issueProjectId}
               key={issue.number}
-              onPress={() => onOpenIssue(project.id, issue.number)}
+              onPress={() => {
+                if (issueProjectId) onOpenIssue(issueProjectId, issue.number);
+              }}
               size="sm"
               variant="ghost"
             >
@@ -134,6 +139,12 @@ export function ProjectTopologyFocusPanel({
             </Button>
           ))}
         />
+        {!issueProjectId && (project.issues.state === 'ready' || project.issues.state === 'stale')
+          && project.issues.data.length > 0 ? (
+          <Text className="mt-1 block text-[10px] text-neutral-500">
+            Focus a machine with one proven project record to open an issue.
+          </Text>
+        ) : null}
 
         <InventorySection
           icon={GitBranch}

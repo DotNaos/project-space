@@ -5,6 +5,8 @@ import {
   CODEX_THREAD_ID_PATTERN,
   type CodexSessionApprovalRequest,
   type CodexSessionContinueRequest,
+  type CodexSessionInspectRequest,
+  type CodexSessionInspectResult,
   type CodexSessionInterruptRequest,
   type CodexSessionListRequest,
   type CodexSessionOperationResult,
@@ -37,6 +39,10 @@ export interface CodexSessionsHttpService {
     context: CodexSessionsRequestContext,
     request: CodexSessionInterruptRequest
   ): Promise<CodexSessionOperationResult>;
+  inspect(
+    context: CodexSessionsRequestContext,
+    request: CodexSessionInspectRequest
+  ): Promise<CodexSessionInspectResult>;
   list(
     context: CodexSessionsRequestContext,
     request: CodexSessionListRequest
@@ -59,7 +65,7 @@ export interface CodexSessionsHttpService {
 
 export class CodexSessionsHttpError extends Error {
   constructor(
-    readonly statusCode: 400 | 401 | 403 | 404 | 409 | 413 | 503,
+    readonly statusCode: 400 | 401 | 403 | 404 | 409 | 413 | 502 | 503,
     readonly code: string,
     message: string
   ) {
@@ -122,13 +128,13 @@ export function createCodexSessionsHttpApi(
 type Route =
   | { kind: 'list' }
   | {
-      kind: 'approval' | 'continue' | 'input' | 'interrupt' | 'read' | 'stream';
+      kind: 'approval' | 'continue' | 'input' | 'inspect' | 'interrupt' | 'read' | 'stream';
       threadId: string;
     };
 
 function routeFor(method: string | undefined, pathname: string): Route | undefined {
   if (method === 'GET' && pathname === '/api/codex/sessions') return { kind: 'list' };
-  const match = pathname.match(/^\/api\/codex\/sessions\/([^/]+)(?:\/(continue|interrupt|approval|input|stream))?$/);
+  const match = pathname.match(/^\/api\/codex\/sessions\/([^/]+)(?:\/(continue|interrupt|approval|input|inspect|stream))?$/);
   if (!match) return undefined;
   let threadId = '';
   try {
@@ -139,8 +145,9 @@ function routeFor(method: string | undefined, pathname: string): Route | undefin
   if (!CODEX_THREAD_ID_PATTERN.test(threadId)) return undefined;
   const action = match[2];
   if (method === 'GET' && !action) return { kind: 'read', threadId };
+  if (method === 'GET' && action === 'inspect') return { kind: 'inspect', threadId };
   if (method === 'GET' && action === 'stream') return { kind: 'stream', threadId };
-  if (method === 'POST' && action && action !== 'stream') {
+  if (method === 'POST' && action && action !== 'inspect' && action !== 'stream') {
     return { kind: action as 'approval' | 'continue' | 'input' | 'interrupt', threadId };
   }
   return undefined;
@@ -172,6 +179,11 @@ async function executeRoute(
   if (route.kind === 'read') {
     rejectUnexpectedQuery(url, ['machineId']);
     return service.read(context, { machineId, threadId: route.threadId });
+  }
+
+  if (route.kind === 'inspect') {
+    rejectUnexpectedQuery(url, ['machineId']);
+    return service.inspect(context, { machineId, threadId: route.threadId });
   }
 
   const body = await readJsonObject(request);

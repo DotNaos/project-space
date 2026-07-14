@@ -3,10 +3,12 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type {
   CodexSessionApprovalRequest,
   CodexSessionContinueRequest,
+  CodexSessionInspectRequest,
   CodexSessionInterruptRequest,
   CodexSessionReadRequest,
   CodexSessionUserInputResponse
 } from '../../src/shared/codex-sessions-api';
+import { CODEX_SESSION_LIST_DEADLINE_MS } from '../../src/shared/codex-session-inventory-window';
 import { CodexSessionsStore } from '../codex-sessions-store';
 import type { CodexSessionsHttpHandler } from '../codex-sessions-http';
 import {
@@ -109,6 +111,24 @@ export function createConnectorCodexSessionsTransport(): CodexSessionsTransport 
       if (result.operation !== 'list') throw new CodexTransportUncertainError();
       return result.result;
     },
+    async inspect({ machineId, threadId, userId }) {
+      try {
+        const result = await request('inspect', { machineId, threadId }, userId);
+        if (result.operation !== 'inspect') throw new CodexTransportUncertainError();
+        return result.result;
+      } catch (error) {
+        if (error instanceof CodexConnectorRemoteError && error.code === 'rejected') {
+          throw new CodexTransportUncertainError(
+            'The connector could not prove the current Codex task identity.'
+          );
+        }
+        if (error instanceof CodexConnectorRemoteError && error.code === 'unavailable') {
+          throw new CodexTransportUnavailableError();
+        }
+        if (error instanceof CodexTransportUncertainError) throw error;
+        throw new CodexTransportUnavailableError();
+      }
+    },
     async mutate({ kind, machineId, request: mutation, threadId, userId }) {
       const result = await mutate(kind, mutation, userId);
       if (result.operation !== kind) throw new CodexTransportUncertainError();
@@ -145,16 +165,26 @@ export function createConnectorCodexSessionsTransport(): CodexSessionsTransport 
 }
 
 async function request(
-  operation: 'list' | 'read',
+  operation: 'inspect' | 'list' | 'read',
   payload: { includeArchived?: boolean; machineId: string; threadId?: string },
   userId: string
 ) {
   try {
-    return await requestConnectorCodexSessions(operation, payload as CodexSessionReadRequest, {
-      userId
-    });
+    return await requestConnectorCodexSessions(
+      operation,
+      payload as CodexSessionInspectRequest | CodexSessionReadRequest,
+      {
+        ...(operation === 'inspect'
+          ? { timeoutMs: 30_000 }
+          : operation === 'list'
+            ? { timeoutMs: CODEX_SESSION_LIST_DEADLINE_MS }
+            : {}),
+        userId
+      }
+    );
   } catch (error) {
-    if (operation === 'read' && error instanceof CodexConnectorRemoteError) throw error;
+    if ((operation === 'inspect' || operation === 'read') &&
+      error instanceof CodexConnectorRemoteError) throw error;
     throw new CodexTransportUnavailableError();
   }
 }

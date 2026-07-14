@@ -10,7 +10,11 @@ import type {
   CodexSessionReadResult,
   CodexSessionRecord
 } from '@/shared/codex-sessions-api';
-import { topologyProjectScope } from '../../src/features/project-topology/project-topology-inventory-evidence';
+import {
+  comparablePath,
+  containsPath,
+  topologyProjectScope
+} from '../../src/features/project-topology/project-topology-inventory-evidence';
 import {
   topologyTaskId,
   type ProjectTopologyInventory,
@@ -135,14 +139,17 @@ export function conversation(sessionRecord: CodexSessionRecord): CodexSessionRea
 
 export function location(
   sessionRecord: CodexSessionRecord,
-  canonicalCwd = sessionRecord.cwd ?? ''
+  canonicalCwd = sessionRecord.cwd ?? '',
+  worktreeRoot = canonicalCwd
 ): TopologyTaskLocationEvidence {
   return {
     canonicalCwd,
     checkedAt,
     machineId: sessionRecord.machineId,
+    sessionRevision: 'a'.repeat(64),
     source: 'connector-realpath',
-    threadId: sessionRecord.id
+    threadId: sessionRecord.id,
+    worktreeRoot
   };
 }
 
@@ -155,6 +162,7 @@ export function writable(
     checkedAt,
     expiresAt: '2026-07-14T00:05:00.000Z',
     machineId: sessionRecord.machineId,
+    sessionRevision: 'a'.repeat(64),
     sessionLastActivityAt: sessionRecord.lastActivityAt,
     state: 'ready',
     threadId: sessionRecord.id,
@@ -220,8 +228,15 @@ export function inventory(input: InventoryInput = {}): ProjectTopologyInventory 
   const codexSessions = Object.values(codexByMachineId).flatMap((result) => (
     result.state === 'ready' || result.state === 'stale' ? result.data.sessions : []
   ));
+  const worktreesByProjectScope = input.worktreesByScope ?? Object.fromEntries(projects.map((entry) => [
+    topologyProjectScope(entry),
+    input.worktreesByProject?.[entry.id] ?? worktrees(entry.rootPath, [])
+  ]));
   const defaultLocations = Object.fromEntries(codexSessions.flatMap((entry) => (
-    entry.cwd ? [[topologyTaskId(entry.machineId, entry.id), location(entry)]] : []
+    entry.cwd ? [[
+      topologyTaskId(entry.machineId, entry.id),
+      location(entry, entry.cwd, fixtureGitRoot(entry, projects, worktreesByProjectScope))
+    ]] : []
   )));
   return {
     browsersByTaskId: input.browsers,
@@ -239,11 +254,31 @@ export function inventory(input: InventoryInput = {}): ProjectTopologyInventory 
     taskLocationsByTaskId: input.taskLocations ?? defaultLocations,
     taskEvidenceByTaskId: input.taskEvidence,
     writeCapabilitiesByTaskId: input.writeCapabilities,
-    worktreesByProjectScope: input.worktreesByScope ?? Object.fromEntries(projects.map((entry) => [
-      topologyProjectScope(entry),
-      input.worktreesByProject?.[entry.id] ?? worktrees(entry.rootPath, [])
-    ]))
+    worktreesByProjectScope
   };
+}
+
+function fixtureGitRoot(
+  entry: CodexSessionRecord,
+  projects: ProjectSpaceRecord[],
+  inventories: ProjectTopologyInventory['worktreesByProjectScope']
+) {
+  const cwd = comparablePath(entry.cwd);
+  const paths = projects
+    .filter((projectRecord) => projectRecord.machineId === entry.machineId)
+    .flatMap((projectRecord) => {
+      const discovered = inventories[topologyProjectScope(projectRecord)];
+      const worktreeRecords = discovered?.state === 'ready'
+        ? discovered.worktrees
+        : discovered?.state === 'stale' && discovered.data.state === 'ready'
+          ? discovered.data.worktrees
+          : [];
+      return [projectRecord.rootPath, ...worktreeRecords.map((worktree) => worktree.path)];
+    })
+    .map(comparablePath)
+    .filter((path) => containsPath(path, cwd))
+    .sort((left, right) => right.length - left.length);
+  return paths[0] ?? entry.cwd ?? '';
 }
 
 export function snapshot(

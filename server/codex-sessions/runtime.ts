@@ -13,6 +13,7 @@ import {
 import {
   CodexSessionsAccessError,
   CodexSessionsConflictError,
+  CodexTransportUncertainError,
   CodexTransportUnavailableError,
   createCodexSessionsService,
   type CodexSessionsActor,
@@ -26,6 +27,7 @@ export interface CodexSessionsRuntime {
 
 export function createCodexSessionsRuntime(options: {
   authorize(actor: CodexSessionsActor, machineId: string): Promise<void>;
+  monotonicNow?: () => number;
   now?: () => Date;
   resolveContext?: () => CodexSessionsRequestContext | undefined;
   store: CodexSessionsStore;
@@ -59,6 +61,7 @@ function wrapHttpService(
   return {
     approve: (actor, request) => withHttpErrors(() => service.approve(actor, request)),
     continue: (actor, request) => withHttpErrors(() => service.continue(actor, request)),
+    inspect: (actor, request) => withHttpErrors(() => service.inspect(actor, request)),
     interrupt: (actor, request) => withHttpErrors(() => service.interrupt(actor, request)),
     list: (actor, request) => withHttpErrors(() => service.list(actor, request)),
     read: (actor, request) => withHttpErrors(() => service.read(actor, request)),
@@ -98,6 +101,13 @@ async function withHttpErrors<Result>(operation: () => Promise<Result>): Promise
         503,
         'connector_unavailable',
         'The owning machine is offline or unavailable.'
+      );
+    }
+    if (error instanceof CodexTransportUncertainError) {
+      throw new CodexSessionsHttpError(
+        502,
+        'task_identity_unverified',
+        'The current Codex task identity could not be verified.'
       );
     }
     if (error instanceof TypeError) {

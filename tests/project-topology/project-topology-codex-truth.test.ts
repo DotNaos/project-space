@@ -62,10 +62,10 @@ describe('project topology Codex identity truth', () => {
     }
   });
 
-  test('blocks session activity newer than its Codex inventory evidence', () => {
+  test('blocks session activity newer than its Codex inventory completion evidence', () => {
     const futureSession = {
       ...session('machine-a', 'thread-future-activity', '/projects/project-space'),
-      lastActivityAt: '2026-07-14T00:00:01.000Z'
+      lastActivityAt: '2026-07-14T00:00:31.000Z'
     };
     const result = snapshot(buildProjectTopology(inventory({
       codexByMachine: {

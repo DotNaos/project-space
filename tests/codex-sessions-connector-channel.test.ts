@@ -6,6 +6,7 @@ import { WebSocket } from 'ws';
 
 import {
   CODEX_SESSIONS_CONNECTOR_CAPABILITY,
+  CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY,
   createCodexSessionsWireRequest
 } from '../server/codex-sessions-connector-contract';
 import {
@@ -51,6 +52,42 @@ function fakeSocket(capabilities = [CODEX_SESSIONS_CONNECTOR_CAPABILITY]) {
   return { sent, socket };
 }
 
+function inspectionResult(overrides: {
+  machineId?: string;
+  sessionRevision?: string;
+  threadId?: string;
+} = {}) {
+  const inspectedMachineId = overrides.machineId ?? machineId;
+  const inspectedThreadId = overrides.threadId ?? threadId;
+  const checkedAt = new Date(now).toISOString();
+  const sessionRevision = overrides.sessionRevision ?? 'a'.repeat(64);
+  return {
+    checkedAt,
+    openedReadOnly: true as const,
+    session: {
+      archived: false,
+      cwd: '/projects/project-space',
+      id: inspectedThreadId,
+      lastActivityAt: checkedAt,
+      loadedByProjectSpace: true,
+      machineId: inspectedMachineId,
+      machineName: 'Test machine',
+      status: 'idle' as const,
+      title: 'Implement topology command center'
+    },
+    sessionRevision,
+    taskLocation: {
+      canonicalCwd: '/projects/project-space',
+      checkedAt,
+      machineId: inspectedMachineId,
+      sessionRevision,
+      source: 'connector-realpath' as const,
+      threadId: inspectedThreadId,
+      worktreeRoot: '/projects/project-space'
+    }
+  };
+}
+
 describe('Codex sessions connector channel', () => {
   test('accepts only typed commands and results bound to the exact request', async () => {
     const { sent, socket } = fakeSocket();
@@ -82,6 +119,7 @@ describe('Codex sessions connector channel', () => {
             result: {
               checkedAt: new Date(now).toISOString(),
               machine: { id: machineId, name: 'Test machine', online: true },
+              publishedAt: new Date(now).toISOString(),
               sessions: []
             }
           }
@@ -168,6 +206,117 @@ describe('Codex sessions connector channel', () => {
         signingKey: keys.privateKey,
         userId: 'user-owner'
       })).rejects.toThrow('does not provide Codex sessions');
+    } finally {
+      removeConnectorSession(machineId, socket);
+    }
+  });
+
+  test('requires codex.sessions.inspect.v1 separately from ordinary session access', async () => {
+    const { sent, socket } = fakeSocket([CODEX_SESSIONS_CONNECTOR_CAPABILITY]);
+    try {
+      await expect(requestConnectorCodexSessions('inspect', { machineId, threadId }, {
+        generation: 1,
+        signingKey: keys.privateKey,
+        userId: 'user-owner'
+      })).rejects.toThrow('does not provide Codex sessions');
+      expect(sent).toEqual([]);
+    } finally {
+      removeConnectorSession(machineId, socket);
+    }
+  });
+
+  test('accepts a bound inspect result from the separately advertised capability', async () => {
+    const { sent, socket } = fakeSocket([CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY]);
+    try {
+      const pending = requestConnectorCodexSessions('inspect', { machineId, threadId }, {
+        now,
+        operationId: 'operation-inspect-one',
+        signingKey: keys.privateKey,
+        userId: 'user-owner'
+      });
+      const command = sent[0] as {
+        id: string;
+        payload: ReturnType<typeof createCodexSessionsWireRequest>;
+      };
+      const result = {
+        id: command.id,
+        payload: {
+          binding: bindingForCodexSessionsRequest(command.payload),
+          result: {
+            operation: 'inspect' as const,
+            result: inspectionResult()
+          }
+        },
+        type: 'codex.sessions.result' as const
+      };
+      expect(isConnectorHubMessage(result)).toBe(true);
+      expect(handleCodexSessionsConnectorMessage(machineId, result)).toBe(true);
+      expect(await pending).toEqual(result.payload.result);
+    } finally {
+      removeConnectorSession(machineId, socket);
+    }
+  });
+
+  test('rejects malformed revisions and ignores inspect evidence for another identity', async () => {
+    const { sent, socket } = fakeSocket([CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY]);
+    try {
+      let resolved = false;
+      const pending = requestConnectorCodexSessions('inspect', { machineId, threadId }, {
+        now,
+        operationId: 'operation-inspect-binding',
+        signingKey: keys.privateKey,
+        userId: 'user-owner'
+      }).then((result) => {
+        resolved = true;
+        return result;
+      });
+      const command = sent[0] as {
+        id: string;
+        payload: ReturnType<typeof createCodexSessionsWireRequest>;
+      };
+      const binding = bindingForCodexSessionsRequest(command.payload);
+      const malformedRevision = {
+        id: command.id,
+        payload: {
+          binding,
+          result: {
+            operation: 'inspect' as const,
+            result: inspectionResult({ sessionRevision: 'not-a-revision' })
+          }
+        },
+        type: 'codex.sessions.result' as const
+      };
+      expect(isConnectorHubMessage(malformedRevision)).toBe(false);
+
+      const mismatchedIdentity = {
+        id: command.id,
+        payload: {
+          binding,
+          result: {
+            operation: 'inspect' as const,
+            result: inspectionResult({ machineId: 'different-machine' })
+          }
+        },
+        type: 'codex.sessions.result' as const
+      };
+      expect(isConnectorHubMessage(mismatchedIdentity)).toBe(true);
+      expect(handleCodexSessionsConnectorMessage(machineId, mismatchedIdentity)).toBe(true);
+      await Bun.sleep(0);
+      expect(resolved).toBe(false);
+
+      const valid = {
+        id: command.id,
+        payload: {
+          binding,
+          result: {
+            operation: 'inspect' as const,
+            result: inspectionResult()
+          }
+        },
+        type: 'codex.sessions.result' as const
+      };
+      handleCodexSessionsConnectorMessage(machineId, valid);
+      expect((await pending).operation).toBe('inspect');
     } finally {
       removeConnectorSession(machineId, socket);
     }
@@ -313,6 +462,8 @@ describe('Codex sessions connector capability', () => {
     const backend = createLocalProjectSpaceBackend({ connectorMachineId: machineId });
     const registry = await backend.getConnectorProjectRegistry();
     expect(registry.connector.capabilities?.includes(CODEX_SESSIONS_CONNECTOR_CAPABILITY))
+      .toBe(existsSync(defaultCodexAppServerBinary));
+    expect(registry.connector.capabilities?.includes(CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY))
       .toBe(existsSync(defaultCodexAppServerBinary));
   }, 15_000);
 });

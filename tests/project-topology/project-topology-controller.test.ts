@@ -138,13 +138,7 @@ describe('project topology controller', () => {
         return readyEvidence(await transcript.promise);
       },
       async resolveCodexSessionLocation(machineId, threadId) {
-        return readyEvidence({
-          canonicalCwd: '/projects/project-a',
-          checkedAt,
-          machineId,
-          source: 'connector-realpath',
-          threadId
-        });
+        return readyEvidence(sessionLocation(machineId, threadId));
       }
     };
     const controller = new ProjectTopologyController(source, { clock: () => checkedAt });
@@ -191,13 +185,7 @@ describe('project topology controller', () => {
         return readyEvidence(conversation(candidate));
       },
       async resolveCodexSessionLocation(machineId, threadId) {
-        return readyEvidence({
-          canonicalCwd: '/projects/project-a',
-          checkedAt,
-          machineId,
-          source: 'connector-realpath',
-          threadId
-        });
+        return readyEvidence(sessionLocation(machineId, threadId));
       }
     };
     const controller = new ProjectTopologyController(source, {
@@ -246,13 +234,7 @@ describe('project topology controller', () => {
         return readyEvidence(conversation(threadId === first.id ? first : second));
       },
       async resolveCodexSessionLocation(machineId, threadId) {
-        return readyEvidence({
-          canonicalCwd: '/projects/project-a',
-          checkedAt,
-          machineId,
-          source: 'connector-realpath',
-          threadId
-        });
+        return readyEvidence(sessionLocation(machineId, threadId));
       }
     };
     const controller = new ProjectTopologyController(source, {
@@ -285,13 +267,7 @@ describe('project topology controller', () => {
         return readyEvidence(conversation(candidate));
       },
       async resolveCodexSessionLocation(machineId, threadId) {
-        return readyEvidence({
-          canonicalCwd: '/projects/project-a',
-          checkedAt,
-          machineId,
-          source: 'connector-realpath',
-          threadId
-        });
+        return readyEvidence(sessionLocation(machineId, threadId));
       }
     };
     const controller = new ProjectTopologyController(source, {
@@ -328,13 +304,7 @@ describe('project topology controller', () => {
         return readyEvidence(conversation(candidate));
       },
       async resolveCodexSessionLocation(machineId, threadId) {
-        return readyEvidence({
-          canonicalCwd: '/projects/project-a',
-          checkedAt,
-          machineId,
-          source: 'connector-realpath',
-          threadId
-        });
+        return readyEvidence(sessionLocation(machineId, threadId));
       }
     };
     const controller = new ProjectTopologyController(source, {
@@ -379,13 +349,7 @@ describe('project topology controller', () => {
         return readyEvidence(conversation(candidate));
       },
       async resolveCodexSessionLocation(machineId, threadId) {
-        return readyEvidence({
-          canonicalCwd: '/projects/project-a',
-          checkedAt,
-          machineId,
-          source: 'connector-realpath',
-          threadId
-        });
+        return readyEvidence(sessionLocation(machineId, threadId));
       }
     };
     const controller = new ProjectTopologyController(source, {
@@ -496,4 +460,16 @@ function deferred<T>() {
 
 function readyEvidence<T>(data: T) {
   return { checkedAt, data, state: 'ready' as const };
+}
+
+function sessionLocation(machineId: string, threadId: string) {
+  return {
+    canonicalCwd: '/projects/project-a',
+    checkedAt,
+    machineId,
+    sessionRevision: 'a'.repeat(64),
+    source: 'connector-realpath' as const,
+    threadId,
+    worktreeRoot: '/projects/project-a'
+  };
 }

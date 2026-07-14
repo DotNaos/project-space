@@ -1,4 +1,4 @@
-import { parseProjectChatRoute } from '../../project-chat/project-chat-route';
+import { parseProjectChatRoute, projectChatRoute } from '../../project-chat/project-chat-route';
 import { codexSessionRoute, parseCodexSessionRoute } from '../../codex-sessions/codex-session-route';
 import {
   normalizeRouteKey,
@@ -56,7 +56,6 @@ function normalizePath(path: string) {
 }
 
 const templatePlaceholderPattern = /\{\{.*?\}\}/;
-const chatPath = '/chat';
 const topologyPath = '/topology';
 const projectsPath = '/projects';
 const machinesPath = '/machines';
@@ -127,7 +126,7 @@ export function routeForView(view: ProjectMainView, projectId = '', tab = '', de
   }
 
   if (view === 'chat') {
-    return chatPath;
+    return projectChatRoute(projectId || undefined);
   }
 
   if (view === 'machines') {

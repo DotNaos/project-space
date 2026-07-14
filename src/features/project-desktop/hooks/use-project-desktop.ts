@@ -5,6 +5,7 @@ import { parseProjectChatRoute } from '../../project-chat/project-chat-route';
 import { useProjectWorktreeDiscovery } from './use-project-worktree-discovery';
 import { useProjectDesktopLifecycle } from './use-project-desktop-lifecycle';
 import { useCodexDesktop } from './use-codex-desktop';
+import { createProjectDesktopTopologyNavigation } from './project-desktop-topology-navigation';
 import {
   connectorOverviewRefreshIntervalMs,
   createGitHubProjectRecord,
@@ -462,6 +463,23 @@ export function useProjectDesktop() {
     );
   }
 
+  const topologyNavigation = createProjectDesktopTopologyNavigation({
+    persistProjectsState,
+    pinnedProjectIds,
+    projectsById,
+    projectTab,
+    pushRecentProject,
+    selectedLauncherAppId,
+    selectedProjectId,
+    setLauncherError,
+    setMainView,
+    setProjectTab,
+    setSelectedExplorerTarget,
+    setSelectedIssueNumber,
+    setSelectedMachineId,
+    setSelectedProjectId
+  });
+
   return {
     ...codexDesktop,
     appMeta,
@@ -510,10 +528,7 @@ export function useProjectDesktop() {
       setMainView('chat');
       writeRoute('chat');
     },
-    openTopology() {
-      setMainView('topology');
-      writeRoute('topology');
-    },
+    ...topologyNavigation,
     openMachines() {
       setMainView('machines');
       writeRoute('machines');
@@ -583,27 +598,6 @@ export function useProjectDesktop() {
         return nextPinnedProjectIds;
       });
     },
-    selectProject(projectId: string, groupId?: string) {
-      const nextSelectedExplorerTarget: ExplorerTarget = { kind: 'workspace' };
-      const nextProject = projectsById[projectId];
-
-      setSelectedExplorerTarget(nextSelectedExplorerTarget);
-      setSelectedProjectId(projectId);
-      setSelectedMachineId(nextProject?.machineId ?? '');
-      setSelectedIssueNumber(undefined);
-      setMainView('project');
-      writeRoute('project', projectId, false, projectTab);
-      setLauncherError('');
-      const nextRecentProjectIds = pushRecentProject(projectId);
-      persistProjectsState({
-        activeGroupId: nextProject?.groupId ?? groupId ?? '',
-        pinnedProjectIds,
-        recentProjectIds: nextRecentProjectIds,
-        selectedExplorerTarget: nextSelectedExplorerTarget,
-        selectedLauncherAppId,
-        selectedProjectId: projectId
-      });
-    },
     selectWorkspace() {
       const nextSelectedExplorerTarget: ExplorerTarget = { kind: 'workspace' };
 
@@ -642,16 +636,6 @@ export function useProjectDesktop() {
         selectedLauncherAppId,
         selectedProjectId
       });
-    },
-    openProjectIssue(issueNumber: number) {
-      if (!selectedProjectId) {
-        return;
-      }
-
-      setProjectTab('issues');
-      setSelectedIssueNumber(issueNumber);
-      setMainView('project');
-      writeRoute('project', selectedProjectId, false, 'issues', String(issueNumber));
     },
     openProjectWorkflowRun(runId: number) {
       if (!selectedProjectId || !Number.isSafeInteger(runId) || runId <= 0) {

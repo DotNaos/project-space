@@ -1,5 +1,6 @@
 import {
   topologyTaskId,
+  type TopologyMachine,
   type TopologyProject,
   type TopologyTask
 } from './project-topology-types';
@@ -116,12 +117,14 @@ export class TopologyExistingTaskActions<TResult = unknown> {
       !authority
       || authority.machineId !== task.machineId
       || authority.threadId !== task.threadId
+      || !/^[0-9a-f]{64}$/.test(authority.sessionRevision)
+      || authority.sessionRevision !== task.evidence.sessionRevision
       || authority.sessionLastActivityAt !== task.session.lastActivityAt
       || !Number.isFinite(now)
       || !Number.isFinite(sessionLastActivityAt)
       || !Number.isFinite(checkedAt)
       || !Number.isFinite(expiresAt)
-      || sessionLastActivityAt > checkedAt
+      || sessionLastActivityAt > checkedAt + 30_000
       || checkedAt > now
       || expiresAt <= now
       || expiresAt - checkedAt > 5 * 60 * 1_000
@@ -153,4 +156,17 @@ export function topologyProjectLeadTarget(
   project: Pick<TopologyProject, 'chatProjectId' | 'id'>
 ): TopologyCoordinatorTarget {
   return { chatProjectId: project.chatProjectId, kind: 'project-lead', projectId: project.id };
+}
+
+export function topologyIssueNavigationProjectId(
+  project: Pick<TopologyProject, 'machines'>,
+  focusedMachine?: Pick<TopologyMachine, 'projectRecords'>
+) {
+  const machine = focusedMachine
+    ?? (project.machines.length === 1
+      ? project.machines[0]
+      : project.machines.find((candidate) => candidate.occupancy === 'primary'));
+  if (!machine) return undefined;
+  const projectIds = [...new Set(machine.projectRecords.map((record) => record.id))];
+  return projectIds.length === 1 ? projectIds[0] : undefined;
 }

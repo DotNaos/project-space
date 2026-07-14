@@ -63,7 +63,10 @@ import { backupProject, deployProject, getPlatformOverview } from './local-platf
 import { readAppMeta } from './app-meta';
 import { connectorRuntimeRecord } from './connector-build-info';
 import { configuredConnectorMachineId } from './project-connector-config';
-import { CODEX_SESSIONS_CONNECTOR_CAPABILITY } from './codex-sessions-connector-contract';
+import {
+  CODEX_SESSIONS_CONNECTOR_CAPABILITY,
+  CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY
+} from './codex-sessions-connector-contract';
 import { defaultCodexAppServerBinary } from './codex-sessions/stdio-transport';
 import {
   applyProjectStructureAction,
@@ -155,7 +158,10 @@ const connectorCommandCapabilities = [
   'runtime.update',
   'worktrees.list',
   'worktrees.list.v2',
-  ...(existsSync(defaultCodexAppServerBinary) ? [CODEX_SESSIONS_CONNECTOR_CAPABILITY] : [])
+  ...(existsSync(defaultCodexAppServerBinary) ? [
+    CODEX_SESSIONS_CONNECTOR_CAPABILITY,
+    CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY
+  ] : [])
 ];
 
 export function createLocalProjectSpaceBackend(

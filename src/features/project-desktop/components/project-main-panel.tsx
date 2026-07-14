@@ -17,7 +17,7 @@ import { ProjectChatWorkspace } from '@/features/project-chat/project-chat-works
 import { CodexSessionsControllerPage } from '@/features/codex-sessions/codex-sessions-controller-page';
 import type { CodexSessionsController } from '@/features/codex-sessions/codex-sessions-controller';
 import type { CodexSessionTarget } from '@/features/codex-sessions/codex-session-route';
-import { ProjectTopologyRoutePending } from '@/features/project-topology/project-topology-route-pending';
+import { ProjectTopologyProductionRoute } from '@/features/project-topology/project-topology-production-route';
 import { projectChatProjectId } from '@/shared/project-chat-project';
 import type {
   MachineDetailTab,
@@ -181,11 +181,13 @@ export interface ProjectMainPanelProps {
   machineTab: MachineDetailTab;
   mainView: ProjectMainView;
   onCreateProject(): void;
+  onOpenChat(): void;
   onOpenCodex(target?: CodexSessionTarget): void;
   onOpenMachine(machineId: string, tab?: MachineDetailTab): void;
   onOpenMachines(): void;
   onOpenProjects(): void;
-  onOpenProjectIssue(issueNumber: number): void;
+  onOpenProjectChat(projectId: string): void;
+  onOpenProjectIssue(issueNumber: number, projectIdOverride?: string): void;
   onOpenProjectWorkflowRun(runId: number): void;
   onCloseProjectWorkflowRun(): void;
   onOpenRoot(): void;
@@ -234,10 +236,12 @@ export function ProjectMainPanel({
   machineTab,
   mainView,
   onCreateProject,
+  onOpenChat,
   onOpenCodex,
   onOpenMachine,
   onOpenMachines,
   onOpenProjects,
+  onOpenProjectChat,
   onOpenProjectIssue,
   onOpenProjectWorkflowRun,
   onCloseProjectWorkflowRun,
@@ -355,6 +359,24 @@ export function ProjectMainPanel({
     }));
   }, [connectorOverview.machines]);
 
+  const topologyNavigation = useMemo(() => ({
+    openCoordinator(target: { kind: 'lead' } | {
+      chatProjectId: string;
+      kind: 'project-lead';
+      projectId: string;
+    }) {
+      if (target.kind === 'project-lead') {
+        onOpenProjectChat(target.chatProjectId);
+        return;
+      }
+      onOpenChat();
+    },
+    openIssue(projectId: string, issueNumber: number) {
+      onOpenProjectIssue(issueNumber, projectId);
+    },
+    resetFocus() {}
+  }), [onOpenChat, onOpenProjectChat, onOpenProjectIssue]);
+
   const handleBack = useCallback(() => {
     if (mainView === 'machine') {
       onOpenMachines();
@@ -463,7 +485,12 @@ export function ProjectMainPanel({
   }
 
   if (mainView === 'topology') {
-    return <ProjectTopologyRoutePending hasBottomTabBar={hasBottomTabBar} />;
+    return (
+      <ProjectTopologyProductionRoute
+        hasBottomTabBar={hasBottomTabBar}
+        navigation={topologyNavigation}
+      />
+    );
   }
 
   return (

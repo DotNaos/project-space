@@ -47,7 +47,11 @@ export function revalidateTopologyPublication(
     ...(inventory.writeCapabilitiesByTaskId ? {
       writeCapabilitiesByTaskId: mapValues(
         inventory.writeCapabilitiesByTaskId,
-        (capability) => revalidateWriteCapability(capability, publishedAt)
+        (capability, id) => revalidateWriteCapability(
+          capability,
+          publishedAt,
+          locations[id]?.sessionRevision
+        )
       )
     } : {})
   };
@@ -117,7 +121,8 @@ function revalidateLocations(
 
 function revalidateWriteCapability(
   capability: TopologyTaskWriteCapability,
-  publishedAt: string
+  publishedAt: string,
+  locationSessionRevision: string | undefined
 ): TopologyTaskWriteCapability {
   if (capability.state !== 'ready') return capability;
   const checkedAt = Date.parse(capability.checkedAt);
@@ -125,7 +130,9 @@ function revalidateWriteCapability(
   const sessionAt = Date.parse(capability.sessionLastActivityAt);
   const publicationAt = Date.parse(publishedAt);
   const valid = [checkedAt, expiresAt, sessionAt, publicationAt].every(Number.isFinite)
-    && sessionAt <= checkedAt
+    && /^[0-9a-f]{64}$/.test(capability.sessionRevision)
+    && capability.sessionRevision === locationSessionRevision
+    && sessionAt <= checkedAt + 30_000
     && checkedAt <= publicationAt
     && publicationAt <= expiresAt
     && expiresAt - checkedAt <= 5 * 60 * 1000;
@@ -146,7 +153,7 @@ function revalidateTaskEvidence(
     const sessionTime = Date.parse(sessionAt);
     const observedTime = Date.parse(observedAt);
     return [sessionTime, observedTime, publicationAt].every(Number.isFinite)
-      && sessionTime <= observedTime
+      && sessionTime <= observedTime + 30_000
       && observedTime <= publicationAt;
   };
   const awaitingDecision = evidence.awaitingDecision;
@@ -191,9 +198,12 @@ function nestedCheckedAt(data: unknown) {
   };
 }
 
-function mapValues<T, R>(values: Record<string, T>, transform: (value: T) => R) {
+function mapValues<T, R>(
+  values: Record<string, T>,
+  transform: (value: T, key: string) => R
+) {
   return Object.fromEntries(Object.entries(values).map(([key, value]) => [
     key,
-    transform(value)
+    transform(value, key)
   ]));
 }

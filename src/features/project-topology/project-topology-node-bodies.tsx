@@ -81,7 +81,7 @@ export function TopologyLeadNodeBody({
       </span>
       {onOpenConversation ? (
         <Button
-          aria-label="Chat with Lead"
+          aria-label="Open portfolio coordination"
           className="nodrag nopan ml-auto size-8 min-h-0"
           isIconOnly
           onClick={(event) => event.stopPropagation()}
@@ -136,7 +136,7 @@ export function TopologyProjectNodeBody({
         </span>
         {onOpenConversation ? (
           <Button
-            aria-label={`Chat with ${project.name} Project Lead`}
+            aria-label={`Open ${project.name} project room`}
             className="nodrag nopan size-8 min-h-0"
             isIconOnly
             onClick={(event) => event.stopPropagation()}

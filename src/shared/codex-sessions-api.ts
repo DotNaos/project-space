@@ -16,6 +16,34 @@ export interface CodexSessionMachineRecord {
   statusMessage?: string;
 }
 
+export interface CodexSessionTaskLocationEvidence {
+  canonicalCwd: string;
+  checkedAt: string;
+  machineId: string;
+  sessionRevision: string;
+  source: 'connector-realpath';
+  threadId: string;
+  worktreeRoot: string;
+}
+
+export type CodexSessionWriteCapability =
+  | {
+      canContinue: boolean;
+      checkedAt: string;
+      expiresAt: string;
+      interruptTurnId?: string;
+      machineId: string;
+      sessionRevision: string;
+      sessionLastActivityAt: string;
+      state: 'ready';
+      threadId: string;
+    }
+  | {
+      checkedAt?: string;
+      reason: string;
+      state: 'unavailable';
+    };
+
 export interface CodexSessionRecord {
   archived: boolean;
   cwd?: string;
@@ -39,8 +67,11 @@ export interface CodexSessionListRequest {
 }
 
 export interface CodexSessionListResult {
+  /** Oldest observation included in this complete inventory. */
   checkedAt: string;
   machine: CodexSessionMachineRecord;
+  /** Completion time for the full scan. Omitted only by older connector versions. */
+  publishedAt?: string;
   sessions: CodexSessionRecord[];
 }
 
@@ -80,6 +111,18 @@ export interface CodexSessionReadResult {
   session: CodexSessionRecord;
   streamCursor?: number;
   turns: CodexConversationTurnRecord[];
+}
+
+export interface CodexSessionInspectRequest extends CodexSessionReadRequest {}
+
+export interface CodexSessionInspectResult {
+  activeTurnId?: string;
+  checkedAt: string;
+  openedReadOnly: true;
+  session: CodexSessionRecord;
+  sessionRevision: string;
+  taskLocation: CodexSessionTaskLocationEvidence;
+  writeCapability?: CodexSessionWriteCapability;
 }
 
 export interface CodexSessionSubscribeRequest extends CodexSessionReadRequest {
@@ -169,6 +212,7 @@ export interface CodexSessionsClient {
   approve(request: CodexSessionApprovalRequest): Promise<CodexSessionOperationResult>;
   continue(request: CodexSessionContinueRequest): Promise<CodexSessionOperationResult>;
   interrupt(request: CodexSessionInterruptRequest): Promise<CodexSessionOperationResult>;
+  inspect?(request: CodexSessionInspectRequest): Promise<CodexSessionInspectResult>;
   list(request: CodexSessionListRequest): Promise<CodexSessionListResult>;
   read(request: CodexSessionReadRequest): Promise<CodexSessionReadResult>;
   respondToUserInput(

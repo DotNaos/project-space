@@ -355,6 +355,7 @@ function buildTask(
         session,
         online,
         transcriptResult,
+        match.sessionRevision,
         inventory.writeCapabilitiesByTaskId?.[id],
         inventory.checkedAt
       )
@@ -377,6 +378,7 @@ function buildTask(
       ...(match.lastSafeAt ? { lastSafeAt: match.lastSafeAt } : {}),
       match: match.type,
       matchedPath: match.matchedPath,
+      sessionRevision: match.sessionRevision,
       source: 'connector-canonical-cwd'
     },
     id,

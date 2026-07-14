@@ -79,7 +79,8 @@ describe('project topology nested layout', () => {
     expect(narrow.bounds.width).toBe(
       topologyDimensions.projectWidth * 2 + topologyDimensions.projectGap
     );
-    expect(narrow.overviewViewport).toEqual({ mode: 'native-pan', zoom: 1 });
+    expect(narrow.overviewViewport.mode).toBe('native-pan');
+    expect(narrow.overviewViewport.zoom).toBeCloseTo(374 / topologyDimensions.projectWidth);
     expect(desktop.overviewViewport).toEqual({ mode: 'fit' });
     expect(narrowProjects[0]!.absolutePosition.y).toBe(narrowProjects[1]!.absolutePosition.y);
     expect(narrowProjects[0]!.absolutePosition.x).not.toBe(narrowProjects[1]!.absolutePosition.x);

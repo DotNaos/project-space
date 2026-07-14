@@ -50,8 +50,10 @@ export interface TopologyTaskLocationEvidence {
   canonicalCwd: string;
   checkedAt: string;
   machineId: string;
+  sessionRevision: string;
   source: 'connector-realpath';
   threadId: string;
+  worktreeRoot: string;
 }
 
 export type TopologyTaskWriteCapability =
@@ -61,6 +63,7 @@ export type TopologyTaskWriteCapability =
       expiresAt: string;
       interruptTurnId?: string;
       machineId: string;
+      sessionRevision: string;
       sessionLastActivityAt: string;
       state: 'ready';
       threadId: string;
@@ -184,6 +187,7 @@ export interface TopologyTask {
     lastSafeAt?: string;
     match: 'project-root' | 'worktree';
     matchedPath: string;
+    sessionRevision: string;
     source: 'connector-canonical-cwd';
   };
   id: string;

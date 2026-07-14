@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   TopologyExistingTaskActions,
   TopologyTaskActionError,
+  topologyIssueNavigationProjectId,
   topologyProjectLeadTarget
 } from '../../src/features/project-topology/project-topology-actions';
 import { buildProjectTopology } from '../../src/features/project-topology/project-topology-model';
@@ -10,6 +11,8 @@ import {
   codex,
   conversation,
   inventory,
+  machine,
+  project,
   session,
   snapshot,
   writable
@@ -274,6 +277,41 @@ describe('project topology existing-task actions', () => {
     expect(called).toBe(false);
   });
 
+  test('rejects follow-up authority from a different task-evidence revision', () => {
+    const candidate = session('machine-a', 'thread-a', '/projects/project-space', 'idle');
+    const taskId = topologyTaskId('machine-a', 'thread-a');
+    const task = snapshot(buildProjectTopology(inventory({
+      codexByMachine: {
+        'machine-a': { checkedAt, data: codex('machine-a', [candidate]), state: 'ready' }
+      },
+      conversations: {
+        [taskId]: { checkedAt, data: conversation(candidate), state: 'ready' }
+      },
+      writeCapabilities: { [taskId]: writable(candidate) }
+    }))).projects[0]!.machines[0]!.tasks[0]!;
+    const changedEvidence = {
+      ...task,
+      evidence: {
+        ...task.evidence,
+        sessionRevision: 'b'.repeat(64)
+      }
+    } as TopologyTask;
+    let called = false;
+    const actions = new TopologyExistingTaskActions({
+      async continue() {
+        called = true;
+      },
+      async interrupt() {
+        called = true;
+      },
+      async select() {}
+    }, actionTime);
+
+    expect(() => actions.continue(changedEvidence, 'Try anyway'))
+      .toThrow(TopologyTaskActionError);
+    expect(called).toBe(false);
+  });
+
   test('propagates controller rejection after exactly one dispatch', async () => {
     const candidate = session('machine-a', 'thread-a', '/projects/project-space', 'idle');
     const taskId = topologyTaskId('machine-a', 'thread-a');
@@ -394,5 +432,31 @@ describe('project topology existing-task actions', () => {
       kind: 'project-lead',
       projectId: 'github:dotnaos/project-space'
     });
+  });
+
+  test('opens issues only through a concrete single, focused, or primary machine record', () => {
+    const projects = [
+      project('project-a', 'machine-a', '/a/project-space'),
+      project('project-b', 'machine-b', '/b/project-space')
+    ];
+    const machines = [machine('machine-a'), machine('machine-b')];
+    const ambiguous = snapshot(buildProjectTopology(inventory({ machines, projects })))
+      .projects[0]!;
+    const primary = snapshot(buildProjectTopology(inventory({
+      machines,
+      primaryMachineByProject: {
+        'github:dotnaos/project-space': {
+          machineId: 'machine-b',
+          source: 'project-configuration'
+        }
+      },
+      projects
+    }))).projects[0]!;
+    const single = snapshot(buildProjectTopology(inventory())).projects[0]!;
+
+    expect(topologyIssueNavigationProjectId(single)).toBe('project-a');
+    expect(topologyIssueNavigationProjectId(ambiguous)).toBeUndefined();
+    expect(topologyIssueNavigationProjectId(ambiguous, ambiguous.machines[0])).toBe('project-a');
+    expect(topologyIssueNavigationProjectId(primary)).toBe('project-b');
   });
 });

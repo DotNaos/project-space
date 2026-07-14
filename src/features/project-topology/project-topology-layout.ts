@@ -75,7 +75,7 @@ export interface ProjectTopologyLayout {
   nodes: TopologyLayoutNode[];
   overviewViewport:
     | { mode: 'fit' }
-    | { mode: 'native-pan'; zoom: 1 };
+    | { mode: 'native-pan'; zoom: number };
 }
 
 export type TopologyFocusTarget =
@@ -129,6 +129,10 @@ export function layoutProjectTopology(
     viewportHeight / Math.max(height, 1),
     1
   );
+  const readablePanZoom = Math.min(1, Math.max(
+    minimumReadableOverviewZoom,
+    (viewportWidth - 16) / topologyDimensions.projectWidth
+  ));
   return {
     bounds: { height, width: contentWidth, x: 0, y: 0 },
     edges,
@@ -136,7 +140,7 @@ export function layoutProjectTopology(
     overviewViewport: viewportWidth >= compactViewportWidth
       && fitZoom >= minimumReadableOverviewZoom
         ? { mode: 'fit' }
-        : { mode: 'native-pan', zoom: 1 }
+        : { mode: 'native-pan', zoom: readablePanZoom }
   };
 }
 

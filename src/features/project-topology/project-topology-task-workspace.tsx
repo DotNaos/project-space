@@ -49,6 +49,40 @@ import {
 } from './project-topology-workspace-motion';
 
 type ComposerView = TopologyTaskWorkspaceView['composer'];
+const taskWorkspaceFocusableSelector = 'a[href]:not([tabindex="-1"]),button:not([disabled]):not([tabindex="-1"]),iframe:not([tabindex="-1"]),input:not([disabled]):not([type="hidden"]):not([tabindex="-1"]),select:not([disabled]):not([tabindex="-1"]),textarea:not([disabled]):not([tabindex="-1"]),[contenteditable="true"]:not([tabindex="-1"]),[tabindex]:not([tabindex="-1"])';
+
+export function handleTopologyTaskWorkspaceDialogKeyDown(
+  event: KeyboardEvent<HTMLElement>, dialog: HTMLElement | null,
+  activeElement: Element | null, onClose: () => void
+) {
+  if (event.defaultPrevented || !dialog) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    onClose();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = [...dialog.querySelectorAll<HTMLElement>(taskWorkspaceFocusableSelector)];
+  if (!focusable.length) {
+    event.preventDefault();
+    dialog.focus();
+    return;
+  }
+  const first = focusable[0]!;
+  const last = focusable.at(-1)!;
+  const target = !dialog.contains(activeElement)
+    ? (event.shiftKey ? last : first)
+    : event.shiftKey && activeElement === first
+      ? last
+      : !event.shiftKey && activeElement === last
+        ? first
+        : undefined;
+  if (target) {
+    event.preventDefault();
+    target.focus();
+  }
+}
 
 function TaskComposer({
   composer,
@@ -338,7 +372,19 @@ export function TopologyTaskCommandCenter({
   view
 }: TopologyTaskCommandCenterProps) {
   const sectionRef = useRef<HTMLElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
   useTopologyWorkspaceMotion(sectionRef, task.id, motion);
+  useEffect(() => {
+    const dialog = sectionRef.current;
+    if (!dialog || typeof document === 'undefined') return;
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = requestAnimationFrame(() => dialog
+      .querySelector<HTMLElement>('[data-topology-dialog-initial-focus]')?.focus());
+    return () => {
+      cancelAnimationFrame(frame);
+      if (openerRef.current?.isConnected) openerRef.current.focus();
+    };
+  }, []);
   const header = topologyTaskHeader(task);
   const statuses = topologyTaskStatuses(task);
   const browserCapability = topologyBoundBrowserCapability(task);
@@ -368,18 +414,25 @@ export function TopologyTaskCommandCenter({
 
   return (
     <section
-      aria-label={`${header.issueLabel ?? header.title} task command center`}
+      aria-labelledby={`${task.id}-command-center-title`}
+      aria-modal="true"
       className="nodrag nopan nowheel flex size-full min-h-0 min-w-0 origin-center flex-col overflow-hidden rounded-xl border border-neutral-700 bg-neutral-950 shadow-[0_32px_100px_rgba(0,0,0,0.7)] motion-reduce:transform-none"
       data-topology-command-center={task.id}
+      onKeyDown={(event) => handleTopologyTaskWorkspaceDialogKeyDown(
+        event, sectionRef.current, document.activeElement, onClose
+      )}
       ref={sectionRef}
+      role="dialog"
       style={motion?.phase === 'opening'
         ? { opacity: 0, transform: 'translateY(18px) scale(0.955)' }
         : undefined}
+      tabIndex={-1}
     >
       <header className="flex h-14 shrink-0 min-w-0 items-center gap-2 border-b border-neutral-800/80 px-3 sm:gap-3 sm:px-4">
         <Button
           aria-label="Back to project topology"
           className="size-8 min-h-0"
+          data-topology-dialog-initial-focus
           isIconOnly
           onPress={onClose}
           size="sm"
@@ -388,7 +441,7 @@ export function TopologyTaskCommandCenter({
           <ArrowLeft aria-hidden="true" className="size-4" />
         </Button>
         <span className="min-w-0">
-          <Text as="h2" className="block truncate text-xs font-semibold text-neutral-100 sm:text-sm">
+          <Text as="h2" className="block truncate text-xs font-semibold text-neutral-100 sm:text-sm" id={`${task.id}-command-center-title`}>
             {header.issueLabel ? `${header.issueLabel} · ` : ''}{header.title}
           </Text>
           <span className="mt-1 flex min-w-0 items-center gap-2 text-[9px] text-neutral-400">

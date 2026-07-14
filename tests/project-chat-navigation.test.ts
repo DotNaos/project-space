@@ -35,6 +35,7 @@ afterEach(() => {
 describe('Project Chat navigation', () => {
   test('writes the canonical chat route', () => {
     expect(routeForView('chat')).toBe('/chat');
+    expect(routeForView('chat', 'github:12345')).toBe('/chat/projects/github%3A12345');
   });
 
   test('restores chat from canonical and trailing-slash URLs', () => {

@@ -162,6 +162,40 @@ describe('project topology source truth', () => {
     }
   });
 
+  test('retains valid ready evidence as stale when a slower sibling source ages it out', async () => {
+    const source = createSource({}, {
+      async getConnectorOverview() {
+        return ready({
+          machines: [machine('machine-a')],
+          machinesRepo: { exists: true, path: '/machines' },
+          tailscale: {
+            connected: true,
+            installed: true,
+            ips: [],
+            peersOnline: 0,
+            serveOrigins: []
+          }
+        }, checkedAt);
+      }
+    });
+    const times = [
+      '2026-07-14T00:00:31.000Z',
+      '2026-07-14T00:00:31.000Z'
+    ];
+
+    const loaded = await loadProjectTopologyInventory(source, {
+      clock: () => times.shift() ?? '2026-07-14T00:00:31.000Z',
+      includeTranscripts: false
+    });
+
+    expect(loaded.machines).toMatchObject({
+      lastSafeAt: checkedAt,
+      reason: 'Source evidence expired before the topology snapshot was published.',
+      state: 'stale'
+    });
+    expect(buildProjectTopology(loaded).state).toBe('ready');
+  });
+
   test('blocks ready or stale evidence whose nested timestamp differs from its envelope', async () => {
     for (const nestedCheckedAt of [
       '2026-07-15T00:00:00.000Z',
@@ -255,8 +289,10 @@ describe('project topology source truth', () => {
           canonicalCwd: '/projects/project-space',
           checkedAt: oldAt,
           machineId,
+          sessionRevision: 'a'.repeat(64),
           source: 'connector-realpath' as const,
-          threadId
+          threadId,
+          worktreeRoot: '/projects/project-space'
         };
         return { checkedAt: oldAt, data, state: 'ready' };
       }
@@ -269,7 +305,7 @@ describe('project topology source truth', () => {
     expect(topologyMachine.taskInventory.state).toBe('blocked');
   });
 
-  test('does not map a task from an old ready worktree response', async () => {
+  test('keeps an old valid worktree response stale without mapping a task', async () => {
     const oldAt = '2020-01-01T00:00:00.000Z';
     const taskSession = {
       ...session('machine-a', 'thread-old-worktree', '/projects/project-space'),
@@ -285,8 +321,8 @@ describe('project topology source truth', () => {
     const loaded = await loadProjectTopologyInventory(source, { clock: () => checkedAt });
     const topologyMachine = snapshot(buildProjectTopology(loaded)).projects[0]!.machines[0]!;
 
-    expect(topologyMachine.worktreeInventory.state).toBe('blocked');
-    expect(topologyMachine.taskInventory.state).toBe('blocked');
+    expect(topologyMachine.worktreeInventory.state).toBe('stale');
+    expect(topologyMachine.taskInventory.state).toBe('stale');
     expect(topologyMachine.tasks).toEqual([]);
   });
 
@@ -409,8 +445,13 @@ function createSource(
         canonicalCwd: record.cwd,
         checkedAt,
         machineId,
+        sessionRevision: 'a'.repeat(64),
         source: 'connector-realpath',
-        threadId
+        threadId,
+        worktreeRoot: projects.find((projectRecord) => (
+          projectRecord.machineId === machineId
+          && record.cwd?.startsWith(projectRecord.rootPath)
+        ))?.rootPath ?? record.cwd
       });
     }
   };

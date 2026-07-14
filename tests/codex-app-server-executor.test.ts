@@ -43,6 +43,7 @@ class FakeSessionManager {
   readonly calls: Array<{ input?: unknown; method: string }> = [];
   private readonly listeners = new Set<CodexSessionEventListener>();
   active = false;
+  clock: () => number = () => now;
   loadedIds = [threadId];
   paginated = false;
 
@@ -145,7 +146,7 @@ function createExecutor(manager = new FakeSessionManager(), generation: number |
       expectedMachineId: machineId,
       machineName: 'os-macbook',
       manager: manager as unknown as CodexSessionManager,
-      now: () => now,
+      now: manager.clock,
       verificationKey: keys.publicKey
     }),
     manager
@@ -194,13 +195,17 @@ describe('Codex connector executor', () => {
     executor.close();
   });
 
-  test('paginates complete stored and archived inventories', async () => {
+  test('paginates complete inventory while preserving the oldest acquisition time', async () => {
     const manager = new FakeSessionManager();
     manager.paginated = true;
+    const clockValues = [now, now + 1_000, now + 13_000];
+    manager.clock = () => clockValues.shift() ?? now + 13_000;
     const { executor } = createExecutor(manager);
     const request: CodexSessionListRequest = { includeArchived: true, machineId };
     const result = await executor.execute('list', signed('list', request, 'operation-list-pages'));
     if (result.operation !== 'list') throw new Error('unexpected result');
+    expect(result.result.checkedAt).toBe(new Date(now + 1_000).toISOString());
+    expect(result.result.publishedAt).toBe(new Date(now + 13_000).toISOString());
     expect(result.result.sessions).toHaveLength(4);
     expect(manager.calls.filter((call) => call.method === 'listThreads')).toHaveLength(4);
     expect(manager.calls.filter((call) => call.method === 'listThreads').every((call) => (

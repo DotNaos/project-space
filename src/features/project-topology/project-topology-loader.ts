@@ -12,6 +12,7 @@ import type {
 } from '@/shared/codex-sessions-api';
 import {
   comparablePath,
+  containsPath,
   mapInventory,
   topologyProjectScope
 } from './project-topology-inventory-evidence';
@@ -31,6 +32,15 @@ import {
   type TopologySourceScheduler
 } from './project-topology-source-limiter';
 import { revalidateTopologyPublication } from './project-topology-publication';
+import type { ProjectTopologyWorktreeSnapshot } from '../../shared/project-topology-api';
+import {
+  completeTopologyWorktreeSource,
+  maxReadyEvidenceAgeMs,
+  validateProjectTopologySourceResult,
+  worktreesFromTopologySnapshot
+} from './project-topology-source-validation';
+
+export { validateProjectTopologySourceResult } from './project-topology-source-validation';
 
 export type ProjectTopologySourceResult<T> = Exclude<
   TopologyInventoryResult<T>,
@@ -43,6 +53,9 @@ export type ProjectTopologyWorktreeSourceResult = Exclude<
 >;
 
 export interface ProjectTopologySource {
+  loadProjectWorktreeSnapshot?(
+    signal?: AbortSignal
+  ): Promise<ProjectTopologySourceResult<ProjectTopologyWorktreeSnapshot>>;
   discoverProjectWorktrees(
     projectId: string,
     machineId?: string,
@@ -99,20 +112,33 @@ type LocationAttempt =
   | { failure: { checkedAt: string; reason: string }; id: string };
 
 const sourceConcurrency = 6;
-const maxReadyEvidenceAgeMs = 30_000;
 
 export async function loadProjectTopologyInventory(
   source: ProjectTopologySource,
   options: ProjectTopologyLoadOptions = {}
 ): Promise<ProjectTopologyInventory> {
   const clock = options.clock ?? (() => new Date().toISOString());
+  const projectLoad = source.loadProjectWorktreeSnapshot
+    ? capture(async () => ({
+        kind: 'snapshot' as const,
+        result: await source.loadProjectWorktreeSnapshot!(options.signal)
+      }))
+    : capture(async () => ({
+        kind: 'discovery' as const,
+        result: await source.loadProjectDiscovery(options.signal)
+      }));
   const [projectAttempt, machineAttempt] = await Promise.all([
-    capture(() => source.loadProjectDiscovery(options.signal)),
+    projectLoad,
     capture(() => source.getConnectorOverview(options.signal))
   ]);
   const checkedAt = clock();
-  const projectSource = projectAttempt.ok
-    ? validateProjectTopologySourceResult(projectAttempt.value, checkedAt)
+  const projectSnapshotSource = projectAttempt.ok && projectAttempt.value.kind === 'snapshot'
+    ? validateProjectTopologySourceResult(projectAttempt.value.result, checkedAt)
+    : undefined;
+  const projectSource: TopologyInventoryResult<ProjectDiscoveryResult> = projectAttempt.ok
+    ? projectAttempt.value.kind === 'snapshot'
+      ? mapInventory(projectSnapshotSource!, (data) => data.projectDiscovery)
+      : validateProjectTopologySourceResult(projectAttempt.value.result, checkedAt)
     : blocked(projectAttempt.error, checkedAt);
   const machineSource = machineAttempt.ok
     ? validateProjectTopologySourceResult(machineAttempt.value, checkedAt)
@@ -137,21 +163,36 @@ export async function loadProjectTopologyInventory(
   )).filter((machineId) => !machineIds.includes(machineId)))];
   const [worktreesByProjectScope, repositoriesByFullName, deploymentsByRepository, codex] = (
     await withTopologySourceLimit(sourceConcurrency, options.signal, (scheduler) => Promise.all([
-      loadEntries<ProjectSpaceRecord, TopologyWorktreeInventory>(projects.data, scheduler, async (project) => [
-        topologyProjectScope(project),
-        completedWorktreeSource(
-          await source.discoverProjectWorktrees(project.id, project.machineId, options.signal),
-          clock()
-        )
-      ] as const, (project, error) => [
-        topologyProjectScope(project),
-        {
-          checkedAt: clock(),
-          message: errorMessage(error),
-          reason: 'request-failed' as const,
-          state: 'blocked' as const
-        }
-      ] as const),
+      projectSnapshotSource && hasInventoryData(projectSnapshotSource)
+        ? Promise.resolve(worktreesFromTopologySnapshot(
+            projects.data,
+            projectSnapshotSource,
+            clock
+          ))
+        : loadEntries<ProjectSpaceRecord, TopologyWorktreeInventory>(
+            projects.data,
+            scheduler,
+            async (project) => [
+              topologyProjectScope(project),
+              completeTopologyWorktreeSource(
+                await source.discoverProjectWorktrees(
+                  project.id,
+                  project.machineId,
+                  options.signal
+                ),
+                clock()
+              )
+            ] as const,
+            (project, error) => [
+              topologyProjectScope(project),
+              {
+                checkedAt: clock(),
+                message: errorMessage(error),
+                reason: 'request-failed' as const,
+                state: 'blocked' as const
+              }
+            ] as const
+          ),
       loadInventoryEntries(repositoryNames, clock, scheduler, (fullName) => (
         loadConnectedRepository(source, fullName, options.signal)
       )),
@@ -358,77 +399,6 @@ function hasInventoryData<T>(
   return result.state === 'ready' || result.state === 'stale';
 }
 
-export function validateProjectTopologySourceResult<T>(
-  result: ProjectTopologySourceResult<T>,
-  observedAt: string
-): TopologyInventoryResult<T> {
-  if (result.state === 'blocked') return result;
-  const evidenceAt = result.state === 'ready' ? result.checkedAt : result.lastSafeAt;
-  const evidenceTime = Date.parse(evidenceAt);
-  const observedTime = Date.parse(observedAt);
-  const nestedCheckedAt = checkedAtFromData(result.data);
-  const nestedValue = nestedCheckedAt.present ? nestedCheckedAt.value : undefined;
-  const nestedTime = nestedValue === undefined
-    ? undefined
-    : Date.parse(nestedValue);
-  const nestedTimeValid = !nestedCheckedAt.present
-    || (Number.isFinite(nestedTime) && nestedTime === evidenceTime);
-  const readyTimeValid = result.state !== 'ready'
-    || observedTime - evidenceTime <= maxReadyEvidenceAgeMs;
-  return Number.isFinite(evidenceTime)
-    && Number.isFinite(observedTime)
-    && evidenceTime <= observedTime
-    && readyTimeValid
-    && nestedTimeValid
-    ? result
-    : {
-        checkedAt: observedAt,
-        reason: 'Source evidence timestamp was malformed, future-dated, or internally inconsistent.',
-        state: 'blocked'
-      };
-}
-
-function checkedAtFromData(data: unknown) {
-  if (!data || typeof data !== 'object' || !('checkedAt' in data)) {
-    return { present: false as const };
-  }
-  const checkedAt = (data as { checkedAt?: unknown }).checkedAt;
-  return {
-    present: true as const,
-    ...(typeof checkedAt === 'string' ? { value: checkedAt } : {})
-  };
-}
-
-function completedWorktreeSource(
-  result: TopologyWorktreeInventory,
-  checkedAt: string
-): TopologyWorktreeInventory {
-  if (result.state === 'blocked') return result;
-  const observedTime = Date.parse(checkedAt);
-  const evidenceAt = result.state === 'stale'
-    ? result.data.evidence.checkedAt
-    : result.state === 'checking'
-      ? undefined
-      : result.evidence.checkedAt;
-  const evidenceTime = evidenceAt ? Date.parse(evidenceAt) : Number.NaN;
-  const lastSafeTime = result.state === 'stale' ? Date.parse(result.lastSafeAt) : undefined;
-  const valid = result.state !== 'checking'
-    && Number.isFinite(observedTime)
-    && Number.isFinite(evidenceTime)
-    && evidenceTime <= observedTime
-    && (result.state === 'stale'
-      ? Number.isFinite(lastSafeTime) && evidenceTime === lastSafeTime
-      : observedTime - evidenceTime <= maxReadyEvidenceAgeMs);
-  return valid ? result : {
-        checkedAt,
-        message: result.state === 'checking'
-          ? 'Worktree source completed without a final evidence state.'
-          : 'Worktree source evidence was malformed, stale, or internally inconsistent.',
-        reason: 'source-disagreement',
-        state: 'blocked'
-      };
-}
-
 function validLocationEvidence(
   evidence: TopologyTaskLocationEvidence,
   session: CodexSessionRecord,
@@ -437,12 +407,15 @@ function validLocationEvidence(
   const sessionTime = Date.parse(session.lastActivityAt);
   const evidenceTime = Date.parse(evidence.checkedAt);
   const observedTime = Date.parse(observedAt);
+  const canonicalCwd = comparablePath(evidence.canonicalCwd);
+  const worktreeRoot = comparablePath(evidence.worktreeRoot);
   return evidence.machineId === session.machineId
     && evidence.threadId === session.id
     && evidence.source === 'connector-realpath'
-    && Boolean(comparablePath(evidence.canonicalCwd))
+    && /^[0-9a-f]{64}$/.test(evidence.sessionRevision)
+    && containsPath(worktreeRoot, canonicalCwd)
     && [sessionTime, evidenceTime, observedTime].every(Number.isFinite)
-    && sessionTime <= evidenceTime
+    && sessionTime <= evidenceTime + 30_000
     && evidenceTime <= observedTime
     && observedTime - evidenceTime <= maxReadyEvidenceAgeMs;
 }

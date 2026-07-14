@@ -141,6 +141,38 @@ describe('selected topology task loader', () => {
       .projects[0]!.machines[0]!.tasks[0]!.interaction.composerVisible).toBe(false);
   });
 
+  test('hides the composer when selected authority belongs to another location revision', async () => {
+    const { calls, source } = sourceHarness({
+      writeCapability: {
+        canContinue: true,
+        checkedAt,
+        expiresAt: '2026-07-14T00:05:00.000Z',
+        machineId: 'machine-a',
+        sessionLastActivityAt: checkedAt,
+        sessionRevision: 'b'.repeat(64),
+        state: 'ready',
+        threadId: 'thread-a'
+      }
+    });
+    const overview = await loadProjectTopologyInventory(source, {
+      clock: () => checkedAt,
+      includeTranscripts: false
+    });
+    const task = snapshot(buildProjectTopology(overview))
+      .projects[0]!.machines[0]!.tasks[0]!;
+    const selected = await loadProjectTopologySelectedTask(
+      source,
+      overview,
+      task.id,
+      { clock: () => checkedAt }
+    );
+
+    expect(calls.writes).toEqual([['machine-a', 'thread-a']]);
+    expect(selected.writeCapabilitiesByTaskId?.[task.id]?.state).toBe('blocked');
+    expect(snapshot(buildProjectTopology(selected))
+      .projects[0]!.machines[0]!.tasks[0]!.interaction.composerVisible).toBe(false);
+  });
+
   test('keeps selected authority isolated by machine when thread IDs match', async () => {
     const projects = [
       project('project-a', 'machine-a', '/a/project-space'),
@@ -182,8 +214,10 @@ describe('selected topology task loader', () => {
         canonicalCwd: '/projects/project-space/src',
         checkedAt: iso(),
         machineId,
+        sessionRevision: 'a'.repeat(64),
         source: 'connector-realpath',
-        threadId
+        threadId,
+        worktreeRoot: '/projects/project-space'
       };
       return { checkedAt: location.checkedAt, data: location, state: 'ready' };
     };
@@ -195,6 +229,7 @@ describe('selected topology task loader', () => {
         checkedAt: iso(),
         expiresAt: new Date(now + 5 * 60 * 1_000).toISOString(),
         machineId,
+        sessionRevision: 'a'.repeat(64),
         sessionLastActivityAt: checkedAt,
         state: 'ready',
         threadId

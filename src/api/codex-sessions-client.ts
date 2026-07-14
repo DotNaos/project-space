@@ -1,6 +1,7 @@
 import type {
   CodexSessionApprovalRequest,
   CodexSessionContinueRequest,
+  CodexSessionInspectResult,
   CodexSessionInterruptRequest,
   CodexSessionListRequest,
   CodexSessionListResult,
@@ -79,6 +80,12 @@ export function createCodexSessionsClient(
     },
     interrupt(input: CodexSessionInterruptRequest) {
       return mutation(`/api/codex/sessions/${encodeURIComponent(input.threadId)}/interrupt`, input);
+    },
+    inspect(input) {
+      return request<CodexSessionInspectResult>(pathWithMachine(
+        `/api/codex/sessions/${encodeURIComponent(input.threadId)}/inspect`,
+        input.machineId
+      ));
     },
     list(input: CodexSessionListRequest) {
       const query = new URLSearchParams({ machineId: input.machineId });

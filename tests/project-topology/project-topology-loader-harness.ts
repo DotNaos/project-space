@@ -9,6 +9,10 @@ import type {
 } from '@/shared/project-space-api';
 import type { ProjectTopologySource } from '../../src/features/project-topology/project-topology-loader';
 import {
+  comparablePath,
+  containsPath
+} from '../../src/features/project-topology/project-topology-inventory-evidence';
+import {
   topologyTaskId,
   type TopologyTaskLocationEvidence,
   type TopologyTaskWriteCapability
@@ -121,12 +125,20 @@ export function sourceHarness(options: SourceOptions = {}) {
       const canonicalCwd = options.canonicalLocations?.[
         topologyTaskId(machineId, threadId)
       ];
+      const resolvedCwd = canonicalCwd ?? '/projects/project-space/src';
+      const worktreeRoot = projects
+        .filter((record) => record.machineId === machineId)
+        .map((record) => comparablePath(record.rootPath))
+        .filter((root) => containsPath(root, comparablePath(resolvedCwd)))
+        .sort((left, right) => right.length - left.length)[0] ?? resolvedCwd;
       const location = options.canonicalLocation ?? {
-        canonicalCwd: canonicalCwd ?? '/projects/project-space/src',
+        canonicalCwd: resolvedCwd,
         checkedAt,
         machineId,
+        sessionRevision: 'a'.repeat(64),
         source: 'connector-realpath',
-        threadId
+        threadId,
+        worktreeRoot
       };
       return readyEvidence(location, location.checkedAt);
     },
@@ -181,6 +193,7 @@ function defaultWriteCapability(
     checkedAt,
     expiresAt: '2026-07-14T00:05:00.000Z',
     machineId,
+    sessionRevision: 'a'.repeat(64),
     sessionLastActivityAt: checkedAt,
     state: 'ready',
     threadId

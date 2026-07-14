@@ -67,9 +67,11 @@ export class CodexSessionManager {
     string,
     { reject: (error: Error) => void; resolve: () => void }
   >();
+  private runtimeEpoch = 0;
   private readonly startingThreads = new Set<string>();
   private startPromise?: Promise<CodexStdioTransport>;
   private transport?: CodexStdioTransport;
+  private readonly transportEpochs = new WeakMap<CodexStdioTransport, number>();
 
   constructor(private readonly options: CodexSessionManagerOptions = {}) {
     this.ledger = new CodexOperationLedger(options.operationSnapshot);
@@ -91,14 +93,28 @@ export class CodexSessionManager {
   }
 
   async listLoadedThreads(): Promise<CodexLoadedThreadListResult> {
-    const result = requireRecord(await this.call<unknown>('thread/loaded/list', {}));
-    if (!Array.isArray(result.data) || result.data.length > 10_000) throw protocolError();
-    return { data: result.data.map((id) => validateIdentifier(id, 'threadId')) };
+    return readLoadedThreads(await this.call<unknown>('thread/loaded/list', {}));
   }
 
   async readThread(threadId: string, includeTurns = true): Promise<CodexThreadResult> {
     validateIdentifier(threadId, 'threadId');
     return readThreadResult(await this.call('thread/read', { includeTurns, threadId }));
+  }
+
+  async readInspectionSnapshot(threadId: string) {
+    const normalizedThreadId = validateIdentifier(threadId, 'threadId');
+    const transport = await this.ensureTransport();
+    const runtimeEpoch = this.transportEpochs.get(transport);
+    if (!runtimeEpoch) throw protocolError();
+    const [thread, loaded] = await Promise.all([
+      transport.call<unknown>('thread/read', { includeTurns: true, threadId: normalizedThreadId }),
+      transport.call<unknown>('thread/loaded/list', {})
+    ]);
+    return {
+      loaded: readLoadedThreads(loaded),
+      runtimeEpoch,
+      thread: readThreadResult(thread).thread
+    };
   }
 
   resumeThread(input: CodexResumeThreadInput) {
@@ -209,6 +225,19 @@ export class CodexSessionManager {
     return this.ledger.snapshot();
   }
 
+  currentRuntimeEpoch() {
+    return this.runtimeEpoch;
+  }
+
+  runtimeEpochIsCurrent(runtimeEpoch: number) {
+    const transport = this.transport;
+    return Boolean(
+      transport?.isOpen
+      && this.runtimeEpoch === runtimeEpoch
+      && this.transportEpochs.get(transport) === runtimeEpoch
+    );
+  }
+
   async close() {
     const transport = this.transport;
     this.transport = undefined;
@@ -232,6 +261,8 @@ export class CodexSessionManager {
       });
       try {
         await transport.initialize();
+        this.runtimeEpoch += 1;
+        this.transportEpochs.set(transport, this.runtimeEpoch);
         this.transport = transport;
         return transport;
       } catch (error) {
@@ -407,6 +438,12 @@ function readThread(value: unknown): CodexThreadSummary {
 
 function readThreadResult(value: unknown): CodexThreadResult {
   return { thread: readThread(requireRecord(value).thread) };
+}
+
+function readLoadedThreads(value: unknown): CodexLoadedThreadListResult {
+  const result = requireRecord(value);
+  if (!Array.isArray(result.data) || result.data.length > 10_000) throw protocolError();
+  return { data: result.data.map((id) => validateIdentifier(id, 'threadId')) };
 }
 
 function readTurnResult(value: unknown): CodexTurnResult {

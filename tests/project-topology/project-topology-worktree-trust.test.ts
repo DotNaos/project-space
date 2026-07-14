@@ -10,6 +10,7 @@ import {
   codex,
   conversation,
   inventory,
+  location,
   machine,
   project,
   session,
@@ -206,6 +207,38 @@ describe('project topology worktree trust boundaries', () => {
 
     expect(machine.tasks).toHaveLength(0);
     expect(machine.taskInventory.state).toBe('limited');
+  });
+
+  test('does not attribute a nested unrelated Git repository to its outer worktree', () => {
+    const candidate = session(
+      'machine-a',
+      'thread-nested-repository',
+      '/projects/.worktrees/project-space/issue-177/vendor/other/src',
+      'active'
+    );
+    const taskId = topologyTaskId(candidate.machineId, candidate.id);
+    const result = snapshot(buildProjectTopology(inventory({
+      codexByMachine: {
+        'machine-a': { checkedAt, data: codex('machine-a', [candidate]), state: 'ready' }
+      },
+      taskLocations: {
+        [taskId]: location(
+          candidate,
+          candidate.cwd,
+          '/projects/.worktrees/project-space/issue-177/vendor/other'
+        )
+      },
+      worktreesByProject: {
+        'project-a': worktrees('/projects/project-space', [{
+          branchName: 'issue-177',
+          id: 'wt_nestedreponestedrepo12',
+          path: '/projects/.worktrees/project-space/issue-177'
+        }])
+      }
+    })));
+
+    expect(result.projects[0]!.machines[0]!.tasks).toEqual([]);
+    expect(result.projects[0]!.machines[0]!.taskInventory.state).toBe('limited');
   });
 
   test('does not cross a more-specific project root with blocked discovery', () => {

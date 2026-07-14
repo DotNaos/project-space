@@ -27,6 +27,8 @@ import type {
   TopologyTruthState,
   TopologyWorktreeInventory
 } from './project-topology-types';
+
+const clockSkewToleranceMs = 30_000;
 import { validTopologyRuntimeId } from './project-topology-runtime-id';
 
 const unavailableBrowser: TopologyBrowserCapability = {
@@ -83,7 +85,7 @@ export function resolveDelivery(
     && sameSha(deliveryEvidence.headSha, headSha)
     && validCommitSha(headSha)
     && validCommitSha(deliveryEvidence.mergeCommitHash)
-    && validTimeOrder(
+    && validEvidenceWindow(
       session.lastActivityAt,
       deliveryEvidence.observedAt,
       snapshotCheckedAt
@@ -122,7 +124,7 @@ export function resolveDelivery(
       && validCommitSha(headSha)
       && sameSha(evidence.verification.headSha, headSha)
     ))
-    && validTimeOrder(
+    && validEvidenceWindow(
       session.lastActivityAt,
       evidence.verification.verifiedAt,
       snapshotCheckedAt
@@ -159,12 +161,18 @@ export function resolveInteraction(
   session: CodexSessionRecord,
   online: boolean,
   conversation: TopologyInventoryResult<CodexSessionReadResult>,
+  locationSessionRevision: string,
   capability: TopologyTaskWriteCapability | undefined,
   snapshotCheckedAt: string
 ) {
   const conversationCurrent = conversation.state === 'ready'
     && sameSessionGeneration(conversation.data.session, session);
-  const authority = validWriteAuthority(capability, session, snapshotCheckedAt);
+  const authority = validWriteAuthority(
+    capability,
+    session,
+    locationSessionRevision,
+    snapshotCheckedAt
+  );
   const canContinue = online
     && conversationCurrent
     && authority?.canContinue === true
@@ -227,12 +235,16 @@ export function validateCodexInventory(
   const evidenceAt = result.state === 'ready' ? result.checkedAt : result.lastSafeAt;
   const evidenceTime = Date.parse(evidenceAt);
   const nestedTime = Date.parse(result.data.checkedAt);
+  const publishedTime = Date.parse(result.data.publishedAt ?? result.data.checkedAt);
   const activityOutsideEvidence = !Number.isFinite(evidenceTime)
     || !Number.isFinite(nestedTime)
+    || !Number.isFinite(publishedTime)
     || nestedTime !== evidenceTime
+    || publishedTime < evidenceTime
     || result.data.sessions.some((session) => {
       const activityTime = Date.parse(session.lastActivityAt);
-      return !Number.isFinite(activityTime) || activityTime > evidenceTime;
+      return !Number.isFinite(activityTime)
+        || activityTime > publishedTime + clockSkewToleranceMs;
     });
   return identityMismatch || conflictingDuplicate || activityOutsideEvidence
     ? {
@@ -329,11 +341,15 @@ function normalizeBranch(value: string) {
   return value.trim().replace(/^refs\/heads\//, '');
 }
 
-function validTimeOrder(start: string, middle: string, end: string) {
-  const [startTime, middleTime, endTime] = [start, middle, end].map(Date.parse);
-  return [startTime, middleTime, endTime].every(Number.isFinite)
-    && startTime! <= middleTime!
-    && middleTime! <= endTime!;
+function validEvidenceWindow(sessionAt: string, observedAt: string, publishedAt: string) {
+  const [sessionTime, observedTime, publicationTime] = [
+    sessionAt,
+    observedAt,
+    publishedAt
+  ].map(Date.parse);
+  return [sessionTime, observedTime, publicationTime].every(Number.isFinite)
+    && sessionTime! <= observedTime! + clockSkewToleranceMs
+    && observedTime! <= publicationTime!;
 }
 
 function validAwaitingDecisionWindow(
@@ -349,7 +365,7 @@ function validAwaitingDecisionWindow(
     snapshotCheckedAt
   ].map(Date.parse);
   return [sessionTime, observedTime, expiresTime, snapshotTime].every(Number.isFinite)
-    && sessionTime! <= observedTime!
+    && sessionTime! <= observedTime! + clockSkewToleranceMs
     && observedTime! <= snapshotTime!
     && snapshotTime! <= expiresTime!
     && expiresTime! - observedTime! <= 15 * 60 * 1000;
@@ -378,6 +394,7 @@ function validOptionalPastTime(value: string | undefined, observedAt: string) {
 function validWriteAuthority(
   capability: TopologyTaskWriteCapability | undefined,
   session: CodexSessionRecord,
+  locationSessionRevision: string,
   snapshotCheckedAt: string
 ) {
   if (!capability || capability.state !== 'ready') return undefined;
@@ -385,8 +402,10 @@ function validWriteAuthority(
   const expiresAt = Date.parse(capability.expiresAt);
   return capability.machineId === session.machineId
     && capability.threadId === session.id
+    && /^[0-9a-f]{64}$/.test(capability.sessionRevision)
+    && capability.sessionRevision === locationSessionRevision
     && capability.sessionLastActivityAt === session.lastActivityAt
-    && validTimeOrder(session.lastActivityAt, capability.checkedAt, snapshotCheckedAt)
+    && validEvidenceWindow(session.lastActivityAt, capability.checkedAt, snapshotCheckedAt)
     && Number.isFinite(expiresAt)
     && expiresAt >= Date.parse(snapshotCheckedAt)
     && expiresAt - checkedAt <= 5 * 60 * 1000

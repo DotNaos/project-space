@@ -3,6 +3,7 @@ import { createHash, type KeyLike } from 'node:crypto';
 import type {
   CodexSessionApprovalRequest,
   CodexSessionContinueRequest,
+  CodexSessionInspectRequest,
   CodexSessionInterruptRequest,
   CodexSessionListRequest,
   CodexSessionOperationResult,
@@ -37,6 +38,11 @@ import {
   presentCodexTurns,
   publicCodexRequestId
 } from './public-presenter';
+import {
+  codexSessionRevision,
+  resolveCodexTaskLocation,
+  type CodexTaskLocationResolver
+} from './task-access-evidence';
 
 type ExecutableOperation = Exclude<CodexSessionsConnectorOperation, 'stream'>;
 type PendingRequest = {
@@ -54,6 +60,7 @@ export interface CodexSessionsConnectorExecutorOptions {
   manager: CodexSessionManager;
   now?: () => number;
   replayProtection?: CodexSessionsGrantReplayProtection;
+  resolveTaskLocation?: CodexTaskLocationResolver;
   verificationKey: KeyLike;
 }
 
@@ -85,6 +92,14 @@ export class CodexSessionsConnectorExecutor {
         return { operation, result: await this.list(request.payload as CodexSessionListRequest) };
       case 'read':
         return { operation, result: await this.read(request.payload as CodexSessionReadRequest) };
+      case 'inspect':
+        return {
+          operation,
+          result: await this.inspect(
+            request.payload as CodexSessionInspectRequest,
+            request.grant.generation
+          )
+        };
       case 'continue':
         return {
           operation,
@@ -140,6 +155,7 @@ export class CodexSessionsConnectorExecutor {
   }
 
   private async list(request: CodexSessionListRequest) {
+    const checkedAt = new Date(this.options.now?.() ?? Date.now()).toISOString();
     const [active, archived, loaded] = await Promise.all([
       listAllThreads(this.options.manager, {
         searchTerm: request.search,
@@ -186,18 +202,20 @@ export class CodexSessionsConnectorExecutor {
         }
       )] as const] : [])
     ]);
+    const sessions = [...sessionsById.values()].sort((left, right) => (
+      Date.parse(right.lastActivityAt) - Date.parse(left.lastActivityAt)
+      || Number(left.archived) - Number(right.archived)
+      || left.title.localeCompare(right.title)
+    ));
     return {
-      checkedAt: new Date(this.options.now?.() ?? Date.now()).toISOString(),
+      checkedAt,
       machine: {
         id: this.options.expectedMachineId,
         name: this.options.machineName,
         online: true
       },
-      sessions: [...sessionsById.values()].sort((left, right) => (
-        Date.parse(right.lastActivityAt) - Date.parse(left.lastActivityAt)
-        || Number(left.archived) - Number(right.archived)
-        || left.title.localeCompare(right.title)
-      ))
+      publishedAt: new Date(this.options.now?.() ?? Date.now()).toISOString(),
+      sessions
     };
   }
 
@@ -206,16 +224,67 @@ export class CodexSessionsConnectorExecutor {
       this.options.manager.readThread(request.threadId, true),
       this.options.manager.listLoadedThreads()
     ]);
+    const session = presentCodexSession(result.thread, {
+      archived: result.thread.archived === true,
+      loadedThreadIds: new Set(loaded.data),
+      machineId: this.options.expectedMachineId,
+      machineName: this.options.machineName
+    });
     return {
       openedReadOnly: true as const,
-      session: presentCodexSession(result.thread, {
-        archived: result.thread.archived === true,
-        loadedThreadIds: new Set(loaded.data),
-        machineId: this.options.expectedMachineId,
-        machineName: this.options.machineName
-      }),
+      session,
       turns: presentCodexTurns(result.thread)
     };
+  }
+
+  private async inspect(request: CodexSessionInspectRequest, connectorGeneration: number) {
+    const checkedAt = new Date(this.options.now?.() ?? Date.now()).toISOString();
+    const snapshot = await this.options.manager.readInspectionSnapshot(request.threadId);
+    const session = presentCodexSession(snapshot.thread, {
+      archived: snapshot.thread.archived === true,
+      loadedThreadIds: new Set(snapshot.loaded.data),
+      machineId: this.options.expectedMachineId,
+      machineName: this.options.machineName
+    });
+    if (!session.cwd) throw new CodexSessionsExecutorError();
+    const taskLocation = await (this.options.resolveTaskLocation ?? resolveCodexTaskLocation)(session.cwd);
+    const inProgressTurns = presentCodexTurns(snapshot.thread)
+      .filter((turn) => turn.status === 'in-progress');
+    if (
+      (session.status === 'idle' && inProgressTurns.length !== 0)
+      || (session.status === 'active' && inProgressTurns.length !== 1)
+      || this.expectedGeneration() !== connectorGeneration
+      || !this.options.manager.runtimeEpochIsCurrent(snapshot.runtimeEpoch)
+    ) throw new CodexSessionsExecutorError();
+    const activeTurnId = session.status === 'active' ? inProgressTurns[0]!.id : undefined;
+    const sessionRevision = codexSessionRevision({
+      ...(activeTurnId ? { activeTurnId } : {}),
+      connectorGeneration,
+      runtimeEpoch: snapshot.runtimeEpoch,
+      session,
+      taskLocation
+    });
+    return {
+      ...(activeTurnId ? { activeTurnId } : {}),
+      checkedAt,
+      openedReadOnly: true as const,
+      session,
+      sessionRevision,
+      taskLocation: {
+        ...taskLocation,
+        checkedAt,
+        machineId: session.machineId,
+        sessionRevision,
+        source: 'connector-realpath' as const,
+        threadId: session.id
+      }
+    };
+  }
+
+  private expectedGeneration() {
+    return typeof this.options.expectedGeneration === 'function'
+      ? this.options.expectedGeneration()
+      : this.options.expectedGeneration;
   }
 
   private async continue(request: CodexSessionContinueRequest) {

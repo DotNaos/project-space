@@ -25,6 +25,8 @@ import { serveProjectSpaceStatic } from './project-space-static';
 import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
 import type { CodexSessionsHttpHandler } from './codex-sessions-http';
 import { createConfiguredCodexSessionsHandler } from './codex-sessions/configured-runtime';
+import { createProjectTopologyInventoryService } from './project-topology/project-inventory-service';
+import { createProjectTopologyInventoryHttpHandler } from './project-topology/project-inventory-http';
 
 export interface ProjectSpaceHttpOptions {
   backend?: ProjectSpaceBackend;
@@ -52,13 +54,20 @@ function resolveProjectChatRuntime(
 export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOptions = {}) {
   const rawBackend = options.backend ?? createLocalProjectSpaceBackend();
   const backend = createAuthorizedProjectSpaceBackend(rawBackend);
+  const projectTopology = createProjectTopologyInventoryHttpHandler(
+    createProjectTopologyInventoryService({
+      authorizedBackend: backend,
+      worktreeBackend: rawBackend
+    })
+  );
   const projectChatRuntime = resolveProjectChatRuntime(options, rawBackend);
   const codexSessions = options.codexSessions ?? createConfiguredCodexSessionsHandler();
   const handleApiRequest = projectChatRuntime.then((runtime) =>
     createProjectSpaceApiHandler(backend, {
       codexSessions,
       machineConnection: options.machineConnectionRuntime,
-      projectChat: runtime
+      projectChat: runtime,
+      projectTopology
     })
   );
 

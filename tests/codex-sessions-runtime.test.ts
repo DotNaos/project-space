@@ -1,11 +1,20 @@
 import { createServer, type Server } from 'node:http';
+import { generateKeyPairSync } from 'node:crypto';
 
 import { afterEach, describe, expect, test } from 'bun:test';
+import { WebSocket } from 'ws';
 
 import {
   createConfiguredCodexSessionsHandler,
   type ConfiguredCodexSessionsRuntimeOptions
 } from '../server/codex-sessions/configured-runtime';
+import { CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY } from '../server/codex-sessions-connector-contract';
+import { bindingForCodexSessionsRequest } from '../server/codex-sessions/connector-channel';
+import { handleCodexSessionsConnectorMessage } from '../server/codex-sessions/connector-hub';
+import {
+  registerConnectorSession,
+  removeConnectorSession
+} from '../server/connector-command-session-registry';
 import type { CodexSessionsStore } from '../server/codex-sessions-store';
 import { runWithAuthSession } from '../server/local-auth-store';
 import type { CodexSessionsTransport } from '../server/codex-sessions/service';
@@ -56,6 +65,33 @@ function transport(scopes: Array<{ machineId: string; userId: string }>): CodexS
           status: 'idle',
           title: '#149 · Integrate Codex sessions'
         }]
+      };
+    },
+    async inspect(input) {
+      const sessionRevision = 'd'.repeat(64);
+      return {
+        checkedAt: '2026-07-13T12:00:00.000Z',
+        openedReadOnly: true,
+        session: {
+          archived: false,
+          id: input.threadId,
+          lastActivityAt: '2026-07-13T11:59:00.000Z',
+          loadedByProjectSpace: false,
+          machineId: input.machineId,
+          machineName: 'MacBook',
+          status: 'idle',
+          title: '#149 · Integrate Codex sessions'
+        },
+        sessionRevision,
+        taskLocation: {
+          canonicalCwd: '/projects/project-space',
+          checkedAt: '2026-07-13T12:00:00.000Z',
+          machineId: input.machineId,
+          sessionRevision,
+          source: 'connector-realpath',
+          threadId: input.threadId,
+          worktreeRoot: '/projects/project-space'
+        }
       };
     },
     async mutate(input) {
@@ -155,5 +191,65 @@ describe('configured Codex sessions runtime', () => {
         message: 'Codex sessions are temporarily unavailable.'
       }
     });
+  });
+
+  test('reports rejected connector identity proof as unverified instead of missing or offline', async () => {
+    const originalSigningKey = process.env.PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY;
+    process.env.PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY = generateKeyPairSync('ed25519')
+      .privateKey.export({ format: 'pem', type: 'pkcs8' }).toString();
+    const sent: unknown[] = [];
+    const socket = {
+      readyState: WebSocket.OPEN,
+      send(value: string) {
+        sent.push(JSON.parse(value));
+      }
+    } as unknown as WebSocket;
+    registerConnectorSession(
+      machineId,
+      socket,
+      'test-token',
+      [CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY]
+    );
+    try {
+      const origin = await start({
+        createStore: async () => memoryStore(),
+        machineAccess: async () => true
+      });
+      const pending = fetch(
+        `${origin}/api/codex/sessions/${threadId}/inspect?machineId=${machineId}`
+      );
+      for (let attempts = 0; sent.length === 0 && attempts < 20; attempts += 1) {
+        await Bun.sleep(1);
+      }
+      const command = sent[0] as {
+        id: string;
+        payload: Parameters<typeof bindingForCodexSessionsRequest>[0];
+      };
+      expect(command).toBeDefined();
+      handleCodexSessionsConnectorMessage(machineId, {
+        id: command.id,
+        payload: {
+          binding: bindingForCodexSessionsRequest(command.payload),
+          error: { code: 'rejected' }
+        },
+        type: 'codex.sessions.error'
+      });
+
+      const response = await pending;
+      expect(response.status).toBe(502);
+      expect(await response.json()).toEqual({
+        error: {
+          code: 'task_identity_unverified',
+          message: 'The current Codex task identity could not be verified.'
+        }
+      });
+    } finally {
+      removeConnectorSession(machineId, socket);
+      if (originalSigningKey === undefined) {
+        delete process.env.PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY;
+      } else {
+        process.env.PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY = originalSigningKey;
+      }
+    }
   });
 });

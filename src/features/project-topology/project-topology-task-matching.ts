@@ -29,8 +29,15 @@ export interface ProjectTopologyTaskMatch {
   projectId: string;
   projectRecord: ProjectSpaceRecord;
   score: number;
+  sessionRevision: string;
   type: 'project-root' | 'worktree';
   worktree?: ProjectWorktreeRecord;
+}
+
+interface CanonicalTaskLocation {
+  canonicalCwd: string;
+  sessionRevision: string;
+  worktreeRoot: string;
 }
 
 interface ProjectTopologyTaskBoundary {
@@ -53,15 +60,15 @@ export function matchCodexTasks(
     const result = validateCodexInventory(machineId, unvalidated);
     if (result.state !== 'ready' && result.state !== 'stale') continue;
     for (const session of dedupeSessions(result.data.sessions)) {
-      const canonicalCwd = canonicalTaskCwd(session, inventory);
-      if (!canonicalCwd || session.machineId !== machineId) continue;
+      const location = canonicalTaskLocation(session, inventory);
+      if (!location || session.machineId !== machineId) continue;
       const boundaries = candidates
         .filter(({ record }) => record.machineId === machineId)
         .flatMap(({ group, record, worktreeInventory, worktrees }) => taskBoundaries(
           group.id,
           record,
           worktrees,
-          canonicalCwd,
+          location,
           worktreeInventory.state === 'ready' || worktreeInventory.state === 'proven-empty',
           worktreeInventory.state === 'stale' ? worktreeInventory.lastSafeAt : undefined
         ));
@@ -88,13 +95,14 @@ function taskBoundaries(
   projectId: string,
   projectRecord: ProjectSpaceRecord,
   worktrees: ProjectWorktreeRecord[],
-  canonicalCwd: string,
+  location: CanonicalTaskLocation,
   current: boolean,
   lastSafeAt: string | undefined
 ): ProjectTopologyTaskBoundary[] {
   const boundaries: ProjectTopologyTaskBoundary[] = [];
-  const cwd = comparablePath(canonicalCwd);
-  if (!cwd) return boundaries;
+  const cwd = comparablePath(location.canonicalCwd);
+  const provenRoot = comparablePath(location.worktreeRoot);
+  if (!cwd || !provenRoot) return boundaries;
   let insideKnownWorktree = false;
   for (const worktree of worktrees) {
     const path = comparablePath(worktree.path);
@@ -102,7 +110,7 @@ function taskBoundaries(
     insideKnownWorktree = true;
     const usable = worktree.status === 'ready' || worktree.status === 'locked';
     boundaries.push({
-      match: usable ? {
+      match: usable && provenRoot === path ? {
         canonicalCwd: cwd,
         current,
         lastSafeAt,
@@ -110,6 +118,7 @@ function taskBoundaries(
         projectId,
         projectRecord,
         score: 10_000 + path.length + (cwd === path ? 1_000 : 0),
+        sessionRevision: location.sessionRevision,
         type: 'worktree',
         worktree
       } : undefined,
@@ -119,13 +128,14 @@ function taskBoundaries(
   const rootPath = comparablePath(projectRecord.rootPath);
   if (containsPath(rootPath, cwd)) {
     boundaries.push({
-      match: current && !insideKnownWorktree ? {
+      match: current && !insideKnownWorktree && provenRoot === rootPath ? {
         canonicalCwd: cwd,
         current: true,
         matchedPath: projectRecord.rootPath,
         projectId,
         projectRecord,
         score: 1_000 + rootPath.length + (cwd === rootPath ? 500 : 0),
+        sessionRevision: location.sessionRevision,
         type: 'project-root'
       } : undefined,
       specificity: rootPath.length
@@ -143,7 +153,7 @@ function taskMatchIdentity(match: ProjectTopologyTaskMatch) {
   ].join(':');
 }
 
-function canonicalTaskCwd(
+function canonicalTaskLocation(
   session: CodexSessionRecord,
   inventory: ProjectTopologyInventory
 ) {
@@ -160,13 +170,21 @@ function canonicalTaskCwd(
   const sessionLastActivityAt = Date.parse(session.lastActivityAt);
   const snapshotCheckedAt = Date.parse(inventory.checkedAt);
   const canonicalCwd = comparablePath(evidence.canonicalCwd);
+  const worktreeRoot = comparablePath(evidence.worktreeRoot);
   return Number.isFinite(checkedAt)
     && Number.isFinite(snapshotCheckedAt)
     && Number.isFinite(sessionLastActivityAt)
-    && sessionLastActivityAt <= checkedAt
+    && sessionLastActivityAt <= checkedAt + 30_000
     && checkedAt <= snapshotCheckedAt
     && snapshotCheckedAt - checkedAt <= 30_000
     && canonicalCwd
-    ? canonicalCwd
+    && worktreeRoot
+    && containsPath(worktreeRoot, canonicalCwd)
+    && /^[0-9a-f]{64}$/.test(evidence.sessionRevision)
+    ? {
+        canonicalCwd,
+        sessionRevision: evidence.sessionRevision,
+        worktreeRoot
+      }
     : undefined;
 }

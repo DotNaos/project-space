@@ -199,7 +199,12 @@ function observedSource(
     },
     async resolveCodexSessionLocation(machineId, threadId) {
       await beforeCall('location', 'location');
-      return ready(location(findSession(machineId, threadId)));
+      const record = projects.find((candidate) => candidate.machineId === machineId);
+      return ready(location(
+        findSession(machineId, threadId),
+        undefined,
+        record?.rootPath
+      ));
     },
     async getCodexSessionWriteCapability(machineId, threadId) {
       await beforeCall('detail', 'write');

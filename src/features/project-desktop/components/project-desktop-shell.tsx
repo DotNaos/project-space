@@ -363,10 +363,12 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           machineTab={desktop.machineTab}
           mainView={desktop.mainView}
           onCreateProject={desktop.createProject}
+          onOpenChat={desktop.openChat}
           onOpenCodex={desktop.openCodex}
           onOpenMachine={desktop.openMachine}
           onOpenMachines={desktop.openMachines}
           onOpenProjects={desktop.openProjects}
+          onOpenProjectChat={desktop.openProjectChat}
           onOpenRoot={desktop.openRoot}
           onOpenSelectedTarget={desktop.openSelectedTargetInApp}
           onRefreshProjectDiscovery={desktop.refreshProjectDiscovery}

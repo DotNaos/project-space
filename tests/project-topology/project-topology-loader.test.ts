@@ -6,7 +6,8 @@ import {
   machine,
   project,
   session,
-  snapshot
+  snapshot,
+  worktrees
 } from './project-topology-test-fixtures';
 import {
   topologyTaskId,
@@ -14,6 +15,85 @@ import {
 } from '../../src/features/project-topology/project-topology-types';
 import { sourceHarness, type SourceOptions } from './project-topology-loader-harness';
 describe('project topology loader', () => {
+  test('uses one atomic project/worktree snapshot and skips legacy fanout', async () => {
+    const record = project('project-a', 'machine-a', '/projects/project-space');
+    const { calls, source } = sourceHarness({ projects: [record], sessions: [] });
+    let snapshots = 0;
+    source.loadProjectWorktreeSnapshot = async () => {
+      snapshots += 1;
+      return {
+        checkedAt,
+        data: {
+          authorization: {
+            connectorOverviewCheckedAt: checkedAt,
+            projectDiscoveryCheckedAt: checkedAt
+          },
+          checkedAt,
+          publishedAt: checkedAt,
+          projectDiscovery: {
+            groups: [], projects: [record], rootItems: [], rootPath: '/projects',
+            structureViolations: []
+          },
+          worktrees: [{
+            machineId: record.machineId,
+            projectId: record.id,
+            result: worktrees(record.rootPath, [])
+          }]
+        },
+        state: 'ready'
+      };
+    };
+
+    const inventory = await loadProjectTopologyInventory(source, {
+      clock: () => checkedAt,
+      includeTranscripts: false
+    });
+
+    expect(snapshots).toBe(1);
+    expect(calls.projects).toBe(0);
+    expect(calls.worktrees).toEqual([]);
+    expect(inventory.worktreesByProjectScope['machine-a:project-a']).toMatchObject({
+      state: 'proven-empty'
+    });
+  });
+
+  test('keeps valid early worktree evidence stale when a slow sibling ages it', async () => {
+    const record = project('project-a', 'machine-a', '/projects/project-space');
+    const { source } = sourceHarness({ projects: [record], sessions: [] });
+    const publishedAt = '2026-07-14T00:00:31.000Z';
+    source.loadProjectWorktreeSnapshot = async () => ({
+      checkedAt: publishedAt,
+      data: {
+        authorization: {
+          connectorOverviewCheckedAt: publishedAt,
+          projectDiscoveryCheckedAt: publishedAt
+        },
+        checkedAt: publishedAt,
+        publishedAt,
+        projectDiscovery: {
+          groups: [], projects: [record], rootItems: [], rootPath: '/projects',
+          structureViolations: []
+        },
+        worktrees: [{
+          machineId: record.machineId,
+          projectId: record.id,
+          result: worktrees(record.rootPath, [])
+        }]
+      },
+      state: 'ready'
+    });
+
+    const inventory = await loadProjectTopologyInventory(source, {
+      clock: () => publishedAt,
+      includeTranscripts: false
+    });
+
+    expect(inventory.worktreesByProjectScope['machine-a:project-a']).toMatchObject({
+      lastSafeAt: checkedAt,
+      state: 'stale'
+    });
+  });
+
   test('joins a real task read-only through canonical location and stable machine/thread calls', async () => {
     const { calls, source } = sourceHarness();
     const inventory = await loadProjectTopologyInventory(source, { clock: () => checkedAt });
@@ -59,8 +139,10 @@ describe('project topology loader', () => {
         canonicalCwd: 'relative/untrusted/path',
         checkedAt,
         machineId: 'machine-a',
+        sessionRevision: 'a'.repeat(64),
         source: 'connector-realpath',
-        threadId: 'thread-a'
+        threadId: 'thread-a',
+        worktreeRoot: 'relative/untrusted/path'
       },
       state: 'blocked'
     }, {
@@ -68,8 +150,10 @@ describe('project topology loader', () => {
         canonicalCwd: '/projects/project-space',
         checkedAt,
         machineId: 'machine-b',
+        sessionRevision: 'a'.repeat(64),
         source: 'connector-realpath',
-        threadId: 'thread-a'
+        threadId: 'thread-a',
+        worktreeRoot: '/projects/project-space'
       },
       state: 'blocked'
     }, {
@@ -77,8 +161,10 @@ describe('project topology loader', () => {
         canonicalCwd: '/somewhere/outside-the-project',
         checkedAt,
         machineId: 'machine-a',
+        sessionRevision: 'a'.repeat(64),
         source: 'connector-realpath',
-        threadId: 'thread-a'
+        threadId: 'thread-a',
+        worktreeRoot: '/somewhere/outside-the-project'
       },
       state: 'limited'
     }];
@@ -111,8 +197,10 @@ describe('project topology loader', () => {
         canonicalCwd: '/projects/a-different-project',
         checkedAt,
         machineId: 'machine-a',
+        sessionRevision: 'a'.repeat(64),
         source: 'connector-realpath',
-        threadId: 'thread-a'
+        threadId: 'thread-a',
+        worktreeRoot: '/projects/a-different-project'
       }
     }).source, { clock: () => checkedAt });
     const moved = applyTopologyBuild(ready, buildProjectTopology(movedInventory));
