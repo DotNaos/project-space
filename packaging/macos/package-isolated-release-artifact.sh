@@ -116,7 +116,7 @@ signing_receipt_sha=${signing_receipt_sha%% *}
   /usr/bin/shasum -a 256 -c SHA256SUMS.txt
 )
 
-signing_requirement='=anchor apple generic and certificate leaf[subject.OU] = "R72P4M9WMS" and identifier "com.dotnaos.project.approval-signer"'
+signing_requirement='=anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "R72P4M9WMS" and identifier "com.dotnaos.project.approval-signer"'
 requirement_sha=$(/usr/bin/printf '%s' "$signing_requirement" | /usr/bin/shasum -a 256)
 requirement_sha=${requirement_sha%% *}
 signed_signer_sha=$(/usr/bin/shasum -a 256 "$signed_directory/project-approval-signer")
