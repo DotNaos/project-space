@@ -15,11 +15,11 @@ describe('connector release and production deployment contract', () => {
     const windowsPackaging = await source('packaging/windows/test-release-packaging.ps1');
     const windowsDocumentation = await source('docs/windows-installation.md');
 
-    expect(packageJson.version).toBe('0.4.2');
-    expect(buildInfo).toContain("const developmentVersion = '0.4.2';");
-    expect(windowsPackaging).toContain("$version = '0.4.2'");
-    expect(windowsPackaging).toContain('/releases/download/v0.4.2/');
-    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.2');
+    expect(packageJson.version).toBe('0.4.3');
+    expect(buildInfo).toContain("const developmentVersion = '0.4.3';");
+    expect(windowsPackaging).toContain("$version = '0.4.3'");
+    expect(windowsPackaging).toContain('/releases/download/v0.4.3/');
+    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.3');
     expect(packageJson.scripts['build:project-cli:macos-arm64']).toContain(
       'main.projectMachineClientReleaseID=v$npm_package_version'
     );
@@ -59,8 +59,41 @@ describe('connector release and production deployment contract', () => {
     expect(workflow).toContain('main.projectMachineClientReleaseID=v$VERSION');
     expect(workflow).toContain('main.projectMachineClientBuildID=$GITHUB_SHA');
     expect(workflow).toContain(
+      'security list-keychains -d user > "$original_keychains_file"'
+    );
+    expect(workflow).toContain('umask 077');
+    expect(workflow).toContain('-passin env:CERTIFICATE_PASSWORD');
+    expect(workflow).toContain(
+      'security import "$RUNNER_TEMP/project-space-release.pem" -x -f pemseq -k "$keychain" -T /usr/bin/codesign'
+    );
+    expect(workflow).not.toContain('security import "$RUNNER_TEMP/project-space-release.p12"');
+    expect(workflow).not.toContain('-P "$CERTIFICATE_PASSWORD"');
+    expect(workflow).toContain(
+      'security list-keychains -d user -s "$keychain" "${original_keychains[@]}"'
+    );
+    expect(workflow).toContain(
       'echo "PROJECT_MACOS_SIGN_KEYCHAIN=$keychain" >> "$GITHUB_ENV"'
     );
+    expect(workflow).toContain('if: always() && github.ref_type == \'tag\'');
+    expect(workflow).toContain('security delete-keychain "$keychain" || record_cleanup_failure $?');
+    expect(workflow).toContain('"$RUNNER_TEMP/project-space-release.pem"');
+    expect(workflow).toContain('"$original_keychains_file" || record_cleanup_failure $?');
+    expect(workflow).toContain('exit "$restore_status"');
+
+    const snapshotIndex = workflow.indexOf(
+      'security list-keychains -d user > "$original_keychains_file"'
+    );
+    const addIndex = workflow.indexOf(
+      'security list-keychains -d user -s "$keychain" "${original_keychains[@]}"'
+    );
+    const buildIndex = workflow.indexOf('bun run build:machine-tools:macos-arm64');
+    const restoreIndex = workflow.indexOf(
+      'security list-keychains -d user -s "${original_keychains[@]}" || record_cleanup_failure $?'
+    );
+    expect(snapshotIndex).toBeGreaterThan(-1);
+    expect(addIndex).toBeGreaterThan(snapshotIndex);
+    expect(buildIndex).toBeGreaterThan(addIndex);
+    expect(restoreIndex).toBeGreaterThan(buildIndex);
   });
 
   test('deploys the public root and derives the approved release without fetching it', async () => {
