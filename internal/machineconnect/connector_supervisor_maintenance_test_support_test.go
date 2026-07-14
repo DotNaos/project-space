@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -43,6 +44,9 @@ type maintenanceTestFixture struct {
 
 func newMaintenanceTestFixture(t *testing.T, target string) *maintenanceTestFixture {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("managed connector maintenance is unsupported on Windows")
+	}
 	root := filepath.Join(t.TempDir(), ".project-space-machine-tools")
 	mustMkdir(t, root)
 	versions := filepath.Join(root, connectorSupervisorVersionsDirectoryName)

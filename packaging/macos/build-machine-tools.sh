@@ -13,7 +13,7 @@ if [[ ! $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
   echo "Invalid release version: $version" >&2
   exit 64
 fi
-for command in gtar shasum; do
+for command in gzip gtar shasum; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "Required command is unavailable: $command" >&2
     exit 69
@@ -67,9 +67,9 @@ COPYFILE_DISABLE=1 gtar \
   --group=0 \
   --numeric-owner \
   --pax-option=delete=atime,delete=ctime \
-  -czf "$archive_path" \
+  -cf - \
   -C "$staging_root" \
-  "$bundle_name"
+  "$bundle_name" | gzip -n > "$archive_path"
 (
   cd -- "$output_directory"
   shasum -a 256 "$(basename -- "$archive_path")" > "$(basename -- "$checksum_path")"
