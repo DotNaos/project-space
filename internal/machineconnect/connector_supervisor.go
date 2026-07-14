@@ -59,22 +59,26 @@ func (ConnectorRuntimeCredential) GoString() string {
 }
 
 type ConnectorSupervisorOptions struct {
-	Executable  string
-	Maintenance *ConnectorSupervisorMaintenance
-	Stdout      io.Writer
-	Stderr      io.Writer
+	BuildIdentity         ConnectorSupervisorBuildIdentity
+	ReadinessAttemptNonce string
+	Executable            string
+	Maintenance           *ConnectorSupervisorMaintenance
+	Stdout                io.Writer
+	Stderr                io.Writer
 }
 
 // ConnectorSupervisor runs the companion connector for the lifetime of ctx.
 // It owns credential loading so callers never need to handle the machine token.
 type ConnectorSupervisor struct {
-	store       CredentialStore
-	executable  string
-	arguments   []string
-	maintenance *ConnectorSupervisorMaintenance
-	stdout      io.Writer
-	stderr      io.Writer
-	environ     func() []string
+	store                 CredentialStore
+	build                 ConnectorSupervisorBuildIdentity
+	readinessAttemptNonce string
+	executable            string
+	arguments             []string
+	maintenance           *ConnectorSupervisorMaintenance
+	stdout                io.Writer
+	stderr                io.Writer
+	environ               func() []string
 }
 
 func NewConnectorSupervisor(
@@ -103,14 +107,23 @@ func newConnectorSupervisor(
 	if stderr == nil {
 		stderr = os.Stderr
 	}
+	if err := validateConnectorSupervisorBuildIdentity(options.BuildIdentity); err != nil {
+		return nil, err
+	}
+	if options.ReadinessAttemptNonce != "" &&
+		!validConnectorRuntimeReadinessNonce(options.ReadinessAttemptNonce) {
+		return nil, errors.New("connector supervisor readiness attempt is invalid")
+	}
 	return &ConnectorSupervisor{
-		store:       store,
-		executable:  options.Executable,
-		arguments:   append([]string(nil), arguments...),
-		maintenance: options.Maintenance,
-		stdout:      stdout,
-		stderr:      stderr,
-		environ:     os.Environ,
+		store:                 store,
+		build:                 options.BuildIdentity,
+		readinessAttemptNonce: options.ReadinessAttemptNonce,
+		executable:            options.Executable,
+		arguments:             append([]string(nil), arguments...),
+		maintenance:           options.Maintenance,
+		stdout:                stdout,
+		stderr:                stderr,
+		environ:               os.Environ,
 	}, nil
 }
 

@@ -146,6 +146,7 @@ jobs:
           PROJECT_GITHUB_TOKEN: op://projects/GitHub Personal Access Token/token
           PROJECT_CONNECTOR_REGISTRATION_TOKEN: op://projects/Project Space Connector Registration Token/password
           PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64: op://projects/project-connector-command-signing-key/private_key_b64
+          PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: op://projects/project-space-release-manifest-signing-key/public_key_b64
           PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET: op://projects/project-space-machine-rate-limit/password
           VITE_CLERK_PUBLISHABLE_KEY: op://projects/clerk-project/publishable_key
 
@@ -193,6 +194,7 @@ jobs:
           GITHUB_TOKEN: ${{ steps.deploy-secrets.outputs.PROJECT_GITHUB_TOKEN }}
           PROJECT_CONNECTOR_REGISTRATION_TOKEN: ${{ steps.deploy-secrets.outputs.PROJECT_CONNECTOR_REGISTRATION_TOKEN }}
           PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64: ${{ steps.deploy-secrets.outputs.PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64 }}
+          PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: ${{ steps.deploy-secrets.outputs.PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64 }}
           PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET: ${{ steps.deploy-secrets.outputs.PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET }}
           VITE_CLERK_PUBLISHABLE_KEY: ${{ steps.deploy-secrets.outputs.VITE_CLERK_PUBLISHABLE_KEY }}
         run: |

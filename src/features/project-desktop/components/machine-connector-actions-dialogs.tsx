@@ -211,6 +211,10 @@ function StatusModal({
     : retryOperation === 'restart'
       ? canRestartMachineRuntime(machine)
       : false;
+  const newerThanApprovedRelease = update?.state === 'unsupported' &&
+    runtime?.source === 'managed' &&
+    status.capabilities.includes('runtime.update') &&
+    Boolean(update.availableVersion);
 
   return (
     <Modal
@@ -266,7 +270,17 @@ function StatusModal({
                     label="Capabilities"
                     value={status.capabilities.length > 0 ? status.capabilities.join(', ') : 'None reported'}
                   />
-                  {update?.state === 'unsupported' ? (
+                  {newerThanApprovedRelease ? (
+                    <div className="mt-3 rounded-xl border border-sky-500/25 bg-sky-500/8 p-3">
+                      <p className="text-sm font-medium text-sky-200">
+                        Newer than the approved release
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-sky-200/70">
+                        This machine is running {runtime?.version}. Project Space will not downgrade
+                        it to {update?.availableVersion}; Restart remains available.
+                      </p>
+                    </div>
+                  ) : update?.state === 'unsupported' ? (
                     <div className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/8 p-3">
                       <p className="text-sm font-medium text-amber-200">
                         Managed reinstall required

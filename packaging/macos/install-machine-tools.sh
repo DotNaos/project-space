@@ -73,15 +73,32 @@ fi
 
 legacy_plist="${HOME}/Library/LaunchAgents/net.os-home.project-space-connector.plist"
 modern_plist="${HOME}/Library/LaunchAgents/net.os-home.project-space.machine-connector-supervisor.plist"
-if [[ -f $legacy_plist && -f $modern_plist ]]; then
-  echo "Both legacy and managed connector LaunchAgents are installed; remove the inactive one first." >&2
+if [[ -L $legacy_plist || -L $modern_plist ]]; then
+  echo "Refusing to migrate a connector LaunchAgent through a symbolic link." >&2
   exit 73
 fi
 service_mode=none
 [[ ! -f $legacy_plist ]] || service_mode=legacy
 [[ ! -f $modern_plist ]] || service_mode=managed
+migrate_legacy_service=0
+if [[ -f $legacy_plist && -f $modern_plist ]]; then
+  migrate_legacy_service=1
+fi
 launch_domain="gui/$(id -u)"
 legacy_service="${launch_domain}/net.os-home.project-space-connector"
+existing_project="${install_directory}/project"
+previous_managed_project=""
+if [[ $service_mode == managed && ! -x $existing_project ]]; then
+  previous_managed_project=$(
+    /usr/bin/plutil -extract ProgramArguments.0 raw -o - "$modern_plist" 2>/dev/null || true
+  )
+  if [[ $previous_managed_project != /* || ! -f $previous_managed_project ||
+    ! -x $previous_managed_project || $previous_managed_project == *$'\n'* ||
+    $previous_managed_project == *$'\r'* ]]; then
+    echo "The existing managed connector executable could not be preserved." >&2
+    exit 73
+  fi
+fi
 
 bundle_digest=$(shasum -a 256 "${bundle_root}/SHA256SUMS.txt" | awk '{print $1}')
 release_id="${version}-${bundle_digest:0:16}"
@@ -93,6 +110,7 @@ previous_current_target=""
 [[ ! -L $current_link ]] || previous_current_target=$(readlink "$current_link")
 installation_started=0
 committed=0
+legacy_was_running=0
 changed_entries=()
 
 restore_entry() {
@@ -114,6 +132,23 @@ start_connector() {
   fi
 }
 
+restart_previous_connector() {
+  local restart_failed=0
+  if [[ $service_mode == legacy ]]; then
+    launchctl bootstrap "$launch_domain" "$legacy_plist" || restart_failed=1
+    launchctl kickstart -k "$legacy_service" || restart_failed=1
+  elif [[ $service_mode == managed && -n $previous_managed_project ]]; then
+    "$previous_managed_project" connector service start-if-connected || restart_failed=1
+  elif [[ $service_mode == managed && -x $existing_project ]]; then
+    "$existing_project" connector service start-if-connected || restart_failed=1
+  fi
+  if [[ $migrate_legacy_service -eq 1 && $legacy_was_running -eq 1 ]]; then
+    launchctl bootstrap "$launch_domain" "$legacy_plist" || restart_failed=1
+    launchctl kickstart -k "$legacy_service" || restart_failed=1
+  fi
+  return "$restart_failed"
+}
+
 rollback_installation() {
   local rollback_pointer="${transaction_root}/current.rollback"
   if [[ -n $previous_current_target ]]; then
@@ -127,16 +162,26 @@ rollback_installation() {
   for ((index=${#changed_entries[@]} - 1; index >= 0; index--)); do
     restore_entry "${changed_entries[$index]}"
   done
-  start_connector >/dev/null 2>&1 || true
+  if ! restart_previous_connector; then
+    echo "The previous connector service could not be restarted after rollback." >&2
+    return 1
+  fi
 }
 
 cleanup() {
   local status=$?
+  local rollback_failed=0
   trap - EXIT
   if [[ $status -ne 0 && $installation_started -eq 1 && $committed -eq 0 ]]; then
-    rollback_installation || true
+    if ! rollback_installation; then
+      rollback_failed=1
+    fi
   fi
   rm -rf -- "$transaction_root"
+  if [[ $rollback_failed -eq 1 ]]; then
+    echo "The installation failed with status $status and rollback could not restore the previous connector service. Manual recovery is required." >&2
+    exit 71
+  fi
   exit "$status"
 }
 trap cleanup EXIT
@@ -172,8 +217,11 @@ for name in project project-space-connector project-approval-signer; do
   fi
 done
 
-existing_project="${install_directory}/project"
 installation_started=1
+if [[ $migrate_legacy_service -eq 1 ]] && launchctl print "$legacy_service" >/dev/null 2>&1; then
+  legacy_was_running=1
+  launchctl bootout "$legacy_service"
+fi
 if [[ $service_mode == legacy ]]; then
   if launchctl print "$legacy_service" >/dev/null 2>&1; then
     launchctl bootout "$legacy_service"
@@ -203,6 +251,9 @@ mv -h -f -- "$next_current" "$current_link"
 if ! start_connector; then
   echo "The new connector could not be started; the previous machine-tools release was restored." >&2
   exit 70
+fi
+if [[ $migrate_legacy_service -eq 1 ]]; then
+  rm -f -- "$legacy_plist"
 fi
 committed=1
 rm -rf -- "$transaction_root"

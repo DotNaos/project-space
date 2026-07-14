@@ -1,4 +1,7 @@
-import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
+import type {
+  ConnectorProjectRegistryResult,
+  ProjectSpaceBackend
+} from '../src/shared/project-space-api';
 import { ConnectorDevServerCommandExecutor } from './connector-dev-server-executor';
 import {
   connectorDevServerErrorResult,
@@ -31,29 +34,13 @@ import {
 } from './connector-runtime-command-routing';
 import { clearConnectorRuntimeMaintenanceEvidence } from './connector-build-info';
 import { connectorRuntimeMaintenanceEvidence } from './connector-runtime-registration-decision';
+import { publishConnectorRuntimeReadiness } from './connector-runtime-readiness';
+import {
+  sendConnectorJson as sendJson,
+  settleConnectorCommandWithin as settleWithin
+} from './project-connector-websocket-utils';
 interface ProjectConnectorWebSocketOptions extends ProjectConnectorConnectionOptions {
   backend: ProjectSpaceBackend & Partial<ConnectorDevServerAdapter & ConnectorWorktreeActionAdapter>;
-}
-const filesystemCommandTimeoutMs = 8_000;
-function sendJson(socket: WebSocket, payload: unknown) {
-  if (socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(payload));
-  }
-}
-function settleWithin<T>(promise: Promise<T>, fallback: T) {
-  return new Promise<T>((resolve) => {
-    const timeout = setTimeout(() => resolve(fallback), filesystemCommandTimeoutMs);
-    promise.then(
-      (value) => {
-        clearTimeout(timeout);
-        resolve(value);
-      },
-      () => {
-        clearTimeout(timeout);
-        resolve(fallback);
-      }
-    );
-  });
 }
 export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocketOptions) {
   const { backend } = options;
@@ -193,6 +180,7 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
       let registryPublishPending = false;
       let registryTimer: ReturnType<typeof setInterval> | undefined;
       let registrationEvidence: ReturnType<typeof connectorRuntimeMaintenanceEvidence>;
+      let registrationRegistry: ConnectorProjectRegistryResult | undefined;
       let registered = false;
       let serialMessages = Promise.resolve();
       activeSocket = socket;
@@ -240,7 +228,10 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         if (!isCurrentConnection() || socket.readyState !== WebSocket.OPEN) {
           return false;
         }
-        if (register) registrationEvidence = connectorRuntimeMaintenanceEvidence(registry);
+        if (register) {
+          registrationEvidence = connectorRuntimeMaintenanceEvidence(registry);
+          registrationRegistry = registry;
+        }
         const message: ConnectorHubMessage = register
           ? {
               payload: registry,
@@ -292,6 +283,12 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           if (registrationEvidence && !(await publishRegistry()))
             throw new Error('Connector runtime maintenance acknowledgement failed.');
           if (registrationEvidence) clearConnectorRuntimeMaintenanceEvidence(registrationEvidence);
+          if (options.runtimeCredential && registrationRegistry) {
+            await publishConnectorRuntimeReadiness(
+              registrationRegistry,
+              options.runtimeCredential.machineId
+            );
+          }
           startRegistryPublisher();
           return;
         }

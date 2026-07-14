@@ -30,6 +30,7 @@ import {
   type SignedConnectorRuntimeReleaseManifest
 } from './connector-runtime-release-manifest';
 import {
+  compareConnectorRuntimeSemanticVersions,
   connectorRuntimeFingerprint,
   projectMachineRuntimeStatus,
   runtimeMatchesExpectedFingerprint,
@@ -93,6 +94,7 @@ export type ConnectorRuntimeMaintenanceServiceErrorCode =
   | 'offline'
   | 'operation-conflict'
   | 'rate-limited'
+  | 'release-downgrade'
   | 'unauthorized'
   | 'unknown-machine'
   | 'unsupported-operation'
@@ -157,6 +159,27 @@ function expectedFingerprint(
         version: release.manifest.version
       }
     : connectorRuntimeFingerprint(runtime, machine.connector.capabilities ?? []);
+}
+
+function runtimeMatchesRollbackFingerprint(
+  machine: MachineRecord,
+  operation: ConnectorRuntimeOperationRecord
+) {
+  const runtime = machine.connector.runtime;
+  const previous = operation.previousFingerprint;
+  if (!runtime || !previous || previous.instanceId !== operation.previousInstanceId ||
+      !runtimeMatchesExpectedFingerprint(
+        runtime,
+        machine.connector.capabilities ?? [],
+        previous,
+        operation.previousInstanceId
+      )) return false;
+  const actual = connectorRuntimeFingerprint(
+    runtime,
+    machine.connector.capabilities ?? []
+  );
+  return actual.capabilities.length === previous.capabilities.length &&
+    actual.capabilities.every((capability, index) => capability === previous.capabilities[index]);
 }
 
 function progressState(stage: ConnectorRuntimeMaintenanceProgress): ConnectorRuntimeOperationState {
@@ -236,18 +259,13 @@ export class ConnectorRuntimeMaintenanceService {
     if (!operation || !evidence || evidence.operationId !== operation.id) return undefined;
     const now = this.now().toISOString();
     if (evidence.state === 'rolled-back') {
+      if (!runtimeMatchesRollbackFingerprint(machine, operation)) return undefined;
       if (operation.state === 'rolled-back')
         return { action: 'rollback' as const, operationId: operation.id };
-      const runtime = machine.connector.runtime!;
       const recoverableTerminalRollback = operation.operation === 'update' &&
         (operation.state === 'failed' || operation.state === 'recovery-required') &&
         operation.lastFailure?.rollbackAvailable === true &&
-        recoverableRollbackFailureCodes.has(operation.lastFailure.code) &&
-        operation.previousFingerprint?.instanceId === operation.previousInstanceId &&
-        runtimeMatchesExpectedFingerprint(
-          runtime, machine.connector.capabilities ?? [], operation.previousFingerprint,
-          operation.previousInstanceId
-        );
+        recoverableRollbackFailureCodes.has(operation.lastFailure.code);
       if (recoverableTerminalRollback) {
         const recovered = await this.options.operations.transition({
           expectedStates: [operation.state], finishedAt: now, id: operation.id,
@@ -361,6 +379,24 @@ export class ConnectorRuntimeMaintenanceService {
     const approved = request.operation === 'update'
       ? await this.approvedRelease(machine, request.releaseId, true)
       : undefined;
+    if (approved) {
+      const versionOrder = compareConnectorRuntimeSemanticVersions(
+        runtime.version,
+        approved.manifest.version
+      );
+      if (versionOrder === undefined) {
+        throw new ConnectorRuntimeMaintenanceServiceError(
+          'unsupported-operation',
+          'The installed connector version cannot be compared safely.'
+        );
+      }
+      if (versionOrder > 0) {
+        throw new ConnectorRuntimeMaintenanceServiceError(
+          'release-downgrade',
+          'The approved connector release is older than the installed runtime.'
+        );
+      }
+    }
     const previous = connectorRuntimeFingerprint(runtime, machine.connector.capabilities ?? []);
     let operation: ConnectorRuntimeOperationRecord;
     try {

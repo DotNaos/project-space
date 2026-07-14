@@ -24,7 +24,8 @@ if [ "\${1:-}" = connector ] && [ "\${2:-}" = service ]; then
   if [ -n "\${PROJECT_FIXTURE_SERVICE_LOG:-}" ]; then
     printf '%s:%s\\n' '$label' "\$*" >> "\$PROJECT_FIXTURE_SERVICE_LOG"
   fi
-  if [ "\${3:-}" = start-if-connected ] && [ '$fail_start' = 1 ]; then
+  if [ "\${3:-}" = start-if-connected ] && \
+    { [ '$fail_start' = 1 ] || [ "\${PROJECT_FIXTURE_FAIL_START_LABEL:-}" = '$label' ]; }; then
     exit 1
   fi
   exit 0
@@ -145,6 +146,27 @@ fi
 grep -Fx 'project fixture v2:connector service stop' "$service_log"
 grep -Fx 'project fixture v3:connector service start-if-connected' "$service_log"
 [[ $(grep -Fxc 'project fixture v2:connector service start-if-connected' "$service_log") == 2 ]]
+
+# A failed new start followed by a failed restored start must remain visible as
+# a distinct recovery-required failure. The old complete release still wins the
+# pointer rollback, but the installer cannot honestly claim it restarted.
+rollback_failure_log="$temporary_root/rollback-failure.log"
+set +e
+PROJECT_FIXTURE_SERVICE_LOG="$service_log" \
+PROJECT_FIXTURE_FAIL_START_LABEL='project fixture v2' \
+  "$failing_bundle/install.sh" --install-dir "$install_root" \
+  >/dev/null 2>"$rollback_failure_log"
+rollback_failure_status=$?
+set -e
+[[ $rollback_failure_status -eq 71 ]]
+grep -Fx 'The new connector could not be started; the previous machine-tools release was restored.' \
+  "$rollback_failure_log"
+grep -Fx 'The previous connector service could not be restarted after rollback.' \
+  "$rollback_failure_log"
+grep -Fx 'The installation failed with status 70 and rollback could not restore the previous connector service. Manual recovery is required.' \
+  "$rollback_failure_log"
+[[ $(readlink "$install_root/.project-space-machine-tools/current") == "$second_current" ]]
+[[ $($install_root/project) == 'project fixture v2' ]]
 
 printf 'tampered\n' >> "$bundle_root/project"
 if "$bundle_root/install.sh" --install-dir "$temporary_root/tampered-install" >/dev/null 2>&1; then

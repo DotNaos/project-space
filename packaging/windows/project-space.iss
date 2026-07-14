@@ -45,12 +45,14 @@ VersionInfoProductVersion={#MyAppVersion}
 Source: "{#SourceDirectory}\project.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDirectory}\project-space-connector.exe"; DestDir: "{app}"; Flags: ignoreversion
 
-[Run]
-Filename: "{app}\project.exe"; Parameters: "connector service start-if-connected"; WorkingDir: "{app}"; StatusMsg: "Restoring the Project Space connector..."; Flags: runhidden waituntilterminated skipifdoesntexist
-
 [Code]
 const
   UserEnvironmentKey = 'Environment';
+
+var
+  PreviousProjectPresent: Boolean;
+  PreviousConnectorPresent: Boolean;
+  PreviousFilesPreserved: Boolean;
 
 function RunInstalledProject(const Arguments: string; var ResultCode: Integer): Boolean;
 var
@@ -74,11 +76,141 @@ begin
   );
 end;
 
+function PreserveInstalledFile(
+  const FileName: string;
+  const BackupName: string;
+  var WasPresent: Boolean
+): Boolean;
+var
+  SourcePath: string;
+  BackupPath: string;
+begin
+  SourcePath := ExpandConstant('{app}\') + FileName;
+  BackupPath := ExpandConstant('{tmp}\') + BackupName;
+  WasPresent := FileExists(SourcePath);
+  if not WasPresent then
+  begin
+    Result := True;
+    exit;
+  end;
+
+  if FileExists(BackupPath) then
+    DeleteFile(BackupPath);
+  Result := FileCopy(SourcePath, BackupPath, False);
+end;
+
+function PreservePreviousInstallation(): Boolean;
+var
+  ProjectPreserved: Boolean;
+  ConnectorPreserved: Boolean;
+begin
+  if PreviousFilesPreserved then
+  begin
+    Result := True;
+    exit;
+  end;
+
+  ProjectPreserved := PreserveInstalledFile(
+    'project.exe',
+    'project-space-previous-project.exe',
+    PreviousProjectPresent
+  );
+  ConnectorPreserved := PreserveInstalledFile(
+    'project-space-connector.exe',
+    'project-space-previous-connector.exe',
+    PreviousConnectorPresent
+  );
+  Result := ProjectPreserved and ConnectorPreserved;
+  if Result then
+    PreviousFilesPreserved := True;
+end;
+
+function RestoreInstalledFile(
+  const FileName: string;
+  const BackupName: string;
+  const WasPresent: Boolean
+): Boolean;
+var
+  DestinationPath: string;
+  BackupPath: string;
+begin
+  DestinationPath := ExpandConstant('{app}\') + FileName;
+  BackupPath := ExpandConstant('{tmp}\') + BackupName;
+  if FileExists(DestinationPath) and (not DeleteFile(DestinationPath)) then
+  begin
+    Result := False;
+    exit;
+  end;
+
+  if WasPresent then
+    Result := FileExists(BackupPath) and FileCopy(BackupPath, DestinationPath, False)
+  else
+    Result := True;
+end;
+
+function RestorePreviousFiles(): Boolean;
+var
+  ProjectRestored: Boolean;
+  ConnectorRestored: Boolean;
+begin
+  ProjectRestored := RestoreInstalledFile(
+    'project.exe',
+    'project-space-previous-project.exe',
+    PreviousProjectPresent
+  );
+  ConnectorRestored := RestoreInstalledFile(
+    'project-space-connector.exe',
+    'project-space-previous-connector.exe',
+    PreviousConnectorPresent
+  );
+  Result := ProjectRestored and ConnectorRestored;
+end;
+
+function RunInstalledProjectSuccessfully(const Arguments: string): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := RunInstalledProject(Arguments, ResultCode) and (ResultCode = 0);
+end;
+
+procedure RollBackFailedConnectorStart();
+begin
+  if not RunInstalledProjectSuccessfully('connector service stop') then
+    RaiseException('The new Project Space connector did not reconnect and could not be stopped. Manual recovery is required.');
+
+  if not RestorePreviousFiles() then
+    RaiseException('The new Project Space connector did not reconnect and the previous machine tools could not be restored. Manual recovery is required.');
+
+  if PreviousProjectPresent then
+  begin
+    if not RunInstalledProjectSuccessfully('connector service start-if-connected') then
+      RaiseException('The previous Project Space machine tools were restored, but their connector could not be restarted. Manual recovery is required.');
+    RaiseException('The new Project Space connector failed its authenticated reconnect check. The previous machine tools were restored and restarted.');
+  end;
+
+  RaiseException('The new Project Space connector failed its authenticated reconnect check. The installation was rolled back.');
+end;
+
+procedure StartInstalledConnectorOrRollback();
+var
+  ResultCode: Integer;
+begin
+  if not RunInstalledProject('connector service start-if-connected', ResultCode) then
+    RollBackFailedConnectorStart();
+  if ResultCode <> 0 then
+    RollBackFailedConnectorStart();
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): string;
 var
   ResultCode: Integer;
 begin
   Result := '';
+  if not PreservePreviousInstallation() then
+  begin
+    Result := 'The existing Project Space machine tools could not be preserved for rollback. Close them and run the installer again.';
+    exit;
+  end;
   if not RunInstalledProject('connector service stop', ResultCode) then
   begin
     Result := 'The existing Project Space connector could not be stopped. Close it and run the installer again.';
@@ -167,7 +299,10 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
+  begin
+    StartInstalledConnectorOrRollback();
     AddPathEntry(ExpandConstant('{app}'));
+  end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

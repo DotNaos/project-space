@@ -27,14 +27,19 @@ approval. It never downloads a mutable `latest` asset. Reinstalling an existing
 managed connector preserves its identity and settings. A legacy-only connector
 is refused because silently replacing it cannot preserve the old trust identity.
 
-Before enabling account installers for a deployment, publish the bundle and
-configure its exact release metadata:
+Before enabling account installers for a deployment, publish the bundle and its
+signed `project-space-release-manifest.json`. The server accepts only one exact
+release and verifies that manifest with the dedicated release public key:
 
 ```text
-PROJECT_SPACE_CONNECTOR_BUNDLE_VERSION=v0.x.y
-PROJECT_SPACE_CONNECTOR_BUNDLE_ASSET=project-space-machine-tools-darwin-arm64-v0.x.y.tar.gz
-PROJECT_SPACE_CONNECTOR_BUNDLE_SHA256=<64 lowercase hex characters>
+PROJECT_SPACE_CONNECTOR_APPROVED_RELEASE_ID=v0.x.y
+PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64=<base64-encoded Ed25519 public key>
 ```
+
+The production deployment derives the approved release ID from the deployed
+Project Space version. The verified manifest supplies the exact platform
+archive and checksum; browser requests cannot supply a URL, path, package, or
+platform selector.
 
 Build the release archive with:
 

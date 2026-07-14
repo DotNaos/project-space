@@ -1,5 +1,18 @@
 import type { IncomingMessage } from 'node:http';
 
+import {
+  resolveConnectorRuntimeReleaseArtifact,
+  verifyConnectorRuntimeReleaseManifest,
+  type ConnectorRuntimeReleaseArtifact,
+  type ConnectorRuntimeReleaseManifest
+} from './connector-runtime-release-manifest';
+import {
+  ConnectorRuntimeReleaseSourceError,
+  GitHubConnectorRuntimeReleaseSource,
+  configuredConnectorRuntimeReleaseId,
+  configuredConnectorRuntimeReleasePublicKey
+} from './connector-runtime-release-source';
+
 function safeShellSingleQuoted(value: string) {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
@@ -17,28 +30,29 @@ export interface ConnectorInstallerReleaseConfig {
 }
 
 export function connectorInstallerReleaseConfig(
-  environment: NodeJS.ProcessEnv = process.env
+  manifest: Pick<ConnectorRuntimeReleaseManifest, 'releaseId' | 'version'>,
+  artifact: Pick<ConnectorRuntimeReleaseArtifact, 'assetName' | 'sha256'>
 ): ConnectorInstallerReleaseConfig {
-  const version = environment.PROJECT_SPACE_CONNECTOR_BUNDLE_VERSION?.trim() ?? '';
-  const asset = environment.PROJECT_SPACE_CONNECTOR_BUNDLE_ASSET?.trim() ?? '';
-  const sha256 = environment.PROJECT_SPACE_CONNECTOR_BUNDLE_SHA256?.trim().toLowerCase() ?? '';
+  const version = manifest.releaseId.trim();
+  const asset = artifact.assetName.trim();
+  const sha256 = artifact.sha256.trim().toLowerCase();
 
-  if (!bundleVersionPattern.test(version) || version.toLowerCase() === 'latest') {
-    throw new Error(
-      'PROJECT_SPACE_CONNECTOR_BUNDLE_VERSION must pin an exact release tag.'
-    );
+  if (
+    !bundleVersionPattern.test(version) ||
+    version !== `v${manifest.version}` ||
+    version.toLowerCase() === 'latest'
+  ) {
+    throw new Error('The approved release manifest must pin one exact release tag.');
   }
   if (!bundleAssetPattern.test(asset)) {
-    throw new Error('PROJECT_SPACE_CONNECTOR_BUNDLE_ASSET has an invalid archive name.');
+    throw new Error('The approved release manifest has an invalid archive name.');
   }
   const semanticVersion = version.slice(1);
   if (asset !== `project-space-machine-tools-darwin-arm64-v${semanticVersion}.tar.gz`) {
-    throw new Error('PROJECT_SPACE_CONNECTOR_BUNDLE_ASSET must match the pinned release tag.');
+    throw new Error('The approved macOS archive must match the pinned release tag.');
   }
   if (!sha256Pattern.test(sha256)) {
-    throw new Error(
-      'PROJECT_SPACE_CONNECTOR_BUNDLE_SHA256 must pin the release archive checksum.'
-    );
+    throw new Error('The approved macOS archive must pin one SHA-256 checksum.');
   }
 
   return { asset, sha256, version };
@@ -100,8 +114,41 @@ function connectorInstallCommand(
   ].join(' ');
 }
 
-export async function createConnectorInstaller(origin: string) {
-  const release = connectorInstallerReleaseConfig();
+interface ConnectorInstallerReleaseSource {
+  loadApprovedManifest(requestedReleaseId?: string): Promise<unknown>;
+}
+
+export interface CreateConnectorInstallerOptions {
+  environment?: NodeJS.ProcessEnv;
+  manifestPublicKey?: Parameters<typeof verifyConnectorRuntimeReleaseManifest>[1];
+  now?: number;
+  releases?: ConnectorInstallerReleaseSource;
+}
+
+export async function createConnectorInstaller(
+  origin: string,
+  options: CreateConnectorInstallerOptions = {}
+) {
+  const environment = options.environment ?? process.env;
+  const releaseId = configuredConnectorRuntimeReleaseId(environment);
+  const manifestPublicKey =
+    options.manifestPublicKey ?? configuredConnectorRuntimeReleasePublicKey(environment);
+  if (!releaseId || !manifestPublicKey) {
+    throw new ConnectorRuntimeReleaseSourceError('invalid-configuration');
+  }
+  const releases = options.releases ?? new GitHubConnectorRuntimeReleaseSource(releaseId);
+  const rawManifest = await releases.loadApprovedManifest(releaseId);
+  const manifest = verifyConnectorRuntimeReleaseManifest(
+    rawManifest,
+    manifestPublicKey,
+    options.now === undefined ? {} : { now: options.now }
+  );
+  const artifact = resolveConnectorRuntimeReleaseArtifact(
+    manifest,
+    'darwin-arm64',
+    releaseId
+  );
+  const release = connectorInstallerReleaseConfig(manifest, artifact);
 
   return {
     command: connectorInstallCommand(origin, release),
@@ -160,22 +207,108 @@ if [ "$actual_sha256" != "$bundle_sha256" ]; then
   exit 1
 fi
 
-bundle_root="$tmp_dir/\${bundle_asset%.tar.gz}"
-tar -xzf "$archive" -C "$tmp_dir"
-if [ ! -d "$bundle_root" ] || [ -L "$bundle_root" ] ||
-   [ ! -x "$bundle_root/install.sh" ] ||
-   [ ! -f "$bundle_root/project-space-connector" ] ||
-   [ ! -f "$bundle_root/project" ] ||
-   [ ! -f "$bundle_root/connector-command-signing-public-key.pem" ] ||
-   [ ! -f "$bundle_root/release-manifest-signing-public-key.pem" ]; then
-  echo "Connector bundle must contain one complete versioned machine-tools directory."
+reject_bundle() {
+  echo "Connector bundle must contain one complete, unambiguous versioned machine-tools directory."
   exit 1
+}
+
+expected_bundle_root="\${bundle_asset%.tar.gz}"
+archive_members="$tmp_dir/archive-members.txt"
+if ! LC_ALL=C tar -tzf "$archive" > "$archive_members"; then
+  reject_bundle
 fi
+
+bundle_root_name=""
+root_directory_count=0
+checksums_count=0
+version_count=0
+command_key_count=0
+install_script_count=0
+project_count=0
+approval_signer_count=0
+connector_count=0
+release_key_count=0
+
+while IFS= read -r member || [ -n "$member" ]; do
+  [ -n "$member" ] || reject_bundle
+  case "$member" in
+    /*|../*|*/../*|*/..|./*|*/./*|*/.|*//*) reject_bundle ;;
+  esac
+
+  normalized_member="\${member%/}"
+  candidate_root="\${normalized_member%%/*}"
+  if [ "$candidate_root" != "$expected_bundle_root" ]; then
+    reject_bundle
+  fi
+  if [ -z "$bundle_root_name" ]; then
+    bundle_root_name="$candidate_root"
+  elif [ "$candidate_root" != "$bundle_root_name" ]; then
+    reject_bundle
+  fi
+
+  case "$normalized_member" in
+    "$candidate_root")
+      [[ "$member" == */ ]] || reject_bundle
+      root_directory_count=$((root_directory_count + 1))
+      ;;
+    "$candidate_root/SHA256SUMS.txt") checksums_count=$((checksums_count + 1)) ;;
+    "$candidate_root/VERSION") version_count=$((version_count + 1)) ;;
+    "$candidate_root/connector-command-signing-public-key.pem")
+      command_key_count=$((command_key_count + 1))
+      ;;
+    "$candidate_root/install.sh") install_script_count=$((install_script_count + 1)) ;;
+    "$candidate_root/project") project_count=$((project_count + 1)) ;;
+    "$candidate_root/project-approval-signer")
+      approval_signer_count=$((approval_signer_count + 1))
+      ;;
+    "$candidate_root/project-space-connector") connector_count=$((connector_count + 1)) ;;
+    "$candidate_root/release-manifest-signing-public-key.pem")
+      release_key_count=$((release_key_count + 1))
+      ;;
+    *) reject_bundle ;;
+  esac
+done < "$archive_members"
+
+if [ "$bundle_root_name" != "$expected_bundle_root" ] ||
+   [ "$root_directory_count" -gt 1 ] ||
+   [ "$checksums_count" -ne 1 ] ||
+   [ "$version_count" -ne 1 ] ||
+   [ "$command_key_count" -ne 1 ] ||
+   [ "$install_script_count" -ne 1 ] ||
+   [ "$project_count" -ne 1 ] ||
+   [ "$approval_signer_count" -ne 1 ] ||
+   [ "$connector_count" -ne 1 ] ||
+   [ "$release_key_count" -ne 1 ]; then
+  reject_bundle
+fi
+
+extract_root="$tmp_dir/extracted"
+bundle_root="$extract_root/$bundle_root_name"
+mkdir -p "$bundle_root"
+extract_bundle_member() {
+  member_name=$1
+  member_mode=$2
+  destination="$bundle_root/$member_name"
+  if ! tar -xOzf "$archive" "$bundle_root_name/$member_name" > "$destination" ||
+     [ ! -s "$destination" ]; then
+    reject_bundle
+  fi
+  chmod "$member_mode" "$destination"
+}
+
+extract_bundle_member SHA256SUMS.txt 0644
+extract_bundle_member VERSION 0644
+extract_bundle_member connector-command-signing-public-key.pem 0644
+extract_bundle_member install.sh 0755
+extract_bundle_member project 0755
+extract_bundle_member project-approval-signer 0755
+extract_bundle_member project-space-connector 0755
+extract_bundle_member release-manifest-signing-public-key.pem 0644
+
 legacy_plist="$HOME/Library/LaunchAgents/net.os-home.project-space-connector.plist"
 managed_plist="$HOME/Library/LaunchAgents/net.os-home.project-space.machine-connector-supervisor.plist"
 if [ -f "$legacy_plist" ] && [ -f "$managed_plist" ]; then
-  echo "Both legacy and managed connector services exist. Resolve that conflict before reinstalling."
-  exit 1
+  echo "Both connector services exist. The managed identity will be preserved and the legacy service will be removed after a healthy reconnect."
 fi
 if [ -f "$legacy_plist" ] && [ ! -f "$managed_plist" ]; then
   echo "This machine still uses a legacy connector identity."

@@ -141,6 +141,19 @@ func (supervisor *ConnectorSupervisor) runConnectorCompanion(
 ) error {
 	executable := supervisor.executable
 	environment := connectorEnvironment(supervisor.environ())
+	fixedEnvironment := connectorSupervisorBuildEnvironment(supervisor.build)
+	if supervisor.readinessAttemptNonce != "" {
+		readinessPath, err := DefaultConnectorRuntimeReadinessPath()
+		if err != nil {
+			return fmt.Errorf("resolve connector readiness proof: %w", err)
+		}
+		fixedEnvironment = append(
+			fixedEnvironment,
+			ConnectorRuntimeReadyFileEnv+"="+readinessPath,
+			ConnectorRuntimeReadyAttemptNonceEnv+"="+supervisor.readinessAttemptNonce,
+		)
+	}
+	environment = mergeConnectorEnvironment(environment, fixedEnvironment)
 	recovery := ConnectorSupervisorMaintenanceResult{
 		Outcome: ConnectorSupervisorMaintenanceNone,
 	}
@@ -217,7 +230,9 @@ func (supervisor *ConnectorSupervisor) runConnectorCompanion(
 	var healthDone <-chan connectorSupervisorHealthResult
 	pendingHealth := maintenance != nil &&
 		recovery.Outcome == ConnectorSupervisorMaintenancePendingHealth
-	if pendingHealth {
+	waitingForDecision := pendingHealth || maintenance != nil &&
+		recovery.Outcome == ConnectorSupervisorMaintenanceRolledBack
+	if waitingForDecision {
 		results := make(chan connectorSupervisorHealthResult, 1)
 		healthDone = results
 		go func() {
@@ -255,7 +270,8 @@ func (supervisor *ConnectorSupervisor) runConnectorCompanion(
 
 		case health := <-healthDone:
 			if health.err == nil &&
-				health.result.Outcome == ConnectorSupervisorMaintenanceSucceeded {
+				(health.result.Outcome == ConnectorSupervisorMaintenanceSucceeded ||
+					health.result.Outcome == ConnectorSupervisorMaintenanceRolledBack) {
 				healthDone = nil
 				pendingHealth = false
 				continue

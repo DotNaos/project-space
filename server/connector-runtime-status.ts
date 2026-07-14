@@ -17,6 +17,52 @@ const terminalStates = new Set<ConnectorRuntimeOperationRecord['state']>([
   'succeeded'
 ]);
 
+const semanticVersionPattern =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+
+function compareNumericIdentifier(left: string, right: string): -1 | 0 | 1 {
+  if (left.length !== right.length) return left.length < right.length ? -1 : 1;
+  return left === right ? 0 : left < right ? -1 : 1;
+}
+
+export function compareConnectorRuntimeSemanticVersions(
+  left: string,
+  right: string
+): -1 | 0 | 1 | undefined {
+  const leftMatch = semanticVersionPattern.exec(left);
+  const rightMatch = semanticVersionPattern.exec(right);
+  if (!leftMatch || !rightMatch) return undefined;
+
+  for (let index = 1; index <= 3; index += 1) {
+    const comparison = compareNumericIdentifier(leftMatch[index]!, rightMatch[index]!);
+    if (comparison !== 0) return comparison;
+  }
+
+  const leftPreRelease = leftMatch[4]?.split('.');
+  const rightPreRelease = rightMatch[4]?.split('.');
+  if (!leftPreRelease || !rightPreRelease) {
+    if (!leftPreRelease && !rightPreRelease) return 0;
+    return leftPreRelease ? -1 : 1;
+  }
+  const length = Math.max(leftPreRelease.length, rightPreRelease.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftIdentifier = leftPreRelease[index];
+    const rightIdentifier = rightPreRelease[index];
+    if (leftIdentifier === undefined || rightIdentifier === undefined) {
+      return leftIdentifier === undefined ? -1 : 1;
+    }
+    if (leftIdentifier === rightIdentifier) continue;
+    const leftNumeric = /^\d+$/.test(leftIdentifier);
+    const rightNumeric = /^\d+$/.test(rightIdentifier);
+    if (leftNumeric && rightNumeric) {
+      return compareNumericIdentifier(leftIdentifier, rightIdentifier);
+    }
+    if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
+    return leftIdentifier < rightIdentifier ? -1 : 1;
+  }
+  return 0;
+}
+
 export interface ConnectorRuntimeApprovedRelease {
   artifact: ConnectorRuntimeReleaseArtifact;
   checkedAt: string;
@@ -119,6 +165,16 @@ export function projectMachineRuntimeStatus(input: {
     availableVersion: manifest.version,
     lastCheckedAt: checkedAt
   };
+  const versionOrder = compareConnectorRuntimeSemanticVersions(
+    runtime.version,
+    manifest.version
+  );
+  if (versionOrder === undefined || versionOrder > 0) {
+    return {
+      ...base,
+      update: { ...base.update, ...releaseDetails, state: 'unsupported' }
+    };
+  }
   const sameRelease = runtime.releaseId === manifest.releaseId &&
     runtime.buildId === manifest.buildId &&
     runtime.version === manifest.version &&

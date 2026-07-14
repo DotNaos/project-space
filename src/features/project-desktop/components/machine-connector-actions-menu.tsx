@@ -205,7 +205,7 @@ export function MachineConnectorActionsMenu({
         <Dropdown.Popover
           offset={8}
           placement="bottom end"
-          className="z-[70] w-[min(19rem,calc(100vw-1.5rem))] border border-neutral-800 bg-neutral-950 p-1 text-neutral-100 shadow-2xl shadow-black/60"
+          className="z-[70] w-[min(19rem,calc(100vw-1.5rem))] !max-w-[calc(100vw-1.5rem)] border border-neutral-800 bg-neutral-950 p-1 text-neutral-100 shadow-2xl shadow-black/60"
         >
           <Dropdown.Menu aria-label={`Connector actions for ${machine.name}`}>
             <Dropdown.Item

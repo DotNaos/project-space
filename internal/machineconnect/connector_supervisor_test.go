@@ -45,6 +45,7 @@ func (store *supervisorTestStore) connectorRuntimeLockPath() string {
 }
 
 type supervisorHelperResult struct {
+	BuildID              string `json:"buildId"`
 	Executable           string `json:"executable"`
 	Version              string `json:"version"`
 	BackendURL           string `json:"backendUrl"`
@@ -66,6 +67,9 @@ type supervisorHelperResult struct {
 	MaintenanceState     string `json:"maintenanceState"`
 	MaintenanceID        string `json:"maintenanceId"`
 	ReleaseSigningKey    string `json:"releaseSigningKey"`
+	ReleaseID            string `json:"releaseId"`
+	ReadyFile            string `json:"readyFile"`
+	ReadyAttemptNonce    string `json:"readyAttemptNonce"`
 }
 
 func TestConnectorSupervisorPassesMinimalCredentialOverStdin(t *testing.T) {
@@ -96,9 +100,10 @@ func TestConnectorSupervisorPassesMinimalCredentialOverStdin(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	supervisor, err := newConnectorSupervisor(store, ConnectorSupervisorOptions{
-		Executable: os.Args[0],
-		Stdout:     &stdout,
-		Stderr:     &stderr,
+		ReadinessAttemptNonce: strings.Repeat("1", 64),
+		Executable:            os.Args[0],
+		Stdout:                &stdout,
+		Stderr:                &stderr,
 	}, []string{"-test.run=^TestConnectorSupervisorHelper$", "--", "supervisor-helper-mode=success"})
 	if err != nil {
 		t.Fatalf("create supervisor: %v", err)
@@ -124,11 +129,74 @@ func TestConnectorSupervisorPassesMinimalCredentialOverStdin(t *testing.T) {
 	}
 	if result.PrivateKeyPresent || result.SecretInArguments || result.SecretInEnvironment || result.LegacyTokenPresent ||
 		result.UnexpectedProjectEnv || !result.ProtocolMarkerOK || result.CommandSigningKey != "" ||
-		!result.RuntimePathOK || !result.MinimalFields || !result.ShellAndLocaleOK {
+		!result.RuntimePathOK || !result.MinimalFields || !result.ShellAndLocaleOK ||
+		!filepath.IsAbs(result.ReadyFile) || filepath.Base(result.ReadyFile) != connectorRuntimeReadyName ||
+		result.ReadyAttemptNonce != strings.Repeat("1", 64) {
 		t.Fatalf("secret escaped the stdin credential channel: %#v", result)
 	}
 	if stderr.String() != "connector helper stderr\n" {
 		t.Fatalf("stderr was not passed through: %q", stderr.String())
+	}
+}
+
+func TestConnectorSupervisorPassesFixedBuildIdentity(t *testing.T) {
+	t.Setenv(ConnectorRuntimeBuildIDEnv, strings.Repeat("f", 40))
+	t.Setenv(ConnectorRuntimeReleaseIDEnv, "v9.9.9")
+	t.Setenv(ConnectorRuntimeReadyFileEnv, filepath.Join(t.TempDir(), connectorRuntimeReadyName))
+	t.Setenv(ConnectorRuntimeReadyAttemptNonceEnv, strings.Repeat("2", 64))
+	var stdout bytes.Buffer
+	supervisor, err := newConnectorSupervisor(
+		newSupervisorTestStore(t, supervisorCredential(t), nil),
+		ConnectorSupervisorOptions{
+			BuildIdentity: ConnectorSupervisorBuildIdentity{
+				BuildID:   strings.Repeat("a", 40),
+				ReleaseID: "v0.4.1",
+			},
+			Executable: os.Args[0],
+			Stdout:     &stdout,
+			Stderr:     io.Discard,
+		},
+		[]string{"-test.run=^TestConnectorSupervisorHelper$", "--", "supervisor-helper-mode=success"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := supervisor.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	result := decodeSupervisorHelperResult(t, stdout.Bytes())
+	if result.BuildID != strings.Repeat("a", 40) || result.ReleaseID != "v0.4.1" ||
+		result.ReadyFile != "" || result.ReadyAttemptNonce != "" || result.UnexpectedProjectEnv {
+		t.Fatalf("fixed build identity = %#v", result)
+	}
+}
+
+func TestConnectorSupervisorRejectsInvalidBuildIdentity(t *testing.T) {
+	for name, identity := range map[string]ConnectorSupervisorBuildIdentity{
+		"partial development": {ReleaseID: "dev"},
+		"mutable release":     {BuildID: strings.Repeat("a", 40), ReleaseID: "latest"},
+		"short build":         {BuildID: "abc", ReleaseID: "v0.4.1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := NewConnectorSupervisor(
+				newSupervisorTestStore(t, supervisorCredential(t), nil),
+				ConnectorSupervisorOptions{BuildIdentity: identity, Executable: os.Args[0]},
+			); err == nil {
+				t.Fatal("invalid build identity was accepted")
+			}
+		})
+	}
+}
+
+func TestConnectorSupervisorRejectsInvalidReadinessAttempt(t *testing.T) {
+	if _, err := NewConnectorSupervisor(
+		newSupervisorTestStore(t, supervisorCredential(t), nil),
+		ConnectorSupervisorOptions{
+			Executable:            os.Args[0],
+			ReadinessAttemptNonce: "browser-selected-attempt",
+		},
+	); err == nil {
+		t.Fatal("invalid readiness attempt was accepted")
 	}
 }
 
@@ -297,6 +365,7 @@ func TestConnectorSupervisorHelper(t *testing.T) {
 		os.Exit(26)
 	}
 	result := supervisorHelperResult{
+		BuildID:           os.Getenv(ConnectorRuntimeBuildIDEnv),
 		Executable:        helperExecutablePath(),
 		Version:           credential.Version,
 		BackendURL:        credential.BackendURL,
@@ -316,6 +385,9 @@ func TestConnectorSupervisorHelper(t *testing.T) {
 		MaintenanceState:  os.Getenv(ConnectorSupervisorMaintenanceStateEnv),
 		MaintenanceID:     os.Getenv(ConnectorSupervisorMaintenanceOperationIDEnv),
 		ReleaseSigningKey: os.Getenv(ConnectorReleaseSigningKeyFileEnv),
+		ReleaseID:         os.Getenv(ConnectorRuntimeReleaseIDEnv),
+		ReadyFile:         os.Getenv(ConnectorRuntimeReadyFileEnv),
+		ReadyAttemptNonce: os.Getenv(ConnectorRuntimeReadyAttemptNonceEnv),
 	}
 	for _, argument := range os.Args {
 		result.SecretInArguments = result.SecretInArguments ||
@@ -331,6 +403,9 @@ func TestConnectorSupervisorHelper(t *testing.T) {
 		} else if name == ConnectorCommandSigningKeyFileEnv {
 			result.CommandSigningKey = value
 			result.CommandSigningKeyOK = value == "/project-space/command-signing-public-key.pem"
+		} else if name == ConnectorRuntimeBuildIDEnv || name == ConnectorRuntimeReleaseIDEnv ||
+			name == ConnectorRuntimeReadyFileEnv || name == ConnectorRuntimeReadyAttemptNonceEnv {
+			// Captured above from the fixed supervisor environment.
 		} else if strings.HasPrefix(strings.ToUpper(name), "PROJECT_") {
 			result.UnexpectedProjectEnv = true
 		}

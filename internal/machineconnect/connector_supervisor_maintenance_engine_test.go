@@ -169,6 +169,48 @@ func TestConnectorSupervisorMaintenanceRollsBackWhenConnectorExitsBeforeCommit(t
 	assertMissing(t, fixture.maintenance.paths.DecisionFile)
 }
 
+func TestConnectorSupervisorMaintenanceAcceptsOnlyMatchingRollbackAcknowledgement(t *testing.T) {
+	fixture := newMaintenanceTestFixture(t, "linux-x64")
+	fixture.writeUpdateControl(
+		maintenanceTestOperation,
+		maintenanceTestArchive(t, "linux-x64"),
+	)
+	if _, err := fixture.maintenance.ProcessControl(); err != nil {
+		t.Fatal(err)
+	}
+	fixture.writeDecision(maintenanceTestOperation, "rollback")
+	if result, decided, err := fixture.maintenance.CheckHealthDecision(); err != nil || !decided || result.Outcome != ConnectorSupervisorMaintenanceRolledBack {
+		t.Fatalf("initial rollback = %#v decided=%v err=%v", result, decided, err)
+	}
+
+	fixture.writeDecision(maintenanceTestOperation, "commit")
+	result, decided, err := fixture.maintenance.CheckHealthDecision()
+	if maintenanceErrorCode(t, err) != "invalid-decision" || decided ||
+		result.Outcome != ConnectorSupervisorMaintenanceRolledBack {
+		t.Fatalf("commit acknowledgement = %#v decided=%v err=%v", result, decided, err)
+	}
+	assertMissing(t, fixture.maintenance.paths.DecisionFile)
+	if _, err := fixture.maintenance.readState(); err != nil {
+		t.Fatalf("invalid acknowledgement removed rollback state: %v", err)
+	}
+
+	fixture.writeDecision("different-operation", "rollback")
+	result, decided, err = fixture.maintenance.CheckHealthDecision()
+	if maintenanceErrorCode(t, err) != "stale-decision" || decided ||
+		result.Outcome != ConnectorSupervisorMaintenanceRolledBack {
+		t.Fatalf("stale acknowledgement = %#v decided=%v err=%v", result, decided, err)
+	}
+	assertMissing(t, fixture.maintenance.paths.DecisionFile)
+
+	fixture.writeDecision(maintenanceTestOperation, "rollback")
+	result, decided, err = fixture.maintenance.CheckHealthDecision()
+	if err != nil || !decided || result.Outcome != ConnectorSupervisorMaintenanceRolledBack {
+		t.Fatalf("matching acknowledgement = %#v decided=%v err=%v", result, decided, err)
+	}
+	assertMissing(t, fixture.maintenance.paths.StateFile)
+	assertMissing(t, fixture.maintenance.paths.DecisionFile)
+}
+
 func TestConnectorSupervisorMaintenanceRejectsWrongDecisionThenTimesOut(t *testing.T) {
 	fixture := newMaintenanceTestFixture(t, "linux-x64")
 	fixture.writeUpdateControl(
@@ -264,5 +306,29 @@ func TestConnectorSupervisorMaintenanceRestartFailureDoesNotChangeVersion(t *tes
 	environment, envErr := fixture.maintenance.CompanionEnvironment(nil)
 	if envErr != nil || len(environment) != 6 {
 		t.Fatalf("failed restart environment = %#v, %v", environment, envErr)
+	}
+}
+
+func TestConnectorSupervisorMaintenanceFailedRestartAllowsFreshControl(t *testing.T) {
+	fixture := newMaintenanceTestFixture(t, "darwin-arm64")
+	fixture.writeRestartControl(maintenanceTestOperation)
+	if _, err := fixture.maintenance.ProcessControl(); err != nil {
+		t.Fatal(err)
+	}
+	fixture.writeDecision(maintenanceTestOperation, "rollback")
+	failed, decided, err := fixture.maintenance.CheckHealthDecision()
+	if err != nil || !decided || failed.Outcome != ConnectorSupervisorMaintenanceFailed ||
+		!failed.RestartRequired {
+		t.Fatalf("failed restart = %#v decided=%v err=%v", failed, decided, err)
+	}
+	assertMissing(t, fixture.maintenance.paths.DecisionFile)
+
+	const retryOperation = "operation-restart-retry"
+	fixture.writeRestartControl(retryOperation)
+	retry, err := fixture.maintenance.ProcessControl()
+	if err != nil || retry.OperationID != retryOperation ||
+		retry.Outcome != ConnectorSupervisorMaintenanceRestartRequested ||
+		!retry.RestartRequired {
+		t.Fatalf("restart retry = %#v err=%v", retry, err)
 	}
 }

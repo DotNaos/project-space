@@ -3,6 +3,16 @@ import { describe, expect, test } from 'bun:test';
 import { connectorRuntimeRecord } from '../server/connector-build-info';
 
 describe('connector build information', () => {
+  test('uses the next immutable release version for source builds', () => {
+    const record = connectorRuntimeRecord({});
+
+    expect(record.version).toBe('0.4.1');
+    expect(record.releaseId).toBe('dev-0.4.1');
+    expect(record.bundleVersions).toEqual({
+      connector: '0.4.1', machineTools: '0.4.1', projectCli: '0.4.1'
+    });
+  });
+
   test('carries exact supervisor maintenance evidence into the handshake', () => {
     expect(connectorRuntimeRecord({
       PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_OPERATION_ID: 'operation-1',

@@ -87,6 +87,7 @@ jobs:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
           PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64: op://projects/project-connector-command-signing-key/private_key_b64
           PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64: op://projects/project-space-release-manifest-signing-key/private_key_b64
+          PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: op://projects/project-space-release-manifest-signing-key/public_key_b64
 
       - name: Derive release trust roots
         if: github.ref_type == 'tag'
@@ -96,6 +97,20 @@ jobs:
         run: >-
           bun packaging/release/derive-trust-roots.ts derive
           "$RUNNER_TEMP/connector-runtime-trust-roots"
+
+      - name: Confirm stored release trust root
+        if: github.ref_type == 'tag'
+        env:
+          PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: ${{ steps.trust-secrets.outputs.PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          stored_public_key="$RUNNER_TEMP/stored-release-manifest-signing-public-key.pem"
+          trap 'rm -f "$stored_public_key"' EXIT
+          umask 077
+          printf '%s' "$PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64" | \
+            base64 --decode > "$stored_public_key"
+          cmp "$stored_public_key" \
+            "$RUNNER_TEMP/connector-runtime-trust-roots/release-manifest-signing-public-key.pem"
 
       - name: Create disposable validation trust roots
         if: github.ref_type != 'tag'
@@ -192,7 +207,7 @@ jobs:
           bun run build:connector:windows-x64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:CGO_ENABLED = '0'
-          $ldflags = "-s -w -X main.projectMachineClientVersion=$env:VERSION -X main.projectSpaceMachineBackendURL=https://projects.os-home.net"
+          $ldflags = "-s -w -X main.projectMachineClientVersion=$env:VERSION -X main.projectMachineClientReleaseID=v$env:VERSION -X main.projectMachineClientBuildID=$env:GITHUB_SHA -X main.projectSpaceMachineBackendURL=https://projects.os-home.net"
           go build -trimpath -ldflags $ldflags -o dist\windows\project.exe .\cmd\project
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -322,7 +337,7 @@ jobs:
             dist/linux/project-space-connector
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
             -trimpath \
-            -ldflags "-s -w -X main.projectMachineClientVersion=$VERSION -X main.projectSpaceMachineBackendURL=https://projects.os-home.net" \
+            -ldflags "-s -w -X main.projectMachineClientVersion=$VERSION -X main.projectMachineClientReleaseID=v$VERSION -X main.projectMachineClientBuildID=$GITHUB_SHA -X main.projectSpaceMachineBackendURL=https://projects.os-home.net" \
             -o dist/linux/project \
             ./cmd/project
 

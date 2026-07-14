@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/DotNaos/project-space/internal/machineconnect"
 	"github.com/spf13/cobra"
@@ -12,6 +14,16 @@ type connectorMachineServiceDependencies struct {
 	NewStore              func() (machineconnect.CredentialStore, error)
 	NewConnector          func() (machineconnect.Connector, error)
 	LoadMachineConnection machineConnectionCommandDependencyFactory
+	ReadinessPath         func() (string, error)
+	BeginReadiness        func(string) (string, error)
+	ClearReadinessAttempt func(string) error
+	WaitForReadiness      func(
+		context.Context,
+		string,
+		machineconnect.ConnectorRuntimeReadinessIdentity,
+	) error
+	ReadinessTimeout time.Duration
+	BuildIdentity    machineconnect.ConnectorSupervisorBuildIdentity
 }
 
 func newConnectorMachineServiceCommand() *cobra.Command {
@@ -78,16 +90,57 @@ func newConnectorMachineServiceStartCommand(
 					returnErr = errors.Join(returnErr, release())
 				}()
 			}
-			if _, err := store.Load(); errors.Is(err, machineconnect.ErrCredentialNotFound) {
+			credential, err := store.Load()
+			if errors.Is(err, machineconnect.ErrCredentialNotFound) {
 				return nil
 			} else if err != nil {
 				return fmt.Errorf("load machine credential: %w", err)
 			}
+			if dependencies.ReadinessPath == nil || dependencies.BeginReadiness == nil ||
+				dependencies.ClearReadinessAttempt == nil ||
+				dependencies.WaitForReadiness == nil || dependencies.ReadinessTimeout <= 0 {
+				return errors.New("configure authenticated connector readiness: dependencies are incomplete")
+			}
+			readinessPath, err := dependencies.ReadinessPath()
+			if err != nil {
+				return fmt.Errorf("resolve authenticated connector readiness: %w", err)
+			}
+			attemptNonce, err := dependencies.BeginReadiness(readinessPath)
+			if err != nil {
+				return fmt.Errorf("begin authenticated connector readiness: %w", err)
+			}
+			defer func() {
+				returnErr = errors.Join(
+					returnErr,
+					dependencies.ClearReadinessAttempt(readinessPath),
+				)
+			}()
 			connector, err := dependencies.NewConnector()
 			if err != nil {
 				return fmt.Errorf("configure machine connector service: %w", err)
 			}
-			return connector.Start(ctx)
+			if err := connector.Start(ctx); err != nil {
+				return err
+			}
+			readinessContext, cancelReadiness := context.WithTimeout(
+				ctx,
+				dependencies.ReadinessTimeout,
+			)
+			defer cancelReadiness()
+			expected := machineconnect.ConnectorRuntimeReadinessIdentity{
+				MachineID:    credential.MachineID,
+				BuildID:      dependencies.BuildIdentity.BuildID,
+				ReleaseID:    dependencies.BuildIdentity.ReleaseID,
+				AttemptNonce: attemptNonce,
+			}
+			if err := dependencies.WaitForReadiness(
+				readinessContext,
+				readinessPath,
+				expected,
+			); err != nil {
+				return fmt.Errorf("verify authenticated connector reconnect: %w", err)
+			}
+			return nil
 		},
 	}
 }
@@ -130,6 +183,14 @@ func defaultConnectorMachineServiceDependencies() connectorMachineServiceDepende
 	return connectorMachineServiceDependencies{
 		NewStore:              machineconnect.NewDefaultCredentialStore,
 		LoadMachineConnection: defaultMachineConnectionDependencies,
+		ReadinessPath:         machineconnect.DefaultConnectorRuntimeReadinessPath,
+		BeginReadiness:        machineconnect.BeginConnectorRuntimeReadinessAttempt,
+		ClearReadinessAttempt: machineconnect.ClearConnectorRuntimeReadinessAttempt,
+		WaitForReadiness:      machineconnect.WaitForConnectorRuntimeReadiness,
+		ReadinessTimeout:      30 * time.Second,
+		BuildIdentity: machineconnect.ConnectorSupervisorBuildIdentity{
+			BuildID: projectMachineClientBuildID, ReleaseID: projectMachineClientReleaseID,
+		},
 		NewConnector: func() (machineconnect.Connector, error) {
 			return machineconnect.NewServiceConnector(machineconnect.ServiceConnectorOptions{})
 		},

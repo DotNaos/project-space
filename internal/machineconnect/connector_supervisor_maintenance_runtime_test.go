@@ -128,6 +128,63 @@ func TestConnectorSupervisorRuntimeRollsBackRejectedReconnectAndRestarts(t *test
 	}
 }
 
+func TestConnectorSupervisorRuntimeAcknowledgesRolledBackReconnect(t *testing.T) {
+	fixture, executable := newMaintenanceRuntimeFixture(t)
+	if fixture.maintenance.target == "windows-x64" {
+		t.Skip("managed Windows update intentionally requires a different trusted boundary")
+	}
+	fixture.writeUpdateControl(
+		maintenanceTestOperation,
+		maintenanceTestArchive(t, fixture.maintenance.target),
+	)
+	if _, err := fixture.maintenance.ProcessControl(); err != nil {
+		t.Fatal(err)
+	}
+	fixture.writeDecision(maintenanceTestOperation, "rollback")
+	result, decided, err := fixture.maintenance.CheckHealthDecision()
+	if err != nil || !decided || result.Outcome != ConnectorSupervisorMaintenanceRolledBack ||
+		!result.RestartRequired || fixture.pointer() != maintenanceTestOldPointer {
+		t.Fatalf("rollback result = %#v decided=%v pointer=%s err=%v", result, decided, fixture.pointer(), err)
+	}
+
+	var stdout bytes.Buffer
+	ready := filepath.Join(t.TempDir(), "connector-ready")
+	supervisor := maintenanceRuntimeSupervisor(
+		t,
+		fixture,
+		executable,
+		&stdout,
+		"maintenance-block",
+		"supervisor-ready-file="+ready,
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runDone := make(chan error, 1)
+	go func() { runDone <- supervisor.Run(ctx) }()
+	waitForMaintenanceTestFileWhileRunning(t, ready, runDone)
+	fixture.writeDecision(maintenanceTestOperation, "rollback")
+	waitForMaintenanceStateRemovalWhileRunning(
+		t,
+		fixture.maintenance.paths.StateFile,
+		runDone,
+	)
+	assertMissing(t, fixture.maintenance.paths.DecisionFile)
+	select {
+	case err := <-runDone:
+		t.Fatalf("acknowledged rollback connector exited instead of remaining active: %v", err)
+	default:
+	}
+	cancel()
+	if err := <-runDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("run error = %v, want cancellation after rollback acknowledgement", err)
+	}
+	actual := decodeSupervisorHelperResult(t, stdout.Bytes())
+	if actual.MaintenanceID != maintenanceTestOperation ||
+		actual.MaintenanceState != string(ConnectorSupervisorEvidenceRolledBack) {
+		t.Fatalf("rolled-back reconnect evidence = %#v", actual)
+	}
+}
+
 func TestConnectorSupervisorRuntimeDiscardsRejectedStartupControlOnce(t *testing.T) {
 	fixture, executable := newMaintenanceRuntimeFixture(t)
 	fixture.writeRestartControl(maintenanceTestOperation)

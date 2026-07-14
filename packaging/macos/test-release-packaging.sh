@@ -15,7 +15,10 @@ write_project_fixture() {
 #!/bin/bash
 if [[ "\${1:-}" == connector && "\${2:-}" == service ]]; then
   printf '%s:%s\n' '$label' "\$*" >> "\${PROJECT_FIXTURE_SERVICE_LOG:?}"
-  if [[ "\${3:-}" == start-if-connected && '$fail_start' == 1 ]]; then exit 1; fi
+  if [[ "\${3:-}" == start-if-connected &&
+    ( '$fail_start' == 1 || "\${PROJECT_FIXTURE_FAIL_START_LABEL:-}" == '$label' ) ]]; then
+    exit 1
+  fi
   exit 0
 fi
 printf '%s\n' '$label'
@@ -108,18 +111,83 @@ second_current=$(readlink "$install_root/.project-space-machine-tools/current")
 grep -Fx 'v1:connector service stop' "$service_log"
 grep -Fx 'v2:connector service start-if-connected' "$service_log"
 
+# A machine with both services keeps the managed identity, stops the legacy
+# process, and removes only the obsolete LaunchAgent after the managed runtime
+# has reconnected successfully.
+dual_legacy_plist="$home/Library/LaunchAgents/net.os-home.project-space-connector.plist"
+printf 'legacy\n' > "$dual_legacy_plist"
+"$bundle_v2/install.sh" --install-dir "$install_root" >/dev/null
+[[ ! -e $dual_legacy_plist ]]
+grep -Fx "bootout gui/$(id -u)/net.os-home.project-space-connector" "$launchctl_log"
+
 write_source "$temporary_root/source-v3" v3 1
 mkdir "$temporary_root/output-v3" "$temporary_root/extracted-v3"
 SOURCE_DATE_EPOCH=0 "$script_directory/build-machine-tools.sh" "$version" "$temporary_root/source-v3" "$temporary_root/output-v3" >/dev/null
 gtar -xzf "$temporary_root/output-v3/$archive" -C "$temporary_root/extracted-v3"
 bundle_v3="$temporary_root/extracted-v3/project-space-machine-tools-darwin-arm64-v${version}"
+printf 'legacy\n' > "$dual_legacy_plist"
+v2_start_count_before_failure=$(grep -Fxc 'v2:connector service start-if-connected' "$service_log")
 if "$bundle_v3/install.sh" --install-dir "$install_root" >/dev/null 2>&1; then
   echo 'Installer accepted a release whose connector service could not start.' >&2
   exit 1
 fi
 [[ $(readlink "$install_root/.project-space-machine-tools/current") == "$second_current" ]]
 [[ $($install_root/project) == v2 ]]
-[[ $(grep -Fxc 'v2:connector service start-if-connected' "$service_log") == 2 ]]
+[[ -f $dual_legacy_plist ]]
+[[ $(grep -Fxc 'v2:connector service start-if-connected' "$service_log") == $((v2_start_count_before_failure + 1)) ]]
+grep -Fx "bootstrap gui/$(id -u) $dual_legacy_plist" "$launchctl_log"
+grep -Fx "kickstart -k gui/$(id -u)/net.os-home.project-space-connector" "$launchctl_log"
+
+rollback_failure_log="$temporary_root/rollback-failure.log"
+set +e
+PROJECT_FIXTURE_FAIL_START_LABEL=v2 \
+  "$bundle_v3/install.sh" --install-dir "$install_root" >/dev/null 2>"$rollback_failure_log"
+rollback_failure_status=$?
+set -e
+[[ $rollback_failure_status -eq 71 ]]
+grep -Fx 'The new connector could not be started; the previous machine-tools release was restored.' \
+  "$rollback_failure_log"
+grep -Fx 'The previous connector service could not be restarted after rollback.' \
+  "$rollback_failure_log"
+grep -Fx 'The installation failed with status 70 and rollback could not restore the previous connector service. Manual recovery is required.' \
+  "$rollback_failure_log"
+[[ $(readlink "$install_root/.project-space-machine-tools/current") == "$second_current" ]]
+[[ $($install_root/project) == v2 ]]
+[[ -f $dual_legacy_plist ]]
+
+migration_home="$temporary_root/homebrew-migration-home"
+migration_install_root="$migration_home/.local/bin"
+migration_service_log="$temporary_root/homebrew-migration-service.log"
+migration_launchctl_log="$temporary_root/homebrew-migration-launchctl.log"
+migration_homebrew_project="$temporary_root/homebrew-project"
+mkdir -p "$migration_home/Library/LaunchAgents"
+write_project_fixture "$migration_homebrew_project" homebrew
+cat > "$migration_home/Library/LaunchAgents/net.os-home.project-space.machine-connector-supervisor.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>net.os-home.project-space.machine-connector-supervisor</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$migration_homebrew_project</string>
+    <string>connector</string>
+    <string>run</string>
+  </array>
+</dict>
+</plist>
+EOF
+if HOME="$migration_home" \
+  PROJECT_FIXTURE_SERVICE_LOG="$migration_service_log" \
+  PROJECT_FIXTURE_LAUNCHCTL_LOG="$migration_launchctl_log" \
+  "$bundle_v3/install.sh" --install-dir "$migration_install_root" >/dev/null 2>&1; then
+  echo 'Installer accepted a failed Homebrew-to-managed migration.' >&2
+  exit 1
+fi
+[[ ! -e $migration_install_root/project && ! -L $migration_install_root/project ]]
+[[ ! -e $migration_install_root/.project-space-machine-tools/current ]]
+grep -Fx 'homebrew:connector service start-if-connected' "$migration_service_log"
 
 rm -f "$modern_plist"
 legacy_plist="$home/Library/LaunchAgents/net.os-home.project-space-connector.plist"

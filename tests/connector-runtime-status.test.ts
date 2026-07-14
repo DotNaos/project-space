@@ -172,6 +172,35 @@ describe('connector runtime status', () => {
     }).update.state).toBe('update-available');
   });
 
+  test('does not present an older approved release as an update', () => {
+    const newerMachine = machine({ connector: {
+      capabilities,
+      installCommand: 'connector',
+      runtime: {
+        ...runtime,
+        buildId: '2'.repeat(40),
+        bundleVersions: {
+          connector: '0.6.0', machineTools: '0.6.0', projectCli: '0.6.0'
+        },
+        releaseId: 'v0.6.0',
+        version: '0.6.0'
+      },
+      status: 'online'
+    } });
+
+    const status = projectMachineRuntimeStatus({ approved, machine: newerMachine });
+    expect(status.update).toMatchObject({
+      availableReleaseId: 'v0.5.0',
+      availableVersion: '0.5.0',
+      state: 'unsupported'
+    });
+    expect(projectMachineRuntimeStatus({
+      approved,
+      machine: newerMachine,
+      operation: operation('rolled-back')
+    }).update.state).toBe('rollback');
+  });
+
   test('requires a new instance and the exact expected reconnect evidence', () => {
     const nextBundle = {
       connector: '0.5.0', machineTools: '0.5.0', projectCli: '0.5.0'

@@ -6,8 +6,8 @@ $ErrorActionPreference = 'Stop'
 
 $renderer = Join-Path $PSScriptRoot 'render-winget-manifests.ps1'
 $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('project-space-winget-' + [System.Guid]::NewGuid().ToString('N'))
-$version = '0.4.0'
-$url = 'https://github.com/DotNaos/project-space/releases/download/v0.4.0/project-space-machine-tools-windows-x64-setup.exe'
+$version = '0.4.1'
+$url = 'https://github.com/DotNaos/project-space/releases/download/v0.4.1/project-space-machine-tools-windows-x64-setup.exe'
 $sha256 = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
 $installerScriptPath = Join-Path $PSScriptRoot 'project-space.iss'
 $innoInstallScriptPath = Join-Path $PSScriptRoot 'install-inno-setup.ps1'
@@ -88,6 +88,15 @@ try {
   foreach ($requiredFragment in @(
     'function PathWithoutEntry',
     'UninstallDisplayName={#MyAppName}',
+    'function PreservePreviousInstallation(): Boolean;',
+    'function RestorePreviousFiles(): Boolean;',
+    'procedure StartInstalledConnectorOrRollback();',
+    "if not RunInstalledProject('connector service start-if-connected', ResultCode) then",
+    "if not RunInstalledProjectSuccessfully('connector service stop') then",
+    "if not RunInstalledProjectSuccessfully('connector service start-if-connected') then",
+    'if ResultCode <> 0 then',
+    'The previous Project Space machine tools were restored, but their connector could not be restarted. Manual recovery is required.',
+    'The new Project Space connector failed its authenticated reconnect check. The previous machine tools were restored and restarted.',
     'if Uppercase(Item) <> Uppercase(Entry) then',
     'if HasOutputSegment then',
     'NewPath := PathWithoutEntry(CurrentPath, Entry)',
@@ -104,6 +113,9 @@ try {
   }
   if ($installerScript.Contains("RunInstalledProject('disconnect'")) {
     throw 'Installer uninstall must keep revocation and purge inside one locked CLI command.'
+  }
+  if ($installerScript.Contains('[Run]')) {
+    throw 'Installer connector startup must remain in checked Pascal code, not an unchecked [Run] entry.'
   }
 
   $innoInstallScript = [System.IO.File]::ReadAllText($innoInstallScriptPath)
@@ -158,7 +170,7 @@ try {
     }
   }
 
-  Assert-RendererRejects 'v0.4.0' $url $sha256 'The renderer accepted a version with a v prefix.'
+  Assert-RendererRejects 'v0.4.1' $url $sha256 'The renderer accepted a version with a v prefix.'
   Assert-RendererRejects $version 'http://example.com/project-space-machine-tools-windows-x64-setup.exe' $sha256 'The renderer accepted an insecure installer URL.'
   Assert-RendererRejects $version $url 'not-a-sha256' 'The renderer accepted an invalid SHA-256.'
 

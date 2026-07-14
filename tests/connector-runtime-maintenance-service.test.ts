@@ -174,6 +174,33 @@ describe('connector runtime maintenance service', () => {
     expect(harness.dispatches[0]?.plan.operation).toBe('restart');
   });
 
+  test('rejects a signed approved release older than the installed runtime', async () => {
+    const harness = new Harness();
+    harness.machine = currentMachine({ connector: {
+      ...currentMachine().connector,
+      runtime: {
+        ...currentMachine().connector.runtime!,
+        buildId: '2'.repeat(40),
+        bundleVersions: {
+          connector: '0.6.0', machineTools: '0.6.0', projectCli: '0.6.0'
+        },
+        releaseId: 'v0.6.0',
+        version: '0.6.0'
+      }
+    } });
+
+    await expect(harness.service().request(
+      { machineId: 'machine-1', operation: 'update', releaseId: 'v0.5.0' },
+      'owner-1'
+    )).rejects.toMatchObject({ code: 'release-downgrade' });
+    expect(harness.releaseCalls).toBe(1);
+    expect(harness.dispatches).toHaveLength(0);
+    expect(await harness.operations.latest('machine-1')).toBeNull();
+    expect(harness.operations.audits.at(-1)).toMatchObject({
+      outcome: 'rejected', reason: 'release-downgrade'
+    });
+  });
+
   test('rejects arbitrary input, non-owners, offline and unsupported old connectors', async () => {
     const arbitrary = new Harness();
     await expect(arbitrary.service().request({
@@ -263,12 +290,27 @@ describe('connector runtime maintenance service', () => {
         maintenance: { operationId: started.operation.id, state: 'rolled-back' }
       }
     } });
+    const corruptRollback = structuredClone(rolledBack);
+    corruptRollback.connector.runtime!.buildId = 'f'.repeat(40);
+    expect(await success.service().decideReconnect(corruptRollback)).toBeUndefined();
+    const pinnedRollback = structuredClone(rolledBack);
+    pinnedRollback.connector.runtime!.instanceId = 'instance-before';
+    expect(await success.service().decideReconnect(pinnedRollback)).toBeUndefined();
+    const expandedRollback = structuredClone(rolledBack);
+    expandedRollback.connector.capabilities = [...capabilities, 'runtime.untrusted'];
+    expect(await success.service().decideReconnect(expandedRollback)).toBeUndefined();
+    expect((await success.operations.latest('machine-1'))?.state).toBe('succeeded');
+
     expect(await success.service().decideReconnect(rolledBack)).toEqual({
       action: 'rollback', operationId: started.operation.id
     });
     expect(await success.operations.latest('machine-1')).toMatchObject({
       lastFailure: { code: 'supervisor-rollback-after-commit' },
       state: 'rolled-back'
+    });
+    expect(await success.service().decideReconnect(corruptRollback)).toBeUndefined();
+    expect(await success.service().decideReconnect(rolledBack)).toEqual({
+      action: 'rollback', operationId: started.operation.id
     });
   });
 
@@ -295,6 +337,30 @@ describe('connector runtime maintenance service', () => {
       lastFailure: { code: 'wrong-reconnect-version', rollbackAvailable: true },
       state: 'rolling-back'
     });
+
+    const rolledBackMachine = currentMachine({ connector: {
+      ...currentMachine().connector,
+      runtime: {
+        ...currentMachine().connector.runtime!,
+        instanceId: 'instance-rollback',
+        maintenance: { operationId: wrongStarted.operation.id, state: 'rolled-back' }
+      }
+    } });
+    const wrongRollback = structuredClone(rolledBackMachine);
+    wrongRollback.connector.runtime!.releaseId = 'v0.3.0';
+    expect(await wrong.service().decideReconnect(wrongRollback)).toBeUndefined();
+    const pinnedRollback = structuredClone(rolledBackMachine);
+    pinnedRollback.connector.runtime!.instanceId = 'instance-before';
+    expect(await wrong.service().decideReconnect(pinnedRollback)).toBeUndefined();
+    const expandedRollback = structuredClone(rolledBackMachine);
+    expandedRollback.connector.capabilities = [...capabilities, 'runtime.untrusted'];
+    expect(await wrong.service().decideReconnect(expandedRollback)).toBeUndefined();
+    expect((await wrong.operations.latest('machine-1'))?.state).toBe('rolling-back');
+
+    expect(await wrong.service().decideReconnect(rolledBackMachine)).toEqual({
+      action: 'rollback', operationId: wrongStarted.operation.id
+    });
+    expect((await wrong.operations.latest('machine-1'))?.state).toBe('rolled-back');
   });
 
   test('acknowledges only an exact restored runtime after a terminal health timeout', async () => {

@@ -261,6 +261,9 @@ func (maintenance *ConnectorSupervisorMaintenance) CheckHealthDecision() (
 	if err != nil {
 		return ConnectorSupervisorMaintenanceResult{}, false, stateError("invalid-state", err)
 	}
+	if state.Phase == connectorSupervisorPhaseRolledBack {
+		return maintenance.checkRolledBackAcknowledgement(state)
+	}
 	if state.Phase != connectorSupervisorPhasePendingHealth {
 		return stateResult(state), true, nil
 	}
