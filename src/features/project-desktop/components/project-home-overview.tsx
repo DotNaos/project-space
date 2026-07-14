@@ -39,6 +39,8 @@ import type {
 } from '@/shared/project-space-api';
 import { isMachineConnected } from './machine-visuals';
 import { MachineListItem } from './machine-list-item';
+import { MachineConnectorActionsMenu } from './machine-connector-actions-menu';
+import { runtimeVersionLabel } from './machine-connector-runtime-model';
 import { machineSubtitle } from './project-main-model';
 import {
   AddMachineDialog,
@@ -111,7 +113,6 @@ export function ProjectHomeOverview({
   const [isConnectingGitHub, setIsConnectingGitHub] = useState(false);
   const [isInstallDialogOpen, setIsInstallDialogOpen] = useState(false);
   const [installCommand, setInstallCommand] = useState('');
-  const [installerExpiresAt, setInstallerExpiresAt] = useState('');
   const [installerError, setInstallerError] = useState('');
   const [isGeneratingInstaller, setIsGeneratingInstaller] = useState(false);
   const [installScriptHref, setInstallScriptHref] = useState('/connector/install.sh');
@@ -198,7 +199,6 @@ export function ProjectHomeOverview({
     try {
       const result = await projectSpaceClient.getConnectorInstallCommand();
       setInstallCommand(result.command);
-      setInstallerExpiresAt(result.expiresAt);
       setInstallScriptHref(result.scriptUrl);
       setHasCopiedInstallCommand(false);
     } catch (error) {
@@ -812,25 +812,34 @@ export function ProjectHomeOverview({
       filteredMachines[activeMachineSearchIndex]?.id === machine.id;
 
     return (
-      <MachineListItem
+      <div
         key={machine.id}
-        machine={machine}
-        subtitle={machineSubtitle(machine) || 'machine'}
-        isSelected={isSelected}
         className={cn(
-          'border bg-neutral-900/40 p-4 hover:border-neutral-700 hover:bg-neutral-900/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-300',
+          'flex min-w-0 items-center rounded-lg border bg-neutral-900/40 transition hover:border-neutral-700 hover:bg-neutral-900/70',
           isSelected ? 'border-neutral-100/50' : 'border-transparent'
         )}
-        endContent={
-          <span className="shrink-0 rounded-full bg-neutral-950/80 px-2 py-0.5 text-[11px] text-neutral-500">
+      >
+        <MachineListItem
+          machine={machine}
+          subtitle={machineSubtitle(machine) || 'machine'}
+          className="min-w-0 flex-1 bg-transparent p-4 hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-300"
+          onPress={() => {
+            setSelectedMachineId(machine.id);
+            onSelectMachine(machine.id);
+          }}
+        />
+        <div className="flex shrink-0 items-center gap-1.5 pr-2">
+          {machine.connector.runtime ? (
+            <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-[11px] text-neutral-500">
+              {runtimeVersionLabel(machine)}
+            </span>
+          ) : null}
+          <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-[11px] text-neutral-500">
             {machineProjects.length}
           </span>
-        }
-        onPress={() => {
-          setSelectedMachineId(machine.id);
-          onSelectMachine(machine.id);
-        }}
-      />
+          <MachineConnectorActionsMenu machine={machine} />
+        </div>
+      </div>
     );
   }
 
@@ -841,23 +850,27 @@ export function ProjectHomeOverview({
       filteredMachines[activeMachineSearchIndex]?.id === machine.id;
 
     return (
-      <MachineListItem
+      <div
         key={machine.id}
-        compact
-        machine={machine}
-        subtitle={machineSubtitle(machine) || 'machine'}
-        isSelected={isSelected}
-        className="hover:bg-neutral-900/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-300"
-        endContent={
-          <span className="shrink-0 rounded-full bg-neutral-950/80 px-2 py-0.5 text-[11px] text-neutral-500">
+        className={cn('flex min-w-0 items-center rounded-lg', isSelected ? 'bg-neutral-800/90' : '')}
+      >
+        <MachineListItem
+          compact
+          machine={machine}
+          subtitle={machineSubtitle(machine) || 'machine'}
+          className="min-w-0 flex-1 hover:bg-neutral-900/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-300"
+          onPress={() => {
+            setSelectedMachineId(machine.id);
+            onSelectMachine(machine.id);
+          }}
+        />
+        <div className="flex shrink-0 items-center gap-1 pr-1.5">
+          <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-[11px] text-neutral-500">
             {machineProjects.length}
           </span>
-        }
-        onPress={() => {
-          setSelectedMachineId(machine.id);
-          onSelectMachine(machine.id);
-        }}
-      />
+          <MachineConnectorActionsMenu machine={machine} />
+        </div>
+      </div>
     );
   }
 
@@ -888,7 +901,6 @@ export function ProjectHomeOverview({
           installCommand={installCommand}
           installScriptHref={installScriptHref}
           installerError={installerError}
-          installerExpiresAt={installerExpiresAt}
           isGeneratingInstaller={isGeneratingInstaller}
           onClose={() => setIsInstallDialogOpen(false)}
           onCopy={() => void copyInstallCommand()}

@@ -1,5 +1,14 @@
 export type * from './dev-server-api';
 export type * from './worktree-action-api';
+export type * from './connector-runtime-api';
+
+import type {
+  ConnectorRuntimeRecord,
+  ConnectorRuntimeUpdateRecord,
+  MachineRuntimeOperationRequest,
+  MachineRuntimeOperationResult,
+  MachineRuntimeStatusResult
+} from './connector-runtime-api';
 
 export type WorkspaceTool = 'ide' | 'terminal' | 'git' | 'dev-server';
 
@@ -793,11 +802,14 @@ export type ConnectorStatus = 'local' | 'online' | 'offline' | 'not-installed';
 export type DeploymentVisibility = 'private' | 'public';
 
 export interface MachineConnectorRecord {
+  capabilities?: string[];
   installCommand: string;
   lastSeen?: string;
   origin?: string;
+  runtime?: ConnectorRuntimeRecord;
   serviceName?: string;
   status: ConnectorStatus;
+  update?: ConnectorRuntimeUpdateRecord;
 }
 
 export interface MachineBatteryRecord {
@@ -859,6 +871,7 @@ export interface ConnectorProjectRegistryResult {
     network?: MachineRecord['network'];
     origin?: string;
     primaryUser?: string;
+    runtime?: ConnectorRuntimeRecord;
     serviceName?: string;
   };
   discovery: ProjectDiscoveryResult;
@@ -1238,6 +1251,11 @@ export interface ProjectSpaceBackend {
   getAppMeta(): Promise<AppMeta>;
   getCodexStatus(): Promise<CodexStatusResult>;
   getConnectorOverview(): Promise<ConnectorOverviewResult>;
+  getMachineRuntime(machineId: string): Promise<MachineRuntimeStatusResult>;
+  startMachineRuntimeOperation(
+    machineId: string,
+    request: MachineRuntimeOperationRequest
+  ): Promise<MachineRuntimeOperationResult>;
   getConnectorProjectRegistry(): Promise<ConnectorProjectRegistryResult>;
   getDeployedEnvironmentStatus(
     repositoryFullName: string

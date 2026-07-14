@@ -12,11 +12,18 @@ type connectorSupervisor interface {
 	Run(context.Context) error
 }
 
+var (
+	projectMachineClientReleaseID = "dev"
+	projectMachineClientBuildID   = "unknown"
+)
+
 type connectorRunDependencies struct {
-	NewStore      func() (machineconnect.CredentialStore, error)
-	ResolveBinary func() (string, error)
-	NewSupervisor func(
+	NewStore                func() (machineconnect.CredentialStore, error)
+	ResolveBinary           func() (string, error)
+	ConsumeReadinessAttempt func() (string, bool, error)
+	NewSupervisor           func(
 		machineconnect.CredentialStore,
+		string,
 		string,
 		io.Writer,
 		io.Writer,
@@ -43,9 +50,21 @@ func newConnectorRunCommandWithDependencies(dependencies connectorRunDependencie
 			if err != nil {
 				return err
 			}
+			readinessAttemptNonce := ""
+			if dependencies.ConsumeReadinessAttempt != nil {
+				var found bool
+				readinessAttemptNonce, found, err = dependencies.ConsumeReadinessAttempt()
+				if err != nil {
+					return err
+				}
+				if !found {
+					readinessAttemptNonce = ""
+				}
+			}
 			supervisor, err := dependencies.NewSupervisor(
 				store,
 				binary,
+				readinessAttemptNonce,
 				command.OutOrStdout(),
 				command.ErrOrStderr(),
 			)
@@ -63,20 +82,47 @@ func defaultConnectorRunDependencies() connectorRunDependencies {
 		ResolveBinary: func() (string, error) {
 			return resolveConnectorBinary()
 		},
+		ConsumeReadinessAttempt: func() (string, bool, error) {
+			path, err := machineconnect.DefaultConnectorRuntimeReadinessPath()
+			if err != nil {
+				return "", false, err
+			}
+			return machineconnect.ConsumeConnectorRuntimeReadinessAttempt(path)
+		},
 		NewSupervisor: func(
 			store machineconnect.CredentialStore,
 			binary string,
+			readinessAttemptNonce string,
 			stdout io.Writer,
 			stderr io.Writer,
 		) (connectorSupervisor, error) {
 			return machineconnect.NewConnectorSupervisor(
 				store,
-				machineconnect.ConnectorSupervisorOptions{
-					Executable: binary,
-					Stdout:     stdout,
-					Stderr:     stderr,
-				},
+				connectorSupervisorOptions(
+					binary,
+					readinessAttemptNonce,
+					stdout,
+					stderr,
+				),
 			)
 		},
+	}
+}
+
+func connectorSupervisorOptions(
+	binary string,
+	readinessAttemptNonce string,
+	stdout io.Writer,
+	stderr io.Writer,
+) machineconnect.ConnectorSupervisorOptions {
+	return machineconnect.ConnectorSupervisorOptions{
+		BuildIdentity: machineconnect.ConnectorSupervisorBuildIdentity{
+			BuildID:   projectMachineClientBuildID,
+			ReleaseID: projectMachineClientReleaseID,
+		},
+		ReadinessAttemptNonce: readinessAttemptNonce,
+		Executable:            binary,
+		Stdout:                stdout,
+		Stderr:                stderr,
 	}
 }

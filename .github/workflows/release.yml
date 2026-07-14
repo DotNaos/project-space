@@ -12,6 +12,8 @@ on:
       - 'package.json'
       - 'bun.lock'
       - 'packaging/linux/**'
+      - 'packaging/macos/**'
+      - 'packaging/release/**'
       - 'packaging/windows/**'
       - 'server/**'
       - 'tests/**'
@@ -61,6 +63,81 @@ jobs:
         run: |
           go test -race ./...
           go vet ./...
+
+  trust-roots:
+    name: Derive connector trust roots
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Load release trust keys from 1Password
+        if: github.ref_type == 'tag'
+        id: trust-secrets
+        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64: op://projects/project-connector-command-signing-key/private_key_b64
+          PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64: op://projects/project-space-release-manifest-signing-key/private_key_b64
+          PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: op://projects/project-space-release-manifest-signing-key/public_key_b64
+
+      - name: Derive release trust roots
+        if: github.ref_type == 'tag'
+        env:
+          PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64: ${{ steps.trust-secrets.outputs.PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64 }}
+          PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64: ${{ steps.trust-secrets.outputs.PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64 }}
+        run: >-
+          bun packaging/release/derive-trust-roots.ts derive
+          "$RUNNER_TEMP/connector-runtime-trust-roots"
+
+      - name: Confirm stored release trust root
+        if: github.ref_type == 'tag'
+        env:
+          PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: ${{ steps.trust-secrets.outputs.PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          stored_public_key="$RUNNER_TEMP/stored-release-manifest-signing-public-key.pem"
+          trap 'rm -f "$stored_public_key"' EXIT
+          umask 077
+          printf '%s' "$PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64" | \
+            base64 --decode > "$stored_public_key"
+          cmp "$stored_public_key" \
+            "$RUNNER_TEMP/connector-runtime-trust-roots/release-manifest-signing-public-key.pem"
+
+      - name: Create disposable validation trust roots
+        if: github.ref_type != 'tag'
+        run: >-
+          bun packaging/release/derive-trust-roots.ts validation-only
+          "$RUNNER_TEMP/connector-runtime-trust-roots"
+
+      - name: Validate public trust roots
+        run: |
+          bun -e '
+            const { createPublicKey } = require("node:crypto");
+            const { readFileSync } = require("node:fs");
+            for (const name of [
+              "connector-command-signing-public-key.pem",
+              "release-manifest-signing-public-key.pem"
+            ]) {
+              const key = createPublicKey(readFileSync(`${process.env.RUNNER_TEMP}/connector-runtime-trust-roots/${name}`));
+              if (key.type !== "public" || key.asymmetricKeyType !== "ed25519") process.exit(65);
+            }
+          '
+
+      - name: Upload public trust roots
+        uses: actions/upload-artifact@v4
+        with:
+          name: connector-runtime-trust-roots
+          if-no-files-found: error
+          path: ${{ runner.temp }}/connector-runtime-trust-roots/*.pem
 
   windows-x64:
     name: Windows x64 machine tools
@@ -130,7 +207,7 @@ jobs:
           bun run build:connector:windows-x64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:CGO_ENABLED = '0'
-          $ldflags = "-s -w -X main.projectMachineClientVersion=$env:VERSION -X main.projectSpaceMachineBackendURL=https://projects.os-home.net"
+          $ldflags = "-s -w -X main.projectMachineClientVersion=$env:VERSION -X main.projectMachineClientReleaseID=v$env:VERSION -X main.projectMachineClientBuildID=$env:GITHUB_SHA -X main.projectSpaceMachineBackendURL=https://projects.os-home.net"
           go build -trimpath -ldflags $ldflags -o dist\windows\project.exe .\cmd\project
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -197,7 +274,9 @@ jobs:
 
   linux-x64:
     name: Linux x64 machine tools
-    needs: quality
+    needs:
+      - quality
+      - trust-roots
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -253,12 +332,20 @@ jobs:
       - name: Build native Linux binaries
         run: |
           mkdir -p dist/linux
-          bun build --compile --target=bun-linux-x64 server/web-server.ts --outfile dist/linux/project-space-connector
+          bun packaging/release/build-connector.ts \
+            bun-linux-x64 \
+            dist/linux/project-space-connector
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
             -trimpath \
-            -ldflags "-s -w -X main.projectMachineClientVersion=$VERSION -X main.projectSpaceMachineBackendURL=https://projects.os-home.net" \
+            -ldflags "-s -w -X main.projectMachineClientVersion=$VERSION -X main.projectMachineClientReleaseID=v$VERSION -X main.projectMachineClientBuildID=$GITHUB_SHA -X main.projectSpaceMachineBackendURL=https://projects.os-home.net" \
             -o dist/linux/project \
             ./cmd/project
+
+      - name: Download release trust roots
+        uses: actions/download-artifact@v4
+        with:
+          name: connector-runtime-trust-roots
+          path: dist/linux
 
       - name: Build and hash deterministic bundle
         run: |
@@ -276,18 +363,146 @@ jobs:
             dist/linux-release/project-space-machine-tools-linux-x64-v${{ steps.version.outputs.version }}.tar.gz
             dist/linux-release/project-space-machine-tools-linux-x64-v${{ steps.version.outputs.version }}.tar.gz.sha256
 
+  macos-arm64:
+    name: macOS arm64 machine tools
+    needs:
+      - quality
+      - trust-roots
+    runs-on: macos-15
+    timeout-minutes: 30
+    outputs:
+      artifact-name: ${{ steps.version.outputs.artifact-name }}
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Resolve and verify release version
+        id: version
+        shell: bash
+        env:
+          RELEASE_REF_NAME: ${{ github.ref_name }}
+          RELEASE_REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          package_version=$(awk -F '"' '/"version"/ { print $4; exit }' package.json)
+          if [[ ! $package_version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "package.json contains an invalid release version: $package_version" >&2
+            exit 1
+          fi
+          if [[ $RELEASE_REF_TYPE == tag && $RELEASE_REF_NAME != "v${package_version}" ]]; then
+            echo "Tag $RELEASE_REF_NAME does not match package.json version $package_version." >&2
+            exit 1
+          fi
+          echo "VERSION=$package_version" >> "$GITHUB_ENV"
+          echo "version=$package_version" >> "$GITHUB_OUTPUT"
+          echo "artifact-name=project-space-machine-tools-darwin-arm64-v$package_version" >> "$GITHUB_OUTPUT"
+
+      - name: Run macOS packaging checks
+        run: |
+          bash -n packaging/macos/*.sh
+          packaging/macos/test-release-packaging.sh "$VERSION"
+
+      - name: Set up Go
+        if: github.ref_type == 'tag'
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Bun
+        if: github.ref_type == 'tag'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        if: github.ref_type == 'tag'
+        run: bun install --frozen-lockfile
+
+      - name: Download release trust roots
+        if: github.ref_type == 'tag'
+        uses: actions/download-artifact@v4
+        with:
+          name: connector-runtime-trust-roots
+          path: dist
+
+      - name: Load macOS signing certificate from 1Password
+        if: github.ref_type == 'tag'
+        id: signing-secrets
+        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          MACOS_SIGNING_CERTIFICATE_P12_B64: op://projects/Project Space macOS Release Signing/certificate_p12_b64
+          MACOS_SIGNING_CERTIFICATE_PASSWORD: op://projects/Project Space macOS Release Signing/password
+
+      - name: Install isolated macOS signing identity
+        if: github.ref_type == 'tag'
+        env:
+          CERTIFICATE_P12_B64: ${{ steps.signing-secrets.outputs.MACOS_SIGNING_CERTIFICATE_P12_B64 }}
+          CERTIFICATE_PASSWORD: ${{ steps.signing-secrets.outputs.MACOS_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [[ $(uname -m) == arm64 ]] || { echo 'The macOS release runner must be arm64.' >&2; exit 69; }
+          keychain="$RUNNER_TEMP/project-space-release.keychain-db"
+          keychain_password=$(openssl rand -hex 32)
+          printf '%s' "$CERTIFICATE_P12_B64" | /usr/bin/base64 -D > "$RUNNER_TEMP/project-space-release.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/project-space-release.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
+          identity=$(security find-identity -v -p codesigning "$keychain" | awk '/[0-9A-F]{40}/ { print $2; exit }')
+          [[ $identity =~ ^[0-9A-F]{40}$ ]] || { echo 'No valid code-signing identity was imported.' >&2; exit 78; }
+          echo "PROJECT_MACOS_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+      - name: Build and validate signed macOS bundle
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          bun run build:machine-tools:macos-arm64
+          codesign --verify --strict --test-requirement '=anchor apple generic and certificate leaf[subject.OU] = "R72P4M9WMS" and identifier "com.dotnaos.project.approval-signer"' dist/project-approval-signer
+          shasum -a 256 -c "dist/macos-release/project-space-machine-tools-darwin-arm64-v${VERSION}.tar.gz.sha256"
+
+      - name: Remove isolated macOS signing identity
+        if: always() && github.ref_type == 'tag'
+        run: |
+          security delete-keychain "$RUNNER_TEMP/project-space-release.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/project-space-release.p12"
+
+      - name: Upload release artifacts
+        if: github.ref_type == 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.version.outputs.artifact-name }}
+          if-no-files-found: error
+          path: |
+            dist/macos-release/project-space-machine-tools-darwin-arm64-v${{ steps.version.outputs.version }}.tar.gz
+            dist/macos-release/project-space-machine-tools-darwin-arm64-v${{ steps.version.outputs.version }}.tar.gz.sha256
+
   publish:
     name: Publish GitHub release
     if: github.ref_type == 'tag'
     needs:
       - windows-x64
       - linux-x64
+      - macos-arm64
+      - trust-roots
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
 
     steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
       - name: Download verified release artifacts
         uses: actions/download-artifact@v4
         with:
@@ -300,13 +515,77 @@ jobs:
           name: ${{ needs.linux-x64.outputs.artifact-name }}
           path: release-assets
 
+      - name: Download verified macOS release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.macos-arm64.outputs.artifact-name }}
+          path: release-assets
+
+      - name: Download release trust roots
+        uses: actions/download-artifact@v4
+        with:
+          name: connector-runtime-trust-roots
+          path: release-trust-roots
+
+      - name: Load release manifest signing key from 1Password
+        id: manifest-secrets
+        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64: op://projects/project-space-release-manifest-signing-key/private_key_b64
+
+      - name: Create and verify authenticated release manifest
+        env:
+          PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64: ${{ steps.manifest-secrets.outputs.PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64 }}
+          VERSION: ${{ needs.linux-x64.outputs.version }}
+        run: |
+          set -euo pipefail
+          source_epoch=$(git show -s --format=%ct "$GITHUB_SHA")
+          verification_now=$(bun -e \
+            'console.log(new Date(Number(process.argv[1]) * 1000).toISOString())' \
+            "$source_epoch")
+          bun packaging/release/release-manifest-cli.ts create \
+            --artifacts-dir release-assets \
+            --version "$VERSION" \
+            --release-id "$GITHUB_REF_NAME" \
+            --commit "$GITHUB_SHA" \
+            --source-epoch "$source_epoch" \
+            --validity-days 365 \
+            --output release-assets/project-space-release-manifest.json \
+            --public-key-output "$RUNNER_TEMP/project-space-release-manifest-public-key.pem"
+          while IFS='|' read -r target filename; do
+            artifact=$(find release-assets -type f -name "$filename" -print -quit)
+            [[ -n $artifact ]] || { echo "Missing manifest artifact: $filename" >&2; exit 66; }
+            bun packaging/release/release-manifest-cli.ts verify \
+              --manifest release-assets/project-space-release-manifest.json \
+              --public-key "$RUNNER_TEMP/project-space-release-manifest-public-key.pem" \
+              --target "$target" \
+              --release-id "$GITHUB_REF_NAME" \
+              --artifact "$artifact" \
+              --now "$verification_now"
+          done <<TARGETS
+          darwin-arm64|project-space-machine-tools-darwin-arm64-v${VERSION}.tar.gz
+          linux-x64|project-space-machine-tools-linux-x64-v${VERSION}.tar.gz
+          windows-x64|project-space-machine-tools-windows-x64-setup.exe
+          TARGETS
+          cmp "$RUNNER_TEMP/project-space-release-manifest-public-key.pem" \
+            release-trust-roots/release-manifest-signing-public-key.pem
+          for target in darwin-arm64 linux-x64; do
+            archive="release-assets/project-space-machine-tools-${target}-v${VERSION}.tar.gz"
+            bundle="project-space-machine-tools-${target}-v${VERSION}"
+            tar -xOf "$archive" "$bundle/connector-command-signing-public-key.pem" | \
+              cmp - release-trust-roots/connector-command-signing-public-key.pem
+            tar -xOf "$archive" "$bundle/release-manifest-signing-public-key.pem" | \
+              cmp - release-trust-roots/release-manifest-signing-public-key.pem
+          done
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mapfile -t assets < <(find release-assets -type f -print | sort)
-          if [ "${#assets[@]}" -ne 7 ]; then
-            echo "Expected seven release assets, found ${#assets[@]}." >&2
+          if [ "${#assets[@]}" -ne 10 ]; then
+            echo "Expected ten release assets, found ${#assets[@]}." >&2
             exit 1
           fi
           gh release create "${GITHUB_REF_NAME}" \

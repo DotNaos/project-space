@@ -45,6 +45,11 @@ import {
   sendConnectorJson
 } from './connector-command-session-registry';
 import {
+  failConnectorRuntimeCommandsForMachine,
+  handleConnectorRuntimeCommandMessage
+} from './connector-runtime-command-routing';
+export { requestConnectorRuntimeMaintenance } from './connector-runtime-command-routing';
+import {
   failCodexSessionCommandsForMachine,
   handleCodexSessionsConnectorMessage
 } from './codex-sessions/connector-hub';
@@ -134,7 +139,6 @@ export type { ConnectorDevServerRequestOptions };
 
 export { authenticateConnectorCredential };
 export type { AuthenticateConnectorCredential };
-
 function commandId() {
   return globalThis.crypto?.randomUUID?.() ?? `connector-${Date.now()}-${Math.random()}`;
 }
@@ -231,9 +235,15 @@ function failCommandsForMachine(machineId: string) {
     }
   }
   failCodexSessionCommandsForMachine(machineId);
+  failConnectorRuntimeCommandsForMachine(machineId);
 }
 
 function handleConnectorResult(machineId: string, message: ConnectorHubMessage) {
+  if (message.type === 'runtime.maintenance.progress' ||
+      message.type === 'runtime.maintenance.result') {
+    handleConnectorRuntimeCommandMessage(machineId, message);
+    return;
+  }
   if (handleCodexSessionsConnectorMessage(machineId, message)) return;
   if ('id' in message) {
     const pending = pendingCommands.get(message.id);

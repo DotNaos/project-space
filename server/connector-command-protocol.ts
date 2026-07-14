@@ -51,8 +51,20 @@ import {
   type BoundCodexSessionsEvent,
   type BoundCodexSessionsResult
 } from './codex-sessions/connector-channel';
+import {
+  isConnectorRuntimeHubCommandMessage,
+  isConnectorRuntimeMachineCommandMessage,
+  isConnectorRuntimeMetadata,
+  type ConnectorRuntimeHubCommandMessage,
+  type ConnectorRuntimeMachineCommandMessage
+} from './connector-runtime-command-routing';
+import {
+  isConnectorRuntimeMaintenanceDecision,
+  type ConnectorRuntimeMaintenanceDecision
+} from './connector-runtime-registration-decision';
 
 export type ConnectorHubMessage =
+  | ConnectorRuntimeHubCommandMessage
   | {
       payload: ConnectorProjectRegistryResult;
       token: string;
@@ -150,7 +162,12 @@ export type ConnectorHubMessage =
     };
 
 export type ConnectorMachineMessage =
-  | { generation: number; type: 'connector.registered' }
+  | {
+      generation: number;
+      maintenance?: ConnectorRuntimeMaintenanceDecision;
+      type: 'connector.registered';
+    }
+  | ConnectorRuntimeMachineCommandMessage
   | { id: string; type: 'connector.command.cancel' }
   | { id: string; payload: CodexModelCatalogueRequest; type: 'codex.models' }
   | { id: string; payload: CodexChatRequest; type: 'codex.chat' }
@@ -303,6 +320,7 @@ function hasConnectorMetadata(connector: Record<string, unknown>) {
       'network',
       'origin',
       'primaryUser',
+      'runtime',
       'serviceName'
     ]) &&
     isCanonicalMachineId(connector.machineId) &&
@@ -311,6 +329,7 @@ function hasConnectorMetadata(connector: Record<string, unknown>) {
     hasUntrustedNetworkMetadata(connector.network) &&
     isOptionalMetadata(connector.origin, 2_048) &&
     isOptionalMetadata(connector.primaryUser) &&
+    isConnectorRuntimeMetadata(connector.runtime) &&
     isOptionalMetadata(connector.serviceName) &&
     validKind &&
     validCapabilities
@@ -475,6 +494,7 @@ export function isConnectorHubMessage(value: unknown): value is ConnectorHubMess
   if (!isRecord(value) || typeof value.type !== 'string') {
     return false;
   }
+  if (isConnectorRuntimeHubCommandMessage(value)) return true;
 
   if (value.type === 'connector.register') {
     return typeof value.token === 'string' && hasRegistryPayload(value);
@@ -577,8 +597,10 @@ export function isConnectorMachineMessage(value: unknown): value is ConnectorMac
     return false;
   }
   if (value.type === 'connector.registered') {
-    return typeof value.generation === 'number' &&
-      Number.isSafeInteger(value.generation) && value.generation > 0;
+    return hasOnlyKeys(value, ['generation', 'maintenance', 'type']) &&
+      typeof value.generation === 'number' && Number.isSafeInteger(value.generation) &&
+      value.generation > 0 && (value.maintenance === undefined ||
+        isConnectorRuntimeMaintenanceDecision(value.maintenance));
   }
   if (value.type === 'connector.command.cancel') {
     return hasCommandId(value);
@@ -586,6 +608,7 @@ export function isConnectorMachineMessage(value: unknown): value is ConnectorMac
   if (!hasCommandId(value) || !isRecord(value.payload)) {
     return false;
   }
+  if (isConnectorRuntimeMachineCommandMessage(value)) return true;
   if (value.type === 'codex.models') {
     return typeof value.payload.cwd === 'string' && typeof value.payload.machineId === 'string';
   }

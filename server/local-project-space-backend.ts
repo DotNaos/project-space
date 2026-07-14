@@ -61,6 +61,7 @@ import { getTemplateAdherence } from './local-template-adherence';
 import { getProjectctlOverview, getProjectctlPreview } from './local-projectctl-client';
 import { backupProject, deployProject, getPlatformOverview } from './local-platform-operations';
 import { readAppMeta } from './app-meta';
+import { connectorRuntimeRecord } from './connector-build-info';
 import { configuredConnectorMachineId } from './project-connector-config';
 import { CODEX_SESSIONS_CONNECTOR_CAPABILITY } from './codex-sessions-connector-contract';
 import { defaultCodexAppServerBinary } from './codex-sessions/stdio-transport';
@@ -70,6 +71,10 @@ import {
   restoreProjectTrashEntry
 } from './project-structure-violations';
 import { getScopeDevboxOverview, startScopeDevboxJob } from './local-scope-devbox-jobs';
+import {
+  createConfiguredConnectorRuntime,
+  type ConfiguredConnectorRuntime
+} from './configured-connector-runtime';
 import type {
   AppMeta,
   ProjectDirectorySelection,
@@ -128,7 +133,8 @@ function scopeDiscoveryToMachine<
 
 export type LocalProjectSpaceBackend = ProjectSpaceBackend &
   ConnectorDevServerAdapter &
-  ConnectorWorktreeActionAdapter;
+  ConnectorWorktreeActionAdapter &
+  Pick<ConfiguredConnectorRuntime, 'decideReconnect'>;
 export { isWebHubMachine };
 const connectorCommandCapabilities = [
   'filesystem.directory',
@@ -145,6 +151,8 @@ const connectorCommandCapabilities = [
   'worktree.setup.inspect',
   'worktree.setup.run',
   'terminal.run',
+  'runtime.restart',
+  'runtime.update',
   'worktrees.list',
   'worktrees.list.v2',
   ...(existsSync(defaultCodexAppServerBinary) ? [CODEX_SESSIONS_CONNECTOR_CAPABILITY] : [])
@@ -156,6 +164,7 @@ export function createLocalProjectSpaceBackend(
   const devServerAdapter = createLocalDevServerAdapter();
   const worktreeActionAdapter = createLocalWorktreeActionAdapter();
   const loadConnectorOverview = () => loadConnectorOverviewForMachine(options.connectorMachineId);
+  const connectorRuntime = createConfiguredConnectorRuntime({ loadOverview: loadConnectorOverview });
   const registeredLocalMachines = new Set<string>();
 
   function registerLocalDevServer(machineId: string) {
@@ -179,6 +188,15 @@ export function createLocalProjectSpaceBackend(
     },
     async getConnectorOverview() {
       return loadConnectorOverview();
+    },
+    decideReconnect(machine) {
+      return connectorRuntime.decideReconnect(machine);
+    },
+    getMachineRuntime(machineId) {
+      return connectorRuntime.getMachineRuntime(machineId);
+    },
+    startMachineRuntimeOperation(machineId, request) {
+      return connectorRuntime.startMachineRuntimeOperation(machineId, request);
     },
     async getConnectorProjectRegistry() {
       const [identity, rawDiscovery] = await Promise.all([
@@ -205,6 +223,7 @@ export function createLocalProjectSpaceBackend(
           },
           origin: connector.connectorOrigin,
           primaryUser: process.env.PROJECT_CONNECTOR_SSH_USER ?? localMachine?.primaryUser,
+          runtime: connectorRuntimeRecord(),
           serviceName: process.env.PROJECT_CONNECTOR_SERVICE_NAME ?? 'project-space-connector'
         },
         discovery

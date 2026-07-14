@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +45,8 @@ func (store *supervisorTestStore) connectorRuntimeLockPath() string {
 }
 
 type supervisorHelperResult struct {
+	BuildID              string `json:"buildId"`
+	Executable           string `json:"executable"`
 	Version              string `json:"version"`
 	BackendURL           string `json:"backendUrl"`
 	MachineID            string `json:"machineId"`
@@ -54,8 +57,19 @@ type supervisorHelperResult struct {
 	LegacyTokenPresent   bool   `json:"legacyTokenPresent"`
 	UnexpectedProjectEnv bool   `json:"unexpectedProjectEnv"`
 	ProtocolMarkerOK     bool   `json:"protocolMarkerOk"`
+	CommandSigningKeyOK  bool   `json:"commandSigningKeyOk"`
+	CommandSigningKey    string `json:"commandSigningKey"`
+	RuntimePathOK        bool   `json:"runtimePathOk"`
 	MinimalFields        bool   `json:"minimalFields"`
 	ShellAndLocaleOK     bool   `json:"shellAndLocaleOk"`
+	MaintenancePathsOK   bool   `json:"maintenancePathsOk"`
+	MaintenanceSource    string `json:"maintenanceSource"`
+	MaintenanceState     string `json:"maintenanceState"`
+	MaintenanceID        string `json:"maintenanceId"`
+	ReleaseSigningKey    string `json:"releaseSigningKey"`
+	ReleaseID            string `json:"releaseId"`
+	ReadyFile            string `json:"readyFile"`
+	ReadyAttemptNonce    string `json:"readyAttemptNonce"`
 }
 
 func TestConnectorSupervisorPassesMinimalCredentialOverStdin(t *testing.T) {
@@ -71,6 +85,13 @@ func TestConnectorSupervisorPassesMinimalCredentialOverStdin(t *testing.T) {
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "aws-secret")
 	t.Setenv("CLERK_SECRET_KEY", "clerk-secret")
 	t.Setenv("PROJECT_DEPLOY_SECRET", "deploy-secret")
+	t.Setenv(ConnectorCommandSigningKeyFileEnv, "/project-space/command-signing-public-key.pem")
+	home := filepath.Join(t.TempDir(), "runtime-home")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", strings.Join([]string{
+		supervisorTestSystemPathEntry(),
+		filepath.Join(home, ".bun", "bin"),
+	}, string(os.PathListSeparator)))
 	t.Setenv("SHELL", "/bin/test-shell")
 	t.Setenv("LANG", "en_US.UTF-8")
 	t.Setenv("LC_ALL", "C.UTF-8")
@@ -79,9 +100,10 @@ func TestConnectorSupervisorPassesMinimalCredentialOverStdin(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	supervisor, err := newConnectorSupervisor(store, ConnectorSupervisorOptions{
-		Executable: os.Args[0],
-		Stdout:     &stdout,
-		Stderr:     &stderr,
+		ReadinessAttemptNonce: strings.Repeat("1", 64),
+		Executable:            os.Args[0],
+		Stdout:                &stdout,
+		Stderr:                &stderr,
 	}, []string{"-test.run=^TestConnectorSupervisorHelper$", "--", "supervisor-helper-mode=success"})
 	if err != nil {
 		t.Fatalf("create supervisor: %v", err)
@@ -106,11 +128,121 @@ func TestConnectorSupervisorPassesMinimalCredentialOverStdin(t *testing.T) {
 		t.Fatalf("helper received the wrong runtime identity: %#v", result)
 	}
 	if result.PrivateKeyPresent || result.SecretInArguments || result.SecretInEnvironment || result.LegacyTokenPresent ||
-		result.UnexpectedProjectEnv || !result.ProtocolMarkerOK || !result.MinimalFields || !result.ShellAndLocaleOK {
+		result.UnexpectedProjectEnv || !result.ProtocolMarkerOK || result.CommandSigningKey != "" ||
+		!result.RuntimePathOK || !result.MinimalFields || !result.ShellAndLocaleOK ||
+		!filepath.IsAbs(result.ReadyFile) || filepath.Base(result.ReadyFile) != connectorRuntimeReadyName ||
+		result.ReadyAttemptNonce != strings.Repeat("1", 64) {
 		t.Fatalf("secret escaped the stdin credential channel: %#v", result)
 	}
 	if stderr.String() != "connector helper stderr\n" {
 		t.Fatalf("stderr was not passed through: %q", stderr.String())
+	}
+}
+
+func TestConnectorSupervisorPassesFixedBuildIdentity(t *testing.T) {
+	t.Setenv(ConnectorRuntimeBuildIDEnv, strings.Repeat("f", 40))
+	t.Setenv(ConnectorRuntimeReleaseIDEnv, "v9.9.9")
+	t.Setenv(ConnectorRuntimeReadyFileEnv, filepath.Join(t.TempDir(), connectorRuntimeReadyName))
+	t.Setenv(ConnectorRuntimeReadyAttemptNonceEnv, strings.Repeat("2", 64))
+	var stdout bytes.Buffer
+	supervisor, err := newConnectorSupervisor(
+		newSupervisorTestStore(t, supervisorCredential(t), nil),
+		ConnectorSupervisorOptions{
+			BuildIdentity: ConnectorSupervisorBuildIdentity{
+				BuildID:   strings.Repeat("a", 40),
+				ReleaseID: "v0.4.1",
+			},
+			Executable: os.Args[0],
+			Stdout:     &stdout,
+			Stderr:     io.Discard,
+		},
+		[]string{"-test.run=^TestConnectorSupervisorHelper$", "--", "supervisor-helper-mode=success"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := supervisor.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	result := decodeSupervisorHelperResult(t, stdout.Bytes())
+	if result.BuildID != strings.Repeat("a", 40) || result.ReleaseID != "v0.4.1" ||
+		result.ReadyFile != "" || result.ReadyAttemptNonce != "" || result.UnexpectedProjectEnv {
+		t.Fatalf("fixed build identity = %#v", result)
+	}
+}
+
+func TestConnectorSupervisorRejectsInvalidBuildIdentity(t *testing.T) {
+	for name, identity := range map[string]ConnectorSupervisorBuildIdentity{
+		"partial development": {ReleaseID: "dev"},
+		"mutable release":     {BuildID: strings.Repeat("a", 40), ReleaseID: "latest"},
+		"short build":         {BuildID: "abc", ReleaseID: "v0.4.1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := NewConnectorSupervisor(
+				newSupervisorTestStore(t, supervisorCredential(t), nil),
+				ConnectorSupervisorOptions{BuildIdentity: identity, Executable: os.Args[0]},
+			); err == nil {
+				t.Fatal("invalid build identity was accepted")
+			}
+		})
+	}
+}
+
+func TestConnectorSupervisorRejectsInvalidReadinessAttempt(t *testing.T) {
+	if _, err := NewConnectorSupervisor(
+		newSupervisorTestStore(t, supervisorCredential(t), nil),
+		ConnectorSupervisorOptions{
+			Executable:            os.Args[0],
+			ReadinessAttemptNonce: "browser-selected-attempt",
+		},
+	); err == nil {
+		t.Fatal("invalid readiness attempt was accepted")
+	}
+}
+
+func TestConnectorEnvironmentAddsUnixNonLoginToolsAndRejectsOtherProjectValues(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "machine-home")
+	existingEntries := []string{
+		supervisorTestSystemPathEntry(),
+		filepath.Join(home, ".bun", "bin"),
+	}
+	existingPath := strings.Join(existingEntries, string(os.PathListSeparator))
+	environment := connectorEnvironment([]string{
+		"PATH=" + existingPath,
+		"HOME=" + home,
+		ConnectorCommandSigningKeyFileEnv + "=/project-space/public-key.pem",
+		"PROJECT_CONNECTOR_REGISTRATION_TOKEN=must-not-pass",
+		"PROJECT_ARBITRARY_VALUE=must-not-pass",
+		"GH_TOKEN=must-not-pass",
+	})
+
+	actual := environmentMap(environment)
+	if _, found := actual[ConnectorCommandSigningKeyFileEnv]; found {
+		t.Fatal("inherited command verification key path was forwarded")
+	}
+	if actual[ConnectorRuntimeProtocolEnv] != ConnectorRuntimeCredentialVersion {
+		t.Fatalf("connector runtime protocol = %q", actual[ConnectorRuntimeProtocolEnv])
+	}
+	for _, forbidden := range []string{
+		"PROJECT_CONNECTOR_REGISTRATION_TOKEN",
+		"PROJECT_ARBITRARY_VALUE",
+		"GH_TOKEN",
+	} {
+		if _, found := actual[forbidden]; found {
+			t.Fatalf("unexpected environment value %s was forwarded", forbidden)
+		}
+	}
+
+	expectedPath := existingPath
+	if runtime.GOOS != "windows" {
+		expectedPath = strings.Join([]string{
+			filepath.Join(home, ".bun", "bin"),
+			filepath.Join(home, ".local", "bin"),
+			supervisorTestSystemPathEntry(),
+		}, string(os.PathListSeparator))
+	}
+	if actual["PATH"] != expectedPath {
+		t.Fatalf("connector PATH = %q, want %q", actual["PATH"], expectedPath)
 	}
 }
 
@@ -219,8 +351,13 @@ func TestConnectorSupervisorHelper(t *testing.T) {
 	if err != nil {
 		os.Exit(25)
 	}
-	if mode == "block" {
-		time.Sleep(time.Hour)
+	if mode == "maintenance-control" {
+		source := supervisorHelperArgument("supervisor-control-template=")
+		target := os.Getenv(ConnectorSupervisorMaintenanceControlEnv)
+		control, readErr := os.ReadFile(source)
+		if readErr != nil || target == "" || os.WriteFile(target, control, 0o600) != nil {
+			os.Exit(28)
+		}
 	}
 
 	var fields map[string]any
@@ -228,16 +365,29 @@ func TestConnectorSupervisorHelper(t *testing.T) {
 		os.Exit(26)
 	}
 	result := supervisorHelperResult{
+		BuildID:           os.Getenv(ConnectorRuntimeBuildIDEnv),
+		Executable:        helperExecutablePath(),
 		Version:           credential.Version,
 		BackendURL:        credential.BackendURL,
 		MachineID:         credential.MachineID,
 		TokenMatches:      credential.Token == supervisorTestToken,
 		PrivateKeyPresent: fields["privateKey"] != nil,
 		MinimalFields:     hasOnlyRuntimeCredentialFields(fields),
+		RuntimePathOK:     supervisorRuntimePathIsExpected(),
 		ShellAndLocaleOK: os.Getenv("SHELL") == "/bin/test-shell" &&
 			os.Getenv("LANG") == "en_US.UTF-8" &&
 			os.Getenv("LC_ALL") == "C.UTF-8" &&
 			os.Getenv("LC_CTYPE") == "UTF-8",
+		MaintenancePathsOK: filepath.IsAbs(os.Getenv(ConnectorSupervisorMaintenanceControlEnv)) &&
+			filepath.IsAbs(os.Getenv(ConnectorSupervisorMaintenanceDecisionEnv)) &&
+			filepath.IsAbs(os.Getenv(ConnectorSupervisorMaintenanceStagingEnv)),
+		MaintenanceSource: os.Getenv(ConnectorRuntimeInstallSourceEnv),
+		MaintenanceState:  os.Getenv(ConnectorSupervisorMaintenanceStateEnv),
+		MaintenanceID:     os.Getenv(ConnectorSupervisorMaintenanceOperationIDEnv),
+		ReleaseSigningKey: os.Getenv(ConnectorReleaseSigningKeyFileEnv),
+		ReleaseID:         os.Getenv(ConnectorRuntimeReleaseIDEnv),
+		ReadyFile:         os.Getenv(ConnectorRuntimeReadyFileEnv),
+		ReadyAttemptNonce: os.Getenv(ConnectorRuntimeReadyAttemptNonceEnv),
 	}
 	for _, argument := range os.Args {
 		result.SecretInArguments = result.SecretInArguments ||
@@ -250,6 +400,12 @@ func TestConnectorSupervisorHelper(t *testing.T) {
 		result.LegacyTokenPresent = result.LegacyTokenPresent || isLegacyConnectorTokenEnvironment(name)
 		if name == ConnectorRuntimeProtocolEnv {
 			result.ProtocolMarkerOK = value == ConnectorRuntimeCredentialVersion
+		} else if name == ConnectorCommandSigningKeyFileEnv {
+			result.CommandSigningKey = value
+			result.CommandSigningKeyOK = value == "/project-space/command-signing-public-key.pem"
+		} else if name == ConnectorRuntimeBuildIDEnv || name == ConnectorRuntimeReleaseIDEnv ||
+			name == ConnectorRuntimeReadyFileEnv || name == ConnectorRuntimeReadyAttemptNonceEnv {
+			// Captured above from the fixed supervisor environment.
 		} else if strings.HasPrefix(strings.ToUpper(name), "PROJECT_") {
 			result.UnexpectedProjectEnv = true
 		}
@@ -258,13 +414,74 @@ func TestConnectorSupervisorHelper(t *testing.T) {
 		os.Exit(27)
 	}
 	_, _ = fmt.Fprintln(os.Stderr, "connector helper stderr")
+	if mode == "block" || mode == "maintenance-block" {
+		if ready := supervisorHelperArgument("supervisor-ready-file="); ready != "" {
+			if os.WriteFile(ready, []byte("ready\n"), 0o600) != nil {
+				os.Exit(29)
+			}
+		}
+		time.Sleep(time.Hour)
+	}
 	os.Exit(0)
+}
+
+func helperExecutablePath() string {
+	executable, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	resolved, err := filepath.EvalSymlinks(executable)
+	if err != nil {
+		return executable
+	}
+	return resolved
+}
+
+func supervisorTestSystemPathEntry() string {
+	return filepath.Join(string(os.PathSeparator), "supervisor-system-bin")
+}
+
+func supervisorRuntimePathIsExpected() bool {
+	home := os.Getenv("HOME")
+	existingPath := strings.Join([]string{
+		supervisorTestSystemPathEntry(),
+		filepath.Join(home, ".bun", "bin"),
+	}, string(os.PathListSeparator))
+	expected := existingPath
+	if runtime.GOOS != "windows" {
+		expected = strings.Join([]string{
+			filepath.Join(home, ".bun", "bin"),
+			filepath.Join(home, ".local", "bin"),
+			supervisorTestSystemPathEntry(),
+		}, string(os.PathListSeparator))
+	}
+	return os.Getenv("PATH") == expected
+}
+
+func environmentMap(environment []string) map[string]string {
+	values := make(map[string]string, len(environment))
+	for _, entry := range environment {
+		name, value, found := strings.Cut(entry, "=")
+		if found {
+			values[name] = value
+		}
+	}
+	return values
 }
 
 func supervisorHelperMode() string {
 	for _, argument := range os.Args {
 		if mode, found := strings.CutPrefix(argument, "supervisor-helper-mode="); found {
 			return mode
+		}
+	}
+	return ""
+}
+
+func supervisorHelperArgument(prefix string) string {
+	for _, argument := range os.Args {
+		if value, found := strings.CutPrefix(argument, prefix); found {
+			return value
 		}
 	}
 	return ""

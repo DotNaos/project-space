@@ -3,6 +3,10 @@ import { createHash } from 'node:crypto';
 import type { DatabaseQueryClient } from './client';
 import { machineConnectionMigrationSql } from './machine-connection-migration';
 import {
+  connectorRuntimeMigrationId,
+  connectorRuntimeMigrationSql
+} from './connector-runtime-migration';
+import {
   codexSessionsMigrationId,
   codexSessionsMigrationSql
 } from './codex-sessions-migration';
@@ -481,6 +485,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
       create index if not exists dev_server_sessions_server_idx
         on dev_server_sessions (machine_id, worktree_id, server_id, updated_at desc);
     `
+  },
+  {
+    id: connectorRuntimeMigrationId,
+    sql: connectorRuntimeMigrationSql
   },
   {
     id: codexSessionsMigrationId,

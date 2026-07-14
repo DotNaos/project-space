@@ -14,16 +14,11 @@ import {
 } from 'lucide-react';
 import { MachineConnectionApprovalPage } from './machine-connection-approval-page';
 
-const homebrewCommands = [
-  'brew tap DotNaos/project-space https://github.com/DotNaos/project-space.git',
-  'brew install project-space-connector',
-  'brew services start project-space-connector'
-];
-
 const manualCommands = [
-  'curl -L https://github.com/DotNaos/project-space/releases/latest/download/project-space-connector-darwin-arm64.tar.gz -o project-space-connector.tar.gz',
-  'tar -xzf project-space-connector.tar.gz',
-  './project-space-connector'
+  '# Download one exact machine-tools archive from the release page',
+  'tar -xzf project-space-machine-tools-darwin-arm64-vX.Y.Z.tar.gz',
+  './project-space-machine-tools-darwin-arm64-vX.Y.Z/install.sh',
+  '~/.local/bin/project connect'
 ];
 
 function tokenClassName(token: string, isCommand: boolean) {
@@ -137,7 +132,10 @@ function StepCard({
   title: string;
 }) {
   return (
-    <Card variant="secondary" className="border border-neutral-800 bg-neutral-950/70">
+    <Card
+      variant="secondary"
+      className="min-w-0 overflow-hidden border border-neutral-800 bg-neutral-950/70"
+    >
       <Card.Header className="gap-3">
         <div className="flex items-center gap-2">
           <Surface
@@ -177,8 +175,8 @@ export function ConnectorSetupPage() {
   }
 
   return (
-    <main className="min-h-screen bg-app-canvas px-8 py-8 text-neutral-100">
-      <div className="mx-auto grid max-w-6xl gap-6">
+    <main className="min-h-screen overflow-x-hidden bg-app-canvas px-4 py-8 text-neutral-100 sm:px-8">
+      <div className="mx-auto grid min-w-0 max-w-6xl gap-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <a
             href="/"
@@ -211,50 +209,63 @@ export function ConnectorSetupPage() {
           <Chip size="sm" variant="primary" className="w-fit">
             Project Space Connector
           </Chip>
-          <h1 className="max-w-4xl text-4xl font-semibold tracking-tight text-neutral-50">
+          <h1 className="max-w-4xl break-words text-3xl font-semibold tracking-tight text-neutral-50 sm:text-4xl">
             Connect this web UI to your Mac, VPS, and dev machines.
           </h1>
           <Text className="max-w-3xl text-base leading-7 text-neutral-400">
             The connector runs on each trusted machine. It gives Project Space a safe local
-            endpoint for projects, Git, terminal commands, Codex, Tailscale, deployments, and
-            backups without putting direct filesystem access inside the hosted web app.
+            endpoint for projects, Git, Codex, deployments, and backups without putting direct
+            filesystem access inside the hosted web app.
           </Text>
         </section>
 
         <section className="grid gap-4 lg:grid-cols-3">
-          <StepCard icon={Download} label="1" title="Install">
+          <StepCard icon={Download} label="1" title="Get the pinned installer">
             <Text className="text-sm leading-6 text-neutral-400">
-              Homebrew is the preferred path on macOS. It installs the connector command and can
-              run it as a background service.
+              Sign in, open Machines → Add machine, and copy the generated command. It names one
+              exact release and checksum instead of downloading a mutable latest build.
             </Text>
-            <CommandBlock commands={homebrewCommands} />
+            <a href="/machines" className="w-fit">
+              <Button variant="outline">
+                Open Machines
+                <ArrowRight className="size-4" />
+              </Button>
+            </a>
           </StepCard>
 
-          <StepCard icon={Network} label="2" title="Expose through Tailscale">
+          <StepCard icon={Network} label="2" title="Install and approve">
             <Text className="text-sm leading-6 text-neutral-400">
-              Keep the connector private. It opens an authenticated outbound connection to Project
-              Space, so the connector itself needs no public or Tailscale Serve endpoint.
+              Run only that pinned command. It installs the integrity-checked managed bundle and
+              starts project connect, which opens a short-lived approval page and creates the
+              protected machine identity. No inbound endpoint is required.
             </Text>
-            <CommandBlock commands={['tailscale status', 'project-space-connector']} />
+            <Text className="text-xs leading-5 text-neutral-500">
+              If you install an exact release manually, finish with
+              {' '}<span className="font-mono text-neutral-300">project connect</span>.
+            </Text>
           </StepCard>
 
           <StepCard icon={Terminal} label="3" title="Use it from Project Space">
             <Text className="text-sm leading-6 text-neutral-400">
-              Open the web UI normally. The account-specific installer enrolls this machine for
-              your signed-in user; no API URL override is required.
+              Open the web UI normally. The machine appears only after your signed-in approval and
+              key proof complete; no API URL override is required.
             </Text>
             <CommandBlock commands={['https://projects.os-home.net']} />
           </StepCard>
         </section>
 
         <section className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-          <Card variant="secondary" className="border border-neutral-800 bg-neutral-950/70">
+          <Card
+            variant="secondary"
+            className="min-w-0 overflow-hidden border border-neutral-800 bg-neutral-950/70"
+          >
             <Card.Header className="gap-3">
               <Card.Title className="text-xl font-semibold tracking-tight text-neutral-50">
                 Manual download
               </Card.Title>
               <Card.Description className="text-sm text-neutral-400">
-                Use this when Homebrew is not available or you want to test a release directly.
+                Prefer the pinned command from Machines → Add machine. For a direct release test,
+                download one exact versioned bundle and then run project connect.
               </Card.Description>
             </Card.Header>
             <Card.Content className="gap-3">
@@ -271,7 +282,10 @@ export function ConnectorSetupPage() {
             </Card.Content>
           </Card>
 
-          <Card variant="secondary" className="border border-neutral-800 bg-neutral-950/70">
+          <Card
+            variant="secondary"
+            className="min-w-0 overflow-hidden border border-neutral-800 bg-neutral-950/70"
+          >
             <Card.Header className="gap-3">
               <Card.Title className="text-xl font-semibold tracking-tight text-neutral-50">
                 How the graph guides you
@@ -282,8 +296,8 @@ export function ConnectorSetupPage() {
               </Card.Description>
             </Card.Header>
             <Card.Content className="gap-2">
-              <GraphRow from="Hosted web UI" to="Connector install page" />
-              <GraphRow from="Connector" to="Tailscale private endpoint" />
+              <GraphRow from="Hosted web UI" to="Pinned managed installer" />
+              <GraphRow from="Project connect" to="Signed-in approval" />
               <GraphRow from="Machines repo" to="Available dev machines" />
               <GraphRow from="Private VPS platform" to="Deployments and backups" />
               <div className="mt-2 flex items-center gap-2 text-sm text-emerald-300">

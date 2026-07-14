@@ -80,11 +80,43 @@ function hostedFor(machineIds: string[], userId = 'user-a') {
     authRequired: () => true,
     currentUserId: () => userId,
     databaseConfigured: () => true,
-    listMemberships: async () => machineIds.map((machineId) => ({ machineId }))
+    listMemberships: async () => machineIds.map((machineId) => ({ machineId })),
+    readMembership: async ({ machineId }: { machineId: string }) =>
+      machineIds.includes(machineId) ? { role: 'owner' as const } : null
   };
 }
 
 describe('authorized Project Space backend', () => {
+  test('requires access for runtime status and owner role for maintenance', async () => {
+    let reads = 0;
+    let writes = 0;
+    const raw = backendWith({
+      async getMachineRuntime(machineId) {
+        reads += 1;
+        return {
+          capabilities: [], machineId, online: true, update: { state: 'unknown' }
+        };
+      },
+      async startMachineRuntimeOperation() {
+        writes += 1;
+        throw new Error('not reached for a member');
+      }
+    });
+    const member = createAuthorizedProjectSpaceBackend(raw, {
+      ...hostedFor(['machine-a']),
+      readMembership: async () => ({ role: 'member' })
+    });
+    expect((await member.getMachineRuntime('machine-a')).machineId).toBe('machine-a');
+    await expect(member.getMachineRuntime('machine-b')).rejects.toBeInstanceOf(
+      ProjectSpaceAccessError
+    );
+    await expect(member.startMachineRuntimeOperation('machine-a', {
+      operation: 'restart'
+    })).rejects.toBeInstanceOf(ProjectSpaceAccessError);
+    expect(reads).toBe(1);
+    expect(writes).toBe(0);
+  });
+
   test('returns no environment metadata when repository authorization fails', async () => {
     let statusDispatches = 0;
     const backend = createAuthorizedProjectSpaceBackend(

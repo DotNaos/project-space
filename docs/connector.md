@@ -15,30 +15,37 @@ talks to the connector endpoint that you explicitly run on a trusted machine.
 
 ## Install from Project Space
 
-Open Settings in the hosted app and explicitly generate an account installer.
-The command is valid for 15 minutes and is bound to both the signed-in account
-and a server-assigned machine ID. Generating another unused command revokes the
-previous pending enrollment.
+Open Machines in the hosted app and explicitly generate a managed installer.
+The command pins one exact release archive and checksum. After installing the
+Project CLI and connector together, it runs `project connect`, which creates the
+machine key locally and opens the short-lived signed-in approval page.
 
 The installer downloads one pinned, checksum-verified macOS arm64 bundle. It
 installs both `project-space-connector` and the `project` CLI under
-`~/.local/bin`, then starts a LaunchAgent with explicit binary and toolchain
-paths. It never downloads a mutable `latest` asset.
+`~/.local/bin`, then starts the existing protected per-user supervisor after
+approval. It never downloads a mutable `latest` asset. Reinstalling an existing
+managed connector preserves its identity and settings. A legacy-only connector
+is refused because silently replacing it cannot preserve the old trust identity.
 
-Before enabling account installers for a deployment, publish the bundle and
-configure its exact release metadata:
+Before enabling account installers for a deployment, publish the bundle and its
+signed `project-space-release-manifest.json`. The server accepts only one exact
+release and verifies that manifest with the dedicated release public key:
 
 ```text
-PROJECT_SPACE_CONNECTOR_BUNDLE_VERSION=v0.x.y
-PROJECT_SPACE_CONNECTOR_BUNDLE_ASSET=project-space-machine-tools-darwin-arm64.tar.gz
-PROJECT_SPACE_CONNECTOR_BUNDLE_SHA256=<64 lowercase hex characters>
+PROJECT_SPACE_CONNECTOR_APPROVED_RELEASE_ID=v0.x.y
+PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64=<base64-encoded Ed25519 public key>
 ```
+
+The production deployment derives the approved release ID from the deployed
+Project Space version. The verified manifest supplies the exact platform
+archive and checksum; browser requests cannot supply a URL, path, package, or
+platform selector.
 
 Build the release archive with:
 
 ```bash
 bun run build:machine-tools:macos-arm64
-shasum -a 256 dist/project-space-machine-tools-darwin-arm64.tar.gz
+shasum -a 256 dist/macos-release/project-space-machine-tools-darwin-arm64-v0.x.y.tar.gz
 ```
 
 The `project` Homebrew formula builds and installs both `project` and the
@@ -49,17 +56,17 @@ the Linux formula inside WSL for the current Windows workflow.
 
 ## Configure the Connector
 
-For the hosted multi-user app, copy the account-specific command from Project
-Space settings. The installer creates a private credential file, installs the
-hub command-signing public key, assigns an opaque `connector-<uuid>` machine ID,
-and starts a macOS LaunchAgent. A newly generated installer replaces any local
-legacy identity with its assigned machine ID. PostgreSQL verifies that exact ID
-before it creates the account membership, then extends the bound credential for
-normal connector operation.
+For the hosted multi-user app, copy the managed command from Project Space.
+Each release bundle contains checksum-covered command and release-manifest
+public keys. `project connect` generates the machine private key locally,
+requires signed-in approval, stores the resulting credential outside the
+repository, and starts the per-user supervisor. The browser never receives the
+machine private key or an unrestricted command channel.
 
-Reinstall legacy connectors once through the account-specific command. The old
-shared registration token is not accepted when database-backed enrollment is
-configured.
+Do not silently convert a legacy connector. Revoke or remove it explicitly,
+then enroll the replacement with `project connect`. This may create a new
+machine identity; preserving a legacy identity requires a separate proof-based
+migration rather than a file-copy workaround.
 
 The connector reads these environment variables:
 

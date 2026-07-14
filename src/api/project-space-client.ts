@@ -10,6 +10,9 @@ import type {
   ConnectorCredentialRecord,
   ConnectorInstallerResult,
   ConnectorOverviewResult,
+  MachineRuntimeOperationRequest,
+  MachineRuntimeOperationResult,
+  MachineRuntimeStatusResult,
   DevServerActionRequest,
   DevServerInspectRequest,
   DevServerOverviewResult,
@@ -260,6 +263,20 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
 
   getConnectorOverview(): Promise<ConnectorOverviewResult> {
     return this.request('/api/connectors/overview');
+  }
+
+  getMachineRuntime(machineId: string): Promise<MachineRuntimeStatusResult> {
+    return this.request(`/api/machines/${encodeURIComponent(machineId)}/runtime`);
+  }
+
+  startMachineRuntimeOperation(
+    machineId: string,
+    operation: MachineRuntimeOperationRequest
+  ): Promise<MachineRuntimeOperationResult> {
+    return this.request(`/api/machines/${encodeURIComponent(machineId)}/runtime/operations`, {
+      body: JSON.stringify(operation),
+      method: 'POST'
+    });
   }
 
   getConnectorProjectRegistry(): Promise<ConnectorProjectRegistryResult> {

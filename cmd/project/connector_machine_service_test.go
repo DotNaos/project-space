@@ -5,8 +5,12 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DotNaos/project-space/internal/machineconnect"
 )
@@ -16,6 +20,7 @@ type installerLifecycleConnector struct {
 	stopCalls  int
 	startErr   error
 	stopErr    error
+	onStart    func()
 }
 
 type installerLifecycleStore struct {
@@ -71,12 +76,63 @@ func (store *installerLifecycleStore) LockConnectorRuntime(
 
 func (connector *installerLifecycleConnector) Start(context.Context) error {
 	connector.startCalls++
+	if connector.onStart != nil {
+		connector.onStart()
+	}
 	return connector.startErr
 }
 
 func (connector *installerLifecycleConnector) Stop(context.Context) error {
 	connector.stopCalls++
 	return connector.stopErr
+}
+
+func connectorServiceReadinessIdentity(machineID string) machineconnect.ConnectorRuntimeReadinessIdentity {
+	return machineconnect.ConnectorRuntimeReadinessIdentity{
+		MachineID:    machineID,
+		BuildID:      strings.Repeat("a", 40),
+		ReleaseID:    "v0.4.1",
+		AttemptNonce: strings.Repeat("1", 64),
+	}
+}
+
+func writeConnectorServiceReadiness(
+	t *testing.T,
+	path string,
+	identity machineconnect.ConnectorRuntimeReadinessIdentity,
+) {
+	t.Helper()
+	body := fmt.Sprintf(
+		`{"schema":"project-space.connector-runtime-ready/v2","machineId":%q,"buildId":%q,"releaseId":%q,"attemptNonce":%q}`+"\n",
+		identity.MachineID,
+		identity.BuildID,
+		identity.ReleaseID,
+		identity.AttemptNonce,
+	)
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write connector readiness fixture: %v", err)
+	}
+}
+
+func connectedConnectorServiceDependencies(
+	store machineconnect.CredentialStore,
+	connector machineconnect.Connector,
+	readinessPath string,
+	timeout time.Duration,
+) connectorMachineServiceDependencies {
+	identity := connectorServiceReadinessIdentity("machine-1")
+	return connectorMachineServiceDependencies{
+		NewStore:              func() (machineconnect.CredentialStore, error) { return store, nil },
+		NewConnector:          func() (machineconnect.Connector, error) { return connector, nil },
+		ReadinessPath:         func() (string, error) { return readinessPath, nil },
+		BeginReadiness:        machineconnect.BeginConnectorRuntimeReadinessAttempt,
+		ClearReadinessAttempt: machineconnect.ClearConnectorRuntimeReadinessAttempt,
+		WaitForReadiness:      machineconnect.WaitForConnectorRuntimeReadiness,
+		ReadinessTimeout:      timeout,
+		BuildIdentity: machineconnect.ConnectorSupervisorBuildIdentity{
+			BuildID: identity.BuildID, ReleaseID: identity.ReleaseID,
+		},
+	}
 }
 
 func TestConnectorMachineServiceIsHiddenButRegistered(t *testing.T) {
@@ -111,11 +167,25 @@ func TestConnectorMachineServiceStartRestoresConnectedInstall(t *testing.T) {
 	store := &installerLifecycleStore{commandStore: &commandStore{
 		credential: &machineconnect.Credential{MachineID: "machine-1"},
 	}}
-	connector := &installerLifecycleConnector{}
-	command := newConnectorMachineServiceCommandWithDependencies(connectorMachineServiceDependencies{
-		NewStore:     func() (machineconnect.CredentialStore, error) { return store, nil },
-		NewConnector: func() (machineconnect.Connector, error) { return connector, nil },
-	})
+	readinessPath := filepath.Join(t.TempDir(), "connector-ready.json")
+	connector := &installerLifecycleConnector{onStart: func() {
+		attemptNonce, found, err := machineconnect.ConsumeConnectorRuntimeReadinessAttempt(
+			readinessPath,
+		)
+		if err != nil || !found {
+			t.Fatalf("consume readiness attempt: found=%v err=%v", found, err)
+		}
+		identity := connectorServiceReadinessIdentity("machine-1")
+		identity.AttemptNonce = attemptNonce
+		writeConnectorServiceReadiness(
+			t,
+			readinessPath,
+			identity,
+		)
+	}}
+	command := newConnectorMachineServiceCommandWithDependencies(
+		connectedConnectorServiceDependencies(store, connector, readinessPath, time.Second),
+	)
 	command.SetArgs([]string{"start-if-connected"})
 	if err := command.Execute(); err != nil {
 		t.Fatalf("restore connected installation: %v", err)
@@ -125,6 +195,76 @@ func TestConnectorMachineServiceStartRestoresConnectedInstall(t *testing.T) {
 	}
 	if store.lockCalls != 1 || store.releaseCalls != 1 {
 		t.Fatalf("connected restore lock calls = acquire %d release %d", store.lockCalls, store.releaseCalls)
+	}
+}
+
+func TestConnectorMachineServiceStartTimesOutWithoutAuthenticatedReconnect(t *testing.T) {
+	store := &installerLifecycleStore{commandStore: &commandStore{
+		credential: &machineconnect.Credential{MachineID: "machine-1"},
+	}}
+	connector := &installerLifecycleConnector{}
+	readinessPath := filepath.Join(t.TempDir(), "connector-ready.json")
+	command := newConnectorMachineServiceCommandWithDependencies(
+		connectedConnectorServiceDependencies(store, connector, readinessPath, 60*time.Millisecond),
+	)
+	command.SetArgs([]string{"start-if-connected"})
+	err := command.Execute()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("start without reconnect error = %v, want deadline exceeded", err)
+	}
+	if connector.startCalls != 1 {
+		t.Fatalf("connector start calls = %d, want 1", connector.startCalls)
+	}
+}
+
+func TestConnectorMachineServiceStartRejectsStaleOrWrongReadiness(t *testing.T) {
+	for name, arrange := range map[string]func(*testing.T, string, *installerLifecycleConnector){
+		"stale matching proof": func(t *testing.T, path string, _ *installerLifecycleConnector) {
+			writeConnectorServiceReadiness(t, path, connectorServiceReadinessIdentity("machine-1"))
+		},
+		"wrong machine proof": func(t *testing.T, path string, connector *installerLifecycleConnector) {
+			connector.onStart = func() {
+				attemptNonce, found, err := machineconnect.ConsumeConnectorRuntimeReadinessAttempt(path)
+				if err != nil || !found {
+					t.Fatalf("consume readiness attempt: found=%v err=%v", found, err)
+				}
+				identity := connectorServiceReadinessIdentity("machine-2")
+				identity.AttemptNonce = attemptNonce
+				writeConnectorServiceReadiness(t, path, identity)
+			}
+		},
+		"post-clear matching old attempt": func(
+			t *testing.T,
+			path string,
+			connector *installerLifecycleConnector,
+		) {
+			connector.onStart = func() {
+				identity := connectorServiceReadinessIdentity("machine-1")
+				identity.AttemptNonce = strings.Repeat("2", 64)
+				writeConnectorServiceReadiness(t, path, identity)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := &installerLifecycleStore{commandStore: &commandStore{
+				credential: &machineconnect.Credential{MachineID: "machine-1"},
+			}}
+			connector := &installerLifecycleConnector{}
+			readinessPath := filepath.Join(t.TempDir(), "connector-ready.json")
+			arrange(t, readinessPath, connector)
+			command := newConnectorMachineServiceCommandWithDependencies(
+				connectedConnectorServiceDependencies(
+					store,
+					connector,
+					readinessPath,
+					60*time.Millisecond,
+				),
+			)
+			command.SetArgs([]string{"start-if-connected"})
+			if err := command.Execute(); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("start with %s error = %v, want deadline exceeded", name, err)
+			}
+		})
 	}
 }
 

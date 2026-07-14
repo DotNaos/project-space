@@ -1,10 +1,14 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 
 import { createConnectorCommandUpgradeHandler } from './connector-command-hub';
+import { getRegisteredConnectorMachines } from './connector-hub';
 import { createAuthorizedProjectSpaceBackend } from './authorized-project-space-backend';
 import { connectorInstallScript, requestPublicOrigin } from './connector-installation';
 import { authenticateConnectorMachineToken } from './connector-registration-auth';
-import { createLocalProjectSpaceBackend } from './local-project-space-backend';
+import {
+  createLocalProjectSpaceBackend,
+  type LocalProjectSpaceBackend
+} from './local-project-space-backend';
 import {
   createMachineTerminalUpgradeHandler,
   createProjectTerminalUpgradeHandler
@@ -115,6 +119,13 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
         return true;
       }
       return authenticateConnectorMachineToken(token, machineId);
+    },
+    async decideConnectorRuntimeMaintenance({ machineId }) {
+      const decideReconnect = (backend as Partial<LocalProjectSpaceBackend>).decideReconnect;
+      if (!decideReconnect) return undefined;
+      const machine = (await getRegisteredConnectorMachines())
+        .find((candidate) => candidate.id === machineId);
+      return machine ? decideReconnect(machine) : undefined;
     }
   });
 

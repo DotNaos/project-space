@@ -49,7 +49,9 @@ if [[ -L $install_directory ]]; then
 fi
 
 bundle_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
-for required in SHA256SUMS.txt VERSION project project-space-connector; do
+for required in \
+  SHA256SUMS.txt VERSION project project-space-connector \
+  connector-command-signing-public-key.pem release-manifest-signing-public-key.pem; do
   if [[ ! -f ${bundle_root}/${required} ]]; then
     echo "The release bundle is incomplete: $required is missing." >&2
     exit 66
@@ -119,18 +121,29 @@ rollback_installation() {
   for ((index=${#changed_entries[@]} - 1; index >= 0; index--)); do
     restore_entry "${changed_entries[$index]}"
   done
-  if [[ $stopped_existing -eq 1 && -x ${install_directory}/project ]]; then
-    "${install_directory}/project" connector service start-if-connected >/dev/null 2>&1 || true
+  if [[ $stopped_existing -eq 1 ]]; then
+    if [[ ! -x ${install_directory}/project ]] || \
+      ! "${install_directory}/project" connector service start-if-connected; then
+      echo "The previous connector service could not be restarted after rollback." >&2
+      return 1
+    fi
   fi
 }
 
 cleanup() {
   local status=$?
+  local rollback_failed=0
   trap - EXIT
   if [[ $status -ne 0 && $installation_started -eq 1 && $committed -eq 0 ]]; then
-    rollback_installation || true
+    if ! rollback_installation; then
+      rollback_failed=1
+    fi
   fi
   rm -rf -- "$transaction_root"
+  if [[ $rollback_failed -eq 1 ]]; then
+    echo "The installation failed with status $status and rollback could not restore the previous connector service. Manual recovery is required." >&2
+    exit 71
+  fi
   exit "$status"
 }
 trap cleanup EXIT
@@ -139,10 +152,17 @@ staged_release="${transaction_root}/${release_id}"
 mkdir -m 0700 -- "$staged_release"
 install -m 0755 -- "${bundle_root}/project" "${staged_release}/project"
 install -m 0755 -- "${bundle_root}/project-space-connector" "${staged_release}/project-space-connector"
+install -m 0644 -- "${bundle_root}/connector-command-signing-public-key.pem" \
+  "${staged_release}/connector-command-signing-public-key.pem"
+install -m 0644 -- "${bundle_root}/release-manifest-signing-public-key.pem" \
+  "${staged_release}/release-manifest-signing-public-key.pem"
 install -m 0600 -- "${bundle_root}/VERSION" "${staged_release}/VERSION"
 
 if [[ -d $release_directory ]]; then
-  for member in project project-space-connector VERSION; do
+  for member in \
+    project project-space-connector \
+    connector-command-signing-public-key.pem release-manifest-signing-public-key.pem \
+    VERSION; do
     if ! cmp -s -- "${staged_release}/${member}" "${release_directory}/${member}"; then
       echo "The existing machine-tools release directory does not match this bundle." >&2
       exit 73

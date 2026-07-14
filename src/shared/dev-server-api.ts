@@ -161,8 +161,6 @@ export interface DevServerOverviewResult {
 
 export interface ConnectorInstallerResult {
   command: string;
-  credentialId: string;
-  expiresAt: string;
   scriptUrl: string;
 }
 

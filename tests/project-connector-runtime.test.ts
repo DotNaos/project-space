@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
@@ -8,6 +8,7 @@ import { Readable } from 'node:stream';
 import { describe, expect, test } from 'bun:test';
 import { WebSocketServer, type WebSocket as ServerWebSocket } from 'ws';
 
+import { connectorRuntimeRecord } from '../server/connector-build-info';
 import {
   connectorRuntimeCredentialVersion,
   connectorRuntimeProtocolEnvironment
@@ -113,12 +114,15 @@ async function createRecordingConnectorHub(acknowledgeRegistrations = true) {
   };
 }
 
-function runtimeBackend() {
+function runtimeBackend(
+  runtime?: ReturnType<typeof connectorRuntimeRecord>
+) {
   const registry: ConnectorProjectRegistryResult = {
     checkedAt: new Date().toISOString(),
     connector: {
       machineId: 'poisoned-registry-machine',
-      machineName: 'Authenticated runtime test'
+      machineName: 'Authenticated runtime test',
+      ...(runtime ? { runtime } : {})
     },
     discovery: {
       groups: [],
@@ -284,6 +288,64 @@ describe('authenticated connector companion runtime', () => {
     }
   }, 15_000);
 
+  test('publishes exact local readiness only after authenticated registration acknowledgement', async () => {
+    const hub = await createRecordingConnectorHub(false);
+    const scratch = mkdtempSync(join(tmpdir(), 'project-connector-ready-'));
+    const readyPath = join(scratch, 'connector-ready.json');
+    const environmentNames = [
+      'PROJECT_CONNECTOR_READY_FILE',
+      'PROJECT_CONNECTOR_READY_ATTEMPT_NONCE',
+      'PROJECT_SPACE_BUILD_ID',
+      'PROJECT_SPACE_RELEASE_ID'
+    ] as const;
+    const originalEnvironment = new Map(
+      environmentNames.map((name) => [name, process.env[name]])
+    );
+    process.env.PROJECT_CONNECTOR_READY_FILE = readyPath;
+    process.env.PROJECT_CONNECTOR_READY_ATTEMPT_NONCE = '1'.repeat(64);
+    process.env.PROJECT_SPACE_BUILD_ID = 'a'.repeat(40);
+    process.env.PROJECT_SPACE_RELEASE_ID = 'v0.4.1';
+    const credential = { ...runtimeCredential, backendUrl: hub.origin };
+    let bridge: Awaited<ReturnType<typeof startAuthenticatedProjectConnectorRuntime>> | undefined;
+
+    try {
+      bridge = await startAuthenticatedProjectConnectorRuntime({
+        backend: runtimeBackend(connectorRuntimeRecord()),
+        credential,
+        reconnectDelayMs: 10,
+        registryIntervalMs: 10
+      });
+      await waitFor(
+        () => hub.received.some(({ message }) => message.type === 'connector.register'),
+        'the readiness registration'
+      );
+      expect(existsSync(readyPath)).toBe(false);
+
+      const registration = hub.received.find(
+        ({ message }) => message.type === 'connector.register'
+      );
+      registration?.socket.send(
+        JSON.stringify({ generation: 1, type: 'connector.registered' })
+      );
+      await waitFor(() => existsSync(readyPath), 'the authenticated readiness proof');
+      expect(JSON.parse(readFileSync(readyPath, 'utf8'))).toEqual({
+        schema: 'project-space.connector-runtime-ready/v2',
+        machineId: credential.machineId,
+        buildId: 'a'.repeat(40),
+        releaseId: 'v0.4.1',
+        attemptNonce: '1'.repeat(64)
+      });
+    } finally {
+      bridge?.close();
+      for (const [name, value] of originalEnvironment) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      rmSync(scratch, { force: true, recursive: true });
+      await hub.close();
+    }
+  }, 15_000);
+
   test('never publishes a slow registry read from an obsolete socket onto a reconnect', async () => {
     const hub = await createRecordingConnectorHub();
     const firstRegistry = deferred<ConnectorProjectRegistryResult>();
@@ -415,5 +477,5 @@ describe('authenticated connector companion runtime', () => {
         process.env.PROJECT_CONNECTOR_MACHINE_ID = originalMachineId;
       }
     }
-  });
+  }, 15_000);
 });

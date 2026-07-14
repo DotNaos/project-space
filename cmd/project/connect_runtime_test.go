@@ -178,14 +178,24 @@ func TestConnectorRunLoadsTheStoreAndRunsTheCompanionSupervisor(t *testing.T) {
 			resolveCalls++
 			return "/opt/project/project-space-connector", nil
 		},
+		ConsumeReadinessAttempt: func() (string, bool, error) {
+			return strings.Repeat("1", 64), true, nil
+		},
 		NewSupervisor: func(
 			actualStore machineconnect.CredentialStore,
 			binary string,
+			readinessAttemptNonce string,
 			_ io.Writer,
 			_ io.Writer,
 		) (connectorSupervisor, error) {
-			if actualStore != store || binary != "/opt/project/project-space-connector" {
-				t.Fatalf("unexpected supervisor inputs: store=%T binary=%q", actualStore, binary)
+			if actualStore != store || binary != "/opt/project/project-space-connector" ||
+				readinessAttemptNonce != strings.Repeat("1", 64) {
+				t.Fatalf(
+					"unexpected supervisor inputs: store=%T binary=%q attempt=%q",
+					actualStore,
+					binary,
+					readinessAttemptNonce,
+				)
 			}
 			return supervisor, nil
 		},
@@ -204,6 +214,30 @@ func TestConnectorRunLoadsTheStoreAndRunsTheCompanionSupervisor(t *testing.T) {
 	}
 }
 
+func TestConnectorRunOptionsCarryCompiledReleaseIdentity(t *testing.T) {
+	previousReleaseID := projectMachineClientReleaseID
+	previousBuildID := projectMachineClientBuildID
+	projectMachineClientReleaseID = "v0.4.1"
+	projectMachineClientBuildID = strings.Repeat("a", 40)
+	t.Cleanup(func() {
+		projectMachineClientReleaseID = previousReleaseID
+		projectMachineClientBuildID = previousBuildID
+	})
+
+	options := connectorSupervisorOptions(
+		"/opt/project/project-space-connector",
+		strings.Repeat("1", 64),
+		io.Discard,
+		io.Discard,
+	)
+	if options.Executable != "/opt/project/project-space-connector" ||
+		options.BuildIdentity.ReleaseID != "v0.4.1" ||
+		options.BuildIdentity.BuildID != strings.Repeat("a", 40) ||
+		options.ReadinessAttemptNonce != strings.Repeat("1", 64) {
+		t.Fatalf("connector supervisor options = %#v", options)
+	}
+}
+
 func TestConnectorRunStopsBeforeLaunchingWhenCredentialStoreFails(t *testing.T) {
 	supervisor := &connectorRunSupervisor{}
 	command := newConnectorRunCommandWithDependencies(connectorRunDependencies{
@@ -216,6 +250,7 @@ func TestConnectorRunStopsBeforeLaunchingWhenCredentialStoreFails(t *testing.T) 
 		},
 		NewSupervisor: func(
 			machineconnect.CredentialStore,
+			string,
 			string,
 			io.Writer,
 			io.Writer,
@@ -240,6 +275,7 @@ func TestConnectorRunPropagatesCommandCancellation(t *testing.T) {
 		ResolveBinary: func() (string, error) { return "/opt/project/project-space-connector", nil },
 		NewSupervisor: func(
 			machineconnect.CredentialStore,
+			string,
 			string,
 			io.Writer,
 			io.Writer,
