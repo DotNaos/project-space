@@ -20,6 +20,7 @@ on:
   push:
     tags:
       - 'v*'
+      - '!v*-signing-probe'
   workflow_dispatch:
 
 permissions:
