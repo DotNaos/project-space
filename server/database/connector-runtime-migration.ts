@@ -22,16 +22,24 @@ export const connectorRuntimeMigrationSql = `
       previous_instance_id is null or
       (btrim(previous_instance_id) <> '' and char_length(previous_instance_id) <= 128)
     ),
+    previous_fingerprint jsonb check (
+      previous_fingerprint is null or jsonb_typeof(previous_fingerprint) = 'object'
+    ),
+    expected_fingerprint jsonb check (
+      expected_fingerprint is null or jsonb_typeof(expected_fingerprint) = 'object'
+    ),
+    target text not null check (target in ('darwin-arm64', 'linux-x64', 'windows-x64')),
     state text not null check (state in (
       'queued', 'validating', 'staging', 'verified', 'switching',
       'restarting', 'reconnecting', 'health-checking', 'succeeded',
-      'failed', 'rolled-back'
+      'rolling-back', 'failed', 'rolled-back', 'recovery-required'
     )),
     last_failure jsonb check (
       last_failure is null or jsonb_typeof(last_failure) = 'object'
     ),
     started_at timestamptz,
     finished_at timestamptz,
+    deadline_at timestamptz not null,
     created_at timestamptz not null,
     updated_at timestamptz not null check (updated_at >= created_at),
     check (
@@ -42,7 +50,7 @@ export const connectorRuntimeMigrationSql = `
 
   create unique index connector_runtime_operations_one_active_per_machine
     on connector_runtime_operations (machine_id)
-    where state not in ('succeeded', 'failed', 'rolled-back');
+    where state not in ('succeeded', 'failed', 'rolled-back', 'recovery-required');
 
   create index connector_runtime_operations_machine_history
     on connector_runtime_operations (machine_id, created_at desc);
@@ -57,7 +65,8 @@ export const connectorRuntimeMigrationSql = `
     outcome text not null check (outcome in ('accepted', 'rejected')),
     reason text check (reason is null or char_length(reason) <= 128),
     release_id text check (release_id is null or char_length(release_id) <= 128),
-    created_at timestamptz not null
+    created_at timestamptz not null,
+    foreign key (operation_id) references connector_runtime_operations (id) on delete set null
   );
 
   create index connector_runtime_audit_events_machine_time

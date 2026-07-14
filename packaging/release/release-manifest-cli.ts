@@ -5,14 +5,13 @@ import { readFile } from 'node:fs/promises';
 import {
   createReleaseManifest,
   verifyReleaseManifest,
-  type ReleaseArchitecture,
-  type ReleasePlatform
+  type ReleaseTarget
 } from './release-manifest';
 
 function usage(): never {
   console.error(`Usage:
   release-manifest-cli.ts create --artifacts-dir DIR --version X.Y.Z --release-id vX.Y.Z --commit SHA --source-epoch SECONDS --output FILE [--public-key-output FILE] [--validity-days DAYS]
-  release-manifest-cli.ts verify --manifest FILE --public-key FILE --platform PLATFORM --architecture ARCH --release-id ID [--artifact FILE] [--now ISO]
+  release-manifest-cli.ts verify --manifest FILE --public-key FILE --target TARGET --release-id ID [--artifact FILE] [--now ISO]
 
 Create reads PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64 from the environment.`);
   process.exit(64);
@@ -64,17 +63,15 @@ async function main() {
   }
   if (command === 'verify') {
     only(values, [
-      '--architecture', '--artifact', '--manifest', '--now', '--platform', '--public-key',
-      '--release-id'
+      '--artifact', '--manifest', '--now', '--public-key', '--release-id', '--target'
     ]);
     await verifyReleaseManifest({
-      architecture: required(values, '--architecture') as ReleaseArchitecture,
       artifactPath: values.get('--artifact'),
       expectedReleaseId: required(values, '--release-id'),
       manifestPath: required(values, '--manifest'),
       now: values.has('--now') ? new Date(required(values, '--now')) : undefined,
-      platform: required(values, '--platform') as ReleasePlatform,
-      publicKey: await readFile(required(values, '--public-key'), 'utf8')
+      publicKey: await readFile(required(values, '--public-key'), 'utf8'),
+      target: required(values, '--target') as ReleaseTarget
     });
     return;
   }

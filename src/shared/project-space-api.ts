@@ -1,5 +1,14 @@
 export type * from './dev-server-api';
 export type * from './worktree-action-api';
+export type * from './connector-runtime-api';
+
+import type {
+  ConnectorRuntimeRecord,
+  ConnectorRuntimeUpdateRecord,
+  MachineRuntimeOperationRequest,
+  MachineRuntimeOperationResult,
+  MachineRuntimeStatusResult
+} from './connector-runtime-api';
 
 export type WorkspaceTool = 'ide' | 'terminal' | 'git' | 'dev-server';
 
@@ -792,96 +801,6 @@ export interface OpenPathInAppResult {
 export type ConnectorStatus = 'local' | 'online' | 'offline' | 'not-installed';
 export type DeploymentVisibility = 'private' | 'public';
 
-export type ConnectorRuntimePlatform = 'darwin' | 'linux' | 'windows';
-export type ConnectorRuntimeArchitecture = 'arm64' | 'x64';
-export type ConnectorRuntimeChannel = 'stable' | 'beta' | 'dev';
-export type ConnectorRuntimeSource =
-  | 'managed'
-  | 'homebrew'
-  | 'winget'
-  | 'source'
-  | 'legacy'
-  | 'unknown';
-
-export interface ConnectorRuntimeBundleVersions {
-  connector: string;
-  machineTools: string;
-  projectCli: string;
-}
-
-export interface ConnectorRuntimeRecord {
-  architecture: ConnectorRuntimeArchitecture;
-  buildId: string;
-  bundleVersions: ConnectorRuntimeBundleVersions;
-  channel: ConnectorRuntimeChannel;
-  instanceId: string;
-  lastCheckedAt: string;
-  platform: ConnectorRuntimePlatform;
-  protocolVersion: string;
-  releaseId: string;
-  source: ConnectorRuntimeSource;
-  version: string;
-}
-
-export type ConnectorRuntimeState =
-  | 'checking'
-  | 'up-to-date'
-  | 'update-available'
-  | 'update-required'
-  | 'updating'
-  | 'restart-required'
-  | 'restarting'
-  | 'failed'
-  | 'rollback'
-  | 'offline'
-  | 'unknown'
-  | 'unsupported';
-
-export type ConnectorRuntimeOperationName = 'restart' | 'update';
-export type ConnectorRuntimeOperationState =
-  | 'queued'
-  | 'validating'
-  | 'staging'
-  | 'verified'
-  | 'switching'
-  | 'restarting'
-  | 'reconnecting'
-  | 'health-checking'
-  | 'succeeded'
-  | 'failed'
-  | 'rolled-back';
-
-export interface ConnectorRuntimeFailure {
-  at: string;
-  code: string;
-  message: string;
-  rollbackAvailable: boolean;
-}
-
-export interface ConnectorRuntimeOperationRecord {
-  createdAt: string;
-  expectedBuildId?: string;
-  previousInstanceId?: string;
-  expectedReleaseId?: string;
-  finishedAt?: string;
-  id: string;
-  lastFailure?: ConnectorRuntimeFailure;
-  machineId: string;
-  operation: ConnectorRuntimeOperationName;
-  requestedByUserId: string;
-  startedAt?: string;
-  state: ConnectorRuntimeOperationState;
-  updatedAt: string;
-}
-
-export interface ConnectorRuntimeUpdateRecord {
-  availableReleaseId?: string;
-  availableVersion?: string;
-  lastFailure?: ConnectorRuntimeFailure;
-  operation?: ConnectorRuntimeOperationRecord;
-  state: ConnectorRuntimeState;
-}
-
 export interface MachineConnectorRecord {
   capabilities?: string[];
   installCommand: string;
@@ -956,24 +875,6 @@ export interface ConnectorProjectRegistryResult {
     serviceName?: string;
   };
   discovery: ProjectDiscoveryResult;
-}
-
-export interface MachineRuntimeStatusResult {
-  capabilities: string[];
-  machineId: string;
-  online: boolean;
-  runtime?: ConnectorRuntimeRecord;
-  update: ConnectorRuntimeUpdateRecord;
-}
-
-export interface MachineRuntimeOperationRequest {
-  operation: ConnectorRuntimeOperationName;
-  releaseId?: string;
-}
-
-export interface MachineRuntimeOperationResult {
-  operation: ConnectorRuntimeOperationRecord;
-  status: MachineRuntimeStatusResult;
 }
 
 export type ProjectCliCommand =
@@ -1350,6 +1251,11 @@ export interface ProjectSpaceBackend {
   getAppMeta(): Promise<AppMeta>;
   getCodexStatus(): Promise<CodexStatusResult>;
   getConnectorOverview(): Promise<ConnectorOverviewResult>;
+  getMachineRuntime(machineId: string): Promise<MachineRuntimeStatusResult>;
+  startMachineRuntimeOperation(
+    machineId: string,
+    request: MachineRuntimeOperationRequest
+  ): Promise<MachineRuntimeOperationResult>;
   getConnectorProjectRegistry(): Promise<ConnectorProjectRegistryResult>;
   getDeployedEnvironmentStatus(
     repositoryFullName: string

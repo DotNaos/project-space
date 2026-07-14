@@ -25,20 +25,21 @@ import {
 } from './project-connector-runtime-binding';
 import { CodexSessionsConnectorDispatcher } from './codex-sessions/connector-dispatch';
 import { CodexSessionManager } from './codex-sessions/manager';
-
+import {
+  connectorRegistryForRuntimeConfiguration,
+  createConfiguredConnectorRuntimeDispatcher
+} from './connector-runtime-command-routing';
+import { clearConnectorRuntimeMaintenanceEvidence } from './connector-build-info';
+import { connectorRuntimeMaintenanceEvidence } from './connector-runtime-registration-decision';
 interface ProjectConnectorWebSocketOptions extends ProjectConnectorConnectionOptions {
-  backend: ProjectSpaceBackend &
-    Partial<ConnectorDevServerAdapter & ConnectorWorktreeActionAdapter>;
+  backend: ProjectSpaceBackend & Partial<ConnectorDevServerAdapter & ConnectorWorktreeActionAdapter>;
 }
-
 const filesystemCommandTimeoutMs = 8_000;
-
 function sendJson(socket: WebSocket, payload: unknown) {
   if (socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(payload));
   }
 }
-
 function settleWithin<T>(promise: Promise<T>, fallback: T) {
   return new Promise<T>((resolve) => {
     const timeout = setTimeout(() => resolve(fallback), filesystemCommandTimeoutMs);
@@ -54,7 +55,6 @@ function settleWithin<T>(promise: Promise<T>, fallback: T) {
     );
   });
 }
-
 export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocketOptions) {
   const { backend } = options;
   const connection = resolveProjectConnectorConnection(options);
@@ -143,6 +143,10 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
             }
           };
     const commandGrantPublicKey = connectorCommandGrantPublicKeyForTarget(target);
+    const runtimeDispatcher = createConfiguredConnectorRuntimeDispatcher({
+      commandVerificationKey: commandGrantPublicKey, machineId: options.runtimeCredential?.machineId,
+      shutdown() { process.kill(process.pid, 'SIGTERM'); }
+    });
     const devServerExecutor = commandGrantPublicKey
       ? new ConnectorDevServerCommandExecutor(
           adapter,
@@ -188,6 +192,9 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
       let cleanedUp = false;
       let registryPublishPending = false;
       let registryTimer: ReturnType<typeof setInterval> | undefined;
+      let registrationEvidence: ReturnType<typeof connectorRuntimeMaintenanceEvidence>;
+      let registered = false;
+      let serialMessages = Promise.resolve();
       activeSocket = socket;
 
       function isCurrentConnection() {
@@ -205,6 +212,7 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         runningChats.clear();
         codexSessionsDispatcher?.cancelAll();
         codexSessionsDispatcher?.setExpectedGeneration();
+        runtimeDispatcher?.setExpectedGeneration();
         if (registryTimer) {
           clearInterval(registryTimer);
           registryTimer = undefined;
@@ -223,13 +231,16 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
 
         let registry: Awaited<ReturnType<typeof backend.getConnectorProjectRegistry>>;
         try {
-          registry = await connection.registry(backend);
+          registry = connectorRegistryForRuntimeConfiguration(
+            await connection.registry(backend), Boolean(runtimeDispatcher)
+          );
         } catch {
           return false;
         }
         if (!isCurrentConnection() || socket.readyState !== WebSocket.OPEN) {
           return false;
         }
+        if (register) registrationEvidence = connectorRuntimeMaintenanceEvidence(registry);
         const message: ConnectorHubMessage = register
           ? {
               payload: registry,
@@ -267,19 +278,33 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         });
       });
 
-      socket.addEventListener('message', (event) => {
-        const message = parseConnectorMessage(event.data);
-
-        if (!isCurrentConnection() || !isConnectorMachineMessage(message)) {
-          return;
-        }
-
+      async function handleMessage(message: ConnectorMachineMessage) {
+        if (!isCurrentConnection()) return;
         if (message.type === 'connector.registered') {
+          if (registered) throw new Error('Connector was registered more than once.');
+          if ((registrationEvidence || message.maintenance) && !runtimeDispatcher) {
+            throw new Error('Connector runtime maintenance is not configured.');
+          }
+          await runtimeDispatcher?.acceptRegistration(registrationEvidence, message.maintenance);
+          registered = true;
+          runtimeDispatcher?.setExpectedGeneration(message.generation);
           codexSessionsDispatcher?.setExpectedGeneration(message.generation);
+          if (registrationEvidence && !(await publishRegistry()))
+            throw new Error('Connector runtime maintenance acknowledgement failed.');
+          if (registrationEvidence) clearConnectorRuntimeMaintenanceEvidence(registrationEvidence);
           startRegistryPublisher();
           return;
         }
-
+        if (!registered) throw new Error('Connector command arrived before registration.');
+        if (message.type === 'runtime.maintenance') {
+          if (!runtimeDispatcher) throw new Error('Connector runtime maintenance is unavailable.');
+          runtimeDispatcher.dispatch(
+            message.id, message.payload,
+            (result) => { if (isCurrentConnection()) sendJson(socket, result); },
+            () => socket.close(1008, 'Connector runtime authorization failed.')
+          );
+          return;
+        }
         if (message.type === 'connector.command.cancel') {
           if (codexSessionsDispatcher?.cancel(message.id, (result) => sendJson(socket, result))) {
             return;
@@ -623,6 +648,14 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
             type: 'project-cli.result'
           } satisfies ConnectorHubMessage);
         });
+      }
+
+      socket.addEventListener('message', (event) => {
+        const message = parseConnectorMessage(event.data);
+        if (!isConnectorMachineMessage(message)) return;
+        serialMessages = serialMessages
+          .then(() => handleMessage(message))
+          .catch(() => socket.close(1008, 'Connector message handling failed.'));
       });
 
       socket.addEventListener('close', () => {

@@ -99,8 +99,6 @@ export function SettingsView({
   const [githubFlow, setGitHubFlow] = useState<GitHubOAuthDeviceStartResult>();
   const [isConnectingGitHub, setIsConnectingGitHub] = useState(false);
   const [installCommand, setInstallCommand] = useState('');
-  const [installerCredentialId, setInstallerCredentialId] = useState('');
-  const [installerExpiresAt, setInstallerExpiresAt] = useState('');
   const [installScriptHref, setInstallScriptHref] = useState('/connector/install.sh');
   const [hasCopiedInstallCommand, setHasCopiedInstallCommand] = useState(false);
   const [isGeneratingInstaller, setIsGeneratingInstaller] = useState(false);
@@ -169,11 +167,8 @@ export function SettingsView({
     try {
       const result = await projectSpaceClient.getConnectorInstallCommand();
       setInstallCommand(result.command);
-      setInstallerCredentialId(result.credentialId);
-      setInstallerExpiresAt(result.expiresAt);
       setInstallScriptHref(result.scriptUrl);
       setHasCopiedInstallCommand(false);
-      await refreshConnectorCredentials();
     } catch (error) {
       setInstallerError(error instanceof Error ? error.message : 'Could not create an installer.');
     } finally {
@@ -192,12 +187,6 @@ export function SettingsView({
       const result = await projectSpaceClient.revokeConnectorCredential(credentialId);
       if (!result.revoked) {
         throw new Error('This connector credential no longer exists.');
-      }
-      if (credentialId === installerCredentialId) {
-        setInstallCommand('');
-        setInstallerCredentialId('');
-        setInstallerExpiresAt('');
-        setHasCopiedInstallCommand(false);
       }
       await refreshConnectorCredentials();
     } catch (error) {
@@ -297,10 +286,8 @@ export function SettingsView({
               </Button>
             </div>
             <Text className="block text-xs text-neutral-500">
-              This enrollment expires at {new Date(installerExpiresAt).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit'
-              })}. Generating another command revokes this unused one.
+              The command installs the pinned managed bundle, then opens Project Space approval to
+              create this machine&apos;s protected identity.
             </Text>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -311,15 +298,6 @@ export function SettingsView({
               >
                 {isGeneratingInstaller ? <RefreshCw className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
                 Replace command
-              </Button>
-              <Button
-                size="sm"
-                variant="danger"
-                isDisabled={Boolean(revokingCredentialId)}
-                onPress={() => void revokeCredential(installerCredentialId)}
-              >
-                {revokingCredentialId === installerCredentialId ? <RefreshCw className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-                Revoke credential
               </Button>
               <a href={installScriptHref} target="_blank" rel="noreferrer">
                 <Button size="sm" variant="ghost">
@@ -337,7 +315,7 @@ export function SettingsView({
             onPress={() => void generateInstallCommand()}
           >
             {isGeneratingInstaller ? <RefreshCw className="size-4 animate-spin" /> : <TerminalSquare className="size-4" />}
-            Generate account installer
+            Generate managed installer
           </Button>
         )}
         {installerError ? (

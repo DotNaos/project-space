@@ -12,7 +12,7 @@ export type ConnectorRuntimeReleaseTarget =
   | 'windows-x64';
 
 export type ConnectorRuntimeOperatingSystem = 'darwin' | 'linux' | 'windows';
-export type ConnectorRuntimeArchitecture = 'amd64' | 'arm64';
+export type ConnectorRuntimeArchitecture = 'amd64' | 'arm64' | 'x64';
 
 const machineIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const releaseIdPattern = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/;
@@ -88,10 +88,10 @@ export function connectorRuntimeReleaseTarget(
   if (operatingSystem === 'darwin' && architecture === 'arm64') {
     return 'darwin-arm64';
   }
-  if (operatingSystem === 'linux' && architecture === 'amd64') {
+  if (operatingSystem === 'linux' && (architecture === 'amd64' || architecture === 'x64')) {
     return 'linux-x64';
   }
-  if (operatingSystem === 'windows' && architecture === 'amd64') {
+  if (operatingSystem === 'windows' && (architecture === 'amd64' || architecture === 'x64')) {
     return 'windows-x64';
   }
   return undefined;

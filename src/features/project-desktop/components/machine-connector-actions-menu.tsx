@@ -1,65 +1,52 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
-  CheckCircle2,
-  ChevronRight,
   CircleEllipsis,
   Info,
   LoaderCircle,
   MoreHorizontal,
   RefreshCw,
   RotateCw,
-  Wrench,
-  X
+  Wrench
 } from 'lucide-react';
+import { Dropdown } from '@heroui/react';
 import { projectSpaceClient } from '@/api/project-space-client';
-import {
-  Button,
-  Dropdown,
-  DropdownItem,
-  DropdownMenu,
-  DropdownPopover,
-  DropdownTrigger,
-  Text
-} from '@/app/dotnaos-ui';
 import type {
+  ConnectorRuntimeOperationName,
   MachineRecord,
-  MachineRuntimeOperationRequest,
-  MachineRuntimeOperationResult,
   MachineRuntimeStatusResult
 } from '@/shared/project-space-api';
 import { cn } from '@/lib/utils';
-import { formatOptionalTime } from './project-main-model';
+import {
+  MachineConnectorActionsDialogs,
+  type ConnectorDialogView
+} from './machine-connector-actions-dialogs';
 import {
   canRestartMachineRuntime,
   canUpdateMachineRuntime,
-  isRuntimeBusy,
+  latestRuntimeFailure,
+  runtimeApprovedReleaseId,
   runtimeOperationLabel,
+  runtimeRetryOperation,
   runtimeStateLabel,
   runtimeUnavailableReason,
-  runtimeVersionLabel
+  runtimeVersionLabel,
+  shouldPollRuntimeStatus
 } from './machine-connector-runtime-model';
-
-type DialogView = 'confirm-restart' | 'confirm-update' | 'details' | 'failure' | 'progress';
-
-interface RuntimeClient {
-  getMachineRuntime(machineId: string): Promise<MachineRuntimeStatusResult>;
-  startMachineRuntimeOperation(
-    machineId: string,
-    request: MachineRuntimeOperationRequest
-  ): Promise<MachineRuntimeOperationResult>;
-}
-
-const runtimeClient = projectSpaceClient as unknown as RuntimeClient;
 
 function initialStatus(machine: MachineRecord): MachineRuntimeStatusResult {
   const online = machine.connector.status === 'local' || machine.connector.status === 'online';
+  const capabilities = machine.connector.capabilities ?? [];
+  const supportsMaintenance = Boolean(machine.connector.runtime) &&
+    capabilities.includes('runtime.restart') && capabilities.includes('runtime.update');
   return {
-    capabilities: machine.connector.capabilities ?? [],
+    capabilities,
     machineId: machine.id,
     online,
     runtime: machine.connector.runtime,
-    update: machine.connector.update ?? { state: online ? 'unknown' : 'offline' }
+    update: machine.connector.update ?? {
+      state: online ? supportsMaintenance ? 'checking' : 'unsupported' : 'offline'
+    }
   };
 }
 
@@ -70,69 +57,35 @@ function withStatus(machine: MachineRecord, status: MachineRuntimeStatusResult):
       ...machine.connector,
       capabilities: status.capabilities,
       runtime: status.runtime,
-      status: status.online ? machine.connector.status === 'local' ? 'local' : 'online' : 'offline',
+      status: status.online
+        ? machine.connector.status === 'local'
+          ? 'local'
+          : 'online'
+        : 'offline',
       update: status.update
     }
   };
 }
 
-function DetailRow({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="grid min-w-0 grid-cols-[minmax(7rem,0.7fr)_minmax(0,1.3fr)] gap-3 border-b border-neutral-900/80 py-2.5 last:border-0">
-      <Text className="text-xs font-medium text-neutral-500">{label}</Text>
-      <Text className="min-w-0 break-words text-right text-sm text-neutral-200">{value}</Text>
-    </div>
-  );
-}
-
-function ConnectorDialog({
-  children,
-  isBusy,
-  onClose,
-  title
+function MenuItemContent({
+  description,
+  icon,
+  label
 }: {
-  children: ReactNode;
-  isBusy?: boolean;
-  onClose(): void;
-  title: string;
+  description?: string;
+  icon: React.ReactNode;
+  label: string;
 }) {
-  useEffect(() => {
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape' && !isBusy) onClose();
-    }
-    window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [isBusy, onClose]);
-
   return (
-    <div
-      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 px-3 py-3 sm:items-center sm:px-5 sm:py-6"
-      onClick={() => {
-        if (!isBusy) onClose();
-      }}
-    >
-      <section
-        aria-modal="true"
-        aria-label={title}
-        role="dialog"
-        className="flex max-h-[min(42rem,calc(100dvh-1.5rem))] w-full max-w-lg flex-col overflow-hidden rounded-t-xl border border-neutral-800 bg-neutral-950 shadow-2xl sm:rounded-xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header className="flex items-start justify-between gap-4 border-b border-neutral-900 px-4 py-3.5">
-          <Text className="text-base font-semibold text-neutral-100">{title}</Text>
-          <Button
-            aria-label="Close connector dialog"
-            className="size-8 shrink-0 rounded-lg border-transparent p-0 text-neutral-400"
-            isDisabled={isBusy}
-            onPress={onClose}
-            variant="ghost"
-          >
-            <X className="size-4" />
-          </Button>
-        </header>
-        <div className="min-h-0 overflow-y-auto p-4">{children}</div>
-      </section>
-    </div>
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="shrink-0">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block">{label}</span>
+        {description ? (
+          <span className="mt-0.5 block text-xs leading-4 text-neutral-500">{description}</span>
+        ) : null}
+      </span>
+    </span>
   );
 }
 
@@ -149,7 +102,7 @@ export function MachineConnectorActionsMenu({
   trigger?: 'button' | 'icon';
   triggerLabel?: string;
 }) {
-  const [dialog, setDialog] = useState<DialogView>();
+  const [dialog, setDialog] = useState<ConnectorDialogView>();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [requestError, setRequestError] = useState('');
@@ -157,11 +110,13 @@ export function MachineConnectorActionsMenu({
   const settledOperationId = useRef('');
   const resolvedMachine = useMemo(() => withStatus(machine, status), [machine, status]);
   const update = resolvedMachine.connector.update;
-  const runtime = resolvedMachine.connector.runtime;
   const operation = update?.operation;
-  const active = isRuntimeBusy(update);
+  const active = shouldPollRuntimeStatus(update);
   const canUpdate = canUpdateMachineRuntime(resolvedMachine);
   const canRestart = canRestartMachineRuntime(resolvedMachine);
+  const retryOperation = runtimeRetryOperation(resolvedMachine);
+  const approvedReleaseId = runtimeApprovedReleaseId(resolvedMachine);
+  const lastFailure = latestRuntimeFailure(update);
 
   useEffect(() => {
     setStatus(initialStatus(machine));
@@ -169,7 +124,7 @@ export function MachineConnectorActionsMenu({
 
   const refresh = useCallback(async () => {
     try {
-      const next = await runtimeClient.getMachineRuntime(machine.id);
+      const next = await projectSpaceClient.getMachineRuntime(machine.id);
       setStatus(next);
       setRequestError('');
       if (
@@ -187,19 +142,18 @@ export function MachineConnectorActionsMenu({
   }, [machine.id, onOperationSettled]);
 
   useEffect(() => {
-    if (!active && dialog !== 'progress') return;
+    if (!active) return;
     const timer = window.setInterval(() => void refresh(), 1_500);
     return () => window.clearInterval(timer);
-  }, [active, dialog, refresh]);
+  }, [active, refresh]);
 
-  async function startOperation(operationName: 'restart' | 'update') {
+  async function startOperation(operationName: ConnectorRuntimeOperationName) {
     setIsSubmitting(true);
     setRequestError('');
     try {
-      const result = await runtimeClient.startMachineRuntimeOperation(machine.id, {
+      const result = await projectSpaceClient.startMachineRuntimeOperation(machine.id, {
         operation: operationName,
-        releaseId:
-          operationName === 'update' ? resolvedMachine.connector.update?.availableReleaseId : undefined
+        releaseId: operationName === 'update' ? approvedReleaseId : undefined
       });
       setStatus(result.status);
       setDialog('progress');
@@ -210,231 +164,132 @@ export function MachineConnectorActionsMenu({
     }
   }
 
-  const showUpdate =
-    Boolean(update?.availableReleaseId) ||
+  const showUpdate = Boolean(approvedReleaseId) && (
+    retryOperation === 'update' ||
     update?.state === 'update-available' ||
     update?.state === 'update-required' ||
-    update?.state === 'failed';
-  const lastFailure = update?.lastFailure ?? operation?.lastFailure;
-  const closeDialog = useCallback(() => setDialog(undefined), []);
+    update?.state === 'failed' ||
+    update?.state === 'rollback'
+  );
+  const updateLabel = retryOperation === 'update'
+    ? 'Retry update'
+    : `Update to ${update?.availableVersion ?? approvedReleaseId ?? 'approved release'}`;
+  const restartLabel = retryOperation === 'restart' ? 'Retry restart' : 'Restart connector';
 
   return (
     <>
       <Dropdown
-        open={isMenuOpen}
+        isOpen={isMenuOpen}
         onOpenChange={(open) => {
           setIsMenuOpen(open);
           if (open) void refresh();
         }}
       >
-        <DropdownTrigger
+        <Dropdown.Trigger
           aria-label={`${triggerLabel} for ${machine.name}`}
           className={cn(
+            'inline-flex items-center justify-center border border-transparent text-neutral-400 outline-none transition focus-visible:ring-2 focus-visible:ring-sky-400/60',
             trigger === 'icon'
-              ? 'size-8 rounded-lg border-transparent text-neutral-500 hover:border-neutral-800 hover:text-neutral-100'
-              : 'min-h-8 gap-2 rounded-lg px-3 text-xs font-medium',
+              ? 'size-8 rounded-lg hover:border-neutral-800 hover:bg-neutral-900 hover:text-neutral-100'
+              : 'min-h-9 w-full gap-2 rounded-lg bg-neutral-100 px-3 text-xs font-medium text-neutral-950 hover:bg-white sm:w-auto',
             className
           )}
         >
-          {trigger === 'icon' ? <MoreHorizontal className="size-4" /> : <Wrench className="size-3.5" />}
+          {trigger === 'icon' ? (
+            <MoreHorizontal className="size-4" />
+          ) : (
+            <Wrench className="size-3.5" />
+          )}
           {trigger === 'button' ? triggerLabel : null}
-        </DropdownTrigger>
-        <DropdownPopover
-          className="w-76"
-          style={{
-            maxWidth: 'calc(100vw - 1.5rem)',
-            minWidth: 0,
-            width: '19rem'
-          }}
+        </Dropdown.Trigger>
+        <Dropdown.Popover
+          offset={8}
+          placement="bottom end"
+          className="z-[70] w-[min(19rem,calc(100vw-1.5rem))] border border-neutral-800 bg-neutral-950 p-1 text-neutral-100 shadow-2xl shadow-black/60"
         >
-          <DropdownMenu aria-label={`Connector actions for ${machine.name}`}>
-            <DropdownItem onPress={() => setDialog('details')}>
-              <span className="flex items-center gap-2">
-                <Info className="size-4 shrink-0" />
-                <span className="min-w-0 flex-1">
-                  <span className="block">View version details</span>
-                  <span className="mt-0.5 block truncate text-xs text-neutral-500">
-                    {runtimeVersionLabel(resolvedMachine)} · {runtimeStateLabel(update?.state)}
-                  </span>
-                </span>
-              </span>
-            </DropdownItem>
+          <Dropdown.Menu aria-label={`Connector actions for ${machine.name}`}>
+            <Dropdown.Item
+              id="details"
+              textValue="View version details"
+              onAction={() => setDialog('details')}
+            >
+              <MenuItemContent
+                icon={<Info className="size-4" />}
+                label="View version details"
+                description={`${runtimeVersionLabel(resolvedMachine)} · ${runtimeStateLabel(update?.state)}`}
+              />
+            </Dropdown.Item>
             {active || operation ? (
-              <DropdownItem onPress={() => setDialog('progress')}>
-                <span className="flex items-center gap-2">
-                  {active ? <LoaderCircle className="size-4 animate-spin" /> : <CircleEllipsis className="size-4" />}
-                  <span>{active ? runtimeOperationLabel(operation) || 'View progress' : 'View last operation'}</span>
-                </span>
-              </DropdownItem>
+              <Dropdown.Item
+                id="progress"
+                textValue={active ? 'View progress' : 'View last operation'}
+                onAction={() => setDialog('progress')}
+              >
+                <MenuItemContent
+                  icon={active
+                    ? <LoaderCircle className="size-4 animate-spin" />
+                    : <CircleEllipsis className="size-4" />}
+                  label={active
+                    ? runtimeOperationLabel(operation) || 'View progress'
+                    : 'View last operation'}
+                />
+              </Dropdown.Item>
             ) : null}
             {showUpdate ? (
-              <DropdownItem
+              <Dropdown.Item
+                id="update"
                 isDisabled={!canUpdate}
-                title={canUpdate ? undefined : runtimeUnavailableReason(resolvedMachine, 'update')}
-                onPress={() => setDialog('confirm-update')}
+                textValue={updateLabel}
+                onAction={() => setDialog('confirm-update')}
               >
-                <span className="flex items-center gap-2">
-                  <RefreshCw className="size-4 shrink-0" />
-                  <span className="min-w-0">
-                    <span className="block">
-                      {update?.state === 'failed' ? 'Retry update' : `Update to ${update?.availableVersion ?? 'approved release'}`}
-                    </span>
-                    {!canUpdate ? (
-                      <span className="mt-0.5 block text-xs text-neutral-600">
-                        {runtimeUnavailableReason(resolvedMachine, 'update')}
-                      </span>
-                    ) : null}
-                  </span>
-                </span>
-              </DropdownItem>
+                <MenuItemContent
+                  icon={<RefreshCw className="size-4" />}
+                  label={updateLabel}
+                  description={canUpdate ? undefined : runtimeUnavailableReason(resolvedMachine, 'update')}
+                />
+              </Dropdown.Item>
             ) : null}
-            <DropdownItem
+            <Dropdown.Item
+              id="restart"
               isDisabled={!canRestart}
-              title={canRestart ? undefined : runtimeUnavailableReason(resolvedMachine, 'restart')}
-              onPress={() => setDialog('confirm-restart')}
+              textValue={restartLabel}
+              onAction={() => setDialog('confirm-restart')}
             >
-              <span className="flex items-center gap-2">
-                <RotateCw className="size-4 shrink-0" />
-                <span className="min-w-0">
-                  <span className="block">Restart connector</span>
-                  {!canRestart ? (
-                    <span className="mt-0.5 block text-xs text-neutral-600">
-                      {runtimeUnavailableReason(resolvedMachine, 'restart')}
-                    </span>
-                  ) : null}
-                </span>
-              </span>
-            </DropdownItem>
+              <MenuItemContent
+                icon={<RotateCw className="size-4" />}
+                label={restartLabel}
+                description={canRestart ? undefined : runtimeUnavailableReason(resolvedMachine, 'restart')}
+              />
+            </Dropdown.Item>
             {lastFailure ? (
-              <DropdownItem onPress={() => setDialog('failure')}>
-                <span className="flex items-center gap-2 text-red-300">
-                  <AlertTriangle className="size-4" />
-                  View last failure
-                </span>
-              </DropdownItem>
+              <Dropdown.Item
+                id="failure"
+                textValue="View last failure"
+                variant="danger"
+                onAction={() => setDialog('failure')}
+              >
+                <MenuItemContent
+                  icon={<AlertTriangle className="size-4" />}
+                  label="View last failure"
+                />
+              </Dropdown.Item>
             ) : null}
-          </DropdownMenu>
-        </DropdownPopover>
+          </Dropdown.Menu>
+        </Dropdown.Popover>
       </Dropdown>
 
-      {dialog === 'details' ? (
-        <ConnectorDialog onClose={closeDialog} title={`${machine.name} connector`}>
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <Text className="block text-lg font-semibold text-neutral-100">
-                {runtimeVersionLabel(resolvedMachine)}
-              </Text>
-              <Text className="mt-0.5 block text-xs text-neutral-500">
-                {runtimeStateLabel(update?.state)}
-              </Text>
-            </div>
-            <Button size="sm" variant="secondary" onPress={() => void refresh()}>
-              <RefreshCw className="size-3.5" /> Refresh
-            </Button>
-          </div>
-          <DetailRow label="Release" value={runtime?.releaseId ?? 'Unknown'} />
-          <DetailRow label="Build" value={runtime?.buildId ?? 'Unknown'} />
-          <DetailRow label="Protocol" value={runtime?.protocolVersion ?? 'Unknown'} />
-          <DetailRow label="Platform" value={runtime ? `${runtime.platform} · ${runtime.architecture}` : 'Unknown'} />
-          <DetailRow label="Channel" value={runtime ? `${runtime.channel} · ${runtime.source}` : 'Unknown'} />
-          <DetailRow label="Last checked" value={formatOptionalTime(runtime?.lastCheckedAt)} />
-          <DetailRow label="Connector" value={runtime?.bundleVersions.connector ?? 'Unknown'} />
-          <DetailRow label="Machine tools" value={runtime?.bundleVersions.machineTools ?? 'Unknown'} />
-          <DetailRow label="Project CLI" value={runtime?.bundleVersions.projectCli ?? 'Unknown'} />
-          <DetailRow
-            label="Capabilities"
-            value={status.capabilities.length > 0 ? status.capabilities.join(', ') : 'None reported'}
-          />
-          {requestError ? <Text className="mt-3 block text-xs text-red-300">{requestError}</Text> : null}
-        </ConnectorDialog>
-      ) : null}
-
-      {dialog === 'confirm-update' || dialog === 'confirm-restart' ? (
-        <ConnectorDialog
-          isBusy={isSubmitting}
-          onClose={closeDialog}
-          title={dialog === 'confirm-update' ? 'Confirm connector update' : 'Confirm connector restart'}
-        >
-          <Text className="block text-sm leading-6 text-neutral-300">
-            {dialog === 'confirm-update'
-              ? `Update ${machine.name} from ${runtimeVersionLabel(resolvedMachine)} to ${update?.availableVersion ?? update?.availableReleaseId ?? 'the approved release'}?`
-              : `Restart the connector on ${machine.name}? Its installed version will not change.`}
-          </Text>
-          <div className="my-4 rounded-lg border border-amber-500/25 bg-amber-500/8 p-3">
-            <Text className="block text-sm font-medium text-amber-200">Expect a temporary disconnect</Text>
-            <Text className="mt-1 block text-xs leading-5 text-amber-200/70">
-              Project Space will wait for this machine to reconnect and prove its running version before reporting success.
-              {dialog === 'confirm-update' ? ' If health checks fail, the updater will use the available recovery path.' : ''}
-            </Text>
-          </div>
-          {requestError ? <Text className="mb-3 block text-xs text-red-300">{requestError}</Text> : null}
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button isDisabled={isSubmitting} variant="secondary" onPress={closeDialog}>Cancel</Button>
-            <Button
-              isDisabled={isSubmitting}
-              variant="primary"
-              onPress={() => void startOperation(dialog === 'confirm-update' ? 'update' : 'restart')}
-            >
-              {isSubmitting ? <LoaderCircle className="size-4 animate-spin" /> : dialog === 'confirm-update' ? <RefreshCw className="size-4" /> : <RotateCw className="size-4" />}
-              {isSubmitting ? 'Starting…' : dialog === 'confirm-update' ? 'Update connector' : 'Restart connector'}
-            </Button>
-          </div>
-        </ConnectorDialog>
-      ) : null}
-
-      {dialog === 'progress' ? (
-        <ConnectorDialog onClose={closeDialog} title={operation?.operation === 'restart' ? 'Connector restart' : 'Connector update'}>
-          <div aria-live="polite" className="flex items-start gap-3">
-            {active ? (
-              <LoaderCircle className="mt-0.5 size-5 shrink-0 animate-spin text-sky-300" />
-            ) : operation?.state === 'succeeded' ? (
-              <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-300" />
-            ) : (
-              <CircleEllipsis className="mt-0.5 size-5 shrink-0 text-neutral-400" />
-            )}
-            <div className="min-w-0">
-              <Text className="block text-sm font-semibold text-neutral-100">
-                {runtimeOperationLabel(operation) || runtimeStateLabel(update?.state)}
-              </Text>
-              <Text className="mt-1 block text-xs leading-5 text-neutral-500">
-                {active ? 'You can close this dialog. Progress will remain available after reloading.' : `Running ${runtimeVersionLabel(resolvedMachine)} on ${machine.name}.`}
-              </Text>
-            </div>
-          </div>
-          {operation ? (
-            <div className="mt-4">
-              <DetailRow label="Operation" value={operation.operation} />
-              <DetailRow label="Updated" value={formatOptionalTime(operation.updatedAt)} />
-              <DetailRow label="Release" value={operation.expectedReleaseId ?? runtime?.releaseId ?? 'Unknown'} />
-            </div>
-          ) : null}
-          {requestError ? <Text className="mt-3 block text-xs text-red-300">{requestError}</Text> : null}
-          <Button className="mt-4 w-full sm:w-auto" variant="secondary" onPress={() => void refresh()}>
-            <RefreshCw className="size-3.5" /> Check now
-          </Button>
-        </ConnectorDialog>
-      ) : null}
-
-      {dialog === 'failure' && lastFailure ? (
-        <ConnectorDialog onClose={closeDialog} title="Last connector failure">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-red-300" />
-            <div className="min-w-0">
-              <Text className="block text-sm font-semibold text-neutral-100">{lastFailure.message}</Text>
-              <Text className="mt-1 block text-xs text-neutral-500">{lastFailure.code}</Text>
-            </div>
-          </div>
-          <div className="mt-4">
-            <DetailRow label="Failed" value={formatOptionalTime(lastFailure.at)} />
-            <DetailRow label="Recovery" value={lastFailure.rollbackAvailable ? 'Rollback available' : 'Manual recovery may be required'} />
-          </div>
-          {canUpdate ? (
-            <Button className="mt-4 w-full sm:w-auto" variant="primary" onPress={() => setDialog('confirm-update')}>
-              <RefreshCw className="size-4" /> Retry update <ChevronRight className="size-4" />
-            </Button>
-          ) : null}
-        </ConnectorDialog>
-      ) : null}
+      <MachineConnectorActionsDialogs
+        isSubmitting={isSubmitting}
+        machine={resolvedMachine}
+        onClose={() => setDialog(undefined)}
+        onRefresh={() => void refresh()}
+        onShowConfirmation={(operationName) =>
+          setDialog(operationName === 'update' ? 'confirm-update' : 'confirm-restart')}
+        onStart={(operationName) => void startOperation(operationName)}
+        requestError={requestError}
+        status={status}
+        view={dialog}
+      />
     </>
   );
 }

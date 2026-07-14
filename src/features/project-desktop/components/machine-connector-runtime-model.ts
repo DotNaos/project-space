@@ -1,4 +1,6 @@
 import type {
+  ConnectorRuntimeFailure,
+  ConnectorRuntimeOperationName,
   ConnectorRuntimeOperationRecord,
   ConnectorRuntimeOperationState,
   ConnectorRuntimeState,
@@ -8,9 +10,26 @@ import type {
 
 const terminalOperationStates = new Set<ConnectorRuntimeOperationState>([
   'failed',
+  'recovery-required',
   'rolled-back',
   'succeeded'
 ]);
+
+const runtimeCapabilities: Record<ConnectorRuntimeOperationName, string> = {
+  restart: 'runtime.restart',
+  update: 'runtime.update'
+};
+
+function isMachineOnline(machine: MachineRecord) {
+  return machine.connector.status === 'local' || machine.connector.status === 'online';
+}
+
+export function hasMachineRuntimeCapability(
+  machine: MachineRecord,
+  operation: ConnectorRuntimeOperationName
+) {
+  return machine.connector.capabilities?.includes(runtimeCapabilities[operation]) ?? false;
+}
 
 export function isRuntimeOperationActive(operation?: ConnectorRuntimeOperationRecord) {
   return Boolean(operation && !terminalOperationStates.has(operation.state));
@@ -28,21 +47,59 @@ export function isRuntimeBusy(update?: ConnectorRuntimeUpdateRecord) {
 export function canUpdateMachineRuntime(machine: MachineRecord) {
   const update = machine.connector.update;
   return (
-    (machine.connector.status === 'local' || machine.connector.status === 'online') &&
-    Boolean(update?.availableReleaseId) &&
+    isMachineOnline(machine) &&
+    hasMachineRuntimeCapability(machine, 'update') &&
+    Boolean(runtimeApprovedReleaseId(machine)) &&
     !isRuntimeBusy(update) &&
     (update?.state === 'update-available' ||
       update?.state === 'update-required' ||
-      update?.state === 'failed')
+      update?.state === 'failed' ||
+      update?.state === 'rollback')
   );
 }
 
 export function canRestartMachineRuntime(machine: MachineRecord) {
   return (
-    (machine.connector.status === 'local' || machine.connector.status === 'online') &&
-    machine.connector.update?.state !== 'unsupported' &&
+    isMachineOnline(machine) &&
+    hasMachineRuntimeCapability(machine, 'restart') &&
+    machine.connector.runtime?.source === 'managed' &&
+    machine.connector.update?.operation?.state !== 'recovery-required' &&
     !isRuntimeBusy(machine.connector.update)
   );
+}
+
+export function runtimeApprovedReleaseId(machine: MachineRecord) {
+  const update = machine.connector.update;
+  if (update?.availableReleaseId) return update.availableReleaseId;
+  if (
+    update?.operation?.operation === 'update' &&
+    (update.operation.state === 'failed' || update.operation.state === 'rolled-back')
+  ) {
+    return update.operation.expectedReleaseId;
+  }
+  return undefined;
+}
+
+export function runtimeRetryOperation(
+  machine: MachineRecord
+): ConnectorRuntimeOperationName | undefined {
+  const operation = machine.connector.update?.operation;
+  return operation && (operation.state === 'failed' || operation.state === 'rolled-back')
+    ? operation.operation
+    : undefined;
+}
+
+export function latestRuntimeFailure(
+  update?: ConnectorRuntimeUpdateRecord
+): ConnectorRuntimeFailure | undefined {
+  const failures = [update?.lastFailure, update?.operation?.lastFailure].filter(
+    (failure): failure is ConnectorRuntimeFailure => Boolean(failure)
+  );
+  return failures.sort((left, right) => right.at.localeCompare(left.at))[0];
+}
+
+export function shouldPollRuntimeStatus(update?: ConnectorRuntimeUpdateRecord) {
+  return isRuntimeBusy(update);
 }
 
 export function runtimeStateLabel(state: ConnectorRuntimeState | undefined) {
@@ -83,8 +140,10 @@ export function runtimeOperationLabel(operation?: ConnectorRuntimeOperationRecor
     'health-checking': 'Checking connector health',
     queued: 'Waiting to start',
     reconnecting: 'Waiting for the connector to reconnect',
+    'recovery-required': 'Connector recovery required',
     restarting: 'Restarting the connector',
     'rolled-back': 'Previous version restored',
+    'rolling-back': 'Restoring the previous version',
     staging: 'Preparing the update',
     succeeded: operation.operation === 'restart' ? 'Restart complete' : 'Update complete',
     switching: 'Activating the update',
@@ -93,6 +152,25 @@ export function runtimeOperationLabel(operation?: ConnectorRuntimeOperationRecor
   };
 
   return labels[operation.state];
+}
+
+export function runtimeOperationOutcomeMessage(
+  machine: MachineRecord,
+  operation?: ConnectorRuntimeOperationRecord
+) {
+  if (!operation || isRuntimeOperationActive(operation)) {
+    return 'You can close this dialog. Progress will remain available after reloading.';
+  }
+  if (operation.state === 'failed' || operation.state === 'recovery-required') {
+    return operation.lastFailure?.message ??
+      `The connector ${operation.operation} failed. Review the last failure before retrying.`;
+  }
+  if (operation.state === 'rolled-back') {
+    return operation.operation === 'update'
+      ? 'The update did not pass its checks, so the previous connector version was restored.'
+      : 'The connector recovered its previous working state.';
+  }
+  return `Running ${runtimeVersionLabel(machine)} on ${machine.name}.`;
 }
 
 export function runtimeVersionLabel(machine: MachineRecord) {
@@ -110,12 +188,17 @@ export function runtimeUnavailableReason(
     return 'The machine is offline.';
   }
   if (update?.state === 'unsupported') {
-    return 'This installation cannot be managed from Project Space.';
+    return 'This installation cannot be managed from Project Space. Reinstall it through Connector setup.';
   }
   if (isRuntimeBusy(update)) {
     return runtimeOperationLabel(update?.operation) || 'Another connector operation is active.';
   }
-  if (operation === 'update' && !update?.availableReleaseId) {
+  if (!hasMachineRuntimeCapability(machine, operation)) {
+    return operation === 'update'
+      ? 'This connector does not report managed update support.'
+      : 'This connector does not report managed restart support.';
+  }
+  if (operation === 'update' && !runtimeApprovedReleaseId(machine)) {
     return 'No approved update is available.';
   }
   return '';

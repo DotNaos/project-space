@@ -42,7 +42,9 @@ if [[ -L $install_directory ]]; then
 fi
 
 bundle_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
-for required in SHA256SUMS.txt VERSION project project-space-connector project-approval-signer; do
+for required in \
+  SHA256SUMS.txt VERSION project project-space-connector project-approval-signer \
+  connector-command-signing-public-key.pem release-manifest-signing-public-key.pem; do
   if [[ ! -f ${bundle_root}/${required} ]]; then
     echo "The release bundle is incomplete: $required is missing." >&2
     exit 66
@@ -144,9 +146,15 @@ mkdir -m 0700 -- "$staged_release"
 for name in project project-space-connector project-approval-signer; do
   install -m 0755 -- "${bundle_root}/${name}" "${staged_release}/${name}"
 done
+for name in connector-command-signing-public-key.pem release-manifest-signing-public-key.pem; do
+  install -m 0644 -- "${bundle_root}/${name}" "${staged_release}/${name}"
+done
 install -m 0600 -- "${bundle_root}/VERSION" "${staged_release}/VERSION"
 if [[ -d $release_directory ]]; then
-  for member in project project-space-connector project-approval-signer VERSION; do
+  for member in \
+    project project-space-connector project-approval-signer \
+    connector-command-signing-public-key.pem release-manifest-signing-public-key.pem \
+    VERSION; do
     if ! cmp -s -- "${staged_release}/${member}" "${release_directory}/${member}"; then
       echo "The existing machine-tools release directory does not match this bundle." >&2
       exit 73

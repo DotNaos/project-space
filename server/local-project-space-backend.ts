@@ -71,6 +71,10 @@ import {
   restoreProjectTrashEntry
 } from './project-structure-violations';
 import { getScopeDevboxOverview, startScopeDevboxJob } from './local-scope-devbox-jobs';
+import {
+  createConfiguredConnectorRuntime,
+  type ConfiguredConnectorRuntime
+} from './configured-connector-runtime';
 import type {
   AppMeta,
   ProjectDirectorySelection,
@@ -129,7 +133,8 @@ function scopeDiscoveryToMachine<
 
 export type LocalProjectSpaceBackend = ProjectSpaceBackend &
   ConnectorDevServerAdapter &
-  ConnectorWorktreeActionAdapter;
+  ConnectorWorktreeActionAdapter &
+  Pick<ConfiguredConnectorRuntime, 'decideReconnect'>;
 export { isWebHubMachine };
 const connectorCommandCapabilities = [
   'filesystem.directory',
@@ -159,6 +164,7 @@ export function createLocalProjectSpaceBackend(
   const devServerAdapter = createLocalDevServerAdapter();
   const worktreeActionAdapter = createLocalWorktreeActionAdapter();
   const loadConnectorOverview = () => loadConnectorOverviewForMachine(options.connectorMachineId);
+  const connectorRuntime = createConfiguredConnectorRuntime({ loadOverview: loadConnectorOverview });
   const registeredLocalMachines = new Set<string>();
 
   function registerLocalDevServer(machineId: string) {
@@ -182,6 +188,15 @@ export function createLocalProjectSpaceBackend(
     },
     async getConnectorOverview() {
       return loadConnectorOverview();
+    },
+    decideReconnect(machine) {
+      return connectorRuntime.decideReconnect(machine);
+    },
+    getMachineRuntime(machineId) {
+      return connectorRuntime.getMachineRuntime(machineId);
+    },
+    startMachineRuntimeOperation(machineId, request) {
+      return connectorRuntime.startMachineRuntimeOperation(machineId, request);
     },
     async getConnectorProjectRegistry() {
       const [identity, rawDiscovery] = await Promise.all([

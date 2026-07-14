@@ -5,6 +5,7 @@ import {
 import {
   isDatabaseConfigured,
   listMachineMemberships,
+  readMachineMembership,
   readUserProjectsState,
   upsertUserProjectsState
 } from './local-database-store';
@@ -34,6 +35,10 @@ export interface AuthorizedProjectSpaceBackendOptions {
   currentUserId?(): string | undefined;
   databaseConfigured?(): boolean;
   listMemberships?(userId: string): Promise<Array<{ machineId: string }>>;
+  readMembership?(input: {
+    machineId: string;
+    userId: string;
+  }): Promise<{ role: 'member' | 'owner' } | null>;
   readProjectsState?(userId: string): Promise<ProjectsState | null>;
   writeProjectsState?(userId: string, state: ProjectsState): Promise<unknown>;
 }
@@ -42,6 +47,7 @@ function createAccessPolicy(options: AuthorizedProjectSpaceBackendOptions) {
   const authRequired = options.authRequired ?? isProjectSpaceAuthRequired;
   const databaseConfigured = options.databaseConfigured ?? isDatabaseConfigured;
   const membershipsFor = options.listMemberships ?? listMachineMemberships;
+  const membershipFor = options.readMembership ?? readMachineMembership;
   const projectsStateFor = options.readProjectsState ?? readUserProjectsState;
   const writeProjectsStateFor =
     options.writeProjectsState ??
@@ -83,6 +89,20 @@ function createAccessPolicy(options: AuthorizedProjectSpaceBackendOptions) {
       const allowed = await accessibleMachineIds();
       if (allowed && !allowed.has(machineId)) {
         throw new ProjectSpaceAccessError('You do not have access to this machine.');
+      }
+    },
+    async requireMachineOwner(machineId: string) {
+      if (!authRequired()) return;
+      if (!databaseConfigured()) {
+        throw new ProjectSpaceAccessError(
+          'Machine access is unavailable until the database is configured.', 503
+        );
+      }
+      const membership = await membershipFor({ machineId, userId: currentUserId() });
+      if (membership?.role !== 'owner') {
+        throw new ProjectSpaceAccessError(
+          'Only the machine owner can manage its connector runtime.'
+        );
       }
     },
     requireLocalHostAccess() {
@@ -173,6 +193,16 @@ export function createAuthorizedProjectSpaceBackend(
         policy.accessibleMachineIds()
       ]);
       return filterOverview(overview, allowed);
+    },
+
+    async getMachineRuntime(machineId) {
+      await policy.requireMachineAccess(machineId);
+      return backend.getMachineRuntime(machineId);
+    },
+
+    async startMachineRuntimeOperation(machineId, request) {
+      await policy.requireMachineOwner(machineId);
+      return backend.startMachineRuntimeOperation(machineId, request);
     },
 
     async getConnectorProjectRegistry() {

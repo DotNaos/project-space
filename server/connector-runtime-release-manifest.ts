@@ -76,13 +76,19 @@ const digestPattern = /^[0-9a-f]{64}$/;
 const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const signaturePattern = /^[A-Za-z0-9_-]{86}$/;
 const maximumArtifactBytes = 2 * 1024 * 1024 * 1024;
-const maximumManifestLifetimeMs = 7 * 24 * 60 * 60_000;
+const maximumManifestLifetimeMs = 370 * 24 * 60 * 60_000;
 const manifestClockSkewMs = 5 * 60_000;
 const releaseTargets = new Set<ConnectorRuntimeReleaseTarget>([
   'darwin-arm64',
   'linux-x64',
   'windows-x64'
 ]);
+
+function isCanonicalSignature(value: string) {
+  if (!signaturePattern.test(value)) return false;
+  const decoded = Buffer.from(value, 'base64url');
+  return decoded.byteLength === 64 && decoded.toString('base64url') === value;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -238,8 +244,7 @@ function parseSignedManifest(value: unknown): SignedConnectorRuntimeReleaseManif
     !hasExactKeys(value, ['manifest', 'signature']) ||
     !isConnectorRuntimeReleaseManifest(value.manifest) ||
     typeof value.signature !== 'string' ||
-    !signaturePattern.test(value.signature) ||
-    Buffer.from(value.signature, 'base64url').byteLength !== 64
+    !isCanonicalSignature(value.signature)
   ) {
     throw new ConnectorRuntimeReleaseManifestError(
       'invalid-schema',

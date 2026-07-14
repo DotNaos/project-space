@@ -113,7 +113,6 @@ export function ProjectHomeOverview({
   const [isConnectingGitHub, setIsConnectingGitHub] = useState(false);
   const [isInstallDialogOpen, setIsInstallDialogOpen] = useState(false);
   const [installCommand, setInstallCommand] = useState('');
-  const [installerExpiresAt, setInstallerExpiresAt] = useState('');
   const [installerError, setInstallerError] = useState('');
   const [isGeneratingInstaller, setIsGeneratingInstaller] = useState(false);
   const [installScriptHref, setInstallScriptHref] = useState('/connector/install.sh');
@@ -200,7 +199,6 @@ export function ProjectHomeOverview({
     try {
       const result = await projectSpaceClient.getConnectorInstallCommand();
       setInstallCommand(result.command);
-      setInstallerExpiresAt(result.expiresAt);
       setInstallScriptHref(result.scriptUrl);
       setHasCopiedInstallCommand(false);
     } catch (error) {
@@ -903,7 +901,6 @@ export function ProjectHomeOverview({
           installCommand={installCommand}
           installScriptHref={installScriptHref}
           installerError={installerError}
-          installerExpiresAt={installerExpiresAt}
           isGeneratingInstaller={isGeneratingInstaller}
           onClose={() => setIsInstallDialogOpen(false)}
           onCopy={() => void copyInstallCommand()}

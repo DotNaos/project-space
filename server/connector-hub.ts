@@ -128,21 +128,27 @@ export async function getRegisteredConnectorRegistries() {
 }
 
 export async function getRegisteredConnectorMachines(): Promise<MachineRecord[]> {
-  return (await getRegisteredConnectorRegistries()).map(({ receivedAt, registry }) => ({
+  return (await getRegisteredConnectorRegistries()).map(({ receivedAt, registry }) => {
+    const online = isFresh({ firstSeenAt: receivedAt, receivedAt, registry });
+    const capabilities = registry.connector.capabilities ?? [];
+    const supportsRuntimeMaintenance = Boolean(registry.connector.runtime) &&
+      capabilities.includes('runtime.restart') &&
+      capabilities.includes('runtime.update');
+    return ({
     battery: registry.connector.battery,
     connector: {
-      capabilities: registry.connector.capabilities ?? [],
+      capabilities,
       installCommand: 'project-space-connector',
       lastSeen: receivedAt,
       origin: registry.connector.origin,
       runtime: registry.connector.runtime,
       serviceName: registry.connector.serviceName ?? 'project-space-connector',
-      status: isFresh({ firstSeenAt: receivedAt, receivedAt, registry }) ? 'online' : 'offline',
+      status: online ? 'online' : 'offline',
       update: {
-        state: isFresh({ firstSeenAt: receivedAt, receivedAt, registry })
-          ? registry.connector.runtime
+        state: online
+          ? supportsRuntimeMaintenance
             ? 'checking'
-            : 'update-required'
+            : 'unsupported'
           : 'offline'
       }
     },
@@ -153,7 +159,8 @@ export async function getRegisteredConnectorMachines(): Promise<MachineRecord[]>
     primaryUser: registry.connector.primaryUser,
     roles: ['connector'],
     sourcePath: connectorHubSourcePath
-  }));
+    });
+  });
 }
 
 export async function getRegisteredConnectorDiscovery(): Promise<ProjectDiscoveryResult> {

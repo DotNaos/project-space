@@ -128,7 +128,7 @@ describe('connector runtime release manifests', () => {
         issuedAt: '2026-07-13T12:06:00.000Z'
       }),
       manifest({
-        expiresAt: '2026-07-21T11:00:00.001Z',
+        expiresAt: '2027-07-19T11:00:00.001Z',
         issuedAt: '2026-07-13T11:00:00.000Z'
       })
     ];

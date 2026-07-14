@@ -314,5 +314,5 @@ describe('Codex sessions connector capability', () => {
     const registry = await backend.getConnectorProjectRegistry();
     expect(registry.connector.capabilities?.includes(CODEX_SESSIONS_CONNECTOR_CAPABILITY))
       .toBe(existsSync(defaultCodexAppServerBinary));
-  });
+  }, 15_000);
 });

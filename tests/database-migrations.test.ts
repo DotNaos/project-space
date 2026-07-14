@@ -53,6 +53,7 @@ describe('database migrations', () => {
       '0012_project_chat_name_registry',
       '0013_project_chat_project_channels',
       '0014_dev_server_sessions_per_server',
+      '0015_connector_runtime_operations',
       '0016_codex_sessions'
     ]);
 
@@ -73,6 +74,10 @@ describe('database migrations', () => {
     expect(sql).toContain('alter column expected_machine_id set not null');
     expect(sql).toContain('connector_credentials_expected_machine_id_not_blank');
     expect(sql).toContain('connector_credentials_machine_matches_expected');
+    expect(sql).toContain('create table connector_runtime_operations');
+    expect(sql).toContain('connector_runtime_operations_one_active_per_machine');
+    expect(sql).toContain('create table connector_runtime_audit_events');
+    expect(sql).toContain("action = 'connector-runtime.maintenance-request'");
     expect(sql).toContain('connector_machine_snapshots');
     expect(sql).toContain('registry jsonb not null');
     expect(sql).toContain('removed_by_user_id text');

@@ -73,7 +73,9 @@ describe('connector runtime maintenance browser contract', () => {
   test('maps only the explicitly supported platform and architecture pairs', () => {
     expect(connectorRuntimeReleaseTarget('darwin', 'arm64')).toBe('darwin-arm64');
     expect(connectorRuntimeReleaseTarget('linux', 'amd64')).toBe('linux-x64');
+    expect(connectorRuntimeReleaseTarget('linux', 'x64')).toBe('linux-x64');
     expect(connectorRuntimeReleaseTarget('windows', 'amd64')).toBe('windows-x64');
+    expect(connectorRuntimeReleaseTarget('windows', 'x64')).toBe('windows-x64');
     expect(connectorRuntimeReleaseTarget('darwin', 'amd64')).toBeUndefined();
     expect(connectorRuntimeReleaseTarget('linux', 'arm64')).toBeUndefined();
     expect(connectorRuntimeReleaseTarget('windows', 'arm64')).toBeUndefined();

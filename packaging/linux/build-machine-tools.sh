@@ -47,12 +47,24 @@ for binary in project project-space-connector; do
   fi
   install -m 0755 -- "$source_path" "${bundle_root}/${binary}"
 done
+for trust_root in connector-command-signing-public-key.pem release-manifest-signing-public-key.pem; do
+  source_path="${source_directory}/${trust_root}"
+  if [[ ! -f $source_path || -L $source_path ]]; then
+    echo "Required trust root is missing or unsafe: $source_path" >&2
+    exit 66
+  fi
+  install -m 0644 -- "$source_path" "${bundle_root}/${trust_root}"
+done
 install -m 0755 -- "${script_directory}/install-machine-tools.sh" "${bundle_root}/install.sh"
 printf '%s\n' "$version" > "${bundle_root}/VERSION"
 
 (
   cd -- "$bundle_root"
-  sha256sum project project-space-connector install.sh VERSION > SHA256SUMS.txt
+  sha256sum \
+    project project-space-connector \
+    connector-command-signing-public-key.pem \
+    release-manifest-signing-public-key.pem \
+    install.sh VERSION > SHA256SUMS.txt
 )
 
 # SOURCE_DATE_EPOCH can pin a reproducible build externally. GitHub releases use

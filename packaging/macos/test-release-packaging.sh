@@ -23,6 +23,20 @@ EOF
   chmod 0755 "$path"
 }
 
+write_trust_roots() {
+  local directory=$1
+  cat > "$directory/connector-command-signing-public-key.pem" <<'EOF'
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAUIg0xh2Ct72E0oH+zXpiBUKZUnWMzFZh+3JIgPBFqDA=
+-----END PUBLIC KEY-----
+EOF
+  cat > "$directory/release-manifest-signing-public-key.pem" <<'EOF'
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAZ6dwH3rgOZmzwfnAtimmzeo3aiSbJ7G9o43xh6aTDFQ=
+-----END PUBLIC KEY-----
+EOF
+}
+
 write_source() {
   local directory=$1
   local label=$2
@@ -32,6 +46,7 @@ write_source() {
   printf '#!/bin/bash\nprintf "connector %s\\n"\n' "$label" > "$directory/project-space-connector"
   printf '#!/bin/bash\nprintf "signer %s\\n"\n' "$label" > "$directory/project-approval-signer"
   chmod 0755 "$directory/project-space-connector" "$directory/project-approval-signer"
+  write_trust_roots "$directory"
 }
 
 write_source "$temporary_root/source-v1" v1
@@ -44,6 +59,9 @@ cmp "$temporary_root/first/$archive" "$temporary_root/second/$archive"
 mkdir "$temporary_root/extracted-v1"
 gtar -xzf "$temporary_root/first/$archive" -C "$temporary_root/extracted-v1"
 bundle_v1="$temporary_root/extracted-v1/project-space-machine-tools-darwin-arm64-v${version}"
+expected_members=$'SHA256SUMS.txt\nVERSION\nconnector-command-signing-public-key.pem\ninstall.sh\nproject\nproject-approval-signer\nproject-space-connector\nrelease-manifest-signing-public-key.pem'
+actual_members=$(find "$bundle_v1" -mindepth 1 -maxdepth 1 -type f -print | sed 's#.*/##' | sort)
+[[ $actual_members == "$expected_members" ]]
 
 home="$temporary_root/home"
 install_root="$home/.local/bin"
@@ -68,6 +86,10 @@ export PROJECT_FIXTURE_LAUNCHCTL_LOG="$launchctl_log"
 [[ -L $install_root/project && -L $install_root/project-space-connector && -L $install_root/project-approval-signer ]]
 first_current=$(readlink "$install_root/.project-space-machine-tools/current")
 [[ $first_current == versions/${version}-* ]]
+cmp "$temporary_root/source-v1/connector-command-signing-public-key.pem" \
+  "$install_root/.project-space-machine-tools/current/connector-command-signing-public-key.pem"
+cmp "$temporary_root/source-v1/release-manifest-signing-public-key.pem" \
+  "$install_root/.project-space-machine-tools/current/release-manifest-signing-public-key.pem"
 grep -Fx 'identity-stays' "$home/.config/project-space/machine-credential.json"
 grep -Fx 'config-stays' "$home/.config/project-space/connector.json"
 

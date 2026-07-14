@@ -9,7 +9,7 @@ import (
 	"io"
 	"net/url"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -17,6 +17,7 @@ import (
 const (
 	ConnectorRuntimeCredentialVersion = "project-space.connector-runtime/v1"
 	ConnectorRuntimeProtocolEnv       = "PROJECT_SPACE_CONNECTOR_RUNTIME_PROTOCOL"
+	ConnectorCommandSigningKeyFileEnv = "PROJECT_CONNECTOR_COMMAND_SIGNING_PUBLIC_KEY_FILE"
 	maxConnectorRuntimeCredentialSize = 16 * 1024
 )
 
@@ -58,20 +59,22 @@ func (ConnectorRuntimeCredential) GoString() string {
 }
 
 type ConnectorSupervisorOptions struct {
-	Executable string
-	Stdout     io.Writer
-	Stderr     io.Writer
+	Executable  string
+	Maintenance *ConnectorSupervisorMaintenance
+	Stdout      io.Writer
+	Stderr      io.Writer
 }
 
 // ConnectorSupervisor runs the companion connector for the lifetime of ctx.
 // It owns credential loading so callers never need to handle the machine token.
 type ConnectorSupervisor struct {
-	store      CredentialStore
-	executable string
-	arguments  []string
-	stdout     io.Writer
-	stderr     io.Writer
-	environ    func() []string
+	store       CredentialStore
+	executable  string
+	arguments   []string
+	maintenance *ConnectorSupervisorMaintenance
+	stdout      io.Writer
+	stderr      io.Writer
+	environ     func() []string
 }
 
 func NewConnectorSupervisor(
@@ -101,12 +104,13 @@ func newConnectorSupervisor(
 		stderr = os.Stderr
 	}
 	return &ConnectorSupervisor{
-		store:      store,
-		executable: options.Executable,
-		arguments:  append([]string(nil), arguments...),
-		stdout:     stdout,
-		stderr:     stderr,
-		environ:    os.Environ,
+		store:       store,
+		executable:  options.Executable,
+		arguments:   append([]string(nil), arguments...),
+		maintenance: options.Maintenance,
+		stdout:      stdout,
+		stderr:      stderr,
+		environ:     os.Environ,
 	}, nil
 }
 
@@ -139,50 +143,11 @@ func (supervisor *ConnectorSupervisor) Run(ctx context.Context) (returnErr error
 		return err
 	}
 
-	command := exec.CommandContext(ctx, supervisor.executable, supervisor.arguments...)
-	command.Env = connectorEnvironment(supervisor.environ())
-	command.Stdout = supervisor.stdout
-	command.Stderr = supervisor.stderr
-	stdin, err := command.StdinPipe()
+	maintenance, err := supervisor.resolveMaintenance(credential.MachineID)
 	if err != nil {
-		return errors.New("open connector companion input")
-	}
-	if err := command.Start(); err != nil {
-		_ = stdin.Close()
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return fmt.Errorf("start connector companion: %w", err)
-	}
-	if err := lifetime.Attach(command.Process); err != nil {
-		_ = stdin.Close()
-		_ = command.Process.Kill()
-		_ = command.Wait()
 		return err
 	}
-
-	writeDone := make(chan error, 1)
-	go func() {
-		written, writeErr := stdin.Write(payload)
-		if writeErr == nil && written != len(payload) {
-			writeErr = io.ErrShortWrite
-		}
-		writeDone <- errors.Join(writeErr, stdin.Close())
-	}()
-
-	waitErr := command.Wait()
-	writeErr := <-writeDone
-	if waitErr != nil && ctx.Err() != nil {
-		return ctx.Err()
-	}
-	var runErr error
-	if writeErr != nil {
-		runErr = errors.Join(runErr, fmt.Errorf("send connector runtime credential: %w", writeErr))
-	}
-	if waitErr != nil {
-		runErr = errors.Join(runErr, fmt.Errorf("connector companion exited: %w", waitErr))
-	}
-	return runErr
+	return supervisor.runConnectorCompanion(ctx, lifetime, payload, maintenance)
 }
 
 // ReadConnectorRuntimeCredential decodes exactly one bounded credential from
@@ -258,8 +223,18 @@ func validateConnectorRuntimeCredential(credential ConnectorRuntimeCredential) e
 
 func connectorEnvironment(environment []string) []string {
 	minimal := make([]string, 0, len(connectorEnvironmentAllowlist)+1)
+	home, homeFound := exactEnvironmentValue(environment, "HOME")
+	path, pathFound := exactEnvironmentValue(environment, "PATH")
+	if runtime.GOOS != "windows" && homeFound && filepath.IsAbs(home) {
+		path = connectorNonLoginPath(path, home)
+		pathFound = true
+	}
 	for _, allowedName := range connectorEnvironmentAllowlist {
-		if value, found := exactEnvironmentValue(environment, allowedName); found {
+		value, found := exactEnvironmentValue(environment, allowedName)
+		if allowedName == "PATH" {
+			value, found = path, pathFound
+		}
+		if found {
 			minimal = append(minimal, allowedName+"="+value)
 		}
 	}
@@ -267,6 +242,27 @@ func connectorEnvironment(environment []string) []string {
 		minimal,
 		ConnectorRuntimeProtocolEnv+"="+ConnectorRuntimeCredentialVersion,
 	)
+}
+
+func connectorNonLoginPath(existingPath string, home string) string {
+	entries := []string{
+		filepath.Join(home, ".bun", "bin"),
+		filepath.Join(home, ".local", "bin"),
+	}
+	entries = append(entries, filepath.SplitList(existingPath)...)
+	unique := make([]string, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		if entry == "" {
+			continue
+		}
+		if _, found := seen[entry]; found {
+			continue
+		}
+		seen[entry] = struct{}{}
+		unique = append(unique, entry)
+	}
+	return strings.Join(unique, string(os.PathListSeparator))
 }
 
 func exactEnvironmentValue(environment []string, name string) (string, bool) {

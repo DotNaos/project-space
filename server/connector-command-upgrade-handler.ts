@@ -4,6 +4,7 @@ import type { Duplex } from 'node:stream';
 
 import { WebSocket, WebSocketServer } from 'ws';
 
+import type { ConnectorProjectRegistryResult } from '../src/shared/project-space-api';
 import { registerConnectorProjectRegistry } from './connector-hub';
 import {
   isConnectorHubMessage,
@@ -17,6 +18,11 @@ import {
   sendConnectorJson,
   updateConnectorCapabilities
 } from './connector-command-session-registry';
+import {
+  connectorRuntimeDecisionMatchesEvidence,
+  connectorRuntimeMaintenanceEvidence,
+  type ConnectorRuntimeMaintenanceDecision
+} from './connector-runtime-registration-decision';
 
 const connectorSocketPath = '/api/connectors/socket';
 const defaultCredentialRevalidationIntervalMs = 30_000;
@@ -29,6 +35,10 @@ export type AuthenticateConnectorCredential = (
 export interface ConnectorCommandUpgradeHandlerOptions {
   authenticateConnectorCredential?: AuthenticateConnectorCredential;
   credentialRevalidationIntervalMs?: number;
+  decideConnectorRuntimeMaintenance?(input: {
+    machineId: string;
+    registry: ConnectorProjectRegistryResult;
+  }): Promise<ConnectorRuntimeMaintenanceDecision | undefined>;
 }
 
 interface ConnectorCommandUpgradeHandlerDependencies {
@@ -94,6 +104,22 @@ export function createConnectorCommandUpgradeHandlerCore(
       return authenticated;
     }
 
+    async function decideMaintenance(
+      requestedMachineId: string,
+      registry: ConnectorProjectRegistryResult
+    ) {
+      const evidence = connectorRuntimeMaintenanceEvidence(registry);
+      if (!evidence) return undefined;
+      const decision = await options.decideConnectorRuntimeMaintenance?.({
+        machineId: requestedMachineId,
+        registry
+      });
+      if (!connectorRuntimeDecisionMatchesEvidence(evidence, decision)) {
+        throw new Error('Connector runtime maintenance decision failed.');
+      }
+      return decision;
+    }
+
     socket.on('message', async (data) => {
       const message = parseConnectorMessage(data);
       if (!isConnectorHubMessage(message)) {
@@ -124,6 +150,14 @@ export function createConnectorCommandUpgradeHandlerCore(
           socket.close(1008, 'Connector registration failed.');
           return;
         }
+        let maintenance: ConnectorRuntimeMaintenanceDecision | undefined;
+        try {
+          maintenance = await decideMaintenance(requestedMachineId, message.payload);
+        } catch {
+          socket.close(1008, 'Connector runtime maintenance decision failed.');
+          return;
+        }
+        if (socket.readyState !== WebSocket.OPEN) return;
         machineId = requestedMachineId;
         registrationToken = message.token;
         registrationPending = false;
@@ -144,7 +178,11 @@ export function createConnectorCommandUpgradeHandlerCore(
         credentialRevalidationTimer = setInterval(() => {
           void revalidateCredential();
         }, revalidationIntervalMs);
-        sendConnectorJson(socket, { generation, type: 'connector.registered' });
+        sendConnectorJson(socket, {
+          generation,
+          ...(maintenance ? { maintenance } : {}),
+          type: 'connector.registered'
+        });
         return;
       }
 
@@ -162,6 +200,12 @@ export function createConnectorCommandUpgradeHandlerCore(
           return;
         }
         await registerConnectorProjectRegistry(message.payload);
+        try {
+          await decideMaintenance(machineId, message.payload);
+        } catch {
+          socket.close(1008, 'Connector runtime maintenance decision failed.');
+          return;
+        }
         updateConnectorCapabilities(machineId, message.payload.connector.capabilities ?? []);
         return;
       }

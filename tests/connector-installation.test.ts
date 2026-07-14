@@ -4,7 +4,6 @@ import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import {
-  connectorEnrollmentTtlSeconds,
   connectorInstallScript,
   connectorInstallerReleaseConfig,
   requestPublicOrigin
@@ -65,15 +64,24 @@ describe('connector installation origin', () => {
   test('requires a pinned release tag and SHA-256 checksum', () => {
     expect(
       connectorInstallerReleaseConfig({
-        PROJECT_SPACE_CONNECTOR_BUNDLE_ASSET: 'project-space-tools-darwin-arm64.tar.gz',
+        PROJECT_SPACE_CONNECTOR_BUNDLE_ASSET:
+          'project-space-machine-tools-darwin-arm64-v0.3.0.tar.gz',
         PROJECT_SPACE_CONNECTOR_BUNDLE_SHA256: 'a'.repeat(64),
         PROJECT_SPACE_CONNECTOR_BUNDLE_VERSION: 'v0.3.0'
       })
     ).toEqual({
-      asset: 'project-space-tools-darwin-arm64.tar.gz',
+      asset: 'project-space-machine-tools-darwin-arm64-v0.3.0.tar.gz',
       sha256: 'a'.repeat(64),
       version: 'v0.3.0'
     });
+    expect(() =>
+      connectorInstallerReleaseConfig({
+        PROJECT_SPACE_CONNECTOR_BUNDLE_ASSET:
+          'project-space-machine-tools-darwin-arm64-v0.4.0.tar.gz',
+        PROJECT_SPACE_CONNECTOR_BUNDLE_SHA256: 'a'.repeat(64),
+        PROJECT_SPACE_CONNECTOR_BUNDLE_VERSION: 'v0.3.0'
+      })
+    ).toThrow('must match');
     expect(() =>
       connectorInstallerReleaseConfig({
         PROJECT_SPACE_CONNECTOR_BUNDLE_SHA256: 'a'.repeat(64),
@@ -87,21 +95,27 @@ describe('connector installation origin', () => {
     ).toThrow('PROJECT_SPACE_CONNECTOR_BUNDLE_VERSION');
   });
 
-  test('installs the pinned machine-tools bundle with a launchd-safe command path', () => {
+  test('installs only the managed pinned bundle and refuses unsafe legacy replacement', () => {
     const script = connectorInstallScript('https://projects.os-home.net');
 
-    expect(connectorEnrollmentTtlSeconds).toBe(15 * 60);
     expect(script).toContain('releases/download/$bundle_version/$bundle_asset');
     expect(script).not.toContain('/releases/latest/');
     expect(script).toContain('shasum -a 256');
-    expect(script).toContain('"$tmp_dir/project-space-connector" "$install_dir/project-space-connector"');
-    expect(script).toContain('"$tmp_dir/project" "$install_dir/project"');
-    expect(script).toContain('"$tmp_dir/project-approval-signer" "$install_dir/project-approval-signer"');
-    expect(script).toContain('if [ -f "$tmp_dir/project-approval-signer" ]; then');
-    expect(script).toContain('<key>PROJECT_CLI_PATH</key>');
-    expect(script).toContain('$install_dir:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin');
-    expect(script).toContain('machine_id="$assigned_machine_id"');
-    expect(script).not.toContain('existing_machine_id');
+    expect(script).toContain('bundle_root="$tmp_dir/${bundle_asset%.tar.gz}"');
+    expect(script).toContain('"$bundle_root/install.sh" --install-dir "$install_dir"');
+    expect(script).not.toContain('install -m 0755 "$tmp_dir/project-space-connector"');
+    expect(script).toContain('net.os-home.project-space.machine-connector-supervisor.plist');
+    expect(script).toContain('the existing machine identity and settings were preserved');
+    expect(script).toContain('connector-command-signing-public-key.pem');
+    expect(script).toContain('release-manifest-signing-public-key.pem');
+    expect(script).toContain('Automatic replacement is blocked because that identity cannot be preserved safely.');
+    expect(script).toContain('"$install_dir/project" connect');
+    expect(script).not.toContain('PROJECT_CONNECTOR_ENROLLMENT_CREDENTIAL');
+    expect(script).not.toContain('PROJECT_SPACE_INSTALL_SOURCE');
+    expect(script).not.toContain('<plist version=');
+    expect(script.indexOf('Automatic replacement is blocked')).toBeLessThan(
+      script.indexOf('"$bundle_root/install.sh" --install-dir "$install_dir"')
+    );
     expect(spawnSync('bash', ['-n'], { input: script }).status).toBe(0);
   });
 });

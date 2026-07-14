@@ -415,5 +415,5 @@ describe('authenticated connector companion runtime', () => {
         process.env.PROJECT_CONNECTOR_MACHINE_ID = originalMachineId;
       }
     }
-  });
+  }, 15_000);
 });

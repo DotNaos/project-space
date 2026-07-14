@@ -434,7 +434,6 @@ export function AddMachineDialog({
   installCommand,
   installScriptHref,
   installerError,
-  installerExpiresAt,
   isGeneratingInstaller,
   onClose,
   onCopy,
@@ -444,7 +443,6 @@ export function AddMachineDialog({
   installCommand: string;
   installScriptHref: string;
   installerError: string;
-  installerExpiresAt: string;
   isGeneratingInstaller: boolean;
   onClose(): void;
   onCopy(): void;
@@ -457,7 +455,8 @@ export function AddMachineDialog({
           <div className="min-w-0">
             <Text className="block text-base font-semibold text-neutral-100">Add a machine</Text>
             <Text className="mt-1 block text-sm text-neutral-500">
-              Run this on the Mac you want to add. It installs the connector and keeps it running.
+              Run this on the Mac you want to add. It installs the verified managed tools, then
+              opens Project Space approval for that machine.
             </Text>
           </div>
           <Button aria-label="Close add machine" isIconOnly size="sm" variant="ghost" onPress={onClose}>
@@ -478,7 +477,7 @@ export function AddMachineDialog({
         ) : (
           <div className="mt-4 rounded-lg bg-black px-3 py-4">
             <Text className="block text-sm text-neutral-400">
-              Generate a short-lived command when you are ready to run it on the Mac.
+              Generate the pinned managed install command when you are ready to run it on the Mac.
             </Text>
           </div>
         )}
@@ -509,7 +508,7 @@ export function AddMachineDialog({
           ) : (
             <Button size="sm" isDisabled={isGeneratingInstaller} onPress={onGenerate}>
               {isGeneratingInstaller ? <RefreshCw className="size-4 animate-spin" /> : <Terminal className="size-4" />}
-              Generate account installer
+              Generate managed installer
             </Button>
           )}
           <a href="/connector" target="_blank" rel="noreferrer">
@@ -519,20 +518,13 @@ export function AddMachineDialog({
           </a>
         </div>
 
-        {installCommand && installerExpiresAt ? (
-          <Text className="mt-3 block text-xs text-neutral-500">
-            This enrollment expires at {new Date(installerExpiresAt).toLocaleTimeString([], {
-              hour: '2-digit',
-              minute: '2-digit'
-            })}. A replacement revokes this unused command.
-          </Text>
-        ) : null}
         {installerError ? (
           <Text className="mt-3 block text-xs text-red-300/80">{installerError}</Text>
         ) : null}
 
         <Text className="mt-3 block text-xs text-neutral-600">
-          The verified bundle installs both the connector and Project CLI. Linux packaging is not published yet.
+          The verified bundle installs the connector and Project CLI together. Existing managed
+          identities are preserved; legacy replacement is refused until you explicitly re-enroll.
         </Text>
       </div>
     </div>

@@ -51,8 +51,20 @@ import {
   type BoundCodexSessionsEvent,
   type BoundCodexSessionsResult
 } from './codex-sessions/connector-channel';
+import {
+  isConnectorRuntimeHubCommandMessage,
+  isConnectorRuntimeMachineCommandMessage,
+  isConnectorRuntimeMetadata,
+  type ConnectorRuntimeHubCommandMessage,
+  type ConnectorRuntimeMachineCommandMessage
+} from './connector-runtime-command-routing';
+import {
+  isConnectorRuntimeMaintenanceDecision,
+  type ConnectorRuntimeMaintenanceDecision
+} from './connector-runtime-registration-decision';
 
 export type ConnectorHubMessage =
+  | ConnectorRuntimeHubCommandMessage
   | {
       payload: ConnectorProjectRegistryResult;
       token: string;
@@ -150,7 +162,12 @@ export type ConnectorHubMessage =
     };
 
 export type ConnectorMachineMessage =
-  | { generation: number; type: 'connector.registered' }
+  | {
+      generation: number;
+      maintenance?: ConnectorRuntimeMaintenanceDecision;
+      type: 'connector.registered';
+    }
+  | ConnectorRuntimeMachineCommandMessage
   | { id: string; type: 'connector.command.cancel' }
   | { id: string; payload: CodexModelCatalogueRequest; type: 'codex.models' }
   | { id: string; payload: CodexChatRequest; type: 'codex.chat' }
@@ -312,50 +329,10 @@ function hasConnectorMetadata(connector: Record<string, unknown>) {
     hasUntrustedNetworkMetadata(connector.network) &&
     isOptionalMetadata(connector.origin, 2_048) &&
     isOptionalMetadata(connector.primaryUser) &&
-    hasConnectorRuntimeMetadata(connector.runtime) &&
+    isConnectorRuntimeMetadata(connector.runtime) &&
     isOptionalMetadata(connector.serviceName) &&
     validKind &&
     validCapabilities
-  );
-}
-
-function hasConnectorRuntimeMetadata(value: unknown) {
-  if (value === undefined) return true;
-  if (!isRecord(value) || !isRecord(value.bundleVersions)) return false;
-  return (
-    hasOnlyKeys(value, [
-      'architecture',
-      'buildId',
-      'bundleVersions',
-      'channel',
-      'instanceId',
-      'lastCheckedAt',
-      'platform',
-      'protocolVersion',
-      'releaseId',
-      'source',
-      'version'
-    ]) &&
-    hasOnlyKeys(value.bundleVersions, ['connector', 'machineTools', 'projectCli']) &&
-    (value.architecture === 'arm64' || value.architecture === 'x64') &&
-    isBoundedMetadata(value.buildId, 128) &&
-    isBoundedMetadata(value.bundleVersions.connector, 64) &&
-    isBoundedMetadata(value.bundleVersions.machineTools, 64) &&
-    isBoundedMetadata(value.bundleVersions.projectCli, 64) &&
-    (value.channel === 'stable' || value.channel === 'beta' || value.channel === 'dev') &&
-    isBoundedMetadata(value.instanceId, 128) &&
-    isBoundedMetadata(value.lastCheckedAt, 64) &&
-    Number.isFinite(Date.parse(value.lastCheckedAt)) &&
-    (value.platform === 'darwin' || value.platform === 'linux' || value.platform === 'windows') &&
-    isBoundedMetadata(value.protocolVersion, 32) &&
-    isBoundedMetadata(value.releaseId, 128) &&
-    (value.source === 'managed' ||
-      value.source === 'homebrew' ||
-      value.source === 'winget' ||
-      value.source === 'source' ||
-      value.source === 'legacy' ||
-      value.source === 'unknown') &&
-    isBoundedMetadata(value.version, 64)
   );
 }
 
@@ -517,6 +494,7 @@ export function isConnectorHubMessage(value: unknown): value is ConnectorHubMess
   if (!isRecord(value) || typeof value.type !== 'string') {
     return false;
   }
+  if (isConnectorRuntimeHubCommandMessage(value)) return true;
 
   if (value.type === 'connector.register') {
     return typeof value.token === 'string' && hasRegistryPayload(value);
@@ -619,8 +597,10 @@ export function isConnectorMachineMessage(value: unknown): value is ConnectorMac
     return false;
   }
   if (value.type === 'connector.registered') {
-    return typeof value.generation === 'number' &&
-      Number.isSafeInteger(value.generation) && value.generation > 0;
+    return hasOnlyKeys(value, ['generation', 'maintenance', 'type']) &&
+      typeof value.generation === 'number' && Number.isSafeInteger(value.generation) &&
+      value.generation > 0 && (value.maintenance === undefined ||
+        isConnectorRuntimeMaintenanceDecision(value.maintenance));
   }
   if (value.type === 'connector.command.cancel') {
     return hasCommandId(value);
@@ -628,6 +608,7 @@ export function isConnectorMachineMessage(value: unknown): value is ConnectorMac
   if (!hasCommandId(value) || !isRecord(value.payload)) {
     return false;
   }
+  if (isConnectorRuntimeMachineCommandMessage(value)) return true;
   if (value.type === 'codex.models') {
     return typeof value.payload.cwd === 'string' && typeof value.payload.machineId === 'string';
   }

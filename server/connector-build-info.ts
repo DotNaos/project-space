@@ -1,6 +1,7 @@
 import type {
   ConnectorRuntimeArchitecture,
   ConnectorRuntimeChannel,
+  ConnectorRuntimeMaintenanceEvidence,
   ConnectorRuntimePlatform,
   ConnectorRuntimeRecord,
   ConnectorRuntimeSource
@@ -14,6 +15,7 @@ declare const __PROJECT_SPACE_VERSION__: string | undefined;
 const developmentVersion = '0.4.0';
 const protocolVersion = '2';
 const runtimeInstanceId = randomUUID();
+const maintenanceOperationPattern = /^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,255}$/;
 
 function compiledValue(value: unknown, fallback: string) {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
@@ -47,6 +49,19 @@ function runtimeSource(environment: NodeJS.ProcessEnv): ConnectorRuntimeSource {
     : 'unknown';
 }
 
+function runtimeMaintenance(
+  environment: NodeJS.ProcessEnv
+): ConnectorRuntimeMaintenanceEvidence | undefined {
+  const operationId = environment.PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_OPERATION_ID?.trim();
+  const state = environment.PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_STATE?.trim();
+  if (!operationId && !state) return undefined;
+  if (!operationId || !maintenanceOperationPattern.test(operationId) ||
+      (state !== 'pending-health-check' && state !== 'rolled-back')) {
+    throw new Error('Connector runtime maintenance evidence is invalid.');
+  }
+  return { operationId, state };
+}
+
 export function connectorRuntimeRecord(
   environment: NodeJS.ProcessEnv = process.env,
   checkedAt = new Date().toISOString()
@@ -63,6 +78,7 @@ export function connectorRuntimeRecord(
     typeof __PROJECT_SPACE_BUILD_ID__ === 'undefined' ? undefined : __PROJECT_SPACE_BUILD_ID__,
     environment.PROJECT_SPACE_BUILD_ID?.trim() || 'development'
   );
+  const maintenance = runtimeMaintenance(environment);
 
   return {
     architecture: runtimeArchitecture(),
@@ -75,12 +91,25 @@ export function connectorRuntimeRecord(
     channel: runtimeChannel(environment),
     instanceId: runtimeInstanceId,
     lastCheckedAt: checkedAt,
+    ...(maintenance ? { maintenance } : {}),
     platform: runtimePlatform(),
     protocolVersion,
     releaseId,
     source: runtimeSource(environment),
     version
   };
+}
+
+export function clearConnectorRuntimeMaintenanceEvidence(
+  evidence: ConnectorRuntimeMaintenanceEvidence,
+  environment: NodeJS.ProcessEnv = process.env
+) {
+  const operationId = environment.PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_OPERATION_ID?.trim();
+  const state = environment.PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_STATE?.trim();
+  if (operationId !== evidence.operationId || state !== evidence.state) return false;
+  delete environment.PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_OPERATION_ID;
+  delete environment.PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_STATE;
+  return true;
 }
 
 export const connectorRuntimeProtocolVersion = protocolVersion;

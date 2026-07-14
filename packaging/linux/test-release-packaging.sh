@@ -34,10 +34,25 @@ EOF
   chmod 0755 "$path"
 }
 
+write_trust_roots() {
+  local directory=$1
+  cat > "$directory/connector-command-signing-public-key.pem" <<'EOF'
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAUIg0xh2Ct72E0oH+zXpiBUKZUnWMzFZh+3JIgPBFqDA=
+-----END PUBLIC KEY-----
+EOF
+  cat > "$directory/release-manifest-signing-public-key.pem" <<'EOF'
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAZ6dwH3rgOZmzwfnAtimmzeo3aiSbJ7G9o43xh6aTDFQ=
+-----END PUBLIC KEY-----
+EOF
+}
+
 mkdir -p -- "$temporary_root/source" "$temporary_root/first" "$temporary_root/second"
 write_project_fixture "$temporary_root/source/project" 'project fixture v1'
 printf '#!/bin/sh\nprintf "connector fixture\\n"\n' > "$temporary_root/source/project-space-connector"
 chmod 0755 "$temporary_root/source/project" "$temporary_root/source/project-space-connector"
+write_trust_roots "$temporary_root/source"
 
 SOURCE_DATE_EPOCH=0 "$script_directory/build-machine-tools.sh" \
   "$version" "$temporary_root/source" "$temporary_root/first" >/dev/null
@@ -56,7 +71,7 @@ cmp -- "$first_archive" "$second_archive"
 mkdir -p -- "$temporary_root/extracted"
 tar -xzf "$first_archive" -C "$temporary_root/extracted"
 bundle_root="$temporary_root/extracted/project-space-machine-tools-linux-x64-v${version}"
-expected_members=$'SHA256SUMS.txt\nVERSION\ninstall.sh\nproject\nproject-space-connector'
+expected_members=$'SHA256SUMS.txt\nVERSION\nconnector-command-signing-public-key.pem\ninstall.sh\nproject\nproject-space-connector\nrelease-manifest-signing-public-key.pem'
 actual_members=$(find "$bundle_root" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)
 if [[ $actual_members != "$expected_members" ]]; then
   echo "Unexpected archive members:" >&2
@@ -77,6 +92,10 @@ PROJECT_FIXTURE_SERVICE_LOG="$service_log" \
 [[ -L $install_root/project-space-connector ]]
 [[ $(readlink "$install_root/project") == '.project-space-machine-tools/current/project' ]]
 [[ $(readlink "$install_root/project-space-connector") == '.project-space-machine-tools/current/project-space-connector' ]]
+cmp "$temporary_root/source/connector-command-signing-public-key.pem" \
+  "$install_root/.project-space-machine-tools/current/connector-command-signing-public-key.pem"
+cmp "$temporary_root/source/release-manifest-signing-public-key.pem" \
+  "$install_root/.project-space-machine-tools/current/release-manifest-signing-public-key.pem"
 first_current=$(readlink "$install_root/.project-space-machine-tools/current")
 [[ $first_current == versions/${version}-* ]]
 grep -Fx 'project fixture v1:connector service start-if-connected' "$service_log"
@@ -89,6 +108,7 @@ upgrade_extracted="$temporary_root/upgrade-extracted"
 mkdir -p "$upgrade_source" "$upgrade_output" "$upgrade_extracted"
 write_project_fixture "$upgrade_source/project" 'project fixture v2'
 cp "$temporary_root/source/project-space-connector" "$upgrade_source/project-space-connector"
+write_trust_roots "$upgrade_source"
 SOURCE_DATE_EPOCH=0 "$script_directory/build-machine-tools.sh" \
   "$version" "$upgrade_source" "$upgrade_output" >/dev/null
 tar -xzf "$upgrade_output/$archive_name" -C "$upgrade_extracted"
@@ -110,6 +130,7 @@ failing_extracted="$temporary_root/failing-extracted"
 mkdir -p "$failing_source" "$failing_output" "$failing_extracted"
 write_project_fixture "$failing_source/project" 'project fixture v3' 1
 cp "$temporary_root/source/project-space-connector" "$failing_source/project-space-connector"
+write_trust_roots "$failing_source"
 SOURCE_DATE_EPOCH=0 "$script_directory/build-machine-tools.sh" \
   "$version" "$failing_source" "$failing_output" >/dev/null
 tar -xzf "$failing_output/$archive_name" -C "$failing_extracted"

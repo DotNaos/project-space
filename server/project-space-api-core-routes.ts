@@ -50,8 +50,10 @@ import {
   discoverProjectWorktrees,
   reconcileProjectWorktreeDiscovery
 } from './project-worktree-discovery';
+import { createConnectorRuntimeHttpHandler } from './connector-runtime-http';
 
 export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
+  const handleConnectorRuntime = createConnectorRuntimeHttpHandler(backend);
   const currentUserId = () => {
     const session = getCurrentAuthSession();
     if (session?.userId) return session.userId;
@@ -91,6 +93,8 @@ export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
     url: URL,
     userId: string
   ) {
+    if (await handleConnectorRuntime(request, response, url)) return true;
+
     if (request.method === 'GET' && url.pathname === '/api/deployed-environments/status') {
       const repositoryFullName = url.searchParams.get('repositoryFullName');
       if (!repositoryFullName) {
@@ -107,7 +111,7 @@ export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
       writeJson(
         response,
         200,
-        await createConnectorInstaller(requestPublicOrigin(request), userId)
+        await createConnectorInstaller(requestPublicOrigin(request))
       );
       return true;
     }
