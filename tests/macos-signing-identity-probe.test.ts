@@ -8,6 +8,7 @@ const workflowPath = join(
   '..',
   '.github/workflows/macos-signing-identity-probe.yml'
 );
+const releaseWorkflowPath = join(import.meta.dir, '..', '.github/workflows/release.yml');
 
 function stepBlock(workflow: string, name: string) {
   const marker = `\n      - name: ${name}\n`;
@@ -26,9 +27,9 @@ describe('protected macOS signing identity probe', () => {
     expect(workflow).not.toContain('push:');
     expect(workflow).not.toContain('pull_request:');
     expect(workflow).toContain('permissions: {}');
-    expect(workflow).toContain(
-      "if: github.repository == 'DotNaos/project-space' && github.ref == 'refs/heads/main'"
-    );
+    expect(workflow).toContain("github.repository == 'DotNaos/project-space'");
+    expect(workflow).toContain("startsWith(github.ref, 'refs/tags/v')");
+    expect(workflow).toContain("endsWith(github.ref, '-signing-probe')");
     expect(workflow).toContain('runs-on: macos-15');
     expect(workflow).toContain('timeout-minutes: 5');
     expect(workflow).toContain('environment: release-signing');
@@ -59,6 +60,20 @@ describe('protected macOS signing identity probe', () => {
     ]) {
       expect(workflow).not.toContain(forbidden);
     }
+  });
+
+  test('uses a protected probe tag that the real release workflow excludes', async () => {
+    const [workflow, releaseWorkflow] = await Promise.all([
+      readFile(workflowPath, 'utf8'),
+      readFile(releaseWorkflowPath, 'utf8')
+    ]);
+
+    expect(workflow).toContain("endsWith(github.ref, '-signing-probe')");
+    expect(releaseWorkflow).toContain("      - 'v*'");
+    expect(releaseWorkflow).toContain("      - '!v*-signing-probe'");
+    expect(releaseWorkflow.indexOf("      - 'v*'")).toBeLessThan(
+      releaseWorkflow.indexOf("      - '!v*-signing-probe'")
+    );
   });
 
   test('proves one Developer ID identity by signing only a temporary system binary copy', async () => {
