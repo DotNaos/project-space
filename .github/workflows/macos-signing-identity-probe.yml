@@ -1,0 +1,317 @@
+name: macOS signing identity probe
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  probe:
+    name: Exercise the protected macOS signing identity
+    if: github.repository == 'DotNaos/project-space' && github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    timeout-minutes: 5
+    environment: release-signing
+
+    steps:
+      - name: Load macOS signing certificate from 1Password
+        id: signing-secrets
+        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
+        with:
+          version: '2.35.0'
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          MACOS_SIGNING_CERTIFICATE_P12_B64: op://projects/Project Space macOS Release Signing/certificate_p12_b64
+          MACOS_SIGNING_CERTIFICATE_PASSWORD: op://projects/Project Space macOS Release Signing/password
+
+      - name: Exercise identity in a disposable default keychain
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          CERTIFICATE_P12_B64: ${{ steps.signing-secrets.outputs.MACOS_SIGNING_CERTIFICATE_P12_B64 }}
+          CERTIFICATE_PASSWORD: ${{ steps.signing-secrets.outputs.MACOS_SIGNING_CERTIFICATE_PASSWORD }}
+          PATH: /usr/bin:/bin
+        run: |
+          keychain="$RUNNER_TEMP/project-space-signing-probe.keychain-db"
+          keychain_snapshot="$RUNNER_TEMP/project-space-signing-probe-user-keychains"
+          default_keychain_snapshot="$RUNNER_TEMP/project-space-signing-probe-default-keychain"
+          p12="$RUNNER_TEMP/project-space-signing-probe.p12"
+          pem="$RUNNER_TEMP/project-space-signing-probe.pem"
+          leaf_pem="$RUNNER_TEMP/project-space-signing-probe-leaf.pem"
+          import_p12="$RUNNER_TEMP/project-space-signing-probe-import.p12"
+          probe_binary="$RUNNER_TEMP/project-space-signing-probe"
+          import_diagnostics="$RUNNER_TEMP/project-space-signing-probe-import.log"
+          codesign_diagnostics="$RUNNER_TEMP/project-space-signing-probe-codesign.log"
+          # Intentionally public: the 0600 temp files and isolated runner protect the unwrapped key.
+          import_password='project-space-ephemeral-import'
+
+          read_default_keychain() {
+            local count=0 line path=''
+            while IFS= read -r line; do
+              line="${line#*\"}"
+              line="${line%\"*}"
+              if [[ -n $line ]]; then
+                path=$line
+                count=$((count + 1))
+              fi
+            done
+            if [[ $count != 1 || $path != /* ]]; then
+              return 1
+            fi
+            /usr/bin/printf '%s' "$path"
+          }
+
+          restore_default_keychain() {
+            local current_default original_default
+            [[ -f $default_keychain_snapshot ]] || return 0
+            original_default=$(read_default_keychain < "$default_keychain_snapshot") || return 1
+            /usr/bin/security default-keychain -d user -s "$original_default" || return 1
+            current_default=$(read_default_keychain \
+              < <(/usr/bin/security default-keychain -d user)) || return 1
+            [[ $current_default == "$original_default" ]] || return 1
+            /bin/rm -f "$default_keychain_snapshot"
+          }
+
+          restore_keychain_search_list() {
+            local line
+            local original_keychains=()
+            [[ -f $keychain_snapshot ]] || return 0
+            while IFS= read -r line; do
+              line="${line#*\"}"
+              line="${line%\"*}"
+              [[ -n $line ]] && original_keychains+=("$line")
+            done < "$keychain_snapshot"
+            if (( ${#original_keychains[@]} > 0 )); then
+              /usr/bin/security list-keychains -d user -s "${original_keychains[@]}" || return 1
+            else
+              /usr/bin/security list-keychains -d user -s || return 1
+            fi
+            while IFS= read -r line; do
+              line="${line#*\"}"
+              line="${line%\"*}"
+              [[ $line != "$keychain" ]] || return 1
+            done < <(/usr/bin/security list-keychains -d user)
+            /bin/rm -f "$keychain_snapshot"
+          }
+
+          cleanup() {
+            local operation_status=$?
+            local cleanup_status=0
+            local references_restored=1
+            trap - EXIT INT TERM HUP
+            set +e
+            restore_default_keychain || {
+              cleanup_status=1
+              references_restored=0
+            }
+            restore_keychain_search_list || {
+              cleanup_status=1
+              references_restored=0
+            }
+            if (( references_restored == 1 )) && [[ -e $keychain ]]; then
+              /usr/bin/security delete-keychain "$keychain" || cleanup_status=1
+            fi
+            /bin/rm -f \
+              "$p12" "$pem" "$leaf_pem" "$import_p12" \
+              "$probe_binary" "$import_diagnostics" "$codesign_diagnostics" || cleanup_status=1
+            if (( operation_status != 0 )); then
+              exit "$operation_status"
+            fi
+            exit "$cleanup_status"
+          }
+          trap cleanup EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+          trap 'exit 129' HUP
+
+          umask 077
+          [[ $(/usr/bin/uname -m) == arm64 ]]
+          [[ ! -e $keychain && ! -e $probe_binary ]]
+          /usr/bin/security list-keychains -d user > "$keychain_snapshot"
+          /usr/bin/security default-keychain -d user > "$default_keychain_snapshot"
+          original_default=$(read_default_keychain < "$default_keychain_snapshot")
+          [[ $original_default != "$keychain" ]]
+
+          /usr/bin/printf '%s' "$CERTIFICATE_P12_B64" | /usr/bin/base64 -D > "$p12"
+          /usr/bin/openssl pkcs12 -in "$p12" -passin env:CERTIFICATE_PASSWORD \
+            -nodes -out "$pem"
+          /usr/bin/openssl pkcs12 -in "$p12" -passin env:CERTIFICATE_PASSWORD \
+            -clcerts -nokeys -out "$leaf_pem"
+          /usr/bin/openssl pkcs12 -export -in "$pem" -out "$import_p12" \
+            -passout "pass:$import_password"
+          /bin/cp -X /usr/bin/true "$probe_binary"
+          /bin/chmod 0755 "$probe_binary"
+          [[ $(/usr/bin/file -b "$probe_binary") == *"Mach-O 64-bit executable arm64"* ]]
+
+          keychain_password=$(/usr/bin/openssl rand -hex 32)
+          /usr/bin/security create-keychain -p "$keychain_password" "$keychain"
+          /usr/bin/security set-keychain-settings -lut 300 "$keychain"
+          /usr/bin/security unlock-keychain -p "$keychain_password" "$keychain"
+          if ! /usr/bin/security import "$import_p12" -f pkcs12 -k "$keychain" \
+            -P "$import_password" -T /usr/bin/codesign \
+            >"$import_diagnostics" 2>&1; then
+            /usr/bin/printf 'The protected identity could not be imported.\n' >&2
+            exit 1
+          fi
+          /bin/rm -f "$p12" "$pem" "$import_p12"
+
+          original_keychains=()
+          while IFS= read -r line; do
+            line="${line#*\"}"
+            line="${line%\"*}"
+            [[ -n $line ]] && original_keychains+=("$line")
+          done < "$keychain_snapshot"
+          /usr/bin/security list-keychains -d user -s "$keychain" "${original_keychains[@]}"
+
+          identity=''
+          identity_label=''
+          identity_count=0
+          while IFS= read -r line; do
+            if [[ $line =~ ([0-9A-F]{40})[[:space:]]+\"([^\"]{1,200})\" ]]; then
+              identity=${BASH_REMATCH[1]}
+              identity_label=${BASH_REMATCH[2]}
+              identity_count=$((identity_count + 1))
+            fi
+          done < <(/usr/bin/security find-identity -v -p codesigning "$keychain")
+          [[ $identity_count == 1 \
+            && $identity =~ ^[0-9A-F]{40}$ \
+            && -n $identity_label ]]
+
+          leaf_fingerprint=$(/usr/bin/openssl x509 -in "$leaf_pem" \
+            -noout -fingerprint -sha1)
+          leaf_fingerprint=${leaf_fingerprint#*=}
+          leaf_fingerprint=${leaf_fingerprint//:/}
+          [[ $leaf_fingerprint == "$identity" ]]
+          if ! /usr/bin/openssl x509 -in "$leaf_pem" -text -noout \
+            | /usr/bin/grep -F '1.2.840.113635.100.6.1.13' >/dev/null; then
+            /usr/bin/printf 'The protected identity is not a Developer ID Application certificate.\n' >&2
+            exit 1
+          fi
+          /bin/rm -f "$leaf_pem"
+          echo 'Validated one protected Developer ID Application identity.'
+
+          /usr/bin/security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -k "$keychain_password" "$keychain" >/dev/null
+          /usr/bin/security default-keychain -d user -s "$keychain"
+          current_default=$(read_default_keychain \
+            < <(/usr/bin/security default-keychain -d user))
+          [[ $current_default == "$keychain" ]]
+          echo 'Activated the disposable signing keychain.'
+
+          requirement='=anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "R72P4M9WMS" and identifier "com.dotnaos.project.signing-probe"'
+          if ! /usr/bin/codesign --force --keychain "$keychain" --sign "$identity_label" \
+            --identifier com.dotnaos.project.signing-probe \
+            --options runtime --timestamp=none "$probe_binary" \
+            2>"$codesign_diagnostics"; then
+            /usr/bin/printf 'Protected macOS signing failed with the disposable keychain active.\n' >&2
+            exit 1
+          fi
+          if ! /usr/bin/codesign --verify --strict --test-requirement "$requirement" \
+            "$probe_binary" 2>"$codesign_diagnostics"; then
+            /usr/bin/printf 'Protected macOS signing produced an invalid identity requirement.\n' >&2
+            exit 1
+          fi
+          echo 'Protected macOS signing identity probe passed.'
+
+      - name: Confirm probe identity cleanup
+        if: always()
+        shell: /bin/bash --noprofile --norc {0}
+        env:
+          BASH_ENV: /dev/null
+          PATH: /usr/bin:/bin
+        run: |
+          set +e
+          keychain="$RUNNER_TEMP/project-space-signing-probe.keychain-db"
+          keychain_snapshot="$RUNNER_TEMP/project-space-signing-probe-user-keychains"
+          default_keychain_snapshot="$RUNNER_TEMP/project-space-signing-probe-default-keychain"
+          cleanup_status=0
+          references_restored=1
+
+          read_default_keychain() {
+            local count=0 line path=''
+            while IFS= read -r line; do
+              line="${line#*\"}"
+              line="${line%\"*}"
+              if [[ -n $line ]]; then
+                path=$line
+                count=$((count + 1))
+              fi
+            done
+            if [[ $count != 1 || $path != /* ]]; then
+              return 1
+            fi
+            /usr/bin/printf '%s' "$path"
+          }
+
+          if [[ -f $default_keychain_snapshot ]]; then
+            original_default=$(read_default_keychain < "$default_keychain_snapshot")
+            if [[ -n $original_default ]] \
+              && /usr/bin/security default-keychain -d user -s "$original_default"; then
+              current_default=$(read_default_keychain \
+                < <(/usr/bin/security default-keychain -d user))
+              if [[ $current_default == "$original_default" ]]; then
+                /bin/rm -f "$default_keychain_snapshot" || cleanup_status=1
+              else
+                cleanup_status=1
+                references_restored=0
+              fi
+            else
+              cleanup_status=1
+              references_restored=0
+            fi
+          fi
+
+          if [[ -f $keychain_snapshot ]]; then
+            original_keychains=()
+            while IFS= read -r line; do
+              line="${line#*\"}"
+              line="${line%\"*}"
+              [[ -n $line ]] && original_keychains+=("$line")
+            done < "$keychain_snapshot"
+            if (( ${#original_keychains[@]} > 0 )); then
+              /usr/bin/security list-keychains -d user -s "${original_keychains[@]}" || {
+                cleanup_status=1
+                references_restored=0
+              }
+            else
+              /usr/bin/security list-keychains -d user -s || {
+                cleanup_status=1
+                references_restored=0
+              }
+            fi
+            if (( references_restored == 1 )); then
+              /bin/rm -f "$keychain_snapshot" || cleanup_status=1
+            fi
+          fi
+
+          if (( references_restored == 1 )) && [[ -e $keychain ]]; then
+            /usr/bin/security delete-keychain "$keychain" || cleanup_status=1
+          fi
+          /bin/rm -f \
+            "$RUNNER_TEMP/project-space-signing-probe.p12" \
+            "$RUNNER_TEMP/project-space-signing-probe.pem" \
+            "$RUNNER_TEMP/project-space-signing-probe-leaf.pem" \
+            "$RUNNER_TEMP/project-space-signing-probe-import.p12" \
+            "$RUNNER_TEMP/project-space-signing-probe" \
+            "$RUNNER_TEMP/project-space-signing-probe-import.log" \
+            "$RUNNER_TEMP/project-space-signing-probe-codesign.log" || cleanup_status=1
+
+          current_default=$(read_default_keychain \
+            < <(/usr/bin/security default-keychain -d user)) || cleanup_status=1
+          [[ $current_default != "$keychain" ]] || cleanup_status=1
+          while IFS= read -r line; do
+            line="${line#*\"}"
+            line="${line%\"*}"
+            [[ $line != "$keychain" ]] || cleanup_status=1
+          done < <(/usr/bin/security list-keychains -d user)
+          [[ ! -e $keychain \
+            && ! -e $keychain_snapshot \
+            && ! -e $default_keychain_snapshot \
+            && ! -e $RUNNER_TEMP/project-space-signing-probe.p12 \
+            && ! -e $RUNNER_TEMP/project-space-signing-probe.pem \
+            && ! -e $RUNNER_TEMP/project-space-signing-probe-leaf.pem \
+            && ! -e $RUNNER_TEMP/project-space-signing-probe-import.p12 \
+            && ! -e $RUNNER_TEMP/project-space-signing-probe \
+            && ! -e $RUNNER_TEMP/project-space-signing-probe-import.log \
+            && ! -e $RUNNER_TEMP/project-space-signing-probe-codesign.log ]] || cleanup_status=1
+          exit "$cleanup_status"
