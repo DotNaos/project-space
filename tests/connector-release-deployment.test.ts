@@ -15,22 +15,25 @@ describe('connector release and production deployment contract', () => {
     const windowsPackaging = await source('packaging/windows/test-release-packaging.ps1');
     const windowsDocumentation = await source('docs/windows-installation.md');
 
-    expect(packageJson.version).toBe('0.4.3');
-    expect(buildInfo).toContain("const developmentVersion = '0.4.3';");
-    expect(windowsPackaging).toContain("$version = '0.4.3'");
-    expect(windowsPackaging).toContain('/releases/download/v0.4.3/');
-    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.3');
-    expect(packageJson.scripts['build:project-cli:macos-arm64']).toContain(
+    expect(packageJson.version).toBe('0.4.4');
+    expect(buildInfo).toContain("const developmentVersion = '0.4.4';");
+    expect(windowsPackaging).toContain("$version = '0.4.4'");
+    expect(windowsPackaging).toContain('/releases/download/v0.4.4/');
+    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.4');
+    expect(packageJson.scripts['build:project-cli:macos-arm64:finalize']).toContain(
       'main.projectMachineClientReleaseID=v$npm_package_version'
     );
-    expect(packageJson.scripts['build:project-cli:macos-arm64']).toContain(
+    expect(packageJson.scripts['build:project-cli:macos-arm64:finalize']).toContain(
       'main.projectMachineClientBuildID=$build_sha'
     );
-    expect(packageJson.scripts['build:project-cli:macos-arm64']).toContain(
+    expect(packageJson.scripts['build:project-cli:macos-arm64:sign']).toContain(
       'test -n "$PROJECT_MACOS_SIGN_KEYCHAIN"'
     );
-    expect(packageJson.scripts['build:project-cli:macos-arm64']).toContain(
+    expect(packageJson.scripts['build:project-cli:macos-arm64:sign']).toContain(
       'codesign --force --keychain "$PROJECT_MACOS_SIGN_KEYCHAIN"'
+    );
+    expect(packageJson.scripts['build:project-cli:macos-arm64']).toBe(
+      'bun run build:project-cli:macos-arm64:unsigned && bun run build:project-cli:macos-arm64:sign && bun run build:project-cli:macos-arm64:finalize'
     );
   });
 
@@ -64,8 +67,9 @@ describe('connector release and production deployment contract', () => {
     expect(workflow).toContain('umask 077');
     expect(workflow).toContain('-passin env:CERTIFICATE_PASSWORD');
     expect(workflow).toContain(
-      'security import "$RUNNER_TEMP/project-space-release.pem" -x -f pemseq -k "$keychain" -T /usr/bin/codesign'
+      'security import "$RUNNER_TEMP/project-space-release.pem" -f pemseq -k "$keychain" -T /usr/bin/codesign'
     );
+    expect(workflow).not.toContain('security import "$RUNNER_TEMP/project-space-release.pem" -x');
     expect(workflow).not.toContain('security import "$RUNNER_TEMP/project-space-release.p12"');
     expect(workflow).not.toContain('-P "$CERTIFICATE_PASSWORD"');
     expect(workflow).toContain(
@@ -80,20 +84,40 @@ describe('connector release and production deployment contract', () => {
     expect(workflow).toContain('"$original_keychains_file" || record_cleanup_failure $?');
     expect(workflow).toContain('exit "$restore_status"');
 
+    const unsignedBuildIndex = workflow.indexOf(
+      'bun run build:project-cli:macos-arm64:unsigned'
+    );
     const snapshotIndex = workflow.indexOf(
       'security list-keychains -d user > "$original_keychains_file"'
+    );
+    const importIndex = workflow.indexOf(
+      'security import "$RUNNER_TEMP/project-space-release.pem" -f pemseq'
     );
     const addIndex = workflow.indexOf(
       'security list-keychains -d user -s "$keychain" "${original_keychains[@]}"'
     );
-    const buildIndex = workflow.indexOf('bun run build:machine-tools:macos-arm64');
+    const signIndex = workflow.indexOf(
+      '--keychain "$PROJECT_MACOS_SIGN_KEYCHAIN"'
+    );
     const restoreIndex = workflow.indexOf(
       'security list-keychains -d user -s "${original_keychains[@]}" || record_cleanup_failure $?'
     );
-    expect(snapshotIndex).toBeGreaterThan(-1);
+    const finalizeIndex = workflow.indexOf(
+      'bun run build:project-cli:macos-arm64:finalize'
+    );
+    expect(unsignedBuildIndex).toBeGreaterThan(-1);
+    expect(snapshotIndex).toBeGreaterThan(unsignedBuildIndex);
+    expect(importIndex).toBeGreaterThan(snapshotIndex);
     expect(addIndex).toBeGreaterThan(snapshotIndex);
-    expect(buildIndex).toBeGreaterThan(addIndex);
-    expect(restoreIndex).toBeGreaterThan(buildIndex);
+    expect(signIndex).toBeGreaterThan(addIndex);
+    expect(restoreIndex).toBeGreaterThan(signIndex);
+    expect(finalizeIndex).toBeGreaterThan(restoreIndex);
+
+    const exposedKeyWindow = workflow.slice(importIndex, restoreIndex);
+    expect(exposedKeyWindow).not.toContain('bun run');
+    expect(exposedKeyWindow).not.toContain('go build');
+    expect(exposedKeyWindow).not.toContain('swiftc');
+    expect(exposedKeyWindow).not.toContain('packaging/macos');
   });
 
   test('deploys the public root and derives the approved release without fetching it', async () => {

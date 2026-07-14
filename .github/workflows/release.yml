@@ -428,6 +428,13 @@ jobs:
           name: connector-runtime-trust-roots
           path: dist
 
+      - name: Build unsigned macOS tools
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          bun run build:connector:macos-arm64
+          bun run build:project-cli:macos-arm64:unsigned
+
       - name: Load macOS signing certificate from 1Password
         if: github.ref_type == 'tag'
         id: signing-secrets
@@ -459,7 +466,8 @@ jobs:
           security create-keychain -p "$keychain_password" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
           security unlock-keychain -p "$keychain_password" "$keychain"
-          security import "$RUNNER_TEMP/project-space-release.pem" -x -f pemseq -k "$keychain" -T /usr/bin/codesign
+          # macOS 15 hosted runners do not implement -x for PEM sequence imports.
+          security import "$RUNNER_TEMP/project-space-release.pem" -f pemseq -k "$keychain" -T /usr/bin/codesign
           rm -f \
             "$RUNNER_TEMP/project-space-release.p12" \
             "$RUNNER_TEMP/project-space-release.pem"
@@ -480,13 +488,21 @@ jobs:
           echo "PROJECT_MACOS_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
           echo "PROJECT_MACOS_SIGN_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
 
-      - name: Build and validate signed macOS bundle
+      - name: Sign and validate macOS approval helper
         if: github.ref_type == 'tag'
         run: |
           set -euo pipefail
-          bun run build:machine-tools:macos-arm64
+          test -n "$PROJECT_MACOS_SIGN_IDENTITY"
+          test -n "$PROJECT_MACOS_SIGN_KEYCHAIN"
+          test -x dist/project-approval-signer
+          codesign --force \
+            --keychain "$PROJECT_MACOS_SIGN_KEYCHAIN" \
+            --sign "$PROJECT_MACOS_SIGN_IDENTITY" \
+            --identifier com.dotnaos.project.approval-signer \
+            --options runtime \
+            --timestamp=none \
+            dist/project-approval-signer
           codesign --verify --strict --test-requirement '=anchor apple generic and certificate leaf[subject.OU] = "R72P4M9WMS" and identifier "com.dotnaos.project.approval-signer"' dist/project-approval-signer
-          shasum -a 256 -c "dist/macos-release/project-space-machine-tools-darwin-arm64-v${VERSION}.tar.gz.sha256"
 
       - name: Remove isolated macOS signing identity
         if: always() && github.ref_type == 'tag'
@@ -520,6 +536,18 @@ jobs:
             "$RUNNER_TEMP/project-space-release.pem" \
             "$original_keychains_file" || record_cleanup_failure $?
           exit "$restore_status"
+
+      - name: Build and validate signed macOS bundle
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          bun run build:project-cli:macos-arm64:finalize
+          SOURCE_DATE_EPOCH=0 packaging/macos/build-machine-tools.sh \
+            "$VERSION" \
+            dist \
+            dist/macos-release
+          codesign --verify --strict --test-requirement '=anchor apple generic and certificate leaf[subject.OU] = "R72P4M9WMS" and identifier "com.dotnaos.project.approval-signer"' dist/project-approval-signer
+          shasum -a 256 -c "dist/macos-release/project-space-machine-tools-darwin-arm64-v${VERSION}.tar.gz.sha256"
 
       - name: Upload release artifacts
         if: github.ref_type == 'tag'
