@@ -185,6 +185,13 @@ describe('connector release and production deployment contract', () => {
     expect(sign).toContain("stat -f '%u'");
     expect(sign).toContain('certificate leaf[subject.OU] = "R72P4M9WMS"');
     expect(sign).toContain('identifier "com.dotnaos.project.approval-signer"');
+    expect(sign).toContain('project-space-release-import.p12');
+    expect(sign).toContain('-passin env:CERTIFICATE_PASSWORD');
+    expect(sign).toContain('-passout "pass:$import_password"');
+    expect(sign).toContain('security import "$import_p12" -f pkcs12');
+    expect(sign).not.toContain('security import "$pem"');
+    expect(sign).not.toContain('-P "$CERTIFICATE_PASSWORD"');
+    expect(sign).not.toContain('-f pemseq');
     expect(sign).toContain('security delete-keychain');
     expect(sign.indexOf('Confirm signing identity cleanup')).toBeLessThan(
       sign.indexOf('Upload signed helper after cleanup')
