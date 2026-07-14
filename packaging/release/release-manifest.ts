@@ -11,6 +11,7 @@ import { basename, join } from 'node:path';
 import {
   canonicalConnectorRuntimeReleaseManifest,
   connectorRuntimeReleaseManifestSchema,
+  isConnectorRuntimeReleaseManifest,
   resolveConnectorRuntimeReleaseArtifact,
   verifyConnectorRuntimeReleaseManifest,
   type ConnectorRuntimeReleaseArtifact,
@@ -34,16 +35,32 @@ export type ReleaseManifestArtifact = ConnectorRuntimeReleaseArtifact;
 export type ReleaseManifest = ConnectorRuntimeReleaseManifest;
 export type SignedReleaseManifest = SignedConnectorRuntimeReleaseManifest;
 
-interface CreateReleaseManifestOptions {
+interface PrepareReleaseManifestOptions {
   artifactsDirectory: string;
-  outputPath: string;
-  privateKey: string;
-  publicKeyOutputPath?: string;
   releaseId: string;
   sourceCommit: string;
   sourceEpoch: number;
   validityDays?: number;
   version: string;
+}
+
+interface CreateReleaseManifestOptions extends PrepareReleaseManifestOptions {
+  outputPath: string;
+  privateKey: string;
+  publicKeyOutputPath?: string;
+}
+
+interface WritePreparedReleaseManifestOptions extends PrepareReleaseManifestOptions {
+  manifestOutputPath: string;
+  payloadOutputPath: string;
+}
+
+interface AssembleSignedReleaseManifestOptions {
+  manifestPath: string;
+  outputPath: string;
+  payloadPath: string;
+  publicKey: string;
+  signaturePath: string;
 }
 
 interface VerifyReleaseManifestOptions {
@@ -146,9 +163,9 @@ function artifactDownloadUrl(releaseId: string, assetName: string) {
   return `https://github.com/DotNaos/project-space/releases/download/${releaseId}/${assetName}`;
 }
 
-export async function createReleaseManifest(
-  options: CreateReleaseManifestOptions
-): Promise<SignedReleaseManifest> {
+export async function prepareReleaseManifest(
+  options: PrepareReleaseManifestOptions
+): Promise<ReleaseManifest> {
   if (
     !semanticVersionPattern.test(options.version) ||
     options.releaseId !== `v${options.version}`
@@ -207,10 +224,61 @@ export async function createReleaseManifest(
     source: 'managed',
     version: options.version
   };
+  return manifest;
+}
+
+export function releaseManifestSigningPayload(manifest: ReleaseManifest) {
+  return canonicalConnectorRuntimeReleaseManifest(manifest);
+}
+
+export async function writePreparedReleaseManifest(
+  options: WritePreparedReleaseManifestOptions
+) {
+  const manifest = await prepareReleaseManifest(options);
+  await Promise.all([
+    writeFile(options.manifestOutputPath, `${canonicalJson(manifest)}\n`, { mode: 0o644 }),
+    writeFile(options.payloadOutputPath, releaseManifestSigningPayload(manifest), {
+      mode: 0o644
+    })
+  ]);
+  return manifest;
+}
+
+export async function assembleSignedReleaseManifest(
+  options: AssembleSignedReleaseManifestOptions
+): Promise<SignedReleaseManifest> {
+  const parsed: unknown = JSON.parse(await readFile(options.manifestPath, 'utf8'));
+  if (!isConnectorRuntimeReleaseManifest(parsed)) {
+    throw new Error('Prepared release manifest is invalid.');
+  }
+  const expectedPayload = Buffer.from(releaseManifestSigningPayload(parsed), 'utf8');
+  const payload = await readFile(options.payloadPath);
+  if (!payload.equals(expectedPayload)) {
+    throw new Error('Prepared release manifest payload does not match the manifest.');
+  }
+  const signatureBytes = await readFile(options.signaturePath);
+  if (signatureBytes.byteLength !== 64) {
+    throw new Error('Release manifest signature must contain exactly 64 bytes.');
+  }
+  const envelope: SignedReleaseManifest = {
+    manifest: parsed,
+    signature: signatureBytes.toString('base64url')
+  };
+  verifyConnectorRuntimeReleaseManifest(envelope, options.publicKey, {
+    now: Date.parse(parsed.issuedAt) + 1_000
+  });
+  await writeFile(options.outputPath, `${canonicalJson(envelope)}\n`, { mode: 0o644 });
+  return envelope;
+}
+
+export async function createReleaseManifest(
+  options: CreateReleaseManifestOptions
+): Promise<SignedReleaseManifest> {
+  const manifest = await prepareReleaseManifest(options);
   const privateKey = releaseKey(options.privateKey);
   const signature = sign(
     null,
-    Buffer.from(canonicalConnectorRuntimeReleaseManifest(manifest), 'utf8'),
+    Buffer.from(releaseManifestSigningPayload(manifest), 'utf8'),
     privateKey
   ).toString('base64url');
   const envelope: SignedReleaseManifest = { manifest, signature };

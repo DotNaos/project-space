@@ -1,0 +1,553 @@
+name: Sign release manifest
+
+on:
+  workflow_call:
+    inputs:
+      source-sha:
+        required: true
+        type: string
+      source-ref:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      prepared-artifact-id:
+        required: true
+        type: string
+      prepared-artifact-digest:
+        required: true
+        type: string
+      prepared-artifact-name:
+        required: true
+        type: string
+      trust-root-artifact-id:
+        required: true
+        type: string
+      trust-root-artifact-digest:
+        required: true
+        type: string
+      trust-root-artifact-name:
+        required: true
+        type: string
+    secrets:
+      OP_SERVICE_ACCOUNT_TOKEN:
+        required: true
+    outputs:
+      artifact-digest:
+        value: ${{ jobs.sign.outputs.artifact-digest }}
+      artifact-id:
+        value: ${{ jobs.sign.outputs.artifact-id }}
+      artifact-name:
+        value: ${{ jobs.sign.outputs.artifact-name }}
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  sign:
+    name: Sign manifest on an isolated runner
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    environment: release-signing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PYTHONNOUSERSITE: '1'
+      PYTHONPATH: ''
+    outputs:
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-name: ${{ steps.metadata.outputs.artifact-name }}
+
+    steps:
+      - name: Validate immutable release provenance
+        id: provenance
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          EXPECTED_REF: ${{ inputs.source-ref }}
+          EXPECTED_SHA: ${{ inputs.source-sha }}
+          EXPECTED_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          PATH: /usr/bin:/bin
+        run: |
+          [[ $EXPECTED_SHA =~ ^[0-9a-f]{40}$ ]]
+          [[ $EXPECTED_VERSION =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ $EXPECTED_REF == "v${EXPECTED_VERSION}" ]]
+          [[ $GITHUB_SHA == "$EXPECTED_SHA" ]]
+          [[ $GITHUB_REF == "refs/tags/${EXPECTED_REF}" ]]
+          [[ $GITHUB_REF_NAME == "$EXPECTED_REF" ]]
+
+          api_root="https://api.github.com/repos/${GITHUB_REPOSITORY}/commits"
+          /usr/bin/curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$api_root/main" > "$RUNNER_TEMP/main-commit.json"
+          /usr/bin/curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$api_root/$EXPECTED_REF" > "$RUNNER_TEMP/tag-commit.json"
+          /usr/bin/python3 -I - \
+            "$RUNNER_TEMP/main-commit.json" \
+            "$RUNNER_TEMP/tag-commit.json" \
+            "$EXPECTED_SHA" \
+            "$GITHUB_OUTPUT" <<'PY'
+          import datetime
+          import json
+          import pathlib
+          import re
+          import sys
+
+          main = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          tag = json.loads(pathlib.Path(sys.argv[2]).read_text())
+          expected_sha = sys.argv[3]
+          if main.get("sha") != expected_sha or tag.get("sha") != expected_sha:
+              raise SystemExit("Release tags must point at the exact current main commit.")
+          source_date = main.get("commit", {}).get("committer", {}).get("date", "")
+          if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", source_date):
+              raise SystemExit("Current main did not expose an exact UTC commit time.")
+          issued = datetime.datetime.fromisoformat(source_date.replace("Z", "+00:00"))
+          now = datetime.datetime.now(datetime.timezone.utc)
+          if issued > now + datetime.timedelta(minutes=5):
+              raise SystemExit("Current main commit time is too far in the future.")
+          issued_at = issued.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+          with pathlib.Path(sys.argv[4]).open("a") as output:
+              output.write(f"issued-at={issued_at}\n")
+          PY
+
+      - name: Validate immutable artifact metadata
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          EXPECTED_SHA: ${{ inputs.source-sha }}
+          GH_TOKEN: ${{ github.token }}
+          PATH: /usr/bin:/bin
+          PREPARED_ID: ${{ inputs.prepared-artifact-id }}
+          PREPARED_DIGEST: ${{ inputs.prepared-artifact-digest }}
+          PREPARED_NAME: ${{ inputs.prepared-artifact-name }}
+          TRUST_ID: ${{ inputs.trust-root-artifact-id }}
+          TRUST_DIGEST: ${{ inputs.trust-root-artifact-digest }}
+          TRUST_NAME: ${{ inputs.trust-root-artifact-name }}
+        run: |
+          validate_artifact() {
+            local artifact_id=$1 expected_digest=$2 expected_name=$3 metadata
+            [[ $artifact_id =~ ^[1-9][0-9]*$ ]]
+            [[ $expected_digest =~ ^[0-9a-f]{64}$ ]]
+            [[ $expected_name =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$ ]]
+            metadata="$RUNNER_TEMP/artifact-${artifact_id}.json"
+            /usr/bin/curl --fail --silent --show-error \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}" \
+              > "$metadata"
+            /usr/bin/python3 -I - "$metadata" "$artifact_id" "$expected_digest" \
+              "$expected_name" "$EXPECTED_SHA" "$GITHUB_RUN_ID" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          value = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          digest = value.get("digest", "")
+          if digest.startswith("sha256:"):
+              digest = digest.removeprefix("sha256:")
+          workflow = value.get("workflow_run") or {}
+          checks = [
+              value.get("id") == int(sys.argv[2]),
+              digest == sys.argv[3],
+              value.get("name") == sys.argv[4],
+              value.get("expired") is False,
+              workflow.get("head_sha") == sys.argv[5],
+              workflow.get("id") == int(sys.argv[6]),
+          ]
+          if not all(checks):
+              raise SystemExit("Release artifact metadata did not match its immutable handoff.")
+          PY
+          }
+          validate_artifact "$PREPARED_ID" "$PREPARED_DIGEST" "$PREPARED_NAME"
+          validate_artifact "$TRUST_ID" "$TRUST_DIGEST" "$TRUST_NAME"
+
+      - name: Download prepared manifest handoff
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ inputs.prepared-artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/prepared-manifest
+
+      - name: Download public trust roots
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ inputs.trust-root-artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/trust-roots
+
+      - name: Validate prepared payload and public roots
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          EXPECTED_ISSUED_AT: ${{ steps.provenance.outputs.issued-at }}
+          EXPECTED_REF: ${{ inputs.source-ref }}
+          EXPECTED_SHA: ${{ inputs.source-sha }}
+          EXPECTED_VERSION: ${{ inputs.version }}
+          PATH: /usr/bin:/bin
+          PREPARED_DIGEST: ${{ inputs.prepared-artifact-digest }}
+          PREPARED_ID: ${{ inputs.prepared-artifact-id }}
+        run: |
+          /usr/bin/python3 -I - \
+            "$RUNNER_TEMP/prepared-manifest" \
+            "$EXPECTED_SHA" "$EXPECTED_REF" "$EXPECTED_VERSION" \
+            "$EXPECTED_ISSUED_AT" <<'PY'
+          import datetime
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import stat
+          import sys
+
+          root = pathlib.Path(sys.argv[1])
+          source_sha, source_ref, version, issued_at = sys.argv[2:]
+          names = sorted(path.name for path in root.iterdir())
+          expected_names = sorted([
+              "RELEASE-MANIFEST-INPUT.txt",
+              "SHA256SUMS.txt",
+              "release-manifest-payload.bin",
+              "release-manifest.json",
+          ])
+          if names != expected_names:
+              raise SystemExit("Prepared manifest handoff has unexpected files.")
+          limits = {
+              "RELEASE-MANIFEST-INPUT.txt": 64 * 1024,
+              "SHA256SUMS.txt": 64 * 1024,
+              "release-manifest-payload.bin": 1024 * 1024,
+              "release-manifest.json": 1024 * 1024,
+          }
+          for path in root.iterdir():
+              details = path.lstat()
+              if (
+                  not stat.S_ISREG(details.st_mode)
+                  or details.st_uid != os.getuid()
+                  or details.st_nlink != 1
+                  or not 0 < details.st_size <= limits[path.name]
+              ):
+                  raise SystemExit("Prepared manifest handoff must contain flat non-empty regular files.")
+
+          manifest_path = root / "release-manifest.json"
+          payload_path = root / "release-manifest-payload.bin"
+          manifest_bytes = manifest_path.read_bytes()
+          payload = payload_path.read_bytes()
+          manifest_hash = hashlib.sha256(manifest_bytes).hexdigest()
+          payload_hash = hashlib.sha256(payload).hexdigest()
+          receipt = (
+              "schema=project-space.release-manifest-input/v1\n"
+              f"source-sha={source_sha}\n"
+              f"source-ref={source_ref}\n"
+              f"version={version}\n"
+              f"release-id={source_ref}\n"
+              f"manifest-sha256={manifest_hash}\n"
+              f"manifest-size={len(manifest_bytes)}\n"
+              f"payload-sha256={payload_hash}\n"
+              f"payload-size={len(payload)}\n"
+          ).encode()
+          if (root / "RELEASE-MANIFEST-INPUT.txt").read_bytes() != receipt:
+              raise SystemExit("Prepared manifest receipt is invalid.")
+          sums = (
+              f"{manifest_hash}  release-manifest.json\n"
+              f"{payload_hash}  release-manifest-payload.bin\n"
+          ).encode()
+          if (root / "SHA256SUMS.txt").read_bytes() != sums:
+              raise SystemExit("Prepared manifest checksums are invalid.")
+
+          manifest = json.loads(manifest_bytes)
+          canonical = json.dumps(
+              manifest, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+          ).encode()
+          if manifest_bytes != canonical + b"\n" or payload != canonical:
+              raise SystemExit("Prepared release manifest is not the exact canonical signing payload.")
+          expected_top = {
+              "artifacts", "buildId", "channel", "expiresAt", "issuedAt",
+              "releaseId", "schema", "source", "version",
+          }
+          if set(manifest) != expected_top:
+              raise SystemExit("Prepared release manifest has unexpected fields.")
+          if (
+              manifest["schema"] != "project-space.connector-runtime-release/v1"
+              or manifest["buildId"] != source_sha
+              or manifest["releaseId"] != source_ref
+              or manifest["version"] != version
+              or manifest["channel"] != "stable"
+              or manifest["source"] != "managed"
+              or manifest["issuedAt"] != issued_at
+          ):
+              raise SystemExit("Prepared release manifest provenance is invalid.")
+          issued = datetime.datetime.fromisoformat(issued_at.replace("Z", "+00:00"))
+          expected_expiry = (issued + datetime.timedelta(days=365)).isoformat(
+              timespec="milliseconds"
+          ).replace("+00:00", "Z")
+          if manifest["expiresAt"] != expected_expiry:
+              raise SystemExit("Prepared release manifest validity is invalid.")
+
+          artifact_names = {
+              "darwin-arm64": f"project-space-machine-tools-darwin-arm64-v{version}.tar.gz",
+              "linux-x64": f"project-space-machine-tools-linux-x64-v{version}.tar.gz",
+              "windows-x64": "project-space-machine-tools-windows-x64-setup.exe",
+          }
+          expected_targets = ["darwin-arm64", "linux-x64", "windows-x64"]
+          artifacts = manifest["artifacts"]
+          if not isinstance(artifacts, list) or [item.get("target") for item in artifacts] != expected_targets:
+              raise SystemExit("Prepared release manifest targets are invalid.")
+          artifact_keys = {
+              "assetName", "bundleVersions", "capabilities", "downloadUrl",
+              "protocolVersion", "sha256", "sizeBytes", "target",
+          }
+          for artifact in artifacts:
+              target = artifact["target"]
+              asset = artifact_names[target]
+              capabilities = [] if target == "windows-x64" else ["runtime.restart", "runtime.update"]
+              if (
+                  set(artifact) != artifact_keys
+                  or artifact["assetName"] != asset
+                  or artifact["downloadUrl"] != f"https://github.com/DotNaos/project-space/releases/download/{source_ref}/{asset}"
+                  or artifact["protocolVersion"] != "2"
+                  or artifact["capabilities"] != capabilities
+                  or artifact["bundleVersions"] != {
+                      "connector": version, "machineTools": version, "projectCli": version
+                  }
+                  or not re.fullmatch(r"[0-9a-f]{64}", artifact["sha256"])
+                  or type(artifact["sizeBytes"]) is not int
+                  or not 0 < artifact["sizeBytes"] <= 2 * 1024 * 1024 * 1024
+              ):
+                  raise SystemExit(f"Prepared release manifest target {target} is invalid.")
+          PY
+
+          trust_root="$RUNNER_TEMP/trust-roots"
+          expected_roots=$'connector-command-signing-public-key.pem\nrelease-manifest-signing-public-key.pem'
+          actual_roots=$(/usr/bin/find "$trust_root" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C /usr/bin/sort)
+          [[ $actual_roots == "$expected_roots" ]]
+          [[ -z $(/usr/bin/find "$trust_root" -mindepth 1 \( -type l -o ! -type f \) -print -quit) ]]
+          runner_uid=$(/usr/bin/id -u)
+          for root_file in "$trust_root"/*.pem; do
+            [[ $(/usr/bin/stat --format='%u' "$root_file") == "$runner_uid" ]]
+            [[ $(/usr/bin/stat --format='%h' "$root_file") == 1 ]]
+            root_size=$(/usr/bin/stat --format='%s' "$root_file")
+            (( root_size > 0 && root_size <= 65536 ))
+          done
+          /usr/bin/openssl pkey -pubin -in "$trust_root/connector-command-signing-public-key.pem" -noout
+          /usr/bin/openssl pkey -pubin -in "$trust_root/release-manifest-signing-public-key.pem" -noout
+          [[ $(/usr/bin/sha256sum "$trust_root/connector-command-signing-public-key.pem" | /usr/bin/cut -d ' ' -f 1) == 502f8b9dbbabec58aa8d2c794c7c052d5974215e2180f9e47ed4d7cff4ee45c1 ]]
+          [[ $(/usr/bin/sha256sum "$trust_root/release-manifest-signing-public-key.pem" | /usr/bin/cut -d ' ' -f 1) == aff71d44e194f87e7e958296306059d3d5b55d7c369963b61d57627e03f4a451 ]]
+
+      - name: Revalidate current main before key access
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          EXPECTED_REF: ${{ inputs.source-ref }}
+          EXPECTED_SHA: ${{ inputs.source-sha }}
+          GH_TOKEN: ${{ github.token }}
+          PATH: /usr/bin:/bin
+        run: |
+          for ref in "$EXPECTED_REF" main; do
+            actual=$(/usr/bin/curl --fail --silent --show-error \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${ref}" | \
+              /usr/bin/python3 -I -c 'import json,sys; print(json.load(sys.stdin)["sha"])')
+            [[ $actual == "$EXPECTED_SHA" ]] || {
+              /usr/bin/printf 'Release provenance changed before signing.\n' >&2
+              exit 65
+            }
+          done
+
+      - name: Load dedicated release manifest signing key
+        id: manifest-secrets
+        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
+        with:
+          export-env: false
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64: op://projects/project-space-release-manifest-signing-key/private_key_b64
+
+      - name: Sign the exact prepared payload
+        id: signature
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          EXPECTED_REF: ${{ inputs.source-ref }}
+          EXPECTED_SHA: ${{ inputs.source-sha }}
+          EXPECTED_VERSION: ${{ inputs.version }}
+          PATH: /usr/bin:/bin
+          PREPARED_DIGEST: ${{ inputs.prepared-artifact-digest }}
+          PREPARED_ID: ${{ inputs.prepared-artifact-id }}
+          PRIVATE_KEY_B64: ${{ steps.manifest-secrets.outputs.PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64 }}
+        run: |
+          private_key="$RUNNER_TEMP/release-manifest-signing-private-key.pem"
+          derived_public="$RUNNER_TEMP/release-manifest-signing-derived-public-key.pem"
+          expected_der="$RUNNER_TEMP/release-manifest-signing-expected-public-key.der"
+          derived_der="$RUNNER_TEMP/release-manifest-signing-derived-public-key.der"
+          payload="$RUNNER_TEMP/prepared-manifest/release-manifest-payload.bin"
+          output="$RUNNER_TEMP/release-manifest-signature"
+          signature="$output/release-manifest-signature.bin"
+          cleanup_private_material() {
+            /bin/rm -f "$private_key" "$derived_public" "$expected_der" "$derived_der"
+          }
+          trap cleanup_private_material EXIT INT TERM HUP
+          umask 077
+          /bin/rm -rf "$output"
+          /bin/mkdir -p "$output"
+          /usr/bin/printf '%s' "$PRIVATE_KEY_B64" | /usr/bin/base64 --decode > "$private_key"
+          runner_uid=$(/usr/bin/id -u)
+          [[ $(/usr/bin/stat --format='%u' "$private_key") == "$runner_uid" ]]
+          [[ $(/usr/bin/stat --format='%h' "$private_key") == 1 ]]
+          private_size=$(/usr/bin/stat --format='%s' "$private_key")
+          (( private_size > 0 && private_size <= 65536 ))
+          /usr/bin/openssl pkey -in "$private_key" -check -noout
+          /usr/bin/openssl pkey -in "$private_key" -pubout -out "$derived_public"
+          /usr/bin/openssl pkey -pubin \
+            -in "$RUNNER_TEMP/trust-roots/release-manifest-signing-public-key.pem" \
+            -outform DER -out "$expected_der"
+          /usr/bin/openssl pkey -pubin -in "$derived_public" -outform DER -out "$derived_der"
+          /usr/bin/cmp "$expected_der" "$derived_der"
+          /usr/bin/openssl pkeyutl -sign -rawin -inkey "$private_key" \
+            -in "$payload" -out "$signature"
+          [[ $(/usr/bin/stat --format='%s' "$signature") == 64 ]]
+          /usr/bin/openssl pkeyutl -verify -pubin \
+            -inkey "$RUNNER_TEMP/trust-roots/release-manifest-signing-public-key.pem" \
+            -rawin -in "$payload" -sigfile "$signature"
+
+          payload_hash=$(/usr/bin/sha256sum "$payload" | /usr/bin/cut -d ' ' -f 1)
+          signature_hash=$(/usr/bin/sha256sum "$signature" | /usr/bin/cut -d ' ' -f 1)
+          /usr/bin/printf '%s\n' \
+            'schema=project-space.release-manifest-signature/v1' \
+            "source-sha=$EXPECTED_SHA" \
+            "source-ref=$EXPECTED_REF" \
+            "version=$EXPECTED_VERSION" \
+            "release-id=$EXPECTED_REF" \
+            "prepared-artifact-id=$PREPARED_ID" \
+            "prepared-artifact-digest=$PREPARED_DIGEST" \
+            "payload-sha256=$payload_hash" \
+            "signature-sha256=$signature_hash" \
+            'signature-size=64' \
+            > "$output/RELEASE-MANIFEST-SIGNATURE.txt"
+          (
+            cd "$output"
+            /usr/bin/sha256sum \
+              release-manifest-signature.bin \
+              RELEASE-MANIFEST-SIGNATURE.txt \
+              > SHA256SUMS.txt
+          )
+          /bin/chmod 0644 "$output"/*
+
+      - name: Remove dedicated signing key material
+        if: always()
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          PATH: /usr/bin:/bin
+        run: |
+          status=0
+          for path in \
+            "$RUNNER_TEMP/release-manifest-signing-private-key.pem" \
+            "$RUNNER_TEMP/release-manifest-signing-derived-public-key.pem" \
+            "$RUNNER_TEMP/release-manifest-signing-expected-public-key.der" \
+            "$RUNNER_TEMP/release-manifest-signing-derived-public-key.der"; do
+            /bin/rm -f "$path" || status=$?
+            [[ ! -e $path ]] || status=1
+          done
+          exit "$status"
+
+      - name: Validate signed handoff after key cleanup
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          EXPECTED_REF: ${{ inputs.source-ref }}
+          EXPECTED_SHA: ${{ inputs.source-sha }}
+          EXPECTED_VERSION: ${{ inputs.version }}
+          PATH: /usr/bin:/bin
+          PREPARED_DIGEST: ${{ inputs.prepared-artifact-digest }}
+          PREPARED_ID: ${{ inputs.prepared-artifact-id }}
+        run: |
+          /usr/bin/python3 -I - "$RUNNER_TEMP/release-manifest-signature" \
+            "$RUNNER_TEMP/prepared-manifest/release-manifest-payload.bin" \
+            "$EXPECTED_SHA" "$EXPECTED_REF" "$EXPECTED_VERSION" \
+            "$PREPARED_ID" "$PREPARED_DIGEST" <<'PY'
+          import hashlib
+          import os
+          import pathlib
+          import stat
+          import sys
+
+          root = pathlib.Path(sys.argv[1])
+          payload = pathlib.Path(sys.argv[2]).read_bytes()
+          source_sha, source_ref, version, prepared_id, prepared_digest = sys.argv[3:]
+          names = sorted(path.name for path in root.iterdir())
+          expected = sorted([
+              "RELEASE-MANIFEST-SIGNATURE.txt",
+              "SHA256SUMS.txt",
+              "release-manifest-signature.bin",
+          ])
+          if names != expected:
+              raise SystemExit("Signed manifest handoff has unexpected files.")
+          limits = {
+              "RELEASE-MANIFEST-SIGNATURE.txt": 64 * 1024,
+              "SHA256SUMS.txt": 64 * 1024,
+              "release-manifest-signature.bin": 64,
+          }
+          for path in root.iterdir():
+              details = path.lstat()
+              if (
+                  not stat.S_ISREG(details.st_mode)
+                  or details.st_uid != os.getuid()
+                  or details.st_nlink != 1
+                  or not 0 < details.st_size <= limits[path.name]
+              ):
+                  raise SystemExit("Signed manifest handoff must contain flat non-empty regular files.")
+          signature = (root / "release-manifest-signature.bin").read_bytes()
+          if len(signature) != 64:
+              raise SystemExit("Release manifest signature must contain exactly 64 bytes.")
+          payload_hash = hashlib.sha256(payload).hexdigest()
+          signature_hash = hashlib.sha256(signature).hexdigest()
+          receipt = (
+              "schema=project-space.release-manifest-signature/v1\n"
+              f"source-sha={source_sha}\n"
+              f"source-ref={source_ref}\n"
+              f"version={version}\n"
+              f"release-id={source_ref}\n"
+              f"prepared-artifact-id={prepared_id}\n"
+              f"prepared-artifact-digest={prepared_digest}\n"
+              f"payload-sha256={payload_hash}\n"
+              f"signature-sha256={signature_hash}\n"
+              "signature-size=64\n"
+          ).encode()
+          if (root / "RELEASE-MANIFEST-SIGNATURE.txt").read_bytes() != receipt:
+              raise SystemExit("Signed manifest receipt is invalid.")
+          receipt_hash = hashlib.sha256(receipt).hexdigest()
+          sums = (
+              f"{signature_hash}  release-manifest-signature.bin\n"
+              f"{receipt_hash}  RELEASE-MANIFEST-SIGNATURE.txt\n"
+          ).encode()
+          if (root / "SHA256SUMS.txt").read_bytes() != sums:
+              raise SystemExit("Signed manifest checksums are invalid.")
+          PY
+
+      - name: Resolve signed artifact name
+        id: metadata
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          PATH: /usr/bin:/bin
+        run: |
+          /usr/bin/printf 'artifact-name=%s\n' \
+            "project-space-release-manifest-signature-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Upload signed manifest handoff
+        id: upload
+        if: ${{ success() && steps.signature.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.metadata.outputs.artifact-name }}
+          if-no-files-found: error
+          overwrite: false
+          path: ${{ runner.temp }}/release-manifest-signature/*
+          retention-days: 7

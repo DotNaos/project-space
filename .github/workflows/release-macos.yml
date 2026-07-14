@@ -1,0 +1,620 @@
+name: Isolated macOS release
+
+on:
+  workflow_call:
+    inputs:
+      source-sha:
+        description: Exact source commit to build and bind into every artifact.
+        required: true
+        type: string
+      version:
+        description: Semantic release version without the v prefix.
+        required: true
+        type: string
+      trust-artifact-id:
+        description: Immutable Actions artifact ID containing the public trust roots.
+        required: true
+        type: string
+      trust-artifact-digest:
+        description: GitHub-recorded SHA-256 digest for the trust-root artifact.
+        required: true
+        type: string
+      trust-artifact-name:
+        description: Fixed trust-root artifact name.
+        required: true
+        type: string
+    secrets:
+      OP_SERVICE_ACCOUNT_TOKEN:
+        description: Read-only 1Password service account token for release signing.
+        required: true
+    outputs:
+      artifact-id:
+        description: Immutable ID of the final macOS release artifact.
+        value: ${{ jobs.package.outputs.artifact-id }}
+      artifact-digest:
+        description: GitHub-recorded SHA-256 digest of the final artifact.
+        value: ${{ jobs.package.outputs.artifact-digest }}
+      artifact-name:
+        description: Deterministic final artifact name.
+        value: ${{ jobs.package.outputs.artifact-name }}
+      version:
+        description: Validated release version.
+        value: ${{ jobs.package.outputs.version }}
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  unsigned:
+    name: Build unsigned macOS arm64 tools
+    runs-on: macos-15
+    timeout-minutes: 30
+    outputs:
+      runtime-artifact-id: ${{ steps.upload-runtime.outputs.artifact-id }}
+      runtime-artifact-digest: ${{ steps.upload-runtime.outputs.artifact-digest }}
+      runtime-artifact-name: ${{ steps.contract.outputs.runtime-artifact-name }}
+      signing-artifact-id: ${{ steps.upload-signing.outputs.artifact-id }}
+      signing-artifact-digest: ${{ steps.upload-signing.outputs.artifact-digest }}
+      signing-artifact-name: ${{ steps.contract.outputs.signing-artifact-name }}
+      version: ${{ steps.contract.outputs.version }}
+
+    steps:
+      - name: Validate release contract
+        id: contract
+        shell: bash
+        env:
+          RELEASE_SOURCE_SHA: ${{ inputs.source-sha }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_REF_NAME: ${{ github.ref_name }}
+          RELEASE_REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          [[ $RELEASE_SOURCE_SHA =~ ^[0-9a-f]{40}$ ]]
+          [[ $RELEASE_SOURCE_SHA == "$GITHUB_SHA" ]]
+          [[ $RELEASE_VERSION =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          if [[ $RELEASE_REF_TYPE == tag ]]; then
+            [[ $RELEASE_REF_NAME == "v${RELEASE_VERSION}" ]]
+          fi
+          runtime_name="project-space-macos-runtime-v${RELEASE_VERSION}-${RELEASE_SOURCE_SHA}"
+          signing_name="project-space-macos-signing-input-v${RELEASE_VERSION}-${RELEASE_SOURCE_SHA}"
+          echo "runtime-artifact-name=$runtime_name" >> "$GITHUB_OUTPUT"
+          echo "signing-artifact-name=$signing_name" >> "$GITHUB_OUTPUT"
+          echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check out exact source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ inputs.source-sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify checked-out source and version
+        env:
+          RELEASE_SOURCE_SHA: ${{ inputs.source-sha }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ $(git rev-parse HEAD) == "$RELEASE_SOURCE_SHA" ]]
+          package_version=$(awk -F '"' '/"version"/ { print $4; exit }' package.json)
+          [[ $package_version == "$RELEASE_VERSION" ]]
+          [[ $(uname -m) == arm64 ]]
+          bash -n packaging/macos/*.sh
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build unsigned arm64 executables
+        run: |
+          set -euo pipefail
+          bun packaging/release/build-connector.ts \
+            bun-darwin-arm64 \
+            dist/project-space-connector
+          swiftc -parse-as-library \
+            internal/approvalsigner/native/ProjectApprovalSigner.swift \
+            -o dist/project-approval-signer
+          bash packaging/macos/prepare-unsigned-release-artifact.sh \
+            '${{ inputs.version }}' \
+            '${{ inputs.source-sha }}' \
+            dist/project-space-connector \
+            dist/project-approval-signer \
+            "$RUNNER_TEMP/project-space-macos-runtime" \
+            "$RUNNER_TEMP/project-space-macos-signing-input"
+
+      - name: Upload immutable unsigned runtime
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        id: upload-runtime
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.contract.outputs.runtime-artifact-name }}
+          path: ${{ runner.temp }}/project-space-macos-runtime/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+      - name: Upload immutable signing input
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        id: upload-signing
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.contract.outputs.signing-artifact-name }}
+          path: ${{ runner.temp }}/project-space-macos-signing-input/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  sign:
+    name: Sign macOS approval helper in isolation
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: unsigned
+    runs-on: macos-15
+    timeout-minutes: 15
+    environment: release-signing
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+      artifact-name: ${{ steps.contract.outputs.artifact-name }}
+
+    steps:
+      - name: Validate current-main and artifact provenance
+        id: contract
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+          PATH: /usr/bin:/bin
+          RELEASE_SOURCE_SHA: ${{ inputs.source-sha }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          SIGNING_INPUT_ARTIFACT_ID: ${{ needs.unsigned.outputs.signing-artifact-id }}
+          SIGNING_INPUT_ARTIFACT_DIGEST: ${{ needs.unsigned.outputs.signing-artifact-digest }}
+          SIGNING_INPUT_ARTIFACT_NAME: ${{ needs.unsigned.outputs.signing-artifact-name }}
+        run: |
+          [[ $DEFAULT_BRANCH == main ]]
+          [[ $RELEASE_SOURCE_SHA =~ ^[0-9a-f]{40}$ ]]
+          [[ $RELEASE_SOURCE_SHA == "$GITHUB_SHA" ]]
+          [[ $RELEASE_VERSION =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ $GITHUB_REF_NAME == "v${RELEASE_VERSION}" ]]
+          [[ $GITHUB_REF == "refs/tags/v${RELEASE_VERSION}" ]]
+          [[ $SIGNING_INPUT_ARTIFACT_ID =~ ^[1-9][0-9]*$ ]]
+          [[ $SIGNING_INPUT_ARTIFACT_DIGEST =~ ^[0-9a-f]{64}$ ]]
+          expected_signing_name="project-space-macos-signing-input-v${RELEASE_VERSION}-${RELEASE_SOURCE_SHA}"
+          [[ $SIGNING_INPUT_ARTIFACT_NAME == "$expected_signing_name" ]]
+
+          api_config="$RUNNER_TEMP/project-space-github-api-config"
+          main_metadata="$RUNNER_TEMP/project-space-main-commit.json"
+          tag_metadata="$RUNNER_TEMP/project-space-tag-commit.json"
+          artifact_metadata="$RUNNER_TEMP/project-space-signing-input-artifact.json"
+          trap '/bin/rm -f "$api_config" "$main_metadata" "$tag_metadata" "$artifact_metadata"' EXIT
+          umask 077
+          /usr/bin/printf '%s\n' \
+            'header = "Accept: application/vnd.github+json"' \
+            "header = \"Authorization: Bearer ${GH_TOKEN}\"" \
+            'header = "X-GitHub-Api-Version: 2022-11-28"' > "$api_config"
+          /usr/bin/curl --config "$api_config" --fail --location --silent --show-error \
+            --output "$main_metadata" \
+            --url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/main"
+          /usr/bin/curl --config "$api_config" --fail --location --silent --show-error \
+            --output "$tag_metadata" \
+            --url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$GITHUB_REF_NAME"
+          current_main_sha=$(/usr/bin/plutil -extract sha raw -o - "$main_metadata")
+          current_tag_sha=$(/usr/bin/plutil -extract sha raw -o - "$tag_metadata")
+          [[ $current_main_sha == "$RELEASE_SOURCE_SHA" ]]
+          [[ $current_tag_sha == "$RELEASE_SOURCE_SHA" ]]
+          /usr/bin/curl --config "$api_config" --fail --location --silent --show-error \
+            --output "$artifact_metadata" \
+            --url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/$SIGNING_INPUT_ARTIFACT_ID"
+          [[ $(/usr/bin/plutil -extract id raw -o - "$artifact_metadata") == "$SIGNING_INPUT_ARTIFACT_ID" ]]
+          [[ $(/usr/bin/plutil -extract name raw -o - "$artifact_metadata") == "$SIGNING_INPUT_ARTIFACT_NAME" ]]
+          artifact_digest=$(/usr/bin/plutil -extract digest raw -o - "$artifact_metadata")
+          artifact_digest=${artifact_digest#sha256:}
+          [[ $artifact_digest == "$SIGNING_INPUT_ARTIFACT_DIGEST" ]]
+          [[ $(/usr/bin/plutil -extract expired raw -o - "$artifact_metadata") == false ]]
+          [[ $(/usr/bin/plutil -extract workflow_run.id raw -o - "$artifact_metadata") == "$GITHUB_RUN_ID" ]]
+          [[ $(/usr/bin/plutil -extract workflow_run.head_sha raw -o - "$artifact_metadata") == "$RELEASE_SOURCE_SHA" ]]
+
+          signed_name="project-space-macos-signed-helper-v${RELEASE_VERSION}-${RELEASE_SOURCE_SHA}"
+          echo "artifact-name=$signed_name" >> "$GITHUB_OUTPUT"
+
+      - name: Download exact signing-input artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.unsigned.outputs.signing-artifact-id }}
+          path: ${{ runner.temp }}/project-space-macos-signing-input
+          merge-multiple: true
+
+      - name: Verify fixed signing input before loading secrets
+        id: signing-input
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          PATH: /usr/bin:/bin
+          RELEASE_SOURCE_SHA: ${{ inputs.source-sha }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          signing_input="$RUNNER_TEMP/project-space-macos-signing-input"
+          expected="$RUNNER_TEMP/project-space-expected-signing-input"
+          trap '/bin/rm -f "$expected" "$expected.checksums"' EXIT
+          [[ -d $signing_input && ! -L $signing_input ]]
+          entry_count=$(/usr/bin/find "$signing_input" -mindepth 1 -maxdepth 1 -print | /usr/bin/wc -l)
+          entry_count=${entry_count//[[:space:]]/}
+          [[ $entry_count == 3 ]]
+          [[ -z $(/usr/bin/find "$signing_input" -mindepth 2 -print -quit) ]]
+          current_uid=$(/usr/bin/id -u)
+          assert_safe_file() {
+            local path=$1 maximum_size=$2 size
+            [[ -f $path && ! -L $path ]]
+            [[ $(/usr/bin/stat -f '%l' "$path") == 1 ]]
+            [[ $(/usr/bin/stat -f '%u' "$path") == "$current_uid" ]]
+            size=$(/usr/bin/stat -f '%z' "$path")
+            [[ $size =~ ^[1-9][0-9]*$ && $size -le $maximum_size ]]
+          }
+          assert_safe_file "$signing_input/project-approval-signer" 20971520
+          assert_safe_file "$signing_input/SIGNING-INPUT-RECEIPT.txt" 4096
+          assert_safe_file "$signing_input/SHA256SUMS.txt" 4096
+          signer_sha=$(/usr/bin/shasum -a 256 "$signing_input/project-approval-signer")
+          signer_sha=${signer_sha%% *}
+          [[ $signer_sha =~ ^[0-9a-f]{64}$ ]]
+          /usr/bin/printf '%s\n' \
+            'schema=project-space-macos-signing-input-v1' \
+            "source_sha=$RELEASE_SOURCE_SHA" \
+            "version=$RELEASE_VERSION" \
+            "approval_signer_sha256=$signer_sha" > "$expected"
+          /usr/bin/cmp "$expected" "$signing_input/SIGNING-INPUT-RECEIPT.txt"
+          receipt_sha=$(/usr/bin/shasum -a 256 "$signing_input/SIGNING-INPUT-RECEIPT.txt")
+          receipt_sha=${receipt_sha%% *}
+          /usr/bin/printf '%s  %s\n' \
+            "$signer_sha" project-approval-signer \
+            "$receipt_sha" SIGNING-INPUT-RECEIPT.txt > "$expected.checksums"
+          /usr/bin/cmp "$expected.checksums" "$signing_input/SHA256SUMS.txt"
+          (cd "$signing_input" && /usr/bin/shasum -a 256 -c SHA256SUMS.txt)
+          [[ $(/usr/bin/file -b "$signing_input/project-approval-signer") == *"Mach-O 64-bit executable arm64"* ]]
+          echo "signer-sha=$signer_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Load macOS signing certificate from 1Password
+        id: signing-secrets
+        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          MACOS_SIGNING_CERTIFICATE_P12_B64: op://projects/Project Space macOS Release Signing/certificate_p12_b64
+          MACOS_SIGNING_CERTIFICATE_PASSWORD: op://projects/Project Space macOS Release Signing/password
+
+      - name: Sign, verify, receipt, and remove identity
+        id: signing
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          CERTIFICATE_P12_B64: ${{ steps.signing-secrets.outputs.MACOS_SIGNING_CERTIFICATE_P12_B64 }}
+          CERTIFICATE_PASSWORD: ${{ steps.signing-secrets.outputs.MACOS_SIGNING_CERTIFICATE_PASSWORD }}
+          PATH: /usr/bin:/bin
+          RELEASE_SOURCE_SHA: ${{ inputs.source-sha }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          SIGNING_INPUT_ARTIFACT_ID: ${{ needs.unsigned.outputs.signing-artifact-id }}
+          SIGNING_INPUT_ARTIFACT_DIGEST: ${{ needs.unsigned.outputs.signing-artifact-digest }}
+          UNSIGNED_SIGNER_SHA: ${{ steps.signing-input.outputs.signer-sha }}
+        run: |
+          keychain="$RUNNER_TEMP/project-space-release.keychain-db"
+          keychain_snapshot="$RUNNER_TEMP/project-space-original-user-keychains"
+          p12="$RUNNER_TEMP/project-space-release.p12"
+          pem="$RUNNER_TEMP/project-space-release.pem"
+          signed="$RUNNER_TEMP/project-space-macos-signed"
+          cleanup() {
+            local operation_status=$?
+            local cleanup_status=0
+            trap - EXIT INT TERM HUP
+            set +e
+            if [[ -f $keychain_snapshot ]]; then
+              local original_keychains=()
+              local line
+              while IFS= read -r line; do
+                line="${line#*\"}"
+                line="${line%\"*}"
+                [[ -n $line ]] && original_keychains+=("$line")
+              done < "$keychain_snapshot"
+              if (( ${#original_keychains[@]} > 0 )); then
+                /usr/bin/security list-keychains -d user -s "${original_keychains[@]}" || cleanup_status=$?
+              else
+                /usr/bin/security list-keychains -d user -s || cleanup_status=$?
+              fi
+              (( cleanup_status != 0 )) || /bin/rm -f "$keychain_snapshot" || cleanup_status=$?
+            fi
+            if [[ -e $keychain ]]; then
+              /usr/bin/security delete-keychain "$keychain" || cleanup_status=$?
+            fi
+            /bin/rm -f "$p12" "$pem" || cleanup_status=$?
+            if (( operation_status != 0 )); then
+              exit "$operation_status"
+            fi
+            exit "$cleanup_status"
+          }
+          trap cleanup EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+          trap 'exit 129' HUP
+
+          umask 077
+          [[ $(/usr/bin/uname -m) == arm64 ]]
+          [[ ! -e $signed && ! -e $keychain ]]
+          source_signer="$RUNNER_TEMP/project-space-macos-signing-input/project-approval-signer"
+          [[ -f $source_signer && ! -L $source_signer ]]
+          [[ $(/usr/bin/stat -f '%l' "$source_signer") == 1 ]]
+          [[ $(/usr/bin/stat -f '%u' "$source_signer") == "$(/usr/bin/id -u)" ]]
+          source_size=$(/usr/bin/stat -f '%z' "$source_signer")
+          [[ $source_size =~ ^[1-9][0-9]*$ && $source_size -le 20971520 ]]
+          source_sha=$(/usr/bin/shasum -a 256 "$source_signer")
+          source_sha=${source_sha%% *}
+          [[ $source_sha == "$UNSIGNED_SIGNER_SHA" ]]
+          /bin/mkdir -m 0700 "$signed"
+          /bin/cp "$source_signer" "$signed/project-approval-signer"
+          /bin/chmod 0755 "$signed/project-approval-signer"
+          copied_sha=$(/usr/bin/shasum -a 256 "$signed/project-approval-signer")
+          copied_sha=${copied_sha%% *}
+          [[ $copied_sha == "$UNSIGNED_SIGNER_SHA" ]]
+          /usr/bin/security list-keychains -d user > "$keychain_snapshot"
+          /usr/bin/printf '%s' "$CERTIFICATE_P12_B64" | /usr/bin/base64 -D > "$p12"
+          /usr/bin/openssl pkcs12 -in "$p12" -passin env:CERTIFICATE_PASSWORD \
+            -nodes -out "$pem"
+          keychain_password=$(/usr/bin/openssl rand -hex 32)
+          /usr/bin/security create-keychain -p "$keychain_password" "$keychain"
+          /usr/bin/security set-keychain-settings -lut 900 "$keychain"
+          /usr/bin/security unlock-keychain -p "$keychain_password" "$keychain"
+          /usr/bin/security import "$pem" -f pemseq -k "$keychain" -T /usr/bin/codesign
+          /bin/rm -f "$p12" "$pem"
+          /usr/bin/security set-key-partition-list -S apple-tool:,apple: -s \
+            -k "$keychain_password" "$keychain"
+          identity=''
+          identity_count=0
+          while IFS= read -r line; do
+            if [[ $line =~ ([0-9A-F]{40}) ]]; then
+              identity=${BASH_REMATCH[1]}
+              identity_count=$((identity_count + 1))
+            fi
+          done < <(/usr/bin/security find-identity -v -p codesigning "$keychain")
+          [[ $identity_count == 1 && $identity =~ ^[0-9A-F]{40}$ ]]
+          original_keychains=()
+          while IFS= read -r line; do
+            line="${line#*\"}"
+            line="${line%\"*}"
+            [[ -n $line ]] && original_keychains+=("$line")
+          done < "$keychain_snapshot"
+          /usr/bin/security list-keychains -d user -s "$keychain" "${original_keychains[@]}"
+
+          requirement='=anchor apple generic and certificate leaf[subject.OU] = "R72P4M9WMS" and identifier "com.dotnaos.project.approval-signer"'
+          /usr/bin/codesign --force --keychain "$keychain" --sign "$identity" \
+            --identifier com.dotnaos.project.approval-signer \
+            --options runtime --timestamp=none "$signed/project-approval-signer"
+          /usr/bin/codesign --verify --strict --test-requirement "$requirement" \
+            "$signed/project-approval-signer"
+          signed_sha=$(/usr/bin/shasum -a 256 "$signed/project-approval-signer")
+          signed_sha=${signed_sha%% *}
+          requirement_sha=$(/usr/bin/printf '%s' "$requirement" | /usr/bin/shasum -a 256)
+          requirement_sha=${requirement_sha%% *}
+          /usr/bin/printf '%s\n' \
+            'schema=project-space-macos-signed-v1' \
+            "source_sha=$RELEASE_SOURCE_SHA" \
+            "version=$RELEASE_VERSION" \
+            "workflow_run_id=$GITHUB_RUN_ID" \
+            "signing_input_artifact_id=$SIGNING_INPUT_ARTIFACT_ID" \
+            "signing_input_artifact_digest=$SIGNING_INPUT_ARTIFACT_DIGEST" \
+            "unsigned_approval_signer_sha256=$UNSIGNED_SIGNER_SHA" \
+            "signed_approval_signer_sha256=$signed_sha" \
+            "signing_requirement_sha256=$requirement_sha" \
+            > "$signed/SIGNED-RECEIPT.txt"
+          receipt_sha=$(/usr/bin/shasum -a 256 "$signed/SIGNED-RECEIPT.txt")
+          receipt_sha=${receipt_sha%% *}
+          /usr/bin/printf '%s  %s\n' \
+            "$signed_sha" project-approval-signer \
+            "$receipt_sha" SIGNED-RECEIPT.txt \
+            > "$signed/SHA256SUMS.txt"
+          echo "signed-sha=$signed_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Confirm signing identity cleanup
+        if: always() && github.event_name == 'push' && github.ref_type == 'tag'
+        shell: /bin/bash --noprofile --norc {0}
+        env:
+          BASH_ENV: /dev/null
+          PATH: /usr/bin:/bin
+        run: |
+          set +e
+          keychain="$RUNNER_TEMP/project-space-release.keychain-db"
+          keychain_snapshot="$RUNNER_TEMP/project-space-original-user-keychains"
+          cleanup_status=0
+          if [[ -f $keychain_snapshot ]]; then
+            original_keychains=()
+            while IFS= read -r line; do
+              line="${line#*\"}"
+              line="${line%\"*}"
+              [[ -n $line ]] && original_keychains+=("$line")
+            done < "$keychain_snapshot"
+            if (( ${#original_keychains[@]} > 0 )); then
+              /usr/bin/security list-keychains -d user -s "${original_keychains[@]}" || cleanup_status=$?
+            else
+              /usr/bin/security list-keychains -d user -s || cleanup_status=$?
+            fi
+            (( cleanup_status != 0 )) || /bin/rm -f "$keychain_snapshot" || cleanup_status=$?
+          fi
+          if [[ -e $keychain ]]; then
+            /usr/bin/security delete-keychain "$keychain" || cleanup_status=$?
+          fi
+          /bin/rm -f \
+            "$RUNNER_TEMP/project-space-release.p12" \
+            "$RUNNER_TEMP/project-space-release.pem" || cleanup_status=$?
+          while IFS= read -r line; do
+            line="${line#*\"}"
+            line="${line%\"*}"
+            [[ $line != "$keychain" ]] || cleanup_status=1
+          done < <(/usr/bin/security list-keychains -d user)
+          [[ ! -e $keychain && ! -e $RUNNER_TEMP/project-space-release.p12 && ! -e $RUNNER_TEMP/project-space-release.pem ]] || cleanup_status=1
+          exit "$cleanup_status"
+
+      - name: Upload signed helper after cleanup
+        if: success() && github.event_name == 'push' && github.ref_type == 'tag'
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.contract.outputs.artifact-name }}
+          path: ${{ runner.temp }}/project-space-macos-signed/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  package:
+    name: Package verified macOS machine tools
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs:
+      - unsigned
+      - sign
+    runs-on: macos-15
+    timeout-minutes: 20
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+      artifact-name: ${{ steps.contract.outputs.artifact-name }}
+      version: ${{ inputs.version }}
+
+    steps:
+      - name: Validate all immutable artifact metadata
+        id: contract
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          GH_TOKEN: ${{ github.token }}
+          PATH: /usr/bin:/bin
+          RELEASE_SOURCE_SHA: ${{ inputs.source-sha }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RUNTIME_ARTIFACT_ID: ${{ needs.unsigned.outputs.runtime-artifact-id }}
+          RUNTIME_ARTIFACT_DIGEST: ${{ needs.unsigned.outputs.runtime-artifact-digest }}
+          RUNTIME_ARTIFACT_NAME: ${{ needs.unsigned.outputs.runtime-artifact-name }}
+          SIGNING_INPUT_ARTIFACT_ID: ${{ needs.unsigned.outputs.signing-artifact-id }}
+          SIGNING_INPUT_ARTIFACT_DIGEST: ${{ needs.unsigned.outputs.signing-artifact-digest }}
+          SIGNING_INPUT_ARTIFACT_NAME: ${{ needs.unsigned.outputs.signing-artifact-name }}
+          SIGNED_ARTIFACT_ID: ${{ needs.sign.outputs.artifact-id }}
+          SIGNED_ARTIFACT_DIGEST: ${{ needs.sign.outputs.artifact-digest }}
+          SIGNED_ARTIFACT_NAME: ${{ needs.sign.outputs.artifact-name }}
+          TRUST_ARTIFACT_ID: ${{ inputs.trust-artifact-id }}
+          TRUST_ARTIFACT_DIGEST: ${{ inputs.trust-artifact-digest }}
+          TRUST_ARTIFACT_NAME: ${{ inputs.trust-artifact-name }}
+        run: |
+          [[ $RELEASE_SOURCE_SHA =~ ^[0-9a-f]{40}$ && $RELEASE_SOURCE_SHA == "$GITHUB_SHA" ]]
+          [[ $RELEASE_VERSION =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          expected_trust_name="connector-runtime-trust-roots-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${RELEASE_SOURCE_SHA}"
+          [[ $TRUST_ARTIFACT_NAME == "$expected_trust_name" ]]
+          api_config="$RUNNER_TEMP/project-space-github-api-config"
+          trap '/bin/rm -f "$api_config" "$RUNNER_TEMP"/project-space-artifact-*.json' EXIT
+          umask 077
+          /usr/bin/printf '%s\n' \
+            'header = "Accept: application/vnd.github+json"' \
+            "header = \"Authorization: Bearer ${GH_TOKEN}\"" \
+            'header = "X-GitHub-Api-Version: 2022-11-28"' > "$api_config"
+          validate_artifact() {
+            local id=$1 expected_name=$2 expected_digest=$3 label=$4
+            [[ $id =~ ^[1-9][0-9]*$ ]]
+            [[ $expected_digest =~ ^[0-9a-f]{64}$ ]]
+            local metadata="$RUNNER_TEMP/project-space-artifact-${label}.json"
+            /usr/bin/curl --config "$api_config" --fail --location --silent --show-error \
+              --output "$metadata" \
+              --url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/$id"
+            [[ $(/usr/bin/plutil -extract id raw -o - "$metadata") == "$id" ]]
+            [[ $(/usr/bin/plutil -extract name raw -o - "$metadata") == "$expected_name" ]]
+            local artifact_digest
+            artifact_digest=$(/usr/bin/plutil -extract digest raw -o - "$metadata")
+            artifact_digest=${artifact_digest#sha256:}
+            [[ $artifact_digest == "$expected_digest" ]]
+            [[ $(/usr/bin/plutil -extract expired raw -o - "$metadata") == false ]]
+            [[ $(/usr/bin/plutil -extract workflow_run.id raw -o - "$metadata") == "$GITHUB_RUN_ID" ]]
+            [[ $(/usr/bin/plutil -extract workflow_run.head_sha raw -o - "$metadata") == "$RELEASE_SOURCE_SHA" ]]
+          }
+          validate_artifact "$RUNTIME_ARTIFACT_ID" "$RUNTIME_ARTIFACT_NAME" "$RUNTIME_ARTIFACT_DIGEST" runtime
+          validate_artifact "$SIGNING_INPUT_ARTIFACT_ID" "$SIGNING_INPUT_ARTIFACT_NAME" "$SIGNING_INPUT_ARTIFACT_DIGEST" signing-input
+          validate_artifact "$SIGNED_ARTIFACT_ID" "$SIGNED_ARTIFACT_NAME" "$SIGNED_ARTIFACT_DIGEST" signed
+          validate_artifact "$TRUST_ARTIFACT_ID" "$TRUST_ARTIFACT_NAME" "$TRUST_ARTIFACT_DIGEST" trust
+          expected_runtime_name="project-space-macos-runtime-v${RELEASE_VERSION}-${RELEASE_SOURCE_SHA}"
+          expected_signing_name="project-space-macos-signing-input-v${RELEASE_VERSION}-${RELEASE_SOURCE_SHA}"
+          expected_signed_name="project-space-macos-signed-helper-v${RELEASE_VERSION}-${RELEASE_SOURCE_SHA}"
+          [[ $RUNTIME_ARTIFACT_NAME == "$expected_runtime_name" ]]
+          [[ $SIGNING_INPUT_ARTIFACT_NAME == "$expected_signing_name" ]]
+          [[ $SIGNED_ARTIFACT_NAME == "$expected_signed_name" ]]
+          echo "artifact-name=project-space-machine-tools-darwin-arm64-v${RELEASE_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Download exact unsigned runtime artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.unsigned.outputs.runtime-artifact-id }}
+          path: ${{ runner.temp }}/project-space-macos-runtime
+          merge-multiple: true
+
+      - name: Download exact signing-input artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.unsigned.outputs.signing-artifact-id }}
+          path: ${{ runner.temp }}/project-space-macos-signing-input
+          merge-multiple: true
+
+      - name: Download exact signed artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.sign.outputs.artifact-id }}
+          path: ${{ runner.temp }}/project-space-macos-signed
+          merge-multiple: true
+
+      - name: Download exact trust-root artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ inputs.trust-artifact-id }}
+          path: ${{ runner.temp }}/project-space-macos-trust
+          merge-multiple: true
+
+      - name: Check out exact source after artifact validation
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ inputs.source-sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cross-bind, build, and validate final bundle
+        env:
+          RUNTIME_ARTIFACT_ID: ${{ needs.unsigned.outputs.runtime-artifact-id }}
+          RUNTIME_ARTIFACT_DIGEST: ${{ needs.unsigned.outputs.runtime-artifact-digest }}
+          SIGNING_INPUT_ARTIFACT_ID: ${{ needs.unsigned.outputs.signing-artifact-id }}
+          SIGNING_INPUT_ARTIFACT_DIGEST: ${{ needs.unsigned.outputs.signing-artifact-digest }}
+        run: |
+          set -euo pipefail
+          [[ $(git rev-parse HEAD) == '${{ inputs.source-sha }}' ]]
+          bash -n packaging/macos/*.sh
+          bash packaging/macos/package-isolated-release-artifact.sh \
+            '${{ inputs.version }}' \
+            '${{ inputs.source-sha }}' \
+            "$GITHUB_RUN_ID" \
+            "$RUNTIME_ARTIFACT_ID" \
+            "$RUNTIME_ARTIFACT_DIGEST" \
+            "$SIGNING_INPUT_ARTIFACT_ID" \
+            "$SIGNING_INPUT_ARTIFACT_DIGEST" \
+            "$RUNNER_TEMP/project-space-macos-runtime" \
+            "$RUNNER_TEMP/project-space-macos-signing-input" \
+            "$RUNNER_TEMP/project-space-macos-signed" \
+            "$RUNNER_TEMP/project-space-macos-trust" \
+            "$RUNNER_TEMP/project-space-macos-package-input" \
+            "$RUNNER_TEMP/project-space-macos-release" \
+            "$GITHUB_WORKSPACE"
+
+      - name: Upload final verified macOS release artifact
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.contract.outputs.artifact-name }}
+          path: |
+            ${{ runner.temp }}/project-space-macos-release/project-space-machine-tools-darwin-arm64-v${{ inputs.version }}.tar.gz
+            ${{ runner.temp }}/project-space-macos-release/project-space-machine-tools-darwin-arm64-v${{ inputs.version }}.tar.gz.sha256
+          if-no-files-found: error
+          compression-level: 0
