@@ -20,6 +20,7 @@ export const topologyDimensions = {
 
 const minimumReadableOverviewZoom = 0.72;
 const compactViewportWidth = 640;
+const desktopOverviewProjectCount = 3;
 
 export type TopologyLayoutNode =
   | TopologyLeadLayoutNode
@@ -129,10 +130,7 @@ export function layoutProjectTopology(
     viewportHeight / Math.max(height, 1),
     1
   );
-  const readablePanZoom = Math.min(1, Math.max(
-    minimumReadableOverviewZoom,
-    (viewportWidth - 16) / topologyDimensions.projectWidth
-  ));
+  const readablePanZoom = readableOverviewPanZoom(viewportWidth, contentWidth);
   return {
     bounds: { height, width: contentWidth, x: 0, y: 0 },
     edges,
@@ -142,6 +140,17 @@ export function layoutProjectTopology(
         ? { mode: 'fit' }
         : { mode: 'native-pan', zoom: readablePanZoom }
   };
+}
+
+function readableOverviewPanZoom(viewportWidth: number, contentWidth: number) {
+  const targetWidth = viewportWidth >= compactViewportWidth
+    ? Math.min(contentWidth, rowWidth(desktopOverviewProjectCount))
+    : topologyDimensions.projectWidth;
+  const horizontalInset = viewportWidth >= compactViewportWidth ? 32 : 16;
+  return Math.min(1, Math.max(
+    minimumReadableOverviewZoom,
+    (viewportWidth - horizontalInset) / Math.max(targetWidth, 1)
+  ));
 }
 
 export function topologyFocusBounds(

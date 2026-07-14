@@ -118,8 +118,34 @@ describe('project topology nested layout', () => {
     expect(layoutProjectTopology(topology, 1280, 900).overviewViewport).toEqual({ mode: 'fit' });
     expect(layoutProjectTopology(topology, 700, 900).overviewViewport).toEqual({
       mode: 'native-pan',
-      zoom: 1
+      zoom: 0.72
     });
+  });
+
+  test('keeps three readable project containers fully inside a wide panning viewport', () => {
+    const projects = Array.from({ length: 12 }, (_, index) => (
+      project(
+        `project-${index}`,
+        `machine-${index}`,
+        `/projects/project-${index}`,
+        `DotNaos/project-${index}`
+      )
+    ));
+    const topology = snapshot(buildProjectTopology(inventory({
+      machines: projects.map((candidate) => machine(candidate.machineId!)),
+      projects
+    })));
+    const viewportWidth = 1368;
+    const layout = layoutProjectTopology(topology, viewportWidth, 900);
+
+    expect(layout.overviewViewport.mode).toBe('native-pan');
+    if (layout.overviewViewport.mode !== 'native-pan') return;
+    const threeProjectWidth = topologyDimensions.projectWidth * 3
+      + topologyDimensions.projectGap * 2;
+    expect(threeProjectWidth * layout.overviewViewport.zoom).toBeLessThanOrEqual(
+      viewportWidth - 32
+    );
+    expect(layout.overviewViewport.zoom).toBeGreaterThanOrEqual(0.72);
   });
 
   test('preserves project padding around nested machines', () => {
