@@ -27,6 +27,7 @@ import {
   WorktreeGitClientPanel,
   type WorktreeGitStatusSnapshot
 } from './worktree-git-client-panel';
+import { MachineConnectorActionsMenu } from './machine-connector-actions-menu';
 
 function normalizeKey(value: string) {
   return value
@@ -151,6 +152,9 @@ export function ProjectWorkspacesPanel({
       ? 'Create'
       : 'Offline'
     : 'No machine';
+  const connectorUpdateRequired =
+    worktreeDiscovery.state === 'blocked' &&
+    worktreeDiscovery.reason === 'connector-update-required';
 
   useEffect(() => {
     setFileGitStatus(undefined);
@@ -262,7 +266,9 @@ export function ProjectWorkspacesPanel({
           <div className="min-w-0">
             <Text className="text-sm font-semibold text-neutral-100">Worktrees</Text>
             <Text className="mt-0.5 block text-xs text-neutral-500">
-              {projectWorktreeDiscoverySummary(worktreeDiscovery, serverCount)}
+              {connectorUpdateRequired
+                ? 'Connector action needed'
+                : projectWorktreeDiscoverySummary(worktreeDiscovery, serverCount)}
             </Text>
           </div>
           <Button
@@ -324,6 +330,27 @@ export function ProjectWorkspacesPanel({
           <div className="flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900/40 px-3 py-3">
             <LoaderCircle className="size-4 animate-spin text-neutral-400" />
             <Text className="text-sm text-neutral-300">Checking registered Git worktrees…</Text>
+          </div>
+        ) : connectorUpdateRequired ? (
+          <div className="flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <Text className="block text-sm font-medium text-amber-200">
+                Connector update required{selectedMachine ? ` on ${selectedMachine.name}` : ''}
+              </Text>
+              <Text className="mt-1 block text-xs leading-5 text-amber-200/70">
+                Worktrees will become available after this machine reconnects with the current discovery support.
+              </Text>
+            </div>
+            {selectedMachine ? (
+              <MachineConnectorActionsMenu
+                className="w-full justify-center sm:w-auto"
+                machine={selectedMachine}
+                onOperationSettled={() => {
+                  void onRefreshWorktrees().catch(() => undefined);
+                }}
+                trigger="button"
+              />
+            ) : null}
           </div>
         ) : worktreeDiscovery.state === 'blocked' ? (
           <div className="rounded-lg border border-red-500/30 bg-red-500/8 px-3 py-3">

@@ -10,8 +10,11 @@ import {
   Text
 } from '@/app/dotnaos-ui';
 import { matchesFuzzyQuery } from '@/lib/fuzzy-search';
+import { cn } from '@/lib/utils';
 import { isMachineConnected } from './machine-visuals';
 import { MachineListItem } from './machine-list-item';
+import { MachineConnectorActionsMenu } from './machine-connector-actions-menu';
+import { runtimeVersionLabel } from './machine-connector-runtime-model';
 import { getProjectMachineId, isVisibleProject, machineSubtitle } from './project-main-model';
 
 function HomeSearch({
@@ -261,18 +264,28 @@ export function ProjectRootOverview({
         {displayedMachines.length > 0 ? (
           <div className="divide-y divide-neutral-900/80">
             {displayedMachines.map((machine) => (
-              <MachineListItem
-                key={machine.id}
-                compact
-                machine={machine}
-                subtitle={machineSubtitle(machine) || machine.connector.status}
-                onPress={() => onOpenMachine(machine.id)}
-                className={
+              <div key={machine.id} className="flex min-w-0 items-center">
+                <MachineListItem
+                  compact
+                  machine={machine}
+                  subtitle={machineSubtitle(machine) || machine.connector.status}
+                  onPress={() => onOpenMachine(machine.id)}
+                  className={cn(
+                    'min-w-0 flex-1',
                   displayedMachines[activeMachineIndex]?.id === machine.id
                     ? 'bg-neutral-900/80'
                     : 'hover:bg-neutral-900/50'
-                }
-              />
+                  )}
+                />
+                <div className="flex shrink-0 items-center gap-1 pr-1.5">
+                  {machine.connector.runtime ? (
+                    <Text className="hidden text-xs text-neutral-500 sm:inline">
+                      {runtimeVersionLabel(machine)}
+                    </Text>
+                  ) : null}
+                  <MachineConnectorActionsMenu machine={machine} />
+                </div>
+              </div>
             ))}
           </div>
         ) : (

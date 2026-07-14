@@ -131,11 +131,20 @@ export async function getRegisteredConnectorMachines(): Promise<MachineRecord[]>
   return (await getRegisteredConnectorRegistries()).map(({ receivedAt, registry }) => ({
     battery: registry.connector.battery,
     connector: {
+      capabilities: registry.connector.capabilities ?? [],
       installCommand: 'project-space-connector',
       lastSeen: receivedAt,
       origin: registry.connector.origin,
+      runtime: registry.connector.runtime,
       serviceName: registry.connector.serviceName ?? 'project-space-connector',
-      status: isFresh({ firstSeenAt: receivedAt, receivedAt, registry }) ? 'online' : 'offline'
+      status: isFresh({ firstSeenAt: receivedAt, receivedAt, registry }) ? 'online' : 'offline',
+      update: {
+        state: isFresh({ firstSeenAt: receivedAt, receivedAt, registry })
+          ? registry.connector.runtime
+            ? 'checking'
+            : 'update-required'
+          : 'offline'
+      }
     },
     id: registry.connector.machineId,
     kind: 'connector',

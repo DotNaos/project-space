@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "Usage: ./install.sh [--install-dir <absolute-path>]" >&2
+}
+
+install_directory="${HOME}/.local/bin"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --install-dir)
+      [[ $# -ge 2 ]] || { usage; exit 64; }
+      install_directory=$2
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage
+      exit 64
+      ;;
+  esac
+done
+
+if [[ $(uname -s) != Darwin || $(uname -m) != arm64 ]]; then
+  echo "This bundle supports macOS arm64 only." >&2
+  exit 69
+fi
+if [[ $EUID -eq 0 ]]; then
+  echo "Run this per-user installer without sudo." >&2
+  exit 77
+fi
+if [[ $install_directory != /* || $install_directory == *$'\n'* || $install_directory == *$'\r'* ]]; then
+  echo "The install directory must be an absolute path without line breaks." >&2
+  exit 64
+fi
+if [[ -L $install_directory ]]; then
+  echo "Refusing to install through a symbolic-link directory: $install_directory" >&2
+  exit 73
+fi
+
+bundle_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+for required in SHA256SUMS.txt VERSION project project-space-connector project-approval-signer; do
+  if [[ ! -f ${bundle_root}/${required} ]]; then
+    echo "The release bundle is incomplete: $required is missing." >&2
+    exit 66
+  fi
+done
+if ! (cd -- "$bundle_root" && shasum -a 256 -c SHA256SUMS.txt); then
+  echo "The release bundle failed its integrity check; nothing was installed." >&2
+  exit 65
+fi
+version=$(tr -d '\r\n' < "${bundle_root}/VERSION")
+if [[ ! $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+  echo "The release bundle contains an invalid version." >&2
+  exit 65
+fi
+
+umask 077
+[[ -d $install_directory ]] || mkdir -m 0700 -p -- "$install_directory"
+tools_root="${install_directory}/.project-space-machine-tools"
+versions_root="${tools_root}/versions"
+current_link="${tools_root}/current"
+mkdir -m 0700 -p -- "$versions_root"
+if [[ -e $current_link && ! -L $current_link ]]; then
+  echo "The machine-tools current pointer is not a symbolic link: $current_link" >&2
+  exit 73
+fi
+
+legacy_plist="${HOME}/Library/LaunchAgents/net.os-home.project-space-connector.plist"
+modern_plist="${HOME}/Library/LaunchAgents/net.os-home.project-space.machine-connector-supervisor.plist"
+if [[ -f $legacy_plist && -f $modern_plist ]]; then
+  echo "Both legacy and managed connector LaunchAgents are installed; remove the inactive one first." >&2
+  exit 73
+fi
+service_mode=none
+[[ ! -f $legacy_plist ]] || service_mode=legacy
+[[ ! -f $modern_plist ]] || service_mode=managed
+launch_domain="gui/$(id -u)"
+legacy_service="${launch_domain}/net.os-home.project-space-connector"
+
+bundle_digest=$(shasum -a 256 "${bundle_root}/SHA256SUMS.txt" | awk '{print $1}')
+release_id="${version}-${bundle_digest:0:16}"
+release_directory="${versions_root}/${release_id}"
+transaction_root=$(mktemp -d "${tools_root}/.install.XXXXXX")
+backup_root="${transaction_root}/backups"
+mkdir -m 0700 -- "$backup_root"
+previous_current_target=""
+[[ ! -L $current_link ]] || previous_current_target=$(readlink "$current_link")
+installation_started=0
+committed=0
+changed_entries=()
+
+restore_entry() {
+  local name=$1
+  local destination="${install_directory}/${name}"
+  local backup="${backup_root}/${name}"
+  rm -f -- "$destination"
+  if [[ -e $backup || -L $backup ]]; then
+    mv -h -f -- "$backup" "$destination"
+  fi
+}
+
+start_connector() {
+  if [[ $service_mode == legacy ]]; then
+    launchctl bootstrap "$launch_domain" "$legacy_plist"
+    launchctl kickstart -k "$legacy_service"
+  else
+    "${install_directory}/project" connector service start-if-connected
+  fi
+}
+
+rollback_installation() {
+  local rollback_pointer="${transaction_root}/current.rollback"
+  if [[ -n $previous_current_target ]]; then
+    rm -f -- "$rollback_pointer"
+    ln -s -- "$previous_current_target" "$rollback_pointer"
+    mv -h -f -- "$rollback_pointer" "$current_link"
+  else
+    rm -f -- "$current_link"
+  fi
+  local index
+  for ((index=${#changed_entries[@]} - 1; index >= 0; index--)); do
+    restore_entry "${changed_entries[$index]}"
+  done
+  start_connector >/dev/null 2>&1 || true
+}
+
+cleanup() {
+  local status=$?
+  trap - EXIT
+  if [[ $status -ne 0 && $installation_started -eq 1 && $committed -eq 0 ]]; then
+    rollback_installation || true
+  fi
+  rm -rf -- "$transaction_root"
+  exit "$status"
+}
+trap cleanup EXIT
+
+staged_release="${transaction_root}/${release_id}"
+mkdir -m 0700 -- "$staged_release"
+for name in project project-space-connector project-approval-signer; do
+  install -m 0755 -- "${bundle_root}/${name}" "${staged_release}/${name}"
+done
+install -m 0600 -- "${bundle_root}/VERSION" "${staged_release}/VERSION"
+if [[ -d $release_directory ]]; then
+  for member in project project-space-connector project-approval-signer VERSION; do
+    if ! cmp -s -- "${staged_release}/${member}" "${release_directory}/${member}"; then
+      echo "The existing machine-tools release directory does not match this bundle." >&2
+      exit 73
+    fi
+  done
+else
+  mv -- "$staged_release" "$release_directory"
+fi
+
+for name in project project-space-connector project-approval-signer; do
+  destination="${install_directory}/${name}"
+  if [[ -d $destination && ! -L $destination ]]; then
+    echo "Refusing to replace a directory: $destination" >&2
+    exit 73
+  fi
+done
+
+existing_project="${install_directory}/project"
+installation_started=1
+if [[ $service_mode == legacy ]]; then
+  if launchctl print "$legacy_service" >/dev/null 2>&1; then
+    launchctl bootout "$legacy_service"
+  fi
+elif [[ $service_mode == managed && -x $existing_project ]]; then
+  "$existing_project" connector service stop
+fi
+
+for name in project project-space-connector project-approval-signer; do
+  destination="${install_directory}/${name}"
+  expected_target=".project-space-machine-tools/current/${name}"
+  if [[ -L $destination && $(readlink "$destination") == "$expected_target" ]]; then
+    continue
+  fi
+  if [[ -e $destination || -L $destination ]]; then
+    mv -h -f -- "$destination" "${backup_root}/${name}"
+  fi
+  link_temp="${transaction_root}/${name}.link"
+  ln -s -- "$expected_target" "$link_temp"
+  mv -h -f -- "$link_temp" "$destination"
+  changed_entries+=("$name")
+done
+next_current="${transaction_root}/current.next"
+ln -s -- "versions/${release_id}" "$next_current"
+mv -h -f -- "$next_current" "$current_link"
+
+if ! start_connector; then
+  echo "The new connector could not be started; the previous machine-tools release was restored." >&2
+  exit 70
+fi
+committed=1
+rm -rf -- "$transaction_root"
+trap - EXIT
+printf 'Installed Project Space machine tools %s in %s\n' "$version" "$install_directory"

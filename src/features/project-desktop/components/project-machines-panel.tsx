@@ -26,6 +26,8 @@ import {
   type MachineWorktreeInfo
 } from '../hooks/use-machine-worktree-discovery';
 import { MachineListItem } from './machine-list-item';
+import { MachineConnectorActionsMenu } from './machine-connector-actions-menu';
+import { runtimeVersionLabel } from './machine-connector-runtime-model';
 import { machineSubtitle } from './project-main-model';
 import {
   branchOptions,
@@ -559,27 +561,7 @@ export function ProjectMachinesPanel({
               <Surface
                 key={row.machineId}
                 variant="tertiary"
-                role={canNavigate ? 'button' : undefined}
-                tabIndex={canNavigate ? 0 : undefined}
-                onClick={() => {
-                  if (canNavigate) {
-                    onOpenMachine(row.machineId, 'projects');
-                  }
-                }}
-                onKeyDown={(event) => {
-                  if (!canNavigate || (event.key !== 'Enter' && event.key !== ' ')) {
-                    return;
-                  }
-
-                  event.preventDefault();
-                  onOpenMachine(row.machineId, 'projects');
-                }}
-                className={cn(
-                  'min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/45 p-4 transition',
-                  canNavigate
-                    ? 'cursor-pointer hover:border-neutral-700 hover:bg-neutral-900/45 focus-visible:border-neutral-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-800'
-                    : ''
-                )}
+                className="min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/45 p-4"
               >
                 <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
@@ -588,33 +570,38 @@ export function ProjectMachinesPanel({
                       machine={row.machine}
                       fallbackName={row.machineId}
                       subtitle={machineItemSubtitle}
-                      className="px-0 py-0 hover:bg-transparent"
-                      endContent={
-                        <span className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-1.5">
-                          <Chip
-                            size="sm"
-                            className={cn(
-                              'rounded-full px-2 py-0.5',
-                              machineStatusClass(row.machine?.connector.status)
-                            )}
-                          >
-                            {row.machine?.connector.status ?? 'unknown'}
-                          </Chip>
-                          <Chip
-                            size="sm"
-                            className={cn('rounded-full px-2 py-0.5', checkoutLabelClass)}
-                          >
-                            {checkoutLabel}
-                          </Chip>
-                          {displayedWorktrees.length > 0 ? (
-                            <Chip size="sm" className="rounded-full px-2 py-0.5 text-neutral-400">
-                              {displayedWorktrees.length}{' '}
-                              {displayedWorktrees.length === 1 ? 'worktree' : 'worktrees'}
-                            </Chip>
-                          ) : null}
-                        </span>
-                      }
+                      className="px-0 py-0 hover:bg-neutral-900/50"
+                      onPress={canNavigate ? () => onOpenMachine(row.machineId, 'projects') : undefined}
                     />
+                  </div>
+                  <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-1.5">
+                    <Chip
+                      size="sm"
+                      className={cn(
+                        'rounded-full px-2 py-0.5',
+                        machineStatusClass(row.machine?.connector.status)
+                      )}
+                    >
+                      {row.machine?.connector.status ?? 'unknown'}
+                    </Chip>
+                    {row.machine?.connector.runtime ? (
+                      <Chip size="sm" className="rounded-full px-2 py-0.5 text-neutral-400">
+                        {runtimeVersionLabel(row.machine)}
+                      </Chip>
+                    ) : null}
+                    <Chip
+                      size="sm"
+                      className={cn('rounded-full px-2 py-0.5', checkoutLabelClass)}
+                    >
+                      {checkoutLabel}
+                    </Chip>
+                    {displayedWorktrees.length > 0 ? (
+                      <Chip size="sm" className="rounded-full px-2 py-0.5 text-neutral-400">
+                        {displayedWorktrees.length}{' '}
+                        {displayedWorktrees.length === 1 ? 'worktree' : 'worktrees'}
+                      </Chip>
+                    ) : null}
+                    {row.machine ? <MachineConnectorActionsMenu machine={row.machine} /> : null}
                   </div>
                 </div>
 

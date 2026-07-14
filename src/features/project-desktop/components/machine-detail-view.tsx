@@ -25,6 +25,11 @@ import {
 import { formatOptionalTime, machineSubtitle } from './project-main-model';
 import { MachineProjectsPanel } from './machine-projects-panel';
 import { MachineExplorerPanel } from './machine-explorer-panel';
+import { MachineConnectorActionsMenu } from './machine-connector-actions-menu';
+import {
+  runtimeStateLabel,
+  runtimeVersionLabel
+} from './machine-connector-runtime-model';
 
 function MachineDetailRow({ label, value }: { label: string; value: string }) {
   return (
@@ -335,6 +340,7 @@ export function MachineDetailView({
           <div className="flex shrink-0 items-center gap-3">
             <MachineConnectionIcon machine={machine} />
             <MachineBatteryMeter machine={machine} />
+            <MachineConnectorActionsMenu machine={machine} />
           </div>
         </div>
       </section>
@@ -374,6 +380,11 @@ export function MachineDetailView({
           >
             <Text className="mb-3 block text-sm font-semibold text-neutral-100">Connection</Text>
             <MachineDetailRow label="Status" value={machine.connector.status} />
+            <MachineDetailRow label="Version" value={runtimeVersionLabel(machine)} />
+            <MachineDetailRow
+              label="Update"
+              value={runtimeStateLabel(machine.connector.update?.state)}
+            />
             <MachineDetailRow label="Service" value={machine.connector.serviceName ?? 'unknown'} />
             <MachineDetailRow label="Last seen" value={formatOptionalTime(machine.connector.lastSeen)} />
             <MachineDetailRow label="Origin" value={origin ?? 'unknown'} />

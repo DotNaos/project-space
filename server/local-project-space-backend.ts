@@ -61,6 +61,7 @@ import { getTemplateAdherence } from './local-template-adherence';
 import { getProjectctlOverview, getProjectctlPreview } from './local-projectctl-client';
 import { backupProject, deployProject, getPlatformOverview } from './local-platform-operations';
 import { readAppMeta } from './app-meta';
+import { connectorRuntimeRecord } from './connector-build-info';
 import { configuredConnectorMachineId } from './project-connector-config';
 import { CODEX_SESSIONS_CONNECTOR_CAPABILITY } from './codex-sessions-connector-contract';
 import { defaultCodexAppServerBinary } from './codex-sessions/stdio-transport';
@@ -145,6 +146,8 @@ const connectorCommandCapabilities = [
   'worktree.setup.inspect',
   'worktree.setup.run',
   'terminal.run',
+  'runtime.restart',
+  'runtime.update',
   'worktrees.list',
   'worktrees.list.v2',
   ...(existsSync(defaultCodexAppServerBinary) ? [CODEX_SESSIONS_CONNECTOR_CAPABILITY] : [])
@@ -205,6 +208,7 @@ export function createLocalProjectSpaceBackend(
           },
           origin: connector.connectorOrigin,
           primaryUser: process.env.PROJECT_CONNECTOR_SSH_USER ?? localMachine?.primaryUser,
+          runtime: connectorRuntimeRecord(),
           serviceName: process.env.PROJECT_CONNECTOR_SERVICE_NAME ?? 'project-space-connector'
         },
         discovery

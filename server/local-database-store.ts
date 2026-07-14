@@ -7,6 +7,7 @@ import { runDatabaseMigrations } from './database/migrations';
 import type { TransactionalDatabaseQueryClient } from './machine-connection-database-store';
 import { PostgresProjectChatRepository } from './project-chat/postgres-store';
 import { ConnectorMachineSnapshotStore } from './connector-machine-snapshot-store';
+import { PostgresConnectorRuntimeOperationStore } from './connector-runtime-operation-store';
 import type {
   AuthenticateConnectorCredentialInput,
   CreateDevServerSessionInput,
@@ -66,6 +67,7 @@ let pool: pg.Pool | null = null;
 let repository: ProjectSpaceDatabaseRepository | null = null;
 let projectChatRepository: PostgresProjectChatRepository | null = null;
 let connectorMachineSnapshotStore: ConnectorMachineSnapshotStore | null = null;
+let connectorRuntimeOperationStore: PostgresConnectorRuntimeOperationStore | null = null;
 let schemaReady: Promise<void> | null = null;
 
 function databaseUrl() {
@@ -249,6 +251,16 @@ export async function getConnectorMachineSnapshotStore() {
     createPoolQueryClient(databasePool)
   );
   return connectorMachineSnapshotStore;
+}
+
+export async function getConnectorRuntimeOperationStore() {
+  const databasePool = getPool();
+  if (!databasePool) return null;
+  await ensureDatabaseSchema();
+  connectorRuntimeOperationStore ??= new PostgresConnectorRuntimeOperationStore(
+    createPoolQueryClient(databasePool)
+  );
+  return connectorRuntimeOperationStore;
 }
 
 export async function readGitHubOAuthToken(
