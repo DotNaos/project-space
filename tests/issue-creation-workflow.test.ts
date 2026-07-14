@@ -5,6 +5,7 @@ import {
   issueLabelsMatch,
   runIssueCreationWorkflow
 } from '../src/features/project-desktop/components/issue-creation-workflow';
+import { gitHubIssueCreationMarker } from '../src/shared/github-issue-creation-marker';
 import type {
   GitHubIssueCreateRequest,
   GitHubIssueMutationResult,
@@ -82,7 +83,10 @@ describe('issue creation workflow', () => {
     expect(updates).toEqual([
       { fullName: request.fullName, labels: ['bug'], number: 187 },
       {
-        body: 'Description\n\n![Pasted image](https://raw.githubusercontent.com/image.png)',
+        body: [
+          'Description\n\n![Pasted image](https://raw.githubusercontent.com/image.png)',
+          gitHubIssueCreationMarker(request.operationId)
+        ].join('\n\n'),
         fullName: request.fullName,
         number: 187
       }
@@ -245,6 +249,7 @@ describe('issue creation workflow', () => {
       fullName: request.fullName,
       issue: existing,
       onRemoteIssue: () => undefined,
+      operationId: request.operationId,
       updateIssue: async (updateRequest) => {
         updates.push(updateRequest);
         return { issue: issue({ body: finalBody }), status: 'connected' };
@@ -252,7 +257,11 @@ describe('issue creation workflow', () => {
     });
 
     expect(updates).toEqual([
-      { body: finalBody, fullName: request.fullName, number: existing.number }
+      {
+        body: `${finalBody}\n\n${gitHubIssueCreationMarker(request.operationId)}`,
+        fullName: request.fullName,
+        number: existing.number
+      }
     ]);
     expect(outcome.status).toBe('complete');
   });

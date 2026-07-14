@@ -1,4 +1,5 @@
 import type { GitHubIssueRecord } from '../src/shared/project-space-api';
+import { stripGitHubIssueCreationMarker } from '../src/shared/github-issue-creation-marker';
 import type { DatabaseQueryClient } from './database/client';
 
 export interface GitHubIssueCreationOperationKey {
@@ -49,13 +50,15 @@ interface OperationRow {
 }
 
 const retentionMs = 30 * 24 * 60 * 60 * 1_000;
+const cleanupBatchSize = 64;
 
 function operationKey(input: Omit<GitHubIssueCreationOperationKey, 'fingerprint'>) {
   return `${input.userId}\u0000${input.repositoryFullName}\u0000${input.operationId}`;
 }
 
 function cloneIssue(issue: GitHubIssueRecord): GitHubIssueRecord {
-  return { ...issue, labels: [...issue.labels] };
+  const body = stripGitHubIssueCreationMarker(issue.body ?? '');
+  return { ...issue, body: body || undefined, labels: [...issue.labels] };
 }
 
 export class MemoryGitHubIssueCreationOperationStore
@@ -67,6 +70,7 @@ implements GitHubIssueCreationOperationStore {
   async reserve(input: GitHubIssueCreationReservationInput) {
     const key = operationKey(input);
     const now = this.now();
+    this.cleanupExpired(now);
     let record = this.records.get(key);
     if (record && record.expiresAt <= now) {
       this.records.delete(key);
@@ -112,6 +116,22 @@ implements GitHubIssueCreationOperationStore {
     this.transition(input, ['pending'], 'retryable');
   }
 
+  private cleanupExpired(now: number) {
+    const active: Array<[string, OperationRecord]> = [];
+    let scanned = 0;
+    for (const [key, record] of this.records) {
+      if (scanned >= cleanupBatchSize) break;
+      scanned += 1;
+      if (record.expiresAt <= now) this.records.delete(key);
+      else active.push([key, record]);
+    }
+    for (const [key, record] of active) {
+      if (this.records.get(key) !== record) continue;
+      this.records.delete(key);
+      this.records.set(key, record);
+    }
+  }
+
   private transition(
     input: GitHubIssueCreationOperationKey,
     expected: readonly OperationRecord['state'][],
@@ -139,6 +159,19 @@ implements GitHubIssueCreationOperationStore {
   ): Promise<GitHubIssueCreationReservation> {
     const run = async (client: DatabaseQueryClient) => {
       const values = [input.userId, input.repositoryFullName, input.operationId];
+      await client.query(
+        `delete from github_issue_creation_operations as expired
+          using (
+            select owner_user_id, repository_full_name, operation_id
+              from github_issue_creation_operations
+             where expires_at <= now()
+             order by expires_at
+             limit 100
+          ) as stale
+          where expired.owner_user_id = stale.owner_user_id
+            and expired.repository_full_name = stale.repository_full_name
+            and expired.operation_id = stale.operation_id`
+      );
       await client.query(
         `delete from github_issue_creation_operations
           where owner_user_id = $1 and repository_full_name = $2 and operation_id = $3::uuid

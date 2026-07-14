@@ -84,4 +84,38 @@ describe('authoritative issue board moves', () => {
     });
     expect(stale).toMatchObject({ state: 'blocked' });
   });
+
+  test('blocks a GitHub response for the wrong issue or state', async () => {
+    const wrongIssue = await moveIssueToColumn({
+      columnId: 'closed',
+      isCurrentRepository: () => true,
+      issue: issue(),
+      repositoryFullName: 'DotNaos/project-space',
+      async updateIssue() {
+        return {
+          checkedAt: '',
+          issue: { ...issue('closed'), number: 999 },
+          status: 'connected'
+        };
+      }
+    });
+    expect(wrongIssue).toEqual({
+      message: 'GitHub returned a different issue state than the requested move.',
+      state: 'blocked'
+    });
+
+    const wrongState = await moveIssueToColumn({
+      columnId: 'closed',
+      isCurrentRepository: () => true,
+      issue: issue(),
+      repositoryFullName: 'DotNaos/project-space',
+      async updateIssue() {
+        return { checkedAt: '', issue: issue('open'), status: 'connected' };
+      }
+    });
+    expect(wrongState).toEqual({
+      message: 'GitHub returned a different issue state than the requested move.',
+      state: 'blocked'
+    });
+  });
 });

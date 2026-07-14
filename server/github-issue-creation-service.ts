@@ -5,6 +5,11 @@ import type {
   GitHubIssueCreationResult,
   GitHubIssueRecord
 } from '../src/shared/project-space-api';
+import {
+  bodyWithGitHubIssueCreationMarker,
+  gitHubIssueCreationMarker,
+  stripGitHubIssueCreationMarker
+} from '../src/shared/github-issue-creation-marker';
 import type {
   GitHubIssueCreationOperationKey,
   GitHubIssueCreationOperationStore
@@ -34,8 +39,6 @@ interface CreateIdempotentGitHubIssueOptions {
 
 const uuidV4Pattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const markerPattern =
-  /\n{0,2}<!-- project-space-issue-create:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12} -->\s*$/;
 const pendingGraceMs = 15_000;
 
 function normalizeRequest(
@@ -70,16 +73,14 @@ function fingerprint(request: NormalizedGitHubIssueCreateRequest) {
   })).digest('hex');
 }
 
-export function gitHubIssueCreationMarker(operationId: string) {
-  return `<!-- project-space-issue-create:${operationId} -->`;
-}
+export {
+  gitHubIssueCreationMarker,
+  stripGitHubIssueCreationMarker
+} from '../src/shared/github-issue-creation-marker';
 
-export function stripGitHubIssueCreationMarker(body: string) {
-  return body.replace(markerPattern, '').trimEnd();
-}
-
-function bodyWithMarker(body: string, marker: string) {
-  return body ? `${body}\n\n${marker}` : marker;
+function browserFacingIssue(issue: GitHubIssueRecord): GitHubIssueRecord {
+  const body = stripGitHubIssueCreationMarker(issue.body ?? '');
+  return { ...issue, body: body || undefined, labels: [...issue.labels] };
 }
 
 function retryable(message: string): GitHubIssueCreationResult {
@@ -123,7 +124,7 @@ async function reconcile(
       ? 'More than one matching GitHub issue was found. Open GitHub and resolve the duplicate before continuing.'
       : 'GitHub still has not confirmed whether the issue was created. Check GitHub again before retrying.');
   }
-  const issue = matches[0];
+  const issue = browserFacingIssue(matches[0]);
   await completeBestEffort(store, operation, issue);
   return { creationState: 'complete', issue, replayed: true, status: 'connected' };
 }
@@ -150,10 +151,11 @@ async function preflight(
       'More than one matching GitHub issue was found. Open GitHub and resolve the duplicate before continuing.'
     );
   }
-  await completeBestEffort(store, operation, matches[0]);
+  const issue = browserFacingIssue(matches[0]);
+  await completeBestEffort(store, operation, issue);
   return {
     creationState: 'complete',
-    issue: matches[0],
+    issue,
     replayed: true,
     status: 'connected'
   } satisfies GitHubIssueCreationResult;
@@ -192,7 +194,7 @@ export async function createIdempotentGitHubIssue({
   if (reservation.kind === 'replayed') {
     return {
       creationState: 'complete',
-      issue: reservation.issue,
+      issue: browserFacingIssue(reservation.issue),
       replayed: true,
       status: 'connected'
     };
@@ -214,12 +216,11 @@ export async function createIdempotentGitHubIssue({
   const existing = await preflight(remote, store, operation);
   if (existing) return existing;
 
-  const marker = gitHubIssueCreationMarker(normalized.operationId);
   try {
-    const issue = await remote.create({
+    const issue = browserFacingIssue(await remote.create({
       ...normalized,
-      body: bodyWithMarker(normalized.body, marker)
-    });
+      body: bodyWithGitHubIssueCreationMarker(normalized.body, normalized.operationId)
+    }));
     await completeBestEffort(store, operation, issue);
     return { creationState: 'complete', issue, status: 'connected' };
   } catch (error) {

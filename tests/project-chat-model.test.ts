@@ -571,6 +571,22 @@ describe('Project Chat client-side secret warning', () => {
 });
 
 describe('Project Chat HTTP client boundary', () => {
+  test('requests only one project channel when a scope is supplied', async () => {
+    let capturedUrl = '';
+    const client = createProjectChatClient({
+      baseUrl: 'https://projects.example.test/',
+      fetchImplementation: async (input) => {
+        capturedUrl = String(input);
+        return Response.json({ channels: [] });
+      }
+    });
+
+    await client.listChannels({ projectId: 'github:101' });
+    expect(capturedUrl).toBe(
+      'https://projects.example.test/api/project-chat/channels?projectId=github%3A101'
+    );
+  });
+
   test('parses fragmented server events while ignoring heartbeats', async () => {
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({

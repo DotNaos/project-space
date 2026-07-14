@@ -15,6 +15,20 @@ function request(
   return value;
 }
 
+function hangingRequest(headers: IncomingMessage['headers']) {
+  let sentChunk = false;
+  const value = new Readable({
+    read() {
+      if (sentChunk) return;
+      sentChunk = true;
+      this.push(Buffer.from([1]));
+    }
+  }) as IncomingMessage;
+  value.method = 'POST';
+  value.headers = headers;
+  return value;
+}
+
 function responseRecorder() {
   let body = '';
   let status = 0;
@@ -249,6 +263,33 @@ describe('GitHub issue creation routes', () => {
     expect(first.output.read().status).toBe(200);
     expect(second.output.read().status).toBe(200);
     expect(uploadCount).toBe(2);
+  });
+
+  test('stops a stalled image body at the configured read deadline', async () => {
+    let uploadCount = 0;
+    const route = createGitHubIssueCreationRoutes({
+      bodyReadTimeoutMs: 5,
+      async uploadAttachment() {
+        uploadCount += 1;
+        return { attachmentId: '', fullName: '', issueNumber: 1, status: 'error' };
+      }
+    });
+    const stalledRequest = hangingRequest({ 'content-type': 'image/png' });
+    const output = responseRecorder();
+
+    expect(await route(
+      stalledRequest,
+      output.response,
+      new URL(
+        'http://project.test/api/github/issue-attachments?fullName=DotNaos%2Fproject-space&attachmentId=00000000-0000-4000-8000-000000000001&issueNumber=187'
+      )
+    )).toBe(true);
+    expect(output.read()).toMatchObject({
+      body: { error: 'The issue image upload timed out.' },
+      status: 408
+    });
+    expect(stalledRequest.destroyed).toBe(true);
+    expect(uploadCount).toBe(0);
   });
 
   test('leaves unrelated paths for the remaining API router', async () => {

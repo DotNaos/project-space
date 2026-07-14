@@ -5,6 +5,7 @@ import type {
   GitHubIssueRecord,
   GitHubIssueUpdateRequest
 } from '@/shared/project-space-api';
+import { bodyWithGitHubIssueCreationMarker } from '../../../shared/github-issue-creation-marker';
 
 export type IssueCreationRecoveryStage =
   | 'attachments'
@@ -64,6 +65,7 @@ interface FinishIssueCreationOptions {
   fullName: string;
   issue: GitHubIssueRecord;
   onRemoteIssue(issue: GitHubIssueRecord): void;
+  operationId: string;
   updateIssue(request: GitHubIssueUpdateRequest): Promise<GitHubIssueMutationResult>;
 }
 
@@ -203,9 +205,13 @@ export async function runIssueCreationWorkflow({
   }
 
   if ((issue.body ?? '') !== uploadResult.markdown) {
+    const body = bodyWithGitHubIssueCreationMarker(
+      uploadResult.markdown,
+      request.operationId
+    );
     const bodyResult = await attemptMutation(
       () => updateIssue({
-        body: uploadResult.markdown,
+        body,
         fullName: request.fullName,
         number: issue!.number
       }),
@@ -247,6 +253,7 @@ export async function finishIssueCreationWithAvailableImages({
   fullName,
   issue,
   onRemoteIssue,
+  operationId,
   updateIssue
 }: FinishIssueCreationOptions): Promise<IssueCreationWorkflowOutcome> {
   if ((issue.body ?? '') === body) {
@@ -254,7 +261,11 @@ export async function finishIssueCreationWithAvailableImages({
   }
 
   const result = await attemptMutation(
-    () => updateIssue({ body, fullName, number: issue.number }),
+    () => updateIssue({
+      body: bodyWithGitHubIssueCreationMarker(body, operationId),
+      fullName,
+      number: issue.number
+    }),
     'Could not finish the issue description.'
   );
   const updatedIssue = resultIssue(result);

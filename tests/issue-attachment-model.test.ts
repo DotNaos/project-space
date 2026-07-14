@@ -9,6 +9,8 @@ import {
   issueAttachmentMarkdownWithoutAttachments,
   issueAttachmentPlaceholder,
   issueAttachmentReducer,
+  mayHaveReachedRemote,
+  projectSpaceIssueAttachmentUrls,
   validateIssueAttachmentCandidate,
   type IssueAttachmentAction,
   type IssueAttachmentState
@@ -50,6 +52,43 @@ function queue(
 }
 
 describe('issue attachment candidates', () => {
+  test('treats a started upload as potentially remote even when it later fails', () => {
+    let state = queue(createInitialIssueAttachmentState({ repositoryKey: REPOSITORY }));
+    expect(mayHaveReachedRemote(state.attachments[0])).toBe(false);
+
+    state = reduce(state, {
+      attachmentId: ATTACHMENT_ID,
+      repositoryKey: REPOSITORY,
+      requestId: 'upload-1',
+      type: 'upload-started'
+    });
+    expect(mayHaveReachedRemote(state.attachments[0])).toBe(true);
+
+    state = reduce(state, {
+      attachmentId: ATTACHMENT_ID,
+      error: 'The upload response was lost.',
+      repositoryKey: REPOSITORY,
+      requestId: 'upload-1',
+      type: 'upload-failed'
+    });
+    expect(state.attachments[0].status).toBe('failed');
+    expect(mayHaveReachedRemote(state.attachments[0])).toBe(true);
+  });
+
+  test('finds only exact Project Space attachment URLs for the current repository', () => {
+    const valid = storedImageUrl();
+    const otherRepository = valid.replace(REPOSITORY, 'DotNaos/other');
+    const markdown = [
+      `![Stored](${valid})`,
+      `![Duplicate](${valid})`,
+      `![Other repository](${otherRepository})`,
+      '![External](https://github.com/DotNaos/project-space/raw/main/image.png)'
+    ].join('\n');
+
+    expect(projectSpaceIssueAttachmentUrls(markdown, REPOSITORY)).toEqual([valid]);
+    expect(projectSpaceIssueAttachmentUrls(markdown, null)).toEqual([]);
+  });
+
   test('accepts only non-empty PNG, JPEG, and GIF candidates up to 10 MiB', () => {
     expect(validateIssueAttachmentCandidate({ mediaType: 'image/png', sizeBytes: 1 })).toEqual({
       mediaType: 'image/png',

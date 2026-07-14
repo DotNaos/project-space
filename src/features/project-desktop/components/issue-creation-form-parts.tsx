@@ -153,6 +153,8 @@ export function IssueCreationFormBody({
             error={attachmentPermissionError ?? attachments.error}
             onRemoveAll={attachments.removeAllAttachments}
             onRemove={attachments.removeAttachment}
+            previewUrls={attachments.previewUrls}
+            retainedStoredAttachmentCount={attachments.retainedStoredAttachmentCount}
           />
         </div>
 

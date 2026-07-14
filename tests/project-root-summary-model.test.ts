@@ -144,6 +144,21 @@ describe('recent project root summaries', () => {
         state: 'blocked'
       })
     ).toEqual({ message: 'Connector refresh failed.', state: 'blocked' });
+
+    const githubOnlyTarget = selectProjectRootSummaryTargets(
+      [githubProject(repository(102, 'DotNaos/github-only'))],
+      ['github:DotNaos/github-only']
+    )[0]!;
+    expect(
+      projectRootMachineCount(githubOnlyTarget, {
+        checkedAt: '2026-07-13T00:00:00.000Z',
+        state: 'ready',
+        value: connector
+      })
+    ).toEqual({
+      message: 'No project-scoped machine identity is available.',
+      state: 'blocked'
+    });
   });
 
   test('builds real deep links, including the shared direct create route only for repositories', () => {
@@ -194,7 +209,8 @@ describe('scoped project summary evidence', () => {
           status: 'connected'
         };
       },
-      async listProjectChatChannels() {
+      async listProjectChatChannels(projectId) {
+        expect(projectId).toBe('github:101');
         return {
           channels: [
             {
@@ -204,13 +220,6 @@ describe('scoped project summary evidence', () => {
               kind: 'project',
               navigationProjectId: 'alpha-local',
               projectId: 'github:101'
-            },
-            {
-              channelId: 'other-room',
-              description: 'Other room',
-              displayName: 'other',
-              kind: 'project',
-              projectId: 'github:999'
             }
           ]
         };
@@ -274,7 +283,87 @@ describe('scoped project summary evidence', () => {
 
     expect(result.issues).toEqual({ message: 'GitHub timed out.', state: 'blocked' });
     expect(result.branches).toEqual({ message: 'GitHub timed out.', state: 'blocked' });
-    expect(result.threads).toMatchObject({ count: 0, state: 'ready' });
+    expect(result.threads).toEqual({
+      message: 'Project Chat returned invalid scoped channel evidence.',
+      state: 'blocked'
+    });
+  });
+
+  test('blocks malformed and wrong-project scoped channel evidence', async () => {
+    const target = selectProjectRootSummaryTargets(
+      [localProject('alpha-local', 'alpha', repository(101, 'DotNaos/alpha'))],
+      ['alpha-local']
+    )[0]!;
+    const invalidChannelResults = [
+      {
+        channels: [
+          {
+            channelId: 'other-room',
+            description: 'Other room',
+            displayName: 'other',
+            kind: 'project',
+            projectId: 'github:999'
+          }
+        ]
+      },
+      {
+        channels: [
+          {
+            description: 'Alpha room',
+            displayName: 'alpha',
+            kind: 'project',
+            projectId: 'github:101'
+          }
+        ]
+      },
+      {
+        channels: [
+          {
+            channelId: 'alpha-room',
+            description: 'Alpha room',
+            displayName: 'alpha',
+            kind: 'project',
+            projectId: 'github:101'
+          },
+          {
+            channelId: 'other-room',
+            description: 'Other room',
+            displayName: 'other',
+            kind: 'project',
+            projectId: 'github:999'
+          }
+        ]
+      }
+    ] as unknown as Array<Awaited<ReturnType<ProjectRootSummaryDataSource['listProjectChatChannels']>>>;
+
+    for (const channels of invalidChannelResults) {
+      let memberRequests = 0;
+      const result = await loadProjectRootSummaryCounts(target, {
+        async getRepositorySummary(fullName) {
+          return {
+            branchCount: 42,
+            checkedAt: '2026-07-13T01:00:00.000Z',
+            fullName,
+            openIssueCount: 147,
+            status: 'connected'
+          };
+        },
+        async listProjectChatChannels(projectId) {
+          expect(projectId).toBe('github:101');
+          return channels;
+        },
+        async listProjectChatMembers() {
+          memberRequests += 1;
+          return { members: [] };
+        }
+      });
+
+      expect(result.threads).toEqual({
+        message: 'Project Chat returned invalid scoped channel evidence.',
+        state: 'blocked'
+      });
+      expect(memberRequests).toBe(0);
+    }
   });
 
   test('rejects late responses from an old generation or different repository scope', () => {

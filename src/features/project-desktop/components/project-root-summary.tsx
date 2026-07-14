@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
-import { CircleDot, GitBranch, MessagesSquare, Monitor, Plus } from 'lucide-react';
+import { CircleDot, GitBranch, MessagesSquare, Monitor, Plus, RotateCcw } from 'lucide-react';
 import { Text } from '@/app/dotnaos-ui';
 import { createProjectChatClient } from '@/api/project-chat-client';
 import { loadGitHubRepositorySummary } from '@/api/github-repository-summary-client';
@@ -30,7 +30,7 @@ const projectChatClient = createProjectChatClient({
 
 const defaultDataSource: ProjectRootSummaryDataSource = {
   getRepositorySummary: (fullName) => loadGitHubRepositorySummary(fullName),
-  listProjectChatChannels: () => projectChatClient.listChannels(),
+  listProjectChatChannels: (projectId) => projectChatClient.listChannels({ projectId }),
   listProjectChatMembers: (channelId) => projectChatClient.listMembers({ channelId })
 };
 
@@ -38,6 +38,7 @@ export interface ProjectRootSummaryProps {
   className?: string;
   connector: ProjectRootEvidence<ConnectorOverviewResult>;
   dataSource?: ProjectRootSummaryDataSource;
+  onRetry?(): void;
   projects: ProjectSpaceRecord[];
   recentProjectIds: string[];
 }
@@ -171,6 +172,7 @@ export function ProjectRootSummary({
   className,
   connector,
   dataSource = defaultDataSource,
+  onRetry,
   projects,
   recentProjectIds
 }: ProjectRootSummaryProps) {
@@ -180,6 +182,7 @@ export function ProjectRootSummary({
   );
   const generations = useRef<Record<string, number>>({});
   const [requests, setRequests] = useState<Record<string, ProjectRootSummaryRequestState>>({});
+  const [retryGeneration, setRetryGeneration] = useState(0);
   const routeSearch = typeof window === 'undefined' ? '' : window.location.search;
   const routeHash = typeof window === 'undefined' ? '' : window.location.hash;
 
@@ -213,20 +216,42 @@ export function ProjectRootSummary({
     return () => {
       current = false;
     };
-  }, [dataSource, targets]);
+  }, [dataSource, retryGeneration, targets]);
+
+  const hasBlockedCount = targets.some((target) => {
+    const scopeKey = projectRootSummaryScopeKey(target);
+    return Object.values(
+      projectRootSummaryCounts(target, connector, requests[scopeKey]?.result)
+    ).some((count) => count.state === 'blocked');
+  });
 
   return (
     <section className={cn('mx-auto w-full max-w-5xl', className)} aria-labelledby="recent-projects-heading">
-      <div className="mb-4 px-1">
-        <Text
-          id="recent-projects-heading"
-          className="block text-xs font-semibold uppercase tracking-[0.16em] text-neutral-500"
-        >
-          Recent projects
-        </Text>
-        <Text className="mt-1 block text-sm text-neutral-400">
-          Continue where you last worked.
-        </Text>
+      <div className="mb-4 flex items-start justify-between gap-3 px-1">
+        <div>
+          <Text
+            id="recent-projects-heading"
+            className="block text-xs font-semibold uppercase tracking-[0.16em] text-neutral-500"
+          >
+            Recent projects
+          </Text>
+          <Text className="mt-1 block text-sm text-neutral-400">
+            Continue where you last worked.
+          </Text>
+        </div>
+        {hasBlockedCount ? (
+          <button
+            type="button"
+            onClick={() => {
+              setRetryGeneration((generation) => generation + 1);
+              onRetry?.();
+            }}
+            className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-neutral-400 transition hover:bg-neutral-900 hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 sm:min-h-8"
+          >
+            <RotateCcw className="size-3.5" />
+            Retry counts
+          </button>
+        ) : null}
       </div>
 
       {targets.length > 0 ? (

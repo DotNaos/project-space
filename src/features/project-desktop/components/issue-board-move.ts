@@ -52,6 +52,12 @@ export async function moveIssueToColumn({
         state: 'blocked'
       };
     }
+    if (result.issue.number !== issue.number || result.issue.state !== nextState) {
+      return {
+        message: 'GitHub returned a different issue state than the requested move.',
+        state: 'blocked'
+      };
+    }
     return { issue: result.issue, state: 'ready' };
   } catch (error) {
     return {

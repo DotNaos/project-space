@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type {
@@ -11,8 +11,10 @@ import { IssueBranchMenu, IssuePullRequestChip } from './issue-branch-menu';
 import { issuePullRequestsForIssue } from './issue-branch-model';
 import {
   issueUpdatedAtLabel,
+  issuePlacementIndices,
   loadIssueColumnOverrides,
   resolveIssueColumn,
+  resolveIssueColumnFromPlacement,
   type IssueColumnOverrides
 } from './issue-board-model';
 import { IssueAuthorAvatar, IssueLabelChip, IssueStatusDot } from './issue-visuals';
@@ -23,6 +25,7 @@ export function IssueListView({
   issues,
   onBranchCreated,
   onOpenIssue,
+  placementIssues,
   pullRequests,
   repoFullName
 }: {
@@ -31,11 +34,16 @@ export function IssueListView({
   issues: GitHubIssueRecord[];
   onBranchCreated(branch: GitHubBranchRecord): void;
   onOpenIssue(issueNumber: number): void;
+  placementIssues: GitHubIssueRecord[];
   pullRequests: GitHubPullRequestRecord[];
   repoFullName?: string;
 }) {
   const [overrides, setOverrides] = useState<IssueColumnOverrides>(() =>
     loadIssueColumnOverrides(repoFullName)
+  );
+  const placementIndices = useMemo(
+    () => issuePlacementIndices(placementIssues),
+    [placementIssues]
   );
 
   useEffect(() => {
@@ -49,7 +57,12 @@ export function IssueListView({
           <IssueListRow
             branches={branches}
             key={issue.number}
-            columnId={resolveIssueColumn(issue, index, overrides)}
+            columnId={resolveIssueColumnFromPlacement(
+              issue,
+              index,
+              overrides,
+              placementIndices
+            )}
             defaultBranch={defaultBranch}
             isLast={index === issues.length - 1}
             issue={issue}

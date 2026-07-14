@@ -65,6 +65,10 @@ export interface ProjectChatChannelListResult {
   channels: ProjectChatChannelRecord[];
 }
 
+export interface ProjectChatChannelListRequest {
+  projectId?: string;
+}
+
 export interface ProjectChatMemberRecord {
   agentName?: ProjectChatAgentName;
   avatarUrl?: string;
@@ -203,7 +207,7 @@ export interface ProjectChatApiErrorPayload {
 
 export interface ProjectChatClient {
   listNames(): Promise<ProjectChatNameListResult>;
-  listChannels(): Promise<ProjectChatChannelListResult>;
+  listChannels(request?: ProjectChatChannelListRequest): Promise<ProjectChatChannelListResult>;
   claimName(request: ProjectChatNameClaimRequest): Promise<ProjectChatNameClaimResult>;
   acknowledge(request: ProjectChatAcknowledgeRequest): Promise<ProjectChatAcknowledgeResult>;
   getProfile(): Promise<ProjectChatProfileResult>;

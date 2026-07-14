@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, ExternalLink, Inbox } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { Button, Surface, Text } from '@/app/dotnaos-ui';
@@ -30,9 +30,11 @@ function useRepositoryDetails(repository?: GitHubCatalogRepository) {
   const [details, setDetails] = useState<GitHubRepositoryDetailsResult>();
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [retryGeneration, setRetryGeneration] = useState(0);
+  const repositoryFullName = repository?.fullName;
 
   useEffect(() => {
-    if (!repository) {
+    if (!repositoryFullName) {
       setDetails(undefined);
       setError('');
       setIsLoading(false);
@@ -44,7 +46,7 @@ function useRepositoryDetails(repository?: GitHubCatalogRepository) {
     setError('');
     setIsLoading(true);
     projectSpaceClient
-      .getGitHubRepositoryDetails(repository.fullName)
+      .getGitHubRepositoryDetails(repositoryFullName)
       .then((nextDetails) => {
         if (!canceled) setDetails(nextDetails);
       })
@@ -64,9 +66,13 @@ function useRepositoryDetails(repository?: GitHubCatalogRepository) {
     return () => {
       canceled = true;
     };
-  }, [repository]);
+  }, [repositoryFullName, retryGeneration]);
 
-  return { details, error, isLoading, setDetails };
+  const retry = useCallback(() => {
+    setRetryGeneration((generation) => generation + 1);
+  }, []);
+
+  return { details, error, isLoading, retry, setDetails };
 }
 
 export function ProjectIssueDetailPanel({
@@ -88,16 +94,28 @@ export function ProjectIssueDetailPanel({
   repository?: GitHubCatalogRepository;
   targetPath: string;
 }) {
-  const { details, error, isLoading, setDetails } = useRepositoryDetails(repository);
+  const { details, error, isLoading, retry, setDetails } = useRepositoryDetails(repository);
   const [viewMode, setViewMode] = useState<IssueViewMode>(() => loadIssueViewMode());
   const [query, setQuery] = useState('');
   const [activeLabels, setActiveLabels] = useState<ReadonlySet<string>>(() => new Set());
   const safeDetails = details ?? repositoryDetailsFallback(repository ? 'connected' : 'error');
+  const evidenceState = !repository
+    ? 'blocked'
+    : isLoading && !details
+      ? 'loading'
+      : details?.status === 'connected'
+        ? 'ready'
+        : 'blocked';
   const issue = safeDetails.issues.find((entry) => entry.number === issueNumber);
   const emptyMessage =
     error ||
     safeDetails.message ||
     (!repository ? 'No GitHub repository is linked to this project.' : 'No issues.');
+
+  useEffect(() => {
+    setQuery('');
+    setActiveLabels(new Set());
+  }, [repository?.fullName]);
 
   const updateDetails = <T,>(
     list: keyof Pick<GitHubRepositoryDetailsResult, 'issues' | 'branches' | 'pullRequests'>,
@@ -155,12 +173,18 @@ export function ProjectIssueDetailPanel({
       ) : issueNumber && isLoading && !details && !error ? (
         <IssueBoardSkeleton viewMode="list" />
       ) : issueNumber ? (
-        <IssueEmptyState message={details ? 'Issue was not found in the loaded issues.' : emptyMessage} />
+        <IssueEmptyState
+          message={details?.status === 'connected'
+            ? 'Issue was not found in the loaded issues.'
+            : emptyMessage}
+          onRetry={repository && evidenceState === 'blocked' ? retry : undefined}
+        />
       ) : (
         <IssueIndexPanel
           activeLabels={activeLabels}
           branches={safeDetails.branches}
           emptyMessage={emptyMessage}
+          evidenceState={evidenceState}
           isLoading={isLoading}
           issues={safeDetails.issues}
           onActiveLabelsChange={setActiveLabels}
@@ -168,6 +192,7 @@ export function ProjectIssueDetailPanel({
           onIssueCreated={upsertIssue}
           onOpenIssue={onOpenIssue}
           onQueryChange={setQuery}
+          onRetry={repository && evidenceState === 'blocked' ? retry : undefined}
           onViewModeChange={(nextMode) => {
             setViewMode(nextMode);
             saveIssueViewMode(nextMode);
@@ -211,13 +236,16 @@ function IssueBoardSkeleton({ viewMode }: { viewMode: IssueViewMode }) {
   );
 }
 
-function IssueEmptyState({ message }: { message: string }) {
+function IssueEmptyState({ message, onRetry }: { message: string; onRetry?(): void }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-neutral-800/80 p-8 text-center">
       <span className="flex size-11 items-center justify-center rounded-full border border-neutral-800 bg-neutral-900/60">
         <Inbox className="size-5 text-neutral-500" />
       </span>
       <Text className="max-w-sm text-sm text-neutral-400">{message}</Text>
+      {onRetry ? (
+        <Button size="sm" variant="ghost" onPress={onRetry}>Retry</Button>
+      ) : null}
     </div>
   );
 }

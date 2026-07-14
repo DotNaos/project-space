@@ -48,6 +48,35 @@ function loadLabels(
 }
 
 describe('issue creation state', () => {
+  test('restores an uncertain draft only for its connected repository', () => {
+    const initial = createInitialIssueCreationState({
+      connected: true,
+      repositoryKey: 'DotNaos/project-space'
+    });
+    const restored = issueCreationReducer(initial, {
+      body: 'Recovered body',
+      repositoryKey: 'DotNaos/project-space',
+      selectedLabels: ['bug', 'bug'],
+      title: 'Recovered title',
+      type: 'uncertain-draft-restored'
+    });
+
+    expect(restored.title).toBe('Recovered title');
+    expect(restored.body).toBe('Recovered body');
+    expect(restored.selectedLabels).toEqual(['bug']);
+    expect(restored.submission.status).toBe('failed');
+    expect(restored.submission).toMatchObject({
+      error: 'GitHub may already have created this issue. Check GitHub again before leaving. Pasted images cannot be restored after a reload and must be re-added before retrying.'
+    });
+    expect(issueCreationReducer(initial, {
+      body: 'Wrong scope',
+      repositoryKey: 'DotNaos/other',
+      selectedLabels: [],
+      title: 'Wrong scope',
+      type: 'uncertain-draft-restored'
+    })).toBe(initial);
+  });
+
   test('requires a connected repository and a trimmed title', () => {
     const disconnected = reduce(
       createInitialIssueCreationState({ repositoryKey: 'DotNaos/project-space' }),

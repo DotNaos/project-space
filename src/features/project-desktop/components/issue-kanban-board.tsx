@@ -53,9 +53,11 @@ export function IssueKanbanBoard({
   branches,
   defaultBranch,
   issues,
+  movingIssueNumbers,
   onBranchCreated,
   onMoveIssue,
   onOpenIssue,
+  placementIssues,
   pullRequests,
   repoFullName,
   overrides,
@@ -64,9 +66,11 @@ export function IssueKanbanBoard({
   branches: GitHubBranchRecord[];
   defaultBranch: string;
   issues: GitHubIssueRecord[];
+  movingIssueNumbers: ReadonlySet<number>;
   onBranchCreated(branch: GitHubBranchRecord): void;
   onMoveIssue(issueNumber: number, columnId: IssueColumnId): void;
   onOpenIssue(issueNumber: number): void;
+  placementIssues: GitHubIssueRecord[];
   pullRequests: GitHubPullRequestRecord[];
   repoFullName?: string;
   overrides: IssueColumnOverrides;
@@ -80,7 +84,7 @@ export function IssueKanbanBoard({
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [activeColumnIndex, setActiveColumnIndex] = useState(0);
 
-  const groups = groupIssuesByColumn(issues, overrides);
+  const groups = groupIssuesByColumn(issues, overrides, placementIssues);
 
   const updateDrag = (next: BoardDragState | null) => {
     dragRef.current = next;
@@ -257,6 +261,7 @@ export function IssueKanbanBoard({
           isDragActive={isDragActive}
           isDropTarget={isDragActive && dropTarget === column.id}
           issues={groups[column.id]}
+          movingIssueNumbers={movingIssueNumbers}
           onBranchCreated={onBranchCreated}
           onCardPointerDown={beginDrag}
           onMoveIssue={onMoveIssue}
@@ -313,6 +318,7 @@ function BoardColumn({
   isDragActive,
   isDropTarget,
   issues,
+  movingIssueNumbers,
   moveTargets,
   onBranchCreated,
   onCardPointerDown,
@@ -330,6 +336,7 @@ function BoardColumn({
   isDragActive: boolean;
   isDropTarget: boolean;
   issues: GitHubIssueRecord[];
+  movingIssueNumbers: ReadonlySet<number>;
   moveTargets: IssueColumnDefinition[];
   onBranchCreated(branch: GitHubBranchRecord): void;
   onCardPointerDown(
@@ -370,6 +377,7 @@ function BoardColumn({
             column={column}
             defaultBranch={defaultBranch}
             isDragSource={draggedIssueNumber === issue.number}
+            isMoving={movingIssueNumbers.has(issue.number)}
             issue={issue}
             moveTargets={moveTargets}
             onBranchCreated={onBranchCreated}
@@ -402,6 +410,7 @@ function BoardCard({
   column,
   defaultBranch,
   isDragSource,
+  isMoving,
   issue,
   moveTargets,
   onBranchCreated,
@@ -417,6 +426,7 @@ function BoardCard({
   column: IssueColumnDefinition;
   defaultBranch: string;
   isDragSource: boolean;
+  isMoving: boolean;
   issue: GitHubIssueRecord;
   moveTargets: IssueColumnDefinition[];
   onBranchCreated(branch: GitHubBranchRecord): void;
@@ -437,7 +447,10 @@ function BoardCard({
 
   return (
     <article
-      onPointerDown={(event) => onPointerDown(event, issue, column.id)}
+      aria-busy={isMoving}
+      onPointerDown={(event) => {
+        if (!isMoving) onPointerDown(event, issue, column.id);
+      }}
       onClickCapture={(event) => {
         if (suppressClickRef.current) {
           event.preventDefault();
@@ -447,13 +460,14 @@ function BoardCard({
       style={style}
       className={cn(
         'issue-rise-in group relative shrink-0 touch-auto rounded-lg border border-neutral-800/80 bg-neutral-900/50 transition hover:-translate-y-px hover:border-neutral-700 hover:bg-neutral-900 hover:shadow-lg hover:shadow-black/30 [@media(pointer:fine)]:cursor-grab [@media(pointer:fine)]:touch-none [@media(pointer:fine)]:select-none',
-        isDragSource && 'opacity-30 saturate-50'
+        isDragSource && 'opacity-30 saturate-50',
+        isMoving && 'opacity-70'
       )}
     >
       <button
         type="button"
         onClick={() => onOpenIssue(issue.number)}
-        className="block w-full min-w-0 cursor-[inherit] p-3 pr-12 text-left [@media(pointer:fine)]:pr-3"
+        className="block w-full min-w-0 cursor-[inherit] p-3 pb-14 pr-12 text-left [@media(pointer:fine)]:pb-3 [@media(pointer:fine)]:pr-3"
       >
         <BoardCardContent
           issue={issue}
@@ -463,13 +477,15 @@ function BoardCard({
       <div
         data-no-drag
         className={cn(
-          'absolute right-8 top-1.5 transition-opacity focus-within:opacity-100 group-hover:opacity-100',
-          hasLinkedBranch ? 'opacity-100' : 'opacity-0'
+          'absolute bottom-1.5 left-3 right-28 top-auto transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(pointer:fine)]:bottom-auto [@media(pointer:fine)]:left-auto [@media(pointer:fine)]:right-8 [@media(pointer:fine)]:top-1.5',
+          hasLinkedBranch
+            ? 'opacity-100'
+            : 'opacity-100 [@media(pointer:fine)]:opacity-0'
         )}
       >
         <IssueBranchMenu
           branches={branches}
-          className="max-w-28"
+          className="max-w-full min-h-11 px-3 opacity-100 [@media(pointer:fine)]:min-h-0 [@media(pointer:fine)]:max-w-28 [@media(pointer:fine)]:px-0"
           defaultBranch={defaultBranch}
           issue={issue}
           onBranchCreated={onBranchCreated}
@@ -484,7 +500,7 @@ function BoardCard({
           rel="noreferrer"
           aria-label={`Open issue #${issue.number} on GitHub`}
           title="Open on GitHub"
-          className="absolute bottom-2 right-2 flex size-6 items-center justify-center rounded-md text-neutral-500 transition hover:bg-neutral-800 hover:text-neutral-100"
+          className="absolute bottom-1.5 right-14 flex size-11 items-center justify-center rounded-xl text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100 [@media(pointer:fine)]:bottom-2 [@media(pointer:fine)]:right-2 [@media(pointer:fine)]:size-6 [@media(pointer:fine)]:rounded-md [@media(pointer:fine)]:text-neutral-500"
         >
           <GitHubMark className="size-3.5" />
         </a>
@@ -492,11 +508,16 @@ function BoardCard({
       {moveTargets.length > 0 ? (
         <div
           data-no-drag
-          className="absolute right-1.5 top-1.5 opacity-100 transition-opacity focus-within:opacity-100 [@media(pointer:fine)]:opacity-0 [@media(pointer:fine)]:group-hover:opacity-100"
+          className="absolute bottom-1.5 right-1.5 opacity-100 transition-opacity focus-within:opacity-100 [@media(pointer:fine)]:bottom-auto [@media(pointer:fine)]:top-1.5 [@media(pointer:fine)]:opacity-0 [@media(pointer:fine)]:group-hover:opacity-100"
         >
           <Dropdown>
             <DropdownTrigger
-              aria-label={`Move issue #${issue.number} to another column`}
+              aria-label={
+                isMoving
+                  ? `Moving issue #${issue.number}`
+                  : `Move issue #${issue.number} to another column`
+              }
+              isDisabled={isMoving}
               className="size-11 rounded-xl border-transparent bg-neutral-900/80 text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100 [@media(pointer:fine)]:size-6 [@media(pointer:fine)]:rounded-md [@media(pointer:fine)]:text-neutral-500"
             >
               <ArrowRightLeft className="size-4 [@media(pointer:fine)]:size-3" />
@@ -506,7 +527,9 @@ function BoardCard({
                 {moveTargets.map((target) => (
                   <DropdownItem
                     key={target.id}
-                    onPress={() => onMoveIssue(issue.number, target.id)}
+                    onPress={() => {
+                      if (!isMoving) onMoveIssue(issue.number, target.id);
+                    }}
                     className="flex min-h-11 items-center gap-2 text-sm [@media(pointer:fine)]:min-h-0 [@media(pointer:fine)]:text-xs"
                   >
                     <span className={cn('size-1.5 rounded-full', target.dotClass)} />

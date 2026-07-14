@@ -1,6 +1,6 @@
 import type { GitHubIssueRecord } from '../src/shared/project-space-api';
 import type { GitHubIssueCreationRemote } from './github-issue-creation-service';
-import { stripGitHubIssueCreationMarker } from './github-issue-creation-service';
+import { stripGitHubIssueCreationMarker } from '../src/shared/github-issue-creation-marker';
 import { GitHubRequestError, requestGitHub } from './local-github-catalog';
 
 export interface LocalGitHubApiIssue {
@@ -16,6 +16,10 @@ export interface LocalGitHubApiIssue {
 }
 
 type GitHubRequest = typeof requestGitHub;
+
+interface LocalGitHubIssueSearchResult {
+  items?: LocalGitHubApiIssue[];
+}
 
 function repoApiPath(fullName: string) {
   return fullName.split('/').map(encodeURIComponent).join('/');
@@ -60,20 +64,43 @@ export function createLocalGitHubIssueCreationRemote(
     },
 
     async findByMarker(repositoryFullName, marker) {
-      const matches: GitHubIssueRecord[] = [];
+      const matches = new Map<number, GitHubIssueRecord>();
+      let scannedEveryIssue = false;
+
+      const addMatches = (issues: readonly LocalGitHubApiIssue[]) => {
+        for (const issue of issues) {
+          if (!issue.pull_request && issue.body?.includes(marker)) {
+            matches.set(issue.number, mapLocalGitHubIssue(issue));
+          }
+        }
+      };
+
       for (let page = 1; page <= 5; page += 1) {
         const issues = await request<LocalGitHubApiIssue[]>(
           `/repos/${repoApiPath(repositoryFullName)}/issues?state=all&sort=created&direction=desc&per_page=100&page=${page}`,
           token
         );
-        for (const issue of issues) {
-          if (!issue.pull_request && issue.body?.includes(marker)) {
-            matches.push(mapLocalGitHubIssue(issue));
-          }
+        addMatches(issues);
+        if (matches.size > 1) return Array.from(matches.values());
+        if (issues.length < 100) {
+          scannedEveryIssue = true;
+          break;
         }
-        if (issues.length < 100 || matches.length > 1) break;
       }
-      return matches;
+
+      if (!scannedEveryIssue) {
+        const search = new URLSearchParams({
+          per_page: '100',
+          q: `repo:${repositoryFullName} is:issue in:body "${marker}"`
+        });
+        const result = await request<LocalGitHubIssueSearchResult>(
+          `/search/issues?${search.toString()}`,
+          token
+        );
+        addMatches(result.items ?? []);
+      }
+
+      return Array.from(matches.values());
     },
 
     isRetrySafeError(error) {

@@ -16,6 +16,7 @@ import type {
   GitHubPullRequestMutationResult,
   GitHubPullRequestRecord
 } from '../src/shared/project-space-api';
+import { preserveGitHubIssueCreationMarker } from '../src/shared/github-issue-creation-marker';
 import {
   getGitHubClientId,
   githubOAuthClientIdMissingMessage,
@@ -420,15 +421,27 @@ export async function createGitHubPullRequest({
   }
 }
 
-export async function updateGitHubIssue({
+interface UpdateGitHubIssueDependencies {
+  requestGitHub: typeof requestGitHub;
+  resolveOAuthToken: typeof resolveOAuthToken;
+}
+
+const updateGitHubIssueDependencies: UpdateGitHubIssueDependencies = {
+  requestGitHub,
+  resolveOAuthToken
+};
+
+export async function updateGitHubIssueWithDependencies({
   body,
   fullName,
   labels,
   number,
   state,
   title
-}: GitHubIssueUpdateRequest): Promise<GitHubIssueMutationResult> {
-  const auth = await resolveOAuthToken();
+}: GitHubIssueUpdateRequest,
+  dependencies = updateGitHubIssueDependencies
+): Promise<GitHubIssueMutationResult> {
+  const auth = await dependencies.resolveOAuthToken();
 
   if (!auth) {
     return issueMutationError(
@@ -444,7 +457,11 @@ export async function updateGitHubIssue({
       payload.title = title.trim();
     }
     if (body !== undefined) {
-      payload.body = body;
+      const currentIssue = await dependencies.requestGitHub<LocalGitHubApiIssue>(
+        `/repos/${repoApiPath(fullName)}/issues/${number}`,
+        auth.token
+      );
+      payload.body = preserveGitHubIssueCreationMarker(body, currentIssue.body ?? '');
     }
     if (labels !== undefined) {
       payload.labels = labels.filter(Boolean);
@@ -457,7 +474,7 @@ export async function updateGitHubIssue({
       return issueMutationError('error', 'Issue title is required.');
     }
 
-    const issue = await requestGitHub<LocalGitHubApiIssue>(
+    const issue = await dependencies.requestGitHub<LocalGitHubApiIssue>(
       `/repos/${repoApiPath(fullName)}/issues/${number}`,
       auth.token,
       {
@@ -479,6 +496,12 @@ export async function updateGitHubIssue({
       error instanceof Error ? error.message : 'Could not edit GitHub issue.'
     );
   }
+}
+
+export async function updateGitHubIssue(
+  request: GitHubIssueUpdateRequest
+): Promise<GitHubIssueMutationResult> {
+  return updateGitHubIssueWithDependencies(request);
 }
 
 export async function getGitHubIssueComments(

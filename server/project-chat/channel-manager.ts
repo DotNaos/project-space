@@ -23,7 +23,14 @@ export class ProjectChatChannelManager {
     private readonly listProjects: ProjectChatProjectProvider
   ) {}
 
-  async list(context: ProjectChatContext) {
+  async list(context: ProjectChatContext, projectId?: string) {
+    if (projectId) {
+      const selected = await this.ensureSelected(context, projectId);
+      return {
+        channels: [publicProjectChatChannel(selected.channel, selected.project)]
+      };
+    }
+
     const general = await this.ensureGeneral(context.spaceId);
     const projects = uniqueProjects(await this.listProjects(context));
     const projectChannels = await Promise.all(

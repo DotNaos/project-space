@@ -104,7 +104,7 @@ export function IssueLabelPicker({
                   isIconOnly
                   size="sm"
                   variant="ghost"
-                  className="ml-0.5 size-5 min-h-5 min-w-5 rounded-full p-0 text-neutral-400"
+                  className="ml-0.5 size-6 min-h-6 min-w-6 rounded-full p-0 text-neutral-400"
                   onPress={() => onToggle(label.name)}
                 >
                   <X className="size-3" />

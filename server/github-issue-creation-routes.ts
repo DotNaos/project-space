@@ -14,6 +14,7 @@ import {
 import { writeJson } from './project-space-http-response';
 
 interface GitHubIssueCreationRouteOptions {
+  bodyReadTimeoutMs?: number;
   loadMetadata?(fullName: string): Promise<LocalGitHubIssueMetadataResult>;
   maximumBodyBytes?: number;
   maximumConcurrentUploads?: number;
@@ -26,7 +27,7 @@ interface GitHubIssueCreationRouteOptions {
 class IssueAttachmentBodyError extends Error {
   constructor(
     message: string,
-    readonly statusCode: 400 | 413
+    readonly statusCode: 400 | 408 | 413
   ) {
     super(message);
   }
@@ -37,6 +38,7 @@ class IssueAttachmentBusyError extends Error {}
 const supportedMediaTypes = new Set(['image/gif', 'image/jpeg', 'image/png']);
 const attachmentIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const defaultBodyReadTimeoutMs = 15_000;
 
 function hasExactSearchParams(searchParams: URLSearchParams, keys: readonly string[]) {
   const expected = new Set(keys);
@@ -63,28 +65,44 @@ function contentLength(request: IncomingMessage, maximumBytes: number) {
 
 export async function readGitHubIssueAttachmentBody(
   request: IncomingMessage,
-  maximumBytes = GITHUB_ISSUE_MAX_ATTACHMENT_BYTES
+  maximumBytes = GITHUB_ISSUE_MAX_ATTACHMENT_BYTES,
+  timeoutMs = defaultBodyReadTimeoutMs
 ) {
   const declaredLength = contentLength(request, maximumBytes);
-  const chunks: Buffer[] = [];
-  let size = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const readBody = async () => {
+    const chunks: Buffer[] = [];
+    let size = 0;
 
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    size += buffer.byteLength;
-    if (size > maximumBytes) {
-      throw new IssueAttachmentBodyError('The issue image is larger than 10 MiB.', 413);
+    for await (const chunk of request) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += buffer.byteLength;
+      if (size > maximumBytes) {
+        throw new IssueAttachmentBodyError('The issue image is larger than 10 MiB.', 413);
+      }
+      chunks.push(buffer);
     }
-    chunks.push(buffer);
-  }
 
-  if (declaredLength !== undefined && declaredLength !== size) {
-    throw new IssueAttachmentBodyError('The issue image body is incomplete.', 400);
-  }
-  if (size === 0) {
-    throw new IssueAttachmentBodyError('The issue image is empty.', 400);
-  }
-  return Buffer.concat(chunks, size);
+    if (declaredLength !== undefined && declaredLength !== size) {
+      throw new IssueAttachmentBodyError('The issue image body is incomplete.', 400);
+    }
+    if (size === 0) {
+      throw new IssueAttachmentBodyError('The issue image is empty.', 400);
+    }
+    return Buffer.concat(chunks, size);
+  };
+
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new IssueAttachmentBodyError('The issue image upload timed out.', 408));
+      request.destroy();
+    }, timeoutMs);
+    timer.unref?.();
+  });
+
+  return Promise.race([readBody(), timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 export function createGitHubIssueCreationRoutes(
@@ -92,6 +110,10 @@ export function createGitHubIssueCreationRoutes(
 ) {
   const loadMetadata = options.loadMetadata ?? loadLocalGitHubIssueMetadata;
   const uploadAttachment = options.uploadAttachment ?? uploadLocalGitHubIssueAttachment;
+  const bodyReadTimeoutMs =
+    Number.isSafeInteger(options.bodyReadTimeoutMs) && (options.bodyReadTimeoutMs ?? 0) > 0
+      ? options.bodyReadTimeoutMs!
+      : defaultBodyReadTimeoutMs;
   const maximumBodyBytes =
     Number.isSafeInteger(options.maximumBodyBytes) && (options.maximumBodyBytes ?? 0) > 0
       ? options.maximumBodyBytes!
@@ -182,7 +204,11 @@ export function createGitHubIssueCreationRoutes(
     try {
       await acquireUploadSlot();
       hasUploadSlot = true;
-      const bytes = await readGitHubIssueAttachmentBody(request, maximumBodyBytes);
+      const bytes = await readGitHubIssueAttachmentBody(
+        request,
+        maximumBodyBytes,
+        bodyReadTimeoutMs
+      );
       writeJson(
         response,
         200,

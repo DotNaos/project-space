@@ -64,6 +64,13 @@ export type IssueCreationAction =
     }
   | { title: string; type: 'title-changed' }
   | { body: string; type: 'body-changed' }
+  | {
+      body: string;
+      repositoryKey: string;
+      selectedLabels: readonly string[];
+      title: string;
+      type: 'uncertain-draft-restored';
+    }
   | { name: string; type: 'label-toggled' }
   | {
       repositoryKey: string;
@@ -295,6 +302,27 @@ export function issueCreationReducer(
       return { ...state, title: action.title };
     case 'body-changed':
       return { ...state, body: action.body };
+    case 'uncertain-draft-restored':
+      if (
+        action.repositoryKey !== state.repositoryKey
+        || !state.repositoryConnected
+        || !action.title.trim()
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        body: action.body,
+        discardConfirmationOpen: false,
+        selectedLabels: Array.from(new Set(action.selectedLabels)),
+        submission: {
+          error: 'GitHub may already have created this issue. Check GitHub again before leaving. Pasted images cannot be restored after a reload and must be re-added before retrying.',
+          repositoryKey: action.repositoryKey,
+          requestId: 'restored-uncertain-operation',
+          status: 'failed'
+        },
+        title: action.title
+      };
     case 'labels-load-started':
       if (
         action.repositoryKey !== state.repositoryKey ||

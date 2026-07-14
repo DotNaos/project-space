@@ -92,6 +92,13 @@ body.issue-dragging {
   animation: issue-drag-pop 0.16s ease-out both;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .issue-rise-in,
+  .issue-drag-preview {
+    animation: none;
+  }
+}
+
 .app-drag {
   -webkit-app-region: drag;
 }

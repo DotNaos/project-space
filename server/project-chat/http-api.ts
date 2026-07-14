@@ -124,7 +124,10 @@ async function handleRoute(
         await readJsonObject<ProjectChatAcknowledgeInput>(request)
       );
     case 'channels':
-      return service.listChannels(context);
+      return service.listChannels(
+        context,
+        optionalProjectId(queryInput(url).projectId)
+      );
     case 'join':
       return service.join(context, await readJsonObject<ProjectChatJoinInput>(request));
     case 'members':
@@ -327,6 +330,18 @@ function queryInput(url: URL) {
       : value;
   }
   return input;
+}
+
+function optionalProjectId(value: unknown) {
+  if (value === undefined) return undefined;
+  if (
+    typeof value !== 'string'
+    || value.length > 256
+    || !/^[A-Za-z0-9][A-Za-z0-9:._/@+-]*$/.test(value)
+  ) {
+    throw invalidRequest('The projectId query parameter is invalid.');
+  }
+  return value;
 }
 
 function requireMatchingIdempotencyHeader(

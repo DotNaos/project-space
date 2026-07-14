@@ -117,10 +117,10 @@ export class ProjectChatService {
     );
   }
 
-  async listChannels(context: ProjectChatContext) {
+  async listChannels(context: ProjectChatContext, projectId?: string) {
     validateProjectChatContext(context);
     await this.requireMember(context);
-    return this.channels.list(context);
+    return this.channels.list(context, projectId);
   }
 
   async listNames(context: ProjectChatContext) {

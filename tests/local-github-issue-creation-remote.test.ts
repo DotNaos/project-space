@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
-import { GitHubRequestError, type requestGitHub } from '../server/local-github-catalog';
+import {
+  GitHubRequestError,
+  mapGitHubIssue,
+  type requestGitHub
+} from '../server/local-github-catalog';
 import {
   createLocalGitHubIssueCreationRemote,
   type LocalGitHubApiIssue
@@ -63,6 +67,69 @@ describe('local GitHub issue creation remote', () => {
     expect(await remote.findByMarker('DotNaos/project-space', marker)).toEqual([
       expect.objectContaining({ body: 'Description', number: 187 })
     ]);
+  });
+
+  test('searches exact issue bodies after five full recent pages', async () => {
+    const calls: string[] = [];
+    const request = (async <Result>(path: string) => {
+      calls.push(path);
+      if (path.startsWith('/search/issues?')) {
+        return {
+          items: [
+            apiIssue({ number: 77 }),
+            apiIssue({ number: 78, pull_request: {} }),
+            apiIssue({ body: 'Search matched a comment, not the body.', number: 79 })
+          ]
+        } as Result;
+      }
+
+      const page = Number(new URL(path, 'https://api.github.test').searchParams.get('page'));
+      return Array.from({ length: 100 }, (_, index) => apiIssue({
+        body: 'A recent issue without the marker.',
+        number: page * 1_000 + index
+      })) as Result;
+    }) as typeof requestGitHub;
+    const remote = createLocalGitHubIssueCreationRemote('secret-token', request);
+
+    expect(await remote.findByMarker('DotNaos/project-space', marker)).toEqual([
+      expect.objectContaining({ body: 'Description', number: 77 })
+    ]);
+    expect(calls).toHaveLength(6);
+    const searchUrl = new URL(calls[5], 'https://api.github.test');
+    expect(searchUrl.pathname).toBe('/search/issues');
+    expect(searchUrl.searchParams.get('q')).toBe(
+      `repo:DotNaos/project-space is:issue in:body "${marker}"`
+    );
+    expect(searchUrl.searchParams.get('per_page')).toBe('100');
+  });
+
+  test('deduplicates a recent match returned again by marker search', async () => {
+    const request = (async <Result>(path: string) => {
+      if (path.startsWith('/search/issues?')) {
+        return {
+          items: [apiIssue({ number: 187 }), apiIssue({ number: 87 })]
+        } as Result;
+      }
+
+      const page = Number(new URL(path, 'https://api.github.test').searchParams.get('page'));
+      return Array.from({ length: 100 }, (_, index) => apiIssue({
+        body: page === 1 && index === 0 ? `Description\n\n${marker}` : 'No marker.',
+        number: page === 1 && index === 0 ? 187 : page * 1_000 + index
+      })) as Result;
+    }) as typeof requestGitHub;
+    const remote = createLocalGitHubIssueCreationRemote('secret-token', request);
+
+    expect((await remote.findByMarker('DotNaos/project-space', marker)).map(
+      (issue) => issue.number
+    )).toEqual([187, 87]);
+  });
+
+  test('removes the hidden marker from repository catalog issues', () => {
+    expect(mapGitHubIssue(apiIssue())).toMatchObject({
+      body: 'Description',
+      number: 187
+    });
+    expect(mapGitHubIssue(apiIssue({ body: marker })).body).toBeUndefined();
   });
 
   test('only treats definitive GitHub rejections as safe to retry', () => {

@@ -533,6 +533,9 @@ export function ProjectMainPanel({
                       state: 'blocked'
                     }
             }
+            onRetry={() => {
+              void onRefreshConnectorOverview();
+            }}
             projects={projects.filter(isVisibleProject)}
             recentProjectIds={recentProjectIds}
           />

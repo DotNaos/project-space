@@ -36,10 +36,10 @@ export function IssueBoardSettings({
       <DropdownPopover className="w-64">
         <DropdownMenu aria-label="Configure local board columns">
           <div className="px-3 pb-1 pt-2">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
               Local board columns
             </div>
-            <div className="mt-1 text-[10px] leading-4 text-neutral-600">
+            <div className="mt-1 text-xs leading-5 text-neutral-400">
               Placement here does not change GitHub Project fields.
             </div>
           </div>

@@ -4,6 +4,9 @@ import {
   requestGitHub,
   resolveOAuthToken
 } from './local-github-catalog';
+import { isValidGitHubRepositoryFullName } from '../src/shared/github-repository-summary';
+
+export { isValidGitHubRepositoryFullName } from '../src/shared/github-repository-summary';
 
 export interface LocalGitHubIssueLabel {
   color: string;
@@ -45,17 +48,6 @@ const maximumLabelPages = 100;
 
 function repositoryApiPath(fullName: string) {
   return fullName.split('/').map(encodeURIComponent).join('/');
-}
-
-export function isValidGitHubRepositoryFullName(fullName: string) {
-  if (fullName.length > 140) return false;
-
-  const [owner, repository, extra] = fullName.split('/');
-  if (!owner || !repository || extra) return false;
-  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(owner)) return false;
-  if (repository === '.' || repository === '..' || repository.length > 100) return false;
-
-  return /^[A-Za-z0-9._-]+$/.test(repository);
 }
 
 function sanitizedLabel(value: unknown): LocalGitHubIssueLabel | null {

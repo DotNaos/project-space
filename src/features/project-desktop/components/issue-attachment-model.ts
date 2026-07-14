@@ -61,6 +61,10 @@ export type IssueAttachmentDraft =
       status: 'uploaded';
     });
 
+export function mayHaveReachedRemote(attachment: IssueAttachmentDraft) {
+  return attachment.status === 'uploaded' || attachment.requestId !== null;
+}
+
 export interface IssueAttachmentState {
   attachments: readonly IssueAttachmentDraft[];
   markdown: string;
@@ -237,6 +241,26 @@ function hasAttachmentMarkdown(markdown: string, url: string) {
 
 function removeAllAttachmentMarkdown(markdown: string, url: string) {
   return markdown.replace(attachmentMarkdownPattern(url), '');
+}
+
+export function projectSpaceIssueAttachmentUrls(
+  markdown: string,
+  repositoryKey: string | null
+) {
+  if (!repositoryKey) return [];
+
+  const urls = new Set<string>();
+  const pattern = /!\[[^\]\r\n]*\]\((https:\/\/[^\s<>()]+)\)/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(markdown)) !== null) {
+    const url = match[1];
+    if (parseProjectSpaceGitHubIssueAttachmentUrl(url, repositoryKey)) {
+      urls.add(url);
+    }
+  }
+
+  return Array.from(urls);
 }
 
 function removeAttachmentMarkdown(

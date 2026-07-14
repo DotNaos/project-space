@@ -4,6 +4,7 @@ import { Modal } from '@heroui/react';
 import { loadGitHubIssueMetadata } from '@/api/github-issue-metadata-client';
 import { projectSpaceClient } from '@/api/project-space-client';
 import type { GitHubCatalogRepository, GitHubIssueRecord } from '@/shared/project-space-api';
+import { mayHaveReachedRemote } from './issue-attachment-model';
 import {
   canSubmitIssueCreation,
   createInitialIssueCreationState,
@@ -15,7 +16,8 @@ import {
 } from './issue-creation-model';
 import {
   IssueCreationDiscardDialog,
-  IssueCreationRecoveryDialog
+  IssueCreationRecoveryDialog,
+  IssueCreationUncertainDialog
 } from './issue-creation-dialogs';
 import {
   IssueCreationFormBody,
@@ -30,8 +32,15 @@ import {
   type ScopedCreatedIssue
 } from './issue-creation-workflow';
 import { useIssueAttachments } from './use-issue-attachments';
+import { useIssueCreationCloseRequest } from './use-issue-creation-close-request';
+import {
+  clearIssueCreationUncertainty,
+  loadIssueCreationUncertainty,
+  saveIssueCreationUncertainty
+} from './issue-creation-uncertainty';
 
 interface IssueCreationOverlayProps {
+  closeRequest?: number;
   onClose(): void;
   onIssueCreated(issue: GitHubIssueRecord, repositoryKey: string): void;
   open: boolean;
@@ -43,6 +52,7 @@ function requestId() {
 }
 
 export function IssueCreationOverlay({
+  closeRequest = 0,
   onClose,
   onIssueCreated,
   open,
@@ -65,12 +75,13 @@ export function IssueCreationOverlay({
   const [recoveryStage, setRecoveryStage] = useState<IssueCreationRecoveryStage | null>(null);
   const [scopeRecoveryError, setScopeRecoveryError] = useState<string | null>(null);
   const [uncertainRepositoryKey, setUncertainRepositoryKey] = useState<string | null>(null);
+  const [uncertainCloseOpen, setUncertainCloseOpen] = useState(false);
   const stateRef = useRef(state);
   const workflowBusyRef = useRef(false);
   const repositoryKeyRef = useRef(repositoryKey);
   const createdIssueRef = useRef<ScopedCreatedIssue | null>(null);
   const labelAbortRef = useRef<AbortController | null>(null);
-  const creationOperationIdRef = useRef(requestId());
+  const creationOperationIdRef = useRef<string>(requestId());
   stateRef.current = state;
   repositoryKeyRef.current = repositoryKey;
   createdIssueRef.current = createdIssue;
@@ -95,12 +106,44 @@ export function IssueCreationOverlay({
   });
 
   useEffect(() => {
-    dispatch({
+    const action = {
       connected: repositoryConnected,
       repositoryKey,
-      type: 'repository-changed'
-    });
+      type: 'repository-changed' as const
+    };
+    stateRef.current = issueCreationReducer(stateRef.current, action);
+    dispatch(action);
   }, [repositoryConnected, repositoryKey]);
+
+  useEffect(() => {
+    if (!open || !repositoryKey) return;
+    const recovered = loadIssueCreationUncertainty(repositoryKey);
+    if (!recovered) return;
+
+    creationOperationIdRef.current = recovered.operationId;
+    attachments.resetAttachmentLifecycle(recovered.body);
+    const action = {
+      body: recovered.body,
+      repositoryKey,
+      selectedLabels: recovered.selectedLabels,
+      title: recovered.title,
+      type: 'uncertain-draft-restored' as const
+    };
+    stateRef.current = issueCreationReducer(stateRef.current, action);
+    dispatch(action);
+    setUncertainRepositoryKey(repositoryKey);
+    setTitleTouched(true);
+  }, [attachments.resetAttachmentLifecycle, open, repositoryKey]);
+
+  useEffect(() => {
+    if (!creationUncertain) return;
+    const warnBeforeReload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeReload);
+    return () => window.removeEventListener('beforeunload', warnBeforeReload);
+  }, [creationUncertain]);
 
   useEffect(() => {
     if (createdIssue && createdIssue.repositoryKey !== repositoryKey) {
@@ -171,6 +214,14 @@ export function IssueCreationOverlay({
   }, [loadLabels]);
 
   const resetForm = useCallback(() => {
+    const uncertainScope = uncertainRepositoryKey ?? repositoryKeyRef.current;
+    if (uncertainScope) {
+      clearIssueCreationUncertainty(
+        uncertainScope,
+        creationOperationIdRef.current
+      );
+    }
+    attachments.resetAttachmentLifecycle('');
     const action = { type: 'form-reset' as const };
     stateRef.current = issueCreationReducer(stateRef.current, action);
     dispatch(action);
@@ -180,9 +231,10 @@ export function IssueCreationOverlay({
     setRecoveryStage(null);
     setScopeRecoveryError(null);
     setUncertainRepositoryKey(null);
+    setUncertainCloseOpen(false);
     creationOperationIdRef.current = requestId();
     setTitleTouched(false);
-  }, []);
+  }, [attachments.resetAttachmentLifecycle, uncertainRepositoryKey]);
 
   const finishClose = useCallback(() => {
     resetForm();
@@ -198,6 +250,11 @@ export function IssueCreationOverlay({
   const requestClose = useCallback(() => {
     if (workflowBusyRef.current || stateRef.current.submission.status === 'submitting') return;
 
+    if (uncertainRepositoryKey) {
+      setUncertainCloseOpen(true);
+      return;
+    }
+
     if (createdIssueRef.current) {
       setRecoveryOpen(true);
       return;
@@ -209,7 +266,9 @@ export function IssueCreationOverlay({
     }
 
     finishClose();
-  }, [finishClose]);
+  }, [finishClose, uncertainRepositoryKey]);
+
+  useIssueCreationCloseRequest({ closeRequest, onRequestClose: requestClose, open });
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
@@ -269,6 +328,10 @@ export function IssueCreationOverlay({
       ) return;
 
       if (outcome.status === 'complete') {
+        clearIssueCreationUncertainty(
+          currentRepositoryKey,
+          creationOperationIdRef.current
+        );
         const successAction = {
           repositoryKey: currentRepositoryKey,
           requestId: id,
@@ -294,12 +357,32 @@ export function IssueCreationOverlay({
       );
       if (outcome.status === 'creation-failed') {
         if (outcome.creationState === 'uncertain') {
+          const persisted = saveIssueCreationUncertainty({
+            body: attachments.markdownWithoutAttachments,
+            operationId: creationOperationIdRef.current,
+            repositoryKey: currentRepositoryKey,
+            selectedLabels: snapshot.selectedLabels,
+            title: snapshot.title
+          });
           setUncertainRepositoryKey(currentRepositoryKey);
+          if (!persisted) {
+            setScopeRecoveryError(
+              `${outcome.error} Keep this page open: the browser could not preserve the recovery operation for a reload.`
+            );
+          }
         } else {
+          clearIssueCreationUncertainty(
+            currentRepositoryKey,
+            creationOperationIdRef.current
+          );
           creationOperationIdRef.current = requestId();
           setUncertainRepositoryKey(null);
         }
       } else {
+        clearIssueCreationUncertainty(
+          currentRepositoryKey,
+          creationOperationIdRef.current
+        );
         setUncertainRepositoryKey(null);
       }
       if (outcome.status === 'created-incomplete') {
@@ -347,6 +430,7 @@ export function IssueCreationOverlay({
           createdIssueRef.current = nextScopedIssue;
           setCreatedIssue(nextScopedIssue);
         },
+        operationId: creationOperationIdRef.current,
         updateIssue: (updateRequest) => projectSpaceClient.updateGitHubIssue(updateRequest)
       });
 
@@ -386,8 +470,8 @@ export function IssueCreationOverlay({
   const isSubmitting = state.submission.status === 'submitting';
   const isBusy = workflowBusy || isSubmitting || attachments.isUploading;
   const hasStoredAttachments = attachments.attachments.some(
-    (attachment) => attachment.status === 'uploaded'
-  );
+    mayHaveReachedRemote
+  ) || attachments.retainedStoredAttachmentCount > 0;
   const draftLocked = Boolean(createdIssue) || creationUncertain;
   const createdScopeMismatch = Boolean(
     createdIssue && createdIssue.repositoryKey !== repositoryKey
@@ -415,12 +499,13 @@ export function IssueCreationOverlay({
           className="z-[140] bg-black/75"
         >
           <Modal.Container
-            placement="center"
+            placement="auto"
             scroll="inside"
             size="lg"
             className="p-0 sm:p-5"
           >
-            <Modal.Dialog className="h-[100dvh] max-h-[100dvh] w-full rounded-none border border-neutral-800 bg-neutral-950 text-neutral-100 shadow-2xl sm:h-auto sm:max-h-[min(48rem,92dvh)] sm:max-w-5xl sm:rounded-2xl">
+            <Modal.Dialog className="issue-rise-in flex h-[min(46rem,calc(var(--visual-viewport-height,100dvh)-0.75rem))] max-h-[calc(var(--visual-viewport-height,100dvh)-env(safe-area-inset-top)-0.75rem)] w-full max-w-none flex-col rounded-t-[1.75rem] rounded-b-none border border-neutral-800 bg-neutral-950 text-neutral-100 shadow-2xl sm:h-auto sm:max-h-[min(48rem,92dvh)] sm:max-w-5xl sm:rounded-2xl">
+              <div aria-hidden className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-neutral-700 sm:hidden" />
               <form className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => void submit(event)}>
                 <IssueCreationFormHeader
                   busy={isBusy}
@@ -478,11 +563,7 @@ export function IssueCreationOverlay({
         hasStoredAttachments={hasStoredAttachments}
         isOpen={state.discardConfirmationOpen}
         onCancel={() => dispatch({ type: 'discard-canceled' })}
-        onDiscard={() => {
-          dispatch({ type: 'discard-confirmed' });
-          setTitleTouched(false);
-          onClose();
-        }}
+        onDiscard={finishClose}
       />
       <IssueCreationRecoveryDialog
         isBusy={isBusy}
@@ -491,6 +572,17 @@ export function IssueCreationOverlay({
         onCancel={() => setRecoveryOpen(false)}
         onFinish={() => void finishAndView()}
         recoveryStage={recoveryStage}
+      />
+      <IssueCreationUncertainDialog
+        canCheck={uncertainRepositoryKey === repositoryKey}
+        isBusy={isBusy}
+        isOpen={uncertainCloseOpen}
+        onCancel={() => setUncertainCloseOpen(false)}
+        onCheck={() => {
+          setUncertainCloseOpen(false);
+          void submit();
+        }}
+        repositoryKey={uncertainRepositoryKey ?? repositoryKey ?? 'this repository'}
       />
     </>
   );

@@ -9,6 +9,8 @@ interface IssueAttachmentStatusProps {
   error?: string | null;
   onRemove(attachmentId: string): void;
   onRemoveAll?(): void;
+  previewUrls?: Readonly<Record<string, string>>;
+  retainedStoredAttachmentCount?: number;
 }
 
 function formatBytes(sizeBytes: number) {
@@ -36,9 +38,11 @@ export function IssueAttachmentStatus({
   disabled = false,
   error,
   onRemove,
-  onRemoveAll
+  onRemoveAll,
+  previewUrls = {},
+  retainedStoredAttachmentCount = 0
 }: IssueAttachmentStatusProps) {
-  if (attachments.length === 0 && !error) return null;
+  if (attachments.length === 0 && !error && retainedStoredAttachmentCount === 0) return null;
   const hasPendingImages = attachments.some((attachment) => attachment.status !== 'uploaded');
 
   return (
@@ -70,11 +74,22 @@ export function IssueAttachmentStatus({
                 key={attachment.attachmentId}
                 className="flex min-w-0 items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950/60 px-2.5 py-2"
               >
-                {attachment.status === 'uploading' ? (
-                  <Spinner aria-label={`Storing pasted image ${index + 1}`} size="sm" />
-                ) : (
-                  <ImageIcon aria-hidden="true" className="size-4 shrink-0 text-neutral-500" />
-                )}
+                <div className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-neutral-800 bg-neutral-900">
+                  {previewUrls[attachment.attachmentId] ? (
+                    <img
+                      alt={`Preview of pasted image ${index + 1}`}
+                      className="size-full object-cover"
+                      src={previewUrls[attachment.attachmentId]}
+                    />
+                  ) : (
+                    <ImageIcon aria-hidden="true" className="size-4 text-neutral-500" />
+                  )}
+                  {attachment.status === 'uploading' ? (
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/65">
+                      <Spinner aria-label={`Storing pasted image ${index + 1}`} size="sm" />
+                    </span>
+                  ) : null}
+                </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-2">
                     <span className="text-xs font-medium text-neutral-200">Pasted image</span>
@@ -113,6 +128,14 @@ export function IssueAttachmentStatus({
               : 'These images were stored in this repository with a commit.'}
           </p>
         </>
+      ) : null}
+
+      {retainedStoredAttachmentCount > 0 ? (
+        <p className="mt-2 text-[11px] leading-4 text-amber-300" role="status">
+          {retainedStoredAttachmentCount === 1
+            ? 'One removed image may remain stored in its repository. Removing it here does not delete a file that GitHub already accepted.'
+            : `${retainedStoredAttachmentCount} removed images may remain stored in their repositories. Removing them here does not delete files that GitHub already accepted.`}
+        </p>
       ) : null}
 
       {error ? (

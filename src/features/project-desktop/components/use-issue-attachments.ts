@@ -8,16 +8,19 @@ import {
 
 import { uploadGitHubIssueAttachment } from '../../../api/github-issue-attachment-client';
 import {
+  ISSUE_ATTACHMENT_DRAFT_MAX_COUNT,
   clipboardIssueAttachmentImages,
   prepareIssueAttachmentPasteLayout,
   selectPastedIssueAttachmentImages
 } from './issue-attachment-paste';
+import { IssueAttachmentLifecycle } from './issue-attachment-lifecycle';
 import {
   createInitialIssueAttachmentState,
   hasUnresolvedIssueAttachments,
   issueAttachmentMarkdownWithUploadedAttachments,
   issueAttachmentMarkdownWithoutAttachments,
   issueAttachmentReducer,
+  projectSpaceIssueAttachmentUrls,
   type IssueAttachmentAction,
   type IssueAttachmentState
 } from './issue-attachment-model';
@@ -43,6 +46,17 @@ export interface UseIssueAttachmentsOptions {
   timeoutMs?: number;
   upload?: IssueAttachmentUpload;
   writeDenied?: boolean;
+}
+
+function createBrowserPreviewUrl(image: Blob) {
+  if (typeof globalThis.URL?.createObjectURL !== 'function') {
+    throw new Error('Image previews are unavailable in this browser.');
+  }
+  return globalThis.URL.createObjectURL(image);
+}
+
+function revokeBrowserPreviewUrl(url: string) {
+  globalThis.URL?.revokeObjectURL?.(url);
 }
 
 function normalizedRepositoryKey(repositoryKey: string | null) {
@@ -88,6 +102,10 @@ export function useIssueAttachments({
   );
   const [error, setError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [attachmentLifecycle, setAttachmentLifecycle] = useState(() => ({
+    previewUrls: {} as Readonly<Record<string, string>>,
+    retainedStoredAttachmentCount: 0
+  }));
   const stateRef = useRef(state);
   const repositoryKeyRef = useRef(desiredRepositoryKey);
   const onMarkdownChangeRef = useRef(onMarkdownChange);
@@ -98,6 +116,19 @@ export function useIssueAttachments({
   const imagesRef = useRef(new Map<string, Blob>());
   const abortControllersRef = useRef(new Map<string, AbortController>());
   const uploadPromiseRef = useRef<Promise<IssueAttachmentUploadResult> | null>(null);
+  const attachmentLifecycleRef = useRef<IssueAttachmentLifecycle | null>(null);
+  if (!attachmentLifecycleRef.current) {
+    attachmentLifecycleRef.current = new IssueAttachmentLifecycle(
+      {
+        createObjectUrl: createBrowserPreviewUrl,
+        revokeObjectUrl: revokeBrowserPreviewUrl
+      },
+      ISSUE_ATTACHMENT_DRAFT_MAX_COUNT
+    );
+    attachmentLifecycleRef.current.setBaselineStoredAttachmentUrls(
+      projectSpaceIssueAttachmentUrls(markdown, desiredRepositoryKey)
+    );
+  }
 
   repositoryKeyRef.current = desiredRepositoryKey;
   onMarkdownChangeRef.current = onMarkdownChange;
@@ -105,6 +136,10 @@ export function useIssueAttachments({
   createAttachmentIdRef.current = createAttachmentId;
   createRequestIdRef.current = createRequestId;
   writeDeniedRef.current = writeDenied;
+
+  const syncAttachmentLifecycle = useCallback(() => {
+    setAttachmentLifecycle(attachmentLifecycleRef.current!.snapshot());
+  }, []);
 
   const apply = useCallback((action: IssueAttachmentAction, notify = true) => {
     const previous = stateRef.current;
@@ -124,6 +159,21 @@ export function useIssueAttachments({
         abortControllersRef.current.delete(attachment.attachmentId);
       }
     }
+    if (
+      attachmentLifecycleRef.current!.observeTransition(
+        previous.attachments,
+        next.attachments
+      )
+    ) {
+      syncAttachmentLifecycle();
+    }
+    if (
+      attachmentLifecycleRef.current!.observeStoredAttachmentUrls(
+        projectSpaceIssueAttachmentUrls(next.markdown, next.repositoryKey)
+      )
+    ) {
+      syncAttachmentLifecycle();
+    }
 
     stateRef.current = next;
     setState(next);
@@ -131,7 +181,7 @@ export function useIssueAttachments({
       onMarkdownChangeRef.current(next.markdown);
     }
     return next;
-  }, []);
+  }, [syncAttachmentLifecycle]);
 
   const abortAll = useCallback(() => {
     for (const controller of abortControllersRef.current.values()) controller.abort();
@@ -143,6 +193,11 @@ export function useIssueAttachments({
     if (current.repositoryKey !== desiredRepositoryKey) {
       abortAll();
       imagesRef.current.clear();
+      attachmentLifecycleRef.current!.reset();
+      attachmentLifecycleRef.current!.setBaselineStoredAttachmentUrls(
+        projectSpaceIssueAttachmentUrls(markdown, desiredRepositoryKey)
+      );
+      syncAttachmentLifecycle();
       setError(null);
       if (markdown !== current.markdown) {
         apply({ markdown, type: 'markdown-changed' }, false);
@@ -159,7 +214,10 @@ export function useIssueAttachments({
     }
   }, [abortAll, apply, desiredRepositoryKey, markdown]);
 
-  useEffect(() => abortAll, [abortAll]);
+  useEffect(() => () => {
+    abortAll();
+    attachmentLifecycleRef.current!.reset();
+  }, [abortAll]);
 
   const handleMarkdownChange = useCallback(
     (nextMarkdown: string) => {
@@ -264,6 +322,13 @@ export function useIssueAttachments({
         );
         if (next.attachments.some((attachment) => attachment.attachmentId === attachmentId)) {
           imagesRef.current.set(attachmentId, image);
+          try {
+            if (attachmentLifecycleRef.current!.addPreview(attachmentId, image)) {
+              syncAttachmentLifecycle();
+            }
+          } catch {
+            // Uploading still works when this browser cannot create a local preview URL.
+          }
         }
       });
 
@@ -277,7 +342,7 @@ export function useIssueAttachments({
         selectionEnd: layout.selectionEnd
       };
     },
-    [apply]
+    [apply, syncAttachmentLifecycle]
   );
 
   const handlePaste = useCallback(
@@ -321,6 +386,25 @@ export function useIssueAttachments({
     onMarkdownChangeRef.current(stateRef.current.markdown);
     setError(null);
   }, [apply]);
+
+  const resetAttachmentLifecycle = useCallback((nextMarkdown = '') => {
+    abortAll();
+    imagesRef.current.clear();
+    uploadPromiseRef.current = null;
+    attachmentLifecycleRef.current!.reset();
+    attachmentLifecycleRef.current!.setBaselineStoredAttachmentUrls(
+      projectSpaceIssueAttachmentUrls(nextMarkdown, repositoryKeyRef.current)
+    );
+    syncAttachmentLifecycle();
+    const next = createInitialIssueAttachmentState({
+      markdown: nextMarkdown,
+      repositoryKey: repositoryKeyRef.current
+    });
+    stateRef.current = next;
+    setState(next);
+    setError(null);
+    setIsUploading(false);
+  }, [abortAll, syncAttachmentLifecycle]);
 
   const uploadPendingAttachments = useCallback((issueNumber: number) => {
     if (uploadPromiseRef.current) return uploadPromiseRef.current;
@@ -402,7 +486,11 @@ export function useIssueAttachments({
     markdownWithUploadedAttachments:
       issueAttachmentMarkdownWithUploadedAttachments(state),
     markdownWithoutAttachments: issueAttachmentMarkdownWithoutAttachments(state),
+    previewUrls: attachmentLifecycle.previewUrls,
     queuePastedImages,
+    resetAttachmentLifecycle,
+    retainedStoredAttachmentCount:
+      attachmentLifecycle.retainedStoredAttachmentCount,
     removeAllAttachments,
     removeAttachment,
     uploadPendingAttachments

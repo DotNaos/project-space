@@ -11,8 +11,10 @@ import {
   ToggleButtonGroup
 } from '@/app/dotnaos-ui';
 import type { IssueViewMode } from './issue-board-model';
+import { useMobileVisualViewportInset } from './mobile-visual-viewport';
 
 interface IssueToolbarProps {
+  countState: 'blocked' | 'loading' | 'ready';
   filteredCount: number;
   hasFilter: boolean;
   isCreateDisabled: boolean;
@@ -55,13 +57,21 @@ function ViewSwitch({
 }
 
 export function IssueToolbar(props: IssueToolbarProps) {
+  const count = props.countState === 'loading'
+    ? '…'
+    : props.countState === 'blocked'
+      ? '—'
+      : props.hasFilter
+        ? `${props.filteredCount}/${props.totalCount}`
+        : props.totalCount;
+
   return (
     <div className="mb-3 flex min-w-0 shrink-0 items-center gap-3">
       <div className="flex min-w-0 items-center gap-2">
         <ListChecks className="size-4 shrink-0 text-neutral-400" />
         <Text className="text-sm font-semibold text-neutral-100">Issues</Text>
         <Text className="rounded-full border border-neutral-800 bg-neutral-900/70 px-2 py-0.5 font-mono text-[11px] tabular-nums text-neutral-400">
-          {props.hasFilter ? `${props.filteredCount}/${props.totalCount}` : props.totalCount}
+          {count}
         </Text>
       </div>
 
@@ -111,8 +121,15 @@ export function IssueMobileActionBar({
   IssueToolbarProps,
   'isCreateDisabled' | 'onCreate' | 'onFilter' | 'onQueryChange' | 'query'
 >) {
+  const visualViewportInset = useMobileVisualViewportInset();
+
   return (
-    <div className="fixed inset-x-3 bottom-[calc(6.75rem+env(safe-area-inset-bottom))] z-40 sm:hidden">
+    <div
+      className="fixed inset-x-3 z-40 sm:hidden"
+      style={{
+        bottom: `calc(6.75rem + env(safe-area-inset-bottom) + ${visualViewportInset}px)`
+      }}
+    >
       <div className="mx-auto flex h-14 max-w-md items-center gap-1.5 rounded-[1.75rem] border border-white/10 bg-neutral-950/90 p-1.5 shadow-2xl shadow-black/60 backdrop-blur-xl">
         <button
           type="button"

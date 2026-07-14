@@ -7,9 +7,11 @@ import {
 } from '../server/database/github-issue-creation-migration';
 import { databaseMigrations } from '../server/database/migrations';
 import {
+  MemoryGitHubIssueCreationOperationStore,
   PostgresGitHubIssueCreationOperationStore,
   type GitHubIssueCreationReservationInput
 } from '../server/github-issue-creation-operation-store';
+import { gitHubIssueCreationMarker } from '../src/shared/github-issue-creation-marker';
 import type { GitHubIssueRecord } from '../src/shared/project-space-api';
 
 class FakeDatabase implements DatabaseQueryClient {
@@ -46,13 +48,19 @@ const issue: GitHubIssueRecord = {
 describe('GitHub issue creation durable store', () => {
   test('reserves an account and repository scoped operation atomically', async () => {
     const database = new FakeDatabase();
-    database.responses.push({ rows: [] }, { rows: [{ operation_id: operation.operationId }] });
+    database.responses.push(
+      { rows: [] },
+      { rows: [] },
+      { rows: [{ operation_id: operation.operationId }] }
+    );
     const store = new PostgresGitHubIssueCreationOperationStore(database);
 
     expect(await store.reserve(operation)).toEqual({ kind: 'new' });
-    expect(database.calls[0]?.sql).toContain('expires_at <= now()');
-    expect(database.calls[1]?.sql).toContain('on conflict');
-    expect(database.calls[1]?.values).toEqual([
+    expect(database.calls[0]?.sql).toContain('limit 100');
+    expect(database.calls[0]?.sql).toContain('order by expires_at');
+    expect(database.calls[1]?.sql).toContain('expires_at <= now()');
+    expect(database.calls[2]?.sql).toContain('on conflict');
+    expect(database.calls[2]?.values).toEqual([
       operation.userId,
       operation.repositoryFullName,
       operation.operationId,
@@ -65,10 +73,14 @@ describe('GitHub issue creation durable store', () => {
     database.responses.push(
       { rows: [] },
       { rows: [] },
+      { rows: [] },
       { rows: [{
         expires_at: '2026-08-14T00:00:00.000Z',
         fingerprint_sha256: operation.fingerprint,
-        issue,
+        issue: {
+          ...issue,
+          body: `Description\n\n${gitHubIssueCreationMarker(operation.operationId)}`
+        },
         state: 'completed',
         updated_at: '2026-07-14T00:00:01.000Z'
       }] }
@@ -80,6 +92,7 @@ describe('GitHub issue creation durable store', () => {
   test('turns stale pending work into reconciliation instead of another POST', async () => {
     const database = new FakeDatabase();
     database.responses.push(
+      { rows: [] },
       { rows: [] },
       { rows: [] },
       { rows: [{
@@ -103,6 +116,25 @@ describe('GitHub issue creation durable store', () => {
 
     expect(database.calls[0]?.sql).toContain("state in ('pending', 'ambiguous')");
     expect(database.calls[0]?.values).toContain(JSON.stringify(issue));
+  });
+
+  test('removes expired memory records in bounded batches across unrelated operations', async () => {
+    let now = 0;
+    const store = new MemoryGitHubIssueCreationOperationStore(() => now);
+    for (let index = 0; index < 80; index += 1) {
+      await store.reserve({
+        ...operation,
+        operationId: `operation-${index}`
+      });
+    }
+
+    now = 31 * 24 * 60 * 60 * 1_000;
+    await store.reserve({ ...operation, operationId: 'new-operation-one' });
+    const records = (store as unknown as { records: Map<string, unknown> }).records;
+    expect(records.size).toBe(17);
+
+    await store.reserve({ ...operation, operationId: 'new-operation-two' });
+    expect(records.size).toBe(2);
   });
 });
 

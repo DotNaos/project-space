@@ -529,7 +529,7 @@ export interface GitHubIssueCreateRequest {
   body?: string;
   fullName: string;
   labels?: string[];
-  operationId?: string;
+  operationId: string;
   title: string;
 }
 

@@ -39,7 +39,7 @@ export interface ProjectRootSummaryCounts {
 
 export interface ProjectRootSummaryDataSource {
   getRepositorySummary(fullName: string): Promise<GitHubRepositorySummaryResult>;
-  listProjectChatChannels(): Promise<ProjectChatChannelListResult>;
+  listProjectChatChannels(projectId: string): Promise<ProjectChatChannelListResult>;
   listProjectChatMembers(channelId: string): Promise<ProjectChatMemberListResult>;
 }
 
@@ -246,9 +246,15 @@ export function projectRootMachineCount(
 ): ProjectRootCount {
   if (connector.state !== 'ready') return connector;
 
-  const localMachineId =
-    connector.value.machines.find((machine) => machine.connector.status === 'local')?.id ??
-    connector.value.machines[0]?.id;
+  const localMachineId = connector.value.machines.find(
+    (machine) => machine.connector.status === 'local'
+  )?.id;
+  if (target.machineIds.length === 0) {
+    return blocked('No project-scoped machine identity is available.');
+  }
+  if (target.machineIds.includes('local') && !localMachineId) {
+    return blocked('The connector did not identify the current local machine.');
+  }
   const scopedIds = new Set(
     target.machineIds.map((machineId) => (machineId === 'local' ? localMachineId : machineId))
   );
@@ -294,26 +300,29 @@ async function loadThreadCount(
   dataSource: ProjectRootSummaryDataSource
 ): Promise<ProjectRootCount> {
   try {
-    const channels = await dataSource.listProjectChatChannels();
     const chatProjectId = projectChatProjectId(target.project, target.repository);
-    const sourceProjectIds = new Set(target.sourceProjectIds);
-    const channel = channels.channels.find(
-      (entry) =>
-        entry.kind === 'project' &&
-        (entry.projectId === chatProjectId ||
-          Boolean(entry.navigationProjectId && sourceProjectIds.has(entry.navigationProjectId)))
-    );
+    const result = await dataSource.listProjectChatChannels(chatProjectId);
+    const channels = Array.isArray(result?.channels) ? result.channels : [];
+    const channel = channels[0];
+    if (
+      channels.length !== 1 ||
+      !channel ||
+      channel.kind !== 'project' ||
+      channel.projectId !== chatProjectId ||
+      typeof channel.channelId !== 'string' ||
+      channel.channelId.trim().length === 0
+    ) {
+      return blocked('Project Chat returned invalid scoped channel evidence.');
+    }
 
-    if (!channel) return ready(0, new Date().toISOString());
-
-    const result = await dataSource.listProjectChatMembers(channel.channelId);
+    const members = await dataSource.listProjectChatMembers(channel.channelId);
     const activeThreadIds = new Set(
-      result.members
+      members.members
         .filter((member) => member.presence.state !== 'offline')
         .map((member) => member.origin?.threadId)
         .filter((threadId): threadId is string => Boolean(threadId))
     );
-    const checkedAt = result.members.reduce(
+    const checkedAt = members.members.reduce(
       (latest, member) =>
         member.presence.lastSeenAt > latest ? member.presence.lastSeenAt : latest,
       new Date().toISOString()

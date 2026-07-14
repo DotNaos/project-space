@@ -13,6 +13,7 @@ import {
 } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type { GitHubIssueRecord } from '@/shared/project-space-api';
+import { mayHaveReachedRemote } from './issue-attachment-model';
 import { issueUpdatedAtLabel } from './issue-board-model';
 import { IssueAttachmentStatus } from './issue-attachment-status';
 import { IssueMarkdown } from './issue-markdown';
@@ -208,8 +209,8 @@ export function IssueEditor({
   });
   const isBusy = isSubmitting || attachments.isUploading;
   const hasStoredAttachments = attachments.attachments.some(
-    (attachment) => attachment.status === 'uploaded'
-  );
+    mayHaveReachedRemote
+  ) || attachments.retainedStoredAttachmentCount > 0;
 
   const requestCancel = () => {
     if (hasStoredAttachments) {
@@ -263,6 +264,8 @@ export function IssueEditor({
           disabled={isBusy}
           error={attachments.error}
           onRemove={attachments.removeAttachment}
+          previewUrls={attachments.previewUrls}
+          retainedStoredAttachmentCount={attachments.retainedStoredAttachmentCount}
         />
         <input
           disabled={isBusy}
@@ -311,7 +314,7 @@ export function IssueEditor({
           role="alert"
         >
           <Text className="block text-xs leading-5 text-amber-200">
-            Leave this editor? Images already stored with a repository commit will remain there.
+            Leave this editor? Images GitHub may already have accepted can remain stored in the repository.
           </Text>
           <div className="mt-2 flex justify-end gap-2">
             <Button size="sm" variant="ghost" onPress={() => setCancelWarningOpen(false)}>

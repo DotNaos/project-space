@@ -19,6 +19,15 @@ interface IssueCreationRecoveryDialogProps {
   recoveryStage: IssueCreationRecoveryStage | null;
 }
 
+interface IssueCreationUncertainDialogProps {
+  canCheck: boolean;
+  isBusy: boolean;
+  isOpen: boolean;
+  onCancel(): void;
+  onCheck(): void;
+  repositoryKey: string;
+}
+
 export function IssueCreationDiscardDialog({
   hasStoredAttachments,
   isOpen,
@@ -47,7 +56,7 @@ export function IssueCreationDiscardDialog({
             </AlertDialog.Header>
             <AlertDialog.Body className="text-sm leading-6 text-neutral-400">
               {hasStoredAttachments
-                ? 'Your title, description, and selected labels will be lost. Images already stored with a repository commit will remain there.'
+                ? 'Your title, description, and selected labels will be lost. Images GitHub may already have accepted can remain stored in the repository.'
                 : 'Your title, description, selected labels, and pasted images will be lost.'}
             </AlertDialog.Body>
             <AlertDialog.Footer>
@@ -109,6 +118,60 @@ export function IssueCreationRecoveryDialog({
               <Button isDisabled={isBusy} size="sm" variant="primary" onPress={onFinish}>
                 {isBusy ? <Spinner size="sm" /> : null}
                 Finish and view
+              </Button>
+            </AlertDialog.Footer>
+          </AlertDialog.Dialog>
+        </AlertDialog.Container>
+      </AlertDialog.Backdrop>
+    </AlertDialog>
+  );
+}
+
+export function IssueCreationUncertainDialog({
+  canCheck,
+  isBusy,
+  isOpen,
+  onCancel,
+  onCheck,
+  repositoryKey
+}: IssueCreationUncertainDialogProps) {
+  return (
+    <AlertDialog
+      isOpen={isOpen}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !isBusy) onCancel();
+      }}
+    >
+      <AlertDialog.Backdrop
+        isDismissable={false}
+        isKeyboardDismissDisabled
+        className="z-[180] bg-black/80"
+      >
+        <AlertDialog.Container placement="center" size="sm">
+          <AlertDialog.Dialog className="border border-neutral-800 bg-neutral-950 text-neutral-100">
+            <AlertDialog.Header>
+              <AlertDialog.Icon status="warning">
+                <AlertTriangle className="size-5" />
+              </AlertDialog.Icon>
+              <AlertDialog.Heading>Check GitHub before leaving</AlertDialog.Heading>
+            </AlertDialog.Header>
+            <AlertDialog.Body className="text-sm leading-6 text-neutral-400">
+              GitHub may already have created this issue in {repositoryKey}. Project Space keeps
+              the same secure operation after a reload so checking again cannot intentionally
+              create a second copy. Reconcile this result before closing the draft.
+            </AlertDialog.Body>
+            <AlertDialog.Footer>
+              <Button autoFocus isDisabled={isBusy} size="sm" variant="ghost" onPress={onCancel}>
+                Keep editing
+              </Button>
+              <Button
+                isDisabled={isBusy || !canCheck}
+                size="sm"
+                variant="primary"
+                onPress={onCheck}
+              >
+                {isBusy ? <Spinner size="sm" /> : null}
+                Check GitHub again
               </Button>
             </AlertDialog.Footer>
           </AlertDialog.Dialog>

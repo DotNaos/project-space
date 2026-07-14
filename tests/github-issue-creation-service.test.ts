@@ -52,24 +52,47 @@ describe('duplicate-safe GitHub issue creation', () => {
     const github = remote({
       create: async (input) => {
         postedBodies.push(input.body);
-        return issue();
+        return issue({ body: input.body });
       }
     });
     const options = { remote: github, request: request(), store, userId };
 
     expect(await createIdempotentGitHubIssue(options)).toMatchObject({
       creationState: 'complete',
-      issue: { number: 187 },
+      issue: { body: 'Description', number: 187 },
       status: 'connected'
     });
     expect(await createIdempotentGitHubIssue(options)).toMatchObject({
       creationState: 'complete',
+      issue: { body: 'Description' },
       replayed: true,
       status: 'connected'
     });
     expect(postedBodies).toEqual([
       `Description\n\n${gitHubIssueCreationMarker(operationId)}`
     ]);
+  });
+
+  test('strips a legacy stored marker before replaying an operation to the browser', async () => {
+    const marker = gitHubIssueCreationMarker(operationId);
+    const result = await createIdempotentGitHubIssue({
+      remote: remote(),
+      request: request(),
+      store: {
+        async complete() {},
+        async markAmbiguous() {},
+        async markRetryable() {},
+        async reserve() {
+          return {
+            issue: issue({ body: `Description\n\n${marker}` }),
+            kind: 'replayed' as const
+          };
+        }
+      },
+      userId
+    });
+
+    expect(result).toMatchObject({ issue: { body: 'Description' }, replayed: true });
   });
 
   test('reconciles a lost success response by its exact hidden marker', async () => {
