@@ -9,6 +9,7 @@ import {
   MachineOsMark
 } from './machine-visuals';
 import { machineSubtitle } from './project-main-model';
+import { ConnectorChannelChip } from './connector-channel-chip';
 
 interface MachineListItemProps {
   className?: string;
@@ -54,6 +55,7 @@ export function MachineListItem({
             {name}
           </Text>
           {machine ? <MachineOsMark machine={machine} /> : null}
+          <ConnectorChannelChip machine={machine} />
         </span>
         {resolvedSubtitle ? (
           <Text className="block truncate text-xs text-neutral-500">
