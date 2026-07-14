@@ -459,7 +459,8 @@ jobs:
           security create-keychain -p "$keychain_password" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
           security unlock-keychain -p "$keychain_password" "$keychain"
-          security import "$RUNNER_TEMP/project-space-release.pem" -x -f pemseq -k "$keychain" -T /usr/bin/codesign
+          # macOS 15 hosted runners do not implement -x for PEM sequence imports.
+          security import "$RUNNER_TEMP/project-space-release.pem" -f pemseq -k "$keychain" -T /usr/bin/codesign
           rm -f \
             "$RUNNER_TEMP/project-space-release.p12" \
             "$RUNNER_TEMP/project-space-release.pem"
