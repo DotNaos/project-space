@@ -30,6 +30,10 @@ on:
       trust-root-artifact-name:
         required: true
         type: string
+    secrets:
+      OP_SERVICE_ACCOUNT_TOKEN:
+        description: Supplied only by the protected release-signing environment.
+        required: false
     outputs:
       artifact-digest:
         value: ${{ jobs.sign.outputs.artifact-digest }}
