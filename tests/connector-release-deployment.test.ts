@@ -195,9 +195,14 @@ describe('connector release and production deployment contract', () => {
     expect(sign).toContain(
       '/usr/bin/security set-key-partition-list -S apple-tool:,apple:,codesign:'
     );
-    expect(sign).toContain('-l "$identity_label" -k "$keychain_password"');
+    expect(sign).not.toContain('-l "$identity_label"');
+    expect(sign).toContain('-k "$keychain_password" "$keychain"');
     expect(sign).not.toContain('if ! /usr/bin/security set-key-partition-list');
     expect(sign).toContain('--sign "$identity_label"');
+    const partitionStart = sign.indexOf('/usr/bin/security set-key-partition-list');
+    const partitionEnd = sign.indexOf('>/dev/null', partitionStart);
+    const partitionCommand = sign.slice(partitionStart, partitionEnd);
+    expect(partitionCommand).not.toMatch(/(^|\s)-s(\s|\\)/);
     expect(sign.indexOf('security list-keychains -d user -s "$keychain"')).toBeLessThan(
       sign.indexOf('security set-key-partition-list')
     );
