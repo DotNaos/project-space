@@ -5,13 +5,36 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
+	"os"
 	"os/user"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf16"
 )
+
+type blockingWSLSystemdRunner struct {
+	calls []serviceCommandCall
+}
+
+func (runner *blockingWSLSystemdRunner) Run(
+	ctx context.Context,
+	name string,
+	arguments ...string,
+) ([]byte, error) {
+	runner.calls = append(runner.calls, serviceCommandCall{
+		name:      name,
+		arguments: append([]string(nil), arguments...),
+	})
+	if name != "systemctl" {
+		return nil, nil
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
 
 func TestWSLServiceConnectorReplacesAndStartsWindowsScheduledTask(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -74,6 +97,112 @@ func TestWSLServiceConnectorReplacesAndStartsWindowsScheduledTask(t *testing.T) 
 	}
 }
 
+func TestWSLServiceConnectorUsesManagedCurrentProjectAcrossPointerSwitch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the WSL supervisor runs inside the Linux distribution")
+	}
+	installRoot := t.TempDir()
+	toolsRoot := filepath.Join(installRoot, ".project-space-machine-tools")
+	versionsRoot := filepath.Join(toolsRoot, connectorSupervisorVersionsDirectoryName)
+	oldRelease := filepath.Join(versionsRoot, "0.4.5-aaaaaaaaaaaaaaaa")
+	newRelease := filepath.Join(versionsRoot, "0.4.6-bbbbbbbbbbbbbbbb")
+	for _, release := range []string{oldRelease, newRelease} {
+		if err := os.MkdirAll(release, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(release, "project"), []byte("project\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current := filepath.Join(toolsRoot, connectorSupervisorCurrentPointerName)
+	if err := os.Symlink(filepath.ToSlash(filepath.Join(
+		connectorSupervisorVersionsDirectoryName,
+		filepath.Base(oldRelease),
+	)), current); err != nil {
+		t.Fatal(err)
+	}
+
+	connector := testServiceConnector(t, ServiceConnectorOptions{
+		Executable: filepath.Join(oldRelease, "project"),
+		GOOS:       "linux",
+		LinuxUser:  "oli",
+		WSLDistro:  "Ubuntu-24.04",
+	}, &scriptedServiceRunner{}, &recordingServiceFiles{})
+	resolvedInstallRoot, err := filepath.EvalSymlinks(installRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stable := filepath.Join(
+		resolvedInstallRoot,
+		".project-space-machine-tools",
+		connectorSupervisorCurrentPointerName,
+		"project",
+	)
+	if connector.executable != stable {
+		t.Fatalf("WSL service executable = %q, want stable path %q", connector.executable, stable)
+	}
+	if script := connector.wslStartScript(); !strings.Contains(script, stable) ||
+		strings.Contains(script, oldRelease) {
+		t.Fatalf("WSL scheduled task did not use only the stable managed path:\n%s", script)
+	}
+
+	if err := os.Remove(current); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.ToSlash(filepath.Join(
+		connectorSupervisorVersionsDirectoryName,
+		filepath.Base(newRelease),
+	)), current); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(connector.executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(
+		resolvedInstallRoot,
+		".project-space-machine-tools",
+		connectorSupervisorVersionsDirectoryName,
+		filepath.Base(newRelease),
+		"project",
+	); resolved != want {
+		t.Fatalf("stable WSL service path resolved to %q after update, want %q", resolved, want)
+	}
+}
+
+func TestWSLServiceConnectorBoundsStaleSystemdCleanup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the WSL supervisor runs inside the Linux distribution")
+	}
+	for name, run := range map[string]func(*ServiceConnector, context.Context) error{
+		"start": (*ServiceConnector).Start,
+		"stop":  (*ServiceConnector).Stop,
+	} {
+		t.Run(name, func(t *testing.T) {
+			runner := &blockingWSLSystemdRunner{}
+			connector := testServiceConnector(t, ServiceConnectorOptions{
+				Executable: "/opt/project/bin/project",
+				GOOS:       "linux",
+				LinuxUser:  "oli",
+				WSLDistro:  "Ubuntu-24.04",
+			}, runner, &recordingServiceFiles{})
+			connector.wslSystemdCleanupTimeout = 20 * time.Millisecond
+			startedAt := time.Now()
+			err := run(connector, context.Background())
+			if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("%s WSL service accepted unverified systemd cleanup: %v", name, err)
+			}
+			if elapsed := time.Since(startedAt); elapsed > time.Second {
+				t.Fatalf("%s WSL service took %s with bounded systemd cleanup", name, elapsed)
+			}
+			want := []string{"systemctl"}
+			if got := serviceCommandNames(runner.calls); !reflect.DeepEqual(got, want) {
+				t.Fatalf("%s WSL service calls = %#v, want %#v", name, got, want)
+			}
+		})
+	}
+}
+
 func TestWSLServiceConnectorStartsWithoutSystemdUserManager(t *testing.T) {
 	for name, unavailable := range map[string]serviceCommandResponse{
 		"missing systemctl": {err: missingServiceCommand("systemctl")},
@@ -124,8 +253,8 @@ func TestWSLServiceConnectorKeepsScheduledTaskFailuresHard(t *testing.T) {
 
 func TestWSLServiceConnectorStopsTaskAndStaleSystemdUnit(t *testing.T) {
 	runner := &scriptedServiceRunner{responses: []serviceCommandResponse{
-		{},
 		{output: "loaded\n"},
+		{},
 		{},
 		{},
 	}}
@@ -141,11 +270,11 @@ func TestWSLServiceConnectorStopsTaskAndStaleSystemdUnit(t *testing.T) {
 	}
 	if got := serviceCommandNames(runner.calls); !reflect.DeepEqual(
 		got,
-		[]string{"powershell.exe", "systemctl", "systemctl", "systemctl"},
+		[]string{"systemctl", "systemctl", "systemctl", "powershell.exe"},
 	) {
 		t.Fatalf("WSL stop commands = %#v", got)
 	}
-	script := decodePowerShellCommand(t, runner.calls[0].arguments[len(runner.calls[0].arguments)-1])
+	script := decodePowerShellCommand(t, runner.calls[3].arguments[len(runner.calls[3].arguments)-1])
 	for _, required := range []string{"Get-ScheduledTask", "Stop-ScheduledTask", "Unregister-ScheduledTask"} {
 		if !strings.Contains(script, required) {
 			t.Errorf("scheduled task stop script lacks %q", required)
@@ -158,8 +287,8 @@ func TestWSLServiceConnectorStopsTaskAndStaleSystemdUnit(t *testing.T) {
 
 func TestWSLServiceConnectorStopDoesNotRequireSystemd(t *testing.T) {
 	runner := &scriptedServiceRunner{responses: []serviceCommandResponse{
-		{},
 		{output: "Failed to connect to bus: No such file or directory\n", err: errors.New("exit status 1")},
+		{},
 	}}
 	connector := testServiceConnector(t, ServiceConnectorOptions{
 		Executable: "/opt/project/bin/project",
@@ -171,15 +300,35 @@ func TestWSLServiceConnectorStopDoesNotRequireSystemd(t *testing.T) {
 	if err := connector.Stop(context.Background()); err != nil {
 		t.Fatalf("stop without systemd user manager: %v", err)
 	}
-	if got := serviceCommandNames(runner.calls); !reflect.DeepEqual(got, []string{"powershell.exe", "systemctl"}) {
+	if got := serviceCommandNames(runner.calls); !reflect.DeepEqual(got, []string{"systemctl", "powershell.exe"}) {
 		t.Fatalf("stop commands = %#v", got)
 	}
 }
 
-func TestWSLServiceConnectorJoinsTaskAndSystemdStopErrors(t *testing.T) {
+func TestWSLServiceConnectorDoesNotTouchTaskAfterSystemdStopFailure(t *testing.T) {
+	runner := &scriptedServiceRunner{responses: []serviceCommandResponse{{
+		err: errors.New("systemd inspect failed"),
+	}}}
+	connector := testServiceConnector(t, ServiceConnectorOptions{
+		Executable: "/opt/project/bin/project",
+		GOOS:       "linux",
+		LinuxUser:  "oli",
+		WSLDistro:  "Ubuntu-24.04",
+	}, runner, &recordingServiceFiles{})
+
+	err := connector.Stop(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "systemd inspect failed") {
+		t.Fatalf("WSL stop hid the systemd failure: %v", err)
+	}
+	if got := serviceCommandNames(runner.calls); !reflect.DeepEqual(got, []string{"systemctl"}) {
+		t.Fatalf("WSL stop touched the task after unverified cleanup: %#v", got)
+	}
+}
+
+func TestWSLServiceConnectorKeepsTaskStopFailuresHard(t *testing.T) {
 	runner := &scriptedServiceRunner{responses: []serviceCommandResponse{
+		{output: "not-found\n"},
 		{err: errors.New("task stop failed")},
-		{err: errors.New("systemd inspect failed")},
 	}}
 	connector := testServiceConnector(t, ServiceConnectorOptions{
 		Executable: "/opt/project/bin/project",
@@ -189,9 +338,11 @@ func TestWSLServiceConnectorJoinsTaskAndSystemdStopErrors(t *testing.T) {
 	}, runner, &recordingServiceFiles{})
 
 	err := connector.Stop(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "task stop failed") ||
-		!strings.Contains(err.Error(), "systemd inspect failed") {
-		t.Fatalf("WSL stop error did not preserve both failures: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "task stop failed") {
+		t.Fatalf("WSL stop hid the scheduled task failure: %v", err)
+	}
+	if got := serviceCommandNames(runner.calls); !reflect.DeepEqual(got, []string{"systemctl", "powershell.exe"}) {
+		t.Fatalf("WSL stop commands = %#v", got)
 	}
 }
 

@@ -23,10 +23,6 @@ on:
         description: Fixed trust-root artifact name.
         required: true
         type: string
-    secrets:
-      OP_SERVICE_ACCOUNT_TOKEN:
-        description: Read-only 1Password service account token for release signing.
-        required: true
     outputs:
       artifact-id:
         description: Immutable ID of the final macOS release artifact.
@@ -279,6 +275,8 @@ jobs:
       - name: Load macOS signing certificate from 1Password
         id: signing-secrets
         uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
+        with:
+          version: '2.35.0'
         env:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
           MACOS_SIGNING_CERTIFICATE_P12_B64: op://projects/Project Space macOS Release Signing/certificate_p12_b64

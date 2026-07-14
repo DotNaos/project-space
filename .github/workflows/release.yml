@@ -350,8 +350,6 @@ jobs:
       trust-artifact-id: ${{ needs.trust-roots.outputs.artifact-id }}
       trust-artifact-name: ${{ needs.trust-roots.outputs.artifact-name }}
       version: ${{ needs.quality.outputs.version }}
-    secrets:
-      OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
 
   manifest-prepare:
     name: Prepare exact release manifest payload
@@ -513,8 +511,6 @@ jobs:
       trust-root-artifact-id: ${{ needs.trust-roots.outputs.artifact-id }}
       trust-root-artifact-name: ${{ needs.trust-roots.outputs.artifact-name }}
       version: ${{ needs.manifest-prepare.outputs.version }}
-    secrets:
-      OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
 
   release-finalize:
     name: Assemble and verify release handoff

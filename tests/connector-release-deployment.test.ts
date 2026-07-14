@@ -66,7 +66,7 @@ function embeddedPython(workflow: string, anchor: string) {
 async function runPythonClassifier(code: string, release: Record<string, unknown>) {
   const root = await mkdtemp(join(tmpdir(), 'project-release-cleanup-'));
   const input = join(root, 'releases.json');
-  await writeFile(input, JSON.stringify([release]));
+  await writeFile(input, JSON.stringify(release));
   const process = Bun.spawn(
     ['python3', '-I', '-c', code, input, 'v0.4.5', 'a'.repeat(40), '1234', '2'],
     { stderr: 'pipe', stdout: 'pipe' }

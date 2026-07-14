@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 const (
@@ -32,17 +33,18 @@ type ServiceConnectorOptions struct {
 // ServiceConnector starts and stops the authenticated connector through the
 // host's per-user service manager. It never handles machine credentials.
 type ServiceConnector struct {
-	executable      string
-	goos            string
-	homeDir         string
-	linuxUser       string
-	userID          string
-	windowsSID      string
-	wslDistro       string
-	windowsTaskName string
-	wslTaskName     string
-	runner          serviceCommandRunner
-	files           serviceFileSystem
+	executable               string
+	goos                     string
+	homeDir                  string
+	linuxUser                string
+	userID                   string
+	windowsSID               string
+	wslDistro                string
+	windowsTaskName          string
+	wslTaskName              string
+	wslSystemdCleanupTimeout time.Duration
+	runner                   serviceCommandRunner
+	files                    serviceFileSystem
 }
 
 var _ Connector = (*ServiceConnector)(nil)
@@ -147,6 +149,12 @@ func newServiceConnector(
 		runner:     runner,
 		files:      files,
 	}
+	if goos == "linux" {
+		connector.executable, err = stableLinuxServiceExecutable(connector.executable)
+		if err != nil {
+			return nil, err
+		}
+	}
 	wslDistro := strings.TrimSpace(options.WSLDistro)
 	linuxUser := strings.TrimSpace(options.LinuxUser)
 	if wslDistro != "" || linuxUser != "" {
@@ -167,6 +175,7 @@ func newServiceConnector(
 		connector.wslDistro = wslDistro
 		connector.linuxUser = linuxUser
 		connector.wslTaskName = wslScheduledTaskName(wslDistro, linuxUser)
+		connector.wslSystemdCleanupTimeout = defaultWSLSystemdCleanupTimeout
 	}
 	if goos == "windows" {
 		windowsSID := strings.TrimSpace(options.WindowsSID)
@@ -205,6 +214,23 @@ func newServiceConnector(
 	}
 	connector.userID = userID
 	return connector, nil
+}
+
+func stableLinuxServiceExecutable(executable string) (string, error) {
+	if _, managed := possibleConnectorSupervisorToolsRoot(executable); !managed {
+		return executable, nil
+	}
+	toolsRoot, err := ResolveConnectorSupervisorMaintenanceToolsRoot(executable)
+	if err != nil {
+		return "", fmt.Errorf("resolve managed Linux connector service executable: %w", err)
+	}
+	stable := filepath.Join(toolsRoot, connectorSupervisorCurrentPointerName, filepath.Base(executable))
+	info, err := os.Stat(stable)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 ||
+		info.Mode().Perm()&0o022 != 0 {
+		return "", errors.New("managed Linux connector service executable is unsafe")
+	}
+	return stable, nil
 }
 
 func (connector *ServiceConnector) Start(ctx context.Context) error {
