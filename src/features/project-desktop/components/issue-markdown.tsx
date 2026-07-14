@@ -1,4 +1,9 @@
-import type { ReactNode } from 'react';
+import { type ReactNode } from 'react';
+import { githubIssueAttachmentContentUrl } from '../../../api/github-issue-attachment-content-client';
+import {
+  AuthenticatedIssueAttachment,
+  ExternalIssueMarkdownImage
+} from './issue-markdown-image';
 
 type MarkdownBlock =
   | { kind: 'code'; code: string; language?: string }
@@ -17,11 +22,13 @@ type MarkdownListItem = {
 export function IssueMarkdown({
   className = 'mt-5 text-sm leading-6 text-neutral-300',
   emptyText = 'No issue description.',
-  markdown
+  markdown,
+  repositoryFullName
 }: {
   className?: string;
   emptyText?: string;
   markdown?: string;
+  repositoryFullName?: string;
 }) {
   const trimmedMarkdown = markdown?.trim();
 
@@ -34,7 +41,9 @@ export function IssueMarkdown({
   return (
     <div className={className}>
       <div className="grid gap-4">
-        {blocks.map((block, index) => renderBlock(block, index))}
+        {blocks.map((block, index) =>
+          renderBlock(block, index, repositoryFullName)
+        )}
       </div>
     </div>
   );
@@ -158,7 +167,11 @@ function parseMarkdown(markdown: string): MarkdownBlock[] {
   return blocks;
 }
 
-function renderBlock(block: MarkdownBlock, index: number) {
+function renderBlock(
+  block: MarkdownBlock,
+  index: number,
+  repositoryFullName?: string
+) {
   switch (block.kind) {
     case 'code':
       return (
@@ -180,7 +193,12 @@ function renderBlock(block: MarkdownBlock, index: number) {
           ? 'text-base font-semibold text-neutral-100'
           : 'text-sm font-semibold text-neutral-100';
 
-      return renderHeading(block.level, headingClass, renderInline(block.text), index);
+      return renderHeading(
+        block.level,
+        headingClass,
+        renderInline(block.text, repositoryFullName),
+        index
+      );
     }
     case 'hr':
       return <div key={index} className="h-px bg-neutral-800" />;
@@ -205,10 +223,10 @@ function renderBlock(block: MarkdownBlock, index: number) {
                     type="checkbox"
                     className="mt-1 size-3.5 rounded border-neutral-700 bg-neutral-950"
                   />
-                  <span>{renderInline(item.text)}</span>
+                  <span>{renderInline(item.text, repositoryFullName)}</span>
                 </label>
               ) : (
-                renderInline(item.text)
+                renderInline(item.text, repositoryFullName)
               )}
             </li>
           ))}
@@ -218,7 +236,7 @@ function renderBlock(block: MarkdownBlock, index: number) {
     case 'paragraph':
       return (
         <p key={index} className="whitespace-pre-wrap text-neutral-300">
-          {renderInline(block.lines.join('\n'))}
+          {renderInline(block.lines.join('\n'), repositoryFullName)}
         </p>
       );
     case 'quote':
@@ -227,7 +245,7 @@ function renderBlock(block: MarkdownBlock, index: number) {
           key={index}
           className="border-l-2 border-neutral-700 pl-3 text-neutral-400"
         >
-          {renderInline(block.lines.join('\n'))}
+          {renderInline(block.lines.join('\n'), repositoryFullName)}
         </blockquote>
       );
   }
@@ -281,9 +299,9 @@ function renderHeading(level: number, className: string, children: ReactNode[], 
   );
 }
 
-function renderInline(text: string): ReactNode[] {
+function renderInline(text: string, repositoryFullName?: string): ReactNode[] {
   const nodes: ReactNode[] = [];
-  const tokenPattern = /(`[^`]+`|\[[^\]]+\]\([^)]+\))/g;
+  const tokenPattern = /(!\[[^\]]*\]\([^)]+\)|`[^`]+`|\[[^\]]+\]\([^)]+\))/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -291,6 +309,7 @@ function renderInline(text: string): ReactNode[] {
     appendText(nodes, text.slice(lastIndex, match.index));
 
     const token = match[0];
+    const imageMatch = token.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
     const linkMatch = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
 
     if (token.startsWith('`')) {
@@ -301,6 +320,34 @@ function renderInline(text: string): ReactNode[] {
         >
           {token.slice(1, -1)}
         </code>
+      );
+    } else if (imageMatch) {
+      const rawImageUrl = imageMatch[2].trim();
+      const attachmentContentUrl = repositoryFullName
+        ? githubIssueAttachmentContentUrl(rawImageUrl, repositoryFullName)
+        : undefined;
+      const src = isSafeIssueMarkdownImageUrl(rawImageUrl)
+        ? rawImageUrl
+        : undefined;
+      const alt = imageMatch[1] || 'Issue attachment';
+
+      nodes.push(
+        attachmentContentUrl && repositoryFullName ? (
+          <AuthenticatedIssueAttachment
+            key={`image-${match.index}`}
+            alt={alt}
+            markdownUrl={rawImageUrl}
+            repositoryFullName={repositoryFullName}
+          />
+        ) : src ? (
+          <ExternalIssueMarkdownImage
+            key={`image-${match.index}`}
+            alt={alt}
+            src={src}
+          />
+        ) : (
+          <span key={`image-${match.index}`}>{alt}</span>
+        )
       );
     } else if (linkMatch) {
       const href = safeHref(linkMatch[2]);
@@ -328,6 +375,30 @@ function renderInline(text: string): ReactNode[] {
   appendText(nodes, text.slice(lastIndex));
 
   return nodes;
+}
+
+export function isSafeIssueMarkdownImageUrl(value: string) {
+  const candidate = value.trim();
+  if (!candidate || /[\u0000-\u0020\u007f\\]/.test(candidate)) {
+    return false;
+  }
+
+  try {
+    const url = new URL(candidate);
+    const hostname = url.hostname.toLowerCase();
+    const isGitHubHost =
+      hostname === 'github.com' || hostname.endsWith('.githubusercontent.com');
+
+    return (
+      url.protocol === 'https:' &&
+      !url.username &&
+      !url.password &&
+      !url.port &&
+      isGitHubHost
+    );
+  } catch {
+    return false;
+  }
 }
 
 function appendText(nodes: ReactNode[], text: string) {

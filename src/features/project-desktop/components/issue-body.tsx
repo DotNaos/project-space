@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Pencil,
   Save,
@@ -14,8 +14,10 @@ import {
 import { cn } from '@/lib/utils';
 import type { GitHubIssueRecord } from '@/shared/project-space-api';
 import { issueUpdatedAtLabel } from './issue-board-model';
+import { IssueAttachmentStatus } from './issue-attachment-status';
 import { IssueMarkdown } from './issue-markdown';
 import { IssueAuthorAvatar, IssueLabelChip } from './issue-visuals';
+import { useIssueAttachments } from './use-issue-attachments';
 
 interface IssueBodyProps {
   issue: GitHubIssueRecord;
@@ -25,7 +27,9 @@ interface IssueBodyProps {
 
 export function IssueBody({ issue, onIssueUpdated, repoFullName }: IssueBodyProps) {
   const updated = issueUpdatedAtLabel(issue);
-  const [isEditing, setIsEditing] = useState(false);
+  const issueIdentity = `${repoFullName ?? 'no-repository'}:${issue.number}`;
+  const [editingIssueIdentity, setEditingIssueIdentity] = useState<string | null>(null);
+  const isEditing = editingIssueIdentity === issueIdentity;
   const [editError, setEditError] = useState('');
 
   const updateIssue = async (values: IssueFormValues) => {
@@ -41,7 +45,10 @@ export function IssueBody({ issue, onIssueUpdated, repoFullName }: IssueBodyProp
       number: issue.number,
       state: values.state,
       title: values.title
-    });
+    }).catch((error) => ({
+      message: error instanceof Error ? error.message : 'Could not edit issue.',
+      status: 'error' as const
+    }));
 
     if (result.status !== 'connected' || !result.issue) {
       setEditError(result.message ?? 'Could not edit issue.');
@@ -49,7 +56,7 @@ export function IssueBody({ issue, onIssueUpdated, repoFullName }: IssueBodyProp
     }
 
     onIssueUpdated(result.issue);
-    setIsEditing(false);
+    setEditingIssueIdentity(null);
   };
 
   return (
@@ -90,7 +97,9 @@ export function IssueBody({ issue, onIssueUpdated, repoFullName }: IssueBodyProp
             className="mt-0.5 shrink-0"
             onPress={() => {
               setEditError('');
-              setIsEditing((value) => !value);
+              setEditingIssueIdentity((value) =>
+                value === issueIdentity ? null : issueIdentity
+              );
             }}
           >
             {isEditing ? <X className="size-4" /> : <Pencil className="size-4" />}
@@ -123,6 +132,7 @@ export function IssueBody({ issue, onIssueUpdated, repoFullName }: IssueBodyProp
 
       {isEditing ? (
         <IssueEditor
+          key={issueIdentity}
           error={editError}
           initialBody={issue.body ?? ''}
           initialLabels={issue.labels}
@@ -130,14 +140,15 @@ export function IssueBody({ issue, onIssueUpdated, repoFullName }: IssueBodyProp
           initialTitle={issue.title}
           onCancel={() => {
             setEditError('');
-            setIsEditing(false);
+            setEditingIssueIdentity(null);
           }}
           onSubmit={updateIssue}
+          repositoryKey={repoFullName}
           showState
           submitLabel="Save issue"
         />
       ) : (
-        <IssueMarkdown markdown={issue.body} />
+        <IssueMarkdown markdown={issue.body} repositoryFullName={repoFullName} />
       )}
     </article>
   );
@@ -165,6 +176,7 @@ export function IssueEditor({
   initialTitle,
   onCancel,
   onSubmit,
+  repositoryKey = null,
   showState = false,
   submitLabel
 }: {
@@ -175,6 +187,7 @@ export function IssueEditor({
   initialTitle: string;
   onCancel(): void;
   onSubmit(values: IssueFormValues): Promise<void>;
+  repositoryKey?: string | null;
   showState?: boolean;
   submitLabel: string;
 }) {
@@ -183,17 +196,42 @@ export function IssueEditor({
   const [state, setState] = useState<GitHubIssueRecord['state']>(initialState ?? 'open');
   const [title, setTitle] = useState(initialTitle);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [cancelWarningOpen, setCancelWarningOpen] = useState(false);
+  const submitInFlight = useRef(false);
+  const attachments = useIssueAttachments({
+    markdown: body,
+    onMarkdownChange: setBody,
+    repositoryKey
+  });
+  const isBusy = isSubmitting || attachments.isUploading;
+  const hasStoredAttachments = attachments.attachments.some(
+    (attachment) => attachment.status === 'uploaded'
+  );
+
+  const requestCancel = () => {
+    if (hasStoredAttachments) {
+      setCancelWarningOpen(true);
+      return;
+    }
+    onCancel();
+  };
 
   const submit = async () => {
+    if (submitInFlight.current) return;
+    submitInFlight.current = true;
     setIsSubmitting(true);
     try {
+      const uploaded = await attachments.uploadPendingAttachments();
+      if (!uploaded.completed) return;
+
       await onSubmit({
-        body,
+        body: uploaded.markdown,
         labels: labelsFromInput(labels),
         state: showState ? state : undefined,
         title
       });
     } finally {
+      submitInFlight.current = false;
       setIsSubmitting(false);
     }
   };
@@ -202,19 +240,29 @@ export function IssueEditor({
     <div className="issue-rise-in mb-4 rounded-xl border border-neutral-800/70 bg-neutral-950/40 p-3">
       <div className="grid gap-2">
         <input
+          disabled={isBusy}
           value={title}
           onChange={(event) => setTitle(event.currentTarget.value)}
           placeholder="Issue title"
           className="h-9 rounded-lg border border-neutral-800 bg-neutral-950 px-3 text-sm text-neutral-100 outline-none transition placeholder:text-neutral-600 focus:border-neutral-600"
         />
         <textarea
-          value={body}
-          onChange={(event) => setBody(event.currentTarget.value)}
+          disabled={isBusy}
+          value={attachments.markdown}
+          onChange={(event) => attachments.handleMarkdownChange(event.currentTarget.value)}
+          onPaste={attachments.handlePaste}
           placeholder="Markdown description"
           rows={8}
           className="min-h-40 resize-y rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm leading-6 text-neutral-100 outline-none transition placeholder:text-neutral-600 focus:border-neutral-600"
         />
+        <IssueAttachmentStatus
+          attachments={attachments.attachments}
+          disabled={isBusy}
+          error={attachments.error}
+          onRemove={attachments.removeAttachment}
+        />
         <input
+          disabled={isBusy}
           value={labels}
           onChange={(event) => setLabels(event.currentTarget.value)}
           placeholder="Labels, comma separated"
@@ -235,10 +283,18 @@ export function IssueEditor({
               }}
               className="rounded-lg bg-neutral-900/70 p-1"
             >
-              <ToggleButton id="open" className="h-7 gap-1.5 rounded-md px-2 text-xs">
+              <ToggleButton
+                disabled={isBusy}
+                id="open"
+                className="h-7 gap-1.5 rounded-md px-2 text-xs"
+              >
                 Open
               </ToggleButton>
-              <ToggleButton id="closed" className="h-7 gap-1.5 rounded-md px-2 text-xs">
+              <ToggleButton
+                disabled={isBusy}
+                id="closed"
+                className="h-7 gap-1.5 rounded-md px-2 text-xs"
+              >
                 Closed
               </ToggleButton>
             </ToggleButtonGroup>
@@ -246,13 +302,31 @@ export function IssueEditor({
         ) : null}
       </div>
       {error ? <Text className="mt-2 block text-xs text-red-300">{error}</Text> : null}
+      {cancelWarningOpen ? (
+        <div
+          className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2.5"
+          role="alert"
+        >
+          <Text className="block text-xs leading-5 text-amber-200">
+            Leave this editor? Images already stored with a repository commit will remain there.
+          </Text>
+          <div className="mt-2 flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onPress={() => setCancelWarningOpen(false)}>
+              Keep editing
+            </Button>
+            <Button size="sm" variant="danger" onPress={onCancel}>
+              Leave editor
+            </Button>
+          </div>
+        </div>
+      ) : null}
       <div className="mt-3 flex justify-end gap-2">
-        <Button size="sm" variant="ghost" onPress={onCancel}>
+        <Button isDisabled={isBusy} size="sm" variant="ghost" onPress={requestCancel}>
           Cancel
         </Button>
         <Button
           size="sm"
-          isDisabled={isSubmitting || !title.trim()}
+          isDisabled={isBusy || !title.trim()}
           variant="primary"
           onPress={() => void submit()}
         >
