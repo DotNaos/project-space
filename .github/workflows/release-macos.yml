@@ -44,7 +44,6 @@ on:
 permissions:
   actions: read
   contents: read
-
 jobs:
   unsigned:
     name: Build unsigned macOS arm64 tools
@@ -58,7 +57,6 @@ jobs:
       signing-artifact-digest: ${{ steps.upload-signing.outputs.artifact-digest }}
       signing-artifact-name: ${{ steps.contract.outputs.signing-artifact-name }}
       version: ${{ steps.contract.outputs.version }}
-
     steps:
       - name: Validate release contract
         id: contract
@@ -275,7 +273,6 @@ jobs:
           (cd "$signing_input" && /usr/bin/shasum -a 256 -c SHA256SUMS.txt)
           [[ $(/usr/bin/file -b "$signing_input/project-approval-signer") == *"Mach-O 64-bit executable arm64"* ]]
           echo "signer-sha=$signer_sha" >> "$GITHUB_OUTPUT"
-
       - name: Load macOS signing certificate from 1Password
         id: signing-secrets
         uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
@@ -285,7 +282,6 @@ jobs:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
           MACOS_SIGNING_CERTIFICATE_P12_B64: op://projects/Project Space macOS Release Signing/certificate_p12_b64
           MACOS_SIGNING_CERTIFICATE_PASSWORD: op://projects/Project Space macOS Release Signing/password
-
       - name: Sign, verify, receipt, and remove identity
         id: signing
         shell: /bin/bash --noprofile --norc -euo pipefail {0}
@@ -302,17 +298,37 @@ jobs:
         run: |
           keychain="$RUNNER_TEMP/project-space-release.keychain-db"
           keychain_snapshot="$RUNNER_TEMP/project-space-original-user-keychains"
+          default_keychain_snapshot="$RUNNER_TEMP/project-space-original-default-keychain"
           p12="$RUNNER_TEMP/project-space-release.p12"
           pem="$RUNNER_TEMP/project-space-release.pem"
+          leaf_pem="$RUNNER_TEMP/project-space-release-leaf.pem"
           import_p12="$RUNNER_TEMP/project-space-release-import.p12"
+          codesign_diagnostics="$RUNNER_TEMP/project-space-release-codesign.log"
           # Intentionally public: the 0600 temp files and isolated runner protect the unwrapped key.
           import_password='project-space-ephemeral-import'
           signed="$RUNNER_TEMP/project-space-macos-signed"
+          read_default_keychain() {
+            local line extra
+            IFS= read -r line || return 1
+            ! IFS= read -r extra || return 1
+            line="${line#*\"}"; line="${line%\"*}"
+            [[ $line == /* ]] || return 1
+            /usr/bin/printf '%s' "$line"
+          }
           cleanup() {
-            local operation_status=$?
-            local cleanup_status=0
+            local operation_status=$? cleanup_status=0 references_restored=1
             trap - EXIT INT TERM HUP
             set +e
+            if [[ -f $default_keychain_snapshot ]]; then
+              local original_default current_default
+              original_default=$(read_default_keychain < "$default_keychain_snapshot") \
+                && /usr/bin/security default-keychain -d user -s "$original_default" \
+                && current_default=$(read_default_keychain \
+                  < <(/usr/bin/security default-keychain -d user)) \
+                && [[ $current_default == "$original_default" ]] \
+                && /bin/rm -f "$default_keychain_snapshot" \
+                || { cleanup_status=1; references_restored=0; }
+            fi
             if [[ -f $keychain_snapshot ]]; then
               local original_keychains=()
               local line
@@ -322,16 +338,19 @@ jobs:
                 [[ -n $line ]] && original_keychains+=("$line")
               done < "$keychain_snapshot"
               if (( ${#original_keychains[@]} > 0 )); then
-                /usr/bin/security list-keychains -d user -s "${original_keychains[@]}" || cleanup_status=$?
+                /usr/bin/security list-keychains -d user -s "${original_keychains[@]}" \
+                  || { cleanup_status=1; references_restored=0; }
               else
-                /usr/bin/security list-keychains -d user -s || cleanup_status=$?
+                /usr/bin/security list-keychains -d user -s \
+                  || { cleanup_status=1; references_restored=0; }
               fi
               (( cleanup_status != 0 )) || /bin/rm -f "$keychain_snapshot" || cleanup_status=$?
             fi
-            if [[ -e $keychain ]]; then
+            if (( references_restored == 1 )) && [[ -e $keychain ]]; then
               /usr/bin/security delete-keychain "$keychain" || cleanup_status=$?
             fi
-            /bin/rm -f "$p12" "$pem" "$import_p12" || cleanup_status=$?
+            /bin/rm -f "$p12" "$pem" "$leaf_pem" "$import_p12" \
+              "$codesign_diagnostics" || cleanup_status=$?
             if (( operation_status != 0 )); then
               exit "$operation_status"
             fi
@@ -341,7 +360,6 @@ jobs:
           trap 'exit 130' INT
           trap 'exit 143' TERM
           trap 'exit 129' HUP
-
           umask 077
           [[ $(/usr/bin/uname -m) == arm64 ]]
           [[ ! -e $signed && ! -e $keychain ]]
@@ -361,9 +379,14 @@ jobs:
           copied_sha=${copied_sha%% *}
           [[ $copied_sha == "$UNSIGNED_SIGNER_SHA" ]]
           /usr/bin/security list-keychains -d user > "$keychain_snapshot"
+          /usr/bin/security default-keychain -d user > "$default_keychain_snapshot"
+          original_default=$(read_default_keychain < "$default_keychain_snapshot")
+          [[ $original_default != "$keychain" ]]
           /usr/bin/printf '%s' "$CERTIFICATE_P12_B64" | /usr/bin/base64 -D > "$p12"
           /usr/bin/openssl pkcs12 -in "$p12" -passin env:CERTIFICATE_PASSWORD \
             -nodes -out "$pem"
+          /usr/bin/openssl pkcs12 -in "$p12" -passin env:CERTIFICATE_PASSWORD \
+            -clcerts -nokeys -out "$leaf_pem"
           /usr/bin/openssl pkcs12 -export -in "$pem" -out "$import_p12" \
             -passout "pass:$import_password"
           keychain_password=$(/usr/bin/openssl rand -hex 32)
@@ -380,9 +403,7 @@ jobs:
             [[ -n $line ]] && original_keychains+=("$line")
           done < "$keychain_snapshot"
           /usr/bin/security list-keychains -d user -s "$keychain" "${original_keychains[@]}"
-          identity=''
-          identity_label=''
-          identity_count=0
+          identity='' identity_label='' identity_count=0
           while IFS= read -r line; do
             if [[ $line =~ ([0-9A-F]{40})[[:space:]]+\"([^\"]{1,200})\" ]]; then
               identity=${BASH_REMATCH[1]}
@@ -393,21 +414,28 @@ jobs:
           [[ $identity_count == 1 \
             && $identity =~ ^[0-9A-F]{40}$ \
             && -n $identity_label ]]
-          echo 'Validated the single isolated code-signing identity.'
-          # Keep the import restricted to codesign. The disposable keychain contains exactly
-          # this one validated identity; the rewrapped private key can have a different internal
-          # label than its certificate, so do not apply a certificate-label selector here.
+          leaf_fingerprint=$(/usr/bin/openssl x509 -in "$leaf_pem" -noout -fingerprint -sha1)
+          leaf_fingerprint=${leaf_fingerprint#*=}; leaf_fingerprint=${leaf_fingerprint//:/}
+          [[ $leaf_fingerprint == "$identity" ]]
+          /usr/bin/openssl x509 -in "$leaf_pem" -text -noout \
+            | /usr/bin/grep -F '1.2.840.113635.100.6.1.13' >/dev/null
+          /bin/rm -f "$leaf_pem"
+          echo 'Validated one isolated Developer ID Application identity.'
           /usr/bin/security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -k "$keychain_password" "$keychain" >/dev/null
           echo 'Authorized the isolated identity for codesign.'
-
-          requirement='=anchor apple generic and certificate leaf[subject.OU] = "R72P4M9WMS" and identifier "com.dotnaos.project.approval-signer"'
+          /usr/bin/security default-keychain -d user -s "$keychain"
+          current_default=$(read_default_keychain \
+            < <(/usr/bin/security default-keychain -d user))
+          [[ $current_default == "$keychain" ]]
+          requirement='=anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "R72P4M9WMS" and identifier "com.dotnaos.project.approval-signer"'
           /usr/bin/codesign --force --keychain "$keychain" --sign "$identity_label" \
             --identifier com.dotnaos.project.approval-signer \
-            --options runtime --timestamp=none "$signed/project-approval-signer"
+            --options runtime --timestamp=none "$signed/project-approval-signer" \
+            2>"$codesign_diagnostics"
           echo 'Signed the approval helper with the isolated identity.'
           /usr/bin/codesign --verify --strict --test-requirement "$requirement" \
-            "$signed/project-approval-signer"
+            "$signed/project-approval-signer" 2>"$codesign_diagnostics"
           echo 'Verified the signed approval helper requirement.'
           signed_sha=$(/usr/bin/shasum -a 256 "$signed/project-approval-signer")
           signed_sha=${signed_sha%% *}
@@ -431,7 +459,6 @@ jobs:
             "$receipt_sha" SIGNED-RECEIPT.txt \
             > "$signed/SHA256SUMS.txt"
           echo "signed-sha=$signed_sha" >> "$GITHUB_OUTPUT"
-
       - name: Confirm signing identity cleanup
         if: always() && github.event_name == 'push' && github.ref_type == 'tag'
         shell: /bin/bash --noprofile --norc {0}
@@ -442,7 +469,29 @@ jobs:
           set +e
           keychain="$RUNNER_TEMP/project-space-release.keychain-db"
           keychain_snapshot="$RUNNER_TEMP/project-space-original-user-keychains"
-          cleanup_status=0
+          default_keychain_snapshot="$RUNNER_TEMP/project-space-original-default-keychain"
+          cleanup_status=0; references_restored=1
+          read_default_keychain() {
+            local line extra
+            IFS= read -r line || return 1
+            ! IFS= read -r extra || return 1
+            line="${line#*\"}"; line="${line%\"*}"
+            [[ $line == /* ]] || return 1
+            /usr/bin/printf '%s' "$line"
+          }
+          if [[ -f $default_keychain_snapshot ]]; then
+            original_default=$(read_default_keychain < "$default_keychain_snapshot")
+            if [[ -n $original_default ]] \
+              && /usr/bin/security default-keychain -d user -s "$original_default"; then
+              current_default=$(read_default_keychain \
+                < <(/usr/bin/security default-keychain -d user))
+              [[ $current_default == "$original_default" ]] \
+                && /bin/rm -f "$default_keychain_snapshot" \
+                || { cleanup_status=1; references_restored=0; }
+            else
+              cleanup_status=1; references_restored=0
+            fi
+          fi
           if [[ -f $keychain_snapshot ]]; then
             original_keychains=()
             while IFS= read -r line; do
@@ -451,30 +500,40 @@ jobs:
               [[ -n $line ]] && original_keychains+=("$line")
             done < "$keychain_snapshot"
             if (( ${#original_keychains[@]} > 0 )); then
-              /usr/bin/security list-keychains -d user -s "${original_keychains[@]}" || cleanup_status=$?
+              /usr/bin/security list-keychains -d user -s "${original_keychains[@]}" \
+                || { cleanup_status=1; references_restored=0; }
             else
-              /usr/bin/security list-keychains -d user -s || cleanup_status=$?
+              /usr/bin/security list-keychains -d user -s \
+                || { cleanup_status=1; references_restored=0; }
             fi
             (( cleanup_status != 0 )) || /bin/rm -f "$keychain_snapshot" || cleanup_status=$?
           fi
-          if [[ -e $keychain ]]; then
+          if (( references_restored == 1 )) && [[ -e $keychain ]]; then
             /usr/bin/security delete-keychain "$keychain" || cleanup_status=$?
           fi
           /bin/rm -f \
             "$RUNNER_TEMP/project-space-release.p12" \
             "$RUNNER_TEMP/project-space-release.pem" \
-            "$RUNNER_TEMP/project-space-release-import.p12" || cleanup_status=$?
+            "$RUNNER_TEMP/project-space-release-leaf.pem" \
+            "$RUNNER_TEMP/project-space-release-import.p12" \
+            "$RUNNER_TEMP/project-space-release-codesign.log" || cleanup_status=$?
+          current_default=$(read_default_keychain \
+            < <(/usr/bin/security default-keychain -d user)) || cleanup_status=1
+          [[ $current_default != "$keychain" ]] || cleanup_status=1
           while IFS= read -r line; do
             line="${line#*\"}"
             line="${line%\"*}"
             [[ $line != "$keychain" ]] || cleanup_status=1
           done < <(/usr/bin/security list-keychains -d user)
           [[ ! -e $keychain \
+            && ! -e $keychain_snapshot \
+            && ! -e $default_keychain_snapshot \
             && ! -e $RUNNER_TEMP/project-space-release.p12 \
             && ! -e $RUNNER_TEMP/project-space-release.pem \
-            && ! -e $RUNNER_TEMP/project-space-release-import.p12 ]] || cleanup_status=1
+            && ! -e $RUNNER_TEMP/project-space-release-leaf.pem \
+            && ! -e $RUNNER_TEMP/project-space-release-import.p12 \
+            && ! -e $RUNNER_TEMP/project-space-release-codesign.log ]] || cleanup_status=1
           exit "$cleanup_status"
-
       - name: Upload signed helper after cleanup
         if: success() && github.event_name == 'push' && github.ref_type == 'tag'
         id: upload
@@ -485,7 +544,6 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
-
   package:
     name: Package verified macOS machine tools
     if: github.event_name == 'push' && github.ref_type == 'tag'
@@ -499,7 +557,6 @@ jobs:
       artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
       artifact-name: ${{ steps.contract.outputs.artifact-name }}
       version: ${{ inputs.version }}
-
     steps:
       - name: Validate all immutable artifact metadata
         id: contract

@@ -183,12 +183,22 @@ describe('connector release and production deployment contract', () => {
     expect(sign).toContain('entry_count == 3');
     expect(sign).toContain("stat -f '%l'");
     expect(sign).toContain("stat -f '%u'");
+    expect(sign).toContain('certificate 1[field.1.2.840.113635.100.6.2.6] exists');
+    expect(sign).toContain(
+      'certificate leaf[field.1.2.840.113635.100.6.1.13] exists'
+    );
     expect(sign).toContain('certificate leaf[subject.OU] = "R72P4M9WMS"');
     expect(sign).toContain('identifier "com.dotnaos.project.approval-signer"');
     expect(sign).toContain('project-space-release-import.p12');
     expect(sign).toContain('-passin env:CERTIFICATE_PASSWORD');
     expect(sign).toContain('-passout "pass:$import_password"');
     expect(sign).toContain('security import "$import_p12" -f pkcs12');
+    const importStart = sign.indexOf('/usr/bin/security import "$import_p12"');
+    const importEnd = sign.indexOf('/bin/rm -f "$p12"', importStart);
+    const importCommand = sign.slice(importStart, importEnd);
+    expect(importStart).toBeGreaterThan(-1);
+    expect(importEnd).toBeGreaterThan(importStart);
+    expect(importCommand).not.toMatch(/(^|\s)-A(?:\s|\\|$)/);
     expect(sign).not.toContain('security import "$pem"');
     expect(sign).not.toContain('-P "$CERTIFICATE_PASSWORD"');
     expect(sign).not.toContain('-f pemseq');
@@ -199,6 +209,13 @@ describe('connector release and production deployment contract', () => {
     expect(sign).toContain('-k "$keychain_password" "$keychain"');
     expect(sign).not.toContain('if ! /usr/bin/security set-key-partition-list');
     expect(sign).toContain('--sign "$identity_label"');
+    expect(sign).toContain('[[ $leaf_fingerprint == "$identity" ]]');
+    expect(sign).toContain(
+      'security default-keychain -d user > "$default_keychain_snapshot"'
+    );
+    expect(sign).toContain('security default-keychain -d user -s "$keychain"');
+    expect(sign).toContain('security default-keychain -d user -s "$original_default"');
+    expect(sign).toContain('[[ $current_default != "$keychain" ]]');
     const partitionStart = sign.indexOf('/usr/bin/security set-key-partition-list');
     const partitionEnd = sign.indexOf('>/dev/null', partitionStart);
     const partitionCommand = sign.slice(partitionStart, partitionEnd);
@@ -209,11 +226,37 @@ describe('connector release and production deployment contract', () => {
     expect(sign.indexOf('security set-key-partition-list')).toBeLessThan(
       sign.indexOf('/usr/bin/codesign --force')
     );
-    expect(sign).toContain('security delete-keychain');
-    expect(sign.indexOf('Confirm signing identity cleanup')).toBeLessThan(
-      sign.indexOf('Upload signed helper after cleanup')
+    expect(sign.indexOf('security set-key-partition-list')).toBeLessThan(
+      sign.indexOf('security default-keychain -d user -s "$keychain"')
     );
-    expect(sign).toContain("if: success() && github.event_name == 'push'");
+    expect(
+      sign.indexOf('security default-keychain -d user -s "$keychain"')
+    ).toBeLessThan(sign.indexOf('/usr/bin/codesign --force'));
+    expect(sign).toContain('security delete-keychain');
+    const cleanupStart = sign.indexOf('Confirm signing identity cleanup');
+    const uploadStart = sign.indexOf('Upload signed helper after cleanup');
+    const cleanup = sign.slice(cleanupStart, uploadStart);
+    const upload = sign.slice(uploadStart);
+    expect(cleanupStart).toBeGreaterThan(-1);
+    expect(cleanupStart).toBeLessThan(uploadStart);
+    const restoreDefault = cleanup.indexOf(
+      'default-keychain -d user -s "$original_default"'
+    );
+    const deleteKeychain = cleanup.indexOf('delete-keychain "$keychain"');
+    expect(restoreDefault).toBeGreaterThan(-1);
+    expect(deleteKeychain).toBeGreaterThan(-1);
+    expect(restoreDefault).toBeLessThan(deleteKeychain);
+    expect(upload).toContain("if: success() && github.event_name == 'push'");
+
+    const packageScript = await source(
+      'packaging/macos/package-isolated-release-artifact.sh'
+    );
+    const workflowRequirement = sign.match(/^\s*requirement='([^']+)'$/m)?.[1];
+    const packageRequirement = packageScript.match(
+      /^signing_requirement='([^']+)'$/m
+    )?.[1];
+    expect(workflowRequirement).toBeDefined();
+    expect(packageRequirement).toBe(workflowRequirement);
     expectNoRepositoryExecution(sign);
 
     expect(packageJob).toContain('- unsigned');
