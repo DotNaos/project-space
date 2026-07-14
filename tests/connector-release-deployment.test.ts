@@ -192,6 +192,13 @@ describe('connector release and production deployment contract', () => {
     expect(sign).not.toContain('security import "$pem"');
     expect(sign).not.toContain('-P "$CERTIFICATE_PASSWORD"');
     expect(sign).not.toContain('-f pemseq');
+    expect(sign).toContain('if ! /usr/bin/security set-key-partition-list');
+    expect(sign.indexOf('security list-keychains -d user -s "$keychain"')).toBeLessThan(
+      sign.indexOf('security set-key-partition-list')
+    );
+    expect(sign.indexOf('security set-key-partition-list')).toBeLessThan(
+      sign.indexOf('/usr/bin/codesign --force')
+    );
     expect(sign).toContain('security delete-keychain');
     expect(sign.indexOf('Confirm signing identity cleanup')).toBeLessThan(
       sign.indexOf('Upload signed helper after cleanup')
