@@ -12,7 +12,6 @@ import type {
 import { routeForView } from '../hooks/project-desktop-routing';
 import { GitHubMark } from './github-mark';
 import { IssueBoardSettings } from './issue-board-settings';
-import { IssueCreationOverlay } from './issue-creation-overlay';
 import { IssueFilterOverlay } from './issue-filter-overlay';
 import { IssueKanbanBoard } from './issue-kanban-board';
 import { IssueListView } from './issue-list-view';
@@ -52,12 +51,6 @@ interface IssueIndexPanelProps {
   viewMode: IssueViewMode;
 }
 
-function replaceIssueRoute(projectId: string, detail = '') {
-  const nextPath = routeForView('project', projectId, 'issues', detail);
-  const nextUrl = `${nextPath}${window.location.search}${window.location.hash}`;
-  window.history.replaceState(null, '', nextUrl);
-}
-
 export function IssueIndexPanel(props: IssueIndexPanelProps) {
   const repoFullName = props.repository?.fullName;
   const [overrides, setOverrides] = useState<IssueColumnOverrides>(() =>
@@ -68,28 +61,14 @@ export function IssueIndexPanel(props: IssueIndexPanelProps) {
   );
   const [columnOrder, setColumnOrder] = useState<IssueColumnId[]>(() => loadIssueColumnOrder());
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [isCreating, setIsCreating] = useState(
-    () => typeof window !== 'undefined' && window.location.pathname.endsWith('/issues/new')
-  );
 
   useEffect(() => {
     setOverrides(loadIssueColumnOverrides(repoFullName));
   }, [repoFullName]);
 
-  useEffect(() => {
-    const handlePopState = () => setIsCreating(window.location.pathname.endsWith('/issues/new'));
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
-
   const closeFilter = useCallback(() => setIsFilterOpen(false), []);
-  const closeCreation = useCallback(() => {
-    setIsCreating(false);
-    replaceIssueRoute(props.projectId);
-  }, [props.projectId]);
   const openCreation = () => {
     if (!props.repository) return;
-    setIsCreating(true);
     const nextPath = routeForView('project', props.projectId, 'issues', 'new');
     window.history.pushState(null, '', `${nextPath}${window.location.search}${window.location.hash}`);
   };
@@ -198,15 +177,6 @@ export function IssueIndexPanel(props: IssueIndexPanelProps) {
         onActiveLabelsChange={props.onActiveLabelsChange}
         onClose={closeFilter}
         open={isFilterOpen}
-      />
-      <IssueCreationOverlay
-        onClose={closeCreation}
-        onIssueCreated={(issue) => {
-          props.onIssueCreated(issue);
-          closeCreation();
-        }}
-        open={isCreating}
-        repository={props.repository}
       />
     </div>
   );

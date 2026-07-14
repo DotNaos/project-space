@@ -5,10 +5,6 @@ import {
   readJson,
   writeJson
 } from './project-space-http-response';
-import {
-  isValidGitHubRepositoryFullName,
-  loadLocalGitHubIssueMetadata
-} from './local-github-issue-metadata';
 import type {
   CodexChatRequest,
   CodexModelCatalogueRequest,
@@ -35,17 +31,7 @@ import type {
   ToolLaunchRequest
 } from '../src/shared/project-space-api';
 
-export interface ProjectSpaceIntegrationApiRouteDependencies {
-  loadGitHubIssueMetadata?: typeof loadLocalGitHubIssueMetadata;
-}
-
-export function createProjectSpaceIntegrationApiRoutes(
-  backend: ProjectSpaceBackend,
-  dependencies: ProjectSpaceIntegrationApiRouteDependencies = {}
-) {
-  const loadGitHubIssueMetadata =
-    dependencies.loadGitHubIssueMetadata ?? loadLocalGitHubIssueMetadata;
-
+export function createProjectSpaceIntegrationApiRoutes(backend: ProjectSpaceBackend) {
   return async function handleProjectSpaceIntegrationApiRoute(
     request: IncomingMessage,
     response: ServerResponse,
@@ -78,18 +64,6 @@ export function createProjectSpaceIntegrationApiRoutes(
       }
 
       writeJson(response, 200, await backend.getGitHubRepositoryDetails(fullName));
-      return true;
-    }
-
-    if (request.method === 'GET' && url.pathname === '/api/github/issue-metadata') {
-      response.setHeader('Cache-Control', 'private, no-store');
-      const fullName = url.searchParams.get('fullName');
-      if (!fullName || !isValidGitHubRepositoryFullName(fullName)) {
-        writeJson(response, 400, { error: 'Missing or invalid fullName.' });
-        return true;
-      }
-
-      writeJson(response, 200, await loadGitHubIssueMetadata(fullName));
       return true;
     }
 
