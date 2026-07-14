@@ -10,6 +10,7 @@ export * from './project-topology-node-bodies';
 export * from './project-topology-presentation';
 export * from './project-topology-preview-stream';
 export * from './project-topology-production-source';
+export * from './project-topology-route-pending';
 export * from './project-topology-task-workspace';
 export * from './project-topology-transcript';
 export * from './project-topology-types';

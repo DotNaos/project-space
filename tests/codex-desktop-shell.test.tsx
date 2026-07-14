@@ -58,11 +58,13 @@ describe('Project desktop Codex navigation', () => {
         onOpenMachines={() => {}}
         onOpenProjects={() => {}}
         onOpenSettings={() => {}}
+        onOpenTopology={() => {}}
         onToggleContextPanel={() => {}}
       />
     );
 
     expect(html).toContain('data-testid="sidebar-codex"');
+    expect(html).toContain('data-testid="sidebar-topology"');
     expect(html).toContain('aria-label="Codex"');
   });
 });

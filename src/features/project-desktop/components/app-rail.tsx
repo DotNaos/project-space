@@ -1,4 +1,13 @@
-import { Bot, FolderKanban, House, LogOut, MessageSquare, Server, Settings } from 'lucide-react';
+import {
+  Bot,
+  FolderKanban,
+  House,
+  LogOut,
+  MessageSquare,
+  Network,
+  Server,
+  Settings
+} from 'lucide-react';
 import {
   Button,
   Dropdown,
@@ -13,7 +22,8 @@ import {
 import { cn } from '@/lib/utils';
 import { SidebarToggleButton } from './sidebar-toggle-button';
 
-export type AppSection = 'home' | 'chat' | 'codex' | 'projects' | 'machines' | 'settings';
+export type AppSection =
+  'home' | 'chat' | 'codex' | 'topology' | 'projects' | 'machines' | 'settings';
 
 export interface RailAccount {
   email?: string;
@@ -129,6 +139,7 @@ interface AppRailProps {
   onOpenMachines(): void;
   onOpenProjects(): void;
   onOpenSettings(): void;
+  onOpenTopology(): void;
   onToggleContextPanel(): void;
 }
 
@@ -143,6 +154,7 @@ export function AppRail({
   onOpenMachines,
   onOpenProjects,
   onOpenSettings,
+  onOpenTopology,
   onToggleContextPanel
 }: AppRailProps) {
   return (
@@ -171,6 +183,13 @@ export function AppRail({
           label="Home"
           testId="sidebar-home"
           onPress={onOpenHome}
+        />
+        <RailItem
+          icon={Network}
+          isActive={activeSection === 'topology'}
+          label="Topology"
+          testId="sidebar-topology"
+          onPress={onOpenTopology}
         />
         <RailItem
           icon={MessageSquare}

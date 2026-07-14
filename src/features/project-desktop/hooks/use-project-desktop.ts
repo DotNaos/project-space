@@ -510,6 +510,10 @@ export function useProjectDesktop() {
       setMainView('chat');
       writeRoute('chat');
     },
+    openTopology() {
+      setMainView('topology');
+      writeRoute('topology');
+    },
     openMachines() {
       setMainView('machines');
       writeRoute('machines');

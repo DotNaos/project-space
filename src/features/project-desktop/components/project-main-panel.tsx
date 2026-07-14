@@ -17,6 +17,7 @@ import { ProjectChatWorkspace } from '@/features/project-chat/project-chat-works
 import { CodexSessionsControllerPage } from '@/features/codex-sessions/codex-sessions-controller-page';
 import type { CodexSessionsController } from '@/features/codex-sessions/codex-sessions-controller';
 import type { CodexSessionTarget } from '@/features/codex-sessions/codex-session-route';
+import { ProjectTopologyRoutePending } from '@/features/project-topology/project-topology-route-pending';
 import { projectChatProjectId } from '@/shared/project-chat-project';
 import type {
   MachineDetailTab,
@@ -459,6 +460,10 @@ export function ProjectMainPanel({
         />
       </Surface>
     );
+  }
+
+  if (mainView === 'topology') {
+    return <ProjectTopologyRoutePending hasBottomTabBar={hasBottomTabBar} />;
   }
 
   return (

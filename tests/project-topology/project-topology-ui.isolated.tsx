@@ -82,6 +82,9 @@ mock.module('@/app/dotnaos-ui', () => ({
 
 const { TopologyTaskNodeBody } = await import('../../src/features/project-topology/project-topology-node-bodies');
 const { TopologyTaskCommandCenter } = await import('../../src/features/project-topology/project-topology-task-workspace');
+const { ProjectTopologyRoutePending } = await import(
+  '../../src/features/project-topology/project-topology-route-pending'
+);
 
 function renderableTask(canWrite: boolean) {
   const candidate = session(
@@ -136,6 +139,16 @@ function renderableTask(canWrite: boolean) {
 }
 
 describe('project topology presentation components', () => {
+  test('mounts the route without inventing portfolio data', () => {
+    const html = renderToStaticMarkup(<ProjectTopologyRoutePending hasBottomTabBar />);
+
+    expect(html).toContain('data-testid="project-topology-route"');
+    expect(html).toContain('Checking topology evidence');
+    expect(html).toContain('role="status"');
+    expect(html).toContain('aria-live="polite"');
+    expect(html).not.toContain('No active tasks');
+  });
+
   test('renders a compact real task cell without a fabricated browser frame', () => {
     const html = renderToStaticMarkup(
       <TopologyTaskNodeBody onOpen={() => undefined} task={renderableTask(false)} />

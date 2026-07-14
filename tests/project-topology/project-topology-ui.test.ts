@@ -18,6 +18,6 @@ describe('project topology presentation components', () => {
     ]);
 
     expect(exitCode, `${stdout}\n${stderr}`).toBe(0);
-    expect(`${stdout}\n${stderr}`).toContain('3 pass');
+    expect(`${stdout}\n${stderr}`).toContain('4 pass');
   });
 });

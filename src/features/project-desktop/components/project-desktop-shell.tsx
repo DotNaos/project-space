@@ -5,6 +5,7 @@ import {
   Bot,
   House,
   MessageSquare,
+  Network,
   Server,
   Settings,
   TriangleAlert
@@ -49,6 +50,10 @@ export function sectionForView(view: ProjectMainView): AppSection {
     return 'codex';
   }
 
+  if (view === 'topology') {
+    return 'topology';
+  }
+
   if (view === 'projects' || view === 'project') {
     return 'projects';
   }
@@ -72,6 +77,7 @@ interface MobileTabBarProps {
   onOpenProjects(): void;
   onOpenRoot(): void;
   onOpenSettings(): void;
+  onOpenTopology(): void;
 }
 
 function MobileTabBar({
@@ -81,7 +87,8 @@ function MobileTabBar({
   onOpenMachines,
   onOpenProjects,
   onOpenRoot,
-  onOpenSettings
+  onOpenSettings,
+  onOpenTopology
 }: MobileTabBarProps) {
   const items = [
     {
@@ -89,6 +96,12 @@ function MobileTabBar({
       isActive: activeSection === 'home',
       label: 'Home',
       onPress: onOpenRoot
+    },
+    {
+      icon: Network,
+      isActive: activeSection === 'topology',
+      label: 'Topology',
+      onPress: onOpenTopology
     },
     {
       icon: MessageSquare,
@@ -127,7 +140,7 @@ function MobileTabBar({
       aria-label="Primary"
       className="app-no-drag pointer-events-auto absolute inset-x-0 bottom-0 z-50 border-t border-neutral-800/90 bg-app-panel/95 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-16px_40px_rgba(0,0,0,0.35)] backdrop-blur"
     >
-      <div className="grid grid-cols-6 gap-1">
+      <div className="grid grid-cols-7 gap-1">
         {items.map((item) => {
           const Icon = item.icon;
 
@@ -307,6 +320,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
             onOpenMachines={desktop.openMachines}
             onOpenProjects={desktop.openProjects}
             onOpenSettings={desktop.openSettings}
+            onOpenTopology={desktop.openTopology}
             onToggleContextPanel={() => {
               setIsPanelOpen((current) => !current);
             }}
@@ -397,6 +411,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           onOpenProjects={desktop.openProjects}
           onOpenRoot={desktop.openRoot}
           onOpenSettings={desktop.openSettings}
+          onOpenTopology={desktop.openTopology}
         />
       ) : null}
     </div>
