@@ -380,27 +380,33 @@ jobs:
             [[ -n $line ]] && original_keychains+=("$line")
           done < "$keychain_snapshot"
           /usr/bin/security list-keychains -d user -s "$keychain" "${original_keychains[@]}"
-          # Keep the import restricted to codesign, then authorize Apple's signing partition.
-          # Do not add a key-usage selector here: current arm64 runners can fail to match the
-          # imported private key even though it is a valid code-signing identity.
-          /usr/bin/security set-key-partition-list -S apple-tool:,apple: \
-            -k "$keychain_password" "$keychain" >/dev/null
           identity=''
+          identity_label=''
           identity_count=0
           while IFS= read -r line; do
-            if [[ $line =~ ([0-9A-F]{40}) ]]; then
+            if [[ $line =~ ([0-9A-F]{40})[[:space:]]+\"([^\"]{1,200})\" ]]; then
               identity=${BASH_REMATCH[1]}
+              identity_label=${BASH_REMATCH[2]}
               identity_count=$((identity_count + 1))
             fi
           done < <(/usr/bin/security find-identity -v -p codesigning "$keychain")
-          [[ $identity_count == 1 && $identity =~ ^[0-9A-F]{40}$ ]]
+          [[ $identity_count == 1 \
+            && $identity =~ ^[0-9A-F]{40}$ \
+            && -n $identity_label ]]
+          echo 'Validated the single isolated code-signing identity.'
+          # Keep the import restricted to codesign and update only the matching private key.
+          /usr/bin/security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -l "$identity_label" -k "$keychain_password" "$keychain" >/dev/null
+          echo 'Authorized the isolated identity for codesign.'
 
           requirement='=anchor apple generic and certificate leaf[subject.OU] = "R72P4M9WMS" and identifier "com.dotnaos.project.approval-signer"'
-          /usr/bin/codesign --force --keychain "$keychain" --sign "$identity" \
+          /usr/bin/codesign --force --keychain "$keychain" --sign "$identity_label" \
             --identifier com.dotnaos.project.approval-signer \
             --options runtime --timestamp=none "$signed/project-approval-signer"
+          echo 'Signed the approval helper with the isolated identity.'
           /usr/bin/codesign --verify --strict --test-requirement "$requirement" \
             "$signed/project-approval-signer"
+          echo 'Verified the signed approval helper requirement.'
           signed_sha=$(/usr/bin/shasum -a 256 "$signed/project-approval-signer")
           signed_sha=${signed_sha%% *}
           requirement_sha=$(/usr/bin/printf '%s' "$requirement" | /usr/bin/shasum -a 256)
