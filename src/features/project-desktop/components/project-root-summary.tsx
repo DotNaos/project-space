@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { CircleDot, GitBranch, MessagesSquare, Monitor, Plus } from 'lucide-react';
 import { Text } from '@/app/dotnaos-ui';
 import { createProjectChatClient } from '@/api/project-chat-client';
+import { loadGitHubRepositorySummary } from '@/api/github-repository-summary-client';
 import {
-  projectSpaceClient,
   refreshProjectSpaceAuthToken
 } from '@/api/project-space-client';
 import { cn } from '@/lib/utils';
@@ -13,6 +13,7 @@ import {
   loadProjectRootSummaryCounts,
   projectRootSummaryActions,
   projectRootSummaryCounts,
+  projectRootSummaryHref,
   projectRootSummaryScopeKey,
   selectProjectRootSummaryTargets,
   type ProjectRootCount,
@@ -28,7 +29,7 @@ const projectChatClient = createProjectChatClient({
 });
 
 const defaultDataSource: ProjectRootSummaryDataSource = {
-  getRepositoryDetails: (fullName) => projectSpaceClient.getGitHubRepositoryDetails(fullName),
+  getRepositorySummary: (fullName) => loadGitHubRepositorySummary(fullName),
   listProjectChatChannels: () => projectChatClient.listChannels(),
   listProjectChatMembers: (channelId) => projectChatClient.listMembers({ channelId })
 };
@@ -96,14 +97,19 @@ function SummaryAction({ count, href, Icon, label, projectLabel }: SummaryAction
 function ProjectSummaryRow({
   connector,
   loaded,
+  routeHash,
+  routeSearch,
   target
 }: {
   connector: ProjectRootEvidence<ConnectorOverviewResult>;
   loaded?: ProjectRootSummaryLoadResult;
+  routeHash: string;
+  routeSearch: string;
   target: ProjectRootSummaryTarget;
 }) {
   const actions = projectRootSummaryActions(target);
   const counts = projectRootSummaryCounts(target, connector, loaded);
+  const href = (path: string) => projectRootSummaryHref(path, routeSearch, routeHash);
 
   return (
     <article className="py-5 first:pt-0 last:pb-0">
@@ -118,7 +124,7 @@ function ProjectSummaryRow({
         </div>
         {actions.newIssue ? (
           <a
-            href={actions.newIssue}
+            href={href(actions.newIssue)}
             className="inline-flex min-h-9 shrink-0 items-center gap-2 rounded-full bg-neutral-100 px-3.5 text-xs font-semibold text-neutral-950 transition hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-300"
           >
             <Plus className="size-4" />
@@ -130,28 +136,28 @@ function ProjectSummaryRow({
       <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
         <SummaryAction
           count={counts.issues}
-          href={actions.issues}
+          href={href(actions.issues)}
           Icon={CircleDot}
           label="Issues"
           projectLabel={target.label}
         />
         <SummaryAction
           count={counts.branches}
-          href={actions.workspaces}
+          href={href(actions.workspaces)}
           Icon={GitBranch}
           label="Branches"
           projectLabel={target.label}
         />
         <SummaryAction
           count={counts.threads}
-          href={actions.chat}
+          href={href(actions.chat)}
           Icon={MessagesSquare}
           label="Active threads"
           projectLabel={target.label}
         />
         <SummaryAction
           count={counts.machines}
-          href={actions.machines}
+          href={href(actions.machines)}
           Icon={Monitor}
           label="Machines"
           projectLabel={target.label}
@@ -174,6 +180,8 @@ export function ProjectRootSummary({
   );
   const generations = useRef<Record<string, number>>({});
   const [requests, setRequests] = useState<Record<string, ProjectRootSummaryRequestState>>({});
+  const routeSearch = typeof window === 'undefined' ? '' : window.location.search;
+  const routeHash = typeof window === 'undefined' ? '' : window.location.hash;
 
   useEffect(() => {
     let current = true;
@@ -230,6 +238,8 @@ export function ProjectRootSummary({
                 key={target.key}
                 connector={connector}
                 loaded={requests[scopeKey]?.result}
+                routeHash={routeHash}
+                routeSearch={routeSearch}
                 target={target}
               />
             );

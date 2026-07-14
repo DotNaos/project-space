@@ -453,7 +453,7 @@ function BoardCard({
       <button
         type="button"
         onClick={() => onOpenIssue(issue.number)}
-        className="block w-full min-w-0 cursor-[inherit] p-3 text-left"
+        className="block w-full min-w-0 cursor-[inherit] p-3 pr-12 text-left [@media(pointer:fine)]:pr-3"
       >
         <BoardCardContent
           issue={issue}
@@ -497,17 +497,17 @@ function BoardCard({
           <Dropdown>
             <DropdownTrigger
               aria-label={`Move issue #${issue.number} to another column`}
-              className="size-6 rounded-md border-transparent bg-neutral-900/80 text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200"
+              className="size-11 rounded-xl border-transparent bg-neutral-900/80 text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100 [@media(pointer:fine)]:size-6 [@media(pointer:fine)]:rounded-md [@media(pointer:fine)]:text-neutral-500"
             >
-              <ArrowRightLeft className="size-3" />
+              <ArrowRightLeft className="size-4 [@media(pointer:fine)]:size-3" />
             </DropdownTrigger>
-            <DropdownPopover className="w-40">
+            <DropdownPopover className="w-48 [@media(pointer:fine)]:w-40">
               <DropdownMenu aria-label="Move issue to column">
                 {moveTargets.map((target) => (
                   <DropdownItem
                     key={target.id}
                     onPress={() => onMoveIssue(issue.number, target.id)}
-                    className="flex items-center gap-2 text-xs"
+                    className="flex min-h-11 items-center gap-2 text-sm [@media(pointer:fine)]:min-h-0 [@media(pointer:fine)]:text-xs"
                   >
                     <span className={cn('size-1.5 rounded-full', target.dotClass)} />
                     {target.label}

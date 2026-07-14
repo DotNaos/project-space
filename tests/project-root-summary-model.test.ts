@@ -9,6 +9,7 @@ import {
   loadProjectRootSummaryCounts,
   projectRootMachineCount,
   projectRootSummaryActions,
+  projectRootSummaryHref,
   projectRootSummaryScopeKey,
   selectProjectRootSummaryTargets,
   type ProjectRootSummaryDataSource,
@@ -164,6 +165,15 @@ describe('recent project root summaries', () => {
       ['scratch']
     )[0]!;
     expect(projectRootSummaryActions(localOnly).newIssue).toBeUndefined();
+    expect(
+      projectRootSummaryHref(
+        projectRootSummaryActions(target).issues,
+        '?projectSpaceApi=http%3A%2F%2F127.0.0.1%3A8787',
+        '#current'
+      )
+    ).toBe(
+      '/projects/alpha%20local/issues?projectSpaceApi=http%3A%2F%2F127.0.0.1%3A8787#current'
+    );
   });
 });
 
@@ -174,19 +184,13 @@ describe('scoped project summary evidence', () => {
       ['alpha-local']
     )[0]!;
     const dataSource: ProjectRootSummaryDataSource = {
-      async getRepositoryDetails(fullName) {
+      async getRepositorySummary(fullName) {
         expect(fullName).toBe('DotNaos/alpha');
         return {
-          branches: [
-            { isDefault: true, name: 'main' },
-            { isDefault: false, name: 'feature' }
-          ],
+          branchCount: 42,
           checkedAt: '2026-07-13T01:00:00.000Z',
-          issues: [
-            { labels: [], number: 1, state: 'open', title: 'One', url: 'https://example.test/1' },
-            { labels: [], number: 2, state: 'closed', title: 'Two', url: 'https://example.test/2' }
-          ],
-          pullRequests: [],
+          fullName,
+          openIssueCount: 147,
           status: 'connected'
         };
       },
@@ -245,8 +249,8 @@ describe('scoped project summary evidence', () => {
     };
 
     const result = await loadProjectRootSummaryCounts(target, dataSource);
-    expect(result.issues).toMatchObject({ count: 1, state: 'ready' });
-    expect(result.branches).toMatchObject({ count: 2, state: 'ready' });
+    expect(result.issues).toMatchObject({ count: 147, state: 'ready' });
+    expect(result.branches).toMatchObject({ count: 42, state: 'ready' });
     expect(result.threads).toMatchObject({ count: 1, state: 'ready' });
     expect(result.scopeKey).toBe(projectRootSummaryScopeKey(target));
   });
@@ -257,7 +261,7 @@ describe('scoped project summary evidence', () => {
       ['alpha-local']
     )[0]!;
     const result = await loadProjectRootSummaryCounts(target, {
-      async getRepositoryDetails() {
+      async getRepositorySummary() {
         throw new Error('GitHub timed out.');
       },
       async listProjectChatChannels() {

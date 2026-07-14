@@ -1,9 +1,9 @@
 import type {
   ConnectorOverviewResult,
   GitHubCatalogRepository,
-  GitHubRepositoryDetailsResult,
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
+import type { GitHubRepositorySummaryResult } from '@/shared/github-repository-summary';
 import type {
   ProjectChatChannelListResult,
   ProjectChatMemberListResult
@@ -38,7 +38,7 @@ export interface ProjectRootSummaryCounts {
 }
 
 export interface ProjectRootSummaryDataSource {
-  getRepositoryDetails(fullName: string): Promise<GitHubRepositoryDetailsResult>;
+  getRepositorySummary(fullName: string): Promise<GitHubRepositorySummaryResult>;
   listProjectChatChannels(): Promise<ProjectChatChannelListResult>;
   listProjectChatMembers(channelId: string): Promise<ProjectChatMemberListResult>;
 }
@@ -68,6 +68,10 @@ export interface ProjectRootSummaryActions {
   machines: string;
   newIssue?: string;
   workspaces: string;
+}
+
+export function projectRootSummaryHref(path: string, search = '', hash = '') {
+  return `${path}${search}${hash}`;
 }
 
 function normalize(value: string) {
@@ -263,22 +267,23 @@ async function loadRepositoryCounts(
   }
 
   try {
-    const result = await dataSource.getRepositoryDetails(target.repository.fullName);
+    const result = await dataSource.getRepositorySummary(target.repository.fullName);
+    if (result.fullName !== target.repository.fullName) {
+      const state = blocked('GitHub returned counts for a different repository.');
+      return { branches: state, issues: state };
+    }
     if (result.status !== 'connected') {
-      const state = blocked(result.message ?? 'GitHub repository details are unavailable.');
+      const state = blocked(result.message || 'GitHub repository counts are unavailable.');
       return { branches: state, issues: state };
     }
 
     return {
-      branches: ready(result.branches.length, result.checkedAt),
-      issues: ready(
-        result.issues.filter((issue) => issue.state === 'open').length,
-        result.checkedAt
-      )
+      branches: ready(result.branchCount, result.checkedAt),
+      issues: ready(result.openIssueCount, result.checkedAt)
     };
   } catch (error) {
     const state = blocked(
-      error instanceof Error ? error.message : 'GitHub repository details are unavailable.'
+      error instanceof Error ? error.message : 'GitHub repository counts are unavailable.'
     );
     return { branches: state, issues: state };
   }

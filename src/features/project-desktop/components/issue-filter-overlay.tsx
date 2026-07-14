@@ -1,6 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
-import { Check, RotateCcw, X } from 'lucide-react';
+import { Check, RotateCcw } from 'lucide-react';
+import { Modal } from '@heroui/react';
 import { Button, Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import { labelChipStyle } from './issue-board-model';
@@ -20,34 +19,6 @@ export function IssueFilterOverlay({
   onClose,
   open
 }: IssueFilterOverlayProps) {
-  const closeRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    closeRef.current?.focus();
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [onClose, open]);
-
-  if (!open || typeof document === 'undefined') {
-    return null;
-  }
-
   const toggleLabel = (label: string) => {
     const next = new Set(activeLabels);
     if (next.has(label)) {
@@ -58,42 +29,33 @@ export function IssueFilterOverlay({
     onActiveLabelsChange(next);
   };
 
-  return createPortal(
-    <div className="fixed inset-0 z-[120] flex items-end justify-center sm:items-center sm:p-6">
-      <button
-        type="button"
-        aria-label="Close filters"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/65 backdrop-blur-sm"
-      />
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="issue-filter-title"
-        className="issue-rise-in relative z-10 flex max-h-[72dvh] w-full flex-col rounded-t-[1.75rem] border border-neutral-800 bg-neutral-950 shadow-2xl sm:max-w-md sm:rounded-2xl"
-      >
+  return (
+    <Modal.Backdrop
+      isDismissable
+      isKeyboardDismissDisabled={false}
+      isOpen={open}
+      onOpenChange={(isOpen) => {
+        if (!isOpen) onClose();
+      }}
+      variant="blur"
+      className="z-[120] bg-black/65"
+    >
+      <Modal.Container placement="auto" className="p-0 sm:p-6">
+        <Modal.Dialog className="issue-rise-in flex max-h-[72dvh] w-full max-w-none flex-col rounded-t-[1.75rem] rounded-b-none border border-neutral-800 bg-neutral-950 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl">
         <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-neutral-700 sm:hidden" />
-        <header className="flex items-center gap-3 px-5 py-4">
+        <Modal.Header className="flex-row items-center gap-3 px-5 py-4">
           <div className="min-w-0 flex-1">
-            <Text id="issue-filter-title" as="h2" className="text-base font-semibold text-neutral-100">
+            <Modal.Heading className="text-base font-semibold text-neutral-100">
               Filter issues
-            </Text>
+            </Modal.Heading>
             <Text className="mt-0.5 text-xs text-neutral-500">
               Match issues with any selected repository label.
             </Text>
           </div>
-          <button
-            ref={closeRef}
-            type="button"
-            onClick={onClose}
-            aria-label="Close filters"
-            className="flex size-9 items-center justify-center rounded-full text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100"
-          >
-            <X className="size-4" />
-          </button>
-        </header>
+          <Modal.CloseTrigger className="text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100" />
+        </Modal.Header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4">
+        <Modal.Body className="min-h-0 flex-1 overflow-y-auto px-5 pb-4">
           {labels.length > 0 ? (
             <div className="grid gap-2">
               {labels.map((label) => {
@@ -134,9 +96,9 @@ export function IssueFilterOverlay({
               This repository has no issue labels yet.
             </Text>
           )}
-        </div>
+        </Modal.Body>
 
-        <footer className="flex items-center justify-between gap-3 border-t border-neutral-800 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-4">
+        <Modal.Footer className="flex-row items-center justify-between gap-3 border-t border-neutral-800 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-4">
           <Button
             size="sm"
             variant="ghost"
@@ -149,9 +111,9 @@ export function IssueFilterOverlay({
           <Button size="sm" variant="primary" onPress={onClose}>
             Done
           </Button>
-        </footer>
-      </section>
-    </div>,
-    document.body
+        </Modal.Footer>
+        </Modal.Dialog>
+      </Modal.Container>
+    </Modal.Backdrop>
   );
 }

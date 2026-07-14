@@ -30,13 +30,28 @@ import type {
   TerminalCommandRequest,
   ToolLaunchRequest
 } from '../src/shared/project-space-api';
+import { createGitHubRepositorySummaryRoute } from './github-repository-summary-route';
+import type { GitHubRepositorySummaryResult } from '../src/shared/github-repository-summary';
 
-export function createProjectSpaceIntegrationApiRoutes(backend: ProjectSpaceBackend) {
+interface ProjectSpaceIntegrationApiRouteOptions {
+  loadGitHubRepositorySummary?(fullName: string): Promise<GitHubRepositorySummaryResult>;
+}
+
+export function createProjectSpaceIntegrationApiRoutes(
+  backend: ProjectSpaceBackend,
+  options: ProjectSpaceIntegrationApiRouteOptions = {}
+) {
+  const handleRepositorySummary = createGitHubRepositorySummaryRoute({
+    loadSummary: options.loadGitHubRepositorySummary
+  });
+
   return async function handleProjectSpaceIntegrationApiRoute(
     request: IncomingMessage,
     response: ServerResponse,
     url: URL
   ) {
+    if (await handleRepositorySummary(request, response, url)) return true;
+
     if (request.method === 'POST' && url.pathname === '/api/template/adherence') {
       const payload = await readJson<TemplateAdherenceRequest>(request);
       if (!payload?.cwd) {
