@@ -57,6 +57,7 @@ write_trust_roots "$temporary_root/source"
 
 SOURCE_DATE_EPOCH=0 "$script_directory/build-machine-tools.sh" \
   "$version" "$temporary_root/source" "$temporary_root/first" >/dev/null
+sleep 1
 SOURCE_DATE_EPOCH=0 "$script_directory/build-machine-tools.sh" \
   "$version" "$temporary_root/source" "$temporary_root/second" >/dev/null
 
