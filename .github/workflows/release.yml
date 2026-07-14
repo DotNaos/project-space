@@ -444,17 +444,39 @@ jobs:
           CERTIFICATE_PASSWORD: ${{ steps.signing-secrets.outputs.MACOS_SIGNING_CERTIFICATE_PASSWORD }}
         run: |
           set -euo pipefail
+          umask 077
           [[ $(uname -m) == arm64 ]] || { echo 'The macOS release runner must be arm64.' >&2; exit 69; }
           keychain="$RUNNER_TEMP/project-space-release.keychain-db"
+          original_keychains_file="$RUNNER_TEMP/project-space-original-user-keychains"
           keychain_password=$(openssl rand -hex 32)
+          security list-keychains -d user > "$original_keychains_file"
           printf '%s' "$CERTIFICATE_P12_B64" | /usr/bin/base64 -D > "$RUNNER_TEMP/project-space-release.p12"
+          /usr/bin/openssl pkcs12 \
+            -in "$RUNNER_TEMP/project-space-release.p12" \
+            -passin env:CERTIFICATE_PASSWORD \
+            -nodes \
+            -out "$RUNNER_TEMP/project-space-release.pem"
           security create-keychain -p "$keychain_password" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
           security unlock-keychain -p "$keychain_password" "$keychain"
-          security import "$RUNNER_TEMP/project-space-release.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security import "$RUNNER_TEMP/project-space-release.pem" -x -f pemseq -k "$keychain" -T /usr/bin/codesign
+          rm -f \
+            "$RUNNER_TEMP/project-space-release.p12" \
+            "$RUNNER_TEMP/project-space-release.pem"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
           identity=$(security find-identity -v -p codesigning "$keychain" | awk '/[0-9A-F]{40}/ { print $2; exit }')
           [[ $identity =~ ^[0-9A-F]{40}$ ]] || { echo 'No valid code-signing identity was imported.' >&2; exit 78; }
+          original_keychains=()
+          while IFS= read -r line; do
+            line="${line#*\"}"
+            line="${line%\"*}"
+            [[ -n $line ]] && original_keychains+=("$line")
+          done < "$original_keychains_file"
+          if (( ${#original_keychains[@]} > 0 )); then
+            security list-keychains -d user -s "$keychain" "${original_keychains[@]}"
+          else
+            security list-keychains -d user -s "$keychain"
+          fi
           echo "PROJECT_MACOS_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
           echo "PROJECT_MACOS_SIGN_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
 
@@ -469,8 +491,35 @@ jobs:
       - name: Remove isolated macOS signing identity
         if: always() && github.ref_type == 'tag'
         run: |
-          security delete-keychain "$RUNNER_TEMP/project-space-release.keychain-db" 2>/dev/null || true
-          rm -f "$RUNNER_TEMP/project-space-release.p12"
+          set +e
+          restore_status=0
+          record_cleanup_failure() {
+            local status=$1
+            (( restore_status != 0 )) || restore_status=$status
+          }
+          original_keychains_file="$RUNNER_TEMP/project-space-original-user-keychains"
+          if [[ -f $original_keychains_file ]]; then
+            original_keychains=()
+            while IFS= read -r line; do
+              line="${line#*\"}"
+              line="${line%\"*}"
+              [[ -n $line ]] && original_keychains+=("$line")
+            done < "$original_keychains_file"
+            if (( ${#original_keychains[@]} > 0 )); then
+              security list-keychains -d user -s "${original_keychains[@]}" || record_cleanup_failure $?
+            else
+              security list-keychains -d user -s || record_cleanup_failure $?
+            fi
+          fi
+          keychain="$RUNNER_TEMP/project-space-release.keychain-db"
+          if [[ -e $keychain ]]; then
+            security delete-keychain "$keychain" || record_cleanup_failure $?
+          fi
+          rm -f \
+            "$RUNNER_TEMP/project-space-release.p12" \
+            "$RUNNER_TEMP/project-space-release.pem" \
+            "$original_keychains_file" || record_cleanup_failure $?
+          exit "$restore_status"
 
       - name: Upload release artifacts
         if: github.ref_type == 'tag'
