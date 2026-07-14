@@ -351,6 +351,8 @@ describe('connector release and production deployment contract', () => {
   });
 
   test('normalizes and packages only fixed release inventories', async () => {
+    const workflow = await source('.github/workflows/release.yml');
+    const finalize = jobBlock(workflow, 'release-finalize');
     const normalize = await source('packaging/release/normalize-platform-artifacts.sh');
     const publish = await source('packaging/release/create-publish-handoff.sh');
     const macos = await source('packaging/macos/package-isolated-release-artifact.sh');
@@ -365,6 +367,15 @@ describe('connector release and production deployment contract', () => {
     expect(normalize).toContain('stat -c %h');
     expect(publish).toContain('schema=project-space.github-release/v1');
     expect(publish).toContain('PUBLISH-SHA256SUMS.txt');
+    expect(finalize).toContain(
+      'manifest_path="$RUNNER_TEMP/project-space-release-manifest.json"'
+    );
+    expect(finalize).not.toContain(
+      'manifest_path="$RUNNER_TEMP/release-assets/project-space-release-manifest.json"'
+    );
+    expect(finalize).toContain(
+      '"$RUNNER_TEMP/release-assets" \\\n            "$manifest_path"'
+    );
     expect(macos).toContain("stat -f '%l'");
     expect(macos).toContain('codesign --verify --strict --test-requirement');
     expect(macos).toContain(
