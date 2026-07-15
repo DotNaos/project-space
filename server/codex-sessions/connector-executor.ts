@@ -246,14 +246,16 @@ export class CodexSessionsConnectorExecutor {
       machineId: this.options.expectedMachineId,
       machineName: this.options.machineName
     });
-    if (!session.cwd) throw new CodexSessionsExecutorError();
-    const taskLocation = await (this.options.resolveTaskLocation ?? resolveCodexTaskLocation)(session.cwd);
     const inProgressTurns = presentCodexTurns(snapshot.thread)
       .filter((turn) => turn.status === 'in-progress');
     if (
       (session.status === 'idle' && inProgressTurns.length !== 0)
       || (session.status === 'active' && inProgressTurns.length !== 1)
-      || this.expectedGeneration() !== connectorGeneration
+    ) throw new CodexSessionsExecutorError();
+    if (!session.cwd) throw new CodexSessionsExecutorError();
+    const taskLocation = await (this.options.resolveTaskLocation ?? resolveCodexTaskLocation)(session.cwd);
+    if (
+      this.expectedGeneration() !== connectorGeneration
       || !this.options.manager.runtimeEpochIsCurrent(snapshot.runtimeEpoch)
     ) throw new CodexSessionsExecutorError();
     const activeTurnId = session.status === 'active' ? inProgressTurns[0]!.id : undefined;
