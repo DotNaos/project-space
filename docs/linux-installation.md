@@ -34,6 +34,21 @@ If `~/.local/bin` is not already on `PATH`, add it through the normal shell
 profile for that user. Re-running the installer for an approved newer release
 replaces both executables at the same stable paths.
 
+After the first managed installation, check or install the next signed stable
+release with:
+
+```sh
+project self-update --check
+project self-update
+```
+
+The interactive command defaults to no. Use `project self-update --yes` for an
+explicit non-interactive install. `--format json` never prompts and remains
+read-only unless combined with `--yes`. The updater never uses a mutable latest
+download URL: it verifies the exact signed manifest, pinned archive size, and
+SHA-256 checksum before the existing installer can switch the CLI and connector
+together. There is no background updater.
+
 ## Connect the machine
 
 After installation, sign in through the normal browser approval flow:

@@ -13,6 +13,10 @@ write_project_fixture() {
   local fail_start=${3:-0}
   cat > "$path" <<EOF
 #!/bin/bash
+if [[ "\${1:-}" == --version ]]; then
+  printf '%s\n' 'project $version'
+  exit 0
+fi
 if [[ "\${1:-}" == connector && "\${2:-}" == service ]]; then
   printf '%s:%s\n' '$label' "\$*" >> "\${PROJECT_FIXTURE_SERVICE_LOG:?}"
   if [[ "\${3:-}" == start-if-connected &&
@@ -55,7 +59,14 @@ write_source() {
   local fail_start=${3:-0}
   mkdir -p "$directory"
   write_project_fixture "$directory/project" "$label" "$fail_start"
-  printf '#!/bin/bash\nprintf "connector %s\\n"\n' "$label" > "$directory/project-space-connector"
+  cat > "$directory/project-space-connector" <<EOF
+#!/bin/bash
+if [[ "\${1:-}" == --version ]]; then
+  printf 'project-space-connector %s\n' "\${PROJECT_FIXTURE_CONNECTOR_VERSION:-$version}"
+  exit 0
+fi
+printf '%s\n' 'connector $label'
+EOF
   printf '#!/bin/bash\nprintf "signer %s\\n"\n' "$label" > "$directory/project-approval-signer"
   chmod 0755 "$directory/project-space-connector" "$directory/project-approval-signer"
   write_trust_roots "$directory"
@@ -188,6 +199,21 @@ second_current=$(readlink "$install_root/.project-space-machine-tools/current")
 [[ $second_current != "$first_current" ]]
 grep -Fx 'v2:connector service stop' "$service_log"
 grep -Fx 'v2:connector service start-if-connected' "$service_log"
+
+# A pair that does not report one matching version fails before commit and
+# restores the previous current pointer and service.
+version_failure_starts_before=$(grep -Fxc 'v2:connector service start-if-connected' "$service_log")
+version_failure_log="$temporary_root/version-failure.log"
+set +e
+PROJECT_FIXTURE_CONNECTOR_VERSION=0.4.7 \
+  "$bundle_v2/install.sh" --install-dir "$install_root" \
+  >/dev/null 2>"$version_failure_log"
+version_failure_status=$?
+set -e
+[[ $version_failure_status -eq 70 ]]
+grep -Fx 'The installed project-space-connector does not report the bundled version.' "$version_failure_log"
+[[ $(readlink "$install_root/.project-space-machine-tools/current") == "$second_current" ]]
+[[ $(grep -Fxc 'v2:connector service start-if-connected' "$service_log") == $((version_failure_starts_before + 1)) ]]
 
 # A machine with both services keeps the managed identity, stops the legacy
 # process, and removes only the obsolete LaunchAgent after the managed runtime

@@ -9,6 +9,7 @@ on:
       - 'go.sum'
       - 'internal/machineconnect/**'
       - 'internal/projectrun/**'
+      - 'internal/selfupdate/**'
       - 'package.json'
       - 'bun.lock'
       - 'packaging/linux/**'
@@ -156,11 +157,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           bun test tests/windows-release-version.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go test ./cmd/project -run 'Windows|ConnectorMachineService|AuthenticatedConnector|ConnectorInstallerResolution|ConnectorBinaryName|UsableConnectorBinary|ConnectorRun|ConnectorCommandRegistersAuthenticatedRun|RootCommandPrintsBuildVersion'
+          go test ./cmd/project -run 'Windows|SelfUpdate|ConnectorMachineService|AuthenticatedConnector|ConnectorInstallerResolution|ConnectorBinaryName|UsableConnectorBinary|ConnectorRun|ConnectorCommandRegistersAuthenticatedRun|RootCommandPrintsBuildVersion'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test ./internal/selfupdate -run 'Manifest|GitHub|Windows|InstallationTarget'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test ./internal/machineconnect
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go vet ./cmd/project ./internal/machineconnect
+          go vet ./cmd/project ./internal/machineconnect ./internal/selfupdate
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & .\packaging\windows\test-release-packaging.ps1
 
@@ -297,9 +300,10 @@ jobs:
         run: |
           bash -n packaging/linux/*.sh
           packaging/linux/test-release-packaging.sh "$VERSION"
-          go test ./cmd/project -run 'ConnectorMachineService|AuthenticatedConnector|ConnectorBinaryName|UsableConnectorBinary|ConnectorRun|ConnectorCommandRegistersAuthenticatedRun|RootCommandPrintsBuildVersion'
+          go test ./cmd/project -run 'SelfUpdate|ConnectorMachineService|AuthenticatedConnector|ConnectorBinaryName|UsableConnectorBinary|ConnectorRun|ConnectorCommandRegistersAuthenticatedRun|RootCommandPrintsBuildVersion'
+          go test ./internal/selfupdate
           go test ./internal/machineconnect
-          go vet ./cmd/project ./internal/machineconnect
+          go vet ./cmd/project ./internal/machineconnect ./internal/selfupdate
 
       - name: Build native Linux binaries
         run: |

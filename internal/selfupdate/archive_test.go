@@ -1,0 +1,395 @@
+package selfupdate
+
+import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+)
+
+type artifactRoundTripper func(*http.Request) (*http.Response, error)
+
+func (roundTrip artifactRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return roundTrip(request)
+}
+
+type artifactExitError int
+
+func (code artifactExitError) Error() string { return "exit" }
+func (code artifactExitError) ExitCode() int { return int(code) }
+
+func TestManagedArtifactInstallerAppliesVerifiedBundle(t *testing.T) {
+	t.Setenv("PATH", "/usr/bin:/bin")
+	archive := testArtifactArchive(t, "linux-x64", "0.4.9", nil)
+	digest := sha256.Sum256(archive)
+	var calls []string
+	runner := func(
+		_ context.Context,
+		command string,
+		arguments []string,
+		directory string,
+		environment []string,
+		stdout io.Writer,
+		_ io.Writer,
+	) error {
+		calls = append(calls, filepath.Base(command))
+		if len(calls) == 1 {
+			if filepath.Base(command) != "install.sh" ||
+				!reflect.DeepEqual(arguments, []string{"--install-dir", "/safe/bin"}) ||
+				!reflect.DeepEqual(environment, []string{"HOME=/safe/home", "LC_ALL=C", "PATH=/usr/bin:/bin"}) {
+				t.Fatalf("installer invocation = %q %#v %#v", command, arguments, environment)
+			}
+			if _, err := os.Stat(filepath.Join(directory, "project-space-connector")); err != nil {
+				t.Fatal(err)
+			}
+			return nil
+		}
+		_, _ = io.WriteString(stdout, "Project "+"0.4.9\n")
+		return nil
+	}
+	installer := NewManagedArtifactInstaller(ArtifactInstallerOptions{
+		Client:             &http.Client{Transport: testArtifactTransport(archive)},
+		CommandRunner:      runner,
+		HomeDirectory:      "/safe/home",
+		TemporaryDirectory: t.TempDir(),
+	})
+	outcome, err := installer.Apply(
+		context.Background(),
+		Installation{InstallDir: "/safe/bin", Source: InstallSourceManaged, Target: "linux-x64"},
+		Release{
+			Artifact: Artifact{
+				AssetName:   "project-space-machine-tools-linux-x64-v0.4.9.tar.gz",
+				DownloadURL: "https://github.com/DotNaos/project-space/releases/download/v0.4.9/project-space-machine-tools-linux-x64-v0.4.9.tar.gz",
+				SHA256:      hex.EncodeToString(digest[:]),
+				SizeBytes:   int64(len(archive)),
+				Target:      "linux-x64",
+			},
+			Manifest: Manifest{ReleaseID: "v0.4.9", Version: "0.4.9"},
+		},
+		io.Discard,
+		io.Discard,
+	)
+	if err != nil || outcome != ApplyOutcomeUpdated {
+		t.Fatalf("Apply() = %q, %v", outcome, err)
+	}
+	if !reflect.DeepEqual(calls, []string{"install.sh", "project", "project-space-connector"}) {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
+func TestArtifactEnvironmentPreservesOnlyTheWSLPowerShellDirectory(t *testing.T) {
+	directory := t.TempDir()
+	powershell := filepath.Join(directory, "powershell.exe")
+	if err := os.WriteFile(powershell, []byte("fixture"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", directory)
+	want := []string{
+		"HOME=/safe/home",
+		"LC_ALL=C",
+		"PATH=/usr/bin:/bin:" + directory,
+	}
+	if got := artifactEnvironment("/safe/home"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("artifactEnvironment() = %#v, want %#v", got, want)
+	}
+}
+
+func TestManagedArtifactInstallerMapsInstallerAndPostCheckFailures(t *testing.T) {
+	archive := testArtifactArchive(t, "linux-x64", "0.4.9", nil)
+	digest := sha256.Sum256(archive)
+	release := Release{
+		Artifact: Artifact{
+			AssetName:   "project-space-machine-tools-linux-x64-v0.4.9.tar.gz",
+			DownloadURL: "https://github.com/DotNaos/project-space/releases/download/v0.4.9/project-space-machine-tools-linux-x64-v0.4.9.tar.gz",
+			SHA256:      hex.EncodeToString(digest[:]),
+			SizeBytes:   int64(len(archive)),
+			Target:      "linux-x64",
+		},
+		Manifest: Manifest{ReleaseID: "v0.4.9", Version: "0.4.9"},
+	}
+	installation := Installation{InstallDir: "/safe/bin", Source: InstallSourceManaged, Target: "linux-x64"}
+	for _, test := range []struct {
+		name    string
+		exit    int
+		outcome ApplyOutcome
+	}{
+		{name: "rolled back", exit: 70, outcome: ApplyOutcomeRolledBack},
+		{name: "recovery required", exit: 71, outcome: ApplyOutcomeRecoveryRequired},
+		{name: "ordinary failure", exit: 1, outcome: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			installer := NewManagedArtifactInstaller(ArtifactInstallerOptions{
+				Client: &http.Client{Transport: testArtifactTransport(archive)},
+				CommandRunner: func(context.Context, string, []string, string, []string, io.Writer, io.Writer) error {
+					return artifactExitError(test.exit)
+				},
+				HomeDirectory:      "/safe/home",
+				TemporaryDirectory: t.TempDir(),
+			})
+			outcome, err := installer.Apply(context.Background(), installation, release, io.Discard, io.Discard)
+			if err == nil || outcome != test.outcome {
+				t.Fatalf("Apply() = %q, %v", outcome, err)
+			}
+		})
+	}
+
+	calls := 0
+	installer := NewManagedArtifactInstaller(ArtifactInstallerOptions{
+		Client: &http.Client{Transport: testArtifactTransport(archive)},
+		CommandRunner: func(_ context.Context, _ string, _ []string, _ string, _ []string, stdout io.Writer, _ io.Writer) error {
+			calls++
+			if calls > 1 {
+				_, _ = io.WriteString(stdout, "0.4.8\n")
+			}
+			return nil
+		},
+		HomeDirectory:      "/safe/home",
+		TemporaryDirectory: t.TempDir(),
+	})
+	outcome, err := installer.Apply(context.Background(), installation, release, io.Discard, io.Discard)
+	if err == nil || outcome != ApplyOutcomeRecoveryRequired {
+		t.Fatalf("post-check Apply() = %q, %v", outcome, err)
+	}
+}
+
+func TestManagedArtifactInstallerRejectsUnsafeArchives(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(map[string][]byte) map[string][]byte
+	}{
+		{
+			name: "missing installer",
+			mutate: func(files map[string][]byte) map[string][]byte {
+				delete(files, "install.sh")
+				return files
+			},
+		},
+		{
+			name: "wrong version",
+			mutate: func(files map[string][]byte) map[string][]byte {
+				files["VERSION"] = []byte("0.4.8\n")
+				return files
+			},
+		},
+		{
+			name: "unexpected file",
+			mutate: func(files map[string][]byte) map[string][]byte {
+				files["secret"] = []byte("no")
+				return files
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			archive := testArtifactArchive(t, "linux-x64", "0.4.9", test.mutate)
+			path := filepath.Join(t.TempDir(), "artifact.tar.gz")
+			if err := os.WriteFile(path, archive, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			installer := NewManagedArtifactInstaller(ArtifactInstallerOptions{}).(*managedArtifactInstaller)
+			if _, err := installer.extract(path, t.TempDir(), "linux-x64", "0.4.9"); err == nil {
+				t.Fatal("unsafe archive was accepted")
+			}
+		})
+	}
+}
+
+func TestManagedArtifactInstallerRejectsNonGitHubAssetURL(t *testing.T) {
+	archive := testArtifactArchive(t, "linux-x64", "0.4.9", nil)
+	digest := sha256.Sum256(archive)
+	installer := NewManagedArtifactInstaller(ArtifactInstallerOptions{
+		Client:             &http.Client{Transport: testArtifactTransport(archive)},
+		TemporaryDirectory: t.TempDir(),
+	}).(*managedArtifactInstaller)
+	_, err := installer.download(
+		context.Background(),
+		Artifact{
+			AssetName:   "project-space-machine-tools-linux-x64-v0.4.9.tar.gz",
+			DownloadURL: "https://example.test/project-space-machine-tools-linux-x64-v0.4.9.tar.gz",
+			SHA256:      hex.EncodeToString(digest[:]),
+			SizeBytes:   int64(len(archive)),
+			Target:      "linux-x64",
+		},
+		t.TempDir(),
+	)
+	if err == nil || !strings.Contains(err.Error(), "exact HTTPS") {
+		t.Fatalf("download() error = %v", err)
+	}
+}
+
+func TestManagedArtifactInstallerRejectsArtifactIntegrityMismatch(t *testing.T) {
+	archive := testArtifactArchive(t, "linux-x64", "0.4.9", nil)
+	digest := sha256.Sum256(archive)
+	base := Artifact{
+		AssetName:   "project-space-machine-tools-linux-x64-v0.4.9.tar.gz",
+		DownloadURL: "https://github.com/DotNaos/project-space/releases/download/v0.4.9/project-space-machine-tools-linux-x64-v0.4.9.tar.gz",
+		SHA256:      hex.EncodeToString(digest[:]),
+		SizeBytes:   int64(len(archive)),
+		Target:      "linux-x64",
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*Artifact)
+	}{
+		{name: "wrong size", mutate: func(artifact *Artifact) { artifact.SizeBytes++ }},
+		{name: "wrong checksum", mutate: func(artifact *Artifact) { artifact.SHA256 = strings.Repeat("0", 64) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			artifact := base
+			test.mutate(&artifact)
+			installer := NewManagedArtifactInstaller(ArtifactInstallerOptions{
+				Client:             &http.Client{Transport: testArtifactTransport(archive)},
+				TemporaryDirectory: t.TempDir(),
+			}).(*managedArtifactInstaller)
+			if _, err := installer.download(context.Background(), artifact, t.TempDir()); err == nil {
+				t.Fatal("artifact integrity mismatch was accepted")
+			}
+		})
+	}
+}
+
+func TestSafeArchiveNameRejectsTraversal(t *testing.T) {
+	root := "project-space-machine-tools-linux-x64-v0.4.9"
+	for _, name := range []string{
+		"../" + root + "/project",
+		root + "/../project",
+		root + "\\project",
+		"/" + root + "/project",
+	} {
+		if _, err := safeArchiveName(name, root); err == nil {
+			t.Errorf("safeArchiveName(%q) succeeded", name)
+		}
+	}
+}
+
+func TestManagedArtifactInstallerRejectsLinkDeviceAndDuplicateMembers(t *testing.T) {
+	root := "project-space-machine-tools-linux-x64-v0.4.9"
+	tests := []struct {
+		name    string
+		headers []*tar.Header
+	}{
+		{
+			name: "link",
+			headers: []*tar.Header{
+				{Name: root + "/", Typeflag: tar.TypeDir},
+				{Name: root + "/project", Typeflag: tar.TypeSymlink, Linkname: "/tmp/project"},
+			},
+		},
+		{
+			name: "device",
+			headers: []*tar.Header{
+				{Name: root + "/", Typeflag: tar.TypeDir},
+				{Name: root + "/project", Typeflag: tar.TypeChar},
+			},
+		},
+		{
+			name: "duplicate",
+			headers: []*tar.Header{
+				{Name: root + "/", Typeflag: tar.TypeDir},
+				{Name: root + "/", Typeflag: tar.TypeDir},
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var body bytes.Buffer
+			compressed := gzip.NewWriter(&body)
+			archive := tar.NewWriter(compressed)
+			for _, header := range test.headers {
+				if err := archive.WriteHeader(header); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := errors.Join(archive.Close(), compressed.Close()); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(t.TempDir(), "artifact.tar.gz")
+			if err := os.WriteFile(path, body.Bytes(), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			installer := NewManagedArtifactInstaller(ArtifactInstallerOptions{}).(*managedArtifactInstaller)
+			if _, err := installer.extract(path, t.TempDir(), "linux-x64", "0.4.9"); err == nil {
+				t.Fatal("unsafe archive was accepted")
+			}
+		})
+	}
+}
+
+func testArtifactTransport(body []byte) http.RoundTripper {
+	return artifactRoundTripper(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			Body:          io.NopCloser(bytes.NewReader(body)),
+			ContentLength: int64(len(body)),
+			Header:        make(http.Header),
+			Request:       request,
+			StatusCode:    http.StatusOK,
+		}, nil
+	})
+}
+
+func testArtifactArchive(
+	t *testing.T,
+	target, version string,
+	mutate func(map[string][]byte) map[string][]byte,
+) []byte {
+	t.Helper()
+	members, ok := archiveBundleMembers(target)
+	if !ok {
+		t.Fatal("unsupported test target")
+	}
+	files := make(map[string][]byte, len(members))
+	for name := range members {
+		if name != "SHA256SUMS.txt" {
+			files[name] = []byte(name + "\n")
+		}
+	}
+	files["VERSION"] = []byte(version + "\n")
+	if mutate != nil {
+		files = mutate(files)
+	}
+	var checksum strings.Builder
+	for name := range members {
+		if name == "SHA256SUMS.txt" {
+			continue
+		}
+		body, found := files[name]
+		if !found {
+			continue
+		}
+		digest := sha256.Sum256(body)
+		checksum.WriteString(hex.EncodeToString(digest[:]) + "  " + name + "\n")
+	}
+	files["SHA256SUMS.txt"] = []byte(checksum.String())
+
+	var compressed bytes.Buffer
+	gzipWriter := gzip.NewWriter(&compressed)
+	tarWriter := tar.NewWriter(gzipWriter)
+	root := "project-space-machine-tools-" + target + "-v" + version
+	if err := tarWriter.WriteHeader(&tar.Header{Name: root + "/", Mode: 0o755, Typeflag: tar.TypeDir}); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range files {
+		if err := tarWriter.WriteHeader(&tar.Header{
+			Name: root + "/" + name, Mode: 0o755, Size: int64(len(body)), Typeflag: tar.TypeReg,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tarWriter.Write(body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := errors.Join(tarWriter.Close(), gzipWriter.Close()); err != nil {
+		t.Fatal(err)
+	}
+	return compressed.Bytes()
+}
