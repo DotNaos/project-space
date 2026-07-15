@@ -4,6 +4,9 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { WebSocket } from 'ws';
 
 import {
+  disconnectConnectorCommandChannel
+} from '../server/connector-command-hub';
+import {
   registerConnectorSession,
   removeConnectorSession
 } from '../server/connector-command-session-registry';
@@ -118,6 +121,24 @@ describe('connector runtime stop routing', () => {
       type: 'runtime.stop.result'
     });
     await expect(pending).rejects.toBeInstanceOf(Error);
+  });
+
+  test('marks a pending stop outcome unknown when the command channel disconnects', async () => {
+    const socket = {
+      close() {},
+      readyState: WebSocket.OPEN,
+      send() {}
+    } as unknown as WebSocket;
+    registerConnectorSession(machineId, socket, 'credential-source-dev', ['runtime.stop']);
+    const pending = requestConnectorRuntimeStop(plan(), 'user-owner', {
+      nonce: 'nonce-disconnect',
+      now,
+      signingKey: keys.privateKey,
+      timeoutMs: 1_000
+    });
+
+    expect(disconnectConnectorCommandChannel(machineId)).toBe(true);
+    await expect(pending).rejects.toThrow('outcome is unknown');
   });
 
   test('sends the accepted acknowledgement before self-termination', async () => {

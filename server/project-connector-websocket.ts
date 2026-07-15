@@ -1,7 +1,4 @@
-import type {
-  ConnectorProjectRegistryResult,
-  ProjectSpaceBackend
-} from '../src/shared/project-space-api';
+import type { ConnectorProjectRegistryResult, ProjectSpaceBackend } from '../src/shared/project-space-api';
 import { ConnectorDevServerCommandExecutor } from './connector-dev-server-executor';
 import {
   connectorDevServerErrorResult,
@@ -40,9 +37,12 @@ import {
   settleConnectorCommandWithin as settleWithin
 } from './project-connector-websocket-utils';
 import { createProjectConnectorWorktreeLoads } from './project-connector-worktree-loads';
+import { createProjectConnectorRuntimeStopControl } from './project-connector-runtime-stop';
 interface ProjectConnectorWebSocketOptions extends ProjectConnectorConnectionOptions {
   backend: ProjectSpaceBackend & Partial<ConnectorDevServerAdapter & ConnectorWorktreeActionAdapter>;
+  runtimeShutdown?(): Promise<void> | void;
 }
+
 export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocketOptions) {
   const { backend } = options;
   const connection = resolveProjectConnectorConnection(options);
@@ -131,9 +131,17 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
             }
           };
     const commandGrantPublicKey = connectorCommandGrantPublicKeyForTarget(target);
+    const shutdownRuntime = options.runtimeShutdown ?? (() => {
+      process.kill(process.pid, 'SIGTERM');
+    });
     const runtimeDispatcher = createConfiguredConnectorRuntimeDispatcher({
       commandVerificationKey: commandGrantPublicKey, machineId: options.runtimeCredential?.machineId,
-      shutdown() { process.kill(process.pid, 'SIGTERM'); }
+      shutdown: shutdownRuntime
+    });
+    const runtimeStopControl = createProjectConnectorRuntimeStopControl({
+      commandVerificationKey: commandGrantPublicKey,
+      machineId: options.runtimeCredential?.machineId,
+      shutdown: shutdownRuntime
     });
     const devServerExecutor = commandGrantPublicKey
       ? new ConnectorDevServerCommandExecutor(
@@ -207,6 +215,7 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         codexSessionsDispatcher?.cancelAll();
         codexSessionsDispatcher?.setExpectedGeneration();
         runtimeDispatcher?.setExpectedGeneration();
+        runtimeStopControl.setExpectedGeneration();
         if (registryTimer) {
           clearInterval(registryTimer);
           registryTimer = undefined;
@@ -225,9 +234,12 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
 
         let registry: Awaited<ReturnType<typeof backend.getConnectorProjectRegistry>>;
         try {
-          registry = connectorRegistryForRuntimeConfiguration(
-            await connection.registry(backend), Boolean(runtimeDispatcher)
-          );
+          registry = await connection.registry(backend);
+          if (register) runtimeStopControl.configure(registry);
+          registry = connectorRegistryForRuntimeConfiguration(registry, [
+            ...(runtimeDispatcher ? ['runtime.restart', 'runtime.update'] : []),
+            ...(runtimeStopControl.configured ? ['runtime.stop'] : [])
+          ]);
         } catch {
           return false;
         }
@@ -285,6 +297,7 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           await runtimeDispatcher?.acceptRegistration(registrationEvidence, message.maintenance);
           registered = true;
           runtimeDispatcher?.setExpectedGeneration(message.generation);
+          runtimeStopControl.setExpectedGeneration(message.generation);
           codexSessionsDispatcher?.setExpectedGeneration(message.generation);
           if (registrationEvidence && !(await publishRegistry()))
             throw new Error('Connector runtime maintenance acknowledgement failed.');
@@ -306,6 +319,10 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
             (result) => { if (isCurrentConnection()) sendJson(socket, result); },
             () => socket.close(1008, 'Connector runtime authorization failed.')
           );
+          return;
+        }
+        if (message.type === 'runtime.stop') {
+          await runtimeStopControl.dispatch(message, socket, isCurrentConnection);
           return;
         }
         if (message.type === 'connector.command.cancel') {

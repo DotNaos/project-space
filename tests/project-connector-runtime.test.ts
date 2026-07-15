@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
@@ -10,6 +11,12 @@ import { WebSocketServer, type WebSocket as ServerWebSocket } from 'ws';
 
 import { connectorRuntimeRecord } from '../server/connector-build-info';
 import {
+  connectorRuntimeStopBinding,
+  connectorRuntimeStopSchema,
+  createConnectorRuntimeStopWireRequest
+} from '../server/connector-runtime-stop-contract';
+import { connectorRuntimeReleaseTarget } from '../server/connector-runtime-maintenance-contract';
+import {
   connectorRuntimeCredentialVersion,
   connectorRuntimeProtocolEnvironment
 } from '../server/connector-runtime-credential';
@@ -18,6 +25,7 @@ import {
   readAndStartAuthenticatedProjectConnectorRuntime,
   startAuthenticatedProjectConnectorRuntime
 } from '../server/project-connector-runtime';
+import { startProjectConnectorWebSocket } from '../server/project-connector-websocket';
 import type {
   ConnectorProjectRegistryResult,
   ProjectSpaceBackend
@@ -148,6 +156,113 @@ function runtimeBackend(
 }
 
 describe('authenticated connector companion runtime', () => {
+  test('advertises only source stop and acknowledges it before source shutdown', async () => {
+    if (process.platform === 'win32') return;
+    const hub = await createRecordingConnectorHub(false);
+    const keys = generateKeyPairSync('ed25519');
+    const originalSigningKey = process.env.PROJECT_CONNECTOR_COMMAND_SIGNING_PUBLIC_KEY;
+    process.env.PROJECT_CONNECTOR_COMMAND_SIGNING_PUBLIC_KEY = keys.publicKey
+      .export({ format: 'pem', type: 'spki' })
+      .toString();
+    const runtime = connectorRuntimeRecord({
+      PROJECT_SPACE_BUILD_ID: 'b'.repeat(40),
+      PROJECT_SPACE_INSTALL_SOURCE: 'source',
+      PROJECT_SPACE_RELEASE_CHANNEL: 'dev',
+      PROJECT_SPACE_RELEASE_ID: `dev-source-${'b'.repeat(40)}`
+    });
+    const target = connectorRuntimeReleaseTarget(runtime.platform, runtime.architecture);
+    if (!target || target === 'windows-x64') throw new Error('Expected source stop target.');
+    const sourceBackend = runtimeBackend(runtime);
+    const loadRegistry = sourceBackend.getConnectorProjectRegistry.bind(sourceBackend);
+    sourceBackend.getConnectorProjectRegistry = async () => {
+      const registry = await loadRegistry();
+      registry.connector.capabilities = [
+        'runtime.restart',
+        'runtime.stop',
+        'runtime.update'
+      ];
+      return registry;
+    };
+    const events: string[] = [];
+    const credential = { ...runtimeCredential, backendUrl: hub.origin };
+    const bridge = startProjectConnectorWebSocket({
+      backend: sourceBackend,
+      reconnectDelayMs: 10,
+      registryIntervalMs: 1_000,
+      runtimeCredential: credential,
+      runtimeShutdown() {
+        events.push('shutdown');
+      }
+    });
+
+    try {
+      await waitFor(
+        () => hub.messages.some((message) => message.type === 'connector.register'),
+        'the source connector registration'
+      );
+      const registration = hub.messages.find(
+        (message) => message.type === 'connector.register'
+      );
+      expect(registration?.payload.connector.capabilities).toEqual(['runtime.stop']);
+
+      hub.sockets[0]?.send(JSON.stringify({ generation: 7, type: 'connector.registered' }));
+      const request = createConnectorRuntimeStopWireRequest(
+        {
+          generation: 7,
+          plan: {
+            expectedRuntime: {
+              buildId: runtime.buildId,
+              channel: 'dev',
+              instanceId: runtime.instanceId,
+              protocolVersion: runtime.protocolVersion,
+              releaseId: runtime.releaseId,
+              source: 'source'
+            },
+            machineId: credential.machineId,
+            operation: 'stop',
+            operationId: 'source-stop-integration',
+            schema: connectorRuntimeStopSchema,
+            target
+          },
+          userId: 'user-owner'
+        },
+        keys.privateKey,
+        { nonce: 'source-stop-integration' }
+      );
+      hub.sockets[0]?.send(JSON.stringify({
+        id: 'source-stop-message',
+        payload: request,
+        type: 'runtime.stop'
+      }));
+
+      await waitFor(() => events.includes('shutdown'), 'the source runtime shutdown');
+      const result = hub.messages.find(
+        (message) => (message as { type: string }).type === 'runtime.stop.result'
+      ) as unknown as {
+        id: string;
+        payload: { binding: ReturnType<typeof connectorRuntimeStopBinding>; status: string };
+        type: string;
+      } | undefined;
+      expect(result).toEqual({
+        id: 'source-stop-message',
+        payload: {
+          binding: connectorRuntimeStopBinding(request),
+          status: 'accepted'
+        },
+        type: 'runtime.stop.result'
+      });
+      expect(events).toEqual(['shutdown']);
+    } finally {
+      bridge.close();
+      if (originalSigningKey === undefined) {
+        delete process.env.PROJECT_CONNECTOR_COMMAND_SIGNING_PUBLIC_KEY;
+      } else {
+        process.env.PROJECT_CONNECTOR_COMMAND_SIGNING_PUBLIC_KEY = originalSigningKey;
+      }
+      await hub.close();
+    }
+  }, 15_000);
+
   test('uses only stdin identity, publishes only over WebSocket, and reconnects until closed', async () => {
     const hub = await createRecordingConnectorHub();
     const scratch = mkdtempSync(join(tmpdir(), 'project-connector-runtime-'));
