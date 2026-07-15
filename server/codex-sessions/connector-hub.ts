@@ -4,6 +4,7 @@ import { WebSocket } from 'ws';
 
 import {
   CODEX_SESSIONS_CONNECTOR_CAPABILITY,
+  CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY,
   createCodexSessionsWireRequest,
   isCodexSessionsWireRequest,
   type CodexSessionsConnectorOperation,
@@ -103,7 +104,7 @@ function run(
 ) {
   const socket = connectorSocket(payload.machineId);
   if (!socket || socket.readyState !== WebSocket.OPEN ||
-    !connectorHasCapability(payload.machineId, CODEX_SESSIONS_CONNECTOR_CAPABILITY)) {
+    !connectorHasCapability(payload.machineId, requiredCapability(operation))) {
     throw new CodexConnectorNotDispatchedError();
   }
   const id = commandId();
@@ -156,6 +157,12 @@ function run(
       type: 'codex.sessions.command'
     } as ConnectorMachineMessage);
   });
+}
+
+function requiredCapability(operation: CodexSessionsConnectorOperation) {
+  return operation === 'inspect'
+    ? CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY
+    : CODEX_SESSIONS_CONNECTOR_CAPABILITY;
 }
 
 export function handleCodexSessionsConnectorMessage(

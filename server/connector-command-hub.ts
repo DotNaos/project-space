@@ -48,6 +48,7 @@ import {
   failConnectorRuntimeCommandsForMachine,
   handleConnectorRuntimeCommandMessage
 } from './connector-runtime-command-routing';
+import { createConnectorProjectWorktreeRequester } from './connector-project-worktree-request';
 export { requestConnectorRuntimeMaintenance } from './connector-runtime-command-routing';
 import {
   failCodexSessionCommandsForMachine,
@@ -76,7 +77,6 @@ import type {
   MachineDirectoryDeleteRequest,
   MachineDirectoryMutationResult,
   MachineDirectoryRenameRequest,
-  MachineProjectWorktreesRequest,
   MachineTerminalCommandRequest,
   ProjectWorktreeRecord,
   TerminalCommandResult
@@ -179,7 +179,7 @@ function failPending(id: string, error: Error) {
   }
   pendingCommands.delete(id);
   clearTimeout(pending.timeout);
-  if (pending.kind === 'chat') {
+  if (pending.kind === 'chat' || pending.kind === 'worktrees') {
     const socket = connectorSocket(pending.machineId);
     if (socket?.readyState === WebSocket.OPEN) {
       sendConnectorJson(socket, { id, type: 'connector.command.cancel' });
@@ -593,15 +593,13 @@ export async function requestConnectorTerminalCommand(
   return (await result) as TerminalCommandResult;
 }
 
-export async function requestConnectorProjectWorktrees(
-  request: MachineProjectWorktreesRequest
-): Promise<ProjectWorktreeRecord[]> {
-  const socket = socketForMachine(request.machineId, 'worktrees.list.v2');
-  const id = commandId();
-  const result = createPendingCommand(id, request.machineId, 'worktrees');
-  sendConnectorJson(socket, { id, payload: request, type: 'worktrees.list' });
-  return (await result) as ProjectWorktreeRecord[];
-}
+export const requestConnectorProjectWorktrees = createConnectorProjectWorktreeRequester({
+  createCommand: (id, machineId, timeoutMs) =>
+    createPendingCommand(id, machineId, 'worktrees', undefined, { timeoutMs }),
+  createCommandId: commandId,
+  failCommand: failPending,
+  socketForMachine
+});
 
 export async function requestConnectorFileSystemRoot(
   request: MachineFileSystemRequest

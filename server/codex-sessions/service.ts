@@ -1,6 +1,10 @@
+import { performance } from 'node:perf_hooks';
+
 import type {
   CodexSessionApprovalRequest,
   CodexSessionContinueRequest,
+  CodexSessionInspectRequest,
+  CodexSessionInspectResult,
   CodexSessionInterruptRequest,
   CodexSessionListRequest,
   CodexSessionListResult,
@@ -12,11 +16,17 @@ import type {
   CodexSessionStreamEvent,
   CodexSessionUserInputResponse
 } from '../../src/shared/codex-sessions-api';
+import { CODEX_SESSION_LIST_DEADLINE_MS, localizeCodexSessionInventoryWindow } from '../../src/shared/codex-session-inventory-window';
 import type {
   CodexSessionsStore,
   CodexStoredOperationInput,
   CodexStoredOperationName
 } from '../codex-sessions-store';
+import {
+  codexSessionInspectionMatchesScope,
+  withCodexSessionWriteCapability
+} from './task-access-evidence';
+import { asOfflineCodexSessionInventory, filterCodexSessionInventory } from './inventory-presentation';
 
 export interface CodexSessionsActor {
   userId: string;
@@ -29,6 +39,7 @@ export interface CodexSessionStreamRequest extends CodexSessionReadRequest {
 export interface CodexSessionsTransport {
   describeMachine(input: CodexSessionsMachineScope): Promise<CodexSessionMachineRecord>;
   list(input: CodexSessionsMachineScope): Promise<CodexSessionListResult>;
+  inspect(input: CodexSessionInspectRequest & { userId: string }): Promise<CodexSessionInspectResult>;
   mutate(input: {
     kind: 'approval' | 'continue' | 'input' | 'interrupt';
     machineId: string;
@@ -84,6 +95,7 @@ export class CodexThreadMissingError extends Error {}
 
 export function createCodexSessionsService(options: {
   authorize(actor: CodexSessionsActor, machineId: string): Promise<void>;
+  monotonicNow?: () => number;
   now?: () => Date;
   store: Pick<
     CodexSessionsStore,
@@ -99,6 +111,7 @@ export function createCodexSessionsService(options: {
   transport: CodexSessionsTransport;
 }) {
   const now = options.now ?? (() => new Date());
+  const monotonicNow = options.monotonicNow ?? (() => performance.now());
   const activeOperations = new Map<string, Promise<CodexSessionOperationResult>>();
   const subscribers = new Map<string, Set<StreamSubscriber>>();
 
@@ -115,19 +128,33 @@ export function createCodexSessionsService(options: {
   async function list(actor: CodexSessionsActor, request: CodexSessionListRequest) {
     const machineScope = await scope(actor, request.machineId);
     try {
-      const inventory = validateInventory(await options.transport.list(machineScope), machineScope.machineId);
+      const startedAt = monotonicNow();
+      const returned = await options.transport.list(machineScope);
+      const receivedAt = monotonicNow();
+      const localized = localizeCodexSessionInventoryWindow(returned, {
+        elapsedMs: receivedAt - startedAt,
+        machineId: machineScope.machineId,
+        publishedAt: now().toISOString()
+      });
+      if (!localized || localized.ageMs > CODEX_SESSION_LIST_DEADLINE_MS) {
+        throw new CodexTransportUncertainError('The Codex task inventory expired before it could be verified.');
+      }
+      const inventory = localized.inventory;
       await options.store.saveInventory({
         ...machineScope,
         checkedAt: inventory.checkedAt,
         completeInventory: true,
         sessions: inventory.sessions
       });
-      return filterInventory(inventory, request);
+      return filterCodexSessionInventory(inventory, request);
     } catch (error) {
       if (!(error instanceof CodexTransportUnavailableError)) throw error;
       const machine = await offlineMachine(options.transport, machineScope);
       const sessions = await options.store.listInventory(machineScope.userId, machineScope.machineId);
-      return filterInventory(asOfflineInventory(machine, sessions, now), request);
+      return filterCodexSessionInventory(
+        asOfflineCodexSessionInventory(machine, sessions, now),
+        request
+      );
     }
   }
 
@@ -151,6 +178,40 @@ export function createCodexSessionsService(options: {
         missingRead(await storedRecord(options.store, sessionScope), sessionScope, 'offline'),
         await options.store.latestEventSequence(sessionScope)
       );
+    }
+  }
+
+  async function inspect(actor: CodexSessionsActor, request: CodexSessionInspectRequest) {
+    const sessionScope = {
+      ...(await scope(actor, request.machineId)),
+      threadId: required(request.threadId, 'threadId')
+    };
+    try {
+      const startedAt = monotonicNow();
+      const returned = await options.transport.inspect({
+        ...request,
+        userId: sessionScope.userId
+      });
+      const receivedAt = monotonicNow();
+      if (
+        !Number.isFinite(startedAt)
+        || !Number.isFinite(receivedAt)
+        || receivedAt < startedAt
+        || receivedAt - startedAt > 30_000
+      ) {
+        throw new CodexTransportUncertainError(
+          'The Codex task inspection expired before it could be verified.'
+        );
+      }
+      return withCodexSessionWriteCapability(
+        validateInspect(returned, sessionScope),
+        now()
+      );
+    } catch (error) {
+      if (error instanceof CodexThreadMissingError) {
+        throw new CodexTransportUnavailableError('The Codex task no longer exists.');
+      }
+      throw error;
     }
   }
 
@@ -325,6 +386,7 @@ export function createCodexSessionsService(options: {
   return {
     approve: (actor: CodexSessionsActor, request: CodexSessionApprovalRequest) => mutate(actor, 'approval', request),
     continue: (actor: CodexSessionsActor, request: CodexSessionContinueRequest) => mutate(actor, 'continue', request),
+    inspect,
     interrupt: (actor: CodexSessionsActor, request: CodexSessionInterruptRequest) => mutate(actor, 'interrupt', request),
     list,
     publishEvent,
@@ -335,13 +397,6 @@ export function createCodexSessionsService(options: {
   };
 }
 
-function validateInventory(result: CodexSessionListResult, machineId: string) {
-  if (result.machine.id !== machineId || result.sessions.some((session) => session.machineId !== machineId)) {
-    throw new CodexTransportUncertainError('The connector returned inventory for a different machine.');
-  }
-  return result;
-}
-
 function validateRead(result: CodexSessionReadResult, scope: SessionScope) {
   if (result.openedReadOnly !== true || result.session.machineId !== scope.machineId || result.session.id !== scope.threadId) {
     throw new CodexTransportUncertainError('The connector returned history for a different session.');
@@ -349,31 +404,15 @@ function validateRead(result: CodexSessionReadResult, scope: SessionScope) {
   return result;
 }
 
+function validateInspect(result: CodexSessionInspectResult, scope: SessionScope) {
+  if (!codexSessionInspectionMatchesScope(result, scope)) {
+    throw new CodexTransportUncertainError('The connector returned evidence for a different session.');
+  }
+  return result;
+}
+
 function withStreamCursor(result: CodexSessionReadResult, streamCursor: number) {
   return { ...result, streamCursor };
-}
-
-function filterInventory(inventory: CodexSessionListResult, request: CodexSessionListRequest) {
-  const search = request.search?.trim().toLocaleLowerCase();
-  return {
-    ...inventory,
-    sessions: inventory.sessions
-      .filter((session) => request.includeArchived || !session.archived)
-      .filter((session) => !search || [session.title, session.cwd, session.project, session.model].some((value) => value?.toLocaleLowerCase().includes(search)))
-      .sort((left, right) => Date.parse(right.lastActivityAt) - Date.parse(left.lastActivityAt))
-  };
-}
-
-function asOfflineInventory(
-  machine: CodexSessionMachineRecord,
-  sessions: CodexSessionRecord[],
-  now: () => Date
-): CodexSessionListResult {
-  return {
-    checkedAt: now().toISOString(),
-    machine: { ...machine, online: false, statusMessage: 'The connector is offline. Showing the last saved session inventory.' },
-    sessions: sessions.map((session) => ({ ...session, loadedByProjectSpace: false, status: 'offline' }))
-  };
 }
 
 async function offlineMachine(

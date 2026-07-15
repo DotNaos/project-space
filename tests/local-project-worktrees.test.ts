@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import {
+  createLocalProjectWorktreeLoader,
   loadLocalProjectWorktrees,
   parseGitWorktreePorcelain,
   resolveLocalProjectWorktree
@@ -35,6 +36,35 @@ function parse(output: string, missingPaths: string[] = []) {
 
 function git(cwd: string, ...args: string[]) {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
+}
+
+function createDeferred<T>() {
+  let resolvePromise!: (value: T) => void;
+  const promise = new Promise<T>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return { promise, resolve: resolvePromise };
+}
+
+function createPostGitLoader(
+  fileSystem: Parameters<typeof createLocalProjectWorktreeLoader>[0]['fileSystem']
+) {
+  return createLocalProjectWorktreeLoader({
+    fileSystem: {
+      lstat: async () => ({ isDirectory: () => true, isFile: () => false }),
+      pathExists: async () => true,
+      readTextFile: async () => 'gitdir: /virtual/repository/.git/worktrees/topic',
+      readdir: async () => [],
+      ...fileSystem
+    },
+    runCommand: async (_command, args) => args.includes('rev-parse')
+      ? '/virtual/repository/.git\n'
+      : porcelain([
+          'worktree /virtual/repository',
+          `HEAD ${head}`,
+          'branch refs/heads/main'
+        ])
+  });
 }
 
 afterEach(() => {
@@ -281,5 +311,117 @@ describe('Git-authoritative project worktree discovery', () => {
     writeFileSync(join(scratch, 'candidate', '.git'), 'gitdir: /missing/gitdir\n');
 
     await expect(loadLocalProjectWorktrees(scratch)).rejects.toThrow('not a git repository');
+  });
+
+  test('reports filesystem probe failures as unavailable rather than missing', async () => {
+    const loader = createPostGitLoader({
+      pathExists: async () => {
+        throw Object.assign(new Error('mounted path unavailable'), { code: 'EIO' });
+      }
+    });
+
+    expect((await loader('/virtual/repository'))[0]).toMatchObject({
+      status: 'unavailable',
+      statusReason: 'The registered worktree could not be inspected.'
+    });
+  });
+
+  test('returns unavailable without starting another probe when stalled probes fill the cap', async () => {
+    const stalledProbes = Array.from({ length: 16 }, () => createDeferred<boolean>());
+    const probeStarts = stalledProbes.map(() => createDeferred<void>());
+    const controllers = stalledProbes.map(() => new AbortController());
+    const pendingLoads = stalledProbes.map((probe, index) => {
+      const loader = createPostGitLoader({
+        pathExists: async () => {
+          probeStarts[index].resolve();
+          return probe.promise;
+        }
+      });
+      return loader('/virtual/repository', { signal: controllers[index].signal });
+    });
+    await Promise.all(probeStarts.map((started) => started.promise));
+
+    let overflowProbeCalls = 0;
+    const overflowLoader = createPostGitLoader({
+      pathExists: async () => {
+        overflowProbeCalls += 1;
+        return true;
+      }
+    });
+    const records = await overflowLoader('/virtual/repository');
+
+    expect(records[0]).toMatchObject({
+      status: 'unavailable',
+      statusReason: 'The registered worktree could not be inspected.'
+    });
+    expect(overflowProbeCalls).toBe(0);
+
+    controllers.forEach((controller) => controller.abort());
+    await Promise.allSettled(pendingLoads);
+    stalledProbes.forEach((probe) => probe.resolve(true));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  test('returns on a stalled registry scan and reuses the underlying probe after timeouts', async () => {
+    const stalledScan = createDeferred<readonly []>();
+    let scanCalls = 0;
+    const loader = createPostGitLoader({
+      readdir: async () => {
+        scanCalls += 1;
+        return stalledScan.promise;
+      }
+    });
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await expect(loader('/virtual/repository', { timeoutMs: 20 })).rejects.toMatchObject({
+        name: 'TimeoutError'
+      });
+    }
+
+    expect(scanCalls).toBe(1);
+    stalledScan.resolve([]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  test('returns on cancellation while a registration pointer read remains stalled', async () => {
+    const stalledRead = createDeferred<string>();
+    const readStarted = createDeferred<void>();
+    const controller = new AbortController();
+    const loader = createPostGitLoader({
+      readTextFile: async () => {
+        readStarted.resolve();
+        return stalledRead.promise;
+      },
+      readdir: async () => [{ isDirectory: () => true, name: 'topic' }]
+    });
+    const result = loader('/virtual/repository', { signal: controller.signal });
+
+    await readStarted.promise;
+    controller.abort();
+
+    await expect(result).rejects.toMatchObject({ name: 'AbortError' });
+    stalledRead.resolve('gitdir: /virtual/topic/.git');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  test('does not launch repeated path probes after callers time out', async () => {
+    const stalledPathProbe = createDeferred<boolean>();
+    let pathProbeCalls = 0;
+    const loader = createPostGitLoader({
+      pathExists: async () => {
+        pathProbeCalls += 1;
+        return stalledPathProbe.promise;
+      }
+    });
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await expect(loader('/virtual/repository', { timeoutMs: 20 })).rejects.toMatchObject({
+        name: 'TimeoutError'
+      });
+    }
+
+    expect(pathProbeCalls).toBe(1);
+    stalledPathProbe.resolve(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 });

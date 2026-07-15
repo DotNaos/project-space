@@ -48,6 +48,35 @@ function stubService() {
       calls.push({ input, method: 'interrupt' });
       return accepted(input);
     },
+    async inspect(_context, input) {
+      calls.push({ input, method: 'inspect' });
+      const sessionRevision = 'c'.repeat(64);
+      return {
+        checkedAt: '2026-07-13T01:00:00.000Z',
+        openedReadOnly: true,
+        session,
+        sessionRevision,
+        taskLocation: {
+          canonicalCwd: '/projects/project-space',
+          checkedAt: '2026-07-13T01:00:00.000Z',
+          machineId: input.machineId,
+          sessionRevision,
+          source: 'connector-realpath',
+          threadId: input.threadId,
+          worktreeRoot: '/projects/project-space'
+        },
+        writeCapability: {
+          canContinue: true,
+          checkedAt: '2026-07-13T01:00:00.000Z',
+          expiresAt: '2026-07-13T01:00:30.000Z',
+          machineId: input.machineId,
+          sessionLastActivityAt: session.lastActivityAt,
+          sessionRevision,
+          state: 'ready',
+          threadId: input.threadId
+        }
+      };
+    },
     async list(_context, input) {
       calls.push({ input, method: 'list' });
       return {
@@ -131,7 +160,7 @@ describe('Codex sessions authenticated HTTP boundary', () => {
     expect(calls).toHaveLength(0);
   });
 
-  test('authorizes the selected machine before listing or reading stored history', async () => {
+  test('authorizes the selected machine before listing, reading, or inspecting a task', async () => {
     const { calls, service } = stubService();
     const authorized: string[] = [];
     const origin = await startApi(service, {
@@ -143,16 +172,21 @@ describe('Codex sessions authenticated HTTP boundary', () => {
 
     const list = await fetch(`${origin}/api/codex/sessions?machineId=machine-one&includeArchived=true`);
     const read = await fetch(`${origin}/api/codex/sessions/${threadId}?machineId=machine-one`);
+    const inspect = await fetch(
+      `${origin}/api/codex/sessions/${threadId}/inspect?machineId=machine-one`
+    );
 
     expect(list.status).toBe(200);
     expect(await read.json()).toMatchObject({ openedReadOnly: true });
-    expect(authorized).toEqual(['machine-one', 'machine-one']);
+    expect(await inspect.json()).toMatchObject({ sessionRevision: 'c'.repeat(64) });
+    expect(authorized).toEqual(['machine-one', 'machine-one', 'machine-one']);
     expect(calls).toEqual([
       {
         input: { includeArchived: true, machineId: 'machine-one' },
         method: 'list'
       },
-      { input: { machineId: 'machine-one', threadId }, method: 'read' }
+      { input: { machineId: 'machine-one', threadId }, method: 'read' },
+      { input: { machineId: 'machine-one', threadId }, method: 'inspect' }
     ]);
   });
 
@@ -247,6 +281,10 @@ describe('Codex sessions browser client', () => {
     expect(await client.read({ machineId: 'machine-one', threadId })).toMatchObject({
       openedReadOnly: true,
       session: { id: threadId }
+    });
+    expect(await client.inspect?.({ machineId: 'machine-one', threadId })).toMatchObject({
+      sessionRevision: 'c'.repeat(64),
+      writeCapability: { canContinue: true }
     });
     const event = await new Promise((resolve, reject) => {
       const unsubscribe = client.subscribe(

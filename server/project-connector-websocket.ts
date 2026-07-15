@@ -39,6 +39,7 @@ import {
   sendConnectorJson as sendJson,
   settleConnectorCommandWithin as settleWithin
 } from './project-connector-websocket-utils';
+import { createProjectConnectorWorktreeLoads } from './project-connector-worktree-loads';
 interface ProjectConnectorWebSocketOptions extends ProjectConnectorConnectionOptions {
   backend: ProjectSpaceBackend & Partial<ConnectorDevServerAdapter & ConnectorWorktreeActionAdapter>;
 }
@@ -176,6 +177,10 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
 
       const socket = new WebSocket(resolvedHubUrl);
       const runningChats = new Map<string, AbortController>();
+      const worktreeLoads = createProjectConnectorWorktreeLoads(
+        backend,
+        (message) => sendJson(socket, message)
+      );
       let cleanedUp = false;
       let registryPublishPending = false;
       let registryTimer: ReturnType<typeof setInterval> | undefined;
@@ -198,6 +203,7 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           controller.abort();
         }
         runningChats.clear();
+        worktreeLoads.cancelAll();
         codexSessionsDispatcher?.cancelAll();
         codexSessionsDispatcher?.setExpectedGeneration();
         runtimeDispatcher?.setExpectedGeneration();
@@ -306,6 +312,7 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           if (codexSessionsDispatcher?.cancel(message.id, (result) => sendJson(socket, result))) {
             return;
           }
+          if (worktreeLoads.cancel(message.id)) return;
           runningChats.get(message.id)?.abort();
           return;
         }
@@ -480,29 +487,7 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         }
 
         if (message.type === 'worktrees.list') {
-          void backend
-            .loadProjectWorktrees(message.payload.projectPath)
-            .then((result) => {
-              if (socket) {
-                sendJson(socket, {
-                  id: message.id,
-                  payload: result,
-                  type: 'worktrees.result'
-                } satisfies ConnectorHubMessage);
-              }
-            })
-            .catch((error) => {
-              if (socket) {
-                sendJson(socket, {
-                  id: message.id,
-                  payload: {
-                    message:
-                      error instanceof Error ? error.message : 'Git worktree discovery failed.'
-                  },
-                  type: 'worktrees.error'
-                } satisfies ConnectorHubMessage);
-              }
-            });
+          worktreeLoads.start(message);
           return;
         }
 

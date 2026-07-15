@@ -1,4 +1,4 @@
-import { parseProjectChatRoute } from '../../project-chat/project-chat-route';
+import { parseProjectChatRoute, projectChatRoute } from '../../project-chat/project-chat-route';
 import { codexSessionRoute, parseCodexSessionRoute } from '../../codex-sessions/codex-session-route';
 import {
   normalizeRouteKey,
@@ -13,7 +13,15 @@ import type {
 } from '@/shared/project-space-api';
 
 export type ProjectMainView =
-  'root' | 'chat' | 'codex' | 'machines' | 'machine' | 'projects' | 'project' | 'settings';
+  | 'root'
+  | 'chat'
+  | 'codex'
+  | 'topology'
+  | 'machines'
+  | 'machine'
+  | 'projects'
+  | 'project'
+  | 'settings';
 
 export const projectDetailTabs = [
   'overview',
@@ -48,7 +56,7 @@ function normalizePath(path: string) {
 }
 
 const templatePlaceholderPattern = /\{\{.*?\}\}/;
-const chatPath = '/chat';
+const topologyPath = '/topology';
 const projectsPath = '/projects';
 const machinesPath = '/machines';
 export const connectorOverviewRefreshIntervalMs = 60_000;
@@ -109,12 +117,16 @@ function projectPath(projectId: string) {
 const settingsPath = '/settings';
 
 export function routeForView(view: ProjectMainView, projectId = '', tab = '', detail = '') {
+  if (view === 'topology') {
+    return '/';
+  }
+
   if (view === 'codex') {
     return codexSessionRoute();
   }
 
   if (view === 'chat') {
-    return chatPath;
+    return projectChatRoute(projectId || undefined);
   }
 
   if (view === 'machines') {
@@ -170,6 +182,10 @@ export interface ParsedProjectRoute {
 }
 
 export function parseProjectRoute(pathname: string): ParsedProjectRoute {
+  if (pathname === topologyPath || pathname === `${topologyPath}/`) {
+    return { view: 'root' };
+  }
+
   const codexRoute = parseCodexSessionRoute(pathname);
   if (codexRoute.matches) {
     return {

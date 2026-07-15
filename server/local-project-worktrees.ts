@@ -1,13 +1,25 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, readFileSync } from 'node:fs';
-import { readFile, readdir } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 
 import type { ProjectWorktreeRecord } from '../src/shared/project-space-api';
+import {
+  localProjectWorktreeFileSystem,
+  mapWorktreeValuesWithConcurrency,
+  rethrowIfWorktreeLoadAborted,
+  settleWorktreeFileSystemProbe,
+  throwIfWorktreeLoadAborted,
+  withWorktreeLoadSignal,
+  type LocalProjectWorktreeFileSystem
+} from './local-project-worktree-filesystem';
 
 const execFileAsync = promisify(execFile);
+
+export interface LocalProjectWorktreeLoadOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
 
 type WorktreeParserOptions = {
   basePath: string;
@@ -28,9 +40,15 @@ type ParsedWorktreeBlock = {
   validBranch: boolean;
 };
 
-async function runCommand(command: string, args: string[]) {
+async function runCommand(
+  command: string,
+  args: string[],
+  options: LocalProjectWorktreeLoadOptions = {}
+) {
   const { stdout } = await execFileAsync(command, args, {
     maxBuffer: 16 * 1024 * 1024,
+    signal: options.signal,
+    timeout: options.timeoutMs,
     windowsHide: true
   });
 
@@ -48,29 +66,50 @@ function opaqueWorktreeId(gitCommonDir: string, registrationKey: string) {
   return `wt_${digest}`;
 }
 
-async function loadRegistrationKeys(gitCommonDir: string, basePath: string) {
+async function loadRegistrationKeys(
+  gitCommonDir: string,
+  basePath: string,
+  fileSystem: LocalProjectWorktreeFileSystem,
+  signal?: AbortSignal
+) {
   const registrationKeys = new Map<string, string>([[resolve(basePath), 'main']]);
   const worktreesDirectory = resolve(gitCommonDir, 'worktrees');
 
   try {
-    const entries = await readdir(worktreesDirectory, { withFileTypes: true });
-    await Promise.all(
-      entries
-        .filter((entry) => entry.isDirectory())
-        .map(async (entry) => {
-          const registrationDirectory = resolve(worktreesDirectory, entry.name);
-          try {
-            const gitdirPointer = (await readFile(resolve(registrationDirectory, 'gitdir'), 'utf8')).trim();
-            const gitdirPath = gitdirPointer.startsWith(sep)
-              ? gitdirPointer
-              : resolve(registrationDirectory, gitdirPointer);
-            registrationKeys.set(resolve(dirname(gitdirPath)), entry.name);
-          } catch {
-            // Git porcelain still reports the registration; the opaque fallback remains resolvable.
-          }
-        })
+    const entries = await settleWorktreeFileSystemProbe(
+      fileSystem,
+      'readdir',
+      worktreesDirectory,
+      () => fileSystem.readdir(worktreesDirectory),
+      signal
     );
-  } catch {
+    await mapWorktreeValuesWithConcurrency(
+      entries.filter((entry) => entry.isDirectory()),
+      async (entry) => {
+        const registrationDirectory = resolve(worktreesDirectory, entry.name);
+        try {
+          const gitdirPointer = (
+            await settleWorktreeFileSystemProbe(
+              fileSystem,
+              'readFile',
+              resolve(registrationDirectory, 'gitdir'),
+              () => fileSystem.readTextFile(resolve(registrationDirectory, 'gitdir'), signal),
+              signal
+            )
+          ).trim();
+          const gitdirPath = gitdirPointer.startsWith(sep)
+            ? gitdirPointer
+            : resolve(registrationDirectory, gitdirPointer);
+          registrationKeys.set(resolve(dirname(gitdirPath)), entry.name);
+        } catch (error) {
+          rethrowIfWorktreeLoadAborted(error, signal);
+          // Git porcelain still reports the registration; the opaque fallback remains resolvable.
+        }
+      },
+      signal
+    );
+  } catch (error) {
+    rethrowIfWorktreeLoadAborted(error, signal);
     // A repository with only its main worktree has no linked-worktree registry directory.
   }
 
@@ -181,23 +220,57 @@ function worktreeStatus(
   return { status: 'ready' };
 }
 
-function registeredPathHealth(worktreePath: string, isBase: boolean): WorktreePathHealth {
+async function registeredPathHealth(
+  worktreePath: string,
+  isBase: boolean,
+  fileSystem: LocalProjectWorktreeFileSystem,
+  signal?: AbortSignal
+): Promise<WorktreePathHealth> {
   try {
-    if (!existsSync(worktreePath)) return 'missing';
+    if (!await settleWorktreeFileSystemProbe(
+      fileSystem,
+      'exists',
+      worktreePath,
+      () => fileSystem.pathExists(worktreePath),
+      signal
+    )) return 'missing';
     const gitPointerPath = resolve(worktreePath, '.git');
-    const gitPointerStat = lstatSync(gitPointerPath);
+    const gitPointerStat = await settleWorktreeFileSystemProbe(
+      fileSystem,
+      'lstat',
+      gitPointerPath,
+      () => fileSystem.lstat(gitPointerPath),
+      signal
+    );
 
     if (gitPointerStat.isDirectory()) return isBase ? 'present' : 'broken';
     if (!gitPointerStat.isFile()) return 'broken';
 
-    const gitPointer = readFileSync(gitPointerPath, 'utf8').trim();
+    const gitPointer = (
+      await settleWorktreeFileSystemProbe(
+        fileSystem,
+        'readFile',
+        gitPointerPath,
+        () => fileSystem.readTextFile(gitPointerPath, signal),
+        signal
+      )
+    ).trim();
     if (!gitPointer.startsWith('gitdir:')) return 'broken';
     const gitDirectory = gitPointer.slice('gitdir:'.length).trim();
     const resolvedGitDirectory = isAbsolute(gitDirectory)
       ? gitDirectory
       : resolve(worktreePath, gitDirectory);
-    return existsSync(resolvedGitDirectory) ? 'present' : 'broken';
+    return await settleWorktreeFileSystemProbe(
+      fileSystem,
+      'exists',
+      resolvedGitDirectory,
+      () => fileSystem.pathExists(resolvedGitDirectory),
+      signal
+    )
+      ? 'present'
+      : 'broken';
   } catch (error) {
+    rethrowIfWorktreeLoadAborted(error, signal);
     return (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'broken' : 'unavailable';
   }
 }
@@ -264,7 +337,7 @@ export function parseGitWorktreePorcelain(
   options: WorktreeParserOptions
 ): ProjectWorktreeRecord[] {
   const basePath = resolve(options.basePath);
-  const pathHealth = options.pathHealth ?? registeredPathHealth;
+  const pathHealth = options.pathHealth ?? (() => 'unavailable');
   const parsedBlocks = splitPorcelainBlocks(output).map(parseBlock);
   const projectName = basename(basePath);
 
@@ -303,36 +376,103 @@ export function parseGitWorktreePorcelain(
     });
 }
 
-export async function loadLocalProjectWorktrees(
-  projectPath: string
-): Promise<ProjectWorktreeRecord[]> {
-  const resolvedProjectPath = resolve(projectPath);
-  const gitCommonDir = (
-    await runCommand('git', [
-      '-C',
-      resolvedProjectPath,
-      'rev-parse',
-      '--path-format=absolute',
-      '--git-common-dir'
-    ])
-  ).trim();
-  const worktreeList = await runCommand('git', [
-    '-C',
-    resolvedProjectPath,
-    'worktree',
-    'list',
-    '--porcelain',
-    '-z',
-    '--expire=now'
-  ]);
-  const basePath = dirname(gitCommonDir);
-  const registrationKeys = await loadRegistrationKeys(gitCommonDir, basePath);
+async function loadPathHealth(
+  worktreeList: string,
+  basePath: string,
+  fileSystem: LocalProjectWorktreeFileSystem,
+  signal?: AbortSignal
+) {
+  const paths = splitPorcelainBlocks(worktreeList)
+    .map(parseBlock)
+    .flatMap((block) => block.path ? [resolve(block.path)] : []);
+  const uniquePaths = [...new Set(paths)];
+  const entries = await mapWorktreeValuesWithConcurrency(
+    uniquePaths,
+    async (worktreePath) => [
+      worktreePath,
+      await registeredPathHealth(
+        worktreePath,
+        worktreePath === resolve(basePath),
+        fileSystem,
+        signal
+      )
+    ] as const,
+    signal
+  );
 
-  return parseGitWorktreePorcelain(worktreeList, {
-    basePath,
-    gitCommonDir,
-    registrationKeys
-  });
+  return new Map(entries);
+}
+
+export function createLocalProjectWorktreeLoader(
+  overrides: {
+    fileSystem?: Partial<LocalProjectWorktreeFileSystem>;
+    runCommand?: typeof runCommand;
+  } = {}
+) {
+  const dependencies = {
+    fileSystem: { ...localProjectWorktreeFileSystem, ...overrides.fileSystem },
+    runCommand: overrides.runCommand ?? runCommand
+  };
+
+  return async function load(
+    projectPath: string,
+    options: LocalProjectWorktreeLoadOptions = {}
+  ): Promise<ProjectWorktreeRecord[]> {
+    return withWorktreeLoadSignal(options, async (signal) => {
+      const commandOptions = { ...options, signal };
+      const resolvedProjectPath = resolve(projectPath);
+      throwIfWorktreeLoadAborted(signal);
+
+      const gitCommonDir = (
+        await dependencies.runCommand('git', [
+          '-C',
+          resolvedProjectPath,
+          'rev-parse',
+          '--path-format=absolute',
+          '--git-common-dir'
+        ], commandOptions)
+      ).trim();
+      const worktreeList = await dependencies.runCommand('git', [
+        '-C',
+        resolvedProjectPath,
+        'worktree',
+        'list',
+        '--porcelain',
+        '-z',
+        '--expire=now'
+      ], commandOptions);
+      const basePath = dirname(gitCommonDir);
+      const registrationKeys = await loadRegistrationKeys(
+        gitCommonDir,
+        basePath,
+        dependencies.fileSystem,
+        signal
+      );
+      const pathHealth = await loadPathHealth(
+        worktreeList,
+        basePath,
+        dependencies.fileSystem,
+        signal
+      );
+      throwIfWorktreeLoadAborted(signal);
+
+      return parseGitWorktreePorcelain(worktreeList, {
+        basePath,
+        gitCommonDir,
+        pathHealth: (path) => pathHealth.get(resolve(path)) ?? 'unavailable',
+        registrationKeys
+      });
+    });
+  };
+}
+
+const defaultLocalProjectWorktreeLoader = createLocalProjectWorktreeLoader();
+
+export function loadLocalProjectWorktrees(
+  projectPath: string,
+  options: LocalProjectWorktreeLoadOptions = {}
+) {
+  return defaultLocalProjectWorktreeLoader(projectPath, options);
 }
 
 export async function resolveLocalProjectWorktree(

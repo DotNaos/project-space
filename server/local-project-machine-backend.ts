@@ -52,6 +52,7 @@ type MachineBackendMethod =
   | 'runCodexChat'
   | 'runMachineTerminalCommand'
   | 'streamCodexChat';
+type WorktreeLoadOptions = { signal?: AbortSignal; timeoutMs?: number };
 
 function directoryMutationError(message: string): MachineDirectoryMutationResult {
   return {
@@ -95,9 +96,11 @@ export function createLocalProjectMachineBackend(
   MachineBackendMethod
 > {
   return {
-    async loadProjectWorktrees(projectPath: string, machineId?: string) {
+    async loadProjectWorktrees(
+      projectPath: string, machineId?: string, options?: WorktreeLoadOptions
+    ) {
       if (!machineId) {
-        return loadLocalProjectWorktrees(projectPath);
+        return loadLocalProjectWorktrees(projectPath, options);
       }
 
       const overview = await loadConnectorOverview();
@@ -106,14 +109,14 @@ export function createLocalProjectMachineBackend(
         throw new Error(`Machine ${machineId} was not found.`);
       }
       if (isHubLocalMachine(machine)) {
-        return loadLocalProjectWorktrees(projectPath);
+        return loadLocalProjectWorktrees(projectPath, options);
       }
       if (!isConnectorHubMachine(machine) || machine.connector.status !== 'online') {
         throw new Error(`${machine.name} cannot provide its worktrees right now.`);
       }
 
       try {
-        return await requestConnectorProjectWorktrees({ machineId, projectPath });
+        return await requestConnectorProjectWorktrees({ machineId, projectPath }, options);
       } catch (error) {
         throw new Error(
           error instanceof Error

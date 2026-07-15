@@ -17,11 +17,13 @@ import { runWithGitHubCatalogRequestTiming } from './github-catalog-timing';
 import type { CodexSessionsHttpHandler } from './codex-sessions-http';
 import { createGitHubIssueCreationRoutes } from './github-issue-creation-routes';
 import { createGitHubIssueAttachmentContentRoute } from './github-issue-attachment-content-route';
+import type { ProjectTopologyInventoryHttpHandler } from './project-topology/project-inventory-http';
 
 interface ProjectSpaceApiHandlerOptions {
   codexSessions?: CodexSessionsHttpHandler;
   machineConnection?: Pick<MachineConnectionRuntime, 'handleRequest'>;
   projectChat?: Pick<ProjectChatRuntime, 'handleRequest'>;
+  projectTopology?: ProjectTopologyInventoryHttpHandler;
 }
 
 export function createProjectSpaceApiHandler(
@@ -72,6 +74,9 @@ export function createProjectSpaceApiHandler(
         if (await handleIssueCreationRoute(request, response, url)) return true;
         if (await handleIssueAttachmentContentRoute(request, response, url)) return true;
         if (options.codexSessions && await options.codexSessions(request, response, url)) {
+          return true;
+        }
+        if (options.projectTopology && await options.projectTopology(request, response, url)) {
           return true;
         }
         if (
