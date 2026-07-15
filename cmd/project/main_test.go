@@ -29,6 +29,7 @@ func TestProjectTerminationSignalsIncludeHangup(t *testing.T) {
 
 func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 	want := []string{
+		"__docs-model",
 		"__runtime-supervisor",
 		"adopt",
 		"approval",

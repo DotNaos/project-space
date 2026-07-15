@@ -1,0 +1,2190 @@
+{
+  "schemaVersion": 1,
+  "documentationTrack": "current-main-source",
+  "platformScope": "managed-macos-linux-wsl",
+  "root": {
+    "path": "project",
+    "name": "project",
+    "usage": "project",
+    "short": "Template-aware Project CLI",
+    "aliases": [],
+    "runnable": false,
+    "flags": [
+      {
+        "name": "help",
+        "shorthand": "h",
+        "type": "bool",
+        "description": "help for project",
+        "inherited": false
+      },
+      {
+        "name": "version",
+        "shorthand": "v",
+        "type": "bool",
+        "description": "version for project",
+        "inherited": false
+      }
+    ],
+    "commands": [
+      {
+        "path": "project adopt",
+        "name": "adopt",
+        "usage": "adopt [directory]",
+        "short": "Plan adoption of an existing project",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "dry-run",
+            "type": "bool",
+            "description": "show the adoption plan without writing changes",
+            "inherited": false
+          },
+          {
+            "name": "format",
+            "type": "string",
+            "description": "output format",
+            "inherited": false
+          },
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for adopt",
+            "inherited": false
+          },
+          {
+            "name": "module",
+            "type": "string",
+            "description": "adopt a template module by adding only missing files",
+            "inherited": false
+          },
+          {
+            "name": "reason",
+            "type": "string",
+            "description": "reason for a waiver",
+            "inherited": false
+          },
+          {
+            "name": "waive",
+            "type": "string",
+            "description": "add a waiver for a path pattern",
+            "inherited": false
+          },
+          {
+            "name": "yes",
+            "shorthand": "y",
+            "type": "bool",
+            "description": "apply the adoption action without prompting",
+            "inherited": false
+          }
+        ],
+        "commands": []
+      },
+      {
+        "path": "project approval",
+        "name": "approval",
+        "usage": "approval",
+        "short": "Manage cryptographic human approvals",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for approval",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project approval enroll",
+            "name": "enroll",
+            "usage": "enroll",
+            "short": "Create an external trusted signer configuration with macOS authentication",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: pretty or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for enroll",
+                "inherited": false
+              },
+              {
+                "name": "policy",
+                "type": "string",
+                "description": "repository approval policy",
+                "inherited": false
+              },
+              {
+                "name": "root",
+                "type": "string",
+                "description": "repository root",
+                "inherited": false
+              },
+              {
+                "name": "trust-root",
+                "type": "string",
+                "description": "external trusted signer configuration",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project approval sign",
+            "name": "sign",
+            "usage": "sign",
+            "short": "Approve one scope using Secure Enclave authentication",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: pretty or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for sign",
+                "inherited": false
+              },
+              {
+                "name": "policy",
+                "type": "string",
+                "description": "repository approval policy",
+                "inherited": false
+              },
+              {
+                "name": "root",
+                "type": "string",
+                "description": "repository root",
+                "inherited": false
+              },
+              {
+                "name": "scope",
+                "type": "string",
+                "description": "scope identifier to approve",
+                "inherited": false
+              },
+              {
+                "name": "trust-root",
+                "type": "string",
+                "description": "external trusted signer configuration",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project approval status",
+            "name": "status",
+            "usage": "status",
+            "short": "Show approval state",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: pretty or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for status",
+                "inherited": false
+              },
+              {
+                "name": "policy",
+                "type": "string",
+                "description": "repository approval policy",
+                "inherited": false
+              },
+              {
+                "name": "root",
+                "type": "string",
+                "description": "repository root",
+                "inherited": false
+              },
+              {
+                "name": "trust-root",
+                "type": "string",
+                "description": "external trusted signer configuration",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project approval verify",
+            "name": "verify",
+            "usage": "verify",
+            "short": "Verify every required human approval",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: pretty or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for verify",
+                "inherited": false
+              },
+              {
+                "name": "policy",
+                "type": "string",
+                "description": "repository approval policy",
+                "inherited": false
+              },
+              {
+                "name": "root",
+                "type": "string",
+                "description": "repository root",
+                "inherited": false
+              },
+              {
+                "name": "trust-root",
+                "type": "string",
+                "description": "external trusted signer configuration",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      },
+      {
+        "path": "project chat",
+        "name": "chat",
+        "usage": "chat",
+        "short": "Coordinate with people and agents through Project Chat",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for chat",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project chat claim",
+            "name": "claim",
+            "usage": "claim <registry-name>",
+            "short": "Claim an available registry name for this Codex thread",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for claim",
+                "inherited": false
+              },
+              {
+                "name": "parent-thread",
+                "type": "string",
+                "description": "main-agent thread ID (required for specialist names)",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project chat names",
+            "name": "names",
+            "usage": "names",
+            "short": "List Project Chat registry names and availability",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for names",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project chat read",
+            "name": "read",
+            "usage": "read",
+            "short": "Read unread messages from #general",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for read",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project chat send",
+            "name": "send",
+            "usage": "send <message>",
+            "short": "Send one message to #general",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for send",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      },
+      {
+        "path": "project completion",
+        "name": "completion",
+        "usage": "completion",
+        "short": "Generate the autocompletion script for the specified shell",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for completion",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project completion bash",
+            "name": "bash",
+            "usage": "bash",
+            "short": "Generate the autocompletion script for bash",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for bash",
+                "inherited": false
+              },
+              {
+                "name": "no-descriptions",
+                "type": "bool",
+                "description": "disable completion descriptions",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project completion fish",
+            "name": "fish",
+            "usage": "fish",
+            "short": "Generate the autocompletion script for fish",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for fish",
+                "inherited": false
+              },
+              {
+                "name": "no-descriptions",
+                "type": "bool",
+                "description": "disable completion descriptions",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project completion powershell",
+            "name": "powershell",
+            "usage": "powershell",
+            "short": "Generate the autocompletion script for powershell",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for powershell",
+                "inherited": false
+              },
+              {
+                "name": "no-descriptions",
+                "type": "bool",
+                "description": "disable completion descriptions",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project completion zsh",
+            "name": "zsh",
+            "usage": "zsh",
+            "short": "Generate the autocompletion script for zsh",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for zsh",
+                "inherited": false
+              },
+              {
+                "name": "no-descriptions",
+                "type": "bool",
+                "description": "disable completion descriptions",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      },
+      {
+        "path": "project connect",
+        "name": "connect",
+        "usage": "connect",
+        "short": "Connect this machine to Project Space",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for connect",
+            "inherited": false
+          },
+          {
+            "name": "json",
+            "type": "bool",
+            "description": "print machine-readable output",
+            "inherited": false
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "description": "machine name shown in Project Space",
+            "inherited": false
+          },
+          {
+            "name": "no-open",
+            "type": "bool",
+            "description": "print the approval URL without opening a browser",
+            "inherited": false
+          }
+        ],
+        "commands": []
+      },
+      {
+        "path": "project connector",
+        "name": "connector",
+        "usage": "connector",
+        "short": "Set up Project Space machine connector links",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for connector",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project connector connect",
+            "name": "connect",
+            "usage": "connect <name> <url>",
+            "short": "Add or update one Project Space connector hub",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "config",
+                "type": "string",
+                "description": "connector config file path",
+                "inherited": false
+              },
+              {
+                "name": "disabled",
+                "type": "bool",
+                "description": "write the hub but keep it disabled",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for connect",
+                "inherited": false
+              },
+              {
+                "name": "json",
+                "type": "bool",
+                "description": "print machine-readable output",
+                "inherited": false
+              },
+              {
+                "name": "token-env",
+                "type": "string",
+                "description": "environment variable that contains the connector registration token",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project connector install",
+            "name": "install",
+            "usage": "install",
+            "short": "Install and start the machine connector service",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "binary",
+                "type": "string",
+                "description": "connector binary to install",
+                "inherited": false
+              },
+              {
+                "name": "config",
+                "type": "string",
+                "description": "connector config file path",
+                "inherited": false
+              },
+              {
+                "name": "dev-url",
+                "type": "string",
+                "description": "local development Project Space hub URL",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for install",
+                "inherited": false
+              },
+              {
+                "name": "install-dir",
+                "type": "string",
+                "description": "directory for the installed connector",
+                "inherited": false
+              },
+              {
+                "name": "json",
+                "type": "bool",
+                "description": "print machine-readable output",
+                "inherited": false
+              },
+              {
+                "name": "no-dev",
+                "type": "bool",
+                "description": "only configure the remote Project Space hub",
+                "inherited": false
+              },
+              {
+                "name": "prod-url",
+                "type": "string",
+                "description": "remote Project Space hub URL",
+                "inherited": false
+              },
+              {
+                "name": "service-name",
+                "type": "string",
+                "description": "connector service name shown in Project Space",
+                "inherited": false
+              },
+              {
+                "name": "token-env",
+                "type": "string",
+                "description": "environment variable that contains the connector registration token",
+                "inherited": false
+              },
+              {
+                "name": "token-file",
+                "type": "string",
+                "description": "private file used by the service to load the registration token",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project connector run",
+            "name": "run",
+            "usage": "run",
+            "short": "Run the authenticated Project Space connector",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for run",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project connector setup",
+            "name": "setup",
+            "usage": "setup",
+            "short": "Configure this machine connector for prod and local Project Space hubs",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "config",
+                "type": "string",
+                "description": "connector config file path",
+                "inherited": false
+              },
+              {
+                "name": "dev-url",
+                "type": "string",
+                "description": "local development Project Space hub URL",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for setup",
+                "inherited": false
+              },
+              {
+                "name": "json",
+                "type": "bool",
+                "description": "print machine-readable output",
+                "inherited": false
+              },
+              {
+                "name": "no-dev",
+                "type": "bool",
+                "description": "only configure the remote Project Space hub",
+                "inherited": false
+              },
+              {
+                "name": "prod-url",
+                "type": "string",
+                "description": "remote Project Space hub URL",
+                "inherited": false
+              },
+              {
+                "name": "token-env",
+                "type": "string",
+                "description": "environment variable that contains the connector registration token",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project connector source",
+            "name": "source",
+            "usage": "source",
+            "short": "Run an isolated development connector from source",
+            "aliases": [],
+            "runnable": false,
+            "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for source",
+                "inherited": false
+              }
+            ],
+            "commands": [
+              {
+                "path": "project connector source connect",
+                "name": "connect",
+                "usage": "connect",
+                "short": "Pair the isolated source development connector",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for connect",
+                    "inherited": false
+                  },
+                  {
+                    "name": "json",
+                    "type": "bool",
+                    "description": "print machine-readable output",
+                    "inherited": false
+                  },
+                  {
+                    "name": "name",
+                    "type": "string",
+                    "description": "display name shown in Project Space",
+                    "inherited": false
+                  },
+                  {
+                    "name": "no-open",
+                    "type": "bool",
+                    "description": "print the approval URL without opening a browser",
+                    "inherited": false
+                  },
+                  {
+                    "name": "root",
+                    "type": "string",
+                    "description": "trusted Project Space source checkout",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project connector source run",
+                "name": "run",
+                "usage": "run",
+                "short": "Run the paired development connector from source",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for run",
+                    "inherited": false
+                  },
+                  {
+                    "name": "root",
+                    "type": "string",
+                    "description": "trusted Project Space source checkout",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project connector source status",
+                "name": "status",
+                "usage": "status",
+                "short": "Show the isolated development connector status",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for status",
+                    "inherited": false
+                  },
+                  {
+                    "name": "json",
+                    "type": "bool",
+                    "description": "print machine-readable output",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              }
+            ]
+          },
+          {
+            "path": "project connector status",
+            "name": "status",
+            "usage": "status",
+            "short": "Show configured Project Space connector hubs",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "config",
+                "type": "string",
+                "description": "connector config file path",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for status",
+                "inherited": false
+              },
+              {
+                "name": "json",
+                "type": "bool",
+                "description": "print machine-readable output",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      },
+      {
+        "path": "project create",
+        "name": "create",
+        "usage": "create [directory]",
+        "short": "Create and initialize a new project",
+        "aliases": [
+          "new"
+        ],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "commit",
+            "type": "string",
+            "description": "template commit or label",
+            "inherited": false
+          },
+          {
+            "name": "force",
+            "type": "bool",
+            "description": "replace an existing .project/template.lock.yaml",
+            "inherited": false
+          },
+          {
+            "name": "github",
+            "type": "bool",
+            "description": "create a private GitHub repository and push the project",
+            "inherited": false
+          },
+          {
+            "name": "github-visibility",
+            "type": "string",
+            "description": "GitHub repository visibility",
+            "inherited": false
+          },
+          {
+            "name": "global-tmp",
+            "type": "bool",
+            "description": "create a global tmp project in /tmp and install default modules",
+            "inherited": false
+          },
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for create",
+            "inherited": false
+          },
+          {
+            "name": "local-tmp",
+            "type": "bool",
+            "description": "create a local tmp project in ./tmp and install default modules",
+            "inherited": false
+          },
+          {
+            "name": "template",
+            "type": "string",
+            "description": "template repository",
+            "inherited": false
+          },
+          {
+            "name": "template-path",
+            "type": "string",
+            "description": "template path",
+            "inherited": false
+          },
+          {
+            "name": "tmp",
+            "type": "bool",
+            "description": "create a local tmp project in ./tmp and install default modules",
+            "inherited": false
+          },
+          {
+            "name": "version",
+            "type": "string",
+            "description": "template version",
+            "inherited": false
+          }
+        ],
+        "commands": []
+      },
+      {
+        "path": "project deploy",
+        "name": "deploy",
+        "usage": "deploy [directory]",
+        "short": "Deploy this project to the VPS",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "api-domain",
+            "type": "string",
+            "description": "project API domain",
+            "inherited": false
+          },
+          {
+            "name": "branch",
+            "type": "string",
+            "description": "git branch to deploy",
+            "inherited": false
+          },
+          {
+            "name": "commit",
+            "type": "string",
+            "description": "full Git commit SHA to deploy",
+            "inherited": false
+          },
+          {
+            "name": "domain",
+            "type": "string",
+            "description": "project domain",
+            "inherited": false
+          },
+          {
+            "name": "dry-run",
+            "type": "bool",
+            "description": "print planned remote actions without changing the VPS",
+            "inherited": false
+          },
+          {
+            "name": "email",
+            "type": "string",
+            "description": "Traefik ACME email",
+            "inherited": false
+          },
+          {
+            "name": "env",
+            "type": "string",
+            "description": "deployment environment: prod or beta",
+            "inherited": false
+          },
+          {
+            "name": "format",
+            "type": "string",
+            "description": "output format",
+            "inherited": false
+          },
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for deploy",
+            "inherited": false
+          },
+          {
+            "name": "host",
+            "type": "string",
+            "description": "SSH host",
+            "inherited": false
+          },
+          {
+            "name": "lock-timeout",
+            "type": "duration",
+            "description": "maximum time to wait for the remote deployment lock",
+            "inherited": false
+          },
+          {
+            "name": "path",
+            "type": "string",
+            "description": "remote project directory",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project deploy status",
+            "name": "status",
+            "usage": "status [directory]",
+            "short": "Inspect deployment status without changing the VPS",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "all-envs",
+                "type": "bool",
+                "description": "inspect all configured environments",
+                "inherited": false
+              },
+              {
+                "name": "api-domain",
+                "type": "string",
+                "description": "project API domain",
+                "inherited": false
+              },
+              {
+                "name": "branch",
+                "type": "string",
+                "description": "git branch to deploy",
+                "inherited": false
+              },
+              {
+                "name": "commit",
+                "type": "string",
+                "description": "full Git commit SHA to deploy",
+                "inherited": false
+              },
+              {
+                "name": "domain",
+                "type": "string",
+                "description": "project domain",
+                "inherited": false
+              },
+              {
+                "name": "email",
+                "type": "string",
+                "description": "Traefik ACME email",
+                "inherited": false
+              },
+              {
+                "name": "env",
+                "type": "string",
+                "description": "deployment environment: prod or beta",
+                "inherited": false
+              },
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for status",
+                "inherited": false
+              },
+              {
+                "name": "host",
+                "type": "string",
+                "description": "SSH host",
+                "inherited": false
+              },
+              {
+                "name": "lock-timeout",
+                "type": "duration",
+                "description": "maximum time to wait for the remote deployment lock",
+                "inherited": false
+              },
+              {
+                "name": "path",
+                "type": "string",
+                "description": "remote project directory",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      },
+      {
+        "path": "project disconnect",
+        "name": "disconnect",
+        "usage": "disconnect",
+        "short": "Disconnect this machine from Project Space",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for disconnect",
+            "inherited": false
+          },
+          {
+            "name": "json",
+            "type": "bool",
+            "description": "print machine-readable output",
+            "inherited": false
+          }
+        ],
+        "commands": []
+      },
+      {
+        "path": "project doctor",
+        "name": "doctor",
+        "usage": "doctor",
+        "short": "Check this machine's Project Space connection",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "fix",
+            "type": "bool",
+            "description": "create missing project directories",
+            "inherited": false
+          },
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for doctor",
+            "inherited": false
+          },
+          {
+            "name": "json",
+            "type": "bool",
+            "description": "print machine-readable output",
+            "inherited": false
+          }
+        ],
+        "commands": []
+      },
+      {
+        "path": "project help",
+        "name": "help",
+        "usage": "help [command]",
+        "short": "Help about any command",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for help",
+            "inherited": false
+          }
+        ],
+        "commands": []
+      },
+      {
+        "path": "project init",
+        "name": "init",
+        "usage": "init [directory]",
+        "short": "Initialize a project template lock",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "commit",
+            "type": "string",
+            "description": "template commit or label",
+            "inherited": false
+          },
+          {
+            "name": "force",
+            "type": "bool",
+            "description": "replace an existing .project/template.lock.yaml",
+            "inherited": false
+          },
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for init",
+            "inherited": false
+          },
+          {
+            "name": "template",
+            "type": "string",
+            "description": "template repository",
+            "inherited": false
+          },
+          {
+            "name": "template-path",
+            "type": "string",
+            "description": "template path",
+            "inherited": false
+          },
+          {
+            "name": "version",
+            "type": "string",
+            "description": "template version",
+            "inherited": false
+          }
+        ],
+        "commands": []
+      },
+      {
+        "path": "project module",
+        "name": "module",
+        "usage": "module",
+        "short": "Manage project template modules",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for module",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project module add",
+            "name": "add",
+            "usage": "add <module> [directory]",
+            "short": "Add a project template module",
+            "aliases": [
+              "install"
+            ],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "dry-run",
+                "type": "bool",
+                "description": "show the module add plan without writing changes",
+                "inherited": false
+              },
+              {
+                "name": "force",
+                "type": "bool",
+                "description": "allow module add to overwrite existing project files",
+                "inherited": false
+              },
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for add",
+                "inherited": false
+              },
+              {
+                "name": "yes",
+                "shorthand": "y",
+                "type": "bool",
+                "description": "apply the module add plan without prompting",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project module list",
+            "name": "list",
+            "usage": "list [directory]",
+            "short": "List project template modules",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for list",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project module remove",
+            "name": "remove",
+            "usage": "remove <module> [directory]",
+            "short": "Remove a project template module",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "dry-run",
+                "type": "bool",
+                "description": "show the module remove plan without writing changes",
+                "inherited": false
+              },
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for remove",
+                "inherited": false
+              },
+              {
+                "name": "yes",
+                "shorthand": "y",
+                "type": "bool",
+                "description": "apply the module remove plan without prompting",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project module show",
+            "name": "show",
+            "usage": "show <module> [directory]",
+            "short": "Show details for a project template module",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for show",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      },
+      {
+        "path": "project prepare",
+        "name": "prepare",
+        "usage": "prepare [directory]",
+        "short": "Run trusted repository setup steps",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "expect-commit",
+            "type": "string",
+            "description": "require this exact repository commit before setup",
+            "inherited": false
+          },
+          {
+            "name": "expect-declaration-digest",
+            "type": "string",
+            "description": "require this exact setup declaration digest before setup",
+            "inherited": false
+          },
+          {
+            "name": "format",
+            "type": "string",
+            "description": "output format: pretty or json",
+            "inherited": false
+          },
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for prepare",
+            "inherited": false
+          },
+          {
+            "name": "json",
+            "type": "bool",
+            "description": "print machine-readable JSON output",
+            "inherited": false
+          },
+          {
+            "name": "step",
+            "type": "string",
+            "description": "stable setup step ID (default: all steps in declaration order)",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project prepare status",
+            "name": "status",
+            "usage": "status [directory]",
+            "short": "Inspect trusted repository setup",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "expect-commit",
+                "type": "string",
+                "description": "require this exact repository commit before setup",
+                "inherited": false
+              },
+              {
+                "name": "expect-declaration-digest",
+                "type": "string",
+                "description": "require this exact setup declaration digest before setup",
+                "inherited": false
+              },
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: pretty or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for status",
+                "inherited": false
+              },
+              {
+                "name": "json",
+                "type": "bool",
+                "description": "print machine-readable JSON output",
+                "inherited": false
+              },
+              {
+                "name": "step",
+                "type": "string",
+                "description": "stable setup step ID (default: all steps in declaration order)",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      },
+      {
+        "path": "project run",
+        "name": "run",
+        "usage": "run <script> [directory]",
+        "short": "Run a configured project script in the foreground",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "format",
+            "type": "string",
+            "description": "output format: pretty or json",
+            "inherited": false
+          },
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for run",
+            "inherited": false
+          },
+          {
+            "name": "json",
+            "type": "bool",
+            "description": "print machine-readable JSON output",
+            "inherited": false
+          }
+        ],
+        "commands": []
+      },
+      {
+        "path": "project self-update",
+        "name": "self-update",
+        "usage": "self-update",
+        "short": "Check for and install a signed Project CLI release",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "check",
+            "type": "bool",
+            "description": "check the signed approved release without changing files",
+            "inherited": false
+          },
+          {
+            "name": "format",
+            "type": "string",
+            "description": "output format: pretty or json",
+            "inherited": false
+          },
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for self-update",
+            "inherited": false
+          },
+          {
+            "name": "yes",
+            "shorthand": "y",
+            "type": "bool",
+            "description": "install the verified update without prompting",
+            "inherited": false
+          }
+        ],
+        "commands": []
+      },
+      {
+        "path": "project serve",
+        "name": "serve",
+        "usage": "serve [script] [directory]",
+        "short": "Run a project script and expose it on this Tailnet",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "allowed-host",
+            "type": "stringArray",
+            "description": "explicit Vite host allowed to reach this session (repeatable)",
+            "inherited": false
+          },
+          {
+            "name": "format",
+            "type": "string",
+            "description": "output format: pretty or json",
+            "inherited": false
+          },
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for serve",
+            "inherited": false
+          },
+          {
+            "name": "json",
+            "type": "bool",
+            "description": "print machine-readable JSON output",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project serve list",
+            "name": "list",
+            "usage": "list [directory]",
+            "short": "List trusted development servers configured by a repository",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: pretty or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for list",
+                "inherited": false
+              },
+              {
+                "name": "json",
+                "type": "bool",
+                "description": "print machine-readable JSON output",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project serve reconcile",
+            "name": "reconcile",
+            "usage": "reconcile",
+            "short": "Check managed project servers and clean stale sessions",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: pretty or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for reconcile",
+                "inherited": false
+              },
+              {
+                "name": "json",
+                "type": "bool",
+                "description": "print machine-readable JSON output",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project serve status",
+            "name": "status",
+            "usage": "status [directory]",
+            "short": "Inspect a managed project server",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: pretty or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for status",
+                "inherited": false
+              },
+              {
+                "name": "json",
+                "type": "bool",
+                "description": "print machine-readable JSON output",
+                "inherited": false
+              },
+              {
+                "name": "script",
+                "type": "string",
+                "description": "configured script name",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project serve stop",
+            "name": "stop",
+            "usage": "stop [directory]",
+            "short": "Stop one managed project server",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: pretty or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for stop",
+                "inherited": false
+              },
+              {
+                "name": "json",
+                "type": "bool",
+                "description": "print machine-readable JSON output",
+                "inherited": false
+              },
+              {
+                "name": "script",
+                "type": "string",
+                "description": "configured script name",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      },
+      {
+        "path": "project status",
+        "name": "status",
+        "usage": "status",
+        "short": "Show this machine's Project Space connection",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for status",
+            "inherited": false
+          },
+          {
+            "name": "json",
+            "type": "bool",
+            "description": "print machine-readable output",
+            "inherited": false
+          }
+        ],
+        "commands": []
+      },
+      {
+        "path": "project template",
+        "name": "template",
+        "usage": "template",
+        "short": "Manage the local project template snapshot",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for template",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project template lint",
+            "name": "lint",
+            "usage": "lint",
+            "short": "Validate a template checkout",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for lint",
+                "inherited": false
+              },
+              {
+                "name": "template-path",
+                "type": "string",
+                "description": "template checkout path",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project template smoke",
+            "name": "smoke",
+            "usage": "smoke",
+            "short": "Generate a tmp project and run template smoke checks",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "commit",
+                "type": "string",
+                "description": "template commit or label",
+                "inherited": false
+              },
+              {
+                "name": "container",
+                "type": "bool",
+                "description": "build generated project containers",
+                "inherited": false
+              },
+              {
+                "name": "global-tmp",
+                "type": "bool",
+                "description": "create the generated project under /tmp",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for smoke",
+                "inherited": false
+              },
+              {
+                "name": "name",
+                "type": "string",
+                "description": "tmp project name prefix",
+                "inherited": false
+              },
+              {
+                "name": "skip-checks",
+                "type": "bool",
+                "description": "skip dependency, secrets, check, and build commands",
+                "inherited": false
+              },
+              {
+                "name": "skip-secrets-doctor",
+                "type": "bool",
+                "description": "skip bun run secrets:doctor",
+                "inherited": false
+              },
+              {
+                "name": "template",
+                "type": "string",
+                "description": "template repository",
+                "inherited": false
+              },
+              {
+                "name": "template-path",
+                "type": "string",
+                "description": "template path",
+                "inherited": false
+              },
+              {
+                "name": "version",
+                "type": "string",
+                "description": "template version",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project template sync",
+            "name": "sync",
+            "usage": "sync [directory]",
+            "short": "Sync the local template snapshot",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "dry-run",
+                "type": "bool",
+                "description": "show the template sync plan without writing changes",
+                "inherited": false
+              },
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for sync",
+                "inherited": false
+              },
+              {
+                "name": "template-path",
+                "type": "string",
+                "description": "template source path",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project template update",
+            "name": "update",
+            "usage": "update [directory]",
+            "short": "Update a project from its template",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "dry-run",
+                "type": "bool",
+                "description": "show the template update plan without writing changes",
+                "inherited": false
+              },
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for update",
+                "inherited": false
+              },
+              {
+                "name": "template-path",
+                "type": "string",
+                "description": "template source path",
+                "inherited": false
+              },
+              {
+                "name": "yes",
+                "shorthand": "y",
+                "type": "bool",
+                "description": "apply the template update without prompting",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      },
+      {
+        "path": "project token",
+        "name": "token",
+        "usage": "token",
+        "short": "Manage the Project 1Password token",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for token",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project token create",
+            "name": "create",
+            "usage": "create",
+            "short": "Create the Project 1Password service account token",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "dry-run",
+                "type": "bool",
+                "description": "show what would happen without creating a token",
+                "inherited": false
+              },
+              {
+                "name": "expires-in",
+                "type": "string",
+                "description": "create a temporary token with a 1Password expiry, for example 24h",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for create",
+                "inherited": false
+              },
+              {
+                "name": "json",
+                "type": "bool",
+                "description": "print machine-readable output",
+                "inherited": false
+              },
+              {
+                "name": "yes",
+                "shorthand": "y",
+                "type": "bool",
+                "description": "create the token without prompting",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      },
+      {
+        "path": "project validate",
+        "name": "validate",
+        "usage": "validate [directory|file]",
+        "short": "Validate a project against its template",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "color-scope",
+            "type": "string",
+            "description": "color scope",
+            "inherited": false
+          },
+          {
+            "name": "dry-run",
+            "type": "bool",
+            "description": "show the quarantine plan without writing changes",
+            "inherited": false
+          },
+          {
+            "name": "format",
+            "type": "string",
+            "description": "output format",
+            "inherited": false
+          },
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for validate",
+            "inherited": false
+          },
+          {
+            "name": "quarantine",
+            "type": "bool",
+            "description": "move not_allowed validation violations into .project/quarantine",
+            "inherited": false
+          },
+          {
+            "name": "status-color-only",
+            "type": "bool",
+            "description": "color only the status text",
+            "inherited": false
+          },
+          {
+            "name": "view",
+            "type": "string",
+            "description": "pretty output view",
+            "inherited": false
+          },
+          {
+            "name": "yes",
+            "shorthand": "y",
+            "type": "bool",
+            "description": "apply the quarantine plan without prompting",
+            "inherited": false
+          }
+        ],
+        "commands": []
+      },
+      {
+        "path": "project worktree",
+        "name": "worktree",
+        "usage": "worktree",
+        "short": "Prepare and validate isolated Codex worktrees",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for worktree",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project worktree check",
+            "name": "check",
+            "usage": "check",
+            "short": "Validate that the current Codex thread owns this isolated worktree",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for check",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project worktree materialize",
+            "name": "materialize",
+            "usage": "materialize",
+            "short": "Materialize a server-approved GitHub branch in the Project-managed worktree root",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "branch",
+                "type": "string",
+                "description": "server-approved exact branch identity",
+                "inherited": false
+              },
+              {
+                "name": "commit",
+                "type": "string",
+                "description": "server-approved exact commit",
+                "inherited": false
+              },
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for materialize",
+                "inherited": false
+              },
+              {
+                "name": "repository",
+                "type": "string",
+                "description": "server-approved GitHub owner/name",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project worktree prepare",
+            "name": "prepare",
+            "usage": "prepare [task-name]",
+            "short": "Prepare the worktree owned by the current Codex thread",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for prepare",
+                "inherited": false
+              },
+              {
+                "name": "issue",
+                "type": "int",
+                "description": "prepare a worktree for an existing open GitHub issue",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      }
+    ]
+  }
+}

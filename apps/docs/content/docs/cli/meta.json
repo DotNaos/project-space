@@ -1,4 +1,4 @@
 {
   "title": "CLI",
-  "pages": ["index", "create-init", "validate", "modules", "template", "deploy", "completion"]
+  "pages": ["index", "self-update", "create-init", "validate", "modules", "template", "deploy", "completion"]
 }
