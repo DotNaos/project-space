@@ -43,6 +43,8 @@ type ServiceConnector struct {
 	windowsTaskName          string
 	wslTaskName              string
 	wslSystemdCleanupTimeout time.Duration
+	wslRuntimeStop           func(context.Context, string) error
+	linuxManagedToolsRoot    string
 	launchdRemovalTimeout    time.Duration
 	launchdRemovalPoll       time.Duration
 	runner                   serviceCommandRunner
@@ -146,15 +148,21 @@ func newServiceConnector(
 	}
 
 	connector := &ServiceConnector{
-		executable: filepath.Clean(executable),
-		goos:       goos,
-		runner:     runner,
-		files:      files,
+		executable:     filepath.Clean(executable),
+		goos:           goos,
+		runner:         runner,
+		files:          files,
+		wslRuntimeStop: waitForWSLConnectorRuntimeStop,
 	}
 	if goos == "linux" {
-		connector.executable, err = stableLinuxServiceExecutable(connector.executable)
-		if err != nil {
-			return nil, err
+		// A staged managed binary must still be able to stop an old service when
+		// an interrupted legacy install has no current pointer yet. Start repeats
+		// this resolution strictly before it registers any service executable.
+		if toolsRoot, managed := possibleConnectorSupervisorToolsRoot(connector.executable); managed {
+			connector.linuxManagedToolsRoot = toolsRoot
+			if stable, stableErr := stableManagedLinuxServiceExecutable(toolsRoot); stableErr == nil {
+				connector.executable = stable
+			}
 		}
 	}
 	wslDistro := strings.TrimSpace(options.WSLDistro)
@@ -221,16 +229,23 @@ func newServiceConnector(
 }
 
 func stableLinuxServiceExecutable(executable string) (string, error) {
-	if _, managed := possibleConnectorSupervisorToolsRoot(executable); !managed {
+	toolsRoot, managed := possibleConnectorSupervisorToolsRoot(executable)
+	if !managed {
 		return executable, nil
 	}
-	toolsRoot, err := ResolveConnectorSupervisorMaintenanceToolsRoot(executable)
-	if err != nil {
-		return "", fmt.Errorf("resolve managed Linux connector service executable: %w", err)
+	return stableManagedLinuxServiceExecutable(toolsRoot)
+}
+
+func stableManagedLinuxServiceExecutable(toolsRoot string) (string, error) {
+	versionsRoot := filepath.Join(toolsRoot, connectorSupervisorVersionsDirectoryName)
+	current := filepath.Join(toolsRoot, connectorSupervisorCurrentPointerName)
+	if _, err := readManagedPointer(current, versionsRoot); err != nil {
+		return "", errors.New("managed Linux connector service executable is unsafe")
 	}
-	stable := filepath.Join(toolsRoot, connectorSupervisorCurrentPointerName, filepath.Base(executable))
-	info, err := os.Stat(stable)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 ||
+	stable := filepath.Join(current, "project")
+	info, err := os.Lstat(stable)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() ||
+		info.Mode().Perm()&0o111 == 0 ||
 		info.Mode().Perm()&0o022 != 0 {
 		return "", errors.New("managed Linux connector service executable is unsafe")
 	}
@@ -240,6 +255,16 @@ func stableLinuxServiceExecutable(executable string) (string, error) {
 func (connector *ServiceConnector) Start(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("machine connector service context is missing")
+	}
+	if connector.goos == "linux" {
+		stable, err := stableLinuxServiceExecutable(connector.executable)
+		if connector.linuxManagedToolsRoot != "" {
+			stable, err = stableManagedLinuxServiceExecutable(connector.linuxManagedToolsRoot)
+		}
+		if err != nil {
+			return err
+		}
+		connector.executable = stable
 	}
 	switch connector.goos {
 	case "linux":

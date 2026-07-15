@@ -107,9 +107,6 @@ backup_root="${transaction_root}/backups"
 mkdir -m 0700 -- "$backup_root"
 
 previous_current_target=""
-if [[ -L $current_link ]]; then
-  previous_current_target=$(readlink -- "$current_link")
-fi
 stopped_existing=0
 installation_started=0
 committed=0
@@ -142,8 +139,8 @@ rollback_installation() {
     restore_entry "${changed_entries[$index]}"
   done
   if [[ $stopped_existing -eq 1 ]]; then
-    if [[ ! -x ${install_directory}/project ]] || \
-      ! "${install_directory}/project" connector service start-if-connected; then
+    if [[ ! -x $previous_service_project ]] || \
+      ! "$previous_service_project" connector service start-if-connected; then
       echo "The previous connector service could not be restarted after rollback." >&2
       return 1
     fi
@@ -201,14 +198,24 @@ for name in project project-space-connector; do
 done
 
 existing_project="${install_directory}/project"
+managed_current_project="${current_link}/project"
+previous_service_project=""
+if [[ -x $managed_current_project ]]; then
+  previous_service_project=$managed_current_project
+elif [[ -x $existing_project ]]; then
+  previous_service_project=$existing_project
+fi
 installation_started=1
-if [[ -x $existing_project ]]; then
+if [[ -n $previous_service_project ]]; then
   # Treat the old service as needing restoration before stopping it. This also
   # keeps a partial stop failure fail-safe: rollback retries the idempotent start.
   stopped_existing=1
   "$release_directory/project" connector service stop
 fi
 assert_connector_maintenance_idle
+if [[ -L $current_link ]]; then
+  previous_current_target=$(readlink -- "$current_link")
+fi
 
 for name in project project-space-connector; do
   destination="${install_directory}/${name}"

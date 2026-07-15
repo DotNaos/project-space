@@ -124,7 +124,6 @@ transaction_root=$(mktemp -d "${tools_root}/.install.XXXXXX")
 backup_root="${transaction_root}/backups"
 mkdir -m 0700 -- "$backup_root"
 previous_current_target=""
-[[ ! -L $current_link ]] || previous_current_target=$(readlink "$current_link")
 installation_started=0
 committed=0
 pointer_switched=0
@@ -258,6 +257,7 @@ elif [[ $service_mode == managed ]]; then
   "$release_directory/project" connector service stop
 fi
 assert_connector_maintenance_idle
+[[ ! -L $current_link ]] || previous_current_target=$(readlink "$current_link")
 
 for name in project project-space-connector project-approval-signer; do
   destination="${install_directory}/${name}"

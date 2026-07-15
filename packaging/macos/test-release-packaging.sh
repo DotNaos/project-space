@@ -164,6 +164,22 @@ grep -Fx 'v2:connector service stop' "$service_log"
 pointer_restore="$temporary_root/current.restore"
 ln -s -- "$maintenance_current_before" "$pointer_restore"
 mv -h -f -- "$pointer_restore" "$install_root/.project-space-machine-tools/current"
+
+# If a racing update finishes and removes its marker before the second check,
+# a later installer failure must roll back to that newly completed pointer.
+completed_race_starts_before=$(grep -Fxc 'v1:connector service start-if-connected' "$service_log")
+set +e
+PROJECT_FIXTURE_FAIL_START_LABEL=v2 \
+PROJECT_FIXTURE_POINTER_ON_STOP="$install_root/.project-space-machine-tools/current" \
+PROJECT_FIXTURE_POINTER_TARGET='versions/raced-release' \
+  "$bundle_v2/install.sh" --install-dir "$install_root" >/dev/null 2>&1
+completed_race_status=$?
+set -e
+[[ $completed_race_status -eq 70 ]]
+[[ $(readlink "$install_root/.project-space-machine-tools/current") == 'versions/raced-release' ]]
+[[ $(grep -Fxc 'v1:connector service start-if-connected' "$service_log") == $((completed_race_starts_before + 1)) ]]
+ln -s -- "$maintenance_current_before" "$pointer_restore"
+mv -h -f -- "$pointer_restore" "$install_root/.project-space-machine-tools/current"
 rm -rf -- "$raced_release"
 
 "$bundle_v2/install.sh" --install-dir "$install_root" >/dev/null

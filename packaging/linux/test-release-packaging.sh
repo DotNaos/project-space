@@ -125,6 +125,31 @@ SOURCE_DATE_EPOCH=0 "$script_directory/build-machine-tools.sh" \
 tar -xzf "$upgrade_output/$archive_name" -C "$upgrade_extracted"
 upgrade_bundle="$upgrade_extracted/project-space-machine-tools-linux-x64-v${version}"
 
+# A missing top-level convenience link must not hide a managed service. Stop it
+# through the staged release, and restart the preserved current release if the
+# upgrade rolls back before recreating the link.
+missing_link_root="$temporary_root/missing-link-installed"
+missing_link_log="$temporary_root/missing-link-service.log"
+PROJECT_FIXTURE_SERVICE_LOG="$missing_link_log" \
+  "$bundle_root/install.sh" --install-dir "$missing_link_root" >/dev/null
+missing_link_current=$(readlink "$missing_link_root/.project-space-machine-tools/current")
+rm -f -- "$missing_link_root/project"
+set +e
+PROJECT_FIXTURE_SERVICE_LOG="$missing_link_log" \
+PROJECT_FIXTURE_FAIL_START_LABEL='project fixture v2' \
+  "$upgrade_bundle/install.sh" --install-dir "$missing_link_root" >/dev/null 2>&1
+missing_link_failure_status=$?
+set -e
+[[ $missing_link_failure_status -eq 70 ]]
+[[ ! -e $missing_link_root/project && ! -L $missing_link_root/project ]]
+[[ $(readlink "$missing_link_root/.project-space-machine-tools/current") == "$missing_link_current" ]]
+grep -Fx 'project fixture v2:connector service stop' "$missing_link_log"
+[[ $(grep -Fxc 'project fixture v1:connector service start-if-connected' "$missing_link_log") == 2 ]]
+PROJECT_FIXTURE_SERVICE_LOG="$missing_link_log" \
+  "$upgrade_bundle/install.sh" --install-dir "$missing_link_root" >/dev/null
+[[ -L $missing_link_root/project ]]
+[[ $($missing_link_root/project) == 'project fixture v2' ]]
+
 # An installer must never switch the managed pointer while a named maintenance
 # operation or its unresolved result is still present.
 maintenance_root="$install_root/.project-space-machine-tools/maintenance"
@@ -176,6 +201,23 @@ grep -Fx 'project fixture v2:connector service stop' "$service_log"
 pointer_restore="$temporary_root/current.restore"
 ln -s -- "$maintenance_current_before" "$pointer_restore"
 mv -Tf -- "$pointer_restore" "$install_root/.project-space-machine-tools/current"
+
+# If a racing update finishes and removes its marker before the second check,
+# a later installer failure must roll back to that newly completed pointer.
+completed_race_starts_before=$(grep -Fxc 'project fixture v1:connector service start-if-connected' "$service_log")
+set +e
+PROJECT_FIXTURE_SERVICE_LOG="$service_log" \
+PROJECT_FIXTURE_FAIL_START_LABEL='project fixture v2' \
+PROJECT_FIXTURE_POINTER_ON_STOP="$install_root/.project-space-machine-tools/current" \
+PROJECT_FIXTURE_POINTER_TARGET='versions/raced-release' \
+  "$upgrade_bundle/install.sh" --install-dir "$install_root" >/dev/null 2>&1
+completed_race_status=$?
+set -e
+[[ $completed_race_status -eq 70 ]]
+[[ $(readlink "$install_root/.project-space-machine-tools/current") == 'versions/raced-release' ]]
+[[ $(grep -Fxc 'project fixture v1:connector service start-if-connected' "$service_log") == $((completed_race_starts_before + 1)) ]]
+ln -s -- "$maintenance_current_before" "$pointer_restore"
+mv -Tf -- "$pointer_restore" "$install_root/.project-space-machine-tools/current"
 rm -rf -- "$raced_release"
 
 PROJECT_FIXTURE_SERVICE_LOG="$service_log" \
@@ -200,6 +242,7 @@ SOURCE_DATE_EPOCH=0 "$script_directory/build-machine-tools.sh" \
   "$version" "$failing_source" "$failing_output" >/dev/null
 tar -xzf "$failing_output/$archive_name" -C "$failing_extracted"
 failing_bundle="$failing_extracted/project-space-machine-tools-linux-x64-v${version}"
+v2_start_count_before_failure=$(grep -Fxc 'project fixture v2:connector service start-if-connected' "$service_log")
 if PROJECT_FIXTURE_SERVICE_LOG="$service_log" \
   "$failing_bundle/install.sh" --install-dir "$install_root" >/dev/null 2>&1; then
   echo "Installer accepted a release whose connector service could not start." >&2
@@ -209,7 +252,7 @@ fi
 [[ $($install_root/project) == 'project fixture v2' ]]
 grep -Fx 'project fixture v3:connector service stop' "$service_log"
 grep -Fx 'project fixture v3:connector service start-if-connected' "$service_log"
-[[ $(grep -Fxc 'project fixture v2:connector service start-if-connected' "$service_log") == 2 ]]
+[[ $(grep -Fxc 'project fixture v2:connector service start-if-connected' "$service_log") == $((v2_start_count_before_failure + 1)) ]]
 
 # A failed new start followed by a failed restored start must remain visible as
 # a distinct recovery-required failure. The old complete release still wins the
