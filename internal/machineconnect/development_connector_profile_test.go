@@ -2,6 +2,8 @@ package machineconnect
 
 import (
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -41,8 +43,21 @@ func TestDevelopmentConnectorProfileUsesExplicitIsolatedMetadataAndPaths(t *test
 	if profile.CredentialPath == stableCredential || profile.ReadinessPath == stableReadiness {
 		t.Fatal("development connector profile collided with stable connector state")
 	}
+}
+
+func TestDevelopmentConnectorCredentialStoreMatchesPlatformContract(t *testing.T) {
+	profile, err := NewDevelopmentConnectorProfile(t.TempDir())
+	if err != nil {
+		t.Fatalf("create development connector profile: %v", err)
+	}
 
 	store, err := profile.NewCredentialStore()
+	if runtime.GOOS == "windows" {
+		if err == nil || !strings.Contains(err.Error(), "must run inside WSL") {
+			t.Fatalf("native Windows credential store error = %v, want WSL guidance", err)
+		}
+		return
+	}
 	if err != nil {
 		t.Fatalf("create development credential store: %v", err)
 	}
