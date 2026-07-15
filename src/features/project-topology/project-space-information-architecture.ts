@@ -12,7 +12,7 @@ export const projectSpacePrimaryNavigation: readonly ProjectSpacePrimaryNavigati
   { destination: 'projects', label: 'Projects' }
 ];
 
-export const defaultProjectHomeView: ProjectHomeView = 'map';
+export const defaultProjectHomeView: ProjectHomeView = 'summary';
 
 export type ProjectChatTarget =
   | { kind: 'lead' }
@@ -76,7 +76,7 @@ export type ProjectSpaceViewPlacement =
 
 export function projectSpaceViewPlacement(view: LegacyProjectSpaceView): ProjectSpaceViewPlacement {
   if (view === 'topology') return { destination: 'home', view: 'map' };
-  if (view === 'root') return { destination: 'home', view: 'map' };
+  if (view === 'root') return { destination: 'home', view: 'summary' };
   if (view === 'chat') return { destination: 'chat', layer: 'lead' };
   if (view === 'codex') return { destination: 'chat', layer: 'agent' };
   if (view === 'machine' || view === 'machines') {

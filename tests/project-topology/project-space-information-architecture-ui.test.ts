@@ -18,6 +18,6 @@ describe('Project Space command-center composition', () => {
     ]);
 
     expect(exitCode, `${stdout}\n${stderr}`).toBe(0);
-    expect(`${stdout}\n${stderr}`).toContain('2 pass');
+    expect(`${stdout}\n${stderr}`).toContain('3 pass');
   });
 });

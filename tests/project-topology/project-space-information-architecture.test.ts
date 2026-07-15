@@ -13,7 +13,7 @@ describe('Project Space information architecture', () => {
       { destination: 'chat', label: 'Chat' },
       { destination: 'projects', label: 'Projects' }
     ]);
-    expect(defaultProjectHomeView).toBe('map');
+    expect(defaultProjectHomeView).toBe('summary');
   });
 
   test('folds the old topology and Codex destinations into Home and Chat', () => {
@@ -23,7 +23,7 @@ describe('Project Space information architecture', () => {
     });
     expect(projectSpaceViewPlacement('root')).toEqual({
       destination: 'home',
-      view: 'map'
+      view: 'summary'
     });
     expect(projectSpaceViewPlacement('codex')).toEqual({
       destination: 'chat',

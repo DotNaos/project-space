@@ -10,11 +10,13 @@ mock.module('@/app/dotnaos-ui', () => ({
   Button: ({
     children,
     isDisabled,
+    isIconOnly: _isIconOnly,
     onPress,
     ...props
   }: {
     children?: ReactNode;
     isDisabled?: boolean;
+    isIconOnly?: boolean;
     onPress?(): void;
     [key: string]: unknown;
   }) => createElement('button', { ...props, disabled: isDisabled, onClick: onPress }, children),
@@ -37,7 +39,7 @@ const { ProjectChatCommandCenter } = await import(
 );
 
 describe('Project Space command-center composition', () => {
-  test('makes the map the default Home view and keeps the compact summary available', () => {
+  test('makes the compact summary the default Home view with one graph action', () => {
     const html = renderToStaticMarkup(
       <ProjectHomeCommandCenter
         map={<div>Portfolio map</div>}
@@ -46,11 +48,31 @@ describe('Project Space command-center composition', () => {
     );
 
     expect(html).toContain('data-testid="project-home-command-center"');
-    expect(html).toContain('data-home-view="map"');
-    expect(html).toContain('aria-label="Home view"');
-    expect(html).toContain('>Map<');
-    expect(html).toContain('>Summary<');
+    expect(html).toContain('data-home-view="summary"');
+    expect(html).toContain('data-home-panel="summary"');
+    expect(html).toContain('data-testid="open-project-graph"');
+    expect(html).toContain('Graph view');
+    expect(html).not.toContain('aria-label="Home view"');
+    expect(html).not.toContain('Portfolio map');
     expect(html).not.toContain('>Topology<');
+  });
+
+  test('shows a top-right close action instead of tabs inside the graph', () => {
+    const html = renderToStaticMarkup(
+      <ProjectHomeCommandCenter
+        defaultView="map"
+        map={<div>Portfolio map</div>}
+        summary={<div>Compact project summary</div>}
+      />
+    );
+
+    expect(html).toContain('data-home-view="map"');
+    expect(html).toContain('data-home-panel="map"');
+    expect(html).toContain('data-testid="close-project-graph"');
+    expect(html).toContain('aria-label="Close graph view"');
+    expect(html).toContain('Portfolio map');
+    expect(html).not.toContain('Compact project summary');
+    expect(html).not.toContain('aria-label="Home view"');
   });
 
   test('renders agent conversation context inside one Chat hierarchy', () => {
