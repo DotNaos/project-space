@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 
 	"github.com/DotNaos/project-space/internal/machineconnect"
@@ -28,6 +30,7 @@ type connectorRunDependencies struct {
 		io.Writer,
 		io.Writer,
 	) (connectorSupervisor, error)
+	RestartSupervisor func(string) error
 }
 
 func newConnectorRunCommand() *cobra.Command {
@@ -61,17 +64,30 @@ func newConnectorRunCommandWithDependencies(dependencies connectorRunDependencie
 					readinessAttemptNonce = ""
 				}
 			}
-			supervisor, err := dependencies.NewSupervisor(
-				store,
-				binary,
-				readinessAttemptNonce,
-				command.OutOrStdout(),
-				command.ErrOrStderr(),
-			)
-			if err != nil {
-				return err
+			for {
+				supervisor, err := dependencies.NewSupervisor(
+					store,
+					binary,
+					readinessAttemptNonce,
+					command.OutOrStdout(),
+					command.ErrOrStderr(),
+				)
+				if err != nil {
+					return err
+				}
+				runErr := supervisor.Run(ctx)
+				if !machineconnect.CanRelaunchConnectorSupervisor(runErr) ||
+					dependencies.RestartSupervisor == nil {
+					return runErr
+				}
+				readinessAttemptNonce = ""
+				if err := dependencies.RestartSupervisor(binary); err != nil {
+					return errors.Join(
+						runErr,
+						fmt.Errorf("relaunch managed connector supervisor: %w", err),
+					)
+				}
 			}
-			return supervisor.Run(ctx)
 		},
 	}
 }
@@ -106,6 +122,7 @@ func defaultConnectorRunDependencies() connectorRunDependencies {
 				),
 			)
 		},
+		RestartSupervisor: restartConnectorSupervisor,
 	}
 }
 

@@ -557,6 +557,9 @@ func testServiceConnector(
 	if err != nil {
 		t.Fatalf("create service connector: %v", err)
 	}
+	if connector.wslDistro != "" {
+		connector.wslRuntimeStop = func(context.Context, string) error { return nil }
+	}
 	return connector
 }
 

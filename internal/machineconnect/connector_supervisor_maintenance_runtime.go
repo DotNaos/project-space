@@ -164,7 +164,7 @@ func (supervisor *ConnectorSupervisor) runConnectorCompanion(
 			return fmt.Errorf("recover connector supervisor maintenance: %w", err)
 		}
 		if recovery.RestartRequired {
-			return ErrConnectorSupervisorRestartRequired
+			return connectorSupervisorRestart(nil)
 		}
 		executable, err = maintenance.ManagedConnectorExecutable()
 		if err != nil {
@@ -256,7 +256,7 @@ func (supervisor *ConnectorSupervisor) runConnectorCompanion(
 			if pendingHealth {
 				result, maintenanceErr := maintenance.HandleConnectorExit()
 				if result.RestartRequired {
-					return errors.Join(ErrConnectorSupervisorRestartRequired, maintenanceErr)
+					return connectorSupervisorRestart(maintenanceErr)
 				}
 				if maintenanceErr != nil {
 					return errors.Join(runErr, maintenanceErr)
@@ -264,7 +264,7 @@ func (supervisor *ConnectorSupervisor) runConnectorCompanion(
 			}
 			result, maintenanceErr := maintenance.processControlIfPresent()
 			if result.RestartRequired {
-				return errors.Join(ErrConnectorSupervisorRestartRequired, maintenanceErr)
+				return connectorSupervisorRestart(maintenanceErr)
 			}
 			return errors.Join(runErr, maintenanceErr)
 
@@ -284,7 +284,7 @@ func (supervisor *ConnectorSupervisor) runConnectorCompanion(
 				return ctx.Err()
 			}
 			if health.result.RestartRequired {
-				return errors.Join(ErrConnectorSupervisorRestartRequired, health.err)
+				return connectorSupervisorRestart(health.err)
 			}
 			return errors.Join(
 				connectorSupervisorChildError(waitErr, writeErr),
@@ -306,7 +306,7 @@ func connectorSupervisorReconnectFailure(
 	}
 	result, maintenanceErr := maintenance.failPendingHealth(code)
 	if result.RestartRequired {
-		return errors.Join(ErrConnectorSupervisorRestartRequired, cause, maintenanceErr)
+		return connectorSupervisorRestart(errors.Join(cause, maintenanceErr))
 	}
 	return errors.Join(cause, maintenanceErr)
 }

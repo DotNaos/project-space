@@ -39,6 +39,7 @@ func TestNativeWindowsServiceConnectorStartsCredentialFreeScheduledTask(t *testi
 		"-RunLevel Limited",
 		"New-ScheduledTaskTrigger -AtLogOn",
 		"-MultipleInstances IgnoreNew",
+		"RestartCount 255",
 		"Register-ScheduledTask",
 		"Start-ScheduledTask",
 		"Stop-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction Stop",
@@ -47,6 +48,9 @@ func TestNativeWindowsServiceConnectorStartsCredentialFreeScheduledTask(t *testi
 		if !strings.Contains(script, required) {
 			t.Errorf("native Windows task script lacks %q:\n%s", required, script)
 		}
+	}
+	if strings.Contains(script, "RestartCount 999") {
+		t.Fatal("native Windows task used a restart count outside the Task Scheduler schema")
 	}
 	for _, forbidden := range []string{
 		machineConnectorWindowsTaskPrefix,

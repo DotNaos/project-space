@@ -45,14 +45,14 @@ try {
   $action = New-ScheduledTaskAction -Execute $executable -Argument %s
   $principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited
   $trigger = New-ScheduledTaskTrigger -AtLogOn -User $identity
-  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount %d -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
   Register-ScheduledTask -TaskPath $taskPath -TaskName $taskName -Description 'Keeps the authenticated native Project Space connector running.' -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Force | Out-Null
   Start-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction Stop
 } catch {
   Remove-ProjectConnectorTask
   throw
 }
-`, powershellLiteral(connector.windowsTaskName), powershellLiteral(connector.executable), powershellLiteral(actionArguments))
+`, powershellLiteral(connector.windowsTaskName), powershellLiteral(connector.executable), powershellLiteral(actionArguments), maximumWindowsTaskRestartCount)
 }
 
 func (connector *ServiceConnector) windowsStopScript() string {

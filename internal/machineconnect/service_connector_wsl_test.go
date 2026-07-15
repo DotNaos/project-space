@@ -44,6 +44,7 @@ func TestWSLServiceConnectorReplacesAndStartsWindowsScheduledTask(t *testing.T) 
 	runner := &scriptedServiceRunner{responses: []serviceCommandResponse{
 		{output: "not-found\n"},
 		{},
+		{},
 	}}
 	connector := testServiceConnector(t, ServiceConnectorOptions{
 		Executable: "/home/oli/Project Space/bin/project",
@@ -55,13 +56,17 @@ func TestWSLServiceConnectorReplacesAndStartsWindowsScheduledTask(t *testing.T) 
 	if err := connector.Start(context.Background()); err != nil {
 		t.Fatalf("start WSL scheduled task: %v", err)
 	}
-	if got := serviceCommandNames(runner.calls); !reflect.DeepEqual(got, []string{"systemctl", "powershell.exe"}) {
-		t.Fatalf("WSL start commands = %#v, want systemd cleanup then PowerShell", got)
+	if got := serviceCommandNames(runner.calls); !reflect.DeepEqual(got, []string{"systemctl", "powershell.exe", "powershell.exe"}) {
+		t.Fatalf("WSL start commands = %#v, want cleanup, hard stop, then registration", got)
 	}
 	if !containsArgument(runner.calls[0].arguments, machineConnectorSystemdUnit) {
 		t.Fatalf("WSL start did not inspect the stale systemd unit: %#v", runner.calls[0])
 	}
-	powerShellCall := runner.calls[1]
+	stopScript := decodePowerShellCommand(t, runner.calls[1].arguments[len(runner.calls[1].arguments)-1])
+	if !strings.Contains(stopScript, "Remove-ProjectConnectorTask") {
+		t.Fatalf("WSL start did not hard-stop the previous task first:\n%s", stopScript)
+	}
+	powerShellCall := runner.calls[2]
 	if !containsArgument(powerShellCall.arguments, "-EncodedCommand") ||
 		!containsArgument(powerShellCall.arguments, "-NonInteractive") {
 		t.Fatalf("PowerShell invocation is not non-interactive and encoded: %#v", powerShellCall)
@@ -75,13 +80,32 @@ func TestWSLServiceConnectorReplacesAndStartsWindowsScheduledTask(t *testing.T) 
 		"New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited",
 		"System32\\wsl.exe",
 		`-d "Ubuntu Dev 24.04" --user oli -- "/home/oli/Project Space/bin/project" connector run`,
-		"RestartCount 999",
+		"RestartCount 255",
 		"ExecutionTimeLimit ([TimeSpan]::Zero)",
 		"Remove-ProjectConnectorTask",
+		"Get-ScheduledTask -TaskPath $taskPath -ErrorAction Stop",
+		"Where-Object { $_.TaskName -ceq $taskName }",
+		"Stop-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction Stop",
+		"Timed out waiting for the WSL connector task to stop.",
 	} {
 		if !strings.Contains(script, required) {
 			t.Errorf("scheduled task script lacks %q:\n%s", required, script)
 		}
+	}
+	if strings.Contains(script, "RestartCount 999") {
+		t.Fatal("scheduled task used a restart count outside the Task Scheduler schema")
+	}
+	if strings.Contains(script, "Register-ScheduledTask") && strings.Contains(script, " -Force") {
+		t.Fatal("scheduled task registration can overwrite a racing connector task")
+	}
+	if strings.Contains(
+		script,
+		"Stop-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction SilentlyContinue",
+	) {
+		t.Fatal("scheduled task replacement can hide a failed stop")
+	}
+	if strings.Contains(script, "Get-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction SilentlyContinue") {
+		t.Fatal("scheduled task replacement can hide a failed task inspection")
 	}
 	joinedCalls := serviceCallsText(runner.calls)
 	for _, forbidden := range []string{
@@ -212,7 +236,7 @@ func TestWSLServiceConnectorStartsWithoutSystemdUserManager(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			runner := &scriptedServiceRunner{responses: []serviceCommandResponse{unavailable, {}}}
+			runner := &scriptedServiceRunner{responses: []serviceCommandResponse{unavailable, {}, {}}}
 			connector := testServiceConnector(t, ServiceConnectorOptions{
 				Executable: "/opt/project/bin/project",
 				GOOS:       "linux",
@@ -223,7 +247,7 @@ func TestWSLServiceConnectorStartsWithoutSystemdUserManager(t *testing.T) {
 			if err := connector.Start(context.Background()); err != nil {
 				t.Fatalf("start without systemd user manager: %v", err)
 			}
-			if got := serviceCommandNames(runner.calls); !reflect.DeepEqual(got, []string{"systemctl", "powershell.exe"}) {
+			if got := serviceCommandNames(runner.calls); !reflect.DeepEqual(got, []string{"systemctl", "powershell.exe", "powershell.exe"}) {
 				t.Fatalf("start commands = %#v", got)
 			}
 		})
@@ -233,7 +257,9 @@ func TestWSLServiceConnectorStartsWithoutSystemdUserManager(t *testing.T) {
 func TestWSLServiceConnectorKeepsScheduledTaskFailuresHard(t *testing.T) {
 	runner := &scriptedServiceRunner{responses: []serviceCommandResponse{
 		{output: "Failed to connect to bus: No medium found\n", err: errors.New("exit status 1")},
+		{},
 		{err: errors.New("scheduled task registration failed")},
+		{},
 	}}
 	connector := testServiceConnector(t, ServiceConnectorOptions{
 		Executable: "/opt/project/bin/project",
@@ -246,8 +272,32 @@ func TestWSLServiceConnectorKeepsScheduledTaskFailuresHard(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "scheduled task registration failed") {
 		t.Fatalf("scheduled task failure was hidden: %v", err)
 	}
-	if got := serviceCommandNames(runner.calls); !reflect.DeepEqual(got, []string{"systemctl", "powershell.exe"}) {
+	if got := serviceCommandNames(runner.calls); !reflect.DeepEqual(got, []string{"systemctl", "powershell.exe", "powershell.exe", "powershell.exe"}) {
 		t.Fatalf("failure commands = %#v", got)
+	}
+}
+
+func TestWSLServiceConnectorStartStopsBeforeRegistering(t *testing.T) {
+	runner := &scriptedServiceRunner{responses: []serviceCommandResponse{
+		{output: "not-found\n"},
+		{},
+	}}
+	connector := testServiceConnector(t, ServiceConnectorOptions{
+		Executable: "/opt/project/bin/project",
+		GOOS:       "linux",
+		LinuxUser:  "oli",
+		WSLDistro:  "Ubuntu-24.04",
+	}, runner, &recordingServiceFiles{})
+	connector.wslRuntimeStop = func(context.Context, string) error {
+		return errors.New("orphaned managed companion is still running")
+	}
+
+	err := connector.Start(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "orphaned managed companion is still running") {
+		t.Fatalf("WSL start hid the runtime barrier failure: %v", err)
+	}
+	if got := serviceCommandNames(runner.calls); !reflect.DeepEqual(got, []string{"systemctl", "powershell.exe"}) {
+		t.Fatalf("WSL start continued after failed runtime barrier: %#v", got)
 	}
 }
 
@@ -264,6 +314,14 @@ func TestWSLServiceConnectorStopsTaskAndStaleSystemdUnit(t *testing.T) {
 		LinuxUser:  "oli",
 		WSLDistro:  "Ubuntu-24.04",
 	}, runner, &recordingServiceFiles{})
+	barrierCalls := 0
+	connector.wslRuntimeStop = func(_ context.Context, executable string) error {
+		barrierCalls++
+		if executable != connector.executable {
+			t.Fatalf("runtime barrier executable = %q, want %q", executable, connector.executable)
+		}
+		return nil
+	}
 
 	if err := connector.Stop(context.Background()); err != nil {
 		t.Fatalf("stop WSL scheduled task: %v", err)
@@ -274,14 +332,54 @@ func TestWSLServiceConnectorStopsTaskAndStaleSystemdUnit(t *testing.T) {
 	) {
 		t.Fatalf("WSL stop commands = %#v", got)
 	}
+	if barrierCalls != 1 {
+		t.Fatalf("WSL runtime barrier calls = %d, want 1", barrierCalls)
+	}
 	script := decodePowerShellCommand(t, runner.calls[3].arguments[len(runner.calls[3].arguments)-1])
-	for _, required := range []string{"Get-ScheduledTask", "Stop-ScheduledTask", "Unregister-ScheduledTask"} {
+	for _, required := range []string{
+		"Get-ScheduledTask",
+		"Get-ScheduledTask -TaskPath $taskPath -ErrorAction Stop",
+		"Where-Object { $_.TaskName -ceq $taskName }",
+		"Stop-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction Stop",
+		"Timed out waiting for the WSL connector task to stop.",
+		"Unregister-ScheduledTask",
+	} {
 		if !strings.Contains(script, required) {
 			t.Errorf("scheduled task stop script lacks %q", required)
 		}
 	}
+	if strings.Contains(
+		script,
+		"Stop-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction SilentlyContinue",
+	) {
+		t.Fatal("scheduled task stop can hide a failure and leave a maintenance writer running")
+	}
+	if strings.Contains(script, "Get-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction SilentlyContinue") {
+		t.Fatal("scheduled task stop can hide a failed task inspection")
+	}
 	if strings.Contains(script, "/opt/project/bin/project") || strings.Contains(script, "connector run") {
 		t.Fatal("scheduled task stop embedded executable or runtime arguments")
+	}
+}
+
+func TestWSLServiceConnectorDoesNotHideRuntimeBarrierFailure(t *testing.T) {
+	runner := &scriptedServiceRunner{responses: []serviceCommandResponse{
+		{output: "not-found\n"},
+		{},
+	}}
+	connector := testServiceConnector(t, ServiceConnectorOptions{
+		Executable: "/opt/project/bin/project",
+		GOOS:       "linux",
+		LinuxUser:  "oli",
+		WSLDistro:  "Ubuntu-24.04",
+	}, runner, &recordingServiceFiles{})
+	connector.wslRuntimeStop = func(context.Context, string) error {
+		return errors.New("managed companion is still running")
+	}
+
+	err := connector.Stop(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "managed companion is still running") {
+		t.Fatalf("WSL runtime barrier failure was hidden: %v", err)
 	}
 }
 

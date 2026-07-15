@@ -309,6 +309,47 @@ func TestConnectorSupervisorMaintenanceRestartFailureDoesNotChangeVersion(t *tes
 	}
 }
 
+func TestConnectorSupervisorMaintenanceExpiredRestartRecoveryRestoresCurrentVersion(t *testing.T) {
+	fixture := newMaintenanceTestFixture(t, "linux-x64")
+	fixture.writeRestartControl(maintenanceTestOperation)
+	if _, err := fixture.maintenance.ProcessControl(); err != nil {
+		t.Fatal(err)
+	}
+	fixture.maintenance.now = func() time.Time { return maintenanceTestNow.Add(2 * time.Minute) }
+
+	result, err := fixture.maintenance.RecoverStartup()
+	if err != nil || result.Outcome != ConnectorSupervisorMaintenanceFailed ||
+		result.RestartRequired || fixture.pointer() != maintenanceTestOldPointer {
+		t.Fatalf("expired restart recovery = %#v pointer=%s err=%v", result, fixture.pointer(), err)
+	}
+	state, stateErr := fixture.maintenance.readState()
+	if stateErr != nil || state.Phase != connectorSupervisorPhaseFailed ||
+		state.FailureCode != "health-timeout" {
+		t.Fatalf("expired restart state = %#v, err=%v", state, stateErr)
+	}
+}
+
+func TestConnectorSupervisorMaintenanceExpiredUpdateRecoveryStillRestartsRollback(t *testing.T) {
+	fixture := newMaintenanceTestFixture(t, "linux-x64")
+	fixture.writeUpdateControl(
+		maintenanceTestOperation,
+		maintenanceTestArchive(t, "linux-x64"),
+	)
+	if _, err := fixture.maintenance.ProcessControl(); err != nil {
+		t.Fatal(err)
+	}
+	if fixture.pointer() == maintenanceTestOldPointer {
+		t.Fatal("update did not switch before recovery")
+	}
+	fixture.maintenance.now = func() time.Time { return maintenanceTestNow.Add(2 * time.Minute) }
+
+	result, err := fixture.maintenance.RecoverStartup()
+	if err != nil || result.Outcome != ConnectorSupervisorMaintenanceRolledBack ||
+		!result.RestartRequired || fixture.pointer() != maintenanceTestOldPointer {
+		t.Fatalf("expired update recovery = %#v pointer=%s err=%v", result, fixture.pointer(), err)
+	}
+}
+
 func TestConnectorSupervisorMaintenanceFailedRestartAllowsFreshControl(t *testing.T) {
 	fixture := newMaintenanceTestFixture(t, "darwin-arm64")
 	fixture.writeRestartControl(maintenanceTestOperation)

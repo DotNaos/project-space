@@ -71,6 +71,23 @@ if [[ -e $current_link && ! -L $current_link ]]; then
   exit 73
 fi
 
+maintenance_root="${tools_root}/maintenance"
+assert_connector_maintenance_idle() {
+  if [[ -L $maintenance_root || ( -e $maintenance_root && ! -d $maintenance_root ) ]]; then
+    echo "The connector maintenance path is unsafe: $maintenance_root" >&2
+    return 73
+  fi
+  local maintenance_marker marker_path
+  for maintenance_marker in state.json control.json decision.json; do
+    marker_path="${maintenance_root}/${maintenance_marker}"
+    if [[ -e $marker_path || -L $marker_path ]]; then
+      echo "Connector maintenance is still active or unresolved; recover it before installing." >&2
+      return 75
+    fi
+  done
+}
+assert_connector_maintenance_idle
+
 legacy_plist="${HOME}/Library/LaunchAgents/net.os-home.project-space-connector.plist"
 modern_plist="${HOME}/Library/LaunchAgents/net.os-home.project-space.machine-connector-supervisor.plist"
 if [[ -L $legacy_plist || -L $modern_plist ]]; then
@@ -107,9 +124,9 @@ transaction_root=$(mktemp -d "${tools_root}/.install.XXXXXX")
 backup_root="${transaction_root}/backups"
 mkdir -m 0700 -- "$backup_root"
 previous_current_target=""
-[[ ! -L $current_link ]] || previous_current_target=$(readlink "$current_link")
 installation_started=0
 committed=0
+pointer_switched=0
 legacy_was_running=0
 changed_entries=()
 
@@ -152,18 +169,20 @@ restart_previous_connector() {
 rollback_installation() {
   local rollback_pointer="${transaction_root}/current.rollback"
   local rollback_failed=0
-  if [[ $service_mode != legacy && -x ${install_directory}/project ]]; then
-    if ! "${install_directory}/project" connector service stop; then
-      echo "The attempted connector service could not be stopped before rollback." >&2
-      rollback_failed=1
+  if [[ $pointer_switched -eq 1 ]]; then
+    if [[ $service_mode != legacy && -x ${install_directory}/project ]]; then
+      if ! "${install_directory}/project" connector service stop; then
+        echo "The attempted connector service could not be stopped before rollback." >&2
+        rollback_failed=1
+      fi
     fi
-  fi
-  if [[ -n $previous_current_target ]]; then
-    rm -f -- "$rollback_pointer"
-    ln -s -- "$previous_current_target" "$rollback_pointer"
-    mv -h -f -- "$rollback_pointer" "$current_link"
-  else
-    rm -f -- "$current_link"
+    if [[ -n $previous_current_target ]]; then
+      rm -f -- "$rollback_pointer"
+      ln -s -- "$previous_current_target" "$rollback_pointer"
+      mv -h -f -- "$rollback_pointer" "$current_link"
+    else
+      rm -f -- "$current_link"
+    fi
   fi
   local index
   for ((index=${#changed_entries[@]} - 1; index >= 0; index--)); do
@@ -234,9 +253,11 @@ if [[ $service_mode == legacy ]]; then
   if launchctl print "$legacy_service" >/dev/null 2>&1; then
     launchctl bootout "$legacy_service"
   fi
-elif [[ $service_mode == managed && -x $existing_project ]]; then
-  "$existing_project" connector service stop
+elif [[ $service_mode == managed ]]; then
+  "$release_directory/project" connector service stop
 fi
+assert_connector_maintenance_idle
+[[ ! -L $current_link ]] || previous_current_target=$(readlink "$current_link")
 
 for name in project project-space-connector project-approval-signer; do
   destination="${install_directory}/${name}"
@@ -255,6 +276,7 @@ done
 next_current="${transaction_root}/current.next"
 ln -s -- "versions/${release_id}" "$next_current"
 mv -h -f -- "$next_current" "$current_link"
+pointer_switched=1
 
 if ! start_connector; then
   echo "The new connector could not be started; the previous machine-tools release was restored." >&2

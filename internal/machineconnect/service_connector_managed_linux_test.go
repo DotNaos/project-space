@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -84,5 +85,98 @@ func TestLinuxServiceConnectorUsesManagedCurrentProjectAcrossPointerSwitch(t *te
 		"project",
 	); resolved != want {
 		t.Fatalf("stable Linux service path resolved to %q after update, want %q", resolved, want)
+	}
+}
+
+func TestManagedLinuxServiceConnectorCanStopBeforeCurrentPointerExists(t *testing.T) {
+	toolsRoot := filepath.Join(t.TempDir(), ".project-space-machine-tools")
+	project := filepath.Join(
+		toolsRoot,
+		connectorSupervisorVersionsDirectoryName,
+		"0.4.7-candidate",
+		"project",
+	)
+	if err := os.MkdirAll(filepath.Dir(project), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(project, []byte("project\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runner := &scriptedServiceRunner{responses: []serviceCommandResponse{{output: "not-found\n"}}}
+	connector := testServiceConnector(t, ServiceConnectorOptions{
+		Executable: project,
+		GOOS:       "linux",
+	}, runner, &recordingServiceFiles{})
+
+	if err := connector.Stop(context.Background()); err != nil {
+		t.Fatalf("stop from staged managed executable: %v", err)
+	}
+	if got := serviceCommandNames(runner.calls); !reflect.DeepEqual(got, []string{"systemctl"}) {
+		t.Fatalf("staged stop commands = %#v", got)
+	}
+	if err := connector.Start(context.Background()); err == nil ||
+		!strings.Contains(err.Error(), "managed Linux connector service executable is unsafe") {
+		t.Fatalf("start without stable current pointer was accepted: %v", err)
+	}
+}
+
+func TestManagedLinuxServiceConnectorStartRevalidatesCurrentPointer(t *testing.T) {
+	for name, replaceCurrent := range map[string]func(*testing.T, string){
+		"missing": func(t *testing.T, current string) {
+			t.Helper()
+			if err := os.Remove(current); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"outside managed versions": func(t *testing.T, current string) {
+			t.Helper()
+			if err := os.Remove(current); err != nil {
+				t.Fatal(err)
+			}
+			external := t.TempDir()
+			if err := os.WriteFile(filepath.Join(external, "project"), []byte("project\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(external, current); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			toolsRoot := filepath.Join(t.TempDir(), ".project-space-machine-tools")
+			release := filepath.Join(
+				toolsRoot,
+				connectorSupervisorVersionsDirectoryName,
+				"0.4.7-current",
+			)
+			if err := os.MkdirAll(release, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			project := filepath.Join(release, "project")
+			if err := os.WriteFile(project, []byte("project\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			current := filepath.Join(toolsRoot, connectorSupervisorCurrentPointerName)
+			if err := os.Symlink(filepath.Join(
+				connectorSupervisorVersionsDirectoryName,
+				filepath.Base(release),
+			), current); err != nil {
+				t.Fatal(err)
+			}
+			runner := &scriptedServiceRunner{}
+			connector := testServiceConnector(t, ServiceConnectorOptions{
+				Executable: project,
+				GOOS:       "linux",
+			}, runner, &recordingServiceFiles{})
+			replaceCurrent(t, current)
+
+			err := connector.Start(context.Background())
+			if err == nil || !strings.Contains(err.Error(), "managed Linux connector service executable is unsafe") {
+				t.Fatalf("start accepted changed managed current pointer: %v", err)
+			}
+			if len(runner.calls) != 0 {
+				t.Fatalf("start touched the service before pointer validation: %#v", runner.calls)
+			}
+		})
 	}
 }

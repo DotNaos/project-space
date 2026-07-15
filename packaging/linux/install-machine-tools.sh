@@ -82,6 +82,23 @@ if [[ -e $current_link && ! -L $current_link ]]; then
   exit 73
 fi
 
+maintenance_root="${tools_root}/maintenance"
+assert_connector_maintenance_idle() {
+  if [[ -L $maintenance_root || ( -e $maintenance_root && ! -d $maintenance_root ) ]]; then
+    echo "The connector maintenance path is unsafe: $maintenance_root" >&2
+    return 73
+  fi
+  local maintenance_marker marker_path
+  for maintenance_marker in state.json control.json decision.json; do
+    marker_path="${maintenance_root}/${maintenance_marker}"
+    if [[ -e $marker_path || -L $marker_path ]]; then
+      echo "Connector maintenance is still active or unresolved; recover it before installing." >&2
+      return 75
+    fi
+  done
+}
+assert_connector_maintenance_idle
+
 bundle_digest=$(sha256sum "${bundle_root}/SHA256SUMS.txt" | awk '{print $1}')
 release_id="${version}-${bundle_digest:0:16}"
 release_directory="${versions_root}/${release_id}"
@@ -90,12 +107,10 @@ backup_root="${transaction_root}/backups"
 mkdir -m 0700 -- "$backup_root"
 
 previous_current_target=""
-if [[ -L $current_link ]]; then
-  previous_current_target=$(readlink -- "$current_link")
-fi
 stopped_existing=0
 installation_started=0
 committed=0
+pointer_switched=0
 changed_entries=()
 
 restore_entry() {
@@ -110,20 +125,22 @@ restore_entry() {
 
 rollback_installation() {
   local rollback_pointer="${transaction_root}/current.rollback"
-  if [[ -n $previous_current_target ]]; then
-    rm -f -- "$rollback_pointer"
-    ln -s -- "$previous_current_target" "$rollback_pointer"
-    mv -Tf -- "$rollback_pointer" "$current_link"
-  else
-    rm -f -- "$current_link"
+  if [[ $pointer_switched -eq 1 ]]; then
+    if [[ -n $previous_current_target ]]; then
+      rm -f -- "$rollback_pointer"
+      ln -s -- "$previous_current_target" "$rollback_pointer"
+      mv -Tf -- "$rollback_pointer" "$current_link"
+    else
+      rm -f -- "$current_link"
+    fi
   fi
   local index
   for ((index=${#changed_entries[@]} - 1; index >= 0; index--)); do
     restore_entry "${changed_entries[$index]}"
   done
   if [[ $stopped_existing -eq 1 ]]; then
-    if [[ ! -x ${install_directory}/project ]] || \
-      ! "${install_directory}/project" connector service start-if-connected; then
+    if [[ ! -x $previous_service_project ]] || \
+      ! "$previous_service_project" connector service start-if-connected; then
       echo "The previous connector service could not be restarted after rollback." >&2
       return 1
     fi
@@ -181,12 +198,23 @@ for name in project project-space-connector; do
 done
 
 existing_project="${install_directory}/project"
+managed_current_project="${current_link}/project"
+previous_service_project=""
+if [[ -x $managed_current_project ]]; then
+  previous_service_project=$managed_current_project
+elif [[ -x $existing_project ]]; then
+  previous_service_project=$existing_project
+fi
 installation_started=1
-if [[ -x $existing_project ]]; then
+if [[ -n $previous_service_project ]]; then
   # Treat the old service as needing restoration before stopping it. This also
   # keeps a partial stop failure fail-safe: rollback retries the idempotent start.
   stopped_existing=1
-  "$existing_project" connector service stop
+  "$release_directory/project" connector service stop
+fi
+assert_connector_maintenance_idle
+if [[ -L $current_link ]]; then
+  previous_current_target=$(readlink -- "$current_link")
 fi
 
 for name in project project-space-connector; do
@@ -207,6 +235,7 @@ done
 next_current="${transaction_root}/current.next"
 ln -s -- "versions/${release_id}" "$next_current"
 mv -Tf -- "$next_current" "$current_link"
+pointer_switched=1
 
 if ! "${install_directory}/project" connector service start-if-connected; then
   echo "The new connector could not be started; the previous machine-tools release was restored." >&2

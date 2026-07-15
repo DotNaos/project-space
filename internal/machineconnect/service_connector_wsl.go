@@ -15,6 +15,7 @@ import (
 const (
 	machineConnectorWindowsTaskPrefix = "Project Space Machine Connector Supervisor"
 	maximumWindowsTaskNameLength      = 238
+	maximumWindowsTaskRestartCount    = 255
 	defaultWSLSystemdCleanupTimeout   = 5 * time.Second
 )
 
@@ -22,8 +23,15 @@ func (connector *ServiceConnector) startWSLScheduledTask(ctx context.Context) er
 	if err := connector.cleanupStaleWSLSystemd(ctx); err != nil {
 		return fmt.Errorf("remove stale WSL machine connector systemd service: %w", err)
 	}
+	if err := connector.removeWSLScheduledTaskAndWait(ctx); err != nil {
+		return fmt.Errorf("stop previous WSL machine connector scheduled task: %w", err)
+	}
 	if _, err := connector.runPowerShell(ctx, connector.wslStartScript()); err != nil {
-		return fmt.Errorf("start WSL machine connector scheduled task: %w", err)
+		startErr := fmt.Errorf("start WSL machine connector scheduled task: %w", err)
+		if cleanupErr := connector.removeWSLScheduledTaskAndWait(ctx); cleanupErr != nil {
+			return errors.Join(startErr, fmt.Errorf("clean up failed WSL machine connector start: %w", cleanupErr))
+		}
+		return startErr
 	}
 	return nil
 }
@@ -32,8 +40,18 @@ func (connector *ServiceConnector) stopWSLScheduledTask(ctx context.Context) err
 	if err := connector.cleanupStaleWSLSystemd(ctx); err != nil {
 		return fmt.Errorf("remove stale WSL machine connector systemd service: %w", err)
 	}
+	return connector.removeWSLScheduledTaskAndWait(ctx)
+}
+
+func (connector *ServiceConnector) removeWSLScheduledTaskAndWait(ctx context.Context) error {
 	if _, err := connector.runPowerShell(ctx, connector.wslStopScript()); err != nil {
 		return fmt.Errorf("stop WSL machine connector scheduled task: %w", err)
+	}
+	if connector.wslRuntimeStop == nil {
+		return errors.New("verify WSL machine connector stop: runtime barrier is unavailable")
+	}
+	if err := connector.wslRuntimeStop(ctx, connector.executable); err != nil {
+		return fmt.Errorf("verify WSL machine connector stop: %w", err)
 	}
 	return nil
 }
@@ -107,26 +125,27 @@ func (connector *ServiceConnector) wslStartScript() string {
 Import-Module ScheduledTasks -ErrorAction Stop
 $taskName = %s
 $taskPath = '\'
-function Remove-ProjectConnectorTask {
-  $task = Get-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction SilentlyContinue
-  if ($null -eq $task) { return }
-  Stop-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction SilentlyContinue
-  Unregister-ScheduledTask -TaskPath $taskPath -TaskName $taskName -Confirm:$false -ErrorAction Stop
-}
-Remove-ProjectConnectorTask
+%s
+$registered = $false
 try {
   $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
   $action = New-ScheduledTaskAction -Execute (Join-Path $env:SystemRoot 'System32\wsl.exe') -Argument %s
   $principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited
   $trigger = New-ScheduledTaskTrigger -AtLogOn -User $identity
-  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
-  Register-ScheduledTask -TaskPath $taskPath -TaskName $taskName -Description 'Keeps the authenticated Project Space connector running in WSL.' -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Force | Out-Null
+  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount %d -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+  Register-ScheduledTask -TaskPath $taskPath -TaskName $taskName -Description 'Keeps the authenticated Project Space connector running in WSL.' -Action $action -Principal $principal -Trigger $trigger -Settings $settings | Out-Null
+  $registered = $true
   Start-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction Stop
 } catch {
-  Remove-ProjectConnectorTask
+  if ($registered) { Remove-ProjectConnectorTask }
   throw
 }
-`, powershellLiteral(connector.wslTaskName), powershellLiteral(actionArguments))
+`,
+		powershellLiteral(connector.wslTaskName),
+		wslRemoveScheduledTaskPowerShell,
+		powershellLiteral(actionArguments),
+		maximumWindowsTaskRestartCount,
+	)
 }
 
 func (connector *ServiceConnector) wslStopScript() string {
@@ -134,14 +153,42 @@ func (connector *ServiceConnector) wslStopScript() string {
 Import-Module ScheduledTasks -ErrorAction Stop
 $taskName = %s
 $taskPath = '\'
-$task = Get-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction SilentlyContinue
-if ($null -ne $task) {
-  Stop-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction SilentlyContinue
-  Unregister-ScheduledTask -TaskPath $taskPath -TaskName $taskName -Confirm:$false -ErrorAction Stop
-}
+%s
+Remove-ProjectConnectorTask
 exit 0
-`, powershellLiteral(connector.wslTaskName))
+`, powershellLiteral(connector.wslTaskName), wslRemoveScheduledTaskPowerShell)
 }
+
+const wslRemoveScheduledTaskPowerShell = `function Stop-ProjectConnectorTask {
+  param($task)
+  $state = [string]$task.State
+  if ($state -eq 'Ready' -or $state -eq 'Disabled') { return }
+  if ($state -ne 'Running' -and $state -ne 'Queued') {
+    throw "Refusing to remove a WSL connector task in unknown state '$state'."
+  }
+  Stop-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction Stop
+  $stopDeadline = (Get-Date).AddSeconds(15)
+  do {
+    $task = Get-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction Stop
+    $state = [string]$task.State
+    if ($state -eq 'Ready' -or $state -eq 'Disabled') { return }
+    if ($state -ne 'Running' -and $state -ne 'Queued') {
+      throw "The WSL connector task entered unknown state '$state' while stopping."
+    }
+    if ((Get-Date) -ge $stopDeadline) {
+      throw 'Timed out waiting for the WSL connector task to stop.'
+    }
+    Start-Sleep -Milliseconds 100
+  } while ($true)
+}
+function Remove-ProjectConnectorTask {
+  $task = Get-ScheduledTask -TaskPath $taskPath -ErrorAction Stop |
+    Where-Object { $_.TaskName -ceq $taskName } |
+    Select-Object -First 1
+  if ($null -eq $task) { return }
+  Stop-ProjectConnectorTask $task
+  Unregister-ScheduledTask -TaskPath $taskPath -TaskName $taskName -Confirm:$false -ErrorAction Stop
+}`
 
 func wslScheduledTaskName(distro string, linuxUser string) string {
 	name := machineConnectorWindowsTaskPrefix +
