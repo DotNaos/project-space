@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 type serviceCommandCall struct {
@@ -221,7 +222,6 @@ func TestLaunchdServiceConnectorWritesPrivateCredentialFreeAgent(t *testing.T) {
 		{err: errors.New("service absent")},
 		{output: "Could not find service", err: errors.New("service absent")},
 		{},
-		{},
 	}}
 	files := &recordingServiceFiles{}
 	connector := testServiceConnector(t, ServiceConnectorOptions{
@@ -267,7 +267,7 @@ func TestLaunchdServiceConnectorWritesPrivateCredentialFreeAgent(t *testing.T) {
 	if machineConnectorLaunchLabel == "net.os-home.project-space-connector" {
 		t.Fatal("machine connector reused the existing production LaunchAgent label")
 	}
-	wantNames := []string{"launchctl", "launchctl", "launchctl", "launchctl"}
+	wantNames := []string{"launchctl", "launchctl", "launchctl"}
 	if !reflect.DeepEqual(serviceCommandNames(runner.calls), wantNames) {
 		t.Fatalf("LaunchAgent commands = %#v", runner.calls)
 	}
@@ -278,10 +278,6 @@ func TestLaunchdServiceConnectorWritesPrivateCredentialFreeAgent(t *testing.T) {
 		"bootstrap",
 		"gui/501",
 		paths.plist,
-	}) || !reflect.DeepEqual(runner.calls[3].arguments, []string{
-		"kickstart",
-		"-k",
-		"gui/501/" + machineConnectorLaunchLabel,
 	}) {
 		t.Fatalf("LaunchAgent command arguments = %#v", runner.calls)
 	}
@@ -290,7 +286,11 @@ func TestLaunchdServiceConnectorWritesPrivateCredentialFreeAgent(t *testing.T) {
 func TestLaunchdServiceConnectorStartAndStopAreIdempotent(t *testing.T) {
 	skipNativeWindowsForeignServiceTest(t)
 	t.Run("start replaces loaded service", func(t *testing.T) {
-		runner := &scriptedServiceRunner{responses: []serviceCommandResponse{{}, {}, {}}}
+		runner := &scriptedServiceRunner{responses: []serviceCommandResponse{
+			{},
+			{output: "Could not find service", err: errors.New("service absent")},
+			{},
+		}}
 		connector := testServiceConnector(t, ServiceConnectorOptions{
 			Executable: "/usr/local/bin/project",
 			GOOS:       "darwin",
@@ -301,8 +301,66 @@ func TestLaunchdServiceConnectorStartAndStopAreIdempotent(t *testing.T) {
 			t.Fatalf("replace LaunchAgent: %v", err)
 		}
 		if got := runner.calls; len(got) != 3 || got[0].arguments[0] != "bootout" ||
-			got[1].arguments[0] != "bootstrap" || got[2].arguments[0] != "kickstart" {
+			got[1].arguments[0] != "print" || got[2].arguments[0] != "bootstrap" {
 			t.Fatalf("LaunchAgent replacement calls = %#v", got)
+		}
+	})
+
+	t.Run("start waits for asynchronous removal", func(t *testing.T) {
+		runner := &scriptedServiceRunner{responses: []serviceCommandResponse{
+			{},
+			{output: "loaded\n"},
+			{output: "Could not find service", err: errors.New("service absent")},
+			{},
+		}}
+		connector := testServiceConnector(t, ServiceConnectorOptions{
+			Executable: "/usr/local/bin/project",
+			GOOS:       "darwin",
+			HomeDir:    "/Users/test",
+			UserID:     "502",
+		}, runner, &recordingServiceFiles{})
+		connector.launchdRemovalPoll = time.Nanosecond
+
+		if err := connector.Start(context.Background()); err != nil {
+			t.Fatalf("replace asynchronous LaunchAgent: %v", err)
+		}
+		want := []string{"bootout", "print", "print", "bootstrap"}
+		got := make([]string, 0, len(runner.calls))
+		for _, call := range runner.calls {
+			got = append(got, call.arguments[0])
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("asynchronous replacement calls = %#v, want %#v", got, want)
+		}
+	})
+
+	t.Run("start fails closed when removal never finishes", func(t *testing.T) {
+		runner := &scriptedServiceRunner{responses: []serviceCommandResponse{
+			{},
+			{output: "loaded\n"},
+		}}
+		files := &recordingServiceFiles{}
+		connector := testServiceConnector(t, ServiceConnectorOptions{
+			Executable: "/usr/local/bin/project",
+			GOOS:       "darwin",
+			HomeDir:    "/Users/test",
+			UserID:     "502",
+		}, runner, files)
+		connector.launchdRemovalTimeout = time.Millisecond
+		connector.launchdRemovalPoll = 100 * time.Millisecond
+
+		err := connector.Start(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "wait for connector LaunchAgent removal") {
+			t.Fatalf("asynchronous removal error = %v", err)
+		}
+		if got := serviceCommandNames(runner.calls); !reflect.DeepEqual(
+			got,
+			[]string{"launchctl", "launchctl"},
+		) {
+			t.Fatalf("timed-out replacement calls = %#v", runner.calls)
+		}
+		if len(files.files) != 0 {
+			t.Fatalf("timed-out replacement changed LaunchAgent files = %#v", files.files)
 		}
 	})
 
@@ -324,6 +382,37 @@ func TestLaunchdServiceConnectorStartAndStopAreIdempotent(t *testing.T) {
 		if len(runner.calls) != 2 || runner.calls[0].arguments[0] != "bootout" ||
 			runner.calls[1].arguments[0] != "print" {
 			t.Fatalf("absent LaunchAgent stop calls = %#v", runner.calls)
+		}
+		if !reflect.DeepEqual(files.removed, []string{connector.launchdPaths().plist}) {
+			t.Fatalf("removed LaunchAgent files = %#v", files.removed)
+		}
+	})
+
+	t.Run("stop waits for asynchronous removal", func(t *testing.T) {
+		runner := &scriptedServiceRunner{responses: []serviceCommandResponse{
+			{},
+			{output: "loaded\n"},
+			{output: "Could not find service", err: errors.New("service absent")},
+		}}
+		files := &recordingServiceFiles{}
+		connector := testServiceConnector(t, ServiceConnectorOptions{
+			Executable: "/usr/local/bin/project",
+			GOOS:       "darwin",
+			HomeDir:    "/Users/test",
+			UserID:     "502",
+		}, runner, files)
+		connector.launchdRemovalPoll = time.Nanosecond
+
+		if err := connector.Stop(context.Background()); err != nil {
+			t.Fatalf("stop asynchronous LaunchAgent: %v", err)
+		}
+		wantCalls := []string{"bootout", "print", "print"}
+		gotCalls := make([]string, 0, len(runner.calls))
+		for _, call := range runner.calls {
+			gotCalls = append(gotCalls, call.arguments[0])
+		}
+		if !reflect.DeepEqual(gotCalls, wantCalls) {
+			t.Fatalf("asynchronous stop calls = %#v, want %#v", gotCalls, wantCalls)
 		}
 		if !reflect.DeepEqual(files.removed, []string{connector.launchdPaths().plist}) {
 			t.Fatalf("removed LaunchAgent files = %#v", files.removed)

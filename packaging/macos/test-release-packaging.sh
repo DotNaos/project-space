@@ -134,6 +134,7 @@ fi
 [[ $(readlink "$install_root/.project-space-machine-tools/current") == "$second_current" ]]
 [[ $($install_root/project) == v2 ]]
 [[ -f $dual_legacy_plist ]]
+grep -Fx 'v3:connector service stop' "$service_log"
 [[ $(grep -Fxc 'v2:connector service start-if-connected' "$service_log") == $((v2_start_count_before_failure + 1)) ]]
 grep -Fx "bootstrap gui/$(id -u) $dual_legacy_plist" "$launchctl_log"
 grep -Fx "kickstart -k gui/$(id -u)/net.os-home.project-space-connector" "$launchctl_log"
@@ -187,6 +188,7 @@ if HOME="$migration_home" \
 fi
 [[ ! -e $migration_install_root/project && ! -L $migration_install_root/project ]]
 [[ ! -e $migration_install_root/.project-space-machine-tools/current ]]
+grep -Fx 'v3:connector service stop' "$migration_service_log"
 grep -Fx 'homebrew:connector service start-if-connected' "$migration_service_log"
 
 rm -f "$modern_plist"
