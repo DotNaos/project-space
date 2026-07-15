@@ -113,6 +113,7 @@ fi
 stopped_existing=0
 installation_started=0
 committed=0
+pointer_switched=0
 changed_entries=()
 
 restore_entry() {
@@ -127,12 +128,14 @@ restore_entry() {
 
 rollback_installation() {
   local rollback_pointer="${transaction_root}/current.rollback"
-  if [[ -n $previous_current_target ]]; then
-    rm -f -- "$rollback_pointer"
-    ln -s -- "$previous_current_target" "$rollback_pointer"
-    mv -Tf -- "$rollback_pointer" "$current_link"
-  else
-    rm -f -- "$current_link"
+  if [[ $pointer_switched -eq 1 ]]; then
+    if [[ -n $previous_current_target ]]; then
+      rm -f -- "$rollback_pointer"
+      ln -s -- "$previous_current_target" "$rollback_pointer"
+      mv -Tf -- "$rollback_pointer" "$current_link"
+    else
+      rm -f -- "$current_link"
+    fi
   fi
   local index
   for ((index=${#changed_entries[@]} - 1; index >= 0; index--)); do
@@ -203,7 +206,7 @@ if [[ -x $existing_project ]]; then
   # Treat the old service as needing restoration before stopping it. This also
   # keeps a partial stop failure fail-safe: rollback retries the idempotent start.
   stopped_existing=1
-  "$existing_project" connector service stop
+  "$release_directory/project" connector service stop
 fi
 assert_connector_maintenance_idle
 
@@ -225,6 +228,7 @@ done
 next_current="${transaction_root}/current.next"
 ln -s -- "versions/${release_id}" "$next_current"
 mv -Tf -- "$next_current" "$current_link"
+pointer_switched=1
 
 if ! "${install_directory}/project" connector service start-if-connected; then
   echo "The new connector could not be started; the previous machine-tools release was restored." >&2

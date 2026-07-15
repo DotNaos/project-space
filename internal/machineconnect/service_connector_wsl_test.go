@@ -278,10 +278,21 @@ func TestWSLServiceConnectorStopsTaskAndStaleSystemdUnit(t *testing.T) {
 		t.Fatalf("WSL stop commands = %#v", got)
 	}
 	script := decodePowerShellCommand(t, runner.calls[3].arguments[len(runner.calls[3].arguments)-1])
-	for _, required := range []string{"Get-ScheduledTask", "Stop-ScheduledTask", "Unregister-ScheduledTask"} {
+	for _, required := range []string{
+		"Get-ScheduledTask",
+		"Stop-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction Stop",
+		"Timed out waiting for the WSL connector task to stop.",
+		"Unregister-ScheduledTask",
+	} {
 		if !strings.Contains(script, required) {
 			t.Errorf("scheduled task stop script lacks %q", required)
 		}
+	}
+	if strings.Contains(
+		script,
+		"Stop-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction SilentlyContinue",
+	) {
+		t.Fatal("scheduled task stop can hide a failure and leave a maintenance writer running")
 	}
 	if strings.Contains(script, "/opt/project/bin/project") || strings.Contains(script, "connector run") {
 		t.Fatal("scheduled task stop embedded executable or runtime arguments")

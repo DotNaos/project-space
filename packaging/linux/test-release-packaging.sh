@@ -28,6 +28,11 @@ if [ "\${1:-}" = connector ] && [ "\${2:-}" = service ]; then
     { [ '$fail_start' = 1 ] || [ "\${PROJECT_FIXTURE_FAIL_START_LABEL:-}" = '$label' ]; }; then
     exit 1
   fi
+  if [ "\${3:-}" = stop ] && [ -n "\${PROJECT_FIXTURE_POINTER_ON_STOP:-}" ]; then
+    pointer_temp="\${PROJECT_FIXTURE_POINTER_ON_STOP}.fixture-next"
+    ln -s -- "\${PROJECT_FIXTURE_POINTER_TARGET:?}" "\$pointer_temp"
+    mv -Tf -- "\$pointer_temp" "\$PROJECT_FIXTURE_POINTER_ON_STOP"
+  fi
   if [ "\${3:-}" = stop ] && [ -n "\${PROJECT_FIXTURE_MAINTENANCE_MARKER_ON_STOP:-}" ]; then
     mkdir -p -- "\$(dirname -- "\$PROJECT_FIXTURE_MAINTENANCE_MARKER_ON_STOP")"
     printf '{}\\n' > "\$PROJECT_FIXTURE_MAINTENANCE_MARKER_ON_STOP"
@@ -148,9 +153,15 @@ done
 # Repeat the guard after stopping the old service so a maintenance operation
 # that races the initial preflight cannot reach the pointer switch.
 maintenance_race_error="$temporary_root/maintenance-race.error"
+raced_release="$install_root/.project-space-machine-tools/versions/raced-release"
+mkdir -m 0700 -- "$raced_release"
+cp -- "$temporary_root/source/project" "$raced_release/project"
+cp -- "$temporary_root/source/project-space-connector" "$raced_release/project-space-connector"
 set +e
 PROJECT_FIXTURE_SERVICE_LOG="$service_log" \
 PROJECT_FIXTURE_MAINTENANCE_MARKER_ON_STOP="$maintenance_root/control.json" \
+PROJECT_FIXTURE_POINTER_ON_STOP="$install_root/.project-space-machine-tools/current" \
+PROJECT_FIXTURE_POINTER_TARGET='versions/raced-release' \
   "$upgrade_bundle/install.sh" --install-dir "$install_root" \
   >/dev/null 2>"$maintenance_race_error"
 maintenance_race_status=$?
@@ -159,9 +170,13 @@ set -e
 grep -Fx 'Connector maintenance is still active or unresolved; recover it before installing.' \
   "$maintenance_race_error"
 rm -f -- "$maintenance_root/control.json"
-[[ $(readlink "$install_root/.project-space-machine-tools/current") == "$maintenance_current_before" ]]
-grep -Fx 'project fixture v1:connector service stop' "$service_log"
+[[ $(readlink "$install_root/.project-space-machine-tools/current") == 'versions/raced-release' ]]
+grep -Fx 'project fixture v2:connector service stop' "$service_log"
 [[ $(grep -Fxc 'project fixture v1:connector service start-if-connected' "$service_log") == 2 ]]
+pointer_restore="$temporary_root/current.restore"
+ln -s -- "$maintenance_current_before" "$pointer_restore"
+mv -Tf -- "$pointer_restore" "$install_root/.project-space-machine-tools/current"
+rm -rf -- "$raced_release"
 
 PROJECT_FIXTURE_SERVICE_LOG="$service_log" \
   "$upgrade_bundle/install.sh" --install-dir "$install_root" >/dev/null
@@ -169,7 +184,7 @@ PROJECT_FIXTURE_SERVICE_LOG="$service_log" \
 second_current=$(readlink "$install_root/.project-space-machine-tools/current")
 [[ $second_current == versions/${version}-* ]]
 [[ $second_current != "$first_current" ]]
-grep -Fx 'project fixture v1:connector service stop' "$service_log"
+grep -Fx 'project fixture v2:connector service stop' "$service_log"
 grep -Fx 'project fixture v2:connector service start-if-connected' "$service_log"
 
 # If the new service cannot start, the pointer rolls back to the complete old
@@ -192,7 +207,7 @@ if PROJECT_FIXTURE_SERVICE_LOG="$service_log" \
 fi
 [[ $(readlink "$install_root/.project-space-machine-tools/current") == "$second_current" ]]
 [[ $($install_root/project) == 'project fixture v2' ]]
-grep -Fx 'project fixture v2:connector service stop' "$service_log"
+grep -Fx 'project fixture v3:connector service stop' "$service_log"
 grep -Fx 'project fixture v3:connector service start-if-connected' "$service_log"
 [[ $(grep -Fxc 'project fixture v2:connector service start-if-connected' "$service_log") == 2 ]]
 
