@@ -20,6 +20,7 @@ on:
   push:
     tags:
       - 'v*'
+      - '!v*-signing-probe'
   workflow_dispatch:
 
 permissions:
@@ -344,6 +345,8 @@ jobs:
       actions: read
       contents: read
     uses: ./.github/workflows/release-macos.yml
+    secrets:
+      OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
     with:
       source-sha: ${{ github.sha }}
       trust-artifact-digest: ${{ needs.trust-roots.outputs.artifact-digest }}
@@ -501,6 +504,8 @@ jobs:
       actions: read
       contents: read
     uses: ./.github/workflows/release-manifest-sign.yml
+    secrets:
+      OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
     with:
       prepared-artifact-digest: ${{ needs.manifest-prepare.outputs.artifact-digest }}
       prepared-artifact-id: ${{ needs.manifest-prepare.outputs.artifact-id }}
@@ -615,7 +620,7 @@ jobs:
             "$RUNNER_TEMP/release-manifest-signature/RELEASE-MANIFEST-SIGNATURE.txt"
           grep -Fx "prepared-artifact-digest=${{ needs.manifest-prepare.outputs.artifact-digest }}" \
             "$RUNNER_TEMP/release-manifest-signature/RELEASE-MANIFEST-SIGNATURE.txt"
-          manifest_path="$RUNNER_TEMP/release-assets/project-space-release-manifest.json"
+          manifest_path="$RUNNER_TEMP/project-space-release-manifest.json"
           bun packaging/release/release-manifest-cli.ts assemble \
             --manifest "$RUNNER_TEMP/release-manifest-input/release-manifest.json" \
             --payload "$RUNNER_TEMP/release-manifest-input/release-manifest-payload.bin" \

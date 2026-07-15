@@ -49,21 +49,25 @@ function hasPinnedOnePasswordCliVersion(action: string) {
 }
 
 describe('release signing service-account secret boundary', () => {
-  test('the caller cannot receive or forward the signing service-account token', async () => {
+  test('the caller forwards only the named token to the isolated signer calls', async () => {
     const workflow = await source('.github/workflows/release.yml');
-    const signerCalls = jobBlocks(workflow).filter(({ name }) =>
-      ['macos-arm64', 'manifest-sign'].includes(name)
+    const secretCalls = jobBlocks(workflow).filter(({ source: block }) =>
+      block.includes(serviceAccountSecret)
     );
 
-    expect(workflow).not.toContain(serviceAccountSecret);
-    expect(signerCalls.map(({ name }) => name)).toEqual(['macos-arm64', 'manifest-sign']);
-    for (const call of signerCalls) {
-      expect(call.source).not.toMatch(/^    secrets:/m);
-      expect(call.source).not.toContain('secrets: inherit');
+    expect(secretCalls.map(({ name }) => name)).toEqual(['macos-arm64', 'manifest-sign']);
+    expect(workflow).not.toContain('secrets: inherit');
+    for (const call of secretCalls) {
+      const secretsBlock = call.source.match(/^    secrets:\n(?:      [^\n]+\n)+/m)?.[0];
+      expect(secretsBlock).toBe(
+        '    secrets:\n' +
+          `      ${serviceAccountSecret}: \${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}\n`
+      );
+      expect(call.source.match(new RegExp(serviceAccountSecret, 'g'))).toHaveLength(2);
     }
   });
 
-  test('reusable workflow contracts declare the environment token without caller forwarding', async () => {
+  test('reusable workflow contracts declare the named environment token', async () => {
     for (const path of reusableSignerWorkflows) {
       const contract = workflowContract(await source(path));
       expect(contract.match(new RegExp(serviceAccountSecret, 'g'))).toHaveLength(1);

@@ -151,6 +151,13 @@ restart_previous_connector() {
 
 rollback_installation() {
   local rollback_pointer="${transaction_root}/current.rollback"
+  local rollback_failed=0
+  if [[ $service_mode != legacy && -x ${install_directory}/project ]]; then
+    if ! "${install_directory}/project" connector service stop; then
+      echo "The attempted connector service could not be stopped before rollback." >&2
+      rollback_failed=1
+    fi
+  fi
   if [[ -n $previous_current_target ]]; then
     rm -f -- "$rollback_pointer"
     ln -s -- "$previous_current_target" "$rollback_pointer"
@@ -164,8 +171,9 @@ rollback_installation() {
   done
   if ! restart_previous_connector; then
     echo "The previous connector service could not be restarted after rollback." >&2
-    return 1
+    rollback_failed=1
   fi
+  return "$rollback_failed"
 }
 
 cleanup() {

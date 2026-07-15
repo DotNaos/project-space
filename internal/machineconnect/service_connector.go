@@ -43,6 +43,8 @@ type ServiceConnector struct {
 	windowsTaskName          string
 	wslTaskName              string
 	wslSystemdCleanupTimeout time.Duration
+	launchdRemovalTimeout    time.Duration
+	launchdRemovalPoll       time.Duration
 	runner                   serviceCommandRunner
 	files                    serviceFileSystem
 }
@@ -200,6 +202,8 @@ func newServiceConnector(
 		return nil, errors.New("connector LaunchAgent home directory is invalid")
 	}
 	connector.homeDir = filepath.Clean(homeDir)
+	connector.launchdRemovalTimeout = 10 * time.Second
+	connector.launchdRemovalPoll = 25 * time.Millisecond
 
 	userID := strings.TrimSpace(options.UserID)
 	if userID == "" {

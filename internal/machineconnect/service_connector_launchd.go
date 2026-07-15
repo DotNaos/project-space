@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type launchdConnectorPaths struct {
@@ -24,13 +25,6 @@ func (connector *ServiceConnector) startLaunchd(ctx context.Context) error {
 			return fmt.Errorf("prepare private connector LaunchAgent directory: %w", err)
 		}
 	}
-	if err := connector.files.WritePrivateFile(
-		paths.plist,
-		connector.launchdPlist(paths),
-	); err != nil {
-		return fmt.Errorf("write connector LaunchAgent: %w", err)
-	}
-
 	domain := "gui/" + connector.userID
 	service := domain + "/" + machineConnectorLaunchLabel
 	_, bootoutErr := connector.runner.Run(ctx, "launchctl", "bootout", service)
@@ -51,6 +45,14 @@ func (connector *ServiceConnector) startLaunchd(ctx context.Context) error {
 				fmt.Errorf("inspect connector LaunchAgent: %w", printErr),
 			)
 		}
+	} else if err := connector.waitForLaunchdRemoval(ctx, service); err != nil {
+		return err
+	}
+	if err := connector.files.WritePrivateFile(
+		paths.plist,
+		connector.launchdPlist(paths),
+	); err != nil {
+		return fmt.Errorf("write connector LaunchAgent: %w", err)
 	}
 
 	_, bootstrapErr := connector.runner.Run(ctx, "launchctl", "bootstrap", domain, paths.plist)
@@ -66,16 +68,53 @@ func (connector *ServiceConnector) startLaunchd(ctx context.Context) error {
 			)
 		}
 	}
-	if _, err := connector.runner.Run(ctx, "launchctl", "kickstart", "-k", service); err != nil {
-		return fmt.Errorf("start connector LaunchAgent: %w", err)
-	}
+	// RunAtLoad makes bootstrap start the connector. An immediate kickstart can
+	// race that launch and fail even though the new service is healthy.
 	return nil
+}
+
+func (connector *ServiceConnector) waitForLaunchdRemoval(
+	ctx context.Context,
+	service string,
+) error {
+	if connector.launchdRemovalTimeout <= 0 || connector.launchdRemovalPoll <= 0 {
+		return errors.New("wait for connector LaunchAgent removal: timing is invalid")
+	}
+	waitContext, cancel := context.WithTimeout(ctx, connector.launchdRemovalTimeout)
+	defer cancel()
+	for {
+		output, err := connector.runner.Run(waitContext, "launchctl", "print", service)
+		if err != nil {
+			if waitContext.Err() != nil {
+				return fmt.Errorf("wait for connector LaunchAgent removal: %w", waitContext.Err())
+			}
+			if commandUnavailable(err) {
+				return fmt.Errorf("inspect connector LaunchAgent removal: %w", err)
+			}
+			if launchdServiceAbsent(output, err) {
+				return nil
+			}
+			return fmt.Errorf("inspect connector LaunchAgent removal: %w", err)
+		}
+		timer := time.NewTimer(connector.launchdRemovalPoll)
+		select {
+		case <-waitContext.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return fmt.Errorf("wait for connector LaunchAgent removal: %w", waitContext.Err())
+		case <-timer.C:
+		}
+	}
 }
 
 func (connector *ServiceConnector) stopLaunchd(ctx context.Context) error {
 	service := "gui/" + connector.userID + "/" + machineConnectorLaunchLabel
 	_, bootoutErr := connector.runner.Run(ctx, "launchctl", "bootout", service)
 	if bootoutErr == nil {
+		if err := connector.waitForLaunchdRemoval(ctx, service); err != nil {
+			return err
+		}
 		return connector.removeLaunchdPlist()
 	}
 	if commandUnavailable(bootoutErr) || ctx.Err() != nil {

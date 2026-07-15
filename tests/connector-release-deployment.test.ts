@@ -86,11 +86,11 @@ describe('connector release and production deployment contract', () => {
     const windowsPackaging = await source('packaging/windows/test-release-packaging.ps1');
     const windowsDocumentation = await source('docs/windows-installation.md');
 
-    expect(packageJson.version).toBe('0.4.5');
-    expect(buildInfo).toContain("const developmentVersion = '0.4.5';");
-    expect(windowsPackaging).toContain("$version = '0.4.5'");
-    expect(windowsPackaging).toContain('/releases/download/v0.4.5/');
-    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.5');
+    expect(packageJson.version).toBe('0.4.6');
+    expect(buildInfo).toContain("const developmentVersion = '0.4.6';");
+    expect(windowsPackaging).toContain("$version = '0.4.6'");
+    expect(windowsPackaging).toContain('/releases/download/v0.4.6/');
+    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.6');
     expect(packageJson.scripts['build:project-cli:macos-arm64:finalize']).toContain(
       'main.projectMachineClientReleaseID=v$npm_package_version'
     );
@@ -183,13 +183,80 @@ describe('connector release and production deployment contract', () => {
     expect(sign).toContain('entry_count == 3');
     expect(sign).toContain("stat -f '%l'");
     expect(sign).toContain("stat -f '%u'");
+    expect(sign).toContain('certificate 1[field.1.2.840.113635.100.6.2.6] exists');
+    expect(sign).toContain(
+      'certificate leaf[field.1.2.840.113635.100.6.1.13] exists'
+    );
     expect(sign).toContain('certificate leaf[subject.OU] = "R72P4M9WMS"');
     expect(sign).toContain('identifier "com.dotnaos.project.approval-signer"');
-    expect(sign).toContain('security delete-keychain');
-    expect(sign.indexOf('Confirm signing identity cleanup')).toBeLessThan(
-      sign.indexOf('Upload signed helper after cleanup')
+    expect(sign).toContain('project-space-release-import.p12');
+    expect(sign).toContain('-passin env:CERTIFICATE_PASSWORD');
+    expect(sign).toContain('-passout "pass:$import_password"');
+    expect(sign).toContain('security import "$import_p12" -f pkcs12');
+    const importStart = sign.indexOf('/usr/bin/security import "$import_p12"');
+    const importEnd = sign.indexOf('/bin/rm -f "$p12"', importStart);
+    const importCommand = sign.slice(importStart, importEnd);
+    expect(importStart).toBeGreaterThan(-1);
+    expect(importEnd).toBeGreaterThan(importStart);
+    expect(importCommand).not.toMatch(/(^|\s)-A(?:\s|\\|$)/);
+    expect(sign).not.toContain('security import "$pem"');
+    expect(sign).not.toContain('-P "$CERTIFICATE_PASSWORD"');
+    expect(sign).not.toContain('-f pemseq');
+    expect(sign).toContain(
+      '/usr/bin/security set-key-partition-list -S apple-tool:,apple:,codesign:'
     );
-    expect(sign).toContain("if: success() && github.event_name == 'push'");
+    expect(sign).not.toContain('-l "$identity_label"');
+    expect(sign).toContain('-k "$keychain_password" "$keychain"');
+    expect(sign).not.toContain('if ! /usr/bin/security set-key-partition-list');
+    expect(sign).toContain('--sign "$identity_label"');
+    expect(sign).toContain('[[ $leaf_fingerprint == "$identity" ]]');
+    expect(sign).toContain(
+      'security default-keychain -d user > "$default_keychain_snapshot"'
+    );
+    expect(sign).toContain('security default-keychain -d user -s "$keychain"');
+    expect(sign).toContain('security default-keychain -d user -s "$original_default"');
+    expect(sign).toContain('[[ $current_default != "$keychain" ]]');
+    const partitionStart = sign.indexOf('/usr/bin/security set-key-partition-list');
+    const partitionEnd = sign.indexOf('>/dev/null', partitionStart);
+    const partitionCommand = sign.slice(partitionStart, partitionEnd);
+    expect(partitionCommand).not.toMatch(/(^|\s)-s(\s|\\)/);
+    expect(sign.indexOf('security list-keychains -d user -s "$keychain"')).toBeLessThan(
+      sign.indexOf('security set-key-partition-list')
+    );
+    expect(sign.indexOf('security set-key-partition-list')).toBeLessThan(
+      sign.indexOf('/usr/bin/codesign --force')
+    );
+    expect(sign.indexOf('security set-key-partition-list')).toBeLessThan(
+      sign.indexOf('security default-keychain -d user -s "$keychain"')
+    );
+    expect(
+      sign.indexOf('security default-keychain -d user -s "$keychain"')
+    ).toBeLessThan(sign.indexOf('/usr/bin/codesign --force'));
+    expect(sign).toContain('security delete-keychain');
+    const cleanupStart = sign.indexOf('Confirm signing identity cleanup');
+    const uploadStart = sign.indexOf('Upload signed helper after cleanup');
+    const cleanup = sign.slice(cleanupStart, uploadStart);
+    const upload = sign.slice(uploadStart);
+    expect(cleanupStart).toBeGreaterThan(-1);
+    expect(cleanupStart).toBeLessThan(uploadStart);
+    const restoreDefault = cleanup.indexOf(
+      'default-keychain -d user -s "$original_default"'
+    );
+    const deleteKeychain = cleanup.indexOf('delete-keychain "$keychain"');
+    expect(restoreDefault).toBeGreaterThan(-1);
+    expect(deleteKeychain).toBeGreaterThan(-1);
+    expect(restoreDefault).toBeLessThan(deleteKeychain);
+    expect(upload).toContain("if: success() && github.event_name == 'push'");
+
+    const packageScript = await source(
+      'packaging/macos/package-isolated-release-artifact.sh'
+    );
+    const workflowRequirement = sign.match(/^\s*requirement='([^']+)'$/m)?.[1];
+    const packageRequirement = packageScript.match(
+      /^signing_requirement='([^']+)'$/m
+    )?.[1];
+    expect(workflowRequirement).toBeDefined();
+    expect(packageRequirement).toBe(workflowRequirement);
     expectNoRepositoryExecution(sign);
 
     expect(packageJob).toContain('- unsigned');
@@ -284,6 +351,8 @@ describe('connector release and production deployment contract', () => {
   });
 
   test('normalizes and packages only fixed release inventories', async () => {
+    const workflow = await source('.github/workflows/release.yml');
+    const finalize = jobBlock(workflow, 'release-finalize');
     const normalize = await source('packaging/release/normalize-platform-artifacts.sh');
     const publish = await source('packaging/release/create-publish-handoff.sh');
     const macos = await source('packaging/macos/package-isolated-release-artifact.sh');
@@ -298,6 +367,15 @@ describe('connector release and production deployment contract', () => {
     expect(normalize).toContain('stat -c %h');
     expect(publish).toContain('schema=project-space.github-release/v1');
     expect(publish).toContain('PUBLISH-SHA256SUMS.txt');
+    expect(finalize).toContain(
+      'manifest_path="$RUNNER_TEMP/project-space-release-manifest.json"'
+    );
+    expect(finalize).not.toContain(
+      'manifest_path="$RUNNER_TEMP/release-assets/project-space-release-manifest.json"'
+    );
+    expect(finalize).toContain(
+      '"$RUNNER_TEMP/release-assets" \\\n            "$manifest_path"'
+    );
     expect(macos).toContain("stat -f '%l'");
     expect(macos).toContain('codesign --verify --strict --test-requirement');
     expect(macos).toContain(
