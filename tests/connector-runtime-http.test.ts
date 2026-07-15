@@ -92,4 +92,29 @@ describe('connector runtime HTTP API', () => {
     }
     expect(dispatches).toBe(0);
   });
+
+  test('stops a selected runtime only with an exactly empty body', async () => {
+    const calls: string[] = [];
+    const origin = await start({
+      async stopMachineRuntime(machineId) {
+        calls.push(machineId);
+        return { operationId: 'operation-stop', status: 'accepted' };
+      }
+    });
+    const accepted = await fetch(`${origin}/api/machines/machine-1/runtime/stop`, {
+      body: JSON.stringify({}),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST'
+    });
+    expect(accepted.status).toBe(202);
+    expect(await accepted.json()).toEqual({ operationId: 'operation-stop', status: 'accepted' });
+
+    const rejected = await fetch(`${origin}/api/machines/machine-1/runtime/stop`, {
+      body: JSON.stringify({ pid: 42 }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST'
+    });
+    expect(rejected.status).toBe(400);
+    expect(calls).toEqual(['machine-1']);
+  });
 });

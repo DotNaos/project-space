@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { GitBranchPlus, LoaderCircle } from 'lucide-react';
+import { GitBranchPlus, LoaderCircle, Play } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { Button, Surface, Text } from '@/app/dotnaos-ui';
 import type {
@@ -16,7 +16,11 @@ import { FileExplorer } from './file-explorer';
 import { DevServerSettings } from './dev-server-settings';
 import { DevServerAccessNotice } from './worktree-dev-server';
 import { WorktreeRuntimeTable } from './worktree-runtime-table';
-import { runtimeRowsForWorktrees, unmaterializedBranchesFor } from './worktree-runtime-model';
+import {
+  runtimeRowsForWorktrees,
+  startableDevServers,
+  unmaterializedBranchesFor
+} from './worktree-runtime-model';
 import { projectWorktreeDiscoverySummary } from './project-worktree-discovery-model';
 import {
   selectedProjectWorktree,
@@ -131,6 +135,14 @@ export function ProjectWorkspacesPanel({
     return Array.from(branches).sort(branchSort(defaultBranch));
   }, [defaultBranch, repositoryBranches, worktrees]);
   const runtimeRows = useMemo(() => runtimeRowsForWorktrees(worktrees), [worktrees]);
+  const allDevServers = useMemo(
+    () => Array.from(devServers.serversForWorktree.values()).flat(),
+    [devServers.serversForWorktree]
+  );
+  const startableServers = useMemo(
+    () => startableDevServers(allDevServers, worktrees, setup.results),
+    [allDevServers, setup.results, worktrees]
+  );
   const serverCount = Array.from(devServers.serversForWorktree.values()).reduce(
     (total, servers) => total + servers.length,
     0
@@ -262,7 +274,7 @@ export function ProjectWorkspacesPanel({
         variant="tertiary"
         className="flex min-h-0 flex-col rounded-lg border border-neutral-800 bg-neutral-950/45 p-3"
       >
-        <div className="mb-3 flex items-center justify-between gap-3 px-1">
+        <div className="mb-3 flex flex-col gap-3 px-1 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <Text className="text-sm font-semibold text-neutral-100">Worktrees</Text>
             <Text className="mt-0.5 block text-xs text-neutral-500">
@@ -271,16 +283,44 @@ export function ProjectWorkspacesPanel({
                 : projectWorktreeDiscoverySummary(worktreeDiscovery, serverCount)}
             </Text>
           </div>
-          <Button
-            size="sm"
-            variant="primary"
-            className="shrink-0 bg-sky-500 text-white hover:bg-sky-400"
-            isDisabled={!canCreate || unmaterializedBranches.length === 0}
-            onPress={() => setShowCreate((value) => !value)}
-          >
-            <GitBranchPlus className="size-4" />
-            New worktree
-          </Button>
+          <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
+            <Button
+              size="sm"
+              variant="secondary"
+              isDisabled={
+                devServers.access !== 'owner' && devServers.access !== 'member' ||
+                devServers.isChecking ||
+                setup.isChecking ||
+                devServers.isStartingAll ||
+                startableServers.length === 0
+              }
+              onPress={() => void devServers.startAll(startableServers)}
+              title={
+                setup.isChecking
+                  ? 'Checking trusted setup before starting development servers'
+                  : startableServers.length > 0
+                  ? `Start ${startableServers.length} configured development server${startableServers.length === 1 ? '' : 's'}`
+                  : 'No configured development servers are ready to start'
+              }
+            >
+              {devServers.isStartingAll ? (
+                <LoaderCircle className="size-3.5 animate-spin" />
+              ) : (
+                <Play className="size-3.5 fill-current" />
+              )}
+              {devServers.isStartingAll ? 'Starting' : 'Start all'}
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              className="shrink-0 bg-sky-500 text-white hover:bg-sky-400"
+              isDisabled={!canCreate || unmaterializedBranches.length === 0}
+              onPress={() => setShowCreate((value) => !value)}
+            >
+              <GitBranchPlus className="size-4" />
+              New worktree
+            </Button>
+          </div>
         </div>
 
         {showCreate ? (
@@ -364,6 +404,7 @@ export function ProjectWorkspacesPanel({
         ) : worktreeDiscovery.state === 'ready' ? (
           <WorktreeRuntimeTable
             access={devServers.access}
+            actionsDisabled={devServers.isStartingAll}
             machineName={selectedMachine?.name}
             onPrepare={(worktreeId, setupStepId) => void setup.prepare(worktreeId, setupStepId)}
             onSelect={(worktreeId) => {
@@ -397,10 +438,19 @@ export function ProjectWorkspacesPanel({
             {actionMessage || repositoryMessage}
           </Text>
         ) : null}
-        {devServers.error ? (
-          <Text aria-live="polite" className="mt-2 block px-1 text-xs text-red-300/80">
-            {devServers.error}
-          </Text>
+        {devServers.error || devServers.startAllResults.some((result) => result.status === 'failed') ? (
+          <div aria-live="polite" className="mt-2 space-y-1 px-1">
+            {devServers.error ? (
+              <Text className="block text-xs text-red-300/80">{devServers.error}</Text>
+            ) : null}
+            {devServers.startAllResults
+              .filter((result) => result.status === 'failed')
+              .map((result) => (
+                <Text key={result.key} className="block text-xs text-red-300/80">
+                  {result.serverLabel}: {result.message || 'Could not start this server.'}
+                </Text>
+              ))}
+          </div>
         ) : null}
       </Surface>
 

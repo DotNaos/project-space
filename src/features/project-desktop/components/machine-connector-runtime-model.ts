@@ -15,8 +15,11 @@ const terminalOperationStates = new Set<ConnectorRuntimeOperationState>([
   'succeeded'
 ]);
 
-const runtimeCapabilities: Record<ConnectorRuntimeOperationName, string> = {
+type ConnectorRuntimeUiOperation = ConnectorRuntimeOperationName | 'stop';
+
+const runtimeCapabilities: Record<ConnectorRuntimeUiOperation, string> = {
   restart: 'runtime.restart',
+  stop: 'runtime.stop',
   update: 'runtime.update'
 };
 
@@ -26,9 +29,31 @@ function isMachineOnline(machine: MachineRecord) {
 
 export function hasMachineRuntimeCapability(
   machine: MachineRecord,
-  operation: ConnectorRuntimeOperationName
+  operation: ConnectorRuntimeUiOperation
 ) {
   return machine.connector.capabilities?.includes(runtimeCapabilities[operation]) ?? false;
+}
+
+export function isSourceDevelopmentMachineRuntime(machine: MachineRecord) {
+  return (
+    machine.connector.profile?.channel === 'dev' &&
+    machine.connector.profile.source === 'source'
+  );
+}
+
+export function shouldShowMachineRuntimeStop(machine: MachineRecord) {
+  return isSourceDevelopmentMachineRuntime(machine);
+}
+
+export function shouldShowMachineRuntimeRestart(machine: MachineRecord) {
+  return !isSourceDevelopmentMachineRuntime(machine);
+}
+
+export function shouldShowManagedRuntimeReinstallNotice(machine: MachineRecord) {
+  return (
+    machine.connector.update?.state === 'unsupported' &&
+    !isSourceDevelopmentMachineRuntime(machine)
+  );
 }
 
 export function isRuntimeOperationActive(operation?: ConnectorRuntimeOperationRecord) {
@@ -48,6 +73,7 @@ export function canUpdateMachineRuntime(machine: MachineRecord) {
   const update = machine.connector.update;
   return (
     isMachineOnline(machine) &&
+    machine.connector.runtime?.source === 'managed' &&
     hasMachineRuntimeCapability(machine, 'update') &&
     Boolean(runtimeApprovedReleaseId(machine)) &&
     !isRuntimeBusy(update) &&
@@ -55,6 +81,15 @@ export function canUpdateMachineRuntime(machine: MachineRecord) {
       update?.state === 'update-required' ||
       update?.state === 'failed' ||
       update?.state === 'rollback')
+  );
+}
+
+export function canStopSourceDevelopmentMachineRuntime(machine: MachineRecord) {
+  return (
+    isMachineOnline(machine) &&
+    isSourceDevelopmentMachineRuntime(machine) &&
+    hasMachineRuntimeCapability(machine, 'stop') &&
+    !isRuntimeBusy(machine.connector.update)
   );
 }
 
@@ -78,6 +113,20 @@ export function runtimeApprovedReleaseId(machine: MachineRecord) {
     return update.operation.expectedReleaseId;
   }
   return undefined;
+}
+
+export function shouldShowMachineRuntimeUpdate(machine: MachineRecord) {
+  const update = machine.connector.update;
+  return (
+    machine.connector.runtime?.source === 'managed' &&
+    Boolean(runtimeApprovedReleaseId(machine)) && (
+      runtimeRetryOperation(machine) === 'update' ||
+      update?.state === 'update-available' ||
+      update?.state === 'update-required' ||
+      update?.state === 'failed' ||
+      update?.state === 'rollback'
+    )
+  );
 }
 
 export function runtimeRetryOperation(
@@ -181,19 +230,25 @@ export function runtimeVersionLabel(machine: MachineRecord) {
 
 export function runtimeUnavailableReason(
   machine: MachineRecord,
-  operation: 'restart' | 'update'
+  operation: ConnectorRuntimeUiOperation
 ) {
   const update = machine.connector.update;
   if (machine.connector.status !== 'local' && machine.connector.status !== 'online') {
     return 'The machine is offline.';
   }
-  if (update?.state === 'unsupported') {
+  if (operation === 'stop' && !isSourceDevelopmentMachineRuntime(machine)) {
+    return 'Only source development connectors can be stopped from Project Space.';
+  }
+  if (operation !== 'stop' && update?.state === 'unsupported') {
     return 'This installation cannot be managed from Project Space. Reinstall it through Connector setup.';
   }
   if (isRuntimeBusy(update)) {
     return runtimeOperationLabel(update?.operation) || 'Another connector operation is active.';
   }
   if (!hasMachineRuntimeCapability(machine, operation)) {
+    if (operation === 'stop') {
+      return 'This source connector does not report scoped stop support.';
+    }
     return operation === 'update'
       ? 'This connector does not report managed update support.'
       : 'This connector does not report managed restart support.';

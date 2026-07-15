@@ -6,6 +6,10 @@ import type {
   ProjectRunSettingsRecord,
   WorktreeDevServerRecord
 } from '@/shared/project-space-api';
+import {
+  startDevServerBatch,
+  type DevServerBatchStartResult
+} from '../components/worktree-runtime-model';
 
 const stablePollMs = 10_000;
 const transitionPollMs = 2_000;
@@ -41,20 +45,27 @@ export function useWorktreeDevServers({
   const [error, setError] = useState('');
   const [isChecking, setIsChecking] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isStartingAll, setIsStartingAll] = useState(false);
   const [pendingServerKey, setPendingServerKey] = useState('');
+  const [startAllResults, setStartAllResults] = useState<DevServerBatchStartResult[]>([]);
+  const [stateTargetKey, setStateTargetKey] = useState('');
   const requestSequence = useRef(0);
+  const startingAllKeyRef = useRef('');
   const targetKey = `${machineId ?? ''}\u0000${projectId}`;
   const targetKeyRef = useRef(targetKey);
   targetKeyRef.current = targetKey;
+  const scopedOverview = stateTargetKey === targetKey ? overview : undefined;
 
   const refresh = useCallback(async () => {
     if (!machineId || !projectId) {
+      setStateTargetKey(targetKey);
       setOverview(undefined);
       return undefined;
     }
 
     const requestKey = targetKey;
     const sequence = ++requestSequence.current;
+    setStateTargetKey(requestKey);
     setIsChecking(true);
     try {
       const result = await projectSpaceClient.inspectDevServers({ machineId, projectId });
@@ -89,8 +100,12 @@ export function useWorktreeDevServers({
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     setOverview(undefined);
+    setStateTargetKey(targetKey);
+    if (startingAllKeyRef.current !== targetKey) startingAllKeyRef.current = '';
     setError('');
     setPendingServerKey('');
+    setIsStartingAll(false);
+    setStartAllResults([]);
 
     async function poll() {
       const result = await refresh();
@@ -116,28 +131,31 @@ export function useWorktreeDevServers({
 
   const serversForWorktree = useMemo(() => {
     const grouped = new Map<string, WorktreeDevServerRecord[]>();
-    for (const server of overview?.servers ?? []) {
+    for (const server of scopedOverview?.servers ?? []) {
       const current = grouped.get(server.worktreeId) ?? [];
       current.push(server);
       grouped.set(server.worktreeId, current);
     }
     return grouped;
-  }, [overview?.servers]);
+  }, [scopedOverview?.servers]);
   const serversByWorktreeId = useMemo(
     () => new Map(Array.from(serversForWorktree, ([worktreeId, servers]) => [worktreeId, servers[0]!])),
     [serversForWorktree]
   );
 
-  const start = useCallback(
+  const startOne = useCallback(
     async (worktreeId: string, requestedServerId?: string) => {
       if (!machineId) {
-        return;
+        return { message: 'No connector machine is selected.', status: 'failed' as const };
       }
 
       const serverId = requestedServerId ?? serversByWorktreeId.get(worktreeId)?.serverId;
       if (!serverId) {
         setError('No trusted development server is declared for this worktree.');
-        return;
+        return {
+          message: 'No trusted development server is declared for this worktree.',
+          status: 'failed' as const
+        };
       }
       const requestKey = targetKey;
       setPendingServerKey(`${worktreeId}\u0000${serverId}`);
@@ -156,14 +174,17 @@ export function useWorktreeDevServers({
         ) {
           setOverview(result);
           setError('');
+          return { status: 'started' as const };
         }
+        return { message: 'The selected machine changed before the server started.', status: 'failed' as const };
       } catch (nextError) {
+        const message =
+          nextError instanceof Error ? nextError.message : 'Could not start the development server.';
         if (targetKeyRef.current === requestKey) {
-          setError(
-            nextError instanceof Error ? nextError.message : 'Could not start the development server.'
-          );
+          setError(message);
           await refresh();
         }
+        return { message, status: 'failed' as const };
       } finally {
         if (targetKeyRef.current === requestKey) {
           setPendingServerKey('');
@@ -173,8 +194,66 @@ export function useWorktreeDevServers({
     [machineId, projectId, refresh, serversByWorktreeId, targetKey]
   );
 
+  const start = useCallback(
+    async (worktreeId: string, requestedServerId?: string) => {
+      if (startingAllKeyRef.current) {
+        return { message: 'Wait for Start all to finish.', status: 'failed' as const };
+      }
+      setStartAllResults([]);
+      await startOne(worktreeId, requestedServerId);
+    },
+    [startOne]
+  );
+
+  const startAll = useCallback(
+    async (servers: WorktreeDevServerRecord[]) => {
+      if (!machineId || startingAllKeyRef.current || servers.length === 0) {
+        return [];
+      }
+      const requestKey = targetKey;
+      startingAllKeyRef.current = requestKey;
+      setIsStartingAll(true);
+      setStartAllResults([]);
+      setError('');
+      try {
+        const results = await startDevServerBatch(
+          servers,
+          async (server) => {
+            if (targetKeyRef.current !== requestKey) {
+              return { message: 'The selected machine changed.', status: 'failed' as const };
+            }
+            return startOne(server.worktreeId, server.serverId);
+          },
+          (progress) => {
+            if (targetKeyRef.current === requestKey) setStartAllResults(progress);
+          }
+        );
+        if (targetKeyRef.current === requestKey) {
+          const failures = results.filter((result) => result.status === 'failed').length;
+          setError(
+            failures > 0
+              ? `${results.length - failures} development server${results.length - failures === 1 ? '' : 's'} started; ${failures} failed.`
+              : ''
+          );
+        }
+        return results;
+      } finally {
+        if (startingAllKeyRef.current === requestKey) {
+          startingAllKeyRef.current = '';
+        }
+        if (targetKeyRef.current === requestKey) {
+          setIsStartingAll(false);
+        }
+      }
+    },
+    [machineId, startOne, targetKey]
+  );
+
   const stop = useCallback(
     async (worktreeId: string, requestedServerId?: string) => {
+      if (startingAllKeyRef.current) {
+        return;
+      }
       if (!machineId) {
         return;
       }
@@ -253,24 +332,27 @@ export function useWorktreeDevServers({
   );
 
   const hasActiveServers = Boolean(
-    overview?.servers.some(
+    scopedOverview?.servers.some(
       (server) => server.state === 'starting' || server.state === 'running' || server.state === 'stopping'
     )
   );
 
   return {
-    access: overview?.access,
-    error: error || overview?.message || '',
+    access: scopedOverview?.access,
+    error: stateTargetKey === targetKey ? error || scopedOverview?.message || '' : '',
     hasActiveServers,
-    isChecking,
+    isChecking: stateTargetKey === targetKey ? isChecking : Boolean(machineId && projectId),
     isSavingSettings,
+    isStartingAll,
     pendingServerKey,
     pendingWorktreeId: pendingServerKey.split('\u0000')[0] ?? '',
     refresh,
     serversByWorktreeId,
     serversForWorktree,
-    settings: overview?.settings,
+    settings: scopedOverview?.settings,
     start,
+    startAll,
+    startAllResults,
     stop,
     updateSettings
   };

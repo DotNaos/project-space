@@ -34,6 +34,32 @@ function registryMessage(machineId: string) {
   return JSON.stringify({ payload: registration.payload, type: 'connector.registry' });
 }
 
+function developmentRegistrationMessage(machineId: string, token: string) {
+  const registration = JSON.parse(registrationMessage(machineId, token)) as {
+    payload: ConnectorProjectRegistryResult;
+    token: string;
+    type: 'connector.register';
+  };
+  registration.payload.connector.runtime = {
+    architecture: 'x64',
+    buildId: 'dev-source-checkout',
+    bundleVersions: {
+      connector: '0.4.7',
+      machineTools: '0.4.7',
+      projectCli: '0.4.7'
+    },
+    channel: 'dev',
+    instanceId: 'dev-instance',
+    lastCheckedAt: '2026-07-11T00:00:00.000Z',
+    platform: 'linux',
+    protocolVersion: '1',
+    releaseId: 'dev-source-checkout',
+    source: 'source',
+    version: '0.4.7'
+  };
+  return JSON.stringify(registration);
+}
+
 async function connect(url: string) {
   const socket = new WebSocket(url);
   await once(socket, 'open');
@@ -41,6 +67,47 @@ async function connect(url: string) {
 }
 
 describe('connector credential authentication', () => {
+  test('requires authenticated profile binding before registering a source connector', async () => {
+    const commands = createConnectorCommandUpgradeHandler({
+      async authenticateConnectorCredential(_token, machineId) {
+        return machineId === 'bound-development-machine'
+          ? {
+              connectorProfile: { channel: 'dev', source: 'source' },
+              machineId
+            }
+          : true;
+      }
+    });
+    const server = createServer();
+    server.on('upgrade', (request, socket, head) => {
+      if (!commands.handleUpgrade(request, socket, head)) socket.destroy();
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Missing test port.');
+    const url = `ws://127.0.0.1:${address.port}/api/connectors/socket`;
+
+    try {
+      const unbound = await connect(url);
+      unbound.send(developmentRegistrationMessage('unbound-development-machine', 'token'));
+      const [unboundCode] = (await once(unbound, 'close')) as [number, Buffer];
+      expect(unboundCode).toBe(1008);
+
+      const bound = await connect(url);
+      bound.send(developmentRegistrationMessage('bound-development-machine', 'token'));
+      const [message] = (await once(bound, 'message')) as [Buffer];
+      expect(JSON.parse(message.toString())).toMatchObject({
+        generation: expect.any(Number),
+        type: 'connector.registered'
+      });
+      bound.close();
+    } finally {
+      server.closeAllConnections();
+      await commands.close();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   test('awaits the injected per-connector credential and machine binding', async () => {
     const authentications: Array<[string, string]> = [];
     const commands = createConnectorCommandUpgradeHandler({

@@ -12,6 +12,7 @@ import type {
   ConnectorOverviewResult,
   MachineRuntimeOperationRequest,
   MachineRuntimeOperationResult,
+  MachineRuntimeStopResult,
   MachineRuntimeStatusResult,
   DevServerActionRequest,
   DevServerInspectRequest,
@@ -276,6 +277,13 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
   ): Promise<MachineRuntimeOperationResult> {
     return this.request(`/api/machines/${encodeURIComponent(machineId)}/runtime/operations`, {
       body: JSON.stringify(operation),
+      method: 'POST'
+    });
+  }
+
+  stopMachineRuntime(machineId: string): Promise<MachineRuntimeStopResult> {
+    return this.request(`/api/machines/${encodeURIComponent(machineId)}/runtime/stop`, {
+      body: JSON.stringify({}),
       method: 'POST'
     });
   }

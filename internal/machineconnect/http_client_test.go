@@ -35,6 +35,10 @@ func TestHTTPBackendUsesPrivatePollChannelAndMachineCredential(t *testing.T) {
 				t.Errorf("create request unexpectedly had authorization")
 			}
 			var payload struct {
+				ConnectorProfile *struct {
+					Channel string `json:"channel"`
+					Source  string `json:"source"`
+				} `json:"connectorProfile"`
 				Hostname        string `json:"hostname"`
 				OperatingSystem string `json:"operatingSystem"`
 				PublicKey       string `json:"publicKey"`
@@ -44,6 +48,10 @@ func TestHTTPBackendUsesPrivatePollChannelAndMachineCredential(t *testing.T) {
 			}
 			if payload.Hostname != "os-pc" || payload.OperatingSystem != "linux" {
 				t.Errorf("unexpected machine: %#v", payload)
+			}
+			if payload.ConnectorProfile == nil || payload.ConnectorProfile.Channel != "dev" ||
+				payload.ConnectorProfile.Source != "source" {
+				t.Errorf("unexpected connector profile: %#v", payload.ConnectorProfile)
 			}
 			decodedPublicKey, err := base64.RawURLEncoding.DecodeString(payload.PublicKey)
 			if err != nil || len(decodedPublicKey) != ed25519.PublicKeySize {
@@ -103,7 +111,10 @@ func TestHTTPBackendUsesPrivatePollChannelAndMachineCredential(t *testing.T) {
 	if err := backend.Health(ctx); err != nil {
 		t.Fatalf("health: %v", err)
 	}
-	connectionRequest, err := backend.CreateRequest(ctx, testMachine(), machineKey)
+	machine := testMachine()
+	machine.Channel = "dev"
+	machine.Source = "source"
+	connectionRequest, err := backend.CreateRequest(ctx, machine, machineKey)
 	if err != nil {
 		t.Fatalf("create request: %v", err)
 	}

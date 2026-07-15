@@ -127,3 +127,8 @@ export interface MachineRuntimeOperationResult {
   operation: ConnectorRuntimeOperationRecord;
   status: MachineRuntimeStatusResult;
 }
+
+export interface MachineRuntimeStopResult {
+  operationId: string;
+  status: 'accepted';
+}

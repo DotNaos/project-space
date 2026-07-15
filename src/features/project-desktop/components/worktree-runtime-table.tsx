@@ -72,6 +72,7 @@ function ServerSummary({ servers }: { servers: WorktreeDevServerRecord[] }) {
 
 export function WorktreeRuntimeTable({
   access,
+  actionsDisabled,
   machineName,
   onPrepare,
   onSelect,
@@ -87,6 +88,7 @@ export function WorktreeRuntimeTable({
   setupResults
 }: {
   access?: MachineMembershipAccess;
+  actionsDisabled?: boolean;
   machineName?: string;
   onPrepare(worktreeId: string, setupStepId: string): void;
   onSelect(worktreeId: string): void;
@@ -246,6 +248,7 @@ export function WorktreeRuntimeTable({
                         <WorktreeDevServerAction
                           key={server.serverId}
                           access={access}
+                          isDisabled={actionsDisabled}
                           isChecking={false}
                           isPending={pendingServerKey === `${worktree.id}\u0000${server.serverId}`}
                           onStart={() => onStart(worktree.id, server.serverId)}

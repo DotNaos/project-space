@@ -4,6 +4,8 @@ import type {
   MachineRuntimeOperationRequest
 } from '../src/shared/project-space-api';
 import { requestConnectorRuntimeMaintenance } from './connector-runtime-command-routing';
+import { requestConnectorRuntimeStop } from './connector-runtime-stop-routing';
+import { ConnectorRuntimeStopService } from './connector-runtime-stop-service';
 import {
   ConnectorRuntimeMaintenanceService
 } from './connector-runtime-maintenance-service';
@@ -46,17 +48,18 @@ export function createConfiguredConnectorRuntime({
           throw new ConnectorRuntimeReleaseSourceError('invalid-configuration');
         }
       };
-  const service = new ConnectorRuntimeMaintenanceService({
-    directory: {
-      async readMachine(machineId) {
-        return (await loadOverview()).machines.find((machine) => machine.id === machineId) ?? null;
-      },
-      async readMembership({ machineId, userId }) {
-        if (!isProjectSpaceAuthRequired()) return { role: 'owner' };
-        if (!isDatabaseConfigured()) return null;
-        return readMachineMembership({ machineId, userId });
-      }
+  const directory = {
+    async readMachine(machineId: string) {
+      return (await loadOverview()).machines.find((machine) => machine.id === machineId) ?? null;
     },
+    async readMembership({ machineId, userId }: { machineId: string; userId: string }) {
+      if (!isProjectSpaceAuthRequired()) return { role: 'owner' as const };
+      if (!isDatabaseConfigured()) return null;
+      return readMachineMembership({ machineId, userId });
+    }
+  };
+  const service = new ConnectorRuntimeMaintenanceService({
+    directory,
     dispatcher: {
       dispatch: requestConnectorRuntimeMaintenance
     },
@@ -64,6 +67,14 @@ export function createConfiguredConnectorRuntime({
     operations: new ConfiguredConnectorRuntimeOperationStore(),
     rateLimiter: new ConnectorRuntimeMaintenanceWindowRateLimiter(),
     releases: releaseSource
+  });
+  const stopService = new ConnectorRuntimeStopService({
+    directory,
+    dispatcher: {
+      dispatch({ plan, userId }) {
+        return requestConnectorRuntimeStop(plan, userId);
+      }
+    }
   });
 
   return {
@@ -75,6 +86,9 @@ export function createConfiguredConnectorRuntime({
     },
     startMachineRuntimeOperation(machineId: string, request: MachineRuntimeOperationRequest) {
       return service.request({ ...request, machineId }, currentUserId());
+    },
+    stopMachineRuntime(machineId: string) {
+      return stopService.request({ machineId }, currentUserId());
     }
   };
 }

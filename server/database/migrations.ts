@@ -501,6 +501,37 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: githubIssueCreationMigrationId,
     sql: githubIssueCreationMigrationSql
+  },
+  {
+    id: '0018_connector_enrollment_profiles',
+    sql: `
+      alter table machine_connection_requests
+        add column connector_channel text,
+        add column connector_source text,
+        add constraint machine_connection_requests_connector_profile_pair
+          check (
+            (connector_channel is null and connector_source is null) or
+            (connector_channel = 'dev' and connector_source = 'source')
+          );
+
+      alter table machine_identities
+        add column connector_channel text,
+        add column connector_source text,
+        add constraint machine_identities_connector_profile_pair
+          check (
+            (connector_channel is null and connector_source is null) or
+            (connector_channel = 'dev' and connector_source = 'source')
+          );
+
+      alter table connector_machine_snapshots
+        add column connector_channel text,
+        add column connector_source text,
+        add constraint connector_machine_snapshots_connector_profile_pair
+          check (
+            (connector_channel is null and connector_source is null) or
+            (connector_channel = 'dev' and connector_source = 'source')
+          );
+    `
   }
 ];
 

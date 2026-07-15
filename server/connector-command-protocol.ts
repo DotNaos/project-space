@@ -59,12 +59,19 @@ import {
   type ConnectorRuntimeMachineCommandMessage
 } from './connector-runtime-command-routing';
 import {
+  isConnectorRuntimeStopHubMessage,
+  isConnectorRuntimeStopMachineMessage,
+  type ConnectorRuntimeStopHubMessage,
+  type ConnectorRuntimeStopMachineMessage
+} from './connector-runtime-stop-routing';
+import {
   isConnectorRuntimeMaintenanceDecision,
   type ConnectorRuntimeMaintenanceDecision
 } from './connector-runtime-registration-decision';
 
 export type ConnectorHubMessage =
   | ConnectorRuntimeHubCommandMessage
+  | ConnectorRuntimeStopHubMessage
   | {
       payload: ConnectorProjectRegistryResult;
       token: string;
@@ -168,6 +175,7 @@ export type ConnectorMachineMessage =
       type: 'connector.registered';
     }
   | ConnectorRuntimeMachineCommandMessage
+  | ConnectorRuntimeStopMachineMessage
   | { id: string; type: 'connector.command.cancel' }
   | { id: string; payload: CodexModelCatalogueRequest; type: 'codex.models' }
   | { id: string; payload: CodexChatRequest; type: 'codex.chat' }
@@ -495,6 +503,7 @@ export function isConnectorHubMessage(value: unknown): value is ConnectorHubMess
     return false;
   }
   if (isConnectorRuntimeHubCommandMessage(value)) return true;
+  if (isConnectorRuntimeStopHubMessage(value)) return true;
 
   if (value.type === 'connector.register') {
     return typeof value.token === 'string' && hasRegistryPayload(value);
@@ -596,6 +605,7 @@ export function isConnectorMachineMessage(value: unknown): value is ConnectorMac
   if (!isRecord(value) || typeof value.type !== 'string') {
     return false;
   }
+  if (isConnectorRuntimeStopMachineMessage(value)) return true;
   if (value.type === 'connector.registered') {
     return hasOnlyKeys(value, ['generation', 'maintenance', 'type']) &&
       typeof value.generation === 'number' && Number.isSafeInteger(value.generation) &&

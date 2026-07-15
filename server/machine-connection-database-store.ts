@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
 
 import type { DatabaseQueryClient } from "./database/client";
-import type {
-  MachineConnectionStore,
-  MachineConnectRequestRecord,
-  MachineConnectRequestStatus,
-  MachineCredentialMutationResult,
-  MachineIdentityRecord,
+import {
+  assertSameMachineConnectorProfile,
+  machineConnectorProfile,
+  sameMachineConnectorProfile,
+  type MachineConnectionStore,
+  type MachineConnectRequestRecord,
+  type MachineConnectRequestStatus,
+  type MachineCredentialMutationResult,
+  type MachineIdentityRecord,
 } from "./machine-connection-contract";
 
 export interface TransactionalDatabaseQueryClient extends DatabaseQueryClient {
@@ -34,6 +37,8 @@ interface RequestRow {
   architecture: unknown;
   client_version: unknown;
   consumed_at: unknown;
+  connector_channel: unknown;
+  connector_source: unknown;
   created_at: unknown;
   denied_at: unknown;
   expires_at: unknown;
@@ -49,6 +54,8 @@ interface RequestRow {
 interface IdentityRow {
   architecture: unknown;
   client_version: unknown;
+  connector_channel: unknown;
+  connector_source: unknown;
   created_at: unknown;
   current_credential_id: unknown;
   hostname: unknown;
@@ -82,24 +89,23 @@ const operatingSystems = ["darwin", "linux", "windows"] as const;
 
 const requestColumns = `id, poll_token_hash, public_key, name, hostname,
   operating_system, architecture, client_version, status, approval_challenge,
-  approved_by_user_id, created_at, expires_at, approved_at, denied_at, consumed_at`;
+  approved_by_user_id, created_at, expires_at, approved_at, denied_at, consumed_at,
+  connector_channel, connector_source`;
 const identityColumns = `id, owner_user_id, public_key, name, hostname,
   operating_system, architecture, client_version, created_at, last_seen_at, revoked_at,
-  current_credential_id`;
+  current_credential_id, connector_channel, connector_source`;
 const qualifiedIdentityColumns = `mi.id, mi.owner_user_id, mi.public_key, mi.name,
   mi.hostname, mi.operating_system, mi.architecture, mi.client_version,
-  mi.created_at, mi.last_seen_at, mi.revoked_at, mi.current_credential_id`;
+  mi.created_at, mi.last_seen_at, mi.revoked_at, mi.current_credential_id,
+  mi.connector_channel, mi.connector_source`;
 
 function requiredString(value: unknown, column: string) {
-  if (typeof value !== "string" || !value.trim()) {
+  if (typeof value !== "string" || !value.trim())
     throw new Error(`Invalid ${column} returned by the database.`);
-  }
   return value;
 }
 
-function optionalString(value: unknown, column: string) {
-  return value === null ? undefined : requiredString(value, column);
-}
+const optionalString = (value: unknown, column: string) => value === null ? undefined : requiredString(value, column);
 
 function timestamp(value: unknown, column: string) {
   if (!(typeof value === "string" || value instanceof Date)) {
@@ -112,33 +118,28 @@ function timestamp(value: unknown, column: string) {
   return parsed.toISOString();
 }
 
-function optionalTimestamp(value: unknown, column: string) {
-  return value === null ? undefined : timestamp(value, column);
-}
+const optionalTimestamp = (value: unknown, column: string) => value === null ? undefined : timestamp(value, column);
 
 function enumValue<const Value extends string>(
   value: unknown,
   allowed: readonly Value[],
   column: string,
 ): Value {
-  if (typeof value !== "string" || !allowed.includes(value as Value)) {
+  if (typeof value !== "string" || !allowed.includes(value as Value))
     throw new Error(`Invalid ${column} returned by the database.`);
-  }
   return value as Value;
 }
 
 function hash(value: unknown, column: string) {
   const result = requiredString(value, column);
-  if (!/^[0-9a-f]{64}$/.test(result)) {
+  if (!/^[0-9a-f]{64}$/.test(result))
     throw new Error(`Invalid ${column} returned by the database.`);
-  }
   return result;
 }
 
 function booleanValue(value: unknown, column: string) {
-  if (typeof value !== "boolean") {
+  if (typeof value !== "boolean")
     throw new Error(`Invalid ${column} returned by the database.`);
-  }
   return value;
 }
 
@@ -149,6 +150,7 @@ function mapRequest(row: RequestRow): MachineConnectRequestRecord {
     approvedByUserId: optionalString(row.approved_by_user_id, "approved_by_user_id"),
     architecture: enumValue(row.architecture, architectures, "architecture"),
     clientVersion: requiredString(row.client_version, "client_version"),
+    connectorProfile: machineConnectorProfile(row.connector_channel, row.connector_source),
     consumedAt: optionalTimestamp(row.consumed_at, "consumed_at"),
     createdAt: timestamp(row.created_at, "created_at"),
     deniedAt: optionalTimestamp(row.denied_at, "denied_at"),
@@ -171,6 +173,7 @@ function mapIdentity(row: IdentityRow, credentialHash: string): MachineIdentityR
   return {
     architecture: enumValue(row.architecture, architectures, "architecture"),
     clientVersion: requiredString(row.client_version, "client_version"),
+    connectorProfile: machineConnectorProfile(row.connector_channel, row.connector_source),
     createdAt: timestamp(row.created_at, "created_at"),
     credentialHash,
     hostname: requiredString(row.hostname, "hostname"),
@@ -230,6 +233,7 @@ function machineMatchesRequest(
     request.operatingSystem === machine.operatingSystem &&
     request.architecture === machine.architecture &&
     request.clientVersion === machine.clientVersion &&
+    sameMachineConnectorProfile(request.connectorProfile, machine.connectorProfile) &&
     request.approvedByUserId === machine.ownerUserId
   );
 }
@@ -266,9 +270,11 @@ export class DatabaseMachineConnectionStore implements MachineConnectionStore {
       `insert into machine_connection_requests (
          id, poll_token_hash, public_key, name, hostname, operating_system,
          architecture, client_version, status, approval_challenge,
-         approved_by_user_id, created_at, expires_at, approved_at, denied_at, consumed_at
+         approved_by_user_id, created_at, expires_at, approved_at, denied_at, consumed_at,
+         connector_channel, connector_source
        ) values (
-         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+         $17, $18
        )`,
       [
         request.id,
@@ -287,6 +293,8 @@ export class DatabaseMachineConnectionStore implements MachineConnectionStore {
         request.approvedAt ?? null,
         request.deniedAt ?? null,
         request.consumedAt ?? null,
+        request.connectorProfile?.channel ?? null,
+        request.connectorProfile?.source ?? null,
       ],
     );
   }
@@ -428,6 +436,12 @@ export class DatabaseMachineConnectionStore implements MachineConnectionStore {
         await this.consumeRequest(transaction, request);
         return { status: "key_conflict" as const };
       }
+      if (existing) {
+        assertSameMachineConnectorProfile(
+          machineConnectorProfile(existing.connector_channel, existing.connector_source),
+          machine.connectorProfile,
+        );
+      }
 
       const identityResult = existing
         ? await transaction.query<IdentityRow>(
@@ -451,8 +465,8 @@ export class DatabaseMachineConnectionStore implements MachineConnectionStore {
         : await transaction.query<IdentityRow>(
             `insert into machine_identities (
                id, owner_user_id, public_key, name, hostname, operating_system,
-               architecture, client_version, created_at
-             ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+               architecture, client_version, created_at, connector_channel, connector_source
+             ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
              returning ${identityColumns}`,
             [
               machine.id,
@@ -464,6 +478,8 @@ export class DatabaseMachineConnectionStore implements MachineConnectionStore {
               machine.architecture,
               machine.clientVersion,
               machine.createdAt,
+              machine.connectorProfile?.channel ?? null,
+              machine.connectorProfile?.source ?? null,
             ],
           );
       const identity = identityResult.rows[0];

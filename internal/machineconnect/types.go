@@ -20,6 +20,8 @@ type Machine struct {
 	OS            string
 	Architecture  string
 	ClientVersion string
+	Channel       string
+	Source        string
 }
 
 type Request struct {

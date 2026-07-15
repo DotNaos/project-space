@@ -120,6 +120,8 @@ export function requestRow(
     approved_by_user_id: request.approvedByUserId,
     architecture: request.architecture,
     client_version: request.clientVersion,
+    connector_channel: null,
+    connector_source: null,
     consumed_at: null,
     created_at: new Date(request.createdAt),
     denied_at: null,
@@ -142,6 +144,8 @@ export function identityRow(
   return {
     architecture: value.architecture,
     client_version: value.clientVersion,
+    connector_channel: null,
+    connector_source: null,
     created_at: new Date(value.createdAt),
     current_credential_id: oldCredentialId,
     hostname: value.hostname,

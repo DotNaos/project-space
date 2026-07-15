@@ -28,6 +28,8 @@ function registry(machineId: string, projectId: string): ConnectorProjectRegistr
 class SnapshotClient implements DatabaseQueryClient {
   readonly calls: Array<{ sql: string; values: readonly unknown[] }> = [];
   row: {
+    connector_channel: string | null;
+    connector_source: string | null;
     first_seen_at: string;
     last_seen_at: string;
     registry: ConnectorProjectRegistryResult;
@@ -45,6 +47,8 @@ class SnapshotClient implements DatabaseQueryClient {
         (!this.row.removed_at && Date.parse(this.row.last_seen_at) <= Date.parse(receivedAt))
       ) {
         this.row = {
+          connector_channel: values[4] as string | null,
+          connector_source: values[5] as string | null,
           first_seen_at: this.row?.first_seen_at ?? receivedAt,
           last_seen_at: receivedAt,
           registry: structuredClone(values[2] as ConnectorProjectRegistryResult)
@@ -91,6 +95,22 @@ describe('ConnectorMachineSnapshotStore', () => {
         registry: registry('macbook', 'project-one')
       }
     ]);
+  });
+
+  test('persists only the server-bound connector profile beside the registry', async () => {
+    const client = new SnapshotClient();
+    const store = new ConnectorMachineSnapshotStore(client);
+    await store.upsert(
+      registry('macbook', 'project-one'),
+      '2026-07-11T00:00:00.000Z',
+      { channel: 'dev', source: 'source' }
+    );
+
+    expect((await store.list())[0]?.connectorProfile).toEqual({
+      channel: 'dev',
+      source: 'source'
+    });
+    expect(client.calls[0]?.values.slice(4)).toEqual(['dev', 'source']);
   });
 
   test('keeps first-seen identity, updates the snapshot, and rejects an older write', async () => {

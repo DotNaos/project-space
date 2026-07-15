@@ -7,6 +7,7 @@ import type {
   ConnectorRuntimeUpdateRecord,
   MachineRuntimeOperationRequest,
   MachineRuntimeOperationResult,
+  MachineRuntimeStopResult,
   MachineRuntimeStatusResult
 } from './connector-runtime-api';
 
@@ -814,6 +815,10 @@ export interface MachineConnectorRecord {
   installCommand: string;
   lastSeen?: string;
   origin?: string;
+  profile?: {
+    channel: 'dev';
+    source: 'source';
+  };
   runtime?: ConnectorRuntimeRecord;
   serviceName?: string;
   status: ConnectorStatus;
@@ -1264,6 +1269,7 @@ export interface ProjectSpaceBackend {
     machineId: string,
     request: MachineRuntimeOperationRequest
   ): Promise<MachineRuntimeOperationResult>;
+  stopMachineRuntime(machineId: string): Promise<MachineRuntimeStopResult>;
   getConnectorProjectRegistry(): Promise<ConnectorProjectRegistryResult>;
   getDeployedEnvironmentStatus(
     repositoryFullName: string

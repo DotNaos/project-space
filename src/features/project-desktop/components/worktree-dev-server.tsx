@@ -16,46 +16,12 @@ import type {
   MachineMembershipAccess,
   WorktreeDevServerRecord
 } from '@/shared/project-space-api';
+import {
+  registeredDevServerUrl,
+  visibleTailscaleUrl
+} from './worktree-dev-server-model';
 
-function visibleTailscaleUrl(server: WorktreeDevServerRecord | undefined) {
-  if (
-    server?.state !== 'running' ||
-    !server.tailscaleUrl ||
-    !server.tailscaleIPv4 ||
-    !server.publicPort ||
-    !server.verifiedAt
-  ) {
-    return undefined;
-  }
-
-  try {
-    const url = new URL(server.tailscaleUrl);
-    const verifiedAt = Date.parse(server.verifiedAt);
-    const ageMs = Date.now() - verifiedAt;
-    const octets = server.tailscaleIPv4.split('.').map(Number);
-    const isTailscaleIPv4 =
-      octets.length === 4 &&
-      octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255) &&
-      octets[0] === 100 &&
-      octets[1]! >= 64 &&
-      octets[1]! <= 127;
-    const matchesExposure =
-      url.protocol === 'http:' &&
-      url.hostname === server.tailscaleIPv4 &&
-      Number(url.port) === server.publicPort &&
-      url.username === '' &&
-      url.password === '' &&
-      url.pathname === '/' &&
-      url.search === '' &&
-      url.hash === '';
-
-    return isTailscaleIPv4 && matchesExposure && ageMs >= -5_000 && ageMs <= 30_000
-      ? url.toString()
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
+export { registeredDevServerUrl, visibleTailscaleUrl } from './worktree-dev-server-model';
 
 function copyTextWithSelection(value: string) {
   const input = document.createElement('textarea');
@@ -119,6 +85,7 @@ export function DevServerAccessNotice({
 export function WorktreeDevServerAction({
   access,
   isChecking,
+  isDisabled,
   isPending,
   onStart,
   onStop,
@@ -126,6 +93,7 @@ export function WorktreeDevServerAction({
 }: {
   access?: MachineMembershipAccess;
   isChecking: boolean;
+  isDisabled?: boolean;
   isPending: boolean;
   onStart(): void;
   onStop(): void;
@@ -171,6 +139,7 @@ export function WorktreeDevServerAction({
         aria-label={`Stop ${server.serverLabel}`}
         size="sm"
         variant="ghost"
+        isDisabled={isDisabled}
         onPress={onStop}
         title={`Stop ${server.serverLabel}`}
         className="text-red-300 hover:bg-red-500/10 hover:text-red-200"
@@ -187,6 +156,7 @@ export function WorktreeDevServerAction({
       aria-label={`${retry ? 'Retry' : 'Start'} ${server.serverLabel}`}
       size="sm"
       variant={retry ? 'secondary' : 'primary'}
+      isDisabled={isDisabled}
       onPress={onStart}
       title={`${retry ? 'Retry' : 'Start'} ${server.serverLabel}`}
       className={retry ? 'border-amber-400/30 bg-amber-400/15 text-amber-100 hover:bg-amber-400/25' : 'bg-violet-500 text-white hover:bg-violet-400'}
@@ -211,6 +181,7 @@ export function WorktreeDevServerDetails({
   >('idle');
   const [, setFreshnessTick] = useState(0);
   const url = visibleTailscaleUrl(server);
+  const registeredUrl = registeredDevServerUrl(server);
 
   useEffect(() => {
     setCopyState('idle');
@@ -228,7 +199,7 @@ export function WorktreeDevServerDetails({
   if (
     !server ||
     server.capability === 'unavailable' ||
-    (server.state === 'stopped' && !server.lastError)
+    (server.state === 'stopped' && !server.lastError && !registeredUrl && !server.localUrl)
   ) {
     return null;
   }
@@ -337,13 +308,27 @@ export function WorktreeDevServerDetails({
               )}
             </Button>
           </div>
+        ) : registeredUrl ? (
+          <a
+            aria-label={`Open registered URL for ${server.serverLabel}`}
+            href={registeredUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex w-full min-w-0 items-center gap-1.5 rounded-sm text-neutral-300 underline decoration-neutral-700 underline-offset-4 transition hover:decoration-neutral-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70 sm:w-auto"
+          >
+            <ExternalLink className="size-3.5 shrink-0 text-neutral-500" />
+            <span className="shrink-0 text-neutral-500">Registered URL</span>
+            <span className="min-w-0 truncate font-mono text-neutral-300 sm:max-w-[24rem]">
+              {registeredUrl}
+            </span>
+          </a>
         ) : null}
       </div>
 
       {server.lastError ? (
         <Text className="mt-1.5 block max-w-3xl text-red-300/80">{server.lastError}</Text>
       ) : null}
-      {server.localUrl && url ? (
+      {server.localUrl && server.localUrl !== registeredUrl ? (
         <Text className="mt-1 block truncate font-mono text-[11px] text-neutral-600">
           Local {server.localUrl}
         </Text>

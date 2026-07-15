@@ -144,7 +144,7 @@ describe('GitHub issue creation migration', () => {
     expect(githubIssueCreationMigrationSql).toContain('github_issue_creation_operations');
     expect(githubIssueCreationMigrationSql).toContain('owner_user_id');
     expect(githubIssueCreationMigrationSql).toContain('repository_full_name');
-    expect(databaseMigrations.at(-1)).toEqual({
+    expect(databaseMigrations.find(({ id }) => id === githubIssueCreationMigrationId)).toEqual({
       id: githubIssueCreationMigrationId,
       sql: githubIssueCreationMigrationSql
     });

@@ -3,8 +3,15 @@ import type { IncomingMessage } from 'node:http';
 
 import {
   authenticateConnectorCredential as authenticateStoredConnectorCredential,
+  getMachineConnectionDatabaseClient,
   isDatabaseConfigured
 } from './local-database-store';
+import type { MachineConnectorProfile } from './machine-connection-contract';
+
+export interface ConnectorMachineTokenIdentity {
+  connectorProfile?: MachineConnectorProfile;
+  machineId: string;
+}
 
 function connectorRegistrationToken() {
   return process.env.PROJECT_CONNECTOR_REGISTRATION_TOKEN ?? '';
@@ -35,10 +42,38 @@ export function requestConnectorToken(request: IncomingMessage) {
 }
 
 export async function authenticateConnectorMachineToken(token: string, machineId: string) {
+  return Boolean(await resolveConnectorMachineTokenIdentity(token, machineId));
+}
+
+export async function resolveConnectorMachineTokenIdentity(
+  token: string,
+  machineId: string
+): Promise<ConnectorMachineTokenIdentity | null> {
   if (isDatabaseConfigured()) {
-    return Boolean(
-      await authenticateStoredConnectorCredential({ machineId, token }).catch(() => null)
+    const identity = await authenticateStoredConnectorCredential({ machineId, token }).catch(
+      () => null
     );
+    if (!identity) return null;
+    const client = await getMachineConnectionDatabaseClient();
+    const result = await client.query<{
+      connector_channel: string | null;
+      connector_source: string | null;
+    }>(
+      `select connector_channel, connector_source
+         from machine_identities
+        where id = $1`,
+      [machineId]
+    );
+    const row = result.rows[0];
+    let connectorProfile: MachineConnectorProfile | undefined;
+    if (row) {
+      if (row.connector_channel === 'dev' && row.connector_source === 'source') {
+        connectorProfile = { channel: 'dev', source: 'source' };
+      } else if (row.connector_channel !== null || row.connector_source !== null) {
+        throw new Error('Stored machine connector profile is invalid.');
+      }
+    }
+    return { ...identity, connectorProfile };
   }
-  return hasValidLegacyConnectorRegistrationToken(token);
+  return hasValidLegacyConnectorRegistrationToken(token) ? { machineId } : null;
 }

@@ -45,9 +45,9 @@ import {
   sendConnectorJson
 } from './connector-command-session-registry';
 import {
-  failConnectorRuntimeCommandsForMachine,
-  handleConnectorRuntimeCommandMessage
-} from './connector-runtime-command-routing';
+  failConnectorRuntimeHubCommandsForMachine,
+  handleConnectorRuntimeHubMessage
+} from './connector-runtime-hub';
 import { createConnectorProjectWorktreeRequester } from './connector-project-worktree-request';
 export { requestConnectorRuntimeMaintenance } from './connector-runtime-command-routing';
 import {
@@ -235,15 +235,11 @@ function failCommandsForMachine(machineId: string) {
     }
   }
   failCodexSessionCommandsForMachine(machineId);
-  failConnectorRuntimeCommandsForMachine(machineId);
+  failConnectorRuntimeHubCommandsForMachine(machineId);
 }
 
 function handleConnectorResult(machineId: string, message: ConnectorHubMessage) {
-  if (message.type === 'runtime.maintenance.progress' ||
-      message.type === 'runtime.maintenance.result') {
-    handleConnectorRuntimeCommandMessage(machineId, message);
-    return;
-  }
+  if (handleConnectorRuntimeHubMessage(machineId, message)) return;
   if (handleCodexSessionsConnectorMessage(machineId, message)) return;
   if ('id' in message) {
     const pending = pendingCommands.get(message.id);

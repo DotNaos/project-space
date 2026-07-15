@@ -30,6 +30,7 @@ import {
   runtimeStateLabel,
   runtimeVersionLabel
 } from './machine-connector-runtime-model';
+import { ConnectorChannelChip } from './connector-channel-chip';
 
 function MachineDetailRow({ label, value }: { label: string; value: string }) {
   return (
@@ -331,6 +332,7 @@ export function MachineDetailView({
                 {machine.name}
               </Text>
               <MachineOsMark machine={machine} />
+              <ConnectorChannelChip machine={machine} />
             </div>
             <Text className="mt-1 block text-sm text-neutral-500">
               {machineSubtitle(machine) || 'machine'}
