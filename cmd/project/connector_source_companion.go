@@ -15,6 +15,8 @@ import (
 	"github.com/DotNaos/project-space/internal/machineconnect"
 )
 
+const connectorSourceCommandSigningKeyRelativePath = "packaging/release/trust-roots/connector-command-signing-public-key.pem"
+
 const connectorSourceLauncher = `#!/bin/sh
 set -eu
 root="$1"
@@ -26,6 +28,7 @@ export PROJECT_SPACE_RELEASE_CHANNEL=dev
 export PROJECT_SPACE_INSTALL_SOURCE=source
 export PROJECT_SPACE_BUILD_ID="$build_id"
 export PROJECT_SPACE_RELEASE_ID="$release_id"
+export PROJECT_CONNECTOR_COMMAND_SIGNING_PUBLIC_KEY_FILE="$root/packaging/release/trust-roots/connector-command-signing-public-key.pem"
 exec "$bun" --no-env-file server/web-server.ts
 `
 
@@ -224,7 +227,11 @@ func canonicalConnectorSourceRoot(root string) (string, error) {
 	if err != nil || !info.IsDir() {
 		return "", errors.New("source connector root is not a directory")
 	}
-	for _, relative := range []string{"package.json", filepath.Join("server", "web-server.ts")} {
+	for _, relative := range []string{
+		"package.json",
+		filepath.Join("server", "web-server.ts"),
+		filepath.FromSlash(connectorSourceCommandSigningKeyRelativePath),
+	} {
 		path := filepath.Join(canonical, relative)
 		entry, err := os.Lstat(path)
 		if err != nil || entry.Mode()&os.ModeSymlink != 0 || !entry.Mode().IsRegular() {

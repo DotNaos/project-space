@@ -47,9 +47,13 @@ func sourceConnectorCheckoutFixture(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(root, "server"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(root, "packaging", "release", "trust-roots"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	for path, body := range map[string]string{
-		filepath.Join(root, "package.json"):            "{}\n",
-		filepath.Join(root, "server", "web-server.ts"): "console.log('source connector')\n",
+		filepath.Join(root, "package.json"):                                                   "{}\n",
+		filepath.Join(root, "server", "web-server.ts"):                                        "console.log('source connector')\n",
+		filepath.Join(root, filepath.FromSlash(connectorSourceCommandSigningKeyRelativePath)): "public key\n",
 	} {
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
@@ -94,6 +98,7 @@ func TestSourceConnectorLaunchUsesExplicitMetadataAndTrustedCheckout(t *testing.
 	for _, fixed := range []string{
 		"PROJECT_SPACE_RELEASE_CHANNEL=dev",
 		"PROJECT_SPACE_INSTALL_SOURCE=source",
+		`PROJECT_CONNECTOR_COMMAND_SIGNING_PUBLIC_KEY_FILE="$root/` + connectorSourceCommandSigningKeyRelativePath + `"`,
 		`exec "$bun" --no-env-file server/web-server.ts`,
 	} {
 		if !strings.Contains(connectorSourceLauncher, fixed) {
@@ -134,7 +139,7 @@ func TestSourceConnectorStateRequiresGitRootAndFingerprintsDirtyContent(t *testi
 		{"init", "-q"},
 		{"config", "user.email", "connector-test@example.test"},
 		{"config", "user.name", "Connector Test"},
-		{"add", "package.json", "server/web-server.ts"},
+		{"add", "package.json", "server/web-server.ts", connectorSourceCommandSigningKeyRelativePath},
 		{"commit", "-qm", "source fixture"},
 	} {
 		command := exec.Command("git", append([]string{"-C", root}, arguments...)...)
