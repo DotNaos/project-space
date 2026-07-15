@@ -19,6 +19,10 @@ if [[ "\${1:-}" == connector && "\${2:-}" == service ]]; then
     ( '$fail_start' == 1 || "\${PROJECT_FIXTURE_FAIL_START_LABEL:-}" == '$label' ) ]]; then
     exit 1
   fi
+  if [[ "\${3:-}" == stop && -n "\${PROJECT_FIXTURE_MAINTENANCE_MARKER_ON_STOP:-}" ]]; then
+    mkdir -p -- "\$(dirname -- "\$PROJECT_FIXTURE_MAINTENANCE_MARKER_ON_STOP")"
+    printf '{}\n' > "\$PROJECT_FIXTURE_MAINTENANCE_MARKER_ON_STOP"
+  fi
   exit 0
 fi
 printf '%s\n' '$label'
@@ -104,6 +108,49 @@ mkdir "$temporary_root/output-v2" "$temporary_root/extracted-v2"
 SOURCE_DATE_EPOCH=0 "$script_directory/build-machine-tools.sh" "$version" "$temporary_root/source-v2" "$temporary_root/output-v2" >/dev/null
 gtar -xzf "$temporary_root/output-v2/$archive" -C "$temporary_root/extracted-v2"
 bundle_v2="$temporary_root/extracted-v2/project-space-machine-tools-darwin-arm64-v${version}"
+
+# An installer must never switch the managed pointer while a named maintenance
+# operation or its unresolved result is still present.
+maintenance_root="$install_root/.project-space-machine-tools/maintenance"
+mkdir -m 0700 -p -- "$maintenance_root"
+maintenance_current_before=$(readlink "$install_root/.project-space-machine-tools/current")
+maintenance_versions_before=$(find "$install_root/.project-space-machine-tools/versions" -mindepth 1 -maxdepth 1 -type d | wc -l)
+maintenance_service_lines_before=$(wc -l < "$service_log")
+for maintenance_marker in state.json control.json decision.json; do
+  printf '{}\n' > "$maintenance_root/$maintenance_marker"
+  maintenance_error="$temporary_root/${maintenance_marker}.error"
+  set +e
+  "$bundle_v2/install.sh" --install-dir "$install_root" \
+    >/dev/null 2>"$maintenance_error"
+  maintenance_status=$?
+  set -e
+  [[ $maintenance_status -eq 75 ]]
+  grep -Fx 'Connector maintenance is still active or unresolved; recover it before installing.' \
+    "$maintenance_error"
+  rm -f -- "$maintenance_root/$maintenance_marker"
+  [[ $(readlink "$install_root/.project-space-machine-tools/current") == "$maintenance_current_before" ]]
+  [[ $(find "$install_root/.project-space-machine-tools/versions" -mindepth 1 -maxdepth 1 -type d | wc -l) == "$maintenance_versions_before" ]]
+  [[ $(wc -l < "$service_log") == "$maintenance_service_lines_before" ]]
+done
+
+
+# Repeat the guard after stopping the old service so a maintenance operation
+# that races the initial preflight cannot reach the pointer switch.
+maintenance_race_error="$temporary_root/maintenance-race.error"
+set +e
+PROJECT_FIXTURE_MAINTENANCE_MARKER_ON_STOP="$maintenance_root/control.json" \
+  "$bundle_v2/install.sh" --install-dir "$install_root" \
+  >/dev/null 2>"$maintenance_race_error"
+maintenance_race_status=$?
+set -e
+[[ $maintenance_race_status -eq 75 ]]
+grep -Fx 'Connector maintenance is still active or unresolved; recover it before installing.' \
+  "$maintenance_race_error"
+rm -f -- "$maintenance_root/control.json"
+[[ $(readlink "$install_root/.project-space-machine-tools/current") == "$maintenance_current_before" ]]
+grep -Fx 'v1:connector service stop' "$service_log"
+[[ $(grep -Fxc 'v1:connector service start-if-connected' "$service_log") == 2 ]]
+
 "$bundle_v2/install.sh" --install-dir "$install_root" >/dev/null
 [[ $($install_root/project) == v2 ]]
 second_current=$(readlink "$install_root/.project-space-machine-tools/current")

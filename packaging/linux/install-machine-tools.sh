@@ -82,6 +82,23 @@ if [[ -e $current_link && ! -L $current_link ]]; then
   exit 73
 fi
 
+maintenance_root="${tools_root}/maintenance"
+assert_connector_maintenance_idle() {
+  if [[ -L $maintenance_root || ( -e $maintenance_root && ! -d $maintenance_root ) ]]; then
+    echo "The connector maintenance path is unsafe: $maintenance_root" >&2
+    return 73
+  fi
+  local maintenance_marker marker_path
+  for maintenance_marker in state.json control.json decision.json; do
+    marker_path="${maintenance_root}/${maintenance_marker}"
+    if [[ -e $marker_path || -L $marker_path ]]; then
+      echo "Connector maintenance is still active or unresolved; recover it before installing." >&2
+      return 75
+    fi
+  done
+}
+assert_connector_maintenance_idle
+
 bundle_digest=$(sha256sum "${bundle_root}/SHA256SUMS.txt" | awk '{print $1}')
 release_id="${version}-${bundle_digest:0:16}"
 release_directory="${versions_root}/${release_id}"
@@ -188,6 +205,7 @@ if [[ -x $existing_project ]]; then
   stopped_existing=1
   "$existing_project" connector service stop
 fi
+assert_connector_maintenance_idle
 
 for name in project project-space-connector; do
   destination="${install_directory}/${name}"

@@ -71,6 +71,23 @@ if [[ -e $current_link && ! -L $current_link ]]; then
   exit 73
 fi
 
+maintenance_root="${tools_root}/maintenance"
+assert_connector_maintenance_idle() {
+  if [[ -L $maintenance_root || ( -e $maintenance_root && ! -d $maintenance_root ) ]]; then
+    echo "The connector maintenance path is unsafe: $maintenance_root" >&2
+    return 73
+  fi
+  local maintenance_marker marker_path
+  for maintenance_marker in state.json control.json decision.json; do
+    marker_path="${maintenance_root}/${maintenance_marker}"
+    if [[ -e $marker_path || -L $marker_path ]]; then
+      echo "Connector maintenance is still active or unresolved; recover it before installing." >&2
+      return 75
+    fi
+  done
+}
+assert_connector_maintenance_idle
+
 legacy_plist="${HOME}/Library/LaunchAgents/net.os-home.project-space-connector.plist"
 modern_plist="${HOME}/Library/LaunchAgents/net.os-home.project-space.machine-connector-supervisor.plist"
 if [[ -L $legacy_plist || -L $modern_plist ]]; then
@@ -237,6 +254,7 @@ if [[ $service_mode == legacy ]]; then
 elif [[ $service_mode == managed && -x $existing_project ]]; then
   "$existing_project" connector service stop
 fi
+assert_connector_maintenance_idle
 
 for name in project project-space-connector project-approval-signer; do
   destination="${install_directory}/${name}"
