@@ -274,7 +274,7 @@ export function ProjectWorkspacesPanel({
         variant="tertiary"
         className="flex min-h-0 flex-col rounded-lg border border-neutral-800 bg-neutral-950/45 p-3"
       >
-        <div className="mb-3 flex items-center justify-between gap-3 px-1">
+        <div className="mb-3 flex flex-col gap-3 px-1 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <Text className="text-sm font-semibold text-neutral-100">Worktrees</Text>
             <Text className="mt-0.5 block text-xs text-neutral-500">
@@ -283,7 +283,7 @@ export function ProjectWorkspacesPanel({
                 : projectWorktreeDiscoverySummary(worktreeDiscovery, serverCount)}
             </Text>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
             <Button
               size="sm"
               variant="secondary"
