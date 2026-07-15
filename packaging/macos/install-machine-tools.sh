@@ -254,7 +254,7 @@ if [[ $service_mode == legacy ]]; then
   if launchctl print "$legacy_service" >/dev/null 2>&1; then
     launchctl bootout "$legacy_service"
   fi
-elif [[ $service_mode == managed && -x $existing_project ]]; then
+elif [[ $service_mode == managed ]]; then
   "$release_directory/project" connector service stop
 fi
 assert_connector_maintenance_idle

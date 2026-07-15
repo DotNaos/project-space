@@ -252,6 +252,8 @@ fi
 [[ ! -e $migration_install_root/.project-space-machine-tools/current ]]
 grep -Fx 'v3:connector service stop' "$migration_service_log"
 grep -Fx 'homebrew:connector service start-if-connected' "$migration_service_log"
+[[ $(grep -Fxc 'v3:connector service stop' "$migration_service_log") == 2 ]]
+[[ $(sed -n '1p' "$migration_service_log") == 'v3:connector service stop' ]]
 
 rm -f "$modern_plist"
 legacy_plist="$home/Library/LaunchAgents/net.os-home.project-space-connector.plist"

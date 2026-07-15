@@ -111,7 +111,18 @@ $taskPath = '\'
 function Remove-ProjectConnectorTask {
   $task = Get-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction SilentlyContinue
   if ($null -eq $task) { return }
-  Stop-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction SilentlyContinue
+  if ($task.State -eq 'Running' -or $task.State -eq 'Queued') {
+    Stop-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction Stop
+    $stopDeadline = (Get-Date).AddSeconds(15)
+    do {
+      $task = Get-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction Stop
+      if ($task.State -ne 'Running' -and $task.State -ne 'Queued') { break }
+      if ((Get-Date) -ge $stopDeadline) {
+        throw 'Timed out waiting for the WSL connector task to stop.'
+      }
+      Start-Sleep -Milliseconds 100
+    } while ($true)
+  }
   Unregister-ScheduledTask -TaskPath $taskPath -TaskName $taskName -Confirm:$false -ErrorAction Stop
 }
 Remove-ProjectConnectorTask

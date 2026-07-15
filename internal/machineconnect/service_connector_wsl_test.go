@@ -78,6 +78,8 @@ func TestWSLServiceConnectorReplacesAndStartsWindowsScheduledTask(t *testing.T) 
 		"RestartCount 255",
 		"ExecutionTimeLimit ([TimeSpan]::Zero)",
 		"Remove-ProjectConnectorTask",
+		"Stop-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction Stop",
+		"Timed out waiting for the WSL connector task to stop.",
 	} {
 		if !strings.Contains(script, required) {
 			t.Errorf("scheduled task script lacks %q:\n%s", required, script)
@@ -85,6 +87,12 @@ func TestWSLServiceConnectorReplacesAndStartsWindowsScheduledTask(t *testing.T) 
 	}
 	if strings.Contains(script, "RestartCount 999") {
 		t.Fatal("scheduled task used a restart count outside the Task Scheduler schema")
+	}
+	if strings.Contains(
+		script,
+		"Stop-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction SilentlyContinue",
+	) {
+		t.Fatal("scheduled task replacement can hide a failed stop")
 	}
 	joinedCalls := serviceCallsText(runner.calls)
 	for _, forbidden := range []string{
