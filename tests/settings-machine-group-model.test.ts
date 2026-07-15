@@ -125,6 +125,31 @@ describe('settings machine grouping model', () => {
     ]);
   });
 
+  test('uses typed machine metadata and honest fallbacks when runtime details are absent', () => {
+    const localMac = machine({ id: 'local-mac', platform: 'darwin', status: 'local' });
+    localMac.connector.runtime = undefined;
+    localMac.kind = 'darwin';
+    const uninstalledUbuntu = machine({ id: 'ubuntu', platform: 'linux', status: 'not-installed' });
+    uninstalledUbuntu.connector.runtime = undefined;
+    uninstalledUbuntu.kind = 'laptop';
+    uninstalledUbuntu.os = { family: 'ubuntu' };
+
+    const result = groupSettingsMachines({
+      machines: [localMac, uninstalledUbuntu],
+      scopes: [scope('local-machines', [localMac.id, uninstalledUbuntu.id])]
+    });
+
+    expect(result.groups[0]?.platformLabels).toEqual(['macOS', 'Ubuntu']);
+    expect(result.groups[0]?.instances.map(({ id, platformLabel, runtimeLabel }) => ({
+      id,
+      platformLabel,
+      runtimeLabel
+    }))).toEqual([
+      { id: 'local-mac', platformLabel: 'macOS', runtimeLabel: 'Local Project Space host' },
+      { id: 'ubuntu', platformLabel: 'Ubuntu', runtimeLabel: 'Connector not installed' }
+    ]);
+  });
+
   test('keeps an offline connector primary unless credential evidence proves it historical', () => {
     const temporarilyOffline = machine({ id: 'offline-current', status: 'offline' });
     const revokedDuplicate = machine({ id: 'offline-revoked', status: 'offline' });

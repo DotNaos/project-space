@@ -40,13 +40,6 @@ interface SettingsMachineGroupsProps {
   status: 'error' | 'loading' | 'ready';
 }
 
-function runtimeDescription(instance: SettingsConnectorInstance) {
-  const runtime = instance.machine.connector.runtime;
-  const source = runtime?.source === 'source' ? 'Source checkout' : 'Managed release';
-  const version = runtime?.version ?? runtime?.releaseId ?? 'Version unavailable';
-  return `${instance.platformLabel} · ${source} · ${version}`;
-}
-
 function ConnectorInstanceRow({ instance, onRefresh }: {
   instance: SettingsConnectorInstance;
   onRefresh(): Promise<unknown>;
@@ -61,7 +54,7 @@ function ConnectorInstanceRow({ instance, onRefresh }: {
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <Text className="truncate text-sm font-medium text-neutral-100">
-              {instance.platformLabel} {instance.channelLabel}
+              {instance.platformLabel ? `${instance.platformLabel} ` : ''}{instance.channelLabel}
             </Text>
             <ConnectorChannelChip machine={instance.machine} />
             <Chip size="sm" variant={instance.isOnline ? 'primary' : 'secondary'}>
@@ -69,7 +62,7 @@ function ConnectorInstanceRow({ instance, onRefresh }: {
             </Chip>
           </div>
           <Text className="mt-0.5 block truncate text-xs text-neutral-500">
-            {runtimeDescription(instance)}
+            {instance.runtimeLabel}
           </Text>
           <Text className="mt-0.5 block truncate text-xs text-neutral-600">
             {instance.machine.name}
@@ -238,7 +231,7 @@ export function SettingsMachineGroups({
             <Disclosure.Body className="space-y-1 pb-2 pl-5">
               {grouping.groups.flatMap((group) => group.archivedInstances).concat(grouping.archivedUnscopedInstances).map((instance) => (
                 <Text key={instance.id} className="block truncate text-xs text-neutral-600">
-                  {instance.machine.name} · {instance.platformLabel} {instance.channelLabel}
+                  {instance.machine.name} · {instance.platformLabel ? `${instance.platformLabel} ` : ''}{instance.channelLabel}
                 </Text>
               ))}
               {grouping.unmatchedCredentials.filter((credential) => credential.status === 'revoked' || credential.status === 'expired').map((credential) => (

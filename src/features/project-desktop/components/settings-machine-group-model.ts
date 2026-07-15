@@ -18,7 +18,8 @@ export interface SettingsConnectorInstance {
   id: string;
   isOnline: boolean;
   machine: MachineRecord;
-  platformLabel: string;
+  platformLabel?: string;
+  runtimeLabel: string;
 }
 
 export interface SettingsMachineGroup {
@@ -86,11 +87,37 @@ function connectorIsOnline(machine: MachineRecord) {
 }
 
 function platformLabel(machine: MachineRecord) {
-  const platform = machine.connector.runtime?.platform;
-  if (platform === 'darwin') return 'macOS';
-  if (platform === 'linux') return 'Linux';
-  if (platform === 'windows') return 'Windows';
-  return 'Unknown platform';
+  const values = [
+    machine.connector.runtime?.platform,
+    machine.os?.family,
+    machine.kind,
+    machine.profile,
+    ...machine.roles
+  ]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => value.toLowerCase());
+
+  if (values.some((value) => value.includes('darwin') || value.includes('macos'))) return 'macOS';
+  if (values.some((value) => value.includes('ubuntu'))) return 'Ubuntu';
+  if (values.some((value) => value.includes('linux') || value.includes('unix'))) return 'Linux';
+  if (values.some((value) => value.includes('windows') || value.includes('win32'))) return 'Windows';
+  return undefined;
+}
+
+function runtimeLabel(machine: MachineRecord) {
+  const runtime = machine.connector.runtime;
+  if (runtime) {
+    const source = runtime.source === 'source' ? 'Source checkout' : 'Managed release';
+    const version = runtime.version || runtime.releaseId;
+    return version
+      ? `${source} · ${version.startsWith('v') ? version : `v${version}`}`
+      : `${source} · Version not reported`;
+  }
+
+  if (machine.connector.status === 'not-installed') return 'Connector not installed';
+  if (machine.connector.status === 'local') return 'Local Project Space host';
+  if (machine.connector.status === 'offline') return 'Runtime details unavailable while offline';
+  return 'Runtime details not reported';
 }
 
 function credentialsForMachine(
@@ -123,7 +150,8 @@ function connectorInstance(
     id: machine.id,
     isOnline: connectorIsOnline(machine),
     machine,
-    platformLabel: platformLabel(machine)
+    platformLabel: platformLabel(machine),
+    runtimeLabel: runtimeLabel(machine)
   };
 }
 
@@ -172,7 +200,9 @@ function machineGroup(
     machineIds: [...new Set(scope.machineIds)],
     name: scope.name,
     onlineConnectorCount: split.active.filter((instance) => instance.isOnline).length,
-    platformLabels: [...new Set(allInstances.map((instance) => instance.platformLabel))]
+    platformLabels: [...new Set(allInstances.flatMap((instance) => (
+      instance.platformLabel ? [instance.platformLabel] : []
+    )))]
   };
 }
 
