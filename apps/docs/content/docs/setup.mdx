@@ -3,7 +3,19 @@ title: Setup
 description: Install Project and get a local project ready.
 ---
 
-## Install
+## Choose The Installation Source
+
+| Source | Install or update path |
+| --- | --- |
+| Managed macOS arm64 | Use the pinned installer generated from Project Space Machines; later run `project self-update` |
+| Managed Linux x64 or WSL | Install the signed machine-tools bundle from the approved GitHub release; later run `project self-update` |
+| Homebrew | Use Homebrew for both installation and updates |
+| Native Windows | Run the approved per-user installer; `self-update` verifies and points to the next installer |
+| Source checkout | Pull and rebuild from source; the updater never overwrites development binaries |
+
+Managed releases install the Project CLI and connector as one matching pair. They preserve machine identity and credentials when upgraded.
+
+## Homebrew
 
 ```sh
 brew tap DotNaos/project-space https://github.com/DotNaos/project-space
@@ -17,6 +29,25 @@ brew update
 brew reinstall --HEAD DotNaos/project-space/project
 ```
 
+`project self-update` detects Homebrew and leaves its files untouched.
+
+## Managed Linux And WSL
+
+Download the versioned Linux x64 machine-tools archive and its checksum from the [approved Project Space release](https://github.com/DotNaos/project-space/releases/latest). Verify the checksum, extract the archive, and run its `install.sh` as your normal user. Do not run the installer as root.
+
+After the first managed installation:
+
+```sh
+project self-update --check
+project self-update
+```
+
+## Native Windows
+
+Run the approved `project-space-machine-tools-windows-x64-setup.exe` installer as your normal user. Native Windows checks the signed release with `project self-update --check`, then reports the exact verified installer URL instead of replacing the running `project.exe`.
+
+See the repository guides for the full [Linux/WSL installation](https://github.com/DotNaos/project-space/blob/main/docs/linux-installation.md), [Windows installation](https://github.com/DotNaos/project-space/blob/main/docs/windows-installation.md), and [connector lifecycle](https://github.com/DotNaos/project-space/blob/main/docs/connector.md).
+
 ## First Project
 
 ```sh
@@ -29,3 +60,5 @@ For an existing directory:
 ```sh
 project init
 ```
+
+Continue with the generated [CLI reference](/docs/cli) or the focused [self-update guide](/docs/cli/self-update).

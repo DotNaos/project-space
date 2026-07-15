@@ -38,6 +38,7 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(newConnectCommand())
 	root.AddCommand(newConnectorCommand())
 	root.AddCommand(newCreateCommand())
+	root.AddCommand(newCLIDocsCommand())
 	root.AddCommand(newDeployCommand())
 	root.AddCommand(newDisconnectCommand())
 	root.AddCommand(newMachineDoctorCommand())

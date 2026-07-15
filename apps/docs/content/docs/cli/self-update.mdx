@@ -1,0 +1,74 @@
+---
+title: Self-update
+description: Safely check and install a matching signed Project CLI and connector release.
+---
+
+`project self-update` checks the signed stable release manifest and keeps the Project CLI and connector on one matching machine-tools release. It only runs when you invoke it; Project does not perform silent or background updates.
+
+If `project --help` does not list `self-update`, your installed binary predates this source command. Follow the guidance for its installation source in [Setup](/docs/setup).
+
+## Check Before Updating
+
+```sh
+project self-update --check
+```
+
+`--check` verifies the approved release and reports what would happen without changing files.
+
+The normal update flow shows the verified plan and asks for confirmation. The default answer is no:
+
+```sh
+project self-update
+```
+
+For an explicit non-interactive install:
+
+```sh
+project self-update --yes
+```
+
+`--check` and `--yes` cannot be combined.
+
+## JSON Automation
+
+```sh
+project self-update --format json
+project self-update --format json --yes
+```
+
+JSON output never prompts. Without `--yes` it is read-only, even when an update is available. The result contains:
+
+| Field | Meaning |
+| --- | --- |
+| `state` | Final check or update state |
+| `installSource` | Detected owner of the installed CLI |
+| `currentVersion` | Installed Project CLI version, when available |
+| `targetVersion` | Version from the verified approved manifest, when available |
+| `actionableBlocker` | Safe next step when Project cannot update in place |
+
+Possible states are `current`, `update-available`, `unsupported-source`, `verification-failed`, `update-failed`, `rolled-back`, and `updated`. Unsupported sources and failed verification or installation return a non-zero exit status. A successful check, a current release, or an updated release returns zero.
+
+## Installation Sources
+
+| Installation source | Behavior |
+| --- | --- |
+| Managed macOS arm64 | Updates the matching CLI and connector pair in place |
+| Managed Linux x64 or WSL | Updates the matching CLI and connector pair in place |
+| Homebrew | Reports the Homebrew command; never overwrites Homebrew files |
+| Native Windows installer | Verifies the release and reports the exact installer URL; never replaces the running executable |
+| Source checkout | Reports pull-and-rebuild guidance; never overwrites a development binary |
+| Unknown | Refuses to overwrite files and reports reinstall guidance |
+
+## Verification And Rollback
+
+The updater downloads the exact archive named by the signed approved manifest. It verifies the pinned size and SHA-256 checksum before delegating to the existing paired installer. It never trusts a mutable `latest` download URL.
+
+The installer stops the connector, atomically switches both tools, and starts the connector again when this machine was already connected. If the new connector cannot start, it restores the previous matching pair and reports `rolled-back`. Machine identity and credentials live outside the release directory and are preserved throughout the update.
+
+After an update, verify the local machine normally:
+
+```sh
+project --version
+project status
+project doctor
+```

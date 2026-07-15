@@ -64,7 +64,12 @@ The repository currently targets a web-first fullstack MVP:
 
 ## Documentation
 
+- [Hosted Project documentation](https://projects.os-home.net/docs)
+- [Generated CLI command reference](apps/docs/content/docs/cli/index.mdx)
+- [CLI self-update guide](apps/docs/content/docs/cli/self-update.mdx)
 - [Connector install and usage guide](docs/connector.md)
+- [Linux and WSL installation guide](docs/linux-installation.md)
+- [Windows installation guide](docs/windows-installation.md)
 - `.dev/product.md`
 - `.dev/vision.md`
 - `.dev/scope/iteration-1.md`
