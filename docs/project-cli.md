@@ -149,6 +149,34 @@ Fixed policy:
 
 The token value is stored directly in 1Password and is never printed.
 
+## Update The Project CLI And Connector
+
+```sh
+project self-update --check
+project self-update
+project self-update --yes
+project self-update --format json
+project self-update --format json --yes
+```
+
+`self-update` checks the signed stable release manifest and keeps the Project
+CLI and connector on one matching machine-tools release. The default command
+shows the verified plan and asks for `y/N` confirmation. `--check` is always
+read-only, while `--yes` installs without prompting. JSON output never prompts;
+it is read-only unless `--yes` is also present.
+
+Only a managed macOS arm64 or Linux x64/WSL installation is changed in place.
+The updater downloads the exact archive named by the signed manifest, verifies
+its size and SHA-256 checksum, and delegates the switch to the existing paired
+installer. That installer stops and restarts the connector and restores the
+previous matching pair if the new connector cannot start. Machine identity and
+credentials remain outside the release directory.
+
+Homebrew, native Windows, source-checkout, and unrecognized installations are
+reported without being overwritten. The result includes the appropriate
+package-manager, installer, or rebuild guidance. This is a user-invoked command;
+Project does not perform silent or background updates.
+
 ## Run And Serve Project Scripts
 
 Projects declare a small, shared script catalog in `.project/scripts.yaml`:

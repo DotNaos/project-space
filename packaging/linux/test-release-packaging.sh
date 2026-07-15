@@ -20,6 +20,10 @@ write_project_fixture() {
   local fail_start=${3:-0}
   cat > "$path" <<EOF
 #!/bin/sh
+if [ "\${1:-}" = --version ]; then
+  printf '%s\n' 'project $version'
+  exit 0
+fi
 if [ "\${1:-}" = connector ] && [ "\${2:-}" = service ]; then
   if [ -n "\${PROJECT_FIXTURE_SERVICE_LOG:-}" ]; then
     printf '%s:%s\\n' '$label' "\$*" >> "\$PROJECT_FIXTURE_SERVICE_LOG"
@@ -60,7 +64,14 @@ EOF
 
 mkdir -p -- "$temporary_root/source" "$temporary_root/first" "$temporary_root/second"
 write_project_fixture "$temporary_root/source/project" 'project fixture v1'
-printf '#!/bin/sh\nprintf "connector fixture\\n"\n' > "$temporary_root/source/project-space-connector"
+cat > "$temporary_root/source/project-space-connector" <<EOF
+#!/bin/sh
+if [ "\${1:-}" = --version ]; then
+  printf 'project-space-connector %s\n' "\${PROJECT_FIXTURE_CONNECTOR_VERSION:-$version}"
+  exit 0
+fi
+printf 'connector fixture\n'
+EOF
 chmod 0755 "$temporary_root/source/project" "$temporary_root/source/project-space-connector"
 write_trust_roots "$temporary_root/source"
 
@@ -228,6 +239,22 @@ second_current=$(readlink "$install_root/.project-space-machine-tools/current")
 [[ $second_current != "$first_current" ]]
 grep -Fx 'project fixture v2:connector service stop' "$service_log"
 grep -Fx 'project fixture v2:connector service start-if-connected' "$service_log"
+
+# A pair that does not report one matching version fails before commit and
+# restores the previous current pointer and service.
+version_failure_starts_before=$(grep -Fxc 'project fixture v2:connector service start-if-connected' "$service_log")
+version_failure_log="$temporary_root/version-failure.log"
+set +e
+PROJECT_FIXTURE_CONNECTOR_VERSION=0.4.7 \
+PROJECT_FIXTURE_SERVICE_LOG="$service_log" \
+  "$upgrade_bundle/install.sh" --install-dir "$install_root" \
+  >/dev/null 2>"$version_failure_log"
+version_failure_status=$?
+set -e
+[[ $version_failure_status -eq 70 ]]
+grep -Fx 'The installed project-space-connector does not report the bundled version.' "$version_failure_log"
+[[ $(readlink "$install_root/.project-space-machine-tools/current") == "$second_current" ]]
+[[ $(grep -Fxc 'project fixture v2:connector service start-if-connected' "$service_log") == $((version_failure_starts_before + 1)) ]]
 
 # If the new service cannot start, the pointer rolls back to the complete old
 # pair and the old service is restarted.

@@ -49,7 +49,17 @@ Replace `<distribution>` with the exact name reported by WSL. The WinGet package
 
 ## Upgrade
 
-Download the installer from the next approved Project Space release and run the same installation command again.
+Check the signed stable release from PowerShell with:
+
+```powershell
+project self-update --check
+project self-update --format json
+```
+
+The command verifies the signed manifest and prints the exact approved
+installer URL, but it does not replace a running `project.exe`. Download that
+installer and run the same installation command again. This explicit boundary
+avoids an unsafe partial replacement of the CLI and connector.
 
 The installer stops the existing connector before replacing either executable. It starts the connector again only when a machine credential already exists. The stable installation path means the Scheduled Task continues to point at the same `project.exe` across upgrades.
 

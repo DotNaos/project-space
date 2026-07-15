@@ -54,6 +54,19 @@ the executables beside each other lets `project connect` start the companion
 without an extra path setting. Native Windows packaging remains separate; use
 the Linux formula inside WSL for the current Windows workflow.
 
+Managed macOS arm64 and Linux x64/WSL installations can later update the same
+pair with `project self-update`. The command verifies an exact signed stable
+release before prompting, then uses the existing installer to stop the
+connector, atomically switch both tools, restart it, and roll back the pair if
+startup fails. It preserves machine identity and credentials and never runs in
+the background.
+
+`project self-update --check` is read-only. JSON output never prompts and only
+installs when it is explicitly combined with `--yes`. Homebrew and source-built
+copies are reported without being overwritten. Native Windows reports the
+verified installer URL because a running `project.exe` cannot safely replace
+itself and synchronously prove the final paired state.
+
 ## Configure the Connector
 
 For the hosted multi-user app, copy the managed command from Project Space.

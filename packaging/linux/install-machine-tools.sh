@@ -68,6 +68,18 @@ if [[ ! $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
   exit 65
 fi
 
+verify_installed_pair() {
+  local binary output version_pattern
+  version_pattern=${version//./\\.}
+  for binary in project project-space-connector; do
+    if ! output=$("${install_directory}/${binary}" --version 2>&1) ||
+      [[ ! $output =~ (^|[[:space:]])v?${version_pattern}($|[[:space:]]) ]]; then
+      echo "The installed ${binary} does not report the bundled version." >&2
+      return 1
+    fi
+  done
+}
+
 umask 077
 if [[ ! -d $install_directory ]]; then
   mkdir -m 0700 -p -- "$install_directory"
@@ -236,6 +248,11 @@ next_current="${transaction_root}/current.next"
 ln -s -- "versions/${release_id}" "$next_current"
 mv -Tf -- "$next_current" "$current_link"
 pointer_switched=1
+
+if ! verify_installed_pair; then
+  echo "The new machine-tools pair could not be verified; the installation was rolled back." >&2
+  exit 70
+fi
 
 if ! "${install_directory}/project" connector service start-if-connected; then
   echo "The new connector could not be started; the previous machine-tools release was restored." >&2
