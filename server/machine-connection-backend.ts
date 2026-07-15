@@ -39,6 +39,7 @@ export function createMachineConnectionBackend(
     try {
       const machine = await service.markMachineOnline(machineId, token);
       return {
+        connectorProfile: machine.connectorProfile,
         hostId: machine.hostname,
         machineId: machine.id,
         userId: machine.ownerUserId

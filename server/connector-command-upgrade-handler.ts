@@ -5,6 +5,10 @@ import type { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer } from 'ws';
 
 import type { ConnectorProjectRegistryResult } from '../src/shared/project-space-api';
+import {
+  sameMachineConnectorProfile,
+  type MachineConnectorProfile
+} from './machine-connection-contract';
 import { registerConnectorProjectRegistry } from './connector-hub';
 import {
   isConnectorHubMessage,
@@ -27,10 +31,15 @@ import {
 const connectorSocketPath = '/api/connectors/socket';
 const defaultCredentialRevalidationIntervalMs = 30_000;
 
+export interface AuthenticatedConnectorIdentity {
+  connectorProfile?: MachineConnectorProfile;
+  machineId: string;
+}
+
 export type AuthenticateConnectorCredential = (
   token: string,
   machineId: string
-) => Promise<boolean>;
+) => Promise<AuthenticatedConnectorIdentity | boolean | null>;
 
 export interface ConnectorCommandUpgradeHandlerOptions {
   authenticateConnectorCredential?: AuthenticateConnectorCredential;
@@ -57,6 +66,15 @@ export async function authenticateConnectorCredential(actual: string, _machineId
   return expectedBytes.length === actualBytes.length && timingSafeEqual(expectedBytes, actualBytes);
 }
 
+function authenticatedIdentity(
+  result: AuthenticatedConnectorIdentity | boolean | null,
+  machineId: string
+): AuthenticatedConnectorIdentity | null {
+  if (result === false || result === null) return null;
+  if (result === true) return { machineId };
+  return result.machineId === machineId ? result : null;
+}
+
 export function createConnectorCommandUpgradeHandlerCore(
   dependencies: ConnectorCommandUpgradeHandlerDependencies,
   options: ConnectorCommandUpgradeHandlerOptions = {}
@@ -75,9 +93,10 @@ export function createConnectorCommandUpgradeHandlerCore(
   webSocketServer.on('connection', (socket) => {
     let machineId = '';
     let registrationToken = '';
+    let connectorProfile: MachineConnectorProfile | undefined;
     let registrationPending = false;
     let credentialRevalidationTimer: ReturnType<typeof setInterval> | undefined;
-    let credentialRevalidation: Promise<boolean> | undefined;
+    let credentialRevalidation: Promise<AuthenticatedConnectorIdentity | null> | undefined;
     const registrationTimeout = setTimeout(() => {
       if (!machineId) {
         socket.close(1008, 'Connector registration timed out.');
@@ -92,12 +111,17 @@ export function createConnectorCommandUpgradeHandlerCore(
         return credentialRevalidation;
       }
 
-      const attempt = authenticate(registrationToken, machineId).catch(() => false);
+      const attempt = authenticate(registrationToken, machineId)
+        .then((result) => authenticatedIdentity(result, machineId))
+        .catch(() => null);
       credentialRevalidation = attempt;
-      const authenticated = await attempt;
+      const identity = await attempt;
       if (credentialRevalidation === attempt) {
         credentialRevalidation = undefined;
       }
+      const authenticated = Boolean(
+        identity && sameMachineConnectorProfile(identity.connectorProfile, connectorProfile)
+      );
       if (!authenticated && socket.readyState === WebSocket.OPEN) {
         socket.close(1008, 'Connector credential expired or was revoked.');
       }
@@ -133,10 +157,10 @@ export function createConnectorCommandUpgradeHandlerCore(
         }
         registrationPending = true;
         const requestedMachineId = message.payload.connector.machineId;
-        const authenticated = await authenticate(message.token, requestedMachineId).catch(
-          () => false
-        );
-        if (!authenticated) {
+        const identity = await authenticate(message.token, requestedMachineId)
+          .then((result) => authenticatedIdentity(result, requestedMachineId))
+          .catch(() => null);
+        if (!identity) {
           socket.close(1008, 'Connector registration failed.');
           return;
         }
@@ -145,7 +169,7 @@ export function createConnectorCommandUpgradeHandlerCore(
         }
 
         try {
-          await registerConnectorProjectRegistry(message.payload);
+          await registerConnectorProjectRegistry(message.payload, identity.connectorProfile);
         } catch {
           socket.close(1008, 'Connector registration failed.');
           return;
@@ -160,6 +184,7 @@ export function createConnectorCommandUpgradeHandlerCore(
         if (socket.readyState !== WebSocket.OPEN) return;
         machineId = requestedMachineId;
         registrationToken = message.token;
+        connectorProfile = identity.connectorProfile;
         registrationPending = false;
         const previous = connectorSocket(machineId);
         if (previous && previous !== socket) {
@@ -199,7 +224,12 @@ export function createConnectorCommandUpgradeHandlerCore(
         if (!(await revalidateCredential()) || socket.readyState !== WebSocket.OPEN) {
           return;
         }
-        await registerConnectorProjectRegistry(message.payload);
+        try {
+          await registerConnectorProjectRegistry(message.payload, connectorProfile);
+        } catch {
+          socket.close(1008, 'Connector registry profile changed.');
+          return;
+        }
         try {
           await decideMaintenance(machineId, message.payload);
         } catch {

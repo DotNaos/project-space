@@ -205,6 +205,11 @@ export function createAuthorizedProjectSpaceBackend(
       return backend.startMachineRuntimeOperation(machineId, request);
     },
 
+    async stopMachineRuntime(machineId) {
+      await policy.requireMachineOwner(machineId);
+      return backend.stopMachineRuntime(machineId);
+    },
+
     async getConnectorProjectRegistry() {
       policy.requireLocalHostAccess();
       return backend.getConnectorProjectRegistry();

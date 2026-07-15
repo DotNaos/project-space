@@ -68,8 +68,12 @@ func (backend *HTTPBackend) CreateRequest(
 		return Request{}, errors.New("create machine connection request: invalid machine identity key")
 	}
 	payload := struct {
-		Architecture    string `json:"architecture"`
-		ClientVersion   string `json:"clientVersion"`
+		Architecture     string `json:"architecture"`
+		ClientVersion    string `json:"clientVersion"`
+		ConnectorProfile *struct {
+			Channel string `json:"channel"`
+			Source  string `json:"source"`
+		} `json:"connectorProfile,omitempty"`
 		Hostname        string `json:"hostname"`
 		Name            string `json:"name"`
 		OperatingSystem string `json:"operatingSystem"`
@@ -78,6 +82,12 @@ func (backend *HTTPBackend) CreateRequest(
 		Architecture: machine.Architecture, ClientVersion: machine.ClientVersion,
 		Hostname: machine.Hostname, Name: machine.Name, OperatingSystem: machine.OS,
 		PublicKey: publicKey,
+	}
+	if machine.Channel != "" || machine.Source != "" {
+		payload.ConnectorProfile = &struct {
+			Channel string `json:"channel"`
+			Source  string `json:"source"`
+		}{Channel: machine.Channel, Source: machine.Source}
 	}
 	response := struct {
 		RequestID      string `json:"requestId"`

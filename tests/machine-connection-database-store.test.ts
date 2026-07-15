@@ -69,6 +69,38 @@ describe("database machine connection store", () => {
     expect(insert?.sql).not.toContain(request.pollTokenHash);
   });
 
+  test("persists and restores the explicit development source enrollment profile", async () => {
+    const profile = { channel: "dev", source: "source" } as const;
+    const client = new ScriptedQueryClient((sql) => {
+      if (sql.includes("from machine_connection_requests")) {
+        return [requestRow({ connector_channel: "dev", connector_source: "source" })];
+      }
+      if (sql.includes("from machine_identities mi")) {
+        return [identityRow({
+          connector_channel: "dev",
+          connector_source: "source",
+          credential_expires_at: expiresAt,
+          credential_hash: credentialHash,
+          effective_revoked_at: null,
+        })];
+      }
+      return [];
+    });
+    const store = storeWithIds(client);
+    const request = approvedRequest({ connectorProfile: profile });
+
+    await store.createRequest(request);
+    await expect(store.getRequest(requestId)).resolves.toEqual(request);
+    await expect(store.getMachine(newMachineId)).resolves.toEqual(
+      machine({ connectorProfile: profile }),
+    );
+
+    const insert = client.calls.find((call) =>
+      call.sql.includes("insert into machine_connection_requests"),
+    );
+    expect(insert?.values.slice(-2)).toEqual(["dev", "source"]);
+  });
+
   test("cleans expired requests in one bounded skip-locked batch", async () => {
     const database = new ScriptedQueryClient((sql) => {
       if (sql.includes("with expired_requests as")) {

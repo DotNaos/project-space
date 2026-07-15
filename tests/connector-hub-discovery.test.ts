@@ -36,6 +36,28 @@ function registry(machineId: string, localProjectId: string): ConnectorProjectRe
   };
 }
 
+function sourceDevelopmentRegistry(machineId: string) {
+  const payload = registry(machineId, 'source-project');
+  payload.connector.runtime = {
+    architecture: 'x64',
+    buildId: 'dev-source-checkout',
+    bundleVersions: {
+      connector: '0.4.7',
+      machineTools: '0.4.7',
+      projectCli: '0.4.7'
+    },
+    channel: 'dev',
+    instanceId: 'dev-instance',
+    lastCheckedAt: '2026-07-11T00:00:00.000Z',
+    platform: 'linux',
+    protocolVersion: '1',
+    releaseId: 'dev-source-checkout',
+    source: 'source',
+    version: '0.4.7'
+  };
+  return payload;
+}
+
 describe('connector discovery ownership', () => {
   afterEach(() => setSystemTime());
 
@@ -51,6 +73,29 @@ describe('connector discovery ownership', () => {
     expect(new Set(projects.map((project) => project.machineId))).toEqual(
       new Set(['collision-a', 'collision-a:collision-b'])
     );
+  });
+
+  test('requires a matching authenticated enrollment before accepting dev source metadata', async () => {
+    const payload = sourceDevelopmentRegistry('bound-source-machine');
+    await expect(registerConnectorProjectRegistry(payload)).rejects.toThrow(
+      'bound enrollment profile'
+    );
+    await expect(
+      registerConnectorProjectRegistry(payload, { channel: 'dev', source: 'source' })
+    ).resolves.toBeUndefined();
+    const projected = (await getRegisteredConnectorMachines()).find(
+      (machine) => machine.id === 'bound-source-machine'
+    );
+    expect(projected?.connector.profile).toEqual({ channel: 'dev', source: 'source' });
+
+    const mismatched = sourceDevelopmentRegistry('mismatched-source-machine');
+    mismatched.connector.runtime = {
+      ...mismatched.connector.runtime!,
+      channel: 'beta'
+    };
+    await expect(
+      registerConnectorProjectRegistry(mismatched, { channel: 'dev', source: 'source' })
+    ).rejects.toThrow('does not match');
   });
 
   test('rejects a malformed refresh without replacing the last valid registry', async () => {

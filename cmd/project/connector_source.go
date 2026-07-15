@@ -99,6 +99,8 @@ func newConnectorSourceConnectCommand(dependencies connectorSourceDependencies) 
 				OS:            dependencies.GOOS,
 				Architecture:  dependencies.GOARCH,
 				ClientVersion: dependencies.Version,
+				Channel:       string(profile.Channel),
+				Source:        profile.Source,
 			})
 			if err != nil {
 				return err

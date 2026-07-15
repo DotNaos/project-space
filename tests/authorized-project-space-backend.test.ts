@@ -89,6 +89,7 @@ function hostedFor(machineIds: string[], userId = 'user-a') {
 describe('authorized Project Space backend', () => {
   test('requires access for runtime status and owner role for maintenance', async () => {
     let reads = 0;
+    let stops = 0;
     let writes = 0;
     const raw = backendWith({
       async getMachineRuntime(machineId) {
@@ -100,6 +101,10 @@ describe('authorized Project Space backend', () => {
       async startMachineRuntimeOperation() {
         writes += 1;
         throw new Error('not reached for a member');
+      },
+      async stopMachineRuntime() {
+        stops += 1;
+        return { operationId: 'operation-stop', status: 'accepted' };
       }
     });
     const member = createAuthorizedProjectSpaceBackend(raw, {
@@ -113,8 +118,18 @@ describe('authorized Project Space backend', () => {
     await expect(member.startMachineRuntimeOperation('machine-a', {
       operation: 'restart'
     })).rejects.toBeInstanceOf(ProjectSpaceAccessError);
+    await expect(member.stopMachineRuntime('machine-a'))
+      .rejects.toBeInstanceOf(ProjectSpaceAccessError);
     expect(reads).toBe(1);
+    expect(stops).toBe(0);
     expect(writes).toBe(0);
+
+    const owner = createAuthorizedProjectSpaceBackend(raw, hostedFor(['machine-a']));
+    await expect(owner.stopMachineRuntime('machine-a')).resolves.toEqual({
+      operationId: 'operation-stop',
+      status: 'accepted'
+    });
+    expect(stops).toBe(1);
   });
 
   test('returns no environment metadata when repository authorization fails', async () => {

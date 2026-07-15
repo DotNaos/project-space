@@ -2,8 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import type { MachineRecord } from '../src/shared/project-space-api';
 import {
   canRestartMachineRuntime,
+  canStopSourceDevelopmentMachineRuntime,
   canUpdateMachineRuntime,
   hasMachineRuntimeCapability,
+  isSourceDevelopmentMachineRuntime,
   isRuntimeBusy,
   latestRuntimeFailure,
   runtimeApprovedReleaseId,
@@ -12,7 +14,11 @@ import {
   runtimeRetryOperation,
   runtimeStateLabel,
   runtimeUnavailableReason,
-  shouldPollRuntimeStatus
+  shouldPollRuntimeStatus,
+  shouldShowMachineRuntimeRestart,
+  shouldShowMachineRuntimeStop,
+  shouldShowMachineRuntimeUpdate,
+  shouldShowManagedRuntimeReinstallNotice
 } from '../src/features/project-desktop/components/machine-connector-runtime-model';
 
 function machine(overrides: Partial<MachineRecord['connector']> = {}): MachineRecord {
@@ -46,7 +52,110 @@ function machine(overrides: Partial<MachineRecord['connector']> = {}): MachineRe
   };
 }
 
+function sourceDevelopmentMachine(
+  overrides: Partial<MachineRecord['connector']> = {}
+): MachineRecord {
+  const baseline = machine();
+  return machine({
+    capabilities: ['runtime.stop'],
+    profile: { channel: 'dev', source: 'source' },
+    runtime: {
+      ...baseline.connector.runtime!,
+      channel: 'dev',
+      source: 'source'
+    },
+    update: { state: 'unsupported' },
+    ...overrides
+  });
+}
+
 describe('machine connector runtime actions', () => {
+  test('offers scoped stop only to an explicit source development connector', () => {
+    const sourceDevelopment = sourceDevelopmentMachine();
+    const selfReportedDevelopment = sourceDevelopmentMachine({
+      profile: undefined,
+      runtime: {
+        ...sourceDevelopment.connector.runtime!,
+        channel: 'dev',
+        source: 'source'
+      }
+    });
+    const nameOnlyDevelopment = sourceDevelopmentMachine({
+      profile: undefined,
+      runtime: {
+        ...sourceDevelopment.connector.runtime!,
+        channel: 'stable',
+        source: 'managed'
+      }
+    });
+    nameOnlyDevelopment.name = 'dev-machine';
+
+    expect(isSourceDevelopmentMachineRuntime(sourceDevelopment)).toBe(true);
+    expect(canStopSourceDevelopmentMachineRuntime(sourceDevelopment)).toBe(true);
+    expect(shouldShowMachineRuntimeStop(sourceDevelopment)).toBe(true);
+    expect(shouldShowMachineRuntimeRestart(sourceDevelopment)).toBe(false);
+    expect(canStopSourceDevelopmentMachineRuntime(selfReportedDevelopment)).toBe(false);
+    expect(shouldShowMachineRuntimeStop(selfReportedDevelopment)).toBe(false);
+    expect(canStopSourceDevelopmentMachineRuntime(nameOnlyDevelopment)).toBe(false);
+    expect(shouldShowMachineRuntimeStop(nameOnlyDevelopment)).toBe(false);
+    expect(shouldShowMachineRuntimeStop(machine({ runtime: undefined }))).toBe(false);
+  });
+
+  test('fails scoped stop closed when offline, busy, or missing its capability', () => {
+    const missingCapability = sourceDevelopmentMachine({ capabilities: [] });
+    const offline = sourceDevelopmentMachine({ status: 'offline' });
+    const busy = sourceDevelopmentMachine({
+      update: {
+        operation: {
+          createdAt: '2026-07-13T00:00:00.000Z',
+          id: 'operation-1',
+          machineId: 'machine-1',
+          operation: 'restart',
+          requestedByUserId: 'user-1',
+          state: 'reconnecting',
+          updatedAt: '2026-07-13T00:01:00.000Z'
+        },
+        state: 'restarting'
+      }
+    });
+
+    expect(canStopSourceDevelopmentMachineRuntime(missingCapability)).toBe(false);
+    expect(runtimeUnavailableReason(missingCapability, 'stop')).toContain('stop support');
+    expect(canStopSourceDevelopmentMachineRuntime(offline)).toBe(false);
+    expect(runtimeUnavailableReason(offline, 'stop')).toBe('The machine is offline.');
+    expect(canStopSourceDevelopmentMachineRuntime(busy)).toBe(false);
+    expect(runtimeUnavailableReason(busy, 'stop')).toContain('reconnect');
+  });
+
+  test('suppresses managed maintenance actions and reinstall guidance for source development', () => {
+    const sourceDevelopment = sourceDevelopmentMachine({
+      capabilities: ['runtime.restart', 'runtime.stop', 'runtime.update'],
+      update: {
+        availableReleaseId: 'release-2',
+        availableVersion: '2.0.0',
+        state: 'update-available'
+      }
+    });
+    const unsupportedSourceDevelopment = sourceDevelopmentMachine();
+    const managedUpdate = machine({
+      update: {
+        availableReleaseId: 'release-2',
+        availableVersion: '2.0.0',
+        state: 'update-available'
+      }
+    });
+
+    expect(canUpdateMachineRuntime(sourceDevelopment)).toBe(false);
+    expect(canRestartMachineRuntime(sourceDevelopment)).toBe(false);
+    expect(shouldShowMachineRuntimeUpdate(sourceDevelopment)).toBe(false);
+    expect(shouldShowMachineRuntimeRestart(sourceDevelopment)).toBe(false);
+    expect(shouldShowManagedRuntimeReinstallNotice(unsupportedSourceDevelopment)).toBe(false);
+    expect(canUpdateMachineRuntime(managedUpdate)).toBe(true);
+    expect(canRestartMachineRuntime(managedUpdate)).toBe(true);
+    expect(shouldShowMachineRuntimeUpdate(managedUpdate)).toBe(true);
+    expect(shouldShowMachineRuntimeRestart(managedUpdate)).toBe(true);
+  });
+
   test('keeps restart available when the connector is current', () => {
     const current = machine();
     expect(canRestartMachineRuntime(current)).toBe(true);

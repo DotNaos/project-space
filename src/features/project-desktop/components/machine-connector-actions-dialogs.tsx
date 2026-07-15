@@ -7,6 +7,7 @@ import {
   RefreshCw,
   RotateCcw,
   RotateCw,
+  Square,
   X
 } from 'lucide-react';
 import { AlertDialog, Button, Modal, ProgressBar } from '@heroui/react';
@@ -25,11 +26,13 @@ import {
   runtimeOperationOutcomeMessage,
   runtimeRetryOperation,
   runtimeStateLabel,
-  runtimeVersionLabel
+  runtimeVersionLabel,
+  shouldShowManagedRuntimeReinstallNotice
 } from './machine-connector-runtime-model';
 
 export type ConnectorDialogView =
   | 'confirm-restart'
+  | 'confirm-stop'
   | 'confirm-update'
   | 'details'
   | 'failure'
@@ -42,6 +45,7 @@ interface MachineConnectorActionsDialogsProps {
   onRefresh(): void;
   onShowConfirmation(operation: ConnectorRuntimeOperationName): void;
   onStart(operation: ConnectorRuntimeOperationName): void;
+  onStop(): void;
   requestError: string;
   status: MachineRuntimeStatusResult;
   view?: ConnectorDialogView;
@@ -71,12 +75,13 @@ function ConfirmationDialog({
   machine,
   onClose,
   onStart,
+  onStop,
   operation,
   requestError
 }: Pick<
   MachineConnectorActionsDialogsProps,
-  'isSubmitting' | 'machine' | 'onClose' | 'onStart' | 'requestError'
-> & { operation?: ConnectorRuntimeOperationName }) {
+  'isSubmitting' | 'machine' | 'onClose' | 'onStart' | 'onStop' | 'requestError'
+> & { operation?: ConnectorRuntimeOperationName | 'stop' }) {
   const runtime = machine.connector.runtime;
   const update = machine.connector.update;
   const updateTarget = update?.availableVersion ??
@@ -104,20 +109,31 @@ function ConfirmationDialog({
                 <AlertTriangle className="size-5" />
               </AlertDialog.Icon>
               <AlertDialog.Heading>
-                {operation === 'update' ? 'Confirm connector update' : 'Confirm connector restart'}
+                {operation === 'update'
+                  ? 'Confirm connector update'
+                  : operation === 'stop'
+                    ? 'Stop development connector?'
+                    : 'Confirm connector restart'}
               </AlertDialog.Heading>
             </AlertDialog.Header>
             <AlertDialog.Body>
               <p className="text-sm leading-6 text-neutral-300">
                 {operation === 'update'
                   ? `Update ${machine.name} from ${runtimeVersionLabel(machine)} to ${updateTarget}?`
+                  : operation === 'stop'
+                    ? `Stop the source development connector on ${machine.name}? Only this Dev connector will stop. The production connector is not affected.`
                   : `Restart the connector on ${machine.name}? Its installed version will not change.`}
               </p>
               <div className="mt-4 rounded-xl border border-amber-500/25 bg-amber-500/8 p-3">
-                <p className="text-sm font-medium text-amber-200">Expect a temporary disconnect</p>
+                <p className="text-sm font-medium text-amber-200">
+                  {operation === 'stop'
+                    ? 'The Dev connector will stay offline'
+                    : 'Expect a temporary disconnect'}
+                </p>
                 <p className="mt-1 text-xs leading-5 text-amber-200/70">
-                  Project Space will wait for this machine to reconnect and prove its running version
-                  before reporting success.
+                  {operation === 'stop'
+                    ? 'Start it again from the source runner when you want this Dev machine to reconnect.'
+                    : 'Project Space will wait for this machine to reconnect and prove its running version before reporting success.'}
                   {operation === 'update' && runtime
                     ? ' If health checks fail, the updater will use the available recovery path.'
                     : ''}
@@ -138,21 +154,30 @@ function ConfirmationDialog({
               <Button
                 fullWidth
                 isDisabled={isSubmitting || !operation}
-                variant="primary"
-                onPress={() => operation && onStart(operation)}
+                variant={operation === 'stop' ? 'danger' : 'primary'}
+                onPress={() => {
+                  if (operation === 'stop') onStop();
+                  else if (operation) onStart(operation);
+                }}
                 className="min-[420px]:w-auto"
               >
                 {isSubmitting ? (
                   <LoaderCircle className="size-4 animate-spin" />
                 ) : operation === 'update' ? (
                   <RefreshCw className="size-4" />
+                ) : operation === 'stop' ? (
+                  <Square className="size-4" />
                 ) : (
                   <RotateCw className="size-4" />
                 )}
                 {isSubmitting
-                  ? 'Starting…'
+                  ? operation === 'stop'
+                    ? 'Stopping…'
+                    : 'Starting…'
                   : operation === 'update'
                     ? 'Update connector'
+                    : operation === 'stop'
+                      ? 'Stop Dev connector'
                     : 'Restart connector'}
               </Button>
             </AlertDialog.Footer>
@@ -280,7 +305,7 @@ function StatusModal({
                         it to {update?.availableVersion}; Restart remains available.
                       </p>
                     </div>
-                  ) : update?.state === 'unsupported' ? (
+                  ) : shouldShowManagedRuntimeReinstallNotice(machine) ? (
                     <div className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/8 p-3">
                       <p className="text-sm font-medium text-amber-200">
                         Managed reinstall required
@@ -401,9 +426,11 @@ function StatusModal({
 export function MachineConnectorActionsDialogs(props: MachineConnectorActionsDialogsProps) {
   const confirmation = props.view === 'confirm-update'
     ? 'update'
-    : props.view === 'confirm-restart'
-      ? 'restart'
-      : undefined;
+    : props.view === 'confirm-stop'
+      ? 'stop'
+      : props.view === 'confirm-restart'
+        ? 'restart'
+        : undefined;
   const modalView = props.view && !props.view.startsWith('confirm-')
     ? props.view as Exclude<ConnectorDialogView, `confirm-${string}`>
     : undefined;

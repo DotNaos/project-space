@@ -8,8 +8,10 @@ import type {
 } from '../src/shared/project-space-api';
 import { isConnectorProjectRegistryPayload } from './connector-command-protocol';
 import { getConnectorMachineSnapshotStore } from './local-database-store';
+import type { MachineConnectorProfile } from './machine-connection-contract';
 
 interface RegisteredConnector {
+  connectorProfile?: MachineConnectorProfile;
   firstSeenAt: string;
   receivedAt: string;
   registry: ConnectorProjectRegistryResult;
@@ -79,7 +81,30 @@ function normalizeStructureViolation(
   };
 }
 
-export async function registerConnectorProjectRegistry(registry: ConnectorProjectRegistryResult) {
+function assertConnectorProfile(
+  registry: ConnectorProjectRegistryResult,
+  connectorProfile: MachineConnectorProfile | undefined
+) {
+  const runtime = registry.connector.runtime;
+  if (connectorProfile) {
+    if (
+      !runtime ||
+      runtime.channel !== connectorProfile.channel ||
+      runtime.source !== connectorProfile.source
+    ) {
+      throw new Error('Connector registry does not match its enrolled connector profile.');
+    }
+    return;
+  }
+  if (runtime?.channel === 'dev' || runtime?.source === 'source') {
+    throw new Error('Development source connectors require a bound enrollment profile.');
+  }
+}
+
+export async function registerConnectorProjectRegistry(
+  registry: ConnectorProjectRegistryResult,
+  connectorProfile?: MachineConnectorProfile
+) {
   if (!isConnectorProjectRegistryPayload(registry)) {
     throw new Error('Connector registry payload is invalid.');
   }
@@ -88,16 +113,18 @@ export async function registerConnectorProjectRegistry(registry: ConnectorProjec
   if (!machineId) {
     throw new Error('Connector registry is missing connector.machineId.');
   }
+  assertConnectorProfile(registry, connectorProfile);
 
   const receivedAt = nowIso();
   const existing = registries.get(machineId);
   const entry = {
+    connectorProfile,
     firstSeenAt: existing?.firstSeenAt ?? receivedAt,
     receivedAt,
     registry: structuredClone(registry)
   };
   const store = await getConnectorMachineSnapshotStore();
-  await store?.upsert(entry.registry, receivedAt);
+  await store?.upsert(entry.registry, receivedAt, connectorProfile);
   registries.set(machineId, entry);
 }
 
@@ -111,6 +138,7 @@ export async function getRegisteredConnectorRegistries() {
       }
       const machineId = snapshot.registry.connector.machineId.trim();
       persisted.set(machineId, {
+        connectorProfile: snapshot.connectorProfile,
         firstSeenAt: snapshot.firstSeenAt,
         receivedAt: snapshot.lastSeenAt,
         registry: structuredClone(snapshot.registry)
@@ -128,7 +156,7 @@ export async function getRegisteredConnectorRegistries() {
 }
 
 export async function getRegisteredConnectorMachines(): Promise<MachineRecord[]> {
-  return (await getRegisteredConnectorRegistries()).map(({ receivedAt, registry }) => {
+  return (await getRegisteredConnectorRegistries()).map(({ connectorProfile, receivedAt, registry }) => {
     const online = isFresh({ firstSeenAt: receivedAt, receivedAt, registry });
     const capabilities = registry.connector.capabilities ?? [];
     const supportsRuntimeMaintenance = Boolean(registry.connector.runtime) &&
@@ -141,6 +169,7 @@ export async function getRegisteredConnectorMachines(): Promise<MachineRecord[]>
       installCommand: 'project-space-connector',
       lastSeen: receivedAt,
       origin: registry.connector.origin,
+      profile: connectorProfile,
       runtime: registry.connector.runtime,
       serviceName: registry.connector.serviceName ?? 'project-space-connector',
       status: online ? 'online' : 'offline',

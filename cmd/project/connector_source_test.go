@@ -23,6 +23,16 @@ func (supervisor *sourceTestSupervisor) Run(ctx context.Context) error {
 	return supervisor.run(ctx)
 }
 
+func TestConnectorCommandRegistersSourceRuntime(t *testing.T) {
+	command, _, err := newConnectorCommand().Find([]string{"source", "run"})
+	if err != nil {
+		t.Fatalf("find source connector command: %v", err)
+	}
+	if command.CommandPath() != "connector source run" {
+		t.Fatalf("source connector command path = %q", command.CommandPath())
+	}
+}
+
 func TestSourceConnectorCommandExposesExplicitProfileWithoutNameInference(t *testing.T) {
 	dependencies, backend, supervisor := sourceCommandTestDependencies(t)
 	backend.state = machineconnect.ConnectionOnline
@@ -35,7 +45,8 @@ func TestSourceConnectorCommandExposesExplicitProfileWithoutNameInference(t *tes
 	if err := command.Execute(); err != nil {
 		t.Fatalf("execute source connect: %v", err)
 	}
-	if backend.created.Name != "ordinary-machine" || supervisor.calls.Load() != 1 {
+	if backend.created.Name != "ordinary-machine" || backend.created.Channel != "dev" ||
+		backend.created.Source != "source" || supervisor.calls.Load() != 1 {
 		t.Fatalf("source connect side effects: machine=%#v supervisor=%d", backend.created, supervisor.calls.Load())
 	}
 	if !strings.Contains(stdout.String(), `"channel": "dev"`) ||

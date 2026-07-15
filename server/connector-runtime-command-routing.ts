@@ -80,7 +80,8 @@ export type ConnectorRuntimeHubCommandMessage =
     };
 
 const commandTimeoutMs = 10 * 60_000;
-const runtimeCapabilities = new Set(['runtime.restart', 'runtime.update']);
+const managedRuntimeCapabilities = new Set(['runtime.restart', 'runtime.update']);
+const runtimeCapabilities = new Set([...managedRuntimeCapabilities, 'runtime.stop']);
 const progressStages = new Set<ConnectorRuntimeCommandStage>([
   'accepted',
   'staging',
@@ -449,16 +450,27 @@ export function createConfiguredConnectorRuntimeDispatcher(input: {
 
 export function connectorRegistryForRuntimeConfiguration(
   registry: ConnectorProjectRegistryResult,
-  configured: boolean
+  configured: boolean | readonly string[]
 ) {
-  if (configured || !registry.connector.capabilities?.some((entry) => runtimeCapabilities.has(entry))) {
+  const supported = new Set(
+    typeof configured !== 'boolean'
+      ? configured.filter((entry) => runtimeCapabilities.has(entry))
+      : configured
+        ? managedRuntimeCapabilities
+        : []
+  );
+  if (!registry.connector.capabilities?.some(
+    (entry) => runtimeCapabilities.has(entry) && !supported.has(entry)
+  )) {
     return registry;
   }
   return {
     ...registry,
     connector: {
       ...registry.connector,
-      capabilities: registry.connector.capabilities.filter((entry) => !runtimeCapabilities.has(entry))
+      capabilities: registry.connector.capabilities.filter(
+        (entry) => !runtimeCapabilities.has(entry) || supported.has(entry)
+      )
     }
   };
 }

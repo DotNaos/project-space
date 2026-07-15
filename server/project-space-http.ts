@@ -4,7 +4,7 @@ import { createConnectorCommandUpgradeHandler } from './connector-command-hub';
 import { getRegisteredConnectorMachines } from './connector-hub';
 import { createAuthorizedProjectSpaceBackend } from './authorized-project-space-backend';
 import { connectorInstallScript, requestPublicOrigin } from './connector-installation';
-import { authenticateConnectorMachineToken } from './connector-registration-auth';
+import { resolveConnectorMachineTokenIdentity } from './connector-registration-auth';
 import {
   createLocalProjectSpaceBackend,
   type LocalProjectSpaceBackend
@@ -121,13 +121,14 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   const handleProjectTerminalUpgrade = createProjectTerminalUpgradeHandler();
   const connectorCommands = createConnectorCommandUpgradeHandler({
     async authenticateConnectorCredential(token, machineId) {
-      if (
-        machineConnectionRuntime &&
-        await machineConnectionRuntime.authenticateConnectorCredential(token, machineId)
-      ) {
-        return true;
-      }
-      return authenticateConnectorMachineToken(token, machineId);
+      const machineIdentity = machineConnectionRuntime
+        ? typeof machineConnectionRuntime.resolveMachineCredentialIdentity === 'function'
+          ? await machineConnectionRuntime.resolveMachineCredentialIdentity(token, machineId)
+          : await machineConnectionRuntime.authenticateConnectorCredential(token, machineId)
+            ? { machineId }
+            : null
+        : null;
+      return machineIdentity ?? resolveConnectorMachineTokenIdentity(token, machineId);
     },
     async decideConnectorRuntimeMaintenance({ machineId }) {
       const decideReconnect = (backend as Partial<LocalProjectSpaceBackend>).decideReconnect;

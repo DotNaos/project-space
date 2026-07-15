@@ -69,6 +69,9 @@ function normalizeMetadata(
     !machineNamePattern.test(normalized.name) ||
     !hostnamePattern.test(normalized.hostname) ||
     !versionPattern.test(normalized.clientVersion) ||
+    (normalized.connectorProfile !== undefined &&
+      (normalized.connectorProfile.channel !== "dev" ||
+        normalized.connectorProfile.source !== "source")) ||
     !["amd64", "arm64"].includes(normalized.architecture) ||
     !["darwin", "linux", "windows"].includes(normalized.operatingSystem)
   ) {
@@ -174,6 +177,7 @@ export class MachineConnectionService {
     return {
       architecture: request.architecture,
       clientVersion: request.clientVersion,
+      connectorProfile: request.connectorProfile,
       expiresAt: request.expiresAt,
       hostname: request.hostname,
       name: request.name,
@@ -354,6 +358,7 @@ export class MachineConnectionService {
     const machine: MachineIdentityRecord = {
       architecture: current.architecture,
       clientVersion: current.clientVersion,
+      connectorProfile: current.connectorProfile,
       createdAt: now,
       credentialHash: secretHash(credential),
       hostname: current.hostname,

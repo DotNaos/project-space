@@ -27,6 +27,7 @@ afterEach(restoreEnvironment);
 
 class TestMachineConnectionRuntime implements MachineConnectionRuntime {
   authenticationCalls: Array<{ machineId: string; token: string }> = [];
+  identityCalls: Array<{ machineId: string; token: string }> = [];
   requestCalls: string[] = [];
   starts = 0;
   stops = 0;
@@ -37,6 +38,7 @@ class TestMachineConnectionRuntime implements MachineConnectionRuntime {
   }
 
   async resolveMachineCredentialIdentity(token: string, machineId: string) {
+    this.identityCalls.push({ machineId, token });
     return token === 'machine-secret' && machineId === 'machine-runtime'
       ? {
           hostId: 'runtime-host',
@@ -177,9 +179,10 @@ describe('machine connection HTTP integration', () => {
 
     try {
       await waitForChannel('machine-runtime', true);
-      expect(machineRuntime.authenticationCalls).toEqual([
+      expect(machineRuntime.identityCalls).toEqual([
         { machineId: 'machine-runtime', token: 'machine-secret' }
       ]);
+      expect(machineRuntime.authenticationCalls).toEqual([]);
       expect(
         isConnectorCommandChannelAuthenticated('machine-runtime', 'machine-secret')
       ).toBe(true);

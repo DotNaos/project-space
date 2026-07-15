@@ -5,14 +5,25 @@ import {
   parseConnectorRuntimeMaintenanceBrowserRequest
 } from './connector-runtime-maintenance-contract';
 import { ConnectorRuntimeMaintenanceServiceError } from './connector-runtime-maintenance-service';
+import {
+  ConnectorRuntimeStopServiceError,
+  parseConnectorRuntimeStopBrowserRequest
+} from './connector-runtime-stop-service';
 import { ConnectorRuntimeReleaseManifestError } from './connector-runtime-release-manifest';
 import { ConnectorRuntimeReleaseSourceError } from './connector-runtime-release-source';
 import { readJson, writeJson } from './project-space-http-response';
 
-const runtimePath = /^\/api\/machines\/([^/]+)\/runtime(?:\/(operations))?$/;
+const runtimePath = /^\/api\/machines\/([^/]+)\/runtime(?:\/(operations|stop))?$/;
 const machineIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 
 function statusFor(error: unknown) {
+  if (error instanceof ConnectorRuntimeStopServiceError) {
+    if (error.code === 'invalid-request') return 400;
+    if (error.code === 'invalid-actor') return 401;
+    if (error.code === 'unauthorized') return 403;
+    if (error.code === 'unknown-machine') return 404;
+    return 409;
+  }
   if (error instanceof ConnectorRuntimeMaintenanceServiceError) {
     if (error.code === 'unauthorized') return 403;
     if (error.code === 'unknown-machine') return 404;
@@ -66,6 +77,16 @@ export function createConnectorRuntimeHttpHandler(backend: ProjectSpaceBackend) 
           operation: parsed.operation,
           ...(parsed.releaseId ? { releaseId: parsed.releaseId } : {})
         }));
+        return true;
+      }
+      if (request.method === 'POST' && match[2] === 'stop') {
+        const body = await readJson<unknown>(request);
+        if (!body || typeof body !== 'object' || Array.isArray(body) ||
+            Object.keys(body).length !== 0) {
+          parseConnectorRuntimeStopBrowserRequest({ machineId, invalid: true });
+        }
+        parseConnectorRuntimeStopBrowserRequest({ machineId });
+        writeJson(response, 202, await backend.stopMachineRuntime(machineId));
         return true;
       }
       writeJson(response, 405, { error: 'Method not allowed.' });

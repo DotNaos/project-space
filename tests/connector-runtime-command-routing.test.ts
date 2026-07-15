@@ -16,6 +16,7 @@ import {
 import type { ConnectorRuntimeRestartPlan } from '../server/connector-runtime-command-contract';
 import {
   ConnectorRuntimeCommandOutcomeUnknownError,
+  connectorRegistryForRuntimeConfiguration,
   connectorRuntimeCommandBinding,
   requestConnectorRuntimeCommand
 } from '../server/connector-runtime-command-routing';
@@ -118,6 +119,20 @@ async function closeConnector(
 }
 
 describe('connector runtime command routing', () => {
+  test('advertises managed maintenance or source stop without mixing capabilities', () => {
+    const registry = JSON.parse(registration('runtime-capabilities', [
+      'runtime.restart', 'runtime.stop', 'runtime.update', 'worktrees.list'
+    ])).payload as ConnectorProjectRegistryResult;
+    expect(connectorRegistryForRuntimeConfiguration(registry, true).connector.capabilities)
+      .toEqual(['runtime.restart', 'runtime.update', 'worktrees.list']);
+    expect(connectorRegistryForRuntimeConfiguration(
+      registry,
+      ['runtime.stop']
+    ).connector.capabilities).toEqual(['runtime.stop', 'worktrees.list']);
+    expect(connectorRegistryForRuntimeConfiguration(registry, false).connector.capabilities)
+      .toEqual(['worktrees.list']);
+  });
+
   test('relays a signed generation-bound operation with bounded progress', async () => {
     const keys = generateKeyPairSync('ed25519');
     process.env.PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY = keys.privateKey

@@ -1,13 +1,20 @@
 import type { DatabaseQueryClient } from './database/client';
 import type { ConnectorProjectRegistryResult } from '../src/shared/project-space-api';
+import {
+  machineConnectorProfile,
+  type MachineConnectorProfile
+} from './machine-connection-contract';
 
 export interface PersistedConnectorSnapshot {
+  connectorProfile?: MachineConnectorProfile;
   firstSeenAt: string;
   lastSeenAt: string;
   registry: ConnectorProjectRegistryResult;
 }
 
 interface SnapshotRow {
+  connector_channel: string | null;
+  connector_source: string | null;
   first_seen_at: Date | string;
   last_seen_at: Date | string;
   registry: unknown;
@@ -20,30 +27,48 @@ function iso(value: Date | string) {
 export class ConnectorMachineSnapshotStore {
   constructor(private readonly client: DatabaseQueryClient) {}
 
-  async upsert(registry: ConnectorProjectRegistryResult, receivedAt: string) {
+  async upsert(
+    registry: ConnectorProjectRegistryResult,
+    receivedAt: string,
+    connectorProfile?: MachineConnectorProfile
+  ) {
     const machineId = registry.connector.machineId.trim();
     await this.client.query(
       `insert into connector_machine_snapshots (
-         machine_id, machine_name, registry, first_seen_at, last_seen_at
-       ) values ($1, $2, $3, $4, $4)
+         machine_id, machine_name, registry, first_seen_at, last_seen_at,
+         connector_channel, connector_source
+       ) values ($1, $2, $3, $4, $4, $5, $6)
        on conflict (machine_id) do update set
          machine_name = excluded.machine_name,
          registry = excluded.registry,
+         connector_channel = excluded.connector_channel,
+         connector_source = excluded.connector_source,
          last_seen_at = excluded.last_seen_at
        where connector_machine_snapshots.removed_at is null
          and connector_machine_snapshots.last_seen_at <= excluded.last_seen_at`,
-      [machineId, registry.connector.machineName, registry, receivedAt]
+      [
+        machineId,
+        registry.connector.machineName,
+        registry,
+        receivedAt,
+        connectorProfile?.channel ?? null,
+        connectorProfile?.source ?? null
+      ]
     );
   }
 
   async list(): Promise<PersistedConnectorSnapshot[]> {
     const result = await this.client.query<SnapshotRow>(
-      `select registry, first_seen_at, last_seen_at
+      `select registry, first_seen_at, last_seen_at, connector_channel, connector_source
          from connector_machine_snapshots
         where removed_at is null
         order by machine_name, machine_id`
     );
     return result.rows.map((row) => ({
+      connectorProfile: machineConnectorProfile(
+        row.connector_channel,
+        row.connector_source
+      ),
       firstSeenAt: iso(row.first_seen_at),
       lastSeenAt: iso(row.last_seen_at),
       registry: row.registry as ConnectorProjectRegistryResult

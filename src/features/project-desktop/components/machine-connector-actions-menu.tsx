@@ -7,6 +7,7 @@ import {
   MoreHorizontal,
   RefreshCw,
   RotateCw,
+  Square,
   Wrench
 } from 'lucide-react';
 import { Dropdown } from '@heroui/react';
@@ -23,6 +24,7 @@ import {
 } from './machine-connector-actions-dialogs';
 import {
   canRestartMachineRuntime,
+  canStopSourceDevelopmentMachineRuntime,
   canUpdateMachineRuntime,
   latestRuntimeFailure,
   runtimeApprovedReleaseId,
@@ -31,7 +33,10 @@ import {
   runtimeStateLabel,
   runtimeUnavailableReason,
   runtimeVersionLabel,
-  shouldPollRuntimeStatus
+  shouldPollRuntimeStatus,
+  shouldShowMachineRuntimeRestart,
+  shouldShowMachineRuntimeStop,
+  shouldShowMachineRuntimeUpdate
 } from './machine-connector-runtime-model';
 
 function initialStatus(machine: MachineRecord): MachineRuntimeStatusResult {
@@ -114,6 +119,7 @@ export function MachineConnectorActionsMenu({
   const active = shouldPollRuntimeStatus(update);
   const canUpdate = canUpdateMachineRuntime(resolvedMachine);
   const canRestart = canRestartMachineRuntime(resolvedMachine);
+  const canStop = canStopSourceDevelopmentMachineRuntime(resolvedMachine);
   const retryOperation = runtimeRetryOperation(resolvedMachine);
   const approvedReleaseId = runtimeApprovedReleaseId(resolvedMachine);
   const lastFailure = latestRuntimeFailure(update);
@@ -164,13 +170,25 @@ export function MachineConnectorActionsMenu({
     }
   }
 
-  const showUpdate = Boolean(approvedReleaseId) && (
-    retryOperation === 'update' ||
-    update?.state === 'update-available' ||
-    update?.state === 'update-required' ||
-    update?.state === 'failed' ||
-    update?.state === 'rollback'
-  );
+  async function stopDevelopmentConnector() {
+    setIsSubmitting(true);
+    setRequestError('');
+    try {
+      await projectSpaceClient.stopMachineRuntime(machine.id);
+      setDialog(undefined);
+      await onOperationSettled?.();
+    } catch (error) {
+      setRequestError(
+        error instanceof Error ? error.message : 'The connector could not be stopped.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  const showUpdate = shouldShowMachineRuntimeUpdate(resolvedMachine);
+  const showRestart = shouldShowMachineRuntimeRestart(resolvedMachine);
+  const showStop = shouldShowMachineRuntimeStop(resolvedMachine);
   const updateLabel = retryOperation === 'update'
     ? 'Retry update'
     : `Update to ${update?.availableVersion ?? approvedReleaseId ?? 'approved release'}`;
@@ -249,18 +267,39 @@ export function MachineConnectorActionsMenu({
                 />
               </Dropdown.Item>
             ) : null}
-            <Dropdown.Item
-              id="restart"
-              isDisabled={!canRestart}
-              textValue={restartLabel}
-              onAction={() => setDialog('confirm-restart')}
-            >
-              <MenuItemContent
-                icon={<RotateCw className="size-4" />}
-                label={restartLabel}
-                description={canRestart ? undefined : runtimeUnavailableReason(resolvedMachine, 'restart')}
-              />
-            </Dropdown.Item>
+            {showRestart ? (
+              <Dropdown.Item
+                id="restart"
+                isDisabled={!canRestart}
+                textValue={restartLabel}
+                onAction={() => setDialog('confirm-restart')}
+              >
+                <MenuItemContent
+                  icon={<RotateCw className="size-4" />}
+                  label={restartLabel}
+                  description={canRestart
+                    ? undefined
+                    : runtimeUnavailableReason(resolvedMachine, 'restart')}
+                />
+              </Dropdown.Item>
+            ) : null}
+            {showStop ? (
+              <Dropdown.Item
+                id="stop"
+                isDisabled={!canStop}
+                textValue="Stop development connector"
+                variant="danger"
+                onAction={() => setDialog('confirm-stop')}
+              >
+                <MenuItemContent
+                  icon={<Square className="size-4" />}
+                  label="Stop development connector"
+                  description={canStop
+                    ? undefined
+                    : runtimeUnavailableReason(resolvedMachine, 'stop')}
+                />
+              </Dropdown.Item>
+            ) : null}
             {lastFailure ? (
               <Dropdown.Item
                 id="failure"
@@ -286,6 +325,7 @@ export function MachineConnectorActionsMenu({
         onShowConfirmation={(operationName) =>
           setDialog(operationName === 'update' ? 'confirm-update' : 'confirm-restart')}
         onStart={(operationName) => void startOperation(operationName)}
+        onStop={() => void stopDevelopmentConnector()}
         requestError={requestError}
         status={status}
         view={dialog}

@@ -200,7 +200,7 @@ describe('Codex session migration contract', () => {
     expect(codexSessionsMigrationSql).toContain('codex_session_operations');
     expect(codexSessionsMigrationSql).toContain('codex_session_events');
     expect(codexSessionsMigrationSql).toContain('references machine_memberships');
-    expect(databaseMigrations.at(-2)).toEqual({
+    expect(databaseMigrations.find(({ id }) => id === codexSessionsMigrationId)).toEqual({
       id: codexSessionsMigrationId,
       sql: codexSessionsMigrationSql
     });

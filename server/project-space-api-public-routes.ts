@@ -3,8 +3,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { isConnectorHubMessage } from './connector-command-protocol';
 import { registerConnectorProjectRegistry } from './connector-hub';
 import {
-  authenticateConnectorMachineToken,
-  requestConnectorToken
+  requestConnectorToken,
+  resolveConnectorMachineTokenIdentity
 } from './connector-registration-auth';
 import {
   getProjectSpaceAuthSessionResult,
@@ -54,17 +54,16 @@ export function createProjectSpacePublicApiRoutes(backend: ProjectSpaceBackend) 
         writeJson(response, 400, { error: 'Invalid connector registry.' });
         return true;
       }
-      if (
-        !(await authenticateConnectorMachineToken(
-          requestConnectorToken(request),
-          payload.connector.machineId
-        ))
-      ) {
+      const identity = await resolveConnectorMachineTokenIdentity(
+        requestConnectorToken(request),
+        payload.connector.machineId
+      );
+      if (!identity) {
         writeJson(response, 401, { error: 'Connector registration token required.' });
         return true;
       }
 
-      await registerConnectorProjectRegistry(payload);
+      await registerConnectorProjectRegistry(payload, identity.connectorProfile);
       writeJson(response, 200, { ok: true });
       return true;
     }

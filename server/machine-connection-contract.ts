@@ -1,9 +1,44 @@
 export type MachineOperatingSystem = "darwin" | "linux" | "windows";
 export type MachineArchitecture = "amd64" | "arm64";
 
+export interface MachineConnectorProfile {
+  channel: "dev";
+  source: "source";
+}
+
+export function machineConnectorProfile(
+  channel: unknown,
+  source: unknown,
+): MachineConnectorProfile | undefined {
+  const normalizedChannel = channel ?? null;
+  const normalizedSource = source ?? null;
+  if (normalizedChannel === null && normalizedSource === null) return undefined;
+  if (normalizedChannel === "dev" && normalizedSource === "source") {
+    return { channel: "dev", source: "source" };
+  }
+  throw new Error("Connector profile is invalid.");
+}
+
+export function sameMachineConnectorProfile(
+  left: MachineConnectorProfile | undefined,
+  right: MachineConnectorProfile | undefined,
+) {
+  return left?.channel === right?.channel && left?.source === right?.source;
+}
+
+export function assertSameMachineConnectorProfile(
+  enrolled: MachineConnectorProfile | undefined,
+  requested: MachineConnectorProfile | undefined,
+) {
+  if (!sameMachineConnectorProfile(enrolled, requested)) {
+    throw new Error("A machine identity cannot change its connector profile.");
+  }
+}
+
 export interface MachineConnectMetadata {
   architecture: MachineArchitecture;
   clientVersion: string;
+  connectorProfile?: MachineConnectorProfile;
   hostname: string;
   name: string;
   operatingSystem: MachineOperatingSystem;
@@ -29,6 +64,7 @@ export interface MachineConnectRequestRecord extends MachineConnectMetadata {
 export interface MachineIdentityRecord {
   architecture: MachineArchitecture;
   clientVersion: string;
+  connectorProfile?: MachineConnectorProfile;
   createdAt: string;
   credentialHash: string;
   hostname: string;
@@ -42,6 +78,7 @@ export interface MachineIdentityRecord {
 }
 
 export interface TrustedMachineCredentialIdentity {
+  connectorProfile?: MachineConnectorProfile;
   hostId: string;
   machineId: string;
   userId: string;
@@ -58,6 +95,7 @@ export interface MachineConnectRequestResult {
 export interface MachineConnectApprovalView {
   architecture: MachineArchitecture;
   clientVersion: string;
+  connectorProfile?: MachineConnectorProfile;
   expiresAt: string;
   hostname: string;
   name: string;

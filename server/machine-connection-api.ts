@@ -65,11 +65,25 @@ function stringValue(value: unknown) {
   return typeof value === 'string' ? value : '';
 }
 
+function connectorProfileFromBody(value: unknown): MachineConnectMetadata["connectorProfile"] {
+  if (value === undefined) return undefined;
+  if (
+    !isRecord(value) ||
+    Object.keys(value).length !== 2 ||
+    value.channel !== "dev" ||
+    value.source !== "source"
+  ) {
+    return { channel: "" as "dev", source: "" as "source" };
+  }
+  return { channel: "dev", source: "source" };
+}
+
 function metadataFromBody(body: unknown): MachineConnectMetadata {
   const value = isRecord(body) ? body : {};
   return {
     architecture: stringValue(value.architecture) as MachineConnectMetadata['architecture'],
     clientVersion: stringValue(value.clientVersion),
+    connectorProfile: connectorProfileFromBody(value.connectorProfile),
     hostname: stringValue(value.hostname),
     name: stringValue(value.name),
     operatingSystem: stringValue(

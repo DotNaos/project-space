@@ -155,6 +155,7 @@ const connectorCommandCapabilities = [
   'worktree.setup.run',
   'terminal.run',
   'runtime.restart',
+  'runtime.stop',
   'runtime.update',
   'worktrees.list',
   'worktrees.list.v2',
@@ -203,6 +204,9 @@ export function createLocalProjectSpaceBackend(
     },
     startMachineRuntimeOperation(machineId, request) {
       return connectorRuntime.startMachineRuntimeOperation(machineId, request);
+    },
+    stopMachineRuntime(machineId) {
+      return connectorRuntime.stopMachineRuntime(machineId);
     },
     async getConnectorProjectRegistry() {
       const [identity, rawDiscovery] = await Promise.all([
