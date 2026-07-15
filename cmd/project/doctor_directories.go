@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -129,4 +130,26 @@ func writeProjectDirectoryReport(writer io.Writer, report projectDirectoryReport
 	if report.Ready {
 		fmt.Fprintln(writer, "Project directories are ready.")
 	}
+}
+
+func confirmProjectDirectoryFix(input io.Reader, output io.Writer) (bool, error) {
+	fmt.Fprint(output, "Create missing project directories now? y/N: ")
+	scanner := bufio.NewScanner(input)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return false, fmt.Errorf("read project directory confirmation: %w", err)
+		}
+		return false, nil
+	}
+	answer := strings.ToLower(strings.TrimSpace(scanner.Text()))
+	return answer == "y" || answer == "yes", nil
+}
+
+func canPromptForProjectDirectoryFix(input io.Reader) bool {
+	file, ok := input.(*os.File)
+	if !ok {
+		return true
+	}
+	info, err := file.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }

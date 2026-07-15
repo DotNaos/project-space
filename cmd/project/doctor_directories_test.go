@@ -98,6 +98,7 @@ func TestDoctorCommandReportsMissingDirectoriesAndStillChecksBackend(t *testing.
 	)
 	output := &bytes.Buffer{}
 	command.SetOut(output)
+	command.SetIn(strings.NewReader("n\n"))
 
 	err := command.Execute()
 	if err == nil || !strings.Contains(err.Error(), `run "project doctor --fix"`) {
@@ -113,6 +114,114 @@ func TestDoctorCommandReportsMissingDirectoriesAndStillChecksBackend(t *testing.
 		if !strings.Contains(output.String(), suffix) {
 			t.Errorf("missing %q from output: %q", suffix, output.String())
 		}
+	}
+}
+
+func TestDoctorCommandConfirmationFixesDirectories(t *testing.T) {
+	home := t.TempDir()
+	dependencies, backend, _, _ := testCommandDependencies()
+	command := newMachineDoctorCommandWithDependencyFactoryAndDirectoryDoctor(
+		fixedMachineConnectionDependencies(dependencies),
+		newProjectDirectoryDoctor(func() (string, error) { return home, nil }),
+	)
+	output := &bytes.Buffer{}
+	command.SetOut(output)
+	command.SetIn(strings.NewReader("y\n"))
+
+	if err := command.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if backend.healthCalls != 1 {
+		t.Fatalf("backend health calls = %d, want 1", backend.healthCalls)
+	}
+	if !strings.Contains(output.String(), "Create missing project directories now? y/N: ") ||
+		!strings.Contains(output.String(), "Project directories are ready.") {
+		t.Fatalf("unexpected confirmation output: %q", output.String())
+	}
+	for _, path := range []string{
+		filepath.Join(home, "projects"),
+		filepath.Join(home, "projects", ".worktrees"),
+		filepath.Join(home, "projects", ".codex-worktrees"),
+	} {
+		info, statErr := os.Stat(path)
+		if statErr != nil || !info.IsDir() {
+			t.Errorf("confirmed path %q is not a directory: info=%v err=%v", path, info, statErr)
+		}
+	}
+}
+
+func TestDoctorCommandConfirmationDefaultsToNo(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		input string
+	}{
+		{name: "enter", input: "\n"},
+		{name: "n", input: "n\n"},
+		{name: "no", input: "no\n"},
+		{name: "invalid", input: "fix it\n"},
+		{name: "eof", input: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			dependencies, backend, _, _ := testCommandDependencies()
+			command := newMachineDoctorCommandWithDependencyFactoryAndDirectoryDoctor(
+				fixedMachineConnectionDependencies(dependencies),
+				newProjectDirectoryDoctor(func() (string, error) { return home, nil }),
+			)
+			output := &bytes.Buffer{}
+			command.SetOut(output)
+			command.SetIn(strings.NewReader(test.input))
+
+			err := command.Execute()
+			if err == nil || !strings.Contains(err.Error(), `run "project doctor --fix"`) {
+				t.Fatalf("error = %v, want --fix guidance", err)
+			}
+			if backend.healthCalls != 1 {
+				t.Fatalf("backend health calls = %d, want 1", backend.healthCalls)
+			}
+			if !strings.Contains(output.String(), "Create missing project directories now? y/N: ") {
+				t.Fatalf("confirmation prompt missing: %q", output.String())
+			}
+			if _, statErr := os.Stat(filepath.Join(home, "projects")); !os.IsNotExist(statErr) {
+				t.Fatalf("default-no confirmation changed the filesystem: %v", statErr)
+			}
+		})
+	}
+}
+
+func TestDoctorCommandDoesNotPromptForNonInteractiveStdin(t *testing.T) {
+	home := t.TempDir()
+	inputPath := filepath.Join(t.TempDir(), "stdin")
+	if err := os.WriteFile(inputPath, []byte("y\n"), 0o600); err != nil {
+		t.Fatalf("write stdin fixture: %v", err)
+	}
+	input, err := os.Open(inputPath)
+	if err != nil {
+		t.Fatalf("open stdin fixture: %v", err)
+	}
+	defer input.Close()
+
+	dependencies, backend, _, _ := testCommandDependencies()
+	command := newMachineDoctorCommandWithDependencyFactoryAndDirectoryDoctor(
+		fixedMachineConnectionDependencies(dependencies),
+		newProjectDirectoryDoctor(func() (string, error) { return home, nil }),
+	)
+	output := &bytes.Buffer{}
+	command.SetOut(output)
+	command.SetIn(input)
+
+	err = command.Execute()
+	if err == nil || !strings.Contains(err.Error(), `run "project doctor --fix"`) {
+		t.Fatalf("error = %v, want --fix guidance", err)
+	}
+	if backend.healthCalls != 1 {
+		t.Fatalf("backend health calls = %d, want 1", backend.healthCalls)
+	}
+	if strings.Contains(output.String(), "Create missing project directories") {
+		t.Fatalf("non-interactive output contains a prompt: %q", output.String())
+	}
+	if _, statErr := os.Stat(filepath.Join(home, "projects")); !os.IsNotExist(statErr) {
+		t.Fatalf("non-interactive stdin changed the filesystem: %v", statErr)
 	}
 }
 
@@ -156,6 +265,7 @@ func TestDoctorCommandJSONReportsMissingDirectoriesBeforeFailing(t *testing.T) {
 	)
 	output := &bytes.Buffer{}
 	command.SetOut(output)
+	command.SetIn(failingReader{})
 	command.SetArgs([]string{"--json"})
 	command.SilenceUsage = true
 
@@ -169,6 +279,9 @@ func TestDoctorCommandJSONReportsMissingDirectoriesBeforeFailing(t *testing.T) {
 	}
 	if result.ProjectDirectories.Ready || !result.ProjectDirectories.hasMissing() {
 		t.Fatalf("missing directories reported incorrectly: %#v", result.ProjectDirectories)
+	}
+	if strings.Contains(output.String(), "Create missing project directories") {
+		t.Fatalf("JSON output contains an interactive prompt: %q", output.String())
 	}
 }
 
@@ -197,4 +310,10 @@ func TestDoctorCommandFixesDirectoriesBeforeBackendDependencyFailure(t *testing.
 			t.Errorf("fixed path %q is not a directory: info=%v err=%v", path, info, statErr)
 		}
 	}
+}
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) {
+	return 0, errors.New("stdin must not be read")
 }

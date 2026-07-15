@@ -103,6 +103,23 @@ func newMachineDoctorCommandWithDependencyFactoryAndDirectoryDoctor(
 			if err != nil {
 				return err
 			}
+			if directories.hasMissing() && !jsonOutput &&
+				canPromptForProjectDirectoryFix(command.InOrStdin()) {
+				confirmed, err := confirmProjectDirectoryFix(
+					command.InOrStdin(),
+					command.OutOrStdout(),
+				)
+				if err != nil {
+					return err
+				}
+				if confirmed {
+					directories, err = directoryDoctor.Check(true)
+					writeProjectDirectoryReport(command.OutOrStdout(), directories)
+					if err != nil {
+						return err
+					}
+				}
+			}
 			dependencies, err := loadDependencies()
 			if err != nil {
 				return err
