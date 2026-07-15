@@ -114,6 +114,7 @@ export function ProjectTopologyReactFlowCanvas({
     viewport.bounds.x,
     viewport.bounds.y,
     viewport.overview.mode,
+    viewport.overview.mode === 'native-pan' ? viewport.overview.anchorX : undefined,
     viewport.overview.mode === 'native-pan' ? viewport.overview.zoom : undefined,
     viewport.spring,
     viewport.target,

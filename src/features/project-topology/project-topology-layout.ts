@@ -76,7 +76,7 @@ export interface ProjectTopologyLayout {
   nodes: TopologyLayoutNode[];
   overviewViewport:
     | { mode: 'fit' }
-    | { mode: 'native-pan'; zoom: number };
+    | { anchorX: number; mode: 'native-pan'; zoom: number };
 }
 
 export type TopologyFocusTarget =
@@ -95,21 +95,29 @@ export function layoutProjectTopology(
     project
   }));
   const contentWidth = Math.max(topologyDimensions.leadWidth, rowWidth(projects.length));
+  const xOffset = (contentWidth - rowWidth(projects.length)) / 2;
+  const overviewAnchorX = projects.length === 0
+    ? contentWidth / 2
+    : xOffset
+      + Math.floor(projects.length / 2) * (
+        topologyDimensions.projectWidth + topologyDimensions.projectGap
+      )
+      + topologyDimensions.projectWidth / 2;
   const nodes: TopologyLayoutNode[] = [];
   const edges: ProjectTopologyLayout['edges'] = [];
   const leadId = 'topology:lead';
+  const leadX = overviewAnchorX - topologyDimensions.leadWidth / 2;
   nodes.push({
-    absolutePosition: { x: (contentWidth - topologyDimensions.leadWidth) / 2, y: 0 },
+    absolutePosition: { x: leadX, y: 0 },
     dimensions: {
       height: topologyDimensions.leadHeight,
       width: topologyDimensions.leadWidth
     },
     id: leadId,
     kind: 'lead',
-    position: { x: (contentWidth - topologyDimensions.leadWidth) / 2, y: 0 }
+    position: { x: leadX, y: 0 }
   });
 
-  const xOffset = (contentWidth - rowWidth(projects.length)) / 2;
   projects.forEach(({ height, project }, projectIndex) => {
     const x = xOffset + projectIndex * (
       topologyDimensions.projectWidth + topologyDimensions.projectGap
@@ -138,7 +146,7 @@ export function layoutProjectTopology(
     overviewViewport: viewportWidth >= compactViewportWidth
       && fitZoom >= minimumReadableOverviewZoom
         ? { mode: 'fit' }
-        : { mode: 'native-pan', zoom: readablePanZoom }
+        : { anchorX: overviewAnchorX, mode: 'native-pan', zoom: readablePanZoom }
   };
 }
 

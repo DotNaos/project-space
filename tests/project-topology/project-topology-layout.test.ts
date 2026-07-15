@@ -81,6 +81,10 @@ describe('project topology nested layout', () => {
     );
     expect(narrow.overviewViewport.mode).toBe('native-pan');
     expect(narrow.overviewViewport.zoom).toBeCloseTo(374 / topologyDimensions.projectWidth);
+    expect(narrow.overviewViewport.anchorX).toBe(
+      topologyDimensions.projectWidth + topologyDimensions.projectGap
+        + topologyDimensions.projectWidth / 2
+    );
     expect(desktop.overviewViewport).toEqual({ mode: 'fit' });
     expect(narrowProjects[0]!.absolutePosition.y).toBe(narrowProjects[1]!.absolutePosition.y);
     expect(narrowProjects[0]!.absolutePosition.x).not.toBe(narrowProjects[1]!.absolutePosition.x);
@@ -97,6 +101,7 @@ describe('project topology nested layout', () => {
     })));
 
     expect(layoutProjectTopology(topology, 1200, 300).overviewViewport).toEqual({
+      anchorX: topologyDimensions.projectWidth / 2,
       mode: 'native-pan',
       zoom: 1
     });
@@ -116,9 +121,8 @@ describe('project topology nested layout', () => {
 
     expect(layoutProjectTopology(topology, 1280, 900).bounds.width).toBeGreaterThan(1280);
     expect(layoutProjectTopology(topology, 1280, 900).overviewViewport).toEqual({ mode: 'fit' });
-    expect(layoutProjectTopology(topology, 700, 900).overviewViewport).toEqual({
-      mode: 'native-pan',
-      zoom: 0.72
+    expect(layoutProjectTopology(topology, 700, 900).overviewViewport).toMatchObject({
+      mode: 'native-pan', zoom: 0.72
     });
   });
 
@@ -146,6 +150,10 @@ describe('project topology nested layout', () => {
       viewportWidth - 32
     );
     expect(layout.overviewViewport.zoom).toBeGreaterThanOrEqual(0.72);
+    const lead = layout.nodes.find((node) => node.kind === 'lead')!;
+    expect(lead.absolutePosition.x + lead.dimensions.width / 2).toBe(
+      layout.overviewViewport.anchorX
+    );
   });
 
   test('preserves project padding around nested machines', () => {

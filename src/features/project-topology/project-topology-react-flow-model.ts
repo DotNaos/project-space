@@ -20,6 +20,7 @@ export type TopologyReactFlowEdge = Edge<Record<string, never>>;
 const nativeOverviewTopInset = 76;
 
 export interface TopologyViewportRequest {
+  anchorX?: number;
   bounds: TopologyBounds;
   kind: 'fit-bounds' | 'native-top';
   target: TopologyFocusTarget;
@@ -109,6 +110,7 @@ export function topologyViewportRequest(viewport: {
 }): TopologyViewportRequest {
   if (viewport.target.kind === 'overview' && viewport.overview.mode === 'native-pan') {
     return {
+      anchorX: viewport.overview.anchorX,
       bounds: viewport.bounds,
       kind: 'native-top',
       target: viewport.target,
@@ -125,13 +127,13 @@ export function topologyViewportRequest(viewport: {
 }
 
 export function topologyNativePanViewport(
-  request: Pick<TopologyViewportRequest, 'bounds' | 'zoom'>,
+  request: Pick<TopologyViewportRequest, 'anchorX' | 'bounds' | 'zoom'>,
   viewportSize: TopologySize
 ): Viewport {
   const zoom = request.zoom ?? 1;
   return {
     x: viewportSize.width / 2
-      - (request.bounds.x + request.bounds.width / 2) * zoom,
+      - (request.anchorX ?? (request.bounds.x + request.bounds.width / 2)) * zoom,
     y: nativeOverviewTopInset - request.bounds.y * zoom,
     zoom
   };

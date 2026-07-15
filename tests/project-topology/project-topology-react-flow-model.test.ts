@@ -114,14 +114,23 @@ describe('project topology React Flow model', () => {
       transition: 5
     });
 
-    expect(compactLayout.overviewViewport).toEqual({ mode: 'native-pan', zoom: 0.72 });
-    expect(compactOverview).toMatchObject({ kind: 'native-top', transition: 4, zoom: 0.72 });
+    expect(compactLayout.overviewViewport).toMatchObject({ mode: 'native-pan', zoom: 0.72 });
+    expect(compactOverview).toMatchObject({
+      anchorX: compactLayout.overviewViewport.mode === 'native-pan'
+        ? compactLayout.overviewViewport.anchorX
+        : undefined,
+      kind: 'native-top',
+      transition: 4,
+      zoom: 0.72
+    });
     const nativeViewport = topologyNativePanViewport(
       compactOverview,
       { height: 700, width: 320 }
     );
     expect(nativeViewport).toMatchObject({ y: 76, zoom: 0.72 });
-    expect(nativeViewport.x).toBeCloseTo(0.16);
+    expect(nativeViewport.x).toBeCloseTo(
+      160 - compactOverview.anchorX! * compactOverview.zoom!
+    );
     expect(wideOverview.kind).toBe('fit-bounds');
     expect(projectFocus).toMatchObject({
       kind: 'fit-bounds',
