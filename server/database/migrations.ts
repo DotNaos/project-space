@@ -10,6 +10,10 @@ import {
   codexSessionsMigrationId,
   codexSessionsMigrationSql
 } from './codex-sessions-migration';
+import {
+  githubIssueCreationMigrationId,
+  githubIssueCreationMigrationSql
+} from './github-issue-creation-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -493,6 +497,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: codexSessionsMigrationId,
     sql: codexSessionsMigrationSql
+  },
+  {
+    id: githubIssueCreationMigrationId,
+    sql: githubIssueCreationMigrationSql
   }
 ];
 

@@ -158,8 +158,11 @@ export function createProjectChatClient(options: ProjectChatClientOptions): Proj
 
   return {
     listNames() { return request<ProjectChatNameListResult>('/api/project-chat/names'); },
-    listChannels() {
-      return request<ProjectChatChannelListResult>('/api/project-chat/channels');
+    listChannels(value = {}) {
+      const query = new URLSearchParams();
+      if (value.projectId) query.set('projectId', value.projectId);
+      const suffix = query.size > 0 ? `?${query}` : '';
+      return request<ProjectChatChannelListResult>(`/api/project-chat/channels${suffix}`);
     },
     claimName(value: ProjectChatNameClaimRequest) { return request<ProjectChatNameClaimResult>('/api/project-chat/name-claims', { body: JSON.stringify(value), method: 'POST' }); },
     acknowledge(value: ProjectChatAcknowledgeRequest) {

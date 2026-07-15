@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type {
@@ -11,8 +11,10 @@ import { IssueBranchMenu, IssuePullRequestChip } from './issue-branch-menu';
 import { issuePullRequestsForIssue } from './issue-branch-model';
 import {
   issueUpdatedAtLabel,
+  issuePlacementIndices,
   loadIssueColumnOverrides,
   resolveIssueColumn,
+  resolveIssueColumnFromPlacement,
   type IssueColumnOverrides
 } from './issue-board-model';
 import { IssueAuthorAvatar, IssueLabelChip, IssueStatusDot } from './issue-visuals';
@@ -23,6 +25,7 @@ export function IssueListView({
   issues,
   onBranchCreated,
   onOpenIssue,
+  placementIssues,
   pullRequests,
   repoFullName
 }: {
@@ -31,11 +34,16 @@ export function IssueListView({
   issues: GitHubIssueRecord[];
   onBranchCreated(branch: GitHubBranchRecord): void;
   onOpenIssue(issueNumber: number): void;
+  placementIssues: GitHubIssueRecord[];
   pullRequests: GitHubPullRequestRecord[];
   repoFullName?: string;
 }) {
   const [overrides, setOverrides] = useState<IssueColumnOverrides>(() =>
     loadIssueColumnOverrides(repoFullName)
+  );
+  const placementIndices = useMemo(
+    () => issuePlacementIndices(placementIssues),
+    [placementIssues]
   );
 
   useEffect(() => {
@@ -49,7 +57,12 @@ export function IssueListView({
           <IssueListRow
             branches={branches}
             key={issue.number}
-            columnId={resolveIssueColumn(issue, index, overrides)}
+            columnId={resolveIssueColumnFromPlacement(
+              issue,
+              index,
+              overrides,
+              placementIndices
+            )}
             defaultBranch={defaultBranch}
             isLast={index === issues.length - 1}
             issue={issue}
@@ -102,12 +115,12 @@ function IssueListRow({
       <button
         type="button"
         onClick={() => onOpenIssue(issue.number)}
-        className="flex min-w-0 flex-1 items-center gap-3 py-2.5 text-left"
+        className="flex min-w-0 flex-1 items-center gap-3 py-2.5 text-left max-sm:flex-col max-sm:items-start max-sm:gap-0.5"
       >
-        <Text className="w-12 shrink-0 font-mono text-xs tabular-nums text-neutral-500">
+        <Text className="w-12 shrink-0 font-mono text-xs tabular-nums text-neutral-500 max-sm:w-auto">
           #{issue.number}
         </Text>
-        <Text className="min-w-0 truncate text-sm font-medium text-neutral-100">
+        <Text className="min-w-0 max-w-full truncate text-sm font-medium text-neutral-100">
           {issue.title}
         </Text>
         {issue.labels.length > 0 ? (
@@ -144,7 +157,7 @@ function IssueListRow({
         ) : null}
       </span>
       {updated ? (
-        <Text className="w-8 shrink-0 text-right font-mono text-[10px] tabular-nums text-neutral-600">
+        <Text className="hidden w-8 shrink-0 text-right font-mono text-[10px] tabular-nums text-neutral-600 sm:block">
           {updated}
         </Text>
       ) : null}
@@ -155,12 +168,12 @@ function IssueListRow({
           rel="noreferrer"
           aria-label={`Open issue #${issue.number} on GitHub`}
           title="Open on GitHub"
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-neutral-600 opacity-0 transition hover:bg-neutral-800 hover:text-neutral-100 focus-visible:opacity-100 group-hover/row:opacity-100"
+          className="hidden size-7 shrink-0 items-center justify-center rounded-md text-neutral-600 opacity-0 transition hover:bg-neutral-800 hover:text-neutral-100 focus-visible:opacity-100 group-hover/row:opacity-100 sm:flex"
         >
           <GitHubMark className="size-3.5" />
         </a>
       ) : (
-        <span className="size-7 shrink-0" />
+        <span className="hidden size-7 shrink-0 sm:block" />
       )}
     </div>
   );

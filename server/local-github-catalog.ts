@@ -22,6 +22,7 @@ import type {
   GitHubWorkflowRunStatus,
   GitHubWorkflowRunSummary
 } from '../src/shared/project-space-api';
+import { stripGitHubIssueCreationMarker } from '../src/shared/github-issue-creation-marker';
 import { loadRepositoryDevelopmentLinks } from './local-github-development-links';
 import { getCurrentAuthSession, isProjectSpaceAuthRequired } from './local-auth-store';
 import {
@@ -104,7 +105,7 @@ export interface TokenResolution {
   token: string;
 }
 
-class GitHubRequestError extends Error {
+export class GitHubRequestError extends Error {
   constructor(readonly statusCode: number, readonly rateLimited: boolean) {
     super(`GitHub request failed with ${statusCode}.`);
   }
@@ -466,10 +467,11 @@ function createEmptyRepositoryDetails(
   };
 }
 
-function mapGitHubIssue(issue: GitHubApiIssue): GitHubIssueRecord {
+export function mapGitHubIssue(issue: GitHubApiIssue): GitHubIssueRecord {
+  const body = stripGitHubIssueCreationMarker(issue.body ?? '');
   return {
     author: issue.user?.login,
-    body: issue.body ?? undefined,
+    body: body || undefined,
     labels: issue.labels?.map((label) => label.name).filter((name): name is string => Boolean(name)) ?? [],
     number: issue.number,
     state: issue.state,

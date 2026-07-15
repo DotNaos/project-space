@@ -107,8 +107,8 @@ function stubService() {
         member
       };
     },
-    async listChannels(callContext: ProjectChatContext) {
-      calls.listChannels.push({ context: callContext });
+    async listChannels(callContext: ProjectChatContext, projectId?: string) {
+      calls.listChannels.push({ context: callContext, input: projectId });
       return {
         channels: [{
           channelId: 'general',
@@ -328,6 +328,7 @@ describe('Project Chat HTTP endpoint contract', () => {
       (response) => response.status === 200 && response.headers.get('cache-control') === 'no-store'
     )).toBe(true);
     expect(calls.listMembers[0]?.input).toEqual({ channelId: 'general' });
+    expect(calls.listChannels[0]?.input).toBeUndefined();
     expect(calls.read[0]?.input).toEqual({
       afterSequence: 7,
       channelId: 'general',
@@ -340,6 +341,23 @@ describe('Project Chat HTTP endpoint contract', () => {
     });
     expect(Object.values(calls).flat().every((call) => call.context === context)).toBe(true);
     expect(resolverCalls).toBe(10);
+  });
+
+  test('forwards one validated project scope to the channel service', async () => {
+    const { calls, service } = stubService();
+    const origin = await startApi(service, async () => context);
+    const response = await fetch(
+      `${origin}/api/project-chat/channels?projectId=github%3A101`
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls.listChannels[0]?.input).toBe('github:101');
+
+    const invalid = await fetch(
+      `${origin}/api/project-chat/channels?projectId=%20private`
+    );
+    expect(invalid.status).toBe(400);
+    expect(calls.listChannels).toHaveLength(1);
   });
 
   test('does not authenticate or consume requests outside the Project Chat route contract', async () => {

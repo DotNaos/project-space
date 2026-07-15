@@ -54,7 +54,8 @@ describe('database migrations', () => {
       '0013_project_chat_project_channels',
       '0014_dev_server_sessions_per_server',
       '0015_connector_runtime_operations',
-      '0016_codex_sessions'
+      '0016_codex_sessions',
+      '0017_github_issue_creation_operations'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -122,6 +123,8 @@ describe('database migrations', () => {
     expect(sql).toContain('machine_identities_current_credential_fk');
     expect(sql).toContain('create table if not exists github_catalog_cache');
     expect(sql).toContain('primary key (user_id, scope)');
+    expect(sql).toContain('github_issue_creation_operations');
+    expect(sql).toContain('primary key (owner_user_id, repository_full_name, operation_id)');
   });
 
   test('applies pending migrations once under a transaction and records checksums', async () => {

@@ -1,0 +1,148 @@
+import { Button, Spinner } from '@heroui/react';
+import { ImageIcon, X } from 'lucide-react';
+
+import type { IssueAttachmentDraft } from './issue-attachment-model';
+
+interface IssueAttachmentStatusProps {
+  attachments: readonly IssueAttachmentDraft[];
+  disabled?: boolean;
+  error?: string | null;
+  onRemove(attachmentId: string): void;
+  onRemoveAll?(): void;
+  previewUrls?: Readonly<Record<string, string>>;
+  retainedStoredAttachmentCount?: number;
+}
+
+function formatBytes(sizeBytes: number) {
+  if (sizeBytes >= 1024 * 1024) {
+    return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MiB`;
+  }
+  return `${Math.max(1, Math.ceil(sizeBytes / 1024))} KiB`;
+}
+
+function statusText(attachment: IssueAttachmentDraft) {
+  switch (attachment.status) {
+    case 'queued':
+      return 'Ready to store when you save';
+    case 'uploading':
+      return 'Storing in the repository…';
+    case 'failed':
+      return attachment.error;
+    case 'uploaded':
+      return 'Stored in the repository';
+  }
+}
+
+export function IssueAttachmentStatus({
+  attachments,
+  disabled = false,
+  error,
+  onRemove,
+  onRemoveAll,
+  previewUrls = {},
+  retainedStoredAttachmentCount = 0
+}: IssueAttachmentStatusProps) {
+  if (attachments.length === 0 && !error && retainedStoredAttachmentCount === 0) return null;
+  const hasPendingImages = attachments.some((attachment) => attachment.status !== 'uploaded');
+
+  return (
+    <section aria-label="Pasted images" className="mt-3 border-t border-neutral-800 pt-3">
+      {attachments.length > 0 ? (
+        <>
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-xs font-medium text-neutral-300">Pasted images</h3>
+            <div className="flex items-center gap-2">
+              <p className="text-right text-[11px] text-neutral-500">
+                {attachments.length}/10 · 10 MiB each · 50 MiB total
+              </p>
+              {onRemoveAll && attachments.length > 1 ? (
+                <Button
+                  isDisabled={disabled}
+                  size="sm"
+                  variant="ghost"
+                  onPress={onRemoveAll}
+                >
+                  Remove all
+                </Button>
+              ) : null}
+            </div>
+          </div>
+
+          <ul className="mt-2 space-y-1.5" aria-live="polite">
+            {attachments.map((attachment, index) => (
+              <li
+                key={attachment.attachmentId}
+                className="flex min-w-0 items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950/60 px-2.5 py-2"
+              >
+                <div className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-neutral-800 bg-neutral-900">
+                  {previewUrls[attachment.attachmentId] ? (
+                    <img
+                      alt={`Preview of pasted image ${index + 1}`}
+                      className="size-full object-cover"
+                      src={previewUrls[attachment.attachmentId]}
+                    />
+                  ) : (
+                    <ImageIcon aria-hidden="true" className="size-4 text-neutral-500" />
+                  )}
+                  {attachment.status === 'uploading' ? (
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/65">
+                      <Spinner aria-label={`Storing pasted image ${index + 1}`} size="sm" />
+                    </span>
+                  ) : null}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-xs font-medium text-neutral-200">Pasted image</span>
+                    <span className="text-[11px] text-neutral-500">
+                      {formatBytes(attachment.sizeBytes)}
+                    </span>
+                  </div>
+                  <p
+                    className={
+                      attachment.status === 'failed'
+                        ? 'mt-0.5 text-[11px] leading-4 text-amber-300'
+                        : 'mt-0.5 text-[11px] leading-4 text-neutral-500'
+                    }
+                  >
+                    {statusText(attachment)}
+                  </p>
+                </div>
+                <Button
+                  aria-label={`Remove pasted image ${index + 1}`}
+                  className="size-7 min-h-7 min-w-7 shrink-0 rounded-full p-0 text-neutral-500"
+                  isIconOnly
+                  isDisabled={disabled}
+                  size="sm"
+                  variant="ghost"
+                  onPress={() => onRemove(attachment.attachmentId)}
+                >
+                  <X className="size-3.5" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+
+          <p className="mt-2 text-[11px] leading-4 text-neutral-500">
+            {hasPendingImages
+              ? 'New images stay only in this browser until you save. Saving requires repository write access and stores each one with a commit.'
+              : 'These images were stored in this repository with a commit.'}
+          </p>
+        </>
+      ) : null}
+
+      {retainedStoredAttachmentCount > 0 ? (
+        <p className="mt-2 text-[11px] leading-4 text-amber-300" role="status">
+          {retainedStoredAttachmentCount === 1
+            ? 'One removed image may remain stored in its repository. Removing it here does not delete a file that GitHub already accepted.'
+            : `${retainedStoredAttachmentCount} removed images may remain stored in their repositories. Removing them here does not delete files that GitHub already accepted.`}
+        </p>
+      ) : null}
+
+      {error ? (
+        <p className="mt-2 text-xs leading-5 text-amber-300" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </section>
+  );
+}

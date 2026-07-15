@@ -8,6 +8,7 @@ import type {
   GitHubIssueCommentMutationResult,
   GitHubIssueCommentRecord,
   GitHubIssueCommentsResult,
+  GitHubIssueCreationResult,
   GitHubIssueMutationResult,
   GitHubIssueRecord,
   GitHubIssueUpdateRequest,
@@ -15,6 +16,7 @@ import type {
   GitHubPullRequestMutationResult,
   GitHubPullRequestRecord
 } from '../src/shared/project-space-api';
+import { preserveGitHubIssueCreationMarker } from '../src/shared/github-issue-creation-marker';
 import {
   getGitHubClientId,
   githubOAuthClientIdMissingMessage,
@@ -23,6 +25,14 @@ import {
   resolveToken
 } from './local-github-catalog';
 import { requestGitHubGraphQL } from './github-graphql-client';
+import { getCurrentAuthSession } from './local-auth-store';
+import { createIdempotentGitHubIssue } from './github-issue-creation-service';
+import { getGitHubIssueCreationOperationStore } from './github-issue-creation-store-provider';
+import {
+  createLocalGitHubIssueCreationRemote,
+  mapLocalGitHubIssue,
+  type LocalGitHubApiIssue
+} from './local-github-issue-creation-remote';
 
 interface GitHubApiRepository {
   default_branch?: string;
@@ -33,19 +43,6 @@ interface GitHubApiGitRef {
   object?: {
     sha?: string;
   };
-}
-
-interface GitHubApiIssue {
-  body?: string | null;
-  html_url: string;
-  labels?: Array<{ name?: string }>;
-  number: number;
-  state: 'open' | 'closed';
-  title: string;
-  updated_at?: string | null;
-  user?: {
-    login?: string;
-  } | null;
 }
 
 interface GitHubLinkedBranchTarget {
@@ -101,19 +98,6 @@ function mapGitHubComment(comment: GitHubApiIssueComment): GitHubIssueCommentRec
     id: comment.id,
     updatedAt: comment.updated_at ?? undefined,
     url: comment.html_url
-  };
-}
-
-function mapGitHubIssue(issue: GitHubApiIssue): GitHubIssueRecord {
-  return {
-    author: issue.user?.login,
-    body: issue.body ?? undefined,
-    labels: issue.labels?.map((label) => label.name).filter((name): name is string => Boolean(name)) ?? [],
-    number: issue.number,
-    state: issue.state,
-    title: issue.title,
-    updatedAt: issue.updated_at ?? undefined,
-    url: issue.html_url
   };
 }
 
@@ -342,48 +326,38 @@ export async function createGitHubIssue({
   body,
   fullName,
   labels,
+  operationId,
   title
-}: GitHubIssueCreateRequest): Promise<GitHubIssueMutationResult> {
+}: GitHubIssueCreateRequest): Promise<GitHubIssueCreationResult> {
   const auth = await resolveOAuthToken();
 
   if (!auth) {
-    return issueMutationError(
-      getGitHubClientId() ? 'auth-required' : 'not-configured',
-      getGitHubClientId() ? 'Connect GitHub to create issues.' : githubOAuthClientIdMissingMessage
-    );
-  }
-
-  if (!title.trim()) {
-    return issueMutationError('error', 'Issue title is required.');
-  }
-
-  try {
-    const issue = await requestGitHub<GitHubApiIssue>(
-      `/repos/${repoApiPath(fullName)}/issues`,
-      auth.token,
-      {
-        body: JSON.stringify({
-          body: body?.trim() || undefined,
-          labels: labels?.filter(Boolean),
-          title: title.trim()
-        }),
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        method: 'POST'
-      }
-    );
-
     return {
-      issue: mapGitHubIssue(issue),
-      status: 'connected'
+      creationState: 'retryable',
+      ...issueMutationError(
+        getGitHubClientId() ? 'auth-required' : 'not-configured',
+        getGitHubClientId()
+          ? 'Connect GitHub to create issues.'
+          : githubOAuthClientIdMissingMessage
+      )
     };
-  } catch (error) {
-    return issueMutationError(
-      'error',
-      error instanceof Error ? error.message : 'Could not create GitHub issue.'
-    );
   }
+
+  const store = await getGitHubIssueCreationOperationStore().catch(() => null);
+  if (!store) {
+    return {
+      creationState: 'uncertain',
+      message: 'Project Space could not verify the saved creation attempt. Nothing new was sent to GitHub.',
+      status: 'error'
+    };
+  }
+
+  return createIdempotentGitHubIssue({
+    remote: createLocalGitHubIssueCreationRemote(auth.token),
+    request: { body, fullName, labels, operationId, title },
+    store,
+    userId: getCurrentAuthSession()?.userId ?? 'local-development-user'
+  });
 }
 
 export async function createGitHubPullRequest({
@@ -447,15 +421,27 @@ export async function createGitHubPullRequest({
   }
 }
 
-export async function updateGitHubIssue({
+interface UpdateGitHubIssueDependencies {
+  requestGitHub: typeof requestGitHub;
+  resolveOAuthToken: typeof resolveOAuthToken;
+}
+
+const updateGitHubIssueDependencies: UpdateGitHubIssueDependencies = {
+  requestGitHub,
+  resolveOAuthToken
+};
+
+export async function updateGitHubIssueWithDependencies({
   body,
   fullName,
   labels,
   number,
   state,
   title
-}: GitHubIssueUpdateRequest): Promise<GitHubIssueMutationResult> {
-  const auth = await resolveOAuthToken();
+}: GitHubIssueUpdateRequest,
+  dependencies = updateGitHubIssueDependencies
+): Promise<GitHubIssueMutationResult> {
+  const auth = await dependencies.resolveOAuthToken();
 
   if (!auth) {
     return issueMutationError(
@@ -471,7 +457,11 @@ export async function updateGitHubIssue({
       payload.title = title.trim();
     }
     if (body !== undefined) {
-      payload.body = body;
+      const currentIssue = await dependencies.requestGitHub<LocalGitHubApiIssue>(
+        `/repos/${repoApiPath(fullName)}/issues/${number}`,
+        auth.token
+      );
+      payload.body = preserveGitHubIssueCreationMarker(body, currentIssue.body ?? '');
     }
     if (labels !== undefined) {
       payload.labels = labels.filter(Boolean);
@@ -484,7 +474,7 @@ export async function updateGitHubIssue({
       return issueMutationError('error', 'Issue title is required.');
     }
 
-    const issue = await requestGitHub<GitHubApiIssue>(
+    const issue = await dependencies.requestGitHub<LocalGitHubApiIssue>(
       `/repos/${repoApiPath(fullName)}/issues/${number}`,
       auth.token,
       {
@@ -497,7 +487,7 @@ export async function updateGitHubIssue({
     );
 
     return {
-      issue: mapGitHubIssue(issue),
+      issue: mapLocalGitHubIssue(issue),
       status: 'connected'
     };
   } catch (error) {
@@ -506,6 +496,12 @@ export async function updateGitHubIssue({
       error instanceof Error ? error.message : 'Could not edit GitHub issue.'
     );
   }
+}
+
+export async function updateGitHubIssue(
+  request: GitHubIssueUpdateRequest
+): Promise<GitHubIssueMutationResult> {
+  return updateGitHubIssueWithDependencies(request);
 }
 
 export async function getGitHubIssueComments(

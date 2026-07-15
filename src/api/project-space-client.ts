@@ -32,6 +32,7 @@ import type {
   GitHubIssueCommentMutationResult,
   GitHubIssueCommentsResult,
   GitHubIssueCreateRequest,
+  GitHubIssueCreationResult,
   GitHubIssueMutationResult,
   GitHubIssueUpdateRequest,
   GitHubPullRequestCreateRequest,
@@ -323,7 +324,7 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
     return this.request(`/api/github/catalog${options.forceRefresh ? '?refresh=1' : ''}`);
   }
 
-  createGitHubIssue(request: GitHubIssueCreateRequest): Promise<GitHubIssueMutationResult> {
+  createGitHubIssue(request: GitHubIssueCreateRequest): Promise<GitHubIssueCreationResult> {
     return this.request('/api/github/issues', {
       body: JSON.stringify(request),
       method: 'POST'

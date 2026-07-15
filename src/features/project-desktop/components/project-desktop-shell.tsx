@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth, useClerk, useSignIn, useUser } from '@clerk/react';
 import {
   FolderKanban,
@@ -23,6 +23,7 @@ import { useResizableSidebar } from '../hooks/use-resizable-sidebar';
 import { AppRail, type AppSection, type RailAccount } from './app-rail';
 import { ContextPanel } from './context-panel';
 import { ProjectMainPanel } from './project-main-panel';
+import { shouldDefaultContextPanelOpen } from './project-desktop-viewport';
 
 const RAIL_WIDTH = 56;
 const PANEL_DEFAULT_WIDTH = 272;
@@ -32,6 +33,11 @@ const COMPACT_VIEWPORT_WIDTH = 760;
 
 function isCompactViewport() {
   return typeof window !== 'undefined' && window.innerWidth < COMPACT_VIEWPORT_WIDTH;
+}
+
+function defaultContextPanelOpen() {
+  return typeof window !== 'undefined'
+    && shouldDefaultContextPanelOpen(window.innerWidth);
 }
 
 export function sectionForView(view: ProjectMainView): AppSection {
@@ -242,7 +248,8 @@ function ProjectSpaceLoginScreen({
 function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }) {
   const desktop = useProjectDesktop();
   const [isCompact, setIsCompact] = useState(isCompactViewport);
-  const [isPanelOpen, setIsPanelOpen] = useState(() => !isCompactViewport());
+  const [isPanelOpen, setIsPanelOpen] = useState(defaultContextPanelOpen);
+  const defaultPanelModeRef = useRef(defaultContextPanelOpen());
   const { isResizingSidebar, sidebarWidth, startSidebarResize } = useResizableSidebar({
     initialWidth: PANEL_DEFAULT_WIDTH,
     maxWidth: PANEL_MAX_WIDTH,
@@ -253,6 +260,11 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
   useEffect(() => {
     function updateViewportMode() {
       setIsCompact(isCompactViewport());
+      const nextDefaultPanelMode = defaultContextPanelOpen();
+      if (nextDefaultPanelMode !== defaultPanelModeRef.current) {
+        defaultPanelModeRef.current = nextDefaultPanelMode;
+        setIsPanelOpen(nextDefaultPanelMode);
+      }
     }
 
     updateViewportMode();

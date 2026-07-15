@@ -87,12 +87,33 @@ export function resolveIssueColumn(
     return 'closed';
   }
 
-  return overrides[issue.number] ?? derivedIssueColumn(issue, index);
+  const override = overrides[issue.number];
+  return override && override !== 'closed'
+    ? override
+    : derivedIssueColumn(issue, index);
+}
+
+export function issuePlacementIndices(issues: GitHubIssueRecord[]) {
+  return new Map(issues.map((issue, index) => [issue.number, index]));
+}
+
+export function resolveIssueColumnFromPlacement(
+  issue: GitHubIssueRecord,
+  fallbackIndex: number,
+  overrides: IssueColumnOverrides,
+  placementIndices: ReadonlyMap<number, number>
+) {
+  return resolveIssueColumn(
+    issue,
+    placementIndices.get(issue.number) ?? fallbackIndex,
+    overrides
+  );
 }
 
 export function groupIssuesByColumn(
   issues: GitHubIssueRecord[],
-  overrides: IssueColumnOverrides
+  overrides: IssueColumnOverrides,
+  placementIssues: GitHubIssueRecord[] = issues
 ) {
   const groups: Record<IssueColumnId, GitHubIssueRecord[]> = {
     backlog: [],
@@ -102,8 +123,12 @@ export function groupIssuesByColumn(
     ready: []
   };
 
-  issues.forEach((issue, index) => {
-    groups[resolveIssueColumn(issue, index, overrides)].push(issue);
+  const placementIndices = issuePlacementIndices(placementIssues);
+
+  issues.forEach((issue, fallbackIndex) => {
+    groups[
+      resolveIssueColumnFromPlacement(issue, fallbackIndex, overrides, placementIndices)
+    ].push(issue);
   });
 
   return groups;
