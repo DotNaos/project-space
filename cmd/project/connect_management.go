@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 
 	"github.com/DotNaos/project-space/internal/machineconnect"
 	"github.com/spf13/cobra"
@@ -72,12 +74,35 @@ func newMachineDoctorCommandWithDependencies(dependencies machineConnectionComma
 func newMachineDoctorCommandWithDependencyFactory(
 	loadDependencies machineConnectionCommandDependencyFactory,
 ) *cobra.Command {
+	return newMachineDoctorCommandWithDependencyFactoryAndDirectoryDoctor(
+		loadDependencies,
+		newProjectDirectoryDoctor(os.UserHomeDir),
+	)
+}
+
+type machineDoctorCommandResult struct {
+	machineconnect.DoctorResult
+	ProjectDirectories projectDirectoryReport `json:"projectDirectories"`
+}
+
+func newMachineDoctorCommandWithDependencyFactoryAndDirectoryDoctor(
+	loadDependencies machineConnectionCommandDependencyFactory,
+	directoryDoctor projectDirectoryDoctor,
+) *cobra.Command {
 	jsonOutput := false
+	fix := false
 	command := &cobra.Command{
 		Use:   "doctor",
 		Short: "Check this machine's Project Space connection",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			directories, err := directoryDoctor.Check(fix)
+			if !jsonOutput {
+				writeProjectDirectoryReport(command.OutOrStdout(), directories)
+			}
+			if err != nil {
+				return err
+			}
 			dependencies, err := loadDependencies()
 			if err != nil {
 				return err
@@ -90,19 +115,30 @@ func newMachineDoctorCommandWithDependencyFactory(
 			if err != nil {
 				return err
 			}
+			commandResult := machineDoctorCommandResult{
+				DoctorResult:       result,
+				ProjectDirectories: directories,
+			}
 			if jsonOutput {
-				return writeMachineConnectionJSON(command.OutOrStdout(), result)
+				if err := writeMachineConnectionJSON(command.OutOrStdout(), commandResult); err != nil {
+					return err
+				}
+			} else {
+				fmt.Fprintln(command.OutOrStdout(), "Project Space backend is reachable.")
+				if !result.CredentialFound {
+					fmt.Fprintln(command.OutOrStdout(), "This machine has not been connected yet.")
+				} else {
+					fmt.Fprintf(command.OutOrStdout(), "Machine credential is valid; connector is %s.\n", result.State)
+				}
 			}
-			fmt.Fprintln(command.OutOrStdout(), "Project Space backend is reachable.")
-			if !result.CredentialFound {
-				fmt.Fprintln(command.OutOrStdout(), "This machine has not been connected yet.")
-				return nil
+			if directories.hasMissing() {
+				return errors.New(`required project directories are missing; run "project doctor --fix"`)
 			}
-			fmt.Fprintf(command.OutOrStdout(), "Machine credential is valid; connector is %s.\n", result.State)
 			return nil
 		},
 	}
 	command.Flags().BoolVar(&jsonOutput, "json", false, "print machine-readable output")
+	command.Flags().BoolVar(&fix, "fix", false, "create missing project directories")
 	return command
 }
 

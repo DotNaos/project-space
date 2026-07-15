@@ -258,10 +258,13 @@ func TestMachineManagementCommands(t *testing.T) {
 		t.Fatalf("unexpected status: %s", statusOutput.String())
 	}
 
-	doctor := newMachineDoctorCommandWithDependencies(dependencies)
+	doctor := newMachineDoctorCommandWithDependencyFactoryAndDirectoryDoctor(
+		fixedMachineConnectionDependencies(dependencies),
+		newProjectDirectoryDoctor(func() (string, error) { return t.TempDir(), nil }),
+	)
 	doctorOutput := &bytes.Buffer{}
 	doctor.SetOut(doctorOutput)
-	doctor.SetArgs([]string{"--json"})
+	doctor.SetArgs([]string{"--json", "--fix"})
 	if err := doctor.Execute(); err != nil {
 		t.Fatalf("doctor: %v", err)
 	}
