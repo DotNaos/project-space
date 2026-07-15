@@ -532,6 +532,36 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
             (connector_channel = 'dev' and connector_source = 'source')
           );
     `
+  },
+  {
+    id: '0019_machine_execution_scopes',
+    sql: `
+      create table machine_execution_scopes (
+        id uuid not null,
+        owner_user_id text not null check (btrim(owner_user_id) <> ''),
+        name text not null check (btrim(name) <> '' and char_length(name) <= 80),
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now(),
+        primary key (id, owner_user_id)
+      );
+
+      create table machine_execution_scope_members (
+        scope_id uuid not null,
+        owner_user_id text not null check (btrim(owner_user_id) <> ''),
+        machine_id text not null check (btrim(machine_id) <> ''),
+        created_at timestamptz not null default now(),
+        primary key (owner_user_id, machine_id),
+        foreign key (scope_id, owner_user_id)
+          references machine_execution_scopes (id, owner_user_id)
+          on delete cascade,
+        foreign key (machine_id, owner_user_id)
+          references machine_memberships (machine_id, user_id)
+          on delete cascade
+      );
+
+      create index machine_execution_scope_members_scope_idx
+        on machine_execution_scope_members (owner_user_id, scope_id, machine_id);
+    `
   }
 ];
 

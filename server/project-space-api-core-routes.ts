@@ -14,11 +14,14 @@ import {
   createDevServerSession,
   isDatabaseConfigured,
   isMachineClaimed,
+  deleteMachineExecutionScope,
   listConnectorCredentials,
+  listMachineExecutionScopes,
   listDevServerSessions,
   readMachineMembership,
   readProjectRunSettings,
   revokeConnectorCredential,
+  saveMachineExecutionScope,
   transitionDevServerSession,
   upsertProjectRunSettings
 } from './local-database-store';
@@ -51,6 +54,10 @@ import {
   reconcileProjectWorktreeDiscovery
 } from './project-worktree-discovery';
 import { createConnectorRuntimeHttpHandler } from './connector-runtime-http';
+import {
+  isMachineExecutionScopeId,
+  parseMachineExecutionScopeSaveRequest
+} from './machine-execution-scope-validation';
 
 export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
   const handleConnectorRuntime = createConnectorRuntimeHttpHandler(backend);
@@ -120,6 +127,50 @@ export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
       response.setHeader('Cache-Control', 'no-store');
       writeJson(response, 200, {
         credentials: isDatabaseConfigured() ? await listConnectorCredentials(userId) : []
+      });
+      return true;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/machines/execution-scopes') {
+      response.setHeader('Cache-Control', 'private, no-store');
+      writeJson(response, 200, {
+        scopes: isDatabaseConfigured() ? await listMachineExecutionScopes(userId) : []
+      });
+      return true;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/machines/execution-scopes') {
+      if (!isDatabaseConfigured()) {
+        writeJson(response, 503, { error: 'Machine grouping requires the account database.' });
+        return true;
+      }
+      const payload = parseMachineExecutionScopeSaveRequest(await readJson<unknown>(request));
+      if (!payload) {
+        writeJson(response, 400, { error: 'Invalid machine group request.' });
+        return true;
+      }
+      response.setHeader('Cache-Control', 'private, no-store');
+      writeJson(response, 200, {
+        scope: await saveMachineExecutionScope({
+          machineIds: payload.machineIds,
+          name: payload.name,
+          scopeId: payload.id,
+          userId
+        })
+      });
+      return true;
+    }
+
+    const machineScopePrefix = '/api/machines/execution-scopes/';
+    const machineScopeId = url.pathname.startsWith(machineScopePrefix)
+      ? url.pathname.slice(machineScopePrefix.length)
+      : '';
+    if (request.method === 'DELETE' && isMachineExecutionScopeId(machineScopeId)) {
+      response.setHeader('Cache-Control', 'private, no-store');
+      writeJson(response, 200, {
+        deleted: isDatabaseConfigured()
+          ? await deleteMachineExecutionScope({ scopeId: machineScopeId, userId })
+          : false
       });
       return true;
     }

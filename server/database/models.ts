@@ -145,6 +145,18 @@ export interface RevokeConnectorCredentialInput {
   userId: string;
 }
 
+export interface MachineExecutionScopeKey {
+  scopeId: string;
+  userId: string;
+}
+
+export interface SaveMachineExecutionScopeInput {
+  machineIds: string[];
+  name: string;
+  scopeId?: string;
+  userId: string;
+}
+
 export interface UserProjectsStateKey {
   userId: string;
 }

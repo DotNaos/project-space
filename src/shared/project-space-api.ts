@@ -852,6 +852,22 @@ export interface MachineRecord {
   connector: MachineConnectorRecord;
 }
 
+export interface MachineExecutionScopeRecord {
+  id: string;
+  machineIds: string[];
+  name: string;
+}
+
+export interface MachineExecutionScopesResult {
+  scopes: MachineExecutionScopeRecord[];
+}
+
+export interface MachineExecutionScopeSaveRequest {
+  id?: string;
+  machineIds: string[];
+  name: string;
+}
+
 export interface TailscaleStatusResult {
   connected: boolean;
   error?: string;

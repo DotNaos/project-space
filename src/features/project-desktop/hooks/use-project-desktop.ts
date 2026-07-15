@@ -530,16 +530,16 @@ export function useProjectDesktop() {
     },
     ...topologyNavigation,
     openMachines() {
-      setMainView('machines');
-      writeRoute('machines');
+      setMainView('settings');
+      writeRoute('settings');
     },
     openMachine(machineId: string, tab?: MachineDetailTab) {
       const nextTab = tab ?? machineTab;
 
       setSelectedMachineId(machineId);
       setMachineTab(nextTab);
-      setMainView('machine');
-      writeRoute('machine', machineId, false, nextTab);
+      setMainView('settings');
+      writeRoute('settings');
     },
     selectMachineContext(machineId: string) {
       setSelectedMachineId(machineId);
