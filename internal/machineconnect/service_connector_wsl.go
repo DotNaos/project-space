@@ -15,6 +15,7 @@ import (
 const (
 	machineConnectorWindowsTaskPrefix = "Project Space Machine Connector Supervisor"
 	maximumWindowsTaskNameLength      = 238
+	maximumWindowsTaskRestartCount    = 255
 	defaultWSLSystemdCleanupTimeout   = 5 * time.Second
 )
 
@@ -119,14 +120,14 @@ try {
   $action = New-ScheduledTaskAction -Execute (Join-Path $env:SystemRoot 'System32\wsl.exe') -Argument %s
   $principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited
   $trigger = New-ScheduledTaskTrigger -AtLogOn -User $identity
-  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount %d -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
   Register-ScheduledTask -TaskPath $taskPath -TaskName $taskName -Description 'Keeps the authenticated Project Space connector running in WSL.' -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Force | Out-Null
   Start-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction Stop
 } catch {
   Remove-ProjectConnectorTask
   throw
 }
-`, powershellLiteral(connector.wslTaskName), powershellLiteral(actionArguments))
+`, powershellLiteral(connector.wslTaskName), powershellLiteral(actionArguments), maximumWindowsTaskRestartCount)
 }
 
 func (connector *ServiceConnector) wslStopScript() string {

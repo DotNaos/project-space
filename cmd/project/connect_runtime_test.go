@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -155,12 +156,18 @@ func TestUsableConnectorBinaryAcceptsWindowsExeWithoutUnixModeBits(t *testing.T)
 type connectorRunSupervisor struct {
 	runCalls int
 	runErr   error
+	runErrs  []error
 	ctxErr   error
 }
 
 func (supervisor *connectorRunSupervisor) Run(ctx context.Context) error {
 	supervisor.runCalls++
 	supervisor.ctxErr = ctx.Err()
+	if len(supervisor.runErrs) > 0 {
+		err := supervisor.runErrs[0]
+		supervisor.runErrs = supervisor.runErrs[1:]
+		return err
+	}
 	return supervisor.runErr
 }
 
@@ -211,6 +218,109 @@ func TestConnectorRunLoadsTheStoreAndRunsTheCompanionSupervisor(t *testing.T) {
 			resolveCalls,
 			supervisor.runCalls,
 		)
+	}
+}
+
+func TestConnectorRunDeterministicallyRelaunchesAfterManagedRestart(t *testing.T) {
+	store := &commandStore{}
+	supervisor := &connectorRunSupervisor{runErrs: []error{
+		machineconnect.ErrConnectorSupervisorRestartRequired,
+		nil,
+	}}
+	relaunches := 0
+	readinessAttempts := []string{}
+	command := newConnectorRunCommandWithDependencies(connectorRunDependencies{
+		NewStore:      func() (machineconnect.CredentialStore, error) { return store, nil },
+		ResolveBinary: func() (string, error) { return "/managed/project-space-connector", nil },
+		ConsumeReadinessAttempt: func() (string, bool, error) {
+			return strings.Repeat("2", 64), true, nil
+		},
+		NewSupervisor: func(
+			_ machineconnect.CredentialStore,
+			_ string,
+			readinessAttempt string,
+			_ io.Writer,
+			_ io.Writer,
+		) (connectorSupervisor, error) {
+			readinessAttempts = append(readinessAttempts, readinessAttempt)
+			return supervisor, nil
+		},
+		RestartSupervisor: func(binary string) error {
+			if binary != "/managed/project-space-connector" {
+				t.Fatalf("relaunch binary = %q", binary)
+			}
+			relaunches++
+			return nil
+		},
+	})
+
+	if err := command.Execute(); err != nil {
+		t.Fatalf("execute managed restart: %v", err)
+	}
+	if supervisor.runCalls != 2 || relaunches != 1 ||
+		!reflect.DeepEqual(readinessAttempts, []string{strings.Repeat("2", 64), ""}) {
+		t.Fatalf(
+			"managed restart calls = run %d relaunch %d readiness %#v",
+			supervisor.runCalls,
+			relaunches,
+			readinessAttempts,
+		)
+	}
+}
+
+func TestConnectorRunFailsClosedWhenManagedRelaunchCannotResolve(t *testing.T) {
+	store := &commandStore{}
+	supervisor := &connectorRunSupervisor{runErr: machineconnect.ErrConnectorSupervisorRestartRequired}
+	command := newConnectorRunCommandWithDependencies(connectorRunDependencies{
+		NewStore:      func() (machineconnect.CredentialStore, error) { return store, nil },
+		ResolveBinary: func() (string, error) { return "/managed/project-space-connector", nil },
+		NewSupervisor: func(
+			machineconnect.CredentialStore,
+			string,
+			string,
+			io.Writer,
+			io.Writer,
+		) (connectorSupervisor, error) {
+			return supervisor, nil
+		},
+		RestartSupervisor: func(string) error { return errors.New("untrusted managed pointer") },
+	})
+
+	err := command.Execute()
+	if err == nil || !errors.Is(err, machineconnect.ErrConnectorSupervisorRestartRequired) ||
+		!strings.Contains(err.Error(), "untrusted managed pointer") || supervisor.runCalls != 1 {
+		t.Fatalf("managed relaunch failure = %v, run calls=%d", err, supervisor.runCalls)
+	}
+}
+
+func TestConnectorRunDoesNotRelaunchAfterJoinedLifecycleFailure(t *testing.T) {
+	store := &commandStore{}
+	supervisor := &connectorRunSupervisor{runErr: errors.Join(
+		machineconnect.ErrConnectorSupervisorRestartRequired,
+		errors.New("release runtime lifetime"),
+	)}
+	relaunches := 0
+	command := newConnectorRunCommandWithDependencies(connectorRunDependencies{
+		NewStore:      func() (machineconnect.CredentialStore, error) { return store, nil },
+		ResolveBinary: func() (string, error) { return "/managed/project-space-connector", nil },
+		NewSupervisor: func(
+			machineconnect.CredentialStore,
+			string,
+			string,
+			io.Writer,
+			io.Writer,
+		) (connectorSupervisor, error) {
+			return supervisor, nil
+		},
+		RestartSupervisor: func(string) error {
+			relaunches++
+			return nil
+		},
+	})
+
+	err := command.Execute()
+	if err == nil || relaunches != 0 || supervisor.runCalls != 1 {
+		t.Fatalf("joined lifecycle failure = %v, run %d relaunch %d", err, supervisor.runCalls, relaunches)
 	}
 }
 

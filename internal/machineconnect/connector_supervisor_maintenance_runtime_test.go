@@ -91,6 +91,36 @@ func TestConnectorSupervisorRuntimeCommitsHealthyReconnectWithoutRestart(t *test
 	}
 }
 
+func TestConnectorSupervisorRuntimeRestoresConnectorAfterExpiredRestart(t *testing.T) {
+	fixture, executable := newMaintenanceRuntimeFixture(t)
+	fixture.writeRestartControl(maintenanceTestOperation)
+	if _, err := fixture.maintenance.ProcessControl(); err != nil {
+		t.Fatal(err)
+	}
+	fixture.maintenance.now = func() time.Time { return maintenanceTestNow.Add(2 * time.Minute) }
+
+	var stdout bytes.Buffer
+	supervisor := maintenanceRuntimeSupervisor(
+		t,
+		fixture,
+		executable,
+		&stdout,
+		"success",
+	)
+	if err := supervisor.Run(context.Background()); err != nil {
+		t.Fatalf("expired restart recovery did not restore connector: %v", err)
+	}
+	result := decodeSupervisorHelperResult(t, stdout.Bytes())
+	if result.MaintenanceID != "" || result.MaintenanceState != "" {
+		t.Fatalf("expired restart exposed pending evidence = %#v", result)
+	}
+	state, err := fixture.maintenance.readState()
+	if err != nil || state.Phase != connectorSupervisorPhaseFailed ||
+		state.FailureCode != "health-timeout" {
+		t.Fatalf("expired restart state = %#v, err=%v", state, err)
+	}
+}
+
 func TestConnectorSupervisorRuntimeRollsBackRejectedReconnectAndRestarts(t *testing.T) {
 	fixture, executable := newMaintenanceRuntimeFixture(t)
 	fixture.writeRestartControl(maintenanceTestOperation)

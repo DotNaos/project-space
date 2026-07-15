@@ -82,7 +82,7 @@ winget settings --enable LocalManifestFiles
 From a checkout containing the rendered release manifests, validate and install them with:
 
 ```powershell
-$manifest = '.\dist\winget\manifests\d\DotNaos\Project\0.4.6'
+$manifest = '.\dist\winget\manifests\d\DotNaos\Project\0.4.7'
 winget validate $manifest
 winget install --manifest $manifest --accept-package-agreements --accept-source-agreements
 ```

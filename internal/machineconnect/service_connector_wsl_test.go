@@ -75,13 +75,16 @@ func TestWSLServiceConnectorReplacesAndStartsWindowsScheduledTask(t *testing.T) 
 		"New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited",
 		"System32\\wsl.exe",
 		`-d "Ubuntu Dev 24.04" --user oli -- "/home/oli/Project Space/bin/project" connector run`,
-		"RestartCount 999",
+		"RestartCount 255",
 		"ExecutionTimeLimit ([TimeSpan]::Zero)",
 		"Remove-ProjectConnectorTask",
 	} {
 		if !strings.Contains(script, required) {
 			t.Errorf("scheduled task script lacks %q:\n%s", required, script)
 		}
+	}
+	if strings.Contains(script, "RestartCount 999") {
+		t.Fatal("scheduled task used a restart count outside the Task Scheduler schema")
 	}
 	joinedCalls := serviceCallsText(runner.calls)
 	for _, forbidden := range []string{

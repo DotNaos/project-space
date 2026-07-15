@@ -116,7 +116,15 @@ func (maintenance *ConnectorSupervisorMaintenance) RecoverStartup() (
 	maintenance.discardPersistedControl(state.OperationID)
 	deadline, _ := time.Parse(time.RFC3339Nano, state.DeadlineAt)
 	if !maintenance.now().Before(deadline) {
-		return maintenance.handleHealthFailure(state, "health-timeout")
+		result, healthErr := maintenance.handleHealthFailure(state, "health-timeout")
+		if state.Operation == ConnectorSupervisorMaintenanceRestart &&
+			result.Outcome == ConnectorSupervisorMaintenanceFailed {
+			// The replacement supervisor is already running. Keep the durable
+			// failure for Retry, but restore the unchanged connector now instead
+			// of requiring a third service-manager start.
+			result.RestartRequired = false
+		}
+		return result, healthErr
 	}
 	return pendingConnectorSupervisorResult(state), nil
 }

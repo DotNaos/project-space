@@ -136,7 +136,9 @@ func (supervisor *ConnectorSupervisor) Run(ctx context.Context) (returnErr error
 		return err
 	}
 	defer func() {
-		returnErr = errors.Join(returnErr, lifetime.Close())
+		if closeErr := lifetime.Close(); closeErr != nil {
+			returnErr = errors.Join(returnErr, closeErr)
+		}
 	}()
 	credential, err := supervisor.store.Load()
 	if err != nil {
