@@ -279,9 +279,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
             pinnedProjectIds={desktop.pinnedProjectIds}
             projects={desktop.projects}
             recentProjectIds={desktop.recentProjectIds}
-            section={desktop.mainView === 'machines' || desktop.mainView === 'machine'
-              ? 'machines'
-              : 'projects'}
+            section="projects"
             selectedMachineId={desktop.selectedMachineId}
             selectedProjectId={desktop.selectedProjectId}
           />

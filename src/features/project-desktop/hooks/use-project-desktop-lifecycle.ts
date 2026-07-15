@@ -13,7 +13,9 @@ import { parseCodexSessionRoute } from '../../codex-sessions/codex-session-route
 import { shouldPreserveUnresolvedProjectRoute } from './project-route-model';
 import {
   connectorOverviewRefreshIntervalMs,
+  parseProjectNavigationRoute,
   parseProjectRoute,
+  replaceLegacyMachinesRoute,
   resolveRouteProject,
   sanitizeDiscovery,
   shouldPreserveProjectRoute,
@@ -133,13 +135,14 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
     }, [githubCatalog.cache?.state, refreshGitHubCatalog]);
   
     useEffect(() => {
+      const initialRoute = parseProjectRoute(window.location.pathname);
+      replaceLegacyMachinesRoute(window.location.pathname);
       void Promise.all([
         projectSpaceClient.loadProjectsState(),
         projectSpaceClient.loadProjectDiscovery()
       ])
         .then(([state, nextDiscovery]) => {
           const sanitizedDiscovery = sanitizeDiscovery(nextDiscovery);
-          const initialRoute = parseProjectRoute(window.location.pathname);
           const routeProject =
             initialRoute.view === 'project' && initialRoute.projectId
               ? resolveRouteProject(sanitizedDiscovery.projects, initialRoute.projectId)
@@ -242,7 +245,7 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
   
     useEffect(() => {
       function handlePopState() {
-        const nextRoute = parseProjectRoute(window.location.pathname);
+        const nextRoute = parseProjectNavigationRoute(window.location.pathname);
   
         if (nextRoute.view === 'project') {
           const nextProject = nextRoute.projectId

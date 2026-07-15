@@ -16,15 +16,18 @@ import type {
   MachineMembership,
   MachineMembershipKey,
   MachineMembershipRole,
+  MachineExecutionScopeKey,
   ProjectRunSettings,
   ProjectRunSettingsKey,
   RevokeConnectorCredentialInput,
+  SaveMachineExecutionScopeInput,
   TransitionDevServerSessionInput,
   UpsertUserProjectsStateInput,
   UpsertProjectRunSettingsInput
 } from './models';
 import { normalizeProjectsState } from './projects-state';
 import type { ProjectsState } from '../../src/shared/project-space-api';
+import type { MachineExecutionScopeRecord } from '../../src/shared/project-space-api';
 
 interface MachineMembershipRow {
   created_at: Date | string;
@@ -70,6 +73,12 @@ interface DevServerSessionRow {
 
 interface UserProjectsStateRow {
   state: unknown;
+}
+
+interface MachineExecutionScopeRow {
+  id: string;
+  machine_ids: string[];
+  name: string;
 }
 
 const membershipColumns = `
@@ -185,6 +194,112 @@ export class ProjectSpaceDatabaseRepository {
 
   async revokeConnectorCredential(input: RevokeConnectorCredentialInput) {
     return this.connectorCredentials.revoke(input);
+  }
+
+  async listMachineExecutionScopes(userId: string): Promise<MachineExecutionScopeRecord[]> {
+    const result = await this.client.query<MachineExecutionScopeRow>(
+      `select scope.id, scope.name,
+              coalesce(array_agg(member.machine_id order by member.machine_id)
+                filter (where member.machine_id is not null), '{}') as machine_ids
+         from machine_execution_scopes scope
+         left join machine_execution_scope_members member
+           on member.scope_id = scope.id
+          and member.owner_user_id = scope.owner_user_id
+        where scope.owner_user_id = $1
+        group by scope.id, scope.owner_user_id, scope.name
+        order by lower(scope.name), scope.id`,
+      [requireValue(userId, 'userId')]
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      machineIds: row.machine_ids,
+      name: row.name
+    }));
+  }
+
+  async saveMachineExecutionScope(
+    input: SaveMachineExecutionScopeInput
+  ): Promise<MachineExecutionScopeRecord> {
+    const userId = requireValue(input.userId, 'userId');
+    const name = requireValue(input.name, 'name');
+    if (name.length > 80) throw new Error('Machine group names must be 80 characters or fewer.');
+    const machineIds = [...new Set(input.machineIds.map((id) => requireValue(id, 'machineId')))];
+    if (machineIds.length === 0) throw new Error('Choose at least one connector instance.');
+    const scopeId = input.scopeId ? requireValue(input.scopeId, 'scopeId') : this.createId();
+
+    const operation = async (client: DatabaseQueryClient) => {
+      const owned = await client.query<{ machine_id: string }>(
+        `select machine_id
+           from machine_memberships
+          where user_id = $1
+            and role = 'owner'
+            and machine_id = any($2::text[])
+          order by machine_id
+          for update`,
+        [userId, machineIds]
+      );
+      if (owned.rows.length !== machineIds.length) {
+        throw new Error('Only connector instances owned by this account can be grouped.');
+      }
+
+      const scope = await client.query<{ id: string; name: string }>(
+        `insert into machine_execution_scopes (id, owner_user_id, name)
+         values ($1, $2, $3)
+         on conflict (id, owner_user_id) do update set
+           name = excluded.name,
+           updated_at = now()
+         returning id, name`,
+        [scopeId, userId, name]
+      );
+      if (!scope.rows[0]) throw new Error('The machine group could not be saved.');
+
+      await client.query(
+        `delete from machine_execution_scope_members
+          where scope_id = $1
+            and owner_user_id = $2
+            and not (machine_id = any($3::text[]))`,
+        [scopeId, userId, machineIds]
+      );
+      await client.query(
+        `insert into machine_execution_scope_members (
+           scope_id, owner_user_id, machine_id
+         )
+         select $1, $2, machine_id
+           from unnest($3::text[]) as machine_id
+         on conflict (owner_user_id, machine_id) do update set
+           scope_id = excluded.scope_id`,
+        [scopeId, userId, machineIds]
+      );
+      await client.query(
+        `delete from machine_execution_scopes scope
+          where scope.owner_user_id = $1
+            and scope.id <> $2
+            and not exists (
+              select 1
+                from machine_execution_scope_members member
+               where member.scope_id = scope.id
+                 and member.owner_user_id = scope.owner_user_id
+            )`,
+        [userId, scopeId]
+      );
+
+      return { id: scope.rows[0].id, machineIds, name: scope.rows[0].name };
+    };
+
+    return this.client.transaction
+      ? this.client.transaction(operation)
+      : operation(this.client);
+  }
+
+  async deleteMachineExecutionScope(input: MachineExecutionScopeKey) {
+    const result = await this.client.query<{ id: string }>(
+      `delete from machine_execution_scopes
+        where id = $1 and owner_user_id = $2
+      returning id`,
+      [requireValue(input.scopeId, 'scopeId'), requireValue(input.userId, 'userId')]
+    );
+    return result.rows.length > 0;
   }
 
   async claimMachineMembership(input: MachineMembershipKey) {

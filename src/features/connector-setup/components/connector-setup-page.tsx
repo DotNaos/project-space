@@ -222,12 +222,12 @@ export function ConnectorSetupPage() {
         <section className="grid gap-4 lg:grid-cols-3">
           <StepCard icon={Download} label="1" title="Get the pinned installer">
             <Text className="text-sm leading-6 text-neutral-400">
-              Sign in, open Machines → Add machine, and copy the generated command. It names one
+              Sign in, open Settings → Install a connector, and copy the generated command. It names one
               exact release and checksum instead of downloading a mutable latest build.
             </Text>
-            <a href="/machines" className="w-fit">
+            <a href="/settings" className="w-fit">
               <Button variant="outline">
-                Open Machines
+                Open Settings
                 <ArrowRight className="size-4" />
               </Button>
             </a>
@@ -264,7 +264,7 @@ export function ConnectorSetupPage() {
                 Manual download
               </Card.Title>
               <Card.Description className="text-sm text-neutral-400">
-                Prefer the pinned command from Machines → Add machine. For a direct release test,
+                Prefer the pinned command from Settings → Install a connector. For a direct release test,
                 download one exact versioned bundle and then run project connect.
               </Card.Description>
             </Card.Header>

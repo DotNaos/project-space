@@ -45,12 +45,6 @@ function parseProjectDetailTab(segment: string | undefined): ProjectDetailTab {
     : 'overview';
 }
 
-function parseMachineDetailTab(segment: string | undefined): MachineDetailTab {
-  return machineDetailTabs.includes(segment as MachineDetailTab)
-    ? (segment as MachineDetailTab)
-    : 'overview';
-}
-
 function normalizePath(path: string) {
   return path.replace(/\/+$/, '');
 }
@@ -106,15 +100,15 @@ export function sanitizeDiscovery(discovery: ProjectDiscoveryResult): ProjectDis
   };
 }
 
-function machinePath(machineId: string) {
-  return `${machinesPath}/${encodeURIComponent(machineId)}`;
-}
-
 function projectPath(projectId: string) {
   return `${projectsPath}/${encodeURIComponent(projectId)}`;
 }
 
 const settingsPath = '/settings';
+
+export function isLegacyMachinesRoute(pathname: string) {
+  return pathname === machinesPath || pathname.startsWith(`${machinesPath}/`);
+}
 
 export function routeForView(view: ProjectMainView, projectId = '', tab = '', detail = '') {
   if (view === 'topology') {
@@ -129,14 +123,8 @@ export function routeForView(view: ProjectMainView, projectId = '', tab = '', de
     return projectChatRoute(projectId || undefined);
   }
 
-  if (view === 'machines') {
-    return machinesPath;
-  }
-
-  if (view === 'machine' && projectId) {
-    const base = machinePath(projectId);
-
-    return tab && tab !== 'overview' ? `${base}/${tab}` : base;
+  if (view === 'machines' || view === 'machine') {
+    return settingsPath;
   }
 
   if (view === 'projects') {
@@ -203,22 +191,8 @@ export function parseProjectRoute(pathname: string): ParsedProjectRoute {
     return { view: 'settings' };
   }
 
-  if (pathname === machinesPath) {
-    return { view: 'machines' };
-  }
-
-  if (pathname.startsWith(`${machinesPath}/`)) {
-    const rest = pathname.slice(machinesPath.length + 1);
-    const [rawMachineId, rawTab] = rest.split('/');
-    const machineId = decodeURIComponent(rawMachineId ?? '');
-
-    return machineId
-      ? {
-          machineId,
-          machineTab: parseMachineDetailTab(rawTab),
-          view: 'machine'
-        }
-      : { view: 'machines' };
+  if (isLegacyMachinesRoute(pathname)) {
+    return { view: 'settings' };
   }
 
   if (pathname === projectsPath || pathname === `${projectsPath}/`) {
@@ -251,7 +225,7 @@ export function parseProjectRoute(pathname: string): ParsedProjectRoute {
 
 export function initialProjectMainView(pathname: string): ProjectMainView {
   const view = parseProjectRoute(pathname).view;
-  return view === 'chat' || view === 'codex' ? view : 'root';
+  return view === 'chat' || view === 'codex' || view === 'settings' ? view : 'root';
 }
 
 export function resolveRouteProject(
@@ -326,6 +300,20 @@ export function writeRoute(
   }
 
   window.history.pushState(null, '', nextUrl);
+}
+
+export function replaceLegacyMachinesRoute(pathname: string) {
+  if (!isLegacyMachinesRoute(pathname)) {
+    return false;
+  }
+
+  writeRoute('settings', '', true);
+  return true;
+}
+
+export function parseProjectNavigationRoute(pathname: string) {
+  replaceLegacyMachinesRoute(pathname);
+  return parseProjectRoute(pathname);
 }
 
 export function findMatchingProject(projects: ProjectSpaceRecord[], path: string) {

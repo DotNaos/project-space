@@ -51,6 +51,9 @@ import type {
   MachineFileSystemFileRequest,
   MachineFileSystemFileResult,
   MachineFileSystemRequest,
+  MachineExecutionScopeRecord,
+  MachineExecutionScopesResult,
+  MachineExecutionScopeSaveRequest,
   MachineFileSystemRootResult,
   MachineDirectoryCreateRequest,
   MachineDirectoryDeleteRequest,
@@ -310,6 +313,25 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
 
   revokeConnectorCredential(credentialId: string): Promise<{ revoked: boolean }> {
     return this.request(`/api/connectors/credentials/${encodeURIComponent(credentialId)}`, {
+      method: 'DELETE'
+    });
+  }
+
+  listMachineExecutionScopes(): Promise<MachineExecutionScopesResult> {
+    return this.request('/api/machines/execution-scopes');
+  }
+
+  saveMachineExecutionScope(
+    request: MachineExecutionScopeSaveRequest
+  ): Promise<{ scope: MachineExecutionScopeRecord }> {
+    return this.request('/api/machines/execution-scopes', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  deleteMachineExecutionScope(scopeId: string): Promise<{ deleted: boolean }> {
+    return this.request(`/api/machines/execution-scopes/${encodeURIComponent(scopeId)}`, {
       method: 'DELETE'
     });
   }

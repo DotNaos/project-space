@@ -5,6 +5,7 @@ import {
   Download,
   Info,
   LogOut,
+  MonitorCog,
   Network,
   RefreshCw,
   Trash2,
@@ -18,10 +19,13 @@ import type {
   ConnectorCredentialRecord,
   ConnectorOverviewResult,
   GitHubCatalogResult,
-  GitHubOAuthDeviceStartResult
+  GitHubOAuthDeviceStartResult,
+  MachineExecutionScopeRecord,
+  MachineExecutionScopeSaveRequest
 } from '@/shared/project-space-api';
 import { GitHubConnectPanel } from './project-home-overview-widgets';
 import type { RailAccount } from './app-rail';
+import { SettingsMachineGroups } from './settings-machine-groups';
 
 function SettingsSection({
   children,
@@ -85,6 +89,7 @@ export interface SettingsViewProps {
   connectorOverview: ConnectorOverviewResult;
   githubCatalog: GitHubCatalogResult;
   isGitHubRefreshing: boolean;
+  onRefreshConnectorOverview(): Promise<ConnectorOverviewResult>;
   onRefreshGitHubCatalog(forceRefresh?: boolean): Promise<GitHubCatalogResult>;
 }
 
@@ -94,6 +99,7 @@ export function SettingsView({
   connectorOverview,
   githubCatalog,
   isGitHubRefreshing,
+  onRefreshConnectorOverview,
   onRefreshGitHubCatalog
 }: SettingsViewProps) {
   const [githubFlow, setGitHubFlow] = useState<GitHubOAuthDeviceStartResult>();
@@ -104,6 +110,9 @@ export function SettingsView({
   const [isGeneratingInstaller, setIsGeneratingInstaller] = useState(false);
   const [credentials, setCredentials] = useState<ConnectorCredentialRecord[]>([]);
   const [credentialListError, setCredentialListError] = useState('');
+  const [executionScopes, setExecutionScopes] = useState<MachineExecutionScopeRecord[]>([]);
+  const [executionScopesStatus, setExecutionScopesStatus] = useState<'error' | 'loading' | 'ready'>('loading');
+  const [executionScopesError, setExecutionScopesError] = useState('');
   const [revokingCredentialId, setRevokingCredentialId] = useState('');
   const [installerError, setInstallerError] = useState('');
 
@@ -119,9 +128,45 @@ export function SettingsView({
     }
   }
 
+  async function refreshExecutionScopes() {
+    setExecutionScopesStatus('loading');
+    setExecutionScopesError('');
+    try {
+      const result = await projectSpaceClient.listMachineExecutionScopes();
+      setExecutionScopes(result.scopes);
+      setExecutionScopesStatus('ready');
+      return result.scopes;
+    } catch (error) {
+      setExecutionScopesStatus('error');
+      setExecutionScopesError(
+        error instanceof Error ? error.message : 'Could not load machine groups.'
+      );
+      throw error;
+    }
+  }
+
+  async function refreshMachineAdministration() {
+    await Promise.all([
+      refreshConnectorCredentials(),
+      refreshExecutionScopes(),
+      onRefreshConnectorOverview()
+    ]);
+  }
+
   useEffect(() => {
     void refreshConnectorCredentials();
+    void refreshExecutionScopes().catch(() => undefined);
   }, []);
+
+  async function saveExecutionScope(request: MachineExecutionScopeSaveRequest) {
+    await projectSpaceClient.saveMachineExecutionScope(request);
+    await refreshExecutionScopes();
+  }
+
+  async function deleteExecutionScope(scopeId: string) {
+    await projectSpaceClient.deleteMachineExecutionScope(scopeId);
+    await refreshExecutionScopes();
+  }
 
   async function connectGitHub() {
     setIsConnectingGitHub(true);
@@ -197,6 +242,9 @@ export function SettingsView({
   }
 
   const tailscale = connectorOverview.tailscale;
+  const currentCredentials = credentials.filter(
+    (credential) => credential.status === 'active' || credential.status === 'pending'
+  );
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-4">
@@ -263,8 +311,25 @@ export function SettingsView({
       </SettingsSection>
 
       <SettingsSection
+        icon={MonitorCog}
+        title="Machines & connectors"
+        description="One physical machine can contain multiple independently managed connector instances."
+      >
+        <SettingsMachineGroups
+          credentials={credentials}
+          loadError={executionScopesError}
+          machines={connectorOverview.machines}
+          onDeleteScope={deleteExecutionScope}
+          onRefresh={refreshMachineAdministration}
+          onSaveScope={saveExecutionScope}
+          scopes={executionScopes}
+          status={executionScopesStatus}
+        />
+      </SettingsSection>
+
+      <SettingsSection
         icon={TerminalSquare}
-        title="Connector"
+        title="Install a connector"
         description="Install the Project Space connector on a machine to make its projects reachable."
       >
         {installCommand ? (
@@ -323,7 +388,7 @@ export function SettingsView({
         ) : null}
         <div className="mt-4 border-t border-neutral-800/80 pt-3">
           <div className="mb-2 flex items-center justify-between gap-3">
-            <Text className="text-xs font-medium text-neutral-300">Account credentials</Text>
+            <Text className="text-xs font-medium text-neutral-300">Installer credentials</Text>
             <Button
               aria-label="Refresh connector credentials"
               isIconOnly
@@ -335,9 +400,9 @@ export function SettingsView({
               <RefreshCw className="size-3.5" />
             </Button>
           </div>
-          {credentials.length > 0 ? (
+          {currentCredentials.length > 0 ? (
             <div className="divide-y divide-neutral-900">
-              {credentials.slice(0, 10).map((credential) => {
+              {currentCredentials.slice(0, 10).map((credential) => {
                 const canRevoke = credential.status === 'active' || credential.status === 'pending';
                 const detail = credential.status === 'active'
                   ? `Last seen ${formatCredentialTime(credential.lastSeenAt ?? credential.createdAt)}`
@@ -376,9 +441,9 @@ export function SettingsView({
           ) : (
             <Text className="block text-xs text-neutral-600">No connector credentials yet.</Text>
           )}
-          {credentials.length > 10 ? (
+          {currentCredentials.length > 10 ? (
             <Text className="mt-2 block text-xs text-neutral-600">
-              Showing the 10 most relevant of {credentials.length} credentials.
+              Showing the 10 most relevant of {currentCredentials.length} credentials.
             </Text>
           ) : null}
           {credentialListError ? (

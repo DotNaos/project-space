@@ -29,7 +29,6 @@ import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { Button, Card, Surface, Text } from '@/app/dotnaos-ui';
 import type { RailAccount } from './app-rail';
 import { EntitySwitcher, type SwitcherEntry } from './entity-switcher';
-import { MachineDetailView } from './machine-detail-view';
 import { ProjectDetail } from './project-detail';
 import { ProjectHomeOverview } from './project-home-overview';
 import { ProjectRootSummary } from './project-root-summary';
@@ -379,18 +378,13 @@ export function ProjectMainPanel({
   }), [onOpenChat, onOpenProjectChat, onOpenProjectIssue]);
 
   const handleBack = useCallback(() => {
-    if (mainView === 'machine') {
-      onOpenMachines();
-      return;
-    }
-
     if (mainView === 'project') {
       onOpenProjects();
       return;
     }
 
     onOpenRoot();
-  }, [mainView, onOpenMachines, onOpenProjects, onOpenRoot]);
+  }, [mainView, onOpenProjects, onOpenRoot]);
 
   const homeSegment: BreadcrumbSegment = { label: 'Home', onPress: onOpenRoot };
 
@@ -398,20 +392,8 @@ export function ProjectMainPanel({
   let switcher: React.ReactNode;
   let onBack: (() => void) | undefined;
 
-  if (mainView === 'machines') {
-    segments = [homeSegment, { label: 'Machines' }];
-    onBack = handleBack;
-  } else if (mainView === 'machine') {
-    segments = [homeSegment, { label: 'Machines', onPress: onOpenMachines }];
-    switcher = (
-      <EntitySwitcher
-        ariaLabel="Switch machine"
-        currentLabel={selectedMachine?.name ?? (selectedMachineId || 'Machine')}
-        entries={machineSwitcherEntries}
-        selectedId={selectedMachineId}
-        onSelect={onOpenMachine}
-      />
-    );
+  if (mainView === 'machines' || mainView === 'machine') {
+    segments = [homeSegment, { label: 'Settings' }];
     onBack = handleBack;
   } else if (mainView === 'projects') {
     segments = [homeSegment, { label: 'Projects' }];
@@ -554,13 +536,13 @@ export function ProjectMainPanel({
               : '2rem'
         }}
       >
-        {mainView === 'machines' || mainView === 'projects' ? (
+        {mainView === 'projects' ? (
           <ProjectHomeOverview
             connector={connectorOverview}
             githubCatalog={githubCatalog}
             isConnectorRefreshing={isConnectorRefreshing}
             isGitHubRefreshing={isGitHubRefreshing}
-            mode={mainView}
+            mode="projects"
             onRefreshConnector={onRefreshConnectorOverview}
             onRefreshGitHubCatalog={onRefreshGitHubCatalog}
             onSelectMachine={onOpenMachine}
@@ -568,26 +550,14 @@ export function ProjectMainPanel({
             onSelectProject={onSelectProject}
             recentProjectIds={recentProjectIds}
           />
-        ) : mainView === 'machine' ? (
-          <MachineDetailView
-            connector={connectorOverview}
-            machine={selectedMachine}
-            machineId={selectedMachineId}
-            onOpenMachines={onOpenMachines}
-            onSelectProject={onSelectProject}
-            onSelectTab={onSelectMachineTab}
-            onRefreshProjectDiscovery={onRefreshProjectDiscovery}
-            projects={projects}
-            structureViolations={structureViolations}
-            tab={machineTab}
-          />
-        ) : mainView === 'settings' ? (
+        ) : mainView === 'settings' || mainView === 'machines' || mainView === 'machine' ? (
           <SettingsView
             account={account}
             appMeta={appMeta}
             connectorOverview={connectorOverview}
             githubCatalog={githubCatalog}
             isGitHubRefreshing={isGitHubRefreshing}
+            onRefreshConnectorOverview={onRefreshConnectorOverview}
             onRefreshGitHubCatalog={onRefreshGitHubCatalog}
           />
         ) : project ? (

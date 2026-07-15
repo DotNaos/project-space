@@ -15,8 +15,10 @@ import type {
   DevServerSessionKey,
   DevServerSessionListFilter,
   MachineMembershipKey,
+  MachineExecutionScopeKey,
   ProjectRunSettingsKey,
   RevokeConnectorCredentialInput,
+  SaveMachineExecutionScopeInput,
   TransitionDevServerSessionInput,
   UpsertUserProjectsStateInput,
   UpsertProjectRunSettingsInput
@@ -34,11 +36,13 @@ export type {
   DevServerSessionListFilter,
   DevServerSessionState,
   MachineMembership,
+  MachineExecutionScopeKey,
   MachineMembershipKey,
   MachineMembershipRole,
   ProjectRunSettings,
   ProjectRunSettingsKey,
   RevokeConnectorCredentialInput,
+  SaveMachineExecutionScopeInput,
   StoredConnectorCredential,
   TransitionDevServerSessionInput,
   UpsertUserProjectsStateInput,
@@ -413,4 +417,16 @@ export async function listConnectorCredentials(userId: string) {
 
 export async function revokeConnectorCredential(input: RevokeConnectorCredentialInput) {
   return (await getDatabaseRepository()).revokeConnectorCredential(input);
+}
+
+export async function listMachineExecutionScopes(userId: string) {
+  return (await getDatabaseRepository()).listMachineExecutionScopes(userId);
+}
+
+export async function saveMachineExecutionScope(input: SaveMachineExecutionScopeInput) {
+  return (await getDatabaseRepository()).saveMachineExecutionScope(input);
+}
+
+export async function deleteMachineExecutionScope(input: MachineExecutionScopeKey) {
+  return (await getDatabaseRepository()).deleteMachineExecutionScope(input);
 }
