@@ -114,7 +114,10 @@ describe('Codex connector inspection evidence', () => {
       const manager = new InspectionSessionManager();
       manager.status = setup.status;
       manager.turnStatuses = [...setup.turns];
-      const executor = createExecutor(manager);
+      const executor = createExecutor(manager, 4, async (cwd) => ({
+        canonicalCwd: cwd,
+        worktreeRoot: cwd
+      }));
 
       await expect(executor.execute(
         'inspect',
