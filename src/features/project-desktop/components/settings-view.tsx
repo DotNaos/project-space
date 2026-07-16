@@ -23,7 +23,7 @@ import type {
   MachineExecutionScopeRecord,
   MachineExecutionScopeSaveRequest
 } from '@/shared/project-space-api';
-import { GitHubConnectPanel } from './project-home-overview-widgets';
+import { GitHubConnectPanel } from './github-connect-panel';
 import type { RailAccount } from './app-rail';
 import { SettingsMachineGroups } from './settings-machine-groups';
 
@@ -307,9 +307,9 @@ export function SettingsView({
             flow={githubFlow}
             githubCatalog={githubCatalog}
             isConnecting={isConnectingGitHub}
-            onConnect={() => void connectGitHub()}
-            onPoll={() => void pollGitHubLogin()}
-            onRetry={() => void onRefreshGitHubCatalog(true)}
+            onConnect={connectGitHub}
+            onPoll={pollGitHubLogin}
+            onRetry={() => onRefreshGitHubCatalog(true)}
           />
         )}
       </SettingsSection>
