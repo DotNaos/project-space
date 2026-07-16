@@ -4,6 +4,8 @@ import {
   CODEX_OPERATION_ID_PATTERN,
   CODEX_THREAD_ID_PATTERN,
   type CodexSessionApprovalRequest,
+  type CodexSessionBrowserRequest,
+  type CodexSessionBrowserResult,
   type CodexSessionContinueRequest,
   type CodexSessionInspectRequest,
   type CodexSessionInspectResult,
@@ -31,6 +33,10 @@ export interface CodexSessionsHttpService {
     context: CodexSessionsRequestContext,
     request: CodexSessionApprovalRequest
   ): Promise<CodexSessionOperationResult>;
+  browser(
+    context: CodexSessionsRequestContext,
+    request: CodexSessionBrowserRequest
+  ): Promise<CodexSessionBrowserResult>;
   continue(
     context: CodexSessionsRequestContext,
     request: CodexSessionContinueRequest
@@ -104,7 +110,10 @@ export function createCodexSessionsHttpApi(
       const context = await resolveContext(request);
       const machineId = route.kind === 'list'
         ? requiredQuery(url, 'machineId')
-        : requiredMachineId(url);
+        : requiredMachineId(
+            url,
+            route.kind === 'browser' ? ['afterImageRevision', 'machineId'] : ['machineId']
+          );
       requireMachineId(machineId);
       await requireMachineAccess(context, machineId);
 
@@ -128,13 +137,13 @@ export function createCodexSessionsHttpApi(
 type Route =
   | { kind: 'list' }
   | {
-      kind: 'approval' | 'continue' | 'input' | 'inspect' | 'interrupt' | 'read' | 'stream';
+      kind: 'approval' | 'browser' | 'continue' | 'input' | 'inspect' | 'interrupt' | 'read' | 'stream';
       threadId: string;
     };
 
 function routeFor(method: string | undefined, pathname: string): Route | undefined {
   if (method === 'GET' && pathname === '/api/codex/sessions') return { kind: 'list' };
-  const match = pathname.match(/^\/api\/codex\/sessions\/([^/]+)(?:\/(continue|interrupt|approval|input|inspect|stream))?$/);
+  const match = pathname.match(/^\/api\/codex\/sessions\/([^/]+)(?:\/(browser|continue|interrupt|approval|input|inspect|stream))?$/);
   if (!match) return undefined;
   let threadId = '';
   try {
@@ -145,9 +154,11 @@ function routeFor(method: string | undefined, pathname: string): Route | undefin
   if (!CODEX_THREAD_ID_PATTERN.test(threadId)) return undefined;
   const action = match[2];
   if (method === 'GET' && !action) return { kind: 'read', threadId };
+  if (method === 'GET' && action === 'browser') return { kind: 'browser', threadId };
   if (method === 'GET' && action === 'inspect') return { kind: 'inspect', threadId };
   if (method === 'GET' && action === 'stream') return { kind: 'stream', threadId };
-  if (method === 'POST' && action && action !== 'inspect' && action !== 'stream') {
+  if (method === 'POST' && action &&
+    !['browser', 'inspect', 'stream'].includes(action)) {
     return { kind: action as 'approval' | 'continue' | 'input' | 'interrupt', threadId };
   }
   return undefined;
@@ -179,6 +190,19 @@ async function executeRoute(
   if (route.kind === 'read') {
     rejectUnexpectedQuery(url, ['machineId']);
     return service.read(context, { machineId, threadId: route.threadId });
+  }
+
+  if (route.kind === 'browser') {
+    rejectUnexpectedQuery(url, ['afterImageRevision', 'machineId']);
+    const afterImageRevision = optionalQuery(url, 'afterImageRevision');
+    if (afterImageRevision !== undefined && !/^[a-f0-9]{64}$/.test(afterImageRevision)) {
+      throw invalidRequest('afterImageRevision must be a SHA-256 digest.');
+    }
+    return service.browser(context, {
+      ...(afterImageRevision ? { afterImageRevision } : {}),
+      machineId,
+      threadId: route.threadId
+    });
   }
 
   if (route.kind === 'inspect') {
@@ -306,9 +330,9 @@ async function readJsonObject(request: IncomingMessage): Promise<Record<string, 
   }
 }
 
-function requiredMachineId(url: URL) {
+function requiredMachineId(url: URL, allowedQuery: string[]) {
   const value = requiredQuery(url, 'machineId');
-  rejectUnexpectedQuery(url, ['machineId']);
+  rejectUnexpectedQuery(url, allowedQuery);
   return value;
 }
 

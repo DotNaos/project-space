@@ -119,6 +119,38 @@ export function resolveProjectRepository(
   );
 }
 
+function base64UrlProjectId(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+}
+
+function localProjectIdentity(projectId: string) {
+  const scoped = projectId.match(/^connector-project:[A-Za-z0-9_-]+:([A-Za-z0-9_-]+)$/);
+  return scoped?.[1] ?? base64UrlProjectId(projectId);
+}
+
+export function projectRecordsForCodex(
+  project: ProjectSpaceRecord | undefined,
+  projects: readonly ProjectSpaceRecord[],
+  repositoryFullName?: string
+) {
+  if (!project) return [];
+  const repositoryKey = repositoryFullName?.toLocaleLowerCase();
+  const localIdentity = localProjectIdentity(project.id);
+  return projects.filter((candidate) => {
+    if (!candidate.machineId) return false;
+    if (repositoryKey) {
+      if (candidate.github) {
+        return candidate.github.fullName.toLocaleLowerCase() === repositoryKey;
+      }
+      return localProjectIdentity(candidate.id) === localIdentity;
+    }
+    return localProjectIdentity(candidate.id) === localIdentity;
+  });
+}
+
 export function repositoryDetailsFallback(
   status: GitHubCatalogResult['status']
 ): GitHubRepositoryDetailsResult {

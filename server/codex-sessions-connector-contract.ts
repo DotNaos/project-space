@@ -8,6 +8,8 @@ import {
 
 import type {
   CodexSessionApprovalRequest,
+  CodexSessionBrowserRequest,
+  CodexSessionBrowserResult,
   CodexSessionContinueRequest,
   CodexSessionInspectRequest,
   CodexSessionInspectResult,
@@ -23,10 +25,12 @@ import type {
 import { canonicalJson } from './codex-sessions/canonical-json';
 
 export const CODEX_SESSIONS_CONNECTOR_CAPABILITY = 'codex.sessions.v1';
+export const CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY = 'codex.sessions.browser.v1';
 export const CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY = 'codex.sessions.inspect.v1';
 
 export type CodexSessionsConnectorOperation =
   | 'approval'
+  | 'browser'
   | 'continue'
   | 'inspect'
   | 'input'
@@ -37,6 +41,7 @@ export type CodexSessionsConnectorOperation =
 
 type CodexSessionsConnectorPayload =
   | CodexSessionApprovalRequest
+  | CodexSessionBrowserRequest
   | CodexSessionContinueRequest
   | CodexSessionInspectRequest
   | CodexSessionInterruptRequest
@@ -64,6 +69,7 @@ export interface CodexSessionsWireRequest {
 }
 
 export type CodexSessionsWireResult =
+  | { operation: 'browser'; result: CodexSessionBrowserResult }
   | { operation: 'list'; result: CodexSessionListResult }
   | { operation: 'read'; result: CodexSessionReadResult }
   | { operation: 'inspect'; result: CodexSessionInspectResult }
@@ -224,7 +230,7 @@ export function isCodexSessionsWireRequest(value: unknown): value is CodexSessio
     typeof grant.payloadSha256 === 'string' && /^[0-9a-f]{64}$/.test(grant.payloadSha256) &&
     typeof grant.generation === 'number' && Number.isSafeInteger(grant.generation) && grant.generation >= 0 &&
     typeof grant.operation === 'string' && [
-      'approval', 'continue', 'inspect', 'input', 'interrupt', 'list', 'read', 'stream'
+      'approval', 'browser', 'continue', 'inspect', 'input', 'interrupt', 'list', 'read', 'stream'
     ].includes(grant.operation) &&
     boundedIdentifier(grant.machineId, 256) && boundedIdentifier(grant.userId, 256) &&
     boundedIdentifier(grant.nonce, 128) && boundedIdentifier(grant.operationId, 128) &&
@@ -266,10 +272,16 @@ function boundedPayload(operation: CodexSessionsConnectorOperation, payload: Rec
         (payload.includeArchived === undefined || typeof payload.includeArchived === 'boolean') &&
         (payload.search === undefined || typeof payload.search === 'string' && payload.search.length <= 256);
     case 'inspect':
-    case 'read':
     case 'stream':
+    case 'read':
       return hasOnlyKeys(payload, ['machineId', 'threadId']) &&
         boundedIdentifier(payload.threadId, 128);
+    case 'browser':
+      return hasOnlyKeys(payload, ['afterImageRevision', 'machineId', 'threadId']) &&
+        boundedIdentifier(payload.threadId, 128) &&
+        (payload.afterImageRevision === undefined || (
+          typeof payload.afterImageRevision === 'string' && /^[a-f0-9]{64}$/.test(payload.afterImageRevision)
+        ));
     case 'continue':
       return hasOnlyKeys(payload, ['machineId', 'message', 'operationId', 'threadId']) &&
         boundedIdentifier(payload.threadId, 128) && boundedIdentifier(payload.operationId, 128) &&

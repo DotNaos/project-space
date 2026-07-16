@@ -5,6 +5,10 @@ import { describe, expect, test } from 'bun:test';
 import { WebSocket } from 'ws';
 
 import {
+  CODEX_BROWSER_MAXIMUM_IMAGE_BYTES
+} from '../src/shared/codex-sessions-api';
+import {
+  CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY,
   createCodexSessionsWireRequest
@@ -40,7 +44,10 @@ const machineId = 'codex-channel-machine';
 const threadId = '019f5a78-3c4c-7082-bb45-5411be7d9b9a';
 const now = 1_720_000_000_000;
 
-function fakeSocket(capabilities = [CODEX_SESSIONS_CONNECTOR_CAPABILITY]) {
+function fakeSocket(capabilities = [
+  CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY,
+  CODEX_SESSIONS_CONNECTOR_CAPABILITY
+]) {
   const sent: unknown[] = [];
   const socket = {
     readyState: WebSocket.OPEN,
@@ -89,6 +96,79 @@ function inspectionResult(overrides: {
 }
 
 describe('Codex sessions connector channel', () => {
+  test('round-trips a near-limit browser frame inside the 2 MiB connector envelope', () => {
+    const request = createCodexSessionsWireRequest({
+      generation: 3,
+      operation: 'browser',
+      operationId: 'operation-browser-envelope',
+      payload: { machineId, threadId },
+      userId: 'user-owner'
+    }, keys.privateKey, { nonce: 'nonce-browser-envelope', now });
+    const frame = Buffer.alloc(CODEX_BROWSER_MAXIMUM_IMAGE_BYTES, 0x5a).toString('base64');
+    const message = {
+      id: 'command-browser-envelope',
+      payload: {
+        binding: bindingForCodexSessionsRequest(request),
+        result: {
+          operation: 'browser' as const,
+          result: {
+            checkedAt: new Date(now).toISOString(),
+            imageDataUrl: `data:image/jpeg;base64,${frame}`,
+            imageRevision: 'a'.repeat(64),
+            machineId,
+            pageUrl: 'https://example.test',
+            state: 'live' as const,
+            threadId,
+            turnId: 'turn-one'
+          }
+        }
+      },
+      type: 'codex.sessions.result' as const
+    };
+    const wire = JSON.stringify(message);
+
+    expect(Buffer.byteLength(wire)).toBeLessThan(2 * 1024 * 1024);
+    expect(isConnectorHubMessage(JSON.parse(wire))).toBe(true);
+
+    const oversized = structuredClone(message);
+    oversized.payload.result.result.imageDataUrl = `data:image/jpeg;base64,${
+      Buffer.alloc(CODEX_BROWSER_MAXIMUM_IMAGE_BYTES + 1, 0x5a).toString('base64')
+    }`;
+    expect(isConnectorHubMessage(oversized)).toBe(false);
+  });
+
+  test('accepts a final read-only frame for an ended browser session', () => {
+    const request = createCodexSessionsWireRequest({
+      generation: 3,
+      operation: 'browser',
+      operationId: 'operation-browser-ended',
+      payload: { machineId, threadId },
+      userId: 'user-owner'
+    }, keys.privateKey, { nonce: 'nonce-browser-ended', now });
+    const message = {
+      id: 'command-browser-ended',
+      payload: {
+        binding: bindingForCodexSessionsRequest(request),
+        result: {
+          operation: 'browser' as const,
+          result: {
+            checkedAt: new Date(now).toISOString(),
+            imageDataUrl: 'data:image/jpeg;base64,c2FmZQ==',
+            imageRevision: 'b'.repeat(64),
+            machineId,
+            pageUrl: 'https://example.test',
+            state: 'ended' as const,
+            threadId,
+            turnId: 'turn-one'
+          }
+        }
+      },
+      type: 'codex.sessions.result' as const
+    };
+
+    expect(isConnectorHubMessage(message)).toBe(true);
+  });
+
   test('accepts only typed commands and results bound to the exact request', async () => {
     const { sent, socket } = fakeSocket();
     try {
@@ -215,6 +295,20 @@ describe('Codex sessions connector channel', () => {
     const { sent, socket } = fakeSocket([CODEX_SESSIONS_CONNECTOR_CAPABILITY]);
     try {
       await expect(requestConnectorCodexSessions('inspect', { machineId, threadId }, {
+        generation: 1,
+        signingKey: keys.privateKey,
+        userId: 'user-owner'
+      })).rejects.toThrow('does not provide Codex sessions');
+      expect(sent).toEqual([]);
+    } finally {
+      removeConnectorSession(machineId, socket);
+    }
+  });
+
+  test('requires codex.sessions.browser.v1 before dispatching browser snapshots', async () => {
+    const { sent, socket } = fakeSocket([CODEX_SESSIONS_CONNECTOR_CAPABILITY]);
+    try {
+      await expect(requestConnectorCodexSessions('browser', { machineId, threadId }, {
         generation: 1,
         signingKey: keys.privateKey,
         userId: 'user-owner'
@@ -462,6 +556,8 @@ describe('Codex sessions connector capability', () => {
     const backend = createLocalProjectSpaceBackend({ connectorMachineId: machineId });
     const registry = await backend.getConnectorProjectRegistry();
     expect(registry.connector.capabilities?.includes(CODEX_SESSIONS_CONNECTOR_CAPABILITY))
+      .toBe(existsSync(defaultCodexAppServerBinary));
+    expect(registry.connector.capabilities?.includes(CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY))
       .toBe(existsSync(defaultCodexAppServerBinary));
     expect(registry.connector.capabilities?.includes(CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY))
       .toBe(existsSync(defaultCodexAppServerBinary));

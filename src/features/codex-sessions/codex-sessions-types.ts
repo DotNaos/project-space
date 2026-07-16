@@ -8,6 +8,10 @@ export type CodexSessionStatus =
   | 'unavailable'
   | 'offline';
 
+export type ProjectCodexTaskStatus = CodexSessionStatus
+  | 'waiting-approval'
+  | 'waiting-input';
+
 export interface CodexMachine {
   id: string;
   name: string;
@@ -17,6 +21,7 @@ export interface CodexMachine {
 }
 
 export interface CodexSession {
+  attention?: 'approval' | 'input';
   cwd?: string;
   lastActivityAt: string;
   loadedByProjectSpace: boolean;

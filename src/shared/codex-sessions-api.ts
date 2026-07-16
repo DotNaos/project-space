@@ -45,6 +45,7 @@ export type CodexSessionWriteCapability =
     };
 
 export interface CodexSessionRecord {
+  attention?: 'approval' | 'input';
   archived: boolean;
   cwd?: string;
   id: string;
@@ -105,6 +106,43 @@ export interface CodexSessionReadRequest {
   machineId: string;
   threadId: string;
 }
+
+export interface CodexSessionBrowserRequest {
+  afterImageRevision?: string;
+  machineId: string;
+  threadId: string;
+}
+
+/**
+ * Leaves enough room for the signed result wrapper inside the connector's 2 MiB
+ * WebSocket message limit after base64 and JSON expansion.
+ */
+export const CODEX_BROWSER_MAXIMUM_IMAGE_BYTES = 1_500_000;
+
+export interface CodexSessionBrowserResultBase {
+  checkedAt: string;
+  imageRevision?: string;
+  imageUnchanged?: true;
+  machineId: string;
+  observedAt?: string;
+  pageUrl?: string;
+  reason?: string;
+  threadId: string;
+  turnId?: string;
+}
+
+export type CodexSessionBrowserResult =
+  | (CodexSessionBrowserResultBase & {
+      state: 'never-used' | 'loading' | 'unavailable';
+    })
+  | (CodexSessionBrowserResultBase & {
+      imageDataUrl?: string;
+      state: 'live';
+    })
+  | (CodexSessionBrowserResultBase & {
+      imageDataUrl?: string;
+      state: 'ended';
+    });
 
 export interface CodexSessionReadResult {
   openedReadOnly: true;
@@ -210,6 +248,7 @@ export type CodexSessionStreamEvent =
 
 export interface CodexSessionsClient {
   approve(request: CodexSessionApprovalRequest): Promise<CodexSessionOperationResult>;
+  browser(request: CodexSessionBrowserRequest): Promise<CodexSessionBrowserResult>;
   continue(request: CodexSessionContinueRequest): Promise<CodexSessionOperationResult>;
   interrupt(request: CodexSessionInterruptRequest): Promise<CodexSessionOperationResult>;
   inspect?(request: CodexSessionInspectRequest): Promise<CodexSessionInspectResult>;

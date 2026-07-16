@@ -1,5 +1,7 @@
 import type {
   CodexSessionApprovalRequest,
+  CodexSessionBrowserRequest,
+  CodexSessionBrowserResult,
   CodexSessionContinueRequest,
   CodexSessionInspectResult,
   CodexSessionInterruptRequest,
@@ -74,6 +76,15 @@ export function createCodexSessionsClient(
   return {
     approve(input: CodexSessionApprovalRequest) {
       return mutation(`/api/codex/sessions/${encodeURIComponent(input.threadId)}/approval`, input);
+    },
+    browser(input: CodexSessionBrowserRequest) {
+      const path = pathWithMachine(
+        `/api/codex/sessions/${encodeURIComponent(input.threadId)}/browser`,
+        input.machineId
+      );
+      return request<CodexSessionBrowserResult>(input.afterImageRevision
+        ? `${path}&afterImageRevision=${encodeURIComponent(input.afterImageRevision)}`
+        : path);
     },
     continue(input: CodexSessionContinueRequest) {
       return mutation(`/api/codex/sessions/${encodeURIComponent(input.threadId)}/continue`, input);

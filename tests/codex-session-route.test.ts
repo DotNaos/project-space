@@ -25,7 +25,7 @@ afterEach(() => {
 describe('Codex session stable routes', () => {
   test('routes by machine and thread identifiers without titles', () => {
     const route = codexSessionRoute({ machineId: 'machine:os-macbook', threadId });
-    expect(route).toBe(`/codex/machine%3Aos-macbook/${threadId}`);
+    expect(route).toBe(`/codex/machines/machine%3Aos-macbook/threads/${threadId}`);
     expect(parseCodexSessionRoute(route)).toEqual({
       machineId: 'machine:os-macbook',
       matches: true,
@@ -33,26 +33,33 @@ describe('Codex session stable routes', () => {
     });
   });
 
-  test('supports the list and machine-only destinations', () => {
+  test('supports the list and only creates complete canonical task destinations', () => {
     expect(parseCodexSessionRoute(codexSessionRoute())).toEqual({ matches: true });
-    expect(parseCodexSessionRoute(codexSessionRoute({ machineId: 'machine-one' }))).toEqual({
+    expect(codexSessionRoute({ machineId: 'machine-one' })).toBe('/codex');
+    expect(parseCodexSessionRoute('/codex/machines/machine-one')).toEqual({ matches: false });
+  });
+
+  test('accepts the old exact route only with an explicit canonicalization target', () => {
+    expect(parseCodexSessionRoute(`/codex/machine-one/${threadId}`)).toEqual({
+      canonicalPath: `/codex/machines/machine-one/threads/${threadId}`,
+      legacy: true,
       machineId: 'machine-one',
       matches: true,
-      threadId: undefined
+      threadId
     });
   });
 
   test('rejects malformed, nested, and title-shaped routes', () => {
-    expect(parseCodexSessionRoute('/codex/machine-one/not-a-thread')).toEqual({ matches: false });
-    expect(parseCodexSessionRoute(`/codex/machine-one/${threadId}/extra`)).toEqual({ matches: false });
-    expect(parseCodexSessionRoute('/codex/os%20macbook/thread')).toEqual({ matches: false });
+    expect(parseCodexSessionRoute('/codex/machines/machine-one/threads/not-a-thread')).toEqual({ matches: false });
+    expect(parseCodexSessionRoute(`/codex/machines/machine-one/threads/${threadId}/extra`)).toEqual({ matches: false });
+    expect(parseCodexSessionRoute(`/codex/machines/os%20macbook/threads/${threadId}`)).toEqual({ matches: false });
     expect(parseCodexSessionRoute('/projects/project-space/codex')).toEqual({ matches: false });
   });
 
   test('integrates list and exact session targets into desktop routing', () => {
     expect(routeForView('codex')).toBe('/codex');
     expect(initialProjectMainView('/codex')).toBe('codex');
-    expect(parseProjectRoute(`/codex/machine-one/${threadId}`)).toEqual({
+    expect(parseProjectRoute(`/codex/machines/machine-one/threads/${threadId}`)).toEqual({
       codexMachineId: 'machine-one',
       codexThreadId: threadId,
       view: 'codex'
@@ -75,7 +82,7 @@ describe('Codex session stable routes', () => {
     writeCodexSessionRoute({ machineId: 'machine:mac', threadId });
 
     expect(pushed).toEqual([
-      `/codex/machine%3Amac/${threadId}?source=project-chat#activity`
+      `/codex/machines/machine%3Amac/threads/${threadId}?source=project-chat#activity`
     ]);
   });
 });

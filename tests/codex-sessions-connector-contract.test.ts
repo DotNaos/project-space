@@ -29,6 +29,30 @@ function continueRequest() {
 }
 
 describe('Codex sessions connector grants', () => {
+  test('binds the dedicated browser snapshot operation to its exact task', () => {
+    const request = createCodexSessionsWireRequest({
+      generation: 7,
+      operation: 'browser',
+      operationId: 'operation-browser-snapshot',
+      payload: { afterImageRevision: 'a'.repeat(64), machineId: 'machine-one', threadId },
+      userId: 'user-owner'
+    }, keys.privateKey, { nonce: 'nonce-browser-snapshot', now: 1_000_000 });
+
+    expect(isCodexSessionsWireRequest(request)).toBe(true);
+    expect(verifyCodexSessionsWireRequest(request, 'browser', keys.publicKey, {
+      expectedGeneration: 7,
+      expectedMachineId: 'machine-one',
+      now: 1_001_000
+    })).toEqual({ userId: 'user-owner' });
+
+    request.payload.threadId = '019f5a78-3c4c-7082-bb45-5411be7d9b9b';
+    expect(() => verifyCodexSessionsWireRequest(request, 'browser', keys.publicKey, {
+      expectedGeneration: 7,
+      expectedMachineId: 'machine-one',
+      now: 1_001_000
+    })).toThrow(expect.objectContaining({ code: 'binding-mismatch' }));
+  });
+
   test('binds one operation to user, machine, thread, generation, and exact payload', () => {
     const request = continueRequest();
     expect(isCodexSessionsWireRequest(request)).toBe(true);

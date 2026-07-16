@@ -3,6 +3,7 @@ import type { KeyLike } from 'node:crypto';
 import { WebSocket } from 'ws';
 
 import {
+  CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY,
   createCodexSessionsWireRequest,
@@ -160,9 +161,9 @@ function run(
 }
 
 function requiredCapability(operation: CodexSessionsConnectorOperation) {
-  return operation === 'inspect'
-    ? CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY
-    : CODEX_SESSIONS_CONNECTOR_CAPABILITY;
+  if (operation === 'browser') return CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY;
+  if (operation === 'inspect') return CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY;
+  return CODEX_SESSIONS_CONNECTOR_CAPABILITY;
 }
 
 export function handleCodexSessionsConnectorMessage(

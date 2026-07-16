@@ -40,6 +40,19 @@ function stubService() {
       calls.push({ input, method: 'approve' });
       return accepted(input);
     },
+    async browser(_context, input) {
+      calls.push({ input, method: 'browser' });
+      return {
+        checkedAt: '2026-07-13T01:00:00.000Z',
+        imageDataUrl: 'data:image/jpeg;base64,c2FmZQ==',
+        imageRevision: 'a'.repeat(64),
+        machineId: input.machineId,
+        pageUrl: 'https://example.test',
+        state: 'live',
+        threadId: input.threadId,
+        turnId: 'turn-one'
+      };
+    },
     async continue(_context, input) {
       calls.push({ input, method: 'continue' });
       return { ...accepted(input), turnId: 'turn-one' };
@@ -175,18 +188,23 @@ describe('Codex sessions authenticated HTTP boundary', () => {
     const inspect = await fetch(
       `${origin}/api/codex/sessions/${threadId}/inspect?machineId=machine-one`
     );
+    const browser = await fetch(
+      `${origin}/api/codex/sessions/${threadId}/browser?machineId=machine-one`
+    );
 
     expect(list.status).toBe(200);
     expect(await read.json()).toMatchObject({ openedReadOnly: true });
     expect(await inspect.json()).toMatchObject({ sessionRevision: 'c'.repeat(64) });
-    expect(authorized).toEqual(['machine-one', 'machine-one', 'machine-one']);
+    expect(await browser.json()).toMatchObject({ machineId: 'machine-one', state: 'live', threadId });
+    expect(authorized).toEqual(['machine-one', 'machine-one', 'machine-one', 'machine-one']);
     expect(calls).toEqual([
       {
         input: { includeArchived: true, machineId: 'machine-one' },
         method: 'list'
       },
       { input: { machineId: 'machine-one', threadId }, method: 'read' },
-      { input: { machineId: 'machine-one', threadId }, method: 'inspect' }
+      { input: { machineId: 'machine-one', threadId }, method: 'inspect' },
+      { input: { machineId: 'machine-one', threadId }, method: 'browser' }
     ]);
   });
 
@@ -275,7 +293,7 @@ describe('Codex sessions authenticated HTTP boundary', () => {
 
 describe('Codex sessions browser client', () => {
   test('opens history read-only and receives streamed deltas', async () => {
-    const { service } = stubService();
+    const { calls, service } = stubService();
     const origin = await startApi(service);
     const client = createCodexSessionsClient({ baseUrl: origin });
     expect(await client.read({ machineId: 'machine-one', threadId })).toMatchObject({
@@ -285,6 +303,20 @@ describe('Codex sessions browser client', () => {
     expect(await client.inspect?.({ machineId: 'machine-one', threadId })).toMatchObject({
       sessionRevision: 'c'.repeat(64),
       writeCapability: { canContinue: true }
+    });
+    expect(await client.browser({ machineId: 'machine-one', threadId })).toMatchObject({
+      machineId: 'machine-one',
+      state: 'live',
+      threadId
+    });
+    await client.browser({
+      afterImageRevision: 'a'.repeat(64),
+      machineId: 'machine-one',
+      threadId
+    });
+    expect(calls).toContainEqual({
+      input: { afterImageRevision: 'a'.repeat(64), machineId: 'machine-one', threadId },
+      method: 'browser'
     });
     const event = await new Promise((resolve, reject) => {
       const unsubscribe = client.subscribe(

@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode
+} from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Hash, MessageSquareText, PanelRight, Tags, X } from 'lucide-react';
 import { Button, Text } from '@/app/dotnaos-ui';
@@ -57,6 +64,7 @@ export interface ProjectChatPageProps {
   registryParentThreads?: ProjectChatNameParentThread[];
   recentProjectIds?: string[];
   showChannelNavigation?: boolean;
+  taskPreview?: ReactNode;
   unreadMentionCount?: number;
   viewer?: ProjectChatMemberRecord;
 }
@@ -85,6 +93,7 @@ export function ProjectChatPage({
   registryParentThreads = [],
   recentProjectIds = [],
   showChannelNavigation = true,
+  taskPreview,
   unreadMentionCount = 0,
   viewer
 }: ProjectChatPageProps) {
@@ -357,6 +366,7 @@ export function ProjectChatPage({
             <Text className="mt-0.5 block truncate text-[11px] text-neutral-400">{channel.description}</Text>
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-3">
+            {taskPreview}
             <span className="hidden items-center gap-1.5 text-[10px] text-neutral-400 sm:flex">
               <span className="size-1.5 rounded-full bg-emerald-400" />
               {activeAgentCount} active {activeAgentCount === 1 ? 'agent' : 'agents'}

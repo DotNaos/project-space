@@ -12,11 +12,15 @@ import type {
 } from '@/shared/project-space-api';
 import { useCallback, useEffect, useMemo } from 'react';
 import { createProjectChatClient } from '@/api/project-chat-client';
-import { refreshProjectSpaceAuthToken } from '@/api/project-space-client';
+import {
+  refreshProjectSpaceAuthToken,
+  resolveProjectSpaceApiBaseUrl
+} from '@/api/project-space-client';
 import { ProjectChatWorkspace } from '@/features/project-chat/project-chat-workspace';
 import { CodexSessionsControllerPage } from '@/features/codex-sessions/codex-sessions-controller-page';
 import type { CodexSessionsController } from '@/features/codex-sessions/codex-sessions-controller';
 import type { CodexSessionTarget } from '@/features/codex-sessions/codex-session-route';
+import { ProjectCodexTasks } from '@/features/codex-sessions/project-codex-tasks';
 import { ProjectTopologyProductionRoute } from '@/features/project-topology/project-topology-production-route';
 import { ProjectHomeCommandCenter } from '@/features/project-topology/project-home-command-center';
 import { projectChatProjectId } from '@/shared/project-chat-project';
@@ -33,10 +37,16 @@ import { ProjectDetail } from './project-detail';
 import { ProjectHomeOverview } from './project-home-overview';
 import { ProjectRootSummary } from './project-root-summary';
 import { SettingsView } from './settings-view';
-import { resolveProjectRepository } from './project-main-model';
+import { projectRecordsForCodex, resolveProjectRepository } from './project-main-model';
 import { cn } from '@/lib/utils';
 
 const projectChatClient = createProjectChatClient({
+  baseUrl: typeof window === 'undefined'
+    ? ''
+    : resolveProjectSpaceApiBaseUrl(
+        window.location.href,
+        import.meta.env.VITE_PROJECT_SPACE_API_BASE_URL
+      ),
   getAuthToken: refreshProjectSpaceAuthToken
 });
 
@@ -286,6 +296,13 @@ export function ProjectMainPanel({
         ) ?? selectedRepository
       : selectedRepository
   ), [githubCatalog.repositories, project, selectedRepository]);
+  const projectCodexRecords = useMemo(() => {
+    return projectRecordsForCodex(
+      project,
+      projects,
+      selectedChatRepository?.fullName ?? project?.github?.fullName
+    );
+  }, [project, projects, selectedChatRepository?.fullName]);
   useEffect(() => {
     if (
       mainView !== 'project' ||
@@ -487,6 +504,7 @@ export function ProjectMainPanel({
         <CodexSessionsControllerPage
           controller={codexController}
           machineIds={codexMachineIds}
+          onBackFromThread={() => onOpenCodex()}
           onOpenThread={onOpenCodex}
           selectedOrigin={selectedCodexOrigin}
         />
@@ -568,6 +586,24 @@ export function ProjectMainPanel({
                 fixedProjectId={projectChatProjectId(project, selectedChatRepository)}
                 onOpenThread={onOpenCodex}
                 showChannelNavigation={false}
+                taskPreview={(
+                  <ProjectCodexTasks
+                    controller={codexController}
+                    machineIds={codexMachineIds}
+                    mode="preview"
+                    onOpenTask={onOpenCodex}
+                    projectRecords={projectCodexRecords}
+                  />
+                )}
+              />
+            )}
+            codex={(
+              <ProjectCodexTasks
+                controller={codexController}
+                machineIds={codexMachineIds}
+                mode="panel"
+                onOpenTask={onOpenCodex}
+                projectRecords={projectCodexRecords}
               />
             )}
             connectorOverview={connectorOverview}

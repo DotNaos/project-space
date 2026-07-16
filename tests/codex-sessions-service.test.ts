@@ -14,6 +14,7 @@ import type {
   CodexStoredOperationReservation
 } from '../server/codex-sessions-store';
 import type {
+  CodexSessionBrowserResult,
   CodexSessionContinueRequest,
   CodexSessionListResult,
   CodexSessionOperationResult,
@@ -174,6 +175,7 @@ function authorize(store: MemoryStore) {
 }
 
 class FakeTransport implements CodexSessionsTransport {
+  browserUsers: string[] = [];
   listScopes: Array<{ machineId: string; userId: string }> = [];
   liveEvents: CodexSessionStreamEvent[] = [];
   mutationUsers: string[] = [];
@@ -181,6 +183,16 @@ class FakeTransport implements CodexSessionsTransport {
   streamUsers: string[] = [];
   listResult: CodexSessionListResult | Error = inventory();
   readResult: CodexSessionReadResult | Error = history();
+  browserResult: CodexSessionBrowserResult | Error = {
+    checkedAt: '2026-07-13T10:01:00.000Z',
+    imageDataUrl: 'data:image/jpeg;base64,c2FmZQ==',
+    imageRevision: 'a'.repeat(64),
+    machineId,
+    pageUrl: 'https://example.test',
+    state: 'live',
+    threadId,
+    turnId: 'turn-1'
+  };
   mutationCalls = 0;
   mutationResult:
     | Error
@@ -203,6 +215,12 @@ class FakeTransport implements CodexSessionsTransport {
 
   async describeMachine({ machineId: requestedMachineId }: { machineId: string }) {
     return { id: requestedMachineId, name: 'MacBook', online: false };
+  }
+
+  async browser(input: { userId: string }) {
+    this.browserUsers.push(input.userId);
+    if (this.browserResult instanceof Error) throw this.browserResult;
+    return structuredClone(this.browserResult);
   }
 
   async list(scope: { machineId: string; userId: string }) {
@@ -300,6 +318,8 @@ describe('Codex sessions hosted service', () => {
 
     await expect(service.list({ userId: 'user-b' }, { machineId })).rejects.toBeInstanceOf(CodexSessionsAccessError);
     await expect(service.read(actor, { machineId: 'machine-b', threadId })).rejects.toBeInstanceOf(CodexSessionsAccessError);
+    await expect(service.browser(actor, { machineId: 'machine-b', threadId })).rejects.toBeInstanceOf(CodexSessionsAccessError);
+    expect(transport.browserUsers).toHaveLength(0);
     expect(transport.mutationCalls).toBe(0);
   });
 
@@ -310,11 +330,81 @@ describe('Codex sessions hosted service', () => {
 
     await service.list(actor, { machineId });
     await service.read(actor, { machineId, threadId });
+    await service.browser(actor, { machineId, threadId });
     await service.continue(actor, continuation());
 
     expect(transport.listScopes).toEqual([{ machineId, userId: actor.userId }]);
     expect(transport.readUsers).toEqual([actor.userId]);
+    expect(transport.browserUsers).toEqual([actor.userId]);
     expect(transport.mutationUsers).toEqual([actor.userId]);
+  });
+
+  test('strips browser frames from history and rejects cross-task browser results', async () => {
+    const store = new MemoryStore();
+    const transport = new FakeTransport();
+    transport.readResult = history({ browser: transport.browserResult as CodexSessionBrowserResult });
+    const service = serviceFor(store, transport);
+
+    expect(await service.read(actor, { machineId, threadId })).not.toHaveProperty('browser');
+    transport.browserResult = {
+      ...(transport.browserResult as CodexSessionBrowserResult),
+      threadId: '019f5a78-3c4c-7082-bb45-5411be7d9b9b'
+    };
+    await expect(service.browser(actor, { machineId, threadId }))
+      .rejects.toBeInstanceOf(CodexTransportUncertainError);
+  });
+
+  test('preserves a sanitized final frame for an ended browser session', async () => {
+    const store = new MemoryStore();
+    const transport = new FakeTransport();
+    transport.browserResult = {
+      checkedAt: '2026-07-13T10:01:00.000Z',
+      imageDataUrl: 'data:image/jpeg;base64,c2FmZQ==',
+      imageRevision: 'b'.repeat(64),
+      machineId,
+      pageUrl: 'https://example.test',
+      reason: 'The browser activity for this turn has ended.',
+      state: 'ended',
+      threadId,
+      turnId: 'turn-1'
+    };
+
+    expect(await serviceFor(store, transport).browser(actor, { machineId, threadId }))
+      .toEqual(transport.browserResult);
+  });
+
+  test('accepts an unchanged frame only for the exact requested image revision', async () => {
+    const transport = new FakeTransport();
+    transport.browserResult = {
+      checkedAt: '2026-07-13T10:01:00.000Z',
+      imageRevision: 'a'.repeat(64),
+      imageUnchanged: true,
+      machineId,
+      pageUrl: 'https://example.test',
+      state: 'live',
+      threadId,
+      turnId: 'turn-1'
+    };
+    const service = serviceFor(new MemoryStore(), transport);
+
+    await expect(service.browser(actor, {
+      afterImageRevision: 'a'.repeat(64),
+      machineId,
+      threadId
+    })).resolves.toEqual(transport.browserResult);
+    await expect(service.browser(actor, {
+      afterImageRevision: 'b'.repeat(64),
+      machineId,
+      threadId
+    })).rejects.toBeInstanceOf(CodexTransportUncertainError);
+  });
+
+  test('surfaces browser transport outages so clients can preserve reconnect state', async () => {
+    const transport = new FakeTransport();
+    transport.browserResult = new CodexTransportUnavailableError('connector offline');
+
+    await expect(serviceFor(new MemoryStore(), transport).browser(actor, { machineId, threadId }))
+      .rejects.toBeInstanceOf(CodexTransportUnavailableError);
   });
 
   test('joins simultaneous operations and durably replays the completed result', async () => {

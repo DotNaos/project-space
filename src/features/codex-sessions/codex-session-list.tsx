@@ -1,4 +1,5 @@
-import { Bot, ChevronRight, Circle, Monitor, Search, WifiOff } from 'lucide-react';
+import { Spinner } from '@heroui/react';
+import { Bot, ChevronRight, Circle, GitPullRequest, Monitor, Search, WifiOff } from 'lucide-react';
 import {
   SearchField,
   SearchFieldClearButton,
@@ -9,9 +10,9 @@ import {
 import { cn } from '@/lib/utils';
 import {
   effectiveCodexSessionStatus,
-  formatCodexActivity,
   groupCodexSessions
 } from './codex-sessions-model';
+import { parseProjectCodexTaskTitle } from './project-codex-task-model';
 import type {
   CodexMachine,
   CodexSession,
@@ -33,15 +34,14 @@ function SessionRow({
   onSelect,
   selected,
   session,
-  now
 }: {
   machine: CodexMachine;
   onSelect(session: CodexSession): void;
   selected: boolean;
   session: CodexSession;
-  now: Date;
 }) {
   const status = effectiveCodexSessionStatus(session, machine);
+  const task = parseProjectCodexTaskTitle(session.title);
   return (
     <button
       aria-current={selected ? 'page' : undefined}
@@ -57,19 +57,20 @@ function SessionRow({
       <Bot className="mt-0.5 size-4 shrink-0 text-neutral-500" />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
-          <Text className="truncate text-xs font-medium">{session.title}</Text>
+          <Text className="truncate text-xs font-medium">{task.title}</Text>
           <ChevronRight className="ml-auto size-3 shrink-0 text-neutral-700 group-hover:text-neutral-500" />
         </span>
         <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] text-neutral-500">
-          <Circle className={cn('size-1.5 shrink-0 fill-current', statusTone[status])} />
-          <span className="capitalize">{status}</span>
-          <span aria-hidden>·</span>
-          <span className="truncate">{session.projectName ?? session.cwd ?? 'Unknown directory'}</span>
-        </span>
-        <span className="mt-1 flex items-center gap-1.5 font-mono text-[9px] text-neutral-600">
-          <span>{session.model ?? 'Model unavailable'}</span>
-          <span aria-hidden>·</span>
-          <time dateTime={session.lastActivityAt}>{formatCodexActivity(session.lastActivityAt, now)}</time>
+          {status === 'active' ? (
+            <Spinner className="text-emerald-300" size="sm" />
+          ) : (
+            <Circle className={cn('size-1.5 shrink-0 fill-current', statusTone[status])} />
+          )}
+          <span>{status === 'active' ? 'Active' : status === 'missing' ? 'No longer available' : status}</span>
+          {task.issueNumber ? <span>Issue #{task.issueNumber}</span> : null}
+          {task.pullRequestNumber ? (
+            <span className="inline-flex items-center gap-1"><GitPullRequest className="size-2.5" />PR #{task.pullRequestNumber}</span>
+          ) : null}
         </span>
       </span>
     </button>
@@ -78,7 +79,6 @@ function SessionRow({
 
 export function CodexSessionList({
   machines,
-  now,
   onSelect,
   query,
   selectedOrigin,
@@ -155,7 +155,6 @@ export function CodexSessionList({
                   <SessionRow
                     key={`${session.machineId}:${session.threadId}`}
                     machine={machine}
-                    now={now}
                     onSelect={onSelect}
                     selected={
                       selectedOrigin?.machineId === session.machineId

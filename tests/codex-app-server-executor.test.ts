@@ -27,6 +27,7 @@ import {
 } from '../server/codex-sessions';
 import type {
   CodexSessionApprovalRequest,
+  CodexSessionBrowserResult,
   CodexSessionContinueRequest,
   CodexSessionInterruptRequest,
   CodexSessionListRequest,
@@ -139,7 +140,11 @@ class FakeSessionManager {
   }
 }
 
-function createExecutor(manager = new FakeSessionManager(), generation: number | (() => number) = 4) {
+function createExecutor(
+  manager = new FakeSessionManager(),
+  generation: number | (() => number) = 4,
+  readBrowserSnapshot?: (machineId: string, threadId: string) => Promise<CodexSessionBrowserResult>
+) {
   return {
     executor: new CodexSessionsConnectorExecutor({
       expectedGeneration: generation,
@@ -147,6 +152,7 @@ function createExecutor(manager = new FakeSessionManager(), generation: number |
       machineName: 'os-macbook',
       manager: manager as unknown as CodexSessionManager,
       now: manager.clock,
+      ...(readBrowserSnapshot ? { readBrowserSnapshot } : {}),
       verificationKey: keys.publicKey
     }),
     manager
@@ -192,6 +198,36 @@ describe('Codex connector executor', () => {
     expect(result.result.sessions[1]?.status).toBe('archived');
     expect(manager.calls.filter((call) => call.method === 'listThreads')).toHaveLength(2);
     await expect(executor.execute('list', wire)).rejects.toMatchObject({ code: 'replayed' });
+    executor.close();
+  });
+
+  test('publishes pending approval and input attention in unopened task inventory', async () => {
+    const { executor, manager } = createExecutor();
+    manager.emit({
+      kind: 'request',
+      method: 'item/permissions/requestApproval',
+      params: { permissions: { network: ['example.com'] }, threadId, turnId: 'turn-one' },
+      requestId: 70
+    });
+    let result = await executor.execute('list', signed('list', {
+      includeArchived: false,
+      machineId
+    }, 'operation-list-attention-approval'));
+    if (result.operation !== 'list') throw new Error('unexpected result');
+    expect(result.result.sessions.find((session) => session.id === threadId)?.attention).toBe('approval');
+
+    manager.emit({
+      kind: 'request',
+      method: 'item/tool/requestUserInput',
+      params: { threadId, turnId: 'turn-one' },
+      requestId: 71
+    });
+    result = await executor.execute('list', signed('list', {
+      includeArchived: false,
+      machineId
+    }, 'operation-list-attention-input'));
+    if (result.operation !== 'list') throw new Error('unexpected result');
+    expect(result.result.sessions.find((session) => session.id === threadId)?.attention).toBe('input');
     executor.close();
   });
 
@@ -267,6 +303,34 @@ describe('Codex connector executor', () => {
     expect(serialized).not.toContain('private chain');
     expect(serialized).not.toContain('printenv');
     expect(serialized).not.toContain('Authorization');
+    executor.close();
+  });
+
+  test('reads browser snapshots through a dedicated operation without loading history', async () => {
+    const calls: Array<{ machineId: string; threadId: string }> = [];
+    const readBrowserSnapshot = async (
+      requestedMachineId: string,
+      requestedThreadId: string
+    ): Promise<CodexSessionBrowserResult> => {
+      calls.push({ machineId: requestedMachineId, threadId: requestedThreadId });
+      return {
+        checkedAt: '2026-07-15T10:00:00.000Z',
+        imageDataUrl: 'data:image/jpeg;base64,c2FmZQ==',
+        machineId: requestedMachineId,
+        state: 'live',
+        threadId: requestedThreadId
+      };
+    };
+    const { executor, manager } = createExecutor(new FakeSessionManager(), 4, readBrowserSnapshot);
+    const browser = await executor.execute('browser', signed('browser', {
+      machineId,
+      threadId
+    }, 'browser-snapshot'));
+    if (browser.operation !== 'browser') throw new Error('unexpected result');
+
+    expect(browser.result).toMatchObject({ machineId, state: 'live', threadId });
+    expect(calls).toEqual([{ machineId, threadId }]);
+    expect(manager.calls).toEqual([]);
     executor.close();
   });
 
