@@ -68,6 +68,10 @@ import {
   isConnectorRuntimeMaintenanceDecision,
   type ConnectorRuntimeMaintenanceDecision
 } from './connector-runtime-registration-decision';
+import {
+  isConnectorEnvironmentRecord,
+  isConnectorExecutionScopeId
+} from './connector-topology-metadata';
 
 export type ConnectorHubMessage =
   | ConnectorRuntimeHubCommandMessage
@@ -322,6 +326,8 @@ function hasConnectorMetadata(connector: Record<string, unknown>) {
     hasOnlyKeys(connector, [
       'battery',
       'capabilities',
+      'environment',
+      'executionScopeId',
       'kind',
       'machineId',
       'machineName',
@@ -334,6 +340,10 @@ function hasConnectorMetadata(connector: Record<string, unknown>) {
     isCanonicalMachineId(connector.machineId) &&
     isBoundedMetadata(connector.machineName) &&
     hasBatteryMetadata(connector.battery) &&
+    (connector.environment === undefined ||
+      isConnectorEnvironmentRecord(connector.environment)) &&
+    (connector.executionScopeId === undefined ||
+      isConnectorExecutionScopeId(connector.executionScopeId)) &&
     hasUntrustedNetworkMetadata(connector.network) &&
     isOptionalMetadata(connector.origin, 2_048) &&
     isOptionalMetadata(connector.primaryUser) &&

@@ -20,8 +20,8 @@ import type {
   ConnectorOverviewResult,
   GitHubCatalogResult,
   GitHubOAuthDeviceStartResult,
-  MachineExecutionScopeRecord,
-  MachineExecutionScopeSaveRequest
+  PhysicalMachineRecord,
+  PhysicalMachineSaveRequest
 } from '@/shared/project-space-api';
 import { GitHubConnectPanel } from './github-connect-panel';
 import type { RailAccount } from './app-rail';
@@ -110,12 +110,12 @@ export function SettingsView({
   const [isGeneratingInstaller, setIsGeneratingInstaller] = useState(false);
   const [credentials, setCredentials] = useState<ConnectorCredentialRecord[]>([]);
   const [credentialListError, setCredentialListError] = useState('');
-  const [executionScopes, setExecutionScopes] = useState<MachineExecutionScopeRecord[]>([]);
-  const [executionScopesStatus, setExecutionScopesStatus] = useState<
+  const [physicalMachines, setPhysicalMachines] = useState<PhysicalMachineRecord[]>([]);
+  const [physicalMachinesStatus, setPhysicalMachinesStatus] = useState<
     'error' | 'loading' | 'ready' | 'refreshing'
   >('loading');
-  const [executionScopesError, setExecutionScopesError] = useState('');
-  const hasExecutionScopesSnapshot = useRef(false);
+  const [physicalMachinesError, setPhysicalMachinesError] = useState('');
+  const hasPhysicalMachinesSnapshot = useRef(false);
   const [revokingCredentialId, setRevokingCredentialId] = useState('');
   const [installerError, setInstallerError] = useState('');
 
@@ -131,18 +131,18 @@ export function SettingsView({
     }
   }
 
-  async function refreshExecutionScopes() {
-    setExecutionScopesStatus(hasExecutionScopesSnapshot.current ? 'refreshing' : 'loading');
-    setExecutionScopesError('');
+  async function refreshPhysicalMachines() {
+    setPhysicalMachinesStatus(hasPhysicalMachinesSnapshot.current ? 'refreshing' : 'loading');
+    setPhysicalMachinesError('');
     try {
-      const result = await projectSpaceClient.listMachineExecutionScopes();
-      setExecutionScopes(result.scopes);
-      hasExecutionScopesSnapshot.current = true;
-      setExecutionScopesStatus('ready');
-      return result.scopes;
+      const result = await projectSpaceClient.listPhysicalMachines();
+      setPhysicalMachines(result.machines);
+      hasPhysicalMachinesSnapshot.current = true;
+      setPhysicalMachinesStatus('ready');
+      return result.machines;
     } catch (error) {
-      setExecutionScopesStatus(hasExecutionScopesSnapshot.current ? 'ready' : 'error');
-      setExecutionScopesError(
+      setPhysicalMachinesStatus(hasPhysicalMachinesSnapshot.current ? 'ready' : 'error');
+      setPhysicalMachinesError(
         error instanceof Error ? error.message : 'Could not load machine groups.'
       );
       throw error;
@@ -152,24 +152,24 @@ export function SettingsView({
   async function refreshMachineAdministration() {
     await Promise.all([
       refreshConnectorCredentials(),
-      refreshExecutionScopes(),
+      refreshPhysicalMachines(),
       onRefreshConnectorOverview()
     ]);
   }
 
   useEffect(() => {
     void refreshConnectorCredentials();
-    void refreshExecutionScopes().catch(() => undefined);
+    void refreshPhysicalMachines().catch(() => undefined);
   }, []);
 
-  async function saveExecutionScope(request: MachineExecutionScopeSaveRequest) {
-    await projectSpaceClient.saveMachineExecutionScope(request);
-    await refreshExecutionScopes();
+  async function savePhysicalMachine(request: PhysicalMachineSaveRequest) {
+    await projectSpaceClient.savePhysicalMachine(request);
+    await refreshPhysicalMachines();
   }
 
-  async function deleteExecutionScope(scopeId: string) {
-    await projectSpaceClient.deleteMachineExecutionScope(scopeId);
-    await refreshExecutionScopes();
+  async function deletePhysicalMachine(machineId: string) {
+    await projectSpaceClient.deletePhysicalMachine(machineId);
+    await refreshPhysicalMachines();
   }
 
   async function connectGitHub() {
@@ -317,17 +317,17 @@ export function SettingsView({
       <SettingsSection
         icon={MonitorCog}
         title="Machines & connectors"
-        description="One physical machine can contain multiple independently managed connector instances."
+        description="One physical machine can contain multiple independently managed connector installations."
       >
-        <SettingsMachineGroups
+          <SettingsMachineGroups
+          connectors={connectorOverview.machines}
           credentials={credentials}
-          loadError={executionScopesError}
-          machines={connectorOverview.machines}
-          onDeleteScope={deleteExecutionScope}
+          loadError={physicalMachinesError}
+          onDeleteMachine={deletePhysicalMachine}
           onRefresh={refreshMachineAdministration}
-          onSaveScope={saveExecutionScope}
-          scopes={executionScopes}
-          status={executionScopesStatus}
+          onSaveMachine={savePhysicalMachine}
+          physicalMachines={physicalMachines}
+          status={physicalMachinesStatus}
         />
       </SettingsSection>
 
@@ -356,7 +356,7 @@ export function SettingsView({
             </div>
             <Text className="block text-xs text-neutral-500">
               The command installs the pinned managed bundle, then opens Project Space approval to
-              create this machine&apos;s protected identity.
+              create this connector installation&apos;s protected identity.
             </Text>
             <div className="flex flex-wrap gap-2">
               <Button

@@ -11,6 +11,7 @@ import type {
   MachineRecord,
   TailscaleStatusResult
 } from '../src/shared/project-space-api';
+import { loadConnectorTopologyMetadata } from './connector-topology-metadata';
 
 const execFileAsync = promisify(execFile);
 const machinesRepoPath = join(homedir(), 'projects', 'machines');
@@ -245,6 +246,7 @@ export async function getConnectorOverview(): Promise<ConnectorOverviewResult> {
   ]);
 
   const currentHost = hostname().split('.')[0];
+  const topology = loadConnectorTopologyMetadata();
   const machinesWithTailscale = machines.map((machine) => {
     const isLocal =
       machine.name === currentHost ||
@@ -263,6 +265,7 @@ export async function getConnectorOverview(): Promise<ConnectorOverviewResult> {
           serviceName: process.env.PROJECT_CONNECTOR_SERVICE_NAME ?? 'project-space-connector',
           status: 'local' as const
         },
+        ...topology,
         network: {
           ...machine.network,
           tailscaleIp: tailscale.ips[0]
@@ -284,6 +287,7 @@ export async function getConnectorOverview(): Promise<ConnectorOverviewResult> {
         serviceName: process.env.PROJECT_CONNECTOR_SERVICE_NAME ?? 'project-space-connector',
         status: 'local'
       },
+      ...topology,
       id: currentHost,
       kind: platform(),
       name: currentHost,

@@ -70,7 +70,7 @@ export function ProjectMachineBranches(props: BranchListProps) {
                     Project branches
                   </Modal.Heading>
                   <Text className="mt-1 block text-xs text-neutral-500">
-                    {orderedOptions.length} branches and registered worktrees on this machine
+                    {orderedOptions.length} branches and registered worktrees through this connector
                   </Text>
                 </div>
                 <Modal.CloseTrigger aria-label="Close project branches" className="text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100">

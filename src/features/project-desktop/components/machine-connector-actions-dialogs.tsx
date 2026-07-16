@@ -29,6 +29,7 @@ import {
   runtimeVersionLabel,
   shouldShowManagedRuntimeReinstallNotice
 } from './machine-connector-runtime-model';
+import { connectorInstallationLabel } from './machine-connector-topology-model';
 
 export type ConnectorDialogView =
   | 'confirm-restart'
@@ -88,6 +89,7 @@ function ConfirmationDialog({
     update?.availableReleaseId ??
     update?.operation?.expectedReleaseId ??
     'the approved release';
+  const connectorIdentity = connectorInstallationLabel(machine);
 
   return (
     <AlertDialog
@@ -119,10 +121,10 @@ function ConfirmationDialog({
             <AlertDialog.Body>
               <p className="text-sm leading-6 text-neutral-300">
                 {operation === 'update'
-                  ? `Update ${machine.name} from ${runtimeVersionLabel(machine)} to ${updateTarget}?`
+                  ? `Update ${connectorIdentity} from ${runtimeVersionLabel(machine)} to ${updateTarget}?`
                   : operation === 'stop'
-                    ? `Stop the source development connector on ${machine.name}? Only this Dev connector will stop. The production connector is not affected.`
-                  : `Restart the connector on ${machine.name}? Its installed version will not change.`}
+                    ? `Stop ${connectorIdentity}? Only this Dev connector will stop. The production connector is not affected.`
+                  : `Restart ${connectorIdentity}? Its installed version will not change.`}
               </p>
               <div className="mt-4 rounded-xl border border-amber-500/25 bg-amber-500/8 p-3">
                 <p className="text-sm font-medium text-amber-200">
@@ -132,8 +134,8 @@ function ConfirmationDialog({
                 </p>
                 <p className="mt-1 text-xs leading-5 text-amber-200/70">
                   {operation === 'stop'
-                    ? 'Start it again from the source runner when you want this Dev machine to reconnect.'
-                    : 'Project Space will wait for this machine to reconnect and prove its running version before reporting success.'}
+                    ? 'Start it again from the source runner when you want this Dev connector to reconnect.'
+                    : 'Project Space will wait for this connector to reconnect and prove its running version before reporting success.'}
                   {operation === 'update' && runtime
                     ? ' If health checks fail, the updater will use the available recovery path.'
                     : ''}
@@ -207,7 +209,7 @@ function ProgressIcon({ machine }: { machine: MachineRecord }) {
 }
 
 function modalTitle(view: Exclude<ConnectorDialogView, `confirm-${string}`>, machine: MachineRecord) {
-  if (view === 'details') return `${machine.name} connector`;
+  if (view === 'details') return connectorInstallationLabel(machine);
   if (view === 'failure') return 'Last connector failure';
   return machine.connector.update?.operation?.operation === 'restart'
     ? 'Connector restart'
@@ -301,7 +303,7 @@ function StatusModal({
                         Newer than the approved release
                       </p>
                       <p className="mt-1 text-xs leading-5 text-sky-200/70">
-                        This machine is running {runtime?.version}. Project Space will not downgrade
+                        This connector is running {runtime?.version}. Project Space will not downgrade
                         it to {update?.availableVersion}; Restart remains available.
                       </p>
                     </div>
@@ -312,7 +314,7 @@ function StatusModal({
                       </p>
                       <p className="mt-1 text-xs leading-5 text-amber-200/70">
                         This connector cannot safely replace itself. Install the managed bundle,
-                        preserving this machine&apos;s identity and settings, before using web updates.
+                        preserving this connector installation&apos;s identity and settings, before using web updates.
                       </p>
                       <a
                         className="mt-2 inline-flex text-xs font-medium text-amber-100 underline decoration-amber-300/40 underline-offset-2"

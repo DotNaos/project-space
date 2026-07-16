@@ -192,6 +192,8 @@ export async function getRegisteredConnectorMachines(): Promise<MachineRecord[]>
       }
     },
     id: registry.connector.machineId,
+    environment: registry.connector.environment,
+    executionScopeId: registry.connector.executionScopeId,
     kind: 'connector',
     name: registry.connector.machineName,
     network: {},

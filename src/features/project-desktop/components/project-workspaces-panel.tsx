@@ -32,6 +32,7 @@ import {
   type WorktreeGitStatusSnapshot
 } from './worktree-git-client-panel';
 import { MachineConnectorActionsMenu } from './machine-connector-actions-menu';
+import { connectorLocationPresentation } from './machine-connector-topology-model';
 
 function normalizeKey(value: string) {
   return value
@@ -98,6 +99,15 @@ export function ProjectWorkspacesPanel({
     ) ??
     connectorOverview.machines.find((machine) => machine.connector.status === 'local') ??
     connectorOverview.machines[0];
+  const selectedConnectorLocation = selectedMachine
+    ? connectorLocationPresentation({
+        connector: selectedMachine,
+        physicalMachines: connectorOverview.physicalMachines ?? []
+      })
+    : undefined;
+  const selectedConnectorLabel = selectedConnectorLocation
+    ? `${selectedConnectorLocation.machineName} · ${selectedConnectorLocation.connectorLabel}`
+    : undefined;
   const devServers = useWorktreeDevServers({
     machineId: selectedMachine?.id,
     projectId: project.id
@@ -328,7 +338,7 @@ export function ProjectWorkspacesPanel({
             <label className="grid min-w-0 flex-1 gap-1.5">
               <Text className="text-xs font-medium text-neutral-300">GitHub branch</Text>
               <select
-                aria-label="GitHub branch to create on this machine"
+                aria-label="GitHub branch to create through this connector"
                 value={selectedCreateBranch}
                 onChange={(event) => setSelectedCreateBranch(event.currentTarget.value)}
                 className="min-h-9 min-w-0 rounded-lg border border-neutral-700 bg-neutral-950 px-3 text-sm text-neutral-100 outline-none focus-visible:border-sky-400 focus-visible:ring-2 focus-visible:ring-sky-400/25"
@@ -357,7 +367,7 @@ export function ProjectWorkspacesPanel({
           </div>
         ) : null}
 
-        <DevServerAccessNotice access={devServers.access} machineName={selectedMachine?.name} />
+        <DevServerAccessNotice access={devServers.access} machineName={selectedConnectorLabel} />
         <DevServerSettings
           access={devServers.access}
           hasActiveServers={devServers.hasActiveServers}
@@ -375,10 +385,10 @@ export function ProjectWorkspacesPanel({
           <div className="flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <Text className="block text-sm font-medium text-amber-200">
-                Connector update required{selectedMachine ? ` on ${selectedMachine.name}` : ''}
+                Connector update required{selectedConnectorLabel ? ` for ${selectedConnectorLabel}` : ''}
               </Text>
               <Text className="mt-1 block text-xs leading-5 text-amber-200/70">
-                Worktrees will become available after this machine reconnects with the current discovery support.
+                Worktrees will become available after this connector reconnects with the current discovery support.
               </Text>
             </div>
             {selectedMachine ? (

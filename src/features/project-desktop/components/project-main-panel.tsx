@@ -40,6 +40,7 @@ import { ProjectRootSummary } from './project-root-summary';
 import { SettingsView } from './settings-view';
 import { projectRecordsForCodex, resolveProjectRepository } from './project-main-model';
 import { cn } from '@/lib/utils';
+import { connectorLocationPresentation } from './machine-connector-topology-model';
 
 const projectChatClient = createProjectChatClient({
   baseUrl: typeof window === 'undefined'
@@ -374,12 +375,18 @@ export function ProjectMainPanel({
   }, [projects]);
 
   const machineSwitcherEntries = useMemo<SwitcherEntry[]>(() => {
-    return connectorOverview.machines.map((machine) => ({
-      id: machine.id,
-      label: machine.name,
-      sublabel: machine.connector.status
-    }));
-  }, [connectorOverview.machines]);
+    return connectorOverview.machines.map((connector) => {
+      const location = connectorLocationPresentation({
+        connector,
+        physicalMachines: connectorOverview.physicalMachines ?? []
+      });
+      return {
+        id: connector.id,
+        label: location.machineName,
+        sublabel: location.statusLabel
+      };
+    });
+  }, [connectorOverview.machines, connectorOverview.physicalMachines]);
 
   const topologyNavigation = useMemo(() => ({
     openCoordinator(target: { kind: 'lead' } | {
@@ -409,6 +416,7 @@ export function ProjectMainPanel({
   }, [mainView, onOpenProjects, onOpenRoot]);
 
   const homeSegment: BreadcrumbSegment = { label: 'Home', onPress: onOpenRoot };
+  const selectedMachineEntry = machineSwitcherEntries.find((entry) => entry.id === selectedMachineId);
 
   let segments: BreadcrumbSegment[] = [{ label: 'Home' }];
   let switcher: React.ReactNode;
@@ -433,7 +441,7 @@ export function ProjectMainPanel({
         />
         <EntitySwitcher
           ariaLabel="Switch machine context"
-          currentLabel={selectedMachine?.name ?? (selectedMachineId || 'Machine')}
+          currentLabel={selectedMachineEntry?.label ?? selectedMachine?.name ?? (selectedMachineId || 'Machine')}
           entries={machineSwitcherEntries}
           selectedId={selectedMachineId}
           onSelect={onSelectMachineContext}

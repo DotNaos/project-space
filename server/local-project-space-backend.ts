@@ -224,6 +224,8 @@ export function createLocalProjectSpaceBackend(
         connector: {
           battery: localMachine?.battery,
           capabilities: connectorCommandCapabilities,
+          environment: localMachine?.environment,
+          executionScopeId: localMachine?.executionScopeId,
           kind: process.env.PROJECT_CONNECTOR_MACHINE_KIND ?? localMachine?.kind,
           machineId,
           machineName,

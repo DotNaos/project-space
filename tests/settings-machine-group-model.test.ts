@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import type {
   ConnectorCredentialRecord,
-  MachineExecutionScopeRecord,
-  MachineRecord
+  MachineRecord,
+  PhysicalMachineRecord
 } from '../src/shared/project-space-api';
 import {
   groupSettingsMachines,
@@ -50,8 +50,8 @@ function machine({
   };
 }
 
-function scope(id: string, machineIds: string[]): MachineExecutionScopeRecord {
-  return { id, machineIds, name: id };
+function physicalMachine(id: string, connectorIds: string[]): PhysicalMachineRecord {
+  return { connectorIds, id, name: id };
 }
 
 function credential(
@@ -77,7 +77,7 @@ describe('settings machine grouping model', () => {
     expect(safeConnectorOrigin('not a url')).toBeUndefined();
   });
 
-  test('groups stable and dev connector identities only through one explicit execution scope', () => {
+  test('groups stable and dev connector installations only through one explicit physical machine', () => {
     const stable = machine({ id: 'stable-id', name: 'same display name' });
     const dev = machine({
       channel: 'dev',
@@ -87,8 +87,8 @@ describe('settings machine grouping model', () => {
     });
 
     const result = groupSettingsMachines({
-      machines: [dev, stable],
-      scopes: [scope('physical-os-pc', ['stable-id', 'dev-id', 'stable-id'])]
+      connectors: [dev, stable],
+      physicalMachines: [physicalMachine('physical-os-pc', ['stable-id', 'dev-id', 'stable-id'])]
     });
 
     expect(result.groups).toHaveLength(1);
@@ -96,7 +96,7 @@ describe('settings machine grouping model', () => {
       archivedConnectorCount: 0,
       connectorCount: 2,
       id: 'physical-os-pc',
-      machineIds: ['stable-id', 'dev-id'],
+      connectorIds: ['stable-id', 'dev-id'],
       onlineConnectorCount: 2,
       platformLabels: ['Windows', 'Linux']
     });
@@ -115,7 +115,7 @@ describe('settings machine grouping model', () => {
     nameOnlyDev.connector.runtime!.source = 'source';
     const matchingName = machine({ id: 'two', name: 'os-pc-dev' });
 
-    const result = groupSettingsMachines({ machines: [nameOnlyDev, matchingName], scopes: [] });
+    const result = groupSettingsMachines({ connectors: [nameOnlyDev, matchingName], physicalMachines: [] });
 
     expect(result.groups).toEqual([]);
     expect(result.unscopedInstances.map(({ channel, id }) => ({ channel, id }))).toEqual([
@@ -134,8 +134,8 @@ describe('settings machine grouping model', () => {
     uninstalledUbuntu.os = { family: 'ubuntu' };
 
     const result = groupSettingsMachines({
-      machines: [localMac, uninstalledUbuntu],
-      scopes: [scope('local-machines', [localMac.id, uninstalledUbuntu.id])]
+      connectors: [localMac, uninstalledUbuntu],
+      physicalMachines: [physicalMachine('local-machines', [localMac.id, uninstalledUbuntu.id])]
     });
 
     expect(result.groups[0]?.platformLabels).toEqual(['macOS', 'Ubuntu']);
@@ -144,7 +144,7 @@ describe('settings machine grouping model', () => {
       platformLabel,
       runtimeLabel
     }))).toEqual([
-      { id: 'local-mac', platformLabel: 'macOS', runtimeLabel: 'Local Project Space host' },
+      { id: 'local-mac', platformLabel: 'macOS', runtimeLabel: 'Local Project Space connector' },
       { id: 'ubuntu', platformLabel: 'Ubuntu', runtimeLabel: 'Connector not installed' }
     ]);
   });
@@ -158,8 +158,8 @@ describe('settings machine grouping model', () => {
         credential('credential-current', temporarilyOffline.id, 'active'),
         credential('credential-old', revokedDuplicate.id, 'revoked')
       ],
-      machines: [revokedDuplicate, temporarilyOffline],
-      scopes: [scope('physical-os-pc', [temporarilyOffline.id, revokedDuplicate.id])]
+      connectors: [revokedDuplicate, temporarilyOffline],
+      physicalMachines: [physicalMachine('physical-os-pc', [temporarilyOffline.id, revokedDuplicate.id])]
     });
 
     expect(result.groups[0]?.instances.map(({ id }) => id)).toEqual(['offline-current']);
@@ -175,8 +175,11 @@ describe('settings machine grouping model', () => {
     const conflicted = machine({ id: 'conflicted' });
     const result = groupSettingsMachines({
       credentials: [credential('orphan', 'removed-machine', 'revoked')],
-      machines: [conflicted],
-      scopes: [scope('scope-a', [conflicted.id]), scope('scope-b', [conflicted.id])]
+      connectors: [conflicted],
+      physicalMachines: [
+        physicalMachine('scope-a', [conflicted.id]),
+        physicalMachine('scope-b', [conflicted.id])
+      ]
     });
 
     expect(result.groups).toEqual([]);

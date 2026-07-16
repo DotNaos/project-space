@@ -16,6 +16,7 @@ import { MachineListItem } from './machine-list-item';
 import { MachineConnectorActionsMenu } from './machine-connector-actions-menu';
 import { runtimeVersionLabel } from './machine-connector-runtime-model';
 import { getProjectMachineId, isVisibleProject, machineSubtitle } from './project-main-model';
+import { connectorLocationPresentation } from './machine-connector-topology-model';
 
 function HomeSearch({
   label,
@@ -268,7 +269,14 @@ export function ProjectRootOverview({
                 <MachineListItem
                   compact
                   machine={machine}
-                  subtitle={machineSubtitle(machine) || machine.connector.status}
+                  name={connectorLocationPresentation({
+                    connector: machine,
+                    physicalMachines: connector.physicalMachines ?? []
+                  }).machineName}
+                  subtitle={`${connectorLocationPresentation({
+                    connector: machine,
+                    physicalMachines: connector.physicalMachines ?? []
+                  }).connectorLabel} · ${machineSubtitle(machine) || machine.connector.status}`}
                   onPress={() => onOpenMachine(machine.id)}
                   className={cn(
                     'min-w-0 flex-1',

@@ -38,6 +38,7 @@ import {
   shouldShowMachineRuntimeStop,
   shouldShowMachineRuntimeUpdate
 } from './machine-connector-runtime-model';
+import { connectorInstallationLabel } from './machine-connector-topology-model';
 
 function initialStatus(machine: MachineRecord): MachineRuntimeStatusResult {
   const online = machine.connector.status === 'local' || machine.connector.status === 'online';
@@ -193,6 +194,7 @@ export function MachineConnectorActionsMenu({
     ? 'Retry update'
     : `Update to ${update?.availableVersion ?? approvedReleaseId ?? 'approved release'}`;
   const restartLabel = retryOperation === 'restart' ? 'Retry restart' : 'Restart connector';
+  const connectorIdentity = connectorInstallationLabel(machine);
 
   return (
     <>
@@ -204,7 +206,7 @@ export function MachineConnectorActionsMenu({
         }}
       >
         <Dropdown.Trigger
-          aria-label={`${triggerLabel} for ${machine.name}`}
+          aria-label={`${triggerLabel} for ${connectorIdentity}`}
           className={cn(
             'inline-flex items-center justify-center border border-transparent text-neutral-400 outline-none transition focus-visible:ring-2 focus-visible:ring-sky-400/60',
             trigger === 'icon'
@@ -225,7 +227,7 @@ export function MachineConnectorActionsMenu({
           placement="bottom end"
           className="z-[70] w-[min(19rem,calc(100vw-1.5rem))] !max-w-[calc(100vw-1.5rem)] border border-neutral-800 bg-neutral-950 p-1 text-neutral-100 shadow-2xl shadow-black/60"
         >
-          <Dropdown.Menu aria-label={`Connector actions for ${machine.name}`}>
+          <Dropdown.Menu aria-label={`Connector actions for ${connectorIdentity}`}>
             <Dropdown.Item
               id="details"
               textValue="View version details"

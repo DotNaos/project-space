@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Monitor } from 'lucide-react';
+import { ChevronRight, Monitor } from 'lucide-react';
+import { Disclosure } from '@heroui/react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import {
-  Chip,
   SearchField,
   SearchFieldClearButton,
   SearchFieldGroup,
@@ -15,205 +15,70 @@ import type {
   ConnectorOverviewResult,
   GitHubCatalogRepository,
   MachineRecord,
+  PhysicalMachineRecord,
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
-import { resolvedProjectMachineId } from '../../../shared/project-machine-identity';
-import { cn } from '@/lib/utils';
 import { matchesFuzzyQuery } from '@/lib/fuzzy-search';
+import { resolvedProjectMachineId } from '../../../shared/project-machine-identity';
 import type { MachineDetailTab } from '../hooks/use-project-desktop';
-import {
-  useMachineWorktreeDiscovery,
-  type MachineWorktreeInfo
-} from '../hooks/use-machine-worktree-discovery';
-import { MachineListItem } from './machine-list-item';
-import { MachineConnectorActionsMenu } from './machine-connector-actions-menu';
-import { runtimeVersionLabel } from './machine-connector-runtime-model';
-import { machineSubtitle } from './project-main-model';
+import { useMachineWorktreeDiscovery } from '../hooks/use-machine-worktree-discovery';
 import {
   branchOptions,
   checkoutForProjectPath,
   parseCloneTargetProbeOutput,
-  type CloneTargetInfo,
-  type MachineProjectCheckout,
+  type MachineProjectCheckout
 } from './project-machine-checkout-model';
+import type { WorktreeBranchOption } from './worktree-branch-list';
 import {
-  type WorktreeBranchOption
-} from './worktree-branch-list';
-import { ProjectMachineBranches } from './project-machine-branches';
+  groupConnectorInstallations,
+  type ConnectorInstallationPresentation
+} from './machine-connector-topology-model';
+import { ProjectConnectorDisclosure } from './project-connector-disclosure';
+import {
+  canRunConnectorCommand,
+  canonicalProjectName,
+  checkoutSortValue,
+  cloneUrl,
+  createCloneCommand,
+  createCloneTargetProbeCommand,
+  defaultBranchName,
+  isDefaultBranch,
+  mergeBranchNames,
+  normalizeConnectorKey,
+  primaryCheckout,
+  type ConnectorCloneTargetState
+} from './project-connector-inventory-model';
 
 interface MachineProjectMatch {
   checkout: MachineProjectCheckout;
-  machineId: string;
+  connectorId: string;
 }
 
-interface MachineCloneTargetState {
-  error?: string;
-  targets: Record<string, CloneTargetInfo>;
+interface ProjectConnectorRow {
+  checkouts: MachineProjectCheckout[];
+  connector?: MachineRecord;
+  connectorId: string;
+  presentation?: ConnectorInstallationPresentation;
 }
 
-function basename(path: string) {
-  return path.split('/').filter(Boolean).pop() ?? path;
+interface ProjectPhysicalMachineRow {
+  connectors: ProjectConnectorRow[];
+  id: string;
+  name: string;
+  onlineConnectorCount: number;
 }
 
-function normalizeKey(value: string) {
-  return value.trim().replace(/^@/, '').toLowerCase();
-}
-
-function shellQuote(value: string) {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-function escapeDoubleQuotedShell(value: string) {
-  return value.replace(/["\\$`]/g, (character) => `\\${character}`);
-}
-
-function canonicalProjectName(project: ProjectSpaceRecord, repository?: GitHubCatalogRepository) {
-  return repository?.name || project.github?.name || project.name.split('/').pop() || basename(project.rootPath);
-}
-
-function defaultBranchName(project: ProjectSpaceRecord, repository?: GitHubCatalogRepository) {
-  return repository?.defaultBranch || project.github?.defaultBranch || 'main';
-}
-
-function isDefaultBranch(branchName: string | undefined, defaultBranch: string) {
-  return normalizeKey(branchName || '') === normalizeKey(defaultBranch);
-}
-
-function canRunMachineCommand(machine?: MachineRecord) {
-  return machine?.connector.status === 'local' || machine?.connector.status === 'online';
-}
-
-function cloneUrl(repository?: GitHubCatalogRepository) {
-  if (!repository) {
-    return '';
-  }
-
-  if (repository.fullName) {
-    return `git@github.com:${repository.fullName}.git`;
-  }
-
-  return repository.url.endsWith('.git') ? repository.url : `${repository.url}.git`;
-}
-
-function cloneTargetExpressionForBranch(repositoryName: string, branchName: string, defaultBranch: string) {
-  const projectPath = escapeDoubleQuotedShell(repositoryName);
-  const worktreePath = escapeDoubleQuotedShell(`${repositoryName}/${branchName}`);
-
-  if (isDefaultBranch(branchName, defaultBranch)) {
-    return `$HOME/projects/${projectPath}`;
-  }
-
-  return `$HOME/projects/.worktrees/${worktreePath}`;
-}
-
-function createCloneTargetProbeCommand(
-  branchNames: string[],
-  defaultBranch: string,
-  repositoryName: string
-) {
-  return [
-    'set -e',
-    ...branchNames.flatMap((branch) => [
-      `target="${cloneTargetExpressionForBranch(repositoryName, branch, defaultBranch)}"`,
-      'if [ -e "$target" ]; then exists=1; else exists=0; fi',
-      `printf '%s\\t%s\\t%s\\n' ${shellQuote(branch)} "$exists" "$target"`
-    ])
-  ].join('\n');
-}
-
-function compactHomePath(path: string | undefined) {
-  if (!path) {
-    return '';
-  }
-
-  return path.replace(/^\/Users\/[^/]+/, '~').replace(/^\/home\/[^/]+/, '~');
-}
-
-function createCloneCommand({
-  branchName,
-  defaultBranch,
-  repository,
-  repositoryName
-}: {
-  branchName: string;
-  defaultBranch: string;
-  repository: string;
-  repositoryName: string;
-}) {
-  const projectPath = escapeDoubleQuotedShell(repositoryName);
-  const worktreePath = escapeDoubleQuotedShell(`${repositoryName}/${branchName}`);
-
-  if (isDefaultBranch(branchName, defaultBranch)) {
-    return [
-      'set -e',
-      `target="$HOME/projects/${projectPath}"`,
-      'if [ -e "$target" ]; then echo "Target already exists: $target"; exit 1; fi',
-      'mkdir -p "${target%/*}"',
-      `git clone --branch ${shellQuote(branchName)} ${shellQuote(repository)} "$target"`
-    ].join('\n');
-  }
-
-  return [
-    'set -e',
-    `base="$HOME/projects/${projectPath}"`,
-    `target="$HOME/projects/.worktrees/${worktreePath}"`,
-    'if [ -e "$target" ]; then echo "Target already exists: $target"; exit 1; fi',
-    'if [ ! -d "$base/.git" ]; then',
-    '  mkdir -p "${base%/*}"',
-    `  git clone --branch ${shellQuote(defaultBranch)} ${shellQuote(repository)} "$base"`,
-    'fi',
-    'mkdir -p "${target%/*}"',
-    'cd "$base"',
-    `git fetch origin ${shellQuote(branchName)}`,
-    `if git show-ref --verify --quiet ${shellQuote(`refs/heads/${branchName}`)}; then`,
-    `  git worktree add "$target" ${shellQuote(branchName)}`,
-    'else',
-    `  git worktree add --track -b ${shellQuote(branchName)} "$target" ${shellQuote(`origin/${branchName}`)}`,
-    'fi'
-  ].join('\n');
-}
-
-function machineStatusClass(status?: string) {
-  if (status === 'local' || status === 'online') {
-    return 'text-emerald-300';
-  }
-
-  return 'text-neutral-500';
-}
-
-function checkoutSortValue(checkout: MachineProjectCheckout) {
-  return checkout.kind === 'main' ? `0:${checkout.path}` : `1:${checkout.branchName ?? checkout.path}`;
-}
-
-function primaryCheckout(checkouts: MachineProjectCheckout[]) {
-  return (
-    checkouts.find((checkout) => checkout.kind === 'main') ??
-    [...checkouts].sort((left, right) => checkoutSortValue(left).localeCompare(checkoutSortValue(right)))[0]
-  );
-}
-
-function branchSortValue(defaultBranch: string) {
-  return (left: string, right: string) => {
-    if (isDefaultBranch(left, defaultBranch)) {
-      return -1;
-    }
-
-    if (isDefaultBranch(right, defaultBranch)) {
-      return 1;
-    }
-
-    return left.localeCompare(right);
-  };
-}
-
-function mergeBranchNames(defaultBranch: string, remoteBranches: string[], worktrees: MachineWorktreeInfo[]) {
-  const branches = new Set<string>(remoteBranches);
-
-  for (const worktree of worktrees) {
-    branches.add(worktree.branchName || worktree.name);
-  }
-
-  return Array.from(branches).sort(branchSortValue(defaultBranch));
+function connectorMatches(row: ProjectConnectorRow, query: string) {
+  return matchesFuzzyQuery([
+    row.connectorId,
+    row.presentation?.environmentLabel,
+    row.presentation?.channel,
+    row.connector?.name,
+    row.connector?.connector.status,
+    row.connector?.connector.runtime?.version,
+    row.checkouts.map((checkout) => checkout.branchName).join(' '),
+    row.checkouts.map((checkout) => checkout.path).join(' ')
+  ], query);
 }
 
 export function ProjectMachinesPanel({
@@ -233,140 +98,144 @@ export function ProjectMachinesPanel({
 }) {
   const [actionMessage, setActionMessage] = useState('');
   const [busyCloneKey, setBusyCloneKey] = useState('');
-  const [cloneTargetState, setCloneTargetState] = useState<Record<string, MachineCloneTargetState>>({});
+  const [cloneTargetState, setCloneTargetState] = useState<Record<string, ConnectorCloneTargetState>>({});
   const [machineQuery, setMachineQuery] = useState('');
+  const [physicalMachines, setPhysicalMachines] = useState<PhysicalMachineRecord[]>(
+    connectorOverview.physicalMachines ?? []
+  );
+  const [physicalMachinesError, setPhysicalMachinesError] = useState('');
+  const [physicalMachinesLoading, setPhysicalMachinesLoading] = useState(
+    connectorOverview.physicalMachines === undefined
+  );
   const [repositoryBranches, setRepositoryBranches] = useState<string[]>([]);
   const [repositoryBranchesMessage, setRepositoryBranchesMessage] = useState('');
   const repositoryName = canonicalProjectName(project, repository);
   const defaultBranch = defaultBranchName(project, repository);
-  const localMachineId =
-    connectorOverview.machines.find((machine) => machine.connector.status === 'local')?.id ??
-    connectorOverview.machines[0]?.id ??
-    'local';
-  const matches = useMemo<MachineProjectMatch[]>(() => {
-    return projects
-      .filter((candidate) => candidate.kind !== 'github' && candidate.rootPath)
-      .map((candidate) => {
-        const checkout = checkoutForProjectPath(candidate, repositoryName, defaultBranch);
+  const localConnectorId = connectorOverview.machines.find(
+    (connector) => connector.connector.status === 'local'
+  )?.id ?? connectorOverview.machines[0]?.id ?? 'local';
 
-        if (!checkout) {
-          return undefined;
-        }
+  const matches = useMemo<MachineProjectMatch[]>(() => projects
+    .filter((candidate) => candidate.kind !== 'github' && candidate.rootPath)
+    .flatMap((candidate) => {
+      const checkout = checkoutForProjectPath(candidate, repositoryName, defaultBranch);
+      return checkout ? [{
+        checkout,
+        connectorId: resolvedProjectMachineId(candidate, localConnectorId)
+      }] : [];
+    }), [defaultBranch, localConnectorId, projects, repositoryName]);
 
-        const machineId = resolvedProjectMachineId(candidate, localMachineId);
+  const checkoutsByConnectorId = useMemo(() => matches.reduce((map, match) => {
+    const current = map.get(match.connectorId) ?? [];
+    current.push(match.checkout);
+    map.set(match.connectorId, current.sort((left, right) =>
+      checkoutSortValue(left).localeCompare(checkoutSortValue(right))
+    ));
+    return map;
+  }, new Map<string, MachineProjectCheckout[]>()), [matches]);
 
-        return {
-          checkout,
-          machineId,
-        };
-      })
-      .filter((match): match is MachineProjectMatch => Boolean(match));
-  }, [defaultBranch, localMachineId, projects, repositoryName]);
-  const checkoutsByMachineId = useMemo(
-    () =>
-      matches.reduce((map, match) => {
-        const current = map.get(match.machineId) ?? [];
-        current.push(match.checkout);
-        map.set(
-          match.machineId,
-          current.sort((left, right) => checkoutSortValue(left).localeCompare(checkoutSortValue(right)))
-        );
+  const topology = useMemo(() => groupConnectorInstallations({
+    connectors: connectorOverview.machines,
+    physicalMachines
+  }), [connectorOverview.machines, physicalMachines]);
 
-        return map;
-      }, new Map<string, MachineProjectCheckout[]>()),
-    [matches]
+  const connectorRowsById = useMemo(() => new Map<string, ProjectConnectorRow>(
+    connectorOverview.machines.map((connector) => [
+    connector.id,
+    {
+      checkouts: checkoutsByConnectorId.get(connector.id) ?? [],
+      connector,
+      connectorId: connector.id,
+      presentation: topology.machines
+        .flatMap((machine) => machine.connectors)
+        .concat(topology.ungroupedConnectors)
+        .find((candidate) => candidate.id === connector.id)
+    } satisfies ProjectConnectorRow
+    ])
+  ), [checkoutsByConnectorId, connectorOverview.machines, topology]);
+
+  const machineRows = useMemo<ProjectPhysicalMachineRow[]>(() => topology.machines.map((machine) => ({
+    connectors: machine.connectors.flatMap((connector) => {
+      const row = connectorRowsById.get(connector.id);
+      return row ? [row] : [];
+    }),
+    id: machine.id,
+    name: machine.name,
+    onlineConnectorCount: machine.onlineConnectorCount
+  })), [connectorRowsById, topology.machines]);
+
+  const ungroupedRows = useMemo(() => {
+    const knownConnectorIds = new Set(connectorOverview.machines.map((connector) => connector.id));
+    const rows = topology.ungroupedConnectors.flatMap((connector) => {
+      const row = connectorRowsById.get(connector.id);
+      return row ? [row] : [];
+    });
+    for (const [connectorId, checkouts] of checkoutsByConnectorId) {
+      if (!knownConnectorIds.has(connectorId)) rows.push({ checkouts, connectorId });
+    }
+    return rows;
+  }, [checkoutsByConnectorId, connectorOverview.machines, connectorRowsById, topology.ungroupedConnectors]);
+
+  const allConnectorRows = useMemo(
+    () => [...machineRows.flatMap((machine) => machine.connectors), ...ungroupedRows],
+    [machineRows, ungroupedRows]
   );
-  const machineRows = useMemo(() => {
-    const knownMachineIds = new Set(connectorOverview.machines.map((machine) => machine.id));
-    const orphanMatches = matches
-      .filter((match) => !knownMachineIds.has(match.machineId))
-      .reduce((map, match) => {
-        const current = map.get(match.machineId) ?? [];
-        current.push(match.checkout);
-        map.set(match.machineId, current);
-
-        return map;
-      }, new Map<string, MachineProjectCheckout[]>());
-
-    return [
-      ...connectorOverview.machines.map((machine) => ({
-        checkouts: checkoutsByMachineId.get(machine.id) ?? [],
-        machine,
-        machineId: machine.id
-      })),
-      ...Array.from(orphanMatches.entries()).map(([machineId, checkouts]) => ({
-        checkouts: checkouts.sort((left, right) => checkoutSortValue(left).localeCompare(checkoutSortValue(right))),
-        machine: undefined,
-        machineId
-      }))
-    ];
-  }, [checkoutsByMachineId, connectorOverview.machines, matches]);
-  const discoveryTargets = useMemo(
-    () =>
-      machineRows.map((row) => {
-        const checkout = primaryCheckout(row.checkouts);
-        return {
-          blockedMessage: canRunMachineCommand(row.machine)
-            ? undefined
-            : row.machine
-              ? `${row.machine.name} is ${row.machine.connector.status}.`
-              : 'Machine is not available.',
-          machineId: row.machineId,
-          projectId: checkout?.project.id
-        };
-      }),
-    [machineRows]
-  );
+  const discoveryTargets = useMemo(() => allConnectorRows.map((row) => {
+    const checkout = primaryCheckout(row.checkouts);
+    return {
+      blockedMessage: canRunConnectorCommand(row.connector)
+        ? undefined
+        : row.connector
+          ? `${row.presentation?.environmentLabel || 'Connector'} is ${row.connector.connector.status}.`
+          : 'Connector installation is not available.',
+      machineId: row.connectorId,
+      projectId: checkout?.project.id
+    };
+  }), [allConnectorRows]);
   const branchState = useMachineWorktreeDiscovery(discoveryTargets);
-  const filteredMachineRows = useMemo(
-    () =>
-      machineRows.filter((row) =>
-        matchesFuzzyQuery(
-          [
-            row.machineId,
-            row.machine?.name,
-            row.machine?.kind,
-            row.machine?.profile,
-            row.machine?.primaryUser,
-            row.machine?.network.localName,
-            row.machine?.network.sshUser,
-            row.machine?.network.tailscaleIp,
-            row.machine?.connector.status,
-            row.checkouts.map((checkout) => checkout.branchName).join(' '),
-            row.checkouts.map((checkout) => checkout.path).join(' ')
-          ],
-          machineQuery
-        )
-      ),
-    [machineQuery, machineRows]
+  const filteredMachineRows = useMemo(() => machineRows.flatMap((machine) => {
+    const connectors = machine.connectors.filter((row) =>
+      matchesFuzzyQuery([machine.id, machine.name], machineQuery) || connectorMatches(row, machineQuery)
+    );
+    return connectors.length > 0 || matchesFuzzyQuery([machine.id, machine.name], machineQuery)
+      ? [{ ...machine, connectors: connectors.length > 0 ? connectors : machine.connectors }]
+      : [];
+  }), [machineQuery, machineRows]);
+  const filteredUngroupedRows = useMemo(
+    () => ungroupedRows.filter((row) => connectorMatches(row, machineQuery)),
+    [machineQuery, ungroupedRows]
   );
   const repositoryCloneUrl = cloneUrl(repository);
-  const isCheckingWorktrees = machineRows.some(
-    (row) => Boolean(primaryCheckout(row.checkouts)) && !branchState[row.machineId]
-  );
-  const checkoutCount = machineRows.reduce(
-    (count, row) => count + (branchState[row.machineId]?.worktrees.length ?? 0),
-    0
-  );
   const cloneBranchNames = useMemo(() => {
-    const branches = new Set<string>([defaultBranch]);
-
-    for (const branch of repositoryBranches) {
-      branches.add(branch);
-    }
-
+    const branches = new Set([defaultBranch, ...repositoryBranches]);
     return Array.from(branches).sort((left, right) => {
-      if (isDefaultBranch(left, defaultBranch)) {
-        return -1;
-      }
-
-      if (isDefaultBranch(right, defaultBranch)) {
-        return 1;
-      }
-
+      if (isDefaultBranch(left, defaultBranch)) return -1;
+      if (isDefaultBranch(right, defaultBranch)) return 1;
       return left.localeCompare(right);
     });
   }, [defaultBranch, repositoryBranches]);
+
+  useEffect(() => {
+    if (connectorOverview.physicalMachines) {
+      setPhysicalMachines(connectorOverview.physicalMachines);
+      setPhysicalMachinesLoading(false);
+      setPhysicalMachinesError('');
+      return;
+    }
+    let canceled = false;
+    setPhysicalMachinesLoading(true);
+    setPhysicalMachinesError('');
+    void projectSpaceClient.listPhysicalMachines().then((result) => {
+      if (!canceled) setPhysicalMachines(result.machines);
+    }).catch((error) => {
+      if (!canceled) setPhysicalMachinesError(
+        error instanceof Error ? error.message : 'Could not load physical machines.'
+      );
+    }).finally(() => {
+      if (!canceled) setPhysicalMachinesLoading(false);
+    });
+    return () => { canceled = true; };
+  }, [connectorOverview.physicalMachines]);
 
   useEffect(() => {
     if (!repository?.fullName) {
@@ -374,287 +243,187 @@ export function ProjectMachinesPanel({
       setRepositoryBranchesMessage('');
       return;
     }
-
     let canceled = false;
-
     setRepositoryBranchesMessage('');
-    projectSpaceClient
-      .getGitHubRepositoryDetails(repository.fullName)
-      .then((details) => {
-        if (canceled) {
-          return;
-        }
-
-        setRepositoryBranches(details.branches.map((branch) => branch.name));
-        setRepositoryBranchesMessage(details.message ?? '');
-      })
-      .catch((error) => {
-        if (canceled) {
-          return;
-        }
-
-        setRepositoryBranches([]);
-        setRepositoryBranchesMessage(
-          error instanceof Error ? error.message : 'Could not load repository branches.'
-        );
-      });
-
-    return () => {
-      canceled = true;
-    };
+    void projectSpaceClient.getGitHubRepositoryDetails(repository.fullName).then((details) => {
+      if (!canceled) setRepositoryBranches(details.branches.map((branch) => branch.name));
+      if (!canceled) setRepositoryBranchesMessage(details.message ?? '');
+    }).catch((error) => {
+      if (!canceled) setRepositoryBranches([]);
+      if (!canceled) setRepositoryBranchesMessage(
+        error instanceof Error ? error.message : 'Could not load repository branches.'
+      );
+    });
+    return () => { canceled = true; };
   }, [repository?.fullName]);
 
   useEffect(() => {
     let canceled = false;
-    const runnableRows = machineRows.filter((row) => canRunMachineCommand(row.machine));
-
+    const runnableRows = allConnectorRows.filter((row) => canRunConnectorCommand(row.connector));
     if (cloneBranchNames.length === 0 || runnableRows.length === 0) {
       setCloneTargetState({});
       return;
     }
-
-    void Promise.all(
-      runnableRows.map(async (row) => {
-        const result = await projectSpaceClient.runMachineTerminalCommand({
-          command: createCloneTargetProbeCommand(cloneBranchNames, defaultBranch, repositoryName),
-          machineId: row.machineId
-        });
-
-        return {
-          key: row.machineId,
-          state:
-            result.exitCode === 0
-              ? { targets: parseCloneTargetProbeOutput(result.stdout) }
-              : {
-                  error: result.stderr || 'Could not inspect clone targets.',
-                  targets: {}
-                }
-        };
-      })
-    ).then((results) => {
-      if (canceled) {
-        return;
-      }
-
-      setCloneTargetState(Object.fromEntries(results.map((result) => [result.key, result.state])));
+    void Promise.all(runnableRows.map(async (row) => {
+      const result = await projectSpaceClient.runMachineTerminalCommand({
+        command: createCloneTargetProbeCommand(cloneBranchNames, defaultBranch, repositoryName),
+        machineId: row.connectorId
+      });
+      return {
+        key: row.connectorId,
+        state: result.exitCode === 0
+          ? { targets: parseCloneTargetProbeOutput(result.stdout) }
+          : { error: result.stderr || 'Could not inspect clone targets.', targets: {} }
+      };
+    })).then((results) => {
+      if (!canceled) setCloneTargetState(Object.fromEntries(results.map((result) => [result.key, result.state])));
     });
+    return () => { canceled = true; };
+  }, [allConnectorRows, cloneBranchNames, defaultBranch, repositoryName]);
 
-    return () => {
-      canceled = true;
-    };
-  }, [cloneBranchNames, defaultBranch, machineRows, repositoryName]);
-
-  async function cloneToMachine(machineId: string, branchName: string) {
+  async function cloneToConnector(connectorId: string, branchName: string) {
     setActionMessage('');
-    setBusyCloneKey(`${machineId}:${branchName}`);
-
+    setBusyCloneKey(`${connectorId}:${branchName}`);
     const result = await projectSpaceClient.runMachineTerminalCommand({
-      command: createCloneCommand({
-        branchName,
-        defaultBranch,
-        repository: repositoryCloneUrl,
-        repositoryName
-      }),
-      machineId
+      command: createCloneCommand({ branchName, defaultBranch, repository: repositoryCloneUrl, repositoryName }),
+      machineId: connectorId
     });
-
     setBusyCloneKey('');
-    setActionMessage(
-      result.exitCode === 0
-        ? `${branchName} cloned on ${machineId}. Refresh after the connector reports the new checkout.`
-        : result.stderr || result.stdout || `Clone could not be started on ${machineId}.`
+    setActionMessage(result.exitCode === 0
+      ? `${branchName} cloned through the selected connector. Refresh after it reports the checkout.`
+      : result.stderr || result.stdout || 'Clone could not be started through this connector.');
+  }
+
+  function renderConnector(row: ProjectConnectorRow, defaultExpanded = false) {
+    const state = branchState[row.connectorId];
+    const checkout = primaryCheckout(row.checkouts);
+    const worktrees = state?.state === 'ready' ? state.worktrees : [];
+    const worktreeByBranch = new Map<string, NonNullable<WorktreeBranchOption['worktree']>>(
+      worktrees.map((worktree) => [normalizeConnectorKey(worktree.branchName || worktree.name), {
+        branchName: worktree.branchName,
+        headCommittedAt: worktree.headCommittedAt,
+        id: worktree.id,
+        isBase: worktree.isBase,
+        name: worktree.name,
+        path: worktree.path,
+        status: worktree.status,
+        statusReason: worktree.statusReason
+      }])
+    );
+    const targetState = cloneTargetState[row.connectorId];
+    const branches = branchOptions(
+      mergeBranchNames(defaultBranch, cloneBranchNames, worktrees),
+      defaultBranch,
+      repositoryName,
+      targetState?.targets,
+      worktreeByBranch
+    );
+    const targetCheckPending = canRunConnectorCommand(row.connector) && !targetState;
+    const canClone = Boolean(repositoryCloneUrl) && canRunConnectorCommand(row.connector) &&
+      !targetCheckPending && !targetState?.error;
+    return (
+      <ProjectConnectorDisclosure
+        key={row.connectorId}
+        branches={branches}
+        busyBranchName={busyCloneKey.startsWith(`${row.connectorId}:`)
+          ? busyCloneKey.slice(row.connectorId.length + 1)
+          : ''}
+        canClone={canClone}
+        checkouts={row.checkouts}
+        connector={row.connector}
+        connectorId={row.connectorId}
+        defaultBranch={defaultBranch}
+        defaultExpanded={defaultExpanded}
+        environmentLabel={row.presentation?.environmentLabel}
+        onCloneBranch={(branchName) => void cloneToConnector(row.connectorId, branchName)}
+        onOpenConnector={() => onOpenMachine(row.connectorId, 'projects')}
+        onSelectBase={() => onOpenWorktreeBranch(row.connectorId, defaultBranch, checkout?.path)}
+        onSelectBranch={(branchName, path) => onOpenWorktreeBranch(row.connectorId, branchName, path)}
+        onSelectWorktree={(worktreeId) => {
+          const branch = branches.find((option) => option.worktree?.id === worktreeId);
+          if (branch) onOpenWorktreeBranch(row.connectorId, branch.branchName, branch.worktree?.path);
+        }}
+        projectName={repositoryName}
+        repositoryMessage={repositoryBranchesMessage}
+        state={state}
+        targetCheckPending={targetCheckPending}
+        targetError={targetState?.error}
+      />
     );
   }
 
+  const resultCount = filteredMachineRows.length + filteredUngroupedRows.length;
   return (
     <div className="flex min-h-0 flex-col gap-3">
-      <Surface
-        variant="tertiary"
-        className="rounded-lg border border-neutral-800 bg-neutral-950/45 px-4 py-3"
-      >
-        <div className="flex min-w-0 items-center justify-between gap-3">
+      <Surface variant="tertiary" className="rounded-lg border border-neutral-800 bg-neutral-950/45 px-4 py-3">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
             <Monitor className="size-4 shrink-0 text-neutral-400" />
             <Text className="text-sm font-semibold text-neutral-100">Project machines</Text>
           </div>
-          <Text className="shrink-0 text-xs text-neutral-500">
-            {machineRows.length} machines ·{' '}
-            {isCheckingWorktrees ? 'checking worktrees' : `${checkoutCount} checkouts`}
+          <Text className="text-xs text-neutral-500">
+            {physicalMachinesLoading
+              ? 'Loading machines…'
+              : `${machineRows.length} ${machineRows.length === 1 ? 'machine' : 'machines'} · ${allConnectorRows.length} connectors`}
           </Text>
         </div>
-        {actionMessage ? (
-          <Text className="mt-2 block text-xs text-neutral-500">{actionMessage}</Text>
-        ) : null}
+        {physicalMachinesError ? <Text className="mt-2 block text-xs text-amber-300">{physicalMachinesError}</Text> : null}
+        {actionMessage ? <Text className="mt-2 block text-xs text-neutral-500">{actionMessage}</Text> : null}
       </Surface>
 
-      <SearchField aria-label="Search project machines" value={machineQuery} onChange={setMachineQuery}>
+      <SearchField aria-label="Search machines and connectors" value={machineQuery} onChange={setMachineQuery}>
         <SearchFieldGroup className="rounded-lg bg-neutral-900/80">
           <SearchFieldSearchIcon />
-          <SearchFieldInput className="text-sm" placeholder="Search machines" spellCheck={false} />
+          <SearchFieldInput className="text-sm" placeholder="Search machines and connectors" spellCheck={false} />
           <SearchFieldClearButton />
         </SearchFieldGroup>
       </SearchField>
 
-      {machineRows.length === 0 ? (
-        <Text className="px-1 py-4 text-sm text-neutral-500">
-          No connector machines are registered yet.
-        </Text>
-      ) : filteredMachineRows.length === 0 ? (
-        <Text className="px-1 py-4 text-sm text-neutral-500">No machines found.</Text>
+      {!physicalMachinesLoading && allConnectorRows.length === 0 ? (
+        <Text className="px-1 py-4 text-sm text-neutral-500">No connector installations are registered yet.</Text>
+      ) : !physicalMachinesLoading && resultCount === 0 ? (
+        <Text className="px-1 py-4 text-sm text-neutral-500">No machines or connectors found.</Text>
       ) : (
         <div className="grid gap-3">
-          {filteredMachineRows.map((row) => {
-            const state = branchState[row.machineId];
-            const checkouts = row.checkouts;
-            const checkout = primaryCheckout(checkouts);
-            const displayedWorktrees = state?.state === 'ready' ? state.worktrees : [];
-            const worktreeByBranch = new Map<string, NonNullable<WorktreeBranchOption['worktree']>>(
-              displayedWorktrees
-                .map((worktree) => [
-                  normalizeKey(worktree.branchName || worktree.name),
-                  {
-                    branchName: worktree.branchName,
-                    id: worktree.id,
-                    isBase: worktree.isBase,
-                    name: worktree.name,
-                    path: worktree.path,
-                    status: worktree.status,
-                    statusReason: worktree.statusReason,
-                    headCommittedAt: worktree.headCommittedAt
-                  }
-                ])
-            );
-            const hasCheckout = checkouts.length > 0;
-            const selectedTargetState = cloneTargetState[row.machineId];
-            const machineBranchNames = mergeBranchNames(defaultBranch, cloneBranchNames, displayedWorktrees);
-            const cloneBranchOptions = branchOptions(
-              machineBranchNames,
-              defaultBranch,
-              repositoryName,
-              selectedTargetState?.targets,
-              worktreeByBranch
-            );
-            const canNavigate = Boolean(row.machine);
-            const targetCheckPending = canRunMachineCommand(row.machine) && !selectedTargetState;
-            const canClone =
-              Boolean(repositoryCloneUrl) &&
-              canRunMachineCommand(row.machine) &&
-              !targetCheckPending &&
-              !selectedTargetState?.error;
-            const checkoutLabel = hasCheckout
-              ? 'checkout'
-              : targetCheckPending
-                ? 'checking target'
-                : 'not cloned';
-            const checkoutLabelClass = hasCheckout
-              ? 'text-sky-300'
-              : 'text-neutral-500';
-            const machineItemSubtitle = checkout
-              ? compactHomePath(checkout.path)
-              : row.machine
-                ? machineSubtitle(row.machine) || row.machine.connector.status
-                : 'Machine not registered';
+          {filteredMachineRows.map((machine) => (
+            <Surface key={machine.id} variant="tertiary" className="min-w-0 overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950/45">
+              <Disclosure defaultExpanded>
+                <Disclosure.Heading>
+                  <Disclosure.Trigger className="group grid min-h-11 w-full min-w-0 grid-cols-[2.75rem_minmax(0,1fr)] items-center px-2 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400/60 sm:px-3">
+                    <span className="flex min-h-11 items-center justify-center">
+                      <Disclosure.Indicator className="size-4 text-neutral-500 transition-transform group-aria-expanded:rotate-90 motion-reduce:transition-none">
+                        <ChevronRight />
+                      </Disclosure.Indicator>
+                    </span>
+                    <span className="min-w-0">
+                      <Text className="block truncate text-sm font-semibold text-neutral-100">{machine.name}</Text>
+                      <Text className="block truncate text-xs text-neutral-500">
+                        {machine.onlineConnectorCount} of {machine.connectors.length} connectors online
+                      </Text>
+                    </span>
+                  </Disclosure.Trigger>
+                </Disclosure.Heading>
+                <Disclosure.Content>
+                  <Disclosure.Body className="min-w-0">
+                    {machine.connectors.map((connector, index) => renderConnector(
+                      connector,
+                      index === machine.connectors.findIndex((candidate) => candidate.checkouts.length > 0)
+                    ))}
+                  </Disclosure.Body>
+                </Disclosure.Content>
+              </Disclosure>
+            </Surface>
+          ))}
 
-            return (
-              <Surface
-                key={row.machineId}
-                variant="tertiary"
-                className="min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/45 p-4"
-              >
-                <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <MachineListItem
-                      compact
-                      machine={row.machine}
-                      fallbackName={row.machineId}
-                      subtitle={machineItemSubtitle}
-                      className="px-0 py-0 hover:bg-neutral-900/50"
-                      onPress={canNavigate ? () => onOpenMachine(row.machineId, 'projects') : undefined}
-                    />
-                  </div>
-                  <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-1.5">
-                    <Chip
-                      size="sm"
-                      className={cn(
-                        'rounded-full px-2 py-0.5',
-                        machineStatusClass(row.machine?.connector.status)
-                      )}
-                    >
-                      {row.machine?.connector.status ?? 'unknown'}
-                    </Chip>
-                    {row.machine?.connector.runtime ? (
-                      <Chip size="sm" className="rounded-full px-2 py-0.5 text-neutral-400">
-                        {runtimeVersionLabel(row.machine)}
-                      </Chip>
-                    ) : null}
-                    <Chip
-                      size="sm"
-                      className={cn('rounded-full px-2 py-0.5', checkoutLabelClass)}
-                    >
-                      {checkoutLabel}
-                    </Chip>
-                    {displayedWorktrees.length > 0 ? (
-                      <Chip size="sm" className="rounded-full px-2 py-0.5 text-neutral-400">
-                        {displayedWorktrees.length}{' '}
-                        {displayedWorktrees.length === 1 ? 'worktree' : 'worktrees'}
-                      </Chip>
-                    ) : null}
-                    {row.machine ? <MachineConnectorActionsMenu machine={row.machine} /> : null}
-                  </div>
-                </div>
-
-                <div
-                  className="mt-4 min-w-0"
-                  onClick={(event) => event.stopPropagation()}
-                  onKeyDown={(event) => event.stopPropagation()}
-                >
-                  {state?.state === 'blocked' ? (
-                    <Text className="mb-3 block text-xs text-red-300/80">
-                      Worktree discovery blocked: {state.error}
-                    </Text>
-                  ) : null}
-                  {cloneBranchOptions.length > 0 ? (
-                    <ProjectMachineBranches
-                      busyBranchName={
-                        busyCloneKey.startsWith(`${row.machineId}:`)
-                          ? busyCloneKey.slice(row.machineId.length + 1)
-                          : ''
-                      }
-                      canClone={canClone}
-                      cloneMessage={canRunMachineCommand(row.machine) ? 'Clone' : 'Offline'}
-                      defaultBranch={defaultBranch}
-                      localPathLabel="Local"
-                      onCloneBranch={(branchName) => void cloneToMachine(row.machineId, branchName)}
-                      onSelectBase={() => onOpenWorktreeBranch(row.machineId, defaultBranch, checkout?.path)}
-                      onSelectBranch={(branchName, path) =>
-                        onOpenWorktreeBranch(row.machineId, branchName, path)
-                      }
-                      onSelectWorktree={(worktreeId) => {
-                        const branch = cloneBranchOptions.find((option) => option.worktree?.id === worktreeId);
-                        if (branch) {
-                          onOpenWorktreeBranch(row.machineId, branch.branchName, branch.worktree?.path);
-                        }
-                      }}
-                      options={cloneBranchOptions}
-                      projectName={repositoryName}
-                      selectedValue=""
-                      showMissingPath={false}
-                    />
-                  ) : (
-                    <Text className="block rounded-lg border border-neutral-900 px-3 py-3 text-sm text-neutral-500">
-                      No GitHub branches found for this repository.
-                    </Text>
-                  )}
-
-                  {selectedTargetState?.error || repositoryBranchesMessage ? (
-                    <Text className="mt-3 block text-xs text-neutral-500">
-                      {selectedTargetState?.error || repositoryBranchesMessage}
-                    </Text>
-                  ) : null}
-                </div>
-              </Surface>
-            );
-          })}
+          {filteredUngroupedRows.length > 0 ? (
+            <Surface variant="tertiary" className="min-w-0 overflow-hidden rounded-lg border border-amber-500/20 bg-neutral-950/45">
+              <div className="px-4 py-3">
+                <Text className="block text-sm font-semibold text-neutral-200">Ungrouped connector installations</Text>
+                <Text className="block text-xs text-neutral-500">Assign these connectors to a physical machine in Settings.</Text>
+              </div>
+              {filteredUngroupedRows.map((connector, index) => renderConnector(connector, index === 0))}
+            </Surface>
+          ) : null}
         </div>
       )}
     </div>

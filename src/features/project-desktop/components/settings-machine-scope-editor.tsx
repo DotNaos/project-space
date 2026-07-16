@@ -3,51 +3,51 @@ import { AlertTriangle, Check, X } from 'lucide-react';
 import { AlertDialog, Checkbox, Input, Modal } from '@heroui/react';
 import { Button, Text } from '@/app/dotnaos-ui';
 import type {
-  MachineExecutionScopeRecord,
-  MachineExecutionScopeSaveRequest,
-  MachineRecord
+  ConnectorInstallationRecord,
+  PhysicalMachineRecord,
+  PhysicalMachineSaveRequest
 } from '@/shared/project-space-api';
 import { ConnectorChannelChip } from './connector-channel-chip';
 import { MachineOsMark } from './machine-visuals';
 
 export function SettingsMachineScopeEditor({
+  connectors,
   editing,
-  machines,
   onClose,
   onSave,
-  scopes
+  physicalMachines
 }: {
-  editing?: MachineExecutionScopeRecord;
-  machines: readonly MachineRecord[];
+  connectors: readonly ConnectorInstallationRecord[];
+  editing?: PhysicalMachineRecord;
   onClose(): void;
-  onSave(request: MachineExecutionScopeSaveRequest): Promise<void>;
-  scopes: readonly MachineExecutionScopeRecord[];
+  onSave(request: PhysicalMachineSaveRequest): Promise<void>;
+  physicalMachines: readonly PhysicalMachineRecord[];
 }) {
   const [name, setName] = useState(editing?.name ?? '');
-  const [selected, setSelected] = useState(() => new Set(editing?.machineIds ?? []));
+  const [selected, setSelected] = useState(() => new Set(editing?.connectorIds ?? []));
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isConfirmingMoves, setIsConfirmingMoves] = useState(false);
-  const scopeByMachineId = useMemo(() => {
-    const result = new Map<string, MachineExecutionScopeRecord>();
-    for (const scope of scopes) {
-      if (scope.id === editing?.id) continue;
-      for (const machineId of scope.machineIds) result.set(machineId, scope);
+  const machineByConnectorId = useMemo(() => {
+    const result = new Map<string, PhysicalMachineRecord>();
+    for (const machine of physicalMachines) {
+      if (machine.id === editing?.id) continue;
+      for (const connectorId of machine.connectorIds) result.set(connectorId, machine);
     }
     return result;
-  }, [editing?.id, scopes]);
-  const movedScopes = useMemo(() => [...new Set(
-    [...selected].map((machineId) => scopeByMachineId.get(machineId)).filter(
-      (scope): scope is MachineExecutionScopeRecord => Boolean(scope)
+  }, [editing?.id, physicalMachines]);
+  const movedMachines = useMemo(() => [...new Set(
+    [...selected].map((connectorId) => machineByConnectorId.get(connectorId)).filter(
+      (machine): machine is PhysicalMachineRecord => Boolean(machine)
     )
-  )], [scopeByMachineId, selected]);
+  )], [machineByConnectorId, selected]);
 
   async function persist() {
     if (!name.trim() || selected.size === 0) return;
     setIsSaving(true);
     setError('');
     try {
-      await onSave({ id: editing?.id, machineIds: [...selected], name: name.trim() });
+      await onSave({ connectorIds: [...selected], id: editing?.id, name: name.trim() });
       onClose();
     } catch (caught) {
       setIsConfirmingMoves(false);
@@ -58,7 +58,7 @@ export function SettingsMachineScopeEditor({
   }
 
   function save() {
-    if (movedScopes.length > 0) setIsConfirmingMoves(true);
+    if (movedMachines.length > 0) setIsConfirmingMoves(true);
     else void persist();
   }
 
@@ -70,9 +70,9 @@ export function SettingsMachineScopeEditor({
             <Modal.Dialog className="border border-neutral-800 bg-neutral-950 text-neutral-100">
               <Modal.Header className="flex-row items-center gap-3 border-b border-neutral-900">
                 <div className="min-w-0 flex-1">
-                  <Modal.Heading>{editing ? 'Edit machine group' : 'Group connector instances'}</Modal.Heading>
+                  <Modal.Heading>{editing ? 'Edit machine' : 'Add machine'}</Modal.Heading>
                   <Text className="mt-1 block text-xs text-neutral-500">
-                    Grouping uses connector IDs, never their display names.
+                    Machine membership uses connector IDs, never display names.
                   </Text>
                 </div>
                 <Button aria-label="Close" isIconOnly size="sm" variant="ghost" onPress={onClose}>
@@ -85,10 +85,10 @@ export function SettingsMachineScopeEditor({
                   <Input autoFocus fullWidth placeholder="os-pc" value={name} variant="secondary" onChange={(event) => setName(event.currentTarget.value)} />
                 </label>
                 <div>
-                  <Text className="mb-2 block text-xs font-medium text-neutral-300">Connector instances</Text>
+                  <Text className="mb-2 block text-xs font-medium text-neutral-300">Connector installations</Text>
                   <div className="divide-y divide-neutral-900 rounded-lg border border-neutral-800">
-                    {machines.map((machine) => {
-                      const currentScope = scopeByMachineId.get(machine.id);
+                    {connectors.map((machine) => {
+                      const currentMachine = machineByConnectorId.get(machine.id);
                       return (
                         <Checkbox
                           key={machine.id}
@@ -110,9 +110,9 @@ export function SettingsMachineScopeEditor({
                               <span className="min-w-0 flex-1 truncate text-sm text-neutral-200">{machine.name}</span>
                               <ConnectorChannelChip machine={machine} />
                             </span>
-                            {currentScope ? (
+                            {currentMachine ? (
                               <span className="mt-0.5 block truncate text-xs text-amber-300/80">
-                                Currently in {currentScope.name}; selecting it will move it.
+                                Currently in {currentMachine.name}; selecting it will move it.
                               </span>
                             ) : null}
                           </Checkbox.Content>
@@ -126,7 +126,7 @@ export function SettingsMachineScopeEditor({
               <Modal.Footer className="gap-2">
                 <Button variant="ghost" onPress={onClose}>Cancel</Button>
                 <Button isDisabled={!name.trim() || selected.size === 0 || isSaving} variant="primary" onPress={save}>
-                  {isSaving ? 'Saving…' : 'Save group'}
+                  {isSaving ? 'Saving…' : 'Save machine'}
                 </Button>
               </Modal.Footer>
             </Modal.Dialog>
@@ -140,12 +140,12 @@ export function SettingsMachineScopeEditor({
             <AlertDialog.Dialog className="border border-neutral-800 bg-neutral-950 text-neutral-100">
               <AlertDialog.Header>
                 <AlertDialog.Icon status="warning"><AlertTriangle className="size-5" /></AlertDialog.Icon>
-                <AlertDialog.Heading>Move connector instances?</AlertDialog.Heading>
+                <AlertDialog.Heading>Move connector installations?</AlertDialog.Heading>
               </AlertDialog.Header>
               <AlertDialog.Body>
                 <Text className="block text-sm leading-6 text-neutral-300">
-                  Your selection moves connector instances out of {movedScopes.map((scope) => scope.name).join(', ')}.
-                  Empty groups will be removed automatically.
+                  Your selection moves connector installations out of {movedMachines.map((machine) => machine.name).join(', ')}.
+                  Empty machines will be removed automatically.
                 </Text>
                 {error ? <Text className="mt-3 block text-xs text-red-300">{error}</Text> : null}
               </AlertDialog.Body>
