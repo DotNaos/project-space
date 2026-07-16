@@ -13,6 +13,8 @@
 
 - Do not deploy Project Space to Vercel. Vercel is not the production target for this app.
 - Production deploys for Project Space go to the VPS through the Project CLI: `./bin/project deploy --env prod`.
+- After an authorized merge, let every repository-configured workflow triggered by that merge run normally, including automatic production deployments. Do not cancel, disable, pause, or otherwise interfere with that automation unless the user explicitly asks you to stop or cancel it.
+- A merge instruction does not by itself authorize starting a separate manual deployment or release, but it must never be used as a reason to cancel deployment or release automation that the repository starts automatically after the merge.
 - The live Project Space URL is `https://projects.os-home.net`.
 - After deploying, verify the VPS state with `./bin/project deploy status --env prod --format json`, confirm the remote checkout commit under `/opt/platform/apps/project-space`, and open the live `projects.os-home.net` page in the browser.
 - If deployment secrets are needed, use the 1Password references in `deploy/deploy.yaml`; never paste secret values into chat, source files, or logs.
