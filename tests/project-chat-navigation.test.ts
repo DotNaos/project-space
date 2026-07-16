@@ -2,7 +2,8 @@ import { afterEach, describe, expect, mock, test } from 'bun:test';
 
 mock.module('@/api/project-space-client', () => ({
   projectSpaceClient: {},
-  refreshProjectSpaceAuthToken: () => null
+  refreshProjectSpaceAuthToken: () => null,
+  resolveProjectSpaceApiBaseUrl: () => ''
 }));
 mock.module('@/api/codex-sessions-client', () => ({
   createCodexSessionsClient: () => ({})

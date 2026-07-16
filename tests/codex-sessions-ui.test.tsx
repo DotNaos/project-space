@@ -27,6 +27,7 @@ mock.module('@/app/dotnaos-ui', () => ({
     onPress?(): void;
     [key: string]: unknown;
   }) => createElement('button', { ...props, disabled: isDisabled, onClick: onPress }, children),
+  Chip: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('span', props, children),
   Dropdown: ({ children }: { children?: ReactNode }) => createElement('div', null, children),
   DropdownItem: ({ children }: { children?: ReactNode }) => createElement('div', null, children),
   DropdownMenu: ({ children }: { children?: ReactNode }) => createElement('div', null, children),
@@ -40,6 +41,11 @@ mock.module('@/app/dotnaos-ui', () => ({
     createElement('div', props, children)
   ),
   SearchFieldInput: (props: Record<string, unknown>) => createElement('input', props),
+  SearchFieldSearchIcon: () => createElement('span', { 'data-search-icon': true }),
+  Tab: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('button', props, children),
+  TabIndicator: () => null,
+  TabList: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
+  Tabs: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
   Surface: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
   Text: ({ as = 'span', children, ...props }: {
     as?: ElementType;
@@ -56,8 +62,36 @@ mock.module('@/app/dotnaos-ui', () => ({
   )
 }));
 
+mock.module('@heroui/react', () => ({
+  Button: ({ children, isDisabled, isIconOnly: _isIconOnly, size: _size, variant: _variant, ...props }: {
+    children?: ReactNode;
+    isDisabled?: boolean;
+    isIconOnly?: boolean;
+    size?: string;
+    variant?: string;
+    [key: string]: unknown;
+  }) => createElement('button', { ...props, disabled: isDisabled }, children),
+  Drawer: Object.assign(
+    ({ children }: { children?: ReactNode }) => createElement('div', null, children),
+    {
+      Backdrop: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
+      Body: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
+      CloseTrigger: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('button', props, children),
+      Content: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
+      Dialog: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
+      Header: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
+      Heading: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('h2', props, children),
+      Trigger: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('button', props, children)
+    }
+  ),
+  Spinner: (props: Record<string, unknown>) => createElement('span', { ...props, 'data-spinner': true })
+}));
+
 const { CodexSessionsPage } = await import(
   '../src/features/codex-sessions/codex-sessions-page'
+);
+const { ProjectCodexTasks } = await import(
+  '../src/features/codex-sessions/project-codex-tasks'
 );
 
 const machine: CodexMachine = {
@@ -113,32 +147,40 @@ const conversation: CodexConversation = {
   }]
 };
 
-describe('Codex sessions Variant A page', () => {
+describe('Canonical Codex task page', () => {
   test('renders the selected read-only history, streaming state, decisions, and stable origin', () => {
     const html = renderToStaticMarkup(
       <CodexSessionsPage
+        activeTurnId="turn-active"
         conversations={[conversation]}
         machines={[machine]}
         now={new Date('2026-07-13T09:00:00.000Z')}
         onContinueThread={() => {}}
+        onInterruptThread={() => {}}
         onOpenProjectChatThread={() => {}}
         onResolveApproval={() => {}}
         onResolveUserInput={() => {}}
         onSelectThread={() => {}}
+        readBrowser={async () => ({
+          checkedAt: '2026-07-13T09:00:00.000Z',
+          machineId: machine.id,
+          state: 'never-used',
+          threadId: activeSession.threadId
+        })}
         selectedOrigin={{ machineId: machine.id, threadId: activeSession.threadId }}
         sessions={[activeSession]}
       />
     );
 
-    expect(html).toContain('Loaded by Project Space');
-    expect(html).toContain('History opened read-only');
-    expect(html).toContain('Streaming');
-    expect(html).toContain('Running — new turns wait until this thread is idle.');
+    expect(html).toContain('Integrate Codex sessions');
+    expect(html).toContain('Waiting for approval');
+    expect(html).toContain('aria-label="Stop active Codex turn"');
+    expect(html).toContain('This task is still working; a new turn can start when it becomes idle.');
     expect(html).toContain('Allow once');
     expect(html).toContain('Deny');
-    expect(html).toContain('Input required');
-    expect(html).toContain('machine-mac');
-    expect(html).toContain('thread-149');
+    expect(html).toContain('Waiting for input');
+    expect(html).toContain('os-macbook');
+    expect(html).not.toContain('History opened read-only');
   });
 
   test('does not preselect a requested human-input choice', () => {
@@ -148,6 +190,10 @@ describe('Codex sessions Variant A page', () => {
         machines={[machine]}
         selectedOrigin={{ machineId: machine.id, threadId: activeSession.threadId }}
         sessions={[activeSession]}
+        readBrowser={async () => ({
+          checkedAt: '2026-07-13T09:00:00.000Z', machineId: machine.id,
+          state: 'never-used', threadId: activeSession.threadId
+        })}
       />
     );
     const radios = html.match(/<input[^>]+type="radio"[^>]*>/g) ?? [];
@@ -172,10 +218,85 @@ describe('Codex sessions Variant A page', () => {
         machines={[machine]}
         selectedOrigin={{ machineId: machine.id, threadId: activeSession.threadId }}
         sessions={[activeSession]}
+        readBrowser={async () => ({
+          checkedAt: '2026-07-13T09:00:00.000Z', machineId: machine.id,
+          state: 'never-used', threadId: activeSession.threadId
+        })}
       />
     );
     expect(html).toContain('aria-label="Response to What should Codex know?"');
     expect(html).toContain('placeholder="Enter your response"');
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Submit response<\/button>/);
+  });
+});
+
+describe('Project Codex entry points', () => {
+  test('renders the same machine-grouped canonical task in the project tab and Chat drawer', () => {
+    const state = {
+      activeTurnId: undefined,
+      approvalBindings: {},
+      conversations: [],
+      inputBindings: {},
+      loadingMachineIds: ['machine-loading'],
+      machines: [machine, { id: 'machine-offline', name: 'os-pc', status: 'offline' as const }],
+      reading: false,
+      seenEventIds: [],
+      selectedOrigin: undefined,
+      sessions: [activeSession, {
+        ...activeSession,
+        cwd: '/srv/projects/project-space',
+        machineId: 'machine-offline',
+        status: 'idle' as const,
+        threadId: '019f5a78-3c4c-7082-bb45-5411be7d9b9b',
+        title: 'Review idle task'
+      }]
+    };
+    const controller = {
+      getState: () => state,
+      loadMachines: async () => {},
+      subscribe: () => () => {}
+    } as never;
+    const projectRecords = [{
+      id: 'project-space',
+      kind: 'standalone' as const,
+      machineId: machine.id,
+      name: 'Project Space',
+      rootPath: '/Users/oli/projects/project-space'
+    }, {
+      id: 'project-space-offline',
+      kind: 'standalone' as const,
+      machineId: 'machine-offline',
+      name: 'Project Space',
+      rootPath: '/srv/projects/project-space'
+    }, {
+      id: 'project-space-loading',
+      kind: 'standalone' as const,
+      machineId: 'machine-loading',
+      name: 'Project Space',
+      rootPath: '/opt/projects/project-space'
+    }];
+    const common = {
+      controller,
+      machineIds: [machine.id],
+      onOpenTask: () => {},
+      projectRecords
+    };
+    const panel = renderToStaticMarkup(<ProjectCodexTasks {...common} mode="panel" />);
+    const preview = renderToStaticMarkup(<ProjectCodexTasks {...common} mode="preview" />);
+
+    for (const html of [panel, preview]) {
+      expect(html).toContain('os-macbook');
+      expect(html).toContain('Integrate Codex sessions');
+      expect(html).toContain('Issue #149');
+      expect(html).toContain('data-spinner="true"');
+      expect(html).toContain('Review idle task');
+      expect(html).toContain('os-pc');
+      expect(html).toContain('Checking machine');
+      expect(html).toContain('Checking for Codex tasks');
+      expect(html).not.toContain('projectName');
+    }
+    expect(preview).toContain('1 active task');
+    expect(preview).toContain('Codex tasks');
+    expect(panel).not.toContain('Unavailable machine');
   });
 });

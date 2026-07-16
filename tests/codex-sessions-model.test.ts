@@ -94,7 +94,7 @@ describe('Codex session continuation safety', () => {
   test('allows continuation only when the thread and owning machine are idle', () => {
     expect(codexContinueBlockReason(session(), machines[0])).toBeUndefined();
     expect(codexContinueBlockReason(session({ status: 'active' }), machines[0])).toBe(
-      'Running — new turns wait until this thread is idle.'
+      'This task is still working; a new turn can start when it becomes idle.'
     );
     expect(codexContinueBlockReason(session({ machineId: 'machine-pc' }), machines[1])).toBe(
       'The owning machine is offline.'
@@ -115,4 +115,3 @@ describe('Codex session continuation safety', () => {
     expect(formatCodexActivity('2026-07-13T06:00:00.000Z', now)).toBe('3h ago');
   });
 });
-

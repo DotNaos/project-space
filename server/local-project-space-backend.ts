@@ -64,6 +64,7 @@ import { readAppMeta } from './app-meta';
 import { connectorRuntimeRecord } from './connector-build-info';
 import { configuredConnectorMachineId } from './project-connector-config';
 import {
+  CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY
 } from './codex-sessions-connector-contract';
@@ -160,6 +161,7 @@ const connectorCommandCapabilities = [
   'worktrees.list',
   'worktrees.list.v2',
   ...(existsSync(defaultCodexAppServerBinary) ? [
+    CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY,
     CODEX_SESSIONS_CONNECTOR_CAPABILITY,
     CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY
   ] : [])

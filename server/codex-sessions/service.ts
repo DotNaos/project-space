@@ -1,20 +1,23 @@
 import { performance } from 'node:perf_hooks';
 
-import type {
-  CodexSessionApprovalRequest,
-  CodexSessionContinueRequest,
-  CodexSessionInspectRequest,
-  CodexSessionInspectResult,
-  CodexSessionInterruptRequest,
-  CodexSessionListRequest,
-  CodexSessionListResult,
-  CodexSessionMachineRecord,
-  CodexSessionOperationResult,
-  CodexSessionReadRequest,
-  CodexSessionReadResult,
-  CodexSessionRecord,
-  CodexSessionStreamEvent,
-  CodexSessionUserInputResponse
+import {
+  CODEX_BROWSER_MAXIMUM_IMAGE_BYTES,
+  type CodexSessionApprovalRequest,
+  type CodexSessionBrowserRequest,
+  type CodexSessionBrowserResult,
+  type CodexSessionContinueRequest,
+  type CodexSessionInspectRequest,
+  type CodexSessionInspectResult,
+  type CodexSessionInterruptRequest,
+  type CodexSessionListRequest,
+  type CodexSessionListResult,
+  type CodexSessionMachineRecord,
+  type CodexSessionOperationResult,
+  type CodexSessionReadRequest,
+  type CodexSessionReadResult,
+  type CodexSessionRecord,
+  type CodexSessionStreamEvent,
+  type CodexSessionUserInputResponse
 } from '../../src/shared/codex-sessions-api';
 import { CODEX_SESSION_LIST_DEADLINE_MS, localizeCodexSessionInventoryWindow } from '../../src/shared/codex-session-inventory-window';
 import type {
@@ -37,6 +40,9 @@ export interface CodexSessionStreamRequest extends CodexSessionReadRequest {
 }
 
 export interface CodexSessionsTransport {
+  browser?(
+    input: CodexSessionBrowserRequest & { userId: string }
+  ): Promise<CodexSessionBrowserResult>;
   describeMachine(input: CodexSessionsMachineScope): Promise<CodexSessionMachineRecord>;
   list(input: CodexSessionsMachineScope): Promise<CodexSessionListResult>;
   inspect(input: CodexSessionInspectRequest & { userId: string }): Promise<CodexSessionInspectResult>;
@@ -179,6 +185,24 @@ export function createCodexSessionsService(options: {
         await options.store.latestEventSequence(sessionScope)
       );
     }
+  }
+
+  async function browser(actor: CodexSessionsActor, request: CodexSessionBrowserRequest) {
+    const sessionScope = {
+      ...(await scope(actor, request.machineId)),
+      threadId: required(request.threadId, 'threadId')
+    };
+    if (!options.transport.browser) return unavailableBrowser(sessionScope, now());
+    return sanitizeBrowserResult(
+      await options.transport.browser({
+        afterImageRevision: request.afterImageRevision,
+        machineId: sessionScope.machineId,
+        threadId: sessionScope.threadId,
+        userId: sessionScope.userId
+      }),
+      sessionScope,
+      request.afterImageRevision
+    );
   }
 
   async function inspect(actor: CodexSessionsActor, request: CodexSessionInspectRequest) {
@@ -385,6 +409,7 @@ export function createCodexSessionsService(options: {
 
   return {
     approve: (actor: CodexSessionsActor, request: CodexSessionApprovalRequest) => mutate(actor, 'approval', request),
+    browser,
     continue: (actor: CodexSessionsActor, request: CodexSessionContinueRequest) => mutate(actor, 'continue', request),
     inspect,
     interrupt: (actor: CodexSessionsActor, request: CodexSessionInterruptRequest) => mutate(actor, 'interrupt', request),
@@ -401,7 +426,127 @@ function validateRead(result: CodexSessionReadResult, scope: SessionScope) {
   if (result.openedReadOnly !== true || result.session.machineId !== scope.machineId || result.session.id !== scope.threadId) {
     throw new CodexTransportUncertainError('The connector returned history for a different session.');
   }
-  return result;
+  const { browser: _unexpectedBrowser, ...publicResult } = result as CodexSessionReadResult & {
+    browser?: unknown;
+  };
+  return publicResult;
+}
+
+function sanitizeBrowserResult(
+  result: CodexSessionBrowserResult,
+  scope: SessionScope,
+  requestedImageRevision?: string
+) {
+  if (!isRecord(result) || result.machineId !== scope.machineId || result.threadId !== scope.threadId ||
+    !validTimestamp(result.checkedAt) || !['never-used', 'loading', 'live', 'ended', 'unavailable'].includes(result.state)) {
+    throw new CodexTransportUncertainError('The connector returned a browser frame for a different session.');
+  }
+  const common = {
+    checkedAt: result.checkedAt,
+    ...(validImageRevision(result.imageRevision) ? { imageRevision: result.imageRevision } : {}),
+    machineId: scope.machineId,
+    ...(validTimestamp(result.observedAt) ? { observedAt: result.observedAt } : {}),
+    threadId: scope.threadId,
+    ...(validIdentifier(result.turnId) ? { turnId: result.turnId } : {})
+  };
+  if (result.state === 'live') {
+    const unchanged = result.imageUnchanged === true && result.imageRevision === requestedImageRevision
+      && validImageRevision(result.imageRevision)
+      && result.imageDataUrl === undefined;
+    if (!unchanged && (!validImageDataUrl(result.imageDataUrl) || !validImageRevision(result.imageRevision))) {
+      throw new CodexTransportUncertainError('The connector returned an invalid browser frame.');
+    }
+    const pageUrl = result.pageUrl === undefined ? undefined : pageOrigin(result.pageUrl);
+    if (result.pageUrl !== undefined && !pageUrl) {
+      throw new CodexTransportUncertainError('The connector returned an invalid browser origin.');
+    }
+    return {
+      ...common,
+      ...(unchanged ? { imageUnchanged: true as const } : { imageDataUrl: result.imageDataUrl! }),
+      ...(pageUrl ? { pageUrl } : {}),
+      state: 'live' as const
+    };
+  }
+  if (result.state === 'ended') {
+    const unchanged = result.imageUnchanged === true && result.imageRevision === requestedImageRevision
+      && validImageRevision(result.imageRevision)
+      && result.imageDataUrl === undefined;
+    if (!unchanged && result.imageDataUrl !== undefined &&
+      (!validImageDataUrl(result.imageDataUrl) || !validImageRevision(result.imageRevision))) {
+      throw new CodexTransportUncertainError('The connector returned an invalid browser frame.');
+    }
+    if (result.pageUrl !== undefined && result.imageDataUrl === undefined && !unchanged) {
+      throw new CodexTransportUncertainError('The connector returned a browser origin without a frame.');
+    }
+    const pageUrl = result.pageUrl === undefined ? undefined : pageOrigin(result.pageUrl);
+    if (result.pageUrl !== undefined && !pageUrl) {
+      throw new CodexTransportUncertainError('The connector returned an invalid browser origin.');
+    }
+    const reason = typeof result.reason === 'string' && result.reason.length <= 512
+      ? result.reason
+      : undefined;
+    return {
+      ...common,
+      ...(unchanged ? { imageUnchanged: true as const } : {}),
+      ...(result.imageDataUrl ? { imageDataUrl: result.imageDataUrl } : {}),
+      ...(pageUrl ? { pageUrl } : {}),
+      ...(reason ? { reason } : {}),
+      state: 'ended' as const
+    };
+  }
+  const reason = typeof result.reason === 'string' && result.reason.length <= 512
+    ? result.reason
+    : undefined;
+  return { ...common, ...(reason ? { reason } : {}), state: result.state };
+}
+
+function unavailableBrowser(scope: SessionScope, now: Date): CodexSessionBrowserResult {
+  return {
+    checkedAt: now.toISOString(),
+    machineId: scope.machineId,
+    reason: 'The owning machine is offline or the browser mirror is unavailable.',
+    state: 'unavailable',
+    threadId: scope.threadId
+  };
+}
+
+function validTimestamp(value: unknown): value is string {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value));
+}
+
+function validImageRevision(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+}
+
+function validIdentifier(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 128 &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value);
+}
+
+function validImageDataUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 2_100_000) return false;
+  const match = value.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/);
+  if (!match || match[2]!.length % 4 !== 0) return false;
+  const padding = match[2]!.endsWith('==') ? 2 : match[2]!.endsWith('=') ? 1 : 0;
+  const bytes = match[2]!.length * 3 / 4 - padding;
+  return Number.isSafeInteger(bytes) && bytes > 0 &&
+    bytes <= CODEX_BROWSER_MAXIMUM_IMAGE_BYTES;
+}
+
+function pageOrigin(value: string) {
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.origin !== value) {
+      return undefined;
+    }
+    return url.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function validateInspect(result: CodexSessionInspectResult, scope: SessionScope) {

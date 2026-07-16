@@ -65,6 +65,7 @@ function toMachine(result: CodexSessionListResult): CodexMachine {
 }
 function toSession(record: CodexSessionListResult['sessions'][number]): CodexSession {
   return {
+    attention: record.attention,
     cwd: record.cwd,
     lastActivityAt: record.lastActivityAt,
     loadedByProjectSpace: record.loadedByProjectSpace,
@@ -367,6 +368,10 @@ export class CodexSessionsController {
       });
     }
     return result;
+  }
+
+  browser(origin: CodexThreadOrigin) {
+    return this.client.browser(origin);
   }
 
   interrupt(origin: CodexThreadOrigin, turnId: string) {

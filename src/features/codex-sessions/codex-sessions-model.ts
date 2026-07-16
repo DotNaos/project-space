@@ -79,7 +79,7 @@ export function codexContinueBlockReason(session: CodexSession, machine?: CodexM
   const status = effectiveCodexSessionStatus(session, machine);
   switch (status) {
     case 'idle': return undefined;
-    case 'active': return 'Running — new turns wait until this thread is idle.';
+    case 'active': return 'This task is still working; a new turn can start when it becomes idle.';
     case 'archived': return 'Archived threads are read-only.';
     case 'missing': return 'This stored thread is no longer available on its machine.';
     case 'offline': return 'The owning machine is offline.';
@@ -99,4 +99,3 @@ export function formatCodexActivity(isoDate: string, now = new Date()) {
     day: 'numeric', month: 'short'
   }).format(new Date(isoDate));
 }
-

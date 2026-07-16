@@ -11,13 +11,21 @@ App Server process is the only runtime whose loaded and live states Project Spac
 
 ## Product decisions
 
-- The selected interface is Variant A: machine/session list, conversation, and details/decisions.
+- The project Codex tab groups project-scoped tasks by physical machine. Project Chat shows only a
+  compact active-task count; opening it reveals the same grouped tasks in a temporary drawer.
+- Both project entry points open one canonical task workspace at
+  `/codex/machines/:machineId/threads/:threadId`. Task titles are descriptive and never route keys.
+- Task rows use the task name as their only primary text. Issue and pull-request references are
+  separate metadata, and active work uses a spinner instead of a static “Running” status.
 - Opening history is read-only. It uses `thread/read` and never resumes or subscribes to the task.
 - Loaded state is labelled **Loaded by Project Space** because App Server loaded state is
   process-local and cannot describe a separate Codex client.
 - Starting a new turn while one is active is rejected until the current turn becomes idle. Project
   Space does not silently queue or steer work.
-- Stable machine and thread IDs route every operation. Titles are descriptive only.
+- The task workspace contains the stored conversation, live streaming, composer, approval and
+  input handling without a second task list or a redundant details inspector.
+- On desktop, live agent-browser activity opens a resizable chat/browser split. A manual collapse
+  lasts for the current turn. Narrow layouts use a Chat/Browser switch.
 
 ## Threat invariants
 
@@ -36,19 +44,31 @@ App Server process is the only runtime whose loaded and live states Project Spac
    server resolves them. No default human choice is invented.
 8. Connector disconnects, App Server restarts, missing tasks, and offline machines fail closed and
    never become empty success states.
+9. Browser snapshots are read-only, identity-bound to the authenticated machine and task, and
+   sanitized before leaving the connector. Browser runtime, tab, and session identifiers are never
+   exposed publicly or added to the canonical URL.
+10. An ended browser may retain its final read-only frame, but it is never labelled live or reused
+    by a later turn. Loading, reconnecting, offline, unauthorized, and unavailable states are
+    represented honestly.
+11. Browser polling uses its own separately negotiated, signed connector operation and never loads or serializes task
+    history. Decoded frames are capped at 1,500,000 bytes so the base64 image and signed JSON result
+    remain below the connector's 2 MiB WebSocket message limit.
 
 ## Delivery slices
 
 1. List stored, archived, and Project-Space-loaded tasks by machine; read history without loading.
 2. Resume an idle task, start one idempotent turn, and stream task, turn, item, and text updates.
 3. Preserve approvals, permission prompts, user-input requests, interruption, and reject-until-idle.
-4. Open the exact machine/thread origin from Project Chat and support direct Codex session routes.
-5. Reconcile reconnects, App Server restarts, offline/missing tasks, and multiple machines.
+4. Open the exact machine/thread origin from the project Codex tab or Project Chat and support
+   direct canonical task URLs and legacy URL canonicalization.
+5. Mirror the authenticated active browser safely, including reconnect and lifecycle states.
+6. Reconcile App Server restarts, offline/missing tasks, and multiple machines.
 
 ## Finishing criteria
 
 - Automated tests cover list, loaded list, archived list, read, resume, start, streaming, approvals,
-  user input, authorization, isolation, reconnect, restart, offline/missing state, and duplicates.
+  user input, authorization, isolation, reconnect, restart, offline/missing state, browser lifecycle,
+  canonical routing, project entry points, responsive layout, and duplicates.
 - The exact source task `019f5a78-3c4c-7082-bb45-5411be7d9b9a` is found through the real local
   App Server, and a read proves it remains unloaded.
 - A controlled continuation appends to that same task ID and streams visibly without duplicate work.

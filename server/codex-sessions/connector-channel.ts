@@ -5,11 +5,13 @@ import type {
   CodexSessionsWireResult
 } from '../codex-sessions-connector-contract';
 import type {
+  CodexSessionBrowserResult,
   CodexSessionListResult,
   CodexSessionInspectResult,
   CodexSessionOperationResult,
   CodexSessionReadResult
 } from '../../src/shared/codex-sessions-api';
+import { CODEX_BROWSER_MAXIMUM_IMAGE_BYTES } from '../../src/shared/codex-sessions-api';
 
 export interface CodexSessionsCommandBinding {
   generation: number;
@@ -76,6 +78,12 @@ export function boundCodexSessionsResultMatchesRequest(
     return result.machine.id === expected.machineId &&
       result.sessions.every((session) => session.machineId === expected.machineId);
   }
+  if (value.result.operation === 'browser') {
+    const result = value.result.result as CodexSessionBrowserResult;
+    const payload = request.payload as { afterImageRevision?: string };
+    return result.machineId === expected.machineId && result.threadId === expected.threadId &&
+      (result.imageUnchanged !== true || result.imageRevision === payload.afterImageRevision);
+  }
   if (value.result.operation === 'read') {
     const result = value.result.result as CodexSessionReadResult;
     return result.session.machineId === expected.machineId && result.session.id === expected.threadId;
@@ -100,6 +108,9 @@ export function isBoundCodexSessionsResult(value: unknown): value is BoundCodexS
     !smallRecord(result.result)) return false;
   if (result.operation === 'list') {
     return isListResult(result.result);
+  }
+  if (result.operation === 'browser') {
+    return isBrowserResult(result.result);
   }
   if (result.operation === 'read') {
     return isReadResult(result.result);
@@ -146,7 +157,7 @@ function isBinding(value: unknown): value is CodexSessionsCommandBinding {
     identifier(value.operationId, 128) &&
     (value.threadId === undefined || identifier(value.threadId, 128)) &&
     typeof value.operation === 'string' && [
-      'approval', 'continue', 'inspect', 'input', 'interrupt', 'list', 'read', 'stream'
+      'approval', 'browser', 'continue', 'inspect', 'input', 'interrupt', 'list', 'read', 'stream'
     ].includes(value.operation);
 }
 
@@ -162,9 +173,35 @@ function isListResult(value: Record<string, unknown>) {
 }
 
 function isReadResult(value: Record<string, unknown>) {
-  return value.openedReadOnly === true && smallRecord(value.session) &&
+  return hasOnlyKeys(value, ['openedReadOnly', 'session', 'streamCursor', 'turns']) &&
+    value.openedReadOnly === true && smallRecord(value.session) &&
     identifier(value.session.id, 128) && identifier(value.session.machineId, 256) &&
     Array.isArray(value.turns) && value.turns.length <= 10_000;
+}
+
+function isBrowserResult(value: Record<string, unknown>) {
+  if (!hasOnlyKeys(value, [
+    'checkedAt', 'imageDataUrl', 'imageRevision', 'imageUnchanged', 'machineId', 'observedAt',
+    'pageUrl', 'reason', 'state', 'threadId', 'turnId'
+  ]) || !identifier(value.machineId, 256) || !identifier(value.threadId, 128) ||
+    !timestamp(value.checkedAt) || (value.observedAt !== undefined && !timestamp(value.observedAt)) ||
+    (value.turnId !== undefined && !identifier(value.turnId, 128)) ||
+    (value.reason !== undefined && (typeof value.reason !== 'string' || value.reason.length > 512)) ||
+    typeof value.state !== 'string' ||
+    !['never-used', 'loading', 'live', 'ended', 'unavailable'].includes(value.state)) return false;
+  if (value.pageUrl !== undefined && !pageOrigin(value.pageUrl)) return false;
+  const unchanged = value.imageUnchanged === true && sha256(value.imageRevision)
+    && value.imageDataUrl === undefined;
+  const completeFrame = imageDataUrl(value.imageDataUrl) && sha256(value.imageRevision)
+    && value.imageUnchanged === undefined;
+  if (value.state === 'live') return unchanged || completeFrame;
+  if (value.state === 'ended') {
+    if (unchanged || completeFrame) return true;
+    return value.imageDataUrl === undefined && value.imageRevision === undefined
+      && value.imageUnchanged === undefined && value.pageUrl === undefined;
+  }
+  return value.imageDataUrl === undefined && value.imageRevision === undefined
+    && value.imageUnchanged === undefined && value.pageUrl === undefined;
 }
 
 function isInspectResult(value: Record<string, unknown>) {
@@ -205,6 +242,31 @@ function identifier(value: unknown, maximum: number): value is string {
 
 function sha256(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
+}
+
+function timestamp(value: unknown): value is string {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value));
+}
+
+function imageDataUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 2_100_000) return false;
+  const match = value.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/);
+  if (!match || match[2]!.length % 4 !== 0) return false;
+  const padding = match[2]!.endsWith('==') ? 2 : match[2]!.endsWith('=') ? 1 : 0;
+  const bytes = match[2]!.length * 3 / 4 - padding;
+  return Number.isSafeInteger(bytes) && bytes > 0 &&
+    bytes <= CODEX_BROWSER_MAXIMUM_IMAGE_BYTES;
+}
+
+function pageOrigin(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 4_096) return false;
+  try {
+    const url = new URL(value);
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password &&
+      url.origin === value;
+  } catch {
+    return false;
+  }
 }
 
 function hasOnlyKeys(value: Record<string, unknown>, allowed: string[]) {

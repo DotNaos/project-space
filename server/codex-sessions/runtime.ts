@@ -60,6 +60,7 @@ function wrapHttpService(
 ): CodexSessionsHttpService {
   return {
     approve: (actor, request) => withHttpErrors(() => service.approve(actor, request)),
+    browser: (actor, request) => withHttpErrors(() => service.browser(actor, request)),
     continue: (actor, request) => withHttpErrors(() => service.continue(actor, request)),
     inspect: (actor, request) => withHttpErrors(() => service.inspect(actor, request)),
     interrupt: (actor, request) => withHttpErrors(() => service.interrupt(actor, request)),

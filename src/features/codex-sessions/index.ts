@@ -1,5 +1,19 @@
 export { CodexSessionsPage, type CodexSessionsPageProps } from './codex-sessions-page';
 export { CodexSessionsControllerPage } from './codex-sessions-controller-page';
+export { CodexTaskWorkspace } from './codex-task-workspace';
+export {
+  clampCodexChatSplitPercent,
+  shouldAutoOpenCodexBrowser
+} from './codex-task-workspace-model';
+export { ProjectCodexTasks } from './project-codex-tasks';
+export {
+  groupProjectCodexTasks,
+  parseProjectCodexTaskTitle,
+  presentProjectCodexTaskStatus,
+  projectCodexTaskId,
+  projectCodexTasks,
+  type ProjectCodexTask
+} from './project-codex-task-model';
 export {
   applyCodexReadResult,
   applyCodexStreamEvent,

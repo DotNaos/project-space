@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Hash } from 'lucide-react';
 import { Text } from '@/app/dotnaos-ui';
 import { ProjectChatRequestError } from '@/api/project-chat-client';
@@ -77,13 +77,15 @@ export function ProjectChatWorkspace({
   fixedProjectId,
   onOpenThread,
   recentProjectIds = [],
-  showChannelNavigation = fixedProjectId === undefined
+  showChannelNavigation = fixedProjectId === undefined,
+  taskPreview
 }: {
   client: ProjectChatClient;
   fixedProjectId?: string;
   onOpenThread?: ProjectChatPageProps['onOpenThread'];
   recentProjectIds?: string[];
   showChannelNavigation?: boolean;
+  taskPreview?: ReactNode;
 }) {
   const initialRoute = typeof window === 'undefined'
     ? { matches: true as const, projectId: undefined }
@@ -194,6 +196,7 @@ export function ProjectChatWorkspace({
       projectId={selectedChannel.projectId}
       recentProjectIds={recentProjectIds}
       showChannelNavigation={showChannelNavigation}
+      taskPreview={taskPreview}
     />
   );
 }
@@ -206,7 +209,8 @@ function ProjectChatRoomWorkspace({
   onSelectChannel,
   projectId,
   recentProjectIds,
-  showChannelNavigation
+  showChannelNavigation,
+  taskPreview
 }: {
   channel: ProjectChatChannelRecord;
   channels: ProjectChatChannelRecord[];
@@ -216,6 +220,7 @@ function ProjectChatRoomWorkspace({
   projectId?: string;
   recentProjectIds: string[];
   showChannelNavigation: boolean;
+  taskPreview?: ReactNode;
 }) {
   const [channel, setChannel] = useState<ProjectChatChannelRecord>(initialChannel);
   const [connectionState, setConnectionState] = useState<ProjectChatConnectionState>('loading');
@@ -453,6 +458,7 @@ function ProjectChatRoomWorkspace({
       })}
       recentProjectIds={recentProjectIds}
       showChannelNavigation={showChannelNavigation}
+      taskPreview={taskPreview}
       unreadMentionCount={unreadMentionCount}
       viewer={viewer}
     />

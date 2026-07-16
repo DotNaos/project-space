@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { createCodexSessionsClient } from '@/api/codex-sessions-client';
-import { refreshProjectSpaceAuthToken } from '@/api/project-space-client';
+import {
+  refreshProjectSpaceAuthToken,
+  resolveProjectSpaceApiBaseUrl
+} from '@/api/project-space-client';
 import { CodexSessionsController } from '../../codex-sessions/codex-sessions-controller';
 import {
   parseCodexSessionRoute,
@@ -27,6 +30,12 @@ export function useCodexDesktop({
 }) {
   const [selectedOrigin, setSelectedOrigin] = useState<CodexSessionTarget | undefined>(currentTarget);
   const controller = useMemo(() => new CodexSessionsController(createCodexSessionsClient({
+    baseUrl: typeof window === 'undefined'
+      ? ''
+      : resolveProjectSpaceApiBaseUrl(
+          window.location.href,
+          import.meta.env.VITE_PROJECT_SPACE_API_BASE_URL
+        ),
     getAuthToken: refreshProjectSpaceAuthToken
   })), []);
   const machineIds = useMemo(() => (
@@ -36,9 +45,27 @@ export function useCodexDesktop({
   useEffect(() => () => controller.dispose(), [controller]);
 
   useEffect(() => {
+    const route = parseCodexSessionRoute(window.location.pathname);
+    if (route.matches && route.legacy && route.canonicalPath) {
+      window.history.replaceState(
+        null,
+        '',
+        `${route.canonicalPath}${window.location.search}${window.location.hash}`
+      );
+    }
+  }, []);
+
+  useEffect(() => {
     const handlePopState = () => {
       const route = parseCodexSessionRoute(window.location.pathname);
       if (!route.matches) return;
+      if (route.legacy && route.canonicalPath) {
+        window.history.replaceState(
+          null,
+          '',
+          `${route.canonicalPath}${window.location.search}${window.location.hash}`
+        );
+      }
       setSelectedOrigin(route.machineId && route.threadId
         ? { machineId: route.machineId, threadId: route.threadId }
         : undefined);

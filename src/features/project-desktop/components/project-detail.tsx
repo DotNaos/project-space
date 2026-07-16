@@ -36,7 +36,6 @@ import { ProjectIssueDetailPanel } from './project-issue-detail-panel';
 import { ProjectMachinesPanel } from './project-machines-panel';
 import { ProjectDeploymentsPanel } from './project-deployments-panel';
 import { ProjectOverviewWorkbench } from './project-overview-workbench';
-import { ProjectCodexPanel } from './project-workspace-tools';
 import { ProjectWorkspacesPanel } from './project-workspaces-panel';
 import { ProjectTemplateAdherencePanel } from './project-template-adherence-panel';
 import { ProjectTemplateSetupPanel } from './project-template-setup-panel';
@@ -281,6 +280,7 @@ const projectTabItems: Array<{
 
 export interface ProjectDetailProps {
   chat: React.ReactNode;
+  codex: React.ReactNode;
   connectorOverview: ConnectorOverviewResult;
   launcherError: string;
   onOpenMachine(machineId: string, tab?: MachineDetailTab): void;
@@ -307,6 +307,7 @@ export interface ProjectDetailProps {
 
 export function ProjectDetail({
   chat,
+  codex,
   connectorOverview,
   launcherError,
   onOpenMachine,
@@ -332,7 +333,7 @@ export function ProjectDetail({
 }: ProjectDetailProps) {
   const [templateRefreshKey, setTemplateRefreshKey] = useState(0);
   const [templateRelativePath, setTemplateRelativePath] = useState('');
-  const containsOwnScroll = tab === 'history' || tab === 'issues' || tab === 'chat';
+  const containsOwnScroll = tab === 'history' || tab === 'issues' || tab === 'chat' || tab === 'codex';
   const templateTargetPath = joinTargetPath(selectedTargetPath, templateRelativePath);
 
   return (
@@ -488,7 +489,7 @@ export function ProjectDetail({
           />
         ) : null}
 
-        {tab === 'codex' ? <ProjectCodexPanel targetPath={selectedTargetPath} /> : null}
+        {tab === 'codex' ? codex : null}
       </div>
     </div>
   );

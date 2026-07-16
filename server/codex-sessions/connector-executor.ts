@@ -2,6 +2,8 @@ import { createHash, type KeyLike } from 'node:crypto';
 
 import type {
   CodexSessionApprovalRequest,
+  CodexSessionBrowserRequest,
+  CodexSessionBrowserResult,
   CodexSessionContinueRequest,
   CodexSessionInspectRequest,
   CodexSessionInterruptRequest,
@@ -43,6 +45,7 @@ import {
   resolveCodexTaskLocation,
   type CodexTaskLocationResolver
 } from './task-access-evidence';
+import { readCodexBrowserSnapshot } from './browser-snapshot-reader';
 
 type ExecutableOperation = Exclude<CodexSessionsConnectorOperation, 'stream'>;
 type PendingRequest = {
@@ -59,6 +62,11 @@ export interface CodexSessionsConnectorExecutorOptions {
   machineName: string;
   manager: CodexSessionManager;
   now?: () => number;
+  readBrowserSnapshot?: (
+    machineId: string,
+    threadId: string,
+    options?: { afterImageRevision?: string }
+  ) => Promise<CodexSessionBrowserResult>;
   replayProtection?: CodexSessionsGrantReplayProtection;
   resolveTaskLocation?: CodexTaskLocationResolver;
   verificationKey: KeyLike;
@@ -88,6 +96,11 @@ export class CodexSessionsConnectorExecutor {
   async execute(operation: ExecutableOperation, value: unknown): Promise<CodexSessionsWireResult> {
     const request = this.verify(value, operation);
     switch (operation) {
+      case 'browser':
+        return {
+          operation,
+          result: await this.browser(request.payload as CodexSessionBrowserRequest)
+        };
       case 'list':
         return { operation, result: await this.list(request.payload as CodexSessionListRequest) };
       case 'read':
@@ -202,7 +215,17 @@ export class CodexSessionsConnectorExecutor {
         }
       )] as const] : [])
     ]);
-    const sessions = [...sessionsById.values()].sort((left, right) => (
+    const sessions = [...sessionsById.values()].map((session) => {
+      const requests = [...this.pending.values()].filter((request) => request.threadId === session.id);
+      const attention = requests.some((request) => (
+        request.method === 'item/tool/requestUserInput' || request.method === 'tool/requestUserInput'
+      ))
+        ? 'input' as const
+        : requests.length > 0
+          ? 'approval' as const
+          : undefined;
+      return { ...session, ...(attention ? { attention } : {}) };
+    }).sort((left, right) => (
       Date.parse(right.lastActivityAt) - Date.parse(left.lastActivityAt)
       || Number(left.archived) - Number(right.archived)
       || left.title.localeCompare(right.title)
@@ -235,6 +258,14 @@ export class CodexSessionsConnectorExecutor {
       session,
       turns: presentCodexTurns(result.thread)
     };
+  }
+
+  private async browser(request: CodexSessionBrowserRequest) {
+    return (this.options.readBrowserSnapshot ?? readCodexBrowserSnapshot)(
+      this.options.expectedMachineId,
+      request.threadId,
+      { afterImageRevision: request.afterImageRevision }
+    );
   }
 
   private async inspect(request: CodexSessionInspectRequest, connectorGeneration: number) {

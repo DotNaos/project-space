@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type {
   CodexSessionApprovalRequest,
+  CodexSessionBrowserRequest,
   CodexSessionContinueRequest,
   CodexSessionInspectRequest,
   CodexSessionInterruptRequest,
@@ -93,6 +94,27 @@ export function createConfiguredCodexSessionsHandler(
 
 export function createConnectorCodexSessionsTransport(): CodexSessionsTransport {
   return {
+    async browser({ afterImageRevision, machineId, threadId, userId }) {
+      try {
+        const result = await request('browser', {
+          ...(afterImageRevision ? { afterImageRevision } : {}),
+          machineId,
+          threadId
+        }, userId);
+        if (result.operation !== 'browser') {
+          throw new CodexTransportUncertainError();
+        }
+        return result.result;
+      } catch (error) {
+        if (error instanceof CodexConnectorRemoteError && error.code === 'rejected') {
+          throw new CodexTransportUncertainError(
+            'The connector could not prove the current Codex browser identity.'
+          );
+        }
+        if (error instanceof CodexTransportUncertainError) throw error;
+        throw new CodexTransportUnavailableError();
+      }
+    },
     async describeMachine({ machineId }) {
       const machine = (await getRegisteredConnectorMachines())
         .find((candidate) => candidate.id === machineId);
@@ -165,17 +187,24 @@ export function createConnectorCodexSessionsTransport(): CodexSessionsTransport 
 }
 
 async function request(
-  operation: 'inspect' | 'list' | 'read',
-  payload: { includeArchived?: boolean; machineId: string; threadId?: string },
+  operation: 'browser' | 'inspect' | 'list' | 'read',
+  payload: {
+    afterImageRevision?: string;
+    includeArchived?: boolean;
+    machineId: string;
+    threadId?: string;
+  },
   userId: string
 ) {
   try {
     return await requestConnectorCodexSessions(
       operation,
-      payload as CodexSessionInspectRequest | CodexSessionReadRequest,
+      payload as CodexSessionBrowserRequest | CodexSessionInspectRequest | CodexSessionReadRequest,
       {
         ...(operation === 'inspect'
           ? { timeoutMs: 30_000 }
+          : operation === 'browser'
+            ? { timeoutMs: 8_000 }
           : operation === 'list'
             ? { timeoutMs: CODEX_SESSION_LIST_DEADLINE_MS }
             : {}),
@@ -183,7 +212,7 @@ async function request(
       }
     );
   } catch (error) {
-    if ((operation === 'inspect' || operation === 'read') &&
+    if ((operation === 'browser' || operation === 'inspect' || operation === 'read') &&
       error instanceof CodexConnectorRemoteError) throw error;
     throw new CodexTransportUnavailableError();
   }

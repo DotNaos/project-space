@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   ArrowLeft,
   ArrowUp,
@@ -75,7 +75,9 @@ export function CodexConversationPane({
   onBack,
   onContinue,
   onOpenDetails,
-  session
+  session,
+  showHeader = true,
+  supplemental
 }: {
   conversation?: CodexConversation;
   machine?: CodexMachine;
@@ -83,6 +85,8 @@ export function CodexConversationPane({
   onContinue?(origin: CodexThreadOrigin, message: string): Promise<void> | void;
   onOpenDetails?(): void;
   session?: CodexSession;
+  showHeader?: boolean;
+  supplemental?: ReactNode;
 }) {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -130,7 +134,7 @@ export function CodexConversationPane({
 
   return (
     <section aria-label="Selected Codex conversation" className="flex h-full min-h-0 flex-col bg-neutral-950">
-      <header className="flex h-[68px] shrink-0 items-center gap-2 border-b border-neutral-800/80 px-4">
+      {showHeader ? <header className="flex h-[68px] shrink-0 items-center gap-2 border-b border-neutral-800/80 px-4">
         {onBack ? (
           <Button aria-label="Back to sessions" className="-ml-2 size-8 min-h-0" isIconOnly onPress={onBack} size="sm" variant="ghost">
             <ArrowLeft className="size-4" />
@@ -148,7 +152,7 @@ export function CodexConversationPane({
             {pendingCount > 0 ? <CircleAlert className="size-4 text-amber-400" /> : <PanelRight className="size-4" />}
           </Button>
         ) : null}
-      </header>
+      </header> : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-6">
         {conversation?.items.length ? conversation.items.map((item) => (
@@ -166,6 +170,7 @@ export function CodexConversationPane({
         <div ref={endRef} />
       </div>
 
+      {supplemental}
       <form className="shrink-0 border-t border-neutral-800/80 bg-neutral-950 p-3 sm:p-4" onSubmit={submit}>
         {blockReason ? (
           <div className="mb-2 flex items-center gap-2 text-[10px] text-neutral-500">
