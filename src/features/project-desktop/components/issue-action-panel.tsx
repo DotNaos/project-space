@@ -39,6 +39,7 @@ import {
   issueBranchesForIssue
 } from './issue-branch-model';
 import { IssueMarkdown } from './issue-markdown';
+import { connectorLocationPresentation } from './machine-connector-topology-model';
 
 function commentTimeLabel(comment: GitHubIssueCommentRecord) {
   const value = comment.updatedAt || comment.createdAt;
@@ -460,6 +461,10 @@ export function IssueActionPanel({
               <div className="grid gap-1">
                 {machineRows.map((row) => {
                   const hasCheckout = Boolean(row.project);
+                  const location = row.machine ? connectorLocationPresentation({
+                    connector: row.machine,
+                    physicalMachines: connectorOverview.physicalMachines ?? []
+                  }) : undefined;
                   const canStart =
                     Boolean(selectedBranch) &&
                     canRunMachineCommand(row.machine) &&
@@ -478,10 +483,17 @@ export function IssueActionPanel({
                       ) : (
                         <Download className="size-3.5 shrink-0 text-neutral-500" />
                       )}
-                      <span className="min-w-0 flex-1 truncate">
-                        {busyMachineId === row.machineId
-                          ? 'Starting...'
-                          : row.machine?.name ?? row.machineId}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate">
+                          {busyMachineId === row.machineId
+                            ? 'Starting...'
+                            : location?.machineName ?? row.machineId}
+                        </span>
+                        {location && busyMachineId !== row.machineId ? (
+                          <span className="block truncate text-[11px] text-neutral-500">
+                            {location.connectorLabel}
+                          </span>
+                        ) : null}
                       </span>
                       <span className={machineStatusClass(row.machine?.connector.status)}>
                         {hasCheckout ? 'open' : 'clone'}
@@ -491,7 +503,7 @@ export function IssueActionPanel({
                 })}
               </div>
             ) : (
-              <Text className="text-xs text-neutral-500">No connector machines registered.</Text>
+              <Text className="text-xs text-neutral-500">No connector installations registered.</Text>
             )}
             {machineMessage ? <Text className="text-xs text-neutral-500">{machineMessage}</Text> : null}
           </div>

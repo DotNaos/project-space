@@ -100,22 +100,22 @@ export function CodexSessionDetails({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
         <Text as="h2" className="block text-sm font-semibold leading-5 text-neutral-100">{session.title}</Text>
-        <Text className="mt-1 block text-[10px] text-neutral-500">Owned by {machine?.name ?? session.machineId}</Text>
+        <Text className="mt-1 block text-[10px] text-neutral-500">Owned through {machine?.name ?? session.machineId}</Text>
 
         {unavailable ? (
           <div className="mt-4 flex gap-2 border-y border-amber-500/20 bg-amber-500/5 px-3 py-3 text-[10px] leading-4 text-amber-200/80">
             {status === 'offline' ? <WifiOff className="mt-0.5 size-3.5 shrink-0" /> : <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />}
             <Text>{session.statusDetail ?? machine?.statusDetail ?? (
               status === 'missing'
-                ? 'This thread was listed previously but is no longer stored on the owning machine.'
-                : 'History remains visible when cached, but Project Space will not send work while the machine is unavailable.'
+                ? 'This thread was listed previously but is no longer stored through the owning connector.'
+                : 'History remains visible when cached, but Project Space will not send work while the connector is unavailable.'
             )}</Text>
           </div>
         ) : null}
 
         <dl className="mt-5">
-          <DetailRow label="Machine" value={machine?.name ?? session.machineId} />
-          <DetailRow label="Machine ID" mono value={session.machineId} />
+          <DetailRow label="Connector installation" value={machine?.name ?? session.machineId} />
+          <DetailRow label="Connector ID" mono value={session.machineId} />
           <DetailRow label="Thread ID" mono value={session.threadId} />
           <DetailRow label="Project" value={session.projectName ?? 'Not reported'} />
           <DetailRow label="Directory" mono value={session.cwd ?? 'Not reported'} />

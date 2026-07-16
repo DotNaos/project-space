@@ -14,6 +14,7 @@ import type {
 } from '@/shared/project-space-api';
 import { projectMachineId as authoritativeProjectMachineId } from '../../../shared/project-machine-identity';
 import { TemplateSelectMenu } from './template-select-menu';
+import { connectorLocationPresentation } from './machine-connector-topology-model';
 
 interface ProjectTemplateSetupPanelProps {
   connectorOverview: ConnectorOverviewResult;
@@ -110,13 +111,19 @@ export function ProjectTemplateSetupPanel({
   const machineOptions = useMemo(
     () =>
       machines.length > 0
-        ? machines.map((machine) => ({
-            detail: machineStatusLabel(machine),
-            label: machine.name,
-            value: machine.id
-          }))
-        : [{ detail: 'No connector machines', label: 'Unavailable', value: '' }],
-    [machines]
+        ? machines.map((machine) => {
+            const location = connectorLocationPresentation({
+              connector: machine,
+              physicalMachines: connectorOverview.physicalMachines ?? []
+            });
+            return {
+              detail: `${location.connectorLabel} · ${machineStatusLabel(machine)}`,
+              label: location.machineName,
+              value: machine.id
+            };
+          })
+        : [{ detail: 'No connector installations', label: 'Unavailable', value: '' }],
+    [connectorOverview.physicalMachines, machines]
   );
   const selectTargetOptions = useMemo(
     () =>

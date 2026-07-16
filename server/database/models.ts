@@ -150,6 +150,18 @@ export interface MachineExecutionScopeKey {
   userId: string;
 }
 
+export interface PhysicalMachineKey {
+  physicalMachineId: string;
+  userId: string;
+}
+
+export interface SavePhysicalMachineInput {
+  connectorIds: string[];
+  name: string;
+  physicalMachineId?: string;
+  userId: string;
+}
+
 export interface SaveMachineExecutionScopeInput {
   machineIds: string[];
   name: string;

@@ -9,6 +9,7 @@ import {
   runtimeUnavailableReason,
   shouldShowMachineRuntimeStop
 } from './machine-connector-runtime-model';
+import { connectorInstallationLabel } from './machine-connector-topology-model';
 
 export function SettingsMachineRuntimeStop({
   machine,
@@ -23,6 +24,7 @@ export function SettingsMachineRuntimeStop({
 
   if (!shouldShowMachineRuntimeStop(machine)) return null;
   const canStop = canStopSourceDevelopmentMachineRuntime(machine);
+  const connectorIdentity = connectorInstallationLabel(machine);
 
   async function stop() {
     setIsStopping(true);
@@ -68,8 +70,8 @@ export function SettingsMachineRuntimeStop({
               </AlertDialog.Header>
               <AlertDialog.Body>
                 <Text className="block text-sm leading-6 text-neutral-300">
-                  Only {machine.name} will stop. Stable and production connectors in the same
-                  machine group are not affected.
+                  Only {connectorIdentity} will stop. Stable and production connectors on the same
+                  physical machine are not affected.
                 </Text>
                 {error ? <Text className="mt-3 block text-xs text-red-300">{error}</Text> : null}
               </AlertDialog.Body>

@@ -91,13 +91,13 @@ describe('Codex session list model', () => {
 });
 
 describe('Codex session continuation safety', () => {
-  test('allows continuation only when the thread and owning machine are idle', () => {
+  test('allows continuation only when the thread and owning connector are idle', () => {
     expect(codexContinueBlockReason(session(), machines[0])).toBeUndefined();
     expect(codexContinueBlockReason(session({ status: 'active' }), machines[0])).toBe(
       'This task is still working; a new turn can start when it becomes idle.'
     );
     expect(codexContinueBlockReason(session({ machineId: 'machine-pc' }), machines[1])).toBe(
-      'The owning machine is offline.'
+      'The owning connector is offline.'
     );
   });
 

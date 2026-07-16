@@ -12,15 +12,18 @@ import { createDevServerService } from './dev-server-service';
 import { createWorktreeActionService } from './worktree-action-service';
 import {
   createDevServerSession,
+  deletePhysicalMachine,
   isDatabaseConfigured,
   isMachineClaimed,
   deleteMachineExecutionScope,
   listConnectorCredentials,
+  listPhysicalMachines,
   listMachineExecutionScopes,
   listDevServerSessions,
   readMachineMembership,
   readProjectRunSettings,
   revokeConnectorCredential,
+  savePhysicalMachine,
   saveMachineExecutionScope,
   transitionDevServerSession,
   upsertProjectRunSettings
@@ -58,9 +61,19 @@ import {
   isMachineExecutionScopeId,
   parseMachineExecutionScopeSaveRequest
 } from './machine-execution-scope-validation';
+import {
+  isPhysicalMachineId,
+  parsePhysicalMachineSaveRequest
+} from './physical-machine-validation';
+import { createLocalPhysicalMachineStore } from './local-physical-machine-store';
 
 export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
   const handleConnectorRuntime = createConnectorRuntimeHttpHandler(backend);
+  const localPhysicalMachines = createLocalPhysicalMachineStore();
+  const canUseLocalPhysicalMachines = () => !isDatabaseConfigured() && !isProjectSpaceAuthRequired();
+  const loadPhysicalMachines = (userId: string) => isDatabaseConfigured()
+    ? listPhysicalMachines(userId)
+    : Promise.resolve(canUseLocalPhysicalMachines() ? localPhysicalMachines.list(userId) : []);
   const currentUserId = () => {
     const session = getCurrentAuthSession();
     if (session?.userId) return session.userId;
@@ -157,6 +170,61 @@ export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
           scopeId: payload.id,
           userId
         })
+      });
+      return true;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/physical-machines') {
+      response.setHeader('Cache-Control', 'private, no-store');
+      writeJson(response, 200, {
+        machines: await loadPhysicalMachines(userId)
+      });
+      return true;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/physical-machines') {
+      if (!isDatabaseConfigured() && !canUseLocalPhysicalMachines()) {
+        writeJson(response, 503, { error: 'Physical machine grouping requires the account database.' });
+        return true;
+      }
+      const payload = parsePhysicalMachineSaveRequest(await readJson<unknown>(request));
+      if (!payload) {
+        writeJson(response, 400, { error: 'Invalid physical machine request.' });
+        return true;
+      }
+      response.setHeader('Cache-Control', 'private, no-store');
+      const machine = isDatabaseConfigured()
+        ? await savePhysicalMachine({
+            connectorIds: payload.connectorIds,
+            name: payload.name,
+            physicalMachineId: payload.id,
+            userId
+          })
+        : localPhysicalMachines.save({
+            allowedConnectorIds: (await backend.getConnectorOverview()).machines.map((entry) => entry.id),
+            connectorIds: payload.connectorIds,
+            name: payload.name,
+            physicalMachineId: payload.id,
+            userId
+          });
+      writeJson(response, 200, {
+        machine
+      });
+      return true;
+    }
+
+    const physicalMachinePrefix = '/api/physical-machines/';
+    const physicalMachineId = url.pathname.startsWith(physicalMachinePrefix)
+      ? url.pathname.slice(physicalMachinePrefix.length)
+      : '';
+    if (request.method === 'DELETE' && isPhysicalMachineId(physicalMachineId)) {
+      response.setHeader('Cache-Control', 'private, no-store');
+      writeJson(response, 200, {
+        deleted: isDatabaseConfigured()
+          ? await deletePhysicalMachine({ physicalMachineId, userId })
+          : canUseLocalPhysicalMachines()
+            ? localPhysicalMachines.delete(userId, physicalMachineId)
+            : false
       });
       return true;
     }
@@ -421,7 +489,11 @@ export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/connectors/overview') {
-      writeJson(response, 200, await backend.getConnectorOverview());
+      const overview = await backend.getConnectorOverview();
+      writeJson(response, 200, {
+        ...overview,
+        physicalMachines: await loadPhysicalMachines(userId)
+      });
       return true;
     }
 

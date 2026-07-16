@@ -1,9 +1,12 @@
 import type {
   ConnectorCredentialRecord,
-  MachineExecutionScopeRecord,
-  MachineRecord
+  ConnectorInstallationRecord,
+  PhysicalMachineRecord
 } from '@/shared/project-space-api';
-import { machineOsLabel } from './machine-platform-model';
+import {
+  connectorEnvironmentLabel,
+  connectorRuntimeLabel
+} from './machine-connector-topology-model';
 
 export type SettingsConnectorChannel = 'dev' | 'stable';
 
@@ -17,7 +20,7 @@ export interface SettingsConnectorInstance {
   credentials: SettingsConnectorCredentials;
   id: string;
   isOnline: boolean;
-  machine: MachineRecord;
+  machine: ConnectorInstallationRecord;
   platformLabel?: string;
   runtimeLabel: string;
 }
@@ -28,7 +31,7 @@ export interface SettingsMachineGroup {
   connectorCount: number;
   id: string;
   instances: SettingsConnectorInstance[];
-  machineIds: string[];
+  connectorIds: string[];
   name: string;
   onlineConnectorCount: number;
   platformLabels: string[];
@@ -48,9 +51,9 @@ export interface SettingsMachineGroupingResult {
 }
 
 export interface SettingsMachineGroupingInput {
+  connectors: readonly ConnectorInstallationRecord[];
   credentials?: readonly ConnectorCredentialRecord[];
-  machines: readonly MachineRecord[];
-  scopes: readonly MachineExecutionScopeRecord[];
+  physicalMachines: readonly PhysicalMachineRecord[];
 }
 
 export function safeConnectorOrigin(value: string | undefined) {
@@ -75,31 +78,15 @@ const currentCredentialStatuses = new Set<ConnectorCredentialRecord['status']>([
   'pending'
 ]);
 
-function connectorChannel(machine: MachineRecord): SettingsConnectorChannel {
+function connectorChannel(machine: ConnectorInstallationRecord): SettingsConnectorChannel {
   return machine.connector.profile?.channel === 'dev' &&
     machine.connector.profile.source === 'source'
     ? 'dev'
     : 'stable';
 }
 
-function connectorIsOnline(machine: MachineRecord) {
+function connectorIsOnline(machine: ConnectorInstallationRecord) {
   return machine.connector.status === 'local' || machine.connector.status === 'online';
-}
-
-function runtimeLabel(machine: MachineRecord) {
-  const runtime = machine.connector.runtime;
-  if (runtime) {
-    const source = runtime.source === 'source' ? 'Source checkout' : 'Managed release';
-    const version = runtime.version || runtime.releaseId;
-    return version
-      ? `${source} · ${version.startsWith('v') ? version : `v${version}`}`
-      : `${source} · Version not reported`;
-  }
-
-  if (machine.connector.status === 'not-installed') return 'Connector not installed';
-  if (machine.connector.status === 'local') return 'Local Project Space host';
-  if (machine.connector.status === 'offline') return 'Runtime details unavailable while offline';
-  return 'Runtime details not reported';
 }
 
 function credentialsForMachine(
@@ -121,7 +108,7 @@ function credentialsForMachine(
 }
 
 function connectorInstance(
-  machine: MachineRecord,
+  machine: ConnectorInstallationRecord,
   credentialsByMachineId: ReadonlyMap<string, readonly ConnectorCredentialRecord[]>
 ): SettingsConnectorInstance {
   const channel = connectorChannel(machine);
@@ -131,8 +118,8 @@ function connectorInstance(
     id: machine.id,
     isOnline: connectorIsOnline(machine),
     machine,
-    platformLabel: machineOsLabel(machine),
-    runtimeLabel: runtimeLabel(machine)
+    platformLabel: connectorEnvironmentLabel(machine),
+    runtimeLabel: connectorRuntimeLabel(machine)
   };
 }
 
@@ -165,7 +152,7 @@ function splitInstances(instances: readonly SettingsConnectorInstance[]) {
 }
 
 function machineGroup(
-  scope: MachineExecutionScopeRecord,
+  physicalMachine: PhysicalMachineRecord,
   instances: readonly SettingsConnectorInstance[]
 ): SettingsMachineGroup | undefined {
   const split = splitInstances(instances);
@@ -176,10 +163,10 @@ function machineGroup(
     archivedConnectorCount: split.archived.length,
     archivedInstances: split.archived,
     connectorCount: split.active.length,
-    id: scope.id,
+    id: physicalMachine.id,
     instances: split.active,
-    machineIds: [...new Set(scope.machineIds)],
-    name: scope.name,
+    connectorIds: [...new Set(physicalMachine.connectorIds)],
+    name: physicalMachine.name,
     onlineConnectorCount: split.active.filter((instance) => instance.isOnline).length,
     platformLabels: [...new Set(allInstances.flatMap((instance) => (
       instance.platformLabel ? [instance.platformLabel] : []
@@ -188,11 +175,11 @@ function machineGroup(
 }
 
 export function groupSettingsMachines({
+  connectors,
   credentials = [],
-  machines,
-  scopes
+  physicalMachines
 }: SettingsMachineGroupingInput): SettingsMachineGroupingResult {
-  const machinesById = new Map(machines.map((machine) => [machine.id, machine]));
+  const machinesById = new Map(connectors.map((machine) => [machine.id, machine]));
   const credentialsByMachineId = new Map<string, ConnectorCredentialRecord[]>();
   const unmatchedCredentials: ConnectorCredentialRecord[] = [];
 
@@ -207,13 +194,13 @@ export function groupSettingsMachines({
   }
 
   const instancesById = new Map(
-    machines.map((machine) => [machine.id, connectorInstance(machine, credentialsByMachineId)])
+    connectors.map((machine) => [machine.id, connectorInstance(machine, credentialsByMachineId)])
   );
   const scopeIdsByMachineId = new Map<string, string[]>();
-  for (const scope of scopes) {
-    for (const machineId of new Set(scope.machineIds)) {
+  for (const physicalMachine of physicalMachines) {
+    for (const machineId of new Set(physicalMachine.connectorIds)) {
       const scopeIds = scopeIdsByMachineId.get(machineId) ?? [];
-      scopeIds.push(scope.id);
+      scopeIds.push(physicalMachine.id);
       scopeIdsByMachineId.set(machineId, scopeIds);
     }
   }
@@ -229,13 +216,13 @@ export function groupSettingsMachines({
     }
   }
 
-  const groups = scopes.flatMap((scope) => {
-    const instances = [...new Set(scope.machineIds)].flatMap((machineId) => {
+  const groups = physicalMachines.flatMap((physicalMachine) => {
+    const instances = [...new Set(physicalMachine.connectorIds)].flatMap((machineId) => {
       const memberships = scopeIdsByMachineId.get(machineId) ?? [];
       const instance = instancesById.get(machineId);
       return instance && memberships.length === 1 ? [instance] : [];
     });
-    const group = machineGroup(scope, instances);
+    const group = machineGroup(physicalMachine, instances);
     return group ? [group] : [];
   });
   const splitUnscoped = splitInstances(unscoped);

@@ -14,9 +14,9 @@ import { AlertDialog, Disclosure } from '@heroui/react';
 import { Button, Chip, Text } from '@/app/dotnaos-ui';
 import type {
   ConnectorCredentialRecord,
-  MachineExecutionScopeRecord,
-  MachineExecutionScopeSaveRequest,
-  MachineRecord
+  ConnectorInstallationRecord,
+  PhysicalMachineRecord,
+  PhysicalMachineSaveRequest
 } from '@/shared/project-space-api';
 import { ConnectorChannelChip } from './connector-channel-chip';
 import { MachineConnectorActionsMenu } from './machine-connector-actions-menu';
@@ -35,13 +35,13 @@ import {
 } from './settings-machine-groups-view-model';
 
 interface SettingsMachineGroupsProps {
+  connectors: readonly ConnectorInstallationRecord[];
   credentials: readonly ConnectorCredentialRecord[];
   loadError: string;
-  machines: readonly MachineRecord[];
-  onDeleteScope(scopeId: string): Promise<void>;
+  onDeleteMachine(machineId: string): Promise<void>;
   onRefresh(): Promise<unknown>;
-  onSaveScope(request: MachineExecutionScopeSaveRequest): Promise<void>;
-  scopes: readonly MachineExecutionScopeRecord[];
+  onSaveMachine(request: PhysicalMachineSaveRequest): Promise<void>;
+  physicalMachines: readonly PhysicalMachineRecord[];
   status: SettingsMachineGroupsStatus;
 }
 
@@ -141,13 +141,13 @@ function MachineGroupRow({ group, onDelete, onEdit, onRefresh }: {
 }
 
 export function SettingsMachineGroups({
+  connectors,
   credentials,
   loadError,
-  machines,
-  onDeleteScope,
+  onDeleteMachine,
   onRefresh,
-  onSaveScope,
-  scopes,
+  onSaveMachine,
+  physicalMachines,
   status
 }: SettingsMachineGroupsProps) {
   const [editorScopeId, setEditorScopeId] = useState<string | null>();
@@ -156,10 +156,10 @@ export function SettingsMachineGroups({
   const [isDeleting, setIsDeleting] = useState(false);
   const presentation = settingsMachineGroupsPresentation(status);
   const grouping = useMemo(
-    () => groupSettingsMachines({ credentials, machines, scopes }),
-    [credentials, machines, scopes]
+    () => groupSettingsMachines({ connectors, credentials, physicalMachines }),
+    [connectors, credentials, physicalMachines]
   );
-  const editing = scopes.find((scope) => scope.id === editorScopeId);
+  const editing = physicalMachines.find((machine) => machine.id === editorScopeId);
   const archivedCount = grouping.groups.reduce(
     (count, group) => count + group.archivedConnectorCount,
     grouping.archivedUnscopedInstances.length + grouping.unmatchedCredentials.filter(
@@ -172,7 +172,7 @@ export function SettingsMachineGroups({
     setIsDeleting(true);
     setDeleteError('');
     try {
-      await onDeleteScope(deletingGroup.id);
+      await onDeleteMachine(deletingGroup.id);
       setDeletingGroup(undefined);
     } catch (error) {
       setDeleteError(error instanceof Error ? error.message : 'Could not ungroup the machine.');
@@ -186,7 +186,7 @@ export function SettingsMachineGroups({
       <div className="mb-3 flex min-w-0 flex-wrap items-center justify-end gap-3">
         <Button size="sm" variant="outline" isDisabled={status !== 'ready'} onPress={() => setEditorScopeId(null)}>
           <Plus className="size-3.5" />
-          Group connectors
+          Add machine
         </Button>
       </div>
 
@@ -219,7 +219,7 @@ export function SettingsMachineGroups({
             {grouping.unscopedInstances.length > 0 ? (
               <div className="border-t border-neutral-800 first:border-t-0">
                 <Text className="block bg-neutral-950/60 px-4 py-2 text-xs font-medium text-neutral-500">
-                  Ungrouped connector instances
+                  Ungrouped connector installations
                 </Text>
                 {grouping.unscopedInstances.map((instance) => (
                   <ConnectorInstanceRow key={instance.id} instance={instance} onRefresh={onRefresh} />
@@ -229,7 +229,7 @@ export function SettingsMachineGroups({
             {grouping.groups.length === 0 && grouping.unscopedInstances.length === 0 ? (
               <div className="px-4 py-8 text-center">
                 <MonitorCog className="mx-auto size-5 text-neutral-600" />
-                <Text className="mt-2 block text-sm text-neutral-500">No connector instances found.</Text>
+                <Text className="mt-2 block text-sm text-neutral-500">No connector installations found.</Text>
               </div>
             ) : null}
           </div>
@@ -268,7 +268,14 @@ export function SettingsMachineGroups({
       ) : null}
 
       {editorScopeId !== undefined ? (
-        <SettingsMachineScopeEditor key={editing?.id ?? 'new'} editing={editing} machines={machines} onClose={() => setEditorScopeId(undefined)} onSave={onSaveScope} scopes={scopes} />
+        <SettingsMachineScopeEditor
+          key={editing?.id ?? 'new'}
+          connectors={connectors}
+          editing={editing}
+          onClose={() => setEditorScopeId(undefined)}
+          onSave={onSaveMachine}
+          physicalMachines={physicalMachines}
+        />
       ) : null}
 
       <AlertDialog isOpen={Boolean(deletingGroup)} onOpenChange={(open) => { if (!open && !isDeleting) setDeletingGroup(undefined); }}>
@@ -281,7 +288,7 @@ export function SettingsMachineGroups({
               </AlertDialog.Header>
               <AlertDialog.Body>
                 <Text className="block text-sm leading-6 text-neutral-300">
-                  The group will be removed. Its connector instances stay registered and will appear as ungrouped.
+                  The machine group will be removed. Its connector installations stay registered and will appear as ungrouped.
                 </Text>
               </AlertDialog.Body>
               <AlertDialog.Footer className="gap-2">

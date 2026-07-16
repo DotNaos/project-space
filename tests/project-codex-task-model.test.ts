@@ -10,7 +10,7 @@ import type {
   CodexMachine,
   CodexSession
 } from '../src/features/codex-sessions/codex-sessions-types';
-import type { ProjectSpaceRecord } from '../src/shared/project-space-api';
+import type { MachineRecord, ProjectSpaceRecord } from '../src/shared/project-space-api';
 
 const projectRecords: ProjectSpaceRecord[] = [{
   id: 'project-mac',
@@ -121,6 +121,56 @@ describe('project Codex task scoping', () => {
 });
 
 describe('project Codex task grouping and state', () => {
+  test('groups connector-owned tasks under one explicit physical machine and preserves exact origins', () => {
+    const connectors: MachineRecord[] = [
+      {
+        connector: { installCommand: 'install', status: 'online' },
+        environment: { kind: 'wsl', label: 'Ubuntu' },
+        id: 'machine-mac',
+        kind: 'connector',
+        name: 'wsl-stable',
+        network: {},
+        roles: ['connector'],
+        sourcePath: 'connector-hub'
+      },
+      {
+        connector: {
+          installCommand: 'install',
+          profile: { channel: 'dev', source: 'source' },
+          status: 'offline'
+        },
+        environment: { kind: 'wsl', label: 'Ubuntu' },
+        id: 'machine-pc',
+        kind: 'connector',
+        name: 'wsl-dev',
+        network: {},
+        roles: ['connector'],
+        sourcePath: 'connector-hub'
+      }
+    ];
+    const tasks = projectCodexTasks([session(), session({
+      cwd: 'C:\\Users\\oli\\projects\\project-space',
+      machineId: 'machine-pc',
+      threadId: '019f5a78-3c4c-7082-bb45-5411be7d9b9b'
+    })], projectRecords);
+
+    const groups = groupProjectCodexTasks(tasks, machines, [], {
+      connectors,
+      physicalMachines: [{ connectorIds: ['machine-mac', 'machine-pc'], id: 'os-pc-id', name: 'os-pc' }]
+    });
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      connectorIds: ['machine-mac', 'machine-pc'],
+      connectorLabels: {
+        'machine-mac': 'WSL · Ubuntu · Stable connector',
+        'machine-pc': 'WSL · Ubuntu · Dev connector'
+      },
+      machine: { id: 'os-pc-id', name: 'os-pc', status: 'connected' }
+    });
+    expect(groups[0]?.tasks.map((task) => task.machineId)).toEqual(['machine-mac', 'machine-pc']);
+  });
+
   test('groups by physical machine and preserves unavailable task owners', () => {
     const unavailableRecord: ProjectSpaceRecord = {
       id: 'project-gone',

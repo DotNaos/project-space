@@ -811,6 +811,13 @@ export interface OpenPathInAppResult {
 export type ConnectorStatus = 'local' | 'online' | 'offline' | 'not-installed';
 export type DeploymentVisibility = 'private' | 'public';
 
+export type ConnectorEnvironmentKind = 'linux' | 'macos' | 'windows' | 'wsl';
+
+export interface ConnectorEnvironmentRecord {
+  kind: ConnectorEnvironmentKind;
+  label?: string;
+}
+
 export interface MachineConnectorRecord {
   capabilities?: string[];
   installCommand: string;
@@ -841,6 +848,8 @@ export interface MachineRecord {
     family?: string;
     version?: string;
   };
+  environment?: ConnectorEnvironmentRecord;
+  executionScopeId?: string;
   primaryUser?: string;
   profile?: string;
   roles: string[];
@@ -851,6 +860,29 @@ export interface MachineRecord {
     tailscaleIp?: string;
   };
   connector: MachineConnectorRecord;
+}
+
+/**
+ * Connector-backed APIs still use the historical MachineRecord wire shape.
+ * Product-facing code should use this name when the record identifies one
+ * connector installation rather than physical hardware.
+ */
+export type ConnectorInstallationRecord = MachineRecord;
+
+export interface PhysicalMachineRecord {
+  connectorIds: string[];
+  id: string;
+  name: string;
+}
+
+export interface PhysicalMachinesResult {
+  machines: PhysicalMachineRecord[];
+}
+
+export interface PhysicalMachineSaveRequest {
+  connectorIds: string[];
+  id?: string;
+  name: string;
 }
 
 export interface MachineExecutionScopeRecord {
@@ -883,6 +915,7 @@ export interface TailscaleStatusResult {
 export interface ConnectorOverviewResult {
   connectorOrigin?: string;
   machines: MachineRecord[];
+  physicalMachines?: PhysicalMachineRecord[];
   machinesRepo: {
     exists: boolean;
     path: string;
@@ -895,6 +928,8 @@ export interface ConnectorProjectRegistryResult {
   connector: {
     battery?: MachineBatteryRecord;
     capabilities?: string[];
+    environment?: ConnectorEnvironmentRecord;
+    executionScopeId?: string;
     kind?: string;
     machineId: string;
     machineName: string;

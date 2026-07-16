@@ -17,17 +17,22 @@ import type {
   MachineMembershipKey,
   MachineMembershipRole,
   MachineExecutionScopeKey,
+  PhysicalMachineKey,
   ProjectRunSettings,
   ProjectRunSettingsKey,
   RevokeConnectorCredentialInput,
+  SavePhysicalMachineInput,
   SaveMachineExecutionScopeInput,
   TransitionDevServerSessionInput,
   UpsertUserProjectsStateInput,
   UpsertProjectRunSettingsInput
 } from './models';
 import { normalizeProjectsState } from './projects-state';
-import type { ProjectsState } from '../../src/shared/project-space-api';
-import type { MachineExecutionScopeRecord } from '../../src/shared/project-space-api';
+import type {
+  MachineExecutionScopeRecord,
+  PhysicalMachineRecord,
+  ProjectsState
+} from '../../src/shared/project-space-api';
 
 interface MachineMembershipRow {
   created_at: Date | string;
@@ -78,6 +83,12 @@ interface UserProjectsStateRow {
 interface MachineExecutionScopeRow {
   id: string;
   machine_ids: string[];
+  name: string;
+}
+
+interface PhysicalMachineRow {
+  connector_ids: string[];
+  id: string;
   name: string;
 }
 
@@ -194,6 +205,123 @@ export class ProjectSpaceDatabaseRepository {
 
   async revokeConnectorCredential(input: RevokeConnectorCredentialInput) {
     return this.connectorCredentials.revoke(input);
+  }
+
+  async listPhysicalMachines(userId: string): Promise<PhysicalMachineRecord[]> {
+    const result = await this.client.query<PhysicalMachineRow>(
+      `select machine.id, machine.name,
+              coalesce(array_agg(connector.connector_id order by connector.connector_id)
+                filter (where connector.connector_id is not null), '{}') as connector_ids
+         from physical_machines machine
+         left join physical_machine_connectors connector
+           on connector.physical_machine_id = machine.id
+          and connector.owner_user_id = machine.owner_user_id
+        where machine.owner_user_id = $1
+        group by machine.id, machine.owner_user_id, machine.name
+        order by lower(machine.name), machine.id`,
+      [requireValue(userId, 'userId')]
+    );
+
+    return result.rows.map((row) => ({
+      connectorIds: row.connector_ids,
+      id: row.id,
+      name: row.name
+    }));
+  }
+
+  async savePhysicalMachine(
+    input: SavePhysicalMachineInput
+  ): Promise<PhysicalMachineRecord> {
+    const userId = requireValue(input.userId, 'userId');
+    const name = requireValue(input.name, 'name');
+    if (name.length > 80) throw new Error('Physical machine names must be 80 characters or fewer.');
+    const connectorIds = [
+      ...new Set(input.connectorIds.map((id) => requireValue(id, 'connectorId')))
+    ];
+    if (connectorIds.length === 0) throw new Error('Choose at least one connector installation.');
+    const physicalMachineId = input.physicalMachineId
+      ? requireValue(input.physicalMachineId, 'physicalMachineId')
+      : this.createId();
+
+    const operation = async (client: DatabaseQueryClient) => {
+      const owned = await client.query<{ machine_id: string }>(
+        `select machine_id
+           from machine_memberships
+          where user_id = $1
+            and role = 'owner'
+            and machine_id = any($2::text[])
+          order by machine_id
+          for update`,
+        [userId, connectorIds]
+      );
+      if (owned.rows.length !== connectorIds.length) {
+        throw new Error('Only connector installations owned by this account can be grouped.');
+      }
+
+      const machine = await client.query<{ id: string; name: string }>(
+        `insert into physical_machines (id, owner_user_id, name)
+         values ($1, $2, $3)
+         on conflict (id, owner_user_id) do update set
+           name = excluded.name,
+           updated_at = now()
+         returning id, name`,
+        [physicalMachineId, userId, name]
+      );
+      if (!machine.rows[0]) throw new Error('The physical machine could not be saved.');
+
+      await client.query(
+        `delete from physical_machine_connectors
+          where physical_machine_id = $1
+            and owner_user_id = $2
+            and not (connector_id = any($3::text[]))`,
+        [physicalMachineId, userId, connectorIds]
+      );
+      await client.query(
+        `insert into physical_machine_connectors (
+           physical_machine_id, owner_user_id, connector_id
+         )
+         select $1, $2, connector_id
+           from unnest($3::text[]) as connector_id
+         on conflict (owner_user_id, connector_id) do update set
+           physical_machine_id = excluded.physical_machine_id`,
+        [physicalMachineId, userId, connectorIds]
+      );
+      await client.query(
+        `delete from physical_machines machine
+          where machine.owner_user_id = $1
+            and machine.id <> $2
+            and not exists (
+              select 1
+                from physical_machine_connectors connector
+               where connector.physical_machine_id = machine.id
+                 and connector.owner_user_id = machine.owner_user_id
+            )`,
+        [userId, physicalMachineId]
+      );
+
+      return {
+        connectorIds,
+        id: machine.rows[0].id,
+        name: machine.rows[0].name
+      };
+    };
+
+    return this.client.transaction
+      ? this.client.transaction(operation)
+      : operation(this.client);
+  }
+
+  async deletePhysicalMachine(input: PhysicalMachineKey) {
+    const result = await this.client.query<{ id: string }>(
+      `delete from physical_machines
+        where id = $1 and owner_user_id = $2
+      returning id`,
+      [
+        requireValue(input.physicalMachineId, 'physicalMachineId'),
+        requireValue(input.userId, 'userId')
+      ]
+    );
+    return result.rows.length > 0;
   }
 
   async listMachineExecutionScopes(userId: string): Promise<MachineExecutionScopeRecord[]> {

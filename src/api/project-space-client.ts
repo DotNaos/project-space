@@ -62,6 +62,9 @@ import type {
   MachineTerminalCommandRequest,
   OpenPathInAppRequest,
   OpenPathInAppResult,
+  PhysicalMachineRecord,
+  PhysicalMachinesResult,
+  PhysicalMachineSaveRequest,
   PlatformOverviewResult,
   ProjectSpaceAuthSessionResult,
   ProjectBackupRequest,
@@ -313,6 +316,25 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
 
   revokeConnectorCredential(credentialId: string): Promise<{ revoked: boolean }> {
     return this.request(`/api/connectors/credentials/${encodeURIComponent(credentialId)}`, {
+      method: 'DELETE'
+    });
+  }
+
+  listPhysicalMachines(): Promise<PhysicalMachinesResult> {
+    return this.request('/api/physical-machines');
+  }
+
+  savePhysicalMachine(
+    request: PhysicalMachineSaveRequest
+  ): Promise<{ machine: PhysicalMachineRecord }> {
+    return this.request('/api/physical-machines', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  deletePhysicalMachine(physicalMachineId: string): Promise<{ deleted: boolean }> {
+    return this.request(`/api/physical-machines/${encodeURIComponent(physicalMachineId)}`, {
       method: 'DELETE'
     });
   }

@@ -96,7 +96,7 @@ describe('Codex browser task workspace', () => {
 
   test.each([
     ['checking', { kind: 'checking' as const }, 'checking'],
-    ['offline', { kind: 'offline' as const, reason: 'Connector offline' }, 'The owning machine is offline'],
+    ['offline', { kind: 'offline' as const, reason: 'Connector offline' }, 'The owning connector is offline'],
     ['disconnected', { kind: 'disconnected' as const, reason: 'Connection lost' }, 'Browser mirror disconnected'],
     ['unauthorized', { kind: 'unauthorized' as const, reason: 'Access denied' }, 'Browser access is not authorized'],
     ['reconnecting', {

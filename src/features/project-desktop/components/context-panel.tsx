@@ -21,6 +21,7 @@ import type {
 import { matchesFuzzyQuery } from '@/lib/fuzzy-search';
 import { isMachineConnected } from './machine-visuals';
 import { MachineListItem } from './machine-list-item';
+import { connectorLocationPresentation } from './machine-connector-topology-model';
 
 function isVisibleProject(project: ProjectSpaceRecord) {
   const folder = project.rootPath.split('/').filter(Boolean).pop() ?? '';
@@ -385,18 +386,22 @@ function ProjectsPanel({
 function MachineRow({
   isSelected,
   machine,
+  physicalMachines,
   onSelectMachine
 }: {
   isSelected: boolean;
   machine: MachineRecord;
+  physicalMachines: NonNullable<ConnectorOverviewResult['physicalMachines']>;
   onSelectMachine(machineId: string): void;
 }) {
+  const location = connectorLocationPresentation({ connector: machine, physicalMachines });
   return (
     <MachineListItem
       compact
       isSelected={isSelected}
       machine={machine}
-      subtitle={formatMachineSubtitle(machine) || machine.connector.status}
+      name={location.machineName}
+      subtitle={`${location.connectorLabel} · ${formatMachineSubtitle(machine) || machine.connector.status}`}
       onPress={() => onSelectMachine(machine.id)}
     />
   );
@@ -499,6 +504,7 @@ function MachinesPanel({
                 machine.id === selectedMachineId || machines[activeMachineIndex]?.id === machine.id
               }
               machine={machine}
+              physicalMachines={connectorOverview.physicalMachines ?? []}
               onSelectMachine={onSelectMachine}
             />
           ))}

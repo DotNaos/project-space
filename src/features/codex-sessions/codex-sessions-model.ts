@@ -81,9 +81,9 @@ export function codexContinueBlockReason(session: CodexSession, machine?: CodexM
     case 'idle': return undefined;
     case 'active': return 'This task is still working; a new turn can start when it becomes idle.';
     case 'archived': return 'Archived threads are read-only.';
-    case 'missing': return 'This stored thread is no longer available on its machine.';
-    case 'offline': return 'The owning machine is offline.';
-    case 'unavailable': return 'Codex is unavailable on the owning machine.';
+    case 'missing': return 'This stored thread is no longer available through its connector.';
+    case 'offline': return 'The owning connector is offline.';
+    case 'unavailable': return 'Codex is unavailable through the owning connector.';
   }
 }
 

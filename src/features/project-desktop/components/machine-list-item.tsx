@@ -18,6 +18,7 @@ interface MachineListItemProps {
   fallbackName?: string;
   isSelected?: boolean;
   machine?: MachineRecord;
+  name?: string;
   onPress?(): void;
   showConnection?: boolean;
   subtitle?: string;
@@ -30,11 +31,12 @@ export function MachineListItem({
   fallbackName = 'Machine',
   isSelected = false,
   machine,
+  name: nameOverride,
   onPress,
   showConnection = true,
   subtitle
 }: MachineListItemProps) {
-  const name = machine?.name ?? fallbackName;
+  const name = nameOverride ?? machine?.name ?? fallbackName;
   const resolvedSubtitle = subtitle ?? (machine ? machineSubtitle(machine) : '');
   const content = (
     <>

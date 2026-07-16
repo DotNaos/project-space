@@ -562,6 +562,50 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
       create index machine_execution_scope_members_scope_idx
         on machine_execution_scope_members (owner_user_id, scope_id, machine_id);
     `
+  },
+  {
+    id: '0020_physical_machines',
+    sql: `
+      create table physical_machines (
+        id uuid not null,
+        owner_user_id text not null check (btrim(owner_user_id) <> ''),
+        name text not null check (btrim(name) <> '' and char_length(name) <= 80),
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now(),
+        primary key (id, owner_user_id)
+      );
+
+      create table physical_machine_connectors (
+        physical_machine_id uuid not null,
+        owner_user_id text not null check (btrim(owner_user_id) <> ''),
+        connector_id text not null check (btrim(connector_id) <> ''),
+        created_at timestamptz not null default now(),
+        primary key (owner_user_id, connector_id),
+        foreign key (physical_machine_id, owner_user_id)
+          references physical_machines (id, owner_user_id)
+          on delete cascade,
+        foreign key (connector_id, owner_user_id)
+          references machine_memberships (machine_id, user_id)
+          on delete cascade
+      );
+
+      create index physical_machine_connectors_machine_idx
+        on physical_machine_connectors (owner_user_id, physical_machine_id, connector_id);
+
+      insert into physical_machines (
+        id, owner_user_id, name, created_at, updated_at
+      )
+      select id, owner_user_id, name, created_at, updated_at
+        from machine_execution_scopes
+      on conflict (id, owner_user_id) do nothing;
+
+      insert into physical_machine_connectors (
+        physical_machine_id, owner_user_id, connector_id, created_at
+      )
+      select scope_id, owner_user_id, machine_id, created_at
+        from machine_execution_scope_members
+      on conflict (owner_user_id, connector_id) do nothing;
+    `
   }
 ];
 

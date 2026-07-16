@@ -39,6 +39,7 @@ import type {
 } from '@/shared/project-space-api';
 import { isMachineConnected } from './machine-visuals';
 import { MachineListItem } from './machine-list-item';
+import { connectorLocationPresentation } from './machine-connector-topology-model';
 import { MachineConnectorActionsMenu } from './machine-connector-actions-menu';
 import { runtimeVersionLabel } from './machine-connector-runtime-model';
 import { machineSubtitle } from './project-main-model';
@@ -810,6 +811,10 @@ export function ProjectHomeOverview({
     const isSelected =
       machine.id === activeMachineId ||
       filteredMachines[activeMachineSearchIndex]?.id === machine.id;
+    const location = connectorLocationPresentation({
+      connector: machine,
+      physicalMachines: connector.physicalMachines ?? []
+    });
 
     return (
       <div
@@ -821,7 +826,8 @@ export function ProjectHomeOverview({
       >
         <MachineListItem
           machine={machine}
-          subtitle={machineSubtitle(machine) || 'machine'}
+          name={location.machineName}
+          subtitle={`${location.connectorLabel} · ${machineSubtitle(machine) || machine.connector.status}`}
           className="min-w-0 flex-1 bg-transparent p-4 hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-300"
           onPress={() => {
             setSelectedMachineId(machine.id);
@@ -848,6 +854,10 @@ export function ProjectHomeOverview({
     const isSelected =
       machine.id === activeMachineId ||
       filteredMachines[activeMachineSearchIndex]?.id === machine.id;
+    const location = connectorLocationPresentation({
+      connector: machine,
+      physicalMachines: connector.physicalMachines ?? []
+    });
 
     return (
       <div
@@ -857,7 +867,8 @@ export function ProjectHomeOverview({
         <MachineListItem
           compact
           machine={machine}
-          subtitle={machineSubtitle(machine) || 'machine'}
+          name={location.machineName}
+          subtitle={`${location.connectorLabel} · ${machineSubtitle(machine) || machine.connector.status}`}
           className="min-w-0 flex-1 hover:bg-neutral-900/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-300"
           onPress={() => {
             setSelectedMachineId(machine.id);
