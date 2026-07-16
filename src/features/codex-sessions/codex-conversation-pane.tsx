@@ -207,25 +207,31 @@ export function CodexConversationPane({
             <Text>{blockReason}</Text>
           </div>
         ) : null}
-        <div className="flex items-end gap-1.5 rounded-[1.6rem] border border-neutral-800/80 bg-neutral-900/70 p-1.5 shadow-[0_8px_28px_rgba(0,0,0,0.28)] transition-colors focus-within:border-neutral-600">
+        <div className="flex min-h-[7.25rem] flex-col rounded-[1.75rem] border border-neutral-700/80 bg-neutral-900 px-3 pb-2.5 pt-3 shadow-[0_10px_32px_rgba(0,0,0,0.32)] transition-colors focus-within:border-neutral-500">
           <CodexComposerTextArea
             aria-label="Continue this Codex session"
+            className="min-h-14 w-full flex-none px-1 py-0"
             disabled={Boolean(blockReason) || !onContinue || sending}
             onChange={(event) => setDraft(event.target.value)}
             placeholder={blockReason ?? 'Continue this session…'}
             value={draft}
           />
-          <Button
-            aria-label="Send to this Codex session"
-            className="size-9 min-h-0 rounded-full shadow-sm"
-            isDisabled={!draft.trim() || Boolean(blockReason) || !onContinue || sending}
-            isIconOnly
-            size="sm"
-            type="submit"
-            variant="primary"
-          >
-            {sending ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowUp className="size-3.5" />}
-          </Button>
+          <div className="mt-auto flex min-w-0 items-center justify-between gap-3" data-codex-composer-actions="true">
+            <Text className="min-w-0 truncate px-1 text-xs font-medium text-neutral-500">
+              {session.model}
+            </Text>
+            <Button
+              aria-label="Send to this Codex session"
+              className="size-9 min-h-0 rounded-full shadow-sm"
+              isDisabled={!draft.trim() || Boolean(blockReason) || !onContinue || sending}
+              isIconOnly
+              size="sm"
+              type="submit"
+              variant="primary"
+            >
+              {sending ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowUp className="size-3.5" />}
+            </Button>
+          </div>
         </div>
       </form>
     </section>

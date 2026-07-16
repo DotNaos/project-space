@@ -298,8 +298,11 @@ describe('Canonical Codex task page', () => {
     );
 
     expect(html).toContain('data-codex-composer="true"');
-    expect(html).toContain('rounded-[1.6rem]');
-    expect(html).toContain('shadow-[0_8px_28px_rgba(0,0,0,0.28)]');
+    expect(html).toContain('min-h-[7.25rem]');
+    expect(html).toContain('flex-col');
+    expect(html).toContain('rounded-[1.75rem]');
+    expect(html).toContain('data-codex-composer-actions="true"');
+    expect(html).toContain('gpt-5');
     expect(html).toContain('aria-label="Continue this Codex session"');
     expect(html).toContain('aria-label="Send to this Codex session"');
   });
