@@ -1,7 +1,5 @@
 import type {
   GitHubCatalogRepository,
-  GitHubCatalogResult,
-  GitHubOAuthDeviceStartResult,
   MachineRecord
 } from '@/shared/project-space-api';
 import type { KeyboardEventHandler } from 'react';
@@ -350,80 +348,6 @@ export function ProjectListItem({
       </Text>
       <div className="flex justify-end">
         <ProjectActionsMenu row={row} onOpenProject={openProject} />
-      </div>
-    </div>
-  );
-}
-
-export function GitHubConnectPanel({
-  flow,
-  githubCatalog,
-  isConnecting,
-  onConnect,
-  onPoll,
-  onRetry
-}: {
-  flow?: GitHubOAuthDeviceStartResult;
-  githubCatalog: GitHubCatalogResult;
-  isConnecting: boolean;
-  onConnect(): void;
-  onPoll(): void;
-  onRetry(): void;
-}) {
-  if (githubCatalog.status === 'connected') {
-    return null;
-  }
-
-  const isLoadError = githubCatalog.status === 'error';
-  const title = isLoadError ? 'Project catalog unavailable' : 'Connect GitHub';
-  const description =
-    flow?.status === 'pending'
-      ? 'Enter this code on GitHub, then check the login here.'
-      : githubCatalog.message ??
-        (isLoadError ? 'The project catalog could not be loaded.' : 'Connect GitHub to load repositories.');
-
-  return (
-    <div className="mb-4 rounded-lg bg-neutral-950/60 px-4 py-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <Text className="block text-sm font-semibold text-neutral-100">{title}</Text>
-          <Text className="mt-1 block text-sm text-neutral-500">
-            {description}
-          </Text>
-        </div>
-        {flow?.status === 'pending' ? (
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <span className="rounded-lg bg-neutral-900 px-3 py-1.5 font-mono text-sm font-semibold text-neutral-100">
-              {flow.userCode}
-            </span>
-            {flow.verificationUri ? (
-              <a href={flow.verificationUri} target="_blank" rel="noreferrer">
-                <Button size="sm" variant="outline">
-                  <ExternalLink className="size-4" />
-                  Open GitHub
-                </Button>
-              </a>
-            ) : null}
-            <Button size="sm" isDisabled={isConnecting} onPress={onPoll}>
-              Check login
-            </Button>
-          </div>
-        ) : isLoadError ? (
-          <Button className="shrink-0" size="sm" variant="outline" isDisabled={isConnecting} onPress={onRetry}>
-            <RefreshCw className="size-4" />
-            Retry
-          </Button>
-        ) : (
-          <Button
-            className="shrink-0"
-            size="sm"
-            isDisabled={isConnecting || githubCatalog.status === 'not-configured'}
-            onPress={onConnect}
-          >
-            <GitHubMark className="size-4" />
-            Login with GitHub
-          </Button>
-        )}
       </div>
     </div>
   );

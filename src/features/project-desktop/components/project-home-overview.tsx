@@ -45,12 +45,12 @@ import { machineSubtitle } from './project-main-model';
 import {
   AddMachineDialog,
   BranchChips,
-  GitHubConnectPanel,
   MainListSearch,
   ProjectListItem,
   ProjectListTableHeader,
   sourceLabelForRow
 } from './project-home-overview-widgets';
+import { GitHubConnectPanel } from './github-connect-panel';
 import {
   branchesFromWorktrees,
   configChipClass,
@@ -1056,14 +1056,16 @@ export function ProjectHomeOverview({
       ) : null}
 
       {mode === 'projects' && hasRequestedGitHubCatalog && !isPendingGitHubCatalog ? (
-        <GitHubConnectPanel
-          flow={githubFlow}
-          githubCatalog={githubCatalog}
-          isConnecting={isConnectingGitHub}
-          onConnect={() => void connectGitHub()}
-          onPoll={() => void pollGitHubLogin()}
-          onRetry={() => void refresh(false)}
-        />
+        <div className="mb-4 rounded-lg bg-neutral-950/60 px-4 py-4">
+          <GitHubConnectPanel
+            flow={githubFlow}
+            githubCatalog={githubCatalog}
+            isConnecting={isConnectingGitHub}
+            onConnect={connectGitHub}
+            onPoll={pollGitHubLogin}
+            onRetry={() => refresh(false)}
+          />
+        </div>
       ) : null}
 
       {mode === 'projects' ? (
