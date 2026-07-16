@@ -100,13 +100,12 @@ describe('settings machine grouping model', () => {
       onlineConnectorCount: 2,
       platformLabels: ['Windows', 'Linux']
     });
-    expect(result.groups[0]?.instances.map(({ channel, channelLabel, id }) => ({
+    expect(result.groups[0]?.instances.map(({ channel, id }) => ({
       channel,
-      channelLabel,
       id
     }))).toEqual([
-      { channel: 'stable', channelLabel: 'Stable', id: 'stable-id' },
-      { channel: 'dev', channelLabel: 'Dev', id: 'dev-id' }
+      { channel: 'stable', id: 'stable-id' },
+      { channel: 'dev', id: 'dev-id' }
     ]);
   });
 

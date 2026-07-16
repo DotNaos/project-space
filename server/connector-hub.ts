@@ -21,6 +21,15 @@ const registryTtlMs = 2 * 60 * 1000;
 const registries = new Map<string, RegisteredConnector>();
 export const connectorHubSourcePath = 'connector-hub';
 
+function connectorReportedOsFamily(registry: ConnectorProjectRegistryResult) {
+  const value = registry.connector.runtime?.platform ?? registry.connector.kind?.toLowerCase();
+  if (value === 'darwin' || value === 'macos') return 'macos';
+  if (value === 'ubuntu') return 'ubuntu';
+  if (value === 'windows' || value === 'win32') return 'windows';
+  if (value === 'linux' || value === 'unix') return 'linux';
+  return undefined;
+}
+
 export function isConnectorHubMachine(machine: Pick<MachineRecord, 'sourcePath'>) {
   return machine.sourcePath === connectorHubSourcePath;
 }
@@ -162,6 +171,7 @@ export async function getRegisteredConnectorMachines(): Promise<MachineRecord[]>
     const supportsRuntimeMaintenance = Boolean(registry.connector.runtime) &&
       capabilities.includes('runtime.restart') &&
       capabilities.includes('runtime.update');
+    const reportedOsFamily = connectorReportedOsFamily(registry);
     return ({
     battery: registry.connector.battery,
     connector: {
@@ -185,6 +195,7 @@ export async function getRegisteredConnectorMachines(): Promise<MachineRecord[]>
     kind: 'connector',
     name: registry.connector.machineName,
     network: {},
+    os: reportedOsFamily ? { family: reportedOsFamily } : undefined,
     primaryUser: registry.connector.primaryUser,
     roles: ['connector'],
     sourcePath: connectorHubSourcePath
