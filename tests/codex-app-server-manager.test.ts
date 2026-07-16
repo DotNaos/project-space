@@ -8,6 +8,7 @@ import type { CodexChildProcess } from '../server/codex-sessions/contracts';
 import {
   CodexAppServerProtocolError,
   CodexOperationConflictError,
+  CodexOperationUncertainError,
   CodexSessionManager,
   CodexThreadActiveError
 } from '../server/codex-sessions';
@@ -131,6 +132,40 @@ describe('Codex app-server session manager', () => {
       await expect(manager.listThreads()).rejects.toBeInstanceOf(CodexAppServerProtocolError);
       await Bun.sleep(0);
       expect(events).toEqual([]);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('keeps a sent mutation uncertain when an oversized response closes the protocol', async () => {
+    const process = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+      if (message.method === 'turn/start') {
+        server.send({
+          id: message.id,
+          result: { padding: 'x'.repeat(2_000_000), turn: { id: 'turn-1' } }
+        });
+      }
+    });
+    const manager = new CodexSessionManager({ processFactory: () => process });
+    const operation = {
+      operationId: 'operation-uncertain',
+      prompt: 'Continue safely',
+      threadId: 'thread-1'
+    };
+
+    try {
+      await expect(manager.startTurn(operation)).rejects.toBeInstanceOf(
+        CodexOperationUncertainError
+      );
+      expect(manager.operationSnapshot()).toEqual([
+        expect.objectContaining({
+          operationId: operation.operationId,
+          state: 'uncertain'
+        })
+      ]);
+      expect(() => manager.startTurn(operation)).toThrow(CodexOperationUncertainError);
+      expect(process.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
     } finally {
       await manager.close();
     }

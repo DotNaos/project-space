@@ -20,6 +20,11 @@ type PendingCall = {
 
 const MAXIMUM_STANDARD_LINE_CHARACTERS = 2_000_000;
 const MAXIMUM_THREAD_READ_LINE_CHARACTERS = 16 * 1024 * 1024;
+const UNCERTAIN_ON_PROTOCOL_FAILURE_METHODS = new Set([
+  'thread/resume',
+  'turn/interrupt',
+  'turn/start'
+]);
 
 export class CodexAppServerProtocolError extends Error {
   readonly code = 'codex_app_server_protocol_error';
@@ -185,7 +190,11 @@ export class CodexStdioTransport {
     this.open = false;
     this.stdout.close();
     for (const pending of this.pending.values()) {
-      pending.reject(new CodexAppServerProtocolError('Codex app-server returned an invalid response.'));
+      pending.reject(
+        UNCERTAIN_ON_PROTOCOL_FAILURE_METHODS.has(pending.method)
+          ? new CodexOperationUncertainError('Codex app-server returned an invalid response after a mutation was sent.')
+          : new CodexAppServerProtocolError('Codex app-server returned an invalid response.')
+      );
     }
     this.pending.clear();
     this.onTransportClose();
