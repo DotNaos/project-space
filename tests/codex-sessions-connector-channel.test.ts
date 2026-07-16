@@ -11,6 +11,7 @@ import {
   CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY,
+  CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY,
   createCodexSessionsWireRequest
 } from '../server/codex-sessions-connector-contract';
 import {
@@ -291,6 +292,26 @@ describe('Codex sessions connector channel', () => {
     }
   });
 
+  test('does not send a model override to a connector with only the original session capability', async () => {
+    const { sent, socket } = fakeSocket([CODEX_SESSIONS_CONNECTOR_CAPABILITY]);
+    try {
+      await expect(requestConnectorCodexSessions('continue', {
+        machineId,
+        message: 'Continue with another model',
+        model: 'gpt-5-mini',
+        operationId: 'operation-model-compatibility',
+        threadId
+      }, {
+        generation: 1,
+        signingKey: keys.privateKey,
+        userId: 'user-owner'
+      })).rejects.toThrow('does not provide Codex sessions');
+      expect(sent).toEqual([]);
+    } finally {
+      removeConnectorSession(machineId, socket);
+    }
+  });
+
   test('requires codex.sessions.inspect.v1 separately from ordinary session access', async () => {
     const { sent, socket } = fakeSocket([CODEX_SESSIONS_CONNECTOR_CAPABILITY]);
     try {
@@ -560,6 +581,8 @@ describe('Codex sessions connector capability', () => {
     expect(registry.connector.capabilities?.includes(CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY))
       .toBe(existsSync(defaultCodexAppServerBinary));
     expect(registry.connector.capabilities?.includes(CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY))
+      .toBe(existsSync(defaultCodexAppServerBinary));
+    expect(registry.connector.capabilities?.includes(CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY))
       .toBe(existsSync(defaultCodexAppServerBinary));
   }, 15_000);
 });

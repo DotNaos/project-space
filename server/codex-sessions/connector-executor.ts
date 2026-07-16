@@ -330,6 +330,7 @@ export class CodexSessionsConnectorExecutor {
         return operationResult(request, 'rejected');
       }
       const result = await this.options.manager.startTurn({
+        model: request.model,
         operationId: derivedOperationId(request.operationId, 'turn'),
         prompt: request.message,
         threadId: request.threadId

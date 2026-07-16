@@ -7,6 +7,7 @@ import {
   Clock3,
   Loader2,
   PanelRight,
+  ShieldCheck,
   TerminalSquare,
   X
 } from 'lucide-react';
@@ -15,6 +16,10 @@ import { cn } from '@/lib/utils';
 import { codexContinueBlockReason, codexThreadOrigin } from './codex-sessions-model';
 import { CodexComposerTextArea } from './codex-composer-textarea';
 import { CodexMarkdownMessage } from './codex-markdown-message';
+import {
+  CodexSessionModelSelect,
+  type CodexSessionModelSelection
+} from './codex-session-model-select';
 import type {
   CodexConversation,
   CodexConversationItem,
@@ -77,6 +82,7 @@ export function CodexConversationPane({
   historyState = 'ready',
   historyStatusDetail,
   machine,
+  modelSelection,
   onBack,
   onContinue,
   onOpenDetails,
@@ -88,8 +94,9 @@ export function CodexConversationPane({
   historyState?: 'blocked' | 'loading' | 'ready';
   historyStatusDetail?: string;
   machine?: CodexMachine;
+  modelSelection?: CodexSessionModelSelection;
   onBack?(): void;
-  onContinue?(origin: CodexThreadOrigin, message: string): Promise<void> | void;
+  onContinue?(origin: CodexThreadOrigin, message: string, model?: string): Promise<void> | void;
   onOpenDetails?(): void;
   session?: CodexSession;
   showHeader?: boolean;
@@ -132,7 +139,7 @@ export function CodexConversationPane({
     if (!message || blockReason || !onContinue || sending) return;
     setSending(true);
     try {
-      await onContinue(codexThreadOrigin(session!), message);
+      await onContinue(codexThreadOrigin(session!), message, modelSelection?.override);
       setDraft('');
     } finally {
       setSending(false);
@@ -217,20 +224,31 @@ export function CodexConversationPane({
             value={draft}
           />
           <div className="mt-auto flex min-w-0 items-center justify-between gap-3" data-codex-composer-actions="true">
-            <Text className="min-w-0 truncate px-1 text-xs font-medium text-neutral-500">
-              {session.model}
-            </Text>
-            <Button
+            <div className="flex min-w-0 items-center gap-0.5">
+              <span
+                aria-label="Exact machine and task authorization"
+                className="grid size-9 shrink-0 place-items-center text-neutral-500"
+                role="img"
+                title="Exact machine and task authorization"
+              >
+                <ShieldCheck className="size-4" />
+              </span>
+              <CodexSessionModelSelect
+                disabled={Boolean(blockReason) || sending || (modelSelection?.disabled ?? true)}
+                error={modelSelection?.error}
+                models={modelSelection?.models ?? []}
+                onChange={modelSelection?.onChange ?? (() => {})}
+                value={modelSelection?.value ?? session.model ?? ''}
+              />
+            </div>
+            <button
               aria-label="Send to this Codex session"
-              className="size-9 min-h-0 rounded-full shadow-sm"
-              isDisabled={!draft.trim() || Boolean(blockReason) || !onContinue || sending}
-              isIconOnly
-              size="sm"
+              className="grid size-9 shrink-0 place-items-center rounded-full bg-neutral-100 text-neutral-900 shadow-sm transition hover:bg-white disabled:pointer-events-none disabled:opacity-50"
+              disabled={!draft.trim() || Boolean(blockReason) || !onContinue || sending}
               type="submit"
-              variant="primary"
             >
               {sending ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowUp className="size-3.5" />}
-            </Button>
+            </button>
           </div>
         </div>
       </form>

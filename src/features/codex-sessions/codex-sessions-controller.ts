@@ -60,7 +60,8 @@ function toMachine(result: CodexSessionListResult): CodexMachine {
     id: result.machine.id,
     name: result.machine.name,
     status: result.machine.online ? 'connected' : 'offline',
-    statusDetail: result.machine.statusMessage
+    statusDetail: result.machine.statusMessage,
+    supportsModelSelection: result.machine.supportsModelSelection
   };
 }
 function toSession(record: CodexSessionListResult['sessions'][number]): CodexSession {
@@ -347,16 +348,25 @@ export class CodexSessionsController {
     });
   }
 
-  async continue(origin: CodexThreadOrigin, message: string) {
+  async continue(origin: CodexThreadOrigin, message: string, model?: string) {
     const session = this.requireSelectedSession(origin);
     const machine = this.state.machines.find((entry) => entry.id === origin.machineId);
     const blocked = codexContinueBlockReason(session, machine);
     if (blocked) throw new CodexSessionsControllerError('thread_not_idle', blocked);
     const cleanMessage = message.trim();
     if (!cleanMessage) throw new CodexSessionsControllerError('empty_message', 'Enter a message first.');
-    const key = `continue:${origin.machineId}:${origin.threadId}:${cleanMessage}`;
+    const selectedModel = model?.trim();
+    const key = `continue:${JSON.stringify([
+      origin.machineId,
+      origin.threadId,
+      selectedModel ?? null,
+      cleanMessage
+    ])}`;
     const result = await this.runOperation(key, (operationId) => this.client.continue({
-      ...origin, message: cleanMessage, operationId
+      ...origin,
+      message: cleanMessage,
+      ...(selectedModel ? { model: selectedModel } : {}),
+      operationId
     }));
     if (result.status === 'accepted' || result.status === 'completed') {
       this.update({

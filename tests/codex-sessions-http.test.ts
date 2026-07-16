@@ -244,6 +244,37 @@ describe('Codex sessions authenticated HTTP boundary', () => {
     expect(calls).toHaveLength(0);
   });
 
+  test('forwards only a valid selected model with the exact continued task', async () => {
+    const { calls, service } = stubService();
+    const origin = await startApi(service);
+    const path = `${origin}/api/codex/sessions/${threadId}/continue?machineId=machine-one`;
+    const valid = await fetch(path, mutation({
+      machineId: 'machine-one',
+      message: 'Continue with this model',
+      model: 'gpt-5-mini',
+      operationId: 'operation-model-1'
+    }));
+    const invalid = await fetch(path, mutation({
+      machineId: 'machine-one',
+      message: 'Do not dispatch this',
+      model: 'gpt 5 with spaces',
+      operationId: 'operation-model-2'
+    }));
+
+    expect(valid.status).toBe(200);
+    expect(invalid.status).toBe(400);
+    expect(calls).toEqual([{
+      input: {
+        machineId: 'machine-one',
+        message: 'Continue with this model',
+        model: 'gpt-5-mini',
+        operationId: 'operation-model-1',
+        threadId
+      },
+      method: 'continue'
+    }]);
+  });
+
   test('preserves every approval and user-input correlation identifier', async () => {
     const { calls, service } = stubService();
     const origin = await startApi(service);

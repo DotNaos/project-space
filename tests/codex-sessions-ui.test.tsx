@@ -42,6 +42,16 @@ mock.module('@/app/dotnaos-ui', () => ({
   ),
   SearchFieldInput: (props: Record<string, unknown>) => createElement('input', props),
   SearchFieldSearchIcon: () => createElement('span', { 'data-search-icon': true }),
+  ListBox: ({ children, selectedKeys: _selectedKeys, ...props }: { children?: ReactNode; selectedKeys?: Set<string>; [key: string]: unknown }) => createElement('div', props, children),
+  ListBoxItem: ({ children, id, textValue: _textValue, ...props }: { children?: ReactNode; id: string; textValue?: string; [key: string]: unknown }) => createElement('button', { ...props, 'data-id': id }, children),
+  Select: Object.assign(
+    ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
+    {
+      Indicator: (props: Record<string, unknown>) => createElement('span', props),
+      Popover: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
+      Trigger: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('button', props, children)
+    }
+  ),
   Tab: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('button', props, children),
   TabIndicator: () => null,
   TabList: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
@@ -292,6 +302,24 @@ describe('Canonical Codex task page', () => {
       <CodexConversationPane
         conversation={conversation}
         machine={machine}
+        modelSelection={{
+          disabled: false,
+          models: [{
+            description: 'Best for everyday coding.',
+            displayName: 'GPT-5',
+            id: 'gpt-5',
+            isDefault: true,
+            model: 'gpt-5'
+          }, {
+            description: 'Faster for focused work.',
+            displayName: 'GPT-5 mini',
+            id: 'gpt-5-mini',
+            isDefault: false,
+            model: 'gpt-5-mini'
+          }],
+          onChange: () => {},
+          value: 'gpt-5'
+        }}
         onContinue={() => {}}
         session={{ ...activeSession, status: 'idle' }}
       />
@@ -302,9 +330,12 @@ describe('Canonical Codex task page', () => {
     expect(html).toContain('flex-col');
     expect(html).toContain('rounded-[1.75rem]');
     expect(html).toContain('data-codex-composer-actions="true"');
-    expect(html).toContain('gpt-5');
+    expect(html).toContain('aria-label="Exact machine and task authorization"');
+    expect(html).toContain('aria-label="Codex model"');
+    expect(html).toContain('GPT-5 mini');
     expect(html).toContain('aria-label="Continue this Codex session"');
     expect(html).toContain('aria-label="Send to this Codex session"');
+    expect(html).toContain('rounded-full bg-neutral-100');
   });
 
   test('reserves narrow task-header space for the compact shell controls', () => {

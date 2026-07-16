@@ -27,6 +27,7 @@ import { canonicalJson } from './codex-sessions/canonical-json';
 export const CODEX_SESSIONS_CONNECTOR_CAPABILITY = 'codex.sessions.v1';
 export const CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY = 'codex.sessions.browser.v1';
 export const CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY = 'codex.sessions.inspect.v1';
+export const CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY = 'codex.sessions.model-selection.v1';
 
 export type CodexSessionsConnectorOperation =
   | 'approval'
@@ -283,8 +284,9 @@ function boundedPayload(operation: CodexSessionsConnectorOperation, payload: Rec
           typeof payload.afterImageRevision === 'string' && /^[a-f0-9]{64}$/.test(payload.afterImageRevision)
         ));
     case 'continue':
-      return hasOnlyKeys(payload, ['machineId', 'message', 'operationId', 'threadId']) &&
+      return hasOnlyKeys(payload, ['machineId', 'message', 'model', 'operationId', 'threadId']) &&
         boundedIdentifier(payload.threadId, 128) && boundedIdentifier(payload.operationId, 128) &&
+        (payload.model === undefined || boundedIdentifier(payload.model, 128)) &&
         typeof payload.message === 'string' && payload.message.length > 0 && payload.message.length <= 16_000;
     case 'interrupt':
       return hasOnlyKeys(payload, ['machineId', 'operationId', 'threadId', 'turnId']) &&

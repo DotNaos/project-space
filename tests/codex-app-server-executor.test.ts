@@ -339,6 +339,7 @@ describe('Codex connector executor', () => {
     const request: CodexSessionContinueRequest = {
       machineId,
       message: 'Continue this exact session',
+      model: 'gpt-5-mini',
       operationId: 'operation-continue-one',
       threadId
     };
@@ -349,6 +350,7 @@ describe('Codex connector executor', () => {
     const start = manager.calls.find((call) => call.method === 'startTurn')?.input as CodexStartTurnInput;
     expect(resume.threadId).toBe(threadId);
     expect(start.threadId).toBe(threadId);
+    expect(start.model).toBe('gpt-5-mini');
     expect(resume.operationId).toMatch(/^codex:resume:/);
     expect(start.operationId).toMatch(/^codex:turn:/);
     expect(start.operationId).not.toBe(resume.operationId);

@@ -66,7 +66,8 @@ import { configuredConnectorMachineId } from './project-connector-config';
 import {
   CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_CONNECTOR_CAPABILITY,
-  CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY
+  CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY,
+  CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY
 } from './codex-sessions-connector-contract';
 import { defaultCodexAppServerBinary } from './codex-sessions/stdio-transport';
 import {
@@ -163,7 +164,8 @@ const connectorCommandCapabilities = [
   ...(existsSync(defaultCodexAppServerBinary) ? [
     CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY,
     CODEX_SESSIONS_CONNECTOR_CAPABILITY,
-    CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY
+    CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY,
+    CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY
   ] : [])
 ];
 

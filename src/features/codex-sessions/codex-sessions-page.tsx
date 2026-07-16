@@ -21,7 +21,7 @@ export interface CodexSessionsPageProps {
   errorMessage?: string;
   machines: CodexMachine[];
   now?: Date;
-  onContinueThread?(origin: CodexThreadOrigin, message: string): Promise<void> | void;
+  onContinueThread?(origin: CodexThreadOrigin, message: string, model?: string): Promise<void> | void;
   onBackFromThread?(): void;
   onInterruptThread?(origin: CodexThreadOrigin, turnId: string): Promise<void> | void;
   onOpenProjectChatThread?(origin: CodexThreadOrigin): void;

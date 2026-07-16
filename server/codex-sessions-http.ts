@@ -219,10 +219,11 @@ async function executeRoute(
   const common = { machineId, operationId, threadId: route.threadId };
 
   if (route.kind === 'continue') {
-    onlyKeys(body, ['machineId', 'message', 'operationId']);
+    onlyKeys(body, ['machineId', 'message', 'model', 'operationId']);
     const message = requiredString(body, 'message');
+    const model = optionalIdentifier(body, 'model');
     if (message.length > 16_000) throw invalidRequest('The message is too long.');
-    return service.continue(context, { ...common, message });
+    return service.continue(context, { ...common, message, ...(model ? { model } : {}) });
   }
 
   const turnId = requiredString(body, 'turnId', REQUEST_ID_PATTERN);
