@@ -55,10 +55,10 @@ function MessageItem({ item }: { item: Extract<CodexConversationItem, { kind: 'm
         </span>
       ) : null}
       <div className={cn(
-        'max-w-[80ch] text-sm leading-6 text-neutral-300',
+        'min-w-0 max-w-full text-sm leading-6 text-neutral-300 sm:max-w-[80ch]',
         item.role === 'user' && 'rounded-2xl rounded-br-sm bg-neutral-800 px-3.5 py-2 text-neutral-100'
       )}>
-        <p className="whitespace-pre-wrap">{item.text}</p>
+        <p className="break-words whitespace-pre-wrap">{item.text}</p>
         {item.streaming ? (
           <span className="mt-2 inline-flex items-center gap-1.5 text-[10px] text-neutral-500">
             <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" /> Streaming
@@ -71,6 +71,8 @@ function MessageItem({ item }: { item: Extract<CodexConversationItem, { kind: 'm
 
 export function CodexConversationPane({
   conversation,
+  historyState = 'ready',
+  historyStatusDetail,
   machine,
   onBack,
   onContinue,
@@ -80,6 +82,8 @@ export function CodexConversationPane({
   supplemental
 }: {
   conversation?: CodexConversation;
+  historyState?: 'blocked' | 'loading' | 'ready';
+  historyStatusDetail?: string;
   machine?: CodexMachine;
   onBack?(): void;
   onContinue?(origin: CodexThreadOrigin, message: string): Promise<void> | void;
@@ -94,7 +98,7 @@ export function CodexConversationPane({
 
   useEffect(() => {
     setDraft('');
-  }, [session?.threadId]);
+  }, [session?.machineId, session?.threadId]);
 
   useEffect(() => {
     if (conversation?.items.some((item) => item.kind === 'message' && item.streaming)) {
@@ -159,7 +163,25 @@ export function CodexConversationPane({
           item.kind === 'message'
             ? <MessageItem item={item} key={item.id} />
             : <ActivityRow item={item} key={item.id} />
-        )) : (
+        )) : historyState === 'loading' ? (
+          <div className="grid h-full place-items-center text-center">
+            <div>
+              <Loader2 className="mx-auto size-4 animate-spin text-neutral-500" />
+              <Text className="mt-3 block text-xs text-neutral-400">Loading stored conversation…</Text>
+              <Text className="mt-1 block text-[10px] text-neutral-600">The task remains unchanged while history is verified.</Text>
+            </div>
+          </div>
+        ) : historyState === 'blocked' ? (
+          <div className="grid h-full place-items-center text-center">
+            <div className="max-w-sm px-6">
+              <CircleAlert className="mx-auto size-4 text-amber-400" />
+              <Text className="mt-3 block text-xs text-neutral-300">Stored conversation is not available right now.</Text>
+              <Text className="mt-1 block text-[10px] leading-4 text-neutral-500">
+                {historyStatusDetail ?? 'Reconnect the owning machine to verify this task history.'}
+              </Text>
+            </div>
+          </div>
+        ) : (
           <div className="grid h-full place-items-center text-center">
             <div>
               <Text className="block text-xs text-neutral-400">No stored conversation items were returned.</Text>

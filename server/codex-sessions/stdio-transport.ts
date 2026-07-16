@@ -18,6 +18,14 @@ type PendingCall = {
   resolve: (result: unknown) => void;
 };
 
+const MAXIMUM_STANDARD_LINE_CHARACTERS = 2_000_000;
+const MAXIMUM_THREAD_READ_LINE_CHARACTERS = 16 * 1024 * 1024;
+const UNCERTAIN_ON_PROTOCOL_FAILURE_METHODS = new Set([
+  'thread/resume',
+  'turn/interrupt',
+  'turn/start'
+]);
+
 export class CodexAppServerProtocolError extends Error {
   readonly code = 'codex_app_server_protocol_error';
 }
@@ -135,14 +143,30 @@ export class CodexStdioTransport {
   }
 
   private handleLine(line: string) {
-    if (!line.trim() || line.length > 2_000_000) return;
+    if (!this.open) return;
+    if (!line.trim()) return;
+    if (line.length > MAXIMUM_THREAD_READ_LINE_CHARACTERS) {
+      this.failProtocol();
+      return;
+    }
     let message: RpcMessage;
     try {
       message = JSON.parse(line) as RpcMessage;
     } catch {
+      if (line.length > MAXIMUM_STANDARD_LINE_CHARACTERS) this.failProtocol();
       return;
     }
     if (!message || typeof message !== 'object') return;
+
+    if (line.length > MAXIMUM_STANDARD_LINE_CHARACTERS) {
+      const pending = typeof message.id === 'number'
+        ? this.pending.get(message.id)
+        : undefined;
+      if (!pending || pending.method !== 'thread/read' || message.method) {
+        this.failProtocol();
+        return;
+      }
+    }
 
     if (typeof message.id === 'number' && !message.method) {
       const pending = this.pending.get(message.id);
@@ -159,6 +183,24 @@ export class CodexStdioTransport {
     }
 
     if (typeof message.method === 'string') this.onMessage(message);
+  }
+
+  private failProtocol() {
+    if (!this.open) return;
+    this.open = false;
+    this.stdout.close();
+    for (const pending of this.pending.values()) {
+      pending.reject(
+        UNCERTAIN_ON_PROTOCOL_FAILURE_METHODS.has(pending.method)
+          ? new CodexOperationUncertainError('Codex app-server returned an invalid response after a mutation was sent.')
+          : new CodexAppServerProtocolError('Codex app-server returned an invalid response.')
+      );
+    }
+    this.pending.clear();
+    this.onTransportClose();
+    if (this.child.exitCode === null && this.child.signalCode === null) {
+      this.child.kill('SIGTERM');
+    }
   }
 
   private handleClose() {
