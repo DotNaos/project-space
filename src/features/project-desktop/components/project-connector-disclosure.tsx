@@ -128,7 +128,7 @@ export function ProjectConnectorDisclosure({
             </Disclosure.Indicator>
           </span>
         </Disclosure.Trigger>
-        <span className="flex min-h-11 items-start justify-center pt-2.5">
+        <span className="flex min-h-11 items-center justify-center">
           {connector ? (
             <MachineConnectorActionsMenu machine={connector} />
           ) : null}

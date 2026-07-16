@@ -65,9 +65,15 @@ import {
   isPhysicalMachineId,
   parsePhysicalMachineSaveRequest
 } from './physical-machine-validation';
+import { createLocalPhysicalMachineStore } from './local-physical-machine-store';
 
 export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
   const handleConnectorRuntime = createConnectorRuntimeHttpHandler(backend);
+  const localPhysicalMachines = createLocalPhysicalMachineStore();
+  const canUseLocalPhysicalMachines = () => !isDatabaseConfigured() && !isProjectSpaceAuthRequired();
+  const loadPhysicalMachines = (userId: string) => isDatabaseConfigured()
+    ? listPhysicalMachines(userId)
+    : Promise.resolve(canUseLocalPhysicalMachines() ? localPhysicalMachines.list(userId) : []);
   const currentUserId = () => {
     const session = getCurrentAuthSession();
     if (session?.userId) return session.userId;
@@ -171,13 +177,13 @@ export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
     if (request.method === 'GET' && url.pathname === '/api/physical-machines') {
       response.setHeader('Cache-Control', 'private, no-store');
       writeJson(response, 200, {
-        machines: isDatabaseConfigured() ? await listPhysicalMachines(userId) : []
+        machines: await loadPhysicalMachines(userId)
       });
       return true;
     }
 
     if (request.method === 'POST' && url.pathname === '/api/physical-machines') {
-      if (!isDatabaseConfigured()) {
+      if (!isDatabaseConfigured() && !canUseLocalPhysicalMachines()) {
         writeJson(response, 503, { error: 'Physical machine grouping requires the account database.' });
         return true;
       }
@@ -187,13 +193,22 @@ export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
         return true;
       }
       response.setHeader('Cache-Control', 'private, no-store');
+      const machine = isDatabaseConfigured()
+        ? await savePhysicalMachine({
+            connectorIds: payload.connectorIds,
+            name: payload.name,
+            physicalMachineId: payload.id,
+            userId
+          })
+        : localPhysicalMachines.save({
+            allowedConnectorIds: (await backend.getConnectorOverview()).machines.map((entry) => entry.id),
+            connectorIds: payload.connectorIds,
+            name: payload.name,
+            physicalMachineId: payload.id,
+            userId
+          });
       writeJson(response, 200, {
-        machine: await savePhysicalMachine({
-          connectorIds: payload.connectorIds,
-          name: payload.name,
-          physicalMachineId: payload.id,
-          userId
-        })
+        machine
       });
       return true;
     }
@@ -207,7 +222,9 @@ export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
       writeJson(response, 200, {
         deleted: isDatabaseConfigured()
           ? await deletePhysicalMachine({ physicalMachineId, userId })
-          : false
+          : canUseLocalPhysicalMachines()
+            ? localPhysicalMachines.delete(userId, physicalMachineId)
+            : false
       });
       return true;
     }
@@ -475,7 +492,7 @@ export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
       const overview = await backend.getConnectorOverview();
       writeJson(response, 200, {
         ...overview,
-        physicalMachines: isDatabaseConfigured() ? await listPhysicalMachines(userId) : []
+        physicalMachines: await loadPhysicalMachines(userId)
       });
       return true;
     }

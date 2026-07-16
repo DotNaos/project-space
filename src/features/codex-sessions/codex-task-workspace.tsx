@@ -55,7 +55,7 @@ function browserResult(state: ReturnType<typeof useCodexBrowserMirror>) {
 function taskStatusLabel(status: ProjectCodexTaskStatus) {
   if (status === 'waiting-approval') return 'Waiting for approval';
   if (status === 'waiting-input') return 'Waiting for input';
-  if (status === 'offline') return 'Machine offline';
+  if (status === 'offline') return 'Connector offline';
   if (status === 'unavailable' || status === 'missing') return 'Unavailable';
   if (status === 'archived') return 'Archived';
   return status === 'active' ? 'Working' : 'Idle';

@@ -1,4 +1,9 @@
-import type { ProjectSpaceRecord } from '../../shared/project-space-api';
+import type {
+  MachineRecord,
+  PhysicalMachineRecord,
+  ProjectSpaceRecord
+} from '../../shared/project-space-api';
+import { connectorInstallationLabel } from '../project-desktop/components/machine-connector-topology-model';
 import type {
   CodexMachine,
   CodexMachineStatus,
@@ -19,6 +24,9 @@ export interface ProjectCodexTask extends Omit<CodexSession, 'status' | 'title'>
 }
 
 export interface ProjectCodexTaskMachineGroup {
+  connectorIds: string[];
+  connectorLabels: Record<string, string>;
+  connectorStatuses: Record<string, CodexMachineStatus>;
   machine: CodexMachine;
   tasks: ProjectCodexTask[];
 }
@@ -76,29 +84,90 @@ export function projectCodexTasks(
 export function groupProjectCodexTasks(
   tasks: readonly ProjectCodexTask[],
   machines: readonly CodexMachine[],
-  scopedMachineIds: readonly string[] = []
+  scopedMachineIds: readonly string[] = [],
+  topology: {
+    connectors?: readonly MachineRecord[];
+    physicalMachines?: readonly PhysicalMachineRecord[];
+  } = {}
 ): ProjectCodexTaskMachineGroup[] {
   const machineById = new Map(machines.map((machine) => [machine.id, machine]));
+  const connectorRecordById = new Map(
+    (topology.connectors ?? []).map((connector) => [connector.id, connector])
+  );
+  const physicalMachines = topology.physicalMachines ?? [];
+  const physicalMachineByConnectorId = new Map<string, PhysicalMachineRecord>();
+  for (const physicalMachine of physicalMachines) {
+    for (const connectorId of physicalMachine.connectorIds) {
+      if (!physicalMachineByConnectorId.has(connectorId)) {
+        physicalMachineByConnectorId.set(connectorId, physicalMachine);
+      }
+    }
+  }
   const orderedMachineIds = [...new Set([
     ...machines.map((machine) => machine.id),
     ...scopedMachineIds,
     ...tasks.map((task) => task.machineId)
   ])];
-  const orderById = new Map(orderedMachineIds.map((machineId, index) => [machineId, index]));
-  const grouped = new Map<string, ProjectCodexTask[]>();
-  for (const machineId of scopedMachineIds) grouped.set(machineId, []);
-  for (const task of tasks) {
-    grouped.set(task.machineId, [...(grouped.get(task.machineId) ?? []), task]);
+  const groupIdForConnector = (connectorId: string) =>
+    physicalMachineByConnectorId.get(connectorId)?.id ?? connectorId;
+  const orderById = new Map<string, number>();
+  for (const [index, connectorId] of orderedMachineIds.entries()) {
+    const groupId = groupIdForConnector(connectorId);
+    if (!orderById.has(groupId)) orderById.set(groupId, index);
   }
-  return [...grouped.entries()].map(([machineId, machineTasks]) => ({
-    machine: machineById.get(machineId) ?? {
-      id: machineId,
-      name: 'Unavailable machine',
-      status: 'unavailable' as const,
-      statusDetail: 'This task\'s owning machine is not in the current authenticated inventory.'
-    },
-    tasks: [...machineTasks].sort(compareTasks)
-  })).sort((left, right) => {
+  const grouped = new Map<string, { connectorIds: Set<string>; tasks: ProjectCodexTask[] }>();
+  for (const machineId of scopedMachineIds) {
+    const groupId = groupIdForConnector(machineId);
+    const group = grouped.get(groupId) ?? { connectorIds: new Set<string>(), tasks: [] };
+    group.connectorIds.add(machineId);
+    grouped.set(groupId, group);
+  }
+  for (const task of tasks) {
+    const groupId = groupIdForConnector(task.machineId);
+    const group = grouped.get(groupId) ?? { connectorIds: new Set<string>(), tasks: [] };
+    group.connectorIds.add(task.machineId);
+    group.tasks.push(task);
+    grouped.set(groupId, group);
+  }
+  return [...grouped.entries()].map(([groupId, group]) => {
+    const connectorIds = [...group.connectorIds];
+    const connectorMachines = connectorIds.map((id) => machineById.get(id)).filter(
+      (machine): machine is CodexMachine => Boolean(machine)
+    );
+    const physicalMachine = physicalMachines.find((machine) => machine.id === groupId);
+    const aggregateStatus: CodexMachineStatus = connectorMachines.some((machine) => machine.status === 'connected')
+      ? 'connected'
+      : connectorMachines.length > 0 && connectorMachines.every((machine) => machine.status === 'offline')
+        ? 'offline'
+        : 'unavailable';
+    const fallbackConnector = connectorMachines[0];
+    const machine: CodexMachine = physicalMachine
+      ? {
+          id: physicalMachine.id,
+          name: physicalMachine.name,
+          status: aggregateStatus,
+          statusDetail: connectorMachines.map((connector) => connector.statusDetail).find(Boolean)
+        }
+      : fallbackConnector ?? {
+          id: groupId,
+          name: 'Unavailable connector',
+          status: 'unavailable',
+          statusDetail: 'This task\'s owning connector is not in the current authenticated inventory.'
+        };
+    return {
+      connectorIds,
+      connectorLabels: Object.fromEntries(connectorIds.map((connectorId) => {
+        const connector = connectorRecordById.get(connectorId);
+        return [connectorId, connector ? connectorInstallationLabel(connector) : machineById.get(connectorId)?.name ?? connectorId];
+      })),
+      connectorStatuses: Object.fromEntries(connectorIds.map((connectorId) => [
+        connectorId,
+        machineById.get(connectorId)?.status ?? 'unavailable'
+      ])),
+      machine,
+      tasks: [...group.tasks].sort(compareTasks)
+    };
+  }).sort((left, right) => {
     const leftOrder = orderById.get(left.machine.id) ?? Number.MAX_SAFE_INTEGER;
     const rightOrder = orderById.get(right.machine.id) ?? Number.MAX_SAFE_INTEGER;
     return leftOrder - rightOrder || left.machine.name.localeCompare(right.machine.name);
@@ -109,8 +178,10 @@ export function countActiveProjectCodexTasks(
   tasks: readonly ProjectCodexTask[],
   groups: readonly ProjectCodexTaskMachineGroup[]
 ) {
-  const machineStatus = new Map(groups.map((group) => [group.machine.id, group.machine.status]));
-  return tasks.filter((task) => task.active && machineStatus.get(task.machineId) === 'connected').length;
+  const connectorStatus = new Map(groups.flatMap((group) =>
+    Object.entries(group.connectorStatuses)
+  ));
+  return tasks.filter((task) => task.active && connectorStatus.get(task.machineId) === 'connected').length;
 }
 
 export function presentProjectCodexTaskStatus(

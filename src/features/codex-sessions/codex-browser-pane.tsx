@@ -179,7 +179,7 @@ export function CodexBrowserPane({
         ) : state.kind === 'unauthorized' ? (
           <MirrorMessage icon={CircleAlert} message={state.reason} title="Browser access is not authorized" />
         ) : state.kind === 'offline' ? (
-          <MirrorMessage icon={WifiOff} message={state.reason} title="The owning machine is offline" />
+          <MirrorMessage icon={WifiOff} message={state.reason} title="The owning connector is offline" />
         ) : state.kind === 'disconnected' ? (
           <MirrorMessage icon={MonitorOff} message={state.reason} title="Browser mirror disconnected" />
         ) : result?.state === 'loading' ? (

@@ -210,7 +210,7 @@ export function MachineConnectorActionsMenu({
           className={cn(
             'inline-flex items-center justify-center border border-transparent text-neutral-400 outline-none transition focus-visible:ring-2 focus-visible:ring-sky-400/60',
             trigger === 'icon'
-              ? 'size-8 rounded-lg hover:border-neutral-800 hover:bg-neutral-900 hover:text-neutral-100'
+              ? 'size-11 rounded-lg hover:border-neutral-800 hover:bg-neutral-900 hover:text-neutral-100'
               : 'min-h-9 w-full gap-2 rounded-lg bg-neutral-100 px-3 text-xs font-medium text-neutral-950 hover:bg-white sm:w-auto',
             className
           )}

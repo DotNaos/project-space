@@ -603,6 +603,7 @@ export function ProjectMainPanel({
                 taskTitles={projectCodexTaskTitles}
                 taskPreview={(
                   <ProjectCodexTasks
+                    connectorOverview={connectorOverview}
                     controller={codexController}
                     machineIds={codexMachineIds}
                     mode="preview"
@@ -614,6 +615,7 @@ export function ProjectMainPanel({
             )}
             codex={(
               <ProjectCodexTasks
+                connectorOverview={connectorOverview}
                 controller={codexController}
                 machineIds={codexMachineIds}
                 mode="panel"

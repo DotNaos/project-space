@@ -18,7 +18,7 @@ import {
   SearchFieldSearchIcon,
   Text
 } from '@/app/dotnaos-ui';
-import type { ProjectSpaceRecord } from '@/shared/project-space-api';
+import type { ConnectorOverviewResult, ProjectSpaceRecord } from '@/shared/project-space-api';
 import { cn } from '@/lib/utils';
 import type { CodexSessionsController } from './codex-sessions-controller';
 import {
@@ -45,7 +45,10 @@ function attentionByTaskId(
 }
 
 function TaskStatus({ group, task }: { group: ProjectCodexTaskMachineGroup; task: ProjectCodexTask }) {
-  const status = presentProjectCodexTaskStatus(task.status, group.machine.status);
+  const status = presentProjectCodexTaskStatus(
+    task.status,
+    group.connectorStatuses[task.machineId] ?? 'unavailable'
+  );
   if (status.loading) {
     return (
       <span className="inline-flex items-center gap-1.5 text-[10px] text-emerald-300">
@@ -92,7 +95,7 @@ function TaskGroups({
     <div className="divide-y divide-neutral-800/70">
       {groups.map((group) => {
         const checking = group.machine.status === 'unavailable'
-          && loadingMachineIds.includes(group.machine.id);
+          && group.connectorIds.some((connectorId) => loadingMachineIds.includes(connectorId));
         const machineLabel = checking ? 'Checking machine' : group.machine.name;
         return (
         <section aria-label={`${machineLabel} Codex tasks`} key={group.machine.id}>
@@ -134,6 +137,9 @@ function TaskGroups({
                   <Text className="block truncate text-xs font-medium text-neutral-100">{task.title}</Text>
                   <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-2">
                     <TaskStatus group={group} task={task} />
+                    <Chip className="text-[9px] text-neutral-500" size="sm">
+                      {group.connectorLabels[task.machineId] ?? task.machineId}
+                    </Chip>
                     {task.issueNumber ? (
                       <Chip className="text-[9px] text-neutral-500" size="sm">Issue #{task.issueNumber}</Chip>
                     ) : null}
@@ -177,7 +183,7 @@ function ProjectTaskPanel({
       <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-neutral-800/80 px-4 py-3">
         <div className="min-w-0 flex-1">
           <Text as="h2" className="block text-sm font-semibold text-neutral-100">Codex tasks</Text>
-          <Text className="mt-0.5 block text-[10px] text-neutral-500">Grouped by the machine that owns each task</Text>
+          <Text className="mt-0.5 block text-[10px] text-neutral-500">Grouped by physical machine with exact connector origins</Text>
         </div>
         {loading ? <Spinner size="sm" /> : null}
         <SearchField className="w-full sm:w-60" onChange={setQuery} value={query}>
@@ -201,12 +207,14 @@ function ProjectTaskPanel({
 }
 
 export function ProjectCodexTasks({
+  connectorOverview,
   controller,
   machineIds,
   mode,
   onOpenTask,
   projectRecords
 }: {
+  connectorOverview?: ConnectorOverviewResult;
   controller: CodexSessionsController;
   machineIds: string[];
   mode: 'panel' | 'preview';
@@ -248,9 +256,19 @@ export function ProjectCodexTasks({
     () => groupProjectCodexTasks(
       visibleTasks,
       state.machines,
-      projectRecords.flatMap((record) => record.machineId ? [record.machineId] : [])
+      projectRecords.flatMap((record) => record.machineId ? [record.machineId] : []),
+      {
+        connectors: connectorOverview?.machines,
+        physicalMachines: connectorOverview?.physicalMachines
+      }
     ),
-    [projectRecords, state.machines, visibleTasks]
+    [
+      connectorOverview?.machines,
+      connectorOverview?.physicalMachines,
+      projectRecords,
+      state.machines,
+      visibleTasks
+    ]
   );
   const activeTaskCount = useMemo(
     () => countActiveProjectCodexTasks(tasks, groups),
@@ -286,7 +304,7 @@ export function ProjectCodexTasks({
               <div className="min-w-0">
                 <Drawer.Heading className="text-sm font-semibold text-neutral-100">Codex tasks</Drawer.Heading>
                 <Text className="mt-0.5 block text-[10px] text-neutral-500">
-                  {activeTaskCount} active · grouped by owning machine
+                  {activeTaskCount} active · grouped by machine and connector
                 </Text>
               </div>
               <Drawer.CloseTrigger className="ml-auto grid size-8 place-items-center rounded-lg text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100">

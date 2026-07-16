@@ -114,7 +114,7 @@ export function CodexSessionList({
         >
           <SearchFieldGroup>
             <Search className="size-3.5 shrink-0 text-neutral-500" />
-            <SearchFieldInput aria-label="Search by title, project, directory, model, or machine" placeholder="Search sessions" />
+            <SearchFieldInput aria-label="Search by title, project, directory, model, or connector" placeholder="Search sessions" />
             <SearchFieldClearButton />
           </SearchFieldGroup>
         </SearchField>
@@ -144,7 +144,7 @@ export function CodexSessionList({
             </div>
             {sections.length === 0 ? (
               <Text className="block px-4 py-3 text-[10px] leading-4 text-neutral-600">
-                No sessions reported by this machine.
+                No sessions reported by this connector installation.
               </Text>
             ) : sections.map((section) => (
               <div className="mb-2" key={section.id}>
