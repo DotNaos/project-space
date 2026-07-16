@@ -171,6 +171,54 @@ describe('Codex app-server session manager', () => {
     }
   });
 
+  test('keeps an approval response uncertain when the protocol fails before confirmation', async () => {
+    const process = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+      if (message.method === 'thread/list') {
+        server.send({ id: message.id, result: { data: [], nextCursor: null } });
+      }
+      if (!message.method && message.id === 'approval-1') {
+        server.send({
+          method: 'error',
+          params: { padding: 'x'.repeat(2_000_000) }
+        });
+      }
+    });
+    const manager = new CodexSessionManager({ processFactory: () => process });
+    const operation = {
+      decision: 'accept' as const,
+      operationId: 'operation-approval',
+      requestId: 'approval-1',
+      threadId: 'thread-1',
+      turnId: 'turn-1'
+    };
+
+    try {
+      await manager.listThreads();
+      process.send({
+        id: operation.requestId,
+        method: 'item/commandExecution/requestApproval',
+        params: { threadId: operation.threadId, turnId: operation.turnId }
+      });
+      await Bun.sleep(0);
+
+      await expect(manager.respondToApproval(operation)).rejects.toBeInstanceOf(
+        CodexOperationUncertainError
+      );
+      expect(manager.operationSnapshot()).toEqual([
+        expect.objectContaining({
+          operationId: operation.operationId,
+          state: 'uncertain'
+        })
+      ]);
+      expect(process.requests.filter((request) => (
+        request.id === operation.requestId && !request.method
+      ))).toHaveLength(1);
+    } finally {
+      await manager.close();
+    }
+  });
+
   test('rejects history beyond the absolute response bound instead of hanging', async () => {
     const process = new FakeCodexProcess((message, server) => {
       if (message.method === 'initialize') server.send({ id: message.id, result: {} });

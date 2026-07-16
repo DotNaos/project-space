@@ -374,11 +374,28 @@ export class CodexSessionManager {
       fingerprint(pending.method, { requestId: pending.requestId, result }),
       async () => {
         const transport = await this.ensureTransport();
-        await transport.respond(pending.requestId, result);
-        await this.waitForResolution(pending.requestId);
+        const confirmation = this.waitForResolution(pending.requestId);
+        try {
+          await transport.respond(pending.requestId, result);
+        } catch {
+          const uncertain = new CodexOperationUncertainError(
+            'The Codex request response was not confirmed.'
+          );
+          this.rejectResolutionWaiter(pending.requestId, uncertain);
+          await confirmation.catch(() => undefined);
+          throw uncertain;
+        }
+        await confirmation;
         return {};
       }
     );
+  }
+
+  private rejectResolutionWaiter(requestId: CodexRpcId, error: Error) {
+    const key = rpcIdKey(requestId);
+    const waiter = this.resolutionWaiters.get(key);
+    this.resolutionWaiters.delete(key);
+    waiter?.reject(error);
   }
 
   private waitForResolution(requestId: CodexRpcId) {
