@@ -235,6 +235,75 @@ describe('Canonical Codex task page', () => {
     expect(html).toContain('break-words');
   });
 
+  test('renders stored assistant Markdown instead of exposing its source syntax', () => {
+    const html = renderToStaticMarkup(
+      <CodexConversationPane
+        conversation={{
+          items: [{
+            id: 'markdown-message',
+            kind: 'message',
+            role: 'assistant',
+            text: [
+              '## Ergebnis',
+              '',
+              'Das offene [Issue #185](https://github.com/DotNaos/project-space/issues/185) beschreibt es.',
+              '',
+              '- Maschine',
+              '- Connector',
+              '',
+              '| Status | Ergebnis |',
+              '| --- | --- |',
+              '| History | Geladen |',
+              '',
+              '- [x] Markdown aktiv',
+              '',
+              '```ts',
+              'const machineId = "machine-mac";',
+              '```',
+              '',
+              '<script>alert("unsafe")</script>'
+            ].join('\n')
+          }],
+          machineId: machine.id,
+          threadId: activeSession.threadId
+        }}
+        machine={machine}
+        session={activeSession}
+      />
+    );
+
+    expect(html).toContain('<h2');
+    expect(html).toContain('href="https://github.com/DotNaos/project-space/issues/185"');
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('<ul');
+    expect(html).toContain('<table');
+    expect(html).toContain('type="checkbox"');
+    expect(html).toContain('class="my-3 space-y-1.5 ml-0 list-none contains-task-list"');
+    expect(html).toContain('task-list-item');
+    expect(html).toContain('<pre');
+    expect(html).not.toContain('[Issue #185]');
+    expect(html).not.toContain('## Ergebnis');
+    expect(html).not.toContain('<script');
+    expect(html).toContain('&lt;script&gt;alert(&quot;unsafe&quot;)&lt;/script&gt;');
+  });
+
+  test('uses the compact Moodle-inspired composer surface', () => {
+    const html = renderToStaticMarkup(
+      <CodexConversationPane
+        conversation={conversation}
+        machine={machine}
+        onContinue={() => {}}
+        session={{ ...activeSession, status: 'idle' }}
+      />
+    );
+
+    expect(html).toContain('data-codex-composer="true"');
+    expect(html).toContain('rounded-[1.6rem]');
+    expect(html).toContain('shadow-[0_8px_28px_rgba(0,0,0,0.28)]');
+    expect(html).toContain('aria-label="Continue this Codex session"');
+    expect(html).toContain('aria-label="Send to this Codex session"');
+  });
+
   test('reserves narrow task-header space for the compact shell controls', () => {
     const html = renderToStaticMarkup(
       <CodexSessionsPage

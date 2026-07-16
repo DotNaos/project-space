@@ -14,6 +14,7 @@ import { Button, Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import { codexContinueBlockReason, codexThreadOrigin } from './codex-sessions-model';
 import { CodexComposerTextArea } from './codex-composer-textarea';
+import { CodexMarkdownMessage } from './codex-markdown-message';
 import type {
   CodexConversation,
   CodexConversationItem,
@@ -32,7 +33,7 @@ const activityIcon = {
 function ActivityRow({ item }: { item: Extract<CodexConversationItem, { kind: 'activity' }> }) {
   const Icon = activityIcon[item.state];
   return (
-    <div className="ml-8 flex items-start gap-2 border-l border-neutral-800 py-1.5 pl-3 text-[10px] text-neutral-500">
+    <div className="ml-9 flex items-start gap-2 border-l border-neutral-800/80 py-1.5 pl-3 text-xs leading-5 text-neutral-500">
       <Icon className={cn(
         'mt-0.5 size-3 shrink-0',
         item.state === 'running' && 'animate-spin text-neutral-300',
@@ -48,17 +49,19 @@ function ActivityRow({ item }: { item: Extract<CodexConversationItem, { kind: 'a
 
 function MessageItem({ item }: { item: Extract<CodexConversationItem, { kind: 'message' }> }) {
   return (
-    <article className={cn('flex gap-3 py-4', item.role === 'user' && 'justify-end')}>
+    <article className={cn('flex gap-3 py-3.5', item.role === 'user' && 'justify-end')}>
       {item.role === 'assistant' ? (
-        <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border border-neutral-800 bg-neutral-900">
-          <TerminalSquare className="size-3 text-neutral-400" />
+        <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-neutral-900 text-neutral-500">
+          <TerminalSquare className="size-3.5" />
         </span>
       ) : null}
       <div className={cn(
-        'min-w-0 max-w-full text-sm leading-6 text-neutral-300 sm:max-w-[80ch]',
-        item.role === 'user' && 'rounded-2xl rounded-br-sm bg-neutral-800 px-3.5 py-2 text-neutral-100'
+        'min-w-0 max-w-full sm:max-w-[76ch]',
+        item.role === 'user' && 'max-w-[88%] rounded-2xl rounded-br-md bg-neutral-800/90 px-4 py-2.5 text-sm leading-6 text-neutral-100'
       )}>
-        <p className="break-words whitespace-pre-wrap">{item.text}</p>
+        {item.role === 'assistant'
+          ? <CodexMarkdownMessage text={item.text} />
+          : <p className="break-words whitespace-pre-wrap">{item.text}</p>}
         {item.streaming ? (
           <span className="mt-2 inline-flex items-center gap-1.5 text-[10px] text-neutral-500">
             <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" /> Streaming
@@ -158,7 +161,7 @@ export function CodexConversationPane({
         ) : null}
       </header> : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-6">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8">
         {conversation?.items.length ? conversation.items.map((item) => (
           item.kind === 'message'
             ? <MessageItem item={item} key={item.id} />
@@ -193,14 +196,18 @@ export function CodexConversationPane({
       </div>
 
       {supplemental}
-      <form className="shrink-0 border-t border-neutral-800/80 bg-neutral-950 p-3 sm:p-4" onSubmit={submit}>
+      <form
+        className="shrink-0 bg-neutral-950 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-6 sm:pb-4"
+        data-codex-composer="true"
+        onSubmit={submit}
+      >
         {blockReason ? (
           <div className="mb-2 flex items-center gap-2 text-[10px] text-neutral-500">
             <Clock3 className="size-3 shrink-0" />
             <Text>{blockReason}</Text>
           </div>
         ) : null}
-        <div className="flex items-end gap-2 rounded-xl border border-neutral-800 bg-neutral-900/70 p-2 focus-within:border-neutral-600">
+        <div className="flex items-end gap-1.5 rounded-[1.6rem] border border-neutral-800/80 bg-neutral-900/70 p-1.5 shadow-[0_8px_28px_rgba(0,0,0,0.28)] transition-colors focus-within:border-neutral-600">
           <CodexComposerTextArea
             aria-label="Continue this Codex session"
             disabled={Boolean(blockReason) || !onContinue || sending}
@@ -210,7 +217,7 @@ export function CodexConversationPane({
           />
           <Button
             aria-label="Send to this Codex session"
-            className="size-9 min-h-0 rounded-full"
+            className="size-9 min-h-0 rounded-full shadow-sm"
             isDisabled={!draft.trim() || Boolean(blockReason) || !onContinue || sending}
             isIconOnly
             size="sm"
