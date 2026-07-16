@@ -25,6 +25,7 @@ import { useResizableSidebar } from '../hooks/use-resizable-sidebar';
 import { AppRail, type AppSection, type RailAccount } from './app-rail';
 import { ContextPanel } from './context-panel';
 import { ProjectMainPanel } from './project-main-panel';
+import { shouldShowProjectSpaceSessionGate } from './project-desktop-session-gate';
 import { shouldDefaultContextPanelOpen } from './project-desktop-viewport';
 
 const RAIL_WIDTH = 56;
@@ -390,8 +391,13 @@ function ClerkProjectDesktopShell() {
   const { user } = useUser();
   const [session, setSession] = useState<ProjectSpaceAuthSessionResult | null>(null);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [verifiedUserId, setVerifiedUserId] = useState<string>();
   const [isRedirectingToGoogle, setIsRedirectingToGoogle] = useState(false);
   const [message, setMessage] = useState('');
+  const getTokenRef = useRef(getToken);
+  getTokenRef.current = getToken;
+  const currentUserId = user?.id;
+  const currentUserEmail = user?.primaryEmailAddress?.emailAddress;
 
   async function signInWithGoogle() {
     if (!signIn) {
@@ -434,6 +440,7 @@ function ClerkProjectDesktopShell() {
 
     if (!isSignedIn) {
       setProjectSpaceAuthTokenProvider(null);
+      setVerifiedUserId(undefined);
       setSession({
         authenticated: false,
         authRequired: true
@@ -445,7 +452,7 @@ function ClerkProjectDesktopShell() {
       };
     }
 
-    setProjectSpaceAuthTokenProvider(() => getToken());
+    setProjectSpaceAuthTokenProvider(() => getTokenRef.current());
     setIsCheckingSession(true);
     setMessage('');
 
@@ -456,18 +463,20 @@ function ClerkProjectDesktopShell() {
           return;
         }
 
+        setVerifiedUserId(currentUserId);
         setSession(nextSession);
         setMessage(
           nextSession.authenticated
             ? ''
             : nextSession.message ??
-                `This Clerk session was not accepted${user?.primaryEmailAddress?.emailAddress ? ` for ${user.primaryEmailAddress.emailAddress}` : ''}.`
+                `This Clerk session was not accepted${currentUserEmail ? ` for ${currentUserEmail}` : ''}.`
         );
       })
       .catch((error) => {
         if (canceled) {
           return;
         }
+        setVerifiedUserId(currentUserId);
         setSession({
           authenticated: false,
           authRequired: true
@@ -483,9 +492,14 @@ function ClerkProjectDesktopShell() {
     return () => {
       canceled = true;
     };
-  }, [getToken, isLoaded, isSignedIn, user?.primaryEmailAddress?.emailAddress]);
+  }, [currentUserEmail, currentUserId, isLoaded, isSignedIn]);
 
-  if (!isLoaded || isCheckingSession) {
+  if (shouldShowProjectSpaceSessionGate({
+    currentUserId,
+    isCheckingSession,
+    isLoaded,
+    verifiedUserId
+  })) {
     return <div className="min-h-full bg-app-canvas" />;
   }
 

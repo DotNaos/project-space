@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Check,
   Copy,
@@ -111,8 +111,11 @@ export function SettingsView({
   const [credentials, setCredentials] = useState<ConnectorCredentialRecord[]>([]);
   const [credentialListError, setCredentialListError] = useState('');
   const [executionScopes, setExecutionScopes] = useState<MachineExecutionScopeRecord[]>([]);
-  const [executionScopesStatus, setExecutionScopesStatus] = useState<'error' | 'loading' | 'ready'>('loading');
+  const [executionScopesStatus, setExecutionScopesStatus] = useState<
+    'error' | 'loading' | 'ready' | 'refreshing'
+  >('loading');
   const [executionScopesError, setExecutionScopesError] = useState('');
+  const hasExecutionScopesSnapshot = useRef(false);
   const [revokingCredentialId, setRevokingCredentialId] = useState('');
   const [installerError, setInstallerError] = useState('');
 
@@ -129,15 +132,16 @@ export function SettingsView({
   }
 
   async function refreshExecutionScopes() {
-    setExecutionScopesStatus('loading');
+    setExecutionScopesStatus(hasExecutionScopesSnapshot.current ? 'refreshing' : 'loading');
     setExecutionScopesError('');
     try {
       const result = await projectSpaceClient.listMachineExecutionScopes();
       setExecutionScopes(result.scopes);
+      hasExecutionScopesSnapshot.current = true;
       setExecutionScopesStatus('ready');
       return result.scopes;
     } catch (error) {
-      setExecutionScopesStatus('error');
+      setExecutionScopesStatus(hasExecutionScopesSnapshot.current ? 'ready' : 'error');
       setExecutionScopesError(
         error instanceof Error ? error.message : 'Could not load machine groups.'
       );

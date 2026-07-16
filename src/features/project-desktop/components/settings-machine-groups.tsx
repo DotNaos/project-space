@@ -7,6 +7,7 @@ import {
   MonitorCog,
   Pencil,
   Plus,
+  RefreshCw,
   Trash2
 } from 'lucide-react';
 import { AlertDialog, Disclosure } from '@heroui/react';
@@ -28,6 +29,10 @@ import {
 } from './settings-machine-group-model';
 import { SettingsMachineRuntimeStop } from './settings-machine-runtime-stop';
 import { SettingsMachineScopeEditor } from './settings-machine-scope-editor';
+import {
+  settingsMachineGroupsPresentation,
+  type SettingsMachineGroupsStatus
+} from './settings-machine-groups-view-model';
 
 interface SettingsMachineGroupsProps {
   credentials: readonly ConnectorCredentialRecord[];
@@ -37,7 +42,7 @@ interface SettingsMachineGroupsProps {
   onRefresh(): Promise<unknown>;
   onSaveScope(request: MachineExecutionScopeSaveRequest): Promise<void>;
   scopes: readonly MachineExecutionScopeRecord[];
-  status: 'error' | 'loading' | 'ready';
+  status: SettingsMachineGroupsStatus;
 }
 
 function ConnectorInstanceRow({ instance, onRefresh }: {
@@ -149,6 +154,7 @@ export function SettingsMachineGroups({
   const [deletingGroup, setDeletingGroup] = useState<SettingsMachineGroup>();
   const [deleteError, setDeleteError] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+  const presentation = settingsMachineGroupsPresentation(status);
   const grouping = useMemo(
     () => groupSettingsMachines({ credentials, machines, scopes }),
     [credentials, machines, scopes]
@@ -184,41 +190,54 @@ export function SettingsMachineGroups({
         </Button>
       </div>
 
-      {status === 'loading' ? (
+      {presentation.showBlockingLoading ? (
         <div className="rounded-lg border border-neutral-800 px-4 py-8 text-center">
           <Text className="block text-sm text-neutral-500">Loading machine groups…</Text>
         </div>
-      ) : status === 'error' ? (
+      ) : presentation.showBlockingError ? (
         <div className="rounded-lg border border-red-500/25 bg-red-500/5 px-4 py-4">
           <Text className="block text-sm text-red-200">{loadError || 'Machine groups could not be loaded.'}</Text>
           <Button className="mt-3" size="sm" variant="outline" onPress={() => void onRefresh()}>Retry</Button>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950/35">
-          {grouping.groups.map((group) => (
-            <MachineGroupRow key={group.id} group={group} onDelete={() => setDeletingGroup(group)} onEdit={() => setEditorScopeId(group.id)} onRefresh={onRefresh} />
-          ))}
-          {grouping.unscopedInstances.length > 0 ? (
-            <div className="border-t border-neutral-800 first:border-t-0">
-              <Text className="block bg-neutral-950/60 px-4 py-2 text-xs font-medium text-neutral-500">
-                Ungrouped connector instances
-              </Text>
-              {grouping.unscopedInstances.map((instance) => (
-                <ConnectorInstanceRow key={instance.id} instance={instance} onRefresh={onRefresh} />
-              ))}
+        <>
+          {presentation.showRefreshing ? (
+            <div className="mb-2 flex items-center gap-1.5 text-xs text-neutral-500" role="status">
+              <RefreshCw className="size-3 animate-spin" />
+              Updating connector data…
             </div>
           ) : null}
-          {grouping.groups.length === 0 && grouping.unscopedInstances.length === 0 ? (
-            <div className="px-4 py-8 text-center">
-              <MonitorCog className="mx-auto size-5 text-neutral-600" />
-              <Text className="mt-2 block text-sm text-neutral-500">No connector instances found.</Text>
+          {loadError ? (
+            <div className="mb-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+              <Text className="block text-xs text-amber-200">{loadError}</Text>
             </div>
           ) : null}
-        </div>
+          <div className="overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950/35">
+            {grouping.groups.map((group) => (
+              <MachineGroupRow key={group.id} group={group} onDelete={() => setDeletingGroup(group)} onEdit={() => setEditorScopeId(group.id)} onRefresh={onRefresh} />
+            ))}
+            {grouping.unscopedInstances.length > 0 ? (
+              <div className="border-t border-neutral-800 first:border-t-0">
+                <Text className="block bg-neutral-950/60 px-4 py-2 text-xs font-medium text-neutral-500">
+                  Ungrouped connector instances
+                </Text>
+                {grouping.unscopedInstances.map((instance) => (
+                  <ConnectorInstanceRow key={instance.id} instance={instance} onRefresh={onRefresh} />
+                ))}
+              </div>
+            ) : null}
+            {grouping.groups.length === 0 && grouping.unscopedInstances.length === 0 ? (
+              <div className="px-4 py-8 text-center">
+                <MonitorCog className="mx-auto size-5 text-neutral-600" />
+                <Text className="mt-2 block text-sm text-neutral-500">No connector instances found.</Text>
+              </div>
+            ) : null}
+          </div>
+        </>
       )}
       {deleteError ? <Text className="mt-2 block text-xs text-red-300">{deleteError}</Text> : null}
 
-      {status === 'ready' && archivedCount > 0 ? (
+      {presentation.showContent && archivedCount > 0 ? (
         <Disclosure className="mt-3 border-t border-neutral-900 pt-2">
           <Disclosure.Heading>
             <Disclosure.Trigger className="group flex items-center gap-2 py-2 text-xs text-neutral-500 hover:text-neutral-300">
