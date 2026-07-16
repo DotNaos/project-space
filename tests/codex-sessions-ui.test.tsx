@@ -235,6 +235,25 @@ describe('Canonical Codex task page', () => {
     expect(html).toContain('break-words');
   });
 
+  test('reserves narrow task-header space for the compact shell controls', () => {
+    const html = renderToStaticMarkup(
+      <CodexSessionsPage
+        conversations={[conversation]}
+        machines={[machine]}
+        readBrowser={async () => ({
+          checkedAt: '2026-07-13T09:00:00.000Z',
+          machineId: machine.id,
+          state: 'never-used',
+          threadId: activeSession.threadId
+        })}
+        selectedOrigin={{ machineId: machine.id, threadId: activeSession.threadId }}
+        sessions={[{ ...activeSession, issueNumber: 149, status: 'idle' }]}
+      />
+    );
+
+    expect(html).toContain('pr-14 md:px-4');
+  });
+
   test('renders the selected read-only history, streaming state, decisions, and stable origin', () => {
     const html = renderToStaticMarkup(
       <CodexSessionsPage

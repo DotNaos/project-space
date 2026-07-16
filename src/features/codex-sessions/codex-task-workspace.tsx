@@ -203,7 +203,7 @@ export function CodexTaskWorkspace({
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-neutral-950 text-neutral-100">
-      <header className="flex h-[68px] shrink-0 items-center gap-3 border-b border-neutral-800/80 px-3 sm:px-4">
+      <header className="flex h-[68px] shrink-0 items-center gap-3 border-b border-neutral-800/80 px-3 pr-14 md:px-4">
         {onBack ? (
           <Button aria-label="Back to Codex tasks" className="size-8 min-h-0" isIconOnly onPress={onBack} size="sm" variant="ghost">
             <ArrowLeft className="size-4" />
