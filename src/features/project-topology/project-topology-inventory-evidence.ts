@@ -299,6 +299,7 @@ function hasConflictingWorktreeDuplicates(worktrees: ProjectWorktreeRecord[]) {
       path,
       worktree.branchName,
       worktree.detached,
+      worktree.headCommittedAt,
       worktree.headSha,
       worktree.isBase,
       worktree.kind,

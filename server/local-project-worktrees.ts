@@ -24,6 +24,7 @@ export interface LocalProjectWorktreeLoadOptions {
 type WorktreeParserOptions = {
   basePath: string;
   gitCommonDir: string;
+  headCommittedAtBySha?: ReadonlyMap<string, string>;
   pathHealth?: (path: string, isBase: boolean) => WorktreePathHealth;
   registrationKeys: ReadonlyMap<string, string>;
 };
@@ -354,6 +355,9 @@ export function parseGitWorktreePorcelain(
       records.push({
         branchName: block.branchName,
         detached,
+        headCommittedAt: block.headSha
+          ? options.headCommittedAtBySha?.get(block.headSha)
+          : undefined,
         headSha: block.headSha,
         id: opaqueWorktreeId(options.gitCommonDir, registrationKey || `unavailable:${index}`),
         isBase,
@@ -374,6 +378,47 @@ export function parseGitWorktreePorcelain(
       if (left.status !== right.status) return left.status === 'ready' ? -1 : 1;
       return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
     });
+}
+
+function parseHeadCommitTimes(output: string) {
+  const result = new Map<string, string>();
+  for (const line of output.split(/\r?\n/)) {
+    const [sha, committedAt] = line.trim().split('\t');
+    if (
+      /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(sha ?? '')
+      && committedAt
+      && Number.isFinite(Date.parse(committedAt))
+    ) {
+      result.set(sha, committedAt);
+    }
+  }
+  return result;
+}
+
+async function loadHeadCommitTimes(
+  projectPath: string,
+  worktreeList: string,
+  run: typeof runCommand,
+  options: LocalProjectWorktreeLoadOptions
+) {
+  const headShas = [...new Set(
+    splitPorcelainBlocks(worktreeList).map(parseBlock).flatMap((block) => block.headSha ? [block.headSha] : [])
+  )];
+  if (headShas.length === 0) return new Map<string, string>();
+
+  try {
+    return parseHeadCommitTimes(await run('git', [
+      '-C',
+      projectPath,
+      'log',
+      '--no-walk',
+      '--format=%H%x09%cI',
+      ...headShas
+    ], options));
+  } catch (error) {
+    rethrowIfWorktreeLoadAborted(error, options.signal);
+    return new Map<string, string>();
+  }
 }
 
 async function loadPathHealth(
@@ -441,6 +486,12 @@ export function createLocalProjectWorktreeLoader(
         '-z',
         '--expire=now'
       ], commandOptions);
+      const headCommittedAtBySha = await loadHeadCommitTimes(
+        resolvedProjectPath,
+        worktreeList,
+        dependencies.runCommand,
+        commandOptions
+      );
       const basePath = dirname(gitCommonDir);
       const registrationKeys = await loadRegistrationKeys(
         gitCommonDir,
@@ -459,6 +510,7 @@ export function createLocalProjectWorktreeLoader(
       return parseGitWorktreePorcelain(worktreeList, {
         basePath,
         gitCommonDir,
+        headCommittedAtBySha,
         pathHealth: (path) => pathHealth.get(resolve(path)) ?? 'unavailable',
         registrationKeys
       });

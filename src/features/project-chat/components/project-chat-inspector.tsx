@@ -88,11 +88,11 @@ function AgentRows({
 
 function ThreadRows({
   onSelectThread,
-  selectedThreadId,
+  selectedThreadKey,
   threads
 }: {
   onSelectThread(thread: ProjectChatThreadSummary): void;
-  selectedThreadId?: string;
+  selectedThreadKey?: string;
   threads: ProjectChatThreadSummary[];
 }) {
   if (threads.length === 0) {
@@ -103,9 +103,9 @@ function ThreadRows({
     <div className="divide-y divide-neutral-900">
       {threads.map((thread) => (
         <button
-          aria-pressed={selectedThreadId === thread.threadId}
+          aria-pressed={selectedThreadKey === thread.id}
           className="grid w-full grid-cols-[62px_minmax(0,1fr)] gap-2 px-3 py-2.5 text-left transition hover:bg-neutral-900/70 aria-pressed:bg-neutral-900"
-          key={thread.threadId}
+          key={thread.id}
           onClick={() => onSelectThread(thread)}
           type="button"
         >
@@ -165,7 +165,7 @@ export function ProjectChatInspector({
   onSelectThread,
   onRetryMention,
   selectedMemberId,
-  selectedThreadId,
+  selectedThreadKey,
   unreadMentionCount
 }: {
   activeTab: ProjectChatInspectorTab;
@@ -180,7 +180,7 @@ export function ProjectChatInspector({
   onSelectThread(thread: ProjectChatThreadSummary): void;
   onRetryMention?(): void;
   selectedMemberId?: string;
-  selectedThreadId?: string;
+  selectedThreadKey?: string;
   unreadMentionCount: number;
 }) {
   const threads = useMemo(() => projectChatThreads(messages, members), [members, messages]);
@@ -223,7 +223,7 @@ export function ProjectChatInspector({
             <SectionLabel>Active agents</SectionLabel>
             <AgentRows members={members} now={now} onSelectMember={onSelectMember} selectedMemberId={selectedMemberId} />
             <SectionLabel>Recent threads</SectionLabel>
-            <ThreadRows onSelectThread={onSelectThread} selectedThreadId={selectedThreadId} threads={threads.slice(0, 4)} />
+            <ThreadRows onSelectThread={onSelectThread} selectedThreadKey={selectedThreadKey} threads={threads.slice(0, 4)} />
           </>
         ) : null}
         {activeTab === 'agents' ? (
@@ -235,7 +235,7 @@ export function ProjectChatInspector({
         {activeTab === 'threads' ? (
           <>
             <SectionLabel>Origin threads</SectionLabel>
-            <ThreadRows onSelectThread={onSelectThread} selectedThreadId={selectedThreadId} threads={threads} />
+            <ThreadRows onSelectThread={onSelectThread} selectedThreadKey={selectedThreadKey} threads={threads} />
           </>
         ) : null}
       </div>

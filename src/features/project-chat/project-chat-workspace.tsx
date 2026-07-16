@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Hash } from 'lucide-react';
 import { Text } from '@/app/dotnaos-ui';
 import { ProjectChatRequestError } from '@/api/project-chat-client';
@@ -16,8 +16,11 @@ import {
   createProjectChatProfileGenerationGuard,
   projectChatAgentNameIdentity,
   projectChatIdentitySnapshot,
+  reconcileProjectChatMemberTaskTitles,
+  reconcileProjectChatMessageTaskTitles,
   runProjectChatProfileMutation,
-  type ProjectChatProfileGenerationGuard
+  type ProjectChatProfileGenerationGuard,
+  type ProjectChatTaskTitle
 } from './project-chat-model';
 import {
   cursorAfterLocalSend,
@@ -78,6 +81,7 @@ export function ProjectChatWorkspace({
   onOpenThread,
   recentProjectIds = [],
   showChannelNavigation = fixedProjectId === undefined,
+  taskTitles = [],
   taskPreview
 }: {
   client: ProjectChatClient;
@@ -85,6 +89,7 @@ export function ProjectChatWorkspace({
   onOpenThread?: ProjectChatPageProps['onOpenThread'];
   recentProjectIds?: string[];
   showChannelNavigation?: boolean;
+  taskTitles?: readonly ProjectChatTaskTitle[];
   taskPreview?: ReactNode;
 }) {
   const initialRoute = typeof window === 'undefined'
@@ -196,6 +201,7 @@ export function ProjectChatWorkspace({
       projectId={selectedChannel.projectId}
       recentProjectIds={recentProjectIds}
       showChannelNavigation={showChannelNavigation}
+      taskTitles={taskTitles}
       taskPreview={taskPreview}
     />
   );
@@ -210,6 +216,7 @@ function ProjectChatRoomWorkspace({
   projectId,
   recentProjectIds,
   showChannelNavigation,
+  taskTitles,
   taskPreview
 }: {
   channel: ProjectChatChannelRecord;
@@ -220,6 +227,7 @@ function ProjectChatRoomWorkspace({
   projectId?: string;
   recentProjectIds: string[];
   showChannelNavigation: boolean;
+  taskTitles: readonly ProjectChatTaskTitle[];
   taskPreview?: ReactNode;
 }) {
   const [channel, setChannel] = useState<ProjectChatChannelRecord>(initialChannel);
@@ -240,6 +248,18 @@ function ProjectChatRoomWorkspace({
   }
   const profileGeneration = profileGenerationRef.current;
   const latestSequenceRef = useRef(0);
+  const displayedMembers = useMemo(
+    () => reconcileProjectChatMemberTaskTitles(members, taskTitles),
+    [members, taskTitles]
+  );
+  const displayedMentionMessages = useMemo(
+    () => reconcileProjectChatMessageTaskTitles(mentionMessages, taskTitles),
+    [mentionMessages, taskTitles]
+  );
+  const displayedMessages = useMemo(
+    () => reconcileProjectChatMessageTaskTitles(messages, taskTitles),
+    [messages, taskTitles]
+  );
 
   const load = useCallback(async () => {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -434,9 +454,9 @@ function ProjectChatRoomWorkspace({
       channels={channels}
       connectionState={connectionState}
       errorMessage={errorMessage}
-      members={members}
-      mentionMessages={mentionMessages}
-      messages={messages}
+      members={displayedMembers}
+      mentionMessages={displayedMentionMessages}
+      messages={displayedMessages}
       mentionError={mentionError}
       onAcknowledgeMention={requestMentionAcknowledge}
       onClaimAgentName={viewer?.role === 'agent' ? claimAgentName : undefined}
@@ -450,7 +470,7 @@ function ProjectChatRoomWorkspace({
       onUpdateProfile={updateProfile}
       profile={profile}
       registryEntries={registryEntries}
-      registryParentThreads={members.flatMap((member) => {
+      registryParentThreads={displayedMembers.flatMap((member) => {
         const identity = projectChatAgentNameIdentity(member);
         return member.role === 'agent' && identity?.category === 'mythology' && member.origin?.threadId
           ? [{ displayName: identity.displayName, threadId: member.origin.threadId }]

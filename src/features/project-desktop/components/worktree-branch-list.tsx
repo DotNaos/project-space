@@ -11,6 +11,7 @@ export interface CloneTargetInfo {
 export interface WorktreeBranchLocal {
   branchName?: string;
   id: string;
+  headCommittedAt?: string;
   isBase: boolean;
   name: string;
   path: string;
