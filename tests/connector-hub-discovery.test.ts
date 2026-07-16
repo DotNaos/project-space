@@ -156,7 +156,23 @@ describe('connector discovery ownership', () => {
       connector: { status: 'online' },
       kind: 'connector',
       network: {},
+      os: { family: 'linux' },
       sourcePath: 'connector-hub'
+    });
+  });
+
+  test('projects a reported platform only as display metadata when runtime details are absent', async () => {
+    const payload = registry('legacy-windows-machine', 'project');
+    payload.connector.kind = 'win32';
+    await registerConnectorProjectRegistry(payload);
+
+    const machine = (await getRegisteredConnectorMachines()).find(
+      (entry) => entry.id === 'legacy-windows-machine'
+    );
+    expect(machine).toMatchObject({
+      kind: 'connector',
+      network: {},
+      os: { family: 'windows' }
     });
   });
 

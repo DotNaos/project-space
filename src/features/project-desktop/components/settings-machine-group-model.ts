@@ -3,6 +3,7 @@ import type {
   MachineExecutionScopeRecord,
   MachineRecord
 } from '@/shared/project-space-api';
+import { machineOsLabel } from './machine-platform-model';
 
 export type SettingsConnectorChannel = 'dev' | 'stable';
 
@@ -13,7 +14,6 @@ export interface SettingsConnectorCredentials {
 
 export interface SettingsConnectorInstance {
   channel: SettingsConnectorChannel;
-  channelLabel: 'Dev' | 'Stable';
   credentials: SettingsConnectorCredentials;
   id: string;
   isOnline: boolean;
@@ -86,24 +86,6 @@ function connectorIsOnline(machine: MachineRecord) {
   return machine.connector.status === 'local' || machine.connector.status === 'online';
 }
 
-function platformLabel(machine: MachineRecord) {
-  const values = [
-    machine.connector.runtime?.platform,
-    machine.os?.family,
-    machine.kind,
-    machine.profile,
-    ...machine.roles
-  ]
-    .filter((value): value is string => Boolean(value))
-    .map((value) => value.toLowerCase());
-
-  if (values.some((value) => value.includes('darwin') || value.includes('macos'))) return 'macOS';
-  if (values.some((value) => value.includes('ubuntu'))) return 'Ubuntu';
-  if (values.some((value) => value.includes('linux') || value.includes('unix'))) return 'Linux';
-  if (values.some((value) => value.includes('windows') || value.includes('win32'))) return 'Windows';
-  return undefined;
-}
-
 function runtimeLabel(machine: MachineRecord) {
   const runtime = machine.connector.runtime;
   if (runtime) {
@@ -145,12 +127,11 @@ function connectorInstance(
   const channel = connectorChannel(machine);
   return {
     channel,
-    channelLabel: channel === 'dev' ? 'Dev' : 'Stable',
     credentials: credentialsForMachine(machine.id, credentialsByMachineId),
     id: machine.id,
     isOnline: connectorIsOnline(machine),
     machine,
-    platformLabel: platformLabel(machine),
+    platformLabel: machineOsLabel(machine),
     runtimeLabel: runtimeLabel(machine)
   };
 }

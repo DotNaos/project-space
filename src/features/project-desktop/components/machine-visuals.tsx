@@ -9,6 +9,7 @@ import {
 import { useId } from 'react';
 import { cn } from '@/lib/utils';
 import type { MachineRecord } from '@/shared/project-space-api';
+import { machineOsFamily } from './machine-platform-model';
 
 type BatteryState = NonNullable<MachineRecord['battery']>['state'] | 'unavailable';
 
@@ -24,27 +25,7 @@ function normalizedMachineValues(machine: MachineRecord) {
     .map((value) => value.toLowerCase());
 }
 
-export function machineOsFamily(machine: MachineRecord) {
-  const values = normalizedMachineValues(machine);
-
-  if (values.some((value) => value.includes('darwin') || value.includes('macos'))) {
-    return 'macos';
-  }
-
-  if (values.some((value) => value.includes('ubuntu'))) {
-    return 'ubuntu';
-  }
-
-  if (values.some((value) => value.includes('linux') || value.includes('unix'))) {
-    return 'linux';
-  }
-
-  if (values.some((value) => value.includes('windows') || value.includes('win32'))) {
-    return 'windows';
-  }
-
-  return 'unknown';
-}
+export { machineOsFamily } from './machine-platform-model';
 
 export function machineDeviceType(machine: MachineRecord) {
   const values = normalizedMachineValues(machine);
@@ -148,15 +129,17 @@ export function MachineOsMark({
 
   if (family === 'macos') {
     return (
-      <span
+      <svg
         aria-label="macOS"
+        role="img"
+        viewBox="0 0 24 24"
         className={cn(
-          'inline-flex size-4 shrink-0 items-center justify-center font-sans text-[13px] leading-none text-neutral-400',
+          'size-4 shrink-0 fill-neutral-300',
           className
         )}
       >
-        
-      </span>
+        <path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" />
+      </svg>
     );
   }
 
@@ -192,29 +175,40 @@ export function MachineOsMark({
 
   if (family === 'linux') {
     return (
-      <span
+      <svg
         aria-label="Linux"
+        role="img"
+        viewBox="0 0 24 24"
         className={cn(
-          'inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded bg-neutral-800 px-1 text-[8px] font-semibold leading-none text-neutral-300',
+          'size-4 shrink-0 fill-neutral-300',
           className
         )}
       >
-        Linux
-      </span>
+        <ellipse cx="12" cy="13" rx="7" ry="9" fill="#202124" />
+        <ellipse cx="12" cy="14" rx="4.4" ry="6.2" fill="#f5f5f4" />
+        <ellipse cx="9.7" cy="7.5" rx="2.2" ry="2.7" fill="#f5f5f4" />
+        <ellipse cx="14.3" cy="7.5" rx="2.2" ry="2.7" fill="#f5f5f4" />
+        <circle cx="10.2" cy="7.8" r=".8" fill="#202124" />
+        <circle cx="13.8" cy="7.8" r=".8" fill="#202124" />
+        <path d="m12 9 2 1.4-2 1.2-2-1.2L12 9Z" fill="#f59e0b" />
+        <path d="M7.2 20.1 11 20.7 8.3 23H5.8l1.4-2.9Zm9.6 0L13 20.7l2.7 2.3h2.5l-1.4-2.9Z" fill="#f59e0b" />
+      </svg>
     );
   }
 
   if (family === 'windows') {
     return (
-      <span
+      <svg
         aria-label="Windows"
+        role="img"
+        viewBox="0 0 24 24"
         className={cn(
-          'inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded bg-sky-500/80 px-1 text-[8px] font-semibold leading-none text-white',
+          'size-4 shrink-0 fill-sky-400',
           className
         )}
       >
-        Win
-      </span>
+        <path d="M2 3.4 10.4 2v9.2H2V3.4Zm9.6-1.6L22 0v11.2H11.6V1.8ZM2 12.8h8.4V22L2 20.6v-7.8Zm9.6 0H22V24l-10.4-1.8v-9.4Z" />
+      </svg>
     );
   }
 

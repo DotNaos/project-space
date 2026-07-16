@@ -59,7 +59,7 @@ function ConnectorInstanceRow({ instance, onRefresh }: {
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <Text className="truncate text-sm font-medium text-neutral-100">
-              {instance.platformLabel ? `${instance.platformLabel} ` : ''}{instance.channelLabel}
+              {instance.platformLabel ?? 'Operating system not reported'}
             </Text>
             <ConnectorChannelChip machine={instance.machine} />
             <Chip size="sm" variant={instance.isOnline ? 'primary' : 'secondary'}>
@@ -249,9 +249,13 @@ export function SettingsMachineGroups({
           <Disclosure.Content>
             <Disclosure.Body className="space-y-1 pb-2 pl-5">
               {grouping.groups.flatMap((group) => group.archivedInstances).concat(grouping.archivedUnscopedInstances).map((instance) => (
-                <Text key={instance.id} className="block truncate text-xs text-neutral-600">
-                  {instance.machine.name} · {instance.platformLabel ? `${instance.platformLabel} ` : ''}{instance.channelLabel}
-                </Text>
+                <div key={instance.id} className="flex min-w-0 items-center gap-2 text-xs text-neutral-600">
+                  <MachineOsMark machine={instance.machine} />
+                  <span className="truncate">
+                    {instance.machine.name} · {instance.platformLabel ?? 'Operating system not reported'}
+                  </span>
+                  <ConnectorChannelChip machine={instance.machine} />
+                </div>
               ))}
               {grouping.unmatchedCredentials.filter((credential) => credential.status === 'revoked' || credential.status === 'expired').map((credential) => (
                 <Text key={credential.id} className="block truncate text-xs text-neutral-600">
