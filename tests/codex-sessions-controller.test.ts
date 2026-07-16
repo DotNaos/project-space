@@ -165,6 +165,92 @@ describe('Codex sessions UI controller', () => {
     expect(controller.getState().seenEventIds).toEqual(['event-1', 'event-2']);
   });
 
+  test('keeps identical thread identifiers isolated by their owning machine', async () => {
+    const sameThreadId = origin.threadId;
+    const otherOrigin = { machineId: 'machine-pc', threadId: sameThreadId };
+    const fake = fakeClient({
+      readImplementation: async (request) => ({
+        ...readResult(),
+        session: {
+          ...readResult().session,
+          id: request.threadId,
+          machineId: request.machineId,
+          machineName: request.machineId
+        },
+        turns: [{
+          id: `turn-${request.machineId}`,
+          items: [{
+            id: `assistant-${request.machineId}`,
+            kind: 'agent-message',
+            text: `History from ${request.machineId}`
+          }],
+          status: 'completed'
+        }]
+      })
+    });
+    const controller = new CodexSessionsController(fake.client, operationIds());
+
+    await controller.select(origin);
+    await controller.select(otherOrigin);
+
+    expect(controller.getState().conversations).toEqual([
+      expect.objectContaining({
+        items: [expect.objectContaining({ text: 'History from machine-mac' })],
+        machineId: 'machine-mac',
+        threadId: sameThreadId
+      }),
+      expect.objectContaining({
+        items: [expect.objectContaining({ text: 'History from machine-pc' })],
+        machineId: 'machine-pc',
+        threadId: sameThreadId
+      })
+    ]);
+    expect(controller.getState().selectedOrigin).toEqual(otherOrigin);
+  });
+
+  test('appends a continued live turn after stored history without duplicates or reordering', async () => {
+    const fake = fakeClient();
+    const controller = new CodexSessionsController(fake.client, operationIds());
+    await controller.loadMachines([origin.machineId]);
+    await controller.select(origin);
+    await controller.continue(origin, 'Continue from stored history');
+
+    fake.event({
+      eventId: 'event-live-user',
+      item: { id: 'user-live', kind: 'user-message', text: 'Continue from stored history' },
+      type: 'item'
+    });
+    fake.event({
+      delta: 'Live answer',
+      eventId: 'event-live-answer-1',
+      itemId: 'assistant-live',
+      type: 'agent-message-delta'
+    });
+    fake.event({
+      delta: 'Live answer',
+      eventId: 'event-live-answer-1',
+      itemId: 'assistant-live',
+      type: 'agent-message-delta'
+    });
+    fake.event({
+      eventId: 'event-live-complete',
+      item: {
+        id: 'assistant-live',
+        kind: 'agent-message',
+        status: 'completed',
+        text: 'Live answer complete'
+      },
+      type: 'item'
+    });
+
+    expect(controller.getState().conversations[0].items).toEqual([
+      expect.objectContaining({ id: 'user-1', text: 'Original request' }),
+      expect.objectContaining({ id: 'assistant-1', text: 'Stored answer' }),
+      expect.objectContaining({ id: 'user-live', text: 'Continue from stored history' }),
+      expect.objectContaining({ id: 'assistant-live', text: 'Live answer complete' })
+    ]);
+  });
+
   test('rejects continuation locally while the selected thread is active', async () => {
     const fake = fakeClient({ readImplementation: async () => readResult('active') });
     const controller = new CodexSessionsController(fake.client, operationIds());

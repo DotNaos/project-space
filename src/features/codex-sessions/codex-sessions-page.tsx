@@ -28,6 +28,7 @@ export interface CodexSessionsPageProps {
   onResolveApproval?(decision: CodexApprovalDecision): Promise<void> | void;
   onResolveUserInput?(decision: CodexUserInputDecision): Promise<void> | void;
   onSelectThread?(origin: CodexThreadOrigin): void;
+  reading?: boolean;
   readBrowser?(request: CodexSessionReadRequest): Promise<CodexSessionBrowserResult>;
   selectedOrigin?: CodexThreadOrigin;
   sessions: CodexSession[];
@@ -49,6 +50,7 @@ export function CodexSessionsPage({
   onResolveApproval,
   onResolveUserInput,
   onSelectThread,
+  reading = false,
   readBrowser,
   selectedOrigin,
   sessions
@@ -60,6 +62,13 @@ export function CodexSessionsPage({
     conversation.machineId === selectedSession?.machineId
     && conversation.threadId === selectedSession?.threadId
   ));
+  const historyState = reading
+    ? 'loading' as const
+    : selectedSession && ['missing', 'offline', 'unavailable'].includes(selectedSession.status)
+      ? 'blocked' as const
+      : selectedConversation
+        ? 'ready' as const
+        : 'loading' as const;
 
   const listPane = useMemo(() => (
     <CodexSessionList
@@ -87,6 +96,8 @@ export function CodexSessionsPage({
         <CodexTaskWorkspace
           activeTurnId={activeTurnId}
           conversation={selectedConversation}
+          historyState={historyState}
+          historyStatusDetail={selectedSession.statusDetail ?? selectedMachine?.statusDetail}
           loadBrowser={readBrowser}
           machine={selectedMachine}
           onBack={onBackFromThread}

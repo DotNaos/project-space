@@ -100,6 +100,8 @@ function useNarrowTaskLayout() {
 export function CodexTaskWorkspace({
   activeTurnId,
   conversation,
+  historyState,
+  historyStatusDetail,
   loadBrowser,
   machine,
   onBack,
@@ -111,6 +113,8 @@ export function CodexTaskWorkspace({
 }: {
   activeTurnId?: string;
   conversation?: CodexConversation;
+  historyState: 'blocked' | 'loading' | 'ready';
+  historyStatusDetail?: string;
   loadBrowser(request: CodexSessionBrowserRequest): Promise<CodexSessionBrowserResult>;
   machine?: CodexMachine;
   onBack?(): void;
@@ -186,6 +190,8 @@ export function CodexTaskWorkspace({
   const chat = (
     <CodexConversationPane
       conversation={conversation}
+      historyState={historyState}
+      historyStatusDetail={historyStatusDetail}
       machine={machine}
       onContinue={onContinue}
       session={session}

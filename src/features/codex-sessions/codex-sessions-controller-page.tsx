@@ -61,6 +61,7 @@ export function CodexSessionsControllerPage({
       onResolveUserInput={async (decision) => {
         try { await controller.resolveUserInput(decision); } catch { /* Keep every answer visible for retry. */ }
       }}
+      reading={state.reading}
       onSelectThread={(origin) => {
         if (onOpenThread) onOpenThread(origin);
         else void controller.select(origin);

@@ -90,6 +90,9 @@ mock.module('@heroui/react', () => ({
 const { CodexSessionsPage } = await import(
   '../src/features/codex-sessions/codex-sessions-page'
 );
+const { CodexConversationPane } = await import(
+  '../src/features/codex-sessions/codex-conversation-pane'
+);
 const { ProjectCodexTasks } = await import(
   '../src/features/codex-sessions/project-codex-tasks'
 );
@@ -148,6 +151,90 @@ const conversation: CodexConversation = {
 };
 
 describe('Canonical Codex task page', () => {
+  test('claims empty history only after an available task read completes', () => {
+    const common = {
+      machines: [machine],
+      readBrowser: async () => ({
+        checkedAt: '2026-07-13T09:00:00.000Z',
+        machineId: machine.id,
+        state: 'never-used' as const,
+        threadId: activeSession.threadId
+      }),
+      selectedOrigin: { machineId: machine.id, threadId: activeSession.threadId }
+    };
+    const loading = renderToStaticMarkup(
+      <CodexSessionsPage {...common} reading sessions={[activeSession]} />
+    );
+    const empty = renderToStaticMarkup(
+      <CodexSessionsPage
+        {...common}
+        conversations={[{ items: [], machineId: machine.id, threadId: activeSession.threadId }]}
+        sessions={[{ ...activeSession, status: 'idle' }]}
+      />
+    );
+    const offline = renderToStaticMarkup(
+      <CodexSessionsPage
+        {...common}
+        conversations={[{ items: [], machineId: machine.id, threadId: activeSession.threadId }]}
+        sessions={[{
+          ...activeSession,
+          status: 'offline',
+          statusDetail: 'The owning connector is offline.'
+        }]}
+      />
+    );
+
+    expect(loading).toContain('Loading stored conversation');
+    expect(loading).not.toContain('No stored conversation items were returned.');
+    expect(empty).toContain('No stored conversation items were returned.');
+    expect(offline).toContain('Stored conversation is not available right now.');
+    expect(offline).toContain('The owning connector is offline.');
+    expect(offline).not.toContain('No stored conversation items were returned.');
+  });
+
+  test('renders stored history for archived tasks without subscribing or substituting chat data', () => {
+    const html = renderToStaticMarkup(
+      <CodexSessionsPage
+        conversations={[conversation]}
+        machines={[machine]}
+        readBrowser={async () => ({
+          checkedAt: '2026-07-13T09:00:00.000Z',
+          machineId: machine.id,
+          state: 'never-used',
+          threadId: activeSession.threadId
+        })}
+        selectedOrigin={{ machineId: machine.id, threadId: activeSession.threadId }}
+        sessions={[{ ...activeSession, status: 'archived' }]}
+      />
+    );
+
+    expect(html).toContain('Continue this session.');
+    expect(html).toContain('I am checking the result');
+    expect(html).not.toContain('No stored conversation items were returned.');
+  });
+
+  test('wraps long stored message content inside the narrow transcript', () => {
+    const html = renderToStaticMarkup(
+      <CodexConversationPane
+        conversation={{
+          items: [{
+            id: 'long-message',
+            kind: 'message',
+            role: 'user',
+            text: 'x'.repeat(512)
+          }],
+          machineId: machine.id,
+          threadId: activeSession.threadId
+        }}
+        machine={machine}
+        session={activeSession}
+      />
+    );
+
+    expect(html).toContain('max-w-full');
+    expect(html).toContain('break-words');
+  });
+
   test('renders the selected read-only history, streaming state, decisions, and stable origin', () => {
     const html = renderToStaticMarkup(
       <CodexSessionsPage

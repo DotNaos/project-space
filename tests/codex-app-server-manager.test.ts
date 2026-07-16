@@ -6,10 +6,12 @@ import { describe, expect, test } from 'bun:test';
 
 import type { CodexChildProcess } from '../server/codex-sessions/contracts';
 import {
+  CodexAppServerProtocolError,
   CodexOperationConflictError,
   CodexSessionManager,
   CodexThreadActiveError
 } from '../server/codex-sessions';
+import { presentCodexTurns } from '../server/codex-sessions/public-presenter';
 
 type RpcMessage = {
   id?: number | string;
@@ -82,6 +84,129 @@ function standardHandler(message: RpcMessage, server: FakeCodexProcess) {
 }
 
 describe('Codex app-server session manager', () => {
+  test('rejects oversized non-history responses instead of widening every protocol message', async () => {
+    const process = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+      if (message.method === 'thread/list') {
+        server.send({
+          id: message.id,
+          result: { data: [], nextCursor: null, padding: 'x'.repeat(2_000_000) }
+        });
+      }
+    });
+    const manager = new CodexSessionManager({ processFactory: () => process });
+
+    try {
+      await expect(Promise.race([
+        manager.listThreads(),
+        Bun.sleep(250).then(() => {
+          throw new Error('Oversized response rejection timed out.');
+        })
+      ])).rejects.toBeInstanceOf(CodexAppServerProtocolError);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('ignores buffered notifications after an oversized response closes the protocol', async () => {
+    const process = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+      if (message.method === 'thread/list') {
+        const oversized = JSON.stringify({
+          id: message.id,
+          result: { data: [], nextCursor: null, padding: 'x'.repeat(2_000_000) }
+        });
+        const notification = JSON.stringify({
+          method: 'item/agentMessage/delta',
+          params: { delta: 'Must not escape', threadId: 'thread-1', turnId: 'turn-1' }
+        });
+        server.stdout.write(`${oversized}\n${notification}\n`);
+      }
+    });
+    const manager = new CodexSessionManager({ processFactory: () => process });
+    const events: unknown[] = [];
+    manager.subscribe((event) => events.push(event));
+
+    try {
+      await expect(manager.listThreads()).rejects.toBeInstanceOf(CodexAppServerProtocolError);
+      await Bun.sleep(0);
+      expect(events).toEqual([]);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('rejects history beyond the absolute response bound instead of hanging', async () => {
+    const process = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+      if (message.method === 'thread/read') {
+        server.stdout.write(`${'x'.repeat(16 * 1024 * 1024 + 1)}\n`);
+      }
+    });
+    const manager = new CodexSessionManager({ processFactory: () => process });
+
+    try {
+      await expect(Promise.race([
+        manager.readThread('thread-1'),
+        Bun.sleep(1_000).then(() => {
+          throw new Error('Absolute response bound rejection timed out.');
+        })
+      ])).rejects.toBeInstanceOf(CodexAppServerProtocolError);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('reads stored history when the App Server response exceeds the legacy line limit', async () => {
+    const process = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+      if (message.method === 'thread/read') {
+        server.send({
+          id: message.id,
+          result: {
+            thread: {
+              id: 'thread-1',
+              status: { type: 'notLoaded' },
+              turns: [{
+                id: 'turn-1',
+                items: [
+                  { content: [{ text: 'Original request', type: 'text' }], id: 'user-1', type: 'userMessage' },
+                  {
+                    id: 'tool-1',
+                    result: { content: 'x'.repeat(2_000_000) },
+                    status: 'completed',
+                    tool: 'repository/read',
+                    type: 'mcpToolCall'
+                  },
+                  { id: 'assistant-1', text: 'Stored answer', type: 'agentMessage' }
+                ],
+                status: 'completed'
+              }]
+            }
+          }
+        });
+      }
+    });
+    const manager = new CodexSessionManager({ processFactory: () => process });
+
+    try {
+      const result = await Promise.race([
+        manager.readThread('thread-1'),
+        Bun.sleep(250).then(() => {
+          throw new Error('Stored history read timed out.');
+        })
+      ]);
+
+      expect(presentCodexTurns(result.thread)[0]?.items).toEqual([
+        expect.objectContaining({ id: 'user-1', kind: 'user-message', text: 'Original request' }),
+        expect.objectContaining({ id: 'tool-1', kind: 'mcp-tool' }),
+        expect.objectContaining({ id: 'assistant-1', kind: 'agent-message', text: 'Stored answer' })
+      ]);
+    } finally {
+      await manager.close();
+    }
+  });
+
   test('reuses one process and reads stored history without resuming it', async () => {
     const processes: FakeCodexProcess[] = [];
     const manager = new CodexSessionManager({
