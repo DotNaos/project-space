@@ -12,9 +12,12 @@ import {
   projectChatMemberWithProfile,
   projectChatMessageIdentity,
   projectChatProfileUpdateRequest,
+  projectChatThreadKey,
   projectChatTextSegments,
   projectChatThreadParticipants,
   projectChatThreads,
+  reconcileProjectChatMemberTaskTitles,
+  reconcileProjectChatMessageTaskTitles,
   shortProjectChatId,
   sortProjectChatMessages
 } from '../src/features/project-chat/project-chat-model';
@@ -127,6 +130,65 @@ describe('Project Chat chronological model', () => {
         threadId: '019f4f2b-e97e-7180-9122-4187159dbe51'
       })
     ]);
+  });
+
+  test('uses the current authorized Codex title without mutating stored chat snapshots', () => {
+    const storedAgent = agent({
+      origin: { ...agent().origin!, taskTitle: 'Old stored title' }
+    });
+    const storedMessage = message({
+      sender: { ...message().sender, origin: storedAgent.origin }
+    });
+    const titles = [{
+      machineId: 'machine-1',
+      threadId: storedAgent.origin!.threadId,
+      title: 'Current canonical title'
+    }];
+
+    const members = reconcileProjectChatMemberTaskTitles([storedAgent], titles);
+    const messages = reconcileProjectChatMessageTaskTitles([storedMessage], titles);
+
+    expect(members[0]?.origin?.taskTitle).toBe('Current canonical title');
+    expect(messages[0]?.sender.origin?.taskTitle).toBe('Current canonical title');
+    expect(storedAgent.origin?.taskTitle).toBe('Old stored title');
+    expect(storedMessage.sender.origin?.taskTitle).toBe('Old stored title');
+  });
+
+  test('keeps stored and honest fallback titles when no authorized task matches', () => {
+    const stored = agent({ origin: { ...agent().origin!, taskTitle: 'Stored title' } });
+    const untitled = agent({
+      memberId: 'agent-untitled',
+      origin: { ...agent().origin!, machineId: 'machine-2', taskTitle: undefined }
+    });
+    const reconciled = reconcileProjectChatMemberTaskTitles([stored, untitled], [{
+      machineId: 'different-machine',
+      threadId: stored.origin!.threadId,
+      title: 'Must not leak'
+    }]);
+
+    expect(projectChatThreads([], reconciled).map((thread) => thread.taskTitle)).toEqual([
+      'Stored title',
+      'Untitled Codex task'
+    ]);
+  });
+
+  test('keeps identical thread IDs on different machines as separate canonical tasks', () => {
+    const threadId = agent().origin!.threadId;
+    const first = agent({
+      memberId: 'agent-first',
+      origin: { ...agent().origin!, machineId: 'machine-1', taskTitle: 'First machine' }
+    });
+    const second = agent({
+      memberId: 'agent-second',
+      origin: { ...agent().origin!, machineId: 'machine-2', taskTitle: 'Second machine' }
+    });
+    const threads = projectChatThreads([], [first, second]);
+
+    expect(threads).toHaveLength(2);
+    expect(new Set(threads.map((thread) => thread.id))).toEqual(new Set([
+      projectChatThreadKey('machine-1', threadId),
+      projectChatThreadKey('machine-2', threadId)
+    ]));
   });
 
   test('shortens thread identifiers without losing both identifying ends', () => {

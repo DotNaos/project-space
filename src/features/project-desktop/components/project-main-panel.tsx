@@ -21,6 +21,7 @@ import { CodexSessionsControllerPage } from '@/features/codex-sessions/codex-ses
 import type { CodexSessionsController } from '@/features/codex-sessions/codex-sessions-controller';
 import type { CodexSessionTarget } from '@/features/codex-sessions/codex-session-route';
 import { ProjectCodexTasks } from '@/features/codex-sessions/project-codex-tasks';
+import { useProjectCodexTaskTitles } from '@/features/codex-sessions/use-project-codex-task-titles';
 import { ProjectTopologyProductionRoute } from '@/features/project-topology/project-topology-production-route';
 import { ProjectHomeCommandCenter } from '@/features/project-topology/project-home-command-center';
 import { projectChatProjectId } from '@/shared/project-chat-project';
@@ -303,6 +304,10 @@ export function ProjectMainPanel({
       selectedChatRepository?.fullName ?? project?.github?.fullName
     );
   }, [project, projects, selectedChatRepository?.fullName]);
+  const projectCodexTaskTitles = useProjectCodexTaskTitles(
+    codexController,
+    mainView === 'project' ? projectCodexRecords : projects
+  );
   useEffect(() => {
     if (
       mainView !== 'project' ||
@@ -487,6 +492,7 @@ export function ProjectMainPanel({
           client={projectChatClient}
           onOpenThread={onOpenCodex}
           recentProjectIds={recentProjectIds}
+          taskTitles={projectCodexTaskTitles}
         />
       </Surface>
     );
@@ -586,6 +592,7 @@ export function ProjectMainPanel({
                 fixedProjectId={projectChatProjectId(project, selectedChatRepository)}
                 onOpenThread={onOpenCodex}
                 showChannelNavigation={false}
+                taskTitles={projectCodexTaskTitles}
                 taskPreview={(
                   <ProjectCodexTasks
                     controller={codexController}

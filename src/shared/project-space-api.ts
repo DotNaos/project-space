@@ -209,6 +209,7 @@ export interface ProjectWorktreeRecord {
   path: string;
   branchName?: string;
   detached: boolean;
+  headCommittedAt?: string;
   headSha?: string;
   isBase: boolean;
   kind: 'project-managed' | 'codex' | 'external';

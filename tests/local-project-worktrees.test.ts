@@ -268,6 +268,7 @@ describe('Git-authoritative project worktree discovery', () => {
 
     expect(topic).toMatchObject({
       detached: false,
+      headCommittedAt: expect.any(String),
       headSha: git(repository, 'rev-parse', 'HEAD'),
       path: realpathSync(linked),
       status: 'ready'

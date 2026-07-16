@@ -37,9 +37,9 @@ import {
   type MachineProjectCheckout,
 } from './project-machine-checkout-model';
 import {
-  WorktreeBranchList,
   type WorktreeBranchOption
 } from './worktree-branch-list';
+import { ProjectMachineBranches } from './project-machine-branches';
 
 interface MachineProjectMatch {
   checkout: MachineProjectCheckout;
@@ -210,9 +210,7 @@ function mergeBranchNames(defaultBranch: string, remoteBranches: string[], workt
   const branches = new Set<string>(remoteBranches);
 
   for (const worktree of worktrees) {
-    if (worktree.branchName) {
-      branches.add(worktree.branchName);
-    }
+    branches.add(worktree.branchName || worktree.name);
   }
 
   return Array.from(branches).sort(branchSortValue(defaultBranch));
@@ -512,9 +510,8 @@ export function ProjectMachinesPanel({
             const displayedWorktrees = state?.state === 'ready' ? state.worktrees : [];
             const worktreeByBranch = new Map<string, NonNullable<WorktreeBranchOption['worktree']>>(
               displayedWorktrees
-                .filter((worktree) => worktree.branchName)
                 .map((worktree) => [
-                  normalizeKey(worktree.branchName!),
+                  normalizeKey(worktree.branchName || worktree.name),
                   {
                     branchName: worktree.branchName,
                     id: worktree.id,
@@ -522,7 +519,8 @@ export function ProjectMachinesPanel({
                     name: worktree.name,
                     path: worktree.path,
                     status: worktree.status,
-                    statusReason: worktree.statusReason
+                    statusReason: worktree.statusReason,
+                    headCommittedAt: worktree.headCommittedAt
                   }
                 ])
             );
@@ -616,7 +614,7 @@ export function ProjectMachinesPanel({
                     </Text>
                   ) : null}
                   {cloneBranchOptions.length > 0 ? (
-                    <WorktreeBranchList
+                    <ProjectMachineBranches
                       busyBranchName={
                         busyCloneKey.startsWith(`${row.machineId}:`)
                           ? busyCloneKey.slice(row.machineId.length + 1)

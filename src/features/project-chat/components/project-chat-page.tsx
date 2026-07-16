@@ -19,6 +19,7 @@ import type {
 } from '@/shared/project-chat-api';
 import {
   effectiveProjectChatPresence,
+  projectChatThreadKey,
   projectChatThreads,
   type ProjectChatThreadSummary
 } from '../project-chat-model';
@@ -110,16 +111,16 @@ export function ProjectChatPage({
   const [selectedMemberId, setSelectedMemberId] = useState<string | undefined>(
     () => initialThread?.memberId ?? members.find((member) => member.role === 'agent')?.memberId
   );
-  const [selectedThreadId, setSelectedThreadId] = useState<string | undefined>(
-    () => initialThread?.threadId
+  const [selectedThreadKey, setSelectedThreadKey] = useState<string | undefined>(
+    () => initialThread?.id
   );
-  const selectedThread = threads.find((thread) => thread.threadId === selectedThreadId);
+  const selectedThread = threads.find((thread) => thread.id === selectedThreadKey);
   const activeAgentCount = members.filter(
     (member) => member.role === 'agent' && effectiveProjectChatPresence(member, now) === 'working'
   ).length;
 
   useEffect(() => {
-    const currentThread = threads.find((thread) => thread.threadId === selectedThreadId);
+    const currentThread = threads.find((thread) => thread.id === selectedThreadKey);
     if (currentThread) {
       if (selectedMemberId !== currentThread.memberId) {
         setSelectedMemberId(currentThread.memberId);
@@ -131,14 +132,14 @@ export function ProjectChatPage({
     const nextThread = memberThread ?? threads[0];
     if (nextThread) {
       setSelectedMemberId(nextThread.memberId);
-      setSelectedThreadId(nextThread.threadId);
+      setSelectedThreadKey(nextThread.id);
       return;
     }
 
     const nextMember = members.find((member) => member.role === 'agent');
     setSelectedMemberId(nextMember?.memberId);
-    setSelectedThreadId(undefined);
-  }, [members, selectedMemberId, selectedThreadId, threads]);
+    setSelectedThreadKey(undefined);
+  }, [members, selectedMemberId, selectedThreadKey, threads]);
 
   useEffect(() => {
     if (!inspectorOpen) {
@@ -262,7 +263,7 @@ export function ProjectChatPage({
   }
 
   function selectThread(thread: ProjectChatThreadSummary) {
-    setSelectedThreadId(thread.threadId);
+    setSelectedThreadKey(thread.id);
     setSelectedMemberId(thread.memberId);
     openCompactThreadDetails();
   }
@@ -271,10 +272,10 @@ export function ProjectChatPage({
     setSelectedMemberId(memberId);
     const memberThread = threads.find((thread) => thread.memberId === memberId);
     if (memberThread) {
-      setSelectedThreadId(memberThread.threadId);
+      setSelectedThreadKey(memberThread.id);
       openCompactThreadDetails();
     } else {
-      setSelectedThreadId(undefined);
+      setSelectedThreadKey(undefined);
     }
   }
 
@@ -288,7 +289,10 @@ export function ProjectChatPage({
 
     if (message.sender.origin) {
       setSelectedMemberId(message.sender.memberId);
-      setSelectedThreadId(message.sender.origin.threadId);
+      setSelectedThreadKey(projectChatThreadKey(
+        message.sender.origin.machineId,
+        message.sender.origin.threadId
+      ));
       openCompactThreadDetails();
     } else {
       const mentionedAgent = message.mentions
@@ -296,7 +300,10 @@ export function ProjectChatPage({
         .find((member) => member?.origin);
       if (mentionedAgent?.origin) {
         setSelectedMemberId(mentionedAgent.memberId);
-        setSelectedThreadId(mentionedAgent.origin.threadId);
+        setSelectedThreadKey(projectChatThreadKey(
+          mentionedAgent.origin.machineId,
+          mentionedAgent.origin.threadId
+        ));
         openCompactThreadDetails();
       }
     }
@@ -315,7 +322,7 @@ export function ProjectChatPage({
       onSelectTab={setActiveTab}
       onSelectThread={selectThread}
       selectedMemberId={selectedMemberId}
-      selectedThreadId={selectedThreadId}
+      selectedThreadKey={selectedThreadKey}
       onRetryMention={onRetryMention}
       unreadMentionCount={unreadMentionCount}
     />

@@ -2,6 +2,7 @@ import type {
   ProjectChatHumanProfileRecord,
   ProjectChatMemberRecord,
   ProjectChatMessageRecord,
+  ProjectChatOriginRecord,
   ProjectChatPresenceState,
   ProjectChatProfileUpdateRequest,
   ProjectChatSenderRecord
@@ -79,12 +80,56 @@ export interface ProjectChatTextSegment {
 
 export interface ProjectChatThreadSummary {
   hostId: string;
+  id: string;
   lastActivityAt: string;
   machineId: string;
   memberId: string;
   memberName: string;
   taskTitle: string;
   threadId: string;
+}
+
+export interface ProjectChatTaskTitle {
+  machineId: string;
+  threadId: string;
+  title: string;
+}
+
+export function projectChatThreadKey(machineId: string, threadId: string) {
+  return `${encodeURIComponent(machineId)}:${encodeURIComponent(threadId)}`;
+}
+
+function canonicalTaskTitle(
+  origin: ProjectChatOriginRecord,
+  titles: readonly ProjectChatTaskTitle[]
+) {
+  return titles.find((candidate) => (
+    candidate.machineId === origin.machineId && candidate.threadId === origin.threadId
+  ))?.title;
+}
+
+export function reconcileProjectChatMemberTaskTitles(
+  members: readonly ProjectChatMemberRecord[],
+  titles: readonly ProjectChatTaskTitle[]
+): ProjectChatMemberRecord[] {
+  return members.map((member) => {
+    if (!member.origin) return member;
+    const title = canonicalTaskTitle(member.origin, titles);
+    return title ? { ...member, origin: { ...member.origin, taskTitle: title } } : member;
+  });
+}
+
+export function reconcileProjectChatMessageTaskTitles(
+  messages: readonly ProjectChatMessageRecord[],
+  titles: readonly ProjectChatTaskTitle[]
+): ProjectChatMessageRecord[] {
+  return messages.map((message) => {
+    if (!message.sender.origin) return message;
+    const title = canonicalTaskTitle(message.sender.origin, titles);
+    return title
+      ? { ...message, sender: { ...message.sender, origin: { ...message.sender.origin, taskTitle: title } } }
+      : message;
+  });
 }
 
 export function createProjectChatProfileGenerationGuard(): ProjectChatProfileGenerationGuard {
@@ -261,7 +306,10 @@ export function projectChatThreadParticipants(
   const snapshots = new Map<string, ProjectChatParticipantIdentity>();
 
   for (const message of messages) {
-    if (message.sender.origin?.threadId === thread.threadId) {
+    if (
+      message.sender.origin?.machineId === thread.machineId
+      && message.sender.origin.threadId === thread.threadId
+    ) {
       snapshots.set(message.sender.memberId, message.sender);
       continue;
     }
@@ -496,11 +544,11 @@ export function projectChatThreads(
   const threads = new Map<string, ProjectChatThreadSummary>();
 
   function addThread(candidate: ProjectChatThreadSummary) {
-    const existing = threads.get(candidate.threadId);
+    const existing = threads.get(candidate.id);
     const candidateTime = Date.parse(candidate.lastActivityAt);
     const existingTime = existing ? Date.parse(existing.lastActivityAt) : Number.NaN;
     if (!existing || !Number.isFinite(existingTime) || candidateTime >= existingTime) {
-      threads.set(candidate.threadId, candidate);
+      threads.set(candidate.id, candidate);
     }
   }
 
@@ -512,6 +560,7 @@ export function projectChatThreads(
 
     addThread({
       hostId: origin.hostId,
+      id: projectChatThreadKey(origin.machineId, origin.threadId),
       lastActivityAt: member.presence.lastSeenAt,
       machineId: origin.machineId,
       memberId: member.memberId,
@@ -529,6 +578,7 @@ export function projectChatThreads(
 
     addThread({
       hostId: origin.hostId,
+      id: projectChatThreadKey(origin.machineId, origin.threadId),
       lastActivityAt: message.createdAt,
       machineId: origin.machineId,
       memberId: message.sender.memberId,

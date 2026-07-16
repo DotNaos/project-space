@@ -7,6 +7,12 @@ import {
   parseCloneTargetProbeOutput,
   parseWorktreeOutput
 } from '../src/features/project-desktop/components/project-machine-checkout-model';
+import {
+  filterMachineBranchOptions,
+  orderedMachineBranchOptions,
+  previewMachineBranchOptions
+} from '../src/features/project-desktop/components/project-machine-branch-model';
+import type { WorktreeBranchOption } from '../src/features/project-desktop/components/worktree-branch-list';
 import type {
   ConnectorOverviewResult,
   MachineRecord,
@@ -114,5 +120,70 @@ describe('machine checkout truth', () => {
       path: '/Users/oli/projects/.worktrees/project-space/feature/conflict'
     });
     expect(options[0]?.worktree).toBeUndefined();
+  });
+
+  test('pins base and previews the three most recently committed registered worktrees', () => {
+    const option = (
+      branchName: string,
+      committedAt?: string,
+      local = true
+    ): WorktreeBranchOption => ({
+      branchName,
+      expectedPath: `/worktrees/${branchName}`,
+      ...(local ? {
+        worktree: {
+          branchName,
+          headCommittedAt: committedAt,
+          id: `wt-${branchName}`,
+          isBase: branchName === 'main',
+          name: branchName,
+          path: `/worktrees/${branchName}`
+        }
+      } : {})
+    });
+    const options = [
+      option('older', '2026-07-10T00:00:00.000Z'),
+      option('remote-only', '2026-07-16T00:00:00.000Z', false),
+      option('main', '2026-01-01T00:00:00.000Z'),
+      option('newest', '2026-07-15T00:00:00.000Z'),
+      {
+        ...option('Codex · detached', '2026-07-16T00:00:00.000Z'),
+        worktree: {
+          ...option('Codex · detached', '2026-07-16T00:00:00.000Z').worktree!,
+          branchName: undefined
+        }
+      },
+      option('unknown'),
+      option('middle', '2026-07-12T00:00:00.000Z')
+    ];
+
+    expect(previewMachineBranchOptions(options, 'main').map((entry) => entry.branchName)).toEqual([
+      'main',
+      'newest',
+      'middle',
+      'older'
+    ]);
+    expect(orderedMachineBranchOptions([...options].reverse(), 'main').map((entry) => entry.branchName)).toEqual([
+      'main',
+      'Codex · detached',
+      'newest',
+      'middle',
+      'older',
+      'unknown',
+      'remote-only'
+    ]);
+  });
+
+  test('searches the complete branch inventory without dropping row metadata', () => {
+    const options: WorktreeBranchOption[] = [{
+      branchName: 'feature/modal-search',
+      expectedPath: '/expected/modal-search',
+      target: { exists: true, path: '/target/modal-search' }
+    }, {
+      branchName: 'other',
+      expectedPath: '/expected/other'
+    }];
+
+    expect(filterMachineBranchOptions(options, 'target modal')).toEqual([options[0]]);
   });
 });
