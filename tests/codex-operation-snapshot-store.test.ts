@@ -63,6 +63,32 @@ describe('durable Codex operation snapshots', () => {
     }))).toThrow(CodexOperationUncertainError);
   });
 
+  test('keeps reconciliation uncertain when its durable update fails', async () => {
+    const snapshot = [{
+      fingerprint: 'same-input',
+      operationId: 'send-reconcile-failure',
+      state: 'uncertain' as const
+    }];
+    const notApplied = new CodexOperationLedger(snapshot, async () => {
+      throw new Error('reconciliation snapshot unavailable');
+    });
+    await expect(notApplied.reconcileNotApplied('send-reconcile-failure'))
+      .rejects.toThrow('reconciliation snapshot unavailable');
+    expect(() => notApplied.execute('send-reconcile-failure', 'same-input', async () => ({
+      status: 'duplicate'
+    }))).toThrow(CodexOperationUncertainError);
+
+    const completed = new CodexOperationLedger(snapshot, async () => {
+      throw new Error('reconciliation snapshot unavailable');
+    });
+    await expect(completed.reconcileCompleted('send-reconcile-failure', {
+      status: 'accepted'
+    })).rejects.toThrow('reconciliation snapshot unavailable');
+    expect(() => completed.execute('send-reconcile-failure', 'same-input', async () => ({
+      status: 'duplicate'
+    }))).toThrow(CodexOperationUncertainError);
+  });
+
   test('replays a completed operation after the connector process is recreated', async () => {
     const path = await snapshotPath();
     const environment = { [codexOperationSnapshotFileEnvironment]: path };

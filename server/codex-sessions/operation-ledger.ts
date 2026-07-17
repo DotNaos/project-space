@@ -72,7 +72,12 @@ export class CodexOperationLedger {
   async reconcileNotApplied(operationId: string) {
     const record = this.requireUncertain(operationId);
     this.records.delete(operationId);
-    await this.persist(this.snapshot());
+    try {
+      await this.persist(this.snapshot());
+    } catch (error) {
+      this.records.set(operationId, record);
+      throw error;
+    }
     return record.fingerprint;
   }
 
@@ -80,7 +85,13 @@ export class CodexOperationLedger {
     const record = this.requireUncertain(operationId);
     record.state = 'completed';
     record.result = result;
-    await this.persist(this.snapshot());
+    try {
+      await this.persist(this.snapshot());
+    } catch (error) {
+      record.state = 'uncertain';
+      delete record.result;
+      throw error;
+    }
   }
 
   snapshot(): CodexOperationSnapshot {
