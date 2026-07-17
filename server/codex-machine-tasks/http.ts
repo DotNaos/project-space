@@ -68,7 +68,7 @@ export function createCodexMachineTasksHttpApi(
           issue,
           operationId,
           physicalMachineId: optionalSelector(body.physicalMachineId),
-          physicalMachineName: optionalSelector(body.physicalMachineName),
+          physicalMachineName: optionalPhysicalMachineName(body.physicalMachineName),
           repositoryId: optionalSelector(body.repositoryId)
         }));
         return true;
@@ -199,7 +199,9 @@ function selectorFromUrl(url: URL, threadId: string): CodexMachineTaskReadReques
   return {
     connectorId: optionalSelector(url.searchParams.get('connectorId') ?? undefined),
     physicalMachineId: optionalSelector(url.searchParams.get('physicalMachineId') ?? undefined),
-    physicalMachineName: optionalSelector(url.searchParams.get('physicalMachineName') ?? undefined),
+    physicalMachineName: optionalPhysicalMachineName(
+      url.searchParams.get('physicalMachineName') ?? undefined
+    ),
     threadId
   };
 }
@@ -208,7 +210,7 @@ function selectorFromBody(body: Record<string, unknown>, threadId: string) {
   return {
     connectorId: optionalSelector(body.connectorId),
     physicalMachineId: optionalSelector(body.physicalMachineId),
-    physicalMachineName: optionalSelector(body.physicalMachineName),
+    physicalMachineName: optionalPhysicalMachineName(body.physicalMachineName),
     threadId
   };
 }
@@ -235,6 +237,14 @@ function optionalSelector(value: unknown) {
   if (value === undefined || value === null || value === '') return undefined;
   if (typeof value !== 'string' || !safeSelector.test(value)) throw invalid('Target selector is invalid.');
   return value;
+}
+
+function optionalPhysicalMachineName(value: unknown) {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string') throw invalid('Physical machine name is invalid.');
+  const name = value.trim();
+  if (!name || name.length > 80) throw invalid('Physical machine name is invalid.');
+  return name;
 }
 
 function operation(value: unknown) {

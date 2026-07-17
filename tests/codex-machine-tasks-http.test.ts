@@ -90,6 +90,30 @@ describe('Codex machine-task HTTP boundary', () => {
     }]);
   });
 
+  test('accepts a human-readable physical machine name', async () => {
+    const { calls, stub } = service();
+    const origin = await startApi(stub);
+    const response = await fetch(`${origin}/api/codex/tasks/start`, mutation('start-by-name', {
+      issue: 262,
+      physicalMachineName: 'Remote PC',
+      repositoryId: 'R_repo'
+    }));
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([{
+      kind: 'start',
+      request: {
+        connectorId: undefined,
+        dryRun: false,
+        issue: 262,
+        operationId: 'start-by-name',
+        physicalMachineId: undefined,
+        physicalMachineName: 'Remote PC',
+        repositoryId: 'R_repo'
+      }
+    }]);
+  });
+
   test('reads mutation bodies once and preserves local attach identity', async () => {
     const { calls, stub } = service();
     const origin = await startApi(stub);
