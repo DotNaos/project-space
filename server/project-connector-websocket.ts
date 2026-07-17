@@ -24,8 +24,11 @@ import {
   type ProjectConnectorConnectionOptions
 } from './project-connector-runtime-binding';
 import { CodexSessionsConnectorDispatcher } from './codex-sessions/connector-dispatch';
-import { CodexSessionManager } from './codex-sessions/manager';
-import { createCodexOperationSnapshotPersistence } from './codex-sessions/operation-snapshot-store';
+import {
+  createProjectConnectorCodexSessionManager,
+  handleProjectConnectorCodexMessage,
+  sendProjectConnectorCodexResult
+} from './project-connector-codex-runtime';
 import {
   connectorRegistryForRuntimeConfiguration,
   createConfiguredConnectorRuntimeDispatcher
@@ -45,8 +48,6 @@ interface ProjectConnectorWebSocketOptions extends ProjectConnectorConnectionOpt
   runtimeShutdown?(): Promise<void> | void;
 }
 
-const codexAttachMaximumBufferedBytes = 8 * 1024 * 1024;
-
 export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocketOptions) {
   const { backend } = options;
   const connection = resolveProjectConnectorConnection(options);
@@ -59,14 +60,9 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
 
   let closed = false;
   const cleanupTasks: Array<() => void> = [];
-  const operationPersistence = createCodexOperationSnapshotPersistence(
-    options.environment ?? process.env,
-    options.runtimeCredential?.machineId
+  const codexSessionManager = createProjectConnectorCodexSessionManager(
+    options.environment ?? process.env, options.runtimeCredential?.machineId
   );
-  const codexSessionManager = new CodexSessionManager({
-    operationSnapshot: operationPersistence.snapshot,
-    persistOperationSnapshot: operationPersistence.persist
-  });
   cleanupTasks.push(() => void codexSessionManager.close());
 
   function startHttpRegistryPublisher(target: ProjectConnectorHubTarget) {
@@ -337,13 +333,8 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           return;
         }
         if (message.type === 'connector.command.cancel') {
-          if (codexSessionsDispatcher?.cancel(message.id, (result) => {
-            if (socket.bufferedAmount > codexAttachMaximumBufferedBytes) {
-              socket.close(1009, 'Codex connector output exceeded its buffer.');
-              return;
-            }
-            sendJson(socket, result);
-          })) {
+          if (codexSessionsDispatcher?.cancel(message.id, (result) =>
+            sendProjectConnectorCodexResult(socket, result, isCurrentConnection))) {
             return;
           }
           if (worktreeLoads.cancel(message.id)) return;
@@ -351,33 +342,10 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           return;
         }
 
-        if (message.type === 'codex.attach.input') {
-          if (!codexSessionsDispatcher) {
-            socket.close(1008, 'Codex attach verification is not configured.');
-            return;
-          }
-          codexSessionsDispatcher.acceptAttachInput(message.id, message.payload);
-          return;
-        }
-
-        if (message.type === 'codex.sessions.command') {
-          if (!codexSessionsDispatcher) {
-            socket.close(1008, 'Codex session verification is not configured.');
-            return;
-          }
-          codexSessionsDispatcher.dispatch(
-            message.id,
-            message.payload,
-            (result) => {
-              if (!isCurrentConnection()) return;
-              if (socket.bufferedAmount > codexAttachMaximumBufferedBytes) {
-                socket.close(1009, 'Codex connector output exceeded its buffer.');
-                return;
-              }
-              sendJson(socket, result);
-            },
-            () => socket.close(1008, 'Codex session authorization failed.')
-          );
+        if (message.type === 'codex.attach.input' || message.type === 'codex.sessions.command') {
+          handleProjectConnectorCodexMessage({
+            dispatcher: codexSessionsDispatcher, isCurrentConnection, message, socket
+          });
           return;
         }
 
