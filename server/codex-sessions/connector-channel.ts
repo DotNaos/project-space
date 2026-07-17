@@ -11,7 +11,11 @@ import type {
   CodexSessionOperationResult,
   CodexSessionReadResult
 } from '../../src/shared/codex-sessions-api';
-import { CODEX_BROWSER_MAXIMUM_IMAGE_BYTES } from '../../src/shared/codex-sessions-api';
+import {
+  CODEX_BROWSER_MAXIMUM_IMAGE_BYTES,
+  CODEX_THREAD_ID_PATTERN
+} from '../../src/shared/codex-sessions-api';
+import type { CodexMachineTaskConnectorStartResult } from '../../src/shared/codex-machine-tasks-api';
 
 export interface CodexSessionsCommandBinding {
   generation: number;
@@ -39,6 +43,109 @@ export interface BoundCodexSessionsCompletion {
 export interface BoundCodexSessionsError {
   binding: CodexSessionsCommandBinding;
   error: { code: 'rejected' | 'unavailable' };
+}
+
+export const CODEX_ATTACH_MAXIMUM_MESSAGE_BYTES = 16 * 1024 * 1024;
+export const CODEX_ATTACH_CHUNK_BYTES = 192 * 1024;
+
+export interface CodexAttachChunk {
+  chunkIndex: number;
+  data: string;
+  final: boolean;
+  messageId: number;
+}
+
+export interface BoundCodexAttachChunk {
+  binding: CodexSessionsCommandBinding;
+  chunk: CodexAttachChunk;
+}
+
+export interface BoundCodexAttachReady {
+  binding: CodexSessionsCommandBinding;
+}
+
+export interface BoundCodexAttachClosed {
+  binding: CodexSessionsCommandBinding;
+  code: 'cancelled' | 'process_exited' | 'protocol_error' | 'unavailable';
+}
+
+export class CodexAttachChunkError extends Error {
+  constructor() {
+    super('The Codex attach tunnel frame is invalid.');
+    this.name = 'CodexAttachChunkError';
+  }
+}
+
+export class CodexAttachChunkAssembler {
+  private chunks: Buffer[] = [];
+  private expectedChunkIndex = 0;
+  private expectedMessageId = 1;
+  private totalBytes = 0;
+
+  push(chunk: CodexAttachChunk) {
+    if (!isCodexAttachChunk(chunk) || chunk.messageId !== this.expectedMessageId ||
+      chunk.chunkIndex !== this.expectedChunkIndex) throw new CodexAttachChunkError();
+    const decoded = decodeChunk(chunk.data);
+    if (!decoded || this.totalBytes + decoded.byteLength > CODEX_ATTACH_MAXIMUM_MESSAGE_BYTES) {
+      throw new CodexAttachChunkError();
+    }
+    this.chunks.push(decoded);
+    this.totalBytes += decoded.byteLength;
+    this.expectedChunkIndex += 1;
+    if (!chunk.final) return undefined;
+    const message = decodeAttachMessage(Buffer.concat(this.chunks, this.totalBytes));
+    this.chunks = [];
+    this.totalBytes = 0;
+    this.expectedChunkIndex = 0;
+    this.expectedMessageId += 1;
+    return message;
+  }
+}
+
+export function codexAttachMessageChunks(message: string, messageId: number): CodexAttachChunk[] {
+  const bytes = Buffer.from(validateAttachMessage(message), 'utf8');
+  if (!Number.isSafeInteger(messageId) || messageId < 1 ||
+    bytes.byteLength > CODEX_ATTACH_MAXIMUM_MESSAGE_BYTES) throw new CodexAttachChunkError();
+  const chunks: CodexAttachChunk[] = [];
+  for (let offset = 0, chunkIndex = 0; offset < bytes.byteLength; chunkIndex += 1) {
+    const next = bytes.subarray(offset, offset + CODEX_ATTACH_CHUNK_BYTES);
+    offset += next.byteLength;
+    chunks.push({
+      chunkIndex,
+      data: next.toString('base64'),
+      final: offset === bytes.byteLength,
+      messageId
+    });
+  }
+  return chunks;
+}
+
+export function isBoundCodexAttachChunk(value: unknown): value is BoundCodexAttachChunk {
+  return smallRecord(value) && hasOnlyKeys(value, ['binding', 'chunk']) &&
+    isBinding(value.binding) && value.binding.operation === 'attach' &&
+    isCodexAttachChunk(value.chunk);
+}
+
+export function isBoundCodexAttachReady(value: unknown): value is BoundCodexAttachReady {
+  return smallRecord(value) && hasOnlyKeys(value, ['binding']) &&
+    isBinding(value.binding) && value.binding.operation === 'attach';
+}
+
+export function isBoundCodexAttachClosed(value: unknown): value is BoundCodexAttachClosed {
+  return smallRecord(value) && hasOnlyKeys(value, ['binding', 'code']) &&
+    isBinding(value.binding) && value.binding.operation === 'attach' &&
+    typeof value.code === 'string' &&
+    ['cancelled', 'process_exited', 'protocol_error', 'unavailable'].includes(value.code);
+}
+
+export function isCodexAttachChunk(value: unknown): value is CodexAttachChunk {
+  if (!smallRecord(value) || !hasOnlyKeys(value, [
+    'chunkIndex', 'data', 'final', 'messageId'
+  ]) || !Number.isSafeInteger(value.messageId) || Number(value.messageId) < 1 ||
+    !Number.isSafeInteger(value.chunkIndex) || Number(value.chunkIndex) < 0 ||
+    Number(value.chunkIndex) > Math.ceil(CODEX_ATTACH_MAXIMUM_MESSAGE_BYTES / CODEX_ATTACH_CHUNK_BYTES) ||
+    typeof value.final !== 'boolean' || typeof value.data !== 'string') return false;
+  return decodeChunk(value.data) !== undefined;
 }
 
 export function bindingForCodexSessionsRequest(
@@ -96,6 +203,12 @@ export function boundCodexSessionsResultMatchesRequest(
       && result.taskLocation.threadId === expected.threadId
       && result.sessionRevision === result.taskLocation.sessionRevision;
   }
+  if (value.result.operation === 'start') {
+    const result = value.result.result as CodexMachineTaskConnectorStartResult;
+    return result.state !== 'confirmed' || (
+      CODEX_THREAD_ID_PATTERN.test(result.threadId) && identifier(result.worktreeId, 128)
+    );
+  }
   const result = value.result.result as CodexSessionOperationResult;
   return result.operationId === expected.operationId && result.threadId === expected.threadId;
 }
@@ -118,6 +231,7 @@ export function isBoundCodexSessionsResult(value: unknown): value is BoundCodexS
   if (result.operation === 'inspect') {
     return isInspectResult(result.result);
   }
+  if (result.operation === 'start') return isStartResult(result.result);
   return ['approval', 'continue', 'input', 'interrupt'].includes(result.operation) &&
     isOperationResult(result.result);
 }
@@ -157,7 +271,7 @@ function isBinding(value: unknown): value is CodexSessionsCommandBinding {
     identifier(value.operationId, 128) &&
     (value.threadId === undefined || identifier(value.threadId, 128)) &&
     typeof value.operation === 'string' && [
-      'approval', 'browser', 'continue', 'inspect', 'input', 'interrupt', 'list', 'read', 'stream'
+      'approval', 'attach', 'browser', 'continue', 'inspect', 'input', 'interrupt', 'list', 'read', 'start', 'stream'
     ].includes(value.operation);
 }
 
@@ -170,6 +284,18 @@ function isListResult(value: Record<string, unknown>) {
     typeof value.machine.online === 'boolean' && Array.isArray(value.sessions) &&
     value.sessions.length <= 10_000 && value.sessions.every((session) =>
       smallRecord(session) && identifier(session.id, 128) && identifier(session.machineId, 256));
+}
+
+function isStartResult(value: Record<string, unknown>) {
+  if (value.state === 'uncertain') return hasOnlyKeys(value, ['state']);
+  if (value.state === 'worktree_failure') {
+    return hasOnlyKeys(value, ['message', 'state']) &&
+      typeof value.message === 'string' && value.message.length <= 512;
+  }
+  return value.state === 'confirmed' &&
+    hasOnlyKeys(value, ['state', 'threadId', 'worktreeId']) &&
+    typeof value.threadId === 'string' && CODEX_THREAD_ID_PATTERN.test(value.threadId) &&
+    identifier(value.worktreeId, 128);
 }
 
 function isReadResult(value: Record<string, unknown>) {
@@ -225,10 +351,49 @@ function isInspectResult(value: Record<string, unknown>) {
 }
 
 function isOperationResult(value: Record<string, unknown>) {
-  return identifier(value.operationId, 128) && identifier(value.threadId, 128) &&
+  return hasOnlyKeys(value, [
+    'operationId', 'reason', 'replayed', 'status', 'threadId', 'turnId'
+  ]) && identifier(value.operationId, 128) && identifier(value.threadId, 128) &&
     typeof value.replayed === 'boolean' && typeof value.status === 'string' &&
     ['accepted', 'ambiguous', 'completed', 'rejected'].includes(value.status) &&
+    (value.reason === undefined || (
+      value.status === 'rejected' &&
+      (value.reason === 'thread_active' || value.reason === 'unavailable')
+    )) &&
     (value.turnId === undefined || identifier(value.turnId, 128));
+}
+
+function decodeChunk(value: string) {
+  if (value.length === 0 || value.length > Math.ceil(CODEX_ATTACH_CHUNK_BYTES / 3) * 4 ||
+    value.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    return undefined;
+  }
+  const decoded = Buffer.from(value, 'base64');
+  return decoded.byteLength > 0 && decoded.byteLength <= CODEX_ATTACH_CHUNK_BYTES &&
+    decoded.toString('base64') === value ? decoded : undefined;
+}
+
+function decodeAttachMessage(bytes: Buffer) {
+  let message: string;
+  try {
+    message = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new CodexAttachChunkError();
+  }
+  return validateAttachMessage(message);
+}
+
+function validateAttachMessage(message: string) {
+  if (!message || Buffer.byteLength(message, 'utf8') > CODEX_ATTACH_MAXIMUM_MESSAGE_BYTES) {
+    throw new CodexAttachChunkError();
+  }
+  try {
+    const parsed = JSON.parse(message);
+    if (!smallRecord(parsed)) throw new Error();
+  } catch {
+    throw new CodexAttachChunkError();
+  }
+  return message;
 }
 
 function smallRecord(value: unknown): value is Record<string, unknown> {

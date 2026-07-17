@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 import { hostname } from 'node:os';
 
 import { getCodexStatus, openCodexTarget } from './local-codex-client';
@@ -65,12 +64,13 @@ import { connectorRuntimeRecord } from './connector-build-info';
 import { configuredConnectorMachineId } from './project-connector-config';
 import {
   CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY,
+  CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY
 } from './codex-sessions-connector-contract';
-import { defaultCodexAppServerBinary } from './codex-sessions/stdio-transport';
+import { resolveCodexBinary } from './codex-sessions/binary-resolver';
 import {
   applyProjectStructureAction,
   listProjectTrash,
@@ -162,8 +162,9 @@ const connectorCommandCapabilities = [
   'runtime.update',
   'worktrees.list',
   'worktrees.list.v2',
-  ...(existsSync(defaultCodexAppServerBinary) ? [
+  ...(resolveCodexBinary().path ? [
     CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY,
+    CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY,
     CODEX_SESSIONS_CONNECTOR_CAPABILITY,
     CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY,
     CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY,

@@ -42,10 +42,16 @@ import {
   type CodexSessionsWireRequest
 } from './codex-sessions-connector-contract';
 import {
+  isBoundCodexAttachChunk,
+  isBoundCodexAttachClosed,
+  isBoundCodexAttachReady,
   isBoundCodexSessionsCompletion,
   isBoundCodexSessionsError,
   isBoundCodexSessionsEvent,
   isBoundCodexSessionsResult,
+  type BoundCodexAttachChunk,
+  type BoundCodexAttachClosed,
+  type BoundCodexAttachReady,
   type BoundCodexSessionsCompletion,
   type BoundCodexSessionsError,
   type BoundCodexSessionsEvent,
@@ -99,6 +105,9 @@ export type ConnectorHubMessage =
   | { id: string; payload: BoundCodexSessionsEvent; type: 'codex.sessions.event' }
   | { id: string; payload: BoundCodexSessionsCompletion; type: 'codex.sessions.complete' }
   | { id: string; payload: BoundCodexSessionsError; type: 'codex.sessions.error' }
+  | { id: string; payload: BoundCodexAttachReady; type: 'codex.attach.ready' }
+  | { id: string; payload: BoundCodexAttachChunk; type: 'codex.attach.output' }
+  | { id: string; payload: BoundCodexAttachClosed; type: 'codex.attach.closed' }
   | {
       id: string;
       type: 'codex.chat.complete';
@@ -184,6 +193,7 @@ export type ConnectorMachineMessage =
   | { id: string; payload: CodexModelCatalogueRequest; type: 'codex.models' }
   | { id: string; payload: CodexChatRequest; type: 'codex.chat' }
   | { id: string; payload: CodexSessionsWireRequest; type: 'codex.sessions.command' }
+  | { id: string; payload: BoundCodexAttachChunk; type: 'codex.attach.input' }
   | { id: string; payload: ProjectCliCommandRequest; type: 'project-cli.run' }
   | {
       id: string;
@@ -545,6 +555,15 @@ export function isConnectorHubMessage(value: unknown): value is ConnectorHubMess
   if (value.type === 'codex.sessions.error') {
     return hasCommandId(value) && isBoundCodexSessionsError(value.payload);
   }
+  if (value.type === 'codex.attach.ready') {
+    return hasCommandId(value) && isBoundCodexAttachReady(value.payload);
+  }
+  if (value.type === 'codex.attach.output') {
+    return hasCommandId(value) && isBoundCodexAttachChunk(value.payload);
+  }
+  if (value.type === 'codex.attach.closed') {
+    return hasCommandId(value) && isBoundCodexAttachClosed(value.payload);
+  }
   if (value.type === 'codex.models.result') {
     return (
       hasCommandId(value) &&
@@ -642,6 +661,9 @@ export function isConnectorMachineMessage(value: unknown): value is ConnectorMac
   }
   if (value.type === 'codex.sessions.command') {
     return isCodexSessionsWireRequest(value.payload);
+  }
+  if (value.type === 'codex.attach.input') {
+    return isBoundCodexAttachChunk(value.payload);
   }
   if (value.type === 'project-cli.run') {
     return true;

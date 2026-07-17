@@ -43,6 +43,8 @@ interface ProjectConnectorWebSocketOptions extends ProjectConnectorConnectionOpt
   runtimeShutdown?(): Promise<void> | void;
 }
 
+const codexAttachMaximumBufferedBytes = 8 * 1024 * 1024;
+
 export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocketOptions) {
   const { backend } = options;
   const connection = resolveProjectConnectorConnection(options);
@@ -326,11 +328,26 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           return;
         }
         if (message.type === 'connector.command.cancel') {
-          if (codexSessionsDispatcher?.cancel(message.id, (result) => sendJson(socket, result))) {
+          if (codexSessionsDispatcher?.cancel(message.id, (result) => {
+            if (socket.bufferedAmount > codexAttachMaximumBufferedBytes) {
+              socket.close(1009, 'Codex connector output exceeded its buffer.');
+              return;
+            }
+            sendJson(socket, result);
+          })) {
             return;
           }
           if (worktreeLoads.cancel(message.id)) return;
           runningChats.get(message.id)?.abort();
+          return;
+        }
+
+        if (message.type === 'codex.attach.input') {
+          if (!codexSessionsDispatcher) {
+            socket.close(1008, 'Codex attach verification is not configured.');
+            return;
+          }
+          codexSessionsDispatcher.acceptAttachInput(message.id, message.payload);
           return;
         }
 
@@ -343,7 +360,12 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
             message.id,
             message.payload,
             (result) => {
-              if (isCurrentConnection()) sendJson(socket, result);
+              if (!isCurrentConnection()) return;
+              if (socket.bufferedAmount > codexAttachMaximumBufferedBytes) {
+                socket.close(1009, 'Codex connector output exceeded its buffer.');
+                return;
+              }
+              sendJson(socket, result);
             },
             () => socket.close(1008, 'Codex session authorization failed.')
           );

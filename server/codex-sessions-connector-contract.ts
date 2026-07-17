@@ -22,6 +22,10 @@ import type {
   CodexSessionStreamEvent,
   CodexSessionUserInputResponse
 } from '../src/shared/codex-sessions-api';
+import type {
+  CodexMachineTaskConnectorStartRequest,
+  CodexMachineTaskConnectorStartResult
+} from '../src/shared/codex-machine-tasks-api';
 import { canonicalJson } from './codex-sessions/canonical-json';
 
 export const CODEX_SESSIONS_CONNECTOR_CAPABILITY = 'codex.sessions.v1';
@@ -29,9 +33,11 @@ export const CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY = 'codex.sessions.brows
 export const CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY = 'codex.sessions.inspect.v1';
 export const CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY = 'codex.sessions.model-selection.v1';
 export const CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY = 'codex.sessions.model-settings.v1';
+export const CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY = 'codex.machine-tasks.v1';
 
 export type CodexSessionsConnectorOperation =
   | 'approval'
+  | 'attach'
   | 'browser'
   | 'continue'
   | 'inspect'
@@ -39,9 +45,11 @@ export type CodexSessionsConnectorOperation =
   | 'interrupt'
   | 'list'
   | 'read'
+  | 'start'
   | 'stream';
 
 type CodexSessionsConnectorPayload =
+  | CodexSessionAttachRequest
   | CodexSessionApprovalRequest
   | CodexSessionBrowserRequest
   | CodexSessionContinueRequest
@@ -49,6 +57,7 @@ type CodexSessionsConnectorPayload =
   | CodexSessionInterruptRequest
   | CodexSessionListRequest
   | CodexSessionReadRequest
+  | CodexMachineTaskConnectorStartRequest
   | CodexSessionUserInputResponse;
 
 export interface CodexSessionsCommandGrant {
@@ -65,6 +74,13 @@ export interface CodexSessionsCommandGrant {
   userId: string;
 }
 
+export interface CodexSessionAttachRequest {
+  machineId: string;
+  operationId: string;
+  threadId: string;
+  tunnelId: string;
+}
+
 export interface CodexSessionsWireRequest {
   grant: CodexSessionsCommandGrant;
   payload: CodexSessionsConnectorPayload;
@@ -75,6 +91,7 @@ export type CodexSessionsWireResult =
   | { operation: 'list'; result: CodexSessionListResult }
   | { operation: 'read'; result: CodexSessionReadResult }
   | { operation: 'inspect'; result: CodexSessionInspectResult }
+  | { operation: 'start'; result: CodexMachineTaskConnectorStartResult }
   | {
       operation: 'approval' | 'continue' | 'input' | 'interrupt';
       result: CodexSessionOperationResult;
@@ -232,7 +249,7 @@ export function isCodexSessionsWireRequest(value: unknown): value is CodexSessio
     typeof grant.payloadSha256 === 'string' && /^[0-9a-f]{64}$/.test(grant.payloadSha256) &&
     typeof grant.generation === 'number' && Number.isSafeInteger(grant.generation) && grant.generation >= 0 &&
     typeof grant.operation === 'string' && [
-      'approval', 'browser', 'continue', 'inspect', 'input', 'interrupt', 'list', 'read', 'stream'
+      'approval', 'attach', 'browser', 'continue', 'inspect', 'input', 'interrupt', 'list', 'read', 'start', 'stream'
     ].includes(grant.operation) &&
     boundedIdentifier(grant.machineId, 256) && boundedIdentifier(grant.userId, 256) &&
     boundedIdentifier(grant.nonce, 128) && boundedIdentifier(grant.operationId, 128) &&
@@ -269,6 +286,27 @@ function boundedPayload(operation: CodexSessionsConnectorOperation, payload: Rec
   }
   if (JSON.stringify(payload).length > 24_000) return false;
   switch (operation) {
+    case 'attach':
+      return hasOnlyKeys(payload, ['machineId', 'operationId', 'threadId', 'tunnelId']) &&
+        boundedIdentifier(payload.operationId, 128) &&
+        boundedIdentifier(payload.threadId, 128) &&
+        boundedIdentifier(payload.tunnelId, 128);
+    case 'start':
+      return hasOnlyKeys(payload, [
+        'branch', 'commit', 'initialPrompt', 'issueNumber', 'issueUrl', 'machineId',
+        'operationId', 'physicalMachineId', 'projectId', 'repositoryId',
+        'repositoryNameWithOwner'
+      ]) && boundedIdentifier(payload.operationId, 128) &&
+        boundedIdentifier(payload.physicalMachineId, 256) &&
+        boundedIdentifier(payload.projectId, 512) && boundedIdentifier(payload.repositoryId, 256) &&
+        typeof payload.repositoryNameWithOwner === 'string' &&
+        /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(payload.repositoryNameWithOwner) &&
+        typeof payload.branch === 'string' && payload.branch.length > 0 && payload.branch.length <= 255 &&
+        typeof payload.commit === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(payload.commit) &&
+        Number.isSafeInteger(payload.issueNumber) && Number(payload.issueNumber) > 0 &&
+        typeof payload.issueUrl === 'string' && payload.issueUrl.length <= 2_048 &&
+        typeof payload.initialPrompt === 'string' && payload.initialPrompt.length > 0 &&
+        payload.initialPrompt.length <= 16_000;
     case 'list':
       return hasOnlyKeys(payload, ['includeArchived', 'machineId', 'search']) &&
         (payload.includeArchived === undefined || typeof payload.includeArchived === 'boolean') &&

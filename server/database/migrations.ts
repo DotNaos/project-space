@@ -14,6 +14,10 @@ import {
   githubIssueCreationMigrationId,
   githubIssueCreationMigrationSql
 } from './github-issue-creation-migration';
+import {
+  codexMachineTasksMigrationId,
+  codexMachineTasksMigrationSql
+} from './codex-machine-tasks-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -606,6 +610,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
         from machine_execution_scope_members
       on conflict (owner_user_id, connector_id) do nothing;
     `
+  },
+  {
+    id: codexMachineTasksMigrationId,
+    sql: codexMachineTasksMigrationSql
   }
 ];
 

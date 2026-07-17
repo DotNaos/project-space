@@ -58,7 +58,8 @@ describe('database migrations', () => {
       '0017_github_issue_creation_operations',
       '0018_connector_enrollment_profiles',
       '0019_machine_execution_scopes',
-      '0020_physical_machines'
+      '0020_physical_machines',
+      '0021_codex_machine_tasks'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -95,6 +96,12 @@ describe('database migrations', () => {
     expect(sql).toContain('from machine_execution_scopes');
     expect(sql).toContain('insert into physical_machine_connectors');
     expect(sql).toContain('from machine_execution_scope_members');
+    expect(sql).toContain('create table if not exists codex_machine_task_starts');
+    expect(sql).toContain('primary key (owner_user_id, association_key)');
+    expect(sql).toContain('create table if not exists codex_machine_task_start_operations');
+    expect(sql).toContain('primary key (owner_user_id, operation_id)');
+    expect(sql).toContain('create table if not exists codex_machine_task_sends');
+    expect(sql).toContain('codex_machine_task_sends_one_unresolved_per_thread');
     expect(sql).toContain('references machine_memberships (machine_id, user_id)');
     expect(sql).toContain('registry jsonb not null');
     expect(sql).toContain('removed_by_user_id text');

@@ -63,6 +63,7 @@ class InspectionStore {
   async listEvents() { return []; }
   async listInventory() { return []; }
   async markOperationAmbiguous() {}
+  async reconcileOperation() {}
   async reserveOperation() { return { kind: 'new' as const }; }
   async saveInventory(input: { checkedAt: string }) {
     this.savedCheckedAt = input.checkedAt;

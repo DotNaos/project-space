@@ -372,6 +372,283 @@
         ]
       },
       {
+        "path": "project codex",
+        "name": "codex",
+        "usage": "codex",
+        "short": "Start, inspect, continue, or attach to persistent Codex tasks",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for codex",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project codex attach",
+            "name": "attach",
+            "usage": "attach",
+            "short": "Attach the Codex TUI to an existing persistent thread",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "codex-binary",
+                "type": "string",
+                "description": "explicit Codex CLI binary path",
+                "inherited": false
+              },
+              {
+                "name": "connector",
+                "type": "string",
+                "description": "exact connector installation ID",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for attach",
+                "inherited": false
+              },
+              {
+                "name": "machine",
+                "type": "string",
+                "description": "exact physical machine name",
+                "inherited": false
+              },
+              {
+                "name": "machine-id",
+                "type": "string",
+                "description": "exact physical machine ID",
+                "inherited": false
+              },
+              {
+                "name": "operation-id",
+                "type": "string",
+                "description": "stable idempotency key for safe retries",
+                "inherited": false
+              },
+              {
+                "name": "thread",
+                "type": "string",
+                "description": "persistent Codex thread ID",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project codex read",
+            "name": "read",
+            "usage": "read",
+            "short": "Read a persistent Codex thread non-interactively",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "connector",
+                "type": "string",
+                "description": "exact connector installation ID",
+                "inherited": false
+              },
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for read",
+                "inherited": false
+              },
+              {
+                "name": "last",
+                "type": "int",
+                "description": "return only the last N turns",
+                "inherited": false
+              },
+              {
+                "name": "machine",
+                "type": "string",
+                "description": "exact physical machine name",
+                "inherited": false
+              },
+              {
+                "name": "machine-id",
+                "type": "string",
+                "description": "exact physical machine ID",
+                "inherited": false
+              },
+              {
+                "name": "thread",
+                "type": "string",
+                "description": "persistent Codex thread ID",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project codex send",
+            "name": "send",
+            "usage": "send",
+            "short": "Send a non-interactive turn to a persistent Codex thread",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "connector",
+                "type": "string",
+                "description": "exact connector installation ID",
+                "inherited": false
+              },
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: json or ndjson",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for send",
+                "inherited": false
+              },
+              {
+                "name": "machine",
+                "type": "string",
+                "description": "exact physical machine name",
+                "inherited": false
+              },
+              {
+                "name": "machine-id",
+                "type": "string",
+                "description": "exact physical machine ID",
+                "inherited": false
+              },
+              {
+                "name": "message",
+                "type": "string",
+                "description": "turn prompt, or - to read from standard input",
+                "inherited": false
+              },
+              {
+                "name": "no-wait",
+                "type": "bool",
+                "description": "return as soon as the turn is accepted",
+                "inherited": false
+              },
+              {
+                "name": "operation-id",
+                "type": "string",
+                "description": "stable idempotency key for safe retries",
+                "inherited": false
+              },
+              {
+                "name": "prompt-file",
+                "type": "string",
+                "description": "read the turn prompt from a regular file",
+                "inherited": false
+              },
+              {
+                "name": "thread",
+                "type": "string",
+                "description": "persistent Codex thread ID",
+                "inherited": false
+              },
+              {
+                "name": "wait",
+                "type": "bool",
+                "description": "wait for the turn to complete or require interaction",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project codex start",
+            "name": "start",
+            "usage": "start",
+            "short": "Start a persistent Codex task from a GitHub issue",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "connector",
+                "type": "string",
+                "description": "exact connector installation ID",
+                "inherited": false
+              },
+              {
+                "name": "dry-run",
+                "type": "bool",
+                "description": "resolve the exact target without starting a task",
+                "inherited": false
+              },
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for start",
+                "inherited": false
+              },
+              {
+                "name": "here",
+                "type": "bool",
+                "description": "use the physical machine connected by this CLI",
+                "inherited": false
+              },
+              {
+                "name": "issue",
+                "type": "int",
+                "description": "GitHub issue number",
+                "inherited": false
+              },
+              {
+                "name": "machine",
+                "type": "string",
+                "description": "exact physical machine name",
+                "inherited": false
+              },
+              {
+                "name": "machine-id",
+                "type": "string",
+                "description": "exact physical machine ID",
+                "inherited": false
+              },
+              {
+                "name": "operation-id",
+                "type": "string",
+                "description": "stable idempotency key for safe retries",
+                "inherited": false
+              },
+              {
+                "name": "repository",
+                "type": "string",
+                "description": "exact GitHub owner/name or repository ID",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      },
+      {
         "path": "project completion",
         "name": "completion",
         "usage": "completion",

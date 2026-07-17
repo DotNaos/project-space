@@ -35,6 +35,7 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(newAdoptCommand())
 	root.AddCommand(newApprovalCommand())
 	root.AddCommand(newDefaultChatCommand())
+	root.AddCommand(newCodexCommand())
 	root.AddCommand(newConnectCommand())
 	root.AddCommand(newConnectorCommand())
 	root.AddCommand(newCreateCommand())

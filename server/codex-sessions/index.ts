@@ -1,5 +1,6 @@
 export * from './canonical-json';
 export * from './browser-snapshot-reader';
+export * from './binary-resolver';
 export * from './connector-executor';
 export * from './contracts';
 export * from './manager';

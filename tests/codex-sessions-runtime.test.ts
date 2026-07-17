@@ -38,6 +38,7 @@ function memoryStore() {
     async listEvents() { return []; },
     async listInventory() { return inventories; },
     async markOperationAmbiguous() {},
+    async reconcileOperation() {},
     async reserveOperation() { return { kind: 'new' as const }; },
     async saveInventory(input: { sessions: unknown[] }) {
       inventories.splice(0, inventories.length, ...structuredClone(input.sessions));

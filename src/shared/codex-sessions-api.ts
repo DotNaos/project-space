@@ -105,6 +105,7 @@ export interface CodexConversationTurnRecord {
 }
 
 export interface CodexSessionReadRequest {
+  connectorGeneration?: number;
   machineId: string;
   threadId: string;
 }
@@ -176,6 +177,7 @@ export interface CodexSessionTurnSettings {
 }
 
 export interface CodexSessionContinueRequest {
+  connectorGeneration?: number;
   effort?: string;
   machineId: string;
   message: string;
@@ -219,6 +221,7 @@ export interface CodexSessionUserInputResponse {
 
 export interface CodexSessionOperationResult {
   operationId: string;
+  reason?: 'thread_active' | 'unavailable';
   replayed: boolean;
   status: 'accepted' | 'ambiguous' | 'completed' | 'rejected';
   threadId: string;

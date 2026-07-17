@@ -1,3 +1,6 @@
+import { isAbsolute } from 'node:path';
+
+import { CODEX_THREAD_ID_PATTERN } from '../../src/shared/codex-sessions-api';
 import type {
   CodexApprovalResponseInput,
   CodexInterruptTurnInput,
@@ -9,6 +12,7 @@ import type {
   CodexRpcId,
   CodexSessionEvent,
   CodexSessionEventListener,
+  CodexStartThreadInput,
   CodexStartTurnInput,
   CodexThreadListInput,
   CodexThreadListResult,
@@ -23,6 +27,7 @@ import {
   isNotificationMethod,
   isServerRequestMethod,
   rpcIdKey,
+  CodexSessionValidationError,
   sanitizeProtocolValue,
   validateAnswers,
   validateIdentifier,
@@ -127,6 +132,21 @@ export class CodexSessionManager {
         this.captureThreadStatus(result.thread);
         return result;
       }
+    );
+  }
+
+  startThread(input: CodexStartThreadInput) {
+    const cwd = validateCwd(input.cwd);
+    const params = {
+      approvalPolicy: 'on-request',
+      cwd,
+      ephemeral: false,
+      sandbox: 'workspace-write'
+    } as const;
+    return this.ledger.execute(
+      input.operationId,
+      fingerprint('thread/start', params),
+      async () => readStartedThreadResult(await this.call('thread/start', params))
     );
   }
 
@@ -474,6 +494,20 @@ function readThreadResult(value: unknown): CodexThreadResult {
   return { thread: readThread(requireRecord(value).thread) };
 }
 
+function readStartedThreadResult(value: unknown): CodexThreadResult {
+  try {
+    const result = readThreadResult(value);
+    if (!CODEX_THREAD_ID_PATTERN.test(result.thread.id) || result.thread.ephemeral !== false) {
+      throw protocolError();
+    }
+    return result;
+  } catch {
+    throw new CodexOperationUncertainError(
+      'Codex app-server did not confirm a persistent thread id.'
+    );
+  }
+}
+
 function readLoadedThreads(value: unknown): CodexLoadedThreadListResult {
   const result = requireRecord(value);
   if (!Array.isArray(result.data) || result.data.length > 10_000) throw protocolError();
@@ -492,6 +526,18 @@ function protocolError() {
 
 function fingerprint(method: string, params: unknown) {
   return `${method}:${JSON.stringify(params)}`;
+}
+
+function validateCwd(value: unknown) {
+  if (
+    typeof value !== 'string'
+    || !isAbsolute(value)
+    || value.length > 4_096
+    || /[\u0000\r\n]/.test(value)
+  ) {
+    throw new CodexSessionValidationError('Codex working directory is invalid.');
+  }
+  return value;
 }
 
 function sanitizeErrorNotification(value: unknown) {

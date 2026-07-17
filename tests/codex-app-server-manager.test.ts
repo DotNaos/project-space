@@ -314,6 +314,149 @@ describe('Codex app-server session manager', () => {
     }
   });
 
+  test('starts one persistent writable thread with the exact cwd across duplicate retries', async () => {
+    const threadId = '019f6d7a-42a7-7bc0-87b6-d41d8cd98f00';
+    const process = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+      if (message.method === 'thread/start') {
+        server.send({
+          id: message.id,
+          result: { thread: { ephemeral: false, id: threadId, status: { type: 'idle' } } }
+        });
+      }
+    });
+    const manager = new CodexSessionManager({ processFactory: () => process });
+    const operation = {
+      cwd: '/worktrees/issue-262',
+      operationId: 'start-thread-1'
+    };
+
+    try {
+      const first = manager.startThread(operation);
+      const retry = manager.startThread(operation);
+
+      expect(await first).toEqual(await retry);
+      expect(await first).toEqual({
+        thread: { ephemeral: false, id: threadId, status: { type: 'idle' } }
+      });
+      expect(process.requests.filter((request) => request.method === 'thread/start')).toEqual([
+        expect.objectContaining({
+          params: {
+            approvalPolicy: 'on-request',
+            cwd: operation.cwd,
+            ephemeral: false,
+            sandbox: 'workspace-write'
+          }
+        })
+      ]);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('keeps thread start uncertain when the App Server does not return a real thread id', async () => {
+    const process = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+      if (message.method === 'thread/start') {
+        server.send({ id: message.id, result: { thread: { id: 'not-a-real-thread-id' } } });
+      }
+    });
+    const manager = new CodexSessionManager({ processFactory: () => process });
+    const operation = {
+      cwd: '/worktrees/issue-262',
+      operationId: 'start-thread-invalid-id'
+    };
+
+    try {
+      await expect(manager.startThread(operation)).rejects.toBeInstanceOf(
+        CodexOperationUncertainError
+      );
+      expect(manager.operationSnapshot()).toEqual([
+        expect.objectContaining({ operationId: operation.operationId, state: 'uncertain' })
+      ]);
+      expect(() => manager.startThread(operation)).toThrow(CodexOperationUncertainError);
+      expect(process.requests.filter((request) => request.method === 'thread/start')).toHaveLength(1);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('keeps thread start uncertain unless persistence is explicitly confirmed', async () => {
+    const threadId = '019f6d7a-42a7-7bc0-87b6-d41d8cd98f01';
+    const process = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+      if (message.method === 'thread/start') {
+        server.send({ id: message.id, result: { thread: { id: threadId } } });
+      }
+    });
+    const manager = new CodexSessionManager({ processFactory: () => process });
+
+    try {
+      await expect(manager.startThread({
+        cwd: '/worktrees/issue-262',
+        operationId: 'start-thread-missing-persistence'
+      })).rejects.toBeInstanceOf(CodexOperationUncertainError);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('keeps thread start uncertain when the App Server disconnects after receiving it', async () => {
+    const process = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+      if (message.method === 'thread/start') server.disconnect();
+    });
+    const manager = new CodexSessionManager({ processFactory: () => process });
+    const operation = {
+      cwd: '/worktrees/issue-262',
+      operationId: 'start-thread-disconnect'
+    };
+
+    try {
+      await expect(manager.startThread(operation)).rejects.toBeInstanceOf(
+        CodexOperationUncertainError
+      );
+      expect(manager.operationSnapshot()).toEqual([
+        expect.objectContaining({ operationId: operation.operationId, state: 'uncertain' })
+      ]);
+      expect(() => manager.startThread(operation)).toThrow(CodexOperationUncertainError);
+      expect(process.requests.filter((request) => request.method === 'thread/start')).toHaveLength(1);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('keeps thread start uncertain when its response exceeds the protocol bound', async () => {
+    const process = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+      if (message.method === 'thread/start') {
+        server.send({
+          id: message.id,
+          result: {
+            padding: 'x'.repeat(2_000_000),
+            thread: { id: '019f6d7a-42a7-7bc0-87b6-d41d8cd98f00' }
+          }
+        });
+      }
+    });
+    const manager = new CodexSessionManager({ processFactory: () => process });
+    const operation = {
+      cwd: '/worktrees/issue-262',
+      operationId: 'start-thread-oversized-response'
+    };
+
+    try {
+      await expect(manager.startThread(operation)).rejects.toBeInstanceOf(
+        CodexOperationUncertainError
+      );
+      expect(manager.operationSnapshot()).toEqual([
+        expect.objectContaining({ operationId: operation.operationId, state: 'uncertain' })
+      ]);
+    } finally {
+      await manager.close();
+    }
+  });
+
   test('deduplicates turn starts and rejects a different new turn until completion', async () => {
     const process = new FakeCodexProcess(standardHandler);
     const manager = new CodexSessionManager({ processFactory: () => process });

@@ -374,6 +374,7 @@ describe('Codex connector executor', () => {
     const result = await executor.execute('continue', signed('continue', request, request.operationId));
     if (result.operation !== 'continue') throw new Error('unexpected result');
     expect(result.result.status).toBe('rejected');
+    expect(result.result.reason).toBe('thread_active');
     expect(manager.calls.filter((call) => call.method === 'startTurn')).toHaveLength(0);
     executor.close();
   });

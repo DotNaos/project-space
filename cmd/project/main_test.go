@@ -34,6 +34,7 @@ func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 		"adopt",
 		"approval",
 		"chat",
+		"codex",
 		"connect",
 		"connector",
 		"create",

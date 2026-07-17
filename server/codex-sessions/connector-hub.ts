@@ -8,8 +8,10 @@ import {
   CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY,
+  CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY,
   createCodexSessionsWireRequest,
   isCodexSessionsWireRequest,
+  type CodexSessionAttachRequest,
   type CodexSessionsConnectorOperation,
   type CodexSessionsWireRequest,
   type CodexSessionsWireResult
@@ -23,9 +25,12 @@ import {
 } from '../connector-command-session-registry';
 import type { ConnectorHubMessage, ConnectorMachineMessage } from '../connector-command-protocol';
 import {
+  CodexAttachChunkAssembler,
   bindingForCodexSessionsRequest,
   boundCodexSessionsResultMatchesRequest,
+  codexAttachMessageChunks,
   codexSessionsBindingsEqual,
+  type BoundCodexAttachClosed,
   type BoundCodexSessionsCompletion,
   type BoundCodexSessionsEvent,
   type BoundCodexSessionsError,
@@ -41,6 +46,7 @@ export interface CodexSessionsHubRequestOptions {
   nonce?: string;
   now?: number;
   operationId?: string;
+  onDispatched?: () => void;
   signal?: AbortSignal;
   signingKey?: KeyLike;
   timeoutMs?: number;
@@ -59,8 +65,37 @@ type PendingCodexCommand = {
   timeout: ReturnType<typeof setTimeout>;
 };
 
+type PendingCodexAttach = {
+  assembler: CodexAttachChunkAssembler;
+  binding: CodexSessionsCommandBinding;
+  machineId: string;
+  nextInputMessageId: number;
+  onClose(code: BoundCodexAttachClosed['code']): void;
+  onMessage(message: string): void;
+  ready: boolean;
+  reject(error: Error): void;
+  request: CodexSessionsWireRequest;
+  resolve(tunnel: CodexConnectorAttachTunnel): void;
+  signal?: AbortSignal;
+  signalAbort?: () => void;
+  timeout: ReturnType<typeof setTimeout>;
+};
+
 const pending = new Map<string, PendingCodexCommand>();
+const attachTunnels = new Map<string, PendingCodexAttach>();
 const defaultTimeoutMs = 10 * 60_000;
+const attachOpenTimeoutMs = 15_000;
+const maximumConnectorBufferedBytes = 8 * 1024 * 1024;
+
+export interface CodexConnectorAttachTunnel {
+  close(): void;
+  send(message: string): void;
+}
+
+export interface CodexConnectorAttachOptions extends CodexSessionsHubRequestOptions {
+  onClose(code: BoundCodexAttachClosed['code']): void;
+  onMessage(message: string): void;
+}
 
 export class CodexConnectorRemoteError extends Error {
   constructor(readonly code: BoundCodexSessionsError['error']['code']) {
@@ -84,11 +119,68 @@ export class CodexConnectorOutcomeUnknownError extends Error {
 }
 
 export async function requestConnectorCodexSessions(
-  operation: Exclude<CodexSessionsConnectorOperation, 'stream'>,
+  operation: Exclude<CodexSessionsConnectorOperation, 'attach' | 'stream'>,
   payload: CodexPayload,
   options: CodexSessionsHubRequestOptions
 ) {
   return run(operation, payload, options) as Promise<CodexSessionsWireResult>;
+}
+
+export function openConnectorCodexAttach(
+  input: Omit<CodexSessionAttachRequest, 'tunnelId'>,
+  options: CodexConnectorAttachOptions
+) {
+  const socket = connectorSocket(input.machineId);
+  if (!socket || socket.readyState !== WebSocket.OPEN ||
+    !connectorHasCapability(input.machineId, CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY)) {
+    throw new CodexConnectorNotDispatchedError();
+  }
+  const id = commandId();
+  const payload: CodexSessionAttachRequest = { ...input, tunnelId: id };
+  const request = createCodexSessionsWireRequest({
+    generation: options.generation ?? requiredGeneration(input.machineId),
+    operation: 'attach',
+    operationId: input.operationId,
+    payload,
+    userId: options.userId
+  }, connectorDevServerSigningKey({ signingKey: options.signingKey }), {
+    nonce: options.nonce,
+    now: options.now,
+    ttlMs: options.grantTtlMs
+  });
+  if (!isCodexSessionsWireRequest(request) || request.grant.operation !== 'attach') {
+    throw new Error('The trusted Codex attach request is invalid.');
+  }
+  const binding = bindingForCodexSessionsRequest(request);
+  return new Promise<CodexConnectorAttachTunnel>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      failAttach(id, new CodexConnectorOutcomeUnknownError('The Codex attach tunnel did not open.'));
+    }, options.timeoutMs ?? attachOpenTimeoutMs);
+    const signalAbort = options.signal ? () => closeAttach(id, true) : undefined;
+    if (options.signal?.aborted) {
+      clearTimeout(timeout);
+      reject(new Error('The Codex attach tunnel was cancelled.'));
+      return;
+    }
+    if (signalAbort) options.signal?.addEventListener('abort', signalAbort, { once: true });
+    attachTunnels.set(id, {
+      assembler: new CodexAttachChunkAssembler(),
+      binding,
+      machineId: input.machineId,
+      nextInputMessageId: 1,
+      onClose: options.onClose,
+      onMessage: options.onMessage,
+      ready: false,
+      reject,
+      request,
+      resolve,
+      signal: options.signal,
+      signalAbort,
+      timeout
+    });
+    sendConnectorJson(socket, { id, payload: request, type: 'codex.sessions.command' });
+    options.onDispatched?.();
+  });
 }
 
 export async function streamConnectorCodexSessions(
@@ -159,10 +251,12 @@ function run(
       payload: request,
       type: 'codex.sessions.command'
     } as ConnectorMachineMessage);
+    options.onDispatched?.();
   });
 }
 
 function requiredCapability(operation: CodexSessionsConnectorOperation, payload: CodexPayload) {
+  if (operation === 'start') return CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY;
   if (operation === 'browser') return CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY;
   if (operation === 'inspect') return CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY;
   if (operation === 'continue' && (
@@ -181,6 +275,34 @@ export function handleCodexSessionsConnectorMessage(
   machineId: string,
   message: ConnectorHubMessage
 ) {
+  if (message.type === 'codex.attach.ready') {
+    const current = attachTunnels.get(message.id);
+    if (!current || current.machineId !== machineId || current.ready ||
+      !codexSessionsBindingsEqual(message.payload.binding, current.binding)) return true;
+    current.ready = true;
+    clearTimeout(current.timeout);
+    current.resolve(attachHandle(message.id));
+    return true;
+  }
+  if (message.type === 'codex.attach.output') {
+    const current = attachTunnels.get(message.id);
+    if (!current || current.machineId !== machineId || !current.ready ||
+      !codexSessionsBindingsEqual(message.payload.binding, current.binding)) return true;
+    try {
+      const completed = current.assembler.push(message.payload.chunk);
+      if (completed !== undefined) current.onMessage(completed);
+    } catch {
+      failAttach(message.id, new Error('The Codex attach connector returned an invalid frame.'), 'protocol_error');
+    }
+    return true;
+  }
+  if (message.type === 'codex.attach.closed') {
+    const current = attachTunnels.get(message.id);
+    if (!current || current.machineId !== machineId ||
+      !codexSessionsBindingsEqual(message.payload.binding, current.binding)) return true;
+    closeAttachFromConnector(message.id, message.payload.code);
+    return true;
+  }
   if (message.type === 'codex.sessions.result') {
     const current = pending.get(message.id);
     if (!current || current.machineId !== machineId ||
@@ -204,6 +326,12 @@ export function handleCodexSessionsConnectorMessage(
     return true;
   }
   if (message.type === 'codex.sessions.error') {
+    const attached = attachTunnels.get(message.id);
+    if (attached && attached.machineId === machineId &&
+      codexSessionsBindingsEqual(message.payload.binding, attached.binding)) {
+      failAttach(message.id, new CodexConnectorRemoteError(message.payload.error.code), 'unavailable');
+      return true;
+    }
     const current = pending.get(message.id);
     if (!current || current.machineId !== machineId ||
       !codexSessionsBindingsEqual(message.payload.binding, current.binding)) return true;
@@ -219,6 +347,89 @@ export function failCodexSessionCommandsForMachine(machineId: string) {
       fail(id, new CodexConnectorOutcomeUnknownError());
     }
   }
+  for (const [id, current] of attachTunnels) {
+    if (current.machineId === machineId) {
+      failAttach(id, new CodexConnectorOutcomeUnknownError(), 'unavailable');
+    }
+  }
+}
+
+function attachHandle(id: string): CodexConnectorAttachTunnel {
+  return {
+    close: () => closeAttach(id, true),
+    send: (message) => sendAttachInput(id, message)
+  };
+}
+
+function sendAttachInput(id: string, message: string) {
+  const current = attachTunnels.get(id);
+  if (!current?.ready) throw new Error('The Codex attach tunnel is not open.');
+  const socket = connectorSocket(current.machineId);
+  if (!socket || socket.readyState !== WebSocket.OPEN ||
+    socket.bufferedAmount > maximumConnectorBufferedBytes) {
+    failAttach(id, new CodexConnectorOutcomeUnknownError(), 'unavailable');
+    throw new CodexConnectorOutcomeUnknownError();
+  }
+  const messageId = current.nextInputMessageId;
+  const chunks = codexAttachMessageChunks(message, messageId);
+  current.nextInputMessageId += 1;
+  for (const chunk of chunks) {
+    if (socket.bufferedAmount > maximumConnectorBufferedBytes) {
+      failAttach(id, new CodexConnectorOutcomeUnknownError(), 'unavailable');
+      throw new CodexConnectorOutcomeUnknownError();
+    }
+    sendConnectorJson(socket, {
+      id,
+      payload: { binding: current.binding, chunk },
+      type: 'codex.attach.input'
+    });
+  }
+}
+
+function closeAttach(id: string, sendCancel: boolean) {
+  const current = takeAttach(id);
+  if (!current) return;
+  if (sendCancel) {
+    const socket = connectorSocket(current.machineId);
+    if (socket?.readyState === WebSocket.OPEN) {
+      sendConnectorJson(socket, { id, type: 'connector.command.cancel' });
+    }
+  }
+  if (!current.ready) current.reject(new Error('The Codex attach tunnel was cancelled.'));
+}
+
+function closeAttachFromConnector(id: string, code: BoundCodexAttachClosed['code']) {
+  const current = takeAttach(id);
+  if (!current) return;
+  if (current.ready) current.onClose(code);
+  else current.reject(new CodexConnectorRemoteError('unavailable'));
+}
+
+function failAttach(
+  id: string,
+  error: Error,
+  code: BoundCodexAttachClosed['code'] = 'unavailable'
+) {
+  const active = attachTunnels.get(id);
+  if (active) {
+    const socket = connectorSocket(active.machineId);
+    if (socket?.readyState === WebSocket.OPEN) {
+      sendConnectorJson(socket, { id, type: 'connector.command.cancel' });
+    }
+  }
+  const current = takeAttach(id);
+  if (!current) return;
+  if (current.ready) current.onClose(code);
+  else current.reject(error);
+}
+
+function takeAttach(id: string) {
+  const current = attachTunnels.get(id);
+  if (!current) return undefined;
+  attachTunnels.delete(id);
+  clearTimeout(current.timeout);
+  if (current.signalAbort) current.signal?.removeEventListener('abort', current.signalAbort);
+  return current;
 }
 
 function cancel(id: string, resolveOnly: boolean) {

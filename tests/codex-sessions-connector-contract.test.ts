@@ -29,6 +29,77 @@ function continueRequest() {
 }
 
 describe('Codex sessions connector grants', () => {
+  test('binds attach to the exact user, machine, generation, thread, and tunnel', () => {
+    const request = createCodexSessionsWireRequest({
+      generation: 13,
+      operation: 'attach',
+      operationId: 'attach-operation-one',
+      payload: {
+        machineId: 'connector-remote',
+        operationId: 'attach-operation-one',
+        threadId,
+        tunnelId: 'attach-tunnel-one'
+      },
+      userId: 'user-owner'
+    }, keys.privateKey, { nonce: 'nonce-attach-one', now: 1_000_000 });
+
+    expect(isCodexSessionsWireRequest(request)).toBe(true);
+    expect(verifyCodexSessionsWireRequest(request, 'attach', keys.publicKey, {
+      expectedGeneration: 13,
+      expectedMachineId: 'connector-remote',
+      now: 1_001_000
+    })).toEqual({ userId: 'user-owner' });
+    const tampered = structuredClone(request);
+    if ('tunnelId' in tampered.payload) tampered.payload.tunnelId = 'attach-tunnel-other';
+    expect(() => verifyCodexSessionsWireRequest(tampered, 'attach', keys.publicKey, {
+      expectedGeneration: 13,
+      expectedMachineId: 'connector-remote',
+      now: 1_001_000
+    })).toThrow(expect.objectContaining({ code: 'binding-mismatch' }));
+    const withListener = structuredClone(request) as unknown as {
+      grant: Record<string, unknown>;
+      payload: Record<string, unknown>;
+    };
+    withListener.payload.listenUrl = 'ws://0.0.0.0:8080';
+    expect(isCodexSessionsWireRequest(withListener)).toBe(false);
+  });
+
+  test('binds machine-task start to exact issue, repository, physical machine, and connector generation', () => {
+    const request = createCodexSessionsWireRequest({
+      generation: 11,
+      operation: 'start',
+      operationId: 'start-issue-262',
+      payload: {
+        branch: 'issue-262-machine-tasks',
+        commit: 'a'.repeat(40),
+        initialPrompt: 'Implement https://github.com/DotNaos/project-space/issues/262',
+        issueNumber: 262,
+        issueUrl: 'https://github.com/DotNaos/project-space/issues/262',
+        machineId: 'connector-local',
+        operationId: 'start-issue-262',
+        physicalMachineId: 'physical-local',
+        projectId: 'github:R_test',
+        repositoryId: 'R_test',
+        repositoryNameWithOwner: 'DotNaos/project-space'
+      },
+      userId: 'user-owner'
+    }, keys.privateKey, { nonce: 'nonce-start-262', now: 1_000_000 });
+
+    expect(isCodexSessionsWireRequest(request)).toBe(true);
+    expect(verifyCodexSessionsWireRequest(request, 'start', keys.publicKey, {
+      expectedGeneration: 11,
+      expectedMachineId: 'connector-local',
+      now: 1_001_000
+    })).toEqual({ userId: 'user-owner' });
+
+    request.payload.physicalMachineId = 'physical-other';
+    expect(() => verifyCodexSessionsWireRequest(request, 'start', keys.publicKey, {
+      expectedGeneration: 11,
+      expectedMachineId: 'connector-local',
+      now: 1_001_000
+    })).toThrow(expect.objectContaining({ code: 'binding-mismatch' }));
+  });
+
   test('binds the dedicated browser snapshot operation to its exact task', () => {
     const request = createCodexSessionsWireRequest({
       generation: 7,
