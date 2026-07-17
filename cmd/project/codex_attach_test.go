@@ -1,8 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -94,5 +100,68 @@ func TestCodexRemoteAttachKeepsTokenOutOfArgumentsAndReplacesInheritedSecret(t *
 	}
 	if !slices.Equal(values, []string{codexAttachTokenEnvironment + "=new-secret"}) {
 		t.Fatalf("token environment = %q", values)
+	}
+}
+
+func TestCodexRemoteAttachBridgeRewritesTheLoopbackHandshakeAndRelaysBytes(t *testing.T) {
+	path := make(chan string, 1)
+	authorization := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		path <- request.URL.Path
+		authorization <- request.Header.Get("Authorization")
+		connection, buffered, err := response.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer connection.Close()
+		_, _ = buffered.WriteString("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+		_ = buffered.Flush()
+		_, _ = io.Copy(connection, connection)
+	}))
+	defer server.Close()
+
+	bridge, err := startCodexAttachBridge(
+		context.Background(),
+		"ws"+strings.TrimPrefix(server.URL, "http")+"/api/codex/tasks/thread/attach/socket",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bridge.stop()
+	connection, err := net.Dial("tcp", strings.TrimPrefix(bridge.remoteURL(), "ws://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	_, err = fmt.Fprint(connection, "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nAuthorization: Bearer attach-secret\r\n\r\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(connection)
+	if status, err := reader.ReadString('\n'); err != nil || !strings.Contains(status, "101 Switching Protocols") {
+		t.Fatalf("status = %q error = %v", status, err)
+	}
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		if line == "\r\n" {
+			break
+		}
+	}
+	if _, err := connection.Write([]byte("relay")); err != nil {
+		t.Fatal(err)
+	}
+	echo := make([]byte, len("relay"))
+	if _, err := io.ReadFull(reader, echo); err != nil || string(echo) != "relay" {
+		t.Fatalf("echo = %q error = %v", echo, err)
+	}
+	if got := <-path; got != "/api/codex/tasks/thread/attach/socket" {
+		t.Fatalf("path = %q", got)
+	}
+	if got := <-authorization; got != "Bearer attach-secret" {
+		t.Fatalf("authorization = %q", got)
 	}
 }

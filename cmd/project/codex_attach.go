@@ -1,10 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -142,7 +147,12 @@ func runRemoteCodexAttach(
 	if remoteURL == "" || token == "" {
 		return errors.New("the secured Codex attach tunnel is incomplete")
 	}
-	resume := exec.CommandContext(ctx, binary, codexRemoteResumeArguments(remoteURL, threadID)...)
+	bridge, err := startCodexAttachBridge(ctx, remoteURL)
+	if err != nil {
+		return err
+	}
+	defer bridge.stop()
+	resume := exec.CommandContext(ctx, binary, codexRemoteResumeArguments(bridge.remoteURL(), threadID)...)
 	resume.Stdin, resume.Stdout, resume.Stderr = input, output, errorOutput
 	resume.Env = codexRemoteAttachEnvironment(token)
 	if err := resume.Run(); err != nil {
@@ -152,6 +162,117 @@ func runRemoteCodexAttach(
 		return errors.New("Codex remote TUI attachment ended with an error")
 	}
 	return nil
+}
+
+type codexAttachBridge struct {
+	cancel   context.CancelFunc
+	done     chan struct{}
+	listener net.Listener
+}
+
+func startCodexAttachBridge(ctx context.Context, remote string) (*codexAttachBridge, error) {
+	target, err := url.Parse(remote)
+	if err != nil || (target.Scheme != "ws" && target.Scheme != "wss") ||
+		target.Host == "" || target.User != nil || target.Fragment != "" {
+		return nil, errors.New("the secured Codex attach tunnel URL is invalid")
+	}
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		return nil, errors.New("create private Codex attach bridge")
+	}
+	bridgeContext, cancel := context.WithCancel(ctx)
+	bridge := &codexAttachBridge{cancel: cancel, done: make(chan struct{}), listener: listener}
+	go func() {
+		defer close(bridge.done)
+		bridge.serve(bridgeContext, target)
+	}()
+	return bridge, nil
+}
+
+func (bridge *codexAttachBridge) remoteURL() string {
+	return "ws://" + bridge.listener.Addr().String()
+}
+
+func (bridge *codexAttachBridge) serve(ctx context.Context, target *url.URL) {
+	client, err := bridge.listener.Accept()
+	if err != nil {
+		return
+	}
+	_ = bridge.listener.Close()
+	defer client.Close()
+	upstream, err := dialCodexAttachTarget(ctx, target)
+	if err != nil {
+		return
+	}
+	defer upstream.Close()
+
+	reader := bufio.NewReader(client)
+	request, err := http.ReadRequest(reader)
+	if err != nil || !strings.EqualFold(request.Header.Get("Upgrade"), "websocket") {
+		return
+	}
+	request.URL.Scheme = ""
+	request.URL.Host = ""
+	request.URL.Path = target.Path
+	request.URL.RawPath = target.RawPath
+	request.URL.RawQuery = target.RawQuery
+	request.RequestURI = ""
+	request.Host = target.Host
+	if err := request.Write(upstream); err != nil {
+		return
+	}
+
+	relayContext, cancel := context.WithCancel(ctx)
+	defer cancel()
+	relayDone := make(chan struct{}, 2)
+	go func() {
+		_, _ = io.Copy(upstream, reader)
+		relayDone <- struct{}{}
+	}()
+	go func() {
+		_, _ = io.Copy(client, upstream)
+		relayDone <- struct{}{}
+	}()
+	select {
+	case <-relayContext.Done():
+	case <-relayDone:
+	}
+}
+
+func dialCodexAttachTarget(ctx context.Context, target *url.URL) (net.Conn, error) {
+	address := target.Host
+	if _, _, err := net.SplitHostPort(address); err != nil {
+		if target.Scheme == "wss" {
+			address = net.JoinHostPort(target.Hostname(), "443")
+		} else {
+			address = net.JoinHostPort(target.Hostname(), "80")
+		}
+	}
+	connection, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
+	if err != nil {
+		return nil, err
+	}
+	if target.Scheme != "wss" {
+		return connection, nil
+	}
+	secured := tls.Client(connection, &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		ServerName: target.Hostname(),
+	})
+	if err := secured.HandshakeContext(ctx); err != nil {
+		_ = connection.Close()
+		return nil, err
+	}
+	return secured, nil
+}
+
+func (bridge *codexAttachBridge) stop() {
+	bridge.cancel()
+	_ = bridge.listener.Close()
+	select {
+	case <-bridge.done:
+	case <-time.After(2 * time.Second):
+	}
 }
 
 func codexRemoteResumeArguments(remoteURL, threadID string) []string {
