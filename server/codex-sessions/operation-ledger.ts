@@ -8,6 +8,12 @@ type StoredOperation = {
   state: 'completed' | 'pending' | 'uncertain';
 };
 
+export type CodexOperationSnapshotPersist = (
+  snapshot: CodexOperationSnapshot
+) => Promise<void>;
+
+const noopPersist: CodexOperationSnapshotPersist = async () => {};
+
 export class CodexOperationConflictError extends Error {
   readonly code = 'codex_operation_conflict';
 }
@@ -19,9 +25,21 @@ export class CodexOperationUncertainError extends Error {
 export class CodexOperationLedger {
   private readonly records = new Map<string, StoredOperation>();
 
-  constructor(snapshot: CodexOperationSnapshot = []) {
+  constructor(
+    snapshot: CodexOperationSnapshot = [],
+    private readonly persist: CodexOperationSnapshotPersist = noopPersist
+  ) {
     for (const entry of snapshot) {
       const operationId = validateIdentifier(entry.operationId, 'operationId');
+      if (this.records.has(operationId)) {
+        throw new Error(`The operation snapshot contains duplicate id ${operationId}.`);
+      }
+      if (typeof entry.fingerprint !== 'string' || entry.fingerprint.length === 0) {
+        throw new Error(`The operation snapshot contains an invalid fingerprint for ${operationId}.`);
+      }
+      if (entry.state !== 'completed' && entry.state !== 'uncertain') {
+        throw new Error(`The operation snapshot contains an invalid state for ${operationId}.`);
+      }
       this.records.set(operationId, {
         fingerprint: entry.fingerprint,
         result: entry.result,
@@ -45,51 +63,75 @@ export class CodexOperationLedger {
     }
 
     const record: StoredOperation = { fingerprint, state: 'pending' };
-    const promise = action().then(
-      (result) => {
-        record.result = result;
-        record.state = 'completed';
-        delete record.promise;
-        return result;
-      },
-      (error) => {
-        if (error instanceof CodexOperationUncertainError) {
-          record.state = 'uncertain';
-          delete record.promise;
-        } else {
-          this.records.delete(operationId);
-        }
-        throw error;
-      }
-    );
-    record.promise = promise;
     this.records.set(operationId, record);
+    const promise = this.executeNewOperation(operationId, record, action);
+    record.promise = promise;
     return promise;
   }
 
-  reconcileNotApplied(operationId: string) {
+  async reconcileNotApplied(operationId: string) {
     const record = this.requireUncertain(operationId);
     this.records.delete(operationId);
+    await this.persist(this.snapshot());
     return record.fingerprint;
   }
 
-  reconcileCompleted<Result>(operationId: string, result: Result) {
+  async reconcileCompleted<Result>(operationId: string, result: Result) {
     const record = this.requireUncertain(operationId);
     record.state = 'completed';
     record.result = result;
+    await this.persist(this.snapshot());
   }
 
   snapshot(): CodexOperationSnapshot {
-    return [...this.records.entries()].flatMap(([operationId, record]) =>
-      record.state === 'pending'
-        ? []
-        : [{
-            fingerprint: record.fingerprint,
-            operationId,
-            result: record.state === 'completed' ? record.result : undefined,
-            state: record.state
-          }]
-    );
+    return [...this.records.entries()].map(([operationId, record]) => ({
+      fingerprint: record.fingerprint,
+      operationId,
+      result: record.state === 'completed' ? record.result : undefined,
+      state: record.state === 'pending' ? 'uncertain' as const : record.state
+    }));
+  }
+
+  private async executeNewOperation<Result>(
+    operationId: string,
+    record: StoredOperation,
+    action: () => Promise<Result>
+  ) {
+    try {
+      await this.persist(this.snapshot());
+    } catch (error) {
+      this.records.delete(operationId);
+      throw error;
+    }
+
+    let result: Result;
+    try {
+      result = await action();
+    } catch (error) {
+      delete record.promise;
+      if (error instanceof CodexOperationUncertainError) {
+        record.state = 'uncertain';
+        await this.persist(this.snapshot()).catch(() => undefined);
+      } else {
+        this.records.delete(operationId);
+        await this.persist(this.snapshot()).catch(() => undefined);
+      }
+      throw error;
+    }
+
+    record.result = result;
+    record.state = 'completed';
+    delete record.promise;
+    try {
+      await this.persist(this.snapshot());
+    } catch {
+      record.state = 'uncertain';
+      delete record.result;
+      throw new CodexOperationUncertainError(
+        'The operation completed, but its durable result could not be confirmed.'
+      );
+    }
+    return result;
   }
 
   private requireUncertain(operationId: string) {

@@ -20,12 +20,13 @@ func TestDevelopmentConnectorProfileUsesExplicitIsolatedMetadataAndPaths(t *test
 		t.Fatalf("development connector profile = %#v", profile)
 	}
 	for label, path := range map[string]string{
-		"credential":   profile.CredentialPath,
-		"readiness":    profile.ReadinessPath,
-		"pid":          profile.PIDPath,
-		"log":          profile.LogPath,
-		"launcher":     profile.LauncherPath,
-		"runtime lock": profile.RuntimeLockPath,
+		"credential":               profile.CredentialPath,
+		"Codex operation snapshot": profile.CodexOperationSnapshotPath,
+		"readiness":                profile.ReadinessPath,
+		"pid":                      profile.PIDPath,
+		"log":                      profile.LogPath,
+		"launcher":                 profile.LauncherPath,
+		"runtime lock":             profile.RuntimeLockPath,
 	} {
 		if filepath.Dir(path) != expectedRoot {
 			t.Fatalf("%s path %q is outside %q", label, path, expectedRoot)
@@ -40,7 +41,12 @@ func TestDevelopmentConnectorProfileUsesExplicitIsolatedMetadataAndPaths(t *test
 	if err != nil {
 		t.Fatalf("resolve stable readiness path: %v", err)
 	}
-	if profile.CredentialPath == stableCredential || profile.ReadinessPath == stableReadiness {
+	stableSnapshot, err := DefaultCodexOperationSnapshotPath()
+	if err != nil {
+		t.Fatalf("resolve stable Codex operation snapshot path: %v", err)
+	}
+	if profile.CredentialPath == stableCredential || profile.ReadinessPath == stableReadiness ||
+		profile.CodexOperationSnapshotPath == stableSnapshot {
 		t.Fatal("development connector profile collided with stable connector state")
 	}
 }
@@ -79,6 +85,11 @@ func TestDevelopmentConnectorProfileRejectsNameDerivedOrMutableMetadata(t *testi
 		func() ConnectorProfile {
 			value := profile
 			value.CredentialPath = filepath.Join(t.TempDir(), "credential.json")
+			return value
+		}(),
+		func() ConnectorProfile {
+			value := profile
+			value.CodexOperationSnapshotPath = filepath.Join(t.TempDir(), CodexOperationSnapshotFilename)
 			return value
 		}(),
 		func() ConnectorProfile {

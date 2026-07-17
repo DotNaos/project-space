@@ -21,7 +21,11 @@ import type {
   CodexTurnResult,
   CodexUserInputResponseInput
 } from './contracts';
-import { CodexOperationLedger, CodexOperationUncertainError } from './operation-ledger';
+import {
+  CodexOperationLedger,
+  CodexOperationUncertainError,
+  type CodexOperationSnapshotPersist
+} from './operation-ledger';
 import { CodexAppServerProtocolError, CodexStdioTransport } from './stdio-transport';
 import {
   isNotificationMethod,
@@ -56,6 +60,7 @@ export interface CodexSessionManagerOptions {
   binaryPath?: string;
   codexHome?: string;
   operationSnapshot?: CodexOperationSnapshot;
+  persistOperationSnapshot?: CodexOperationSnapshotPersist;
   processFactory?: CodexProcessFactory;
 }
 
@@ -79,7 +84,10 @@ export class CodexSessionManager {
   private readonly transportEpochs = new WeakMap<CodexStdioTransport, number>();
 
   constructor(private readonly options: CodexSessionManagerOptions = {}) {
-    this.ledger = new CodexOperationLedger(options.operationSnapshot);
+    this.ledger = new CodexOperationLedger(
+      options.operationSnapshot,
+      options.persistOperationSnapshot
+    );
   }
 
   subscribe(listener: CodexSessionEventListener) {
@@ -250,12 +258,12 @@ export class CodexSessionManager {
     return this.respondWithLedger(input.operationId, pending, result);
   }
 
-  reconcileOperationNotApplied(operationId: string) {
-    this.ledger.reconcileNotApplied(operationId);
+  async reconcileOperationNotApplied(operationId: string) {
+    await this.ledger.reconcileNotApplied(operationId);
   }
 
-  reconcileOperationCompleted<Result>(operationId: string, result: Result) {
-    this.ledger.reconcileCompleted(operationId, result);
+  async reconcileOperationCompleted<Result>(operationId: string, result: Result) {
+    await this.ledger.reconcileCompleted(operationId, result);
   }
 
   operationSnapshot() {

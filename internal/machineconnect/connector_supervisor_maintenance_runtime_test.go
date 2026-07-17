@@ -268,9 +268,10 @@ func TestConnectorSupervisorRuntimeDerivesTrustRootsFromManagedRelease(t *testin
 	var stdout bytes.Buffer
 	store := newSupervisorTestStore(t, supervisorCredential(t), nil)
 	supervisor, err := newConnectorSupervisor(store, ConnectorSupervisorOptions{
-		Executable: executable,
-		Stdout:     &stdout,
-		Stderr:     io.Discard,
+		CodexOperationSnapshotPath: testCodexOperationSnapshotPath(t),
+		Executable:                 executable,
+		Stdout:                     &stdout,
+		Stderr:                     io.Discard,
 	}, []string{
 		"-test.run=^TestConnectorSupervisorHelper$",
 		"--",
@@ -464,10 +465,11 @@ func maintenanceRuntimeSupervisor(
 	supervisor, err := newConnectorSupervisor(
 		newSupervisorTestStore(t, credential, nil),
 		ConnectorSupervisorOptions{
-			Executable:  executable,
-			Maintenance: fixture.maintenance,
-			Stdout:      stdout,
-			Stderr:      io.Discard,
+			CodexOperationSnapshotPath: testCodexOperationSnapshotPath(t),
+			Executable:                 executable,
+			Maintenance:                fixture.maintenance,
+			Stdout:                     stdout,
+			Stderr:                     io.Discard,
 		},
 		arguments,
 	)

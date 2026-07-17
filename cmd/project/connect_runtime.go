@@ -112,11 +112,16 @@ func defaultConnectorRunDependencies() connectorRunDependencies {
 			stdout io.Writer,
 			stderr io.Writer,
 		) (connectorSupervisor, error) {
+			codexOperationSnapshotPath, err := machineconnect.DefaultCodexOperationSnapshotPath()
+			if err != nil {
+				return nil, err
+			}
 			return machineconnect.NewConnectorSupervisor(
 				store,
 				connectorSupervisorOptions(
 					binary,
 					readinessAttemptNonce,
+					codexOperationSnapshotPath,
 					stdout,
 					stderr,
 				),
@@ -129,6 +134,7 @@ func defaultConnectorRunDependencies() connectorRunDependencies {
 func connectorSupervisorOptions(
 	binary string,
 	readinessAttemptNonce string,
+	codexOperationSnapshotPath string,
 	stdout io.Writer,
 	stderr io.Writer,
 ) machineconnect.ConnectorSupervisorOptions {
@@ -137,9 +143,10 @@ func connectorSupervisorOptions(
 			BuildID:   projectMachineClientBuildID,
 			ReleaseID: projectMachineClientReleaseID,
 		},
-		ReadinessAttemptNonce: readinessAttemptNonce,
-		Executable:            binary,
-		Stdout:                stdout,
-		Stderr:                stderr,
+		ReadinessAttemptNonce:      readinessAttemptNonce,
+		CodexOperationSnapshotPath: codexOperationSnapshotPath,
+		Executable:                 binary,
+		Stdout:                     stdout,
+		Stderr:                     stderr,
 	}
 }

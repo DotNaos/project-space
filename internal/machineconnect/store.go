@@ -23,6 +23,7 @@ type FileStore struct {
 const (
 	maximumLocalMachineStateBytes        = 16 * 1024
 	machineCredentialTemporaryFilePrefix = ".machine-credential-"
+	CodexOperationSnapshotFilename       = "codex-operations.json"
 )
 
 var ErrFileCredentialStoreUnsupported = errors.New(
@@ -39,6 +40,14 @@ func NewFileStore(path string) (*FileStore, error) {
 
 func DefaultCredentialPath() (string, error) {
 	return credentialPath("")
+}
+
+func DefaultCodexOperationSnapshotPath() (string, error) {
+	credential, err := DefaultCredentialPath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(credential), CodexOperationSnapshotFilename), nil
 }
 
 func (store *FileStore) Path() string {

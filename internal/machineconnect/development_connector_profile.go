@@ -20,16 +20,17 @@ const (
 )
 
 type ConnectorProfile struct {
-	Name            string
-	Channel         ConnectorProfileChannel
-	Source          string
-	StateRoot       string
-	CredentialPath  string
-	ReadinessPath   string
-	PIDPath         string
-	LogPath         string
-	LauncherPath    string
-	RuntimeLockPath string
+	Name                       string
+	Channel                    ConnectorProfileChannel
+	Source                     string
+	StateRoot                  string
+	CredentialPath             string
+	CodexOperationSnapshotPath string
+	ReadinessPath              string
+	PIDPath                    string
+	LogPath                    string
+	LauncherPath               string
+	RuntimeLockPath            string
 }
 
 func NewDevelopmentConnectorProfile(configRoot string) (ConnectorProfile, error) {
@@ -50,16 +51,17 @@ func NewDevelopmentConnectorProfile(configRoot string) (ConnectorProfile, error)
 	}
 	stateRoot := filepath.Join(absoluteRoot, "project-space", "profiles", DevelopmentConnectorProfileName)
 	profile := ConnectorProfile{
-		Name:            DevelopmentConnectorProfileName,
-		Channel:         ConnectorProfileChannelDev,
-		Source:          DevelopmentConnectorSource,
-		StateRoot:       stateRoot,
-		CredentialPath:  filepath.Join(stateRoot, "machine-credential.json"),
-		ReadinessPath:   filepath.Join(stateRoot, connectorRuntimeReadyName),
-		PIDPath:         filepath.Join(stateRoot, "connector.pid"),
-		LogPath:         filepath.Join(stateRoot, "connector.log"),
-		LauncherPath:    filepath.Join(stateRoot, "source-launcher.sh"),
-		RuntimeLockPath: filepath.Join(stateRoot, "connector.runtime.lock"),
+		Name:                       DevelopmentConnectorProfileName,
+		Channel:                    ConnectorProfileChannelDev,
+		Source:                     DevelopmentConnectorSource,
+		StateRoot:                  stateRoot,
+		CredentialPath:             filepath.Join(stateRoot, "machine-credential.json"),
+		CodexOperationSnapshotPath: filepath.Join(stateRoot, CodexOperationSnapshotFilename),
+		ReadinessPath:              filepath.Join(stateRoot, connectorRuntimeReadyName),
+		PIDPath:                    filepath.Join(stateRoot, "connector.pid"),
+		LogPath:                    filepath.Join(stateRoot, "connector.log"),
+		LauncherPath:               filepath.Join(stateRoot, "source-launcher.sh"),
+		RuntimeLockPath:            filepath.Join(stateRoot, "connector.runtime.lock"),
 	}
 	if err := ValidateConnectorProfile(profile); err != nil {
 		return ConnectorProfile{}, err
@@ -80,12 +82,13 @@ func ValidateConnectorProfile(profile ConnectorProfile) error {
 		actual   string
 		expected string
 	}{
-		"credential":   {profile.CredentialPath, filepath.Join(profile.StateRoot, "machine-credential.json")},
-		"readiness":    {profile.ReadinessPath, filepath.Join(profile.StateRoot, connectorRuntimeReadyName)},
-		"pid":          {profile.PIDPath, filepath.Join(profile.StateRoot, "connector.pid")},
-		"log":          {profile.LogPath, filepath.Join(profile.StateRoot, "connector.log")},
-		"launcher":     {profile.LauncherPath, filepath.Join(profile.StateRoot, "source-launcher.sh")},
-		"runtime lock": {profile.RuntimeLockPath, filepath.Join(profile.StateRoot, "connector.runtime.lock")},
+		"credential":               {profile.CredentialPath, filepath.Join(profile.StateRoot, "machine-credential.json")},
+		"Codex operation snapshot": {profile.CodexOperationSnapshotPath, filepath.Join(profile.StateRoot, CodexOperationSnapshotFilename)},
+		"readiness":                {profile.ReadinessPath, filepath.Join(profile.StateRoot, connectorRuntimeReadyName)},
+		"pid":                      {profile.PIDPath, filepath.Join(profile.StateRoot, "connector.pid")},
+		"log":                      {profile.LogPath, filepath.Join(profile.StateRoot, "connector.log")},
+		"launcher":                 {profile.LauncherPath, filepath.Join(profile.StateRoot, "source-launcher.sh")},
+		"runtime lock":             {profile.RuntimeLockPath, filepath.Join(profile.StateRoot, "connector.runtime.lock")},
 	} {
 		if candidate.actual != candidate.expected {
 			return fmt.Errorf("development connector profile %s path is invalid", label)

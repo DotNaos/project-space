@@ -315,9 +315,10 @@ func (supervisor *connectorSourceResolvingSupervisor) Run(ctx context.Context) e
 	command, err := machineconnect.NewConnectorSupervisorCommand(
 		supervisor.store,
 		machineconnect.ConnectorSupervisorOptions{
-			Executable: companion.Executable,
-			Stdout:     supervisor.stdout,
-			Stderr:     supervisor.stderr,
+			CodexOperationSnapshotPath: supervisor.profile.CodexOperationSnapshotPath,
+			Executable:                 companion.Executable,
+			Stdout:                     supervisor.stdout,
+			Stderr:                     supervisor.stderr,
 		},
 		companion.Arguments,
 	)

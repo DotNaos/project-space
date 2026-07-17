@@ -25,6 +25,7 @@ import {
 } from './project-connector-runtime-binding';
 import { CodexSessionsConnectorDispatcher } from './codex-sessions/connector-dispatch';
 import { CodexSessionManager } from './codex-sessions/manager';
+import { createCodexOperationSnapshotPersistence } from './codex-sessions/operation-snapshot-store';
 import {
   connectorRegistryForRuntimeConfiguration,
   createConfiguredConnectorRuntimeDispatcher
@@ -40,6 +41,7 @@ import { createProjectConnectorWorktreeLoads } from './project-connector-worktre
 import { createProjectConnectorRuntimeStopControl } from './project-connector-runtime-stop';
 interface ProjectConnectorWebSocketOptions extends ProjectConnectorConnectionOptions {
   backend: ProjectSpaceBackend & Partial<ConnectorDevServerAdapter & ConnectorWorktreeActionAdapter>;
+  environment?: NodeJS.ProcessEnv;
   runtimeShutdown?(): Promise<void> | void;
 }
 
@@ -57,7 +59,13 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
 
   let closed = false;
   const cleanupTasks: Array<() => void> = [];
-  const codexSessionManager = new CodexSessionManager();
+  const operationPersistence = createCodexOperationSnapshotPersistence(
+    options.environment ?? process.env
+  );
+  const codexSessionManager = new CodexSessionManager({
+    operationSnapshot: operationPersistence.snapshot,
+    persistOperationSnapshot: operationPersistence.persist
+  });
   cleanupTasks.push(() => void codexSessionManager.close());
 
   function startHttpRegistryPublisher(target: ProjectConnectorHubTarget) {

@@ -206,7 +206,7 @@ describe('Codex app-server fixed contract', () => {
       operationId: 'resume-uncertain',
       threadId: 'thread-1'
     })).toThrow(CodexOperationUncertainError);
-    manager.reconcileOperationNotApplied('resume-uncertain');
+    await manager.reconcileOperationNotApplied('resume-uncertain');
     await manager.close();
   });
 });

@@ -11,7 +11,7 @@ func TestConnectorSupervisorCommandCopiesValidatedArguments(t *testing.T) {
 	arguments := []string{"connector", "source", "companion", "--root", "/tmp/project-space"}
 	supervisor, err := NewConnectorSupervisorCommand(
 		newSupervisorTestStore(t, supervisorCredential(t), nil),
-		ConnectorSupervisorOptions{Executable: os.Args[0], Stdout: io.Discard, Stderr: io.Discard},
+		ConnectorSupervisorOptions{CodexOperationSnapshotPath: testCodexOperationSnapshotPath(t), Executable: os.Args[0], Stdout: io.Discard, Stderr: io.Discard},
 		arguments,
 	)
 	if err != nil {
@@ -25,7 +25,7 @@ func TestConnectorSupervisorCommandCopiesValidatedArguments(t *testing.T) {
 
 func TestConnectorSupervisorCommandRejectsUnsafeArguments(t *testing.T) {
 	store := newSupervisorTestStore(t, supervisorCredential(t), nil)
-	options := ConnectorSupervisorOptions{Executable: os.Args[0]}
+	options := ConnectorSupervisorOptions{CodexOperationSnapshotPath: testCodexOperationSnapshotPath(t), Executable: os.Args[0]}
 	for _, arguments := range [][]string{
 		nil,
 		{},

@@ -41,9 +41,10 @@ func TestWindowsConnectorSupervisorLifetimeSingletonFailsClosed(t *testing.T) {
 		runtimeLockPath: lockPath,
 	}
 	supervisor, err := NewConnectorSupervisor(contenderStore, ConnectorSupervisorOptions{
-		Executable: filepath.Join(t.TempDir(), "must-not-start.exe"),
-		Stdout:     io.Discard,
-		Stderr:     io.Discard,
+		CodexOperationSnapshotPath: testCodexOperationSnapshotPath(t),
+		Executable:                 filepath.Join(t.TempDir(), "must-not-start.exe"),
+		Stdout:                     io.Discard,
+		Stderr:                     io.Discard,
 	})
 	if err != nil {
 		t.Fatalf("create competing connector supervisor: %v", err)

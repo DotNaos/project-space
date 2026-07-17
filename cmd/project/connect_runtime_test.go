@@ -337,13 +337,15 @@ func TestConnectorRunOptionsCarryCompiledReleaseIdentity(t *testing.T) {
 	options := connectorSupervisorOptions(
 		"/opt/project/project-space-connector",
 		strings.Repeat("1", 64),
+		"/var/lib/project-space/codex-operations.json",
 		io.Discard,
 		io.Discard,
 	)
 	if options.Executable != "/opt/project/project-space-connector" ||
 		options.BuildIdentity.ReleaseID != "v0.4.1" ||
 		options.BuildIdentity.BuildID != strings.Repeat("a", 40) ||
-		options.ReadinessAttemptNonce != strings.Repeat("1", 64) {
+		options.ReadinessAttemptNonce != strings.Repeat("1", 64) ||
+		options.CodexOperationSnapshotPath != "/var/lib/project-space/codex-operations.json" {
 		t.Fatalf("connector supervisor options = %#v", options)
 	}
 }

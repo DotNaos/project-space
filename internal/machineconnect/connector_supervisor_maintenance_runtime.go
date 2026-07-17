@@ -142,6 +142,10 @@ func (supervisor *ConnectorSupervisor) runConnectorCompanion(
 	executable := supervisor.executable
 	environment := connectorEnvironment(supervisor.environ())
 	fixedEnvironment := connectorSupervisorBuildEnvironment(supervisor.build)
+	fixedEnvironment = append(
+		fixedEnvironment,
+		CodexOperationSnapshotFileEnv+"="+supervisor.codexOperationSnapshotPath,
+	)
 	if supervisor.readinessAttemptNonce != "" {
 		readinessPath, err := DefaultConnectorRuntimeReadinessPath()
 		if err != nil {
