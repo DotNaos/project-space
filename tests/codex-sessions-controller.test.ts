@@ -15,7 +15,8 @@ import type {
 } from '../src/shared/codex-sessions-api';
 import {
   CodexSessionsController,
-  CodexSessionsControllerError
+  CodexSessionsControllerError,
+  toCodexConversationItem
 } from '../src/features/codex-sessions/codex-sessions-controller';
 
 const origin = { machineId: 'machine-mac', threadId: '019f5a78-3c4c-7082-bb45-5411be7d9b9a' };
@@ -126,6 +127,22 @@ function operationIds() {
 }
 
 describe('Codex sessions UI controller', () => {
+  test('preserves the activity kind needed for task-specific presentation', () => {
+    expect(toCodexConversationItem({
+      detail: 'github.fetch_issue',
+      id: 'tool-1',
+      kind: 'mcp-tool',
+      status: 'completed'
+    })).toEqual({
+      activityKind: 'mcp-tool',
+      detail: 'github.fetch_issue',
+      id: 'tool-1',
+      kind: 'activity',
+      label: 'Tool call',
+      state: 'completed'
+    });
+  });
+
   test('aggregates machine lists and opens selected history without any mutation', async () => {
     const fake = fakeClient({ readImplementation: async () => ({ ...readResult(), streamCursor: 42 }) });
     const controller = new CodexSessionsController(fake.client, operationIds());

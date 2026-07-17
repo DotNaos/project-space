@@ -1,3 +1,5 @@
+import type { CodexConversationItemKind } from '@/shared/codex-sessions-api';
+
 export type CodexMachineStatus = 'connected' | 'offline' | 'unavailable';
 
 export type CodexSessionStatus =
@@ -47,6 +49,7 @@ export type CodexConversationItem =
       streaming?: boolean;
     }
   | {
+      activityKind?: Exclude<CodexConversationItemKind, 'agent-message' | 'user-message'>;
       id: string;
       kind: 'activity';
       label: string;

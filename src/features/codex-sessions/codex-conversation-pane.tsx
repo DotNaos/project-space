@@ -2,13 +2,17 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import {
   ArrowLeft,
   ArrowUp,
-  Check,
+  Brain,
   CircleAlert,
+  CircleDot,
   Clock3,
+  FilePenLine,
+  ListChecks,
   Loader2,
   PanelRight,
   ShieldCheck,
   TerminalSquare,
+  Wrench,
   X
 } from 'lucide-react';
 import { Button, Text } from '@/app/dotnaos-ui';
@@ -29,25 +33,49 @@ import type {
   CodexThreadOrigin
 } from './codex-sessions-types';
 
-const activityIcon = {
-  completed: Check,
+const activityStateIcon = {
   failed: X,
   running: Loader2,
   waiting: Clock3
 };
 
+const activityStateLabel = {
+  failed: 'Failed',
+  running: 'Running',
+  waiting: 'Waiting'
+};
+
+const completedActivityIcon = {
+  command: TerminalSquare,
+  'file-change': FilePenLine,
+  'mcp-tool': Wrench,
+  plan: ListChecks,
+  reasoning: Brain,
+  status: CircleDot
+};
+
 function ActivityRow({ item }: { item: Extract<CodexConversationItem, { kind: 'activity' }> }) {
-  const Icon = activityIcon[item.state];
+  const Icon = item.state === 'completed'
+    ? completedActivityIcon[item.activityKind ?? 'status']
+    : activityStateIcon[item.state];
   return (
-    <div className="my-1 flex items-start gap-2 border-l border-neutral-800/80 py-1.5 pl-3 text-xs leading-5 text-neutral-500">
+    <div
+      className="my-1.5 flex min-w-0 items-start gap-3 py-1.5 text-[0.9375rem] leading-7 text-neutral-500"
+      data-codex-activity-kind={item.activityKind ?? 'unknown'}
+      data-codex-activity-row="true"
+    >
       <Icon className={cn(
-        'mt-0.5 size-3 shrink-0',
+        'mt-[0.3rem] size-[1.125rem] shrink-0 stroke-[1.75] text-neutral-500',
         item.state === 'running' && 'animate-spin text-neutral-300',
         item.state === 'failed' && 'text-red-400'
       )} />
-      <span className="min-w-0">
-        <Text className="text-neutral-300">{item.label}</Text>
-        {item.detail ? <Text className="ml-1 text-neutral-600">{item.detail}</Text> : null}
+      <span className="min-w-0 break-words">
+        {item.state === 'completed' ? null : (
+          <span className="sr-only">{activityStateLabel[item.state]}: </span>
+        )}
+        <Text className="text-neutral-400">
+          {item.label}{item.detail ? ` ${item.detail}` : ''}
+        </Text>
       </span>
     </div>
   );
