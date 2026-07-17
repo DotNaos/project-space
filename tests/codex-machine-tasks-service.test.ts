@@ -211,6 +211,27 @@ describe('Codex machine-task service', () => {
     expect(attempts).toBe(2);
   });
 
+  test('keeps an uncertain start fenced when its reconciliation goes offline', async () => {
+    const store = memoryStore();
+    let attempts = 0;
+    const tasks = service({
+      start: async () => {
+        attempts += 1;
+        return attempts === 1 ? { state: 'uncertain' } : { state: 'offline' };
+      },
+      store
+    });
+
+    expect(await tasks.start({ userId: 'user-owner' }, request)).toEqual(
+      expect.objectContaining({ state: 'uncertain' })
+    );
+    expect(await tasks.start({ userId: 'user-owner' }, request)).toEqual(
+      expect.objectContaining({ state: 'uncertain' })
+    );
+    expect(store.operations.get(request.operationId)?.state).toBe('uncertain');
+    expect(attempts).toBe(2);
+  });
+
   test('reconciles an uncertain start only with the original operation id', async () => {
     const store = memoryStore();
     let attempts = 0;
@@ -543,7 +564,7 @@ describe('Codex machine-task service', () => {
     }));
   });
 
-  test('recovers an orphaned pending send only on its stored connector generation', async () => {
+  test('recovers an orphaned pending send only while its stored generation is current', async () => {
     const store = memoryStore();
     store.reserveSend = async () => ({
       durableOperations: true,
@@ -552,6 +573,7 @@ describe('Codex machine-task service', () => {
     });
     let dispatchedGeneration = 0;
     const result = await service({
+      generationFor: () => 6,
       store,
       send: async (input) => {
         dispatchedGeneration = input.generation;
@@ -570,6 +592,42 @@ describe('Codex machine-task service', () => {
       state: 'accepted',
       target: expect.objectContaining({ connector: expect.objectContaining({ generation: 6 }) })
     }));
+  });
+
+  test('reconciles a stale pending send without dispatching to its old generation', async () => {
+    const store = memoryStore();
+    store.reserveSend = async () => ({
+      durableOperations: true,
+      generation: 6,
+      kind: 'pending'
+    });
+    let sends = 0;
+    let reconciliations = 0;
+    const result = await service({
+      generationFor: () => 7,
+      reconcileSend: async (input) => {
+        reconciliations += 1;
+        expect(input.generation).toBe(6);
+        return {
+          operationId: 'send-pending', replayed: true, status: 'ambiguous', threadId
+        };
+      },
+      send: async () => {
+        sends += 1;
+        return {
+          operationId: 'send-pending', replayed: false, status: 'accepted', threadId,
+          turnId: 'duplicate-turn'
+        };
+      },
+      store
+    }).send({ userId: 'user-owner' }, {
+      message: 'Continue pending', operationId: 'send-pending',
+      physicalMachineId: 'physical-local', threadId
+    });
+
+    expect(result).toEqual(expect.objectContaining({ state: 'uncertain' }));
+    expect(reconciliations).toBe(1);
+    expect(sends).toBe(0);
   });
 
   test('returns target and issue failures as structured blocked states', async () => {

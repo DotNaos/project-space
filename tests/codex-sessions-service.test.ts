@@ -454,6 +454,36 @@ describe('Codex sessions hosted service', () => {
     expect(transport.mutationCalls).toBe(1);
   });
 
+  test('rejects conflicting input while the original operation is still running', async () => {
+    const store = new MemoryStore();
+    const transport = new FakeTransport();
+    let release = () => {};
+    transport.mutationWait = new Promise<void>((resolve) => { release = resolve; });
+    const service = serviceFor(store, transport);
+
+    const first = service.continue(actor, continuation('operation-in-flight'));
+    await Promise.resolve();
+    await expect(service.continue(actor, {
+      ...continuation('operation-in-flight'),
+      message: 'Conflicting input'
+    })).rejects.toBeInstanceOf(CodexSessionsConflictError);
+    release();
+    await first;
+    expect(transport.mutationCalls).toBe(1);
+  });
+
+  test('does not treat a connector reconnect as changed operation input', async () => {
+    const store = new MemoryStore();
+    const transport = new FakeTransport();
+    const service = serviceFor(store, transport);
+    const request = { ...continuation('operation-generation'), connectorGeneration: 7 };
+
+    expect(await service.continue(actor, request)).toMatchObject({ replayed: false });
+    expect(await service.continue(actor, { ...request, connectorGeneration: 8 }))
+      .toMatchObject({ replayed: true });
+    expect(transport.mutationCalls).toBe(1);
+  });
+
   test('rejects conflicting reuse and marks uncertain or wrong-target results ambiguous', async () => {
     const store = new MemoryStore();
     const transport = new FakeTransport();

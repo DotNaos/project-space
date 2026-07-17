@@ -216,6 +216,10 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         return uncertain(request.operationId, executionTarget);
       }
       if (started.state === 'offline') {
+        if (reservation.kind !== 'new') {
+          await options.store.markStartUncertain(operation);
+          return uncertain(request.operationId, executionTarget);
+        }
         await options.store.releaseStart(operation);
         return blocked(
           request.operationId,
@@ -393,6 +397,8 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       const durableOperations = reservation.kind === 'pending' || reservation.kind === 'uncertain'
         ? reservation.durableOperations
         : operation.durableOperations;
+      const mustReconcile = reservation.kind === 'uncertain' ||
+        reservation.kind === 'pending' && selected.connector.generation !== reservation.generation;
       let resultGeneration = executionGeneration;
       operation.generation = executionGeneration;
       let attempted = false;
@@ -415,7 +421,7 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       };
       const send = () => {
         attempted = true;
-        if (reservation.kind === 'uncertain') return reconcile();
+        if (mustReconcile) return reconcile();
         return options.sessions.send({
           connectorId: selected.connector.id,
           generation: executionGeneration,
@@ -429,7 +435,7 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         let result: CodexSessionOperationResult;
         let terminal: { event?: CodexSessionStreamEvent; sequence?: number } | undefined;
         let waitedGeneration: number | undefined;
-        if (request.wait && reservation.kind !== 'uncertain') {
+        if (request.wait && !mustReconcile) {
           const before = await options.sessions.read({
             connectorId: selected.connector.id,
             generation: executionGeneration,
@@ -450,7 +456,7 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         } else {
           result = await send();
         }
-        if (result.status === 'ambiguous' && reservation.kind !== 'uncertain') {
+        if (result.status === 'ambiguous' && !mustReconcile) {
           result = await reconcile();
         }
         if (

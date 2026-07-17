@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 
 import {
@@ -25,6 +26,7 @@ import type {
   CodexStoredOperationInput,
   CodexStoredOperationName
 } from '../codex-sessions-store';
+import { canonicalJson } from './canonical-json';
 import {
   codexSessionInspectionMatchesScope,
   withCodexSessionWriteCapability
@@ -258,7 +260,6 @@ export function createCodexSessionsService(options: {
     const key = operationKey(operation);
     const running = activeOperations.get(key);
     if (running) return running;
-
     const reserved = await options.store.reserveOperation(operation);
     if (reserved.kind === 'conflict') throw new CodexSessionsConflictError('The operation id was reused for different input.');
     if (reserved.kind === 'replayed') return { ...reserved.result, replayed: true };
@@ -286,9 +287,12 @@ export function createCodexSessionsService(options: {
     const machineScope = await scope(actor, request.machineId);
     const threadId = required(request.threadId, 'threadId');
     const operationId = required(request.operationId, 'operationId');
+    const fingerprintRequest: Record<string, unknown> = { ...request };
+    delete fingerprintRequest.connectorGeneration;
+    delete fingerprintRequest.operationId;
     return {
       ...machineScope,
-      fingerprint: { kind, request: { ...request, operationId: undefined }, threadId },
+      fingerprint: { kind, request: fingerprintRequest, threadId },
       operation: operationName(kind),
       operationId,
       threadId
@@ -677,7 +681,8 @@ function required(value: string, label: string) {
 }
 
 function operationKey(scope: ScopedOperation) {
-  return `${scope.userId}\0${scope.machineId}\0${scope.threadId}\0${scope.operationId}`;
+  const inputHash = createHash('sha256').update(canonicalJson(scope.fingerprint)).digest('hex');
+  return `${scope.userId}\0${scope.machineId}\0${scope.threadId}\0${scope.operationId}\0${inputHash}`;
 }
 
 function sessionKey(scope: SessionScope) {
