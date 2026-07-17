@@ -48,6 +48,7 @@ export function memoryStore(): CodexMachineTasksStore & {
         generation: current.generation,
         kind: 'reserved',
         physicalMachineId: current.physicalMachineId,
+        startPayload: current.startPayload,
         state: current.state === 'uncertain' ? 'uncertain' : 'pending'
       };
     },
@@ -176,7 +177,13 @@ export function service(options: {
     turnId?: string;
   }>;
   reconciledGeneration?: (input: { generation: number }) => number;
-  start?: (input: { generation: number }) => Promise<
+  start?: (input: {
+    branch: string;
+    commit: string;
+    generation: number;
+    issue: { number: number; url: string };
+    repository: { id: string; nameWithOwner: string };
+  }) => Promise<
     | { state: 'confirmed'; threadId: string; worktreeId: string }
     | { state: 'offline' }
     | { message: string; state: 'worktree_failure' }

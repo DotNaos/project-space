@@ -122,28 +122,6 @@ describe('Codex machine-task service', () => {
     expect(starts).toBe(2);
   });
 
-  test('keeps a reserved start uncertain when GitHub becomes unavailable', async () => {
-    const store = memoryStore();
-    await service({
-      start: async () => ({ state: 'uncertain' }),
-      store
-    }).start({ userId: 'user-owner' }, request);
-
-    const result = await service({
-      issue: async () => {
-        throw new CodexMachineTaskIssueError('offline', 'GitHub is unavailable.');
-      },
-      store
-    }).start({ userId: 'user-owner' }, request);
-
-    expect(result).toEqual(expect.objectContaining({
-      operationId: request.operationId,
-      reconcile: 'required',
-      state: 'uncertain',
-      target: expect.objectContaining({ connector: expect.objectContaining({ generation: 7 }) })
-    }));
-  });
-
   test('does not relabel a reserved start when the physical connector changes', async () => {
     const store = memoryStore();
     await service({

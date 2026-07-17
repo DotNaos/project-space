@@ -5,6 +5,7 @@ import type {
 import type { DatabaseQueryClient } from '../database/client';
 import type {
   CodexMachineTaskStartOperation,
+  CodexMachineTaskStartPayload,
   CodexMachineTaskSendOperation,
   CodexMachineTasksStore
 } from './service';
@@ -16,6 +17,7 @@ interface StartRow {
   durable_operations: boolean;
   physical_machine_id: string;
   result: unknown;
+  start_payload: unknown;
   state: 'completed' | 'pending' | 'uncertain';
 }
 
@@ -46,7 +48,7 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
     const result = await this.client.query<StartLookupRow>(
       `select o.fingerprint_sha256, s.dispatch_operation_id,
               s.connector_generation, s.connector_id, s.durable_operations,
-              s.physical_machine_id, s.state, s.result
+              s.physical_machine_id, s.start_payload, s.state, s.result
          from codex_machine_task_start_operations o
          join codex_machine_task_starts s
            on s.owner_user_id = o.owner_user_id and s.association_key = o.association_key
@@ -68,6 +70,7 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
           generation,
           kind: 'reserved',
           physicalMachineId: row.physical_machine_id,
+          ...(isStartPayload(row.start_payload) ? { startPayload: row.start_payload } : {}),
           state: row.state
         } as const
       : { kind: 'conflict' } as const;
@@ -78,13 +81,14 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
       const insertedAssociation = await client.query<{ association_key: string }>(
          `insert into codex_machine_task_starts (
            owner_user_id, association_key, dispatch_operation_id,
-           connector_generation, durable_operations, physical_machine_id, connector_id, state
-         ) values ($1, $2, $3, $4, $5, $6, $7, 'pending')
+           connector_generation, durable_operations, physical_machine_id, connector_id,
+           start_payload, state
+         ) values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, 'pending')
          on conflict do nothing
          returning association_key`,
         [operation.userId, operation.associationKey, operation.operationId,
           operation.generation, operation.durableOperations, operation.physicalMachineId,
-          operation.connectorId]
+          operation.connectorId, JSON.stringify(operation.startPayload)]
       );
       const insertedOperation = await client.query<{ operation_id: string }>(
         `insert into codex_machine_task_start_operations (
@@ -299,6 +303,23 @@ function isStartResult(value: unknown): value is CodexMachineTaskStartResult {
   return result.apiVersion === 1 && typeof result.operationId === 'string' &&
     typeof result.state === 'string' &&
     ['blocked', 'confirmed', 'ready', 'uncertain'].includes(result.state);
+}
+
+function isStartPayload(value: unknown): value is CodexMachineTaskStartPayload {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const payload = value as Record<string, unknown>;
+  if (typeof payload.branch !== 'string' || !/\S/.test(payload.branch) ||
+    typeof payload.commit !== 'string' || !/^[0-9a-f]{40}$/.test(payload.commit)) return false;
+  if (!payload.issue || typeof payload.issue !== 'object' || Array.isArray(payload.issue) ||
+    !payload.repository || typeof payload.repository !== 'object' || Array.isArray(payload.repository)) {
+    return false;
+  }
+  const issue = payload.issue as Record<string, unknown>;
+  const repository = payload.repository as Record<string, unknown>;
+  return Number.isSafeInteger(issue.number) && Number(issue.number) > 0 &&
+    typeof issue.url === 'string' && /^https:\/\//.test(issue.url) &&
+    typeof repository.id === 'string' && /\S/.test(repository.id) &&
+    typeof repository.nameWithOwner === 'string' && /\S+\/\S+/.test(repository.nameWithOwner);
 }
 
 function isSendResult(value: unknown): value is CodexMachineTaskSendResult {

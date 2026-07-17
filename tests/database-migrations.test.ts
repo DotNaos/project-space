@@ -76,7 +76,8 @@ describe('database migrations', () => {
       '0019_machine_execution_scopes',
       '0020_physical_machines',
       '0021_codex_machine_tasks',
-      '0022_codex_machine_task_durable_operations'
+      '0022_codex_machine_task_durable_operations',
+      '0023_codex_machine_task_start_payload'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -122,6 +123,7 @@ describe('database migrations', () => {
     expect(sql).toContain('add column if not exists durable_operations boolean');
     expect(sql).toContain('set durable_operations = false');
     expect(sql).toContain('alter column durable_operations set not null');
+    expect(sql).toContain('add column start_payload jsonb');
     expect(sql).toContain('references machine_memberships (machine_id, user_id)');
     expect(sql).toContain('registry jsonb not null');
     expect(sql).toContain('removed_by_user_id text');

@@ -22,6 +22,10 @@ import {
   codexMachineTaskDurabilityMigrationId,
   codexMachineTaskDurabilityMigrationSql
 } from './codex-machine-task-durability-migration';
+import {
+  codexMachineTaskStartPayloadMigrationId,
+  codexMachineTaskStartPayloadMigrationSql
+} from './codex-machine-task-start-payload-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -622,6 +626,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: codexMachineTaskDurabilityMigrationId,
     sql: codexMachineTaskDurabilityMigrationSql
+  },
+  {
+    id: codexMachineTaskStartPayloadMigrationId,
+    sql: codexMachineTaskStartPayloadMigrationSql
   }
 ];
 

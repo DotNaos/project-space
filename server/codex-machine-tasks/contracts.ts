@@ -9,6 +9,13 @@ import type {
 } from '../../src/shared/codex-sessions-api';
 import type { MachineRecord, PhysicalMachineRecord } from '../../src/shared/project-space-api';
 
+export interface CodexMachineTaskStartPayload {
+  branch: string;
+  commit: string;
+  issue: { number: number; url: string };
+  repository: { id: string; nameWithOwner: string };
+}
+
 export interface CodexMachineTaskStartOperation {
   associationKey: string;
   connectorId: string;
@@ -18,6 +25,7 @@ export interface CodexMachineTaskStartOperation {
   operationId: string;
   physicalMachineId: string;
   result?: CodexMachineTaskStartResult;
+  startPayload: CodexMachineTaskStartPayload;
   state: 'completed' | 'pending' | 'uncertain';
   userId: string;
 }
@@ -38,6 +46,7 @@ export type CodexMachineTaskStartLookup =
       generation: number;
       kind: 'reserved';
       physicalMachineId: string;
+      startPayload?: CodexMachineTaskStartPayload;
       state: 'pending' | 'uncertain';
     }
   | { kind: 'replayed'; result: CodexMachineTaskStartResult };
@@ -103,12 +112,7 @@ export interface CodexMachineTasksServiceOptions {
     issue: number;
     repositoryId?: string;
     userId: string;
-  }): Promise<{
-    branch: string;
-    commit: string;
-    issue: { number: number; url: string };
-    repository: { id: string; nameWithOwner: string };
-  }>;
+  }): Promise<CodexMachineTaskStartPayload>;
   sessions: {
     read(input: {
       connectorId: string;

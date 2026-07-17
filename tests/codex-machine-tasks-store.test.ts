@@ -5,9 +5,11 @@ import type { CodexMachineTaskStartOperation } from '../server/codex-machine-tas
 import type { DatabaseQueryClient, DatabaseQueryResult } from '../server/database/client';
 
 class FakeDatabase implements DatabaseQueryClient {
+  readonly calls: Array<{ sql: string; values: readonly unknown[] }> = [];
   readonly responses: Array<DatabaseQueryResult<unknown>> = [];
 
-  async query<Row>() {
+  async query<Row>(sql: string, values: readonly unknown[] = []) {
+    this.calls.push({ sql, values });
     return (this.responses.shift() ?? { rows: [] }) as DatabaseQueryResult<Row>;
   }
 
@@ -24,6 +26,12 @@ const operation: CodexMachineTaskStartOperation = {
   generation: 4,
   operationId: 'start-operation-one',
   physicalMachineId: 'physical-one',
+  startPayload: {
+    branch: 'issue-262-work',
+    commit: 'c'.repeat(40),
+    issue: { number: 262, url: 'https://github.com/DotNaos/project-space/issues/262' },
+    repository: { id: 'R_one', nameWithOwner: 'DotNaos/project-space' }
+  },
   state: 'pending',
   userId: 'user-owner'
 };
@@ -50,6 +58,7 @@ function row(overrides: Record<string, unknown> = {}) {
     connector_id: operation.connectorId,
     durable_operations: operation.durableOperations,
     physical_machine_id: operation.physicalMachineId,
+    start_payload: operation.startPayload,
     result: completed,
     state: 'completed',
     ...overrides
@@ -57,6 +66,21 @@ function row(overrides: Record<string, unknown> = {}) {
 }
 
 describe('Codex machine-task durable start store', () => {
+  test('persists the immutable resolved start payload with a new reservation', async () => {
+    const database = new FakeDatabase();
+    database.responses.push(
+      { rows: [{ association_key: operation.associationKey }] },
+      { rows: [{ operation_id: operation.operationId }] },
+      { rows: [{ association_key: operation.associationKey, fingerprint_sha256: operation.fingerprint }] },
+      { rows: [row({ result: null, state: 'pending' })] }
+    );
+
+    expect(await new PostgresCodexMachineTasksStore(database).reserveStart(operation))
+      .toEqual({ kind: 'new' });
+    const insert = database.calls.find((call) => call.sql.includes('start_payload'));
+    expect(insert?.values[7]).toBe(JSON.stringify(operation.startPayload));
+  });
+
   test('looks up completed and reserved starts before live dependencies', async () => {
     const replayDatabase = new FakeDatabase();
     replayDatabase.responses.push({ rows: [{
@@ -84,6 +108,7 @@ describe('Codex machine-task durable start store', () => {
       generation: 4,
       kind: 'reserved',
       physicalMachineId: operation.physicalMachineId,
+      startPayload: operation.startPayload,
       state: 'uncertain'
     });
   });

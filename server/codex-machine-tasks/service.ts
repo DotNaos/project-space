@@ -31,6 +31,7 @@ import {
 import type {
   CodexMachineTaskSendOperation,
   CodexMachineTasksServiceOptions,
+  CodexMachineTaskStartPayload,
   CodexMachineTaskStartOperation
 } from './contracts';
 export type {
@@ -40,6 +41,7 @@ export type {
   CodexMachineTasksStore,
   CodexMachineTaskStartLookup,
   CodexMachineTaskStartOperation,
+  CodexMachineTaskStartPayload,
   CodexMachineTaskStartReservation
 } from './contracts';
 
@@ -138,22 +140,26 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
           target: selected
         };
       }
-      let issue: Awaited<ReturnType<CodexMachineTasksServiceOptions['issue']>>;
-      try {
-        issue = await options.issue({
-          issue: request.issue,
-          repositoryId: request.repositoryId,
-          userId: actor.userId
-        });
-      } catch (error) {
-        if (!(error instanceof CodexMachineTaskIssueError)) throw error;
-        if (lookup.kind === 'reserved') {
+      let issue: CodexMachineTaskStartPayload;
+      if (lookup.kind === 'reserved') {
+        if (!lookup.startPayload) {
           return uncertain(
             request.operationId,
             targetAtGeneration(selected, lookup.generation)
           );
         }
-        return blocked(request.operationId, error.reason, error.message, selected);
+        issue = lookup.startPayload;
+      } else {
+        try {
+          issue = await options.issue({
+            issue: request.issue,
+            repositoryId: request.repositoryId,
+            userId: actor.userId
+          });
+        } catch (error) {
+          if (!(error instanceof CodexMachineTaskIssueError)) throw error;
+          return blocked(request.operationId, error.reason, error.message, selected);
+        }
       }
       const operation: CodexMachineTaskStartOperation = {
         associationKey: fingerprint({
@@ -172,6 +178,7 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         generation: selected.connector.generation,
         operationId: request.operationId,
         physicalMachineId: selected.physicalMachine.id,
+        startPayload: issue,
         state: 'pending',
         userId: actor.userId
       };
