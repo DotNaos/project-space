@@ -109,6 +109,7 @@ export function toCodexConversationItem(item: CodexConversationItemRecord): Code
         ? 'failed'
         : 'completed';
   return {
+    activityKind: item.kind,
     detail: item.detail ?? item.text,
     id: item.id,
     kind: 'activity',
