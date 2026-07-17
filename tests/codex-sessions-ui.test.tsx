@@ -42,6 +42,16 @@ mock.module('@/app/dotnaos-ui', () => ({
   ),
   SearchFieldInput: (props: Record<string, unknown>) => createElement('input', props),
   SearchFieldSearchIcon: () => createElement('span', { 'data-search-icon': true }),
+  ListBox: ({ children, selectedKeys: _selectedKeys, ...props }: { children?: ReactNode; selectedKeys?: Set<string>; [key: string]: unknown }) => createElement('div', props, children),
+  ListBoxItem: ({ children, id, textValue: _textValue, ...props }: { children?: ReactNode; id: string; textValue?: string; [key: string]: unknown }) => createElement('button', { ...props, 'data-id': id }, children),
+  Select: Object.assign(
+    ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
+    {
+      Indicator: (props: Record<string, unknown>) => createElement('span', props),
+      Popover: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
+      Trigger: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('button', props, children)
+    }
+  ),
   Tab: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('button', props, children),
   TabIndicator: () => null,
   TabList: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
@@ -74,13 +84,22 @@ mock.module('@heroui/react', () => ({
   Drawer: Object.assign(
     ({ children }: { children?: ReactNode }) => createElement('div', null, children),
     {
-      Backdrop: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
+      Backdrop: ({ children, isOpen: _isOpen, ...props }: { children?: ReactNode; isOpen?: boolean; [key: string]: unknown }) => createElement('div', props, children),
       Body: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
       CloseTrigger: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('button', props, children),
       Content: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
       Dialog: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
+      Handle: (props: Record<string, unknown>) => createElement('div', props),
       Header: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
       Heading: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('h2', props, children),
+      Trigger: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('button', props, children)
+    }
+  ),
+  Popover: Object.assign(
+    ({ children }: { children?: ReactNode }) => createElement('div', null, children),
+    {
+      Content: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
+      Dialog: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
       Trigger: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('button', props, children)
     }
   ),
@@ -233,6 +252,136 @@ describe('Canonical Codex task page', () => {
 
     expect(html).toContain('max-w-full');
     expect(html).toContain('break-words');
+  });
+
+  test('renders stored assistant Markdown instead of exposing its source syntax', () => {
+    const html = renderToStaticMarkup(
+      <CodexConversationPane
+        conversation={{
+          items: [{
+            id: 'markdown-message',
+            kind: 'message',
+            role: 'assistant',
+            text: [
+              '## Ergebnis',
+              '',
+              'Das offene [Issue #185](https://github.com/DotNaos/project-space/issues/185) beschreibt es.',
+              '',
+              '- Maschine',
+              '- Connector',
+              '',
+              '| Status | Ergebnis |',
+              '| --- | --- |',
+              '| History | Geladen |',
+              '',
+              '- [x] Markdown aktiv',
+              '',
+              '![Private host](http://127.0.0.1/private.png)',
+              '',
+              '```ts',
+              'const machineId = "machine-mac";',
+              '```',
+              '',
+              '<script>alert("unsafe")</script>'
+            ].join('\n')
+          }],
+          machineId: machine.id,
+          threadId: activeSession.threadId
+        }}
+        machine={machine}
+        session={activeSession}
+      />
+    );
+
+    expect(html).toContain('<h2');
+    expect(html).toContain('href="https://github.com/DotNaos/project-space/issues/185"');
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('<ul');
+    expect(html).toContain('<table');
+    expect(html).toContain('type="checkbox"');
+    expect(html).toContain('class="my-3 space-y-1.5 ml-0 list-none contains-task-list"');
+    expect(html).toContain('task-list-item');
+    expect(html).toContain('Load external image: Private host');
+    expect(html).not.toContain('src="http://127.0.0.1/private.png"');
+    expect(html).toContain('<pre');
+    expect(html).not.toContain('[Issue #185]');
+    expect(html).not.toContain('## Ergebnis');
+    expect(html).not.toContain('<script');
+    expect(html).toContain('&lt;script&gt;alert(&quot;unsafe&quot;)&lt;/script&gt;');
+  });
+
+  test('uses the compact Moodle-inspired composer surface', () => {
+    const html = renderToStaticMarkup(
+      <CodexConversationPane
+        conversation={conversation}
+        machine={machine}
+        modelSelection={{
+          disabled: false,
+          effort: 'deep',
+          models: [{
+            defaultReasoningEffort: 'high',
+            defaultServiceTier: 'fast',
+            description: 'Best for everyday coding.',
+            displayName: 'GPT-5',
+            id: 'gpt-5',
+            isDefault: true,
+            model: 'gpt-5',
+            serviceTiers: [{ description: 'Faster responses.', id: 'fast', name: 'Fast' }],
+            supportedReasoningEfforts: [
+              { description: 'Quick answers.', reasoningEffort: 'low' },
+              { description: 'Deeper answers.', reasoningEffort: 'high' }
+            ]
+          }, {
+            description: 'Faster for focused work.',
+            displayName: 'GPT-5 mini',
+            id: 'gpt-5-mini',
+            isDefault: false,
+            model: 'gpt-5-mini'
+          }, {
+            defaultReasoningEffort: 'balanced',
+            defaultServiceTier: null,
+            description: 'A future model supplied by the App Server.',
+            displayName: 'GPT-6 Orbit',
+            id: 'gpt-6-orbit',
+            isDefault: false,
+            model: 'gpt-6-orbit',
+            serviceTiers: [{ description: 'Priority responses.', id: 'priority', name: 'Priority' }],
+            supportedReasoningEfforts: [
+              { description: 'Balanced reasoning.', reasoningEffort: 'balanced' },
+              { description: 'Deep reasoning.', reasoningEffort: 'deep' }
+            ]
+          }],
+          onChange: () => {},
+          onEffortChange: () => {},
+          onServiceTierChange: () => {},
+          serviceTier: null,
+          value: 'gpt-6-orbit'
+        }}
+        onContinue={() => {}}
+        session={{ ...activeSession, status: 'idle' }}
+      />
+    );
+
+    expect(html).toContain('data-codex-composer="true"');
+    expect(html).toContain('min-h-[7.25rem]');
+    expect(html).toContain('flex-col');
+    expect(html).toContain('rounded-[1.75rem]');
+    expect(html).toContain('data-codex-composer-actions="true"');
+    expect(html).toContain('aria-label="Exact machine and task authorization"');
+    expect(html).toContain('aria-label="Codex model settings"');
+    expect(html).toContain('GPT-6 Orbit Deep');
+    expect(html).toContain('data-codex-reasoning-quick="true"');
+    expect(html).toContain('Intelligence Balanced');
+    expect(html).toContain('Intelligence Deep');
+    expect(html).toContain('>Advanced<');
+    expect(html).toContain('aria-label="Model"');
+    expect(html).toContain('aria-label="Intelligence"');
+    expect(html).toContain('aria-label="Speed"');
+    expect(html).toContain('>Standard<');
+    expect(html).toContain('>Priority<');
+    expect(html).toContain('aria-label="Continue this Codex session"');
+    expect(html).toContain('aria-label="Send to this Codex session"');
+    expect(html).toContain('rounded-full bg-neutral-100');
   });
 
   test('reserves narrow task-header space for the compact shell controls', () => {

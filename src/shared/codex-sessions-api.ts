@@ -14,6 +14,8 @@ export interface CodexSessionMachineRecord {
   name: string;
   online: boolean;
   statusMessage?: string;
+  supportsModelSelection?: boolean;
+  supportsModelSettings?: boolean;
 }
 
 export interface CodexSessionTaskLocationEvidence {
@@ -167,10 +169,19 @@ export interface CodexSessionSubscribeRequest extends CodexSessionReadRequest {
   afterSequence?: number;
 }
 
+export interface CodexSessionTurnSettings {
+  effort?: string;
+  model: string;
+  serviceTier?: string | null;
+}
+
 export interface CodexSessionContinueRequest {
+  effort?: string;
   machineId: string;
   message: string;
+  model?: string;
   operationId: string;
+  serviceTier?: string | null;
   threadId: string;
 }
 

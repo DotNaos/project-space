@@ -6,6 +6,8 @@ import {
   CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY,
+  CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY,
+  CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY,
   createCodexSessionsWireRequest,
   isCodexSessionsWireRequest,
   type CodexSessionsConnectorOperation,
@@ -105,7 +107,7 @@ function run(
 ) {
   const socket = connectorSocket(payload.machineId);
   if (!socket || socket.readyState !== WebSocket.OPEN ||
-    !connectorHasCapability(payload.machineId, requiredCapability(operation))) {
+    !connectorHasCapability(payload.machineId, requiredCapability(operation, payload))) {
     throw new CodexConnectorNotDispatchedError();
   }
   const id = commandId();
@@ -160,9 +162,18 @@ function run(
   });
 }
 
-function requiredCapability(operation: CodexSessionsConnectorOperation) {
+function requiredCapability(operation: CodexSessionsConnectorOperation, payload: CodexPayload) {
   if (operation === 'browser') return CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY;
   if (operation === 'inspect') return CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY;
+  if (operation === 'continue' && (
+    ('effort' in payload && payload.effort !== undefined) ||
+    ('serviceTier' in payload && payload.serviceTier !== undefined)
+  )) {
+    return CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY;
+  }
+  if (operation === 'continue' && 'model' in payload && payload.model !== undefined) {
+    return CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY;
+  }
   return CODEX_SESSIONS_CONNECTOR_CAPABILITY;
 }
 

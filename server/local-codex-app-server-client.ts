@@ -61,7 +61,7 @@ function readTurnId(result: unknown) {
   return typeof turn?.id === 'string' ? turn.id : '';
 }
 
-function readModelPage(result: unknown) {
+export function readCodexModelPage(result: unknown) {
   if (!result || typeof result !== 'object') {
     return { models: [] as CodexModelRecord[] };
   }
@@ -82,12 +82,20 @@ function readModelPage(result: unknown) {
           return [];
         }
 
+        const defaultReasoningEffort = catalogIdentifier(model.defaultReasoningEffort);
+        const defaultServiceTier = model.defaultServiceTier === null
+          ? null
+          : catalogIdentifier(model.defaultServiceTier);
         return [{
+          ...(defaultReasoningEffort ? { defaultReasoningEffort } : {}),
+          ...(defaultServiceTier !== undefined ? { defaultServiceTier } : {}),
           description: typeof model.description === 'string' ? model.description : '',
           displayName: model.displayName,
           id: model.id,
           isDefault: model.isDefault === true,
-          model: model.model
+          model: model.model,
+          serviceTiers: readServiceTiers(model.serviceTiers),
+          supportedReasoningEfforts: readReasoningEfforts(model.supportedReasoningEfforts)
         }];
       })
     : [];
@@ -96,6 +104,39 @@ function readModelPage(result: unknown) {
     models,
     nextCursor: typeof page.nextCursor === 'string' ? page.nextCursor : undefined
   };
+}
+
+function catalogIdentifier(value: unknown) {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)
+    ? value
+    : undefined;
+}
+
+function readReasoningEfforts(value: unknown) {
+  return Array.isArray(value) ? value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return [];
+    const option = entry as Record<string, unknown>;
+    const reasoningEffort = catalogIdentifier(option.reasoningEffort);
+    if (!reasoningEffort) return [];
+    return [{
+      description: typeof option.description === 'string' ? option.description : '',
+      reasoningEffort
+    }];
+  }) : [];
+}
+
+function readServiceTiers(value: unknown) {
+  return Array.isArray(value) ? value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return [];
+    const tier = entry as Record<string, unknown>;
+    const id = catalogIdentifier(tier.id);
+    if (!id || typeof tier.name !== 'string') return [];
+    return [{
+      description: typeof tier.description === 'string' ? tier.description : '',
+      id,
+      name: tier.name
+    }];
+  }) : [];
 }
 
 function handleCodexTurnMessage(
@@ -265,7 +306,7 @@ class CodexAppServerClient {
         cursor,
         includeHidden: false
       });
-      const page = readModelPage(result);
+      const page = readCodexModelPage(result);
       models.push(...page.models);
       cursor = page.nextCursor;
 

@@ -18,6 +18,8 @@ export interface CodexMachine {
   status: CodexMachineStatus;
   lastSeenAt?: string;
   statusDetail?: string;
+  supportsModelSelection?: boolean;
+  supportsModelSettings?: boolean;
 }
 
 export interface CodexSession {

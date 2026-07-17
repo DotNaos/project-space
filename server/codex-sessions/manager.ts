@@ -133,9 +133,25 @@ export class CodexSessionManager {
   startTurn(input: CodexStartTurnInput) {
     const threadId = validateIdentifier(input.threadId, 'threadId');
     const prompt = validatePrompt(input.prompt);
+    const effort = input.effort === undefined
+      ? undefined
+      : validateIdentifier(input.effort, 'effort');
+    const model = input.model === undefined
+      ? undefined
+      : validateIdentifier(input.model, 'model');
+    const serviceTier = input.serviceTier === null
+      ? null
+      : input.serviceTier === undefined
+        ? undefined
+        : validateIdentifier(input.serviceTier, 'serviceTier');
+    const settings = {
+      ...(effort ? { effort } : {}),
+      ...(model ? { model } : {}),
+      ...(serviceTier !== undefined ? { serviceTier } : {})
+    };
     return this.ledger.execute(
       input.operationId,
-      fingerprint('turn/start', { prompt, threadId }),
+      fingerprint('turn/start', { ...settings, prompt, threadId }),
       async () => {
         if (this.activeTurns.has(threadId) || this.startingThreads.has(threadId)) {
           throw new CodexThreadActiveError('Wait for the active turn to finish.');
@@ -145,6 +161,7 @@ export class CodexSessionManager {
           const result = readTurnResult(
             await this.call('turn/start', {
               input: [{ text: prompt, type: 'text' }],
+              ...settings,
               threadId
             })
           );

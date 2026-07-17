@@ -23,7 +23,13 @@ const origin = { machineId: 'machine-mac', threadId: '019f5a78-3c4c-7082-bb45-54
 function listResult(machineId = origin.machineId, online = true): CodexSessionListResult {
   return {
     checkedAt: '2026-07-13T09:00:00.000Z',
-    machine: { id: machineId, name: machineId === origin.machineId ? 'os-macbook' : 'os-pc', online },
+    machine: {
+      id: machineId,
+      name: machineId === origin.machineId ? 'os-macbook' : 'os-pc',
+      online,
+      supportsModelSelection: machineId === origin.machineId,
+      supportsModelSettings: machineId === origin.machineId
+    },
     sessions: machineId === origin.machineId ? [{
       archived: false,
       cwd: '/Users/oli/projects/project-space',
@@ -132,6 +138,8 @@ describe('Codex sessions UI controller', () => {
       ['os-macbook', 'connected'],
       ['os-pc', 'offline']
     ]);
+    expect(state.machines[0].supportsModelSelection).toBe(true);
+    expect(state.machines[0].supportsModelSettings).toBe(true);
     expect(state.selectedOrigin).toEqual(origin);
     expect(state.conversations[0].items).toEqual([
       expect.objectContaining({ role: 'user', text: 'Original request' }),
@@ -213,7 +221,23 @@ describe('Codex sessions UI controller', () => {
     const controller = new CodexSessionsController(fake.client, operationIds());
     await controller.loadMachines([origin.machineId]);
     await controller.select(origin);
-    await controller.continue(origin, 'Continue from stored history');
+    await (controller.continue as unknown as (
+      selectedOrigin: typeof origin,
+      message: string,
+      settings: { effort: string; model: string; serviceTier: null }
+    ) => Promise<unknown>)(origin, 'Continue from stored history', {
+      effort: 'high',
+      model: 'gpt-5-mini',
+      serviceTier: null
+    });
+
+    expect(fake.calls.continues[0]).toMatchObject({
+      ...origin,
+      effort: 'high',
+      message: 'Continue from stored history',
+      model: 'gpt-5-mini',
+      serviceTier: null
+    });
 
     fake.event({
       eventId: 'event-live-user',
@@ -287,6 +311,33 @@ describe('Codex sessions UI controller', () => {
     expect(fake.calls.continues.every((request) => (
       request.machineId === origin.machineId && request.threadId === origin.threadId
     ))).toBe(true);
+  });
+
+  test('keeps retry identities distinct when model and message contain colons', async () => {
+    const fake = fakeClient({
+      continueImplementation: async () => {
+        throw new Error('Connection closed before acknowledgement.');
+      }
+    });
+    const controller = new CodexSessionsController(fake.client, operationIds());
+    await controller.loadMachines([origin.machineId]);
+    await controller.select(origin);
+
+    await expect(controller.continue(origin, 'b:c', {
+      effort: 'high:careful',
+      model: 'a',
+      serviceTier: 'fast'
+    })).rejects.toThrow('acknowledgement');
+    await expect(controller.continue(origin, 'c', {
+      effort: 'high',
+      model: 'a:b',
+      serviceTier: 'fast:priority'
+    })).rejects.toThrow('acknowledgement');
+
+    expect(fake.calls.continues.map((request) => request.operationId)).toEqual([
+      'codex-ui:continue:test-0001',
+      'codex-ui:continue:test-0002'
+    ]);
   });
 
   test('preserves approval and multi-question input decisions with the active turn', async () => {

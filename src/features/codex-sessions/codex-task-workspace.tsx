@@ -18,7 +18,8 @@ import {
 } from '@/app/dotnaos-ui';
 import type {
   CodexSessionBrowserResult,
-  CodexSessionBrowserRequest
+  CodexSessionBrowserRequest,
+  CodexSessionTurnSettings
 } from '@/shared/codex-sessions-api';
 import { cn } from '@/lib/utils';
 import {
@@ -29,6 +30,7 @@ import {
 import { CodexConversationPane } from './codex-conversation-pane';
 import { CodexDecisionPanel } from './codex-decision-panel';
 import { effectiveCodexSessionStatus } from './codex-sessions-model';
+import { useCodexSessionModels } from './use-codex-session-models';
 import { parseProjectCodexTaskTitle } from './project-codex-task-model';
 import {
   clampCodexChatSplitPercent,
@@ -118,7 +120,11 @@ export function CodexTaskWorkspace({
   loadBrowser(request: CodexSessionBrowserRequest): Promise<CodexSessionBrowserResult>;
   machine?: CodexMachine;
   onBack?(): void;
-  onContinue?(origin: CodexThreadOrigin, message: string): Promise<void> | void;
+  onContinue?(
+    origin: CodexThreadOrigin,
+    message: string,
+    settings?: CodexSessionTurnSettings
+  ): Promise<void> | void;
   onInterrupt?(origin: CodexThreadOrigin, turnId: string): Promise<void> | void;
   onResolveApproval?(decision: CodexApprovalDecision): Promise<void> | void;
   onResolveUserInput?(decision: CodexUserInputDecision): Promise<void> | void;
@@ -146,6 +152,10 @@ export function CodexTaskWorkspace({
       ? 'waiting-input'
       : baseStatus;
   const task = parseProjectCodexTaskTitle(session.title);
+  const modelSelection = useCodexSessionModels(
+    session,
+    machine?.supportsModelSettings === true
+  );
 
   useEffect(() => {
     setBrowserVisible(false);
@@ -193,6 +203,7 @@ export function CodexTaskWorkspace({
       historyState={historyState}
       historyStatusDetail={historyStatusDetail}
       machine={machine}
+      modelSelection={modelSelection}
       onContinue={onContinue}
       session={session}
       showHeader={false}

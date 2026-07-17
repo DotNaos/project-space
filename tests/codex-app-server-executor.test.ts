@@ -337,9 +337,12 @@ describe('Codex connector executor', () => {
   test('resumes then starts the same thread with stable derived operation ids', async () => {
     const { executor, manager } = createExecutor();
     const request: CodexSessionContinueRequest = {
+      effort: 'high',
       machineId,
       message: 'Continue this exact session',
+      model: 'gpt-5-mini',
       operationId: 'operation-continue-one',
+      serviceTier: 'fast',
       threadId
     };
     const result = await executor.execute('continue', signed('continue', request, request.operationId));
@@ -349,6 +352,9 @@ describe('Codex connector executor', () => {
     const start = manager.calls.find((call) => call.method === 'startTurn')?.input as CodexStartTurnInput;
     expect(resume.threadId).toBe(threadId);
     expect(start.threadId).toBe(threadId);
+    expect(start.model).toBe('gpt-5-mini');
+    expect(start.effort).toBe('high');
+    expect(start.serviceTier).toBe('fast');
     expect(resume.operationId).toMatch(/^codex:resume:/);
     expect(start.operationId).toMatch(/^codex:turn:/);
     expect(start.operationId).not.toBe(resume.operationId);

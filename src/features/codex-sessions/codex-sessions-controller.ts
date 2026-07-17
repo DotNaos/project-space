@@ -3,7 +3,8 @@ import type {
   CodexSessionListResult,
   CodexSessionReadResult,
   CodexSessionsClient,
-  CodexSessionStreamEvent
+  CodexSessionStreamEvent,
+  CodexSessionTurnSettings
 } from '../../shared/codex-sessions-api';
 import { codexContinueBlockReason } from './codex-sessions-model';
 import type {
@@ -60,7 +61,9 @@ function toMachine(result: CodexSessionListResult): CodexMachine {
     id: result.machine.id,
     name: result.machine.name,
     status: result.machine.online ? 'connected' : 'offline',
-    statusDetail: result.machine.statusMessage
+    statusDetail: result.machine.statusMessage,
+    supportsModelSelection: result.machine.supportsModelSelection,
+    supportsModelSettings: result.machine.supportsModelSettings
   };
 }
 function toSession(record: CodexSessionListResult['sessions'][number]): CodexSession {
@@ -347,16 +350,38 @@ export class CodexSessionsController {
     });
   }
 
-  async continue(origin: CodexThreadOrigin, message: string) {
+  async continue(
+    origin: CodexThreadOrigin,
+    message: string,
+    settings?: CodexSessionTurnSettings
+  ) {
     const session = this.requireSelectedSession(origin);
     const machine = this.state.machines.find((entry) => entry.id === origin.machineId);
     const blocked = codexContinueBlockReason(session, machine);
     if (blocked) throw new CodexSessionsControllerError('thread_not_idle', blocked);
     const cleanMessage = message.trim();
     if (!cleanMessage) throw new CodexSessionsControllerError('empty_message', 'Enter a message first.');
-    const key = `continue:${origin.machineId}:${origin.threadId}:${cleanMessage}`;
+    const selectedModel = settings?.model.trim();
+    const selectedEffort = settings?.effort?.trim();
+    const selectedServiceTier = settings?.serviceTier === null
+      ? null
+      : settings?.serviceTier?.trim();
+    const selectedSettings = selectedModel ? {
+      ...(selectedEffort ? { effort: selectedEffort } : {}),
+      model: selectedModel,
+      ...(selectedServiceTier !== undefined ? { serviceTier: selectedServiceTier } : {})
+    } : undefined;
+    const key = `continue:${JSON.stringify([
+      origin.machineId,
+      origin.threadId,
+      selectedSettings ?? null,
+      cleanMessage
+    ])}`;
     const result = await this.runOperation(key, (operationId) => this.client.continue({
-      ...origin, message: cleanMessage, operationId
+      ...origin,
+      message: cleanMessage,
+      ...selectedSettings,
+      operationId
     }));
     if (result.status === 'accepted' || result.status === 'completed') {
       this.update({

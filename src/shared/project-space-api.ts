@@ -784,12 +784,27 @@ export interface CodexModelCatalogueRequest {
   machineId: string;
 }
 
+export interface CodexReasoningEffortOptionRecord {
+  description: string;
+  reasoningEffort: string;
+}
+
+export interface CodexModelServiceTierRecord {
+  description: string;
+  id: string;
+  name: string;
+}
+
 export interface CodexModelRecord {
+  defaultReasoningEffort?: string;
+  defaultServiceTier?: string | null;
   description: string;
   displayName: string;
   id: string;
   isDefault: boolean;
   model: string;
+  serviceTiers?: CodexModelServiceTierRecord[];
+  supportedReasoningEfforts?: CodexReasoningEffortOptionRecord[];
 }
 
 export interface CodexModelCatalogueResult {
