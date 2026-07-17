@@ -310,6 +310,35 @@ describe('Canonical Codex task page', () => {
     expect(html).toContain('&lt;script&gt;alert(&quot;unsafe&quot;)&lt;/script&gt;');
   });
 
+  test('presents assistant responses as an article without repeated message identity', () => {
+    const html = renderToStaticMarkup(
+      <CodexConversationPane
+        conversation={{
+          ...conversation,
+          items: [
+            ...conversation.items,
+            {
+              id: 'assistant-2',
+              kind: 'message',
+              role: 'assistant',
+              text: 'The follow-up stays in the same article flow.'
+            }
+          ]
+        }}
+        machine={machine}
+        session={activeSession}
+      />
+    );
+
+    expect(html).toContain('data-codex-transcript="article"');
+    expect(html).toContain('data-codex-message-role="assistant"');
+    expect(html).toContain('data-codex-message-role="user"');
+    expect(html.match(/aria-label="Assistant response"/g)).toHaveLength(2);
+    expect(html).toContain('aria-label="Your message"');
+    expect(html).not.toContain('data-codex-message-identity="assistant"');
+    expect(html).not.toContain('lucide-square-terminal');
+  });
+
   test('uses the compact Moodle-inspired composer surface', () => {
     const html = renderToStaticMarkup(
       <CodexConversationPane

@@ -39,7 +39,7 @@ const activityIcon = {
 function ActivityRow({ item }: { item: Extract<CodexConversationItem, { kind: 'activity' }> }) {
   const Icon = activityIcon[item.state];
   return (
-    <div className="ml-9 flex items-start gap-2 border-l border-neutral-800/80 py-1.5 pl-3 text-xs leading-5 text-neutral-500">
+    <div className="my-1 flex items-start gap-2 border-l border-neutral-800/80 py-1.5 pl-3 text-xs leading-5 text-neutral-500">
       <Icon className={cn(
         'mt-0.5 size-3 shrink-0',
         item.state === 'running' && 'animate-spin text-neutral-300',
@@ -54,25 +54,31 @@ function ActivityRow({ item }: { item: Extract<CodexConversationItem, { kind: 'a
 }
 
 function MessageItem({ item }: { item: Extract<CodexConversationItem, { kind: 'message' }> }) {
-  return (
-    <article className={cn('flex gap-3 py-3.5', item.role === 'user' && 'justify-end')}>
-      {item.role === 'assistant' ? (
-        <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-neutral-900 text-neutral-500">
-          <TerminalSquare className="size-3.5" />
-        </span>
-      ) : null}
-      <div className={cn(
-        'min-w-0 max-w-full sm:max-w-[76ch]',
-        item.role === 'user' && 'max-w-[88%] rounded-2xl rounded-br-md bg-neutral-800/90 px-4 py-2.5 text-sm leading-6 text-neutral-100'
-      )}>
-        {item.role === 'assistant'
-          ? <CodexMarkdownMessage text={item.text} />
-          : <p className="break-words whitespace-pre-wrap">{item.text}</p>}
+  if (item.role === 'assistant') {
+    return (
+      <article
+        aria-label="Assistant response"
+        className="min-w-0 py-4 sm:py-5"
+        data-codex-message-role="assistant"
+      >
+        <CodexMarkdownMessage text={item.text} />
         {item.streaming ? (
           <span className="mt-2 inline-flex items-center gap-1.5 text-[10px] text-neutral-500">
             <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" /> Streaming
           </span>
         ) : null}
+      </article>
+    );
+  }
+
+  return (
+    <article
+      aria-label="Your message"
+      className="flex justify-end py-3"
+      data-codex-message-role="user"
+    >
+      <div className="min-w-0 max-w-full rounded-2xl rounded-br-md bg-neutral-800/90 px-4 py-2.5 text-sm leading-6 text-neutral-100 sm:max-w-[76ch] max-[639px]:max-w-[88%]">
+        <p className="break-words whitespace-pre-wrap">{item.text}</p>
       </div>
     </article>
   );
@@ -173,12 +179,16 @@ export function CodexConversationPane({
         ) : null}
       </header> : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8">
-        {conversation?.items.length ? conversation.items.map((item) => (
-          item.kind === 'message'
-            ? <MessageItem item={item} key={item.id} />
-            : <ActivityRow item={item} key={item.id} />
-        )) : historyState === 'loading' ? (
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-8">
+        {conversation?.items.length ? (
+          <div className="mx-auto w-full max-w-[84ch]" data-codex-transcript="article">
+            {conversation.items.map((item) => (
+              item.kind === 'message'
+                ? <MessageItem item={item} key={item.id} />
+                : <ActivityRow item={item} key={item.id} />
+            ))}
+          </div>
+        ) : historyState === 'loading' ? (
           <div className="grid h-full place-items-center text-center">
             <div>
               <Loader2 className="mx-auto size-4 animate-spin text-neutral-500" />
