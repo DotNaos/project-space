@@ -60,6 +60,12 @@ export function createCodexMachineTaskIssueProvider(
           );
         }
         branch = created.branch;
+        if (!branch.commitSha) {
+          const refreshed = await backend.getGitHubRepositoryDetails(repository.fullName);
+          if (refreshed.status === 'connected') {
+            branch = refreshed.branches.find((candidate) => candidate.name === branch?.name) ?? branch;
+          }
+        }
       }
       if (!branch.commitSha || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(branch.commitSha)) {
         throw new CodexMachineTaskIssueError(

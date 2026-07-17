@@ -27,11 +27,12 @@ const issue = {
 describe('Codex machine-task issue provider', () => {
   test('creates one deterministic issue branch from the exact default branch and commit', async () => {
     const calls: unknown[] = [];
+    let detailReads = 0;
     const provider = createCodexMachineTaskIssueProvider({
       async createGitHubBranch(request) {
         calls.push(request);
         return {
-          branch: { commitSha: commit, isDefault: false, name: request.name },
+          branch: { isDefault: false, name: request.name },
           status: 'connected' as const
         };
       },
@@ -40,8 +41,18 @@ describe('Codex machine-task issue provider', () => {
       },
       async getGitHubRepositoryDetails(fullName) {
         expect(fullName).toBe(repository.fullName);
+        detailReads += 1;
         return {
-          branches: [{ commitSha: commit, isDefault: true, name: 'main' }],
+          branches: detailReads === 1
+            ? [{ commitSha: commit, isDefault: true, name: 'main' }]
+            : [
+                { commitSha: commit, isDefault: true, name: 'main' },
+                {
+                  commitSha: commit,
+                  isDefault: false,
+                  name: 'issue-262-build-codex-machine-task-core-and-cli'
+                }
+              ],
           checkedAt: '', issues: [issue], pullRequests: [], status: 'connected' as const
         };
       }
@@ -63,6 +74,7 @@ describe('Codex machine-task issue provider', () => {
       name: 'issue-262-build-codex-machine-task-core-and-cli',
       sourceBranch: 'main'
     }]);
+    expect(detailReads).toBe(2);
   });
 
   test('fails structurally before branch creation for authorization and repository failures', async () => {

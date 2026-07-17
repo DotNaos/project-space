@@ -58,6 +58,9 @@ interface GitHubCreateLinkedBranchResult {
     linkedBranch?: {
       ref?: {
         name?: string;
+        target?: {
+          oid?: string;
+        } | null;
       } | null;
     } | null;
   } | null;
@@ -151,13 +154,23 @@ function pullRequestMutationError(
   return { message, status };
 }
 
-export async function createGitHubBranch({
+const createBranchDependencies = {
+  requestGitHub,
+  requestGitHubGraphQL,
+  resolveOAuthToken
+};
+
+export function createGitHubBranch(request: GitHubBranchCreateRequest) {
+  return createGitHubBranchWithDependencies(request, createBranchDependencies);
+}
+
+export async function createGitHubBranchWithDependencies({
   fullName,
   issueNumber,
   name,
   sourceBranch
-}: GitHubBranchCreateRequest): Promise<GitHubBranchMutationResult> {
-  const auth = await resolveOAuthToken();
+}: GitHubBranchCreateRequest, dependencies: typeof createBranchDependencies): Promise<GitHubBranchMutationResult> {
+  const auth = await dependencies.resolveOAuthToken();
 
   if (!auth) {
     return branchMutationError(
@@ -174,10 +187,10 @@ export async function createGitHubBranch({
 
   try {
     const repoPath = repoApiPath(fullName);
-    const repo = await requestGitHub<GitHubApiRepository>(`/repos/${repoPath}`, auth.token);
+    const repo = await dependencies.requestGitHub<GitHubApiRepository>(`/repos/${repoPath}`, auth.token);
     const baseBranch = sourceBranch?.trim() || repo.default_branch || 'main';
     const encodedBaseBranch = encodeURIComponent(baseBranch).replace(/%2F/g, '/');
-    const sourceRef = await requestGitHub<GitHubApiGitRef>(
+    const sourceRef = await dependencies.requestGitHub<GitHubApiGitRef>(
       `/repos/${repoPath}/git/ref/heads/${encodedBaseBranch}`,
       auth.token
     );
@@ -194,7 +207,7 @@ export async function createGitHubBranch({
         return branchMutationError('error', 'Repository name must include owner and name.');
       }
 
-      const target = await requestGitHubGraphQL<GitHubLinkedBranchTarget>(
+      const target = await dependencies.requestGitHubGraphQL<GitHubLinkedBranchTarget>(
         auth.token,
         `
           query LinkedBranchTarget($owner: String!, $name: String!, $number: Int!) {
@@ -213,7 +226,7 @@ export async function createGitHubBranch({
         return branchMutationError('error', `Could not resolve issue #${issueNumber}.`);
       }
 
-      const created = await requestGitHubGraphQL<GitHubCreateLinkedBranchResult>(
+      const created = await dependencies.requestGitHubGraphQL<GitHubCreateLinkedBranchResult>(
         auth.token,
         `
           mutation CreateLinkedBranch($issueId: ID!, $name: String!, $oid: GitObjectID!) {
@@ -221,6 +234,9 @@ export async function createGitHubBranch({
               linkedBranch {
                 ref {
                   name
+                  target {
+                    oid
+                  }
                 }
               }
             }
@@ -229,9 +245,11 @@ export async function createGitHubBranch({
         { issueId, name: branchName, oid: sha }
       );
       const linkedBranchName = created.createLinkedBranch?.linkedBranch?.ref?.name ?? branchName;
+      const linkedCommitSha = created.createLinkedBranch?.linkedBranch?.ref?.target?.oid ?? sha;
 
       return {
         branch: {
+          commitSha: linkedCommitSha,
           isDefault: linkedBranchName === repo.default_branch,
           linkedIssueNumbers: [issueNumber],
           name: linkedBranchName,
@@ -241,7 +259,7 @@ export async function createGitHubBranch({
       };
     }
 
-    await requestGitHub<GitHubApiGitRef>(`/repos/${repoPath}/git/refs`, auth.token, {
+    const created = await dependencies.requestGitHub<GitHubApiGitRef>(`/repos/${repoPath}/git/refs`, auth.token, {
       body: JSON.stringify({
         ref: `refs/heads/${branchName}`,
         sha
@@ -254,6 +272,7 @@ export async function createGitHubBranch({
 
     return {
       branch: {
+        commitSha: created.object?.sha ?? sha,
         isDefault: branchName === repo.default_branch,
         name: branchName,
         url: `${repo.html_url}/tree/${encodeURIComponent(branchName).replace(/%2F/g, '/')}`

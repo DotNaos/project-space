@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
-import { updateGitHubIssueWithDependencies } from '../server/local-github-issue-actions';
+import {
+  createGitHubBranchWithDependencies,
+  updateGitHubIssueWithDependencies
+} from '../server/local-github-issue-actions';
+import type { requestGitHubGraphQL } from '../server/github-graphql-client';
 import type { requestGitHub } from '../server/local-github-catalog';
 import type { LocalGitHubApiIssue } from '../server/local-github-issue-creation-remote';
 import { gitHubIssueCreationMarker } from '../src/shared/github-issue-creation-marker';
@@ -21,6 +25,55 @@ function issue(overrides: Partial<LocalGitHubApiIssue> = {}): LocalGitHubApiIssu
 }
 
 describe('local GitHub issue actions', () => {
+  test('returns the exact linked branch commit reported by GitHub', async () => {
+    const request = (async <Result>(path: string) => {
+      if (path === '/repos/DotNaos/project-space') {
+        return {
+          default_branch: 'main',
+          html_url: 'https://github.com/DotNaos/project-space'
+        } as Result;
+      }
+      if (path === '/repos/DotNaos/project-space/git/ref/heads/main') {
+        return { object: { sha: 'a'.repeat(40) } } as Result;
+      }
+      throw new Error('Unexpected GitHub path: ' + path);
+    }) as typeof requestGitHub;
+    const graphql = (async <Result>(_token: string, query: string) => (
+      query.includes('LinkedBranchTarget')
+        ? { repository: { issue: { id: 'I_issue' } } }
+        : {
+            createLinkedBranch: {
+              linkedBranch: {
+                ref: {
+                  name: 'issue-266-dogfood',
+                  target: { oid: 'b'.repeat(40) }
+                }
+              }
+            }
+          }
+    ) as Result) as typeof requestGitHubGraphQL;
+
+    await expect(createGitHubBranchWithDependencies({
+      fullName: 'DotNaos/project-space',
+      issueNumber: 266,
+      name: 'issue-266-dogfood',
+      sourceBranch: 'main'
+    }, {
+      requestGitHub: request,
+      requestGitHubGraphQL: graphql,
+      resolveOAuthToken: async () => ({ source: 'stored-oauth', token: 'secret-token' })
+    })).resolves.toEqual({
+      branch: {
+        commitSha: 'b'.repeat(40),
+        isDefault: false,
+        linkedIssueNumbers: [266],
+        name: 'issue-266-dogfood',
+        url: 'https://github.com/DotNaos/project-space/tree/issue-266-dogfood'
+      },
+      status: 'connected'
+    });
+  });
+
   test('reads the current issue and preserves its creation marker on body edits', async () => {
     const calls: Array<{ body?: string; method?: string; path: string }> = [];
     const request = (async <Result>(path: string, _token: string, init?: RequestInit) => {
