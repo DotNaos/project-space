@@ -38,6 +38,20 @@ function memoryStore(): CodexMachineTasksStore & { operations: Map<string, Codex
   }>();
   return {
     operations,
+    async lookupStart(input) {
+      const current = operations.get(input.operationId);
+      if (!current) return { kind: 'missing' };
+      if (current.fingerprint !== input.fingerprint) return { kind: 'conflict' };
+      if (current.state === 'completed' && current.result) {
+        return { kind: 'replayed', result: current.result };
+      }
+      return {
+        durableOperations: current.durableOperations,
+        generation: current.generation,
+        kind: 'reserved',
+        state: current.state === 'uncertain' ? 'uncertain' : 'pending'
+      };
+    },
     async reserveSend(operation) {
       const current = sends.get(operation.operationId);
       if (current) {
@@ -49,8 +63,16 @@ function memoryStore(): CodexMachineTasksStore & { operations: Map<string, Codex
           return { kind: 'replayed', result: current.result };
         }
         return current.state === 'uncertain'
-          ? { generation: current.generation, kind: 'uncertain' }
-          : { generation: current.generation, kind: 'pending' };
+          ? {
+              durableOperations: current.durableOperations,
+              generation: current.generation,
+              kind: 'uncertain'
+            }
+          : {
+              durableOperations: current.durableOperations,
+              generation: current.generation,
+              kind: 'pending'
+            };
       }
       if ([...sends.values()].some((candidate) => candidate.connectorId === operation.connectorId &&
         candidate.threadId === operation.threadId && candidate.state !== 'completed')) {
@@ -75,8 +97,18 @@ function memoryStore(): CodexMachineTasksStore & { operations: Map<string, Codex
           ? current.result
             ? { kind: 'replayed', result: current.result }
             : current.state === 'uncertain'
-              ? { generation: current.generation, kind: 'uncertain', sameOperation: true }
-              : { generation: current.generation, kind: 'pending', sameOperation: true }
+              ? {
+                  durableOperations: current.durableOperations,
+                  generation: current.generation,
+                  kind: 'uncertain',
+                  sameOperation: true
+                }
+              : {
+                  durableOperations: current.durableOperations,
+                  generation: current.generation,
+                  kind: 'pending',
+                  sameOperation: true
+                }
           : { kind: 'conflict' };
       }
       const associated = [...operations.values()].find((candidate) => (
@@ -84,10 +116,20 @@ function memoryStore(): CodexMachineTasksStore & { operations: Map<string, Codex
       ));
       if (associated?.result) return { kind: 'replayed', result: associated.result };
       if (associated?.state === 'uncertain') {
-        return { generation: associated.generation, kind: 'uncertain', sameOperation: false };
+        return {
+          durableOperations: associated.durableOperations,
+          generation: associated.generation,
+          kind: 'uncertain',
+          sameOperation: false
+        };
       }
       if (associated) {
-        return { generation: associated.generation, kind: 'pending', sameOperation: false };
+        return {
+          durableOperations: associated.durableOperations,
+          generation: associated.generation,
+          kind: 'pending',
+          sameOperation: false
+        };
       }
       operations.set(operation.operationId, operation);
       return { kind: 'new' };
@@ -105,6 +147,7 @@ function memoryStore(): CodexMachineTasksStore & { operations: Map<string, Codex
 }
 
 function service(options: {
+  durableGenerationFor?: (connectorId: string, generation: number) => boolean;
   generationFor?: () => number;
   inventory?: () => Promise<{
     connectors: MachineRecord[];
@@ -162,6 +205,7 @@ function service(options: {
       repository: { id: 'R_test', nameWithOwner: 'DotNaos/project-space' }
     })),
     generationFor: options.generationFor ?? (() => 7),
+    durableGenerationFor: options.durableGenerationFor ?? (() => true),
     sessions: {
       async read() {
         return {
@@ -249,6 +293,43 @@ describe('Codex machine-task service', () => {
     expect(starts).toBe(1);
   });
 
+  test('replays a completed start before consulting live target or GitHub state', async () => {
+    const store = memoryStore();
+    const first = await service({ store }).start({ userId: 'user-owner' }, request);
+    let inventoryCalls = 0;
+    let issueCalls = 0;
+    const replay = await service({
+      inventory: async () => {
+        inventoryCalls += 1;
+        throw new Error('connector inventory is unavailable');
+      },
+      issue: async () => {
+        issueCalls += 1;
+        throw new CodexMachineTaskIssueError('offline', 'GitHub is unavailable.');
+      },
+      store
+    }).start({ userId: 'user-owner' }, request);
+
+    expect(replay).toEqual(first);
+    expect(inventoryCalls).toBe(0);
+    expect(issueCalls).toBe(0);
+  });
+
+  test('rejects changed start input before consulting live target state', async () => {
+    const store = memoryStore();
+    await service({ store }).start({ userId: 'user-owner' }, request);
+    let inventoryCalls = 0;
+    await expect(service({
+      inventory: async () => {
+        inventoryCalls += 1;
+        throw new Error('connector inventory is unavailable');
+      },
+      store
+    }).start({ userId: 'user-owner' }, { ...request, issue: 263 }))
+      .rejects.toBeInstanceOf(CodexMachineTasksConflictError);
+    expect(inventoryCalls).toBe(0);
+  });
+
   test('resolves --here from the authenticated caller connector without guessing', async () => {
     const result = await service().start({
       callerMachineId: 'connector-local',
@@ -290,6 +371,28 @@ describe('Codex machine-task service', () => {
       operationId: 'start-262-local-new-operation'
     })).toEqual(expect.objectContaining({ reconcile: 'required', state: 'uncertain' }));
     expect(starts).toBe(2);
+  });
+
+  test('keeps a reserved start uncertain when GitHub becomes unavailable', async () => {
+    const store = memoryStore();
+    await service({
+      start: async () => ({ state: 'uncertain' }),
+      store
+    }).start({ userId: 'user-owner' }, request);
+
+    const result = await service({
+      issue: async () => {
+        throw new CodexMachineTaskIssueError('offline', 'GitHub is unavailable.');
+      },
+      store
+    }).start({ userId: 'user-owner' }, request);
+
+    expect(result).toEqual(expect.objectContaining({
+      operationId: request.operationId,
+      reconcile: 'required',
+      state: 'uncertain',
+      target: expect.objectContaining({ connector: expect.objectContaining({ generation: 7 }) })
+    }));
   });
 
   test('allows a safe retry after a known not-dispatched start failure', async () => {
@@ -648,7 +751,11 @@ describe('Codex machine-task service', () => {
 
   test('recovers an orphaned pending send only on its stored connector generation', async () => {
     const store = memoryStore();
-    store.reserveSend = async () => ({ generation: 6, kind: 'pending' });
+    store.reserveSend = async () => ({
+      durableOperations: true,
+      generation: 6,
+      kind: 'pending'
+    });
     let dispatchedGeneration = 0;
     const result = await service({
       store,

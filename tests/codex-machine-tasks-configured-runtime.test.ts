@@ -26,7 +26,7 @@ function untilAborted(signal: AbortSignal, onAbort: () => void) {
 }
 
 describe('configured Codex machine-task runtime', () => {
-  test('crosses a connector generation only when the replacement proves durable operations', () => {
+  test('crosses a connector generation only when both generations prove durable operations', () => {
     const connectorId = 'connector-restarted';
     const socket = { readyState: WebSocket.OPEN } as WebSocket;
     const durableGeneration = registerConnectorSession(
@@ -35,14 +35,16 @@ describe('configured Codex machine-task runtime', () => {
       'test-token',
       [CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY]
     );
-    expect(connectorReconciliationGeneration(connectorId, durableGeneration + 1))
+    expect(connectorReconciliationGeneration(connectorId, durableGeneration + 1, true))
       .toBe(durableGeneration);
+    expect(connectorReconciliationGeneration(connectorId, durableGeneration + 1, false))
+      .toBeUndefined();
     removeConnectorSession(connectorId, socket);
 
     const legacyGeneration = registerConnectorSession(connectorId, socket, 'test-token', []);
-    expect(connectorReconciliationGeneration(connectorId, legacyGeneration))
+    expect(connectorReconciliationGeneration(connectorId, legacyGeneration, false))
       .toBe(legacyGeneration);
-    expect(connectorReconciliationGeneration(connectorId, legacyGeneration + 1))
+    expect(connectorReconciliationGeneration(connectorId, legacyGeneration + 1, true))
       .toBeUndefined();
     removeConnectorSession(connectorId, socket);
   });
@@ -108,5 +110,77 @@ describe('configured Codex machine-task runtime', () => {
     expect(generations).toEqual([7, 7, 7]);
     expect(localAborted).toBeTrue();
     expect(transportAborted).toBeTrue();
+  });
+
+  test('retains a recent approval while opening a wait on a long thread', async () => {
+    const sessions = {
+      service: {
+        async read() {
+          return {
+            openedReadOnly: true as const,
+            session: {
+              archived: false,
+              id: threadId,
+              lastActivityAt: '2026-07-17T00:00:00.000Z',
+              loadedByProjectSpace: false,
+              machineId: 'connector-local',
+              machineName: 'Local macOS',
+              status: 'active' as const,
+              title: '#262'
+            },
+            turns: [{ id: 'turn-reconciled', items: [], status: 'in-progress' as const }]
+          };
+        },
+        async stream(_actor, _request, emit, signal, onReady) {
+          for (let index = 0; index < 500; index += 1) {
+            emit({
+              eventId: `old-${index}`,
+              turnId: `old-turn-${index}`,
+              type: 'turn-completed'
+            }, index + 1);
+          }
+          emit({
+            eventId: 'approval-latest',
+            requestId: 'approval-request',
+            turnId: 'turn-reconciled',
+            type: 'approval-requested'
+          }, 501);
+          onReady?.();
+          await untilAborted(signal, () => {});
+        },
+        async transportStream(_actor, request, signal) {
+          request.onDispatched?.();
+          await untilAborted(signal, () => {});
+        }
+      }
+    } as unknown as CodexSessionsRuntime;
+
+    const result = await Promise.race([
+      waitForTerminal(sessions, {
+        connectorId: 'connector-local',
+        generation: 7,
+        start: async () => ({
+          operationId: 'send-operation',
+          replayed: true,
+          status: 'accepted',
+          threadId,
+          turnId: 'turn-reconciled'
+        }),
+        threadId,
+        userId: 'user-owner'
+      }),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('wait did not replay the recent approval')), 500);
+      })
+    ]);
+
+    expect(result).toEqual(expect.objectContaining({
+      event: expect.objectContaining({
+        eventId: 'approval-latest',
+        turnId: 'turn-reconciled',
+        type: 'approval-requested'
+      }),
+      sequence: 501
+    }));
   });
 });

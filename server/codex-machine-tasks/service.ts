@@ -37,6 +37,7 @@ import {
 export interface CodexMachineTaskStartOperation {
   associationKey: string;
   connectorId: string;
+  durableOperations: boolean;
   fingerprint: string;
   generation: number;
   operationId: string;
@@ -49,12 +50,24 @@ export interface CodexMachineTaskStartOperation {
 export type CodexMachineTaskStartReservation =
   | { kind: 'new' }
   | { kind: 'conflict' }
-  | { generation: number; kind: 'pending'; sameOperation: boolean }
-  | { generation: number; kind: 'uncertain'; sameOperation: boolean }
+  | { durableOperations: boolean; generation: number; kind: 'pending'; sameOperation: boolean }
+  | { durableOperations: boolean; generation: number; kind: 'uncertain'; sameOperation: boolean }
+  | { kind: 'replayed'; result: CodexMachineTaskStartResult };
+
+export type CodexMachineTaskStartLookup =
+  | { kind: 'missing' }
+  | { kind: 'conflict' }
+  | {
+      durableOperations: boolean;
+      generation: number;
+      kind: 'reserved';
+      state: 'pending' | 'uncertain';
+    }
   | { kind: 'replayed'; result: CodexMachineTaskStartResult };
 
 export interface CodexMachineTaskSendOperation {
   connectorId: string;
+  durableOperations: boolean;
   fingerprint: string;
   generation: number;
   operationId: string;
@@ -66,8 +79,8 @@ export type CodexMachineTaskSendReservation =
   | { kind: 'new' }
   | { kind: 'conflict' }
   | { kind: 'fenced' }
-  | { generation: number; kind: 'pending' }
-  | { generation: number; kind: 'uncertain' }
+  | { durableOperations: boolean; generation: number; kind: 'pending' }
+  | { durableOperations: boolean; generation: number; kind: 'uncertain' }
   | { kind: 'replayed'; result: CodexMachineTaskSendResult };
 
 export interface CodexMachineTasksStore {
@@ -81,6 +94,11 @@ export interface CodexMachineTasksStore {
   ): Promise<void>;
   markStartUncertain(operation: CodexMachineTaskStartOperation): Promise<void>;
   markSendUncertain(operation: CodexMachineTaskSendOperation): Promise<void>;
+  lookupStart(input: {
+    fingerprint: string;
+    operationId: string;
+    userId: string;
+  }): Promise<CodexMachineTaskStartLookup>;
   releaseSend(operation: CodexMachineTaskSendOperation): Promise<void>;
   releaseStart(operation: CodexMachineTaskStartOperation): Promise<void>;
   reserveStart(operation: CodexMachineTaskStartOperation): Promise<CodexMachineTaskStartReservation>;
@@ -108,6 +126,7 @@ export interface CodexMachineTasksServiceOptions {
     }): { endpointPath: string; expiresAt: string; token: string };
   };
   generationFor(connectorId: string): number | undefined;
+  durableGenerationFor?(connectorId: string, generation: number): boolean;
   inventory(userId: string): Promise<{
     connectors: MachineRecord[];
     physicalMachines: PhysicalMachineRecord[];
@@ -131,6 +150,7 @@ export interface CodexMachineTasksServiceOptions {
     }): Promise<CodexSessionReadResult>;
     reconcileSend?(input: {
       connectorId: string;
+      durableOperations: boolean;
       generation: number;
       message: string;
       operationId: string;
@@ -179,6 +199,7 @@ export interface CodexMachineTasksServiceOptions {
     issue: { number: number; url: string };
     operationId: string;
     physicalMachineId: string;
+    durableOperations: boolean;
     reconcile: boolean;
     repository: { id: string; nameWithOwner: string };
     userId: string;
@@ -223,12 +244,14 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
 
   function reconcileSend(
     generation: number,
+    durableOperations: boolean,
     selected: CodexMachineTaskTarget,
     userId: string,
     request: CodexMachineTaskSendRequest
   ) {
     return options.sessions.reconcileSend?.({
       connectorId: selected.connector.id,
+      durableOperations,
       generation,
       message: request.message,
       operationId: request.operationId,
@@ -242,6 +265,18 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       actor: { callerMachineId?: string; userId: string },
       request: CodexMachineTaskStartRequest
     ): Promise<CodexMachineTaskStartResult> {
+      const requestFingerprint = fingerprint({ request, userId: actor.userId });
+      const lookup = request.dryRun
+        ? { kind: 'missing' as const }
+        : await options.store.lookupStart({
+            fingerprint: requestFingerprint,
+            operationId: request.operationId,
+            userId: actor.userId
+          });
+      if (lookup.kind === 'conflict') throw new CodexMachineTasksConflictError();
+      if (lookup.kind === 'replayed') {
+        return { ...lookup.result, operationId: request.operationId };
+      }
       let selected: CodexMachineTaskTarget;
       try {
         selected = await target(actor.userId, request, actor.callerMachineId);
@@ -266,6 +301,12 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         });
       } catch (error) {
         if (!(error instanceof CodexMachineTaskIssueError)) throw error;
+        if (lookup.kind === 'reserved') {
+          return uncertain(
+            request.operationId,
+            targetAtGeneration(selected, lookup.generation)
+          );
+        }
         return blocked(request.operationId, error.reason, error.message, selected);
       }
       const operation: CodexMachineTaskStartOperation = {
@@ -277,14 +318,11 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
           userId: actor.userId
         }),
         connectorId: selected.connector.id,
-        fingerprint: fingerprint({
-          issue,
-          request,
-          target: {
-            connectorId: selected.connector.id,
-            physicalMachineId: selected.physicalMachine.id
-          }
-        }),
+        durableOperations: options.durableGenerationFor?.(
+          selected.connector.id,
+          selected.connector.generation
+        ) ?? false,
+        fingerprint: requestFingerprint,
         generation: selected.connector.generation,
         operationId: request.operationId,
         physicalMachineId: selected.physicalMachine.id,
@@ -308,12 +346,16 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       const executionGeneration = reservation.kind === 'new'
         ? operation.generation
         : reservation.generation;
+      const durableOperations = reservation.kind === 'new'
+        ? operation.durableOperations
+        : reservation.durableOperations;
       operation.generation = executionGeneration;
       const start = await options.start({
         branch: issue.branch,
         commit: issue.commit,
         connectorId: selected.connector.id,
         generation: executionGeneration,
+        durableOperations,
         issue: issue.issue,
         operationId: request.operationId,
         physicalMachineId: selected.physicalMachine.id,
@@ -471,6 +513,10 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       }
       const operation: CodexMachineTaskSendOperation = {
         connectorId: selected.connector.id,
+        durableOperations: options.durableGenerationFor?.(
+          selected.connector.id,
+          selected.connector.generation
+        ) ?? false,
         fingerprint: fingerprint({
           connectorId: selected.connector.id,
           message: request.message,
@@ -498,12 +544,16 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       const executionGeneration = reservation.kind === 'pending' || reservation.kind === 'uncertain'
         ? reservation.generation
         : operation.generation;
+      const durableOperations = reservation.kind === 'pending' || reservation.kind === 'uncertain'
+        ? reservation.durableOperations
+        : operation.durableOperations;
       let resultGeneration = executionGeneration;
       operation.generation = executionGeneration;
       let attempted = false;
       const reconcile = async () => {
         const reconciliation = await reconcileSend(
           executionGeneration,
+          durableOperations,
           targetAtGeneration(selected, executionGeneration),
           actor.userId,
           request

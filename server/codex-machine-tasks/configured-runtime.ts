@@ -90,6 +90,10 @@ async function createHandler(options: ConfiguredCodexMachineTasksOptions) {
   const service = createCodexMachineTasksService({
     attachments: options.attachLeases,
     generationFor: connectorSessionGeneration,
+    durableGenerationFor: (connectorId, generation) => (
+      connectorSessionGeneration(connectorId) === generation &&
+      connectorHasCapability(connectorId, CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY)
+    ),
     async inventory(userId) {
       return runWithAuthSession(machineSession(userId), async () => {
         const overview = await options.backend.getConnectorOverview();
@@ -107,7 +111,8 @@ async function createHandler(options: ConfiguredCodexMachineTasksOptions) {
       reconcileSend: async (input) => {
         const generation = connectorReconciliationGeneration(
           input.connectorId,
-          input.generation
+          input.generation,
+          input.durableOperations
         );
         if (generation === undefined) {
           return Promise.resolve({
@@ -176,7 +181,11 @@ async function createHandler(options: ConfiguredCodexMachineTasksOptions) {
     },
     async start(input) {
       const generation = input.reconcile
-        ? connectorReconciliationGeneration(input.connectorId, input.generation)
+        ? connectorReconciliationGeneration(
+            input.connectorId,
+            input.generation,
+            input.durableOperations
+          )
         : input.generation;
       if (generation === undefined) {
         return { generation: input.generation, result: { state: 'uncertain' as const } };
@@ -246,11 +255,12 @@ async function createHandler(options: ConfiguredCodexMachineTasksOptions) {
 
 export function connectorReconciliationGeneration(
   connectorId: string,
-  originalGeneration: number
+  originalGeneration: number,
+  originalDurableOperations: boolean
 ) {
   const currentGeneration = connectorSessionGeneration(connectorId);
   if (currentGeneration === originalGeneration) return originalGeneration;
-  return currentGeneration !== undefined && connectorHasCapability(
+  return originalDurableOperations && currentGeneration !== undefined && connectorHasCapability(
     connectorId,
     CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY
   )
@@ -285,7 +295,8 @@ export async function waitForTerminal(
       'approval-requested', 'turn-completed', 'user-input-requested'
     ].includes(event.type);
   const emit = (event: CodexSessionStreamEvent, sequence?: number) => {
-    if (observed.length < 500) observed.push({ event, sequence });
+    observed.push({ event, sequence });
+    if (observed.length > 500) observed.shift();
     if (matches(event)) resolveTerminal({ event, sequence });
   };
   const streaming = Promise.all([

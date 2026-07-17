@@ -19,6 +19,7 @@ class FakeDatabase implements DatabaseQueryClient {
 const operation: CodexMachineTaskStartOperation = {
   associationKey: 'a'.repeat(64),
   connectorId: 'connector-one',
+  durableOperations: true,
   fingerprint: 'b'.repeat(64),
   generation: 4,
   operationId: 'start-operation-one',
@@ -46,6 +47,7 @@ function row(overrides: Record<string, unknown> = {}) {
   return {
     dispatch_operation_id: operation.operationId,
     connector_generation: operation.generation,
+    durable_operations: operation.durableOperations,
     result: completed,
     state: 'completed',
     ...overrides
@@ -53,6 +55,48 @@ function row(overrides: Record<string, unknown> = {}) {
 }
 
 describe('Codex machine-task durable start store', () => {
+  test('looks up completed and reserved starts before live dependencies', async () => {
+    const replayDatabase = new FakeDatabase();
+    replayDatabase.responses.push({ rows: [{
+      ...row(),
+      fingerprint_sha256: operation.fingerprint
+    }] });
+    expect(await new PostgresCodexMachineTasksStore(replayDatabase).lookupStart({
+      fingerprint: operation.fingerprint,
+      operationId: operation.operationId,
+      userId: operation.userId
+    })).toEqual({ kind: 'replayed', result: completed });
+
+    const reservedDatabase = new FakeDatabase();
+    reservedDatabase.responses.push({ rows: [{
+      ...row({ result: null, state: 'uncertain' }),
+      fingerprint_sha256: operation.fingerprint
+    }] });
+    expect(await new PostgresCodexMachineTasksStore(reservedDatabase).lookupStart({
+      fingerprint: operation.fingerprint,
+      operationId: operation.operationId,
+      userId: operation.userId
+    })).toEqual({
+      durableOperations: true,
+      generation: 4,
+      kind: 'reserved',
+      state: 'uncertain'
+    });
+  });
+
+  test('rejects changed input during an early start lookup', async () => {
+    const database = new FakeDatabase();
+    database.responses.push({ rows: [{
+      ...row(),
+      fingerprint_sha256: operation.fingerprint
+    }] });
+    expect(await new PostgresCodexMachineTasksStore(database).lookupStart({
+      fingerprint: 'c'.repeat(64),
+      operationId: operation.operationId,
+      userId: operation.userId
+    })).toEqual({ kind: 'conflict' });
+  });
+
   test('rejects a reused operation id before replaying a completed result', async () => {
     const database = new FakeDatabase();
     database.responses.push(
@@ -95,7 +139,12 @@ describe('Codex machine-task durable start store', () => {
       ...operation,
       fingerprint: 'd'.repeat(64),
       operationId: 'start-operation-two'
-    })).toEqual({ generation: 4, kind: 'uncertain', sameOperation: false });
+    })).toEqual({
+      durableOperations: true,
+      generation: 4,
+      kind: 'uncertain',
+      sameOperation: false
+    });
   });
 
   test('allows only the original operation to reconcile an uncertain start', async () => {
@@ -109,6 +158,7 @@ describe('Codex machine-task durable start store', () => {
 
     expect(await new PostgresCodexMachineTasksStore(database).reserveStart(operation)).toEqual({
       generation: 4,
+      durableOperations: true,
       kind: 'uncertain',
       sameOperation: true
     });
@@ -136,6 +186,7 @@ describe('Codex machine-task durable start store', () => {
 describe('Codex machine-task durable send store', () => {
   const send = {
     connectorId: 'connector-one',
+    durableOperations: true,
     fingerprint: 'f'.repeat(64),
     generation: 9,
     operationId: 'send-operation-one',
@@ -153,11 +204,13 @@ describe('Codex machine-task durable send store', () => {
     const uncertain = new FakeDatabase();
     uncertain.responses.push({ rows: [] }, { rows: [{
       connector_generation: '9', connector_id: send.connectorId,
+      durable_operations: true,
       fingerprint_sha256: send.fingerprint, operation_id: send.operationId,
       result: null, state: 'uncertain', thread_id: send.threadId
     }] });
     expect(await new PostgresCodexMachineTasksStore(uncertain).reserveSend(send)).toEqual({
       generation: 9,
+      durableOperations: true,
       kind: 'uncertain'
     });
   });
@@ -166,6 +219,7 @@ describe('Codex machine-task durable send store', () => {
     const database = new FakeDatabase();
     database.responses.push({ rows: [] }, { rows: [{
       connector_generation: 9, connector_id: send.connectorId,
+      durable_operations: true,
       fingerprint_sha256: send.fingerprint, operation_id: 'send-operation-earlier',
       result: null, state: 'uncertain', thread_id: send.threadId
     }] });

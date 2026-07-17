@@ -12,8 +12,13 @@ import type {
 interface StartRow {
   connector_generation: string | number;
   dispatch_operation_id: string;
+  durable_operations: boolean;
   result: unknown;
   state: 'completed' | 'pending' | 'uncertain';
+}
+
+interface StartLookupRow extends StartRow {
+  fingerprint_sha256: string;
 }
 
 interface OperationRow {
@@ -24,6 +29,7 @@ interface OperationRow {
 interface SendRow {
   connector_generation: string | number;
   connector_id: string;
+  durable_operations: boolean;
   fingerprint_sha256: string;
   operation_id: string;
   result: unknown;
@@ -34,17 +40,46 @@ interface SendRow {
 export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
   constructor(private readonly client: DatabaseQueryClient) {}
 
+  async lookupStart(input: { fingerprint: string; operationId: string; userId: string }) {
+    const result = await this.client.query<StartLookupRow>(
+      `select o.fingerprint_sha256, s.dispatch_operation_id,
+              s.connector_generation, s.durable_operations, s.state, s.result
+         from codex_machine_task_start_operations o
+         join codex_machine_task_starts s
+           on s.owner_user_id = o.owner_user_id and s.association_key = o.association_key
+        where o.owner_user_id = $1 and o.operation_id = $2`,
+      [input.userId, input.operationId]
+    );
+    const row = result.rows[0];
+    if (!row) return { kind: 'missing' } as const;
+    if (row.fingerprint_sha256 !== input.fingerprint) return { kind: 'conflict' } as const;
+    if (row.state === 'completed' && isStartResult(row.result)) {
+      return { kind: 'replayed', result: row.result } as const;
+    }
+    const generation = Number(row.connector_generation);
+    if (!Number.isSafeInteger(generation) || generation < 1) return { kind: 'conflict' } as const;
+    return row.state === 'pending' || row.state === 'uncertain'
+      ? {
+          durableOperations: row.durable_operations,
+          generation,
+          kind: 'reserved',
+          state: row.state
+        } as const
+      : { kind: 'conflict' } as const;
+  }
+
   async reserveStart(operation: CodexMachineTaskStartOperation) {
     const run = async (client: DatabaseQueryClient) => {
       const insertedAssociation = await client.query<{ association_key: string }>(
          `insert into codex_machine_task_starts (
            owner_user_id, association_key, dispatch_operation_id,
-           connector_generation, physical_machine_id, connector_id, state
-         ) values ($1, $2, $3, $4, $5, $6, 'pending')
+           connector_generation, durable_operations, physical_machine_id, connector_id, state
+         ) values ($1, $2, $3, $4, $5, $6, $7, 'pending')
          on conflict do nothing
          returning association_key`,
         [operation.userId, operation.associationKey, operation.operationId,
-          operation.generation, operation.physicalMachineId, operation.connectorId]
+          operation.generation, operation.durableOperations, operation.physicalMachineId,
+          operation.connectorId]
       );
       const insertedOperation = await client.query<{ operation_id: string }>(
         `insert into codex_machine_task_start_operations (
@@ -74,7 +109,7 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
         return { kind: 'conflict' } as const;
       }
       const existing = await client.query<StartRow>(
-        `select dispatch_operation_id, connector_generation, state, result
+        `select dispatch_operation_id, connector_generation, durable_operations, state, result
            from codex_machine_task_starts
           where owner_user_id = $1 and association_key = $2
           for update`,
@@ -82,6 +117,7 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
       );
       const row = existing.rows[0];
       if (!row) return {
+        durableOperations: operation.durableOperations,
         generation: operation.generation, kind: 'pending', sameOperation: false
       } as const;
       if (insertedAssociation.rows.length > 0 && insertedOperation.rows.length > 0) {
@@ -92,14 +128,21 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
       }
       const generation = Number(row.connector_generation);
       if (!Number.isSafeInteger(generation) || generation < 1) {
-        return { generation: operation.generation, kind: 'pending', sameOperation: false } as const;
+        return {
+          durableOperations: operation.durableOperations,
+          generation: operation.generation,
+          kind: 'pending',
+          sameOperation: false
+        } as const;
       }
       return row.state === 'uncertain'
         ? {
+            durableOperations: row.durable_operations,
             generation, kind: 'uncertain',
             sameOperation: row.dispatch_operation_id === operation.operationId
           } as const
         : {
+            durableOperations: row.durable_operations,
             generation, kind: 'pending',
             sameOperation: row.dispatch_operation_id === operation.operationId
           } as const;
@@ -119,17 +162,17 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
       const inserted = await client.query<{ operation_id: string }>(
         `insert into codex_machine_task_sends (
            owner_user_id, operation_id, connector_id, thread_id,
-           connector_generation, fingerprint_sha256, state
-         ) values ($1, $2, $3, $4, $5, $6, 'pending')
+           connector_generation, durable_operations, fingerprint_sha256, state
+         ) values ($1, $2, $3, $4, $5, $6, $7, 'pending')
          on conflict do nothing
          returning operation_id`,
         [operation.userId, operation.operationId, operation.connectorId, operation.threadId,
-          operation.generation, operation.fingerprint]
+          operation.generation, operation.durableOperations, operation.fingerprint]
       );
       if (inserted.rows.length > 0) return { kind: 'new' } as const;
       const existing = await client.query<SendRow>(
         `select operation_id, connector_id, thread_id, connector_generation,
-                fingerprint_sha256, state, result
+                durable_operations, fingerprint_sha256, state, result
            from codex_machine_task_sends
           where owner_user_id = $1 and (
             operation_id = $2 or (
@@ -152,12 +195,12 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
       if (row.state === 'uncertain') {
         const generation = Number(row.connector_generation);
         return Number.isSafeInteger(generation) && generation > 0
-          ? { generation, kind: 'uncertain' } as const
+          ? { durableOperations: row.durable_operations, generation, kind: 'uncertain' } as const
           : { kind: 'fenced' } as const;
       }
       const generation = Number(row.connector_generation);
       return Number.isSafeInteger(generation) && generation > 0
-        ? { generation, kind: 'pending' } as const
+        ? { durableOperations: row.durable_operations, generation, kind: 'pending' } as const
         : { kind: 'fenced' } as const;
     };
     return this.client.transaction ? this.client.transaction(run) : run(this.client);
