@@ -516,10 +516,13 @@ export function ProjectMainPanel({
         )}
       >
         <CodexSessionsControllerPage
+          connectorInstallations={connectorOverview.machines}
           controller={codexController}
           machineIds={codexMachineIds}
           onBackFromThread={() => onOpenCodex()}
           onOpenThread={onOpenCodex}
+          physicalMachines={connectorOverview.physicalMachines ?? []}
+          projects={projects.filter(isVisibleProject)}
           selectedOrigin={selectedCodexOrigin}
         />
       </Surface>

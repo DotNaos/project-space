@@ -207,9 +207,13 @@ export function CodexConversationPane({
         ) : null}
       </header> : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-8">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-pb-8 px-4 py-3 sm:px-6 sm:py-4">
         {conversation?.items.length ? (
-          <div className="mx-auto w-full max-w-[84ch]" data-codex-transcript="article">
+          <div
+            className="mx-auto w-full max-w-[84ch]"
+            data-codex-reading-column="true"
+            data-codex-transcript="article"
+          >
             {conversation.items.map((item) => (
               item.kind === 'message'
                 ? <MessageItem item={item} key={item.id} />
@@ -251,53 +255,55 @@ export function CodexConversationPane({
         data-codex-composer="true"
         onSubmit={submit}
       >
-        {blockReason ? (
-          <div className="mb-2 flex items-center gap-2 text-[10px] text-neutral-500">
-            <Clock3 className="size-3 shrink-0" />
-            <Text>{blockReason}</Text>
-          </div>
-        ) : null}
-        <div className="flex min-h-[7.25rem] flex-col rounded-[1.75rem] border border-neutral-700/80 bg-neutral-900 px-3 pb-2.5 pt-3 shadow-[0_10px_32px_rgba(0,0,0,0.32)] transition-colors focus-within:border-neutral-500">
-          <CodexComposerTextArea
-            aria-label="Continue this Codex session"
-            className="min-h-14 w-full flex-none px-1 py-0"
-            disabled={Boolean(blockReason) || !onContinue || sending}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder={blockReason ?? 'Continue this session…'}
-            value={draft}
-          />
-          <div className="mt-auto flex min-w-0 items-center justify-between gap-3" data-codex-composer-actions="true">
-            <div className="flex min-w-0 items-center gap-0.5">
-              <span
-                aria-label="Exact machine and task authorization"
-                className="grid size-9 shrink-0 place-items-center text-neutral-500"
-                role="img"
-                title="Exact machine and task authorization"
-              >
-                <ShieldCheck className="size-4" />
-              </span>
-              <CodexSessionModelSelect
-                disabled={Boolean(blockReason) || sending || (modelSelection?.disabled ?? true)}
-                effort={modelSelection?.effort}
-                error={modelSelection?.error}
-                models={modelSelection?.models ?? []}
-                onChange={modelSelection?.onChange ?? (() => {})}
-                onEffortChange={modelSelection?.onEffortChange ?? (() => {})}
-                onServiceTierChange={modelSelection?.onServiceTierChange ?? (() => {})}
-                override={modelSelection?.override}
-                serviceTier={modelSelection?.serviceTier}
-                usesCatalogueDefault={modelSelection?.usesCatalogueDefault}
-                value={modelSelection?.value ?? session.model ?? ''}
-              />
+        <div className="mx-auto w-full max-w-[84ch]" data-codex-composer-column="true">
+          {blockReason ? (
+            <div className="mb-2 flex items-center gap-2 text-[10px] text-neutral-500">
+              <Clock3 className="size-3 shrink-0" />
+              <Text>{blockReason}</Text>
             </div>
-            <button
-              aria-label="Send to this Codex session"
-              className="grid size-9 shrink-0 place-items-center rounded-full bg-neutral-100 text-neutral-900 shadow-sm transition hover:bg-white disabled:pointer-events-none disabled:opacity-50"
-              disabled={!draft.trim() || Boolean(blockReason) || !onContinue || sending}
-              type="submit"
-            >
-              {sending ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowUp className="size-3.5" />}
-            </button>
+          ) : null}
+          <div className="flex min-h-[7.25rem] flex-col rounded-[1.75rem] border border-neutral-700/80 bg-neutral-900 px-3 pb-2.5 pt-3 shadow-[0_10px_32px_rgba(0,0,0,0.32)] transition-colors focus-within:border-neutral-500">
+            <CodexComposerTextArea
+              aria-label="Continue this Codex session"
+              className="min-h-14 w-full flex-none px-1 py-0"
+              disabled={Boolean(blockReason) || !onContinue || sending}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder={blockReason ?? 'Continue this session…'}
+              value={draft}
+            />
+            <div className="mt-auto flex min-w-0 items-center justify-between gap-3" data-codex-composer-actions="true">
+              <div className="flex min-w-0 items-center gap-0.5">
+                <span
+                  aria-label="Exact machine and task authorization"
+                  className="grid size-9 shrink-0 place-items-center text-neutral-500"
+                  role="img"
+                  title="Exact machine and task authorization"
+                >
+                  <ShieldCheck className="size-4" />
+                </span>
+                <CodexSessionModelSelect
+                  disabled={Boolean(blockReason) || sending || (modelSelection?.disabled ?? true)}
+                  effort={modelSelection?.effort}
+                  error={modelSelection?.error}
+                  models={modelSelection?.models ?? []}
+                  onChange={modelSelection?.onChange ?? (() => {})}
+                  onEffortChange={modelSelection?.onEffortChange ?? (() => {})}
+                  onServiceTierChange={modelSelection?.onServiceTierChange ?? (() => {})}
+                  override={modelSelection?.override}
+                  serviceTier={modelSelection?.serviceTier}
+                  usesCatalogueDefault={modelSelection?.usesCatalogueDefault}
+                  value={modelSelection?.value ?? session.model ?? ''}
+                />
+              </div>
+              <button
+                aria-label="Send to this Codex session"
+                className="grid size-9 shrink-0 place-items-center rounded-full bg-neutral-100 text-neutral-900 shadow-sm transition hover:bg-white disabled:pointer-events-none disabled:opacity-50"
+                disabled={!draft.trim() || Boolean(blockReason) || !onContinue || sending}
+                type="submit"
+              >
+                {sending ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowUp className="size-3.5" />}
+              </button>
+            </div>
           </div>
         </div>
       </form>

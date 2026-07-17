@@ -1,75 +1,105 @@
+import { useEffect, useState } from 'react';
 import { Spinner } from '@heroui/react';
-import { Bot, ChevronRight, Circle, GitPullRequest, Monitor, Search, WifiOff } from 'lucide-react';
 import {
-  SearchField,
-  SearchFieldClearButton,
-  SearchFieldGroup,
-  SearchFieldInput,
-  Text
-} from '@/app/dotnaos-ui';
+  Archive,
+  ChevronDown,
+  Circle,
+  Cloud,
+  Folder,
+  Inbox,
+  MessageCircleQuestion,
+  Search,
+  ShieldAlert,
+  WifiOff
+} from 'lucide-react';
+import { Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
+import type {
+  ConnectorInstallationRecord,
+  PhysicalMachineRecord,
+  ProjectSpaceRecord
+} from '@/shared/project-space-api';
+import { CodexSessionFilters } from './codex-session-filters';
 import {
-  effectiveCodexSessionStatus,
-  groupCodexSessions
-} from './codex-sessions-model';
-import { parseProjectCodexTaskTitle } from './project-codex-task-model';
+  ALL_CODEX_CONNECTORS,
+  buildCodexSessionListViewModel,
+  codexSessionStatusPresentation
+} from './codex-session-list-model';
+import { formatCodexActivity } from './codex-sessions-model';
 import type {
   CodexMachine,
   CodexSession,
-  CodexSessionStatus,
   CodexThreadOrigin
 } from './codex-sessions-types';
 
-const statusTone: Record<CodexSessionStatus, string> = {
-  active: 'text-emerald-400',
-  archived: 'text-neutral-600',
-  idle: 'text-neutral-400',
-  missing: 'text-amber-400',
-  offline: 'text-neutral-600',
-  unavailable: 'text-red-400'
-};
+function statusTone(label: string) {
+  if (label === 'Working') return 'text-emerald-400';
+  if (label.includes('Approval') || label.includes('Input') || label === 'No longer available') {
+    return 'text-amber-400';
+  }
+  if (label.includes('Unavailable')) return 'text-red-400';
+  return 'text-neutral-500';
+}
+
+function StatusIcon({ indicator, label }: { indicator: 'dot' | 'spinner'; label: string }) {
+  if (indicator === 'spinner') {
+    return <Spinner aria-hidden="true" className={statusTone(label)} size="sm" />;
+  }
+  if (label.includes('Approval')) return <ShieldAlert aria-hidden="true" className="size-3.5 text-amber-400" />;
+  if (label.includes('Input')) return <MessageCircleQuestion aria-hidden="true" className="size-3.5 text-amber-400" />;
+  if (label.includes('Offline')) return <WifiOff aria-hidden="true" className="size-3.5 text-neutral-600" />;
+  if (label === 'Archived') return <Archive aria-hidden="true" className="size-3.5 text-neutral-600" />;
+  return <Circle aria-hidden="true" className={cn('size-2 fill-current', statusTone(label))} />;
+}
 
 function SessionRow({
+  isRemote,
   machine,
+  now,
   onSelect,
   selected,
   session,
+  checking
 }: {
-  machine: CodexMachine;
+  checking: boolean;
+  isRemote: boolean;
+  machine?: CodexMachine;
+  now: Date;
   onSelect(session: CodexSession): void;
   selected: boolean;
   session: CodexSession;
 }) {
-  const status = effectiveCodexSessionStatus(session, machine);
-  const task = parseProjectCodexTaskTitle(session.title);
+  const status = codexSessionStatusPresentation({ checking, machine, session });
   return (
     <button
       aria-current={selected ? 'page' : undefined}
+      aria-label={`Open task ${session.title}. ${status.label}.`}
       className={cn(
-        'group flex w-full min-w-0 items-start gap-3 border-l-2 px-3 py-3 text-left transition-colors duration-200',
+        'group flex min-h-11 w-full min-w-0 items-center gap-2.5 border-l-2 px-3 py-2 text-left transition-colors duration-150',
+        'focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-neutral-400',
         selected
-          ? 'border-neutral-100 bg-neutral-900 text-neutral-100'
-          : 'border-transparent text-neutral-300 hover:bg-neutral-900/60 hover:text-neutral-100'
+          ? 'border-neutral-300 bg-neutral-800/90 text-neutral-100'
+          : 'border-transparent text-neutral-300 hover:bg-neutral-900/70 hover:text-neutral-100'
       )}
       onClick={() => onSelect(session)}
+      title={session.title}
       type="button"
     >
-      <Bot className="mt-0.5 size-4 shrink-0 text-neutral-500" />
+      <span className="flex size-5 shrink-0 items-center justify-center">
+        <StatusIcon indicator={status.indicator} label={status.label} />
+      </span>
       <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2">
-          <Text className="truncate text-xs font-medium">{task.title}</Text>
-          <ChevronRight className="ml-auto size-3 shrink-0 text-neutral-700 group-hover:text-neutral-500" />
-        </span>
-        <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] text-neutral-500">
-          {status === 'active' ? (
-            <Spinner className="text-emerald-300" size="sm" />
-          ) : (
-            <Circle className={cn('size-1.5 shrink-0 fill-current', statusTone[status])} />
-          )}
-          <span>{status === 'active' ? 'Active' : status === 'missing' ? 'No longer available' : status}</span>
-          {task.issueNumber ? <span>Issue #{task.issueNumber}</span> : null}
-          {task.pullRequestNumber ? (
-            <span className="inline-flex items-center gap-1"><GitPullRequest className="size-2.5" />PR #{task.pullRequestNumber}</span>
+        <Text className="block truncate text-[11px] font-medium leading-4 text-current">
+          {session.title}
+        </Text>
+        <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[9px] leading-3 text-neutral-600">
+          <span className={cn('truncate', statusTone(status.label))}>{status.label}</span>
+          <span aria-hidden="true">·</span>
+          <span className="shrink-0">{formatCodexActivity(session.lastActivityAt, now)}</span>
+          {isRemote ? (
+            <span className="ml-auto inline-flex shrink-0 items-center gap-1" title="Remote connector">
+              <Cloud aria-hidden="true" className="size-3" /> Remote
+            </span>
           ) : null}
         </span>
       </span>
@@ -78,83 +108,137 @@ function SessionRow({
 }
 
 export function CodexSessionList({
+  connectorInstallations = [],
+  loadingMachineIds = [],
   machines,
+  now,
   onSelect,
+  onSelectConnector,
+  onSelectMachine,
+  physicalMachines = [],
+  projects = [],
   query,
+  selectedConnectorKey,
+  selectedMachineKey,
   selectedOrigin,
   sessions,
   setQuery
 }: {
+  connectorInstallations?: ConnectorInstallationRecord[];
+  loadingMachineIds?: string[];
   machines: CodexMachine[];
   now: Date;
   onSelect(session: CodexSession): void;
+  onSelectConnector(key: string): void;
+  onSelectMachine(key: string): void;
+  physicalMachines?: PhysicalMachineRecord[];
+  projects?: ProjectSpaceRecord[];
   query: string;
+  selectedConnectorKey: string;
+  selectedMachineKey: string;
   selectedOrigin?: CodexThreadOrigin;
   sessions: CodexSession[];
   setQuery(value: string): void;
 }) {
-  const groups = groupCodexSessions(machines, sessions, query);
-  const resultCount = groups.reduce(
-    (count, group) => count + group.sections.reduce((sum, section) => sum + section.sessions.length, 0),
-    0
-  );
+  const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set());
+  const model = buildCodexSessionListViewModel({
+    connectorInstallations,
+    loadingMachineIds,
+    machines,
+    physicalMachines,
+    projects,
+    query,
+    selectedConnectorKey,
+    selectedMachineKey,
+    sessions
+  });
+  const machineById = new Map(machines.map((machine) => [machine.id, machine]));
+  const remoteConnectorIds = new Set(connectorInstallations.flatMap((connector) => (
+    connector.connector.status === 'online' ? [connector.id] : []
+  )));
+
+  useEffect(() => {
+    if (model.normalizedMachineKey !== selectedMachineKey) {
+      onSelectMachine(model.normalizedMachineKey);
+    }
+  }, [model.normalizedMachineKey, onSelectMachine, selectedMachineKey]);
+
+  useEffect(() => {
+    if (model.normalizedConnectorKey !== selectedConnectorKey) {
+      onSelectConnector(model.normalizedConnectorKey);
+    }
+  }, [model.normalizedConnectorKey, onSelectConnector, selectedConnectorKey]);
 
   return (
-    <section aria-label="Codex sessions" className="flex h-full min-h-0 flex-col bg-neutral-950">
-      <header className="shrink-0 border-b border-neutral-800/80 px-4 pb-3 pt-4">
-        <div className="flex items-center gap-2">
+    <section aria-label="Codex tasks" className="flex h-full min-h-0 flex-col bg-neutral-950">
+      <header className="shrink-0 border-b border-neutral-800/80 px-3 pb-3 pt-3 sm:px-4">
+        <div className="flex items-center gap-2 pr-11 md:pr-0">
           <Text as="h1" className="text-sm font-semibold text-neutral-100">Codex</Text>
-          <Text className="ml-auto text-[10px] text-neutral-500">{sessions.length} sessions</Text>
+          <Text className="ml-auto text-[10px] tabular-nums text-neutral-500">
+            {model.resultCount} of {sessions.length} tasks
+          </Text>
         </div>
-        <SearchField
-          aria-label="Search Codex sessions"
-          className="mt-3 rounded-lg border border-neutral-800 bg-neutral-900/60"
-          onChange={setQuery}
-          value={query}
-        >
-          <SearchFieldGroup>
-            <Search className="size-3.5 shrink-0 text-neutral-500" />
-            <SearchFieldInput aria-label="Search by title, project, directory, model, or connector" placeholder="Search sessions" />
-            <SearchFieldClearButton />
-          </SearchFieldGroup>
-        </SearchField>
+        <CodexSessionFilters
+          connectorOptions={model.connectorOptions}
+          machineOptions={model.machineOptions}
+          onConnectorChange={onSelectConnector}
+          onMachineChange={(key) => {
+            onSelectMachine(key);
+            onSelectConnector(ALL_CODEX_CONNECTORS);
+          }}
+          query={query}
+          selectedConnectorKey={model.normalizedConnectorKey}
+          selectedMachineKey={model.normalizedMachineKey}
+          setQuery={setQuery}
+        />
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto py-2">
-        {resultCount === 0 ? (
-          <div className="px-5 py-10 text-center">
-            {query
-              ? <Search className="mx-auto size-5 text-neutral-600" />
-              : <Bot className="mx-auto size-5 text-neutral-600" />}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-2">
+        <div className="flex items-center px-4 pb-1 pt-1">
+          <Text className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
+            Projects
+          </Text>
+        </div>
+        {model.resultCount === 0 ? (
+          <div className="px-5 py-12 text-center">
+            {query ? <Search className="mx-auto size-5 text-neutral-700" /> : <Inbox className="mx-auto size-5 text-neutral-700" />}
             <Text className="mt-3 block text-xs text-neutral-400">
-              {query ? `No sessions match “${query}”.` : 'No Codex sessions are available.'}
+              {query ? `No tasks match “${query}”.` : 'No tasks are available for these filters.'}
+            </Text>
+            <Text className="mt-1 block text-[10px] text-neutral-600">
+              Try another machine or connector installation.
             </Text>
           </div>
-        ) : groups.map(({ machine, sections }) => (
-          <section className="mb-3" key={machine.id}>
-            <div className="flex items-center gap-2 px-4 py-2">
-              {machine.status === 'offline'
-                ? <WifiOff className="size-3.5 text-neutral-600" />
-                : <Monitor className="size-3.5 text-neutral-500" />}
-              <Text className="truncate text-[11px] font-semibold text-neutral-300">{machine.name}</Text>
-              <Text className={cn(
-                'ml-auto text-[9px] capitalize',
-                machine.status === 'connected' ? 'text-emerald-500' : 'text-neutral-600'
-              )}>{machine.status}</Text>
-            </div>
-            {sections.length === 0 ? (
-              <Text className="block px-4 py-3 text-[10px] leading-4 text-neutral-600">
-                No sessions reported by this connector installation.
-              </Text>
-            ) : sections.map((section) => (
-              <div className="mb-2" key={section.id}>
-                <Text className="block px-4 pb-1 pt-2 text-[9px] font-semibold uppercase tracking-[0.14em] text-neutral-600">
-                  {section.label}
-                </Text>
-                {section.sessions.map((session) => (
+        ) : model.projectGroups.map((group) => {
+          const collapsed = !query && collapsedProjectIds.has(group.id);
+          const contentId = `codex-project-${encodeURIComponent(group.id)}`;
+          return (
+            <section className="border-b border-neutral-900/90 last:border-b-0" key={group.id}>
+              <button
+                aria-controls={contentId}
+                aria-expanded={!collapsed}
+                className="flex h-9 w-full items-center gap-2 px-3 text-left text-neutral-400 transition hover:bg-neutral-900/50 hover:text-neutral-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-neutral-500"
+                onClick={() => setCollapsedProjectIds((current) => {
+                  const next = new Set(current);
+                  if (next.has(group.id)) next.delete(group.id);
+                  else next.add(group.id);
+                  return next;
+                })}
+                type="button"
+              >
+                <ChevronDown className={cn('size-3.5 shrink-0 transition-transform duration-200', collapsed && '-rotate-90')} />
+                <Folder className="size-3.5 shrink-0" />
+                <Text className="min-w-0 flex-1 truncate text-[11px] font-semibold">{group.label}</Text>
+                <Text className="text-[9px] tabular-nums text-neutral-600">{group.sessions.length}</Text>
+              </button>
+              <div hidden={collapsed} id={contentId}>
+                {group.sessions.map((session) => (
                   <SessionRow
+                    checking={loadingMachineIds.includes(session.machineId)}
+                    isRemote={remoteConnectorIds.has(session.machineId)}
                     key={`${session.machineId}:${session.threadId}`}
-                    machine={machine}
+                    machine={machineById.get(session.machineId)}
+                    now={now}
                     onSelect={onSelect}
                     selected={
                       selectedOrigin?.machineId === session.machineId
@@ -164,9 +248,9 @@ export function CodexSessionList({
                   />
                 ))}
               </div>
-            ))}
-          </section>
-        ))}
+            </section>
+          );
+        })}
       </div>
     </section>
   );

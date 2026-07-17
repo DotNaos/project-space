@@ -101,11 +101,13 @@ function useNarrowTaskLayout() {
 
 export function CodexTaskWorkspace({
   activeTurnId,
+  connectorLabel,
   conversation,
   historyState,
   historyStatusDetail,
   loadBrowser,
   machine,
+  machineLabel,
   onBack,
   onContinue,
   onInterrupt,
@@ -114,11 +116,13 @@ export function CodexTaskWorkspace({
   session
 }: {
   activeTurnId?: string;
+  connectorLabel?: string;
   conversation?: CodexConversation;
   historyState: 'blocked' | 'loading' | 'ready';
   historyStatusDetail?: string;
   loadBrowser(request: CodexSessionBrowserRequest): Promise<CodexSessionBrowserResult>;
   machine?: CodexMachine;
+  machineLabel?: string;
   onBack?(): void;
   onContinue?(
     origin: CodexThreadOrigin,
@@ -156,6 +160,9 @@ export function CodexTaskWorkspace({
     session,
     machine?.supportsModelSettings === true
   );
+  const connectorDisplay = connectorLabel
+    ?? (machine?.name && machine.name !== machine.id ? machine.name : 'Connector unavailable');
+  const machineDisplay = machineLabel ?? 'Machine unavailable';
 
   useEffect(() => {
     setBrowserVisible(false);
@@ -214,17 +221,17 @@ export function CodexTaskWorkspace({
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-neutral-950 text-neutral-100">
-      <header className="flex h-[68px] shrink-0 items-center gap-3 border-b border-neutral-800/80 px-3 pr-14 md:px-4">
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-neutral-800/80 px-2 pr-14 sm:px-3 md:pr-3">
         {onBack ? (
-          <Button aria-label="Back to Codex tasks" className="size-8 min-h-0" isIconOnly onPress={onBack} size="sm" variant="ghost">
+          <Button aria-label="Back to Codex tasks" className="size-8 min-h-0 min-[1320px]:hidden" isIconOnly onPress={onBack} size="sm" variant="ghost">
             <ArrowLeft className="size-4" />
           </Button>
         ) : null}
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <Text as="h1" className="block truncate text-sm font-semibold text-neutral-100">
             {task.title}
           </Text>
-          <div className="mt-1 flex min-w-0 items-center gap-2 text-[9px] text-neutral-500">
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[9px] text-neutral-500">
             {status === 'active' ? <Spinner className="text-emerald-300" size="sm" /> : (
               <span className={cn(
                 'size-1.5 shrink-0 rounded-full bg-neutral-500',
@@ -235,17 +242,19 @@ export function CodexTaskWorkspace({
                     : undefined
               )} />
             )}
-            <Text className="truncate">{taskStatusLabel(status)} · {machine?.name ?? session.machineId}</Text>
+            <Text className="truncate">
+              {taskStatusLabel(status)} · {machineDisplay} · {connectorDisplay}
+            </Text>
           </div>
         </div>
-        {task.issueNumber ? <Chip className="text-neutral-400" size="sm">Issue #{task.issueNumber}</Chip> : null}
-        {task.pullRequestNumber ? <Chip className="text-neutral-400" size="sm">PR #{task.pullRequestNumber}</Chip> : null}
+        {task.issueNumber ? <Chip className="hidden text-neutral-400 sm:inline-flex" size="sm">Issue #{task.issueNumber}</Chip> : null}
+        {task.pullRequestNumber ? <Chip className="hidden text-neutral-400 sm:inline-flex" size="sm">PR #{task.pullRequestNumber}</Chip> : null}
         {hasBrowserActivity && !narrowLayout ? (
-          <Chip className="items-center gap-1.5 text-emerald-300" size="sm">
+          <Chip className="hidden items-center gap-1.5 text-emerald-300 lg:inline-flex" size="sm">
             <Monitor className="size-3" /> Browser {snapshot?.state === 'live' ? 'live' : 'available'}
           </Chip>
         ) : null}
-        <div className="ml-auto flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           {baseStatus === 'active' && activeTurnId ? (
             <Button
               aria-label="Stop active Codex turn"

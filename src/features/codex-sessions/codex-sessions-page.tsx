@@ -5,7 +5,17 @@ import type {
   CodexSessionReadRequest,
   CodexSessionTurnSettings
 } from '@/shared/codex-sessions-api';
+import type {
+  ConnectorInstallationRecord,
+  PhysicalMachineRecord,
+  ProjectSpaceRecord
+} from '@/shared/project-space-api';
 import { CodexSessionList } from './codex-session-list';
+import {
+  ALL_CODEX_CONNECTORS,
+  ALL_CODEX_MACHINES
+} from './codex-session-list-model';
+import { connectorLocationPresentation } from '../project-desktop/components/machine-connector-topology-model';
 import { CodexTaskWorkspace } from './codex-task-workspace';
 import type {
   CodexApprovalDecision,
@@ -18,8 +28,10 @@ import type {
 
 export interface CodexSessionsPageProps {
   activeTurnId?: string;
+  connectorInstallations?: ConnectorInstallationRecord[];
   conversations?: CodexConversation[];
   errorMessage?: string;
+  loadingMachineIds?: string[];
   machines: CodexMachine[];
   now?: Date;
   onContinueThread?(
@@ -35,6 +47,8 @@ export interface CodexSessionsPageProps {
   onSelectThread?(origin: CodexThreadOrigin): void;
   reading?: boolean;
   readBrowser?(request: CodexSessionReadRequest): Promise<CodexSessionBrowserResult>;
+  physicalMachines?: PhysicalMachineRecord[];
+  projects?: ProjectSpaceRecord[];
   selectedOrigin?: CodexThreadOrigin;
   sessions: CodexSession[];
 }
@@ -45,8 +59,10 @@ function sameOrigin(session: CodexSession, origin?: CodexThreadOrigin) {
 
 export function CodexSessionsPage({
   activeTurnId,
+  connectorInstallations = [],
   conversations = [],
   errorMessage,
+  loadingMachineIds = [],
   machines,
   now = new Date(),
   onContinueThread,
@@ -55,14 +71,25 @@ export function CodexSessionsPage({
   onResolveApproval,
   onResolveUserInput,
   onSelectThread,
+  physicalMachines = [],
+  projects = [],
   reading = false,
   readBrowser,
   selectedOrigin,
   sessions
 }: CodexSessionsPageProps) {
   const [query, setQuery] = useState('');
+  const [selectedMachineKey, setSelectedMachineKey] = useState(ALL_CODEX_MACHINES);
+  const [selectedConnectorKey, setSelectedConnectorKey] = useState(ALL_CODEX_CONNECTORS);
   const selectedSession = sessions.find((session) => sameOrigin(session, selectedOrigin));
   const selectedMachine = machines.find((machine) => machine.id === selectedSession?.machineId);
+  const selectedConnector = connectorInstallations.find((connector) => (
+    connector.id === selectedSession?.machineId
+  ));
+  const selectedLocation = selectedConnector ? connectorLocationPresentation({
+    connector: selectedConnector,
+    physicalMachines
+  }) : undefined;
   const selectedConversation = conversations.find((conversation) => (
     conversation.machineId === selectedSession?.machineId
     && conversation.threadId === selectedSession?.threadId
@@ -77,17 +104,38 @@ export function CodexSessionsPage({
 
   const listPane = useMemo(() => (
     <CodexSessionList
+      connectorInstallations={connectorInstallations}
+      loadingMachineIds={loadingMachineIds}
       machines={machines}
       now={now}
       onSelect={(session) => {
         onSelectThread?.({ machineId: session.machineId, threadId: session.threadId });
       }}
+      onSelectConnector={setSelectedConnectorKey}
+      onSelectMachine={setSelectedMachineKey}
+      physicalMachines={physicalMachines}
+      projects={projects}
       query={query}
+      selectedConnectorKey={selectedConnectorKey}
+      selectedMachineKey={selectedMachineKey}
       selectedOrigin={selectedOrigin}
       sessions={sessions}
       setQuery={setQuery}
     />
-  ), [machines, now, onSelectThread, query, selectedOrigin, sessions]);
+  ), [
+    connectorInstallations,
+    loadingMachineIds,
+    machines,
+    now,
+    onSelectThread,
+    physicalMachines,
+    projects,
+    query,
+    selectedConnectorKey,
+    selectedMachineKey,
+    selectedOrigin,
+    sessions
+  ]);
 
   return (
     <div className="relative h-full min-h-0 overflow-hidden bg-neutral-950 text-neutral-100">
@@ -98,22 +146,31 @@ export function CodexSessionsPage({
         </div>
       ) : null}
       {selectedSession && readBrowser ? (
-        <CodexTaskWorkspace
-          activeTurnId={activeTurnId}
-          conversation={selectedConversation}
-          historyState={historyState}
-          historyStatusDetail={selectedSession.statusDetail ?? selectedMachine?.statusDetail}
-          loadBrowser={readBrowser}
-          machine={selectedMachine}
-          onBack={onBackFromThread}
-          onContinue={onContinueThread}
-          onInterrupt={onInterruptThread}
-          onResolveApproval={onResolveApproval}
-          onResolveUserInput={onResolveUserInput}
-          session={selectedSession}
-        />
+        <div className="flex h-full min-h-0 min-w-0">
+          <aside className="hidden h-full min-h-0 w-[22rem] shrink-0 border-r border-neutral-800/80 min-[1320px]:block">
+            {listPane}
+          </aside>
+          <div className="min-h-0 min-w-0 flex-1">
+            <CodexTaskWorkspace
+              activeTurnId={activeTurnId}
+              conversation={selectedConversation}
+              historyState={historyState}
+              historyStatusDetail={selectedSession.statusDetail ?? selectedMachine?.statusDetail}
+              loadBrowser={readBrowser}
+              machine={selectedMachine}
+              machineLabel={selectedLocation?.machineName}
+              connectorLabel={selectedLocation?.connectorLabel}
+              onBack={onBackFromThread}
+              onContinue={onContinueThread}
+              onInterrupt={onInterruptThread}
+              onResolveApproval={onResolveApproval}
+              onResolveUserInput={onResolveUserInput}
+              session={selectedSession}
+            />
+          </div>
+        </div>
       ) : (
-        <div className="mx-auto h-full min-h-0 w-full max-w-4xl border-x border-neutral-800/60">
+        <div className="mx-auto h-full min-h-0 w-full max-w-5xl border-x border-neutral-800/60">
           {listPane}
         </div>
       )}

@@ -1,21 +1,32 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import type {
+  ConnectorInstallationRecord,
+  PhysicalMachineRecord,
+  ProjectSpaceRecord
+} from '@/shared/project-space-api';
 import { CodexSessionsPage } from './codex-sessions-page';
 import type { CodexSessionsController } from './codex-sessions-controller';
 import type { CodexThreadOrigin } from './codex-sessions-types';
 
 export function CodexSessionsControllerPage({
+  connectorInstallations,
   controller,
   machineIds,
   onBackFromThread,
   onOpenThread,
   onOpenProjectChatThread,
+  physicalMachines,
+  projects,
   selectedOrigin
 }: {
+  connectorInstallations?: ConnectorInstallationRecord[];
   controller: CodexSessionsController;
   machineIds: string[];
   onBackFromThread?(): void;
   onOpenThread?(origin: CodexThreadOrigin): void;
   onOpenProjectChatThread?(origin: CodexThreadOrigin): void;
+  physicalMachines?: PhysicalMachineRecord[];
+  projects?: ProjectSpaceRecord[];
   selectedOrigin?: CodexThreadOrigin;
 }) {
   const state = useSyncExternalStore(
@@ -44,8 +55,10 @@ export function CodexSessionsControllerPage({
   return (
     <CodexSessionsPage
       activeTurnId={state.activeTurnId}
+      connectorInstallations={connectorInstallations}
       conversations={state.conversations}
       errorMessage={state.errorMessage}
+      loadingMachineIds={state.loadingMachineIds}
       machines={state.machines}
       onBackFromThread={onBackFromThread}
       onContinueThread={async (origin, message, settings) => {
@@ -67,6 +80,8 @@ export function CodexSessionsControllerPage({
         else void controller.select(origin);
       }}
       readBrowser={readBrowser}
+      physicalMachines={physicalMachines}
+      projects={projects}
       selectedOrigin={state.selectedOrigin}
       sessions={state.sessions}
     />
