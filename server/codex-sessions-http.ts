@@ -219,11 +219,19 @@ async function executeRoute(
   const common = { machineId, operationId, threadId: route.threadId };
 
   if (route.kind === 'continue') {
-    onlyKeys(body, ['machineId', 'message', 'model', 'operationId']);
+    onlyKeys(body, ['effort', 'machineId', 'message', 'model', 'operationId', 'serviceTier']);
     const message = requiredString(body, 'message');
+    const effort = optionalIdentifier(body, 'effort');
     const model = optionalIdentifier(body, 'model');
+    const serviceTier = optionalNullableIdentifier(body, 'serviceTier');
     if (message.length > 16_000) throw invalidRequest('The message is too long.');
-    return service.continue(context, { ...common, message, ...(model ? { model } : {}) });
+    return service.continue(context, {
+      ...common,
+      ...(effort ? { effort } : {}),
+      message,
+      ...(model ? { model } : {}),
+      ...(serviceTier !== undefined ? { serviceTier } : {})
+    });
   }
 
   const turnId = requiredString(body, 'turnId', REQUEST_ID_PATTERN);
@@ -369,6 +377,10 @@ function requiredString(
 
 function optionalIdentifier(value: Record<string, unknown>, key: string) {
   return value[key] === undefined ? undefined : requiredString(value, key, REQUEST_ID_PATTERN);
+}
+
+function optionalNullableIdentifier(value: Record<string, unknown>, key: string) {
+  return value[key] === null ? null : optionalIdentifier(value, key);
 }
 
 function onlyKeys(value: Record<string, unknown>, allowed: string[]) {

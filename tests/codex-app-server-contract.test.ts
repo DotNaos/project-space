@@ -170,16 +170,20 @@ describe('Codex app-server fixed contract', () => {
       CodexSessionValidationError
     );
     await manager.startTurn({
+      effort: 'high',
       model: 'gpt-5-mini',
       operationId: 'turn-operation',
       prompt: 'Hello',
+      serviceTier: 'fast',
       threadId: 'thread-1',
       cwd: '/tmp/poison'
-    } as CodexStartTurnInput & { cwd: string; model: string });
+    } as CodexStartTurnInput & { cwd: string });
     expect(server.received.find((message) => message.method === 'turn/start')?.params)
       .toEqual({
         input: [{ text: 'Hello', type: 'text' }],
+        effort: 'high',
         model: 'gpt-5-mini',
+        serviceTier: 'fast',
         threadId: 'thread-1'
       });
     await manager.close();

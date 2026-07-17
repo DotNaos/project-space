@@ -244,15 +244,17 @@ describe('Codex sessions authenticated HTTP boundary', () => {
     expect(calls).toHaveLength(0);
   });
 
-  test('forwards only a valid selected model with the exact continued task', async () => {
+  test('forwards only valid catalogue settings with the exact continued task', async () => {
     const { calls, service } = stubService();
     const origin = await startApi(service);
     const path = `${origin}/api/codex/sessions/${threadId}/continue?machineId=machine-one`;
     const valid = await fetch(path, mutation({
       machineId: 'machine-one',
       message: 'Continue with this model',
+      effort: 'high',
       model: 'gpt-5-mini',
-      operationId: 'operation-model-1'
+      operationId: 'operation-model-1',
+      serviceTier: 'fast'
     }));
     const invalid = await fetch(path, mutation({
       machineId: 'machine-one',
@@ -267,8 +269,10 @@ describe('Codex sessions authenticated HTTP boundary', () => {
       input: {
         machineId: 'machine-one',
         message: 'Continue with this model',
+        effort: 'high',
         model: 'gpt-5-mini',
         operationId: 'operation-model-1',
+        serviceTier: 'fast',
         threadId
       },
       method: 'continue'

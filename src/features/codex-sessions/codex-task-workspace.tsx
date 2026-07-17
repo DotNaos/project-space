@@ -18,7 +18,8 @@ import {
 } from '@/app/dotnaos-ui';
 import type {
   CodexSessionBrowserResult,
-  CodexSessionBrowserRequest
+  CodexSessionBrowserRequest,
+  CodexSessionTurnSettings
 } from '@/shared/codex-sessions-api';
 import { cn } from '@/lib/utils';
 import {
@@ -119,7 +120,11 @@ export function CodexTaskWorkspace({
   loadBrowser(request: CodexSessionBrowserRequest): Promise<CodexSessionBrowserResult>;
   machine?: CodexMachine;
   onBack?(): void;
-  onContinue?(origin: CodexThreadOrigin, message: string, model?: string): Promise<void> | void;
+  onContinue?(
+    origin: CodexThreadOrigin,
+    message: string,
+    settings?: CodexSessionTurnSettings
+  ): Promise<void> | void;
   onInterrupt?(origin: CodexThreadOrigin, turnId: string): Promise<void> | void;
   onResolveApproval?(decision: CodexApprovalDecision): Promise<void> | void;
   onResolveUserInput?(decision: CodexUserInputDecision): Promise<void> | void;
@@ -149,7 +154,7 @@ export function CodexTaskWorkspace({
   const task = parseProjectCodexTaskTitle(session.title);
   const modelSelection = useCodexSessionModels(
     session,
-    machine?.supportsModelSelection === true
+    machine?.supportsModelSettings === true
   );
 
   useEffect(() => {

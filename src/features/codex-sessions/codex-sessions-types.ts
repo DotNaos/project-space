@@ -19,6 +19,7 @@ export interface CodexMachine {
   lastSeenAt?: string;
   statusDetail?: string;
   supportsModelSelection?: boolean;
+  supportsModelSettings?: boolean;
 }
 
 export interface CodexSession {

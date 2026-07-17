@@ -5,11 +5,14 @@ import type { CodexSession } from './codex-sessions-types';
 import type { CodexSessionModelSelection } from './codex-session-model-select';
 
 type ModelState = {
+  dirty: boolean;
+  effort?: string;
   error?: string;
   key: string;
   loading: boolean;
   models: CodexModelRecord[];
-  override?: string;
+  serviceTier?: string | null;
+  usesCatalogueDefault: boolean;
   value: string;
 };
 
@@ -27,7 +30,7 @@ export function useCodexSessionModels(
     if (!enabled) {
       setState({
         ...initialState(key, session.model),
-        error: 'Update this machine connector to select a model.',
+        error: 'Update this machine connector to select model settings.',
         loading: false
       });
       return () => { cancelled = true; };
@@ -56,9 +59,11 @@ export function useCodexSessionModels(
         return;
       }
       setState({
+        dirty: false,
         key,
         loading: false,
         models: result.models,
+        usesCatalogueDefault: !session.model,
         value: session.model
           ?? (result.models.find((model) => model.isDefault) ?? result.models[0]).model
       });
@@ -76,29 +81,85 @@ export function useCodexSessionModels(
   }, [enabled, key, session.cwd, session.machineId, session.model]);
 
   if (state.key !== key) {
-    const current = initialState(key, session.model);
-    return {
-      disabled: true,
-      models: current.models,
-      onChange: () => {},
-      value: current.value
-    };
+    return disabledSelection(key, session.model);
   }
 
+  const selectedModel = state.models.find((model) => model.model === state.value);
   return {
     disabled: state.loading || state.models.length === 0,
+    effort: state.effort,
     error: state.error,
     models: state.models,
     onChange(value) {
-      setState((current) => current.key === key
-        ? { ...current, override: value, value }
-        : current);
+      setState((current) => {
+        if (current.key !== key) return current;
+        const model = current.models.find((entry) => entry.model === value);
+        if (!model) return current;
+        return {
+          ...current,
+          dirty: true,
+          effort: defaultEffort(model),
+          serviceTier: model.defaultServiceTier,
+          usesCatalogueDefault: false,
+          value
+        };
+      });
     },
-    override: state.override,
+    onEffortChange(effort) {
+      setState((current) => {
+        const model = current.models.find((entry) => entry.model === current.value);
+        if (current.key !== key || !model ||
+          !model.supportedReasoningEfforts?.some((option) => option.reasoningEffort === effort)) {
+          return current;
+        }
+        return { ...current, dirty: true, effort, usesCatalogueDefault: false };
+      });
+    },
+    onServiceTierChange(serviceTier) {
+      setState((current) => {
+        const model = current.models.find((entry) => entry.model === current.value);
+        if (current.key !== key || !model || serviceTier !== null &&
+          !model.serviceTiers?.some((tier) => tier.id === serviceTier)) {
+          return current;
+        }
+        return { ...current, dirty: true, serviceTier, usesCatalogueDefault: false };
+      });
+    },
+    override: state.dirty && selectedModel ? {
+      ...(state.effort ? { effort: state.effort } : {}),
+      model: state.value,
+      ...(state.serviceTier !== undefined ? { serviceTier: state.serviceTier } : {})
+    } : undefined,
+    serviceTier: state.serviceTier,
+    usesCatalogueDefault: state.usesCatalogueDefault,
     value: state.value
   };
 }
 
+function defaultEffort(model: CodexModelRecord) {
+  return model.defaultReasoningEffort
+    ?? model.supportedReasoningEfforts?.[0]?.reasoningEffort;
+}
+
+function disabledSelection(key: string, model?: string): CodexSessionModelSelection {
+  const current = initialState(key, model);
+  return {
+    disabled: true,
+    models: current.models,
+    onChange: () => {},
+    onEffortChange: () => {},
+    onServiceTierChange: () => {},
+    value: current.value
+  };
+}
+
 function initialState(key: string, model?: string): ModelState {
-  return { key, loading: true, models: [], value: model ?? '' };
+  return {
+    dirty: false,
+    key,
+    loading: true,
+    models: [],
+    usesCatalogueDefault: false,
+    value: model ?? ''
+  };
 }

@@ -7,6 +7,7 @@ import {
   CODEX_SESSIONS_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY,
+  CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY,
   createCodexSessionsWireRequest,
   isCodexSessionsWireRequest,
   type CodexSessionsConnectorOperation,
@@ -164,6 +165,12 @@ function run(
 function requiredCapability(operation: CodexSessionsConnectorOperation, payload: CodexPayload) {
   if (operation === 'browser') return CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY;
   if (operation === 'inspect') return CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY;
+  if (operation === 'continue' && (
+    ('effort' in payload && payload.effort !== undefined) ||
+    ('serviceTier' in payload && payload.serviceTier !== undefined)
+  )) {
+    return CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY;
+  }
   if (operation === 'continue' && 'model' in payload && payload.model !== undefined) {
     return CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY;
   }

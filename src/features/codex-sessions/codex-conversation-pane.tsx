@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Button, Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
+import type { CodexSessionTurnSettings } from '@/shared/codex-sessions-api';
 import { codexContinueBlockReason, codexThreadOrigin } from './codex-sessions-model';
 import { CodexComposerTextArea } from './codex-composer-textarea';
 import { CodexMarkdownMessage } from './codex-markdown-message';
@@ -96,7 +97,11 @@ export function CodexConversationPane({
   machine?: CodexMachine;
   modelSelection?: CodexSessionModelSelection;
   onBack?(): void;
-  onContinue?(origin: CodexThreadOrigin, message: string, model?: string): Promise<void> | void;
+  onContinue?(
+    origin: CodexThreadOrigin,
+    message: string,
+    settings?: CodexSessionTurnSettings
+  ): Promise<void> | void;
   onOpenDetails?(): void;
   session?: CodexSession;
   showHeader?: boolean;
@@ -235,9 +240,15 @@ export function CodexConversationPane({
               </span>
               <CodexSessionModelSelect
                 disabled={Boolean(blockReason) || sending || (modelSelection?.disabled ?? true)}
+                effort={modelSelection?.effort}
                 error={modelSelection?.error}
                 models={modelSelection?.models ?? []}
                 onChange={modelSelection?.onChange ?? (() => {})}
+                onEffortChange={modelSelection?.onEffortChange ?? (() => {})}
+                onServiceTierChange={modelSelection?.onServiceTierChange ?? (() => {})}
+                override={modelSelection?.override}
+                serviceTier={modelSelection?.serviceTier}
+                usesCatalogueDefault={modelSelection?.usesCatalogueDefault}
                 value={modelSelection?.value ?? session.model ?? ''}
               />
             </div>

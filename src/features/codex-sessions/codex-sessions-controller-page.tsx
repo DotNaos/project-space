@@ -48,8 +48,8 @@ export function CodexSessionsControllerPage({
       errorMessage={state.errorMessage}
       machines={state.machines}
       onBackFromThread={onBackFromThread}
-      onContinueThread={async (origin, message, model) => {
-        try { await controller.continue(origin, message, model); } catch { /* Controller exposes the error in page state. */ }
+      onContinueThread={async (origin, message, settings) => {
+        try { await controller.continue(origin, message, settings); } catch { /* Controller exposes the error in page state. */ }
       }}
       onInterruptThread={async (origin, turnId) => {
         try { await controller.interrupt(origin, turnId); } catch { /* Controller exposes the error in page state. */ }

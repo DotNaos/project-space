@@ -27,7 +27,8 @@ function listResult(machineId = origin.machineId, online = true): CodexSessionLi
       id: machineId,
       name: machineId === origin.machineId ? 'os-macbook' : 'os-pc',
       online,
-      supportsModelSelection: machineId === origin.machineId
+      supportsModelSelection: machineId === origin.machineId,
+      supportsModelSettings: machineId === origin.machineId
     },
     sessions: machineId === origin.machineId ? [{
       archived: false,
@@ -138,6 +139,7 @@ describe('Codex sessions UI controller', () => {
       ['os-pc', 'offline']
     ]);
     expect(state.machines[0].supportsModelSelection).toBe(true);
+    expect(state.machines[0].supportsModelSettings).toBe(true);
     expect(state.selectedOrigin).toEqual(origin);
     expect(state.conversations[0].items).toEqual([
       expect.objectContaining({ role: 'user', text: 'Original request' }),
@@ -222,13 +224,19 @@ describe('Codex sessions UI controller', () => {
     await (controller.continue as unknown as (
       selectedOrigin: typeof origin,
       message: string,
-      model: string
-    ) => Promise<unknown>)(origin, 'Continue from stored history', 'gpt-5-mini');
+      settings: { effort: string; model: string; serviceTier: null }
+    ) => Promise<unknown>)(origin, 'Continue from stored history', {
+      effort: 'high',
+      model: 'gpt-5-mini',
+      serviceTier: null
+    });
 
     expect(fake.calls.continues[0]).toMatchObject({
       ...origin,
+      effort: 'high',
       message: 'Continue from stored history',
-      model: 'gpt-5-mini'
+      model: 'gpt-5-mini',
+      serviceTier: null
     });
 
     fake.event({
@@ -315,8 +323,16 @@ describe('Codex sessions UI controller', () => {
     await controller.loadMachines([origin.machineId]);
     await controller.select(origin);
 
-    await expect(controller.continue(origin, 'b:c', 'a')).rejects.toThrow('acknowledgement');
-    await expect(controller.continue(origin, 'c', 'a:b')).rejects.toThrow('acknowledgement');
+    await expect(controller.continue(origin, 'b:c', {
+      effort: 'high:careful',
+      model: 'a',
+      serviceTier: 'fast'
+    })).rejects.toThrow('acknowledgement');
+    await expect(controller.continue(origin, 'c', {
+      effort: 'high',
+      model: 'a:b',
+      serviceTier: 'fast:priority'
+    })).rejects.toThrow('acknowledgement');
 
     expect(fake.calls.continues.map((request) => request.operationId)).toEqual([
       'codex-ui:continue:test-0001',

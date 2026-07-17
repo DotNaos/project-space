@@ -84,13 +84,22 @@ mock.module('@heroui/react', () => ({
   Drawer: Object.assign(
     ({ children }: { children?: ReactNode }) => createElement('div', null, children),
     {
-      Backdrop: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
+      Backdrop: ({ children, isOpen: _isOpen, ...props }: { children?: ReactNode; isOpen?: boolean; [key: string]: unknown }) => createElement('div', props, children),
       Body: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
       CloseTrigger: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('button', props, children),
       Content: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
       Dialog: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
+      Handle: (props: Record<string, unknown>) => createElement('div', props),
       Header: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
       Heading: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('h2', props, children),
+      Trigger: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('button', props, children)
+    }
+  ),
+  Popover: Object.assign(
+    ({ children }: { children?: ReactNode }) => createElement('div', null, children),
+    {
+      Content: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
+      Dialog: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
       Trigger: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('button', props, children)
     }
   ),
@@ -304,21 +313,45 @@ describe('Canonical Codex task page', () => {
         machine={machine}
         modelSelection={{
           disabled: false,
+          effort: 'deep',
           models: [{
+            defaultReasoningEffort: 'high',
+            defaultServiceTier: 'fast',
             description: 'Best for everyday coding.',
             displayName: 'GPT-5',
             id: 'gpt-5',
             isDefault: true,
-            model: 'gpt-5'
+            model: 'gpt-5',
+            serviceTiers: [{ description: 'Faster responses.', id: 'fast', name: 'Fast' }],
+            supportedReasoningEfforts: [
+              { description: 'Quick answers.', reasoningEffort: 'low' },
+              { description: 'Deeper answers.', reasoningEffort: 'high' }
+            ]
           }, {
             description: 'Faster for focused work.',
             displayName: 'GPT-5 mini',
             id: 'gpt-5-mini',
             isDefault: false,
             model: 'gpt-5-mini'
+          }, {
+            defaultReasoningEffort: 'balanced',
+            defaultServiceTier: null,
+            description: 'A future model supplied by the App Server.',
+            displayName: 'GPT-6 Orbit',
+            id: 'gpt-6-orbit',
+            isDefault: false,
+            model: 'gpt-6-orbit',
+            serviceTiers: [{ description: 'Priority responses.', id: 'priority', name: 'Priority' }],
+            supportedReasoningEfforts: [
+              { description: 'Balanced reasoning.', reasoningEffort: 'balanced' },
+              { description: 'Deep reasoning.', reasoningEffort: 'deep' }
+            ]
           }],
           onChange: () => {},
-          value: 'gpt-5'
+          onEffortChange: () => {},
+          onServiceTierChange: () => {},
+          serviceTier: null,
+          value: 'gpt-6-orbit'
         }}
         onContinue={() => {}}
         session={{ ...activeSession, status: 'idle' }}
@@ -331,8 +364,17 @@ describe('Canonical Codex task page', () => {
     expect(html).toContain('rounded-[1.75rem]');
     expect(html).toContain('data-codex-composer-actions="true"');
     expect(html).toContain('aria-label="Exact machine and task authorization"');
-    expect(html).toContain('aria-label="Codex model"');
-    expect(html).toContain('GPT-5 mini');
+    expect(html).toContain('aria-label="Codex model settings"');
+    expect(html).toContain('GPT-6 Orbit Deep');
+    expect(html).toContain('data-codex-reasoning-quick="true"');
+    expect(html).toContain('Intelligence Balanced');
+    expect(html).toContain('Intelligence Deep');
+    expect(html).toContain('>Advanced<');
+    expect(html).toContain('aria-label="Model"');
+    expect(html).toContain('aria-label="Intelligence"');
+    expect(html).toContain('aria-label="Speed"');
+    expect(html).toContain('>Standard<');
+    expect(html).toContain('>Priority<');
     expect(html).toContain('aria-label="Continue this Codex session"');
     expect(html).toContain('aria-label="Send to this Codex session"');
     expect(html).toContain('rounded-full bg-neutral-100');

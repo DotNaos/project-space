@@ -11,7 +11,10 @@ import type {
 } from '../../src/shared/codex-sessions-api';
 import { CODEX_SESSION_LIST_DEADLINE_MS } from '../../src/shared/codex-session-inventory-window';
 import { CodexSessionsStore } from '../codex-sessions-store';
-import { CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY } from '../codex-sessions-connector-contract';
+import {
+  CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY,
+  CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY
+} from '../codex-sessions-connector-contract';
 import type { CodexSessionsHttpHandler } from '../codex-sessions-http';
 import {
   isDatabaseConfigured,
@@ -129,6 +132,9 @@ export function createConnectorCodexSessionsTransport(): CodexSessionsTransport 
           : 'The owning machine is no longer registered.',
         supportsModelSelection: machine?.connector.capabilities?.includes(
           CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY
+        ) === true,
+        supportsModelSettings: machine?.connector.capabilities?.includes(
+          CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY
         ) === true
       };
     },
@@ -143,6 +149,9 @@ export function createConnectorCodexSessionsTransport(): CodexSessionsTransport 
           ...result.result.machine,
           supportsModelSelection: machine?.connector.capabilities?.includes(
             CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY
+          ) === true,
+          supportsModelSettings: machine?.connector.capabilities?.includes(
+            CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY
           ) === true
         }
       };

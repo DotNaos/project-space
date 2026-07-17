@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { CircleAlert } from 'lucide-react';
 import type {
   CodexSessionBrowserResult,
-  CodexSessionReadRequest
+  CodexSessionReadRequest,
+  CodexSessionTurnSettings
 } from '@/shared/codex-sessions-api';
 import { CodexSessionList } from './codex-session-list';
 import { CodexTaskWorkspace } from './codex-task-workspace';
@@ -21,7 +22,11 @@ export interface CodexSessionsPageProps {
   errorMessage?: string;
   machines: CodexMachine[];
   now?: Date;
-  onContinueThread?(origin: CodexThreadOrigin, message: string, model?: string): Promise<void> | void;
+  onContinueThread?(
+    origin: CodexThreadOrigin,
+    message: string,
+    settings?: CodexSessionTurnSettings
+  ): Promise<void> | void;
   onBackFromThread?(): void;
   onInterruptThread?(origin: CodexThreadOrigin, turnId: string): Promise<void> | void;
   onOpenProjectChatThread?(origin: CodexThreadOrigin): void;
