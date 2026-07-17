@@ -18,6 +18,10 @@ import {
   codexMachineTasksMigrationId,
   codexMachineTasksMigrationSql
 } from './codex-machine-tasks-migration';
+import {
+  codexMachineTaskDurabilityMigrationId,
+  codexMachineTaskDurabilityMigrationSql
+} from './codex-machine-task-durability-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -614,6 +618,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: codexMachineTasksMigrationId,
     sql: codexMachineTasksMigrationSql
+  },
+  {
+    id: codexMachineTaskDurabilityMigrationId,
+    sql: codexMachineTaskDurabilityMigrationSql
   }
 ];
 

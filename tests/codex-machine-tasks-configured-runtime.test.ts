@@ -112,7 +112,7 @@ describe('configured Codex machine-task runtime', () => {
     expect(transportAborted).toBeTrue();
   });
 
-  test('retains a recent approval while opening a wait on a long thread', async () => {
+  test('returns the latest pending interaction while opening a wait on a long thread', async () => {
     const sessions = {
       service: {
         async read() {
@@ -132,7 +132,7 @@ describe('configured Codex machine-task runtime', () => {
           };
         },
         async stream(_actor, _request, emit, signal, onReady) {
-          for (let index = 0; index < 500; index += 1) {
+          for (let index = 0; index < 499; index += 1) {
             emit({
               eventId: `old-${index}`,
               turnId: `old-turn-${index}`,
@@ -140,10 +140,16 @@ describe('configured Codex machine-task runtime', () => {
             }, index + 1);
           }
           emit({
-            eventId: 'approval-latest',
+            eventId: 'approval-stale',
             requestId: 'approval-request',
             turnId: 'turn-reconciled',
             type: 'approval-requested'
+          }, 500);
+          emit({
+            eventId: 'input-latest',
+            requestId: 'input-request',
+            turnId: 'turn-reconciled',
+            type: 'user-input-requested'
           }, 501);
           onReady?.();
           await untilAborted(signal, () => {});
@@ -170,15 +176,15 @@ describe('configured Codex machine-task runtime', () => {
         userId: 'user-owner'
       }),
       new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('wait did not replay the recent approval')), 500);
+        setTimeout(() => reject(new Error('wait did not replay the latest interaction')), 500);
       })
     ]);
 
     expect(result).toEqual(expect.objectContaining({
       event: expect.objectContaining({
-        eventId: 'approval-latest',
+        eventId: 'input-latest',
         turnId: 'turn-reconciled',
-        type: 'approval-requested'
+        type: 'user-input-requested'
       }),
       sequence: 501
     }));

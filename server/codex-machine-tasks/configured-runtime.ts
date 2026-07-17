@@ -351,7 +351,13 @@ export async function waitForTerminal(
         result
       };
     }
-    const replayedTerminal = observed.find(({ event }) => matches(event));
+    let replayedTerminal: { event: CodexSessionStreamEvent; sequence?: number } | undefined;
+    for (let index = observed.length - 1; index >= 0; index -= 1) {
+      if (matches(observed[index]!.event)) {
+        replayedTerminal = observed[index];
+        break;
+      }
+    }
     if (replayedTerminal) return { result, ...replayedTerminal };
     const expired = new Promise<'expired'>((resolve) => {
       timeout = setTimeout(() => resolve('expired'), 30 * 60_000);

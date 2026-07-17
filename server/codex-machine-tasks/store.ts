@@ -11,8 +11,10 @@ import type {
 
 interface StartRow {
   connector_generation: string | number;
+  connector_id: string;
   dispatch_operation_id: string;
   durable_operations: boolean;
+  physical_machine_id: string;
   result: unknown;
   state: 'completed' | 'pending' | 'uncertain';
 }
@@ -43,7 +45,8 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
   async lookupStart(input: { fingerprint: string; operationId: string; userId: string }) {
     const result = await this.client.query<StartLookupRow>(
       `select o.fingerprint_sha256, s.dispatch_operation_id,
-              s.connector_generation, s.durable_operations, s.state, s.result
+              s.connector_generation, s.connector_id, s.durable_operations,
+              s.physical_machine_id, s.state, s.result
          from codex_machine_task_start_operations o
          join codex_machine_task_starts s
            on s.owner_user_id = o.owner_user_id and s.association_key = o.association_key
@@ -61,8 +64,10 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
     return row.state === 'pending' || row.state === 'uncertain'
       ? {
           durableOperations: row.durable_operations,
+          connectorId: row.connector_id,
           generation,
           kind: 'reserved',
+          physicalMachineId: row.physical_machine_id,
           state: row.state
         } as const
       : { kind: 'conflict' } as const;

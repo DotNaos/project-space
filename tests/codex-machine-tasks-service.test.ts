@@ -46,9 +46,11 @@ function memoryStore(): CodexMachineTasksStore & { operations: Map<string, Codex
         return { kind: 'replayed', result: current.result };
       }
       return {
+        connectorId: current.connectorId,
         durableOperations: current.durableOperations,
         generation: current.generation,
         kind: 'reserved',
+        physicalMachineId: current.physicalMachineId,
         state: current.state === 'uncertain' ? 'uncertain' : 'pending'
       };
     },
@@ -393,6 +395,51 @@ describe('Codex machine-task service', () => {
       state: 'uncertain',
       target: expect.objectContaining({ connector: expect.objectContaining({ generation: 7 }) })
     }));
+  });
+
+  test('does not relabel a reserved start when the physical connector changes', async () => {
+    const store = memoryStore();
+    await service({
+      start: async () => ({ state: 'uncertain' }),
+      store
+    }).start({ userId: 'user-owner' }, request);
+    let issueCalls = 0;
+    let starts = 0;
+    const replacement = {
+      ...connector(),
+      id: 'connector-replacement',
+      name: 'Replacement connector'
+    };
+
+    const result = await service({
+      generationFor: () => 8,
+      inventory: async () => ({
+        connectors: [replacement],
+        physicalMachines: [{
+          connectorIds: [replacement.id],
+          id: 'physical-local',
+          name: 'Mac'
+        }]
+      }),
+      issue: async () => {
+        issueCalls += 1;
+        throw new Error('the retry must not prepare a different target');
+      },
+      start: async () => {
+        starts += 1;
+        return { state: 'confirmed', threadId, worktreeId: 'wrong-target' };
+      },
+      store
+    }).start({ userId: 'user-owner' }, request);
+
+    expect(result).toEqual(expect.objectContaining({
+      operationId: request.operationId,
+      reconcile: 'required',
+      state: 'uncertain'
+    }));
+    expect(result.state === 'uncertain' && result.target).toBeUndefined();
+    expect(issueCalls).toBe(0);
+    expect(starts).toBe(0);
   });
 
   test('allows a safe retry after a known not-dispatched start failure', async () => {

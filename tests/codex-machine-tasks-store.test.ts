@@ -47,7 +47,9 @@ function row(overrides: Record<string, unknown> = {}) {
   return {
     dispatch_operation_id: operation.operationId,
     connector_generation: operation.generation,
+    connector_id: operation.connectorId,
     durable_operations: operation.durableOperations,
+    physical_machine_id: operation.physicalMachineId,
     result: completed,
     state: 'completed',
     ...overrides
@@ -78,8 +80,10 @@ describe('Codex machine-task durable start store', () => {
       userId: operation.userId
     })).toEqual({
       durableOperations: true,
+      connectorId: operation.connectorId,
       generation: 4,
       kind: 'reserved',
+      physicalMachineId: operation.physicalMachineId,
       state: 'uncertain'
     });
   });

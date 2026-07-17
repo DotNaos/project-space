@@ -59,8 +59,10 @@ export type CodexMachineTaskStartLookup =
   | { kind: 'conflict' }
   | {
       durableOperations: boolean;
+      connectorId: string;
       generation: number;
       kind: 'reserved';
+      physicalMachineId: string;
       state: 'pending' | 'uncertain';
     }
   | { kind: 'replayed'; result: CodexMachineTaskStartResult };
@@ -279,9 +281,19 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       }
       let selected: CodexMachineTaskTarget;
       try {
-        selected = await target(actor.userId, request, actor.callerMachineId);
+        selected = await target(
+          actor.userId,
+          lookup.kind === 'reserved'
+            ? {
+                connectorId: lookup.connectorId,
+                physicalMachineId: lookup.physicalMachineId
+              }
+            : request,
+          actor.callerMachineId
+        );
       } catch (error) {
         if (!(error instanceof CodexMachineTaskTargetError)) throw error;
+        if (lookup.kind === 'reserved') return uncertain(request.operationId);
         return blocked(request.operationId, error.reason, error.message);
       }
       if (request.dryRun) {
