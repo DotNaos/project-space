@@ -1,4 +1,4 @@
-import { memo, type ComponentProps } from 'react';
+import { memo, useState, type ComponentProps } from 'react';
 import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/utils';
@@ -19,6 +19,50 @@ function MarkdownLink({ children, className, href, node: _node, ...props }: Comp
       {children}
     </a>
   );
+}
+
+function MarkdownImage({ alt, className, node: _node, src }: ComponentProps<'img'> & { node?: unknown }) {
+  const [failed, setFailed] = useState(false);
+  const [loadRequested, setLoadRequested] = useState(false);
+  const safeSrc = externalImageUrl(src);
+  const label = alt || 'Conversation image';
+
+  if (!safeSrc) return <span>{label}</span>;
+  if (failed) return <span>{label} (image unavailable)</span>;
+  if (!loadRequested) {
+    return (
+      <button
+        type="button"
+        className="my-4 block rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-left text-xs text-neutral-400 transition hover:border-neutral-700 hover:text-neutral-200"
+        onClick={() => setLoadRequested(true)}
+      >
+        Load external image: {label}
+      </button>
+    );
+  }
+
+  return (
+    <img
+      alt={label}
+      className={cn('my-4 max-h-80 max-w-full rounded-2xl object-contain', className)}
+      decoding="async"
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      src={safeSrc}
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+function externalImageUrl(src: string | undefined) {
+  if (!src) return undefined;
+  try {
+    const url = new URL(src);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return undefined;
+    return url.toString();
+  } catch {
+    return undefined;
+  }
 }
 
 const markdownComponents: Components = {
@@ -44,14 +88,7 @@ const markdownComponents: Components = {
   h3: ({ children, node: _node, ...props }) => <h3 {...props} className="mb-2 mt-5 text-base font-semibold tracking-tight text-neutral-100 first:mt-0">{children}</h3>,
   h4: ({ children, node: _node, ...props }) => <h4 {...props} className="mb-2 mt-4 text-sm font-semibold text-neutral-100 first:mt-0">{children}</h4>,
   hr: ({ node: _node, ...props }) => <hr {...props} className="my-5 border-neutral-800" />,
-  img: ({ alt, className, node: _node, ...props }) => (
-    <img
-      {...props}
-      alt={alt ?? ''}
-      className={cn('my-4 max-h-80 max-w-full rounded-2xl object-contain', className)}
-      loading="lazy"
-    />
-  ),
+  img: MarkdownImage,
   input: ({ className, node: _node, ...props }) => (
     <input {...props} className={cn('mr-2 accent-neutral-200', className)} disabled />
   ),

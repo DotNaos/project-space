@@ -276,6 +276,8 @@ describe('Canonical Codex task page', () => {
               '',
               '- [x] Markdown aktiv',
               '',
+              '![Private host](http://127.0.0.1/private.png)',
+              '',
               '```ts',
               'const machineId = "machine-mac";',
               '```',
@@ -299,6 +301,8 @@ describe('Canonical Codex task page', () => {
     expect(html).toContain('type="checkbox"');
     expect(html).toContain('class="my-3 space-y-1.5 ml-0 list-none contains-task-list"');
     expect(html).toContain('task-list-item');
+    expect(html).toContain('Load external image: Private host');
+    expect(html).not.toContain('src="http://127.0.0.1/private.png"');
     expect(html).toContain('<pre');
     expect(html).not.toContain('[Issue #185]');
     expect(html).not.toContain('## Ergebnis');
