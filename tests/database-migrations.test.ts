@@ -6,6 +6,10 @@ import {
   migrationChecksum,
   runDatabaseMigrations
 } from '../server/database/migrations';
+import {
+  codexMachineTasksMigrationId,
+  codexMachineTasksMigrationSql
+} from '../server/database/codex-machine-tasks-migration';
 
 interface QueryCall {
   sql: string;
@@ -37,6 +41,18 @@ class MigrationTestClient implements DatabaseQueryClient {
 }
 
 describe('database migrations', () => {
+  test('preserves the original machine-task migration and backfills durability conservatively', () => {
+    expect(migrationChecksum({
+      id: codexMachineTasksMigrationId,
+      sql: codexMachineTasksMigrationSql
+    })).toBe('7da3fce3e7e2b8a5915a605991e463b498392f2aacd2fc584414b475ccefbc06');
+    const durability = databaseMigrations.find((migration) => (
+      migration.id === '0022_codex_machine_task_durable_operations'
+    ));
+    expect(durability?.sql).toContain('set durable_operations = false');
+    expect(durability?.sql).toContain('alter column durable_operations set not null');
+  });
+
   test('defines the multi-user tables and their ownership constraints', () => {
     expect(databaseMigrations.map((migration) => migration.id)).toEqual([
       '0001_github_oauth_tokens',
@@ -58,7 +74,10 @@ describe('database migrations', () => {
       '0017_github_issue_creation_operations',
       '0018_connector_enrollment_profiles',
       '0019_machine_execution_scopes',
-      '0020_physical_machines'
+      '0020_physical_machines',
+      '0021_codex_machine_tasks',
+      '0022_codex_machine_task_durable_operations',
+      '0023_codex_machine_task_start_payload'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -95,6 +114,16 @@ describe('database migrations', () => {
     expect(sql).toContain('from machine_execution_scopes');
     expect(sql).toContain('insert into physical_machine_connectors');
     expect(sql).toContain('from machine_execution_scope_members');
+    expect(sql).toContain('create table if not exists codex_machine_task_starts');
+    expect(sql).toContain('primary key (owner_user_id, association_key)');
+    expect(sql).toContain('create table if not exists codex_machine_task_start_operations');
+    expect(sql).toContain('primary key (owner_user_id, operation_id)');
+    expect(sql).toContain('create table if not exists codex_machine_task_sends');
+    expect(sql).toContain('codex_machine_task_sends_one_unresolved_per_thread');
+    expect(sql).toContain('add column if not exists durable_operations boolean');
+    expect(sql).toContain('set durable_operations = false');
+    expect(sql).toContain('alter column durable_operations set not null');
+    expect(sql).toContain('add column start_payload jsonb');
     expect(sql).toContain('references machine_memberships (machine_id, user_id)');
     expect(sql).toContain('registry jsonb not null');
     expect(sql).toContain('removed_by_user_id text');

@@ -1,0 +1,93 @@
+import type { ProjectSpaceBackend } from '../../src/shared/project-space-api';
+import { runWithAuthSession } from '../local-auth-store';
+import type { CodexMachineTaskBlockedReason } from '../../src/shared/codex-machine-tasks-api';
+
+export class CodexMachineTaskIssueError extends Error {
+  constructor(readonly reason: Extract<
+    CodexMachineTaskBlockedReason,
+    'offline' | 'unauthorized' | 'worktree_failure'
+  >, message: string) {
+    super(message);
+    this.name = 'CodexMachineTaskIssueError';
+  }
+}
+
+export function createCodexMachineTaskIssueProvider(
+  backend: Pick<
+    ProjectSpaceBackend,
+    'createGitHubBranch' | 'getGitHubCatalog' | 'getGitHubRepositoryDetails'
+  >
+) {
+  return async function prepare(input: {
+    issue: number;
+    repositoryId?: string;
+    userId: string;
+  }) {
+    return runWithAuthSession(machineSession(input.userId), async () => {
+      const catalog = await backend.getGitHubCatalog();
+      if (catalog.status !== 'connected') {
+        throw new CodexMachineTaskIssueError('unauthorized', 'GitHub authorization is unavailable.');
+      }
+      const repository = catalog.repositories.find((candidate) => (
+        input.repositoryId
+          ? String(candidate.id) === input.repositoryId || candidate.fullName === input.repositoryId
+          : false
+      ));
+      if (!repository) {
+        throw new CodexMachineTaskIssueError('unauthorized', 'Select an exact authorized repository.');
+      }
+      const details = await backend.getGitHubRepositoryDetails(repository.fullName);
+      if (details.status !== 'connected') {
+        throw new CodexMachineTaskIssueError('offline', 'Repository details are unavailable.');
+      }
+      const issue = details.issues.find((candidate) => candidate.number === input.issue);
+      if (!issue || issue.state !== 'open') {
+        throw new CodexMachineTaskIssueError('unauthorized', 'The GitHub issue is not available and open.');
+      }
+      const branchName = `issue-${issue.number}-${slug(issue.title)}`;
+      let branch = details.branches.find((candidate) => candidate.name === branchName);
+      if (!branch) {
+        const created = await backend.createGitHubBranch({
+          fullName: repository.fullName,
+          issueNumber: issue.number,
+          name: branchName,
+          sourceBranch: repository.defaultBranch
+        });
+        if (created.status !== 'connected' || !created.branch) {
+          throw new CodexMachineTaskIssueError(
+            'worktree_failure',
+            'The issue branch could not be prepared.'
+          );
+        }
+        branch = created.branch;
+        if (!branch.commitSha) {
+          const refreshed = await backend.getGitHubRepositoryDetails(repository.fullName);
+          if (refreshed.status === 'connected') {
+            branch = refreshed.branches.find((candidate) => candidate.name === branch?.name) ?? branch;
+          }
+        }
+      }
+      if (!branch.commitSha || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(branch.commitSha)) {
+        throw new CodexMachineTaskIssueError(
+          'worktree_failure',
+          'The issue branch does not have an exact commit.'
+        );
+      }
+      return {
+        branch: branch.name,
+        commit: branch.commitSha,
+        issue: { number: issue.number, url: issue.url },
+        repository: { id: String(repository.id), nameWithOwner: repository.fullName }
+      };
+    });
+  };
+}
+
+function machineSession(userId: string) {
+  return { login: 'project-cli', role: 'user' as const, userId };
+}
+
+function slug(value: string) {
+  const normalized = value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return (normalized || 'work').slice(0, 56).replace(/-+$/g, '');
+}

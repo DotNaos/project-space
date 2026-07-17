@@ -12,6 +12,21 @@ import (
 	"time"
 )
 
+func TestDefaultCodexOperationSnapshotPathIsBesideMachineCredential(t *testing.T) {
+	credential, err := DefaultCredentialPath()
+	if err != nil {
+		t.Fatalf("resolve default credential path: %v", err)
+	}
+	snapshot, err := DefaultCodexOperationSnapshotPath()
+	if err != nil {
+		t.Fatalf("resolve default Codex operation snapshot path: %v", err)
+	}
+	want := filepath.Join(filepath.Dir(credential), CodexOperationSnapshotFilename)
+	if snapshot != want {
+		t.Fatalf("default Codex operation snapshot path = %q, want %q", snapshot, want)
+	}
+}
+
 func TestFileStorePersistsCredentialWithPrivatePermissions(t *testing.T) {
 	requirePrivateFileCredentialStore(t)
 	directory := filepath.Join(t.TempDir(), "nested", "project-space")

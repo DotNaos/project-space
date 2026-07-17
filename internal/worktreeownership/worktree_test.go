@@ -107,6 +107,20 @@ func TestClaimOwnsExistingStandardWorktreeAndThenConfirmsIt(t *testing.T) {
 	}
 }
 
+func TestClaimSupportsDetachedAdministrativeCheckoutCreatedByMaterializer(t *testing.T) {
+	mainPath := setupRepository(t)
+	worktreePath := addStandardWorktree(t, mainPath, "task-materialized-worktree")
+	command(t, mainPath, "git", "checkout", "--detach")
+
+	claimed, err := Claim(ClaimOptions{StartPath: worktreePath, ThreadID: firstThread})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed.Status != "claimed" || claimed.Path != worktreePath || claimed.Owner != firstThread {
+		t.Fatalf("unexpected claim result: %#v", claimed)
+	}
+}
+
 func TestClaimedWorktreeMayContinueWithChangesAndCommits(t *testing.T) {
 	mainPath := setupRepository(t)
 	worktreePath := addStandardWorktree(t, mainPath, "task-owned-active-work")

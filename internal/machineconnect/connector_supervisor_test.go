@@ -45,31 +45,32 @@ func (store *supervisorTestStore) connectorRuntimeLockPath() string {
 }
 
 type supervisorHelperResult struct {
-	BuildID              string `json:"buildId"`
-	Executable           string `json:"executable"`
-	Version              string `json:"version"`
-	BackendURL           string `json:"backendUrl"`
-	MachineID            string `json:"machineId"`
-	TokenMatches         bool   `json:"tokenMatches"`
-	PrivateKeyPresent    bool   `json:"privateKeyPresent"`
-	SecretInArguments    bool   `json:"secretInArguments"`
-	SecretInEnvironment  bool   `json:"secretInEnvironment"`
-	LegacyTokenPresent   bool   `json:"legacyTokenPresent"`
-	UnexpectedProjectEnv bool   `json:"unexpectedProjectEnv"`
-	ProtocolMarkerOK     bool   `json:"protocolMarkerOk"`
-	CommandSigningKeyOK  bool   `json:"commandSigningKeyOk"`
-	CommandSigningKey    string `json:"commandSigningKey"`
-	RuntimePathOK        bool   `json:"runtimePathOk"`
-	MinimalFields        bool   `json:"minimalFields"`
-	ShellAndLocaleOK     bool   `json:"shellAndLocaleOk"`
-	MaintenancePathsOK   bool   `json:"maintenancePathsOk"`
-	MaintenanceSource    string `json:"maintenanceSource"`
-	MaintenanceState     string `json:"maintenanceState"`
-	MaintenanceID        string `json:"maintenanceId"`
-	ReleaseSigningKey    string `json:"releaseSigningKey"`
-	ReleaseID            string `json:"releaseId"`
-	ReadyFile            string `json:"readyFile"`
-	ReadyAttemptNonce    string `json:"readyAttemptNonce"`
+	BuildID                    string `json:"buildId"`
+	Executable                 string `json:"executable"`
+	Version                    string `json:"version"`
+	BackendURL                 string `json:"backendUrl"`
+	MachineID                  string `json:"machineId"`
+	TokenMatches               bool   `json:"tokenMatches"`
+	PrivateKeyPresent          bool   `json:"privateKeyPresent"`
+	SecretInArguments          bool   `json:"secretInArguments"`
+	SecretInEnvironment        bool   `json:"secretInEnvironment"`
+	LegacyTokenPresent         bool   `json:"legacyTokenPresent"`
+	UnexpectedProjectEnv       bool   `json:"unexpectedProjectEnv"`
+	ProtocolMarkerOK           bool   `json:"protocolMarkerOk"`
+	CommandSigningKeyOK        bool   `json:"commandSigningKeyOk"`
+	CommandSigningKey          string `json:"commandSigningKey"`
+	RuntimePathOK              bool   `json:"runtimePathOk"`
+	MinimalFields              bool   `json:"minimalFields"`
+	ShellAndLocaleOK           bool   `json:"shellAndLocaleOk"`
+	MaintenancePathsOK         bool   `json:"maintenancePathsOk"`
+	MaintenanceSource          string `json:"maintenanceSource"`
+	MaintenanceState           string `json:"maintenanceState"`
+	MaintenanceID              string `json:"maintenanceId"`
+	ReleaseSigningKey          string `json:"releaseSigningKey"`
+	ReleaseID                  string `json:"releaseId"`
+	ReadyFile                  string `json:"readyFile"`
+	ReadyAttemptNonce          string `json:"readyAttemptNonce"`
+	CodexOperationSnapshotFile string `json:"codexOperationSnapshotFile"`
 }
 
 func TestConnectorSupervisorPassesMinimalCredentialOverStdin(t *testing.T) {
@@ -86,6 +87,7 @@ func TestConnectorSupervisorPassesMinimalCredentialOverStdin(t *testing.T) {
 	t.Setenv("CLERK_SECRET_KEY", "clerk-secret")
 	t.Setenv("PROJECT_DEPLOY_SECRET", "deploy-secret")
 	t.Setenv(ConnectorCommandSigningKeyFileEnv, "/project-space/command-signing-public-key.pem")
+	t.Setenv(CodexOperationSnapshotFileEnv, "/untrusted/codex-operations.json")
 	home := filepath.Join(t.TempDir(), "runtime-home")
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", strings.Join([]string{
@@ -99,11 +101,13 @@ func TestConnectorSupervisorPassesMinimalCredentialOverStdin(t *testing.T) {
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
+	snapshotPath := testCodexOperationSnapshotPath(t)
 	supervisor, err := newConnectorSupervisor(store, ConnectorSupervisorOptions{
-		ReadinessAttemptNonce: strings.Repeat("1", 64),
-		Executable:            os.Args[0],
-		Stdout:                &stdout,
-		Stderr:                &stderr,
+		CodexOperationSnapshotPath: snapshotPath,
+		ReadinessAttemptNonce:      strings.Repeat("1", 64),
+		Executable:                 os.Args[0],
+		Stdout:                     &stdout,
+		Stderr:                     &stderr,
 	}, []string{"-test.run=^TestConnectorSupervisorHelper$", "--", "supervisor-helper-mode=success"})
 	if err != nil {
 		t.Fatalf("create supervisor: %v", err)
@@ -131,6 +135,7 @@ func TestConnectorSupervisorPassesMinimalCredentialOverStdin(t *testing.T) {
 		result.UnexpectedProjectEnv || !result.ProtocolMarkerOK || result.CommandSigningKey != "" ||
 		!result.RuntimePathOK || !result.MinimalFields || !result.ShellAndLocaleOK ||
 		!filepath.IsAbs(result.ReadyFile) || filepath.Base(result.ReadyFile) != connectorRuntimeReadyName ||
+		result.CodexOperationSnapshotFile != snapshotPath ||
 		result.ReadyAttemptNonce != strings.Repeat("1", 64) {
 		t.Fatalf("secret escaped the stdin credential channel: %#v", result)
 	}
@@ -148,6 +153,7 @@ func TestConnectorSupervisorPassesFixedBuildIdentity(t *testing.T) {
 	supervisor, err := newConnectorSupervisor(
 		newSupervisorTestStore(t, supervisorCredential(t), nil),
 		ConnectorSupervisorOptions{
+			CodexOperationSnapshotPath: testCodexOperationSnapshotPath(t),
 			BuildIdentity: ConnectorSupervisorBuildIdentity{
 				BuildID:   strings.Repeat("a", 40),
 				ReleaseID: "v0.4.1",
@@ -180,7 +186,7 @@ func TestConnectorSupervisorRejectsInvalidBuildIdentity(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if _, err := NewConnectorSupervisor(
 				newSupervisorTestStore(t, supervisorCredential(t), nil),
-				ConnectorSupervisorOptions{BuildIdentity: identity, Executable: os.Args[0]},
+				ConnectorSupervisorOptions{BuildIdentity: identity, CodexOperationSnapshotPath: testCodexOperationSnapshotPath(t), Executable: os.Args[0]},
 			); err == nil {
 				t.Fatal("invalid build identity was accepted")
 			}
@@ -192,11 +198,33 @@ func TestConnectorSupervisorRejectsInvalidReadinessAttempt(t *testing.T) {
 	if _, err := NewConnectorSupervisor(
 		newSupervisorTestStore(t, supervisorCredential(t), nil),
 		ConnectorSupervisorOptions{
-			Executable:            os.Args[0],
-			ReadinessAttemptNonce: "browser-selected-attempt",
+			CodexOperationSnapshotPath: testCodexOperationSnapshotPath(t),
+			Executable:                 os.Args[0],
+			ReadinessAttemptNonce:      "browser-selected-attempt",
 		},
 	); err == nil {
 		t.Fatal("invalid readiness attempt was accepted")
+	}
+}
+
+func TestConnectorSupervisorRejectsInvalidCodexOperationSnapshotPath(t *testing.T) {
+	for name, snapshotPath := range map[string]string{
+		"missing":          "",
+		"relative":         CodexOperationSnapshotFilename,
+		"unclean":          t.TempDir() + string(os.PathSeparator) + "nested" + string(os.PathSeparator) + ".." + string(os.PathSeparator) + CodexOperationSnapshotFilename,
+		"mutable basename": filepath.Join(t.TempDir(), "renamed.json"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := NewConnectorSupervisor(
+				newSupervisorTestStore(t, supervisorCredential(t), nil),
+				ConnectorSupervisorOptions{
+					CodexOperationSnapshotPath: snapshotPath,
+					Executable:                 os.Args[0],
+				},
+			); err == nil {
+				t.Fatalf("invalid Codex operation snapshot path %q was accepted", snapshotPath)
+			}
+		})
 	}
 }
 
@@ -211,6 +239,7 @@ func TestConnectorEnvironmentAddsUnixNonLoginToolsAndRejectsOtherProjectValues(t
 		"PATH=" + existingPath,
 		"HOME=" + home,
 		ConnectorCommandSigningKeyFileEnv + "=/project-space/public-key.pem",
+		CodexOperationSnapshotFileEnv + "=/untrusted/codex-operations.json",
 		"PROJECT_CONNECTOR_REGISTRATION_TOKEN=must-not-pass",
 		"PROJECT_ARBITRARY_VALUE=must-not-pass",
 		"GH_TOKEN=must-not-pass",
@@ -219,6 +248,9 @@ func TestConnectorEnvironmentAddsUnixNonLoginToolsAndRejectsOtherProjectValues(t
 	actual := environmentMap(environment)
 	if _, found := actual[ConnectorCommandSigningKeyFileEnv]; found {
 		t.Fatal("inherited command verification key path was forwarded")
+	}
+	if _, found := actual[CodexOperationSnapshotFileEnv]; found {
+		t.Fatal("inherited Codex operation snapshot path was forwarded")
 	}
 	if actual[ConnectorRuntimeProtocolEnv] != ConnectorRuntimeCredentialVersion {
 		t.Fatalf("connector runtime protocol = %q", actual[ConnectorRuntimeProtocolEnv])
@@ -249,7 +281,7 @@ func TestConnectorEnvironmentAddsUnixNonLoginToolsAndRejectsOtherProjectValues(t
 func TestConnectorSupervisorPropagatesLoadStartExitAndContextErrors(t *testing.T) {
 	t.Run("load", func(t *testing.T) {
 		store := newSupervisorTestStore(t, Credential{}, ErrCredentialNotFound)
-		supervisor, err := NewConnectorSupervisor(store, ConnectorSupervisorOptions{Executable: "missing"})
+		supervisor, err := NewConnectorSupervisor(store, ConnectorSupervisorOptions{CodexOperationSnapshotPath: testCodexOperationSnapshotPath(t), Executable: "missing"})
 		if err != nil {
 			t.Fatalf("create supervisor: %v", err)
 		}
@@ -262,9 +294,10 @@ func TestConnectorSupervisorPropagatesLoadStartExitAndContextErrors(t *testing.T
 	t.Run("start", func(t *testing.T) {
 		store := newSupervisorTestStore(t, supervisorCredential(t), nil)
 		supervisor, err := NewConnectorSupervisor(store, ConnectorSupervisorOptions{
-			Executable: t.TempDir() + "/missing-connector",
-			Stdout:     io.Discard,
-			Stderr:     io.Discard,
+			CodexOperationSnapshotPath: testCodexOperationSnapshotPath(t),
+			Executable:                 t.TempDir() + "/missing-connector",
+			Stdout:                     io.Discard,
+			Stderr:                     io.Discard,
 		})
 		if err != nil {
 			t.Fatalf("create supervisor: %v", err)
@@ -381,13 +414,14 @@ func TestConnectorSupervisorHelper(t *testing.T) {
 		MaintenancePathsOK: filepath.IsAbs(os.Getenv(ConnectorSupervisorMaintenanceControlEnv)) &&
 			filepath.IsAbs(os.Getenv(ConnectorSupervisorMaintenanceDecisionEnv)) &&
 			filepath.IsAbs(os.Getenv(ConnectorSupervisorMaintenanceStagingEnv)),
-		MaintenanceSource: os.Getenv(ConnectorRuntimeInstallSourceEnv),
-		MaintenanceState:  os.Getenv(ConnectorSupervisorMaintenanceStateEnv),
-		MaintenanceID:     os.Getenv(ConnectorSupervisorMaintenanceOperationIDEnv),
-		ReleaseSigningKey: os.Getenv(ConnectorReleaseSigningKeyFileEnv),
-		ReleaseID:         os.Getenv(ConnectorRuntimeReleaseIDEnv),
-		ReadyFile:         os.Getenv(ConnectorRuntimeReadyFileEnv),
-		ReadyAttemptNonce: os.Getenv(ConnectorRuntimeReadyAttemptNonceEnv),
+		MaintenanceSource:          os.Getenv(ConnectorRuntimeInstallSourceEnv),
+		MaintenanceState:           os.Getenv(ConnectorSupervisorMaintenanceStateEnv),
+		MaintenanceID:              os.Getenv(ConnectorSupervisorMaintenanceOperationIDEnv),
+		ReleaseSigningKey:          os.Getenv(ConnectorReleaseSigningKeyFileEnv),
+		ReleaseID:                  os.Getenv(ConnectorRuntimeReleaseIDEnv),
+		ReadyFile:                  os.Getenv(ConnectorRuntimeReadyFileEnv),
+		ReadyAttemptNonce:          os.Getenv(ConnectorRuntimeReadyAttemptNonceEnv),
+		CodexOperationSnapshotFile: os.Getenv(CodexOperationSnapshotFileEnv),
 	}
 	for _, argument := range os.Args {
 		result.SecretInArguments = result.SecretInArguments ||
@@ -404,7 +438,8 @@ func TestConnectorSupervisorHelper(t *testing.T) {
 			result.CommandSigningKey = value
 			result.CommandSigningKeyOK = value == "/project-space/command-signing-public-key.pem"
 		} else if name == ConnectorRuntimeBuildIDEnv || name == ConnectorRuntimeReleaseIDEnv ||
-			name == ConnectorRuntimeReadyFileEnv || name == ConnectorRuntimeReadyAttemptNonceEnv {
+			name == ConnectorRuntimeReadyFileEnv || name == ConnectorRuntimeReadyAttemptNonceEnv ||
+			name == CodexOperationSnapshotFileEnv {
 			// Captured above from the fixed supervisor environment.
 		} else if strings.HasPrefix(strings.ToUpper(name), "PROJECT_") {
 			result.UnexpectedProjectEnv = true
@@ -528,12 +563,18 @@ func newSupervisorTestStore(t *testing.T, credential Credential, err error) *sup
 	}
 }
 
+func testCodexOperationSnapshotPath(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(t.TempDir(), CodexOperationSnapshotFilename)
+}
+
 func supervisorForHelper(t *testing.T, mode string, store CredentialStore, stdout, stderr io.Writer) *ConnectorSupervisor {
 	t.Helper()
 	supervisor, err := newConnectorSupervisor(store, ConnectorSupervisorOptions{
-		Executable: os.Args[0],
-		Stdout:     stdout,
-		Stderr:     stderr,
+		CodexOperationSnapshotPath: testCodexOperationSnapshotPath(t),
+		Executable:                 os.Args[0],
+		Stdout:                     stdout,
+		Stderr:                     stderr,
 	}, []string{"-test.run=^TestConnectorSupervisorHelper$", "--", "supervisor-helper-mode=" + mode})
 	if err != nil {
 		t.Fatalf("create supervisor: %v", err)

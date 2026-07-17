@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 
 import {
@@ -25,6 +26,7 @@ import type {
   CodexStoredOperationInput,
   CodexStoredOperationName
 } from '../codex-sessions-store';
+import { canonicalJson } from './canonical-json';
 import {
   codexSessionInspectionMatchesScope,
   withCodexSessionWriteCapability
@@ -37,6 +39,7 @@ export interface CodexSessionsActor {
 
 export interface CodexSessionStreamRequest extends CodexSessionReadRequest {
   afterSequence?: number;
+  onDispatched?: () => void;
 }
 
 export interface CodexSessionsTransport {
@@ -63,7 +66,7 @@ export interface CodexSessionsTransport {
   }>;
   read(input: CodexSessionReadRequest & { userId: string }): Promise<CodexSessionReadResult>;
   stream?(
-    input: CodexSessionReadRequest & { userId: string },
+    input: CodexSessionStreamRequest & { userId: string },
     emit: (event: CodexSessionStreamEvent) => void,
     signal: AbortSignal
   ): Promise<void>;
@@ -111,6 +114,7 @@ export function createCodexSessionsService(options: {
     | 'listEvents'
     | 'listInventory'
     | 'markOperationAmbiguous'
+    | 'reconcileOperation'
     | 'reserveOperation'
     | 'saveInventory'
   >;
@@ -252,21 +256,10 @@ export function createCodexSessionsService(options: {
     kind: 'approval' | 'continue' | 'input' | 'interrupt',
     request: CodexSessionApprovalRequest | CodexSessionContinueRequest | CodexSessionInterruptRequest | CodexSessionUserInputResponse
   ) {
-    const machineScope = await scope(actor, request.machineId);
-    const threadId = required(request.threadId, 'threadId');
-    const operationId = required(request.operationId, 'operationId');
-    const fingerprint = { kind, request: { ...request, operationId: undefined }, threadId };
-    const operation = {
-      ...machineScope,
-      fingerprint,
-      operation: operationName(kind),
-      operationId,
-      threadId
-    } satisfies ScopedOperation;
+    const operation = await operationFor(actor, kind, request);
     const key = operationKey(operation);
     const running = activeOperations.get(key);
     if (running) return running;
-
     const reserved = await options.store.reserveOperation(operation);
     if (reserved.kind === 'conflict') throw new CodexSessionsConflictError('The operation id was reused for different input.');
     if (reserved.kind === 'replayed') return { ...reserved.result, replayed: true };
@@ -284,6 +277,60 @@ export function createCodexSessionsService(options: {
     });
     activeOperations.set(key, execution);
     return execution;
+  }
+
+  async function operationFor(
+    actor: CodexSessionsActor,
+    kind: 'approval' | 'continue' | 'input' | 'interrupt',
+    request: CodexSessionApprovalRequest | CodexSessionContinueRequest | CodexSessionInterruptRequest | CodexSessionUserInputResponse
+  ) {
+    const machineScope = await scope(actor, request.machineId);
+    const threadId = required(request.threadId, 'threadId');
+    const operationId = required(request.operationId, 'operationId');
+    const fingerprintRequest: Record<string, unknown> = { ...request };
+    delete fingerprintRequest.connectorGeneration;
+    delete fingerprintRequest.operationId;
+    return {
+      ...machineScope,
+      fingerprint: { kind, request: fingerprintRequest, threadId },
+      operation: operationName(kind),
+      operationId,
+      threadId
+    } satisfies ScopedOperation;
+  }
+
+  async function reconcileContinue(
+    actor: CodexSessionsActor,
+    request: CodexSessionContinueRequest
+  ) {
+    const operation = await operationFor(actor, 'continue', request);
+    const reserved = await options.store.reserveOperation(operation);
+    if (reserved.kind === 'conflict') {
+      throw new CodexSessionsConflictError('The operation id was reused for different input.');
+    }
+    if (reserved.kind === 'replayed') return { ...reserved.result, replayed: true };
+    if (reserved.kind !== 'ambiguous') return ambiguousResult(operation, true);
+    try {
+      const response = await options.transport.mutate({
+        kind: 'continue',
+        machineId: operation.machineId,
+        request,
+        threadId: operation.threadId,
+        userId: operation.userId
+      });
+      if (
+        response.machineId !== operation.machineId || response.threadId !== operation.threadId ||
+        response.result.threadId !== operation.threadId ||
+        response.result.operationId !== operation.operationId
+      ) return ambiguousResult(operation, true);
+      const result = { ...response.result, replayed: true };
+      if (result.status !== 'ambiguous') {
+        await options.store.reconcileOperation(operation, result);
+      }
+      return result;
+    } catch {
+      return ambiguousResult(operation, true);
+    }
   }
 
   async function executeReserved(
@@ -309,6 +356,7 @@ export function createCodexSessionsService(options: {
       if (error instanceof CodexTransportUnavailableError) {
         const result: CodexSessionOperationResult = {
           operationId: operation.operationId,
+          reason: 'unavailable',
           replayed: false,
           status: 'rejected',
           threadId: operation.threadId
@@ -336,7 +384,8 @@ export function createCodexSessionsService(options: {
     actor: CodexSessionsActor,
     request: CodexSessionStreamRequest,
     emit: (event: CodexSessionStreamEvent, sequence?: number) => void,
-    signal: AbortSignal
+    signal: AbortSignal,
+    onReady?: () => void
   ) {
     const sessionScope = { ...(await scope(actor, request.machineId)), threadId: required(request.threadId, 'threadId') };
     const key = sessionKey(sessionScope);
@@ -358,6 +407,7 @@ export function createCodexSessionsService(options: {
       subscriber.queued.splice(0).forEach(({ event, sequence }) => (
         deliver(subscriber, event, sequence, true)
       ));
+      onReady?.();
       if (signal.aborted) return;
       await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
     } finally {
@@ -368,7 +418,7 @@ export function createCodexSessionsService(options: {
 
   async function transportStream(
     actor: CodexSessionsActor,
-    request: CodexSessionReadRequest,
+    request: CodexSessionStreamRequest,
     signal: AbortSignal
   ) {
     if (!options.transport.stream) return;
@@ -416,6 +466,7 @@ export function createCodexSessionsService(options: {
     list,
     publishEvent,
     read,
+    reconcileContinue,
     respondToUserInput: (actor: CodexSessionsActor, request: CodexSessionUserInputResponse) => mutate(actor, 'input', request),
     stream,
     transportStream
@@ -630,7 +681,8 @@ function required(value: string, label: string) {
 }
 
 function operationKey(scope: ScopedOperation) {
-  return `${scope.userId}\0${scope.machineId}\0${scope.threadId}\0${scope.operationId}`;
+  const inputHash = createHash('sha256').update(canonicalJson(scope.fingerprint)).digest('hex');
+  return `${scope.userId}\0${scope.machineId}\0${scope.threadId}\0${scope.operationId}\0${inputHash}`;
 }
 
 function sessionKey(scope: SessionScope) {

@@ -197,7 +197,7 @@ describe('Codex app-server fixed contract', () => {
     server.stdout.end();
     await expect(operation).rejects.toBeInstanceOf(CodexOperationUncertainError);
     expect(manager.operationSnapshot()).toEqual([{
-      fingerprint: 'thread/resume:{"threadId":"thread-1"}',
+      fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
       operationId: 'resume-uncertain',
       result: undefined,
       state: 'uncertain'
@@ -206,7 +206,7 @@ describe('Codex app-server fixed contract', () => {
       operationId: 'resume-uncertain',
       threadId: 'thread-1'
     })).toThrow(CodexOperationUncertainError);
-    manager.reconcileOperationNotApplied('resume-uncertain');
+    await manager.reconcileOperationNotApplied('resume-uncertain');
     await manager.close();
   });
 });

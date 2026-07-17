@@ -1,17 +1,45 @@
 import type { KeyLike } from 'node:crypto';
 
 import {
+  CodexSessionsGrantReplayProtection,
   CodexSessionsGrantError,
+  isCodexSessionsWireRequest,
+  verifyCodexSessionsWireRequest,
+  type CodexSessionAttachRequest,
   type CodexSessionsConnectorOperation,
   type CodexSessionsWireRequest
 } from '../codex-sessions-connector-contract';
 import type { ConnectorHubMessage } from '../connector-command-protocol';
 import { CodexSessionsConnectorExecutor } from './connector-executor';
-import { bindingForCodexSessionsRequest } from './connector-channel';
+import {
+  CodexAttachChunkAssembler,
+  bindingForCodexSessionsRequest,
+  codexAttachMessageChunks,
+  codexSessionsBindingsEqual,
+  type BoundCodexAttachChunk
+} from './connector-channel';
 import type { CodexSessionManager } from './manager';
 import { CodexOperationUncertainError } from './operation-ledger';
+import { createLocalCodexMachineTaskStarter } from '../codex-machine-tasks/connector-starter';
+import {
+  createConnectorCodexAttachRelay,
+  type ConnectorCodexAttachRelay,
+  type ConnectorCodexAttachRelayCloseCode
+} from '../codex-machine-tasks/connector-attach-relay';
+
+type AttachRelayFactory = typeof createConnectorCodexAttachRelay;
+
+type ActiveAttach = {
+  assembler: CodexAttachChunkAssembler;
+  binding: ReturnType<typeof bindingForCodexSessionsRequest>;
+  nextOutputMessageId: number;
+  relay?: ConnectorCodexAttachRelay;
+  send(message: ConnectorHubMessage): void;
+};
 
 export class CodexSessionsConnectorDispatcher {
+  private readonly attachReplay = new CodexSessionsGrantReplayProtection();
+  private readonly attaches = new Map<string, ActiveAttach>();
   private expectedGeneration?: number;
   private executor?: CodexSessionsConnectorExecutor;
   private machineId?: string;
@@ -21,12 +49,16 @@ export class CodexSessionsConnectorDispatcher {
   >();
 
   constructor(private readonly options: {
+    createAttachRelay?: AttachRelayFactory;
     expectedMachineId?: string;
     manager: CodexSessionManager;
     verificationKey: KeyLike;
   }) {}
 
   setExpectedGeneration(generation?: number) {
+    if (this.expectedGeneration !== undefined && this.expectedGeneration !== generation) {
+      this.cancelAll();
+    }
     this.expectedGeneration = generation;
     if (generation === undefined) this.cancelAll();
   }
@@ -47,16 +79,20 @@ export class CodexSessionsConnectorDispatcher {
       return;
     }
     this.machineId ??= expectedMachineId;
+    const operation = request.grant.operation;
+    const binding = bindingForCodexSessionsRequest(request);
+    if (operation === 'attach') {
+      this.openAttach(id, request, expectedMachineId, binding, send, reject);
+      return;
+    }
     const executor = this.executor ??= new CodexSessionsConnectorExecutor({
       expectedGeneration: () => this.expectedGeneration ?? -1,
       expectedMachineId,
       machineName: expectedMachineId,
       manager: this.options.manager,
+      startTask: createLocalCodexMachineTaskStarter(this.options.manager),
       verificationKey: this.options.verificationKey
     });
-    const operation = request.grant.operation;
-    const binding = bindingForCodexSessionsRequest(request);
-
     if (operation === 'stream') {
       try {
         const unsubscribe = executor.stream(request, (event) => send({
@@ -72,7 +108,7 @@ export class CodexSessionsConnectorDispatcher {
       return;
     }
 
-    void executor.execute(operation as Exclude<CodexSessionsConnectorOperation, 'stream'>, request)
+    void executor.execute(operation as Exclude<CodexSessionsConnectorOperation, 'attach' | 'stream'>, request)
       .then((result) => send({
         id,
         payload: { binding, result },
@@ -82,6 +118,17 @@ export class CodexSessionsConnectorDispatcher {
   }
 
   cancel(id: string, send?: (message: ConnectorHubMessage) => void) {
+    const attached = this.attaches.get(id);
+    if (attached) {
+      this.attaches.delete(id);
+      attached.relay?.close('cancelled');
+      send?.({
+        id,
+        payload: { binding: attached.binding, code: 'cancelled' },
+        type: 'codex.attach.closed'
+      });
+      return true;
+    }
     const stream = this.streams.get(id);
     if (!stream) return false;
     this.streams.delete(id);
@@ -95,8 +142,28 @@ export class CodexSessionsConnectorDispatcher {
   }
 
   cancelAll() {
+    for (const attached of this.attaches.values()) attached.relay?.close('cancelled');
+    this.attaches.clear();
     for (const stream of this.streams.values()) stream.unsubscribe();
     this.streams.clear();
+  }
+
+  acceptAttachInput(id: string, payload: BoundCodexAttachChunk) {
+    const attached = this.attaches.get(id);
+    if (!attached || !attached.relay ||
+      !codexSessionsBindingsEqual(payload.binding, attached.binding)) return false;
+    try {
+      const message = attached.assembler.push(payload.chunk);
+      if (message !== undefined) {
+        void attached.relay.send(message).catch(() => {
+          this.finishAttach(id, 'unavailable');
+        });
+      }
+      return true;
+    } catch {
+      this.finishAttach(id, 'protocol_error');
+      return true;
+    }
   }
 
   close() {
@@ -125,6 +192,88 @@ export class CodexSessionsConnectorDispatcher {
         }
       },
       type: 'codex.sessions.error'
+    });
+  }
+
+  private openAttach(
+    id: string,
+    request: CodexSessionsWireRequest,
+    expectedMachineId: string,
+    binding: ReturnType<typeof bindingForCodexSessionsRequest>,
+    send: (message: ConnectorHubMessage) => void,
+    reject: () => void
+  ) {
+    if (this.attaches.has(id) || this.expectedGeneration === undefined) {
+      reject();
+      return;
+    }
+    try {
+      if (!isCodexSessionsWireRequest(request)) throw new CodexSessionsGrantError('binding-mismatch');
+      verifyCodexSessionsWireRequest(request, 'attach', this.options.verificationKey, {
+        expectedGeneration: this.expectedGeneration,
+        expectedMachineId,
+        replayProtection: this.attachReplay
+      });
+      const payload = request.payload as CodexSessionAttachRequest;
+      if (payload.tunnelId !== id) throw new CodexSessionsGrantError('binding-mismatch');
+    } catch (error) {
+      this.handleFailure(id, binding, error, send, reject);
+      return;
+    }
+    const attached: ActiveAttach = {
+      assembler: new CodexAttachChunkAssembler(),
+      binding,
+      nextOutputMessageId: 1,
+      send
+    };
+    this.attaches.set(id, attached);
+    const generation = this.expectedGeneration;
+    const factory = this.options.createAttachRelay ?? createConnectorCodexAttachRelay;
+    void factory({
+      onClose: (code) => this.finishAttach(id, code),
+      onMessage: (message) => this.emitAttachOutput(id, message)
+    }).then((relay) => {
+      const current = this.attaches.get(id);
+      if (!current || this.expectedGeneration !== generation) {
+        relay.close('cancelled');
+        return;
+      }
+      current.relay = relay;
+      send({ id, payload: { binding }, type: 'codex.attach.ready' });
+    }).catch((error) => {
+      if (!this.attaches.delete(id)) return;
+      this.handleFailure(id, binding, error, send, reject);
+    });
+  }
+
+  private emitAttachOutput(id: string, message: string) {
+    const attached = this.attaches.get(id);
+    if (!attached?.relay) return;
+    try {
+      const messageId = attached.nextOutputMessageId;
+      const chunks = codexAttachMessageChunks(message, messageId);
+      attached.nextOutputMessageId += 1;
+      for (const chunk of chunks) {
+        attached.send({
+          id,
+          payload: { binding: attached.binding, chunk },
+          type: 'codex.attach.output'
+        });
+      }
+    } catch {
+      this.finishAttach(id, 'protocol_error');
+    }
+  }
+
+  private finishAttach(id: string, code: ConnectorCodexAttachRelayCloseCode) {
+    const attached = this.attaches.get(id);
+    if (!attached) return;
+    this.attaches.delete(id);
+    attached.relay?.close(code);
+    attached.send({
+      id,
+      payload: { binding: attached.binding, code },
+      type: 'codex.attach.closed'
     });
   }
 }

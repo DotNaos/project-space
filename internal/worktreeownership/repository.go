@@ -48,6 +48,9 @@ func inspectRepository(startPath string) (repository, string, error) {
 			break
 		}
 	}
+	if mainPath == "" && len(entries) > 0 && entries[0].branch == "" {
+		mainPath = entries[0].path
+	}
 	if mainPath == "" {
 		return repository{}, "", fmt.Errorf("no worktree has the default branch %q checked out", defaultBranch)
 	}

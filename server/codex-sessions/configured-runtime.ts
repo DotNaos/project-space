@@ -179,9 +179,9 @@ export function createConnectorCodexSessionsTransport(): CodexSessionsTransport 
       if (result.operation !== kind) throw new CodexTransportUncertainError();
       return { machineId, result: result.result, threadId };
     },
-    async read({ machineId, threadId, userId }) {
+    async read({ connectorGeneration, machineId, threadId, userId }) {
       try {
-        const result = await request('read', { machineId, threadId }, userId);
+        const result = await request('read', { machineId, threadId }, userId, connectorGeneration);
         if (result.operation !== 'read') throw new CodexTransportUncertainError();
         return result.result;
       } catch (error) {
@@ -195,12 +195,12 @@ export function createConnectorCodexSessionsTransport(): CodexSessionsTransport 
         throw new CodexTransportUnavailableError();
       }
     },
-    async stream({ machineId, threadId, userId }, emit, signal) {
+    async stream({ connectorGeneration, machineId, onDispatched, threadId, userId }, emit, signal) {
       try {
         await streamConnectorCodexSessions(
           { machineId, threadId },
           emit,
-          { signal, userId }
+          { generation: connectorGeneration, onDispatched, signal, userId }
         );
       } catch {
         throw new CodexTransportUnavailableError();
@@ -217,7 +217,8 @@ async function request(
     machineId: string;
     threadId?: string;
   },
-  userId: string
+  userId: string,
+  generation?: number
 ) {
   try {
     return await requestConnectorCodexSessions(
@@ -231,6 +232,7 @@ async function request(
           : operation === 'list'
             ? { timeoutMs: CODEX_SESSION_LIST_DEADLINE_MS }
             : {}),
+        generation,
         userId
       }
     );
@@ -247,7 +249,13 @@ async function mutate(
   userId: string
 ) {
   try {
-    return await requestConnectorCodexSessions(operation, payload, {
+    const connectorGeneration = 'connectorGeneration' in payload
+      ? payload.connectorGeneration
+      : undefined;
+    const connectorPayload = { ...payload } as MutationRequest & { connectorGeneration?: number };
+    delete connectorPayload.connectorGeneration;
+    return await requestConnectorCodexSessions(operation, connectorPayload, {
+      generation: connectorGeneration,
       operationId: payload.operationId,
       userId
     });

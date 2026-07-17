@@ -29,6 +29,7 @@ project
 | [`adopt`](#project-adopt) | - | Plan adoption of an existing project |
 | [`approval`](#project-approval) | - | Manage cryptographic human approvals |
 | [`chat`](#project-chat) | - | Coordinate with people and agents through Project Chat |
+| [`codex`](#project-codex) | - | Start, inspect, continue, or attach to persistent Codex tasks |
 | [`completion`](#project-completion) | - | Generate the autocompletion script for the specified shell |
 | [`connect`](#project-connect) | - | Connect this machine to Project Space |
 | [`connector`](#project-connector) | - | Set up Project Space machine connector links |
@@ -206,6 +207,97 @@ project chat send <message>
 | Flag | Type | Scope | Description |
 | --- | --- | --- | --- |
 | `-h`, `--help` | `bool` | local | help for send |
+
+<h3 id="project-codex" className="scroll-m-28"><code>project codex</code></h3>
+
+Start, inspect, continue, or attach to persistent Codex tasks
+
+```sh
+project codex
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for codex |
+
+<h3 id="project-codex-attach" className="scroll-m-28"><code>project codex attach</code></h3>
+
+Attach the Codex TUI to an existing persistent thread
+
+```sh
+project codex attach
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--codex-binary` | `string` | local | explicit Codex CLI binary path |
+| `--connector` | `string` | local | exact connector installation ID |
+| `-h`, `--help` | `bool` | local | help for attach |
+| `--machine` | `string` | local | exact physical machine name |
+| `--machine-id` | `string` | local | exact physical machine ID |
+| `--operation-id` | `string` | local | stable idempotency key for safe retries |
+| `--thread` | `string` | local | persistent Codex thread ID |
+
+<h3 id="project-codex-read" className="scroll-m-28"><code>project codex read</code></h3>
+
+Read a persistent Codex thread non-interactively
+
+```sh
+project codex read
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--connector` | `string` | local | exact connector installation ID |
+| `--format` | `string` | local | output format: json |
+| `-h`, `--help` | `bool` | local | help for read |
+| `--last` | `int` | local | return only the last N turns |
+| `--machine` | `string` | local | exact physical machine name |
+| `--machine-id` | `string` | local | exact physical machine ID |
+| `--thread` | `string` | local | persistent Codex thread ID |
+
+<h3 id="project-codex-send" className="scroll-m-28"><code>project codex send</code></h3>
+
+Send a non-interactive turn to a persistent Codex thread
+
+```sh
+project codex send
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--connector` | `string` | local | exact connector installation ID |
+| `--format` | `string` | local | output format: json or ndjson |
+| `-h`, `--help` | `bool` | local | help for send |
+| `--machine` | `string` | local | exact physical machine name |
+| `--machine-id` | `string` | local | exact physical machine ID |
+| `--message` | `string` | local | turn prompt, or - to read from standard input |
+| `--no-wait` | `bool` | local | return as soon as the turn is accepted |
+| `--operation-id` | `string` | local | stable idempotency key for safe retries |
+| `--prompt-file` | `string` | local | read the turn prompt from a regular file |
+| `--thread` | `string` | local | persistent Codex thread ID |
+| `--wait` | `bool` | local | wait for the turn to complete or require interaction |
+
+<h3 id="project-codex-start" className="scroll-m-28"><code>project codex start</code></h3>
+
+Start a persistent Codex task from a GitHub issue
+
+```sh
+project codex start
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--connector` | `string` | local | exact connector installation ID |
+| `--dry-run` | `bool` | local | resolve the exact target without starting a task |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for start |
+| `--here` | `bool` | local | use the physical machine connected by this CLI |
+| `--issue` | `int` | local | GitHub issue number |
+| `--machine` | `string` | local | exact physical machine name |
+| `--machine-id` | `string` | local | exact physical machine ID |
+| `--operation-id` | `string` | local | stable idempotency key for safe retries |
+| `--repository` | `string` | local | exact GitHub owner/name or repository ID |
 
 <h3 id="project-completion" className="scroll-m-28"><code>project completion</code></h3>
 

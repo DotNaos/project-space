@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto';
+import { isAbsolute } from 'node:path';
+
+import { CODEX_THREAD_ID_PATTERN } from '../../src/shared/codex-sessions-api';
 import type {
   CodexApprovalResponseInput,
   CodexInterruptTurnInput,
@@ -9,6 +13,7 @@ import type {
   CodexRpcId,
   CodexSessionEvent,
   CodexSessionEventListener,
+  CodexStartThreadInput,
   CodexStartTurnInput,
   CodexThreadListInput,
   CodexThreadListResult,
@@ -17,12 +22,17 @@ import type {
   CodexTurnResult,
   CodexUserInputResponseInput
 } from './contracts';
-import { CodexOperationLedger, CodexOperationUncertainError } from './operation-ledger';
+import {
+  CodexOperationLedger,
+  CodexOperationUncertainError,
+  type CodexOperationSnapshotPersist
+} from './operation-ledger';
 import { CodexAppServerProtocolError, CodexStdioTransport } from './stdio-transport';
 import {
   isNotificationMethod,
   isServerRequestMethod,
   rpcIdKey,
+  CodexSessionValidationError,
   sanitizeProtocolValue,
   validateAnswers,
   validateIdentifier,
@@ -51,6 +61,7 @@ export interface CodexSessionManagerOptions {
   binaryPath?: string;
   codexHome?: string;
   operationSnapshot?: CodexOperationSnapshot;
+  persistOperationSnapshot?: CodexOperationSnapshotPersist;
   processFactory?: CodexProcessFactory;
 }
 
@@ -74,7 +85,10 @@ export class CodexSessionManager {
   private readonly transportEpochs = new WeakMap<CodexStdioTransport, number>();
 
   constructor(private readonly options: CodexSessionManagerOptions = {}) {
-    this.ledger = new CodexOperationLedger(options.operationSnapshot);
+    this.ledger = new CodexOperationLedger(
+      options.operationSnapshot,
+      options.persistOperationSnapshot
+    );
   }
 
   subscribe(listener: CodexSessionEventListener) {
@@ -123,10 +137,28 @@ export class CodexSessionManager {
       input.operationId,
       fingerprint('thread/resume', { threadId }),
       async () => {
-        const result = readThreadResult(await this.call('thread/resume', { threadId }));
+        const result = readResumedThreadResult(
+          await this.call('thread/resume', { threadId }),
+          threadId
+        );
         this.captureThreadStatus(result.thread);
         return result;
       }
+    );
+  }
+
+  startThread(input: CodexStartThreadInput) {
+    const cwd = validateCwd(input.cwd);
+    const params = {
+      approvalPolicy: 'on-request',
+      cwd,
+      ephemeral: false,
+      sandbox: 'workspace-write'
+    } as const;
+    return this.ledger.execute(
+      input.operationId,
+      fingerprint('thread/start', params),
+      async () => readStartedThreadResult(await this.call('thread/start', params))
     );
   }
 
@@ -158,7 +190,7 @@ export class CodexSessionManager {
         }
         this.startingThreads.add(threadId);
         try {
-          const result = readTurnResult(
+          const result = readStartedTurnResult(
             await this.call('turn/start', {
               input: [{ text: prompt, type: 'text' }],
               ...settings,
@@ -230,12 +262,12 @@ export class CodexSessionManager {
     return this.respondWithLedger(input.operationId, pending, result);
   }
 
-  reconcileOperationNotApplied(operationId: string) {
-    this.ledger.reconcileNotApplied(operationId);
+  async reconcileOperationNotApplied(operationId: string) {
+    await this.ledger.reconcileNotApplied(operationId);
   }
 
-  reconcileOperationCompleted<Result>(operationId: string, result: Result) {
-    this.ledger.reconcileCompleted(operationId, result);
+  async reconcileOperationCompleted<Result>(operationId: string, result: Result) {
+    await this.ledger.reconcileCompleted(operationId, result);
   }
 
   operationSnapshot() {
@@ -474,6 +506,32 @@ function readThreadResult(value: unknown): CodexThreadResult {
   return { thread: readThread(requireRecord(value).thread) };
 }
 
+function readStartedThreadResult(value: unknown): CodexThreadResult {
+  try {
+    const result = readThreadResult(value);
+    if (!CODEX_THREAD_ID_PATTERN.test(result.thread.id) || result.thread.ephemeral !== false) {
+      throw protocolError();
+    }
+    return result;
+  } catch {
+    throw new CodexOperationUncertainError(
+      'Codex app-server did not confirm a persistent thread id.'
+    );
+  }
+}
+
+function readResumedThreadResult(value: unknown, expectedThreadId: string): CodexThreadResult {
+  try {
+    const result = readThreadResult(value);
+    if (result.thread.id !== expectedThreadId) throw protocolError();
+    return result;
+  } catch {
+    throw new CodexOperationUncertainError(
+      'Codex app-server did not confirm the resumed thread id.'
+    );
+  }
+}
+
 function readLoadedThreads(value: unknown): CodexLoadedThreadListResult {
   const result = requireRecord(value);
   if (!Array.isArray(result.data) || result.data.length > 10_000) throw protocolError();
@@ -486,12 +544,34 @@ function readTurnResult(value: unknown): CodexTurnResult {
   return { turn };
 }
 
+function readStartedTurnResult(value: unknown): CodexTurnResult {
+  try {
+    return readTurnResult(value);
+  } catch {
+    throw new CodexOperationUncertainError('Codex app-server did not confirm a turn id.');
+  }
+}
+
 function protocolError() {
   return new CodexAppServerProtocolError('Codex app-server returned invalid data.');
 }
 
 function fingerprint(method: string, params: unknown) {
-  return `${method}:${JSON.stringify(params)}`;
+  return createHash('sha256')
+    .update(`${method}:${JSON.stringify(params)}`, 'utf8')
+    .digest('hex');
+}
+
+function validateCwd(value: unknown) {
+  if (
+    typeof value !== 'string'
+    || !isAbsolute(value)
+    || value.length > 4_096
+    || /[\u0000\r\n]/.test(value)
+  ) {
+    throw new CodexSessionValidationError('Codex working directory is invalid.');
+  }
+  return value;
 }
 
 function sanitizeErrorNotification(value: unknown) {

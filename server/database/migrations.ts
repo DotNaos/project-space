@@ -14,6 +14,18 @@ import {
   githubIssueCreationMigrationId,
   githubIssueCreationMigrationSql
 } from './github-issue-creation-migration';
+import {
+  codexMachineTasksMigrationId,
+  codexMachineTasksMigrationSql
+} from './codex-machine-tasks-migration';
+import {
+  codexMachineTaskDurabilityMigrationId,
+  codexMachineTaskDurabilityMigrationSql
+} from './codex-machine-task-durability-migration';
+import {
+  codexMachineTaskStartPayloadMigrationId,
+  codexMachineTaskStartPayloadMigrationSql
+} from './codex-machine-task-start-payload-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -606,6 +618,18 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
         from machine_execution_scope_members
       on conflict (owner_user_id, connector_id) do nothing;
     `
+  },
+  {
+    id: codexMachineTasksMigrationId,
+    sql: codexMachineTasksMigrationSql
+  },
+  {
+    id: codexMachineTaskDurabilityMigrationId,
+    sql: codexMachineTaskDurabilityMigrationSql
+  },
+  {
+    id: codexMachineTaskStartPayloadMigrationId,
+    sql: codexMachineTaskStartPayloadMigrationSql
   }
 ];
 

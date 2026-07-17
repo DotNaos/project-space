@@ -24,7 +24,11 @@ import {
   type ProjectConnectorConnectionOptions
 } from './project-connector-runtime-binding';
 import { CodexSessionsConnectorDispatcher } from './codex-sessions/connector-dispatch';
-import { CodexSessionManager } from './codex-sessions/manager';
+import {
+  createProjectConnectorCodexSessionManager,
+  handleProjectConnectorCodexMessage,
+  sendProjectConnectorCodexResult
+} from './project-connector-codex-runtime';
 import {
   connectorRegistryForRuntimeConfiguration,
   createConfiguredConnectorRuntimeDispatcher
@@ -40,6 +44,7 @@ import { createProjectConnectorWorktreeLoads } from './project-connector-worktre
 import { createProjectConnectorRuntimeStopControl } from './project-connector-runtime-stop';
 interface ProjectConnectorWebSocketOptions extends ProjectConnectorConnectionOptions {
   backend: ProjectSpaceBackend & Partial<ConnectorDevServerAdapter & ConnectorWorktreeActionAdapter>;
+  environment?: NodeJS.ProcessEnv;
   runtimeShutdown?(): Promise<void> | void;
 }
 
@@ -55,7 +60,9 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
 
   let closed = false;
   const cleanupTasks: Array<() => void> = [];
-  const codexSessionManager = new CodexSessionManager();
+  const codexSessionManager = createProjectConnectorCodexSessionManager(
+    options.environment ?? process.env, options.runtimeCredential?.machineId
+  );
   cleanupTasks.push(() => void codexSessionManager.close());
 
   function startHttpRegistryPublisher(target: ProjectConnectorHubTarget) {
@@ -326,7 +333,8 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           return;
         }
         if (message.type === 'connector.command.cancel') {
-          if (codexSessionsDispatcher?.cancel(message.id, (result) => sendJson(socket, result))) {
+          if (codexSessionsDispatcher?.cancel(message.id, (result) =>
+            sendProjectConnectorCodexResult(socket, result, isCurrentConnection))) {
             return;
           }
           if (worktreeLoads.cancel(message.id)) return;
@@ -334,19 +342,10 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           return;
         }
 
-        if (message.type === 'codex.sessions.command') {
-          if (!codexSessionsDispatcher) {
-            socket.close(1008, 'Codex session verification is not configured.');
-            return;
-          }
-          codexSessionsDispatcher.dispatch(
-            message.id,
-            message.payload,
-            (result) => {
-              if (isCurrentConnection()) sendJson(socket, result);
-            },
-            () => socket.close(1008, 'Codex session authorization failed.')
-          );
+        if (message.type === 'codex.attach.input' || message.type === 'codex.sessions.command') {
+          handleProjectConnectorCodexMessage({
+            dispatcher: codexSessionsDispatcher, isCurrentConnection, message, socket
+          });
           return;
         }
 

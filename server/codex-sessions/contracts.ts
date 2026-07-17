@@ -63,6 +63,10 @@ export interface CodexResumeThreadInput extends CodexMutationInput {
   threadId: string;
 }
 
+export interface CodexStartThreadInput extends CodexMutationInput {
+  cwd: string;
+}
+
 export interface CodexStartTurnInput extends CodexMutationInput {
   effort?: string;
   model?: string;

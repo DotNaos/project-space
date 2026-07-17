@@ -18,6 +18,7 @@ const (
 	ConnectorRuntimeCredentialVersion = "project-space.connector-runtime/v1"
 	ConnectorRuntimeProtocolEnv       = "PROJECT_SPACE_CONNECTOR_RUNTIME_PROTOCOL"
 	ConnectorCommandSigningKeyFileEnv = "PROJECT_CONNECTOR_COMMAND_SIGNING_PUBLIC_KEY_FILE"
+	CodexOperationSnapshotFileEnv     = "PROJECT_CODEX_OPERATION_SNAPSHOT_FILE"
 	maxConnectorRuntimeCredentialSize = 16 * 1024
 )
 
@@ -59,26 +60,28 @@ func (ConnectorRuntimeCredential) GoString() string {
 }
 
 type ConnectorSupervisorOptions struct {
-	BuildIdentity         ConnectorSupervisorBuildIdentity
-	ReadinessAttemptNonce string
-	Executable            string
-	Maintenance           *ConnectorSupervisorMaintenance
-	Stdout                io.Writer
-	Stderr                io.Writer
+	BuildIdentity              ConnectorSupervisorBuildIdentity
+	CodexOperationSnapshotPath string
+	ReadinessAttemptNonce      string
+	Executable                 string
+	Maintenance                *ConnectorSupervisorMaintenance
+	Stdout                     io.Writer
+	Stderr                     io.Writer
 }
 
 // ConnectorSupervisor runs the companion connector for the lifetime of ctx.
 // It owns credential loading so callers never need to handle the machine token.
 type ConnectorSupervisor struct {
-	store                 CredentialStore
-	build                 ConnectorSupervisorBuildIdentity
-	readinessAttemptNonce string
-	executable            string
-	arguments             []string
-	maintenance           *ConnectorSupervisorMaintenance
-	stdout                io.Writer
-	stderr                io.Writer
-	environ               func() []string
+	store                      CredentialStore
+	build                      ConnectorSupervisorBuildIdentity
+	codexOperationSnapshotPath string
+	readinessAttemptNonce      string
+	executable                 string
+	arguments                  []string
+	maintenance                *ConnectorSupervisorMaintenance
+	stdout                     io.Writer
+	stderr                     io.Writer
+	environ                    func() []string
 }
 
 func NewConnectorSupervisor(
@@ -110,20 +113,26 @@ func newConnectorSupervisor(
 	if err := validateConnectorSupervisorBuildIdentity(options.BuildIdentity); err != nil {
 		return nil, err
 	}
+	if !filepath.IsAbs(options.CodexOperationSnapshotPath) ||
+		filepath.Clean(options.CodexOperationSnapshotPath) != options.CodexOperationSnapshotPath ||
+		filepath.Base(options.CodexOperationSnapshotPath) != CodexOperationSnapshotFilename {
+		return nil, errors.New("connector supervisor Codex operation snapshot path is invalid")
+	}
 	if options.ReadinessAttemptNonce != "" &&
 		!validConnectorRuntimeReadinessNonce(options.ReadinessAttemptNonce) {
 		return nil, errors.New("connector supervisor readiness attempt is invalid")
 	}
 	return &ConnectorSupervisor{
-		store:                 store,
-		build:                 options.BuildIdentity,
-		readinessAttemptNonce: options.ReadinessAttemptNonce,
-		executable:            options.Executable,
-		arguments:             append([]string(nil), arguments...),
-		maintenance:           options.Maintenance,
-		stdout:                stdout,
-		stderr:                stderr,
-		environ:               os.Environ,
+		store:                      store,
+		build:                      options.BuildIdentity,
+		codexOperationSnapshotPath: options.CodexOperationSnapshotPath,
+		readinessAttemptNonce:      options.ReadinessAttemptNonce,
+		executable:                 options.Executable,
+		arguments:                  append([]string(nil), arguments...),
+		maintenance:                options.Maintenance,
+		stdout:                     stdout,
+		stderr:                     stderr,
+		environ:                    os.Environ,
 	}, nil
 }
 

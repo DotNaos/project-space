@@ -165,6 +165,28 @@ export class CodexSessionsStore {
     return this.transitionOperation(input, 'ambiguous');
   }
 
+  async reconcileOperation(
+    input: CodexStoredOperationInput,
+    result: CodexSessionOperationResult
+  ) {
+    const fingerprint = operationFingerprint(input.fingerprint);
+    await this.client.query(
+      `update codex_session_operations
+          set state = 'completed', result = $7::jsonb, updated_at = now()
+        where owner_user_id = $1 and machine_id = $2 and thread_id = $3 and operation_id = $4
+          and fingerprint_sha256 = $5 and operation = $6 and state = 'ambiguous'`,
+      [
+        input.userId,
+        input.machineId,
+        input.threadId,
+        input.operationId,
+        fingerprint,
+        input.operation,
+        JSON.stringify(result)
+      ]
+    );
+  }
+
   async markStalePendingAmbiguous(before: string) {
     await this.client.query(
       `update codex_session_operations

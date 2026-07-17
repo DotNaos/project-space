@@ -3,6 +3,7 @@ import { createInterface } from 'node:readline';
 
 import type { CodexChildProcess, CodexProcessFactory, CodexRpcId } from './contracts';
 import { CodexOperationUncertainError } from './operation-ledger';
+import { resolveCodexBinary } from './binary-resolver';
 
 type RpcMessage = {
   error?: { code?: number; message?: string };
@@ -22,6 +23,7 @@ const MAXIMUM_STANDARD_LINE_CHARACTERS = 2_000_000;
 const MAXIMUM_THREAD_READ_LINE_CHARACTERS = 16 * 1024 * 1024;
 const UNCERTAIN_ON_PROTOCOL_FAILURE_METHODS = new Set([
   'thread/resume',
+  'thread/start',
   'turn/interrupt',
   'turn/start'
 ]);
@@ -77,9 +79,17 @@ export class CodexStdioTransport {
     processFactory?: CodexProcessFactory;
   }) {
     const factory = options.processFactory ?? defaultProcessFactory;
+    const command = options.binaryPath ?? (
+      options.processFactory ? defaultCodexAppServerBinary : resolveCodexBinary().path
+    );
+    if (!command) {
+      throw new CodexAppServerProtocolError(
+        'No working Codex CLI was found. Set PROJECT_CODEX_CLI_PATH to an executable codex binary.'
+      );
+    }
     const child = factory({
       args: ['app-server', '--listen', 'stdio://'],
-      command: options.binaryPath ?? defaultCodexAppServerBinary,
+      command,
       env: {
         ...process.env,
         ...(options.codexHome ? { CODEX_HOME: options.codexHome } : {})

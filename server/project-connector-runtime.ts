@@ -18,6 +18,7 @@ type RuntimeBackend = ProjectSpaceBackend &
 interface AuthenticatedProjectConnectorRuntimeOptions {
   backend?: RuntimeBackend;
   credential: ConnectorRuntimeCredential;
+  environment?: NodeJS.ProcessEnv;
   reconnectDelayMs?: number;
   registryIntervalMs?: number;
 }
@@ -33,6 +34,7 @@ interface ReadAuthenticatedProjectConnectorRuntimeOptions {
 function startValidatedProjectConnectorRuntime({
   backend,
   credential,
+  environment,
   reconnectDelayMs,
   registryIntervalMs
 }: AuthenticatedProjectConnectorRuntimeOptions) {
@@ -43,6 +45,7 @@ function startValidatedProjectConnectorRuntime({
     });
   return startProjectConnectorWebSocket({
     backend: runtimeBackend,
+    environment,
     reconnectDelayMs,
     registryIntervalMs,
     runtimeCredential: credential
@@ -78,6 +81,7 @@ export async function readAndStartAuthenticatedProjectConnectorRuntime({
   return startValidatedProjectConnectorRuntime({
     backend,
     credential,
+    environment,
     reconnectDelayMs,
     registryIntervalMs
   });

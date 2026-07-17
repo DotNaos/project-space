@@ -13,6 +13,10 @@ import type {
   CodexSessionStreamEvent,
   CodexSessionUserInputResponse
 } from '../../src/shared/codex-sessions-api';
+import type {
+  CodexMachineTaskConnectorStartRequest,
+  CodexMachineTaskConnectorStartResult
+} from '../../src/shared/codex-machine-tasks-api';
 import {
   CodexSessionsGrantReplayProtection,
   isCodexSessionsWireRequest,
@@ -47,7 +51,7 @@ import {
 } from './task-access-evidence';
 import { readCodexBrowserSnapshot } from './browser-snapshot-reader';
 
-type ExecutableOperation = Exclude<CodexSessionsConnectorOperation, 'stream'>;
+type ExecutableOperation = Exclude<CodexSessionsConnectorOperation, 'attach' | 'stream'>;
 type PendingRequest = {
   canAllow?: boolean;
   method: string;
@@ -69,6 +73,10 @@ export interface CodexSessionsConnectorExecutorOptions {
   ) => Promise<CodexSessionBrowserResult>;
   replayProtection?: CodexSessionsGrantReplayProtection;
   resolveTaskLocation?: CodexTaskLocationResolver;
+  startTask?(
+    request: CodexMachineTaskConnectorStartRequest,
+    context: { generation: number; userId: string }
+  ): Promise<CodexMachineTaskConnectorStartResult>;
   verificationKey: KeyLike;
 }
 
@@ -117,6 +125,15 @@ export class CodexSessionsConnectorExecutor {
         return {
           operation,
           result: await this.continue(request.payload as CodexSessionContinueRequest)
+        };
+      case 'start':
+        if (!this.options.startTask) throw new CodexSessionsExecutorError();
+        return {
+          operation,
+          result: await this.options.startTask(
+            request.payload as CodexMachineTaskConnectorStartRequest,
+            { generation: request.grant.generation, userId: request.grant.userId }
+          )
         };
       case 'interrupt':
         return {
@@ -327,7 +344,7 @@ export class CodexSessionsConnectorExecutor {
         threadId: request.threadId
       });
       if (resumed.thread.status?.type === 'active') {
-        return operationResult(request, 'rejected');
+        return operationResult(request, 'rejected', undefined, 'thread_active');
       }
       const result = await this.options.manager.startTurn({
         effort: request.effort,
@@ -339,7 +356,9 @@ export class CodexSessionsConnectorExecutor {
       });
       return operationResult(request, 'accepted', result.turn.id);
     } catch (error) {
-      if (error instanceof CodexThreadActiveError) return operationResult(request, 'rejected');
+      if (error instanceof CodexThreadActiveError) {
+        return operationResult(request, 'rejected', undefined, 'thread_active');
+      }
       if (error instanceof CodexOperationUncertainError) return operationResult(request, 'ambiguous');
       throw new CodexSessionsExecutorError();
     }
@@ -494,13 +513,15 @@ function derivedOperationId(operationId: string, step: string) {
 function operationResult(
   request: { operationId: string; threadId: string },
   status: CodexSessionOperationResult['status'],
-  turnId?: string
+  turnId?: string,
+  reason?: CodexSessionOperationResult['reason']
 ): CodexSessionOperationResult {
   return {
     operationId: request.operationId,
     replayed: false,
     status,
     threadId: request.threadId,
+    ...(reason ? { reason } : {}),
     ...(turnId ? { turnId } : {})
   };
 }

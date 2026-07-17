@@ -117,6 +117,10 @@ class MemoryStore {
     });
   }
 
+  async reconcileOperation(input: CodexStoredOperationInput, result: CodexSessionOperationResult) {
+    await this.completeOperation(input, result);
+  }
+
   async appendEvent(input: {
     event: CodexSessionStreamEvent;
     machineId: string;
@@ -179,8 +183,11 @@ class FakeTransport implements CodexSessionsTransport {
   listScopes: Array<{ machineId: string; userId: string }> = [];
   liveEvents: CodexSessionStreamEvent[] = [];
   mutationUsers: string[] = [];
+  mutationGenerations: Array<number | undefined> = [];
+  readGenerations: Array<number | undefined> = [];
   readUsers: string[] = [];
   streamUsers: string[] = [];
+  streamGenerations: Array<number | undefined> = [];
   listResult: CodexSessionListResult | Error = inventory();
   readResult: CodexSessionReadResult | Error = history();
   browserResult: CodexSessionBrowserResult | Error = {
@@ -229,14 +236,16 @@ class FakeTransport implements CodexSessionsTransport {
     return structuredClone(this.listResult);
   }
 
-  async read(input: { userId: string }) {
+  async read(input: { connectorGeneration?: number; userId: string }) {
     this.readUsers.push(input.userId);
+    this.readGenerations.push(input.connectorGeneration);
     if (this.readResult instanceof Error) throw this.readResult;
     return structuredClone(this.readResult);
   }
 
-  async mutate(input: { userId: string }) {
+  async mutate(input: { request: { connectorGeneration?: number }; userId: string }) {
     this.mutationUsers.push(input.userId);
+    this.mutationGenerations.push(input.request.connectorGeneration);
     this.mutationCalls++;
     await this.mutationWait;
     if (this.mutationResult instanceof Error) throw this.mutationResult;
@@ -244,11 +253,12 @@ class FakeTransport implements CodexSessionsTransport {
   }
 
   async stream(
-    input: { userId: string },
+    input: { connectorGeneration?: number; userId: string },
     emit: (event: CodexSessionStreamEvent) => void,
     signal: AbortSignal
   ) {
     this.streamUsers.push(input.userId);
+    this.streamGenerations.push(input.connectorGeneration);
     this.liveEvents.forEach(emit);
     if (signal.aborted) return;
     await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), {
@@ -266,6 +276,23 @@ function serviceFor(store: MemoryStore, transport: FakeTransport, now?: () => Da
 }
 
 describe('Codex sessions hosted service', () => {
+  test('preserves a trusted exact connector generation through read, mutation, and stream', async () => {
+    const transport = new FakeTransport();
+    const service = serviceFor(new MemoryStore(), transport);
+    await service.read(actor, { connectorGeneration: 12, machineId, threadId });
+    await service.continue(actor, { ...continuation(), connectorGeneration: 12 });
+    const controller = new AbortController();
+    controller.abort();
+    await service.transportStream(
+      actor,
+      { connectorGeneration: 12, machineId, threadId },
+      controller.signal
+    );
+    expect(transport.readGenerations).toEqual([12]);
+    expect(transport.mutationGenerations).toEqual([12]);
+    expect(transport.streamGenerations).toEqual([12]);
+  });
+
   test('saves a complete online inventory and serves an honest offline snapshot', async () => {
     const store = new MemoryStore();
     const transport = new FakeTransport();
@@ -427,6 +454,36 @@ describe('Codex sessions hosted service', () => {
     expect(transport.mutationCalls).toBe(1);
   });
 
+  test('rejects conflicting input while the original operation is still running', async () => {
+    const store = new MemoryStore();
+    const transport = new FakeTransport();
+    let release = () => {};
+    transport.mutationWait = new Promise<void>((resolve) => { release = resolve; });
+    const service = serviceFor(store, transport);
+
+    const first = service.continue(actor, continuation('operation-in-flight'));
+    await Promise.resolve();
+    await expect(service.continue(actor, {
+      ...continuation('operation-in-flight'),
+      message: 'Conflicting input'
+    })).rejects.toBeInstanceOf(CodexSessionsConflictError);
+    release();
+    await first;
+    expect(transport.mutationCalls).toBe(1);
+  });
+
+  test('does not treat a connector reconnect as changed operation input', async () => {
+    const store = new MemoryStore();
+    const transport = new FakeTransport();
+    const service = serviceFor(store, transport);
+    const request = { ...continuation('operation-generation'), connectorGeneration: 7 };
+
+    expect(await service.continue(actor, request)).toMatchObject({ replayed: false });
+    expect(await service.continue(actor, { ...request, connectorGeneration: 8 }))
+      .toMatchObject({ replayed: true });
+    expect(transport.mutationCalls).toBe(1);
+  });
+
   test('rejects conflicting reuse and marks uncertain or wrong-target results ambiguous', async () => {
     const store = new MemoryStore();
     const transport = new FakeTransport();
@@ -481,6 +538,38 @@ describe('Codex sessions hosted service', () => {
     const result = await serviceFor(store, transport).continue(actor, continuation());
     expect(result).toMatchObject({ replayed: true, status: 'ambiguous' });
     expect(transport.mutationCalls).toBe(0);
+  });
+
+  test('conservatively reconciles an ambiguous continuation through the connector ledger', async () => {
+    const store = new MemoryStore();
+    const transport = new FakeTransport();
+    transport.mutationResult = new CodexTransportUncertainError('result frame was lost');
+    const service = serviceFor(store, transport);
+    const request = continuation('operation-reconcile');
+
+    expect(await service.continue(actor, request)).toMatchObject({ status: 'ambiguous' });
+    transport.mutationResult = {
+      machineId,
+      result: {
+        operationId: request.operationId,
+        replayed: false,
+        status: 'accepted',
+        threadId,
+        turnId: 'turn-reconciled'
+      },
+      threadId
+    };
+    expect(await service.reconcileContinue(actor, request)).toMatchObject({
+      replayed: true,
+      status: 'accepted',
+      turnId: 'turn-reconciled'
+    });
+    expect(await service.continue(actor, request)).toMatchObject({
+      replayed: true,
+      status: 'accepted',
+      turnId: 'turn-reconciled'
+    });
+    expect(transport.mutationCalls).toBe(2);
   });
 
   test('replays persisted events, deduplicates reconnects, and then streams live events', async () => {

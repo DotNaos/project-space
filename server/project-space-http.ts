@@ -27,10 +27,14 @@ import type { CodexSessionsHttpHandler } from './codex-sessions-http';
 import { createConfiguredCodexSessionsHandler } from './codex-sessions/configured-runtime';
 import { createProjectTopologyInventoryService } from './project-topology/project-inventory-service';
 import { createProjectTopologyInventoryHttpHandler } from './project-topology/project-inventory-http';
+import { createConfiguredCodexMachineTasksHandler } from './codex-machine-tasks/configured-runtime';
+import { CodexAttachLeaseStore } from './codex-machine-tasks/attach-lease-store';
+import { createCodexAttachUpgradeHandler } from './codex-machine-tasks/attach-websocket';
 
 export interface ProjectSpaceHttpOptions {
   backend?: ProjectSpaceBackend;
   codexSessions?: CodexSessionsHttpHandler;
+  codexAttachLeases?: CodexAttachLeaseStore;
   host?: string;
   machineConnectionRuntime?: MachineConnectionRuntime;
   port?: number;
@@ -62,9 +66,16 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
   );
   const projectChatRuntime = resolveProjectChatRuntime(options, rawBackend);
   const codexSessions = options.codexSessions ?? createConfiguredCodexSessionsHandler();
+  const codexAttachLeases = options.codexAttachLeases ?? new CodexAttachLeaseStore();
+  const codexMachineTasks = createConfiguredCodexMachineTasksHandler({
+    attachLeases: codexAttachLeases,
+    backend: rawBackend,
+    machineConnection: options.machineConnectionRuntime
+  });
   const handleApiRequest = projectChatRuntime.then((runtime) =>
     createProjectSpaceApiHandler(backend, {
       codexSessions,
+      codexMachineTasks,
       machineConnection: options.machineConnectionRuntime,
       projectChat: runtime,
       projectTopology
@@ -110,10 +121,12 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   const authorizedBackend = createAuthorizedProjectSpaceBackend(backend);
   const projectChatRuntime = await resolveProjectChatRuntime(options, backend);
   const machineConnectionRuntime = options.machineConnectionRuntime;
+  const codexAttachLeases = options.codexAttachLeases ?? new CodexAttachLeaseStore();
   const server = createServer(
     createProjectSpaceRequestHandler({
       ...options,
       backend,
+      codexAttachLeases,
       projectChatRuntime
     })
   );
@@ -138,9 +151,11 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
       return machine ? decideReconnect(machine) : undefined;
     }
   });
+  const codexAttach = createCodexAttachUpgradeHandler(codexAttachLeases);
 
   server.on('upgrade', (request, socket, head) => {
     if (
+      !codexAttach.handleUpgrade(request, socket, head) &&
       !connectorCommands.handleUpgrade(request, socket, head) &&
       !handleMachineTerminalUpgrade(request, socket, head) &&
       !handleProjectTerminalUpgrade(request, socket, head)
@@ -162,6 +177,7 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   } catch (error) {
     projectChatRuntime.stop();
     await machineConnectionRuntime?.stop();
+    codexAttach.close();
     await connectorCommands.close();
     throw error;
   }
@@ -175,6 +191,7 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
     close: async () => {
       projectChatRuntime.stop();
       await machineConnectionRuntime?.stop();
+      codexAttach.close();
       await connectorCommands.close();
       await new Promise<void>((resolveClose, rejectClose) => {
         let settled = false;
