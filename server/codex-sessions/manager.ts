@@ -137,7 +137,10 @@ export class CodexSessionManager {
       input.operationId,
       fingerprint('thread/resume', { threadId }),
       async () => {
-        const result = readThreadResult(await this.call('thread/resume', { threadId }));
+        const result = readResumedThreadResult(
+          await this.call('thread/resume', { threadId }),
+          threadId
+        );
         this.captureThreadStatus(result.thread);
         return result;
       }
@@ -187,7 +190,7 @@ export class CodexSessionManager {
         }
         this.startingThreads.add(threadId);
         try {
-          const result = readTurnResult(
+          const result = readStartedTurnResult(
             await this.call('turn/start', {
               input: [{ text: prompt, type: 'text' }],
               ...settings,
@@ -517,6 +520,18 @@ function readStartedThreadResult(value: unknown): CodexThreadResult {
   }
 }
 
+function readResumedThreadResult(value: unknown, expectedThreadId: string): CodexThreadResult {
+  try {
+    const result = readThreadResult(value);
+    if (result.thread.id !== expectedThreadId) throw protocolError();
+    return result;
+  } catch {
+    throw new CodexOperationUncertainError(
+      'Codex app-server did not confirm the resumed thread id.'
+    );
+  }
+}
+
 function readLoadedThreads(value: unknown): CodexLoadedThreadListResult {
   const result = requireRecord(value);
   if (!Array.isArray(result.data) || result.data.length > 10_000) throw protocolError();
@@ -527,6 +542,14 @@ function readTurnResult(value: unknown): CodexTurnResult {
   const turn = sanitizeProtocolValue(requireRecord(requireRecord(value).turn)) as CodexTurnResult['turn'];
   turn.id = validateIdentifier(turn.id, 'turnId');
   return { turn };
+}
+
+function readStartedTurnResult(value: unknown): CodexTurnResult {
+  try {
+    return readTurnResult(value);
+  } catch {
+    throw new CodexOperationUncertainError('Codex app-server did not confirm a turn id.');
+  }
 }
 
 function protocolError() {

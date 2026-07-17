@@ -457,6 +457,47 @@ describe('Codex app-server session manager', () => {
     }
   });
 
+  test('keeps a malformed turn start uncertain without losing explicit settings', async () => {
+    const process = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+      if (message.method === 'turn/start') {
+        server.send({ id: message.id, result: { turn: { status: 'inProgress' } } });
+      }
+    });
+    const manager = new CodexSessionManager({ processFactory: () => process });
+    const operation = {
+      effort: 'high',
+      model: 'gpt-5-mini',
+      operationId: 'turn-invalid-id',
+      prompt: 'Continue with the selected settings',
+      serviceTier: 'fast',
+      threadId: 'thread-1'
+    };
+
+    try {
+      await expect(manager.startTurn(operation)).rejects.toBeInstanceOf(
+        CodexOperationUncertainError
+      );
+      expect(manager.operationSnapshot()).toEqual([
+        expect.objectContaining({ operationId: operation.operationId, state: 'uncertain' })
+      ]);
+      expect(() => manager.startTurn(operation)).toThrow(CodexOperationUncertainError);
+      expect(process.requests.filter((request) => request.method === 'turn/start')).toEqual([
+        expect.objectContaining({
+          params: {
+            effort: operation.effort,
+            input: [{ text: operation.prompt, type: 'text' }],
+            model: operation.model,
+            serviceTier: operation.serviceTier,
+            threadId: operation.threadId
+          }
+        })
+      ]);
+    } finally {
+      await manager.close();
+    }
+  });
+
   test('deduplicates turn starts and rejects a different new turn until completion', async () => {
     const process = new FakeCodexProcess(standardHandler);
     const manager = new CodexSessionManager({ processFactory: () => process });
@@ -522,6 +563,34 @@ describe('Codex app-server session manager', () => {
         threadId: 'thread-1'
       })).rejects.toBeInstanceOf(CodexThreadActiveError);
       expect(process.requests.some((request) => request.method === 'turn/start')).toBe(false);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('keeps a mismatched resumed thread uncertain and fences retry', async () => {
+    const process = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+      if (message.method === 'thread/resume') {
+        server.send({
+          id: message.id,
+          result: { thread: { id: 'thread-other', status: { type: 'idle' } } }
+        });
+      }
+    });
+    const manager = new CodexSessionManager({ processFactory: () => process });
+    const operation = { operationId: 'resume-wrong-thread', threadId: 'thread-1' };
+
+    try {
+      await expect(manager.resumeThread(operation)).rejects.toBeInstanceOf(
+        CodexOperationUncertainError
+      );
+      expect(manager.operationSnapshot()).toEqual([
+        expect.objectContaining({ operationId: operation.operationId, state: 'uncertain' })
+      ]);
+      expect(() => manager.resumeThread(operation)).toThrow(CodexOperationUncertainError);
+      expect(process.requests.filter((request) => request.method === 'thread/resume'))
+        .toHaveLength(1);
     } finally {
       await manager.close();
     }
