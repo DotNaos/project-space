@@ -94,8 +94,9 @@ describe('Codex machine-task durable start store', () => {
     })).toEqual({ kind: 'replayed', result: completed });
 
     const reservedDatabase = new FakeDatabase();
+    const sha256Payload = { ...operation.startPayload, commit: 'd'.repeat(64) };
     reservedDatabase.responses.push({ rows: [{
-      ...row({ result: null, state: 'uncertain' }),
+      ...row({ result: null, start_payload: sha256Payload, state: 'uncertain' }),
       fingerprint_sha256: operation.fingerprint
     }] });
     expect(await new PostgresCodexMachineTasksStore(reservedDatabase).lookupStart({
@@ -108,7 +109,7 @@ describe('Codex machine-task durable start store', () => {
       generation: 4,
       kind: 'reserved',
       physicalMachineId: operation.physicalMachineId,
-      startPayload: operation.startPayload,
+      startPayload: sha256Payload,
       state: 'uncertain'
     });
   });

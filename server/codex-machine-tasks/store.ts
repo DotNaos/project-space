@@ -309,7 +309,9 @@ function isStartPayload(value: unknown): value is CodexMachineTaskStartPayload {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const payload = value as Record<string, unknown>;
   if (typeof payload.branch !== 'string' || !/\S/.test(payload.branch) ||
-    typeof payload.commit !== 'string' || !/^[0-9a-f]{40}$/.test(payload.commit)) return false;
+    typeof payload.commit !== 'string' || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(payload.commit)) {
+    return false;
+  }
   if (!payload.issue || typeof payload.issue !== 'object' || Array.isArray(payload.issue) ||
     !payload.repository || typeof payload.repository !== 'object' || Array.isArray(payload.repository)) {
     return false;

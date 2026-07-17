@@ -32,7 +32,7 @@ describe('Codex machine-task immutable start payload', () => {
     const store = memoryStore();
     const original = {
       branch: 'issue-262-original',
-      commit: 'a'.repeat(40),
+      commit: 'a'.repeat(64),
       issue: { number: 262, url: 'https://github.com/DotNaos/project-space/issues/262' },
       repository: { id: 'R_original', nameWithOwner: 'DotNaos/project-space' }
     };
