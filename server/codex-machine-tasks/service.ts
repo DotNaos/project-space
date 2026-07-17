@@ -136,7 +136,10 @@ export interface CodexMachineTasksServiceOptions {
       operationId: string;
       threadId: string;
       userId: string;
-    }): Promise<CodexSessionOperationResult>;
+    }): Promise<{
+      generation: number;
+      result: CodexSessionOperationResult;
+    }>;
     send(input: {
       connectorId: string;
       generation: number;
@@ -176,14 +179,17 @@ export interface CodexMachineTasksServiceOptions {
     issue: { number: number; url: string };
     operationId: string;
     physicalMachineId: string;
+    reconcile: boolean;
     repository: { id: string; nameWithOwner: string };
     userId: string;
-  }): Promise<
-    | { state: 'confirmed'; threadId: string; worktreeId: string }
-    | { state: 'offline' }
-    | { message: string; state: 'worktree_failure' }
-    | { state: 'uncertain' }
-  >;
+  }): Promise<{
+    generation: number;
+    result:
+      | { state: 'confirmed'; threadId: string; worktreeId: string }
+      | { state: 'offline' }
+      | { message: string; state: 'worktree_failure' }
+      | { state: 'uncertain' };
+  }>;
   store: CodexMachineTasksStore;
   taskUrl(connectorId: string, threadId: string): string;
   userCanUseConnector?(userId: string, connectorId: string): boolean;
@@ -302,9 +308,8 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       const executionGeneration = reservation.kind === 'new'
         ? operation.generation
         : reservation.generation;
-      const executionTarget = targetAtGeneration(selected, executionGeneration);
       operation.generation = executionGeneration;
-      const started = await options.start({
+      const start = await options.start({
         branch: issue.branch,
         commit: issue.commit,
         connectorId: selected.connector.id,
@@ -312,9 +317,12 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         issue: issue.issue,
         operationId: request.operationId,
         physicalMachineId: selected.physicalMachine.id,
+        reconcile: reservation.kind !== 'new',
         repository: issue.repository,
         userId: actor.userId
       });
+      const started = start.result;
+      const executionTarget = targetAtGeneration(selected, start.generation);
       if (started.state === 'uncertain') {
         await options.store.markStartUncertain(operation);
         return uncertain(request.operationId, executionTarget);
@@ -490,20 +498,28 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       const executionGeneration = reservation.kind === 'pending' || reservation.kind === 'uncertain'
         ? reservation.generation
         : operation.generation;
-      const executionTarget = targetAtGeneration(selected, executionGeneration);
+      let resultGeneration = executionGeneration;
       operation.generation = executionGeneration;
       let attempted = false;
+      const reconcile = async () => {
+        const reconciliation = await reconcileSend(
+          executionGeneration,
+          targetAtGeneration(selected, executionGeneration),
+          actor.userId,
+          request
+        );
+        if (!reconciliation) return {
+          operationId: request.operationId,
+          replayed: true,
+          status: 'ambiguous' as const,
+          threadId: request.threadId
+        };
+        resultGeneration = reconciliation.generation;
+        return reconciliation.result;
+      };
       const send = () => {
         attempted = true;
-        if (reservation.kind === 'uncertain') {
-          return reconcileSend(executionGeneration, executionTarget, actor.userId, request) ??
-            Promise.resolve({
-              operationId: request.operationId,
-              replayed: true,
-              status: 'ambiguous' as const,
-              threadId: request.threadId
-            });
-        }
+        if (reservation.kind === 'uncertain') return reconcile();
         return options.sessions.send({
           connectorId: selected.connector.id,
           generation: executionGeneration,
@@ -516,7 +532,8 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       try {
         let result: CodexSessionOperationResult;
         let terminal: { event?: CodexSessionStreamEvent; sequence?: number } | undefined;
-        if (request.wait) {
+        let waitedGeneration: number | undefined;
+        if (request.wait && reservation.kind !== 'uncertain') {
           const before = await options.sessions.read({
             connectorId: selected.connector.id,
             generation: executionGeneration,
@@ -533,43 +550,58 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
           });
           result = waited.result;
           terminal = waited;
+          waitedGeneration = executionGeneration;
         } else {
           result = await send();
         }
         if (result.status === 'ambiguous' && reservation.kind !== 'uncertain') {
-          result = await reconcileSend(
-            operation.generation,
-            executionTarget,
-            actor.userId,
-            request
-          ) ?? result;
+          result = await reconcile();
         }
+        if (
+          request.wait &&
+          waitedGeneration !== resultGeneration &&
+          result.status !== 'ambiguous' &&
+          result.status !== 'rejected' &&
+          result.turnId
+        ) {
+          const waited = await options.sessions.wait({
+            connectorId: selected.connector.id,
+            generation: resultGeneration,
+            start: async () => result,
+            threadId: request.threadId,
+            userId: actor.userId
+          });
+          result = waited.result;
+          terminal = waited;
+          waitedGeneration = resultGeneration;
+        }
+        const resultTarget = targetAtGeneration(selected, resultGeneration);
         if (result.status === 'ambiguous' || !result.turnId && result.status !== 'rejected') {
           await options.store.markSendUncertain(operation);
-          return uncertain(request.operationId, executionTarget);
+          return uncertain(request.operationId, resultTarget);
         }
-        let final = sessionSendResult(executionTarget, request, result);
+        let final = sessionSendResult(resultTarget, request, result);
         if (request.wait && result.status !== 'rejected') {
           if (!terminal?.event) {
             await options.store.markSendUncertain(operation);
-            return uncertain(request.operationId, executionTarget);
+            return uncertain(request.operationId, resultTarget);
           }
           if (terminal.event.type === 'approval-requested') {
             final = blocked(
-              request.operationId, 'approval_required', 'Codex requires approval.', executionTarget
+              request.operationId, 'approval_required', 'Codex requires approval.', resultTarget
             );
           } else if (terminal.event.type === 'user-input-requested') {
             final = blocked(
-              request.operationId, 'input_required', 'Codex requires user input.', executionTarget
+              request.operationId, 'input_required', 'Codex requires user input.', resultTarget
             );
           } else {
             const finalRead = await options.sessions.read({
               connectorId: selected.connector.id,
-              generation: executionGeneration,
+              generation: resultGeneration,
               threadId: request.threadId,
               userId: actor.userId
             });
-            final = sendResult('completed', executionTarget, request, result.turnId!, finalRead);
+            final = sendResult('completed', resultTarget, request, result.turnId!, finalRead);
           }
         }
         await options.store.completeSend(operation, final);
@@ -581,12 +613,15 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
             request.operationId,
             'offline',
             'The selected connector could not open the turn stream.',
-            executionTarget
+            targetAtGeneration(selected, resultGeneration)
           );
         }
-        if (!attempted) return uncertain(request.operationId, executionTarget);
+        if (!attempted) return uncertain(
+          request.operationId,
+          targetAtGeneration(selected, resultGeneration)
+        );
         await options.store.markSendUncertain(operation);
-        return uncertain(request.operationId, executionTarget);
+        return uncertain(request.operationId, targetAtGeneration(selected, resultGeneration));
       }
     },
 

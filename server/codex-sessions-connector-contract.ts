@@ -34,6 +34,8 @@ export const CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY = 'codex.sessions.inspe
 export const CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY = 'codex.sessions.model-selection.v1';
 export const CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY = 'codex.sessions.model-settings.v1';
 export const CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY = 'codex.machine-tasks.v1';
+export const CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY =
+  'codex.machine-tasks.durable-operations.v1';
 
 export type CodexSessionsConnectorOperation =
   | 'approval'

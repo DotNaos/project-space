@@ -60,7 +60,8 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
   let closed = false;
   const cleanupTasks: Array<() => void> = [];
   const operationPersistence = createCodexOperationSnapshotPersistence(
-    options.environment ?? process.env
+    options.environment ?? process.env,
+    options.runtimeCredential?.machineId
   );
   const codexSessionManager = new CodexSessionManager({
     operationSnapshot: operationPersistence.snapshot,

@@ -474,6 +474,7 @@ describe('Codex app-server session manager', () => {
       });
       expect(await first).toEqual(await retry);
       expect(process.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+      expect(JSON.stringify(manager.operationSnapshot())).not.toContain('Run the tests');
 
       await expect(manager.startTurn({
         operationId: 'operation-2',

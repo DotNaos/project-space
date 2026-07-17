@@ -1,4 +1,4 @@
-import { lstat, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { lstat, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -14,6 +14,7 @@ import {
 } from '../server/codex-sessions/operation-ledger';
 
 const temporaryDirectories: string[] = [];
+const machineId = 'connector-test-machine';
 
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) => (
@@ -92,7 +93,7 @@ describe('durable Codex operation snapshots', () => {
   test('replays a completed operation after the connector process is recreated', async () => {
     const path = await snapshotPath();
     const environment = { [codexOperationSnapshotFileEnvironment]: path };
-    const firstPersistence = createCodexOperationSnapshotPersistence(environment);
+    const firstPersistence = createCodexOperationSnapshotPersistence(environment, machineId);
     const first = new CodexOperationLedger(
       firstPersistence.snapshot,
       firstPersistence.persist
@@ -103,7 +104,7 @@ describe('durable Codex operation snapshots', () => {
       turnId: 'turn-one'
     }))).toEqual({ status: 'accepted', turnId: 'turn-one' });
 
-    const restartedPersistence = createCodexOperationSnapshotPersistence(environment);
+    const restartedPersistence = createCodexOperationSnapshotPersistence(environment, machineId);
     const restarted = new CodexOperationLedger(
       restartedPersistence.snapshot,
       restartedPersistence.persist
@@ -115,12 +116,26 @@ describe('durable Codex operation snapshots', () => {
     })).toEqual({ status: 'accepted', turnId: 'turn-one' });
     expect(duplicateExecutions).toBe(0);
     expect((await lstat(path)).mode & 0o077).toBe(0);
+    const reEnrolledPersistence = createCodexOperationSnapshotPersistence(
+      environment,
+      'another-machine'
+    );
+    let reEnrolledDispatches = 0;
+    const reEnrolled = new CodexOperationLedger(
+      reEnrolledPersistence.snapshot,
+      reEnrolledPersistence.persist
+    );
+    expect(await reEnrolled.execute('send-restart-safe', 'same-input', async () => {
+      reEnrolledDispatches += 1;
+      return { status: 'accepted', turnId: 'turn-new-machine' };
+    })).toEqual({ status: 'accepted', turnId: 'turn-new-machine' });
+    expect(reEnrolledDispatches).toBe(1);
   });
 
   test('restores an operation interrupted mid-dispatch as uncertain instead of repeating it', async () => {
     const path = await snapshotPath();
     const environment = { [codexOperationSnapshotFileEnvironment]: path };
-    const persistence = createCodexOperationSnapshotPersistence(environment);
+    const persistence = createCodexOperationSnapshotPersistence(environment, machineId);
     const first = new CodexOperationLedger(persistence.snapshot, persistence.persist);
     let finish!: (value: { status: string }) => void;
     let started!: () => void;
@@ -132,15 +147,13 @@ describe('durable Codex operation snapshots', () => {
     });
     await actionStarted;
 
-    const document = JSON.parse(await readFile(path, 'utf8')) as {
-      operations: Array<{ operationId: string; state: string }>;
-    };
-    expect(document.operations).toContainEqual(expect.objectContaining({
+    const durable = createCodexOperationSnapshotPersistence(environment, machineId);
+    expect(durable.snapshot).toContainEqual(expect.objectContaining({
       operationId: 'send-interrupted',
       state: 'uncertain'
     }));
 
-    const restartedPersistence = createCodexOperationSnapshotPersistence(environment);
+    const restartedPersistence = createCodexOperationSnapshotPersistence(environment, machineId);
     const restarted = new CodexOperationLedger(
       restartedPersistence.snapshot,
       restartedPersistence.persist
@@ -154,5 +167,21 @@ describe('durable Codex operation snapshots', () => {
 
     finish({ status: 'accepted' });
     await pending;
+  });
+
+  test('keeps long-lived completed history in keyed records without a cumulative file cap', async () => {
+    const path = await snapshotPath();
+    const environment = { [codexOperationSnapshotFileEnvironment]: path };
+    const persistence = createCodexOperationSnapshotPersistence(environment, machineId);
+    const operations = Array.from({ length: 520 }, (_, index) => ({
+      fingerprint: index.toString(16).padStart(64, '0'),
+      operationId: `long-lived-operation-${index}`,
+      result: { padding: 'x'.repeat(16_384), turnId: `turn-${index}` },
+      state: 'completed' as const
+    }));
+
+    await persistence.persist(operations);
+    expect(createCodexOperationSnapshotPersistence(environment, machineId).snapshot)
+      .toHaveLength(operations.length);
   });
 });

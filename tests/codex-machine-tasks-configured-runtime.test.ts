@@ -1,6 +1,15 @@
 import { describe, expect, test } from 'bun:test';
+import { WebSocket } from 'ws';
 
-import { waitForTerminal } from '../server/codex-machine-tasks/configured-runtime';
+import {
+  connectorReconciliationGeneration,
+  waitForTerminal
+} from '../server/codex-machine-tasks/configured-runtime';
+import {
+  registerConnectorSession,
+  removeConnectorSession
+} from '../server/connector-command-session-registry';
+import { CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY } from '../server/codex-sessions-connector-contract';
 import type { CodexSessionsRuntime } from '../server/codex-sessions/runtime';
 
 const threadId = '019f6d33-6aad-7302-a45e-bb7a33fc399c';
@@ -17,6 +26,27 @@ function untilAborted(signal: AbortSignal, onAbort: () => void) {
 }
 
 describe('configured Codex machine-task runtime', () => {
+  test('crosses a connector generation only when the replacement proves durable operations', () => {
+    const connectorId = 'connector-restarted';
+    const socket = { readyState: WebSocket.OPEN } as WebSocket;
+    const durableGeneration = registerConnectorSession(
+      connectorId,
+      socket,
+      'test-token',
+      [CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY]
+    );
+    expect(connectorReconciliationGeneration(connectorId, durableGeneration + 1))
+      .toBe(durableGeneration);
+    removeConnectorSession(connectorId, socket);
+
+    const legacyGeneration = registerConnectorSession(connectorId, socket, 'test-token', []);
+    expect(connectorReconciliationGeneration(connectorId, legacyGeneration))
+      .toBe(legacyGeneration);
+    expect(connectorReconciliationGeneration(connectorId, legacyGeneration + 1))
+      .toBeUndefined();
+    removeConnectorSession(connectorId, socket);
+  });
+
   test('reconciles a turn that completed between stream readiness and the accepted result', async () => {
     const generations: number[] = [];
     let localAborted = false;

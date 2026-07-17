@@ -5,6 +5,8 @@ import type {
 
 export const CODEX_MACHINE_TASKS_API_VERSION = 1 as const;
 export const CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY = 'codex.machine-tasks.v1';
+export const CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY =
+  'codex.machine-tasks.durable-operations.v1';
 
 export type CodexMachineTaskBlockedReason =
   | 'approval_required'

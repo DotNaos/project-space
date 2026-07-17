@@ -7,8 +7,10 @@ import type {
 } from '../../src/shared/codex-sessions-api';
 import { requestConnectorCodexSessions } from '../connector-command-hub';
 import {
+  connectorHasCapability,
   connectorSessionGeneration
 } from '../connector-command-session-registry';
+import { CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY } from '../codex-sessions-connector-contract';
 import {
   createConfiguredCodexSessionsRuntime
 } from '../codex-sessions/configured-runtime';
@@ -102,22 +104,32 @@ async function createHandler(options: ConfiguredCodexMachineTasksOptions) {
       read: ({ connectorId, generation, threadId, userId }) => sessions.service.read(
         { userId }, { connectorGeneration: generation, machineId: connectorId, threadId }
       ),
-      reconcileSend: (input) => {
-        if (connectorSessionGeneration(input.connectorId) !== input.generation) {
+      reconcileSend: async (input) => {
+        const generation = connectorReconciliationGeneration(
+          input.connectorId,
+          input.generation
+        );
+        if (generation === undefined) {
           return Promise.resolve({
-            operationId: input.operationId,
-            replayed: true,
-            status: 'ambiguous' as const,
-            threadId: input.threadId
+            generation: input.generation,
+            result: {
+              operationId: input.operationId,
+              replayed: true,
+              status: 'ambiguous' as const,
+              threadId: input.threadId
+            }
           });
         }
-        return sessions.service.reconcileContinue({ userId: input.userId }, {
-          connectorGeneration: input.generation,
-          machineId: input.connectorId,
-          message: input.message,
-          operationId: input.operationId,
-          threadId: input.threadId
-        });
+        return {
+          generation,
+          result: await sessions.service.reconcileContinue({ userId: input.userId }, {
+            connectorGeneration: generation,
+            machineId: input.connectorId,
+            message: input.message,
+            operationId: input.operationId,
+            threadId: input.threadId
+          })
+        };
       },
       send: ({ connectorId, generation, message, operationId, threadId, userId }) => sessions.service.continue(
         { userId }, {
@@ -163,6 +175,12 @@ async function createHandler(options: ConfiguredCodexMachineTasksOptions) {
       wait: (input) => waitForTerminal(sessions, input)
     },
     async start(input) {
+      const generation = input.reconcile
+        ? connectorReconciliationGeneration(input.connectorId, input.generation)
+        : input.generation;
+      if (generation === undefined) {
+        return { generation: input.generation, result: { state: 'uncertain' as const } };
+      }
       try {
         const result = await requestConnectorCodexSessions('start', {
           branch: input.branch,
@@ -177,20 +195,33 @@ async function createHandler(options: ConfiguredCodexMachineTasksOptions) {
           repositoryId: input.repository.id,
           repositoryNameWithOwner: input.repository.nameWithOwner
         }, {
-          generation: input.generation,
+          generation,
           operationId: input.operationId,
           userId: input.userId
         });
-        return result.operation === 'start' ? result.result : { state: 'uncertain' };
+        return {
+          generation,
+          result: result.operation === 'start' ? result.result : { state: 'uncertain' as const }
+        };
       } catch (error) {
-        if (error instanceof CodexConnectorNotDispatchedError) return { state: 'offline' };
-        if (error instanceof CodexConnectorOutcomeUnknownError) return { state: 'uncertain' };
-        if (error instanceof CodexConnectorRemoteError) {
-          return error.code === 'unavailable'
-            ? { state: 'uncertain' }
-            : { message: 'The target could not prepare the worktree.', state: 'worktree_failure' };
+        if (error instanceof CodexConnectorNotDispatchedError) {
+          return { generation, result: { state: 'offline' as const } };
         }
-        return { state: 'uncertain' };
+        if (error instanceof CodexConnectorOutcomeUnknownError) {
+          return { generation, result: { state: 'uncertain' as const } };
+        }
+        if (error instanceof CodexConnectorRemoteError) {
+          return {
+            generation,
+            result: error.code === 'unavailable'
+              ? { state: 'uncertain' as const }
+              : {
+                  message: 'The target could not prepare the worktree.',
+                  state: 'worktree_failure' as const
+                }
+          };
+        }
+        return { generation, result: { state: 'uncertain' as const } };
       }
     },
     store,
@@ -211,6 +242,20 @@ async function createHandler(options: ConfiguredCodexMachineTasksOptions) {
     }
   });
   return createCodexMachineTasksHttpApi(service, resolveActor);
+}
+
+export function connectorReconciliationGeneration(
+  connectorId: string,
+  originalGeneration: number
+) {
+  const currentGeneration = connectorSessionGeneration(connectorId);
+  if (currentGeneration === originalGeneration) return originalGeneration;
+  return currentGeneration !== undefined && connectorHasCapability(
+    connectorId,
+    CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY
+  )
+    ? currentGeneration
+    : undefined;
 }
 
 export async function waitForTerminal(

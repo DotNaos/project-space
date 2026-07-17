@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 
 import { CODEX_THREAD_ID_PATTERN } from '../../src/shared/codex-sessions-api';
@@ -533,7 +534,9 @@ function protocolError() {
 }
 
 function fingerprint(method: string, params: unknown) {
-  return `${method}:${JSON.stringify(params)}`;
+  return createHash('sha256')
+    .update(`${method}:${JSON.stringify(params)}`, 'utf8')
+    .digest('hex');
 }
 
 function validateCwd(value: unknown) {

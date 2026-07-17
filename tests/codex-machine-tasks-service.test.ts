@@ -133,12 +133,14 @@ function service(options: {
     threadId: string;
     turnId?: string;
   }>;
+  reconciledGeneration?: (input: { generation: number }) => number;
   start?: (input: { generation: number }) => Promise<
     | { state: 'confirmed'; threadId: string; worktreeId: string }
     | { state: 'offline' }
     | { message: string; state: 'worktree_failure' }
     | { state: 'uncertain' }
   >;
+  startedGeneration?: (input: { generation: number }) => number;
   store?: CodexMachineTasksStore;
   wait?: () => Promise<{ event: {
     eventId: string;
@@ -184,7 +186,14 @@ function service(options: {
         threadId,
         turnId: 'turn-one'
       })),
-      ...(options.reconcileSend ? { reconcileSend: options.reconcileSend } : {}),
+      ...(options.reconcileSend ? {
+        async reconcileSend(input: { generation: number }) {
+          return {
+            generation: options.reconciledGeneration?.(input) ?? input.generation,
+            result: await options.reconcileSend!(input)
+          };
+        }
+      } : {}),
       wait: async (input) => ({
         result: await input.start(),
         ...(options.wait
@@ -192,9 +201,14 @@ function service(options: {
           : { event: { eventId: 'done-one', turnId: 'turn-one', type: 'turn-completed' as const } })
       })
     },
-    start: options.start ?? (async () => ({
-      state: 'confirmed', threadId, worktreeId: 'wt_confirmed'
-    })),
+    async start(input) {
+      return {
+        generation: options.startedGeneration?.(input) ?? input.generation,
+        result: await (options.start?.(input) ?? Promise.resolve({
+          state: 'confirmed' as const, threadId, worktreeId: 'wt_confirmed'
+        }))
+      };
+    },
     store: options.store ?? memoryStore(),
     taskUrl: (machineId, id) => `https://projects.example/codex/machines/${machineId}/threads/${id}`
   });
@@ -360,6 +374,26 @@ describe('Codex machine-task service', () => {
     expect(retry).toEqual(expect.objectContaining({
       state: 'uncertain',
       target: expect.objectContaining({ connector: expect.objectContaining({ generation: 7 }) })
+    }));
+  });
+
+  test('reports the replacement generation after durable start reconciliation', async () => {
+    const store = memoryStore();
+    expect(await service({
+      start: async () => ({ state: 'uncertain' }),
+      store
+    }).start({ userId: 'user-owner' }, request)).toEqual(
+      expect.objectContaining({ state: 'uncertain' })
+    );
+    const result = await service({
+      generationFor: () => 8,
+      start: async () => ({ state: 'confirmed', threadId, worktreeId: 'wt_restarted' }),
+      startedGeneration: () => 8,
+      store
+    }).start({ userId: 'user-owner' }, request);
+    expect(result).toEqual(expect.objectContaining({
+      state: 'confirmed',
+      task: expect.objectContaining({ connector: expect.objectContaining({ generation: 8 }) })
     }));
   });
 
@@ -572,6 +606,44 @@ describe('Codex machine-task service', () => {
     );
     expect(reconciliations).toBe(2);
     expect(sends).toBe(1);
+  });
+
+  test('reports the replacement generation after durable restart reconciliation', async () => {
+    const store = memoryStore();
+    let generation = 7;
+    let reconciliations = 0;
+    const tasks = service({
+      generationFor: () => generation,
+      store,
+      send: async () => ({
+        operationId: 'send-generation-restart', replayed: false, status: 'ambiguous', threadId
+      }),
+      reconciledGeneration: () => generation,
+      reconcileSend: async () => {
+        reconciliations += 1;
+        return reconciliations === 1
+          ? {
+              operationId: 'send-generation-restart', replayed: true,
+              status: 'ambiguous', threadId
+            }
+          : {
+              operationId: 'send-generation-restart', replayed: true, status: 'accepted', threadId,
+              turnId: 'turn-after-restart'
+            };
+      }
+    });
+    const request = {
+      message: 'Continue exactly once', operationId: 'send-generation-restart',
+      physicalMachineId: 'physical-local', threadId
+    };
+    expect(await tasks.send({ userId: 'user-owner' }, request))
+      .toEqual(expect.objectContaining({ state: 'uncertain' }));
+    generation = 9;
+    expect(await tasks.send({ userId: 'user-owner' }, request)).toEqual(expect.objectContaining({
+      state: 'accepted',
+      target: expect.objectContaining({ connector: expect.objectContaining({ generation: 9 }) }),
+      turnId: 'turn-after-restart'
+    }));
   });
 
   test('recovers an orphaned pending send only on its stored connector generation', async () => {
