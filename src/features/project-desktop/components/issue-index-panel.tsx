@@ -9,6 +9,7 @@ import type {
   GitHubIssueRecord,
   GitHubRepositoryDetailsResult
 } from '@/shared/project-space-api';
+import type { RoadmapController } from '../../roadmap/use-roadmap';
 import { GitHubMark } from './github-mark';
 import { moveIssueToColumn } from './issue-board-move';
 import { IssueBoardMoveLock } from './issue-board-move-lock';
@@ -57,6 +58,7 @@ interface IssueIndexPanelProps {
   projectId: string;
   pullRequests: GitHubRepositoryDetailsResult['pullRequests'];
   query: string;
+  roadmap?: RoadmapController;
   repository?: GitHubCatalogRepository;
   viewMode: IssueViewMode;
 }
@@ -272,6 +274,18 @@ export function IssueIndexPanel(props: IssueIndexPanelProps) {
         viewMode={props.viewMode}
       />
 
+      {props.roadmap?.error ? (
+        <div role="alert" className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+          {props.roadmap.error}
+        </div>
+      ) : null}
+      {props.roadmap?.result?.dependencySync === 'stale' ? (
+        <div role="alert" className="mb-3 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
+          GitHub prerequisites are stale. Plan editing is paused until refresh succeeds.
+        </div>
+      ) : null}
+      <div aria-live="polite" className="sr-only">{props.roadmap?.announcement}</div>
+
       {props.viewMode === 'board' ? (
         <>
           <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
@@ -351,6 +365,7 @@ function IssueContent({
   overrides,
   pullRequests,
   repository,
+  roadmap,
   viewMode,
   visibleColumns
 }: IssueIndexPanelProps & {
@@ -398,6 +413,7 @@ function IssueContent({
       onOpenIssue={onOpenIssue}
       placementIssues={issues}
       pullRequests={pullRequests}
+      roadmap={roadmap}
       repoFullName={repository?.fullName}
     />
   );

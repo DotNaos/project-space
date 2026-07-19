@@ -16,6 +16,7 @@ function issue(overrides: Partial<LocalGitHubApiIssue> = {}): LocalGitHubApiIssu
   return {
     body: `Old description\n\n${marker}`,
     html_url: 'https://github.com/DotNaos/project-space/issues/187',
+    id: 9187,
     labels: [],
     number: 187,
     state: 'open',

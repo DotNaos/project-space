@@ -88,6 +88,7 @@ interface GitHubApiCommitListItem {
 interface GitHubApiIssue {
   body?: string | null;
   html_url: string;
+  id: number;
   labels?: Array<{ name?: string }>;
   number: number;
   pull_request?: unknown;
@@ -106,8 +107,13 @@ export interface TokenResolution {
 }
 
 export class GitHubRequestError extends Error {
-  constructor(readonly statusCode: number, readonly rateLimited: boolean) {
-    super(`GitHub request failed with ${statusCode}.`);
+  constructor(
+    readonly statusCode: number,
+    readonly rateLimited: boolean,
+    message = `GitHub request failed with ${statusCode}.`
+  ) {
+    super(message);
+    this.name = 'GitHubRequestError';
   }
 }
 
@@ -204,7 +210,7 @@ export async function requestGitHub<T>(
 
     const rateLimited = response.status === 429 ||
       (response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0');
-    throw new GitHubRequestError(response.status, rateLimited);
+    throw new GitHubRequestError(response.status, rateLimited, message);
   }
 
   if (response.status === 204) {
@@ -467,11 +473,23 @@ function createEmptyRepositoryDetails(
   };
 }
 
+export function listRepositoryIssues(
+  repoPath: string,
+  token: string,
+  request: typeof requestGitHub = requestGitHub
+) {
+  return request<GitHubApiIssue[]>(
+    `/repos/${repoPath}/issues?state=all&per_page=100&sort=updated&direction=desc`,
+    token
+  );
+}
+
 export function mapGitHubIssue(issue: GitHubApiIssue): GitHubIssueRecord {
   const body = stripGitHubIssueCreationMarker(issue.body ?? '');
   return {
     author: issue.user?.login,
     body: body || undefined,
+    id: issue.id,
     labels: issue.labels?.map((label) => label.name).filter((name): name is string => Boolean(name)) ?? [],
     number: issue.number,
     state: issue.state,
@@ -669,10 +687,7 @@ export async function getGitHubRepositoryDetails(
         `/repos/${repoPath}/branches?per_page=30`,
         auth.token
       ),
-      requestGitHub<GitHubApiIssue[]>(
-        `/repos/${repoPath}/issues?state=all&per_page=100&sort=updated&direction=desc`,
-        auth.token
-      ),
+      listRepositoryIssues(repoPath, auth.token),
       loadRepositoryDevelopmentLinks(fullName, auth.token)
     ]);
 

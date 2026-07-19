@@ -1,15 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
-  Bot,
   ExternalLink,
   FileCheck2,
-  GitBranchPlus,
-  GitGraph,
-  LayoutDashboard,
-  ListChecks,
-  MessageSquareText,
-  Rocket,
-  Server
 } from 'lucide-react';
 import {
   Button,
@@ -41,6 +33,8 @@ import { ProjectTemplateAdherencePanel } from './project-template-adherence-pane
 import { ProjectTemplateSetupPanel } from './project-template-setup-panel';
 import { ProjectctlManifestPanel } from './projectctl-manifest-panel';
 import { RepositoryActivityPanel } from './repository-activity-panel';
+import { RoadmapPanel } from '../../roadmap/roadmap-panel';
+import { projectTabItems } from './project-detail-tabs';
 
 const templateStatusTitle: Record<FullstackTemplateCheck['status'], string> = {
   implemented: 'Implemented',
@@ -262,22 +256,6 @@ function GitHubProjectOverview({
   );
 }
 
-const projectTabItems: Array<{
-  icon: typeof LayoutDashboard;
-  id: ProjectDetailTab;
-  label: string;
-}> = [
-  { icon: LayoutDashboard, id: 'overview', label: 'Overview' },
-  { icon: ListChecks, id: 'issues', label: 'Issues' },
-  { icon: Server, id: 'machines', label: 'Machines' },
-  { icon: GitBranchPlus, id: 'workspaces', label: 'Workspaces' },
-  { icon: MessageSquareText, id: 'chat', label: 'Chat' },
-  { icon: GitGraph, id: 'history', label: 'History' },
-  { icon: Bot, id: 'codex', label: 'Codex' },
-  { icon: FileCheck2, id: 'template', label: 'Template' },
-  { icon: Rocket, id: 'deployments', label: 'Deployments' }
-];
-
 export interface ProjectDetailProps {
   chat: React.ReactNode;
   codex: React.ReactNode;
@@ -448,6 +426,15 @@ export function ProjectDetail({
             projects={projects}
             repository={selectedRepository}
             targetPath={selectedTargetPath}
+          />
+        ) : null}
+
+        {tab === 'roadmap' ? (
+          <RoadmapPanel
+            onOpenIssue={onOpenIssue}
+            onSelectIssues={() => onSelectTab('issues')}
+            project={project}
+            repository={selectedRepository}
           />
         ) : null}
 

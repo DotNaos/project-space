@@ -25,6 +25,7 @@ import {
   type IssueViewMode
 } from './issue-board-model';
 import { repositoryDetailsFallback } from './project-main-model';
+import { useRoadmap } from '../../roadmap/use-roadmap';
 
 function useRepositoryDetails(repository?: GitHubCatalogRepository) {
   const [details, setDetails] = useState<GitHubRepositoryDetailsResult>();
@@ -95,6 +96,7 @@ export function ProjectIssueDetailPanel({
   targetPath: string;
 }) {
   const { details, error, isLoading, retry, setDetails } = useRepositoryDetails(repository);
+  const roadmap = useRoadmap(repository?.fullName);
   const [viewMode, setViewMode] = useState<IssueViewMode>(() => loadIssueViewMode());
   const [query, setQuery] = useState('');
   const [activeLabels, setActiveLabels] = useState<ReadonlySet<string>>(() => new Set());
@@ -200,6 +202,7 @@ export function ProjectIssueDetailPanel({
           projectId={project.id}
           pullRequests={safeDetails.pullRequests}
           query={query}
+          roadmap={roadmap}
           repository={repository}
           viewMode={viewMode}
         />

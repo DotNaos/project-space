@@ -24,6 +24,8 @@ import type {
   MachineTerminalCommandRequest,
   ProjectBackupRequest,
   ProjectDeployRequest,
+  RoadmapDependencyMutationRequest,
+  RoadmapPlanUpdateRequest,
   ProjectSpaceBackend,
   ScopeDevboxStartRequest,
   TemplateAdherenceRequest,
@@ -79,6 +81,63 @@ export function createProjectSpaceIntegrationApiRoutes(
       }
 
       writeJson(response, 200, await backend.getGitHubRepositoryDetails(fullName));
+      return true;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/github/roadmap') {
+      const fullName = url.searchParams.get('fullName');
+      if (!fullName) {
+        writeJson(response, 400, { error: 'Missing fullName.' });
+        return true;
+      }
+      response.setHeader('Cache-Control', 'private, no-store');
+      writeJson(response, 200, await backend.getRoadmap(fullName));
+      return true;
+    }
+
+    if (request.method === 'PUT' && url.pathname === '/api/github/roadmap/plan') {
+      const payload = await readJson<RoadmapPlanUpdateRequest>(request);
+      if (
+        !payload?.fullName
+        || !Array.isArray(payload.goals)
+        || !Array.isArray(payload.items)
+        || typeof payload.expectedGraphRevision !== 'string'
+        || !Number.isSafeInteger(payload.expectedRevision)
+        || payload.expectedRevision < 0
+      ) {
+        writeJson(response, 400, { error: 'Missing or invalid roadmap plan.' });
+        return true;
+      }
+      response.setHeader('Cache-Control', 'private, no-store');
+      writeJson(response, 200, await backend.updateRoadmapPlan(payload));
+      return true;
+    }
+
+    if (
+      ['POST', 'DELETE'].includes(request.method ?? '')
+      && url.pathname === '/api/github/roadmap/dependencies'
+    ) {
+      const payload = await readJson<RoadmapDependencyMutationRequest>(request);
+      if (
+        !payload?.fullName
+        || !payload.blocker?.fullName
+        || !Number.isSafeInteger(payload.blockedIssueNumber)
+        || payload.blockedIssueNumber <= 0
+        || !Number.isSafeInteger(payload.blocker.issueNumber)
+        || payload.blocker.issueNumber <= 0
+        || typeof payload.expectedGraphRevision !== 'string'
+      ) {
+        writeJson(response, 400, { error: 'Missing or invalid roadmap dependency.' });
+        return true;
+      }
+      response.setHeader('Cache-Control', 'private, no-store');
+      writeJson(
+        response,
+        200,
+        request.method === 'POST'
+          ? await backend.addRoadmapDependency(payload)
+          : await backend.removeRoadmapDependency(payload)
+      );
       return true;
     }
 

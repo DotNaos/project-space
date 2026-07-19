@@ -85,6 +85,9 @@ import type {
   ProjectRunSettingsRecord,
   ProjectRunSettingsUpdateRequest,
   ProjectsState,
+  RoadmapDependencyMutationRequest,
+  RoadmapPlanUpdateRequest,
+  RoadmapResult,
   ProjectWorktreeDiscoveryResult,
   ProjectWorktreeRecord,
   WorktreeMaterializeRequest,
@@ -457,6 +460,32 @@ class HttpProjectSpaceClient implements ProjectSpaceBackend {
 
     githubRepositoryDetailsRequests.set(cacheKey, request);
     return request;
+  }
+
+  getRoadmap(fullName: string): Promise<RoadmapResult> {
+    const query = new URLSearchParams({ fullName });
+    return this.request(`/api/github/roadmap?${query.toString()}`);
+  }
+
+  updateRoadmapPlan(request: RoadmapPlanUpdateRequest): Promise<RoadmapResult> {
+    return this.request('/api/github/roadmap/plan', {
+      body: JSON.stringify(request),
+      method: 'PUT'
+    });
+  }
+
+  addRoadmapDependency(request: RoadmapDependencyMutationRequest): Promise<RoadmapResult> {
+    return this.request('/api/github/roadmap/dependencies', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  removeRoadmapDependency(request: RoadmapDependencyMutationRequest): Promise<RoadmapResult> {
+    return this.request('/api/github/roadmap/dependencies', {
+      body: JSON.stringify(request),
+      method: 'DELETE'
+    });
   }
 
   updateGitHubIssue(request: GitHubIssueUpdateRequest): Promise<GitHubIssueMutationResult> {

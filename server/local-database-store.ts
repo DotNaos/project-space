@@ -6,6 +6,7 @@ import type { DatabaseQueryClient } from './database/client';
 import { runDatabaseMigrations } from './database/migrations';
 import type { TransactionalDatabaseQueryClient } from './machine-connection-database-store';
 import { PostgresProjectChatRepository } from './project-chat/postgres-store';
+import { PostgresRoadmapPlanStore, type RoadmapPlanStore } from './roadmap/roadmap-store';
 import { ConnectorMachineSnapshotStore } from './connector-machine-snapshot-store';
 import { PostgresConnectorRuntimeOperationStore } from './connector-runtime-operation-store';
 import type {
@@ -76,6 +77,7 @@ let repository: ProjectSpaceDatabaseRepository | null = null;
 let projectChatRepository: PostgresProjectChatRepository | null = null;
 let connectorMachineSnapshotStore: ConnectorMachineSnapshotStore | null = null;
 let connectorRuntimeOperationStore: PostgresConnectorRuntimeOperationStore | null = null;
+let roadmapPlanStore: RoadmapPlanStore | null = null;
 let schemaReady: Promise<void> | null = null;
 
 function databaseUrl() {
@@ -247,6 +249,14 @@ export async function getCodexSessionsDatabaseClient(): Promise<
   TransactionalDatabaseQueryClient
 > {
   return getMachineConnectionDatabaseClient();
+}
+
+export async function getRoadmapPlanStore() {
+  const databasePool = getPool();
+  if (!databasePool) return null;
+  await ensureDatabaseSchema();
+  roadmapPlanStore ??= new PostgresRoadmapPlanStore(createPoolQueryClient(databasePool));
+  return roadmapPlanStore;
 }
 
 export async function getConnectorMachineSnapshotStore() {

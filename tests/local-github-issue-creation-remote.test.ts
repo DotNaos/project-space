@@ -18,6 +18,7 @@ function apiIssue(overrides: Partial<LocalGitHubApiIssue> = {}): LocalGitHubApiI
   return {
     body: `Description\n\n${marker}`,
     html_url: 'https://github.com/DotNaos/project-space/issues/187',
+    id: 9187,
     labels: [{ name: 'bug' }],
     number: 187,
     state: 'open',
@@ -44,6 +45,7 @@ describe('local GitHub issue creation remote', () => {
     });
 
     expect(result.body).toBe('Description');
+    expect(result.id).toBe(9187);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
       path: '/repos/DotNaos/project-space/issues',
