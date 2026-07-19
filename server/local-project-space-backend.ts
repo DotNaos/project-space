@@ -57,6 +57,12 @@ import { createLocalProjectMachineBackend } from './local-project-machine-backen
 import { runProjectCliCommand } from './local-project-cli-client';
 import { getDeployedEnvironmentStatus } from './deployed-environment-status';
 import { getTemplateAdherence } from './local-template-adherence';
+import {
+  addRoadmapDependency,
+  getRoadmap,
+  removeRoadmapDependency,
+  updateRoadmapPlan
+} from './roadmap/roadmap-service';
 import { getProjectctlOverview, getProjectctlPreview } from './local-projectctl-client';
 import { backupProject, deployProject, getPlatformOverview } from './local-platform-operations';
 import { readAppMeta } from './app-meta';
@@ -284,6 +290,18 @@ export function createLocalProjectSpaceBackend(
     },
     async getGitHubRepositoryDetails(fullName: string) {
       return getGitHubRepositoryDetails(fullName);
+    },
+    async getRoadmap(fullName: string) {
+      return getRoadmap(fullName);
+    },
+    async updateRoadmapPlan(request) {
+      return updateRoadmapPlan(request);
+    },
+    async addRoadmapDependency(request) {
+      return addRoadmapDependency(request);
+    },
+    async removeRoadmapDependency(request) {
+      return removeRoadmapDependency(request);
     },
     async getGitHubHistory(request) {
       return getGitHubHistory(request);

@@ -6,6 +6,7 @@ import { GitHubRequestError, requestGitHub } from './local-github-catalog';
 export interface LocalGitHubApiIssue {
   body?: string | null;
   html_url: string;
+  id?: number;
   labels?: Array<{ name?: string }>;
   number: number;
   pull_request?: unknown;
@@ -30,6 +31,7 @@ export function mapLocalGitHubIssue(issue: LocalGitHubApiIssue): GitHubIssueReco
   return {
     author: issue.user?.login,
     body: body || undefined,
+    id: issue.id,
     labels: issue.labels
       ?.map((label) => label.name)
       .filter((name): name is string => Boolean(name)) ?? [],

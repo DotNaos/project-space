@@ -26,6 +26,7 @@ export type ProjectMainView =
 export const projectDetailTabs = [
   'overview',
   'issues',
+  'roadmap',
   'machines',
   'workspaces',
   'chat',

@@ -77,7 +77,8 @@ describe('database migrations', () => {
       '0020_physical_machines',
       '0021_codex_machine_tasks',
       '0022_codex_machine_task_durable_operations',
-      '0023_codex_machine_task_start_payload'
+      '0023_codex_machine_task_start_payload',
+      '0024_roadmap_plans'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -170,6 +171,10 @@ describe('database migrations', () => {
     expect(sql).toContain('primary key (user_id, scope)');
     expect(sql).toContain('github_issue_creation_operations');
     expect(sql).toContain('primary key (owner_user_id, repository_full_name, operation_id)');
+    expect(sql).toContain('create table roadmap_plans');
+    expect(sql).toContain('create table roadmap_dependency_snapshots');
+    expect(sql).toContain('primary key (repository_id, principal_id)');
+    expect(sql).toContain('revision bigint not null default 0');
   });
 
   test('applies pending migrations once under a transaction and records checksums', async () => {

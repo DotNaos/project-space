@@ -1,6 +1,7 @@
 export type * from './dev-server-api';
 export type * from './worktree-action-api';
 export type * from './connector-runtime-api';
+export type * from './roadmap-api';
 
 import type {
   ConnectorRuntimeRecord,
@@ -10,6 +11,11 @@ import type {
   MachineRuntimeStopResult,
   MachineRuntimeStatusResult
 } from './connector-runtime-api';
+import type {
+  RoadmapDependencyMutationRequest,
+  RoadmapPlanUpdateRequest,
+  RoadmapResult
+} from './roadmap-api';
 
 export type WorkspaceTool = 'ide' | 'terminal' | 'git' | 'dev-server';
 
@@ -510,6 +516,7 @@ export interface GitHubPullRequestRecord {
 export interface GitHubIssueRecord {
   author?: string;
   body?: string;
+  id?: number;
   labels: string[];
   number: number;
   state: 'open' | 'closed';
@@ -1414,6 +1421,10 @@ export interface ProjectSpaceBackend {
   ): Promise<GitHubIssueCommentMutationResult>;
   getGitHubIssueComments(fullName: string, number: number): Promise<GitHubIssueCommentsResult>;
   getGitHubRepositoryDetails(fullName: string): Promise<GitHubRepositoryDetailsResult>;
+  getRoadmap(fullName: string): Promise<RoadmapResult>;
+  updateRoadmapPlan(request: RoadmapPlanUpdateRequest): Promise<RoadmapResult>;
+  addRoadmapDependency(request: RoadmapDependencyMutationRequest): Promise<RoadmapResult>;
+  removeRoadmapDependency(request: RoadmapDependencyMutationRequest): Promise<RoadmapResult>;
   updateGitHubIssue(request: GitHubIssueUpdateRequest): Promise<GitHubIssueMutationResult>;
   startScopeDevboxJob(request: ScopeDevboxStartRequest): Promise<ScopeDevboxJobRecord>;
   stageGitPaths(request: GitStageRequest): Promise<GitActionResult>;
