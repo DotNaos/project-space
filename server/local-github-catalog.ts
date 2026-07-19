@@ -473,17 +473,15 @@ function createEmptyRepositoryDetails(
   };
 }
 
-async function listRepositoryIssues(repoPath: string, token: string) {
-  const issues: GitHubApiIssue[] = [];
-  for (let page = 1; page <= 100; page += 1) {
-    const batch = await requestGitHub<GitHubApiIssue[]>(
-      `/repos/${repoPath}/issues?state=all&per_page=100&sort=updated&direction=desc&page=${page}`,
-      token
-    );
-    issues.push(...batch);
-    if (batch.length < 100) return issues;
-  }
-  throw new Error('This repository has too many issues to load safely.');
+export function listRepositoryIssues(
+  repoPath: string,
+  token: string,
+  request: typeof requestGitHub = requestGitHub
+) {
+  return request<GitHubApiIssue[]>(
+    `/repos/${repoPath}/issues?state=all&per_page=100&sort=updated&direction=desc`,
+    token
+  );
 }
 
 export function mapGitHubIssue(issue: GitHubApiIssue): GitHubIssueRecord {

@@ -50,8 +50,12 @@ function validateGoals(goals: readonly RoadmapGoal[]) {
   return normalized;
 }
 
-function assertEditable(result: RoadmapResult) {
+function assertCanEdit(result: RoadmapResult) {
   if (!result.canEdit) throw new Error('You do not have permission to edit this roadmap.');
+}
+
+function assertDependenciesEditable(result: RoadmapResult) {
+  assertCanEdit(result);
   if (result.dependencySync === 'stale') {
     throw new Error('Refresh GitHub dependencies before editing the roadmap.');
   }
@@ -122,7 +126,7 @@ export class RoadmapService {
       this.dependencies,
       { repositoryIssues }
     );
-    assertEditable(current);
+    assertCanEdit(current);
     if (current.graphRevision !== request.expectedGraphRevision) {
       return {
         ...current,
@@ -156,7 +160,7 @@ export class RoadmapService {
     const currentIssueIds = new Set(current.plan.items.map((item) => roadmapIssueKey(item.issue)));
     const hasSameIssueSet = items.length === currentIssueIds.size
       && items.every((item) => currentIssueIds.has(roadmapIssueKey(item.issue)));
-    const proposedGraph = hasSameIssueSet
+    const proposedGraph = hasSameIssueSet && current.dependencySync === 'current'
       ? {
           allCurrent: true,
           dependencies: current.dependencies,
@@ -219,7 +223,7 @@ export class RoadmapService {
   ): Promise<RoadmapResult> {
     const context = await loadRoadmapContext(request.fullName, this.dependencies, true);
     const current = await buildRoadmapResult(context, this.dependencies);
-    assertEditable(current);
+    assertDependenciesEditable(current);
     if (current.graphRevision !== request.expectedGraphRevision) {
       return {
         ...current,

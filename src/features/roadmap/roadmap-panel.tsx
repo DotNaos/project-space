@@ -100,7 +100,7 @@ export function RoadmapPanel({
       {roadmap.error ? <div role="alert" className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{roadmap.error}</div> : null}
       {result.dependencySync === 'stale' ? (
         <div role="alert" className="mb-4 flex items-start gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0" /> GitHub dependencies could not be refreshed. The last visible snapshot is marked stale and editing is paused.
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" /> GitHub dependencies could not be refreshed. Ordering and dependency edits are paused, but unavailable issues can still be removed from the plan.
         </div>
       ) : null}
       {result.issues.some((issue) => issue.availability === 'cyclic') ? (

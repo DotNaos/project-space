@@ -65,7 +65,7 @@ function InspectorContent({ issue, roadmap }: { issue: RoadmapIssueNode; roadmap
               {planItem.plannedState === 'active' ? 'Active now' : 'Mark active'}
             </Button>
             <Button
-              isDisabled={!canEdit || roadmap.isSaving}
+              isDisabled={!result.canEdit || roadmap.isSaving}
               onPress={() => void roadmap.savePlan(
                 result.plan.goals,
                 result.plan.items.filter((item) => roadmapIssueKey(item.issue) !== roadmapIssueKey(planItem.issue))

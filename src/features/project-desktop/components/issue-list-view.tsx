@@ -232,7 +232,7 @@ function RoadmapPlanRows({
                 <Button
                   aria-label={`Remove issue #${item.issue.number} from plan`}
                   className="max-sm:min-h-11"
-                  isDisabled={!canEdit || roadmap.isSaving}
+                  isDisabled={!result.canEdit || roadmap.isSaving}
                   isIconOnly
                   onPress={() => void roadmap.savePlan(
                     result.plan.goals,

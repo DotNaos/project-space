@@ -135,6 +135,38 @@ describe('roadmap service', () => {
     })).rejects.toThrow('Refresh GitHub dependencies');
   });
 
+  test('allows a stale missing issue to be removed from the plan', async () => {
+    const store = new InMemoryRoadmapPlanStore();
+    await store.updatePlan({
+      expectedRevision: 0,
+      goals: [],
+      items: [planItem(1), planItem(2)],
+      repositoryFullName: fullName,
+      repositoryId: 42
+    });
+    const service = new RoadmapService(dependencies(
+      store,
+      repositoryRouter(
+        [issue(1)],
+        { 2: new GitHubRequestError(404, false) }
+      )
+    ));
+    const stale = await service.get(fullName);
+    expect(stale.dependencySync).toBe('stale');
+    expect(stale.issues.find((entry) => entry.issue.number === 2)?.availability).toBe('missing');
+
+    const saved = await service.updatePlan({
+      expectedGraphRevision: stale.graphRevision,
+      expectedRevision: stale.plan.revision,
+      fullName,
+      goals: [],
+      items: [{ issueNumber: 1, plannedState: 'planned' }]
+    });
+
+    expect(saved.dependencySync).toBe('current');
+    expect(saved.plan.items.map((entry) => entry.issue.number)).toEqual([1]);
+  });
+
   test('persists canonical plan identity and reports revision conflicts', async () => {
     const store = new InMemoryRoadmapPlanStore();
     const service = new RoadmapService(dependencies(
