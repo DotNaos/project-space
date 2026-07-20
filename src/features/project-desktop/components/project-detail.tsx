@@ -317,7 +317,8 @@ export function ProjectDetail({
   return (
     <div
       className={cn(
-        'mx-auto flex w-full max-w-5xl flex-col gap-4',
+        'mx-auto flex w-full flex-col gap-4',
+        tab === 'roadmap' ? 'max-w-[90rem]' : 'max-w-5xl',
         containsOwnScroll ? 'h-full min-h-0 overflow-hidden' : 'min-h-full'
       )}
     >

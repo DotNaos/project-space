@@ -1,26 +1,56 @@
 import { useEffect, useState } from 'react';
 import { Drawer } from '@heroui/react';
-import { ExternalLink, GitBranch, Trash2, X } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  ExternalLink,
+  GitBranch,
+  Plus,
+  Trash2,
+  X
+} from 'lucide-react';
 
 import { Button, Text } from '@/app/dotnaos-ui';
+import type { GitHubIssueRecord } from '@/shared/project-space-api';
 import type { RoadmapIssueNode } from '@/shared/roadmap-api';
-import { roadmapIssueKey } from '@/shared/roadmap-model';
-import type { RoadmapController } from './use-roadmap';
+import {
+  moveRoadmapItem,
+  roadmapIssueKey,
+  validRoadmapMoveRange
+} from '@/shared/roadmap-model';
+import {
+  RoadmapRelationshipEditor,
+  type RoadmapRelationshipDirection
+} from './roadmap-relationship-editor';
 import { roadmapStatusLabel } from './roadmap-status';
+import type { RoadmapController } from './use-roadmap';
 
-function InspectorContent({ issue, roadmap }: { issue: RoadmapIssueNode; roadmap: RoadmapController }) {
+function InspectorContent({
+  issue,
+  issueError,
+  issues,
+  isLoadingIssues,
+  roadmap
+}: {
+  issue: RoadmapIssueNode;
+  issueError?: string;
+  issues: readonly GitHubIssueRecord[];
+  isLoadingIssues?: boolean;
+  roadmap: RoadmapController;
+}) {
   const result = roadmap.result;
-  const [blockerRepository, setBlockerRepository] = useState(result?.repository.fullName ?? '');
-  const [blockerNumber, setBlockerNumber] = useState('');
-  useEffect(() => {
-    setBlockerRepository(result?.repository.fullName ?? '');
-    setBlockerNumber('');
-  }, [issue.issue.id, result?.repository.fullName]);
+  const [editor, setEditor] = useState<RoadmapRelationshipDirection | null>(null);
+  useEffect(() => setEditor(null), [issue.issue.id]);
   if (!result) return null;
   const canEdit = result.canEdit && result.dependencySync === 'current';
-  const planItem = result.plan.items.find((item) => item.issue.id === issue.issue.id);
+  const planIndex = result.plan.items.findIndex((item) => item.issue.id === issue.issue.id);
+  const planItem = planIndex >= 0 ? result.plan.items[planIndex] : undefined;
+  const moveRange = planItem
+    ? validRoadmapMoveRange(result.plan.items, result.dependencies, planItem.issue)
+    : undefined;
   const incoming = result.dependencies.filter((edge) => edge.blocked.id === issue.issue.id);
   const outgoing = result.dependencies.filter((edge) => edge.blocker.id === issue.issue.id);
+  const nodesById = new Map(result.issues.map((node) => [node.issue.id, node]));
   const saveItem = (patch: Partial<NonNullable<typeof planItem>>) => {
     if (!planItem) return;
     void roadmap.savePlan(result.plan.goals, result.plan.items.map((item) => (
@@ -28,21 +58,50 @@ function InspectorContent({ issue, roadmap }: { issue: RoadmapIssueNode; roadmap
     )));
   };
   return (
-    <div className="flex min-w-0 flex-col gap-5">
+    <div className="flex min-w-0 flex-col gap-5 pb-4">
       <div className="min-w-0">
-        <Text className="block font-mono text-xs text-neutral-500">
+        <Text className="block font-mono text-xs text-emerald-400">
           {issue.issue.fullName}#{issue.issue.number}
         </Text>
         <Text className="mt-1 block text-base font-semibold leading-6 text-neutral-100">
           {issue.title}
         </Text>
-        <Text className="mt-2 block text-xs text-neutral-500">
+        <Text className="mt-2 inline-flex rounded border border-neutral-700 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-400">
           {roadmapStatusLabel[issue.availability]}
         </Text>
       </div>
 
       {planItem ? (
-        <div className="grid gap-3 border-y border-neutral-800 py-4">
+        <section className="grid gap-3 border-y border-neutral-800 py-4" aria-labelledby="roadmap-plan-order-heading">
+          <div className="flex items-center justify-between gap-3">
+            <span>
+              <Text id="roadmap-plan-order-heading" className="block text-xs font-semibold text-neutral-300">Manual plan order</Text>
+              <Text className="text-[11px] text-neutral-500">Dependencies use arrows; this is a separate priority.</Text>
+            </span>
+            <Text className="rounded border border-neutral-700 px-2 py-1 font-mono text-xs tabular-nums text-neutral-300">
+              {String(planIndex + 1).padStart(2, '0')}
+            </Text>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              isDisabled={!canEdit || roadmap.isSaving || !moveRange || planIndex <= moveRange.minimum}
+              onPress={() => {
+                const moved = moveRoadmapItem(result.plan.items, planItem.issue, planIndex - 1, result.dependencies);
+                if (moved) void roadmap.savePlan(result.plan.goals, moved);
+              }}
+              size="sm"
+              variant="secondary"
+            ><ArrowUp className="size-3.5" /> Earlier</Button>
+            <Button
+              isDisabled={!canEdit || roadmap.isSaving || !moveRange || planIndex >= moveRange.maximum}
+              onPress={() => {
+                const moved = moveRoadmapItem(result.plan.items, planItem.issue, planIndex + 1, result.dependencies);
+                if (moved) void roadmap.savePlan(result.plan.goals, moved);
+              }}
+              size="sm"
+              variant="secondary"
+            ><ArrowDown className="size-3.5" /> Later</Button>
+          </div>
           <label className="grid gap-1.5 text-xs text-neutral-400">
             Goal
             <select
@@ -61,9 +120,7 @@ function InspectorContent({ issue, roadmap }: { issue: RoadmapIssueNode; roadmap
               onPress={() => saveItem({ plannedState: planItem.plannedState === 'active' ? 'planned' : 'active' })}
               size="sm"
               variant={planItem.plannedState === 'active' ? 'primary' : 'secondary'}
-            >
-              {planItem.plannedState === 'active' ? 'Active now' : 'Mark active'}
-            </Button>
+            >{planItem.plannedState === 'active' ? 'Active now' : 'Mark active'}</Button>
             <Button
               isDisabled={!result.canEdit || roadmap.isSaving}
               onPress={() => void roadmap.savePlan(
@@ -72,99 +129,60 @@ function InspectorContent({ issue, roadmap }: { issue: RoadmapIssueNode; roadmap
               )}
               size="sm"
               variant="ghost"
-            >
-              <Trash2 className="size-3.5" /> Back to backlog
-            </Button>
+            ><Trash2 className="size-3.5" /> Back to backlog</Button>
           </div>
-        </div>
+        </section>
       ) : (
         <Text className="border-y border-neutral-800 py-4 text-sm text-neutral-500">
-          This is an external prerequisite. It is shown for context and is not part of this repository’s manual order.
+          External prerequisite shown for graph context; it has no local plan-order badge.
         </Text>
       )}
 
-      <section aria-labelledby="roadmap-prerequisites-heading">
-        <div className="flex items-center gap-2">
-          <GitBranch className="size-4 text-neutral-500" />
-          <Text id="roadmap-prerequisites-heading" className="text-sm font-semibold text-neutral-200">
-            Prerequisites
-          </Text>
-        </div>
-        <div className="mt-3 grid gap-2">
-          {incoming.map((edge) => (
-            <div key={roadmapIssueKey(edge.blocker)} className="flex min-w-0 items-center gap-2 rounded-lg bg-neutral-900/60 px-3 py-2">
-              <Text className="min-w-0 flex-1 truncate text-xs text-neutral-300">
-                {edge.blocker.fullName}#{edge.blocker.number}
-              </Text>
-              <Button
-                aria-label={`Remove prerequisite #${edge.blocker.number}`}
-                isDisabled={!canEdit || roadmap.isSaving}
-                isIconOnly
-                onPress={() => void roadmap.removeDependency({
-                  blockedIssueNumber: edge.blocked.number,
-                  blocker: { fullName: edge.blocker.fullName, issueNumber: edge.blocker.number }
-                })}
-                size="sm"
-                variant="ghost"
-              ><X className="size-3.5" /></Button>
-            </div>
-          ))}
-          {incoming.length === 0 ? <Text className="text-xs text-neutral-500">No prerequisites recorded.</Text> : null}
-        </div>
-        {planItem ? (
-          <form
-            className="mt-4 grid gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const issueNumber = Number(blockerNumber);
-              if (!Number.isSafeInteger(issueNumber) || issueNumber <= 0) return;
-              void roadmap.addDependency({
-                blockedIssueNumber: issue.issue.number,
-                blocker: { fullName: blockerRepository.trim(), issueNumber }
-              }).then((saved) => {
-                if (saved) setBlockerNumber('');
-              });
-            }}
-          >
-            <Text className="text-xs font-medium text-neutral-400">Add exact GitHub prerequisite</Text>
-            <div className="grid gap-2 sm:grid-cols-[1fr_5rem_auto]">
-              <input
-                aria-label="Prerequisite repository owner and name"
-                className="min-h-10 min-w-0 rounded-lg border border-neutral-700 bg-neutral-950 px-3 text-sm text-neutral-100 placeholder:text-neutral-600"
-                onChange={(event) => setBlockerRepository(event.target.value)}
-                placeholder="owner/repository"
-                value={blockerRepository}
-              />
-              <input
-                aria-label="Prerequisite issue number"
-                className="min-h-10 min-w-0 rounded-lg border border-neutral-700 bg-neutral-950 px-3 text-sm text-neutral-100 placeholder:text-neutral-600"
-                min="1"
-                onChange={(event) => setBlockerNumber(event.target.value)}
-                placeholder="#"
-                type="number"
-                value={blockerNumber}
-              />
-              <Button
-                isDisabled={!canEdit || roadmap.isSaving}
-                type="submit"
-                variant="secondary"
-              >Add</Button>
-            </div>
-          </form>
-        ) : null}
-      </section>
+      <RelationshipList
+        canEdit={canEdit}
+        direction="prerequisite"
+        edges={incoming.map((edge) => ({
+          id: roadmapIssueKey(edge.blocker),
+          issue: edge.blocker,
+          node: nodesById.get(edge.blocker.id),
+          remove: () => roadmap.removeDependency({
+            blockedIssueNumber: edge.blocked.number,
+            blocker: { fullName: edge.blocker.fullName, issueNumber: edge.blocker.number }
+          })
+        }))}
+        isSaving={roadmap.isSaving}
+        onAdd={() => setEditor('prerequisite')}
+      />
+      <RelationshipList
+        canEdit={canEdit}
+        direction="successor"
+        edges={outgoing.map((edge) => ({
+          id: roadmapIssueKey(edge.blocked),
+          issue: edge.blocked,
+          node: nodesById.get(edge.blocked.id),
+          remove: () => roadmap.removeDependency({
+            blockedIssueNumber: edge.blocked.number,
+            blocker: { fullName: edge.blocker.fullName, issueNumber: edge.blocker.number }
+          })
+        }))}
+        isSaving={roadmap.isSaving}
+        onAdd={() => setEditor('successor')}
+      />
 
-      {outgoing.length > 0 ? (
-        <section>
-          <Text className="text-sm font-semibold text-neutral-200">Unlocks</Text>
-          <div className="mt-2 grid gap-1 text-xs text-neutral-500">
-            {outgoing.map((edge) => <Text key={roadmapIssueKey(edge.blocked)}>#{edge.blocked.number}</Text>)}
-          </div>
-        </section>
+      {editor ? (
+        <RoadmapRelationshipEditor
+          direction={editor}
+          issue={issue}
+          issueError={issueError}
+          issues={issues}
+          isLoadingIssues={isLoadingIssues}
+          onClose={() => setEditor(null)}
+          roadmap={roadmap}
+        />
       ) : null}
 
       {issue.issue.url ? (
-        <a className="inline-flex w-fit items-center gap-2 text-xs text-neutral-400 hover:text-neutral-100" href={issue.issue.url} rel="noreferrer" target="_blank">
+        <a className="inline-flex min-h-10 w-fit items-center gap-2 text-xs text-neutral-400 hover:text-neutral-100" href={issue.issue.url} rel="noreferrer" target="_blank">
           Open on GitHub <ExternalLink className="size-3.5" />
         </a>
       ) : null}
@@ -172,12 +190,75 @@ function InspectorContent({ issue, roadmap }: { issue: RoadmapIssueNode; roadmap
   );
 }
 
+function RelationshipList({
+  canEdit,
+  direction,
+  edges,
+  isSaving,
+  onAdd
+}: {
+  canEdit: boolean;
+  direction: RoadmapRelationshipDirection;
+  edges: Array<{
+    id: string;
+    issue: RoadmapIssueNode['issue'];
+    node?: RoadmapIssueNode;
+    remove(): Promise<boolean>;
+  }>;
+  isSaving: boolean;
+  onAdd(): void;
+}) {
+  const prerequisite = direction === 'prerequisite';
+  return (
+    <section aria-label={prerequisite ? 'Prerequisites' : 'Successors'}>
+      <div className="flex items-center gap-2">
+        <GitBranch className="size-4 text-neutral-500" />
+        <Text className="text-sm font-semibold text-neutral-200">
+          {prerequisite ? 'Prerequisites' : 'Unlocks'}
+        </Text>
+      </div>
+      <div className="mt-2 grid gap-2">
+        {edges.map((edge) => (
+          <div className="flex min-w-0 items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900/45 px-3 py-2" key={edge.id}>
+            <span className="min-w-0 flex-1">
+              <Text className="block font-mono text-[11px] text-neutral-500">{edge.issue.fullName}#{edge.issue.number}</Text>
+              <Text className="line-clamp-2 text-xs text-neutral-200">{edge.node?.title ?? 'Issue is not accessible'}</Text>
+            </span>
+            <Button
+              aria-label={`Remove ${prerequisite ? 'prerequisite' : 'successor'} #${edge.issue.number}`}
+              isDisabled={!canEdit || isSaving}
+              isIconOnly
+              onPress={() => void edge.remove()}
+              size="sm"
+              variant="ghost"
+            ><X className="size-3.5" /></Button>
+          </div>
+        ))}
+        {edges.length === 0 ? (
+          <Text className="text-xs text-neutral-500">
+            {prerequisite ? 'No prerequisites. This is a graph root.' : 'No successors. This is a valid terminal branch.'}
+          </Text>
+        ) : null}
+      </div>
+      <Button className="mt-3 w-full" isDisabled={!canEdit || isSaving} onPress={onAdd} size="sm" variant="secondary">
+        <Plus className="size-3.5" /> Add {prerequisite ? 'prerequisite' : 'successor'}
+      </Button>
+    </section>
+  );
+}
+
 export function RoadmapInspector({
   issue,
+  issueError,
+  issues,
+  isLoadingIssues,
   onClose,
   roadmap
 }: {
   issue?: RoadmapIssueNode;
+  issueError?: string;
+  issues: readonly GitHubIssueRecord[];
+  isLoadingIssues?: boolean;
   onClose(): void;
   roadmap: RoadmapController;
 }) {
@@ -189,30 +270,37 @@ export function RoadmapInspector({
     media.addEventListener('change', update);
     return () => media.removeEventListener('change', update);
   }, []);
+  const content = issue ? (
+    <InspectorContent
+      issue={issue}
+      issueError={issueError}
+      issues={issues}
+      isLoadingIssues={isLoadingIssues}
+      roadmap={roadmap}
+    />
+  ) : null;
   return (
     <>
       <aside className="hidden min-w-0 border-l border-neutral-800 pl-5 md:block">
-        {issue ? <InspectorContent issue={issue} roadmap={roadmap} /> : (
-          <Text className="text-sm text-neutral-500">Select a step to inspect its plan and prerequisites.</Text>
-        )}
+        {!isMobile
+          ? content ?? <Text className="text-sm text-neutral-500">Select an issue or dependency arrow to inspect it.</Text>
+          : null}
       </aside>
       <Drawer.Backdrop
-        className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm md:hidden"
+        className="fixed inset-0 z-[120] bg-black/55 backdrop-blur-sm md:hidden"
         isOpen={Boolean(issue) && isMobile}
         onOpenChange={(open) => { if (!open) onClose(); }}
       >
         <Drawer.Content className="fixed inset-x-0 bottom-0 w-full" placement="bottom">
-          <Drawer.Dialog className="max-h-[min(42rem,calc(100dvh-1rem))] rounded-t-[1.75rem] border border-b-0 border-neutral-700 bg-neutral-950 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] outline-none">
+          <Drawer.Dialog className="max-h-[min(38rem,68dvh)] rounded-t-[1.75rem] border border-b-0 border-neutral-700 bg-neutral-950 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] outline-none">
             <Drawer.Handle className="mx-auto mt-2 h-1 w-14 rounded-full bg-neutral-600" />
-            <Drawer.Header className="flex items-center py-4">
-              <Drawer.Heading className="text-sm font-semibold text-neutral-100">Roadmap step</Drawer.Heading>
+            <Drawer.Header className="flex items-center py-3">
+              <Drawer.Heading className="text-sm font-semibold text-neutral-100">Roadmap issue</Drawer.Heading>
               <Drawer.CloseTrigger className="ml-auto grid size-10 place-items-center rounded-lg text-neutral-400 hover:bg-neutral-800">
                 <X className="size-4" />
               </Drawer.CloseTrigger>
             </Drawer.Header>
-            <Drawer.Body className="overflow-y-auto p-0">
-              {issue ? <InspectorContent issue={issue} roadmap={roadmap} /> : null}
-            </Drawer.Body>
+            <Drawer.Body className="overflow-y-auto p-0">{isMobile ? content : null}</Drawer.Body>
           </Drawer.Dialog>
         </Drawer.Content>
       </Drawer.Backdrop>

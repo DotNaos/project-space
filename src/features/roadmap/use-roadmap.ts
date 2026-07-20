@@ -5,11 +5,14 @@ import type {
   RoadmapDependencyMutationRequest,
   RoadmapGoal,
   RoadmapPlanItem,
+  RoadmapPlanItemInput,
   RoadmapResult
 } from '@/shared/roadmap-api';
+import { roadmapAdditionIndex } from '../../shared/roadmap-model';
 
 export interface RoadmapController {
   addDependency(request: Omit<RoadmapDependencyMutationRequest, 'expectedGraphRevision' | 'fullName'>): Promise<boolean>;
+  addIssue(issueNumber: number, options?: { goalId?: string; goals?: RoadmapGoal[] }): Promise<boolean>;
   announcement: string;
   error: string;
   isLoading: boolean;
@@ -111,7 +114,10 @@ export function useRoadmap(fullName?: string): RoadmapController {
     return true;
   }, [fullName]);
 
-  const savePlan = useCallback(async (goals: RoadmapGoal[], items: RoadmapPlanItem[]) => {
+  const savePlanInputs = useCallback(async (
+    goals: RoadmapGoal[],
+    items: RoadmapPlanItemInput[]
+  ) => {
     const current = resultRef.current;
     if (!fullName || !current) return false;
     requestOrderRef.current.begin();
@@ -123,11 +129,7 @@ export function useRoadmap(fullName?: string): RoadmapController {
         expectedRevision: current.plan.revision,
         fullName,
         goals,
-        items: items.map((item) => ({
-          goalId: item.goalId,
-          issueNumber: item.issue.number,
-          plannedState: item.plannedState
-        }))
+        items
       });
       return acceptMutation(next, 'Roadmap plan saved.');
     } catch (reason) {
@@ -140,6 +142,43 @@ export function useRoadmap(fullName?: string): RoadmapController {
       setIsSaving(false);
     }
   }, [acceptMutation, fullName]);
+
+  const savePlan = useCallback((goals: RoadmapGoal[], items: RoadmapPlanItem[]) => (
+    savePlanInputs(goals, items.map((item) => ({
+      goalId: item.goalId,
+      issueNumber: item.issue.number,
+      plannedState: item.plannedState
+    })))
+  ), [savePlanInputs]);
+
+  const addIssue = useCallback((
+    issueNumber: number,
+    options: { goalId?: string; goals?: RoadmapGoal[] } = {}
+  ) => {
+    const current = resultRef.current;
+    if (!current || current.plan.items.some((item) => item.issue.number === issueNumber)) {
+      return Promise.resolve(false);
+    }
+    const issue = current.issues.find((node) => (
+      node.issue.number === issueNumber
+      && node.issue.fullName.toLowerCase() === current.repository.fullName.toLowerCase()
+    ));
+    const insertionIndex = issue
+      ? roadmapAdditionIndex(current.plan.items, current.dependencies, issue.issue)
+      : current.plan.items.length;
+    if (insertionIndex === undefined) return Promise.resolve(false);
+    const items = current.plan.items.map((item) => ({
+        goalId: item.goalId,
+        issueNumber: item.issue.number,
+        plannedState: item.plannedState
+      }));
+    items.splice(insertionIndex, 0, {
+      goalId: options.goalId,
+      issueNumber,
+      plannedState: 'planned'
+    });
+    return savePlanInputs(options.goals ?? current.plan.goals, items);
+  }, [savePlanInputs]);
 
   const mutateDependency = useCallback(async (
     operation: 'add' | 'remove',
@@ -173,6 +212,7 @@ export function useRoadmap(fullName?: string): RoadmapController {
 
   return {
     addDependency: (request) => mutateDependency('add', request),
+    addIssue,
     announcement,
     error,
     isLoading: isLoading || Boolean(fullName && loaded?.fullName !== fullName),

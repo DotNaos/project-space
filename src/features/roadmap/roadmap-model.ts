@@ -7,6 +7,7 @@ import type {
 import {
   moveRoadmapItem,
   normalizedRoadmapGoals,
+  roadmapAdditionIndex,
   roadmapDependencyCycle,
   roadmapGraphRevision,
   roadmapIssueKey,
@@ -17,6 +18,7 @@ import {
 export {
   moveRoadmapItem,
   normalizedRoadmapGoals,
+  roadmapAdditionIndex,
   roadmapDependencyCycle,
   roadmapGraphRevision,
   roadmapOrderViolations,
