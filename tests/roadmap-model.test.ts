@@ -12,6 +12,7 @@ import type {
 } from '../src/shared/roadmap-api';
 import {
   moveRoadmapItem,
+  roadmapAdditionIndex,
   roadmapCyclicIssueKeys,
   roadmapDependencyCycle,
   roadmapGraphRevision,
@@ -83,6 +84,16 @@ describe('roadmap model', () => {
     expect(moveRoadmapItem(items, ref(2), 3, dependencies)?.map((entry) => entry.issue.number))
       .toEqual([1, 3, 4, 2]);
     expect(moveRoadmapItem(items, ref(1), 3, dependencies)).toBeUndefined();
+  });
+
+  test('inserts newly planned context at a dependency-safe position', () => {
+    const contextualPrerequisite = ref(9);
+    const items = [item(2), item(3), item(4)];
+    expect(roadmapAdditionIndex(items, [edge(contextualPrerequisite, ref(2))], contextualPrerequisite))
+      .toBe(0);
+    expect(roadmapAdditionIndex(items, [edge(ref(3), contextualPrerequisite)], contextualPrerequisite))
+      .toBe(3);
+    expect(roadmapAdditionIndex(items, [], contextualPrerequisite)).toBe(items.length);
   });
 
   test('builds a vertical story that includes external prerequisites', () => {

@@ -196,6 +196,28 @@ describe('roadmap service', () => {
     expect(conflict.plan.revision).toBe(1);
   });
 
+  test('durably creates a goal with its first existing issue in one revision', async () => {
+    const store = new InMemoryRoadmapPlanStore();
+    const router = repositoryRouter([issue(7, { id: 7007 })]);
+    const service = new RoadmapService(dependencies(store, router));
+    const initial = await service.get(fullName);
+    const saved = await service.updatePlan({
+      expectedGraphRevision: initial.graphRevision,
+      expectedRevision: initial.plan.revision,
+      fullName,
+      goals: [{ id: 'first-outcome', title: 'First outcome' }],
+      items: [{ goalId: 'first-outcome', issueNumber: 7, plannedState: 'planned' }]
+    });
+    expect(saved.plan).toMatchObject({
+      goals: [{ id: 'first-outcome', title: 'First outcome' }],
+      items: [{ goalId: 'first-outcome', issue: { id: 7007, number: 7 } }],
+      revision: 1
+    });
+    const reloaded = await new RoadmapService(dependencies(store, router)).get(fullName);
+    expect(reloaded.plan.goals[0]?.title).toBe('First outcome');
+    expect(reloaded.plan.items[0]?.issue.id).toBe(7007);
+  });
+
   test('rejects dependency order violations at the server boundary', async () => {
     const store = new InMemoryRoadmapPlanStore();
     await store.updatePlan({
@@ -393,6 +415,30 @@ describe('roadmap service', () => {
       headers: { 'Content-Type': 'application/json' },
       method: 'POST'
     });
+  });
+
+  test('rejects a dependency that would contradict the durable manual order', async () => {
+    const store = new InMemoryRoadmapPlanStore();
+    await store.updatePlan({
+      expectedRevision: 0,
+      goals: [],
+      items: [planItem(2), planItem(1)],
+      repositoryFullName: fullName,
+      repositoryId: 42
+    });
+    const calls: Array<{ init?: RequestInit; path: string }> = [];
+    const service = new RoadmapService(dependencies(
+      store,
+      repositoryRouter([issue(1), issue(2)], {}, calls)
+    ));
+    const current = await service.get(fullName);
+    await expect(service.addDependency({
+      blockedIssueNumber: 2,
+      blocker: { fullName, issueNumber: 1 },
+      expectedGraphRevision: current.graphRevision,
+      fullName
+    })).rejects.toThrow('manual plan order first');
+    expect(calls.some((call) => call.init?.method === 'POST')).toBe(false);
   });
 
   test('keeps private dependency snapshots isolated per principal', async () => {

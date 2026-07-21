@@ -264,6 +264,17 @@ export class RoadmapService {
     )) {
       throw new Error('This dependency would create a cycle.');
     }
+    if (
+      operation === 'add'
+      && roadmapOrderViolations(current.plan.items, [
+        ...current.dependencies,
+        { ...candidate, freshness: 'current' }
+      ]).length > 0
+    ) {
+      throw new Error(
+        'Move the prerequisite before the issue it blocks in the manual plan order first.'
+      );
+    }
     const path = `/repos/${context.repositoryPath}/issues/${blocked.number}/dependencies/blocked_by`;
     if (operation === 'add') {
       await this.dependencies.requestGitHub(path, context.auth.token, {

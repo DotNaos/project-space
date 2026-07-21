@@ -116,6 +116,29 @@ export function validRoadmapMoveRange(
   return { maximum, minimum };
 }
 
+export function roadmapAdditionIndex(
+  items: readonly RoadmapPlanItem[],
+  dependencies: readonly RoadmapDependency[],
+  issue: RoadmapIssueReference
+) {
+  const positions = new Map(
+    items.map((item, index) => [roadmapIssueKey(item.issue), index])
+  );
+  let minimum = 0;
+  let maximum = items.length;
+  for (const dependency of dependencies) {
+    if (roadmapIssueKey(dependency.blocked) === roadmapIssueKey(issue)) {
+      const blocker = positions.get(roadmapIssueKey(dependency.blocker));
+      if (blocker !== undefined) minimum = Math.max(minimum, blocker + 1);
+    }
+    if (roadmapIssueKey(dependency.blocker) === roadmapIssueKey(issue)) {
+      const blocked = positions.get(roadmapIssueKey(dependency.blocked));
+      if (blocked !== undefined) maximum = Math.min(maximum, blocked);
+    }
+  }
+  return minimum <= maximum ? maximum : undefined;
+}
+
 export function moveRoadmapItem(
   items: readonly RoadmapPlanItem[],
   issue: RoadmapIssueReference,
