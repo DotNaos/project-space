@@ -9,12 +9,18 @@ describe('production deployment workflow contract', () => {
     const workflow = await readFile(workflowPath, 'utf8');
 
     expect(workflow).toContain('push:\n    branches: [main]');
+    expect(workflow).toContain('release:\n    types: [published]');
     expect(workflow).toContain('workflow_dispatch:');
     expect(workflow).toContain('group: project-space-production');
     expect(workflow).toContain('cancel-in-progress: false');
     expect(workflow).toContain('name: Production');
     expect(workflow).toContain('--commit "$REQUESTED_COMMIT"');
     expect(workflow).toContain('[[ "$GITHUB_REF" == refs/heads/main ]]');
+    expect(workflow).toContain('[[ "$GITHUB_REF" == refs/tags/v* ]]');
+    expect(workflow).toContain('requested_commit: ${{ steps.requested-commit.outputs.commit }}');
+    expect(workflow).toContain('"${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/commits/main"');
+    expect(workflow).toContain('ref: ${{ steps.requested-commit.outputs.commit }}');
+    expect(workflow).toContain('REQUESTED_COMMIT: ${{ needs.validate.outputs.requested_commit }}');
     expect(workflow).toContain('https://projects.os-home.net/api/app/meta');
     expect(workflow).not.toContain('vercel');
   });
@@ -28,6 +34,38 @@ describe('production deployment workflow contract', () => {
     expect(validateJob).not.toContain('OP_SERVICE_ACCOUNT_TOKEN');
     expect(workflow).toContain('permissions:\n  contents: read');
     expect(workflow).toContain('needs: validate');
+    expect(workflow).toContain('Verify the approved connector release is published');
+    expect(workflow).toContain('/releases/download/${release_id}/project-space-release-manifest.json');
+    expect(workflow).toContain('--max-filesize 2097152');
+    expect(workflow).toContain("--write-out '%{http_code}'");
+    expect(workflow).toContain('if [[ $http_status == 404 ]]');
+    expect(workflow).toContain('[[ $http_status == 200 ]]');
+    expect(workflow).toContain('Could not check approved connector release');
+    expect(workflow).toContain("echo 'ready=false' >> \"$GITHUB_OUTPUT\"");
+    expect(workflow).toContain('Production was untouched.');
+    expect(workflow).toContain("echo 'ready=true' >> \"$GITHUB_OUTPUT\"");
+    expect(workflow).toContain("steps.connector-release.outputs.ready == 'true'");
+    expect(workflow).toContain("needs.validate.outputs.release_ready == 'true'");
+    expect(workflow).toContain('for target in darwin-arm64 linux-x64 windows-x64');
+    expect(workflow).toContain('bun packaging/release/release-manifest-cli.ts verify');
+    expect(workflow).toContain(
+      '--public-key packaging/release/trust-roots/release-manifest-signing-public-key.pem'
+    );
+    expect(workflow).toContain('.manifest.releaseId == $release_id');
+    expect(workflow).toContain('.manifest.version == $build_version');
+    expect(workflow).toContain("release_build_id=$(jq -er '.manifest.buildId'");
+    expect(workflow).toContain(
+      'git merge-base --is-ancestor "$release_build_id" "$REQUESTED_COMMIT"'
+    );
+    expect(workflow).toContain(
+      'git diff --no-renames --name-only -z "$release_build_id" "$REQUESTED_COMMIT"'
+    );
+    expect(workflow).toContain('| bun packaging/release/connector-release-drift.ts');
+    expect(workflow).not.toContain('.manifest.buildId == $requested_commit');
+    expect(workflow).not.toContain("            '.releaseId == $release_id");
+    expect(workflow.indexOf('Verify the approved connector release is published')).toBeLessThan(
+      workflow.indexOf('Validate the exact deployment plan')
+    );
     expect(workflow).toContain('bun test');
     expect(workflow).toContain('go test ./...');
     expect(workflow).toContain("steps.current-main.outputs.superseded != 'true'");

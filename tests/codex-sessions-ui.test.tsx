@@ -112,12 +112,9 @@ const { CodexSessionsPage } = await import(
 const { CodexConversationPane } = await import(
   '../src/features/codex-sessions/codex-conversation-pane'
 );
-const { ProjectCodexTasks } = await import(
-  '../src/features/codex-sessions/project-codex-tasks'
-);
-
 const machine: CodexMachine = {
   id: 'machine-mac',
+  inventoryState: 'live',
   name: 'os-macbook',
   status: 'connected'
 };
@@ -552,76 +549,5 @@ describe('Canonical Codex task page', () => {
     expect(html).toContain('aria-label="Response to What should Codex know?"');
     expect(html).toContain('placeholder="Enter your response"');
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Submit response<\/button>/);
-  });
-});
-
-describe('Project Codex entry points', () => {
-  test('renders the same machine-grouped canonical task in the project tab and Chat drawer', () => {
-    const state = {
-      activeTurnId: undefined,
-      approvalBindings: {},
-      conversations: [],
-      inputBindings: {},
-      loadingMachineIds: ['machine-loading'],
-      machines: [machine, { id: 'machine-offline', name: 'os-pc', status: 'offline' as const }],
-      reading: false,
-      seenEventIds: [],
-      selectedOrigin: undefined,
-      sessions: [activeSession, {
-        ...activeSession,
-        cwd: '/srv/projects/project-space',
-        machineId: 'machine-offline',
-        status: 'idle' as const,
-        threadId: '019f5a78-3c4c-7082-bb45-5411be7d9b9b',
-        title: 'Review idle task'
-      }]
-    };
-    const controller = {
-      getState: () => state,
-      loadMachines: async () => {},
-      subscribe: () => () => {}
-    } as never;
-    const projectRecords = [{
-      id: 'project-space',
-      kind: 'standalone' as const,
-      machineId: machine.id,
-      name: 'Project Space',
-      rootPath: '/Users/oli/projects/project-space'
-    }, {
-      id: 'project-space-offline',
-      kind: 'standalone' as const,
-      machineId: 'machine-offline',
-      name: 'Project Space',
-      rootPath: '/srv/projects/project-space'
-    }, {
-      id: 'project-space-loading',
-      kind: 'standalone' as const,
-      machineId: 'machine-loading',
-      name: 'Project Space',
-      rootPath: '/opt/projects/project-space'
-    }];
-    const common = {
-      controller,
-      machineIds: [machine.id],
-      onOpenTask: () => {},
-      projectRecords
-    };
-    const panel = renderToStaticMarkup(<ProjectCodexTasks {...common} mode="panel" />);
-    const preview = renderToStaticMarkup(<ProjectCodexTasks {...common} mode="preview" />);
-
-    for (const html of [panel, preview]) {
-      expect(html).toContain('os-macbook');
-      expect(html).toContain('Integrate Codex sessions');
-      expect(html).toContain('Issue #149');
-      expect(html).toContain('data-spinner="true"');
-      expect(html).toContain('Review idle task');
-      expect(html).toContain('os-pc');
-      expect(html).toContain('Checking machine');
-      expect(html).toContain('Checking for Codex tasks');
-      expect(html).not.toContain('projectName');
-    }
-    expect(preview).toContain('1 active task');
-    expect(preview).toContain('Codex tasks');
-    expect(panel).not.toContain('Unavailable machine');
   });
 });

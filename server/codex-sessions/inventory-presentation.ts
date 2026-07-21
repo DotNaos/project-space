@@ -20,6 +20,15 @@ export function filterCodexSessionInventory(
   };
 }
 
+export function asLiveCodexSessionInventory(
+  inventory: CodexSessionListResult
+): CodexSessionListResult {
+  return {
+    ...inventory,
+    inventoryState: 'live'
+  };
+}
+
 export function asOfflineCodexSessionInventory(
   machine: CodexSessionMachineRecord,
   sessions: CodexSessionRecord[],
@@ -28,6 +37,7 @@ export function asOfflineCodexSessionInventory(
   const checkedAt = now().toISOString();
   return {
     checkedAt,
+    inventoryState: 'stale',
     machine: {
       ...machine,
       online: false,

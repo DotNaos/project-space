@@ -6,6 +6,7 @@ export const connectorRuntimeReleaseManifestAsset = 'project-space-release-manif
 const releaseIdPattern = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/;
 const maximumManifestBytes = 2 * 1024 * 1024;
 const defaultCacheMs = 5 * 60_000;
+const defaultRequestTimeoutMs = 10_000;
 
 export class ConnectorRuntimeReleaseSourceError extends Error {
   constructor(
@@ -60,15 +61,21 @@ type ManifestFetch = (url: string, init: RequestInit) => Promise<Response>;
 export class GitHubConnectorRuntimeReleaseSource
   implements ConnectorRuntimeApprovedReleaseSource {
   private cache?: { expiresAt: number; value: unknown };
+  private inFlight?: Promise<unknown>;
 
   constructor(
     private readonly releaseId: string,
     private readonly fetchManifest: ManifestFetch = (url, init) => fetch(url, init),
     private readonly now: () => number = Date.now,
-    private readonly cacheMs = defaultCacheMs
+    private readonly cacheMs = defaultCacheMs,
+    private readonly requestTimeoutMs = defaultRequestTimeoutMs
   ) {
     connectorRuntimeReleaseManifestUrl(releaseId);
     if (!Number.isSafeInteger(cacheMs) || cacheMs < 0 || cacheMs > 60 * 60_000) {
+      throw new ConnectorRuntimeReleaseSourceError('invalid-configuration');
+    }
+    if (!Number.isSafeInteger(requestTimeoutMs) ||
+        requestTimeoutMs < 1 || requestTimeoutMs > 60_000) {
       throw new ConnectorRuntimeReleaseSourceError('invalid-configuration');
     }
   }
@@ -82,13 +89,57 @@ export class GitHubConnectorRuntimeReleaseSource
       return structuredClone(this.cache.value);
     }
 
+    const load = this.inFlight ?? this.startManifestLoad(now);
+    try {
+      return structuredClone(await load);
+    } finally {
+      if (this.inFlight === load) this.inFlight = undefined;
+    }
+  }
+
+  private startManifestLoad(now: number) {
+    const load = this.fetchApprovedManifest(now);
+    this.inFlight = load;
+    return load;
+  }
+
+  private async fetchApprovedManifest(now: number) {
+    const controller = new AbortController();
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      deadline = setTimeout(() => {
+        const error = new ConnectorRuntimeReleaseSourceError('unavailable');
+        controller.abort(error);
+        reject(error);
+      }, this.requestTimeoutMs);
+    });
+
+    try {
+      const value = await Promise.race([
+        this.fetchManifestValue(controller.signal),
+        timeout
+      ]);
+      this.cache = { expiresAt: now + this.cacheMs, value };
+      return value;
+    } catch {
+      throw new ConnectorRuntimeReleaseSourceError('unavailable');
+    } finally {
+      if (deadline !== undefined) clearTimeout(deadline);
+    }
+  }
+
+  private async fetchManifestValue(signal: AbortSignal) {
     const response = await this.fetchManifest(
       connectorRuntimeReleaseManifestUrl(this.releaseId),
-      { cache: 'no-store', credentials: 'omit', method: 'GET', redirect: 'follow' }
-    ).catch(() => undefined);
-    if (!response?.ok) {
-      throw new ConnectorRuntimeReleaseSourceError('unavailable');
-    }
+      {
+        cache: 'no-store',
+        credentials: 'omit',
+        method: 'GET',
+        redirect: 'follow',
+        signal
+      }
+    );
+    if (!response.ok) throw new ConnectorRuntimeReleaseSourceError('unavailable');
     const contentLength = response.headers.get('content-length');
     if ((contentLength !== null &&
           (!/^\d+$/.test(contentLength) || Number(contentLength) > maximumManifestBytes))) {
@@ -104,7 +155,6 @@ export class GitHubConnectorRuntimeReleaseSource
     } catch {
       throw new ConnectorRuntimeReleaseSourceError('unavailable');
     }
-    this.cache = { expiresAt: now + this.cacheMs, value };
-    return structuredClone(value);
+    return value;
   }
 }

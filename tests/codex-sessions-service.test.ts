@@ -296,6 +296,7 @@ describe('Codex sessions hosted service', () => {
   test('saves a complete online inventory and serves an honest offline snapshot', async () => {
     const store = new MemoryStore();
     const transport = new FakeTransport();
+    transport.listResult = inventory({ inventoryState: 'stale' });
     const service = createCodexSessionsService({
       authorize: authorize(store),
       now: () => new Date('2026-07-13T11:00:00.000Z'),
@@ -304,11 +305,13 @@ describe('Codex sessions hosted service', () => {
     });
 
     const online = await service.list(actor, { machineId, search: 'integrate' });
+    expect(online.inventoryState).toBe('live');
     expect(online.sessions).toHaveLength(1);
     expect(await store.listInventory(actor.userId, machineId)).toHaveLength(1);
 
     transport.listResult = new CodexTransportUnavailableError('disconnected');
     const offline = await service.list(actor, { machineId });
+    expect(offline.inventoryState).toBe('stale');
     expect(offline.machine).toMatchObject({ id: machineId, online: false });
     expect(offline.sessions[0]).toMatchObject({ loadedByProjectSpace: false, status: 'offline' });
     expect(offline.machine.statusMessage).toContain('last saved');

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { createCodexSessionsClient } from '@/api/codex-sessions-client';
 import {
+  projectSpaceClient,
   refreshProjectSpaceAuthToken,
   resolveProjectSpaceApiBaseUrl
 } from '@/api/project-space-client';
@@ -37,7 +38,7 @@ export function useCodexDesktop({
           import.meta.env.VITE_PROJECT_SPACE_API_BASE_URL
         ),
     getAuthToken: refreshProjectSpaceAuthToken
-  })), []);
+  }), undefined, (machineId, signal) => projectSpaceClient.getMachineRuntime(machineId, signal)), []);
   const machineIds = useMemo(() => (
     [...new Set(connectorOverview.machines.map((machine) => machine.id).filter(Boolean))]
   ), [connectorOverview.machines]);

@@ -1,284 +1,135 @@
 import type {
-  CodexConversationItemRecord,
-  CodexSessionListResult,
-  CodexSessionReadResult,
   CodexSessionsClient,
-  CodexSessionStreamEvent,
   CodexSessionTurnSettings
 } from '../../shared/codex-sessions-api';
+import type { MachineRuntimeStatusResult } from '../../shared/project-space-api';
 import { codexContinueBlockReason } from './codex-sessions-model';
 import type {
   CodexApprovalDecision,
-  CodexConversation,
-  CodexConversationItem,
-  CodexMachine,
-  CodexSession,
   CodexThreadOrigin,
   CodexUserInputDecision
 } from './codex-sessions-types';
-interface ApprovalBinding {
-  approvalId?: string;
-  canAllow: boolean;
-  itemId?: string;
-  turnId: string;
-}
-interface InputBinding {
-  turnId: string;
-}
-export interface CodexSessionsControllerState {
-  activeTurnId?: string;
-  approvalBindings: Record<string, ApprovalBinding>;
-  conversations: CodexConversation[];
-  errorMessage?: string;
-  inputBindings: Record<string, InputBinding>;
-  loadingMachineIds: string[];
-  machines: CodexMachine[];
-  reading: boolean;
-  seenEventIds: string[];
-  selectedOrigin?: CodexThreadOrigin;
-  sessions: CodexSession[];
-}
+import {
+  applyCodexReadResult,
+  applyCodexStreamEvent,
+  initialCodexSessionsControllerState,
+  sameCodexOrigin,
+  toCodexMachine,
+  toCodexSession,
+  upsertCodexMachine,
+  upsertCodexSession,
+  type CodexSessionsControllerState
+} from './codex-sessions-controller-state';
+
+const defaultRuntimeLoadTimeoutMs = 3_000;
+
+export {
+  applyCodexReadResult,
+  applyCodexStreamEvent,
+  initialCodexSessionsControllerState,
+  toCodexConversationItem
+} from './codex-sessions-controller-state';
+export type { CodexSessionsControllerState } from './codex-sessions-controller-state';
+
 export class CodexSessionsControllerError extends Error {
   constructor(readonly code: string, message: string) {
     super(message);
     this.name = 'CodexSessionsControllerError';
   }
 }
-export function initialCodexSessionsControllerState(): CodexSessionsControllerState {
-  return {
-    approvalBindings: {},
-    conversations: [],
-    inputBindings: {},
-    loadingMachineIds: [],
-    machines: [],
-    reading: false,
-    seenEventIds: [],
-    sessions: []
-  };
-}
-function toMachine(result: CodexSessionListResult): CodexMachine {
-  return {
-    id: result.machine.id,
-    name: result.machine.name,
-    status: result.machine.online ? 'connected' : 'offline',
-    statusDetail: result.machine.statusMessage,
-    supportsModelSelection: result.machine.supportsModelSelection,
-    supportsModelSettings: result.machine.supportsModelSettings
-  };
-}
-function toSession(record: CodexSessionListResult['sessions'][number]): CodexSession {
-  return {
-    attention: record.attention,
-    cwd: record.cwd,
-    lastActivityAt: record.lastActivityAt,
-    loadedByProjectSpace: record.loadedByProjectSpace,
-    machineId: record.machineId,
-    model: record.model,
-    projectName: record.project,
-    status: record.status,
-    stored: true,
-    threadId: record.id,
-    title: record.title
-  };
-}
-const activityLabels: Record<CodexConversationItemRecord['kind'], string> = {
-  'agent-message': 'Codex response',
-  command: 'Command',
-  'file-change': 'File change',
-  'mcp-tool': 'Tool call',
-  plan: 'Plan update',
-  reasoning: 'Reasoning',
-  status: 'Status',
-  'user-message': 'User message'
-};
-export function toCodexConversationItem(item: CodexConversationItemRecord): CodexConversationItem {
-  if (item.kind === 'agent-message' || item.kind === 'user-message') {
-    return {
-      id: item.id,
-      kind: 'message',
-      role: item.kind === 'agent-message' ? 'assistant' : 'user',
-      streaming: item.status === 'in-progress',
-      text: item.text ?? ''
-    };
-  }
-  const state = item.status === 'in-progress'
-    ? 'running'
-    : item.status === 'pending'
-      ? 'waiting'
-      : item.status === 'failed'
-        ? 'failed'
-        : 'completed';
-  return {
-    activityKind: item.kind,
-    detail: item.detail ?? item.text,
-    id: item.id,
-    kind: 'activity',
-    label: activityLabels[item.kind],
-    state
-  };
-}
-export function applyCodexReadResult(
-  state: CodexSessionsControllerState,
-  result: CodexSessionReadResult
-): CodexSessionsControllerState {
-  const session = toSession(result.session);
-  const conversation: CodexConversation = {
-    items: result.turns.flatMap((turn) => turn.items.map(toCodexConversationItem)),
-    machineId: session.machineId,
-    threadId: session.threadId
-  };
-  const activeTurnId = [...result.turns].reverse().find((turn) => turn.status === 'in-progress')?.id;
-  return {
-    ...state,
-    activeTurnId,
-    approvalBindings: {},
-    conversations: upsertConversation(state.conversations, conversation),
-    errorMessage: undefined,
-    inputBindings: {},
-    reading: false,
-    seenEventIds: [],
-    sessions: upsertSession(state.sessions, session)
-  };
-}
-export function applyCodexStreamEvent(
-  state: CodexSessionsControllerState,
-  event: CodexSessionStreamEvent
-): CodexSessionsControllerState {
-  if (state.seenEventIds.includes(event.eventId) || !state.selectedOrigin) return state;
-  const seenEventIds = [...state.seenEventIds.slice(-499), event.eventId];
-  const origin = state.selectedOrigin;
-  let conversation = state.conversations.find((entry) => sameOrigin(entry, origin)) ?? {
-    items: [], machineId: origin.machineId, threadId: origin.threadId
-  };
-  let activeTurnId = state.activeTurnId;
-  let approvalBindings = state.approvalBindings;
-  let inputBindings = state.inputBindings;
-  let sessions = state.sessions;
-  if (event.type === 'agent-message-delta') {
-    const existing = conversation.items.find((item) => item.id === event.itemId);
-    const next: CodexConversationItem = existing?.kind === 'message'
-      ? { ...existing, streaming: true, text: `${existing.text}${event.delta}` }
-      : { id: event.itemId, kind: 'message', role: 'assistant', streaming: true, text: event.delta };
-    conversation = { ...conversation, items: upsertItem(conversation.items, next) };
-  } else if (event.type === 'item') {
-    const next = toCodexConversationItem(event.item);
-    conversation = { ...conversation, items: upsertItem(conversation.items, next) };
-  } else if (event.type === 'session-status') {
-    sessions = sessions.map((session) => sameOrigin(session, origin)
-      ? { ...session, status: event.status }
-      : session);
-  } else if (event.type === 'approval-requested') {
-    activeTurnId = event.turnId;
-    approvalBindings = {
-      ...approvalBindings,
-      [event.requestId]: {
-        approvalId: event.approvalId,
-        canAllow: event.canAllow !== false,
-        itemId: event.itemId,
-        turnId: event.turnId
-      }
-    };
-    conversation = {
-      ...conversation,
-      approvals: upsertById(conversation.approvals ?? [], {
-        canAllow: event.canAllow !== false,
-        description: event.command ?? event.permissionSummary?.join('; ') ??
-          'The requested permission details could not be displayed safely. You can deny this request.',
-        id: event.requestId,
-        title: event.kind === 'command'
-          ? 'Run command'
-          : event.kind === 'file-change'
-            ? 'Change files'
-            : 'Permission required'
-      })
-    };
-  } else if (event.type === 'user-input-requested') {
-    activeTurnId = event.turnId;
-    inputBindings = { ...inputBindings, [event.requestId]: { turnId: event.turnId } };
-    conversation = {
-      ...conversation,
-      userInputRequests: upsertById(conversation.userInputRequests ?? [], {
-        id: event.requestId,
-        questions: event.questions.map((question) => ({
-          choices: (question.choices ?? []).map((choice) => ({
-            description: choice.label === choice.value ? undefined : choice.label,
-            value: choice.value
-          })),
-          id: question.id,
-          prompt: question.prompt
-        })),
-        title: 'Codex needs input'
-      })
-    };
-  } else if (event.type === 'turn-completed') {
-    if (!activeTurnId || activeTurnId === event.turnId) {
-      activeTurnId = undefined;
-      approvalBindings = {};
-      inputBindings = {};
-      conversation = { ...conversation, approvals: [], userInputRequests: [] };
-      sessions = sessions.map((session) => sameOrigin(session, origin)
-        ? { ...session, status: 'idle' }
-        : session);
-    }
-  }
-
-  return {
-    ...state,
-    activeTurnId,
-    approvalBindings,
-    conversations: upsertConversation(state.conversations, conversation),
-    inputBindings,
-    seenEventIds,
-    sessions
-  };
-}
 export class CodexSessionsController {
   private state = initialCodexSessionsControllerState();
   private listeners = new Set<() => void>();
+  private machineLoadVersions = new Map<string, number>();
   private stopStream?: () => void;
   private selectionVersion = 0;
   private retryOperations = new Map<string, string>();
   constructor(
     private readonly client: CodexSessionsClient,
-    private readonly createOperationId = defaultOperationId
+    private readonly createOperationId = defaultOperationId,
+    private readonly loadMachineRuntime?: (
+      machineId: string,
+      signal?: AbortSignal
+    ) => Promise<MachineRuntimeStatusResult>,
+    private readonly runtimeLoadTimeoutMs = defaultRuntimeLoadTimeoutMs
   ) {}
   getState = () => this.state;
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
-  async loadMachines(machineIds: string[]) {
-    this.update({ ...this.state, loadingMachineIds: [...new Set(machineIds)] });
-    await Promise.all(machineIds.map(async (machineId) => {
+  async loadMachines(
+    machineIds: string[],
+    connectorInstanceIds: Readonly<Record<string, string | undefined>> = {}
+  ) {
+    const uniqueMachineIds = [...new Set(machineIds)];
+    this.update({
+      ...this.state,
+      loadingMachineIds: uniqueMachineIds
+    });
+    await Promise.all(uniqueMachineIds.map(async (machineId) => {
+      const loadVersion = (this.machineLoadVersions.get(machineId) ?? 0) + 1;
+      this.machineLoadVersions.set(machineId, loadVersion);
+      const isCurrentLoad = () => this.machineLoadVersions.get(machineId) === loadVersion;
+      let inventoryConnectorInstanceId = connectorInstanceIds[machineId];
+      const loadMachineRuntime = this.loadMachineRuntime;
+      if (loadMachineRuntime) {
+        try {
+          const runtime = await withDeadline(
+            (signal) => loadMachineRuntime(machineId, signal),
+            this.runtimeLoadTimeoutMs
+          );
+          if (!isCurrentLoad()) return;
+          inventoryConnectorInstanceId = runtime.runtime?.instanceId ?? inventoryConnectorInstanceId;
+          this.update({
+            ...this.state,
+            runtimeByMachineId: {
+              ...this.state.runtimeByMachineId,
+              [machineId]: runtime
+            }
+          });
+        } catch {
+          if (!isCurrentLoad()) return;
+          const runtimeByMachineId = { ...this.state.runtimeByMachineId };
+          delete runtimeByMachineId[machineId];
+          this.update({ ...this.state, runtimeByMachineId });
+          // The verified inventory can still establish Codex readiness without maintenance status.
+        }
+      }
       try {
         const result = await this.client.list({ includeArchived: true, machineId });
+        if (!isCurrentLoad()) return;
         const selected = this.state.selectedOrigin?.machineId === machineId
-          ? this.state.sessions.find((session) => sameOrigin(session, this.state.selectedOrigin!))
+          ? this.state.sessions.find((session) => sameCodexOrigin(session, this.state.selectedOrigin!))
           : undefined;
-        const nextSessions = result.sessions.map(toSession);
-        if (selected && !nextSessions.some((session) => sameOrigin(session, selected))) {
+        const nextSessions = result.sessions.map(toCodexSession);
+        if (selected && !nextSessions.some((session) => sameCodexOrigin(session, selected))) {
           nextSessions.push({ ...selected, status: 'missing' });
         }
         this.update({
           ...this.state,
           loadingMachineIds: this.state.loadingMachineIds.filter((id) => id !== machineId),
-          machines: upsertMachine(this.state.machines, toMachine(result)),
+          machines: upsertCodexMachine(
+            this.state.machines,
+            toCodexMachine(result, inventoryConnectorInstanceId)
+          ),
           sessions: [
             ...this.state.sessions.filter((session) => session.machineId !== machineId),
             ...nextSessions
           ]
         });
       } catch (error) {
+        if (!isCurrentLoad()) return;
         const offline = isOfflineError(error);
         this.update({
           ...this.state,
-          errorMessage: errorMessage(error),
           loadingMachineIds: this.state.loadingMachineIds.filter((id) => id !== machineId),
-          machines: upsertMachine(this.state.machines, {
+          machines: upsertCodexMachine(this.state.machines, {
             id: machineId,
             name: this.state.machines.find((machine) => machine.id === machineId)?.name ?? machineId,
             status: offline ? 'offline' : 'unavailable',
-            statusDetail: errorMessage(error)
+            statusDetail: errorMessage(error),
+            inventoryConnectorInstanceId
           })
         });
       }
@@ -289,7 +140,7 @@ export class CodexSessionsController {
     const version = ++this.selectionVersion;
     this.stopStream?.();
     this.stopStream = undefined;
-    const placeholder = this.state.sessions.find((session) => sameOrigin(session, origin)) ?? {
+    const placeholder = this.state.sessions.find((session) => sameCodexOrigin(session, origin)) ?? {
       lastActivityAt: new Date().toISOString(),
       loadedByProjectSpace: false,
       machineId: origin.machineId,
@@ -306,7 +157,7 @@ export class CodexSessionsController {
       inputBindings: {},
       reading: true,
       selectedOrigin: origin,
-      sessions: upsertSession(this.state.sessions, placeholder)
+      sessions: upsertCodexSession(this.state.sessions, placeholder)
     });
     try {
       const result = await this.client.read(origin);
@@ -330,7 +181,7 @@ export class CodexSessionsController {
         ...this.state,
         errorMessage: errorMessage(error),
         reading: false,
-        sessions: this.state.sessions.map((session) => sameOrigin(session, origin)
+        sessions: this.state.sessions.map((session) => sameCodexOrigin(session, origin)
           ? { ...session, status, statusDetail: errorMessage(error) }
           : session)
       });
@@ -388,7 +239,7 @@ export class CodexSessionsController {
       this.update({
         ...this.state,
         activeTurnId: result.turnId ?? this.state.activeTurnId,
-        sessions: this.state.sessions.map((entry) => sameOrigin(entry, origin)
+        sessions: this.state.sessions.map((entry) => sameCodexOrigin(entry, origin)
           ? { ...entry, status: 'active' }
           : entry)
       });
@@ -462,7 +313,7 @@ export class CodexSessionsController {
 
   private requireSelectedSession(origin: CodexThreadOrigin) {
     const selected = this.state.selectedOrigin;
-    const session = this.state.sessions.find((entry) => sameOrigin(entry, origin));
+    const session = this.state.sessions.find((entry) => sameCodexOrigin(entry, origin));
     if (!session || !selected || selected.machineId !== origin.machineId || selected.threadId !== origin.threadId) {
       throw new CodexSessionsControllerError('origin_mismatch', 'Select this machine and thread before continuing it.');
     }
@@ -490,7 +341,7 @@ export class CodexSessionsController {
   private removePrompt(requestId: string, kind: 'approval' | 'input') {
     const origin = this.state.selectedOrigin;
     if (!origin) return;
-    const conversations = this.state.conversations.map((conversation) => !sameOrigin(conversation, origin)
+    const conversations = this.state.conversations.map((conversation) => !sameCodexOrigin(conversation, origin)
       ? conversation
       : kind === 'approval'
         ? { ...conversation, approvals: conversation.approvals?.filter((entry) => entry.id !== requestId) }
@@ -510,27 +361,6 @@ export class CodexSessionsController {
     this.state = state;
     for (const listener of this.listeners) listener();
   }
-}
-
-function upsertMachine(machines: CodexMachine[], next: CodexMachine) {
-  return [...machines.filter((machine) => machine.id !== next.id), next];
-}
-function upsertSession(sessions: CodexSession[], next: CodexSession) {
-  return [...sessions.filter((session) => !sameOrigin(session, next)), next];
-}
-function upsertConversation(conversations: CodexConversation[], next: CodexConversation) {
-  return [...conversations.filter((conversation) => !sameOrigin(conversation, next)), next];
-}
-function upsertItem(items: CodexConversationItem[], next: CodexConversationItem) {
-  const index = items.findIndex((item) => item.id === next.id);
-  if (index < 0) return [...items, next];
-  return items.map((item, itemIndex) => itemIndex === index ? next : item);
-}
-function upsertById<T extends { id: string }>(items: T[], next: T) {
-  return [...items.filter((item) => item.id !== next.id), next];
-}
-function sameOrigin(value: { machineId: string; threadId: string }, origin: CodexThreadOrigin) {
-  return value.machineId === origin.machineId && value.threadId === origin.threadId;
 }
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Codex sessions are unavailable.';
@@ -557,4 +387,26 @@ function isDefinitiveError(error: unknown) {
 }
 function defaultOperationId(action: string) {
   return `codex-ui:${action}:${crypto.randomUUID()}`;
+}
+
+async function withDeadline<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number
+): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation(controller.signal),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error('Connector runtime status timed out.');
+          reject(error);
+          controller.abort(error);
+        }, Math.max(1, timeoutMs));
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }

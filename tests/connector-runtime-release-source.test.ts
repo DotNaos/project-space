@@ -53,6 +53,7 @@ describe('configured connector runtime release source', () => {
     expect(calls[0]?.init).toMatchObject({
       cache: 'no-store', credentials: 'omit', method: 'GET', redirect: 'follow'
     });
+    expect(calls[0]?.init.signal).toBeInstanceOf(AbortSignal);
 
     const oversized = new GitHubConnectorRuntimeReleaseSource('v0.5.0', async () =>
       new Response('{}', { headers: { 'content-length': String(2 * 1024 * 1024 + 1) } })
@@ -60,5 +61,79 @@ describe('configured connector runtime release source', () => {
     await expect(oversized.loadApprovedManifest()).rejects.toMatchObject({
       code: 'unavailable'
     });
+  });
+
+  test('aborts and rejects a manifest fetch that exceeds its deadline', async () => {
+    let aborted = false;
+    const source = new GitHubConnectorRuntimeReleaseSource(
+      'v0.5.0',
+      async (_url, init) => new Promise<Response>((_resolve, reject) => {
+        const signal = init.signal;
+        if (!signal) return;
+        signal.addEventListener('abort', () => {
+          aborted = true;
+          reject(signal.reason);
+        }, { once: true });
+      }),
+      () => 1_000,
+      5_000,
+      10
+    );
+
+    await expect(source.loadApprovedManifest()).rejects.toMatchObject({
+      code: 'unavailable'
+    });
+    expect(aborted).toBe(true);
+  });
+
+  test('coalesces concurrent loads and gives each caller an isolated value', async () => {
+    let calls = 0;
+    let finishFetch!: (response: Response) => void;
+    const pendingResponse = new Promise<Response>((resolve) => {
+      finishFetch = resolve;
+    });
+    const source = new GitHubConnectorRuntimeReleaseSource(
+      'v0.5.0',
+      async () => {
+        calls += 1;
+        return pendingResponse;
+      }
+    );
+
+    const firstLoad = source.loadApprovedManifest();
+    const secondLoad = source.loadApprovedManifest('v0.5.0');
+    expect(calls).toBe(1);
+    finishFetch(Response.json({ manifest: { releaseId: 'v0.5.0' }, signature: 'signed' }));
+
+    const [first, second] = await Promise.all([firstLoad, secondLoad]) as Array<{
+      manifest: { releaseId: string };
+      signature: string;
+    }>;
+    expect(calls).toBe(1);
+    expect(first).toEqual(second);
+    expect(first).not.toBe(second);
+    first.manifest.releaseId = 'changed-by-first-caller';
+    expect(second.manifest.releaseId).toBe('v0.5.0');
+  });
+
+  test('does not retain a failed in-flight load', async () => {
+    let calls = 0;
+    const source = new GitHubConnectorRuntimeReleaseSource('v0.5.0', async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('temporary failure');
+      return Response.json({ manifest: {}, signature: 'signed' });
+    });
+
+    const firstLoad = source.loadApprovedManifest();
+    const secondLoad = source.loadApprovedManifest();
+    await expect(Promise.all([firstLoad, secondLoad])).rejects.toMatchObject({
+      code: 'unavailable'
+    });
+    expect(calls).toBe(1);
+
+    await expect(source.loadApprovedManifest()).resolves.toEqual({
+      manifest: {}, signature: 'signed'
+    });
+    expect(calls).toBe(2);
   });
 });
