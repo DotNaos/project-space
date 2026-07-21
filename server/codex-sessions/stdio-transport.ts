@@ -15,6 +15,8 @@ type RpcMessage = {
 
 type PendingCall = {
   method: string;
+  signal?: AbortSignal;
+  signalAbort?: () => void;
   reject: (error: Error) => void;
   resolve: (result: unknown) => void;
 };
@@ -37,6 +39,15 @@ export class CodexAppServerRequestError extends Error {
 
   constructor(readonly rpcCode?: number) {
     super('Codex app-server rejected the request.');
+  }
+}
+
+export class CodexAppServerRequestCancelledError extends Error {
+  readonly code = 'codex_app_server_request_cancelled';
+
+  constructor() {
+    super('The Codex app-server request was cancelled.');
+    this.name = 'CodexAppServerRequestCancelledError';
   }
 }
 
@@ -114,20 +125,33 @@ export class CodexStdioTransport {
     await this.write({ method: 'initialized', params: null });
   }
 
-  call<Result>(method: string, params?: unknown): Promise<Result> {
+  call<Result>(
+    method: string,
+    params?: unknown,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<Result> {
     if (!this.open) {
       return Promise.reject(new CodexOperationUncertainError('Codex app-server is unavailable.'));
     }
+    if (options.signal?.aborted) {
+      return Promise.reject(new CodexAppServerRequestCancelledError());
+    }
     const id = this.nextId++;
     return new Promise<Result>((resolve, reject) => {
+      const signalAbort = options.signal ? () => this.cancelCall(id) : undefined;
       this.pending.set(id, {
         method,
         reject,
-        resolve: (result) => resolve(result as Result)
+        resolve: (result) => resolve(result as Result),
+        signal: options.signal,
+        signalAbort
       });
+      signalAbort && options.signal?.addEventListener('abort', signalAbort, { once: true });
       this.write(params === undefined ? { id, method } : { id, method, params }).catch(() => {
-        this.pending.delete(id);
-        reject(new CodexOperationUncertainError('Codex app-server disconnected during the request.'));
+        const pending = this.takePending(id);
+        pending?.reject(
+          new CodexOperationUncertainError('Codex app-server disconnected during the request.')
+        );
       });
     });
   }
@@ -144,6 +168,7 @@ export class CodexStdioTransport {
     this.open = false;
     this.stdout.close();
     for (const pending of this.pending.values()) {
+      if (pending.signalAbort) pending.signal?.removeEventListener('abort', pending.signalAbort);
       pending.reject(new CodexOperationUncertainError('Codex app-server closed during the request.'));
     }
     this.pending.clear();
@@ -179,9 +204,8 @@ export class CodexStdioTransport {
     }
 
     if (typeof message.id === 'number' && !message.method) {
-      const pending = this.pending.get(message.id);
+      const pending = this.takePending(message.id);
       if (!pending) return;
-      this.pending.delete(message.id);
       if (message.error) {
         pending.reject(new CodexAppServerRequestError(message.error.code));
       } else if ('result' in message) {
@@ -200,6 +224,7 @@ export class CodexStdioTransport {
     this.open = false;
     this.stdout.close();
     for (const pending of this.pending.values()) {
+      if (pending.signalAbort) pending.signal?.removeEventListener('abort', pending.signalAbort);
       pending.reject(
         UNCERTAIN_ON_PROTOCOL_FAILURE_METHODS.has(pending.method)
           ? new CodexOperationUncertainError('Codex app-server returned an invalid response after a mutation was sent.')
@@ -217,6 +242,7 @@ export class CodexStdioTransport {
     if (!this.open) return;
     this.open = false;
     for (const pending of this.pending.values()) {
+      if (pending.signalAbort) pending.signal?.removeEventListener('abort', pending.signalAbort);
       pending.reject(new CodexOperationUncertainError('Codex app-server disconnected during the request.'));
     }
     this.pending.clear();
@@ -231,5 +257,20 @@ export class CodexStdioTransport {
         else resolve();
       });
     });
+  }
+
+  private cancelCall(id: number) {
+    const pending = this.takePending(id);
+    if (!pending) return;
+    pending.reject(new CodexAppServerRequestCancelledError());
+    void this.write({ method: '$/cancelRequest', params: { id } }).catch(() => undefined);
+  }
+
+  private takePending(id: number) {
+    const pending = this.pending.get(id);
+    if (!pending) return undefined;
+    this.pending.delete(id);
+    if (pending.signalAbort) pending.signal?.removeEventListener('abort', pending.signalAbort);
+    return pending;
   }
 }

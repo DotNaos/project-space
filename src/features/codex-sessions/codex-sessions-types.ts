@@ -16,6 +16,10 @@ export type ProjectCodexTaskStatus = CodexSessionStatus
 
 export interface CodexMachine {
   id: string;
+  inventoryCheckedAt?: string;
+  inventoryConnectorInstanceId?: string;
+  inventoryPublishedAt?: string;
+  inventoryState?: 'live' | 'stale';
   name: string;
   status: CodexMachineStatus;
   lastSeenAt?: string;

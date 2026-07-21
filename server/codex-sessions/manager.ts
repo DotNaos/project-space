@@ -27,7 +27,11 @@ import {
   CodexOperationUncertainError,
   type CodexOperationSnapshotPersist
 } from './operation-ledger';
-import { CodexAppServerProtocolError, CodexStdioTransport } from './stdio-transport';
+import {
+  CodexAppServerProtocolError,
+  CodexAppServerRequestCancelledError,
+  CodexStdioTransport
+} from './stdio-transport';
 import {
   isNotificationMethod,
   isServerRequestMethod,
@@ -96,8 +100,15 @@ export class CodexSessionManager {
     return () => this.listeners.delete(listener);
   }
 
-  async listThreads(input: CodexThreadListInput = {}): Promise<CodexThreadListResult> {
-    const result = await this.call<unknown>('thread/list', validateThreadListInput(input));
+  async listThreads(
+    input: CodexThreadListInput = {},
+    signal?: AbortSignal
+  ): Promise<CodexThreadListResult> {
+    const result = await this.call<unknown>(
+      'thread/list',
+      validateThreadListInput(input),
+      signal
+    );
     const record = requireRecord(result);
     if (!Array.isArray(record.data)) throw protocolError();
     return {
@@ -106,23 +117,31 @@ export class CodexSessionManager {
     };
   }
 
-  async listLoadedThreads(): Promise<CodexLoadedThreadListResult> {
-    return readLoadedThreads(await this.call<unknown>('thread/loaded/list', {}));
+  async listLoadedThreads(signal?: AbortSignal): Promise<CodexLoadedThreadListResult> {
+    return readLoadedThreads(await this.call<unknown>('thread/loaded/list', {}, signal));
   }
 
-  async readThread(threadId: string, includeTurns = true): Promise<CodexThreadResult> {
+  async readThread(
+    threadId: string,
+    includeTurns = true,
+    signal?: AbortSignal
+  ): Promise<CodexThreadResult> {
     validateIdentifier(threadId, 'threadId');
-    return readThreadResult(await this.call('thread/read', { includeTurns, threadId }));
+    return readThreadResult(await this.call('thread/read', { includeTurns, threadId }, signal));
   }
 
-  async readInspectionSnapshot(threadId: string) {
+  async readInspectionSnapshot(threadId: string, signal?: AbortSignal) {
     const normalizedThreadId = validateIdentifier(threadId, 'threadId');
-    const transport = await this.ensureTransport();
+    const transport = await waitForCodexRequest(this.ensureTransport(), signal);
     const runtimeEpoch = this.transportEpochs.get(transport);
     if (!runtimeEpoch) throw protocolError();
     const [thread, loaded] = await Promise.all([
-      transport.call<unknown>('thread/read', { includeTurns: true, threadId: normalizedThreadId }),
-      transport.call<unknown>('thread/loaded/list', {})
+      transport.call<unknown>(
+        'thread/read',
+        { includeTurns: true, threadId: normalizedThreadId },
+        { signal }
+      ),
+      transport.call<unknown>('thread/loaded/list', {}, { signal })
     ]);
     return {
       loaded: readLoadedThreads(loaded),
@@ -294,9 +313,13 @@ export class CodexSessionManager {
     await transport?.close();
   }
 
-  private async call<Result>(method: string, params?: unknown): Promise<Result> {
-    const transport = await this.ensureTransport();
-    return transport.call<Result>(method, params);
+  private async call<Result>(
+    method: string,
+    params?: unknown,
+    signal?: AbortSignal
+  ): Promise<Result> {
+    const transport = await waitForCodexRequest(this.ensureTransport(), signal);
+    return transport.call<Result>(method, params, { signal });
   }
 
   private ensureTransport() {
@@ -489,6 +512,16 @@ export class CodexSessionManager {
   private emit(event: CodexSessionEvent) {
     for (const listener of this.listeners) listener(event);
   }
+}
+
+function waitForCodexRequest<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(new CodexAppServerRequestCancelledError());
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(new CodexAppServerRequestCancelledError());
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
 }
 
 function requireRecord(value: unknown): Record<string, unknown> {

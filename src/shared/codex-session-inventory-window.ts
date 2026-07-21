@@ -1,6 +1,8 @@
 import type { CodexSessionListResult } from './codex-sessions-api';
 
 export const CODEX_SESSION_LIST_DEADLINE_MS = 28_000;
+export const CODEX_SESSION_INVENTORY_EVIDENCE_MAX_AGE_MS = 15_000;
+export const CODEX_SESSION_INVENTORY_CLOCK_SKEW_MS = 5_000;
 
 export interface CodexSessionInventoryWindow {
   ageMs: number;

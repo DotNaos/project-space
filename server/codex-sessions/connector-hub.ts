@@ -86,6 +86,9 @@ const attachTunnels = new Map<string, PendingCodexAttach>();
 const defaultTimeoutMs = 10 * 60_000;
 const attachOpenTimeoutMs = 15_000;
 const maximumConnectorBufferedBytes = 8 * 1024 * 1024;
+const cancellableOperations = new Set<CodexSessionsConnectorOperation>([
+  'browser', 'inspect', 'list', 'read'
+]);
 
 export interface CodexConnectorAttachTunnel {
   close(): void;
@@ -223,11 +226,15 @@ function run(
   const binding = bindingForCodexSessionsRequest(request);
   return new Promise<CodexSessionsWireResult | undefined>((resolve, reject) => {
     const timeout = setTimeout(
-      () => fail(id, new CodexConnectorOutcomeUnknownError()),
+      () => {
+        const error = new CodexConnectorOutcomeUnknownError();
+        if (cancellableOperations.has(operation)) cancel(id, error);
+        else fail(id, error);
+      },
       options.timeoutMs ?? defaultTimeoutMs
     );
     const signalAbort = options.signal
-      ? () => cancel(id, true)
+      ? () => cancel(id)
       : undefined;
     if (options.signal?.aborted) {
       clearTimeout(timeout);
@@ -432,15 +439,19 @@ function takeAttach(id: string) {
   return current;
 }
 
-function cancel(id: string, resolveOnly: boolean) {
+function cancel(id: string, error?: Error) {
   const current = pending.get(id);
   if (!current) return;
   const socket = connectorSocket(current.machineId);
   if (socket?.readyState === WebSocket.OPEN) {
-    sendConnectorJson(socket, { id, type: 'connector.command.cancel' });
+    try {
+      sendConnectorJson(socket, { id, type: 'connector.command.cancel' });
+    } catch {
+      // The hosted request must still settle if the socket closes during cancellation.
+    }
   }
-  if (resolveOnly) finish(id);
-  else fail(id, new Error('The Codex session stream was cancelled.'));
+  if (error) fail(id, error);
+  else finish(id);
 }
 
 function finish(id: string, value?: CodexSessionsWireResult) {
