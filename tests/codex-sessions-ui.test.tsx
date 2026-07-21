@@ -56,6 +56,25 @@ mock.module('@/app/dotnaos-ui', () => ({
   TabIndicator: () => null,
   TabList: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
   Tabs: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
+  ToggleButton: ({ children, id, variant: _variant, ...props }: {
+    children?: ReactNode;
+    id: string;
+    variant?: string;
+    [key: string]: unknown;
+  }) => createElement('button', { ...props, 'data-id': id }, children),
+  ToggleButtonGroup: ({
+    children,
+    disallowEmptySelection: _disallowEmptySelection,
+    isDetached: _isDetached,
+    onSelectionChange: _onSelectionChange,
+    selectedKeys: _selectedKeys,
+    selectionMode: _selectionMode,
+    size: _size,
+    ...props
+  }: {
+    children?: ReactNode;
+    [key: string]: unknown;
+  }) => createElement('div', props, children),
   Surface: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => createElement('div', props, children),
   Text: ({ as = 'span', children, ...props }: {
     as?: ElementType;
@@ -433,6 +452,8 @@ describe('Canonical Codex task page', () => {
     );
 
     expect(html).toContain('data-codex-composer="true"');
+    expect(html).toContain('data-codex-reading-column="true"');
+    expect(html).toContain('data-codex-composer-column="true"');
     expect(html).toContain('min-h-[7.25rem]');
     expect(html).toContain('flex-col');
     expect(html).toContain('rounded-[1.75rem]');
@@ -454,11 +475,12 @@ describe('Canonical Codex task page', () => {
     expect(html).toContain('rounded-full bg-neutral-100');
   });
 
-  test('reserves narrow task-header space for the compact shell controls', () => {
+  test('uses a compact task header and a wide-screen list detail composition', () => {
     const html = renderToStaticMarkup(
       <CodexSessionsPage
         conversations={[conversation]}
         machines={[machine]}
+        onBackFromThread={() => {}}
         readBrowser={async () => ({
           checkedAt: '2026-07-13T09:00:00.000Z',
           machineId: machine.id,
@@ -470,7 +492,11 @@ describe('Canonical Codex task page', () => {
       />
     );
 
-    expect(html).toContain('pr-14 md:px-4');
+    expect(html).toContain('h-14 shrink-0');
+    expect(html).toContain('px-2 pr-14 sm:px-3 md:pr-3');
+    expect(html).toContain('min-w-0 flex-1');
+    expect(html).toContain('min-[1320px]:block');
+    expect(html).toContain('min-[1320px]:hidden');
   });
 
   test('renders the selected read-only history, streaming state, decisions, and stable origin', () => {

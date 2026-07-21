@@ -36,7 +36,7 @@ export function CodexDecisionPanel({
   return (
     <section
       aria-label="Codex needs your decision"
-      className="mx-3 mb-2 max-h-72 shrink-0 overflow-y-auto rounded-xl border border-amber-400/20 bg-amber-400/[0.04] px-3 py-3 sm:mx-4"
+      className="mx-auto mb-2 max-h-72 w-[calc(100%-1.5rem)] max-w-[84ch] shrink-0 overflow-y-auto rounded-xl border border-amber-400/20 bg-amber-400/[0.04] px-3 py-3 sm:w-[calc(100%-3rem)]"
     >
       {approvals.length > 0 ? (
         <div className="space-y-3">
