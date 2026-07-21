@@ -113,6 +113,10 @@ export class PostgresRoadmapPlanStore implements RoadmapPlanStore {
        )
        select $1, $2, 1, $3::jsonb, now(), now()
        where $4 = 0
+          or exists (
+            select 1 from roadmap_plans
+             where repository_id = $1 and revision = $4
+          )
        on conflict (repository_id) do update set
          repository_full_name = excluded.repository_full_name,
          revision = roadmap_plans.revision + 1,

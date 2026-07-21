@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { layoutRoadmapGraph } from '../src/features/roadmap/roadmap-layout';
+import { roadmapGraphVisibility } from '../src/features/roadmap/roadmap-model';
 import {
   roadmapReactFlowEdges,
   roadmapReactFlowNodes
@@ -88,6 +89,41 @@ describe('roadmap graph layout', () => {
       [2, 3]
     ]);
     expect(roadmapReactFlowEdges(layout)).toEqual([]);
+  });
+
+  test('keeps original plan badges when completed prerequisites are hidden', () => {
+    const roadmapPlan = plan([211, 263]);
+    const completedBlocker = {
+      ...issue(211),
+      availability: 'closed' as const,
+      state: 'closed' as const
+    };
+    const previewDeployment = issue(263);
+    const visibility = roadmapGraphVisibility({
+      canEdit: true,
+      checkedAt: '2026-07-21T00:00:00.000Z',
+      dependencies: [edge(211, 263)],
+      dependencySync: 'current',
+      graphRevision: 'graph',
+      issues: [completedBlocker, previewDeployment],
+      plan: roadmapPlan,
+      repository: { fullName: 'DotNaos/project-space', id: 42 },
+      status: 'connected'
+    }, false);
+    const layout = layoutRoadmapGraph(
+      roadmapPlan,
+      visibility.issues,
+      visibility.dependencies,
+      true
+    );
+
+    expect(layout.edges).toEqual([]);
+    expect(layout.nodes).toHaveLength(1);
+    expect(layout.nodes[0]).toMatchObject({
+      isRoot: true,
+      issue: { issue: { number: 263 } },
+      planPosition: 2
+    });
   });
 
   test('derives goal boundaries and expands long-title nodes without persisting positions', () => {

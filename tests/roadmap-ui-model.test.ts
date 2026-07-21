@@ -5,6 +5,9 @@ import {
   roadmapIssueLoadForRepository
 } from '../src/features/roadmap/roadmap-issue-picker-model';
 import {
+  roadmapGraphVisibility
+} from '../src/features/roadmap/roadmap-model';
+import {
   roadmapPlannedSuccessorCandidates,
   roadmapRelationshipRequest
 } from '../src/features/roadmap/roadmap-relationship-model';
@@ -20,6 +23,110 @@ const issues = [
 ];
 
 describe('roadmap UI models', () => {
+  test('hides completed graph nodes without changing plan positions or inventing edges', () => {
+    const closedBlocker = {
+      availability: 'closed' as const,
+      issue: { fullName: 'DotNaos/project-space', id: 185, number: 185 },
+      labels: [],
+      state: 'closed' as const,
+      title: 'Group connector installations'
+    };
+    const closedPlanned = {
+      availability: 'closed' as const,
+      issue: { fullName: 'DotNaos/project-space', id: 211, number: 211 },
+      labels: [],
+      state: 'closed' as const,
+      title: 'Roadmap of Goals'
+    };
+    const openPlanned = {
+      availability: 'ready' as const,
+      issue: { fullName: 'DotNaos/project-space', id: 263, number: 263 },
+      labels: [],
+      state: 'open' as const,
+      title: 'PR Preview Deployment'
+    };
+    const dependencies = [
+      { blocked: closedPlanned.issue, blocker: closedBlocker.issue, freshness: 'current' as const },
+      { blocked: openPlanned.issue, blocker: closedPlanned.issue, freshness: 'current' as const }
+    ];
+    const result = {
+      canEdit: true,
+      checkedAt: '2026-07-21T00:00:00.000Z',
+      dependencies,
+      dependencySync: 'current' as const,
+      graphRevision: 'graph',
+      issues: [closedBlocker, closedPlanned, openPlanned],
+      plan: {
+        goals: [],
+        items: [closedPlanned, openPlanned].map((node) => ({
+          issue: node.issue,
+          plannedState: 'planned' as const
+        })),
+        revision: 2
+      },
+      repository: { fullName: 'DotNaos/project-space', id: 42 },
+      status: 'connected' as const
+    };
+
+    expect(roadmapGraphVisibility(result, false)).toMatchObject({
+      completedCount: 2,
+      dependencies: [],
+      issues: [openPlanned]
+    });
+    expect(roadmapGraphVisibility(result, true)).toMatchObject({
+      completedCount: 2,
+      dependencies,
+      issues: [closedBlocker, closedPlanned, openPlanned]
+    });
+    expect(result.plan.items.map((item) => item.issue.number)).toEqual([211, 263]);
+  });
+
+  test('drops open context nodes when every durable plan item is completed', () => {
+    const completedPlanItem = {
+      availability: 'closed' as const,
+      issue: { fullName: 'DotNaos/project-space', id: 211, number: 211 },
+      labels: [],
+      state: 'closed' as const,
+      title: 'Roadmap of Goals'
+    };
+    const openContextBlocker = {
+      availability: 'blocked' as const,
+      issue: { fullName: 'DotNaos/project-space', id: 185, number: 185 },
+      labels: [],
+      state: 'open' as const,
+      title: 'External prerequisite'
+    };
+    const result = {
+      canEdit: true,
+      checkedAt: '2026-07-21T00:00:00.000Z',
+      dependencies: [{
+        blocked: completedPlanItem.issue,
+        blocker: openContextBlocker.issue,
+        freshness: 'current' as const
+      }],
+      dependencySync: 'current' as const,
+      graphRevision: 'graph',
+      issues: [openContextBlocker, completedPlanItem],
+      plan: {
+        goals: [],
+        items: [{ issue: completedPlanItem.issue, plannedState: 'planned' as const }],
+        revision: 1
+      },
+      repository: { fullName: 'DotNaos/project-space', id: 42 },
+      status: 'connected' as const
+    };
+
+    expect(roadmapGraphVisibility(result, false)).toMatchObject({
+      completedCount: 1,
+      dependencies: [],
+      issues: []
+    });
+    expect(roadmapGraphVisibility(result, true).issues).toEqual([
+      openContextBlocker,
+      completedPlanItem
+    ]);
+  });
+
   test('filters searchable issue candidates and excludes already planned work', () => {
     expect(filterRoadmapIssues(issues, 'graph', new Set()).map((issue) => issue.number))
       .toEqual([273]);

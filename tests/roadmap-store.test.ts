@@ -9,8 +9,10 @@ import {
 } from '../server/roadmap/local-roadmap-store';
 import {
   InMemoryRoadmapPlanStore,
+  PostgresRoadmapPlanStore,
   RoadmapRevisionConflict
 } from '../server/roadmap/roadmap-store';
+import type { DatabaseQueryClient } from '../server/database/client';
 import type { RoadmapDependency } from '../src/shared/roadmap-api';
 
 const temporaryRoots: string[] = [];
@@ -20,11 +22,73 @@ const dependency = {
   freshness: 'current'
 } satisfies RoadmapDependency;
 
+class RoadmapPostgresClient implements DatabaseQueryClient {
+  private plan: unknown = { goals: [], items: [] };
+  private revision = 0;
+
+  async query<Row>(sql: string, values: readonly unknown[] = []) {
+    if (sql.includes('insert into roadmap_plans')) {
+      const expectedRevision = Number(values[3]);
+      const canAttemptExistingUpdate = sql.includes('or exists')
+        && this.revision === expectedRevision;
+      if (expectedRevision !== 0 && !canAttemptExistingUpdate) {
+        return { rows: [] as Row[] };
+      }
+      if (this.revision !== expectedRevision) return { rows: [] as Row[] };
+      this.revision += 1;
+      this.plan = JSON.parse(String(values[2]));
+      return { rows: [this.row() as Row] };
+    }
+    if (sql.includes('from roadmap_plans plans')) {
+      return { rows: this.revision > 0 ? [this.row() as Row] : [] };
+    }
+    throw new Error(`Unexpected roadmap test query: ${sql}`);
+  }
+
+  private row() {
+    return {
+      dependency_checked_at: null,
+      dependency_snapshot: [],
+      plan: this.plan,
+      plan_updated_at: '2026-07-21T00:00:00.000Z',
+      repository_full_name: 'DotNaos/project-space',
+      repository_id: 42,
+      revision: this.revision
+    };
+  }
+}
+
 afterEach(() => {
   temporaryRoots.splice(0).forEach((path) => rmSync(path, { force: true, recursive: true }));
 });
 
 describe('roadmap stores', () => {
+  test('updates an existing PostgreSQL plan beyond its first revision', async () => {
+    const store = new PostgresRoadmapPlanStore(new RoadmapPostgresClient());
+    const input = {
+      expectedRevision: 0,
+      goals: [],
+      items: [],
+      repositoryFullName: 'DotNaos/project-space',
+      repositoryId: 42
+    };
+    await expect(store.updatePlan(input)).resolves.toMatchObject({ revision: 1 });
+    await expect(store.updatePlan({
+      ...input,
+      expectedRevision: 1,
+      goals: [{ id: 'preview', title: 'Preview deployments' }]
+    })).resolves.toMatchObject({
+      goals: [{ id: 'preview', title: 'Preview deployments' }],
+      revision: 2
+    });
+    await expect(store.updatePlan({
+      ...input,
+      expectedRevision: 1
+    })).rejects.toMatchObject({
+      current: { revision: 2 }
+    });
+  });
+
   test('uses compare-and-swap for concurrent plan writers', async () => {
     const store = new InMemoryRoadmapPlanStore();
     const input = {
