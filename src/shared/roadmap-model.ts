@@ -121,6 +121,15 @@ export function roadmapAdditionIndex(
   dependencies: readonly RoadmapDependency[],
   issue: RoadmapIssueReference
 ) {
+  const range = validRoadmapAdditionRange(items, dependencies, issue);
+  return range?.maximum;
+}
+
+export function validRoadmapAdditionRange(
+  items: readonly RoadmapPlanItem[],
+  dependencies: readonly RoadmapDependency[],
+  issue: RoadmapIssueReference
+) {
   const positions = new Map(
     items.map((item, index) => [roadmapIssueKey(item.issue), index])
   );
@@ -136,7 +145,7 @@ export function roadmapAdditionIndex(
       if (blocked !== undefined) maximum = Math.min(maximum, blocked);
     }
   }
-  return minimum <= maximum ? maximum : undefined;
+  return minimum <= maximum ? { maximum, minimum } : undefined;
 }
 
 export function moveRoadmapItem(

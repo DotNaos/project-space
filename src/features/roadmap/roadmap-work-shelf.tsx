@@ -24,7 +24,10 @@ import type { GitHubIssueRecord } from '@/shared/project-space-api';
 import type { RoadmapResult } from '@/shared/roadmap-api';
 import {
   pointIsInsideElement,
+  roadmapAdditionPositionLabel,
   roadmapWorkShelfAdditionIndex,
+  roadmapWorkShelfAdditionRange,
+  roadmapWorkShelfInsertionIndex,
   roadmapWorkShelfIssues,
   roadmapWorkShelfPlanLabel
 } from './roadmap-work-shelf-model';
@@ -33,14 +36,17 @@ const dragActivationDistance = 6;
 
 export interface RoadmapShelfDragFeedback {
   active: boolean;
+  insertionIndex?: number;
   overGraph: boolean;
   planLabel: string;
+  positionLabel?: string;
 }
 
 interface ShelfDragState {
   active: boolean;
   graphRevision: string;
   issue: GitHubIssueRecord;
+  insertionIndex: number;
   offsetX: number;
   offsetY: number;
   originX: number;
@@ -56,6 +62,7 @@ interface ShelfDragState {
 export function RoadmapWorkShelf({
   canEdit,
   error,
+  dropExclusionRef,
   graphRef,
   isLoading,
   isSaving,
@@ -63,18 +70,21 @@ export function RoadmapWorkShelf({
   onAdd,
   onDragFeedback,
   onRetry,
-  result
+  result,
+  variant = 'section'
 }: {
   canEdit: boolean;
+  dropExclusionRef?: RefObject<HTMLElement | null>;
   error?: string;
   graphRef: RefObject<HTMLDivElement | null>;
   isLoading: boolean;
   isSaving: boolean;
   issues: readonly GitHubIssueRecord[];
-  onAdd(issueNumber: number): Promise<boolean>;
+  onAdd(issue: GitHubIssueRecord, insertionIndex?: number): Promise<boolean>;
   onDragFeedback(feedback: RoadmapShelfDragFeedback | null): void;
   onRetry(): void;
   result: RoadmapResult;
+  variant?: 'dock' | 'section';
 }) {
   const [query, setQuery] = useState('');
   const [drag, setDrag] = useState<ShelfDragState | null>(null);
@@ -83,7 +93,7 @@ export function RoadmapWorkShelf({
   const scrollerRef = useRef<HTMLDivElement>(null);
   const onAddRef = useRef(onAdd);
   const feedbackRef = useRef(onDragFeedback);
-  const runAddRef = useRef<(issueNumber: number) => Promise<boolean>>(async () => false);
+  const runAddRef = useRef<(issue: GitHubIssueRecord, insertionIndex?: number) => Promise<boolean>>(async () => false);
   const canAddRef = useRef(false);
   const graphRevisionRef = useRef(result.graphRevision);
   const planRevisionRef = useRef(result.plan.revision);
@@ -109,12 +119,12 @@ export function RoadmapWorkShelf({
     setDrag(next);
   };
 
-  const runAdd = async (issueNumber: number) => {
+  const runAdd = async (issue: GitHubIssueRecord, insertionIndex?: number) => {
     if (!canAddRef.current) return false;
     canAddRef.current = false;
-    setPendingIssueNumber(issueNumber);
+    setPendingIssueNumber(issue.number);
     try {
-      return await onAddRef.current(issueNumber);
+      return await onAddRef.current(issue, insertionIndex);
     } finally {
       setPendingIssueNumber(undefined);
     }
@@ -143,6 +153,7 @@ export function RoadmapWorkShelf({
       active: false,
       graphRevision: result.graphRevision,
       issue,
+      insertionIndex: additionIndex,
       offsetX: event.clientX - rect.left,
       offsetY: event.clientY - rect.top,
       originX: event.clientX,
@@ -160,9 +171,22 @@ export function RoadmapWorkShelf({
   useEffect(() => {
     if (!isDragPending) return;
 
-    const hitTestGraph = (x: number, y: number) => {
+    const graphTarget = (x: number, y: number, issue: GitHubIssueRecord) => {
       const graph = graphRef.current;
-      return Boolean(graph && pointIsInsideElement({ x, y }, graph.getBoundingClientRect()));
+      if (!graph) return undefined;
+      const rect = graph.getBoundingClientRect();
+      if (!pointIsInsideElement({ x, y }, rect)) return undefined;
+      const exclusion = dropExclusionRef?.current?.getBoundingClientRect();
+      if (exclusion && pointIsInsideElement({ x, y }, exclusion)) return undefined;
+      const usableBottom = exclusion && exclusion.top > rect.top
+        ? Math.min(rect.bottom, exclusion.top)
+        : rect.bottom;
+      if (y > usableBottom) return undefined;
+      return roadmapWorkShelfInsertionIndex(
+        result,
+        issue,
+        (y - rect.top) / Math.max(1, usableBottom - rect.top)
+      );
     };
     const handleMove = (event: PointerEvent) => {
       const current = dragRef.current;
@@ -171,19 +195,28 @@ export function RoadmapWorkShelf({
         event.clientX - current.originX,
         event.clientY - current.originY
       ) > dragActivationDistance;
-      const overGraph = active && hitTestGraph(event.clientX, event.clientY);
+      const insertionIndex = active
+        ? graphTarget(event.clientX, event.clientY, current.issue)
+        : undefined;
+      const overGraph = insertionIndex !== undefined;
       const next = {
         ...current,
         active,
+        insertionIndex: insertionIndex ?? current.insertionIndex,
         overGraph,
+        planLabel: roadmapWorkShelfPlanLabel(insertionIndex ?? current.insertionIndex),
         x: event.clientX,
         y: event.clientY
       };
       updateDrag(next);
       feedbackRef.current(active ? {
         active: true,
+        insertionIndex,
         overGraph,
-        planLabel: current.planLabel
+        planLabel: roadmapWorkShelfPlanLabel(insertionIndex ?? current.insertionIndex),
+        positionLabel: insertionIndex === undefined
+          ? undefined
+          : roadmapAdditionPositionLabel(result, insertionIndex)
       } : null);
     };
     const finishDrag = (commit: boolean, x?: number, y?: number) => {
@@ -196,10 +229,13 @@ export function RoadmapWorkShelf({
         && commit
         && x !== undefined
         && y !== undefined
-        && hitTestGraph(x, y);
+        && graphTarget(x, y, current.issue) !== undefined;
       updateDrag(null);
       feedbackRef.current(null);
-      if (shouldAdd) void runAddRef.current(current.issue.number);
+      if (shouldAdd) {
+        const insertionIndex = graphTarget(x as number, y as number, current.issue);
+        void runAddRef.current(current.issue, insertionIndex);
+      }
     };
     const handleUp = (event: PointerEvent) => finishDrag(true, event.clientX, event.clientY);
     const handleCancel = () => finishDrag(false);
@@ -217,7 +253,7 @@ export function RoadmapWorkShelf({
       window.removeEventListener('pointercancel', handleCancel);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [graphRef, isDragPending]);
+  }, [dropExclusionRef, graphRef, isDragPending]);
 
   useEffect(() => {
     if (canAdd || !dragRef.current) return;
@@ -247,9 +283,17 @@ export function RoadmapWorkShelf({
   return (
     <section
       aria-label="Unplanned work"
-      className="min-w-0 border-t border-neutral-800/80 pt-4"
+      className={cn(
+        'min-w-0',
+        variant === 'dock'
+          ? 'rounded-2xl border border-neutral-700/90 bg-neutral-950/95 p-3 shadow-2xl shadow-black/60 backdrop-blur-xl'
+          : 'border-t border-neutral-800/80 pt-4'
+      )}
     >
-      <div className="mb-3 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className={cn(
+        'flex min-w-0 gap-3 sm:flex-row sm:justify-between',
+        variant === 'dock' ? 'mb-2 items-center' : 'mb-3 flex-col sm:items-end'
+      )}>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <Text as="h3" className="text-sm font-semibold text-neutral-100">Unplanned work</Text>
@@ -257,11 +301,11 @@ export function RoadmapWorkShelf({
               {allUnplannedCount}
             </span>
           </div>
-          <Text className="mt-1 block text-xs text-neutral-500">
+          <Text className={cn('mt-1 text-xs text-neutral-500', variant === 'dock' ? 'hidden sm:block' : 'block')}>
             Swipe the stack, then drag a handle into the canvas or add with one tap.
           </Text>
         </div>
-        <div className="flex min-w-0 items-end gap-2">
+        <div className={cn('min-w-0 items-end gap-2', variant === 'dock' ? 'ml-auto hidden sm:flex' : 'flex')}>
           <SearchField
             className="min-w-0 flex-1 sm:w-56 sm:flex-none"
             fullWidth
@@ -311,13 +355,15 @@ export function RoadmapWorkShelf({
         >
           {shelfIssues.map((issue) => {
             const additionIndex = roadmapWorkShelfAdditionIndex(result, issue);
+            const additionRange = roadmapWorkShelfAdditionRange(result, issue);
             const planLabel = roadmapWorkShelfPlanLabel(additionIndex);
             const pending = pendingIssueNumber === issue.number;
             return (
               <article
                 aria-label={`Issue #${issue.number}: ${issue.title}`}
                 className={cn(
-                  'group relative flex h-36 w-[min(17rem,calc(100vw-5rem))] shrink-0 snap-start flex-col rounded-xl border border-neutral-800 bg-neutral-950/80 p-3 transition hover:-translate-y-0.5 hover:border-neutral-700 hover:shadow-xl hover:shadow-black/25 [@media(pointer:fine)]:cursor-grab [@media(pointer:fine)]:select-none',
+                  'group relative flex w-[min(17rem,calc(100vw-5rem))] shrink-0 snap-start flex-col rounded-xl border border-neutral-800 bg-neutral-950/80 p-3 transition hover:-translate-y-0.5 hover:border-neutral-700 hover:shadow-xl hover:shadow-black/25 [@media(pointer:fine)]:cursor-grab [@media(pointer:fine)]:select-none',
+                  variant === 'dock' ? 'h-28 sm:w-60' : 'h-36',
                   drag?.active && drag.issue.number === issue.number && 'opacity-35'
                 )}
                 key={issue.number}
@@ -327,7 +373,8 @@ export function RoadmapWorkShelf({
                   <span
                     aria-hidden="true"
                     className={cn(
-                      'grid size-8 shrink-0 touch-none place-items-center rounded-lg border border-neutral-800 text-neutral-500 transition',
+                      'grid shrink-0 touch-none place-items-center rounded-lg border border-neutral-800 text-neutral-500 transition',
+                      variant === 'dock' ? 'size-7' : 'size-8',
                       canAdd ? 'active:scale-95 group-hover:border-neutral-700 group-hover:text-neutral-300' : 'opacity-40'
                     )}
                     data-drag-handle
@@ -345,24 +392,51 @@ export function RoadmapWorkShelf({
                     {issue.state === 'closed' ? 'Closed' : 'Open'}
                   </span>
                 </div>
-                <Text className="mt-2 line-clamp-2 min-h-[2.5rem] text-sm font-medium leading-5 text-neutral-100">
+                <Text className={cn(
+                  'line-clamp-2 text-sm font-medium leading-5 text-neutral-100',
+                  variant === 'dock' ? 'mt-1 min-h-0' : 'mt-2 min-h-[2.5rem]'
+                )}>
                   {issue.title}
                 </Text>
                 <div className="mt-auto flex min-w-0 items-center gap-2">
-                  <Text className="min-w-0 flex-1 truncate text-[10px] text-neutral-600">
+                  <Text className={cn('min-w-0 flex-1 truncate text-[10px] text-neutral-600', variant === 'dock' && 'hidden')}>
                     {issue.labels[0] ?? 'No label'}
                   </Text>
                   <Button
                     aria-label={`Add issue #${issue.number} as ${planLabel}`}
                     data-no-drag
                     isDisabled={isDisabled || additionIndex === undefined || pending}
-                    onPress={() => void runAdd(issue.number)}
+                    onPress={() => void runAdd(issue, additionIndex)}
                     size="sm"
                     variant="secondary"
                   >
                     {pending ? <RefreshCw className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
                     {planLabel}
                   </Button>
+                  {additionRange ? (
+                    <select
+                      aria-label={`Choose plan position for issue #${issue.number}`}
+                      className="sr-only focus:not-sr-only focus:absolute focus:inset-x-3 focus:bottom-3 focus:z-10 focus:min-h-10 focus:rounded-lg focus:border focus:border-neutral-600 focus:bg-neutral-950 focus:px-2 focus:text-sm focus:text-neutral-100"
+                      data-no-drag
+                      defaultValue=""
+                      disabled={isDisabled || pending}
+                      onChange={(event) => {
+                        const insertionIndex = Number(event.target.value);
+                        event.target.value = '';
+                        void runAdd(issue, insertionIndex);
+                      }}
+                    >
+                      <option disabled value="">Choose plan position</option>
+                      {Array.from(
+                        { length: additionRange.maximum - additionRange.minimum + 1 },
+                        (_, offset) => additionRange.minimum + offset
+                      ).map((index) => (
+                        <option key={index} value={index}>
+                          {roadmapAdditionPositionLabel(result, index)}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
                 </div>
               </article>
             );

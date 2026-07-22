@@ -7,7 +7,6 @@ import {
   ListChecks,
   MessageSquareText,
   Rocket,
-  Route,
   Server
 } from 'lucide-react';
 
@@ -20,7 +19,6 @@ export const projectTabItems: Array<{
 }> = [
   { icon: LayoutDashboard, id: 'overview', label: 'Overview' },
   { icon: ListChecks, id: 'issues', label: 'Issues' },
-  { icon: Route, id: 'roadmap', label: 'Roadmap' },
   { icon: Server, id: 'machines', label: 'Machines' },
   { icon: GitBranchPlus, id: 'workspaces', label: 'Workspaces' },
   { icon: MessageSquareText, id: 'chat', label: 'Chat' },

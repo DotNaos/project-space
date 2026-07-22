@@ -32,7 +32,7 @@ test('renders canonical identity, accessible selection, status, plan order, and 
         outgoing: [],
         planItem: {
           issue: { fullName: 'DotNaos/project-space', id: 274, number: 274 },
-          plannedState: 'planned'
+          plannedState: 'active'
         },
         planPosition: 2,
         position: { x: 0, y: 0 },
@@ -47,5 +47,6 @@ test('renders canonical identity, accessible selection, status, plan order, and 
   expect(html).toContain('Plan 02');
   expect(html).toContain('Root');
   expect(html).toContain('Ends here');
+  expect(html).toContain('Current');
   expect(html).toContain('A long actionable roadmap title');
 });

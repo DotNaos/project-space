@@ -2,7 +2,7 @@ import type { GitHubIssueRecord } from '@/shared/project-space-api';
 import { formatRelativeTime } from './project-main-model';
 
 export type IssueColumnId = 'backlog' | 'blocked' | 'closed' | 'in-progress' | 'ready';
-export type IssueViewMode = 'board' | 'list';
+export type IssueViewMode = 'board' | 'graph' | 'list';
 
 export interface IssueColumnDefinition {
   dotClass: string;
@@ -275,9 +275,17 @@ export function saveHiddenIssueColumns(hidden: ReadonlySet<IssueColumnId>) {
 
 const viewModeStorageKey = 'project-space:issue-view-mode';
 
+export function issueViewModeForLocation(stored: string | null, pathname: string): IssueViewMode {
+  if (/\/roadmap\/?$/.test(pathname)) return 'graph';
+  return stored === 'list' || stored === 'graph' ? stored : 'board';
+}
+
 export function loadIssueViewMode(): IssueViewMode {
   try {
-    return window.localStorage.getItem(viewModeStorageKey) === 'list' ? 'list' : 'board';
+    return issueViewModeForLocation(
+      window.localStorage.getItem(viewModeStorageKey),
+      window.location.pathname
+    );
   } catch {
     return 'board';
   }

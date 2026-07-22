@@ -17,10 +17,14 @@ import {
 } from '../src/features/roadmap/use-roadmap-selection';
 import {
   pointIsInsideElement,
+  roadmapMovePositionLabel,
+  roadmapSpatialMoveIndex,
   roadmapWorkShelfAdditionIndex,
+  roadmapWorkShelfInsertionIndex,
   roadmapWorkShelfIssues,
   roadmapWorkShelfPlanLabel
 } from '../src/features/roadmap/roadmap-work-shelf-model';
+import { optimisticRoadmapPlan } from '../src/features/roadmap/roadmap-optimistic';
 
 const issues = [
   { id: 1, labels: ['graph'], number: 273, state: 'open' as const, title: 'Actionable roadmap graph', url: 'https://example.test/273' },
@@ -201,6 +205,67 @@ describe('roadmap UI models', () => {
     expect(roadmapWorkShelfPlanLabel(0)).toBe('Plan 01');
     expect(roadmapWorkShelfAdditionIndex(result, { number: 999 })).toBe(1);
     expect(result.dependencies).toEqual([dependency]);
+    expect(roadmapWorkShelfInsertionIndex(result, issues[2], 0)).toBe(0);
+    expect(roadmapWorkShelfInsertionIndex(result, issues[2], 1)).toBe(0);
+    expect(roadmapWorkShelfInsertionIndex(result, { number: 999 }, 1)).toBe(1);
+  });
+
+  test('maps planned-node dragging to dependency-safe beginning, middle, and end positions', () => {
+    const nodes = [10, 20, 30].map((number) => ({
+      issue: { fullName: 'DotNaos/project-space', id: number, number },
+      plannedState: 'planned' as const
+    }));
+    const result = {
+      canEdit: true,
+      checkedAt: '2026-07-22T00:00:00.000Z',
+      dependencies: [{
+        blocked: nodes[2]!.issue,
+        blocker: nodes[0]!.issue,
+        freshness: 'current' as const
+      }],
+      dependencySync: 'current' as const,
+      graphRevision: 'graph',
+      issues: [],
+      plan: { goals: [], items: nodes, revision: 1 },
+      repository: { fullName: 'DotNaos/project-space', id: 42 },
+      status: 'connected' as const
+    };
+
+    expect(roadmapSpatialMoveIndex(result, nodes[1]!.issue, 0)).toBe(0);
+    expect(roadmapSpatialMoveIndex(result, nodes[1]!.issue, 0.5)).toBe(1);
+    expect(roadmapSpatialMoveIndex(result, nodes[1]!.issue, 1)).toBe(2);
+    expect(roadmapMovePositionLabel(result, nodes[1]!.issue, 0)).toBe('Beginning');
+    expect(roadmapMovePositionLabel(result, nodes[1]!.issue, 2)).toBe('End');
+    expect(roadmapSpatialMoveIndex(result, nodes[2]!.issue, 0)).toBe(1);
+  });
+
+  test('publishes a complete optimistic issue node before the server responds', () => {
+    const base = {
+      canEdit: true,
+      checkedAt: '2026-07-22T00:00:00.000Z',
+      dependencies: [],
+      dependencySync: 'current' as const,
+      graphRevision: 'graph-1',
+      issues: [],
+      plan: { goals: [], items: [], revision: 7 },
+      repository: { fullName: 'DotNaos/project-space', id: 42 },
+      status: 'connected' as const
+    };
+    const optimistic = optimisticRoadmapPlan(
+      base,
+      [],
+      [{ issueNumber: 263, plannedState: 'planned' }],
+      { ...issues[2], body: 'Visible immediately', id: 263, number: 263 }
+    );
+
+    expect(optimistic.plan.revision).toBe(7);
+    expect(optimistic.graphRevision).toBe('graph-1');
+    expect(optimistic.plan.items[0]?.issue.number).toBe(263);
+    expect(optimistic.issues[0]).toMatchObject({
+      issue: { id: 263, number: 263 },
+      title: 'Connector recovery'
+    });
+    expect(base.plan.items).toEqual([]);
   });
 
   test('only accepts drops inside the visible roadmap canvas', () => {

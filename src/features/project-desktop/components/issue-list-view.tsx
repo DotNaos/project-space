@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, ListPlus, X } from 'lucide-react';
+import { ListPlus } from 'lucide-react';
 import { Button, Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type {
@@ -7,10 +7,7 @@ import type {
   GitHubIssueRecord,
   GitHubPullRequestRecord
 } from '@/shared/project-space-api';
-import type { RoadmapPlanItem } from '@/shared/roadmap-api';
-import { moveRoadmapItem, roadmapIssueKey, validRoadmapMoveRange } from '@/shared/roadmap-model';
 import type { RoadmapController } from '../../roadmap/use-roadmap';
-import { roadmapStatusClass, roadmapStatusLabel } from '../../roadmap/roadmap-status';
 import { GitHubMark } from './github-mark';
 import { IssueBranchMenu, IssuePullRequestChip } from './issue-branch-menu';
 import { issuePullRequestsForIssue } from './issue-branch-model';
@@ -60,23 +57,7 @@ export function IssueListView({
   return (
     <div className="issue-rise-in flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-neutral-800/70 bg-neutral-950/40">
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {roadmap?.result ? (
-          <RoadmapPlanRows
-            issues={issues}
-            onOpenIssue={onOpenIssue}
-            roadmap={roadmap}
-            repoFullName={repoFullName}
-          />
-        ) : null}
-        {roadmap?.result?.plan.items.length ? (
-          <div className="border-y border-neutral-800/80 bg-neutral-950 px-3 py-2">
-            <Text className="text-[11px] font-semibold uppercase tracking-[0.15em] text-neutral-500">
-              Backlog · not ordered yet
-            </Text>
-          </div>
-        ) : null}
         {issues.map((issue, index) => (
-          roadmap?.result?.plan.items.some((item) => item.issue.id === issue.id) ? null :
           <IssueListRow
             branches={branches}
             key={issue.number}
@@ -90,17 +71,11 @@ export function IssueListView({
             isLast={index === issues.length - 1}
             issue={issue}
             onBranchCreated={onBranchCreated}
-            onAddToPlan={roadmap?.result?.canEdit && roadmap.result.dependencySync === 'current' && issue.id && repoFullName ? () => {
-              const result = roadmap.result;
-              if (!result) return;
-              void roadmap.savePlan(result.plan.goals, [
-                ...result.plan.items,
-                {
-                  issue: { fullName: repoFullName, id: issue.id as number, number: issue.number, url: issue.url },
-                  plannedState: 'planned'
-                }
-              ]);
-            } : undefined}
+            onAddToPlan={roadmap?.result?.canEdit
+              && roadmap.result.dependencySync === 'current'
+              && !roadmap.result.plan.items.some((item) => item.issue.number === issue.number)
+              ? () => void roadmap.addIssue(issue.number, { issue })
+              : undefined}
             onOpenIssue={onOpenIssue}
             pullRequests={pullRequests}
             repoFullName={repoFullName}
@@ -108,153 +83,6 @@ export function IssueListView({
         ))}
       </div>
     </div>
-  );
-}
-
-function RoadmapPlanRows({
-  issues,
-  onOpenIssue,
-  roadmap,
-  repoFullName
-}: {
-  issues: GitHubIssueRecord[];
-  onOpenIssue(issueNumber: number): void;
-  roadmap: RoadmapController;
-  repoFullName?: string;
-}) {
-  const result = roadmap.result;
-  if (!result) return null;
-  const nodesByKey = new Map(result.issues.map((node) => [roadmapIssueKey(node.issue), node]));
-  const canEdit = result.canEdit && result.dependencySync === 'current';
-  const visibleNumbers = new Set(issues.map((issue) => issue.number));
-  const hasFilteredIssues = issues.length > 0;
-  const goalsById = new Map(result.plan.goals.map((goal) => [goal.id, goal]));
-  const updateItem = (target: RoadmapPlanItem, patch: Partial<RoadmapPlanItem>) => {
-    void roadmap.savePlan(
-      result.plan.goals,
-      result.plan.items.map((item) => (
-        roadmapIssueKey(item.issue) === roadmapIssueKey(target.issue) ? { ...item, ...patch } : item
-      ))
-    );
-  };
-  let previousGoalId: string | undefined;
-  return (
-    <ol aria-label="Planned implementation order" className="divide-y divide-neutral-900">
-      {result.plan.items.map((item, index) => {
-        const node = nodesByKey.get(roadmapIssueKey(item.issue));
-        const issue = issues.find((entry) => entry.id === item.issue.id);
-        if (hasFilteredIssues && !visibleNumbers.has(item.issue.number) && node?.state !== 'unknown') {
-          return null;
-        }
-        const range = validRoadmapMoveRange(result.plan.items, result.dependencies, item.issue);
-        const goalChanged = item.goalId !== previousGoalId;
-        previousGoalId = item.goalId;
-        const blockers = result.dependencies.filter((edge) => (
-          roadmapIssueKey(edge.blocked) === roadmapIssueKey(item.issue)
-        ));
-        return (
-          <li key={roadmapIssueKey(item.issue)} className="min-w-0">
-            {goalChanged && item.goalId ? (
-              <div className="border-b border-neutral-900 bg-neutral-900/25 px-3 py-2">
-                <Text className="text-xs font-semibold text-neutral-300">
-                  {goalsById.get(item.goalId)?.title ?? 'Unknown goal'}
-                </Text>
-              </div>
-            ) : null}
-            <div className="group/plan flex min-w-0 flex-wrap items-start gap-2 px-3 py-3 hover:bg-neutral-900/45">
-              <Text className="mt-1 w-7 shrink-0 font-mono text-xs tabular-nums text-neutral-500">
-                {index + 1}.
-              </Text>
-              <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', roadmapStatusClass[node?.availability ?? 'stale'])} />
-              <button
-                type="button"
-                onClick={() => onOpenIssue(item.issue.number)}
-                className="min-w-[min(100%,12rem)] flex-1 text-left"
-              >
-                <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
-                  <Text className="font-mono text-xs text-neutral-500">#{item.issue.number}</Text>
-                  <Text className="min-w-0 text-sm font-medium leading-5 text-neutral-100">
-                    {node?.title ?? issue?.title ?? 'Issue is not accessible'}
-                  </Text>
-                </span>
-                <Text className="mt-1 block text-xs text-neutral-500">
-                  {roadmapStatusLabel[node?.availability ?? 'stale']}
-                  {blockers.length > 0
-                    ? ` · depends on ${blockers.map((edge) => `${edge.blocker.fullName}#${edge.blocker.number}`).join(', ')}`
-                    : ''}
-                </Text>
-              </button>
-              <div className="ml-11 flex w-[calc(100%_-_2.75rem)] flex-wrap items-center justify-end gap-1 sm:ml-0 sm:w-auto sm:shrink-0">
-                <select
-                  aria-label={`Goal for issue #${item.issue.number}`}
-                  disabled={!canEdit || roadmap.isSaving}
-                  value={item.goalId ?? ''}
-                  onChange={(event) => updateItem(item, { goalId: event.target.value || undefined })}
-                  className="min-h-11 min-w-0 flex-1 rounded-md border border-neutral-800 bg-neutral-950 px-2 text-xs text-neutral-300 max-sm:w-full max-sm:basis-full max-sm:flex-none sm:min-h-8 sm:max-w-32 sm:flex-none"
-                >
-                  <option value="">No goal</option>
-                  {result.plan.goals.map((goal) => <option key={goal.id} value={goal.id}>{goal.title}</option>)}
-                </select>
-                <Button
-                  aria-label={`${item.plannedState === 'active' ? 'Mark planned' : 'Mark active'} issue #${item.issue.number}`}
-                  className="max-sm:min-h-11"
-                  isDisabled={!canEdit || roadmap.isSaving}
-                  onPress={() => updateItem(item, { plannedState: item.plannedState === 'active' ? 'planned' : 'active' })}
-                  size="sm"
-                  variant={item.plannedState === 'active' ? 'primary' : 'ghost'}
-                >
-                  {item.plannedState === 'active' ? 'Active' : 'Planned'}
-                </Button>
-                <Button
-                  aria-label={`Move issue #${item.issue.number} earlier`}
-                  className="max-sm:min-h-11"
-                  isDisabled={!canEdit || roadmap.isSaving || !range || index <= range.minimum}
-                  isIconOnly
-                  onPress={() => {
-                    const moved = moveRoadmapItem(result.plan.items, item.issue, index - 1, result.dependencies);
-                    if (moved) void roadmap.savePlan(result.plan.goals, moved);
-                  }}
-                  size="sm"
-                  variant="ghost"
-                ><ArrowUp className="size-3.5" /></Button>
-                <Button
-                  aria-label={`Move issue #${item.issue.number} later`}
-                  className="max-sm:min-h-11"
-                  isDisabled={!canEdit || roadmap.isSaving || !range || index >= range.maximum}
-                  isIconOnly
-                  onPress={() => {
-                    const moved = moveRoadmapItem(result.plan.items, item.issue, index + 1, result.dependencies);
-                    if (moved) void roadmap.savePlan(result.plan.goals, moved);
-                  }}
-                  size="sm"
-                  variant="ghost"
-                ><ArrowDown className="size-3.5" /></Button>
-                <Button
-                  aria-label={`Remove issue #${item.issue.number} from plan`}
-                  className="max-sm:min-h-11"
-                  isDisabled={!result.canEdit || roadmap.isSaving}
-                  isIconOnly
-                  onPress={() => void roadmap.savePlan(
-                    result.plan.goals,
-                    result.plan.items.filter((entry) => roadmapIssueKey(entry.issue) !== roadmapIssueKey(item.issue))
-                  )}
-                  size="sm"
-                  variant="ghost"
-                ><X className="size-3.5" /></Button>
-              </div>
-            </div>
-          </li>
-        );
-      })}
-      {result.plan.items.length === 0 ? (
-        <li className="px-4 py-5 text-sm text-neutral-500">
-          Nothing is planned yet. Add an issue from the backlog to define what comes next.
-        </li>
-      ) : null}
-      {issues.filter((issue) => !result.plan.items.some((item) => item.issue.id === issue.id)).length > 0 ? null : (
-        <li className="sr-only">No backlog issues.</li>
-      )}
-    </ol>
   );
 }
 
