@@ -3,6 +3,8 @@ name: Deploy production
 on:
   push:
     branches: [main]
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       commit:
@@ -26,24 +28,52 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     outputs:
+      release_ready: ${{ steps.connector-release.outputs.ready }}
+      requested_commit: ${{ steps.requested-commit.outputs.commit }}
       superseded: ${{ steps.current-main.outputs.superseded }}
 
     steps:
-      - name: Record queued state
+      - name: Resolve requested commit
+        id: requested-commit
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          [[ "$GITHUB_REF" == refs/heads/main ]] || {
-            echo 'Manual production recovery must be dispatched from main.' >&2
+          requested_commit="$REQUESTED_COMMIT"
+          if [[ "$GITHUB_EVENT_NAME" == release ]]; then
+            [[ "$GITHUB_REF" == refs/tags/v* ]] || {
+              echo 'Release-triggered deployment requires an immutable v* tag.' >&2
+              exit 64
+            }
+            main_metadata="$RUNNER_TEMP/current-main.json"
+            curl --fail --silent --show-error \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/commits/main" \
+              > "$main_metadata"
+            requested_commit=$(jq -er \
+              '.sha | select(test("^[0-9a-f]{40}$"))' \
+              "$main_metadata")
+          else
+            [[ "$GITHUB_REF" == refs/heads/main ]] || {
+              echo 'Manual production recovery must be dispatched from main.' >&2
+              exit 64
+            }
+          fi
+          if [[ ! "$requested_commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'Requested commit must be a full lowercase Git SHA.' >&2
             exit 64
-          }
+          fi
+          echo "commit=$requested_commit" >> "$GITHUB_OUTPUT"
+          echo "REQUESTED_COMMIT=$requested_commit" >> "$GITHUB_ENV"
           echo 'queued -> checking -> validating' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check out requested commit
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
-          ref: ${{ env.REQUESTED_COMMIT }}
+          ref: ${{ steps.requested-commit.outputs.commit }}
           persist-credentials: false
 
       - name: Reject a superseded commit
@@ -96,8 +126,58 @@ jobs:
           go vet ./...
           go build -trimpath -o "$RUNNER_TEMP/project" ./cmd/project
 
-      - name: Validate the exact deployment plan
+      - name: Verify the approved connector release is published
+        id: connector-release
         if: steps.current-main.outputs.superseded != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_version=$(jq -er '.version | select(test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"))' package.json)
+          release_id="v${build_version}"
+          manifest="$RUNNER_TEMP/project-space-release-manifest.json"
+          http_status=$(curl --silent --show-error --location \
+            --proto '=https' --proto-redir '=https' --max-filesize 2097152 \
+            --write-out '%{http_code}' \
+            --output "$manifest" \
+            "https://github.com/DotNaos/project-space/releases/download/${release_id}/project-space-release-manifest.json") || {
+            echo "Could not check approved connector release ${release_id}." >&2
+            exit 1
+          }
+          if [[ $http_status == 404 ]]; then
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            printf 'Deferred: approved connector release `%s` is not published yet. Production was untouched.\n' \
+              "$release_id" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          [[ $http_status == 200 ]] || {
+            echo "Approved connector release check returned HTTP ${http_status}." >&2
+            exit 1
+          }
+          for target in darwin-arm64 linux-x64 windows-x64; do
+            bun packaging/release/release-manifest-cli.ts verify \
+              --manifest "$manifest" \
+              --public-key packaging/release/trust-roots/release-manifest-signing-public-key.pem \
+              --target "$target" \
+              --release-id "$release_id"
+          done
+          jq -e --arg release_id "$release_id" \
+            --arg build_version "$build_version" \
+            '.manifest.releaseId == $release_id and
+             .manifest.version == $build_version' \
+            "$manifest" >/dev/null
+          release_build_id=$(jq -er '.manifest.buildId' "$manifest")
+          git merge-base --is-ancestor "$release_build_id" "$REQUESTED_COMMIT" || {
+            echo "Approved connector release ${release_id} is not an ancestor of the requested app commit." >&2
+            exit 1
+          }
+          git diff --no-renames --name-only -z "$release_build_id" "$REQUESTED_COMMIT" \
+            | bun packaging/release/connector-release-drift.ts
+          echo 'ready=true' >> "$GITHUB_OUTPUT"
+          printf 'Approved connector release `%s` is published from ancestor `%s`.\n' \
+            "$release_id" "$release_build_id" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Validate the exact deployment plan
+        if: steps.current-main.outputs.superseded != 'true' && steps.connector-release.outputs.ready == 'true'
         run: |
           "$RUNNER_TEMP/project" deploy --env prod --commit "$REQUESTED_COMMIT" --dry-run --format json > deploy-plan.json
           jq -e --arg sha "$REQUESTED_COMMIT" \
@@ -108,9 +188,11 @@ jobs:
   deploy:
     name: Deploy exact commit to VPS
     needs: validate
-    if: needs.validate.outputs.superseded != 'true'
+    if: needs.validate.outputs.superseded != 'true' && needs.validate.outputs.release_ready == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    env:
+      REQUESTED_COMMIT: ${{ needs.validate.outputs.requested_commit }}
     environment:
       name: Production
       url: https://projects.os-home.net

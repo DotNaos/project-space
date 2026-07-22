@@ -5,6 +5,10 @@ import type {
   CodexSessionReadRequest,
   CodexSessionTurnSettings
 } from '@/shared/codex-sessions-api';
+import type {
+  MachineRecord,
+  MachineRuntimeStatusResult
+} from '@/shared/project-space-api';
 import { CodexSessionList } from './codex-session-list';
 import { CodexTaskWorkspace } from './codex-task-workspace';
 import type {
@@ -19,7 +23,10 @@ import type {
 export interface CodexSessionsPageProps {
   activeTurnId?: string;
   conversations?: CodexConversation[];
+  connectorInstallations?: MachineRecord[];
   errorMessage?: string;
+  isConnectorRefreshing?: boolean;
+  loadingMachineIds?: string[];
   machines: CodexMachine[];
   now?: Date;
   onContinueThread?(
@@ -30,11 +37,13 @@ export interface CodexSessionsPageProps {
   onBackFromThread?(): void;
   onInterruptThread?(origin: CodexThreadOrigin, turnId: string): Promise<void> | void;
   onOpenProjectChatThread?(origin: CodexThreadOrigin): void;
+  onManageConnector?(machineId: string): void;
   onResolveApproval?(decision: CodexApprovalDecision): Promise<void> | void;
   onResolveUserInput?(decision: CodexUserInputDecision): Promise<void> | void;
   onSelectThread?(origin: CodexThreadOrigin): void;
   reading?: boolean;
   readBrowser?(request: CodexSessionReadRequest): Promise<CodexSessionBrowserResult>;
+  runtimeByMachineId?: Record<string, MachineRuntimeStatusResult>;
   selectedOrigin?: CodexThreadOrigin;
   sessions: CodexSession[];
 }
@@ -46,17 +55,22 @@ function sameOrigin(session: CodexSession, origin?: CodexThreadOrigin) {
 export function CodexSessionsPage({
   activeTurnId,
   conversations = [],
+  connectorInstallations,
   errorMessage,
+  isConnectorRefreshing = false,
+  loadingMachineIds = [],
   machines,
   now = new Date(),
   onContinueThread,
   onBackFromThread,
   onInterruptThread,
+  onManageConnector,
   onResolveApproval,
   onResolveUserInput,
   onSelectThread,
   reading = false,
   readBrowser,
+  runtimeByMachineId = {},
   selectedOrigin,
   sessions
 }: CodexSessionsPageProps) {
@@ -77,17 +91,34 @@ export function CodexSessionsPage({
 
   const listPane = useMemo(() => (
     <CodexSessionList
+      connectorInstallations={connectorInstallations}
+      isConnectorRefreshing={isConnectorRefreshing}
+      loadingMachineIds={loadingMachineIds}
       machines={machines}
       now={now}
       onSelect={(session) => {
         onSelectThread?.({ machineId: session.machineId, threadId: session.threadId });
       }}
+      onManageConnector={onManageConnector}
       query={query}
       selectedOrigin={selectedOrigin}
       sessions={sessions}
       setQuery={setQuery}
+      runtimeByMachineId={runtimeByMachineId}
     />
-  ), [machines, now, onSelectThread, query, selectedOrigin, sessions]);
+  ), [
+    connectorInstallations,
+    isConnectorRefreshing,
+    loadingMachineIds,
+    machines,
+    now,
+    onManageConnector,
+    onSelectThread,
+    query,
+    runtimeByMachineId,
+    selectedOrigin,
+    sessions
+  ]);
 
   return (
     <div className="relative h-full min-h-0 overflow-hidden bg-neutral-950 text-neutral-100">

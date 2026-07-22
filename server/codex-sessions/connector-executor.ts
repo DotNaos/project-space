@@ -101,24 +101,47 @@ export class CodexSessionsConnectorExecutor {
     this.unsubscribeManager = options.manager.subscribe((event) => this.handleEvent(event));
   }
 
-  async execute(operation: ExecutableOperation, value: unknown): Promise<CodexSessionsWireResult> {
+  async execute(
+    operation: ExecutableOperation,
+    value: unknown,
+    signal?: AbortSignal
+  ): Promise<CodexSessionsWireResult> {
     const request = this.verify(value, operation);
     switch (operation) {
       case 'browser':
         return {
           operation,
-          result: await this.browser(request.payload as CodexSessionBrowserRequest)
+          result: await waitForCodexExecution(
+            this.browser(request.payload as CodexSessionBrowserRequest),
+            signal
+          )
         };
       case 'list':
-        return { operation, result: await this.list(request.payload as CodexSessionListRequest) };
+        return {
+          operation,
+          result: await waitForCodexExecution(
+            this.list(request.payload as CodexSessionListRequest, signal),
+            signal
+          )
+        };
       case 'read':
-        return { operation, result: await this.read(request.payload as CodexSessionReadRequest) };
+        return {
+          operation,
+          result: await waitForCodexExecution(
+            this.read(request.payload as CodexSessionReadRequest, signal),
+            signal
+          )
+        };
       case 'inspect':
         return {
           operation,
-          result: await this.inspect(
-            request.payload as CodexSessionInspectRequest,
-            request.grant.generation
+          result: await waitForCodexExecution(
+            this.inspect(
+              request.payload as CodexSessionInspectRequest,
+              request.grant.generation,
+              signal
+            ),
+            signal
           )
         };
       case 'continue':
@@ -184,30 +207,34 @@ export class CodexSessionsConnectorExecutor {
     return value;
   }
 
-  private async list(request: CodexSessionListRequest) {
+  private async list(request: CodexSessionListRequest, signal?: AbortSignal) {
     const checkedAt = new Date(this.options.now?.() ?? Date.now()).toISOString();
     const [active, archived, loaded] = await Promise.all([
       listAllThreads(this.options.manager, {
         searchTerm: request.search,
         sortDirection: 'desc',
         sortKey: 'recency_at'
-      }),
+      }, signal),
       request.includeArchived
         ? listAllThreads(this.options.manager, {
             archived: true,
             searchTerm: request.search,
             sortDirection: 'desc',
             sortKey: 'recency_at'
-          })
+          }, signal)
         : Promise.resolve([]),
-      this.options.manager.listLoadedThreads()
+      this.options.manager.listLoadedThreads(signal)
     ]);
     const loadedIds = new Set(loaded.data);
     const storedIds = new Set([...active, ...archived].map((thread) => thread.id));
     const loadedOnly = await mapWithConcurrency(
       [...loadedIds].filter((threadId) => !storedIds.has(threadId)),
       8,
-      (threadId) => this.options.manager.readThread(threadId, false).catch(() => undefined)
+      (threadId) => this.options.manager.readThread(threadId, false, signal).catch((error) => {
+        if (signal?.aborted) throw error;
+        return undefined;
+      }),
+      signal
     );
     const sessionsById = new Map([
       ...archived.map((thread) => [thread.id, presentCodexSession(thread, {
@@ -259,10 +286,10 @@ export class CodexSessionsConnectorExecutor {
     };
   }
 
-  private async read(request: CodexSessionReadRequest) {
+  private async read(request: CodexSessionReadRequest, signal?: AbortSignal) {
     const [result, loaded] = await Promise.all([
-      this.options.manager.readThread(request.threadId, true),
-      this.options.manager.listLoadedThreads()
+      this.options.manager.readThread(request.threadId, true, signal),
+      this.options.manager.listLoadedThreads(signal)
     ]);
     const session = presentCodexSession(result.thread, {
       archived: result.thread.archived === true,
@@ -285,9 +312,13 @@ export class CodexSessionsConnectorExecutor {
     );
   }
 
-  private async inspect(request: CodexSessionInspectRequest, connectorGeneration: number) {
+  private async inspect(
+    request: CodexSessionInspectRequest,
+    connectorGeneration: number,
+    signal?: AbortSignal
+  ) {
     const checkedAt = new Date(this.options.now?.() ?? Date.now()).toISOString();
-    const snapshot = await this.options.manager.readInspectionSnapshot(request.threadId);
+    const snapshot = await this.options.manager.readInspectionSnapshot(request.threadId, signal);
     const session = presentCodexSession(snapshot.thread, {
       archived: snapshot.thread.archived === true,
       loadedThreadIds: new Set(snapshot.loaded.data),
@@ -472,12 +503,14 @@ export class CodexSessionsConnectorExecutor {
 async function mapWithConcurrency<Input, Result>(
   input: Input[],
   concurrency: number,
-  operation: (value: Input) => Promise<Result>
+  operation: (value: Input) => Promise<Result>,
+  signal?: AbortSignal
 ) {
   const results = new Array<Result>(input.length);
   let index = 0;
   const worker = async () => {
     while (index < input.length) {
+      throwIfCodexExecutionCancelled(signal);
       const current = index;
       index += 1;
       results[current] = await operation(input[current]!);
@@ -489,13 +522,15 @@ async function mapWithConcurrency<Input, Result>(
 
 async function listAllThreads(
   manager: Pick<CodexSessionManager, 'listThreads'>,
-  input: CodexThreadListInput
+  input: CodexThreadListInput,
+  signal?: AbortSignal
 ): Promise<CodexThreadSummary[]> {
   const threads: CodexThreadSummary[] = [];
   const seenCursors = new Set<string>();
   let cursor: string | undefined;
   for (let page = 0; page < 50; page += 1) {
-    const result = await manager.listThreads({ ...input, cursor, limit: 100 });
+    throwIfCodexExecutionCancelled(signal);
+    const result = await manager.listThreads({ ...input, cursor, limit: 100 }, signal);
     threads.push(...result.data);
     if (!result.nextCursor) return threads;
     if (seenCursors.has(result.nextCursor)) throw new CodexSessionsExecutorError();
@@ -503,6 +538,30 @@ async function listAllThreads(
     cursor = result.nextCursor;
   }
   throw new CodexSessionsExecutorError();
+}
+
+function waitForCodexExecution<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  try {
+    throwIfCodexExecutionCancelled(signal);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(codexExecutionCancelledError(signal));
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
+}
+
+function throwIfCodexExecutionCancelled(signal?: AbortSignal) {
+  if (signal?.aborted) throw codexExecutionCancelledError(signal);
+}
+
+function codexExecutionCancelledError(signal: AbortSignal) {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new Error('The Codex session command was cancelled.');
 }
 
 function derivedOperationId(operationId: string, step: string) {

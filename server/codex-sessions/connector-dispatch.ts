@@ -37,9 +37,19 @@ type ActiveAttach = {
   send(message: ConnectorHubMessage): void;
 };
 
+type CancellableOperation = Extract<
+  CodexSessionsConnectorOperation,
+  'browser' | 'inspect' | 'list' | 'read'
+>;
+
+const cancellableOperations = new Set<CodexSessionsConnectorOperation>([
+  'browser', 'inspect', 'list', 'read'
+]);
+
 export class CodexSessionsConnectorDispatcher {
   private readonly attachReplay = new CodexSessionsGrantReplayProtection();
   private readonly attaches = new Map<string, ActiveAttach>();
+  private readonly executions = new Map<string, AbortController>();
   private expectedGeneration?: number;
   private executor?: CodexSessionsConnectorExecutor;
   private machineId?: string;
@@ -108,7 +118,24 @@ export class CodexSessionsConnectorDispatcher {
       return;
     }
 
-    void executor.execute(operation as Exclude<CodexSessionsConnectorOperation, 'attach' | 'stream'>, request)
+    const executableOperation = operation as Exclude<
+      CodexSessionsConnectorOperation,
+      'attach' | 'stream'
+    >;
+    if (cancellableOperations.has(executableOperation)) {
+      this.dispatchCancellable(
+        id,
+        executableOperation as CancellableOperation,
+        request,
+        executor,
+        binding,
+        send,
+        reject
+      );
+      return;
+    }
+
+    void executor.execute(executableOperation, request)
       .then((result) => send({
         id,
         payload: { binding, result },
@@ -129,6 +156,12 @@ export class CodexSessionsConnectorDispatcher {
       });
       return true;
     }
+    const execution = this.executions.get(id);
+    if (execution) {
+      this.executions.delete(id);
+      execution.abort(new Error('The Codex session command was cancelled.'));
+      return true;
+    }
     const stream = this.streams.get(id);
     if (!stream) return false;
     this.streams.delete(id);
@@ -144,6 +177,11 @@ export class CodexSessionsConnectorDispatcher {
   cancelAll() {
     for (const attached of this.attaches.values()) attached.relay?.close('cancelled');
     this.attaches.clear();
+    const executions = [...this.executions.values()];
+    this.executions.clear();
+    for (const execution of executions) {
+      execution.abort(new Error('The Codex session command was cancelled.'));
+    }
     for (const stream of this.streams.values()) stream.unsubscribe();
     this.streams.clear();
   }
@@ -192,6 +230,30 @@ export class CodexSessionsConnectorDispatcher {
         }
       },
       type: 'codex.sessions.error'
+    });
+  }
+
+  private dispatchCancellable(
+    id: string,
+    operation: CancellableOperation,
+    request: CodexSessionsWireRequest,
+    executor: CodexSessionsConnectorExecutor,
+    binding: ReturnType<typeof bindingForCodexSessionsRequest>,
+    send: (message: ConnectorHubMessage) => void,
+    reject: () => void
+  ) {
+    if (this.executions.has(id)) {
+      reject();
+      return;
+    }
+    const controller = new AbortController();
+    this.executions.set(id, controller);
+    void executor.execute(operation, request, controller.signal).then((result) => {
+      if (!this.executions.delete(id)) return;
+      send({ id, payload: { binding, result }, type: 'codex.sessions.result' });
+    }).catch((error) => {
+      if (!this.executions.delete(id)) return;
+      this.handleFailure(id, binding, error, send, reject);
     });
   }
 
