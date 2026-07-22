@@ -15,6 +15,12 @@ import {
   roadmapSelectedIssueId,
   roadmapSelectionUrl
 } from '../src/features/roadmap/use-roadmap-selection';
+import {
+  pointIsInsideElement,
+  roadmapWorkShelfAdditionIndex,
+  roadmapWorkShelfIssues,
+  roadmapWorkShelfPlanLabel
+} from '../src/features/roadmap/roadmap-work-shelf-model';
 
 const issues = [
   { id: 1, labels: ['graph'], number: 273, state: 'open' as const, title: 'Actionable roadmap graph', url: 'https://example.test/273' },
@@ -133,6 +139,74 @@ describe('roadmap UI models', () => {
     expect(filterRoadmapIssues(issues, '#301', new Set()).map((issue) => issue.number))
       .toEqual([301]);
     expect(filterRoadmapIssues(issues, 'mobile', new Set([211]))).toEqual([]);
+  });
+
+  test('lists every unplanned shelf issue with open work before completed work', () => {
+    const result = {
+      plan: {
+        goals: [],
+        items: [{
+          issue: { fullName: 'DotNaos/project-space', id: 273, number: 273 },
+          plannedState: 'planned' as const
+        }],
+        revision: 1
+      }
+    };
+
+    expect(roadmapWorkShelfIssues(issues, result, '').map((issue) => issue.number))
+      .toEqual([301, 211]);
+    expect(roadmapWorkShelfIssues(issues, result, 'mobile').map((issue) => issue.number))
+      .toEqual([211]);
+    expect(roadmapWorkShelfIssues(issues, result, '#301').map((issue) => issue.number))
+      .toEqual([301]);
+  });
+
+  test('shows the exact durable plan position without changing dependency truth', () => {
+    const prerequisite = {
+      availability: 'ready' as const,
+      issue: { fullName: 'DotNaos/project-space', id: 301, number: 301 },
+      labels: [],
+      state: 'open' as const,
+      title: 'Connector recovery'
+    };
+    const planned = {
+      availability: 'blocked' as const,
+      issue: { fullName: 'DotNaos/project-space', id: 273, number: 273 },
+      labels: [],
+      state: 'open' as const,
+      title: 'Actionable roadmap graph'
+    };
+    const dependency = {
+      blocked: planned.issue,
+      blocker: prerequisite.issue,
+      freshness: 'current' as const
+    };
+    const result = {
+      canEdit: true,
+      checkedAt: '2026-07-22T00:00:00.000Z',
+      dependencies: [dependency],
+      dependencySync: 'current' as const,
+      graphRevision: 'graph',
+      issues: [prerequisite, planned],
+      plan: {
+        goals: [],
+        items: [{ issue: planned.issue, plannedState: 'planned' as const }],
+        revision: 1
+      },
+      repository: { fullName: 'DotNaos/project-space', id: 42 },
+      status: 'connected' as const
+    };
+
+    expect(roadmapWorkShelfAdditionIndex(result, issues[2])).toBe(0);
+    expect(roadmapWorkShelfPlanLabel(0)).toBe('Plan 01');
+    expect(roadmapWorkShelfAdditionIndex(result, { number: 999 })).toBe(1);
+    expect(result.dependencies).toEqual([dependency]);
+  });
+
+  test('only accepts drops inside the visible roadmap canvas', () => {
+    const rect = { bottom: 500, left: 20, right: 720, top: 100 };
+    expect(pointIsInsideElement({ x: 400, y: 300 }, rect)).toBeTrue();
+    expect(pointIsInsideElement({ x: 400, y: 501 }, rect)).toBeFalse();
   });
 
   test('round trips selected issue identity through a direct URL without losing other query state', () => {
