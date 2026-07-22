@@ -36,14 +36,19 @@ export function useRoadmapSelection(repositoryId?: number) {
     setSelectedIssueId(roadmapSelectedIssueId(window.location.search));
   }, [repositoryId]);
 
+  const preview = useCallback((issueId?: number) => setSelectedIssueId(issueId), []);
+
   const select = useCallback((issueId: number) => {
-    if (issueId === selectedIssueId) return;
+    if (issueId === roadmapSelectedIssueId(window.location.search)) {
+      setSelectedIssueId(issueId);
+      return;
+    }
     window.history.pushState({
       ...(historyRecord(window.history.state) ?? {}),
       [selectionStateKey]: { issueId, repositoryId, version: 1 }
     }, '', roadmapSelectionUrl(window.location, issueId));
     setSelectedIssueId(issueId);
-  }, [repositoryId, selectedIssueId]);
+  }, [repositoryId]);
 
   const clear = useCallback(() => {
     const state = historyRecord(window.history.state);
@@ -53,7 +58,7 @@ export function useRoadmapSelection(repositoryId?: number) {
     setSelectedIssueId(undefined);
   }, []);
 
-  return { clear, select, selectedIssueId };
+  return { clear, preview, select, selectedIssueId };
 }
 
 function historyRecord(value: unknown): Record<string, unknown> | null {

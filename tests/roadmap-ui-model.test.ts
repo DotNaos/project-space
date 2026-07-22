@@ -7,6 +7,7 @@ import {
 import {
   roadmapGraphVisibility
 } from '../src/features/roadmap/roadmap-model';
+import { roadmapGeometricDropTarget } from '../src/features/roadmap/roadmap-drop-geometry';
 import {
   roadmapPlannedSuccessorCandidates,
   roadmapRelationshipRequest
@@ -239,6 +240,86 @@ describe('roadmap UI models', () => {
     expect(roadmapSpatialMoveIndex(result, nodes[2]!.issue, 0)).toBe(1);
   });
 
+  test('maps horizontal node gaps to matching prepend, middle, and append positions', () => {
+    const graphRect = { bottom: 500, height: 400, left: 20, right: 720, top: 100, width: 700 };
+    const nodeRects = [
+      { bottom: 300, issueId: 10, left: 100, right: 200, top: 180 },
+      { bottom: 300, issueId: 20, left: 300, right: 400, top: 180 },
+      { bottom: 300, issueId: 30, left: 500, right: 600, top: 180 }
+    ];
+    const target = (x: number) => roadmapGeometricDropTarget({
+      graphRect,
+      nodeRects,
+      orderedIssueIds: [10, 20, 30],
+      point: { x, y: 240 },
+      range: { maximum: 3, minimum: 0 }
+    });
+
+    expect(target(80)?.insertionIndex).toBe(0);
+    expect(target(250)?.insertionIndex).toBe(1);
+    expect(target(450)?.insertionIndex).toBe(2);
+    expect(target(640)?.insertionIndex).toBe(3);
+    expect(target(250)?.marker).toMatchObject({ height: 136, left: 230, top: 72 });
+  });
+
+  test('uses the nearest visible graph row and only exposes dependency-safe gaps', () => {
+    const target = roadmapGeometricDropTarget({
+      graphRect: { bottom: 600, height: 500, left: 0, right: 700, top: 100, width: 700 },
+      nodeRects: [
+        { bottom: 260, issueId: 10, left: 100, right: 200, top: 140 },
+        { bottom: 260, issueId: 20, left: 300, right: 400, top: 140 },
+        { bottom: 500, issueId: 30, left: 220, right: 320, top: 380 }
+      ],
+      orderedIssueIds: [10, 20, 30],
+      point: { x: 120, y: 440 },
+      range: { maximum: 3, minimum: 0 }
+    });
+
+    expect(target?.insertionIndex).toBe(2);
+    expect(target?.marker?.top).toBe(272);
+    expect(roadmapGeometricDropTarget({
+      graphRect: { bottom: 600, height: 500, left: 0, right: 700, top: 100, width: 700 },
+      nodeRects: [
+        { bottom: 260, issueId: 10, left: 100, right: 200, top: 140 },
+        { bottom: 260, issueId: 20, left: 300, right: 400, top: 140 },
+        { bottom: 500, issueId: 30, left: 220, right: 320, top: 380 }
+      ],
+      orderedIssueIds: [10, 20, 30],
+      point: { x: 450, y: 200 },
+      range: { maximum: 3, minimum: 0 }
+    })?.insertionIndex).toBe(2);
+  });
+
+  test('keeps durable prepend and append reachable while completed plan items are hidden', () => {
+    const options = {
+      graphRect: { bottom: 400, height: 300, left: 0, right: 700, top: 100, width: 700 },
+      nodeRects: [
+        { bottom: 300, issueId: 20, left: 200, right: 300, top: 180 },
+        { bottom: 300, issueId: 30, left: 400, right: 500, top: 180 }
+      ],
+      orderedIssueIds: [10, 20, 30, 40],
+      range: { maximum: 4, minimum: 0 }
+    };
+
+    expect(roadmapGeometricDropTarget({ ...options, point: { x: 150, y: 240 } })?.insertionIndex)
+      .toBe(0);
+    expect(roadmapGeometricDropTarget({ ...options, point: { x: 550, y: 240 } })?.insertionIndex)
+      .toBe(4);
+  });
+
+  test('offers both boundaries when every other durable item is hidden', () => {
+    const options = {
+      graphRect: { bottom: 400, height: 300, left: 0, right: 700, top: 100, width: 700 },
+      nodeRects: [],
+      orderedIssueIds: [10, 20],
+      range: { maximum: 2, minimum: 0 }
+    };
+    expect(roadmapGeometricDropTarget({ ...options, point: { x: 100, y: 200 } })?.insertionIndex)
+      .toBe(0);
+    expect(roadmapGeometricDropTarget({ ...options, point: { x: 600, y: 200 } })?.insertionIndex)
+      .toBe(2);
+  });
+
   test('publishes a complete optimistic issue node before the server responds', () => {
     const base = {
       canEdit: true,
@@ -266,6 +347,68 @@ describe('roadmap UI models', () => {
       title: 'Connector recovery'
     });
     expect(base.plan.items).toEqual([]);
+  });
+
+  test('returns a removed issue to the shelf immediately while preserving dependency context', () => {
+    const planned = [10, 20].map((number) => ({
+      availability: 'ready' as const,
+      issue: { fullName: 'DotNaos/project-space', id: number, number },
+      labels: [],
+      state: 'open' as const,
+      title: `Issue ${number}`
+    }));
+    const base = {
+      canEdit: true,
+      checkedAt: '2026-07-22T00:00:00.000Z',
+      dependencies: [],
+      dependencySync: 'current' as const,
+      graphRevision: 'graph-1',
+      issues: planned,
+      plan: {
+        goals: [],
+        items: planned.map((node) => ({ issue: node.issue, plannedState: 'planned' as const })),
+        revision: 7
+      },
+      repository: { fullName: 'DotNaos/project-space', id: 42 },
+      status: 'connected' as const
+    };
+    const removed = optimisticRoadmapPlan(
+      base,
+      [],
+      [{ issueNumber: 20, plannedState: 'planned' }]
+    );
+    expect(removed.plan.items.map((item) => item.issue.number)).toEqual([20]);
+    expect(removed.issues.map((node) => node.issue.number)).toEqual([20]);
+
+    const connected = optimisticRoadmapPlan(
+      {
+        ...base,
+        dependencies: [{
+          blocked: planned[1]!.issue,
+          blocker: planned[0]!.issue,
+          freshness: 'current' as const
+        }]
+      },
+      [],
+      [{ issueNumber: 20, plannedState: 'planned' }]
+    );
+    expect(connected.issues.map((node) => node.issue.number)).toEqual([10, 20]);
+
+    const dependencyOnly = optimisticRoadmapPlan(
+      {
+        ...base,
+        dependencies: [{
+          blocked: planned[1]!.issue,
+          blocker: planned[0]!.issue,
+          freshness: 'current' as const
+        }]
+      },
+      [],
+      []
+    );
+    expect(dependencyOnly.plan.items).toEqual([]);
+    expect(dependencyOnly.issues.map((node) => node.issue.number)).toEqual([10, 20]);
+    expect(dependencyOnly.dependencies).toHaveLength(1);
   });
 
   test('only accepts drops inside the visible roadmap canvas', () => {

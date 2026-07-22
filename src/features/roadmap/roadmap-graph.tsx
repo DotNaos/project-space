@@ -7,7 +7,6 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject
 } from 'react';
-import { createPortal } from 'react-dom';
 import {
   Background,
   BackgroundVariant,
@@ -15,18 +14,24 @@ import {
   type EdgeMouseHandler,
   type ReactFlowInstance
 } from '@xyflow/react';
-import { Focus, GripVertical, Minus, Plus } from 'lucide-react';
+import { Focus, Minus, Plus } from 'lucide-react';
 import '@xyflow/react/dist/style.css';
 
-import { Button, Text } from '@/app/dotnaos-ui';
+import { Button } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type { RoadmapIssueNode, RoadmapResult } from '@/shared/roadmap-api';
+import { validRoadmapMoveRange } from '@/shared/roadmap-model';
+import {
+  roadmapGeometricDropTarget,
+  roadmapGraphNodeRects,
+  type RoadmapGeometricDropTarget
+} from './roadmap-drop-geometry';
+import { RoadmapDragOverlay, type RoadmapReorderDragState } from './roadmap-drag-overlay';
 import { layoutRoadmapGraph } from './roadmap-layout';
 import { RoadmapGraphNode } from './roadmap-graph-node';
 import {
   pointIsInsideElement,
-  roadmapMovePositionLabel,
-  roadmapSpatialMoveIndex
+  roadmapMovePositionLabel
 } from './roadmap-work-shelf-model';
 import {
   roadmapReactFlowEdges,
@@ -38,19 +43,6 @@ import {
 const nodeTypes = { roadmap: RoadmapGraphNode };
 const dragActivationDistance = 6;
 
-interface ReorderDragState {
-  active: boolean;
-  graphRevision: string;
-  issue: RoadmapIssueNode;
-  originX: number;
-  originY: number;
-  overGraph: boolean;
-  planRevision: number;
-  targetIndex?: number;
-  x: number;
-  y: number;
-}
-
 export function RoadmapGraph({
   compact = false,
   containerRef,
@@ -58,6 +50,7 @@ export function RoadmapGraph({
   dropTarget,
   fill = false,
   onSelect,
+  onRemove,
   onReorder,
   pendingIssueIds = new Set(),
   result,
@@ -68,9 +61,17 @@ export function RoadmapGraph({
   compact?: boolean;
   containerRef?: RefObject<HTMLDivElement | null>;
   dropExclusionRef?: RefObject<HTMLElement | null>;
-  dropTarget?: { active: boolean; insertionIndex?: number; overGraph: boolean; planLabel: string; positionLabel?: string } | null;
+  dropTarget?: {
+    active: boolean;
+    insertionIndex?: number;
+    marker?: RoadmapGeometricDropTarget['marker'];
+    overGraph: boolean;
+    planLabel: string;
+    positionLabel?: string;
+  } | null;
   fill?: boolean;
   onSelect(issue: RoadmapIssueNode): void;
+  onRemove?(issue: RoadmapIssueNode): Promise<boolean>;
   onReorder?(issue: RoadmapIssueNode, insertionIndex: number): Promise<boolean>;
   orderingResult?: RoadmapResult;
   pendingIssueIds?: ReadonlySet<number>;
@@ -82,8 +83,9 @@ export function RoadmapGraph({
     RoadmapFlowNode,
     RoadmapFlowEdge
   > | null>(null);
-  const [reorderDrag, setReorderDrag] = useState<ReorderDragState | null>(null);
-  const reorderDragRef = useRef<ReorderDragState | null>(null);
+  const [reorderDrag, setReorderDrag] = useState<RoadmapReorderDragState | null>(null);
+  const reorderDragRef = useRef<RoadmapReorderDragState | null>(null);
+  const suppressSelectRef = useRef<{ issueId: number; until: number } | undefined>(undefined);
   const fittedRepositoryRef = useRef<string | undefined>(undefined);
   const knownNodeIdsRef = useRef(new Set<string>());
   const knownNodeRepositoryRef = useRef<string | undefined>(undefined);
@@ -96,29 +98,48 @@ export function RoadmapGraph({
     issue: RoadmapIssueNode
   ) => {
     if (!onReorder || event.button !== 0 || !containerRef?.current) return;
+    const target = event.target as HTMLElement;
+    const isTouchHandle = Boolean(target.closest('[data-roadmap-reorder-handle]'));
+    if (event.pointerType !== 'mouse' && !isTouchHandle) return;
+    if (isTouchHandle) event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
     const next = {
       active: false,
       graphRevision: result.graphRevision,
       issue,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
       originX: event.clientX,
       originY: event.clientY,
+      overBacklog: false,
       overGraph: false,
       planRevision: result.plan.revision,
+      width: rect.width,
       x: event.clientX,
       y: event.clientY
     };
     reorderDragRef.current = next;
     setReorderDrag(next);
   }, [containerRef, onReorder, result.graphRevision, result.plan.revision]);
+  const selectIssue = useCallback((issue: RoadmapIssueNode) => {
+    const suppressed = suppressSelectRef.current;
+    if (suppressed?.issueId === issue.issue.id && suppressed.until > Date.now()) {
+      suppressSelectRef.current = undefined;
+      return;
+    }
+    if (suppressed && suppressed.until <= Date.now()) suppressSelectRef.current = undefined;
+    onSelect(issue);
+  }, [onSelect]);
   const nodes = useMemo(
     () => roadmapReactFlowNodes(
       layout,
       selectedIssueId,
-      onSelect,
+      selectIssue,
       pendingIssueIds,
-      onReorder ? beginReorder : undefined
+      onReorder ? beginReorder : undefined,
+      reorderDrag?.active ? reorderDrag.issue.issue.id : undefined
     ),
-    [beginReorder, layout, onReorder, onSelect, pendingIssueIds, selectedIssueId]
+    [beginReorder, layout, onReorder, pendingIssueIds, reorderDrag?.active, reorderDrag?.issue.issue.id, selectIssue, selectedIssueId]
   );
   const issuesById = useMemo(
     () => new Map(result.issues.map((issue) => [issue.issue.id, issue])),
@@ -153,16 +174,40 @@ export function RoadmapGraph({
     if (!pointIsInsideElement({ x, y }, rect)) return undefined;
     const exclusion = dropExclusionRef?.current?.getBoundingClientRect();
     if (exclusion && pointIsInsideElement({ x, y }, exclusion)) return undefined;
-    const usableBottom = exclusion && exclusion.top > rect.top
+    const bottom = exclusion && exclusion.top > rect.top
       ? Math.min(rect.bottom, exclusion.top)
       : rect.bottom;
-    if (y > usableBottom) return undefined;
-    return roadmapSpatialMoveIndex(
-      orderingResult,
-      issue.issue,
-      (y - rect.top) / Math.max(1, usableBottom - rect.top)
+    const usableRect = {
+      bottom,
+      height: Math.max(1, bottom - rect.top),
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      width: rect.width
+    };
+    if (!pointIsInsideElement({ x, y }, usableRect)) return undefined;
+    const range = validRoadmapMoveRange(
+      orderingResult.plan.items,
+      orderingResult.dependencies,
+      issue.issue
     );
+    if (!range) return undefined;
+    return roadmapGeometricDropTarget({
+      graphRect: usableRect,
+      nodeRects: roadmapGraphNodeRects(graph, usableRect)
+        .filter((node) => node.issueId !== issue.issue.id),
+      orderedIssueIds: orderingResult.plan.items
+        .map((item) => item.issue.id)
+        .filter((issueId) => issueId !== issue.issue.id),
+      point: { x, y },
+      range
+    });
   }, [containerRef, dropExclusionRef, orderingResult]);
+
+  const isOverBacklog = useCallback((x: number, y: number) => {
+    const rect = dropExclusionRef?.current?.getBoundingClientRect();
+    return Boolean(rect && pointIsInsideElement({ x, y }, rect));
+  }, [dropExclusionRef]);
 
   useEffect(() => {
     fittedRepositoryRef.current = undefined;
@@ -199,23 +244,33 @@ export function RoadmapGraph({
 
   useEffect(() => {
     if (!reorderDrag) return;
-    const update = (next: ReorderDragState | null) => {
+    const update = (next: RoadmapReorderDragState | null) => {
       reorderDragRef.current = next;
       setReorderDrag(next);
     };
     const finish = (commit: boolean, x?: number, y?: number) => {
       const current = reorderDragRef.current;
       if (!current) return;
-      const targetIndex = x === undefined || y === undefined
+      if (current.active) {
+        suppressSelectRef.current = {
+          issueId: current.issue.issue.id,
+          until: Date.now() + 250
+        };
+      }
+      const target = x === undefined || y === undefined
         ? undefined
         : reorderTarget(x, y, current.issue);
-      const valid = commit
+      const overBacklog = x !== undefined && y !== undefined && isOverBacklog(x, y);
+      const validRevision = commit
         && current.active
-        && targetIndex !== undefined
         && current.graphRevision === result.graphRevision
         && current.planRevision === result.plan.revision;
       update(null);
-      if (valid) void onReorder?.(current.issue, targetIndex);
+      if (validRevision && overBacklog && onRemove) {
+        void onRemove(current.issue);
+      } else if (validRevision && target) {
+        void onReorder?.(current.issue, target.insertionIndex);
+      }
     };
     const handleMove = (event: PointerEvent) => {
       const current = reorderDragRef.current;
@@ -224,14 +279,22 @@ export function RoadmapGraph({
         event.clientX - current.originX,
         event.clientY - current.originY
       ) > dragActivationDistance;
-      const targetIndex = active
+      if (active && !current.active) {
+        suppressSelectRef.current = {
+          issueId: current.issue.issue.id,
+          until: Number.POSITIVE_INFINITY
+        };
+      }
+      const overBacklog = active && isOverBacklog(event.clientX, event.clientY);
+      const target = active && !overBacklog
         ? reorderTarget(event.clientX, event.clientY, current.issue)
         : undefined;
       update({
         ...current,
         active,
-        overGraph: targetIndex !== undefined,
-        targetIndex,
+        overBacklog,
+        overGraph: target !== undefined,
+        target,
         x: event.clientX,
         y: event.clientY
       });
@@ -251,7 +314,7 @@ export function RoadmapGraph({
       window.removeEventListener('pointercancel', handleCancel);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [onReorder, reorderDrag, reorderTarget, result.graphRevision, result.plan.revision]);
+  }, [isOverBacklog, onRemove, onReorder, reorderDrag, reorderTarget, result.graphRevision, result.plan.revision]);
 
   useEffect(() => {
     if (!reorderDrag?.active) return;
@@ -261,14 +324,15 @@ export function RoadmapGraph({
 
   const effectiveDropTarget = reorderDrag?.active ? {
     active: true,
-    insertionIndex: reorderDrag.targetIndex,
+    insertionIndex: reorderDrag.target?.insertionIndex,
+    marker: reorderDrag.target?.marker,
     overGraph: reorderDrag.overGraph,
-    planLabel: reorderDrag.targetIndex === undefined
+    planLabel: reorderDrag.target === undefined
       ? 'manual plan order'
-      : roadmapMovePositionLabel(orderingResult, reorderDrag.issue.issue, reorderDrag.targetIndex),
-    positionLabel: reorderDrag.targetIndex === undefined
+      : roadmapMovePositionLabel(orderingResult, reorderDrag.issue.issue, reorderDrag.target.insertionIndex),
+    positionLabel: reorderDrag.target === undefined
       ? undefined
-      : roadmapMovePositionLabel(orderingResult, reorderDrag.issue.issue, reorderDrag.targetIndex)
+      : roadmapMovePositionLabel(orderingResult, reorderDrag.issue.issue, reorderDrag.target.insertionIndex)
   } : dropTarget;
 
   return (
@@ -356,48 +420,40 @@ export function RoadmapGraph({
               ? 'translate-y-0 border-emerald-400/50 bg-emerald-500/20 text-emerald-100 shadow-emerald-950/40'
               : 'translate-y-1 border-neutral-700 bg-neutral-950/90 text-neutral-300 shadow-black/40'
           )}>
-            {effectiveDropTarget.overGraph
+            {reorderDrag?.overBacklog
+              ? 'Release to return to unplanned work'
+              : effectiveDropTarget.overGraph
               ? `Release at ${effectiveDropTarget.positionLabel ?? effectiveDropTarget.planLabel}`
               : 'Drop into the open canvas'}
           </div>
         </div>
       ) : null}
-      {effectiveDropTarget?.active && effectiveDropTarget.overGraph && effectiveDropTarget.insertionIndex !== undefined ? (
+      {effectiveDropTarget?.active && effectiveDropTarget.overGraph && effectiveDropTarget.marker ? (
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-x-4 z-20 flex items-center gap-3"
-          style={{ top: `${Math.max(4, Math.min(94, (effectiveDropTarget.insertionIndex / Math.max(1, result.plan.items.length)) * 90 + 4))}%` }}
+          className="pointer-events-none absolute z-20 border-l-2 border-dashed border-emerald-300/90"
+          style={{
+            height: effectiveDropTarget.marker.height,
+            left: effectiveDropTarget.marker.left,
+            top: effectiveDropTarget.marker.top
+          }}
         >
-          <span className="rounded-full border border-emerald-300/60 bg-emerald-500/25 px-2 py-1 text-[10px] font-semibold text-emerald-50 shadow-lg">
+          <span className={cn(
+            'absolute top-1/2 -translate-y-1/2 whitespace-nowrap rounded-full border border-emerald-300/60 bg-emerald-500/25 px-2 py-1 text-[10px] font-semibold text-emerald-50 shadow-lg backdrop-blur',
+            effectiveDropTarget.marker.labelSide === 'right' ? 'left-2' : 'right-2'
+          )}>
             {effectiveDropTarget.positionLabel ?? effectiveDropTarget.planLabel}
           </span>
-          <span className="h-px flex-1 border-t border-dashed border-emerald-300/80" />
         </div>
       ) : null}
       <p className="sr-only">
         Dependency arrows run from prerequisites to the issues they unlock. Plan badges show a separate manual order.
       </p>
-      {reorderDrag?.active ? createPortal(
-        <div
-          aria-hidden="true"
-          className="pointer-events-none fixed left-0 top-0 z-[100] w-64 -translate-x-1/2 -translate-y-1/2"
-          style={{ transform: `translate(${reorderDrag.x}px, ${reorderDrag.y}px) translate(-50%, -50%) rotate(-1deg)` }}
-        >
-          <div className="rounded-xl border border-emerald-400/60 bg-neutral-950/95 p-3 shadow-2xl shadow-black/70 ring-1 ring-emerald-400/20">
-            <div className="flex items-center gap-2">
-              <GripVertical className="size-4 text-emerald-300" />
-              <Text className="font-mono text-[11px] text-neutral-400">#{reorderDrag.issue.issue.number}</Text>
-              <Text className="ml-auto text-[10px] text-emerald-300">
-                {reorderDrag.targetIndex === undefined
-                  ? 'Move in canvas'
-                  : roadmapMovePositionLabel(orderingResult, reorderDrag.issue.issue, reorderDrag.targetIndex)}
-              </Text>
-            </div>
-            <Text className="mt-1 line-clamp-2 text-sm font-medium text-neutral-100">{reorderDrag.issue.title}</Text>
-          </div>
-        </div>,
-        document.body
-      ) : null}
+      <RoadmapDragOverlay
+        backlogElement={dropExclusionRef?.current}
+        drag={reorderDrag?.active ? reorderDrag : null}
+        orderingResult={orderingResult}
+      />
     </div>
   );
 }

@@ -18,6 +18,7 @@ export type RoadmapFlowNodeData = (
   | { kind: 'goal'; layoutGroup: RoadmapLayoutGroup }
   | {
       kind: 'issue';
+      dragging?: boolean;
       layoutNode: RoadmapLayoutNode;
       onReorderStart?: (event: ReactPointerEvent<HTMLElement>, issue: RoadmapIssueNode) => void;
       onSelect?: (issue: RoadmapIssueNode) => void;
@@ -36,7 +37,8 @@ export function roadmapReactFlowNodes(
   selectedIssueId?: number,
   onSelect?: (issue: RoadmapIssueNode) => void,
   pendingIssueIds: ReadonlySet<number> = new Set(),
-  onReorderStart?: (event: ReactPointerEvent<HTMLElement>, issue: RoadmapIssueNode) => void
+  onReorderStart?: (event: ReactPointerEvent<HTMLElement>, issue: RoadmapIssueNode) => void,
+  draggingIssueId?: number
 ): RoadmapFlowNode[] {
   const groups = layout.groups.map<RoadmapFlowNode>((layoutGroup) => ({
     ariaLabel: `Goal: ${layoutGroup.goal.title}`,
@@ -59,6 +61,7 @@ export function roadmapReactFlowNodes(
     connectable: false,
     data: {
       kind: 'issue',
+      dragging: layoutNode.issue.issue.id === draggingIssueId,
       layoutNode,
       onReorderStart,
       onSelect,
