@@ -83,6 +83,9 @@ describe('roadmap work shelf', () => {
     expect(html).toContain('Unplanned work');
     expect(html).toContain('Issue #279: Add draggable issue work stack');
     expect(html).toContain('Add issue #279 as Plan 02');
+    expect(html).toContain('Choose plan position for issue #279');
+    expect(html).toContain('Beginning');
+    expect(html).toContain('End');
     expect(html).toContain('Open');
     expect(html).toContain('Closed');
   });

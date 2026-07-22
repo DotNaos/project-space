@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Drawer } from '@heroui/react';
 import {
-  ArrowDown,
-  ArrowUp,
   ExternalLink,
   GitBranch,
   Plus,
@@ -11,6 +9,8 @@ import {
 } from 'lucide-react';
 
 import { Button, Text } from '@/app/dotnaos-ui';
+import { IssueMarkdown } from '@/features/project-desktop/components/issue-markdown';
+import { cn } from '@/lib/utils';
 import type { GitHubIssueRecord } from '@/shared/project-space-api';
 import type { RoadmapIssueNode } from '@/shared/roadmap-api';
 import {
@@ -48,9 +48,16 @@ function InspectorContent({
   const moveRange = planItem
     ? validRoadmapMoveRange(result.plan.items, result.dependencies, planItem.issue)
     : undefined;
+  const otherPlanItems = planItem
+    ? result.plan.items.filter((item) => item.issue.id !== planItem.issue.id)
+    : [];
   const incoming = result.dependencies.filter((edge) => edge.blocked.id === issue.issue.id);
   const outgoing = result.dependencies.filter((edge) => edge.blocker.id === issue.issue.id);
   const nodesById = new Map(result.issues.map((node) => [node.issue.id, node]));
+  const catalogIssue = issues.find((entry) => (
+    entry.number === issue.issue.number
+    && issue.issue.fullName.toLowerCase() === result.repository.fullName.toLowerCase()
+  ));
   const saveItem = (patch: Partial<NonNullable<typeof planItem>>) => {
     if (!planItem) return;
     void roadmap.savePlan(result.plan.goals, result.plan.items.map((item) => (
@@ -71,6 +78,32 @@ function InspectorContent({
         </Text>
       </div>
 
+      <section className="border-t border-neutral-800 pt-4" aria-labelledby="roadmap-description-heading">
+        <Text id="roadmap-description-heading" className="block text-xs font-semibold text-neutral-300">
+          Description
+        </Text>
+        {isLoadingIssues && !catalogIssue ? (
+          <div aria-label="Loading issue description" className="mt-3 grid gap-2">
+            <span className="h-3 w-full animate-pulse rounded bg-neutral-800" />
+            <span className="h-3 w-4/5 animate-pulse rounded bg-neutral-800" />
+            <span className="h-3 w-2/3 animate-pulse rounded bg-neutral-800" />
+          </div>
+        ) : issueError && !catalogIssue ? (
+          <Text className="mt-2 block text-xs text-rose-300">{issueError}</Text>
+        ) : catalogIssue ? (
+          <IssueMarkdown
+            className="mt-3 text-sm leading-6 text-neutral-300"
+            emptyText="No description provided."
+            markdown={catalogIssue.body}
+            repositoryFullName={result.repository.fullName}
+          />
+        ) : (
+          <Text className="mt-2 block text-xs leading-5 text-neutral-500">
+            Description unavailable for this external or inaccessible issue.
+          </Text>
+        )}
+      </section>
+
       {planItem ? (
         <section className="grid gap-3 border-y border-neutral-800 py-4" aria-labelledby="roadmap-plan-order-heading">
           <div className="flex items-center justify-between gap-3">
@@ -82,26 +115,37 @@ function InspectorContent({
               {String(planIndex + 1).padStart(2, '0')}
             </Text>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              isDisabled={!canEdit || roadmap.isSaving || !moveRange || planIndex <= moveRange.minimum}
-              onPress={() => {
-                const moved = moveRoadmapItem(result.plan.items, planItem.issue, planIndex - 1, result.dependencies);
+          <label className="grid gap-1.5 text-xs text-neutral-400">
+            Plan position
+            <select
+              className="min-h-10 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 text-sm text-neutral-100"
+              disabled={!canEdit || roadmap.isSaving || !moveRange}
+              onChange={(event) => {
+                const moved = moveRoadmapItem(
+                  result.plan.items,
+                  planItem.issue,
+                  Number(event.target.value),
+                  result.dependencies
+                );
                 if (moved) void roadmap.savePlan(result.plan.goals, moved);
               }}
-              size="sm"
-              variant="secondary"
-            ><ArrowUp className="size-3.5" /> Earlier</Button>
-            <Button
-              isDisabled={!canEdit || roadmap.isSaving || !moveRange || planIndex >= moveRange.maximum}
-              onPress={() => {
-                const moved = moveRoadmapItem(result.plan.items, planItem.issue, planIndex + 1, result.dependencies);
-                if (moved) void roadmap.savePlan(result.plan.goals, moved);
-              }}
-              size="sm"
-              variant="secondary"
-            ><ArrowDown className="size-3.5" /> Later</Button>
-          </div>
+              value={planIndex}
+            >
+              {Array.from({ length: result.plan.items.length }, (_, index) => (
+                <option
+                  disabled={!moveRange || index < moveRange.minimum || index > moveRange.maximum}
+                  key={index}
+                  value={index}
+                >
+                  {index === 0
+                    ? `Beginning${otherPlanItems[0] ? ` · before #${otherPlanItems[0].issue.number}` : ''}`
+                    : index === result.plan.items.length - 1
+                      ? `End${otherPlanItems.at(-1) ? ` · after #${otherPlanItems.at(-1)?.issue.number}` : ''}`
+                      : `Before #${otherPlanItems[index]?.issue.number}`}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="grid gap-1.5 text-xs text-neutral-400">
             Goal
             <select
@@ -253,6 +297,7 @@ export function RoadmapInspector({
   issues,
   isLoadingIssues,
   onClose,
+  overlay = false,
   roadmap
 }: {
   issue?: RoadmapIssueNode;
@@ -260,6 +305,7 @@ export function RoadmapInspector({
   issues: readonly GitHubIssueRecord[];
   isLoadingIssues?: boolean;
   onClose(): void;
+  overlay?: boolean;
   roadmap: RoadmapController;
 }) {
   const [isMobile, setIsMobile] = useState(false);
@@ -281,11 +327,23 @@ export function RoadmapInspector({
   ) : null;
   return (
     <>
-      <aside className="hidden min-w-0 border-l border-neutral-800 pl-5 md:block">
+      {!overlay || issue ? <aside className={cn(
+        'hidden min-w-0 border-l border-neutral-800 md:block',
+        overlay
+          ? 'absolute inset-y-0 right-0 z-40 w-[23rem] overflow-y-auto bg-neutral-950/95 p-5 shadow-2xl shadow-black/60 backdrop-blur-xl'
+          : 'pl-5'
+      )}>
         {!isMobile
-          ? content ?? <Text className="text-sm text-neutral-500">Select an issue or dependency arrow to inspect it.</Text>
+          ? issue ? <>
+            {overlay ? (
+              <Button aria-label="Close issue inspector" className="mb-3 ml-auto" isIconOnly onPress={onClose} size="sm" variant="ghost">
+                <X className="size-4" />
+              </Button>
+            ) : null}
+            {content}
+          </> : overlay ? null : <Text className="text-sm text-neutral-500">Select an issue or dependency arrow to inspect it.</Text>
           : null}
-      </aside>
+      </aside> : null}
       <Drawer.Backdrop
         className="fixed inset-0 z-[120] bg-black/55 backdrop-blur-sm md:hidden"
         isOpen={Boolean(issue) && isMobile}

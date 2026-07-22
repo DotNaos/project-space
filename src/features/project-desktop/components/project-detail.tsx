@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ExternalLink,
   FileCheck2,
@@ -33,7 +33,6 @@ import { ProjectTemplateAdherencePanel } from './project-template-adherence-pane
 import { ProjectTemplateSetupPanel } from './project-template-setup-panel';
 import { ProjectctlManifestPanel } from './projectctl-manifest-panel';
 import { RepositoryActivityPanel } from './repository-activity-panel';
-import { RoadmapPanel } from '../../roadmap/roadmap-panel';
 import { projectTabItems } from './project-detail-tabs';
 
 const templateStatusTitle: Record<FullstackTemplateCheck['status'], string> = {
@@ -314,17 +313,21 @@ export function ProjectDetail({
   const containsOwnScroll = tab === 'history' || tab === 'issues' || tab === 'chat' || tab === 'codex';
   const templateTargetPath = joinTargetPath(selectedTargetPath, templateRelativePath);
 
+  useEffect(() => {
+    if (tab === 'roadmap') onSelectTab('issues');
+  }, [onSelectTab, tab]);
+
   return (
     <div
       className={cn(
         'mx-auto flex w-full flex-col gap-4',
-        tab === 'roadmap' ? 'max-w-[90rem]' : 'max-w-5xl',
-        containsOwnScroll ? 'h-full min-h-0 overflow-hidden' : 'min-h-full'
+        tab === 'issues' || tab === 'roadmap' ? 'max-w-[90rem]' : 'max-w-5xl',
+        containsOwnScroll || tab === 'roadmap' ? 'h-full min-h-0 overflow-hidden' : 'min-h-full'
       )}
     >
       <div className="-mx-1 shrink-0 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <Tabs
-          selectedKey={projectTabItems.some((item) => item.id === tab) ? tab : 'overview'}
+          selectedKey={tab === 'roadmap' ? 'issues' : projectTabItems.some((item) => item.id === tab) ? tab : 'overview'}
           onSelectionChange={(key) => {
             const nextTab = projectTabItems.find((item) => item.id === key);
 
@@ -417,7 +420,7 @@ export function ProjectDetail({
           />
         ) : null}
 
-        {tab === 'issues' ? (
+        {tab === 'issues' || tab === 'roadmap' ? (
           <ProjectIssueDetailPanel
             connectorOverview={connectorOverview}
             issueNumber={selectedIssueNumber}
@@ -427,15 +430,6 @@ export function ProjectDetail({
             projects={projects}
             repository={selectedRepository}
             targetPath={selectedTargetPath}
-          />
-        ) : null}
-
-        {tab === 'roadmap' ? (
-          <RoadmapPanel
-            onOpenIssue={onOpenIssue}
-            onSelectIssues={() => onSelectTab('issues')}
-            project={project}
-            repository={selectedRepository}
           />
         ) : null}
 

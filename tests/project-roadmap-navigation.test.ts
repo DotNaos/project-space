@@ -14,8 +14,11 @@ const { parseProjectRoute, routeForView } = await import(
 const { roadmapRepositoryForProject } = await import(
   '../src/features/roadmap/use-roadmap-repository'
 );
-const { RoadmapRequestOrder, roadmapResultForRepository } = await import(
+const { RoadmapMutationOrder, RoadmapRequestOrder, roadmapResultForRepository } = await import(
   '../src/features/roadmap/use-roadmap'
+);
+const { issueViewModeForLocation } = await import(
+  '../src/features/project-desktop/components/issue-board-model'
 );
 
 test('restores the Roadmap tab from its direct URL', () => {
@@ -27,6 +30,8 @@ test('restores the Roadmap tab from its direct URL', () => {
     view: 'project'
   });
   expect(parseProjectRoute(`${route}/`)).toMatchObject({ projectTab: 'roadmap' });
+  expect(issueViewModeForLocation('board', route)).toBe('graph');
+  expect(issueViewModeForLocation('graph', '/projects/project/issues')).toBe('graph');
 });
 
 test('resolves a local project repository when Roadmap opens before the shell catalog is hydrated', () => {
@@ -76,4 +81,13 @@ test('does not let an overlapping refresh replace a newer roadmap mutation', () 
   const refreshDuringSave = order.begin();
   order.begin();
   expect(order.isCurrent(refreshDuringSave)).toBe(false);
+});
+
+test('cancels an in-flight roadmap mutation when repository identity changes', () => {
+  const order = new RoadmapMutationOrder();
+  const firstRepositoryMutation = order.begin();
+  order.cancel();
+  expect(order.isCurrent(firstRepositoryMutation)).toBe(false);
+  const secondRepositoryMutation = order.begin();
+  expect(order.isCurrent(secondRepositoryMutation)).toBe(true);
 });

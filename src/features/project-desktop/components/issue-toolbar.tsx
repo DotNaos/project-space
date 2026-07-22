@@ -1,4 +1,4 @@
-import { Columns3, List, ListChecks, Plus, Search, SlidersHorizontal } from 'lucide-react';
+import { Columns3, GitBranch, List, ListChecks, Plus, Search, SlidersHorizontal } from 'lucide-react';
 import {
   Button,
   SearchField,
@@ -38,19 +38,23 @@ function ViewSwitch({
       onSelectionChange={(keys) => {
         const nextMode = Array.from(keys)[0];
 
-        if (nextMode === 'list' || nextMode === 'board') {
+        if (nextMode === 'list' || nextMode === 'board' || nextMode === 'graph') {
           onViewModeChange(nextMode);
         }
       }}
       className="shrink-0 rounded-lg bg-neutral-900/70 p-1"
     >
-      <ToggleButton id="list" className="h-8 gap-1.5 rounded-md px-2.5 text-xs">
+      <ToggleButton aria-label="List view" id="list" className="h-8 gap-1.5 rounded-md px-2.5 text-xs">
         <List className="size-3.5" />
-        List
+        <span className={viewMode === 'list' ? 'inline' : 'hidden lg:inline'}>List</span>
       </ToggleButton>
-      <ToggleButton id="board" className="h-8 gap-1.5 rounded-md px-2.5 text-xs">
+      <ToggleButton aria-label="Board view" id="board" className="h-8 gap-1.5 rounded-md px-2.5 text-xs">
         <Columns3 className="size-3.5" />
-        Board
+        <span className={viewMode === 'board' ? 'inline' : 'hidden lg:inline'}>Board</span>
+      </ToggleButton>
+      <ToggleButton aria-label="Graph view" id="graph" className="h-8 gap-1.5 rounded-md px-2.5 text-xs">
+        <GitBranch className="size-3.5" />
+        <span className={viewMode === 'graph' ? 'inline' : 'hidden lg:inline'}>Graph</span>
       </ToggleButton>
     </ToggleButtonGroup>
   );
@@ -64,6 +68,26 @@ export function IssueToolbar(props: IssueToolbarProps) {
       : props.hasFilter
         ? `${props.filteredCount}/${props.totalCount}`
         : props.totalCount;
+
+  if (props.viewMode === 'graph') {
+    return (
+      <div className="mb-2 flex min-w-0 shrink-0 items-center gap-2">
+        <ViewSwitch viewMode={props.viewMode} onViewModeChange={props.onViewModeChange} />
+        <span className="hidden text-xs text-neutral-500 sm:inline">Dependency graph</span>
+        <Button
+          aria-label="Create issue"
+          className="ml-auto"
+          isDisabled={props.isCreateDisabled}
+          isIconOnly
+          onPress={props.onCreate}
+          size="sm"
+          variant="ghost"
+        >
+          <Plus className="size-4" />
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="mb-3 flex min-w-0 shrink-0 items-center gap-3">

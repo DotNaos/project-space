@@ -10,6 +10,7 @@ import type {
   GitHubRepositoryDetailsResult
 } from '@/shared/project-space-api';
 import type { RoadmapController } from '../../roadmap/use-roadmap';
+import { RoadmapIssuesGraphView } from '../../roadmap/roadmap-issues-graph-view';
 import { GitHubMark } from './github-mark';
 import { moveIssueToColumn } from './issue-board-move';
 import { IssueBoardMoveLock } from './issue-board-move-lock';
@@ -259,7 +260,10 @@ export function IssueIndexPanel(props: IssueIndexPanelProps) {
   };
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col pb-20 sm:pb-0">
+    <div className={cn(
+      'relative flex min-h-0 flex-1 flex-col',
+      props.viewMode === 'graph' ? 'pb-0' : 'pb-20 sm:pb-0'
+    )}>
       <IssueToolbar
         countState={props.evidenceState}
         filteredCount={filteredIssues.length}
@@ -274,17 +278,19 @@ export function IssueIndexPanel(props: IssueIndexPanelProps) {
         viewMode={props.viewMode}
       />
 
-      {props.roadmap?.error ? (
+      {props.viewMode !== 'graph' && props.roadmap?.error ? (
         <div role="alert" className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
           {props.roadmap.error}
         </div>
       ) : null}
-      {props.roadmap?.result?.dependencySync === 'stale' ? (
+      {props.viewMode !== 'graph' && props.roadmap?.result?.dependencySync === 'stale' ? (
         <div role="alert" className="mb-3 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
           GitHub prerequisites are stale. Plan editing is paused until refresh succeeds.
         </div>
       ) : null}
-      <div aria-live="polite" className="sr-only">{props.roadmap?.announcement}</div>
+      {props.viewMode !== 'graph' ? (
+        <div aria-live="polite" className="sr-only">{props.roadmap?.announcement}</div>
+      ) : null}
 
       {props.viewMode === 'board' ? (
         <>
@@ -325,13 +331,15 @@ export function IssueIndexPanel(props: IssueIndexPanelProps) {
         visibleColumns={visibleColumns}
       />
 
-      <IssueMobileActionBar
-        isCreateDisabled={!props.repository}
-        onCreate={openCreation}
-        onFilter={() => setIsFilterOpen(true)}
-        onQueryChange={props.onQueryChange}
-        query={props.query}
-      />
+      {props.viewMode !== 'graph' ? (
+        <IssueMobileActionBar
+          isCreateDisabled={!props.repository}
+          onCreate={openCreation}
+          onFilter={() => setIsFilterOpen(true)}
+          onQueryChange={props.onQueryChange}
+          query={props.query}
+        />
+      ) : null}
       <IssueFilterOverlay
         activeLabels={props.activeLabels}
         labels={labels}
@@ -375,6 +383,17 @@ function IssueContent({
   overrides: IssueColumnOverrides;
   visibleColumns: ReturnType<typeof orderedIssueColumns>;
 }) {
+  if (viewMode === 'graph') {
+    return roadmap ? (
+      <RoadmapIssuesGraphView
+        issueError={evidenceState === 'blocked' ? emptyMessage : undefined}
+        issues={issues}
+        isLoadingIssues={isLoading}
+        roadmap={roadmap}
+        repository={repository}
+      />
+    ) : <IssueEmptyState message="The graph is unavailable for this project." />;
+  }
   if (isLoading && issues.length === 0) return <IssueIndexSkeleton viewMode={viewMode} />;
   if (issues.length === 0) {
     return (
@@ -421,13 +440,13 @@ function IssueContent({
 
 function IssueIndexSkeleton({ viewMode }: { viewMode: IssueViewMode }) {
   return (
-    <div className={cn('flex min-h-0 flex-1 gap-3 overflow-hidden', viewMode === 'list' && 'flex-col')}>
+    <div className={cn('flex min-h-0 flex-1 gap-3 overflow-hidden', viewMode !== 'board' && 'flex-col')}>
       {Array.from({ length: viewMode === 'list' ? 8 : 4 }, (_, index) => (
         <div
           key={index}
           className={cn(
             'animate-pulse rounded-xl border border-neutral-800/70 bg-neutral-950/40',
-            viewMode === 'list' ? 'h-11 w-full' : 'h-full w-80 shrink-0'
+            viewMode === 'list' ? 'h-11 w-full' : viewMode === 'graph' ? 'h-full w-full' : 'h-full w-80 shrink-0'
           )}
         />
       ))}

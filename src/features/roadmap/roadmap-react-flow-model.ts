@@ -3,6 +3,7 @@ import {
   type Edge,
   type Node
 } from '@xyflow/react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 
 import { roadmapIssueKey } from '../../shared/roadmap-model';
 import type {
@@ -15,7 +16,13 @@ import { roadmapNodeId } from './roadmap-layout';
 
 export type RoadmapFlowNodeData = (
   | { kind: 'goal'; layoutGroup: RoadmapLayoutGroup }
-  | { kind: 'issue'; layoutNode: RoadmapLayoutNode; onSelect?: (issue: RoadmapIssueNode) => void }
+  | {
+      kind: 'issue';
+      layoutNode: RoadmapLayoutNode;
+      onReorderStart?: (event: ReactPointerEvent<HTMLElement>, issue: RoadmapIssueNode) => void;
+      onSelect?: (issue: RoadmapIssueNode) => void;
+      pending?: boolean;
+    }
 ) & Record<string, unknown>;
 
 export type RoadmapFlowNode = Node<RoadmapFlowNodeData, 'roadmap'>;
@@ -27,7 +34,9 @@ export type RoadmapFlowEdge = Edge<{
 export function roadmapReactFlowNodes(
   layout: RoadmapLayout,
   selectedIssueId?: number,
-  onSelect?: (issue: RoadmapIssueNode) => void
+  onSelect?: (issue: RoadmapIssueNode) => void,
+  pendingIssueIds: ReadonlySet<number> = new Set(),
+  onReorderStart?: (event: ReactPointerEvent<HTMLElement>, issue: RoadmapIssueNode) => void
 ): RoadmapFlowNode[] {
   const groups = layout.groups.map<RoadmapFlowNode>((layoutGroup) => ({
     ariaLabel: `Goal: ${layoutGroup.goal.title}`,
@@ -48,7 +57,13 @@ export function roadmapReactFlowNodes(
   const issues = layout.nodes.map<RoadmapFlowNode>((layoutNode) => ({
     ariaLabel: issueActivationLabel(layoutNode),
     connectable: false,
-    data: { kind: 'issue', layoutNode, onSelect },
+    data: {
+      kind: 'issue',
+      layoutNode,
+      onReorderStart,
+      onSelect,
+      pending: pendingIssueIds.has(layoutNode.issue.issue.id)
+    },
     deletable: false,
     draggable: false,
     focusable: false,

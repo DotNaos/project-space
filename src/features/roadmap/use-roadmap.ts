@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { projectSpaceClient } from '@/api/project-space-client';
+import type { GitHubIssueRecord } from '@/shared/project-space-api';
 import type {
   RoadmapDependencyMutationRequest,
   RoadmapGoal,
@@ -8,15 +9,26 @@ import type {
   RoadmapPlanItemInput,
   RoadmapResult
 } from '@/shared/roadmap-api';
-import { roadmapAdditionIndex } from '../../shared/roadmap-model';
+import { validRoadmapAdditionRange } from '../../shared/roadmap-model';
+import {
+  optimisticRoadmapDependency,
+  optimisticRoadmapPlan,
+  roadmapDependencyMutationIssueIds
+} from './roadmap-optimistic';
 
 export interface RoadmapController {
   addDependency(request: Omit<RoadmapDependencyMutationRequest, 'expectedGraphRevision' | 'fullName'>): Promise<boolean>;
-  addIssue(issueNumber: number, options?: { goalId?: string; goals?: RoadmapGoal[] }): Promise<boolean>;
+  addIssue(issueNumber: number, options?: {
+    goalId?: string;
+    goals?: RoadmapGoal[];
+    insertionIndex?: number;
+    issue?: GitHubIssueRecord;
+  }): Promise<boolean>;
   announcement: string;
   error: string;
   isLoading: boolean;
   isSaving: boolean;
+  pendingIssueIds: ReadonlySet<number>;
   refresh(): void;
   removeDependency(request: Omit<RoadmapDependencyMutationRequest, 'expectedGraphRevision' | 'fullName'>): Promise<boolean>;
   result?: RoadmapResult;
@@ -41,6 +53,12 @@ export class RoadmapRequestOrder {
   }
 }
 
+export class RoadmapMutationOrder extends RoadmapRequestOrder {
+  cancel() {
+    this.begin();
+  }
+}
+
 export function roadmapResultForRepository(
   loaded: LoadedRoadmap | undefined,
   fullName: string | undefined
@@ -54,20 +72,33 @@ export function useRoadmap(fullName?: string): RoadmapController {
   const [announcement, setAnnouncement] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [pendingIssueIds, setPendingIssueIds] = useState<ReadonlySet<number>>(() => new Set());
   const [generation, setGeneration] = useState(0);
   const result = roadmapResultForRepository(loaded, fullName);
   const error = errorState.fullName === fullName ? errorState.message : '';
   const fullNameRef = useRef(fullName);
   const requestOrderRef = useRef(new RoadmapRequestOrder());
+  const mutationOrderRef = useRef(new RoadmapMutationOrder());
+  const isSavingRef = useRef(false);
   const resultRef = useRef(result);
   fullNameRef.current = fullName;
   resultRef.current = result;
+
+  useEffect(() => {
+    mutationOrderRef.current.cancel();
+    isSavingRef.current = false;
+    setIsSaving(false);
+    setPendingIssueIds(new Set());
+  }, [fullName]);
 
   useEffect(() => {
     if (!fullName) {
       setLoaded(undefined);
       setErrorState({ message: '' });
       setIsLoading(false);
+      setIsSaving(false);
+      setPendingIssueIds(new Set());
+      isSavingRef.current = false;
       return;
     }
     let canceled = false;
@@ -116,13 +147,21 @@ export function useRoadmap(fullName?: string): RoadmapController {
 
   const savePlanInputs = useCallback(async (
     goals: RoadmapGoal[],
-    items: RoadmapPlanItemInput[]
+    items: RoadmapPlanItemInput[],
+    options: { addedIssue?: GitHubIssueRecord; pendingIssueIds?: number[] } = {}
   ) => {
     const current = resultRef.current;
-    if (!fullName || !current) return false;
+    if (!fullName || !current || isSavingRef.current) return false;
+    const mutation = mutationOrderRef.current.begin();
     requestOrderRef.current.begin();
+    const optimistic = optimisticRoadmapPlan(current, goals, items, options.addedIssue);
+    resultRef.current = optimistic;
+    setLoaded({ fullName, result: optimistic });
+    isSavingRef.current = true;
     setIsSaving(true);
+    setPendingIssueIds(new Set(options.pendingIssueIds ?? []));
     setErrorState({ fullName, message: '' });
+    setAnnouncement('Saving roadmap…');
     try {
       const next = await projectSpaceClient.updateRoadmapPlan({
         expectedGraphRevision: current.graphRevision,
@@ -131,15 +170,27 @@ export function useRoadmap(fullName?: string): RoadmapController {
         goals,
         items
       });
+      if (fullNameRef.current !== fullName || !mutationOrderRef.current.isCurrent(mutation)) return false;
       return acceptMutation(next, 'Roadmap plan saved.');
     } catch (reason) {
+      if (fullNameRef.current !== fullName || !mutationOrderRef.current.isCurrent(mutation)) return false;
+      resultRef.current = current;
+      setLoaded({ fullName, result: current });
       setErrorState({
         fullName,
-        message: reason instanceof Error ? reason.message : 'Could not save the roadmap plan.'
+        message: reason instanceof Error
+          ? `${reason.message} Your roadmap change was undone.`
+          : 'Could not save the roadmap plan. Your change was undone.'
       });
+      setAnnouncement('Save failed. The roadmap was restored.');
+      setGeneration((value) => value + 1);
       return false;
     } finally {
-      setIsSaving(false);
+      if (fullNameRef.current === fullName && mutationOrderRef.current.isCurrent(mutation)) {
+        isSavingRef.current = false;
+        setIsSaving(false);
+        setPendingIssueIds(new Set());
+      }
     }
   }, [acceptMutation, fullName]);
 
@@ -148,12 +199,17 @@ export function useRoadmap(fullName?: string): RoadmapController {
       goalId: item.goalId,
       issueNumber: item.issue.number,
       plannedState: item.plannedState
-    })))
+    })), { pendingIssueIds: items.map((item) => item.issue.id) })
   ), [savePlanInputs]);
 
   const addIssue = useCallback((
     issueNumber: number,
-    options: { goalId?: string; goals?: RoadmapGoal[] } = {}
+    options: {
+      goalId?: string;
+      goals?: RoadmapGoal[];
+      insertionIndex?: number;
+      issue?: GitHubIssueRecord;
+    } = {}
   ) => {
     const current = resultRef.current;
     if (!current || current.plan.items.some((item) => item.issue.number === issueNumber)) {
@@ -163,10 +219,28 @@ export function useRoadmap(fullName?: string): RoadmapController {
       node.issue.number === issueNumber
       && node.issue.fullName.toLowerCase() === current.repository.fullName.toLowerCase()
     ));
-    const insertionIndex = issue
-      ? roadmapAdditionIndex(current.plan.items, current.dependencies, issue.issue)
-      : current.plan.items.length;
-    if (insertionIndex === undefined) return Promise.resolve(false);
+    const optimisticIssue = options.issue ?? (!issue ? {
+      id: -Math.max(1, issueNumber),
+      labels: [],
+      number: issueNumber,
+      state: 'open' as const,
+      title: `Issue #${issueNumber}`,
+      url: `https://github.com/${current.repository.fullName}/issues/${issueNumber}`
+    } : undefined);
+    const additionIssue = issue?.issue ?? (optimisticIssue ? {
+      fullName: current.repository.fullName,
+      id: optimisticIssue.id ?? -Math.max(1, optimisticIssue.number),
+      number: optimisticIssue.number,
+      url: optimisticIssue.url
+    } : undefined);
+    const range = additionIssue
+      ? validRoadmapAdditionRange(current.plan.items, current.dependencies, additionIssue)
+      : { maximum: current.plan.items.length, minimum: 0 };
+    const insertionIndex = options.insertionIndex ?? range?.maximum;
+    if (!range || insertionIndex === undefined
+      || insertionIndex < range.minimum || insertionIndex > range.maximum) {
+      return Promise.resolve(false);
+    }
     const items = current.plan.items.map((item) => ({
         goalId: item.goalId,
         issueNumber: item.issue.number,
@@ -177,7 +251,10 @@ export function useRoadmap(fullName?: string): RoadmapController {
       issueNumber,
       plannedState: 'planned'
     });
-    return savePlanInputs(options.goals ?? current.plan.goals, items);
+    return savePlanInputs(options.goals ?? current.plan.goals, items, {
+      addedIssue: optimisticIssue,
+      pendingIssueIds: additionIssue ? [additionIssue.id] : []
+    });
   }, [savePlanInputs]);
 
   const mutateDependency = useCallback(async (
@@ -185,10 +262,17 @@ export function useRoadmap(fullName?: string): RoadmapController {
     request: Omit<RoadmapDependencyMutationRequest, 'expectedGraphRevision' | 'fullName'>
   ) => {
     const current = resultRef.current;
-    if (!fullName || !current) return false;
+    if (!fullName || !current || isSavingRef.current) return false;
+    const mutation = mutationOrderRef.current.begin();
     requestOrderRef.current.begin();
+    const optimistic = optimisticRoadmapDependency(current, operation, request);
+    resultRef.current = optimistic;
+    setLoaded({ fullName, result: optimistic });
+    isSavingRef.current = true;
     setIsSaving(true);
+    setPendingIssueIds(new Set(roadmapDependencyMutationIssueIds(current, request)));
     setErrorState({ fullName, message: '' });
+    setAnnouncement(operation === 'add' ? 'Adding prerequisite…' : 'Removing prerequisite…');
     try {
       const payload = {
         ...request,
@@ -198,15 +282,27 @@ export function useRoadmap(fullName?: string): RoadmapController {
       const next = operation === 'add'
         ? await projectSpaceClient.addRoadmapDependency(payload)
         : await projectSpaceClient.removeRoadmapDependency(payload);
+      if (fullNameRef.current !== fullName || !mutationOrderRef.current.isCurrent(mutation)) return false;
       return acceptMutation(next, operation === 'add' ? 'Prerequisite added.' : 'Prerequisite removed.');
     } catch (reason) {
+      if (fullNameRef.current !== fullName || !mutationOrderRef.current.isCurrent(mutation)) return false;
+      resultRef.current = current;
+      setLoaded({ fullName, result: current });
       setErrorState({
         fullName,
-        message: reason instanceof Error ? reason.message : 'Could not update the prerequisite.'
+        message: reason instanceof Error
+          ? `${reason.message} The relationship change was undone.`
+          : 'Could not update the prerequisite. The relationship change was undone.'
       });
+      setAnnouncement('Relationship save failed. The roadmap was restored.');
+      setGeneration((value) => value + 1);
       return false;
     } finally {
-      setIsSaving(false);
+      if (fullNameRef.current === fullName && mutationOrderRef.current.isCurrent(mutation)) {
+        isSavingRef.current = false;
+        setIsSaving(false);
+        setPendingIssueIds(new Set());
+      }
     }
   }, [acceptMutation, fullName]);
 
@@ -217,7 +313,10 @@ export function useRoadmap(fullName?: string): RoadmapController {
     error,
     isLoading: isLoading || Boolean(fullName && loaded?.fullName !== fullName),
     isSaving,
-    refresh: () => setGeneration((value) => value + 1),
+    pendingIssueIds,
+    refresh: () => {
+      if (!isSavingRef.current) setGeneration((value) => value + 1);
+    },
     removeDependency: (request) => mutateDependency('remove', request),
     result,
     savePlan

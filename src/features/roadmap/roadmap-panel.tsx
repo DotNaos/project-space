@@ -232,7 +232,7 @@ export function RoadmapPanel({
             isLoading={issueCatalog.isLoading}
             isSaving={roadmap.isSaving}
             issues={issueCatalog.issues}
-            onAdd={roadmap.addIssue}
+            onAdd={(issue, insertionIndex) => roadmap.addIssue(issue.number, { insertionIndex, issue })}
             onDragFeedback={setShelfDragFeedback}
             onRetry={issueCatalog.refresh}
             result={result}

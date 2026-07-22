@@ -106,8 +106,8 @@ function EditorContent({
   if (!result) return null;
   const canEdit = result.canEdit && result.dependencySync === 'current';
   const plannedNumbers = new Set(result.plan.items.map((item) => item.issue.number));
-  const addIssue = (issueNumber: number, goalId?: string) => {
-    void roadmap.addIssue(issueNumber, { goalId }).then((saved) => {
+  const addIssue = (issueNumber: number, goalId?: string, issue?: GitHubIssueRecord) => {
+    void roadmap.addIssue(issueNumber, { goalId, issue }).then((saved) => {
       if (saved) {
         setPickingGoalId('');
         setCreatedGoalId('');
@@ -129,7 +129,7 @@ function EditorContent({
           isDisabled={!canEdit || roadmap.isSaving}
           isLoading={isLoadingIssues}
           issues={issues}
-          onSelect={(issue) => addIssue(issue.number)}
+          onSelect={(issue) => addIssue(issue.number, undefined, issue)}
           onUseExactNumber={(number) => addIssue(number)}
           title="Add an existing GitHub issue"
         />
@@ -241,7 +241,7 @@ function EditorContent({
                     isDisabled={!canEdit || roadmap.isSaving}
                     isLoading={isLoadingIssues}
                     issues={issues}
-                    onSelect={(issue) => addIssue(issue.number, goal.id)}
+                    onSelect={(issue) => addIssue(issue.number, goal.id, issue)}
                     onUseExactNumber={(number) => addIssue(number, goal.id)}
                     title={`Add the first issue to ${goal.title}`}
                   />
