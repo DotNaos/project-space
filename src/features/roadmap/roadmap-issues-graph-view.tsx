@@ -36,6 +36,7 @@ export function RoadmapIssuesGraphView({
   const compact = useCompactGraph();
   const {
     clear: clearSelection,
+    preview: previewSelection,
     select: selectSelection,
     selectedIssueId
   } = useRoadmapSelection(result?.repository.id);
@@ -72,16 +73,39 @@ export function RoadmapIssuesGraphView({
     return saved;
   };
   const selectIssue = (issue: RoadmapIssueNode) => selectSelection(issue.issue.id);
-  const reorderIssue = (issue: RoadmapIssueNode, insertionIndex: number) => {
+  const reorderIssue = async (issue: RoadmapIssueNode, insertionIndex: number) => {
     const moved = moveRoadmapItem(
       result.plan.items,
       issue.issue,
       insertionIndex,
       result.dependencies
     );
-    if (!moved) return Promise.resolve(false);
-    selectSelection(issue.issue.id);
-    return roadmap.savePlan(result.plan.goals, moved);
+    if (!moved) return false;
+    const previousSelection = selectedIssueId;
+    previewSelection(issue.issue.id);
+    const saved = await roadmap.savePlan(result.plan.goals, moved);
+    if (roadmapSelectedIssueId(window.location.search) === previousSelection) {
+      if (saved) selectSelection(issue.issue.id);
+      else previewSelection(previousSelection);
+    }
+    return saved;
+  };
+  const removeIssue = async (issue: RoadmapIssueNode) => {
+    const previousSelection = selectedIssueId;
+    const removedSelection = previousSelection === issue.issue.id;
+    if (removedSelection) previewSelection(undefined);
+    const saved = await roadmap.savePlan(
+      result.plan.goals,
+      result.plan.items.filter((item) => item.issue.id !== issue.issue.id)
+    );
+    if (
+      removedSelection
+      && roadmapSelectedIssueId(window.location.search) === previousSelection
+    ) {
+      if (saved) clearSelection();
+      else previewSelection(previousSelection);
+    }
+    return saved;
   };
 
   return (
@@ -138,6 +162,7 @@ export function RoadmapIssuesGraphView({
             dropTarget={dragFeedback}
             fill
             onSelect={selectIssue}
+            onRemove={canEdit && !roadmap.isSaving ? removeIssue : undefined}
             onReorder={canEdit && !roadmap.isSaving ? reorderIssue : undefined}
             orderingResult={result}
             pendingIssueIds={roadmap.pendingIssueIds}

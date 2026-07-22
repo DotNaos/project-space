@@ -23,11 +23,15 @@ import { cn } from '@/lib/utils';
 import type { GitHubIssueRecord } from '@/shared/project-space-api';
 import type { RoadmapResult } from '@/shared/roadmap-api';
 import {
+  roadmapGeometricDropTarget,
+  roadmapGraphNodeRects,
+  type RoadmapDropMarker
+} from './roadmap-drop-geometry';
+import {
   pointIsInsideElement,
   roadmapAdditionPositionLabel,
   roadmapWorkShelfAdditionIndex,
   roadmapWorkShelfAdditionRange,
-  roadmapWorkShelfInsertionIndex,
   roadmapWorkShelfIssues,
   roadmapWorkShelfPlanLabel
 } from './roadmap-work-shelf-model';
@@ -37,6 +41,7 @@ const dragActivationDistance = 6;
 export interface RoadmapShelfDragFeedback {
   active: boolean;
   insertionIndex?: number;
+  marker?: RoadmapDropMarker;
   overGraph: boolean;
   planLabel: string;
   positionLabel?: string;
@@ -178,15 +183,27 @@ export function RoadmapWorkShelf({
       if (!pointIsInsideElement({ x, y }, rect)) return undefined;
       const exclusion = dropExclusionRef?.current?.getBoundingClientRect();
       if (exclusion && pointIsInsideElement({ x, y }, exclusion)) return undefined;
-      const usableBottom = exclusion && exclusion.top > rect.top
+      const bottom = exclusion && exclusion.top > rect.top
         ? Math.min(rect.bottom, exclusion.top)
         : rect.bottom;
-      if (y > usableBottom) return undefined;
-      return roadmapWorkShelfInsertionIndex(
-        result,
-        issue,
-        (y - rect.top) / Math.max(1, usableBottom - rect.top)
-      );
+      const usableRect = {
+        bottom,
+        height: Math.max(1, bottom - rect.top),
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        width: rect.width
+      };
+      if (!pointIsInsideElement({ x, y }, usableRect)) return undefined;
+      const range = roadmapWorkShelfAdditionRange(result, issue);
+      if (!range) return undefined;
+      return roadmapGeometricDropTarget({
+        graphRect: usableRect,
+        nodeRects: roadmapGraphNodeRects(graph, usableRect),
+        orderedIssueIds: result.plan.items.map((item) => item.issue.id),
+        point: { x, y },
+        range
+      });
     };
     const handleMove = (event: PointerEvent) => {
       const current = dragRef.current;
@@ -195,10 +212,11 @@ export function RoadmapWorkShelf({
         event.clientX - current.originX,
         event.clientY - current.originY
       ) > dragActivationDistance;
-      const insertionIndex = active
+      const target = active
         ? graphTarget(event.clientX, event.clientY, current.issue)
         : undefined;
-      const overGraph = insertionIndex !== undefined;
+      const insertionIndex = target?.insertionIndex;
+      const overGraph = target !== undefined;
       const next = {
         ...current,
         active,
@@ -212,6 +230,7 @@ export function RoadmapWorkShelf({
       feedbackRef.current(active ? {
         active: true,
         insertionIndex,
+        marker: target?.marker,
         overGraph,
         planLabel: roadmapWorkShelfPlanLabel(insertionIndex ?? current.insertionIndex),
         positionLabel: insertionIndex === undefined
@@ -233,8 +252,8 @@ export function RoadmapWorkShelf({
       updateDrag(null);
       feedbackRef.current(null);
       if (shouldAdd) {
-        const insertionIndex = graphTarget(x as number, y as number, current.issue);
-        void runAddRef.current(current.issue, insertionIndex);
+        const target = graphTarget(x as number, y as number, current.issue);
+        void runAddRef.current(current.issue, target?.insertionIndex);
       }
     };
     const handleUp = (event: PointerEvent) => finishDrag(true, event.clientX, event.clientY);

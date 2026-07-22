@@ -52,6 +52,7 @@ export function RoadmapGraphNode({ data, selected }: NodeProps<RoadmapFlowNode>)
           ? (event) => data.onReorderStart?.(event, node.issue)
           : undefined}
         onSelect={() => data.onSelect?.(node.issue)}
+        dragging={data.dragging}
         pending={data.pending}
         selected={selected}
       />
@@ -64,12 +65,14 @@ export function RoadmapIssueCard({
   node,
   onReorderStart,
   onSelect,
+  dragging = false,
   pending = false,
   selected = false
 }: {
   node: RoadmapLayoutNode;
   onReorderStart?(event: ReactPointerEvent<HTMLElement>): void;
   onSelect?(): void;
+  dragging?: boolean;
   pending?: boolean;
   selected?: boolean;
 }) {
@@ -80,7 +83,9 @@ export function RoadmapIssueCard({
       aria-current={active ? 'step' : undefined}
       aria-label={`Inspect issue #${node.issue.issue.number}: ${node.issue.title}`}
       className={cn(
-        'nodrag nopan flex size-full min-w-0 flex-col rounded-xl border bg-neutral-950/95 px-3.5 py-3 text-left shadow-lg shadow-black/20 outline-none transition-[border-color,box-shadow,transform] duration-200 motion-reduce:transition-none',
+        'nodrag nopan flex size-full min-w-0 flex-col rounded-xl border bg-neutral-950/95 px-3.5 py-3 text-left shadow-lg shadow-black/20 outline-none transition-[border-color,box-shadow,opacity,transform] duration-200 motion-reduce:transition-none',
+        onReorderStart && node.planItem && '[@media(pointer:fine)]:cursor-grab [@media(pointer:fine)]:select-none [@media(pointer:fine)]:active:cursor-grabbing',
+        dragging && 'opacity-25',
         active
           ? '!border-emerald-200 !bg-emerald-600/65 !text-white ring-2 ring-emerald-300/70 shadow-[0_0_32px_rgba(16,185,129,0.45)]'
           : statusTone[node.issue.availability],
@@ -94,6 +99,10 @@ export function RoadmapIssueCard({
         if (event.key !== 'Enter' && event.key !== ' ') return;
         event.preventDefault();
         onSelect?.();
+      }}
+      onPointerDown={(event) => {
+        if (!node.planItem) return;
+        onReorderStart?.(event);
       }}
       type="button"
     >
@@ -117,16 +126,10 @@ export function RoadmapIssueCard({
             aria-hidden="true"
             className={cn(
               'nodrag inline-flex touch-none items-center gap-0.5 rounded border border-neutral-700 bg-neutral-900 px-1 py-0.5 text-neutral-400',
-              onReorderStart && 'cursor-grab hover:border-neutral-500 active:cursor-grabbing'
+              onReorderStart && 'hover:border-neutral-500'
             )}
             data-roadmap-reorder-handle={node.issue.issue.id}
-            onPointerDown={(event) => {
-              if (!onReorderStart) return;
-              event.preventDefault();
-              event.stopPropagation();
-              onReorderStart(event);
-            }}
-            title={onReorderStart ? 'Drag to change manual plan position' : undefined}
+            title={onReorderStart ? 'Drag the issue to change its plan position or return it to unplanned work' : undefined}
           >
             {onReorderStart ? <GripVertical className="size-3" /> : null}
             <Text className="font-mono text-[10px] tabular-nums">

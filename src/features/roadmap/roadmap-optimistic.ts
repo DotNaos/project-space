@@ -27,17 +27,24 @@ export function optimisticRoadmapPlan(
     issues = [...issues, issueNode(addedIssue, reference)];
   }
 
+  const plan = {
+    ...result.plan,
+    goals,
+    items: items.flatMap((item) => {
+      const issue = references.get(item.issueNumber);
+      return issue ? [{ goalId: item.goalId, issue, plannedState: item.plannedState }] : [];
+    })
+  };
+  const retainedIssueKeys = new Set(plan.items.map((item) => roadmapIssueKey(item.issue)));
+  result.dependencies.forEach((dependency) => {
+    retainedIssueKeys.add(roadmapIssueKey(dependency.blocker));
+    retainedIssueKeys.add(roadmapIssueKey(dependency.blocked));
+  });
+
   return {
     ...result,
-    issues,
-    plan: {
-      ...result.plan,
-      goals,
-      items: items.flatMap((item) => {
-        const issue = references.get(item.issueNumber);
-        return issue ? [{ goalId: item.goalId, issue, plannedState: item.plannedState }] : [];
-      })
-    }
+    issues: issues.filter((node) => retainedIssueKeys.has(roadmapIssueKey(node.issue))),
+    plan
   };
 }
 
