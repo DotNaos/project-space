@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type RefObject } from 'react';
 import {
   Background,
   BackgroundVariant,
@@ -10,6 +10,7 @@ import { Focus, Minus, Plus } from 'lucide-react';
 import '@xyflow/react/dist/style.css';
 
 import { Button } from '@/app/dotnaos-ui';
+import { cn } from '@/lib/utils';
 import type { RoadmapIssueNode, RoadmapResult } from '@/shared/roadmap-api';
 import { layoutRoadmapGraph } from './roadmap-layout';
 import { RoadmapGraphNode } from './roadmap-graph-node';
@@ -24,14 +25,20 @@ const nodeTypes = { roadmap: RoadmapGraphNode };
 
 export function RoadmapGraph({
   compact = false,
+  containerRef,
+  dropTarget,
   onSelect,
   result,
-  selectedIssueId
+  selectedIssueId,
+  withShelf = false
 }: {
   compact?: boolean;
+  containerRef?: RefObject<HTMLDivElement | null>;
+  dropTarget?: { active: boolean; overGraph: boolean; planLabel: string } | null;
   onSelect(issue: RoadmapIssueNode): void;
   result: RoadmapResult;
   selectedIssueId?: number;
+  withShelf?: boolean;
 }) {
   const [instance, setInstance] = useState<ReactFlowInstance<
     RoadmapFlowNode,
@@ -80,8 +87,19 @@ export function RoadmapGraph({
   return (
     <div
       aria-label="Roadmap dependency graph"
-      className="relative h-[min(68dvh,42rem)] min-h-[32rem] min-w-0 overflow-hidden rounded-2xl border border-dashed border-neutral-700/90 bg-neutral-950/35 max-md:h-[34rem] max-md:min-h-[30rem]"
+      className={cn(
+        'relative min-w-0 overflow-hidden rounded-2xl border border-dashed bg-neutral-950/35 transition-colors',
+        withShelf
+          ? 'h-[min(58dvh,36rem)] min-h-[28rem] max-md:h-[26rem] max-md:min-h-[24rem]'
+          : 'h-[min(68dvh,42rem)] min-h-[32rem] max-md:h-[34rem] max-md:min-h-[30rem]',
+        dropTarget?.active
+          ? dropTarget.overGraph
+            ? 'border-emerald-400/80 bg-emerald-500/[0.04]'
+            : 'border-neutral-500'
+          : 'border-neutral-700/90'
+      )}
       data-testid="roadmap-graph"
+      ref={containerRef}
     >
       <ReactFlow<RoadmapFlowNode, RoadmapFlowEdge>
         autoPanOnConnect={false}
@@ -141,6 +159,20 @@ export function RoadmapGraph({
           ><Plus className="size-3.5" /></button>
         </span>
       </div>
+      {dropTarget?.active ? (
+        <div className="pointer-events-none absolute inset-0 z-20 grid place-items-end p-4">
+          <div className={cn(
+            'mx-auto rounded-full border px-4 py-2 text-center text-xs font-semibold shadow-xl backdrop-blur transition-all',
+            dropTarget.overGraph
+              ? 'translate-y-0 border-emerald-400/50 bg-emerald-500/20 text-emerald-100 shadow-emerald-950/40'
+              : 'translate-y-1 border-neutral-700 bg-neutral-950/90 text-neutral-300 shadow-black/40'
+          )}>
+            {dropTarget.overGraph
+              ? `Release to add as ${dropTarget.planLabel}`
+              : `Drop into the canvas as ${dropTarget.planLabel}`}
+          </div>
+        </div>
+      ) : null}
       <p className="sr-only">
         Dependency arrows run from prerequisites to the issues they unlock. Plan badges show a separate manual order.
       </p>

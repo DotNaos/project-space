@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Switch } from '@heroui/react';
 import {
   AlertTriangle,
@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 
 import { Button, Surface, Text } from '@/app/dotnaos-ui';
+import { cn } from '@/lib/utils';
 import type { GitHubCatalogRepository, ProjectSpaceRecord } from '@/shared/project-space-api';
 import type { RoadmapIssueNode } from '@/shared/roadmap-api';
 import {
@@ -20,6 +21,10 @@ import {
 } from './roadmap-goal-editor';
 import { RoadmapGraph } from './roadmap-graph';
 import { RoadmapInspector } from './roadmap-inspector';
+import {
+  RoadmapWorkShelf,
+  type RoadmapShelfDragFeedback
+} from './roadmap-work-shelf';
 import {
   nextRoadmapPlanEntry,
   roadmapGraphVisibility
@@ -51,6 +56,8 @@ export function RoadmapPanel({
   } = useRoadmapSelection(roadmap.result?.repository.id);
   const [editorMode, setEditorMode] = useState<RoadmapEditorMode>(null);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [shelfDragFeedback, setShelfDragFeedback] = useState<RoadmapShelfDragFeedback | null>(null);
+  const graphRef = useRef<HTMLDivElement>(null);
   const compact = useCompactRoadmap();
   const visibility = useMemo(() => roadmap.result
     ? roadmapGraphVisibility(roadmap.result, showCompleted)
@@ -92,6 +99,12 @@ export function RoadmapPanel({
   }
   const result = roadmap.result;
   const canEdit = result.canEdit && result.dependencySync === 'current';
+  const hasVisibleGraph = Boolean(
+    visibleResult
+    && result.plan.items.length > 0
+    && visibility
+    && visibility.issues.length > 0
+  );
   if (result.status !== 'connected') {
     return <RoadmapMessage title="Roadmap unavailable" message={result.message ?? 'Connect GitHub to load this roadmap.'} onRetry={roadmap.refresh} />;
   }
@@ -181,23 +194,51 @@ export function RoadmapPanel({
         roadmap={roadmap}
       />
 
-      {result.plan.items.length === 0 ? (
-        <RoadmapEmpty
-          hasGoals={result.plan.goals.length > 0}
-          isEditable={canEdit && !roadmap.isSaving}
-          onAddWork={() => setEditorMode(result.plan.goals.length > 0 ? 'goals' : 'work')}
-          onOpenIssues={onSelectIssues}
-        />
-      ) : visibility && visibility.issues.length === 0 ? (
-        <RoadmapCompletedEmpty onShowCompleted={() => setShowCompleted(true)} />
-      ) : visibleResult ? (
-        <div className="grid min-w-0 gap-5 md:grid-cols-[minmax(0,1fr)_19rem]">
-          <RoadmapGraph
-            compact={compact}
-            onSelect={(issue) => selectIssue(issue.issue.id)}
-            result={visibleResult}
-            selectedIssueId={selectedIssueId}
+      <div className={cn(
+        'grid min-w-0 gap-5',
+        hasVisibleGraph && 'md:grid-cols-[minmax(0,1fr)_19rem]'
+      )}>
+        <div className="grid min-w-0 content-start gap-4">
+          {result.plan.items.length === 0 ? (
+            <RoadmapEmpty
+              containerRef={graphRef}
+              dropTarget={shelfDragFeedback}
+              hasGoals={result.plan.goals.length > 0}
+              isEditable={canEdit && !roadmap.isSaving}
+              onAddWork={() => setEditorMode(result.plan.goals.length > 0 ? 'goals' : 'work')}
+              onOpenIssues={onSelectIssues}
+            />
+          ) : visibility && visibility.issues.length === 0 ? (
+            <RoadmapCompletedEmpty
+              containerRef={graphRef}
+              dropTarget={shelfDragFeedback}
+              onShowCompleted={() => setShowCompleted(true)}
+            />
+          ) : visibleResult ? (
+            <RoadmapGraph
+              compact={compact}
+              containerRef={graphRef}
+              dropTarget={shelfDragFeedback}
+              onSelect={(issue) => selectIssue(issue.issue.id)}
+              result={visibleResult}
+              selectedIssueId={selectedIssueId}
+              withShelf
+            />
+          ) : null}
+          <RoadmapWorkShelf
+            canEdit={canEdit}
+            error={issueCatalog.error}
+            graphRef={graphRef}
+            isLoading={issueCatalog.isLoading}
+            isSaving={roadmap.isSaving}
+            issues={issueCatalog.issues}
+            onAdd={roadmap.addIssue}
+            onDragFeedback={setShelfDragFeedback}
+            onRetry={issueCatalog.refresh}
+            result={result}
           />
+        </div>
+        {hasVisibleGraph && visibleResult ? (
           <RoadmapInspector
             issue={selectedIssue}
             issueError={issueCatalog.error}
@@ -206,15 +247,31 @@ export function RoadmapPanel({
             onClose={() => clearSelection()}
             roadmap={roadmap}
           />
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </Surface>
   );
 }
 
-function RoadmapCompletedEmpty({ onShowCompleted }: { onShowCompleted(): void }) {
+function RoadmapCompletedEmpty({
+  containerRef,
+  dropTarget,
+  onShowCompleted
+}: {
+  containerRef: RefObject<HTMLDivElement | null>;
+  dropTarget: RoadmapShelfDragFeedback | null;
+  onShowCompleted(): void;
+}) {
   return (
-    <div className="flex min-h-96 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-neutral-800 px-6 text-center">
+    <div
+      className={cn(
+        'relative flex min-h-96 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed px-6 text-center transition-colors',
+        dropTarget?.overGraph
+          ? 'border-emerald-400/80 bg-emerald-500/[0.04]'
+          : 'border-neutral-800'
+      )}
+      ref={containerRef}
+    >
       <span className="grid size-12 place-items-center rounded-full bg-neutral-900">
         <ListChecks className="size-5 text-emerald-400" />
       </span>
@@ -223,23 +280,36 @@ function RoadmapCompletedEmpty({ onShowCompleted }: { onShowCompleted(): void })
         Completed issues are hidden. Show them without changing the saved plan or its dependencies.
       </Text>
       <Button onPress={onShowCompleted} variant="secondary">Show completed work</Button>
+      <RoadmapPlaceholderDropHint dropTarget={dropTarget} />
     </div>
   );
 }
 
 function RoadmapEmpty({
+  containerRef,
+  dropTarget,
   hasGoals,
   isEditable,
   onAddWork,
   onOpenIssues
 }: {
+  containerRef: RefObject<HTMLDivElement | null>;
+  dropTarget: RoadmapShelfDragFeedback | null;
   hasGoals: boolean;
   isEditable: boolean;
   onAddWork(): void;
   onOpenIssues(): void;
 }) {
   return (
-    <div className="flex min-h-96 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-neutral-800 text-center">
+    <div
+      className={cn(
+        'relative flex min-h-96 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed text-center transition-colors',
+        dropTarget?.overGraph
+          ? 'border-emerald-400/80 bg-emerald-500/[0.04]'
+          : 'border-neutral-800'
+      )}
+      ref={containerRef}
+    >
       <span className="grid size-12 place-items-center rounded-full bg-neutral-900"><Route className="size-5 text-neutral-500" /></span>
       <Text className="text-base font-semibold text-neutral-200">
         {hasGoals ? 'No work planned yet' : 'Build the first roadmap branch'}
@@ -253,7 +323,28 @@ function RoadmapEmpty({
         <Button isDisabled={!isEditable} onPress={onAddWork} variant="primary"><Plus className="size-4" /> {hasGoals ? 'Add first issue' : 'Add work'}</Button>
         <Button onPress={onOpenIssues} variant="secondary"><ListChecks className="size-4" /> Open full backlog</Button>
       </div>
+      <RoadmapPlaceholderDropHint dropTarget={dropTarget} />
     </div>
+  );
+}
+
+function RoadmapPlaceholderDropHint({
+  dropTarget
+}: {
+  dropTarget: RoadmapShelfDragFeedback | null;
+}) {
+  if (!dropTarget?.active) return null;
+  return (
+    <span className={cn(
+      'pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border px-4 py-2 text-xs font-semibold shadow-xl backdrop-blur',
+      dropTarget.overGraph
+        ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-100'
+        : 'border-neutral-700 bg-neutral-950/90 text-neutral-300'
+    )}>
+      {dropTarget.overGraph
+        ? `Release to add as ${dropTarget.planLabel}`
+        : `Drop here as ${dropTarget.planLabel}`}
+    </span>
   );
 }
 
