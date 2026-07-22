@@ -22,6 +22,11 @@ import type { ConnectorOverviewResult, ProjectSpaceRecord } from '@/shared/proje
 import { cn } from '@/lib/utils';
 import type { CodexSessionsController } from './codex-sessions-controller';
 import {
+  aggregateCodexInventoryTruth,
+  codexInventoryTruth,
+  type CodexInventoryTruth
+} from './codex-inventory-truth';
+import {
   countActiveProjectCodexTasks,
   groupProjectCodexTasks,
   presentProjectCodexTaskStatus,
@@ -69,23 +74,39 @@ function TaskStatus({ group, task }: { group: ProjectCodexTaskMachineGroup; task
 
 function TaskGroups({
   groups,
-  loadingMachineIds = [],
   noTasksLabel = 'No Codex tasks on this machine',
-  onOpenTask
+  onManageConnector,
+  onOpenTask,
+  overallTruth,
+  truthByConnectorId
 }: {
   groups: ProjectCodexTaskMachineGroup[];
-  loadingMachineIds?: readonly string[];
   noTasksLabel?: string;
+  onManageConnector?(machineId: string): void;
   onOpenTask(origin: CodexThreadOrigin): void;
+  overallTruth: CodexInventoryTruth;
+  truthByConnectorId: ReadonlyMap<string, CodexInventoryTruth>;
 }) {
   if (groups.length === 0) {
+    const ready = overallTruth.state === 'ready';
+    const checking = overallTruth.state === 'checking'
+      || overallTruth.state === 'updating'
+      || overallTruth.state === 'restarting';
     return (
       <div className="grid min-h-52 place-items-center px-6 text-center">
         <div>
-          <Bot className="mx-auto size-5 text-neutral-700" />
-          <Text className="mt-3 block text-sm font-medium text-neutral-300">No matching Codex tasks</Text>
+          {ready
+            ? <Bot className="mx-auto size-5 text-neutral-700" />
+            : checking
+              ? <Spinner size="sm" />
+              : <MonitorOff className="mx-auto size-5 text-red-300/70" />}
+          <Text className="mt-3 block text-sm font-medium text-neutral-300">
+            {ready ? 'No matching Codex tasks' : overallTruth.label}
+          </Text>
           <Text className="mt-1 block text-[11px] leading-5 text-neutral-600">
-            Tasks appear after their authenticated machine reports a directory inside this project.
+            {ready
+              ? 'Compatible connectors reported no tasks inside this project.'
+              : overallTruth.detail}
           </Text>
         </div>
       </div>
@@ -94,15 +115,27 @@ function TaskGroups({
   return (
     <div className="divide-y divide-neutral-800/70">
       {groups.map((group) => {
-        const checking = group.machine.status === 'unavailable'
-          && group.connectorIds.some((connectorId) => loadingMachineIds.includes(connectorId));
-        const machineLabel = checking ? 'Checking machine' : group.machine.name;
+        const groupTruth = aggregateCodexInventoryTruth(
+          group.connectorIds.map((connectorId) => (
+            truthByConnectorId.get(connectorId)
+            ?? codexInventoryTruth({ inventory: group.machine })
+          ))
+        );
+        const manageConnectorId = group.connectorIds.find((connectorId) => (
+          truthByConnectorId.get(connectorId)?.state === groupTruth.state
+        )) ?? group.connectorIds.find((connectorId) => (
+          truthByConnectorId.get(connectorId)?.state !== 'ready'
+        ));
+        const checking = groupTruth.state === 'checking';
+        const machineLabel = checking && group.machine.name === 'Unavailable connector'
+          ? 'Checking machine'
+          : group.machine.name;
         return (
         <section aria-label={`${machineLabel} Codex tasks`} key={group.machine.id}>
           <header className="flex h-10 items-center gap-2 bg-neutral-950/70 px-3 text-[10px] text-neutral-500">
             {checking ? (
               <Spinner size="sm" />
-            ) : group.machine.status === 'connected' ? (
+            ) : groupTruth.state === 'ready' ? (
               <span className="size-1.5 rounded-full bg-emerald-400" />
             ) : (
               <MonitorOff className="size-3 text-red-300/70" />
@@ -110,21 +143,42 @@ function TaskGroups({
             <Text className="truncate font-medium text-neutral-300">{machineLabel}</Text>
             <Text className={cn(
               'capitalize',
-              checking
-                ? 'text-neutral-400'
-                : group.machine.status === 'connected'
-                  ? 'text-emerald-300/80'
-                  : 'text-red-300/80'
+              groupTruth.state === 'ready'
+                ? 'text-emerald-300/80'
+                : checking
+                  ? 'text-neutral-400'
+                  : groupTruth.state === 'update-required'
+                    ? 'text-amber-300/80'
+                    : groupTruth.state === 'updating' || groupTruth.state === 'restarting'
+                      ? 'text-sky-300/80'
+                      : 'text-red-300/80'
             )}>
-              {checking ? 'Checking' : group.machine.status}
+              {groupTruth.label}
             </Text>
-            <Text className="ml-auto">{group.tasks.length}</Text>
+            {groupTruth.state === 'ready' || group.tasks.length > 0 ? (
+              <Text className="ml-auto">{group.tasks.length}</Text>
+            ) : null}
           </header>
           <div className="divide-y divide-neutral-900">
-            {group.tasks.length === 0 ? (
+            {groupTruth.state !== 'ready' ? (
               <Text className="block px-3 py-4 text-[11px] text-neutral-600">
-                {checking ? 'Checking for Codex tasks' : noTasksLabel}
+                {groupTruth.detail}
               </Text>
+            ) : group.tasks.length === 0 ? (
+              <Text className="block px-3 py-4 text-[11px] text-neutral-600">
+                {noTasksLabel}
+              </Text>
+            ) : null}
+            {groupTruth.state !== 'ready' && onManageConnector && manageConnectorId ? (
+              <div className="px-3 pb-3">
+                <Button
+                  onPress={() => onManageConnector(manageConnectorId)}
+                  size="sm"
+                  variant="ghost"
+                >
+                  Manage connector
+                </Button>
+              </div>
             ) : null}
             {group.tasks.map((task) => (
               <button
@@ -164,19 +218,23 @@ function TaskGroups({
 function ProjectTaskPanel({
   groups,
   loading,
-  loadingMachineIds,
   noTasksLabel,
+  onManageConnector,
   onOpenTask,
+  overallTruth,
   query,
-  setQuery
+  setQuery,
+  truthByConnectorId
 }: {
   groups: ProjectCodexTaskMachineGroup[];
   loading: boolean;
-  loadingMachineIds: readonly string[];
   noTasksLabel: string;
+  onManageConnector?(machineId: string): void;
   onOpenTask(origin: CodexThreadOrigin): void;
+  overallTruth: CodexInventoryTruth;
   query: string;
   setQuery(value: string): void;
+  truthByConnectorId: ReadonlyMap<string, CodexInventoryTruth>;
 }) {
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-neutral-800/80 bg-neutral-950/40">
@@ -197,9 +255,11 @@ function ProjectTaskPanel({
       <div className="min-h-0 flex-1 overflow-y-auto">
         <TaskGroups
           groups={groups}
-          loadingMachineIds={loadingMachineIds}
           noTasksLabel={noTasksLabel}
+          onManageConnector={onManageConnector}
           onOpenTask={onOpenTask}
+          overallTruth={overallTruth}
+          truthByConnectorId={truthByConnectorId}
         />
       </div>
     </section>
@@ -209,37 +269,57 @@ function ProjectTaskPanel({
 export function ProjectCodexTasks({
   connectorOverview,
   controller,
+  isConnectorRefreshing = false,
   machineIds,
   mode,
+  now: suppliedNow,
+  onManageConnector,
   onOpenTask,
   projectRecords
 }: {
   connectorOverview?: ConnectorOverviewResult;
   controller: CodexSessionsController;
+  isConnectorRefreshing?: boolean;
   machineIds: string[];
   mode: 'panel' | 'preview';
+  now?: Date;
+  onManageConnector?(machineId: string): void;
   onOpenTask(origin: CodexThreadOrigin): void;
   projectRecords: ProjectSpaceRecord[];
 }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getState, controller.getState);
   const [query, setQuery] = useState('');
+  const [inventoryObservedAt, setInventoryObservedAt] = useState(() => suppliedNow ?? new Date());
+  const now = suppliedNow ?? inventoryObservedAt;
   const machineKey = machineIds.join('\u0000');
+  const connectorInstanceIds = useMemo(() => Object.fromEntries(
+    (connectorOverview?.machines ?? []).map((machine) => [
+      machine.id,
+      machine.connector.runtime?.instanceId
+    ])
+  ), [connectorOverview?.machines]);
 
   useEffect(() => {
+    let active = true;
     let refreshing = false;
     const refresh = async () => {
+      if (active && !suppliedNow) setInventoryObservedAt(new Date());
       if (refreshing || (typeof document !== 'undefined' && document.hidden)) return;
       refreshing = true;
       try {
-        await controller.loadMachines(machineIds);
+        await controller.loadMachines(machineIds, connectorInstanceIds);
       } finally {
         refreshing = false;
+        if (active && !suppliedNow) setInventoryObservedAt(new Date());
       }
     };
     void refresh();
     const interval = setInterval(() => void refresh(), 5_000);
-    return () => clearInterval(interval);
-  }, [controller, machineKey]);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [connectorInstanceIds, controller, machineKey, suppliedNow]);
 
   const tasks = useMemo(() => projectCodexTasks(
     state.sessions,
@@ -274,6 +354,44 @@ export function ProjectCodexTasks({
     () => countActiveProjectCodexTasks(tasks, groups),
     [groups, tasks]
   );
+  const inventoryByMachineId = useMemo(
+    () => new Map(state.machines.map((machine) => [machine.id, machine])),
+    [state.machines]
+  );
+  const scopedConnectorIds = useMemo(() => [...new Set(
+    projectRecords.flatMap((record) => record.machineId ? [record.machineId] : [])
+  )], [projectRecords]);
+  const truthByConnectorId = useMemo(() => new Map(scopedConnectorIds.map((machineId) => {
+    const connector = connectorOverview?.machines.find((machine) => machine.id === machineId);
+    return [machineId, codexInventoryTruth({
+      connector,
+      connectorRequired: connectorOverview !== undefined,
+      inventory: inventoryByMachineId.get(machineId),
+      loading: state.loadingMachineIds.includes(machineId),
+      now,
+      overviewRefreshing: isConnectorRefreshing,
+      runtime: state.runtimeByMachineId?.[machineId]
+    })];
+  })), [
+    connectorOverview?.machines,
+    inventoryByMachineId,
+    isConnectorRefreshing,
+    now,
+    scopedConnectorIds,
+    state.loadingMachineIds,
+    state.runtimeByMachineId
+  ]);
+  const overallTruth = useMemo(
+    () => aggregateCodexInventoryTruth(
+      truthByConnectorId.size > 0
+        ? [...truthByConnectorId.values()]
+        : [codexInventoryTruth({
+            connectorRequired: true,
+            overviewRefreshing: isConnectorRefreshing
+          })]
+    ),
+    [isConnectorRefreshing, truthByConnectorId]
+  );
   const loading = state.loadingMachineIds.length > 0;
 
   if (mode === 'panel') {
@@ -281,11 +399,13 @@ export function ProjectCodexTasks({
       <ProjectTaskPanel
         groups={groups}
         loading={loading}
-        loadingMachineIds={state.loadingMachineIds}
         noTasksLabel={query.trim() ? 'No matching tasks on this machine' : 'No Codex tasks on this machine'}
+        onManageConnector={onManageConnector}
         onOpenTask={onOpenTask}
+        overallTruth={overallTruth}
         query={query}
         setQuery={setQuery}
+        truthByConnectorId={truthByConnectorId}
       />
     );
   }
@@ -294,7 +414,9 @@ export function ProjectCodexTasks({
     <Drawer>
       <Drawer.Trigger className="inline-flex h-8 items-center gap-2 rounded-full border border-neutral-800 bg-neutral-900/70 px-3 text-[10px] font-medium text-neutral-300 transition hover:border-neutral-700 hover:bg-neutral-800">
         {loading ? <Spinner size="sm" /> : <Bot className="size-3.5" />}
-        {activeTaskCount} active {activeTaskCount === 1 ? 'task' : 'tasks'}
+        {overallTruth.state === 'ready'
+          ? `${activeTaskCount} active ${activeTaskCount === 1 ? 'task' : 'tasks'}`
+          : `${overallTruth.label} Codex`}
       </Drawer.Trigger>
       <Drawer.Backdrop className="fixed inset-0 z-[90] bg-black/65 backdrop-blur-[1px]">
         <Drawer.Content className="fixed inset-y-0 right-0 w-[min(25rem,94vw)] border-l border-neutral-800 bg-neutral-950 shadow-2xl shadow-black" placement="right">
@@ -304,7 +426,9 @@ export function ProjectCodexTasks({
               <div className="min-w-0">
                 <Drawer.Heading className="text-sm font-semibold text-neutral-100">Codex tasks</Drawer.Heading>
                 <Text className="mt-0.5 block text-[10px] text-neutral-500">
-                  {activeTaskCount} active · grouped by machine and connector
+                  {overallTruth.state === 'ready'
+                    ? `${activeTaskCount} active · grouped by machine and connector`
+                    : `${overallTruth.label} · current inventory is not ready`}
                 </Text>
               </div>
               <Drawer.CloseTrigger className="ml-auto grid size-8 place-items-center rounded-lg text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100">
@@ -314,8 +438,10 @@ export function ProjectCodexTasks({
             <Drawer.Body className="min-h-0 flex-1 overflow-y-auto p-0">
               <TaskGroups
                 groups={groups}
-                loadingMachineIds={state.loadingMachineIds}
+                onManageConnector={onManageConnector}
                 onOpenTask={onOpenTask}
+                overallTruth={overallTruth}
+                truthByConnectorId={truthByConnectorId}
               />
             </Drawer.Body>
           </Drawer.Dialog>

@@ -516,10 +516,13 @@ export function ProjectMainPanel({
         )}
       >
         <CodexSessionsControllerPage
+          connectorOverview={connectorOverview}
           controller={codexController}
+          isConnectorRefreshing={isConnectorRefreshing}
           machineIds={codexMachineIds}
           onBackFromThread={() => onOpenCodex()}
           onOpenThread={onOpenCodex}
+          onManageConnector={(machineId) => onOpenMachine(machineId)}
           selectedOrigin={selectedCodexOrigin}
         />
       </Surface>
@@ -605,8 +608,10 @@ export function ProjectMainPanel({
                   <ProjectCodexTasks
                     connectorOverview={connectorOverview}
                     controller={codexController}
+                    isConnectorRefreshing={isConnectorRefreshing}
                     machineIds={codexMachineIds}
                     mode="preview"
+                    onManageConnector={(machineId) => onOpenMachine(machineId)}
                     onOpenTask={onOpenCodex}
                     projectRecords={projectCodexRecords}
                   />
@@ -617,8 +622,10 @@ export function ProjectMainPanel({
               <ProjectCodexTasks
                 connectorOverview={connectorOverview}
                 controller={codexController}
+                isConnectorRefreshing={isConnectorRefreshing}
                 machineIds={codexMachineIds}
                 mode="panel"
+                onManageConnector={(machineId) => onOpenMachine(machineId)}
                 onOpenTask={onOpenCodex}
                 projectRecords={projectCodexRecords}
               />

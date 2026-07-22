@@ -392,6 +392,29 @@ describe('Codex sessions browser client', () => {
     expect(seen).toEqual([expect.objectContaining({ header: 'operation-client-1' })]);
   });
 
+  test('cancels a Codex inventory request that exceeds its deadline', async () => {
+    let aborted = false;
+    const client = createCodexSessionsClient({
+      listTimeoutMs: 5,
+      fetchImplementation: async (_input, init) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          aborted = true;
+          reject(init.signal?.reason);
+        }, { once: true });
+      })
+    });
+
+    await expect(client.list({
+      includeArchived: true,
+      machineId: 'machine-one'
+    })).rejects.toEqual(expect.objectContaining({
+      code: 'request_timeout',
+      message: 'Codex inventory check timed out.',
+      status: 503
+    }));
+    expect(aborted).toBe(true);
+  });
+
   test('starts at the read cursor and reconnects using the last stable event id', async () => {
     const headers: Array<string | null> = [];
     let calls = 0;

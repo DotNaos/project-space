@@ -14,6 +14,7 @@ import type {
   CodexSessionStreamEvent,
   CodexSessionUserInputResponse
 } from '../shared/codex-sessions-api';
+import { CODEX_SESSION_LIST_DEADLINE_MS } from '../shared/codex-session-inventory-window';
 
 export class CodexSessionsRequestError extends Error {
   constructor(
@@ -31,6 +32,7 @@ export interface CodexSessionsClientOptions {
   baseUrl?: string;
   fetchImplementation?: typeof fetch;
   getAuthToken?: () => Promise<string | null> | string | null;
+  listTimeoutMs?: number;
   streamReconnectDelayMs?: number;
 }
 
@@ -60,6 +62,33 @@ export function createCodexSessionsClient(
       }
     });
     return readResponse<T>(response);
+  }
+
+  async function listRequest(path: string) {
+    const controller = new AbortController();
+    const configuredTimeout = options.listTimeoutMs ?? CODEX_SESSION_LIST_DEADLINE_MS + 2_000;
+    const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0
+      ? configuredTimeout
+      : CODEX_SESSION_LIST_DEADLINE_MS + 2_000;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        request<CodexSessionListResult>(path, { signal: controller.signal }),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            const error = new CodexSessionsRequestError(
+              'request_timeout',
+              'Codex inventory check timed out.',
+              503
+            );
+            reject(error);
+            controller.abort(error);
+          }, timeoutMs);
+        })
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   function mutation<T extends { machineId: string; operationId: string }>(
@@ -102,7 +131,7 @@ export function createCodexSessionsClient(
       const query = new URLSearchParams({ machineId: input.machineId });
       if (input.includeArchived) query.set('includeArchived', 'true');
       if (input.search) query.set('search', input.search);
-      return request<CodexSessionListResult>(`/api/codex/sessions?${query}`);
+      return listRequest(`/api/codex/sessions?${query}`);
     },
     read(input: CodexSessionReadRequest) {
       return request<CodexSessionReadResult>(pathWithMachine(

@@ -72,6 +72,11 @@ export interface CodexSessionListRequest {
 export interface CodexSessionListResult {
   /** Oldest observation included in this complete inventory. */
   checkedAt: string;
+  /**
+   * Hosted-service evidence for whether this response came from a verified live
+   * connector scan or a saved fallback. Omitted by older servers.
+   */
+  inventoryState?: 'live' | 'stale';
   machine: CodexSessionMachineRecord;
   /** Completion time for the full scan. Omitted only by older connector versions. */
   publishedAt?: string;

@@ -1,9 +1,11 @@
 import type { ServerResponse } from 'node:http';
 
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 
 import {
   isProjectSpaceApiRequestAllowed,
+  refreshProjectSpaceAuthToken,
+  setProjectSpaceAuthTokenProvider,
   resolveProjectSpaceApiBaseUrl
 } from '../src/api/project-space-client';
 import {
@@ -12,6 +14,8 @@ import {
 } from '../server/project-space-http-response';
 
 describe('Project Space API origin policy', () => {
+  afterEach(() => setProjectSpaceAuthTokenProvider(null));
+
   test('keeps hosted pages same-origin even when URL or build settings request another API', () => {
     expect(
       resolveProjectSpaceApiBaseUrl(
@@ -75,6 +79,65 @@ describe('Project Space API origin policy', () => {
         'http://user:pass@localhost:45873/api/projects/discovery'
       )
     ).toBe(false);
+  });
+
+  test('shares one in-flight token refresh instead of accumulating provider work', async () => {
+    let calls = 0;
+    let resolveToken!: (token: string) => void;
+    setProjectSpaceAuthTokenProvider(() => {
+      calls += 1;
+      return new Promise((resolve) => {
+        resolveToken = resolve;
+      });
+    });
+
+    const first = refreshProjectSpaceAuthToken();
+    const second = refreshProjectSpaceAuthToken();
+    expect(calls).toBe(1);
+    resolveToken('shared-token');
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      'shared-token',
+      'shared-token'
+    ]);
+  });
+
+  test('does not let an obsolete token provider overwrite a replacement', async () => {
+    let resolveOld!: (token: string) => void;
+    setProjectSpaceAuthTokenProvider(() => new Promise((resolve) => {
+      resolveOld = resolve;
+    }));
+    const obsoleteRefresh = refreshProjectSpaceAuthToken();
+
+    setProjectSpaceAuthTokenProvider(async () => 'replacement-token');
+    await expect(refreshProjectSpaceAuthToken()).resolves.toBe('replacement-token');
+    resolveOld('obsolete-token');
+    await expect(obsoleteRefresh).resolves.toBe('replacement-token');
+  });
+
+  test('makes an obsolete refresh wait for the replacement provider', async () => {
+    let resolveOld!: (token: string) => void;
+    let resolveReplacement!: (token: string) => void;
+    setProjectSpaceAuthTokenProvider(() => new Promise((resolve) => {
+      resolveOld = resolve;
+    }));
+    const obsoleteRefresh = refreshProjectSpaceAuthToken();
+
+    setProjectSpaceAuthTokenProvider(() => new Promise((resolve) => {
+      resolveReplacement = resolve;
+    }));
+    resolveOld('obsolete-token');
+    await Promise.resolve();
+
+    let settled = false;
+    void obsoleteRefresh.finally(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    resolveReplacement('replacement-token');
+    await expect(obsoleteRefresh).resolves.toBe('replacement-token');
   });
 });
 

@@ -31,7 +31,7 @@ import {
   codexSessionInspectionMatchesScope,
   withCodexSessionWriteCapability
 } from './task-access-evidence';
-import { asOfflineCodexSessionInventory, filterCodexSessionInventory } from './inventory-presentation';
+import { asLiveCodexSessionInventory, asOfflineCodexSessionInventory, filterCodexSessionInventory } from './inventory-presentation';
 
 export interface CodexSessionsActor {
   userId: string;
@@ -149,7 +149,7 @@ export function createCodexSessionsService(options: {
       if (!localized || localized.ageMs > CODEX_SESSION_LIST_DEADLINE_MS) {
         throw new CodexTransportUncertainError('The Codex task inventory expired before it could be verified.');
       }
-      const inventory = localized.inventory;
+      const inventory = asLiveCodexSessionInventory(localized.inventory);
       await options.store.saveInventory({
         ...machineScope,
         checkedAt: inventory.checkedAt,
