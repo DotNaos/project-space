@@ -66,7 +66,7 @@ export function RoadmapGraph({
       duration: 420,
       ease: springEase,
       maxZoom: compact ? 0.96 : 1,
-      minZoom: compact ? 0.6 : 0.2,
+      minZoom: compact ? 0.35 : 0.2,
       padding: compact ? 0.08 : 0.12
     });
   }, [compact, instance]);
@@ -96,7 +96,7 @@ export function RoadmapGraph({
         elevateEdgesOnSelect
         fitView
         maxZoom={1.5}
-        minZoom={compact ? 0.55 : 0.2}
+        minZoom={compact ? 0.35 : 0.2}
         multiSelectionKeyCode={null}
         nodeTypes={nodeTypes}
         nodes={nodes}

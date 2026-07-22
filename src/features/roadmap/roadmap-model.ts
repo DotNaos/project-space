@@ -2,7 +2,8 @@ import type {
   RoadmapDependency,
   RoadmapIssueNode,
   RoadmapPlan,
-  RoadmapPlanItem
+  RoadmapPlanItem,
+  RoadmapResult
 } from '../../shared/roadmap-api';
 import {
   moveRoadmapItem,
@@ -35,6 +36,71 @@ export interface RoadmapStoryNode {
 export interface RoadmapStory {
   edges: RoadmapDependency[];
   nodes: RoadmapStoryNode[];
+}
+
+export interface RoadmapGraphVisibility {
+  completedCount: number;
+  dependencies: RoadmapDependency[];
+  issues: RoadmapIssueNode[];
+}
+
+export function roadmapGraphVisibility(
+  result: RoadmapResult,
+  showCompleted: boolean
+): RoadmapGraphVisibility {
+  const completedCount = result.issues.filter((issue) => issue.state === 'closed').length;
+  if (showCompleted || completedCount === 0) {
+    return {
+      completedCount,
+      dependencies: result.dependencies,
+      issues: result.issues
+    };
+  }
+  const openIssues = result.issues.filter((issue) => issue.state !== 'closed');
+  const openIssueKeys = new Set(openIssues.map((issue) => roadmapIssueKey(issue.issue)));
+  const openDependencies = result.dependencies.filter((dependency) => (
+    openIssueKeys.has(roadmapIssueKey(dependency.blocker))
+    && openIssueKeys.has(roadmapIssueKey(dependency.blocked))
+  ));
+  const connectedIssueKeys = connectedRoadmapIssues(
+    result.plan.items
+      .map((item) => roadmapIssueKey(item.issue))
+      .filter((key) => openIssueKeys.has(key)),
+    openDependencies
+  );
+  return {
+    completedCount,
+    dependencies: openDependencies.filter((dependency) => (
+      connectedIssueKeys.has(roadmapIssueKey(dependency.blocker))
+      && connectedIssueKeys.has(roadmapIssueKey(dependency.blocked))
+    )),
+    issues: openIssues.filter((issue) => connectedIssueKeys.has(roadmapIssueKey(issue.issue)))
+  };
+}
+
+function connectedRoadmapIssues(
+  plannedKeys: readonly string[],
+  dependencies: readonly RoadmapDependency[]
+) {
+  const connected = new Set(plannedKeys);
+  const adjacent = new Map<string, string[]>();
+  for (const dependency of dependencies) {
+    const blocker = roadmapIssueKey(dependency.blocker);
+    const blocked = roadmapIssueKey(dependency.blocked);
+    adjacent.set(blocker, [...(adjacent.get(blocker) ?? []), blocked]);
+    adjacent.set(blocked, [...(adjacent.get(blocked) ?? []), blocker]);
+  }
+  const queue = [...plannedKeys];
+  while (queue.length > 0) {
+    const key = queue.shift();
+    if (!key) continue;
+    for (const neighbor of adjacent.get(key) ?? []) {
+      if (connected.has(neighbor)) continue;
+      connected.add(neighbor);
+      queue.push(neighbor);
+    }
+  }
+  return connected;
 }
 
 export function buildRoadmapStory(

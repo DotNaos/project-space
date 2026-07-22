@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Switch } from '@heroui/react';
 import {
   AlertTriangle,
   ArrowRight,
@@ -19,7 +20,10 @@ import {
 } from './roadmap-goal-editor';
 import { RoadmapGraph } from './roadmap-graph';
 import { RoadmapInspector } from './roadmap-inspector';
-import { nextRoadmapPlanEntry } from './roadmap-model';
+import {
+  nextRoadmapPlanEntry,
+  roadmapGraphVisibility
+} from './roadmap-model';
 import { useRoadmap } from './use-roadmap';
 import { useRoadmapIssues } from './use-roadmap-issues';
 import { useRoadmapRepository } from './use-roadmap-repository';
@@ -46,8 +50,17 @@ export function RoadmapPanel({
     selectedIssueId
   } = useRoadmapSelection(roadmap.result?.repository.id);
   const [editorMode, setEditorMode] = useState<RoadmapEditorMode>(null);
+  const [showCompleted, setShowCompleted] = useState(false);
   const compact = useCompactRoadmap();
-  const selectedIssue = roadmap.result?.issues.find(
+  const visibility = useMemo(() => roadmap.result
+    ? roadmapGraphVisibility(roadmap.result, showCompleted)
+    : undefined, [roadmap.result, showCompleted]);
+  const visibleResult = useMemo(() => roadmap.result && visibility ? {
+    ...roadmap.result,
+    dependencies: visibility.dependencies,
+    issues: visibility.issues
+  } : undefined, [roadmap.result, visibility]);
+  const selectedIssue = visibility?.issues.find(
     (issue) => issue.issue.id === selectedIssueId
   );
   useEffect(() => {
@@ -115,6 +128,19 @@ export function RoadmapPanel({
             <Button isDisabled={!canEdit || roadmap.isSaving} onPress={() => setEditorMode('goals')} variant="secondary">
               <Pencil className="size-4" /> Edit plan
             </Button>
+            {visibility && visibility.completedCount > 0 ? (
+              <Switch
+                className="col-span-2 justify-self-start sm:col-span-1"
+                isSelected={showCompleted}
+                onChange={setShowCompleted}
+                size="sm"
+              >
+                <Switch.Content className="gap-2 text-xs text-neutral-300">
+                  <Switch.Control><Switch.Thumb /></Switch.Control>
+                  Show completed ({visibility.completedCount})
+                </Switch.Content>
+              </Switch>
+            ) : null}
             {!compact ? (
               <Button aria-label="Refresh roadmap" isIconOnly onPress={roadmap.refresh} variant="ghost">
                 <RefreshCw className="size-4" />
@@ -126,6 +152,9 @@ export function RoadmapPanel({
           <span>{result.plan.items.length} in manual plan order</span>
           <span>{result.dependencies.length} dependency arrow{result.dependencies.length === 1 ? '' : 's'}</span>
           <span>{result.plan.goals.length} goal{result.plan.goals.length === 1 ? '' : 's'}</span>
+          {visibility && !showCompleted && visibility.completedCount > 0 ? (
+            <span>{visibility.issues.length} shown · {visibility.completedCount} completed hidden</span>
+          ) : null}
           <span>{result.canEdit ? 'Editable with your GitHub access' : 'Read only'}</span>
         </div>
       </header>
@@ -159,12 +188,14 @@ export function RoadmapPanel({
           onAddWork={() => setEditorMode(result.plan.goals.length > 0 ? 'goals' : 'work')}
           onOpenIssues={onSelectIssues}
         />
-      ) : (
+      ) : visibility && visibility.issues.length === 0 ? (
+        <RoadmapCompletedEmpty onShowCompleted={() => setShowCompleted(true)} />
+      ) : visibleResult ? (
         <div className="grid min-w-0 gap-5 md:grid-cols-[minmax(0,1fr)_19rem]">
           <RoadmapGraph
             compact={compact}
             onSelect={(issue) => selectIssue(issue.issue.id)}
-            result={result}
+            result={visibleResult}
             selectedIssueId={selectedIssueId}
           />
           <RoadmapInspector
@@ -176,8 +207,23 @@ export function RoadmapPanel({
             roadmap={roadmap}
           />
         </div>
-      )}
+      ) : null}
     </Surface>
+  );
+}
+
+function RoadmapCompletedEmpty({ onShowCompleted }: { onShowCompleted(): void }) {
+  return (
+    <div className="flex min-h-96 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-neutral-800 px-6 text-center">
+      <span className="grid size-12 place-items-center rounded-full bg-neutral-900">
+        <ListChecks className="size-5 text-emerald-400" />
+      </span>
+      <Text className="text-base font-semibold text-neutral-200">All roadmap work is complete</Text>
+      <Text className="max-w-sm text-sm text-neutral-500">
+        Completed issues are hidden. Show them without changing the saved plan or its dependencies.
+      </Text>
+      <Button onPress={onShowCompleted} variant="secondary">Show completed work</Button>
+    </div>
   );
 }
 
