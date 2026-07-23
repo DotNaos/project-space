@@ -19,8 +19,13 @@ const (
 
 type deployConfig struct {
 	Host         string                             `yaml:"host" json:"host"`
+	Preview      deployPreviewConfig                `yaml:"preview,omitempty" json:"preview,omitempty"`
 	Secrets      map[string]string                  `yaml:"secrets,omitempty" json:"secrets,omitempty"`
 	Environments map[string]deployEnvironmentConfig `yaml:"environments" json:"environments"`
+}
+
+type deployPreviewConfig struct {
+	StatusHost string `yaml:"statusHost,omitempty" json:"statusHost,omitempty"`
 }
 
 type deployEnvironmentConfig struct {

@@ -14,6 +14,7 @@ import {
 } from './machine-connection-environment';
 import {
   isProjectSpaceAuthRequired,
+  isProjectSpacePreviewRuntime,
   readAuthSessionFromRequest
 } from './local-auth-store';
 import { getMachineConnectionDatabaseClient } from './local-database-store';
@@ -138,6 +139,9 @@ export function createMachineConnectionRuntime(
 export async function createConfiguredMachineConnectionRuntime(
   environment: NodeJS.ProcessEnv = process.env
 ) {
+  if (isProjectSpacePreviewRuntime(environment)) {
+    return null;
+  }
   const publicOrigin = readMachineConnectionPublicOrigin(environment);
   if (!publicOrigin) {
     return null;

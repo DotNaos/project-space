@@ -16,6 +16,9 @@ func TestCLIDocsModelMatchesVisibleCommandTree(t *testing.T) {
 	})
 	for _, path := range []string{
 		"project self-update",
+		"project deploy preview",
+		"project deploy preview status",
+		"project deploy preview destroy",
 		"project completion",
 		"project completion bash",
 		"project completion fish",

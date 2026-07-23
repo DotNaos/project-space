@@ -53,6 +53,10 @@ import type {
   ProjectTrashRestoreRequest
 } from '../src/shared/project-space-api';
 import {
+  correlatePullRequestPreviews,
+  getPullRequestPreviewStatus
+} from './pull-request-preview-status';
+import {
   discoverProjectWorktrees,
   reconcileProjectWorktreeDiscovery
 } from './project-worktree-discovery';
@@ -67,7 +71,12 @@ import {
 } from './physical-machine-validation';
 import { createLocalPhysicalMachineStore } from './local-physical-machine-store';
 
-export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
+export function createProjectSpaceCoreApiRoutes(
+  backend: ProjectSpaceBackend,
+  options: {
+    loadPullRequestPreviewStatus?: typeof getPullRequestPreviewStatus;
+  } = {}
+) {
   const handleConnectorRuntime = createConnectorRuntimeHttpHandler(backend);
   const localPhysicalMachines = createLocalPhysicalMachineStore();
   const canUseLocalPhysicalMachines = () => !isDatabaseConfigured() && !isProjectSpaceAuthRequired();
@@ -123,6 +132,46 @@ export function createProjectSpaceCoreApiRoutes(backend: ProjectSpaceBackend) {
       }
       response.setHeader('Cache-Control', 'private, no-store');
       writeJson(response, 200, await backend.getDeployedEnvironmentStatus(repositoryFullName));
+      return true;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/pull-request-previews/status') {
+      const repositorySelectors = url.searchParams.getAll('repositoryFullName');
+      const pullRequestSelectors = url.searchParams.getAll('pullRequestNumber');
+      const hasUnknownSelector = [...url.searchParams.keys()].some(
+        (key) => key !== 'repositoryFullName' && key !== 'pullRequestNumber'
+      );
+      const repositoryFullName = repositorySelectors[0];
+      const rawPullRequestNumber = pullRequestSelectors[0] ?? null;
+      const pullRequestNumber = rawPullRequestNumber === null
+        ? undefined
+        : Number(rawPullRequestNumber);
+      response.setHeader('Cache-Control', 'private, no-store');
+      if (
+        !repositoryFullName ||
+        repositorySelectors.length !== 1 ||
+        pullRequestSelectors.length > 1 ||
+        hasUnknownSelector ||
+        (pullRequestNumber !== undefined && (
+          !Number.isSafeInteger(pullRequestNumber) || pullRequestNumber <= 0
+        ))
+      ) {
+        writeJson(response, 400, { error: 'Missing or invalid repositoryFullName or pullRequestNumber.' });
+        return true;
+      }
+      const details = await backend.getGitHubRepositoryDetails(repositoryFullName);
+      if (details.status !== 'connected') {
+        writeJson(response, 200, {
+          checkedAt: new Date().toISOString(),
+          previews: [],
+          repositoryFullName,
+          status: ['error', 'rate-limited'].includes(details.status) ? 'unavailable' : 'unauthorized'
+        });
+        return true;
+      }
+      const loadStatus = options.loadPullRequestPreviewStatus ?? getPullRequestPreviewStatus;
+      const result = await loadStatus(repositoryFullName, pullRequestNumber);
+      writeJson(response, 200, correlatePullRequestPreviews(result, details));
       return true;
     }
 

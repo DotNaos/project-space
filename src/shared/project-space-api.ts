@@ -504,6 +504,7 @@ export interface GitHubBranchRecord {
 
 export interface GitHubPullRequestRecord {
   headBranch?: string;
+  headSha?: string;
   linkedIssueNumbers?: number[];
   mergeCommitHash?: string;
   number: number;
@@ -1088,6 +1089,48 @@ export interface DeployedEnvironmentStatus {
 export interface DeployedEnvironmentStatusResult {
   checkedAt: string;
   environments: DeployedEnvironmentStatus[];
+  repositoryFullName: string;
+  status: 'available' | 'unauthorized' | 'unavailable';
+}
+
+export type PullRequestPreviewLifecycle =
+  | 'queued'
+  | 'validating'
+  | 'building'
+  | 'waiting-for-lock'
+  | 'deploying'
+  | 'verifying'
+  | 'ready'
+  | 'rejected'
+  | 'superseded'
+  | 'failed-initial'
+  | 'update-failed'
+  | 'cleanup-queued'
+  | 'deleting'
+  | 'cleanup-failed'
+  | 'removed'
+  | 'unknown';
+
+export interface PullRequestPreviewStatus {
+  currentHeadSha?: string;
+  headBranch?: string;
+  liveUrl?: string;
+  liveUrlState: 'available' | 'not-configured' | 'withheld';
+  pullRequestNumber: number;
+  pullRequestState?: GitHubPullRequestRecord['state'];
+  pullRequestTitle?: string;
+  pullRequestUrl?: string;
+  repositoryFullName: string;
+  requestedSha?: string;
+  runningSha?: string;
+  state: PullRequestPreviewLifecycle;
+  updatedAt?: string;
+  verifiedAt?: string;
+}
+
+export interface PullRequestPreviewStatusResult {
+  checkedAt: string;
+  previews: PullRequestPreviewStatus[];
   repositoryFullName: string;
   status: 'available' | 'unauthorized' | 'unavailable';
 }

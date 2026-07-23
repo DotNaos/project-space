@@ -573,6 +573,49 @@ project deploy [directory]
 | `--lock-timeout` | `duration` | local | maximum time to wait for the remote deployment lock |
 | `--path` | `string` | local | remote project directory |
 
+<h3 id="project-deploy-preview" className="scroll-m-28"><code>project deploy preview</code></h3>
+
+Deploy a pull request through the trusted preview workflow
+
+```sh
+project deploy preview [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for preview |
+| `--pr` | `int` | local | GitHub pull request number |
+
+<h3 id="project-deploy-preview-destroy" className="scroll-m-28"><code>project deploy preview destroy</code></h3>
+
+Remove a pull request preview through the trusted workflow
+
+```sh
+project deploy preview destroy [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for destroy |
+| `--pr` | `int` | local | GitHub pull request number |
+
+<h3 id="project-deploy-preview-status" className="scroll-m-28"><code>project deploy preview status</code></h3>
+
+Read verified pull request preview status from the VPS
+
+```sh
+project deploy preview status [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--all` | `bool` | local | show all pull request previews for this repository |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for status |
+| `--pr` | `int` | local | GitHub pull request number |
+
 <h3 id="project-deploy-status" className="scroll-m-28"><code>project deploy status</code></h3>
 
 Inspect deployment status without changing the VPS

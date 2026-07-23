@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   createGitHubBranchWithDependencies,
+  mapGitHubPullRequest,
   updateGitHubIssueWithDependencies
 } from '../server/local-github-issue-actions';
 import type { requestGitHubGraphQL } from '../server/github-graphql-client';
@@ -26,6 +27,21 @@ function issue(overrides: Partial<LocalGitHubApiIssue> = {}): LocalGitHubApiIssu
 }
 
 describe('local GitHub issue actions', () => {
+  test('keeps the full pull request head SHA returned by GitHub', () => {
+    const headSha = 'f'.repeat(40);
+    expect(mapGitHubPullRequest({
+      head: { ref: 'issue-263-preview', sha: headSha },
+      html_url: 'https://github.com/DotNaos/project-space/pull/263',
+      number: 263,
+      state: 'open',
+      title: 'Preview deployments'
+    }, 263)).toMatchObject({
+      headBranch: 'issue-263-preview',
+      headSha,
+      linkedIssueNumbers: [263]
+    });
+  });
+
   test('returns the exact linked branch commit reported by GitHub', async () => {
     const request = (async <Result>(path: string) => {
       if (path === '/repos/DotNaos/project-space') {

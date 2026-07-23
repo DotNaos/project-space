@@ -168,6 +168,7 @@ export function ProjectIssueDetailPanel({
           onPullRequestCreated={upsertPullRequest}
           project={project}
           projects={projects}
+          pullRequests={safeDetails.pullRequests}
           repoFullName={repository?.fullName}
           repoUrl={repository?.url}
           targetPath={targetPath}
@@ -253,7 +254,7 @@ function IssueEmptyState({ message, onRetry }: { message: string; onRetry?(): vo
   );
 }
 
-function IssueDetailWorkbench({ branches, connectorOverview, issue, issues, onBranchCreated, onIssueUpdated, onOpenIssue, onPullRequestCreated, project, projects, repoFullName, repoUrl, targetPath }: {
+function IssueDetailWorkbench({ branches, connectorOverview, issue, issues, onBranchCreated, onIssueUpdated, onOpenIssue, onPullRequestCreated, project, projects, pullRequests, repoFullName, repoUrl, targetPath }: {
   branches: GitHubBranchRecord[];
   connectorOverview: ConnectorOverviewResult;
   issue: GitHubIssueRecord;
@@ -264,15 +265,16 @@ function IssueDetailWorkbench({ branches, connectorOverview, issue, issues, onBr
   onPullRequestCreated(pullRequest: GitHubPullRequestRecord): void;
   project: ProjectSpaceRecord;
   projects: ProjectSpaceRecord[];
+  pullRequests: GitHubPullRequestRecord[];
   repoFullName?: string;
   repoUrl?: string;
   targetPath: string;
 }) {
   return (
-    <div className="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[minmax(13rem,0.55fr)_minmax(0,1.2fr)_minmax(14rem,0.6fr)]">
-      <IssueDetailList issues={issues} onOpenIssue={onOpenIssue} repoFullName={repoFullName} selectedIssueNumber={issue.number} />
+    <div className="grid min-h-0 flex-1 auto-rows-max content-start gap-4 overflow-y-auto lg:auto-rows-auto lg:grid-cols-[minmax(13rem,0.55fr)_minmax(0,1.2fr)_minmax(14rem,0.6fr)] lg:content-stretch lg:overflow-hidden">
+      <IssueDetailList className="hidden lg:flex" issues={issues} onOpenIssue={onOpenIssue} repoFullName={repoFullName} selectedIssueNumber={issue.number} />
       <IssueBody issue={issue} onIssueUpdated={onIssueUpdated} repoFullName={repoFullName} />
-      <IssueActionPanel branches={branches} connectorOverview={connectorOverview} issue={issue} onBranchCreated={onBranchCreated} onIssueUpdated={onIssueUpdated} onPullRequestCreated={onPullRequestCreated} project={project} projects={projects} repoFullName={repoFullName} repoUrl={repoUrl} targetPath={targetPath} />
+      <IssueActionPanel branches={branches} connectorOverview={connectorOverview} issue={issue} onBranchCreated={onBranchCreated} onIssueUpdated={onIssueUpdated} onPullRequestCreated={onPullRequestCreated} project={project} projects={projects} pullRequests={pullRequests} repoFullName={repoFullName} repoUrl={repoUrl} targetPath={targetPath} />
     </div>
   );
 }

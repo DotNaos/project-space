@@ -10,6 +10,7 @@ import {
 import { IssueStatusDot } from './issue-visuals';
 
 interface IssueDetailListProps {
+  className?: string;
   issues: GitHubIssueRecord[];
   onOpenIssue(issueNumber: number): void;
   repoFullName?: string;
@@ -17,6 +18,7 @@ interface IssueDetailListProps {
 }
 
 export function IssueDetailList({
+  className,
   issues,
   onOpenIssue,
   repoFullName,
@@ -31,7 +33,7 @@ export function IssueDetailList({
   }, [repoFullName]);
 
   return (
-    <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-neutral-800/70 bg-neutral-950/40">
+    <aside className={cn('min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-neutral-800/70 bg-neutral-950/40', className ?? 'flex')}>
       <div className="flex shrink-0 items-center gap-2 border-b border-neutral-800/60 px-3 py-2.5">
         <Text className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-300">
           Issues

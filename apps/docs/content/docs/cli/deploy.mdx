@@ -75,6 +75,39 @@ project deploy --env beta --dry-run --format json
 project deploy status --all-envs --format json
 ```
 
+## Pull request previews
+
+Preview changes without promoting them to production:
+
+```sh
+project deploy preview --pr 263 --format json
+project deploy preview status --pr 263 --format json
+project deploy preview status --all --format json
+project deploy preview destroy --pr 263 --format json
+```
+
+Configure `preview.statusHost` in `deploy/deploy.yaml` as a dedicated SSH alias.
+The CLI sends only `status-all` through this alias. Its separate SSH key must be
+bound to `deploy/preview-status-entrypoint.sh` as the server-side forced command;
+do not reuse the mutating Preview deployment key.
+
+Preview deployment and removal are dispatched through
+`.github/workflows/deploy-preview.yml` from trusted `main`. Before dispatching,
+the CLI verifies the GitHub repository, the PR identity and full head SHA, the
+`main` base branch, same-repository branches, and the caller's write permission.
+The workflow receives only the action, PR number, and a random operation ID.
+
+`expectedLiveUrl` describes where the preview will be available; it is not live
+evidence. Read verified state with `project deploy preview status`. Ready
+previews use `https://pr-<number>.projects.os-home.net`.
+
+`status --all --format json` returns `{checkedAt, previews}`. Every preview has
+its repository, positive PR number, lifecycle state, and—when runtime evidence
+exists—the requested SHA. Running SHA, verified live URL, PR URL, head branch,
+timestamps, and message are included only when the trusted registry provides
+them. A `removed` or `absent` record can have no SHA when no deployment ever
+existed.
+
 ## `project deploy status`
 
 Inspect deployment status without changing the VPS.

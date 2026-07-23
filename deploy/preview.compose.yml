@@ -1,0 +1,156 @@
+name: project-space-preview
+
+x-preview-labels: &preview-labels
+  com.dotnaos.project-space.preview: "true"
+  com.dotnaos.project-space.repository: ${PREVIEW_REPOSITORY:?set PREVIEW_REPOSITORY}
+  com.dotnaos.project-space.pr: ${PREVIEW_PR_NUMBER:?set PREVIEW_PR_NUMBER}
+  com.dotnaos.project-space.sha: ${PREVIEW_HEAD_SHA:?set PREVIEW_HEAD_SHA}
+
+x-runtime-security: &runtime-security
+  cap_drop: [ALL]
+  pids_limit: 256
+  read_only: true
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+
+x-runtime-logs: &runtime-logs
+  driver: json-file
+  options:
+    max-file: "2"
+    max-size: 10m
+
+services:
+  gateway:
+    <<: *runtime-security
+    image: ${PREVIEW_GATEWAY_IMAGE:?set PREVIEW_GATEWAY_IMAGE}
+    cpus: 0.50
+    mem_limit: 256m
+    env_file:
+      # Root-owned file contains CLERK_SECRET_KEY; it is mounted only into this trusted gateway.
+      - ${PREVIEW_GATEWAY_ENV_FILE:?set PREVIEW_GATEWAY_ENV_FILE}
+    environment:
+      PROJECT_SPACE_PREVIEW_BROKER_ORIGIN: https://projects.os-home.net
+      PROJECT_SPACE_PREVIEW_GATEWAY_SECRET: ${PREVIEW_GATEWAY_SECRET:?set PREVIEW_GATEWAY_SECRET}
+      PROJECT_SPACE_PREVIEW_HEAD_SHA: ${PREVIEW_HEAD_SHA}
+      PROJECT_SPACE_PREVIEW_PR_NUMBER: ${PREVIEW_PR_NUMBER}
+      PROJECT_SPACE_PREVIEW_REPOSITORY: ${PREVIEW_REPOSITORY}
+      PROJECT_SPACE_PREVIEW_UPSTREAM_ORIGIN: http://web:4173
+      PROJECT_SPACE_PUBLIC_ORIGIN: https://${PREVIEW_DOMAIN:?set PREVIEW_DOMAIN}
+    # List form is required because Compose does not interpolate variables in mapping keys.
+    labels:
+      - "com.dotnaos.project-space.preview=true"
+      - "com.dotnaos.project-space.repository=${PREVIEW_REPOSITORY}"
+      - "com.dotnaos.project-space.pr=${PREVIEW_PR_NUMBER}"
+      - "com.dotnaos.project-space.sha=${PREVIEW_HEAD_SHA}"
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-public"
+      - "traefik.constraint-label=traefik-public"
+      - "traefik.http.routers.${PREVIEW_COMPOSE_PROJECT}-gateway.entrypoints=websecure"
+      - "traefik.http.routers.${PREVIEW_COMPOSE_PROJECT}-gateway.middlewares=secure-headers@file,gzip@file"
+      - "traefik.http.routers.${PREVIEW_COMPOSE_PROJECT}-gateway.rule=Host(`${PREVIEW_DOMAIN}`)"
+      - "traefik.http.routers.${PREVIEW_COMPOSE_PROJECT}-gateway.tls=true"
+      - "traefik.http.routers.${PREVIEW_COMPOSE_PROJECT}-gateway.tls.certresolver=letsencrypt-dns"
+      - "traefik.http.services.${PREVIEW_COMPOSE_PROJECT}-gateway.loadbalancer.server.port=4173"
+    logging: *runtime-logs
+    networks: [preview-internal, traefik-public]
+    healthcheck:
+      test: [CMD, bun, -e, "const r=await fetch('http://127.0.0.1:4173/api/health',{headers:{host:process.env.PROJECT_SPACE_PUBLIC_ORIGIN.replace('https://','')}});if(!r.ok)process.exit(1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m
+    depends_on:
+      web: { condition: service_healthy }
+      docs: { condition: service_healthy }
+
+  web:
+    <<: *runtime-security
+    image: ${PREVIEW_WEB_IMAGE:?set PREVIEW_WEB_IMAGE}
+    cpus: 1.50
+    mem_limit: 1536m
+    environment:
+      DATABASE_URL: postgres://project_space:${PREVIEW_POSTGRES_PASSWORD}@db:5432/project_space
+      PROJECT_DEPLOY_ENVIRONMENT: preview
+      PROJECT_SPACE_BACKEND_REPO_PATH: /workspace/backend-repo
+      PROJECT_SPACE_BUILD_COMMIT: ${PREVIEW_HEAD_SHA}
+      PROJECT_SPACE_BUILD_NAME: project-space-preview
+      PROJECT_SPACE_BUILD_REF: refs/pull/${PREVIEW_PR_NUMBER}/head
+      PROJECT_SPACE_PREVIEW_GATEWAY_SECRET: ${PREVIEW_GATEWAY_SECRET}
+      PROJECT_SPACE_PREVIEW_HEAD_SHA: ${PREVIEW_HEAD_SHA}
+      PROJECT_SPACE_PREVIEW_MODE: "1"
+      PROJECT_SPACE_PREVIEW_PR_NUMBER: ${PREVIEW_PR_NUMBER}
+      PROJECT_SPACE_PREVIEW_REPOSITORY: ${PREVIEW_REPOSITORY}
+      PROJECT_SPACE_PUBLIC_ORIGIN: https://${PREVIEW_DOMAIN}
+    healthcheck:
+      test: [CMD, bun, -e, "const r=await fetch('http://127.0.0.1:4173/api/health');const b=await r.json();if(!r.ok||b.ok!==true)process.exit(1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    labels: *preview-labels
+    logging: *runtime-logs
+    networks: [preview-internal]
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m
+      - /home/bun/.project-space:rw,nosuid,nodev,noexec,size=16m
+    volumes:
+      - ${PREVIEW_REPOSITORY_PATH:?set PREVIEW_REPOSITORY_PATH}:/workspace/backend-repo:ro
+    depends_on:
+      db: { condition: service_healthy }
+
+  docs:
+    <<: *runtime-security
+    image: ${PREVIEW_DOCS_IMAGE:?set PREVIEW_DOCS_IMAGE}
+    cpus: 0.75
+    mem_limit: 768m
+    healthcheck:
+      test: [CMD, bun, -e, "const r=await fetch('http://127.0.0.1:3000/');if(!r.ok)process.exit(1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    labels: *preview-labels
+    logging: *runtime-logs
+    networks: [preview-internal]
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m
+
+  db:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    cpus: 0.75
+    mem_limit: 768m
+    pids_limit: 128
+    read_only: true
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      POSTGRES_DB: project_space
+      POSTGRES_PASSWORD: ${PREVIEW_POSTGRES_PASSWORD:?set PREVIEW_POSTGRES_PASSWORD}
+      POSTGRES_USER: project_space
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U project_space -d project_space"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+    labels: *preview-labels
+    logging: *runtime-logs
+    networks: [preview-internal]
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m
+      - /run/postgresql:rw,nosuid,nodev,noexec,size=16m
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+networks:
+  preview-internal:
+    internal: true
+    labels: *preview-labels
+  traefik-public:
+    external: true
+    name: traefik-public
+
+volumes:
+  postgres-data:
+    labels: *preview-labels

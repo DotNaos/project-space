@@ -1,0 +1,470 @@
+name: Deploy PR preview
+run-name: Preview ${{ inputs.action || github.event.action }} PR #${{ inputs.pr || github.event.pull_request.number }} · ${{ inputs.operation_id || github.event.action }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Preview lifecycle action
+        required: true
+        default: deploy
+        type: choice
+        options: [deploy, destroy]
+      pr:
+        description: Pull request number
+        required: true
+        type: string
+      operation_id:
+        description: Unique CLI operation identifier
+        required: true
+        type: string
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: project-space-preview-pr-${{ inputs.pr || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  PREVIEW_REPOSITORY: DotNaos/project-space
+
+jobs:
+  resolve:
+    name: Resolve exact open PR head
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      head_sha: ${{ steps.pull-request.outputs.head_sha }}
+      pr_number: ${{ steps.pull-request.outputs.pr_number }}
+    steps:
+      - name: Validate caller and current PR
+        id: pull-request
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPERATION_ID: ${{ inputs.operation_id }}
+          REQUESTED_PR: ${{ inputs.pr }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]] || {
+            echo 'Preview workflow must be dispatched from trusted main.' >&2
+            exit 64
+          }
+          [[ "$REQUESTED_PR" =~ ^[1-9][0-9]*$ ]] || {
+            echo 'Pull request number must be a positive integer.' >&2
+            exit 64
+          }
+          [[ "$OPERATION_ID" =~ ^preview-[0-9a-f]{32}$ ]] || {
+            echo 'Operation ID must match preview-<32 lowercase hex>.' >&2
+            exit 64
+          }
+          permission=$(gh api "repos/$PREVIEW_REPOSITORY/collaborators/$GITHUB_ACTOR/permission" --jq .permission)
+          case "$permission" in admin|maintain|write) ;; *) echo 'Preview dispatch requires repository write permission.' >&2; exit 77;; esac
+          pr_json=$(gh api "repos/$PREVIEW_REPOSITORY/pulls/$REQUESTED_PR")
+          head_sha=$(jq -er --arg repository "$PREVIEW_REPOSITORY" '
+            select(.state == "open" and .base.ref == "main" and
+              .base.repo.full_name == $repository and .head.repo.full_name == $repository) |
+            .head.sha | select(test("^[0-9a-f]{40}$"))
+          ' <<<"$pr_json")
+          echo "pr_number=$REQUESTED_PR" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+  validate:
+    name: Validate untrusted PR code without Preview credentials
+    needs: resolve
+    if: inputs.action == 'deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - name: Check out exact PR head
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ needs.resolve.outputs.head_sha }}
+          persist-credentials: false
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+      - name: Validate exact PR source
+        run: |
+          bun install --frozen-lockfile
+          bun test
+          bun run check
+          bun run build
+
+  build:
+    name: Build immutable Preview images with trusted recipes
+    needs: [resolve, validate]
+    if: inputs.action == 'deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment:
+      name: Preview
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      docs_digest: ${{ steps.docs.outputs.digest }}
+      gateway_digest: ${{ steps.gateway.outputs.digest }}
+      web_digest: ${{ steps.web.outputs.digest }}
+    steps:
+      - name: Check out trusted workflow assets
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          path: trusted
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Check out exact untrusted PR source separately
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          path: source
+          ref: ${{ needs.resolve.outputs.head_sha }}
+          persist-credentials: false
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Sign in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build and publish PR web image from trusted Dockerfile
+        id: web
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: source
+          file: trusted/deploy/preview.web.Dockerfile
+          build-args: |
+            PROJECT_SPACE_BUILD_COMMIT=${{ needs.resolve.outputs.head_sha }}
+            VITE_CLERK_PUBLISHABLE_KEY=${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
+          push: true
+          tags: ghcr.io/dotnaos/project-space-preview-web:pr-${{ needs.resolve.outputs.pr_number }}-${{ needs.resolve.outputs.head_sha }}
+      - name: Build and publish PR docs image from trusted Dockerfile
+        id: docs
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: source
+          file: trusted/deploy/preview.docs.Dockerfile
+          build-args: PROJECT_SPACE_BUILD_COMMIT=${{ needs.resolve.outputs.head_sha }}
+          push: true
+          tags: ghcr.io/dotnaos/project-space-preview-docs:pr-${{ needs.resolve.outputs.pr_number }}-${{ needs.resolve.outputs.head_sha }}
+      - name: Build trusted gateway exclusively from main-owned source
+        id: gateway
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: trusted
+          file: trusted/deploy/preview.gateway.Dockerfile
+          build-args: PROJECT_SPACE_BUILD_COMMIT=${{ github.workflow_sha }}
+          push: true
+          tags: ghcr.io/dotnaos/project-space-preview-gateway:${{ github.workflow_sha }}
+
+  deploy:
+    name: Deploy exact PR head through trusted Preview runner
+    needs: [resolve, build]
+    if: inputs.action == 'deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: Preview
+      url: https://pr-${{ needs.resolve.outputs.pr_number }}.projects.os-home.net
+    permissions:
+      contents: read
+      deployments: write
+      pull-requests: read
+    steps:
+      - name: Revalidate exact PR head before VPS handoff
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          REQUESTED_SHA: ${{ needs.resolve.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$PREVIEW_REPOSITORY/pulls/$PR_NUMBER" | jq -e \
+            --arg repository "$PREVIEW_REPOSITORY" --arg sha "$REQUESTED_SHA" '
+              .state == "open" and .base.ref == "main" and
+              .base.repo.full_name == $repository and .head.repo.full_name == $repository and
+              .head.sha == $sha
+            ' >/dev/null
+      - name: Create transient GitHub deployment
+        id: github-deployment
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          REQUESTED_SHA: ${{ needs.resolve.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          deployment=$(gh api --method POST "repos/$PREVIEW_REPOSITORY/deployments" --input - <<JSON
+          {"ref":"$REQUESTED_SHA","environment":"preview/pr-$PR_NUMBER","auto_merge":false,
+           "required_contexts":[],"transient_environment":true,"production_environment":false,
+           "description":"Project Space PR #$PR_NUMBER preview"}
+          JSON
+          )
+          deployment_id=$(jq -er '.id' <<<"$deployment")
+          echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
+          gh api --method POST "repos/$PREVIEW_REPOSITORY/deployments/$deployment_id/statuses" --input - <<JSON
+          {"state":"in_progress","environment":"preview/pr-$PR_NUMBER","auto_inactive":false,
+           "log_url":"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"}
+          JSON
+      - name: Load Preview-only controller credentials
+        id: preview-secrets
+        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SSH_PRIVATE_KEY: op://projects/Project Space Preview Deploy SSH/private_key
+          TS_OAUTH_CLIENT_ID: op://projects/Project Space Preview Tailscale CI Client ID/credential
+          TS_OAUTH_SECRET: op://projects/Project Space Preview Tailscale CI Secret/credential
+      - name: Configure forced-command Preview SSH identity
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ steps.preview-secrets.outputs.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          umask 077
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/project-space-preview"
+          printf '%s\n' '${{ vars.PROJECT_SPACE_PREVIEW_SSH_KNOWN_HOSTS }}' > "$HOME/.ssh/known_hosts"
+          cat > "$HOME/.ssh/config" <<SSH_CONFIG
+          Host project-space-preview
+            HostName ${{ vars.PROJECT_SPACE_PREVIEW_DEPLOY_IP }}
+            User preview-deploy
+            IdentityFile ~/.ssh/project-space-preview
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+            ForwardAgent no
+            ForwardX11 no
+            BatchMode yes
+            PasswordAuthentication no
+            KbdInteractiveAuthentication no
+          SSH_CONFIG
+          chmod 600 "$HOME/.ssh/config" "$HOME/.ssh/known_hosts" "$HOME/.ssh/project-space-preview"
+      - name: Connect ephemeral Preview CI identity to Tailscale
+        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
+        with:
+          oauth-client-id: ${{ steps.preview-secrets.outputs.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ steps.preview-secrets.outputs.TS_OAUTH_SECRET }}
+          tags: tag:ci-project-space-preview
+          ping: ${{ vars.PROJECT_SPACE_PREVIEW_DEPLOY_IP }}
+      - name: Apply trusted Preview transaction
+        id: apply
+        shell: bash
+        env:
+          DOCS_DIGEST: ${{ needs.build.outputs.docs_digest }}
+          GATEWAY_DIGEST: ${{ needs.build.outputs.gateway_digest }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          REQUESTED_SHA: ${{ needs.resolve.outputs.head_sha }}
+          WEB_DIGEST: ${{ needs.build.outputs.web_digest }}
+        run: |
+          set +e
+          jq -n \
+            --arg repository "$PREVIEW_REPOSITORY" --argjson pr "$PR_NUMBER" --arg sha "$REQUESTED_SHA" \
+            --arg web "ghcr.io/dotnaos/project-space-preview-web@$WEB_DIGEST" \
+            --arg docs "ghcr.io/dotnaos/project-space-preview-docs@$DOCS_DIGEST" \
+            --arg gateway "ghcr.io/dotnaos/project-space-preview-gateway@$GATEWAY_DIGEST" \
+            '{repository:$repository,prNumber:$pr,headSha:$sha,webImage:$web,docsImage:$docs,gatewayImage:$gateway}' |
+            ssh project-space-preview apply > preview-result.json
+          exit_code=$?
+          set -e
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+      - name: Publish GitHub deployment result
+        if: always()
+        shell: bash
+        env:
+          DEPLOYMENT_ID: ${{ steps.github-deployment.outputs.deployment_id }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          RUNNER_EXIT_CODE: ${{ steps.apply.outputs.exit_code }}
+        run: |
+          set -euo pipefail
+          state=failure
+          description='Preview deployment failed.'
+          if [[ "$RUNNER_EXIT_CODE" == 0 ]] && jq -e '.state == "ready"' preview-result.json >/dev/null; then
+            state=success
+            description='Exact PR head is live and verified.'
+          fi
+          gh api --method POST "repos/$PREVIEW_REPOSITORY/deployments/$DEPLOYMENT_ID/statuses" --input - <<JSON
+          {"state":"$state","environment":"preview/pr-$PR_NUMBER","auto_inactive":true,
+           "environment_url":"https://pr-$PR_NUMBER.projects.os-home.net",
+           "log_url":"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID","description":"$description"}
+          JSON
+          [[ "$state" == success ]]
+
+  cleanup:
+    name: Remove closed or merged PR preview
+    if: github.event_name == 'pull_request_target' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: Preview
+    permissions:
+      contents: read
+      deployments: write
+      pull-requests: read
+    steps:
+      - name: Load Preview-only controller credentials
+        id: preview-secrets
+        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SSH_PRIVATE_KEY: op://projects/Project Space Preview Deploy SSH/private_key
+          TS_OAUTH_CLIENT_ID: op://projects/Project Space Preview Tailscale CI Client ID/credential
+          TS_OAUTH_SECRET: op://projects/Project Space Preview Tailscale CI Secret/credential
+      - name: Configure forced-command Preview SSH identity
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ steps.preview-secrets.outputs.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          umask 077
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/project-space-preview"
+          printf '%s\n' '${{ vars.PROJECT_SPACE_PREVIEW_SSH_KNOWN_HOSTS }}' > "$HOME/.ssh/known_hosts"
+          cat > "$HOME/.ssh/config" <<SSH_CONFIG
+          Host project-space-preview
+            HostName ${{ vars.PROJECT_SPACE_PREVIEW_DEPLOY_IP }}
+            User preview-deploy
+            IdentityFile ~/.ssh/project-space-preview
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+            ForwardAgent no
+            ForwardX11 no
+            BatchMode yes
+            PasswordAuthentication no
+            KbdInteractiveAuthentication no
+          SSH_CONFIG
+          chmod 600 "$HOME/.ssh/config" "$HOME/.ssh/known_hosts" "$HOME/.ssh/project-space-preview"
+      - name: Connect ephemeral Preview CI identity to Tailscale
+        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
+        with:
+          oauth-client-id: ${{ steps.preview-secrets.outputs.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ steps.preview-secrets.outputs.TS_OAUTH_SECRET }}
+          tags: tag:ci-project-space-preview
+          ping: ${{ vars.PROJECT_SPACE_PREVIEW_DEPLOY_IP }}
+      - name: Remove only the exact PR resources and persist tombstone
+        shell: bash
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          jq -n --arg repository "$PREVIEW_REPOSITORY" --argjson pr "$PR_NUMBER" \
+            --arg reason "pull_request_closed" '{repository:$repository,prNumber:$pr,reason:$reason}' |
+            ssh project-space-preview destroy > cleanup-result.json
+          jq -e '.state == "removed" and .cleanup.containersAbsent and .cleanup.networksAbsent and
+            .cleanup.volumesAbsent and .cleanup.runtimePathAbsent and .cleanup.routeAbsent' cleanup-result.json >/dev/null
+      - name: Mark latest GitHub Preview deployment inactive
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          deployment_id=$(gh api "repos/$PREVIEW_REPOSITORY/deployments?environment=preview/pr-$PR_NUMBER&per_page=1" --jq '.[0].id // empty')
+          [[ -z "$deployment_id" ]] || gh api --method POST \
+            "repos/$PREVIEW_REPOSITORY/deployments/$deployment_id/statuses" --input - <<JSON
+          {"state":"inactive","environment":"preview/pr-$PR_NUMBER","auto_inactive":false,
+           "log_url":"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID",
+           "description":"PR closed; Preview resources were positively removed."}
+          JSON
+
+  manual-destroy:
+    name: Manually remove exact PR preview
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'destroy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: Preview
+    permissions:
+      contents: read
+      deployments: write
+      pull-requests: read
+    steps:
+      - name: Validate destroy request and caller
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPERATION_ID: ${{ inputs.operation_id }}
+          PR_NUMBER: ${{ inputs.pr }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]] || exit 64
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || exit 64
+          [[ "$OPERATION_ID" =~ ^preview-[0-9a-f]{32}$ ]] || exit 64
+          permission=$(gh api "repos/$PREVIEW_REPOSITORY/collaborators/$GITHUB_ACTOR/permission" --jq .permission)
+          case "$permission" in admin|maintain|write) ;; *) exit 77;; esac
+      - name: Load Preview-only controller credentials
+        id: preview-secrets
+        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SSH_PRIVATE_KEY: op://projects/Project Space Preview Deploy SSH/private_key
+          TS_OAUTH_CLIENT_ID: op://projects/Project Space Preview Tailscale CI Client ID/credential
+          TS_OAUTH_SECRET: op://projects/Project Space Preview Tailscale CI Secret/credential
+      - name: Configure forced-command Preview SSH identity
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ steps.preview-secrets.outputs.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          umask 077
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/project-space-preview"
+          printf '%s\n' '${{ vars.PROJECT_SPACE_PREVIEW_SSH_KNOWN_HOSTS }}' > "$HOME/.ssh/known_hosts"
+          cat > "$HOME/.ssh/config" <<SSH_CONFIG
+          Host project-space-preview
+            HostName ${{ vars.PROJECT_SPACE_PREVIEW_DEPLOY_IP }}
+            User preview-deploy
+            IdentityFile ~/.ssh/project-space-preview
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+            ForwardAgent no
+            ForwardX11 no
+            BatchMode yes
+            PasswordAuthentication no
+            KbdInteractiveAuthentication no
+          SSH_CONFIG
+          chmod 600 "$HOME/.ssh/config" "$HOME/.ssh/known_hosts" "$HOME/.ssh/project-space-preview"
+      - name: Connect ephemeral Preview CI identity to Tailscale
+        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
+        with:
+          oauth-client-id: ${{ steps.preview-secrets.outputs.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ steps.preview-secrets.outputs.TS_OAUTH_SECRET }}
+          tags: tag:ci-project-space-preview
+          ping: ${{ vars.PROJECT_SPACE_PREVIEW_DEPLOY_IP }}
+      - name: Remove only the requested PR resources and persist tombstone
+        shell: bash
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+        run: |
+          set -euo pipefail
+          jq -n --arg repository "$PREVIEW_REPOSITORY" --argjson pr "$PR_NUMBER" \
+            --arg reason "manual_destroy" '{repository:$repository,prNumber:$pr,reason:$reason}' |
+            ssh project-space-preview destroy > cleanup-result.json
+          jq -e '.state == "removed" and .cleanup.containersAbsent and .cleanup.networksAbsent and
+            .cleanup.volumesAbsent and .cleanup.runtimePathAbsent and .cleanup.routeAbsent' cleanup-result.json >/dev/null
+      - name: Mark latest GitHub Preview deployment inactive
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr }}
+        run: |
+          set -euo pipefail
+          deployment_id=$(gh api "repos/$PREVIEW_REPOSITORY/deployments?environment=preview/pr-$PR_NUMBER&per_page=1" --jq '.[0].id // empty')
+          [[ -z "$deployment_id" ]] || gh api --method POST \
+            "repos/$PREVIEW_REPOSITORY/deployments/$deployment_id/statuses" --input - <<JSON
+          {"state":"inactive","environment":"preview/pr-$PR_NUMBER","auto_inactive":false,
+           "log_url":"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID",
+           "description":"Manual destroy positively removed Preview resources."}
+          JSON
