@@ -1,0 +1,16 @@
+.git
+.github
+.project
+.env
+.env.*
+!.env.example
+deploy
+ssh
+tmp
+temp
+node_modules
+**/node_modules
+**/.next
+**/.source
+**/*.tsbuildinfo
+.DS_Store

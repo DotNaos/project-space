@@ -23,6 +23,7 @@ interface GitHubGraphQLDevelopmentLinks {
           } | null>;
         } | null;
         headRefName?: string | null;
+        headRefOid?: string | null;
         mergeCommit?: {
           oid?: string | null;
         } | null;
@@ -49,7 +50,8 @@ function addLinkedIssue(
 
 export async function loadRepositoryDevelopmentLinks(
   fullName: string,
-  token: string
+  token: string,
+  request: typeof requestGitHubGraphQL = requestGitHubGraphQL
 ): Promise<{
   linkedIssueNumbersByBranch: Map<string, Set<number>>;
   pullRequests: GitHubPullRequestRecord[];
@@ -63,7 +65,7 @@ export async function loadRepositoryDevelopmentLinks(
     };
   }
 
-  const data = await requestGitHubGraphQL<GitHubGraphQLDevelopmentLinks>(
+  const data = await request<GitHubGraphQLDevelopmentLinks>(
     token,
     `
       query RepositoryDevelopmentLinks($owner: String!, $name: String!) {
@@ -87,6 +89,7 @@ export async function loadRepositoryDevelopmentLinks(
               url
               state
               headRefName
+              headRefOid
               mergeCommit {
                 oid
               }
@@ -125,6 +128,7 @@ export async function loadRepositoryDevelopmentLinks(
       .filter((pullRequest): pullRequest is NonNullable<typeof pullRequest> => Boolean(pullRequest))
       .map((pullRequest) => ({
         headBranch: pullRequest.headRefName ?? undefined,
+        headSha: pullRequest.headRefOid ?? undefined,
         linkedIssueNumbers:
           pullRequest.closingIssuesReferences?.nodes
             ?.map((issue) => issue?.number)

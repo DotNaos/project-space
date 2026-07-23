@@ -35,7 +35,8 @@
     "connector:start": "bun server/web-server.ts",
     "dev:connector": "VITE_PROJECT_SPACE_API_BASE_URL=http://127.0.0.1:45873 portless run vite --host 127.0.0.1",
     "preview": "vite preview",
-    "start": "bun server/web-server.ts"
+    "start": "bun server/web-server.ts",
+    "start:preview-gateway": "bun server/preview-gateway.ts"
   },
   "dependencies": {
     "@clerk/backend": "^3.9.0",

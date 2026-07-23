@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, ExternalLink, GitBranch, GitCommitHorizontal, RefreshCw, Rocket, Workflow } from 'lucide-react';
+import { ArrowLeft, ExternalLink, GitBranch, GitCommitHorizontal, GitPullRequest, RefreshCw, Rocket, Workflow } from 'lucide-react';
 import { Accordion, Button, Surface, Text } from '@/app/dotnaos-ui';
 import { projectSpaceClient } from '@/api/project-space-client';
 import type {
@@ -21,8 +21,10 @@ import {
   workflowStatusTone
 } from './deployment-status-model';
 import { StatusChip, StatusIcon } from './deployment-status-ui';
+import { PullRequestPreviewsSection } from './pull-request-previews-section';
 import { WorkflowRunList } from './workflow-run-list';
 import { useDeploymentOverview } from '../hooks/use-deployment-overview';
+import { usePullRequestPreviewStatus } from '../hooks/use-pull-request-preview-status';
 
 interface ProjectDeploymentsPanelProps {
   loadedCommitShas?: ReadonlySet<string>;
@@ -48,6 +50,10 @@ export function ProjectDeploymentsPanel(props: ProjectDeploymentsPanelProps) {
 function DeploymentsOverview({ loadedCommitShas, onOpenWorkflowRun, repository }: ProjectDeploymentsPanelProps) {
   const repositoryFullName = repository?.fullName;
   const data = useDeploymentOverview(repositoryFullName, true);
+  const previews = usePullRequestPreviewStatus({
+    enabled: Boolean(repositoryFullName),
+    repositoryFullName
+  });
   const {
     environments,
     hasLoaded,
@@ -86,6 +92,11 @@ function DeploymentsOverview({ loadedCommitShas, onOpenWorkflowRun, repository }
       {environments?.status === 'available'
         ? <DeploymentEnvironmentList environments={environments.environments} loadedCommitShas={loadedCommitShas ?? historyCommitShas} runs={pipeline?.runs ?? []} />
         : <EnvironmentState status={environments?.status} />}
+    </section>
+
+    <section className="grid gap-2">
+      <SectionTitle icon={<GitPullRequest className="size-4" />} title="Pull request previews" />
+      <PullRequestPreviewsSection inventory={previews.inventory} repositoryFullName={repositoryFullName} />
     </section>
 
     <section className="grid gap-2">

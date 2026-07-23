@@ -1313,6 +1313,103 @@
         ],
         "commands": [
           {
+            "path": "project deploy preview",
+            "name": "preview",
+            "usage": "preview [directory]",
+            "short": "Deploy a pull request through the trusted preview workflow",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: pretty or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for preview",
+                "inherited": false
+              },
+              {
+                "name": "pr",
+                "type": "int",
+                "description": "GitHub pull request number",
+                "inherited": false
+              }
+            ],
+            "commands": [
+              {
+                "path": "project deploy preview destroy",
+                "name": "destroy",
+                "usage": "destroy [directory]",
+                "short": "Remove a pull request preview through the trusted workflow",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: pretty or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for destroy",
+                    "inherited": false
+                  },
+                  {
+                    "name": "pr",
+                    "type": "int",
+                    "description": "GitHub pull request number",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project deploy preview status",
+                "name": "status",
+                "usage": "status [directory]",
+                "short": "Read verified pull request preview status from the VPS",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "all",
+                    "type": "bool",
+                    "description": "show all pull request previews for this repository",
+                    "inherited": false
+                  },
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: pretty or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for status",
+                    "inherited": false
+                  },
+                  {
+                    "name": "pr",
+                    "type": "int",
+                    "description": "GitHub pull request number",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              }
+            ]
+          },
+          {
             "path": "project deploy status",
             "name": "status",
             "usage": "status [directory]",

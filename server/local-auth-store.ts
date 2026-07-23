@@ -4,6 +4,10 @@ import type { IncomingMessage } from 'node:http';
 import { createClerkClient, verifyToken } from '@clerk/backend';
 
 import type { ProjectSpaceAuthSessionResult } from '../src/shared/project-space-api';
+import {
+  parsePreviewGatewayBinding,
+  readPreviewIdentityAssertion
+} from './preview-gateway-policy';
 
 export interface ProjectSpaceAuthSession {
   email?: string;
@@ -17,6 +21,10 @@ const authContext = new AsyncLocalStorage<ProjectSpaceAuthSession | null>();
 
 export function isProjectSpaceAuthRequired() {
   return process.env.PROJECT_SPACE_AUTH_DISABLED !== '1';
+}
+
+export function isProjectSpacePreviewRuntime(environment: NodeJS.ProcessEnv = process.env) {
+  return environment.PROJECT_SPACE_PREVIEW_MODE === '1';
 }
 
 function getClerkSecretKey() {
@@ -92,7 +100,10 @@ export function readAuthTokenFromRequest(request: IncomingMessage) {
   return null;
 }
 
-export async function readProjectSpaceAuthSession(token?: string | null) {
+export async function readProjectSpaceAuthSession(
+  token?: string | null,
+  options: { authorizedParties?: string[] } = {}
+) {
   if (!token || !isProjectSpaceAuthRequired()) {
     return null;
   }
@@ -105,6 +116,7 @@ export async function readProjectSpaceAuthSession(token?: string | null) {
 
   try {
     const claims = await verifyToken(token, {
+      authorizedParties: options.authorizedParties,
       secretKey
     });
     const userId = typeof claims.sub === 'string' ? claims.sub : '';
@@ -142,6 +154,18 @@ export async function readAuthSessionFromRequest(request: IncomingMessage) {
     return null;
   }
 
+  if (isProjectSpacePreviewRuntime()) {
+    try {
+      return readPreviewIdentityAssertion({
+        binding: parsePreviewGatewayBinding(),
+        request,
+        secret: process.env.PROJECT_SPACE_PREVIEW_GATEWAY_SECRET ?? ''
+      });
+    } catch {
+      return null;
+    }
+  }
+
   return readProjectSpaceAuthSession(readAuthTokenFromRequest(request));
 }
 
@@ -150,6 +174,9 @@ export async function readAuthSessionFromWebSocketRequest(
   _url: URL
 ) {
   if (!isProjectSpaceAuthRequired()) {
+    return null;
+  }
+  if (isProjectSpacePreviewRuntime()) {
     return null;
   }
   const protocols = String(request.headers['sec-websocket-protocol'] ?? '')
@@ -170,6 +197,14 @@ export async function getProjectSpaceAuthSessionResult(
     return {
       authenticated: true,
       authRequired: false
+    };
+  }
+
+  if (isProjectSpacePreviewRuntime()) {
+    return {
+      authenticated: false,
+      authRequired: true,
+      message: 'Preview authentication must pass through the trusted gateway.'
     };
   }
 

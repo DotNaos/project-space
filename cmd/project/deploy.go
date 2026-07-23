@@ -78,6 +78,7 @@ func newDeployCommand() *cobra.Command {
 	}
 	addDeployFlags(cmd, &options)
 	cmd.AddCommand(newDeployStatusCommand())
+	cmd.AddCommand(newDeployPreviewCommand())
 	return cmd
 }
 

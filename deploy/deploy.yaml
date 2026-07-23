@@ -1,4 +1,6 @@
 host: deploy@100.84.238.75
+preview:
+  statusHost: project-space-preview-status
 secrets:
   CLERK_PUBLISHABLE_KEY: op://projects/clerk-project/publishable_key
   CLERK_SECRET_KEY: op://projects/clerk-project/secret_key

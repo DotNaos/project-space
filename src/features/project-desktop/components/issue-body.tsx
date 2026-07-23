@@ -61,7 +61,7 @@ export function IssueBody({ issue, onIssueUpdated, repoFullName }: IssueBodyProp
   };
 
   return (
-    <article className="issue-rise-in min-h-0 min-w-0 overflow-y-auto pr-3">
+    <article className="issue-rise-in min-h-0 min-w-0 overflow-visible pr-0 lg:overflow-y-auto lg:pr-3">
       <div className="mb-2 flex min-w-0 items-center gap-2">
         <span
           className={cn(

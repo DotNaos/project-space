@@ -28,6 +28,8 @@ Environment:
   PROJECT_SPACE_ALLOWED_EMAILS  Optional comma-separated Clerk email allowlist.
   PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET  Independent secret for public machine enrollment limits.
   PROJECT_SPACE_PUBLIC_ORIGIN  Public HTTPS origin used for machine approval links.
+  PROJECT_SPACE_PREVIEW_MODE=1  Accept only trusted Preview gateway identity assertions.
+  PROJECT_SPACE_PREVIEW_GATEWAY_SECRET  PR-scoped key used to verify Preview assertions.
   GITHUB_OAUTH_CLIENT_ID  GitHub OAuth app client ID for repository connection.
   PROJECT_SPACE_AUTH_DISABLED=1  Disable login protection for trusted local debugging only.
 

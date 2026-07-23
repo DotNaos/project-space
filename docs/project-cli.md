@@ -300,6 +300,12 @@ project deploy --env beta
 project deploy --env prod --dry-run --format json
 project deploy status --env prod
 project deploy status --all-envs --format json
+
+# Pull request previews are dispatched only through the trusted main workflow.
+project deploy preview --pr 263 --format json
+project deploy preview status --pr 263 --format json
+project deploy preview status --all --format json
+project deploy preview destroy --pr 263 --format json
 ```
 
 `project deploy` uses the existing template compose files:
@@ -311,6 +317,8 @@ Configuration can live in `deploy/deploy.yaml`:
 
 ```yaml
 host: deploy@100.84.238.75
+preview:
+  statusHost: project-space-preview-status
 secrets:
   GITHUB_TOKEN: op://projects/GitHub Personal Access Token/token
 environments:
@@ -329,6 +337,11 @@ environments:
 
 Only `prod` and `beta` are supported. The old flat `deploy/deploy.yaml`
 shape is not supported.
+
+`preview.statusHost` is a dedicated SSH alias for verified Preview inventory.
+The CLI sends only `status-all` to that host. Configure its separate key with
+`deploy/preview-status-entrypoint.sh` as the server-side forced command; do not
+reuse the deployment key.
 
 Deploy status and dry-run JSON include clickable URLs for the app, API, and
 docs. The docs URL is derived from the app domain at `/docs`.
@@ -350,6 +363,40 @@ commit without production secrets, then deploys that exact SHA through the
 GitHub `Production` environment. See
 [Production deployment](production-deployment.md) for workflow recovery,
 failure states, secret configuration, and the safe disable procedure.
+
+Pull request previews use `.github/workflows/deploy-preview.yml` from `main`.
+The CLI first proves the GitHub origin, an open same-repository PR targeting
+`main`, its full head SHA, and the caller's write permission. It then dispatches
+only the PR number, a random operation ID, and the requested action to the
+trusted workflow; it never executes deployment code from the PR branch.
+
+The deploy response contains an `expectedLiveUrl`, not proof that the preview
+is live. Use `project deploy preview status` for verified VPS state. A ready
+preview is served at `https://pr-<number>.projects.os-home.net`. `destroy` is a
+manual recovery command; merged and closed PRs are normally cleaned up by the
+trusted workflow.
+
+Preview status JSON has one stable top-level inventory:
+
+```json
+{
+  "checkedAt": "2026-07-22T10:03:00Z",
+  "previews": [{
+    "repositoryFullName": "DotNaos/project-space",
+    "pullRequestNumber": 263,
+    "requestedSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "runningSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "liveUrl": "https://pr-263.projects.os-home.net",
+    "state": "ready",
+    "verifiedAt": "2026-07-22T10:02:00Z",
+    "updatedAt": "2026-07-22T10:02:00Z"
+  }]
+}
+```
+
+PR URL, head branch, running SHA, live URL, timestamps, and message are omitted
+when the trusted registry has no evidence for them. `requestedSha` can also be
+absent for an idempotent `removed` or `absent` result that never deployed.
 
 Production also requires a dedicated Ed25519 connector command-signing key.
 `deploy/deploy.yaml` reads its dotenv-safe PKCS8 base64 value from

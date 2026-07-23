@@ -81,6 +81,7 @@ interface GitHubApiPullRequest {
   body?: string | null;
   head?: {
     ref?: string | null;
+    sha?: string | null;
   } | null;
   html_url: string;
   number: number;
@@ -104,12 +105,13 @@ function mapGitHubComment(comment: GitHubApiIssueComment): GitHubIssueCommentRec
   };
 }
 
-function mapGitHubPullRequest(
+export function mapGitHubPullRequest(
   pullRequest: GitHubApiPullRequest,
   linkedIssueNumber?: number
 ): GitHubPullRequestRecord {
   return {
     headBranch: pullRequest.head?.ref ?? undefined,
+    headSha: pullRequest.head?.sha ?? undefined,
     linkedIssueNumbers: linkedIssueNumber ? [linkedIssueNumber] : [],
     number: pullRequest.number,
     state: pullRequest.state,

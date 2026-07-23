@@ -157,6 +157,16 @@ class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements Project
     );
   }
 
+  getPullRequestPreviewStatus(repositoryFullName: string, pullRequestNumber?: number) {
+    const query = new URLSearchParams({ repositoryFullName });
+    if (pullRequestNumber !== undefined) {
+      query.set('pullRequestNumber', String(pullRequestNumber));
+    }
+    return this.request<import('@/shared/project-space-api').PullRequestPreviewStatusResult>(
+      `/api/pull-request-previews/status?${query.toString()}`
+    );
+  }
+
   getConnectorInstallCommand(): Promise<ConnectorInstallerResult> {
     return this.request('/api/connectors/install-command', { method: 'POST' });
   }
