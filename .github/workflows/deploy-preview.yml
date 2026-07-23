@@ -97,7 +97,7 @@ jobs:
       - name: Validate exact PR source
         run: |
           bun install --frozen-lockfile
-          bun test
+          bun test --max-concurrency 1
           bun run check
           bun run build
 
