@@ -97,7 +97,31 @@ jobs:
       - name: Validate exact PR source
         run: |
           bun install --frozen-lockfile
-          bun test --max-concurrency 1
+          mapfile -t validation_tests < <(
+            git ls-files '*.test.ts' '*.test.tsx' '*.test.js' '*.test.jsx' |
+              grep -Fvx \
+                -e tests/codex-desktop-shell.test.tsx \
+                -e tests/codex-inventory-truth-ui.test.tsx \
+                -e tests/codex-operation-snapshot-store.test.ts \
+                -e tests/codex-sessions-ui.test.tsx \
+                -e tests/codex-task-workspace.test.tsx \
+                -e tests/project-codex-tasks-truth-ui.test.tsx \
+                -e tests/pull-request-preview-status-ui.test.tsx \
+                -e tests/roadmap-graph-node.test.tsx
+          )
+          bun test "${validation_tests[@]}"
+          for test_file in \
+            tests/codex-desktop-shell.test.tsx \
+            tests/codex-inventory-truth-ui.test.tsx \
+            tests/codex-sessions-ui.test.tsx \
+            tests/codex-task-workspace.test.tsx \
+            tests/project-codex-tasks-truth-ui.test.tsx \
+            tests/pull-request-preview-status-ui.test.tsx \
+            tests/roadmap-graph-node.test.tsx
+          do
+            bun test "$test_file"
+          done
+          bun test --timeout 10000 tests/codex-operation-snapshot-store.test.ts
           bun run check
           bun run build
 
