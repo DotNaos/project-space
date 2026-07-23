@@ -199,6 +199,7 @@ export interface ProjectMainPanelProps {
   onOpenMachines(): void;
   onOpenProjects(): void;
   onOpenProjectChat(projectId: string): void;
+  onOpenProjectIssueCreation(): void;
   onOpenProjectIssue(issueNumber: number, projectIdOverride?: string): void;
   onOpenProjectWorkflowRun(runId: number): void;
   onCloseProjectWorkflowRun(): void;
@@ -254,6 +255,7 @@ export function ProjectMainPanel({
   onOpenMachines,
   onOpenProjects,
   onOpenProjectChat,
+  onOpenProjectIssueCreation,
   onOpenProjectIssue,
   onOpenProjectWorkflowRun,
   onCloseProjectWorkflowRun,
@@ -632,6 +634,7 @@ export function ProjectMainPanel({
             )}
             connectorOverview={connectorOverview}
             launcherError={launcherError}
+            onCreateIssue={onOpenProjectIssueCreation}
             onOpenMachine={onOpenMachine}
             onOpenWorktreeBranch={openProjectWorktreeBranch}
             onOpenIssue={onOpenProjectIssue}
