@@ -154,7 +154,8 @@ describe('trusted Preview runner contract', () => {
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_MODE: "1"');
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_BROKER_ORIGIN: https://projects.os-home.net');
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_GATEWAY_SECRET');
-    expect(compose).toContain('PROJECT_SPACE_PREVIEW_UPSTREAM_ORIGIN: http://web:4173');
+    expect(compose).toContain('PROJECT_SPACE_PREVIEW_UPSTREAM_ORIGIN: http://preview-web:4173');
+    expect(compose).toContain('aliases: [preview-web]');
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_REPOSITORY');
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_PR_NUMBER');
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_HEAD_SHA');
@@ -198,6 +199,9 @@ describe('trusted Preview runner contract', () => {
     expect(compose.status).toBe(0);
     const parsed = JSON.parse(compose.stdout);
     const labels = parsed.services.gateway.labels as Record<string, string>;
+    expect(parsed.services.gateway.environment.PROJECT_SPACE_PREVIEW_UPSTREAM_ORIGIN)
+      .toBe('http://preview-web:4173');
+    expect(parsed.services.web.networks['preview-internal'].aliases).toEqual(['preview-web']);
     expect(labels['traefik.http.routers.project-space-preview-pr-263-gateway.rule'])
       .toBe('Host(`pr-263.projects.os-home.net`)');
     expect(labels['traefik.http.services.project-space-preview-pr-263-gateway.loadbalancer.server.port'])

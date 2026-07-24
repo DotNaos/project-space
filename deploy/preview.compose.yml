@@ -34,7 +34,7 @@ services:
       PROJECT_SPACE_PREVIEW_HEAD_SHA: ${PREVIEW_HEAD_SHA}
       PROJECT_SPACE_PREVIEW_PR_NUMBER: ${PREVIEW_PR_NUMBER}
       PROJECT_SPACE_PREVIEW_REPOSITORY: ${PREVIEW_REPOSITORY}
-      PROJECT_SPACE_PREVIEW_UPSTREAM_ORIGIN: http://web:4173
+      PROJECT_SPACE_PREVIEW_UPSTREAM_ORIGIN: http://preview-web:4173
       PROJECT_SPACE_PUBLIC_ORIGIN: https://${PREVIEW_DOMAIN:?set PREVIEW_DOMAIN}
     # List form is required because Compose does not interpolate variables in mapping keys.
     labels:
@@ -91,7 +91,9 @@ services:
       start_period: 20s
     labels: *preview-labels
     logging: *runtime-logs
-    networks: [preview-internal]
+    networks:
+      preview-internal:
+        aliases: [preview-web]
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=64m
       - /home/bun/.project-space:rw,nosuid,nodev,noexec,size=16m
