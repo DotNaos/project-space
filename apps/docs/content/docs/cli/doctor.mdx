@@ -1,0 +1,84 @@
+---
+title: Project Doctor
+description: Diagnose managed-machine readiness and apply only confirmed, supported repairs.
+---
+
+`project doctor` is the canonical readiness check for Project Space machine operations.
+
+## Diagnose A Managed Machine
+
+```sh
+project doctor --machine os-pc
+project doctor --machine os-pc --format json
+```
+
+Diagnosis is read-only. It inspects the exact physical machine and reports the
+evidence for each connector installation without changing the target.
+`--machine-id` selects an exact physical-machine ID, while `--connector`
+resolves a machine with more than one eligible connector installation.
+
+Doctor distinguishes ready, degraded, repairable, repairing, unreachable,
+authorization-required, unauthorized, unsupported, failed, uncertain,
+ambiguous, manually blocked, rollback, rolled-back, and recovery-required
+outcomes. Structured output uses the same states and evidence as the
+human-readable result.
+
+Other machine commands use the same readiness model. When a prerequisite is
+unhealthy, they stop and point back to the matching Doctor command rather than
+trying to repair it themselves.
+
+## Apply A Safe Managed Repair
+
+```sh
+project doctor --machine os-pc --fix
+project doctor --machine os-pc --fix --yes
+project doctor --machine os-pc --fix --yes --format json
+```
+
+`--fix` first produces an exact repair plan. The interactive flow prints that
+plan and defaults to no. `--yes` confirms the identical plan
+non-interactively; the server rejects the request if readiness changed between
+the check and the repair.
+
+Doctor only dispatches operations already supported by Project Space's managed
+maintenance channel. Constrained connector restarts can restore a stale live
+session. Connector updates use an approved signed release,
+authenticated machine and owner identities, a narrow update operation, a
+persisted audit trail, and the existing rollback/recovery protocol. Doctor
+waits for the connector to return and re-checks readiness before reporting
+`repaired`. If verification cannot establish a supported terminal outcome
+before the wait ends, structured repair output remains
+`verification-pending` and includes the latest readiness evidence.
+
+Repeated `--fix` calls converge safely. An active operation is reported as
+`repairing`; an already-ready machine changes nothing; a failed or rolled-back
+operation remains an honest blocked result.
+
+Doctor may offer safe connector maintenance while readiness is
+`manually-blocked`, but it reports the final repair outcome as `blocked` unless
+the re-check actually proves the full machine ready.
+
+## Unsupported Prerequisites
+
+Doctor does not open a general remote shell, edit `PATH`, download arbitrary
+artifacts, request `sudo` or administrator access, or invent platform-specific
+setup. If the managed connector is current but Codex is still unavailable,
+Doctor reports `manually-blocked` because Project Space does not yet provide a
+signed managed Codex installation channel.
+
+The result names the next supported Project action. It does not prescribe
+manual remote setup for cases Project Space cannot repair safely.
+
+## Local Readiness
+
+Without a machine selector, Doctor checks this CLI's local Project Space
+connection and required project directories:
+
+```sh
+project doctor
+project doctor --fix
+project doctor --fix --yes
+```
+
+The default command is read-only. Missing local directories are created only
+after `--fix` is explicitly confirmed.

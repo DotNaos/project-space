@@ -126,7 +126,9 @@ func TestDoctorCommandConfirmationFixesDirectories(t *testing.T) {
 	)
 	output := &bytes.Buffer{}
 	command.SetOut(output)
+	command.SetErr(output)
 	command.SetIn(strings.NewReader("y\n"))
+	command.SetArgs([]string{"--fix"})
 
 	if err := command.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
@@ -170,14 +172,16 @@ func TestDoctorCommandConfirmationDefaultsToNo(t *testing.T) {
 			)
 			output := &bytes.Buffer{}
 			command.SetOut(output)
+			command.SetErr(output)
 			command.SetIn(strings.NewReader(test.input))
+			command.SetArgs([]string{"--fix"})
 
 			err := command.Execute()
-			if err == nil || !strings.Contains(err.Error(), `run "project doctor --fix"`) {
-				t.Fatalf("error = %v, want --fix guidance", err)
+			if err == nil || !strings.Contains(err.Error(), "repair was not confirmed") {
+				t.Fatalf("error = %v, want confirmation failure", err)
 			}
-			if backend.healthCalls != 1 {
-				t.Fatalf("backend health calls = %d, want 1", backend.healthCalls)
+			if backend.healthCalls != 0 {
+				t.Fatalf("backend health calls = %d, want 0 after declined plan", backend.healthCalls)
 			}
 			if !strings.Contains(output.String(), "Create missing project directories now? y/N: ") {
 				t.Fatalf("confirmation prompt missing: %q", output.String())
@@ -234,7 +238,7 @@ func TestDoctorCommandFixIncludesDirectoryEvidenceInJSON(t *testing.T) {
 	)
 	output := &bytes.Buffer{}
 	command.SetOut(output)
-	command.SetArgs([]string{"--fix", "--json"})
+	command.SetArgs([]string{"--fix", "--yes", "--json"})
 
 	if err := command.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
@@ -294,7 +298,7 @@ func TestDoctorCommandFixesDirectoriesBeforeBackendDependencyFailure(t *testing.
 		newProjectDirectoryDoctor(func() (string, error) { return home, nil }),
 	)
 	command.SetOut(&bytes.Buffer{})
-	command.SetArgs([]string{"--fix"})
+	command.SetArgs([]string{"--fix", "--yes"})
 
 	err := command.Execute()
 	if err == nil || !strings.Contains(err.Error(), "backend configuration failed") {

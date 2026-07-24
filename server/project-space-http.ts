@@ -30,6 +30,9 @@ import { createProjectTopologyInventoryHttpHandler } from './project-topology/pr
 import { createConfiguredCodexMachineTasksHandler } from './codex-machine-tasks/configured-runtime';
 import { CodexAttachLeaseStore } from './codex-machine-tasks/attach-lease-store';
 import { createCodexAttachUpgradeHandler } from './codex-machine-tasks/attach-websocket';
+import {
+  createConfiguredMachineReadinessHandler
+} from './machine-readiness/configured-runtime';
 
 export interface ProjectSpaceHttpOptions {
   backend?: ProjectSpaceBackend;
@@ -72,10 +75,15 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
   });
+  const machineReadiness = createConfiguredMachineReadinessHandler({
+    backend: rawBackend,
+    machineConnection: options.machineConnectionRuntime
+  });
   const handleApiRequest = projectChatRuntime.then((runtime) =>
     createProjectSpaceApiHandler(backend, {
       codexSessions,
       codexMachineTasks,
+      machineReadiness,
       machineConnection: options.machineConnectionRuntime,
       projectChat: runtime,
       projectTopology

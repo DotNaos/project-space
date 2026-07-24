@@ -149,6 +149,36 @@ Fixed policy:
 
 The token value is stored directly in 1Password and is never printed.
 
+## Diagnose And Repair Machine Readiness
+
+```sh
+project doctor --machine <physical-machine-name>
+project doctor --machine <physical-machine-name> --format json
+project doctor --machine <physical-machine-name> --fix
+project doctor --machine <physical-machine-name> --fix --yes
+```
+
+Remote diagnosis is read-only and uses one readiness model shared with machine
+commands such as `project codex start`. When a machine command is blocked, it
+reports the blocker and points back to Doctor instead of repairing inline.
+
+`--fix` presents one exact plan and requires confirmation. `--yes` confirms
+that same plan non-interactively. Only signed, managed, narrowly scoped
+connector maintenance is eligible. Doctor re-checks the machine after the
+operation and reports repair, verification-pending, blocked, failure,
+rollback, or recovery outcomes honestly.
+
+There is no arbitrary remote shell, `PATH` edit, download, privilege
+escalation, or unsupported manual setup fallback. A missing Codex runtime
+without a signed managed installation channel remains explicitly blocked.
+
+Without `--machine` or `--machine-id`, Doctor checks the current CLI connection
+and local project directories. Local directory creation also requires
+`--fix` confirmation.
+
+See the [Project Doctor guide](/docs/cli/doctor) for the
+state model and safety boundaries.
+
 ## Update The Project CLI And Connector
 
 ```sh

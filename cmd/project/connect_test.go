@@ -264,7 +264,7 @@ func TestMachineManagementCommands(t *testing.T) {
 	)
 	doctorOutput := &bytes.Buffer{}
 	doctor.SetOut(doctorOutput)
-	doctor.SetArgs([]string{"--json", "--fix"})
+	doctor.SetArgs([]string{"--json", "--fix", "--yes"})
 	if err := doctor.Execute(); err != nil {
 		t.Fatalf("doctor: %v", err)
 	}

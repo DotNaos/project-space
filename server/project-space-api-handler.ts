@@ -19,10 +19,12 @@ import { createGitHubIssueCreationRoutes } from './github-issue-creation-routes'
 import { createGitHubIssueAttachmentContentRoute } from './github-issue-attachment-content-route';
 import type { ProjectTopologyInventoryHttpHandler } from './project-topology/project-inventory-http';
 import type { CodexMachineTasksHttpHandler } from './codex-machine-tasks/http';
+import type { createConfiguredMachineReadinessHandler } from './machine-readiness/configured-runtime';
 
 interface ProjectSpaceApiHandlerOptions {
   codexSessions?: CodexSessionsHttpHandler;
   codexMachineTasks?: CodexMachineTasksHttpHandler;
+  machineReadiness?: ReturnType<typeof createConfiguredMachineReadinessHandler>;
   machineConnection?: Pick<MachineConnectionRuntime, 'handleRequest'>;
   projectChat?: Pick<ProjectChatRuntime, 'handleRequest'>;
   projectTopology?: ProjectTopologyInventoryHttpHandler;
@@ -66,6 +68,10 @@ export function createProjectSpaceApiHandler(
       }
 
       if (options.codexMachineTasks && await options.codexMachineTasks(request, response, url)) {
+        return true;
+      }
+
+      if (options.machineReadiness && await options.machineReadiness(request, response, url)) {
         return true;
       }
 

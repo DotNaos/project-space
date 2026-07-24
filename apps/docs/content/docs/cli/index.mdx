@@ -36,7 +36,7 @@ project
 | [`create`](#project-create) | `new` | Create and initialize a new project |
 | [`deploy`](#project-deploy) | - | Deploy this project to the VPS |
 | [`disconnect`](#project-disconnect) | - | Disconnect this machine from Project Space |
-| [`doctor`](#project-doctor) | - | Check this machine's Project Space connection |
+| [`doctor`](#project-doctor) | - | Diagnose local or managed-machine Project Space readiness |
 | [`help`](#project-help) | - | Help about any command |
 | [`init`](#project-init) | - | Initialize a project template lock |
 | [`module`](#project-module) | - | Manage project template modules |
@@ -654,7 +654,7 @@ project disconnect
 
 <h3 id="project-doctor" className="scroll-m-28"><code>project doctor</code></h3>
 
-Check this machine's Project Space connection
+Diagnose local or managed-machine Project Space readiness
 
 ```sh
 project doctor
@@ -662,9 +662,14 @@ project doctor
 
 | Flag | Type | Scope | Description |
 | --- | --- | --- | --- |
-| `--fix` | `bool` | local | create missing project directories |
+| `--connector` | `string` | local | exact connector installation ID |
+| `--fix` | `bool` | local | apply the exact confirmed managed repair plan |
+| `--format` | `string` | local | output format: text or json |
 | `-h`, `--help` | `bool` | local | help for doctor |
 | `--json` | `bool` | local | print machine-readable output |
+| `--machine` | `string` | local | exact physical machine name |
+| `--machine-id` | `string` | local | exact physical machine ID |
+| `--yes` | `bool` | local | confirm the current exact repair plan non-interactively |
 
 <h3 id="project-help" className="scroll-m-28"><code>project help</code></h3>
 
@@ -1097,6 +1102,7 @@ project worktree prepare [task-name]
 
 ## Guides
 
+- [Project Doctor](/docs/cli/doctor)
 - [Self-update](/docs/cli/self-update)
 - [Create and init](/docs/cli/create-init)
 - [Validate](/docs/cli/validate)

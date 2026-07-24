@@ -74,7 +74,7 @@ describe('Codex machine-task target resolution', () => {
       [connector('mac-local', { connector: { installCommand: '', status: 'offline' } }), 'offline'],
       [connector('mac-local', {
         connector: { capabilities: [], installCommand: '', status: 'online' }
-      }), 'offline'],
+      }), 'machine_not_ready'],
       [connector('mac-local'), 'stale_connector']
     ];
 
@@ -86,6 +86,15 @@ describe('Codex machine-task target resolution', () => {
         physicalMachines
       })).toThrow(expect.objectContaining({ reason }));
     }
+
+    expect(() => resolveCodexMachineTaskTarget({
+      connectors: [connector('mac-local', {
+        connector: { capabilities: [], installCommand: '', status: 'online' }
+      })],
+      generationFor: () => 9,
+      physicalMachineId: 'physical-local',
+      physicalMachines
+    })).toThrow('project doctor --machine-id physical-local');
 
     expect(() => resolveCodexMachineTaskTarget({
       connectors: [connector('mac-local')],

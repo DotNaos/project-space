@@ -8,6 +8,7 @@ import type {
   CodexSessionStreamEvent
 } from '../../src/shared/codex-sessions-api';
 import type { MachineRecord, PhysicalMachineRecord } from '../../src/shared/project-space-api';
+import type { MachineRuntimeStatusResult } from '../../src/shared/connector-runtime-api';
 
 export interface CodexMachineTaskStartPayload {
   branch: string;
@@ -107,6 +108,7 @@ export interface CodexMachineTasksServiceOptions {
   inventory(userId: string): Promise<{
     connectors: MachineRecord[];
     physicalMachines: PhysicalMachineRecord[];
+    runtimeStatuses?: ReadonlyMap<string, MachineRuntimeStatusResult>;
   }>;
   issue(input: {
     issue: number;
