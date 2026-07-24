@@ -35,6 +35,27 @@ describe('configured connector runtime release source', () => {
     expect(calls).toBe(0);
   });
 
+  test('permits only the immutable Linux bridge release and caches it separately', async () => {
+    const calls: string[] = [];
+    const source = new GitHubConnectorRuntimeReleaseSource('v0.5.0', async (url) => {
+      calls.push(url);
+      return Response.json({ manifest: { releaseId: url.includes('v0.4.14')
+        ? 'v0.4.14'
+        : 'v0.5.0' }, signature: 'signed' });
+    });
+
+    await source.loadApprovedManifest();
+    await source.loadApprovedManifest('v0.4.14');
+    await source.loadApprovedManifest('v0.4.14');
+    expect(calls).toEqual([
+      connectorRuntimeReleaseManifestUrl('v0.5.0'),
+      connectorRuntimeReleaseManifestUrl('v0.4.14')
+    ]);
+    await expect(source.loadApprovedManifest('v0.4.13')).rejects.toMatchObject({
+      code: 'release-mismatch'
+    });
+  });
+
   test('uses no credentials, bounds responses, and caches the immutable exact asset', async () => {
     const calls: Array<{ init: RequestInit; url: string }> = [];
     const source = new GitHubConnectorRuntimeReleaseSource(

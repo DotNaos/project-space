@@ -134,8 +134,11 @@ describe('connector runtime status', () => {
   });
 
   test('distinguishes required compatibility updates, optional updates, and current builds', () => {
-    expect(projectMachineRuntimeStatus({ approved, machine: machine() }).update.state)
-      .toBe('update-available');
+    expect(projectMachineRuntimeStatus({ approved, machine: machine() }).update)
+      .toMatchObject({
+        availableCapabilities: capabilities.slice().sort(),
+        state: 'update-available'
+      });
     expect(projectMachineRuntimeStatus({
       approved: { ...approved, artifact: { ...approved.artifact, protocolVersion: '3' } },
       machine: machine()

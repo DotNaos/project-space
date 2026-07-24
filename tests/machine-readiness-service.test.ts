@@ -41,6 +41,7 @@ function repairableStatus(): MachineRuntimeStatusResult {
     online: true,
     runtime: connector.connector.runtime,
     update: {
+      availableCapabilities: ['codex.runtime.v1', 'runtime.update'],
       availableReleaseId: 'v0.4.10',
       availableVersion: '0.4.10',
       state: 'update-required'
@@ -94,7 +95,7 @@ describe('machine readiness service', () => {
     const actor = { userId: 'owner' };
     const selector = { physicalMachineName: 'os-pc' };
     const diagnosis = await service.diagnose(actor, selector);
-    expect(diagnosis.state).toBe('manually-blocked');
+    expect(diagnosis.state).toBe('repairable');
     expect(starts).toHaveLength(0);
 
     await expect(service.fix(actor, {

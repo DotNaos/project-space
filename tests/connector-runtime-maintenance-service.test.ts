@@ -2,7 +2,10 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 
 import { describe, expect, test } from 'bun:test';
 
-import { ConnectorRuntimeMaintenanceService } from '../server/connector-runtime-maintenance-service';
+import {
+  ConnectorRuntimeMaintenanceService,
+  connectorRuntimeBridgeReleaseForMachine
+} from '../server/connector-runtime-maintenance-service';
 import {
   MemoryConnectorRuntimeOperationStore,
   type ConnectorRuntimeAuditInput,
@@ -149,6 +152,23 @@ async function settleDispatch() {
 }
 
 describe('connector runtime maintenance service', () => {
+  test('routes only pre-bootstrap managed Linux runtimes through v0.4.14', () => {
+    const linux = currentMachine();
+    linux.connector.runtime = {
+      ...linux.connector.runtime!,
+      architecture: 'x64',
+      platform: 'linux',
+      releaseId: 'v0.4.13',
+      version: '0.4.13'
+    };
+    expect(connectorRuntimeBridgeReleaseForMachine(linux)).toBe('v0.4.14');
+    linux.connector.runtime.version = '0.4.14';
+    linux.connector.runtime.releaseId = 'v0.4.14';
+    expect(connectorRuntimeBridgeReleaseForMachine(linux)).toBeUndefined();
+    linux.connector.runtime.platform = 'darwin';
+    expect(connectorRuntimeBridgeReleaseForMachine(linux)).toBeUndefined();
+  });
+
   test('authorizes an exact update and persists reconnect expectations before dispatch', async () => {
     const harness = new Harness();
     const result = await harness.service().request(
