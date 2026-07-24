@@ -25,6 +25,7 @@ import {
 } from './project-connector-runtime-binding';
 import { CodexSessionsConnectorDispatcher } from './codex-sessions/connector-dispatch';
 import {
+  createProjectConnectorCodexAuthorizationManager,
   createProjectConnectorCodexSessionManager,
   handleProjectConnectorCodexMessage,
   sendProjectConnectorCodexResult
@@ -63,7 +64,11 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
   const codexSessionManager = createProjectConnectorCodexSessionManager(
     options.environment ?? process.env, options.runtimeCredential?.machineId
   );
+  const codexAuthorizationManager = createProjectConnectorCodexAuthorizationManager(
+    options.environment ?? process.env, options.runtimeCredential?.machineId
+  );
   cleanupTasks.push(() => void codexSessionManager.close());
+  cleanupTasks.push(() => void codexAuthorizationManager.close());
 
   function startHttpRegistryPublisher(target: ProjectConnectorHubTarget) {
     if (!target.url) {
@@ -167,6 +172,7 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         : undefined;
     const codexSessionsDispatcher = commandGrantPublicKey
       ? new CodexSessionsConnectorDispatcher({
+          authorization: codexAuthorizationManager,
           expectedMachineId: options.runtimeCredential?.machineId,
           manager: codexSessionManager,
           verificationKey: commandGrantPublicKey

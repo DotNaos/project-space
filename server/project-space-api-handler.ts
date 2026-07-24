@@ -20,8 +20,12 @@ import { createGitHubIssueAttachmentContentRoute } from './github-issue-attachme
 import type { ProjectTopologyInventoryHttpHandler } from './project-topology/project-inventory-http';
 import type { CodexMachineTasksHttpHandler } from './codex-machine-tasks/http';
 import type { createConfiguredMachineReadinessHandler } from './machine-readiness/configured-runtime';
+import type {
+  createConfiguredCodexAuthorizationHandler
+} from './codex-authorization/configured-runtime';
 
 interface ProjectSpaceApiHandlerOptions {
+  codexAuthorization?: ReturnType<typeof createConfiguredCodexAuthorizationHandler>;
   codexSessions?: CodexSessionsHttpHandler;
   codexMachineTasks?: CodexMachineTasksHttpHandler;
   machineReadiness?: ReturnType<typeof createConfiguredMachineReadinessHandler>;
@@ -68,6 +72,11 @@ export function createProjectSpaceApiHandler(
       }
 
       if (options.codexMachineTasks && await options.codexMachineTasks(request, response, url)) {
+        return true;
+      }
+
+      if (options.codexAuthorization &&
+          await options.codexAuthorization(request, response, url)) {
         return true;
       }
 

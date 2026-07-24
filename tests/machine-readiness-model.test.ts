@@ -155,7 +155,7 @@ describe('canonical machine readiness model', () => {
       'runtime.update'
     ];
     expect(diagnose({ runtimeStatus: signedRuntime }).state).toBe('repairable');
-    expect(diagnose({
+    const authorizationRequired = diagnose({
       connector: connector({
         capabilities: ['codex.authorization-required.v1', 'codex.runtime.v1', 'runtime.update']
       }),
@@ -167,7 +167,13 @@ describe('canonical machine readiness model', () => {
           'runtime.update'
         ]
       }
-    }).state).toBe('authorization-required');
+    });
+    expect(authorizationRequired.state).toBe('authorization-required');
+    expect(authorizationRequired.nextAction).toEqual({
+      command: 'project codex login --machine-id physical-pc --connector linux-stable',
+      kind: 'supported-action',
+      message: 'Authorize the managed Codex runtime with a device code.'
+    });
     expect(diagnose({
       connector: connector({ capabilities: ['codex.runtime.v1', 'runtime.update'] }),
       runtimeStatus: {

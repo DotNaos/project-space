@@ -306,7 +306,12 @@ describe('authenticated connector runtime release manifest', () => {
         artifact.target === 'windows-x64'
             ? []
             : artifact.target === 'linux-x64'
-            ? ['codex.runtime.v1', 'runtime.restart', 'runtime.update']
+            ? [
+                'codex.account.device-login.v1',
+                'codex.runtime.v1',
+                'runtime.restart',
+                'runtime.update'
+              ]
             : ['runtime.restart', 'runtime.update']
       );
       expect(artifact.protocolVersion).toBe('2');

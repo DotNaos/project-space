@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/DotNaos/project-space/internal/codextask"
 )
@@ -16,11 +17,19 @@ import (
 const codexTestThreadID = "019f6cfb-733e-7ab1-a1ce-1a583f4d9844"
 
 type fakeCodexTaskAPI struct {
-	attach func(context.Context, codextask.AttachRequest) (codextask.AttachResult, error)
-	read   func(context.Context, codextask.ReadRequest) (codextask.ReadResult, error)
-	send   func(context.Context, codextask.SendRequest) (codextask.SendResult, error)
-	start  func(context.Context, codextask.StartRequest) (codextask.StartResult, error)
-	stream func(context.Context, codextask.SubscribeRequest, codextask.EventHandler) error
+	authorize func(context.Context, codextask.AuthorizationRequest) (codextask.AuthorizationResult, error)
+	attach    func(context.Context, codextask.AttachRequest) (codextask.AttachResult, error)
+	read      func(context.Context, codextask.ReadRequest) (codextask.ReadResult, error)
+	send      func(context.Context, codextask.SendRequest) (codextask.SendResult, error)
+	start     func(context.Context, codextask.StartRequest) (codextask.StartResult, error)
+	stream    func(context.Context, codextask.SubscribeRequest, codextask.EventHandler) error
+}
+
+func (fake fakeCodexTaskAPI) Authorize(
+	ctx context.Context,
+	request codextask.AuthorizationRequest,
+) (codextask.AuthorizationResult, error) {
+	return fake.authorize(ctx, request)
 }
 
 func (fake fakeCodexTaskAPI) Start(ctx context.Context, request codextask.StartRequest) (codextask.StartResult, error) {
@@ -406,6 +415,55 @@ func TestCodexSendReportsUncertainAfterAcceptedStreamFailure(t *testing.T) {
 	}
 }
 
+func TestCodexLoginShowsDeviceCodeAndWaitsForReady(t *testing.T) {
+	calls := []codextask.AuthorizationAction{}
+	client := fakeCodexTaskAPI{
+		authorize: func(
+			_ context.Context,
+			request codextask.AuthorizationRequest,
+		) (codextask.AuthorizationResult, error) {
+			calls = append(calls, request.Action)
+			result := codextask.AuthorizationResult{
+				APIVersion:  codextask.APIVersion,
+				Message:     "Codex is authorized and ready.",
+				OperationID: request.OperationID,
+				State:       codextask.AuthorizationReady,
+				Target:      codexTestTarget(),
+			}
+			if request.Action == codextask.AuthorizationStart {
+				result.DeadlineAt = "2099-07-24T00:15:00Z"
+				result.Message = "Open the verification page and enter the device code."
+				result.State = codextask.AuthorizationPending
+				result.UserCode = "ABCD-1234"
+				result.VerificationURL = "https://auth.openai.com/codex/device"
+			}
+			return result, nil
+		},
+	}
+	dependencies := codexTestDependencies(client)
+	dependencies.AuthorizationPollAttempts = 2
+	dependencies.AuthorizationPollInterval = time.Millisecond
+	dependencies.Wait = func(context.Context, time.Duration) error { return nil }
+	command := newCodexCommandWithDependencies(dependencies)
+	output, diagnostics := &bytes.Buffer{}, &bytes.Buffer{}
+	command.SetOut(output)
+	command.SetErr(diagnostics)
+	command.SetArgs([]string{"login", "--machine", "Remote PC", "--format", "json"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(diagnostics.String(), "ABCD-1234") ||
+		strings.Contains(output.String(), "ABCD-1234") ||
+		!strings.Contains(output.String(), `"state":"ready"`) {
+		t.Fatalf("stdout=%s stderr=%s", output, diagnostics)
+	}
+	if len(calls) != 2 ||
+		calls[0] != codextask.AuthorizationStart ||
+		calls[1] != codextask.AuthorizationStatus {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
 func codexTestDependencies(client codexTaskAPI) codexCommandDependencies {
 	return codexCommandDependencies{
 		LoadRuntime: func(context.Context) (codexCommandRuntime, error) {
@@ -414,7 +472,7 @@ func codexTestDependencies(client codexTaskAPI) codexCommandDependencies {
 		NewOperationID: func(prefix string) (string, error) {
 			return map[string]string{
 				"codex:start": "test-start-operation", "codex:send": "test-send-operation",
-				"codex:attach": "test-attach-operation",
+				"codex:attach": "test-attach-operation", "codex:login": "test-login-operation",
 			}[prefix], nil
 		},
 		ResolveRepository: func(context.Context) (string, error) { return "DotNaos/project-space", nil },

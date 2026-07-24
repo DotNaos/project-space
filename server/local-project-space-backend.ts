@@ -70,6 +70,7 @@ import { connectorRuntimeRecord } from './connector-build-info';
 import { configuredConnectorMachineId } from './project-connector-config';
 import {
   CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY,
+  CODEX_AUTHORIZATION_CONNECTOR_CAPABILITY,
   CODEX_AUTHORIZATION_REQUIRED_CONNECTOR_CAPABILITY,
   CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY,
   CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY,
@@ -179,6 +180,7 @@ async function connectorCommandCapabilities() {
   return [
     ...baseConnectorCommandCapabilities,
     ...(readiness !== 'missing' ? [CODEX_RUNTIME_CONNECTOR_CAPABILITY] : []),
+    ...(readiness !== 'missing' ? [CODEX_AUTHORIZATION_CONNECTOR_CAPABILITY] : []),
     ...(readiness === 'authorization-required'
       ? [CODEX_AUTHORIZATION_REQUIRED_CONNECTOR_CAPABILITY]
       : []),

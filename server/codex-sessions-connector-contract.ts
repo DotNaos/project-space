@@ -7,6 +7,10 @@ import {
 } from 'node:crypto';
 
 import type {
+  CodexAuthorizationConnectorRequest,
+  CodexAuthorizationConnectorResult
+} from '../src/shared/codex-authorization-api';
+import type {
   CodexSessionApprovalRequest,
   CodexSessionBrowserRequest,
   CodexSessionBrowserResult,
@@ -37,12 +41,15 @@ export const CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY = 'codex.machine-tasks.v1'
 export const CODEX_AUTHORIZATION_REQUIRED_CONNECTOR_CAPABILITY =
   'codex.authorization-required.v1';
 export const CODEX_RUNTIME_CONNECTOR_CAPABILITY = 'codex.runtime.v1';
+export const CODEX_AUTHORIZATION_CONNECTOR_CAPABILITY =
+  'codex.account.device-login.v1';
 export const CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY =
   'codex.machine-tasks.durable-operations.v1';
 
 export type CodexSessionsConnectorOperation =
   | 'approval'
   | 'attach'
+  | 'authorization'
   | 'browser'
   | 'continue'
   | 'inspect'
@@ -54,6 +61,7 @@ export type CodexSessionsConnectorOperation =
   | 'stream';
 
 type CodexSessionsConnectorPayload =
+  | CodexAuthorizationConnectorRequest
   | CodexSessionAttachRequest
   | CodexSessionApprovalRequest
   | CodexSessionBrowserRequest
@@ -92,6 +100,7 @@ export interface CodexSessionsWireRequest {
 }
 
 export type CodexSessionsWireResult =
+  | { operation: 'authorization'; result: CodexAuthorizationConnectorResult }
   | { operation: 'browser'; result: CodexSessionBrowserResult }
   | { operation: 'list'; result: CodexSessionListResult }
   | { operation: 'read'; result: CodexSessionReadResult }
@@ -254,7 +263,8 @@ export function isCodexSessionsWireRequest(value: unknown): value is CodexSessio
     typeof grant.payloadSha256 === 'string' && /^[0-9a-f]{64}$/.test(grant.payloadSha256) &&
     typeof grant.generation === 'number' && Number.isSafeInteger(grant.generation) && grant.generation >= 0 &&
     typeof grant.operation === 'string' && [
-      'approval', 'attach', 'browser', 'continue', 'inspect', 'input', 'interrupt', 'list', 'read', 'start', 'stream'
+      'approval', 'attach', 'authorization', 'browser', 'continue', 'inspect', 'input',
+      'interrupt', 'list', 'read', 'start', 'stream'
     ].includes(grant.operation) &&
     boundedIdentifier(grant.machineId, 256) && boundedIdentifier(grant.userId, 256) &&
     boundedIdentifier(grant.nonce, 128) && boundedIdentifier(grant.operationId, 128) &&
@@ -291,6 +301,11 @@ function boundedPayload(operation: CodexSessionsConnectorOperation, payload: Rec
   }
   if (JSON.stringify(payload).length > 24_000) return false;
   switch (operation) {
+    case 'authorization':
+      return hasOnlyKeys(payload, ['action', 'machineId', 'operationId']) &&
+        boundedIdentifier(payload.operationId, 128) &&
+        typeof payload.action === 'string' &&
+        ['cancel', 'start', 'status'].includes(payload.action);
     case 'attach':
       return hasOnlyKeys(payload, ['machineId', 'operationId', 'threadId', 'tunnelId']) &&
         boundedIdentifier(payload.operationId, 128) &&

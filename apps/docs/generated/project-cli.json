@@ -443,6 +443,72 @@
             "commands": []
           },
           {
+            "path": "project codex login",
+            "name": "login",
+            "usage": "login",
+            "short": "Authorize managed Codex on a remote WSL connector",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "cancel",
+                "type": "bool",
+                "description": "cancel the selected authorization attempt",
+                "inherited": false
+              },
+              {
+                "name": "connector",
+                "type": "string",
+                "description": "exact connector installation ID",
+                "inherited": false
+              },
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for login",
+                "inherited": false
+              },
+              {
+                "name": "machine",
+                "type": "string",
+                "description": "exact physical machine name",
+                "inherited": false
+              },
+              {
+                "name": "machine-id",
+                "type": "string",
+                "description": "exact physical machine ID",
+                "inherited": false
+              },
+              {
+                "name": "no-wait",
+                "type": "bool",
+                "description": "return after creating the device code",
+                "inherited": false
+              },
+              {
+                "name": "operation-id",
+                "type": "string",
+                "description": "stable idempotency key for start, status, and cancellation",
+                "inherited": false
+              },
+              {
+                "name": "status",
+                "type": "bool",
+                "description": "read the selected authorization attempt",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
             "path": "project codex read",
             "name": "read",
             "usage": "read",

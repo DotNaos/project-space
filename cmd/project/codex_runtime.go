@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/DotNaos/project-space/internal/codextask"
 	"github.com/DotNaos/project-space/internal/machineconnect"
@@ -19,15 +20,18 @@ type codexCommandRuntime struct {
 }
 
 type codexCommandDependencies struct {
-	AttachLocal        func(context.Context, string, string, io.Reader, io.Writer, io.Writer) error
-	AttachRemote       func(context.Context, string, string, string, string, io.Reader, io.Writer, io.Writer) error
-	LoadRuntime        func(context.Context) (codexCommandRuntime, error)
-	LookupEnv          func(string) (string, bool)
-	NewClient          func(codextask.Config) (codexTaskAPI, error)
-	NewCredentialStore func() (machineconnect.CredentialStore, error)
-	NewOperationID     func(string) (string, error)
-	ResolveBinary      func(context.Context, string) (string, error)
-	ResolveRepository  func(context.Context) (string, error)
+	AuthorizationPollAttempts int
+	AuthorizationPollInterval time.Duration
+	AttachLocal               func(context.Context, string, string, io.Reader, io.Writer, io.Writer) error
+	AttachRemote              func(context.Context, string, string, string, string, io.Reader, io.Writer, io.Writer) error
+	LoadRuntime               func(context.Context) (codexCommandRuntime, error)
+	LookupEnv                 func(string) (string, bool)
+	NewClient                 func(codextask.Config) (codexTaskAPI, error)
+	NewCredentialStore        func() (machineconnect.CredentialStore, error)
+	NewOperationID            func(string) (string, error)
+	ResolveBinary             func(context.Context, string) (string, error)
+	ResolveRepository         func(context.Context) (string, error)
+	Wait                      func(context.Context, time.Duration) error
 }
 
 func normalizeCodexCommandDependencies(dependencies codexCommandDependencies) codexCommandDependencies {
@@ -44,6 +48,24 @@ func normalizeCodexCommandDependencies(dependencies codexCommandDependencies) co
 	}
 	if dependencies.NewOperationID == nil {
 		dependencies.NewOperationID = newCodexOperationID
+	}
+	if dependencies.AuthorizationPollAttempts < 1 {
+		dependencies.AuthorizationPollAttempts = 450
+	}
+	if dependencies.AuthorizationPollInterval <= 0 {
+		dependencies.AuthorizationPollInterval = 2 * time.Second
+	}
+	if dependencies.Wait == nil {
+		dependencies.Wait = func(ctx context.Context, duration time.Duration) error {
+			timer := time.NewTimer(duration)
+			defer timer.Stop()
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-timer.C:
+				return nil
+			}
+		}
 	}
 	if dependencies.ResolveBinary == nil {
 		dependencies.ResolveBinary = resolveCodexBinary

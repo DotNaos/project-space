@@ -29,6 +29,33 @@ function continueRequest() {
 }
 
 describe('Codex sessions connector grants', () => {
+  test('binds device authorization to one exact action without auth parameters', () => {
+    const request = createCodexSessionsWireRequest({
+      generation: 17,
+      operation: 'authorization',
+      operationId: 'codex:login:operation-one',
+      payload: {
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-one'
+      },
+      userId: 'user-owner'
+    }, keys.privateKey, { nonce: 'nonce-login-one', now: 1_000_000 });
+    expect(isCodexSessionsWireRequest(request)).toBe(true);
+    expect(verifyCodexSessionsWireRequest(request, 'authorization', keys.publicKey, {
+      expectedGeneration: 17,
+      expectedMachineId: 'connector-wsl',
+      now: 1_001_000
+    })).toEqual({ userId: 'user-owner' });
+
+    const arbitrary = structuredClone(request) as unknown as {
+      grant: Record<string, unknown>;
+      payload: Record<string, unknown>;
+    };
+    arbitrary.payload.apiKey = 'not-allowed';
+    expect(isCodexSessionsWireRequest(arbitrary)).toBe(false);
+  });
+
   test('binds attach to the exact user, machine, generation, thread, and tunnel', () => {
     const request = createCodexSessionsWireRequest({
       generation: 13,

@@ -308,7 +308,7 @@ jobs:
               capabilities = (
                   []
                   if target == "windows-x64"
-                  else ["codex.runtime.v1", "runtime.restart", "runtime.update"]
+                  else ["codex.account.device-login.v1", "codex.runtime.v1", "runtime.restart", "runtime.update"]
                   if target == "linux-x64"
                   else ["runtime.restart", "runtime.update"]
               )

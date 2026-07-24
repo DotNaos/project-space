@@ -238,6 +238,26 @@ project codex attach
 | `--operation-id` | `string` | local | stable idempotency key for safe retries |
 | `--thread` | `string` | local | persistent Codex thread ID |
 
+<h3 id="project-codex-login" className="scroll-m-28"><code>project codex login</code></h3>
+
+Authorize managed Codex on a remote WSL connector
+
+```sh
+project codex login
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--cancel` | `bool` | local | cancel the selected authorization attempt |
+| `--connector` | `string` | local | exact connector installation ID |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for login |
+| `--machine` | `string` | local | exact physical machine name |
+| `--machine-id` | `string` | local | exact physical machine ID |
+| `--no-wait` | `bool` | local | return after creating the device code |
+| `--operation-id` | `string` | local | stable idempotency key for start, status, and cancellation |
+| `--status` | `bool` | local | read the selected authorization attempt |
+
 <h3 id="project-codex-read" className="scroll-m-28"><code>project codex read</code></h3>
 
 Read a persistent Codex thread non-interactively
