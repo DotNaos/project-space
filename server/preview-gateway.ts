@@ -41,6 +41,7 @@ function forwardingHeaders(headers: IncomingHttpHeaders) {
     if (
       !value ||
       [
+        'accept-encoding',
         'connection',
         'content-length',
         'cookie',
@@ -63,7 +64,10 @@ function forwardingHeaders(headers: IncomingHttpHeaders) {
 
 function copyResponseHeaders(source: Headers, response: ServerResponse) {
   source.forEach((value, name) => {
-    if (!['connection', 'content-length', 'transfer-encoding'].includes(name.toLowerCase())) {
+    if (
+      !['connection', 'content-encoding', 'content-length', 'transfer-encoding']
+        .includes(name.toLowerCase())
+    ) {
       response.setHeader(name, value);
     }
   });

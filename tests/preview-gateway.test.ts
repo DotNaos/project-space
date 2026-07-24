@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createServer, type IncomingMessage } from 'node:http';
 import { connect } from 'node:net';
+import { gzipSync } from 'node:zlib';
 
 import { createPreviewGatewayRequestHandler } from '../server/preview-gateway';
 import {
@@ -119,6 +120,37 @@ describe('Preview gateway', () => {
       pathname: '/api/github/catalog',
       signature: undefined
     });
+  });
+
+  test('returns decoded broker responses without stale compression headers', async () => {
+    const upstreamOrigin = await captureServer([], 'upstream');
+    const brokerOrigin = await listen((_request, response) => {
+      response.setHeader('Content-Encoding', 'gzip');
+      response.setHeader('Content-Type', 'application/json');
+      response.end(gzipSync(JSON.stringify({ repositories: ['DotNaos/project-space'] })));
+    });
+    const publicOrigin = 'https://pr-263.projects.os-home.net';
+    const gatewayOrigin = await listen(createPreviewGatewayRequestHandler({
+      PROJECT_SPACE_PREVIEW_BROKER_ORIGIN: brokerOrigin,
+      PROJECT_SPACE_PREVIEW_GATEWAY_SECRET: 'preview-only-secret-that-is-long-enough-for-hmac',
+      PROJECT_SPACE_PREVIEW_HEAD_SHA: 'a'.repeat(40),
+      PROJECT_SPACE_PREVIEW_PR_NUMBER: '263',
+      PROJECT_SPACE_PREVIEW_REPOSITORY: 'DotNaos/project-space',
+      PROJECT_SPACE_PREVIEW_UPSTREAM_ORIGIN: upstreamOrigin,
+      PROJECT_SPACE_PUBLIC_ORIGIN: publicOrigin
+    }, {
+      authenticate: async () => ({ login: 'operator', role: 'user', userId: 'user_123' })
+    }));
+
+    const response = await fetch(`${gatewayOrigin}/api/github/catalog`, {
+      headers: {
+        Authorization: 'Bearer valid-clerk-token',
+        Host: 'pr-263.projects.os-home.net'
+      }
+    });
+
+    expect(response.headers.get('content-encoding')).toBeNull();
+    expect(await response.json()).toEqual({ repositories: ['DotNaos/project-space'] });
   });
 
   test('never lets an absolute request target or client forwarding header choose the broker destination', async () => {
