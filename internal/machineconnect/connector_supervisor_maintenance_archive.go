@@ -227,6 +227,11 @@ func connectorSupervisorBundleMembers(target string) map[string]fs.FileMode {
 	if target == "darwin-arm64" {
 		members["project-approval-signer"] = 0o700
 	}
+	if target == "linux-x64" {
+		members["codex"] = 0o700
+		members["CODEX-LICENSE"] = 0o600
+		members["CODEX-VERSION"] = 0o600
+	}
 	return members
 }
 
@@ -240,6 +245,23 @@ func verifyConnectorSupervisorBundle(
 	extracted map[string]fs.FileMode,
 ) error {
 	members := connectorSupervisorBundleMembers(target)
+	if target == "linux-x64" {
+		optional := []string{"codex", "CODEX-LICENSE", "CODEX-VERSION"}
+		present := 0
+		for _, name := range optional {
+			if _, ok := extracted[filepath.Base(bundleRoot)+"/"+name]; ok {
+				present++
+			}
+		}
+		if present != 0 && present != len(optional) {
+			return errors.New("managed artifact Codex runtime is incomplete")
+		}
+		if present == 0 {
+			for _, name := range optional {
+				delete(members, name)
+			}
+		}
+	}
 	if len(extracted) != len(members)+1 {
 		return errors.New("managed artifact bundle is incomplete")
 	}

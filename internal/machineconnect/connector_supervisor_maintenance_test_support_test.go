@@ -369,6 +369,22 @@ func maintenanceTestArchiveWithKeys(
 	commandPublic ed25519.PublicKey,
 	releasePublic ed25519.PublicKey,
 ) []byte {
+	return maintenanceTestArchiveWithKeysAndCodex(
+		t,
+		target,
+		commandPublic,
+		releasePublic,
+		target == "linux-x64",
+	)
+}
+
+func maintenanceTestArchiveWithKeysAndCodex(
+	t *testing.T,
+	target string,
+	commandPublic ed25519.PublicKey,
+	releasePublic ed25519.PublicKey,
+	includeCodex bool,
+) []byte {
 	t.Helper()
 	members := map[string][]byte{
 		"project":                             []byte("project-binary"),
@@ -380,6 +396,11 @@ func maintenanceTestArchiveWithKeys(
 	}
 	if target == "darwin-arm64" {
 		members["project-approval-signer"] = []byte("signer-binary")
+	}
+	if target == "linux-x64" && includeCodex {
+		members["codex"] = []byte("codex-binary")
+		members["CODEX-LICENSE"] = []byte("codex-license")
+		members["CODEX-VERSION"] = []byte("0.145.0\n")
 	}
 	names := make([]string, 0, len(members))
 	for name := range members {
@@ -407,7 +428,7 @@ func maintenanceTestArchiveWithKeys(
 	for _, name := range allNames {
 		body := members[name]
 		mode := int64(0o644)
-		if name == "project" || name == "project-space-connector" ||
+		if name == "project" || name == "project-space-connector" || name == "codex" ||
 			name == "project-approval-signer" || name == "install.sh" {
 			mode = 0o755
 		}
