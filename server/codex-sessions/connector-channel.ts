@@ -293,7 +293,8 @@ function isBinding(value: unknown): value is CodexSessionsCommandBinding {
     identifier(value.operationId, 128) &&
     (value.threadId === undefined || identifier(value.threadId, 128)) &&
     typeof value.operation === 'string' && [
-      'approval', 'attach', 'browser', 'continue', 'inspect', 'input', 'interrupt', 'list', 'read', 'start', 'stream'
+      'approval', 'attach', 'authorization', 'browser', 'continue', 'inspect', 'input',
+      'interrupt', 'list', 'read', 'start', 'stream'
     ].includes(value.operation);
 }
 
