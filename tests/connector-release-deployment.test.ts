@@ -88,11 +88,11 @@ describe('connector release and production deployment contract', () => {
     const windowsPackaging = await source('packaging/windows/test-release-packaging.ps1');
     const windowsDocumentation = await source('docs/windows-installation.md');
 
-    expect(packageJson.version).toBe('0.4.15');
-    expect(buildInfo).toContain("const developmentVersion = '0.4.15';");
-    expect(windowsPackaging).toContain("$version = '0.4.15'");
-    expect(windowsPackaging).toContain('/releases/download/v0.4.15/');
-    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.15');
+    expect(packageJson.version).toBe('0.4.16');
+    expect(buildInfo).toContain("const developmentVersion = '0.4.16';");
+    expect(windowsPackaging).toContain("$version = '0.4.16'");
+    expect(windowsPackaging).toContain('/releases/download/v0.4.16/');
+    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.16');
     expect(linuxCodexPreparation).toContain('codex_version=0.145.0');
     expect(linuxCodexPreparation).not.toMatch(/releases\/latest|\/latest\//);
     expect(releaseWorkflow).toContain('prepare-codex-runtime.sh "$(pwd -P)/dist/linux"');
@@ -286,6 +286,9 @@ describe('connector release and production deployment contract', () => {
     expect(sign).toContain('Release tags must point at the exact current main commit.');
     expect(sign).toContain('workflow.get("id") == int(sys.argv[6])');
     expect(sign).toContain('Prepared release manifest is not the exact canonical signing payload.');
+    expect(sign).toContain(
+      'else ["codex.runtime.v1", "runtime.restart", "runtime.update"]'
+    );
     expect(sign).toContain('openssl pkeyutl -sign -rawin');
     expect(sign).toContain('signature-size=64');
     expect(sign).toContain('Remove dedicated signing key material');

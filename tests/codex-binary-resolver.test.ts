@@ -31,7 +31,7 @@ describe('Codex binary discovery', () => {
   });
 
   test('uses only the adjacent signed runtime for a managed Linux connector', () => {
-    const executable = '/home/test/.local/bin/.project-space-machine-tools/versions/0.4.15-release/project-space-connector';
+    const executable = '/home/test/.local/bin/.project-space-machine-tools/versions/0.4.16-release/project-space-connector';
     expect(resolveCodexBinary({
       environment: {
         PATH: '/untrusted/bin',
@@ -44,9 +44,9 @@ describe('Codex binary discovery', () => {
       validate: (path) => path.endsWith('/codex')
     })).toEqual({
       attempted: [
-        '/home/test/.local/bin/.project-space-machine-tools/versions/0.4.15-release/codex'
+        '/home/test/.local/bin/.project-space-machine-tools/versions/0.4.16-release/codex'
       ],
-      path: '/home/test/.local/bin/.project-space-machine-tools/versions/0.4.15-release/codex'
+      path: '/home/test/.local/bin/.project-space-machine-tools/versions/0.4.16-release/codex'
     });
   });
 
