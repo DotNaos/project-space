@@ -575,6 +575,15 @@ describe('Codex sessions connector dispatch', () => {
       }),
       type: 'codex.sessions.result'
     })]);
+    expect(isConnectorHubMessage(JSON.parse(JSON.stringify(messages[0])))).toBe(true);
+    expect(isConnectorHubMessage(JSON.parse(JSON.stringify({
+      id: 'command-login-error',
+      payload: {
+        binding: bindingForCodexSessionsRequest(request),
+        error: { code: 'unavailable' }
+      },
+      type: 'codex.sessions.error'
+    })))).toBe(true);
     dispatcher.close();
   });
 
