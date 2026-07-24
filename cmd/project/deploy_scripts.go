@@ -143,7 +143,7 @@ func deployTransactionPlan(project deployProject, options deployOptions) []strin
 }
 
 func deployLockPath(project deployProject) string {
-	return "/opt/platform/locks/" + project.Name + "-" + project.Environment + ".lock"
+	return deployStateDirectory(project) + "/deploy.lock"
 }
 
 func deployStateDirectory(project deployProject) string {
