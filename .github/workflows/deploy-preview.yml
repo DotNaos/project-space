@@ -110,7 +110,7 @@ jobs:
                 -e tests/pull-request-preview-status-ui.test.tsx \
                 -e tests/roadmap-graph-node.test.tsx
           )
-          bun test "${validation_tests[@]}"
+          bun test --isolate "${validation_tests[@]}"
           for test_file in \
             tests/codex-desktop-shell.test.tsx \
             tests/codex-inventory-truth-ui.test.tsx \

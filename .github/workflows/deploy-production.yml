@@ -115,7 +115,7 @@ jobs:
       - name: Validate TypeScript
         if: steps.current-main.outputs.superseded != 'true'
         run: |
-          bun test
+          bun test --isolate
           bun run check
           bun run build
 

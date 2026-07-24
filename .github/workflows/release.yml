@@ -81,7 +81,7 @@ jobs:
       - name: Test and build TypeScript
         run: |
           bun run check
-          bun test
+          bun test --isolate
           bun run build
 
       - name: Test and vet Go
