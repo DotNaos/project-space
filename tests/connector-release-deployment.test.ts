@@ -83,14 +83,22 @@ describe('connector release and production deployment contract', () => {
   test('pins the next immutable semantic release consistently', async () => {
     const packageJson = JSON.parse(await source('package.json'));
     const buildInfo = await source('server/connector-build-info.ts');
+    const linuxCodexPreparation = await source('packaging/linux/prepare-codex-runtime.sh');
+    const releaseWorkflow = await source('.github/workflows/release.yml');
     const windowsPackaging = await source('packaging/windows/test-release-packaging.ps1');
     const windowsDocumentation = await source('docs/windows-installation.md');
 
-    expect(packageJson.version).toBe('0.4.14');
-    expect(buildInfo).toContain("const developmentVersion = '0.4.14';");
-    expect(windowsPackaging).toContain("$version = '0.4.14'");
-    expect(windowsPackaging).toContain('/releases/download/v0.4.14/');
-    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.14');
+    expect(packageJson.version).toBe('0.4.15');
+    expect(buildInfo).toContain("const developmentVersion = '0.4.15';");
+    expect(windowsPackaging).toContain("$version = '0.4.15'");
+    expect(windowsPackaging).toContain('/releases/download/v0.4.15/');
+    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.15');
+    expect(linuxCodexPreparation).toContain('codex_version=0.145.0');
+    expect(linuxCodexPreparation).not.toMatch(/releases\/latest|\/latest\//);
+    expect(releaseWorkflow).toContain('prepare-codex-runtime.sh "$(pwd -P)/dist/linux"');
+    expect(releaseWorkflow).toContain(
+      'bun packaging/linux/smoke-codex-runtime.ts "$(pwd -P)/dist/linux/codex"'
+    );
     expect(packageJson.scripts['build:project-cli:macos-arm64:finalize']).toContain(
       'main.projectMachineClientReleaseID=v$npm_package_version'
     );

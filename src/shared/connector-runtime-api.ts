@@ -102,6 +102,7 @@ export interface ConnectorRuntimeOperationRecord {
 }
 
 export interface ConnectorRuntimeUpdateRecord {
+  availableCapabilities?: string[];
   availableReleaseId?: string;
   availableVersion?: string;
   lastCheckedAt?: string;

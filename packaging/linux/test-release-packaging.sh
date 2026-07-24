@@ -48,6 +48,22 @@ EOF
   chmod 0755 "$path"
 }
 
+write_codex_fixture() {
+  local directory=$1
+  cat > "$directory/codex" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = --version ]; then
+  printf '%s\n' 'codex-cli 0.145.0'
+  exit 0
+fi
+printf '%s\n' 'codex fixture'
+EOF
+  chmod 0755 "$directory/codex"
+  printf '%s\n' 'Apache License fixture' > "$directory/CODEX-LICENSE"
+  printf '%s\n' 'OpenAI notice fixture' > "$directory/CODEX-NOTICE"
+  printf '%s\n' '0.145.0' > "$directory/CODEX-VERSION"
+}
+
 write_trust_roots() {
   local directory=$1
   cat > "$directory/connector-command-signing-public-key.pem" <<'EOF'
@@ -73,6 +89,7 @@ fi
 printf 'connector fixture\n'
 EOF
 chmod 0755 "$temporary_root/source/project" "$temporary_root/source/project-space-connector"
+write_codex_fixture "$temporary_root/source"
 write_trust_roots "$temporary_root/source"
 
 SOURCE_DATE_EPOCH=0 "$script_directory/build-machine-tools.sh" \
@@ -93,7 +110,7 @@ cmp -- "$first_archive" "$second_archive"
 mkdir -p -- "$temporary_root/extracted"
 tar -xzf "$first_archive" -C "$temporary_root/extracted"
 bundle_root="$temporary_root/extracted/project-space-machine-tools-linux-x64-v${version}"
-expected_members=$'SHA256SUMS.txt\nVERSION\nconnector-command-signing-public-key.pem\ninstall.sh\nproject\nproject-space-connector\nrelease-manifest-signing-public-key.pem'
+expected_members=$'CODEX-LICENSE\nCODEX-NOTICE\nCODEX-VERSION\nSHA256SUMS.txt\nVERSION\ncodex\nconnector-command-signing-public-key.pem\ninstall.sh\nproject\nproject-space-connector\nrelease-manifest-signing-public-key.pem'
 actual_members=$(find "$bundle_root" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)
 if [[ $actual_members != "$expected_members" ]]; then
   echo "Unexpected archive members:" >&2
@@ -110,10 +127,13 @@ PROJECT_FIXTURE_SERVICE_LOG="$service_log" \
 [[ $(stat -c '%a' "$install_root") == 700 ]]
 [[ $(stat -Lc '%a' "$install_root/project") == 755 ]]
 [[ $(stat -Lc '%a' "$install_root/project-space-connector") == 755 ]]
+[[ $(stat -Lc '%a' "$install_root/.project-space-machine-tools/current/codex") == 755 ]]
 [[ -L $install_root/project ]]
 [[ -L $install_root/project-space-connector ]]
+[[ ! -e $install_root/codex && ! -L $install_root/codex ]]
 [[ $(readlink "$install_root/project") == '.project-space-machine-tools/current/project' ]]
 [[ $(readlink "$install_root/project-space-connector") == '.project-space-machine-tools/current/project-space-connector' ]]
+[[ $("$install_root/.project-space-machine-tools/current/codex" --version) == 'codex-cli 0.145.0' ]]
 cmp "$temporary_root/source/connector-command-signing-public-key.pem" \
   "$install_root/.project-space-machine-tools/current/connector-command-signing-public-key.pem"
 cmp "$temporary_root/source/release-manifest-signing-public-key.pem" \
@@ -130,6 +150,7 @@ upgrade_extracted="$temporary_root/upgrade-extracted"
 mkdir -p "$upgrade_source" "$upgrade_output" "$upgrade_extracted"
 write_project_fixture "$upgrade_source/project" 'project fixture v2'
 cp "$temporary_root/source/project-space-connector" "$upgrade_source/project-space-connector"
+write_codex_fixture "$upgrade_source"
 write_trust_roots "$upgrade_source"
 SOURCE_DATE_EPOCH=0 "$script_directory/build-machine-tools.sh" \
   "$version" "$upgrade_source" "$upgrade_output" >/dev/null
@@ -193,6 +214,10 @@ raced_release="$install_root/.project-space-machine-tools/versions/raced-release
 mkdir -m 0700 -- "$raced_release"
 cp -- "$temporary_root/source/project" "$raced_release/project"
 cp -- "$temporary_root/source/project-space-connector" "$raced_release/project-space-connector"
+cp -- "$temporary_root/source/codex" "$raced_release/codex"
+cp -- "$temporary_root/source/CODEX-LICENSE" "$raced_release/CODEX-LICENSE"
+cp -- "$temporary_root/source/CODEX-NOTICE" "$raced_release/CODEX-NOTICE"
+cp -- "$temporary_root/source/CODEX-VERSION" "$raced_release/CODEX-VERSION"
 set +e
 PROJECT_FIXTURE_SERVICE_LOG="$service_log" \
 PROJECT_FIXTURE_MAINTENANCE_MARKER_ON_STOP="$maintenance_root/control.json" \
@@ -264,6 +289,7 @@ failing_extracted="$temporary_root/failing-extracted"
 mkdir -p "$failing_source" "$failing_output" "$failing_extracted"
 write_project_fixture "$failing_source/project" 'project fixture v3' 1
 cp "$temporary_root/source/project-space-connector" "$failing_source/project-space-connector"
+write_codex_fixture "$failing_source"
 write_trust_roots "$failing_source"
 SOURCE_DATE_EPOCH=0 "$script_directory/build-machine-tools.sh" \
   "$version" "$failing_source" "$failing_output" >/dev/null
@@ -311,5 +337,15 @@ if [[ -e $temporary_root/tampered-install/project ]]; then
   echo "Installer changed state before rejecting a tampered bundle." >&2
   exit 1
 fi
+
+if grep -Eq '/latest/|releases/latest' "$script_directory/prepare-codex-runtime.sh"; then
+  echo "Managed Codex preparation must not use a floating release." >&2
+  exit 1
+fi
+grep -Fq 'codex_version=0.145.0' "$script_directory/prepare-codex-runtime.sh"
+grep -Fq 'codex_archive_sha256=bfaf13c9ba34f2ad764e4a916c49cf7177aeba329cf0f719e2227566fc8d662a' \
+  "$script_directory/prepare-codex-runtime.sh"
+grep -Fq 'codex_notice_sha256=9d71575ecfd9a843fc1677b0efb08053c6ba9fd686a0de1a6f5382fd3c220915' \
+  "$script_directory/prepare-codex-runtime.sh"
 
 echo 'Linux release packaging checks passed.'
