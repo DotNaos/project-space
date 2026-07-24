@@ -58,6 +58,15 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain('environment_url');
   });
 
+  test('isolates slow and module-mocking tests from the bulk validation process', async () => {
+    const workflow = await readFile(deploymentWorkflowPath, 'utf8');
+
+    expect(workflow).toContain('-e tests/preview-runner-contract.test.ts');
+    expect(workflow).toContain('bun test --timeout 10000 tests/preview-runner-contract.test.ts');
+    expect(workflow).toContain('-e tests/codex-operation-snapshot-store.test.ts');
+    expect(workflow).toContain('bun test --timeout 10000 tests/codex-operation-snapshot-store.test.ts');
+  });
+
   test('keeps Preview credentials least-privileged and every external action pinned', async () => {
     const workflow = await readFile(deploymentWorkflowPath, 'utf8');
     const cleanup = workflow.slice(workflow.indexOf('  cleanup:'), workflow.indexOf('  manual-destroy:'));
