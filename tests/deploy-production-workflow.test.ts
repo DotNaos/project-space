@@ -66,7 +66,7 @@ describe('production deployment workflow contract', () => {
     expect(workflow.indexOf('Verify the approved connector release is published')).toBeLessThan(
       workflow.indexOf('Validate the exact deployment plan')
     );
-    expect(workflow).toContain('bun test');
+    expect(workflow).toContain('bun test --isolate');
     expect(workflow).toContain('go test ./...');
     expect(workflow).toContain("steps.current-main.outputs.superseded != 'true'");
     expect(workflow).toContain('persist-credentials: false');

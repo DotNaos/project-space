@@ -13,7 +13,7 @@
     "dev:direct": "PROJECT_SPACE_ALLOW_DIRECT_DEV=1 vite --host 127.0.0.1",
     "dev:electron": "portless run vite --mode electron --host 127.0.0.1",
     "build": "tsc -b && vite build",
-    "test": "bun test",
+    "test": "bun test --isolate",
     "build:connector:native": "bun packaging/release/build-connector.ts bun dist/project-space-connector",
     "build:connector:macos-arm64": "bun packaging/release/build-connector.ts bun-darwin-arm64 dist/project-space-connector",
     "build:connector:windows-x64": "bun packaging/release/build-connector.ts bun-windows-x64 dist/windows/project-space-connector.exe",
