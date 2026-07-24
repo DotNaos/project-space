@@ -1,8 +1,9 @@
 # Linux x64 installation
 
 Project Space publishes a pinned Linux x64 machine-tools bundle for Ubuntu and
-WSL. The bundle contains the matching Project CLI and connector executables; it
-does not contain a login, token, machine credential, or Tailscale key.
+WSL. The bundle contains the matching Project CLI and connector executables
+plus a checksum-pinned Codex runtime for managed machine tasks. It does not
+contain a login, token, machine credential, or Tailscale key.
 
 ## Verify and install an approved release
 
@@ -30,9 +31,18 @@ previous pair if the new connector cannot start. It is a per-user install and
 refuses to run as root. No credential is accepted through installer arguments,
 environment variables, or logs.
 
+The managed connector uses only the Codex executable inside that same signed,
+versioned release directory. The installer does not expose Codex through a
+convenience symlink, edit `PATH` for Codex, run an upstream installer, or use
+administrator privileges. The release build downloads one fixed official
+OpenAI Codex archive, license, and notice, verifies their pinned checksums and
+exact version, and then covers the resulting files with the Project Space
+release manifest and archive checksums.
+
 If `~/.local/bin` is not already on `PATH`, add it through the normal shell
 profile for that user. Re-running the installer for an approved newer release
-replaces both executables at the same stable paths.
+replaces the Project CLI and connector at the same stable paths and switches the
+private managed Codex runtime with the same release pointer.
 
 After the first managed installation, check or install the next signed stable
 release with:
@@ -84,4 +94,7 @@ must not reuse a Project Space credential.
 The release workflow builds Linux executables from the tagged source, embeds
 the package version and production Project Space URL in the CLI, creates the
 deterministic archive, and publishes the archive-level SHA-256 file. The bundle
-also contains `SHA256SUMS.txt` for the extracted files.
+also contains `SHA256SUMS.txt` for the extracted files and the pinned upstream
+Codex license, notice, and version evidence. The release job starts the exact
+Codex App Server and reads its structured account state before publishing the
+bundle.

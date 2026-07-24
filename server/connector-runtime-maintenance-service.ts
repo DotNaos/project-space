@@ -36,6 +36,7 @@ import {
   runtimeMatchesExpectedFingerprint,
   type ConnectorRuntimeApprovedRelease
 } from './connector-runtime-status';
+import { connectorRuntimeBridgeReleaseId } from './connector-runtime-release-source';
 
 const identityPattern = /^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,255}$/;
 const updateTimeoutMs = 10 * 60_000;
@@ -130,6 +131,14 @@ function targetForMachine(machine: MachineRecord): ConnectorRuntimeReleaseTarget
   return runtime && connectorRuntimeReleaseTarget(runtime.platform, runtime.architecture);
 }
 
+export function connectorRuntimeBridgeReleaseForMachine(machine: MachineRecord) {
+  const runtime = machine.connector.runtime;
+  if (!runtime || runtime.source !== 'managed' ||
+      runtime.platform !== 'linux' || runtime.architecture !== 'x64') return undefined;
+  const comparison = compareConnectorRuntimeSemanticVersions(runtime.version, '0.4.14');
+  return comparison === -1 ? connectorRuntimeBridgeReleaseId : undefined;
+}
+
 function commandFingerprint(machine: MachineRecord): ConnectorRuntimeCommandFingerprint {
   const runtime = machine.connector.runtime!;
   return {
@@ -222,7 +231,10 @@ export class ConnectorRuntimeMaintenanceService {
     }
     let operation = await this.options.operations.latest(machineId);
     operation = await this.reconcileDeadline(operation);
-    const approved = await this.approvedRelease(machine).catch(() => undefined);
+    const approved = await this.approvedRelease(
+      machine,
+      connectorRuntimeBridgeReleaseForMachine(machine)
+    ).catch(() => undefined);
     return projectMachineRuntimeStatus({ approved, machine, operation });
   }
 

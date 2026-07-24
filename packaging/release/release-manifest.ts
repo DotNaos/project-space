@@ -28,6 +28,10 @@ const commitPattern = /^[a-f0-9]{40}$/;
 const maximumValidityDays = 365;
 const millisecondsPerDay = 24 * 60 * 60 * 1_000;
 const runtimeCapabilities = ['runtime.restart', 'runtime.update'] as const;
+const managedCodexCapabilities = [
+  'codex.runtime.v1',
+  ...runtimeCapabilities
+] as const;
 const runtimeProtocolVersion = '2';
 
 export type ReleaseTarget = ConnectorRuntimeReleaseTarget;
@@ -148,7 +152,7 @@ function expectedArtifacts(version: string): ExpectedArtifact[] {
     },
     {
       assetName: `project-space-machine-tools-linux-x64-v${version}.tar.gz`,
-      capabilities: [...runtimeCapabilities],
+      capabilities: [...managedCodexCapabilities],
       target: 'linux-x64'
     },
     {

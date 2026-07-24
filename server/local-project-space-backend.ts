@@ -70,14 +70,16 @@ import { connectorRuntimeRecord } from './connector-build-info';
 import { configuredConnectorMachineId } from './project-connector-config';
 import {
   CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY,
+  CODEX_AUTHORIZATION_REQUIRED_CONNECTOR_CAPABILITY,
   CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY,
   CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY,
+  CODEX_RUNTIME_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY
 } from './codex-sessions-connector-contract';
-import { resolveCodexBinary } from './codex-sessions/binary-resolver';
+import { createCodexRuntimeReadinessProbe } from './codex-sessions/readiness-probe';
 import {
   applyProjectStructureAction,
   listProjectTrash,
@@ -149,7 +151,7 @@ export type LocalProjectSpaceBackend = ProjectSpaceBackend &
   ConnectorWorktreeActionAdapter &
   Pick<ConfiguredConnectorRuntime, 'decideReconnect'>;
 export { isWebHubMachine };
-const connectorCommandCapabilities = [
+const baseConnectorCommandCapabilities = [
   'filesystem.directory',
   'filesystem.file',
   'filesystem.folder.create',
@@ -168,8 +170,19 @@ const connectorCommandCapabilities = [
   'runtime.stop',
   'runtime.update',
   'worktrees.list',
-  'worktrees.list.v2',
-  ...(resolveCodexBinary().path ? [
+  'worktrees.list.v2'
+];
+const probeCodexRuntimeReadiness = createCodexRuntimeReadinessProbe();
+
+async function connectorCommandCapabilities() {
+  const readiness = await probeCodexRuntimeReadiness();
+  return [
+    ...baseConnectorCommandCapabilities,
+    ...(readiness !== 'missing' ? [CODEX_RUNTIME_CONNECTOR_CAPABILITY] : []),
+    ...(readiness === 'authorization-required'
+      ? [CODEX_AUTHORIZATION_REQUIRED_CONNECTOR_CAPABILITY]
+      : []),
+    ...(readiness === 'ready' ? [
     CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY,
     CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY,
     ...(process.env.PROJECT_CODEX_OPERATION_SNAPSHOT_FILE
@@ -179,8 +192,9 @@ const connectorCommandCapabilities = [
     CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY,
     CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY,
     CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY
-  ] : [])
-];
+    ] : [])
+  ];
+}
 
 export function createLocalProjectSpaceBackend(
   options: LocalProjectSpaceBackendOptions = {}
@@ -226,9 +240,10 @@ export function createLocalProjectSpaceBackend(
       return connectorRuntime.stopMachineRuntime(machineId);
     },
     async getConnectorProjectRegistry() {
-      const [identity, rawDiscovery] = await Promise.all([
+      const [identity, rawDiscovery, capabilities] = await Promise.all([
         localConnectorIdentity(options.connectorMachineId),
-        discoverLocalProjects()
+        discoverLocalProjects(),
+        connectorCommandCapabilities()
       ]);
       const { connector, localMachine, machineId, machineName } = identity;
       const discovery = scopeDiscoveryToMachine(rawDiscovery, machineId);
@@ -238,7 +253,7 @@ export function createLocalProjectSpaceBackend(
         checkedAt: new Date().toISOString(),
         connector: {
           battery: localMachine?.battery,
-          capabilities: connectorCommandCapabilities,
+          capabilities,
           environment: localMachine?.environment,
           executionScopeId: localMachine?.executionScopeId,
           kind: process.env.PROJECT_CONNECTOR_MACHINE_KIND ?? localMachine?.kind,

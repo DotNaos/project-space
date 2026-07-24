@@ -7,6 +7,7 @@ const releaseIdPattern = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/;
 const maximumManifestBytes = 2 * 1024 * 1024;
 const defaultCacheMs = 5 * 60_000;
 const defaultRequestTimeoutMs = 10_000;
+export const connectorRuntimeBridgeReleaseId = 'v0.4.14';
 
 export class ConnectorRuntimeReleaseSourceError extends Error {
   constructor(
@@ -60,8 +61,8 @@ type ManifestFetch = (url: string, init: RequestInit) => Promise<Response>;
 
 export class GitHubConnectorRuntimeReleaseSource
   implements ConnectorRuntimeApprovedReleaseSource {
-  private cache?: { expiresAt: number; value: unknown };
-  private inFlight?: Promise<unknown>;
+  private readonly cache = new Map<string, { expiresAt: number; value: unknown }>();
+  private readonly inFlight = new Map<string, Promise<unknown>>();
 
   constructor(
     private readonly releaseId: string,
@@ -81,29 +82,31 @@ export class GitHubConnectorRuntimeReleaseSource
   }
 
   async loadApprovedManifest(requestedReleaseId?: string) {
-    if (requestedReleaseId !== undefined && requestedReleaseId !== this.releaseId) {
+    const releaseId = requestedReleaseId ?? this.releaseId;
+    if (releaseId !== this.releaseId && releaseId !== connectorRuntimeBridgeReleaseId) {
       throw new ConnectorRuntimeReleaseSourceError('release-mismatch');
     }
     const now = this.now();
-    if (this.cache && this.cache.expiresAt > now) {
-      return structuredClone(this.cache.value);
+    const cached = this.cache.get(releaseId);
+    if (cached && cached.expiresAt > now) {
+      return structuredClone(cached.value);
     }
 
-    const load = this.inFlight ?? this.startManifestLoad(now);
+    const load = this.inFlight.get(releaseId) ?? this.startManifestLoad(now, releaseId);
     try {
       return structuredClone(await load);
     } finally {
-      if (this.inFlight === load) this.inFlight = undefined;
+      if (this.inFlight.get(releaseId) === load) this.inFlight.delete(releaseId);
     }
   }
 
-  private startManifestLoad(now: number) {
-    const load = this.fetchApprovedManifest(now);
-    this.inFlight = load;
+  private startManifestLoad(now: number, releaseId: string) {
+    const load = this.fetchApprovedManifest(now, releaseId);
+    this.inFlight.set(releaseId, load);
     return load;
   }
 
-  private async fetchApprovedManifest(now: number) {
+  private async fetchApprovedManifest(now: number, releaseId: string) {
     const controller = new AbortController();
     let deadline: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
@@ -116,10 +119,10 @@ export class GitHubConnectorRuntimeReleaseSource
 
     try {
       const value = await Promise.race([
-        this.fetchManifestValue(controller.signal),
+        this.fetchManifestValue(controller.signal, releaseId),
         timeout
       ]);
-      this.cache = { expiresAt: now + this.cacheMs, value };
+      this.cache.set(releaseId, { expiresAt: now + this.cacheMs, value });
       return value;
     } catch {
       throw new ConnectorRuntimeReleaseSourceError('unavailable');
@@ -128,9 +131,9 @@ export class GitHubConnectorRuntimeReleaseSource
     }
   }
 
-  private async fetchManifestValue(signal: AbortSignal) {
+  private async fetchManifestValue(signal: AbortSignal, releaseId: string) {
     const response = await this.fetchManifest(
-      connectorRuntimeReleaseManifestUrl(this.releaseId),
+      connectorRuntimeReleaseManifestUrl(releaseId),
       {
         cache: 'no-store',
         credentials: 'omit',

@@ -161,6 +161,7 @@ export function projectMachineRuntimeStatus(input: {
 
   const { artifact, checkedAt, manifest } = approved;
   const releaseDetails = {
+    availableCapabilities: [...artifact.capabilities].sort(),
     availableReleaseId: manifest.releaseId,
     availableVersion: manifest.version,
     lastCheckedAt: checkedAt

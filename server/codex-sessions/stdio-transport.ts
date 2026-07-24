@@ -113,7 +113,7 @@ export class CodexStdioTransport {
     return this.open;
   }
 
-  async initialize() {
+  async initialize(options: { signal?: AbortSignal } = {}) {
     await this.call('initialize', {
       capabilities: { experimentalApi: false },
       clientInfo: {
@@ -121,7 +121,7 @@ export class CodexStdioTransport {
         title: 'Project Space',
         version: '0.4.0'
       }
-    });
+    }, options);
     await this.write({ method: 'initialized', params: null });
   }
 

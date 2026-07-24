@@ -169,8 +169,12 @@ operation and reports repair, verification-pending, blocked, failure,
 rollback, or recovery outcomes honestly.
 
 There is no arbitrary remote shell, `PATH` edit, download, privilege
-escalation, or unsupported manual setup fallback. A missing Codex runtime
-without a signed managed installation channel remains explicitly blocked.
+escalation, or unsupported manual setup fallback. The signed Linux x64/WSL
+machine-tools release includes its managed Codex runtime; other missing Codex
+runtimes without a signed managed installation channel remain explicitly
+blocked. After installation, Doctor reports authorization-required separately
+when the WSL user's Codex account is not usable; it never treats a successful
+runtime installation as account authorization.
 
 Without `--machine` or `--machine-id`, Doctor checks the current CLI connection
 and local project directories. Local directory creation also requires

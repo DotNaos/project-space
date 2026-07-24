@@ -303,7 +303,11 @@ describe('authenticated connector runtime release manifest', () => {
         projectCli: version
       });
       expect(artifact.capabilities).toEqual(
-        artifact.target === 'windows-x64' ? [] : ['runtime.restart', 'runtime.update']
+        artifact.target === 'windows-x64'
+            ? []
+            : artifact.target === 'linux-x64'
+            ? ['codex.runtime.v1', 'runtime.restart', 'runtime.update']
+            : ['runtime.restart', 'runtime.update']
       );
       expect(artifact.protocolVersion).toBe('2');
       expect(artifact.downloadUrl).toBe(

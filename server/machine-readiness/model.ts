@@ -15,6 +15,8 @@ import type {
 } from '../../src/shared/project-space-api';
 
 const codexCapability = 'codex.machine-tasks.v1';
+const codexAuthorizationRequiredCapability = 'codex.authorization-required.v1';
+const codexRuntimeCapability = 'codex.runtime.v1';
 const activeStates = new Set([
   'queued', 'validating', 'staging', 'verified', 'switching', 'restarting',
   'reconnecting', 'health-checking'
@@ -216,11 +218,25 @@ function evaluateConnector(
     return { check: { ...common, state: 'uncertain',
       summary: 'The connector capability is present, but its live session is stale.' }, operation };
   }
+  if (capabilities.includes(codexAuthorizationRequiredCapability)) {
+    return { check: { ...common, state: 'authorization-required',
+      summary: 'The managed Codex runtime is installed, but Codex authorization is required.' },
+      operation };
+  }
+  if (capabilities.includes(codexRuntimeCapability)) {
+    return { check: { ...common, state: 'uncertain',
+      summary: 'The managed Codex runtime is available, but its account status is uncertain.' },
+      operation };
+  }
   if (action) {
     if (!canRepair) {
       return { check: { ...common, state: 'authorization-required',
         summary: 'Only the machine owner may authorize this managed repair.' },
         operation };
+    }
+    if (update?.availableCapabilities?.includes(codexRuntimeCapability)) {
+      return { action, check: { ...common, state: 'repairable',
+        summary: 'A signed managed update can install the Codex runtime.' }, operation };
     }
     return { action, check: { ...common, state: 'manually-blocked',
       summary: 'The connector can be maintained safely, but no managed Codex installation is available.' },

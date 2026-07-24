@@ -324,6 +324,14 @@ jobs:
           merge-multiple: true
           path: dist/linux
 
+      - name: Prepare pinned managed Codex runtime
+        run: |
+          packaging/linux/prepare-codex-runtime.sh "$(pwd -P)/dist/linux"
+
+      - name: Smoke-test pinned Codex App Server
+        run: |
+          bun packaging/linux/smoke-codex-runtime.ts "$(pwd -P)/dist/linux/codex"
+
       - name: Build and hash deterministic bundle
         run: |
           SOURCE_DATE_EPOCH=0 packaging/linux/build-machine-tools.sh \
