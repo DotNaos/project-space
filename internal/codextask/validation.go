@@ -133,8 +133,8 @@ func loopbackHost(host string) bool {
 func validBlockedReason(reason BlockedReason) bool {
 	switch reason {
 	case BlockedApprovalRequired, BlockedConnectorRequired, BlockedInputRequired,
-		BlockedOffline, BlockedStaleConnector, BlockedThreadActive, BlockedUnauthorized,
-		BlockedWorktreeFailure:
+		BlockedMachineNotReady, BlockedOffline, BlockedStaleConnector,
+		BlockedThreadActive, BlockedUnauthorized, BlockedWorktreeFailure:
 		return true
 	default:
 		return false

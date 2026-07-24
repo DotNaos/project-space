@@ -65,6 +65,35 @@ func TestClientStartBindsCallerCredentialSeparatelyFromTarget(t *testing.T) {
 	}
 }
 
+func TestClientStartAcceptsMachineReadinessPreflightBlock(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		writeTestJSON(t, response, StartResult{
+			APIVersion:  APIVersion,
+			Message:     "The machine is not ready. Run project doctor --machine-id physical-remote.",
+			OperationID: testOperationID,
+			Reason:      BlockedMachineNotReady,
+			State:       StateBlocked,
+		})
+	}))
+	defer server.Close()
+
+	client := testClient(t, server.URL, Config{})
+	result, err := client.Start(context.Background(), StartRequest{
+		Selector:     Selector{PhysicalMachineID: "physical-remote"},
+		DryRun:       true,
+		Issue:        299,
+		OperationID:  testOperationID,
+		RepositoryID: "DotNaos/project-space",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != StateBlocked || result.Reason != BlockedMachineNotReady ||
+		!strings.Contains(result.Message, "project doctor") {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestClientReadUsesCanonicalPhysicalAndConnectorSelectors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/api/codex/tasks/"+testThreadID ||
@@ -127,8 +156,8 @@ func TestClientAttachKeepsShortLivedTokenOutOfJSONAndFormatting(t *testing.T) {
 		writeTestJSON(t, response, AttachResult{
 			APIVersion: APIVersion, ExpiresAt: "2026-07-17T12:00:00Z",
 			EndpointPath: "/api/codex/tasks/" + testThreadID + "/attach/socket",
-			OperationID: testOperationID,
-			State: StateConfirmed, Target: testTarget(), ThreadID: testThreadID,
+			OperationID:  testOperationID,
+			State:        StateConfirmed, Target: testTarget(), ThreadID: testThreadID,
 			TokenEnvironmentVariable: "PROJECT_CODEX_ATTACH_TOKEN",
 			Transport:                "websocket-tunnel",
 		})
