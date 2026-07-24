@@ -86,11 +86,11 @@ describe('connector release and production deployment contract', () => {
     const windowsPackaging = await source('packaging/windows/test-release-packaging.ps1');
     const windowsDocumentation = await source('docs/windows-installation.md');
 
-    expect(packageJson.version).toBe('0.4.11');
-    expect(buildInfo).toContain("const developmentVersion = '0.4.11';");
-    expect(windowsPackaging).toContain("$version = '0.4.11'");
-    expect(windowsPackaging).toContain('/releases/download/v0.4.11/');
-    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.11');
+    expect(packageJson.version).toBe('0.4.12');
+    expect(buildInfo).toContain("const developmentVersion = '0.4.12';");
+    expect(windowsPackaging).toContain("$version = '0.4.12'");
+    expect(windowsPackaging).toContain('/releases/download/v0.4.12/');
+    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.12');
     expect(packageJson.scripts['build:project-cli:macos-arm64:finalize']).toContain(
       'main.projectMachineClientReleaseID=v$npm_package_version'
     );
