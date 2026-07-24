@@ -18,6 +18,13 @@ const (
 	testPreviousCommit  = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 )
 
+func TestDeployLockLivesInsideEnvironmentOwnedStateDirectory(t *testing.T) {
+	project := deployProject{Name: "project-space", Environment: "prod"}
+	if got, want := deployLockPath(project), "/opt/platform/state/project-space-prod/deploy.lock"; got != want {
+		t.Fatalf("deploy lock path = %q, want %q", got, want)
+	}
+}
+
 func TestResolveExactDeployCommitUsesCurrentMain(t *testing.T) {
 	original := resolveDeployRemoteHead
 	resolveDeployRemoteHead = func(string, string) (string, error) { return testRequestedCommit, nil }

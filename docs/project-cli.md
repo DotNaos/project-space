@@ -382,7 +382,8 @@ real deploys; dry-runs show only secret references.
 
 Production deploys resolve one full Git SHA and re-check it against current
 `origin/main` both before connecting and again while holding the VPS deployment
-lock. The lock at `/opt/platform/locks/project-space-prod.lock` covers checkout,
+lock. The lock at `/opt/platform/state/project-space-prod/deploy.lock` is kept
+inside the Production environment's private state directory and covers checkout,
 container replacement, verification, and any rollback. A successful JSON result
 contains matching remote-checkout, running-build, image, service-health, HTTP,
 and live-origin evidence. A failed rollout restores only the atomically recorded
