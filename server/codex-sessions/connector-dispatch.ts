@@ -1,5 +1,7 @@
 import type { KeyLike } from 'node:crypto';
 
+import type { CodexAuthorizationConnectorRequest } from '../../src/shared/codex-authorization-api';
+import { CodexDeviceAuthorizationManager } from '../codex-authorization/connector-manager';
 import {
   CodexSessionsGrantReplayProtection,
   CodexSessionsGrantError,
@@ -48,6 +50,11 @@ const cancellableOperations = new Set<CodexSessionsConnectorOperation>([
 
 export class CodexSessionsConnectorDispatcher {
   private readonly attachReplay = new CodexSessionsGrantReplayProtection();
+  private readonly authorization: Pick<
+    CodexDeviceAuthorizationManager,
+    'close' | 'execute'
+  >;
+  private readonly authorizationReplay = new CodexSessionsGrantReplayProtection();
   private readonly attaches = new Map<string, ActiveAttach>();
   private readonly executions = new Map<string, AbortController>();
   private expectedGeneration?: number;
@@ -59,11 +66,14 @@ export class CodexSessionsConnectorDispatcher {
   >();
 
   constructor(private readonly options: {
+    authorization?: Pick<CodexDeviceAuthorizationManager, 'close' | 'execute'>;
     createAttachRelay?: AttachRelayFactory;
     expectedMachineId?: string;
     manager: CodexSessionManager;
     verificationKey: KeyLike;
-  }) {}
+  }) {
+    this.authorization = options.authorization ?? new CodexDeviceAuthorizationManager();
+  }
 
   setExpectedGeneration(generation?: number) {
     if (this.expectedGeneration !== undefined && this.expectedGeneration !== generation) {
@@ -95,6 +105,10 @@ export class CodexSessionsConnectorDispatcher {
       this.openAttach(id, request, expectedMachineId, binding, send, reject);
       return;
     }
+    if (operation === 'authorization') {
+      this.authorize(id, request, expectedMachineId, binding, send, reject);
+      return;
+    }
     const executor = this.executor ??= new CodexSessionsConnectorExecutor({
       expectedGeneration: () => this.expectedGeneration ?? -1,
       expectedMachineId,
@@ -120,7 +134,7 @@ export class CodexSessionsConnectorDispatcher {
 
     const executableOperation = operation as Exclude<
       CodexSessionsConnectorOperation,
-      'attach' | 'stream'
+      'attach' | 'authorization' | 'stream'
     >;
     if (cancellableOperations.has(executableOperation)) {
       this.dispatchCancellable(
@@ -208,6 +222,35 @@ export class CodexSessionsConnectorDispatcher {
     this.cancelAll();
     this.executor?.close();
     this.executor = undefined;
+    void this.authorization.close();
+  }
+
+  private authorize(
+    id: string,
+    request: CodexSessionsWireRequest,
+    expectedMachineId: string,
+    binding: ReturnType<typeof bindingForCodexSessionsRequest>,
+    send: (message: ConnectorHubMessage) => void,
+    reject: () => void
+  ) {
+    try {
+      if (!isCodexSessionsWireRequest(request)) throw new CodexSessionsGrantError('binding-mismatch');
+      verifyCodexSessionsWireRequest(request, 'authorization', this.options.verificationKey, {
+        expectedGeneration: this.expectedGeneration ?? -1,
+        expectedMachineId,
+        replayProtection: this.authorizationReplay
+      });
+    } catch (error) {
+      this.handleFailure(id, binding, error, send, reject);
+      return;
+    }
+    void this.authorization.execute(
+      request.payload as CodexAuthorizationConnectorRequest
+    ).then((result) => send({
+      id,
+      payload: { binding, result: { operation: 'authorization', result } },
+      type: 'codex.sessions.result'
+    })).catch((error) => this.handleFailure(id, binding, error, send, reject));
   }
 
   private handleFailure(

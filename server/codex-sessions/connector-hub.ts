@@ -8,6 +8,7 @@ import {
   CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY,
+  CODEX_AUTHORIZATION_CONNECTOR_CAPABILITY,
   CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY,
   createCodexSessionsWireRequest,
   isCodexSessionsWireRequest,
@@ -263,6 +264,7 @@ function run(
 }
 
 function requiredCapability(operation: CodexSessionsConnectorOperation, payload: CodexPayload) {
+  if (operation === 'authorization') return CODEX_AUTHORIZATION_CONNECTOR_CAPABILITY;
   if (operation === 'start') return CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY;
   if (operation === 'browser') return CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY;
   if (operation === 'inspect') return CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY;

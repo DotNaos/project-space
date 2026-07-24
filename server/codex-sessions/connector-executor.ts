@@ -51,7 +51,10 @@ import {
 } from './task-access-evidence';
 import { readCodexBrowserSnapshot } from './browser-snapshot-reader';
 
-type ExecutableOperation = Exclude<CodexSessionsConnectorOperation, 'attach' | 'stream'>;
+type ExecutableOperation = Exclude<
+  CodexSessionsConnectorOperation,
+  'attach' | 'authorization' | 'stream'
+>;
 type PendingRequest = {
   canAllow?: boolean;
   method: string;

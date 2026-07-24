@@ -29,6 +29,7 @@ const maximumValidityDays = 365;
 const millisecondsPerDay = 24 * 60 * 60 * 1_000;
 const runtimeCapabilities = ['runtime.restart', 'runtime.update'] as const;
 const managedCodexCapabilities = [
+  'codex.account.device-login.v1',
   'codex.runtime.v1',
   ...runtimeCapabilities
 ] as const;

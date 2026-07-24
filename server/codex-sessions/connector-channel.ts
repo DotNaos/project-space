@@ -16,6 +16,7 @@ import {
   CODEX_THREAD_ID_PATTERN
 } from '../../src/shared/codex-sessions-api';
 import type { CodexMachineTaskConnectorStartResult } from '../../src/shared/codex-machine-tasks-api';
+import type { CodexAuthorizationConnectorResult } from '../../src/shared/codex-authorization-api';
 
 export interface CodexSessionsCommandBinding {
   generation: number;
@@ -209,6 +210,9 @@ export function boundCodexSessionsResultMatchesRequest(
       CODEX_THREAD_ID_PATTERN.test(result.threadId) && identifier(result.worktreeId, 128)
     );
   }
+  if (value.result.operation === 'authorization') {
+    return isAuthorizationResult(value.result.result as CodexAuthorizationConnectorResult);
+  }
   const result = value.result.result as CodexSessionOperationResult;
   return result.operationId === expected.operationId && result.threadId === expected.threadId;
 }
@@ -231,9 +235,27 @@ export function isBoundCodexSessionsResult(value: unknown): value is BoundCodexS
   if (result.operation === 'inspect') {
     return isInspectResult(result.result);
   }
+  if (result.operation === 'authorization') return isAuthorizationResult(result.result);
   if (result.operation === 'start') return isStartResult(result.result);
   return ['approval', 'continue', 'input', 'interrupt'].includes(result.operation) &&
     isOperationResult(result.result);
+}
+
+function isAuthorizationResult(value: unknown): value is CodexAuthorizationConnectorResult {
+  if (!smallRecord(value) || typeof value.state !== 'string') return false;
+  if (value.state === 'pending') {
+    return hasOnlyKeys(value, [
+      'deadlineAt', 'state', 'userCode', 'verificationUrl'
+    ]) &&
+      typeof value.deadlineAt === 'string' &&
+      Number.isFinite(Date.parse(value.deadlineAt)) &&
+      typeof value.userCode === 'string' &&
+      /^[A-Z0-9][A-Z0-9-]{3,31}$/.test(value.userCode) &&
+      value.verificationUrl === 'https://auth.openai.com/codex/device';
+  }
+  return hasOnlyKeys(value, ['state']) && [
+    'authorization-required', 'cancelled', 'expired', 'failed', 'ready'
+  ].includes(value.state);
 }
 
 export function isBoundCodexSessionsEvent(value: unknown): value is BoundCodexSessionsEvent {

@@ -13,6 +13,7 @@ import (
 )
 
 type codexTaskAPI interface {
+	Authorize(context.Context, codextask.AuthorizationRequest) (codextask.AuthorizationResult, error)
 	Start(context.Context, codextask.StartRequest) (codextask.StartResult, error)
 	Read(context.Context, codextask.ReadRequest) (codextask.ReadResult, error)
 	Send(context.Context, codextask.SendRequest) (codextask.SendResult, error)
@@ -44,6 +45,7 @@ func newCodexCommandWithDependencies(dependencies codexCommandDependencies) *cob
 		Short: "Start, inspect, continue, or attach to persistent Codex tasks",
 	}
 	command.AddCommand(newCodexStartCommand(dependencies))
+	command.AddCommand(newCodexLoginCommand(dependencies))
 	command.AddCommand(newCodexReadCommand(dependencies))
 	command.AddCommand(newCodexSendCommand(dependencies))
 	command.AddCommand(newCodexAttachCommand(dependencies))

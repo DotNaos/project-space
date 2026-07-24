@@ -316,7 +316,13 @@ function selectedResult(
     ...result,
     ...(selected.operation ? { operation: selected.operation } : {}),
     ...(plan ? { plan } : {}),
-    nextAction: plan
+    nextAction: state === 'authorization-required'
+      ? {
+          command: `project codex login --machine-id ${machine.id} --connector ${selected.check.connectorId}`,
+          kind: 'supported-action',
+          message: 'Authorize the managed Codex runtime with a device code.'
+        }
+      : plan
       ? {
           command: `${command} --fix`,
           kind: 'doctor-fix',
@@ -348,7 +354,11 @@ function resultFor(
     machine: { id: machine.id, name: machine.name },
     message,
     nextAction: state === 'authorization-required'
-      ? { kind: 'contact-owner', message: 'Ask the machine owner to run Project Doctor.' }
+      ? {
+          command: `project codex login --machine-id ${machine.id}`,
+          kind: 'supported-action',
+          message: 'Authorize the managed Codex runtime with a device code.'
+        }
       : ready && !fixable
       ? { kind: 'none', message: 'No action is required.' }
       : fixable

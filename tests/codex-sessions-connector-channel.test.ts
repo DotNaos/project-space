@@ -522,6 +522,62 @@ class DispatchManager {
 }
 
 describe('Codex sessions connector dispatch', () => {
+  test('executes only the signed device authorization payload', async () => {
+    const calls: unknown[] = [];
+    const dispatcher = new CodexSessionsConnectorDispatcher({
+      authorization: {
+        async close() {},
+        async execute(request) {
+          calls.push(request);
+          return {
+            deadlineAt: '2026-07-24T00:15:00.000Z',
+            state: 'pending',
+            userCode: 'ABCD-1234',
+            verificationUrl: 'https://auth.openai.com/codex/device'
+          };
+        }
+      },
+      expectedMachineId: machineId,
+      manager: new DispatchManager() as unknown as CodexSessionManager,
+      verificationKey: keys.publicKey
+    });
+    dispatcher.setExpectedGeneration(21);
+    const request = createCodexSessionsWireRequest({
+      generation: 21,
+      operation: 'authorization',
+      operationId: 'codex:login:operation-one',
+      payload: {
+        action: 'start',
+        machineId,
+        operationId: 'codex:login:operation-one'
+      },
+      userId: 'user-owner'
+    }, keys.privateKey, { nonce: 'nonce-login-dispatch', now: Date.now() });
+    const messages: ConnectorHubMessage[] = [];
+    dispatcher.dispatch('command-login', request, (message) => messages.push(message), () => {
+      throw new Error('authorization grant was rejected');
+    });
+    await Bun.sleep(0);
+    expect(calls).toEqual([request.payload]);
+    expect(messages).toEqual([expect.objectContaining({
+      id: 'command-login',
+      payload: expect.objectContaining({
+        binding: expect.objectContaining({
+          machineId,
+          operation: 'authorization',
+          operationId: 'codex:login:operation-one',
+          userId: 'user-owner'
+        }),
+        result: {
+          operation: 'authorization',
+          result: expect.objectContaining({ state: 'pending', userCode: 'ABCD-1234' })
+        }
+      }),
+      type: 'codex.sessions.result'
+    })]);
+    dispatcher.close();
+  });
+
   test('emits bound results and closes authorization failures', async () => {
     const manager = new DispatchManager();
     const dispatcher = new CodexSessionsConnectorDispatcher({

@@ -33,6 +33,9 @@ import { createCodexAttachUpgradeHandler } from './codex-machine-tasks/attach-we
 import {
   createConfiguredMachineReadinessHandler
 } from './machine-readiness/configured-runtime';
+import {
+  createConfiguredCodexAuthorizationHandler
+} from './codex-authorization/configured-runtime';
 
 export interface ProjectSpaceHttpOptions {
   backend?: ProjectSpaceBackend;
@@ -75,12 +78,17 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
   });
+  const codexAuthorization = createConfiguredCodexAuthorizationHandler({
+    backend: rawBackend,
+    machineConnection: options.machineConnectionRuntime
+  });
   const machineReadiness = createConfiguredMachineReadinessHandler({
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
   });
   const handleApiRequest = projectChatRuntime.then((runtime) =>
     createProjectSpaceApiHandler(backend, {
+      codexAuthorization,
       codexSessions,
       codexMachineTasks,
       machineReadiness,

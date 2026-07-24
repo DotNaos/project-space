@@ -1,0 +1,206 @@
+import { EventEmitter } from 'node:events';
+import { createInterface } from 'node:readline';
+import { PassThrough } from 'node:stream';
+
+import { describe, expect, test } from 'bun:test';
+
+import { CodexDeviceAuthorizationManager } from '../server/codex-authorization/connector-manager';
+import type { CodexChildProcess } from '../server/codex-sessions/contracts';
+
+type RpcMessage = {
+  id?: number;
+  method?: string;
+  params?: Record<string, unknown>;
+  result?: unknown;
+};
+
+class FakeCodexProcess extends EventEmitter implements CodexChildProcess {
+  exitCode: number | null = null;
+  signalCode: NodeJS.Signals | null = null;
+  readonly stderr = new PassThrough();
+  readonly stdin = new PassThrough();
+  readonly stdout = new PassThrough();
+  readonly requests: RpcMessage[] = [];
+
+  constructor(private readonly handler: (message: RpcMessage, server: FakeCodexProcess) => void) {
+    super();
+    createInterface({ input: this.stdin }).on('line', (line) => {
+      const message = JSON.parse(line) as RpcMessage;
+      this.requests.push(message);
+      this.handler(message, this);
+    });
+  }
+
+  send(message: RpcMessage) {
+    this.stdout.write(`${JSON.stringify(message)}\n`);
+  }
+
+  kill(signal: NodeJS.Signals | number = 'SIGTERM') {
+    this.signalCode = typeof signal === 'string' ? signal : 'SIGTERM';
+    queueMicrotask(() => this.emit('close'));
+    return true;
+  }
+}
+
+function authorizationProcess(options: {
+  authorized?: () => boolean;
+  omitAccount?: boolean;
+  verificationUrl?: string;
+} = {}) {
+  return new FakeCodexProcess((message, server) => {
+    if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+    if (message.method === 'account/read') {
+      server.send({
+        id: message.id,
+        result: {
+          ...(!options.omitAccount
+            ? { account: options.authorized?.() ? { type: 'chatgpt' } : null }
+            : {}),
+          requiresOpenaiAuth: true
+        }
+      });
+    }
+    if (message.method === 'account/login/start') {
+      server.send({
+        id: message.id,
+        result: {
+          loginId: 'login-internal-1',
+          type: 'chatgptDeviceCode',
+          userCode: 'ABCD-1234',
+          verificationUrl:
+            options.verificationUrl ?? 'https://auth.openai.com/codex/device'
+        }
+      });
+    }
+    if (message.method === 'account/login/cancel') server.send({ id: message.id, result: {} });
+  });
+}
+
+describe('managed Codex device authorization', () => {
+  test('starts one constrained device flow and replays the same operation', async () => {
+    const process = authorizationProcess();
+    const manager = new CodexDeviceAuthorizationManager({
+      now: () => Date.parse('2026-07-24T00:00:00.000Z'),
+      processFactory: () => process
+    });
+    try {
+      const request = {
+        action: 'start' as const,
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-one'
+      };
+      const first = await manager.execute(request);
+      const replayed = await manager.execute(request);
+      expect(first).toEqual(replayed);
+      expect(first).toEqual({
+        deadlineAt: '2026-07-24T00:15:00.000Z',
+        state: 'pending',
+        userCode: 'ABCD-1234',
+        verificationUrl: 'https://auth.openai.com/codex/device'
+      });
+      expect(process.requests.filter((entry) => entry.method === 'account/login/start')).toHaveLength(1);
+      expect(process.requests.find((entry) => entry.method === 'account/login/start')?.params)
+        .toEqual({ type: 'chatgptDeviceCode' });
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('does not let another operation replace a pending login', async () => {
+    const process = authorizationProcess();
+    const manager = new CodexDeviceAuthorizationManager({ processFactory: () => process });
+    try {
+      await manager.execute({
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-one'
+      });
+      await expect(manager.execute({
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-two'
+      })).rejects.toThrow('already active');
+      expect(process.requests.filter((entry) => entry.method === 'account/login/start')).toHaveLength(1);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('does not treat an incomplete account response as authorized', async () => {
+    const process = authorizationProcess({ omitAccount: true });
+    const manager = new CodexDeviceAuthorizationManager({ processFactory: () => process });
+    try {
+      await expect(manager.execute({
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-one'
+      })).resolves.toMatchObject({ state: 'pending' });
+      expect(process.requests.filter((entry) => entry.method === 'account/login/start')).toHaveLength(1);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('reconciles completion through account state without exposing account details', async () => {
+    let authorized = false;
+    const process = authorizationProcess({ authorized: () => authorized });
+    const manager = new CodexDeviceAuthorizationManager({ processFactory: () => process });
+    try {
+      await manager.execute({
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-one'
+      });
+      authorized = true;
+      process.send({
+        method: 'account/login/completed',
+        params: { error: null, loginId: 'login-internal-1', success: true }
+      });
+      await expect(manager.execute({
+        action: 'status',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-one'
+      })).resolves.toEqual({ state: 'ready' });
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('rejects an untrusted verification URL and sends no second login', async () => {
+    const process = authorizationProcess({
+      verificationUrl: 'https://example.com/codex/device?token=secret'
+    });
+    const manager = new CodexDeviceAuthorizationManager({ processFactory: () => process });
+    try {
+      await expect(manager.execute({
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-one'
+      })).rejects.toThrow('untrusted');
+      expect(process.requests.filter((entry) => entry.method === 'account/login/start')).toHaveLength(1);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('cancels only the internally bound upstream login id', async () => {
+    const process = authorizationProcess();
+    const manager = new CodexDeviceAuthorizationManager({ processFactory: () => process });
+    try {
+      await manager.execute({
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-one'
+      });
+      await expect(manager.execute({
+        action: 'cancel',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-one'
+      })).resolves.toEqual({ state: 'cancelled' });
+      expect(process.requests.find((entry) => entry.method === 'account/login/cancel')?.params)
+        .toEqual({ loginId: 'login-internal-1' });
+    } finally {
+      await manager.close();
+    }
+  });
+});
