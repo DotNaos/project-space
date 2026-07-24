@@ -105,6 +105,7 @@ jobs:
                 -e tests/codex-operation-snapshot-store.test.ts \
                 -e tests/codex-sessions-ui.test.tsx \
                 -e tests/codex-task-workspace.test.tsx \
+                -e tests/preview-runner-contract.test.ts \
                 -e tests/project-codex-tasks-truth-ui.test.tsx \
                 -e tests/pull-request-preview-status-ui.test.tsx \
                 -e tests/roadmap-graph-node.test.tsx
@@ -122,6 +123,7 @@ jobs:
             bun test "$test_file"
           done
           bun test --timeout 10000 tests/codex-operation-snapshot-store.test.ts
+          bun test --timeout 10000 tests/preview-runner-contract.test.ts
           bun run check
           bun run build
 
