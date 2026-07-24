@@ -1,6 +1,7 @@
 package machineconnect
 
 import (
+	"crypto/ed25519"
 	"errors"
 	"os"
 	"path/filepath"
@@ -95,6 +96,26 @@ func TestConnectorSupervisorMaintenanceUpdatesAndCommits(t *testing.T) {
 	}
 	if fixture.pointer() != nextPointer {
 		t.Fatalf("commit changed pointer to %s", fixture.pointer())
+	}
+}
+
+func TestConnectorSupervisorMaintenanceAcceptsLegacyLinuxBundleWithoutCodex(t *testing.T) {
+	fixture := newMaintenanceTestFixture(t, "linux-x64")
+	archive := maintenanceTestArchiveWithKeysAndCodex(
+		t,
+		"linux-x64",
+		fixture.commandPrivate.Public().(ed25519.PublicKey),
+		fixture.releasePrivate.Public().(ed25519.PublicKey),
+		false,
+	)
+	fixture.writeUpdateControl(maintenanceTestOperation, archive)
+
+	result, err := fixture.maintenance.ProcessControl()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Outcome != ConnectorSupervisorMaintenanceRestartRequested || !result.RestartRequired {
+		t.Fatalf("legacy update result = %#v", result)
 	}
 }
 
