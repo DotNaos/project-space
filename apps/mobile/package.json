@@ -9,9 +9,10 @@
     "native:dev": "npm run inventory && npx expo start --host lan",
     "native:ios": "npm run inventory && npx expo start --ios",
     "dev": "concurrently -k -n auth,web \"npm run auth\" \"npm run web -- --port 8082\"",
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "start": "expo start --go",
+    "android": "expo start --go --android",
+    "ios": "expo start --go --ios --port 8082",
+    "typecheck": "tsc --noEmit",
     "web": "sh -c 'if [ -f .env.local ]; then node --env-file=.env.local ./node_modules/expo/bin/cli start --web \"$@\"; elif [ -f ../../../.env ]; then node --env-file=../../../.env ./node_modules/expo/bin/cli start --web \"$@\"; else expo start --web \"$@\"; fi' --"
   },
   "dependencies": {
@@ -20,7 +21,7 @@
     "@gorhom/bottom-sheet": "^5.2.8",
     "@react-native-async-storage/async-storage": "2.2.0",
     "better-auth": "^1.6.11",
-    "expo": "~54.0.33",
+    "expo": "~54.0.36",
     "expo-constants": "~18.0.13",
     "expo-linking": "~8.0.12",
     "expo-network": "~8.0.8",

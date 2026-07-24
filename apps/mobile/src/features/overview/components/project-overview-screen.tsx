@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 
 import { Button, Input, Label, TextField } from 'heroui-native';
 import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { ProjectInventory, ProjectInventoryItem } from '../../../data/project-inventory';
 
@@ -87,6 +88,7 @@ export function ProjectOverviewScreen({
   onRefresh,
   sourceLabel,
 }: ProjectOverviewScreenProps) {
+  const safeAreaInsets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
 
@@ -133,7 +135,13 @@ export function ProjectOverviewScreen({
   }, [filteredProjects]);
 
   return (
-    <View className="flex-1 bg-background">
+    <View
+      className="flex-1 bg-background"
+      style={{
+        paddingTop: safeAreaInsets.top,
+        paddingBottom: safeAreaInsets.bottom,
+      }}
+    >
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 48 }}>
         <View className="px-5 pb-5 pt-7">
           <Text className="text-3xl font-semibold text-foreground">Project Space</Text>
