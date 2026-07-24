@@ -305,7 +305,13 @@ jobs:
           for artifact in artifacts:
               target = artifact["target"]
               asset = artifact_names[target]
-              capabilities = [] if target == "windows-x64" else ["runtime.restart", "runtime.update"]
+              capabilities = (
+                  []
+                  if target == "windows-x64"
+                  else ["codex.runtime.v1", "runtime.restart", "runtime.update"]
+                  if target == "linux-x64"
+                  else ["runtime.restart", "runtime.update"]
+              )
               if (
                   set(artifact) != artifact_keys
                   or artifact["assetName"] != asset
