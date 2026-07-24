@@ -219,6 +219,16 @@ function evaluateConnector(
       summary: 'The connector capability is present, but its live session is stale.' }, operation };
   }
   if (capabilities.includes(codexAuthorizationRequiredCapability)) {
+    if (action) {
+      if (!canRepair) {
+        return { check: { ...common, state: 'authorization-required',
+          summary: 'Only the machine owner may authorize this managed update.' },
+          operation };
+      }
+      return { action, check: { ...common, state: 'repairable',
+        summary: 'A signed managed update is required before Codex can be authorized.' },
+        operation };
+    }
     return { check: { ...common, state: 'authorization-required',
       summary: 'The managed Codex runtime is installed, but Codex authorization is required.' },
       operation };
