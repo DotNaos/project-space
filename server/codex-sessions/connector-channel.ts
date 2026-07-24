@@ -254,7 +254,7 @@ function isAuthorizationResult(value: unknown): value is CodexAuthorizationConne
       value.verificationUrl === 'https://auth.openai.com/codex/device';
   }
   return hasOnlyKeys(value, ['state']) && [
-    'authorization-required', 'cancelled', 'expired', 'failed', 'ready'
+    'ambiguous', 'authorization-required', 'cancelled', 'expired', 'failed', 'ready'
   ].includes(value.state);
 }
 

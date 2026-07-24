@@ -57,5 +57,5 @@ export type CodexAuthorizationConnectorResult =
       verificationUrl: string;
     }
   | {
-      state: 'authorization-required' | 'cancelled' | 'expired' | 'failed';
+      state: 'ambiguous' | 'authorization-required' | 'cancelled' | 'expired' | 'failed';
     };

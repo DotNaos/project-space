@@ -3,21 +3,23 @@ import type {
   CodexAuthorizationConnectorResult
 } from '../../src/shared/codex-authorization-api';
 import type { CodexProcessFactory } from '../codex-sessions/contracts';
+import { CodexOperationUncertainError } from '../codex-sessions/operation-ledger';
 import { CodexStdioTransport } from '../codex-sessions/stdio-transport';
+import type {
+  CodexAuthorizationOperationPersistence,
+  CodexAuthorizationOperationRecord
+} from './operation-store';
 
+type PendingResult = Extract<CodexAuthorizationConnectorResult, { state: 'pending' }>;
 type AuthorizationAttempt = {
   loginId: string;
   operationId: string;
-  result: Extract<CodexAuthorizationConnectorResult, { state: 'pending' }>;
-  state: 'failed' | 'pending';
+  result: PendingResult;
 };
-
-type RpcMessage = {
-  method?: string;
-  params?: unknown;
-};
+type RpcMessage = { method?: string; params?: unknown };
 
 const authorizationDeadlineMs = 15 * 60_000;
+const maximumOperationRecords = 64;
 const verificationUrl = new URL('https://auth.openai.com/codex/device');
 
 export class CodexAuthorizationConflictError extends Error {
@@ -29,6 +31,9 @@ export class CodexAuthorizationConflictError extends Error {
 
 export class CodexDeviceAuthorizationManager {
   private attempt?: AuthorizationAttempt;
+  private executionTail = Promise.resolve();
+  private expiryTimer?: ReturnType<typeof setTimeout>;
+  private readonly operations = new Map<string, CodexAuthorizationOperationRecord>();
   private startPromise?: Promise<CodexStdioTransport>;
   private transport?: CodexStdioTransport;
 
@@ -36,10 +41,35 @@ export class CodexDeviceAuthorizationManager {
     binaryPath?: string;
     codexHome?: string;
     now?: () => number;
+    operationPersistence?: CodexAuthorizationOperationPersistence;
     processFactory?: CodexProcessFactory;
-  } = {}) {}
+    authorizationDeadlineMs?: number;
+  } = {}) {
+    for (const record of options.operationPersistence?.snapshot ?? []) {
+      this.operations.set(record.operationId, record);
+    }
+  }
 
-  async execute(
+  execute(request: CodexAuthorizationConnectorRequest) {
+    const execution = this.executionTail.then(() => this.executeSerial(request));
+    this.executionTail = execution.then(() => undefined, () => undefined);
+    return execution;
+  }
+
+  async close() {
+    this.clearExpiryTimer();
+    const pending = this.attempt;
+    this.attempt = undefined;
+    if (pending) {
+      await this.remember(pending.operationId, 'ambiguous', pending.result.deadlineAt);
+    }
+    const transport = this.transport;
+    this.transport = undefined;
+    this.startPromise = undefined;
+    await transport?.close();
+  }
+
+  private async executeSerial(
     request: CodexAuthorizationConnectorRequest
   ): Promise<CodexAuthorizationConnectorResult> {
     if (request.action === 'start') return this.start(request.operationId);
@@ -47,78 +77,158 @@ export class CodexDeviceAuthorizationManager {
     return this.status(request.operationId);
   }
 
-  async close() {
-    const transport = this.transport;
-    this.transport = undefined;
-    this.startPromise = undefined;
-    await transport?.close();
-  }
-
   private async start(operationId: string): Promise<CodexAuthorizationConnectorResult> {
-    if (await this.accountReady()) return { state: 'ready' };
-    const current = this.currentAttempt();
+    const replay = await this.replay(operationId);
+    if (replay) return replay;
+    const current = this.attempt;
     if (current?.operationId === operationId) {
-      return current.state === 'pending' ? current.result : { state: 'failed' };
+      if (this.deadlineReached(current.result.deadlineAt)) return this.expire(current);
+      return current.result;
     }
-    if (current?.state === 'pending') throw new CodexAuthorizationConflictError();
-    const transport = await this.ensureTransport();
-    const raw = await transport.call<unknown>(
-      'account/login/start',
-      { type: 'chatgptDeviceCode' }
-    );
-    const started = readStartedLogin(raw);
-    const deadlineAt = this.now() + authorizationDeadlineMs;
+    const stored = this.operations.get(operationId);
+    if (stored?.state === 'pending') {
+      return this.finish(
+        operationId,
+        this.deadlineReached(stored.deadlineAt) ? 'expired' : 'ambiguous',
+        stored.deadlineAt
+      );
+    }
+    if (this.attempt) throw new CodexAuthorizationConflictError();
+    const unresolved = [...this.operations.values()].find((record) => (
+      record.state === 'pending'
+    ));
+    if (unresolved) {
+      await this.remember(
+        unresolved.operationId,
+        this.deadlineReached(unresolved.deadlineAt) ? 'expired' : 'ambiguous',
+        unresolved.deadlineAt
+      );
+      await this.remember(operationId, 'ambiguous');
+      return { state: 'ambiguous' };
+    }
+    if (await this.accountReady()) {
+      await this.remember(operationId, 'ready');
+      await this.close();
+      return { state: 'ready' };
+    }
+    const deadlineAt = new Date(
+      this.now() + (this.options.authorizationDeadlineMs ?? authorizationDeadlineMs)
+    ).toISOString();
+    await this.remember(operationId, 'ambiguous', deadlineAt);
+    let raw: unknown;
+    try {
+      raw = await (await this.ensureTransport()).call<unknown>(
+        'account/login/start',
+        { type: 'chatgptDeviceCode' }
+      );
+    } catch (error) {
+      if (error instanceof CodexOperationUncertainError) {
+        await this.close();
+        return { state: 'ambiguous' };
+      }
+      await this.remember(operationId, 'failed', deadlineAt);
+      throw error;
+    }
+    let started: ReturnType<typeof readStartedLogin>;
+    try {
+      started = readStartedLogin(raw);
+    } catch {
+      await this.close();
+      return { state: 'ambiguous' };
+    }
     const result = {
-      deadlineAt: new Date(deadlineAt).toISOString(),
+      deadlineAt,
       state: 'pending' as const,
       userCode: started.userCode,
       verificationUrl: started.verificationUrl
     };
-    this.attempt = {
-      loginId: started.loginId,
-      operationId,
-      result,
-      state: 'pending'
-    };
+    this.attempt = { loginId: started.loginId, operationId, result };
+    try {
+      await this.remember(operationId, 'pending', deadlineAt);
+    } catch {
+      await this.cancelUpstream(started.loginId);
+      this.attempt = undefined;
+      await this.remember(operationId, 'ambiguous', deadlineAt).catch(() => undefined);
+      await this.close();
+      return { state: 'ambiguous' };
+    }
+    this.scheduleExpiry(operationId, deadlineAt);
     return result;
   }
 
   private async status(operationId: string): Promise<CodexAuthorizationConnectorResult> {
-    if (await this.accountReady()) {
-      this.attempt = undefined;
-      await this.close();
-      return { state: 'ready' };
-    }
-    const current = this.currentAttempt();
+    const replay = await this.replay(operationId);
+    if (replay) return replay;
+    if (await this.accountReady()) return this.finish(operationId, 'ready');
+    const current = this.attempt;
     if (!current || current.operationId !== operationId) {
+      const record = this.operations.get(operationId);
+      if (record?.state === 'pending') {
+        return this.finish(
+          operationId,
+          this.deadlineReached(record.deadlineAt) ? 'expired' : 'ambiguous',
+          record.deadlineAt
+        );
+      }
       return { state: 'authorization-required' };
     }
-    return current.state === 'pending' ? current.result : { state: 'failed' };
+    if (this.deadlineReached(current.result.deadlineAt)) {
+      return this.expire(current);
+    }
+    return current.result;
   }
 
   private async cancel(operationId: string): Promise<CodexAuthorizationConnectorResult> {
-    if (await this.accountReady()) {
-      this.attempt = undefined;
-      await this.close();
-      return { state: 'ready' };
-    }
-    const current = this.currentAttempt();
+    const replay = await this.replay(operationId);
+    if (replay) return replay;
+    if (await this.accountReady()) return this.finish(operationId, 'ready');
+    const current = this.attempt;
     if (!current || current.operationId !== operationId) {
+      const record = this.operations.get(operationId);
+      if (record?.state === 'pending') {
+        return this.finish(
+          operationId,
+          this.deadlineReached(record.deadlineAt) ? 'expired' : 'ambiguous',
+          record.deadlineAt
+        );
+      }
       return { state: 'authorization-required' };
     }
-    if (current.state === 'pending') {
-      await (await this.ensureTransport()).call(
-        'account/login/cancel',
-        { loginId: current.loginId }
-      );
-    }
-    this.attempt = undefined;
-    await this.close();
-    return { state: 'cancelled' };
+    if (this.deadlineReached(current.result.deadlineAt)) return this.expire(current);
+    const cancelled = await this.cancelUpstream(current.loginId);
+    return this.finish(
+      operationId,
+      cancelled ? 'cancelled' : 'ambiguous',
+      current.result.deadlineAt
+    );
   }
 
-  private currentAttempt() {
-    return this.attempt;
+  private async expire(attempt: AuthorizationAttempt) {
+    const cancelled = await this.cancelUpstream(attempt.loginId);
+    return this.finish(
+      attempt.operationId,
+      cancelled ? 'expired' : 'ambiguous',
+      attempt.result.deadlineAt
+    );
+  }
+
+  private async finish(
+    operationId: string,
+    state: Exclude<CodexAuthorizationOperationRecord['state'], 'pending'>,
+    deadlineAt?: string
+  ): Promise<CodexAuthorizationConnectorResult> {
+    if (this.attempt?.operationId === operationId) {
+      this.clearExpiryTimer();
+      this.attempt = undefined;
+    }
+    await this.remember(operationId, state, deadlineAt);
+    if (!this.attempt) await this.close();
+    return { state };
+  }
+
+  private async replay(operationId: string): Promise<CodexAuthorizationConnectorResult | undefined> {
+    const record = this.operations.get(operationId);
+    return record && record.state !== 'pending' ? { state: record.state } : undefined;
   }
 
   private async accountReady() {
@@ -129,6 +239,15 @@ export class CodexDeviceAuthorizationManager {
     return readAccountReady(result);
   }
 
+  private async cancelUpstream(loginId: string) {
+    try {
+      await (await this.ensureTransport()).call('account/login/cancel', { loginId });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private ensureTransport() {
     if (this.transport?.isOpen) return Promise.resolve(this.transport);
     if (this.startPromise) return this.startPromise;
@@ -137,8 +256,17 @@ export class CodexDeviceAuthorizationManager {
         binaryPath: this.options.binaryPath,
         codexHome: this.options.codexHome,
         onClose: () => {
+          this.clearExpiryTimer();
           if (this.transport === transport) this.transport = undefined;
-          if (this.attempt?.state === 'pending') this.attempt.state = 'failed';
+          const pending = this.attempt;
+          this.attempt = undefined;
+          if (pending) {
+            void this.remember(
+              pending.operationId,
+              'ambiguous',
+              pending.result.deadlineAt
+            );
+          }
         },
         onMessage: (message) => this.handleMessage(message),
         processFactory: this.options.processFactory
@@ -161,7 +289,55 @@ export class CodexDeviceAuthorizationManager {
     if (message.method !== 'account/login/completed' || !isRecord(message.params)) return;
     const current = this.attempt;
     if (!current || message.params.loginId !== current.loginId) return;
-    if (message.params.success !== true) current.state = 'failed';
+    if (message.params.success !== true) {
+      this.clearExpiryTimer();
+      this.attempt = undefined;
+      void this.remember(current.operationId, 'failed', current.result.deadlineAt);
+    }
+  }
+
+  private async remember(
+    operationId: string,
+    state: CodexAuthorizationOperationRecord['state'],
+    deadlineAt?: string
+  ) {
+    this.operations.delete(operationId);
+    this.operations.set(operationId, {
+      ...(deadlineAt ? { deadlineAt } : {}),
+      operationId,
+      state,
+      updatedAt: new Date(this.now()).toISOString()
+    });
+    while (this.operations.size > maximumOperationRecords) {
+      const oldest = this.operations.keys().next().value;
+      if (oldest === undefined) break;
+      this.operations.delete(oldest);
+    }
+    await this.options.operationPersistence?.persist([...this.operations.values()]);
+  }
+
+  private deadlineReached(value?: string) {
+    return value !== undefined && this.now() >= Date.parse(value);
+  }
+
+  private scheduleExpiry(operationId: string, deadlineAt: string) {
+    this.clearExpiryTimer();
+    const timer = setTimeout(() => {
+      const expiration = this.executionTail.then(async () => {
+        const current = this.attempt;
+        if (current?.operationId === operationId && this.deadlineReached(deadlineAt)) {
+          await this.expire(current);
+        }
+      });
+      this.executionTail = expiration.then(() => undefined, () => undefined);
+    }, Math.max(0, Date.parse(deadlineAt) - this.now()));
+    timer.unref?.();
+    this.expiryTimer = timer;
+  }
+
+  private clearExpiryTimer() {
+    if (this.expiryTimer) clearTimeout(this.expiryTimer);
+    this.expiryTimer = undefined;
   }
 
   private now() { return (this.options.now ?? Date.now)(); }

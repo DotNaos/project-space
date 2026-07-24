@@ -231,6 +231,7 @@ function presentRemote(
     };
   }
   const messages: Record<Exclude<typeof remote.state, 'pending'>, string> = {
+    ambiguous: 'The Codex authorization outcome could not be confirmed.',
     'authorization-required': 'Codex authorization has not been started.',
     cancelled: 'The Codex authorization attempt was cancelled.',
     expired: 'The Codex authorization attempt expired.',

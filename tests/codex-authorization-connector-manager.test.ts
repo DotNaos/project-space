@@ -5,6 +5,7 @@ import { PassThrough } from 'node:stream';
 import { describe, expect, test } from 'bun:test';
 
 import { CodexDeviceAuthorizationManager } from '../server/codex-authorization/connector-manager';
+import type { CodexAuthorizationOperationRecord } from '../server/codex-authorization/operation-store';
 import type { CodexChildProcess } from '../server/codex-sessions/contracts';
 
 type RpcMessage = {
@@ -166,7 +167,7 @@ describe('managed Codex device authorization', () => {
     }
   });
 
-  test('rejects an untrusted verification URL and sends no second login', async () => {
+  test('returns ambiguous for an untrusted response and sends no second login', async () => {
     const process = authorizationProcess({
       verificationUrl: 'https://example.com/codex/device?token=secret'
     });
@@ -176,7 +177,7 @@ describe('managed Codex device authorization', () => {
         action: 'start',
         machineId: 'connector-wsl',
         operationId: 'codex:login:operation-one'
-      })).rejects.toThrow('untrusted');
+      })).resolves.toEqual({ state: 'ambiguous' });
       expect(process.requests.filter((entry) => entry.method === 'account/login/start')).toHaveLength(1);
     } finally {
       await manager.close();
@@ -197,10 +198,140 @@ describe('managed Codex device authorization', () => {
         machineId: 'connector-wsl',
         operationId: 'codex:login:operation-one'
       })).resolves.toEqual({ state: 'cancelled' });
+      await expect(manager.execute({
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-one'
+      })).resolves.toEqual({ state: 'cancelled' });
+      expect(process.requests.find((entry) => entry.method === 'account/login/cancel')?.params)
+        .toEqual({ loginId: 'login-internal-1' });
+      expect(process.requests.filter((entry) => entry.method === 'account/login/start')).toHaveLength(1);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('expires and cancels the upstream login at the advertised deadline', async () => {
+    let now = Date.parse('2026-07-24T00:00:00.000Z');
+    const process = authorizationProcess();
+    const manager = new CodexDeviceAuthorizationManager({
+      now: () => now,
+      processFactory: () => process
+    });
+    try {
+      await manager.execute({
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-one'
+      });
+      now = Date.parse('2026-07-24T00:15:00.000Z');
+      await expect(manager.execute({
+        action: 'status',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-one'
+      })).resolves.toEqual({ state: 'expired' });
       expect(process.requests.find((entry) => entry.method === 'account/login/cancel')?.params)
         .toEqual({ loginId: 'login-internal-1' });
     } finally {
       await manager.close();
     }
+  });
+
+  test('enforces the deadline even when no client polls status', async () => {
+    const process = authorizationProcess();
+    const manager = new CodexDeviceAuthorizationManager({
+      authorizationDeadlineMs: 5,
+      processFactory: () => process
+    });
+    try {
+      await manager.execute({
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-one'
+      });
+      await Bun.sleep(20);
+      await expect(manager.execute({
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-one'
+      })).resolves.toEqual({ state: 'expired' });
+      expect(process.requests.find((entry) => entry.method === 'account/login/cancel')?.params)
+        .toEqual({ loginId: 'login-internal-1' });
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('replays an abrupt-restart pending record without starting a second login', async () => {
+    let snapshot: CodexAuthorizationOperationRecord[] = [];
+    const persistence = {
+      async persist(records: CodexAuthorizationOperationRecord[]) {
+        snapshot = structuredClone(records);
+      },
+      snapshot
+    };
+    const firstProcess = authorizationProcess();
+    const first = new CodexDeviceAuthorizationManager({
+      operationPersistence: persistence,
+      processFactory: () => firstProcess
+    });
+    await first.execute({
+      action: 'start',
+      machineId: 'connector-wsl',
+      operationId: 'codex:login:operation-one'
+    });
+    expect(JSON.stringify(snapshot)).not.toContain('ABCD-1234');
+    expect(JSON.stringify(snapshot)).not.toContain('login-internal-1');
+    const crashSnapshot = structuredClone(snapshot);
+
+    const second = new CodexDeviceAuthorizationManager({
+      operationPersistence: { persist: async () => {}, snapshot: crashSnapshot },
+      processFactory: () => {
+        throw new Error('A replay must not start Codex.');
+      }
+    });
+    await expect(second.execute({
+      action: 'start',
+      machineId: 'connector-wsl',
+      operationId: 'codex:login:operation-two'
+    })).resolves.toEqual({ state: 'ambiguous' });
+    await expect(second.execute({
+      action: 'start',
+      machineId: 'connector-wsl',
+      operationId: 'codex:login:operation-one'
+    })).resolves.toEqual({ state: 'ambiguous' });
+    await second.close();
+    await first.close();
+  });
+
+  test('keeps a disconnected start RPC ambiguous and replayable', async () => {
+    let snapshot: CodexAuthorizationOperationRecord[] = [];
+    const process = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+      if (message.method === 'account/read') {
+        server.send({
+          id: message.id,
+          result: { account: null, requiresOpenaiAuth: true }
+        });
+      }
+      if (message.method === 'account/login/start') {
+        queueMicrotask(() => server.emit('close'));
+      }
+    });
+    const manager = new CodexDeviceAuthorizationManager({
+      operationPersistence: {
+        async persist(records) { snapshot = structuredClone(records); },
+        snapshot: []
+      },
+      processFactory: () => process
+    });
+    await expect(manager.execute({
+      action: 'start',
+      machineId: 'connector-wsl',
+      operationId: 'codex:login:operation-one'
+    })).resolves.toEqual({ state: 'ambiguous' });
+    expect(snapshot.find((record) => record.operationId === 'codex:login:operation-one')?.state)
+      .toBe('ambiguous');
+    await manager.close();
   });
 });

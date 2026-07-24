@@ -96,6 +96,20 @@ func newCodexLoginCommand(dependencies codexCommandDependencies) *cobra.Command 
 				command.Context(),
 				codextask.AuthorizationRequest{
 					Selector:    selector,
+					Action:      codextask.AuthorizationStatus,
+					OperationID: operationID,
+				},
+			)
+			if err != nil {
+				return err
+			}
+			if result.State != codextask.AuthorizationPending {
+				return writeCodexAuthorizationResult(command, result, format)
+			}
+			result, err = runtime.client.Authorize(
+				command.Context(),
+				codextask.AuthorizationRequest{
+					Selector:    selector,
 					Action:      codextask.AuthorizationCancel,
 					OperationID: operationID,
 				},
@@ -107,7 +121,7 @@ func newCodexLoginCommand(dependencies codexCommandDependencies) *cobra.Command 
 				return err
 			}
 			return &codexOutcomeError{
-				message: "Codex authorization was not completed before the device-code deadline",
+				message: "Codex authorization was cancelled after the wait window ended",
 			}
 		},
 	}
