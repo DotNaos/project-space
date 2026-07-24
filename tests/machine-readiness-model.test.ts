@@ -174,6 +174,23 @@ describe('canonical machine readiness model', () => {
       kind: 'supported-action',
       message: 'Authorize the managed Codex runtime with a device code.'
     });
+    const authorizationUpdate = diagnose({
+      connector: connector({
+        capabilities: ['codex.authorization-required.v1', 'codex.runtime.v1', 'runtime.update']
+      }),
+      runtimeStatus: {
+        ...signedRuntime,
+        capabilities: [
+          'codex.authorization-required.v1',
+          'codex.runtime.v1',
+          'runtime.update'
+        ]
+      }
+    });
+    expect(authorizationUpdate.state).toBe('repairable');
+    expect(authorizationUpdate.plan?.actions).toEqual([
+      expect.objectContaining({ kind: 'update-connector', releaseId: 'v0.4.10' })
+    ]);
     expect(diagnose({
       connector: connector({ capabilities: ['codex.runtime.v1', 'runtime.update'] }),
       runtimeStatus: {
