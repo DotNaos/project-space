@@ -21,6 +21,7 @@ const (
 	callerMachineHeader               = "X-Project-Machine-ID"
 	callerThreadHeader                = "X-Codex-Thread-ID"
 	defaultMaximumResponseBytes int64 = 1 << 20
+	defaultAuthorizationTimeout       = 30 * time.Second
 	defaultRequestTimeout             = 15 * time.Second
 	defaultStartTimeout               = 5 * time.Minute
 	tasksPath                         = "/api/codex/tasks"
@@ -48,14 +49,15 @@ type Config struct {
 }
 
 type Client struct {
-	baseURL          *url.URL
-	callerMachineID  string
-	callerThreadID   string
-	credentials      CredentialProvider
-	httpClient       *http.Client
-	maximumResponse  int64
-	startHTTPClient  *http.Client
-	streamHTTPClient *http.Client
+	baseURL                 *url.URL
+	authorizationHTTPClient *http.Client
+	callerMachineID         string
+	callerThreadID          string
+	credentials             CredentialProvider
+	httpClient              *http.Client
+	maximumResponse         int64
+	startHTTPClient         *http.Client
+	streamHTTPClient        *http.Client
 }
 
 func NewClient(config Config) (*Client, error) {
@@ -88,8 +90,13 @@ func NewClient(config Config) (*Client, error) {
 	}
 	streamClient := client
 	streamClient.Timeout = 0
+	authorizationClient := client
+	if configuredTimeout == 0 {
+		authorizationClient.Timeout = defaultAuthorizationTimeout
+	}
 	return &Client{
-		baseURL: baseURL, callerMachineID: config.CallerMachineID,
+		authorizationHTTPClient: &authorizationClient,
+		baseURL:                 baseURL, callerMachineID: config.CallerMachineID,
 		callerThreadID: config.CallerThreadID, credentials: config.CredentialProvider,
 		httpClient: &client, maximumResponse: maximum, startHTTPClient: &startClient,
 		streamHTTPClient: &streamClient,

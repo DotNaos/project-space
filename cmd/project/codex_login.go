@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -53,11 +54,14 @@ func newCodexLoginCommand(dependencies codexCommandDependencies) *cobra.Command 
 			if err != nil {
 				return err
 			}
-			result, err := runtime.client.Authorize(
+			result, err := authorizeCodex(
+				command,
+				runtime.client,
 				command.Context(),
 				codextask.AuthorizationRequest{
 					Selector: selector, Action: action, OperationID: operationID,
 				},
+				format,
 			)
 			if err != nil {
 				return err
@@ -77,13 +81,16 @@ func newCodexLoginCommand(dependencies codexCommandDependencies) *cobra.Command 
 				); err != nil {
 					return err
 				}
-				result, err = runtime.client.Authorize(
+				result, err = authorizeCodex(
+					command,
+					runtime.client,
 					command.Context(),
 					codextask.AuthorizationRequest{
 						Selector:    selector,
 						Action:      codextask.AuthorizationStatus,
 						OperationID: operationID,
 					},
+					format,
 				)
 				if err != nil {
 					return err
@@ -92,13 +99,16 @@ func newCodexLoginCommand(dependencies codexCommandDependencies) *cobra.Command 
 					return writeCodexAuthorizationResult(command, result, format)
 				}
 			}
-			result, err = runtime.client.Authorize(
+			result, err = authorizeCodex(
+				command,
+				runtime.client,
 				command.Context(),
 				codextask.AuthorizationRequest{
 					Selector:    selector,
 					Action:      codextask.AuthorizationStatus,
 					OperationID: operationID,
 				},
+				format,
 			)
 			if err != nil {
 				return err
@@ -106,13 +116,16 @@ func newCodexLoginCommand(dependencies codexCommandDependencies) *cobra.Command 
 			if result.State != codextask.AuthorizationPending {
 				return writeCodexAuthorizationResult(command, result, format)
 			}
-			result, err = runtime.client.Authorize(
+			result, err = authorizeCodex(
+				command,
+				runtime.client,
 				command.Context(),
 				codextask.AuthorizationRequest{
 					Selector:    selector,
 					Action:      codextask.AuthorizationCancel,
 					OperationID: operationID,
 				},
+				format,
 			)
 			if err != nil {
 				return err
@@ -137,6 +150,26 @@ func newCodexLoginCommand(dependencies codexCommandDependencies) *cobra.Command 
 	command.Flags().BoolVar(&status, "status", false, "read the selected authorization attempt")
 	addCodexTargetFlags(command, &target, false)
 	return command
+}
+
+func authorizeCodex(
+	command *cobra.Command,
+	client codexTaskAPI,
+	ctx context.Context,
+	request codextask.AuthorizationRequest,
+	format string,
+) (codextask.AuthorizationResult, error) {
+	result, err := client.Authorize(ctx, request)
+	if err == nil || !codexMutationMayBeUncertain(err) {
+		return result, err
+	}
+	result = codextask.AuthorizationResult{
+		APIVersion:  codextask.APIVersion,
+		Message:     "The authorization request was sent, but its final state could not be confirmed.",
+		OperationID: request.OperationID,
+		State:       codextask.AuthorizationAmbiguous,
+	}
+	return result, writeCodexAuthorizationResult(command, result, format)
 }
 
 func writeCodexAuthorizationInstructions(

@@ -464,6 +464,77 @@ func TestCodexLoginShowsDeviceCodeAndWaitsForReady(t *testing.T) {
 	}
 }
 
+func TestCodexLoginReportsAnUncertainStartForSafeReconciliation(t *testing.T) {
+	client := fakeCodexTaskAPI{
+		authorize: func(
+			context.Context,
+			codextask.AuthorizationRequest,
+		) (codextask.AuthorizationResult, error) {
+			return codextask.AuthorizationResult{}, codextask.ErrUnavailable
+		},
+	}
+	command := newCodexCommandWithDependencies(codexTestDependencies(client))
+	output := &bytes.Buffer{}
+	command.SetOut(output)
+	command.SetArgs([]string{
+		"login",
+		"--machine-id", "physical-1",
+		"--operation-id", "codex:login:stable-operation",
+		"--format", "json",
+	})
+	err := command.Execute()
+	if err == nil ||
+		!strings.Contains(output.String(), `"state":"ambiguous"`) ||
+		!strings.Contains(output.String(), `"operationId":"codex:login:stable-operation"`) ||
+		strings.Contains(output.String(), "secret") {
+		t.Fatalf("error = %v output = %s", err, output)
+	}
+}
+
+func TestCodexLoginReportsAnUncertainAutomaticCancel(t *testing.T) {
+	client := fakeCodexTaskAPI{
+		authorize: func(
+			_ context.Context,
+			request codextask.AuthorizationRequest,
+		) (codextask.AuthorizationResult, error) {
+			if request.Action == codextask.AuthorizationCancel {
+				return codextask.AuthorizationResult{}, codextask.ErrUnavailable
+			}
+			return codextask.AuthorizationResult{
+				APIVersion:      codextask.APIVersion,
+				DeadlineAt:      "2099-07-24T00:15:00Z",
+				Message:         "Open the verification page and enter the device code.",
+				OperationID:     request.OperationID,
+				State:           codextask.AuthorizationPending,
+				Target:          codexTestTarget(),
+				UserCode:        "ABCD-1234",
+				VerificationURL: "https://auth.openai.com/codex/device",
+			}, nil
+		},
+	}
+	dependencies := codexTestDependencies(client)
+	dependencies.AuthorizationPollAttempts = 1
+	dependencies.AuthorizationPollInterval = time.Millisecond
+	dependencies.Wait = func(context.Context, time.Duration) error { return nil }
+	command := newCodexCommandWithDependencies(dependencies)
+	output, diagnostics := &bytes.Buffer{}, &bytes.Buffer{}
+	command.SetOut(output)
+	command.SetErr(diagnostics)
+	command.SetArgs([]string{
+		"login",
+		"--machine-id", "physical-1",
+		"--operation-id", "codex:login:stable-operation",
+		"--format", "json",
+	})
+	err := command.Execute()
+	if err == nil ||
+		!strings.Contains(output.String(), `"state":"ambiguous"`) ||
+		!strings.Contains(output.String(), `"operationId":"codex:login:stable-operation"`) ||
+		!strings.Contains(diagnostics.String(), "ABCD-1234") {
+		t.Fatalf("error = %v stdout=%s stderr=%s", err, output, diagnostics)
+	}
+}
+
 func codexTestDependencies(client codexTaskAPI) codexCommandDependencies {
 	return codexCommandDependencies{
 		LoadRuntime: func(context.Context) (codexCommandRuntime, error) {
