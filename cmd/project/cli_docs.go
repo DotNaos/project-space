@@ -165,6 +165,7 @@ func renderCLIDocsMDX(writer io.Writer, model cliDocsModel) error {
 	}
 	lines = append(lines,
 		"## Guides", "",
+		"- [Project Doctor](/docs/cli/doctor)",
 		"- [Self-update](/docs/cli/self-update)",
 		"- [Create and init](/docs/cli/create-init)",
 		"- [Validate](/docs/cli/validate)",

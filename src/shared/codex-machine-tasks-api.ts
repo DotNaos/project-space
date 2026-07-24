@@ -12,6 +12,7 @@ export type CodexMachineTaskBlockedReason =
   | 'approval_required'
   | 'connector_required'
   | 'input_required'
+  | 'machine_not_ready'
   | 'offline'
   | 'stale_connector'
   | 'thread_active'

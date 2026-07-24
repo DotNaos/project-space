@@ -47,7 +47,8 @@ export interface ConfiguredCodexMachineTasksOptions {
   attachLeases?: CodexAttachLeaseStore;
   backend: Pick<
     ProjectSpaceBackend,
-    'createGitHubBranch' | 'getConnectorOverview' | 'getGitHubCatalog' | 'getGitHubRepositoryDetails'
+    'createGitHubBranch' | 'getConnectorOverview' | 'getGitHubCatalog' |
+    'getGitHubRepositoryDetails' | 'getMachineRuntime'
   >;
   machineConnection?: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'>;
   sessionsRuntime?: Promise<CodexSessionsRuntime>;
@@ -97,9 +98,22 @@ async function createHandler(options: ConfiguredCodexMachineTasksOptions) {
     async inventory(userId) {
       return runWithAuthSession(machineSession(userId), async () => {
         const overview = await options.backend.getConnectorOverview();
+        const runtimeEntries = await Promise.all(overview.machines.map(async (connector) => {
+          try {
+            return [
+              connector.id,
+              await options.backend.getMachineRuntime(connector.id)
+            ] as const;
+          } catch {
+            return undefined;
+          }
+        }));
         return {
           connectors: overview.machines,
-          physicalMachines: await listPhysicalMachines(userId)
+          physicalMachines: await listPhysicalMachines(userId),
+          runtimeStatuses: new Map(runtimeEntries.filter(
+            (entry): entry is NonNullable<typeof entry> => Boolean(entry)
+          ))
         };
       });
     },

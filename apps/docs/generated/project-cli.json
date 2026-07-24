@@ -1523,14 +1523,26 @@
         "path": "project doctor",
         "name": "doctor",
         "usage": "doctor",
-        "short": "Check this machine's Project Space connection",
+        "short": "Diagnose local or managed-machine Project Space readiness",
         "aliases": [],
         "runnable": true,
         "flags": [
           {
+            "name": "connector",
+            "type": "string",
+            "description": "exact connector installation ID",
+            "inherited": false
+          },
+          {
             "name": "fix",
             "type": "bool",
-            "description": "create missing project directories",
+            "description": "apply the exact confirmed managed repair plan",
+            "inherited": false
+          },
+          {
+            "name": "format",
+            "type": "string",
+            "description": "output format: text or json",
             "inherited": false
           },
           {
@@ -1544,6 +1556,24 @@
             "name": "json",
             "type": "bool",
             "description": "print machine-readable output",
+            "inherited": false
+          },
+          {
+            "name": "machine",
+            "type": "string",
+            "description": "exact physical machine name",
+            "inherited": false
+          },
+          {
+            "name": "machine-id",
+            "type": "string",
+            "description": "exact physical machine ID",
+            "inherited": false
+          },
+          {
+            "name": "yes",
+            "type": "bool",
+            "description": "confirm the current exact repair plan non-interactively",
             "inherited": false
           }
         ],

@@ -89,35 +89,71 @@ func newMachineDoctorCommandWithDependencyFactoryAndDirectoryDoctor(
 	loadDependencies machineConnectionCommandDependencyFactory,
 	directoryDoctor projectDirectoryDoctor,
 ) *cobra.Command {
+	return newMachineDoctorCommandWithAllDependencies(
+		loadDependencies,
+		directoryDoctor,
+		defaultMachineReadinessCommandDependencies(),
+	)
+}
+
+func newMachineDoctorCommandWithAllDependencies(
+	loadDependencies machineConnectionCommandDependencyFactory,
+	directoryDoctor projectDirectoryDoctor,
+	readinessDependencies machineReadinessCommandDependencies,
+) *cobra.Command {
 	jsonOutput := false
 	fix := false
+	yes := false
+	format := "text"
+	target := machineReadinessTargetOptions{}
 	command := &cobra.Command{
 		Use:   "doctor",
-		Short: "Check this machine's Project Space connection",
+		Short: "Diagnose local or managed-machine Project Space readiness",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			directories, err := directoryDoctor.Check(fix)
-			if !jsonOutput {
-				writeProjectDirectoryReport(command.OutOrStdout(), directories)
-			}
+			outputFormat, err := doctorOutputFormat(format, jsonOutput)
 			if err != nil {
 				return err
 			}
-			if directories.hasMissing() && !jsonOutput &&
-				canPromptForProjectDirectoryFix(command.InOrStdin()) {
-				confirmed, err := confirmProjectDirectoryFix(
-					command.InOrStdin(),
-					command.OutOrStdout(),
+			if yes && !fix {
+				return errors.New("--yes requires --fix")
+			}
+			if target.remote() {
+				return runRemoteMachineDoctor(
+					command, target, fix, yes, outputFormat, readinessDependencies,
 				)
-				if err != nil {
-					return err
-				}
-				if confirmed {
-					directories, err = directoryDoctor.Check(true)
-					writeProjectDirectoryReport(command.OutOrStdout(), directories)
+			}
+			if target.connectorID != "" {
+				return errors.New("--connector requires --machine or --machine-id")
+			}
+			directories, err := directoryDoctor.Check(false)
+			if err != nil {
+				return err
+			}
+			if fix && directories.hasMissing() {
+				confirmed := yes
+				if !confirmed {
+					confirmed, err = confirmProjectDirectoryFix(
+						command.InOrStdin(),
+						command.ErrOrStderr(),
+					)
 					if err != nil {
 						return err
 					}
+				}
+				if !confirmed {
+					if outputFormat == "json" {
+						_ = writeMachineConnectionJSON(command.OutOrStdout(), machineDoctorCommandResult{
+							ProjectDirectories: directories,
+						})
+					} else {
+						writeProjectDirectoryReport(command.OutOrStdout(), directories)
+					}
+					return errors.New("repair was not confirmed; no changes were made")
+				}
+				directories, err = directoryDoctor.Check(true)
+				if err != nil {
+					return err
 				}
 			}
 			dependencies, err := loadDependencies()
@@ -136,11 +172,12 @@ func newMachineDoctorCommandWithDependencyFactoryAndDirectoryDoctor(
 				DoctorResult:       result,
 				ProjectDirectories: directories,
 			}
-			if jsonOutput {
+			if outputFormat == "json" {
 				if err := writeMachineConnectionJSON(command.OutOrStdout(), commandResult); err != nil {
 					return err
 				}
 			} else {
+				writeProjectDirectoryReport(command.OutOrStdout(), directories)
 				fmt.Fprintln(command.OutOrStdout(), "Project Space backend is reachable.")
 				if !result.CredentialFound {
 					fmt.Fprintln(command.OutOrStdout(), "This machine has not been connected yet.")
@@ -155,7 +192,12 @@ func newMachineDoctorCommandWithDependencyFactoryAndDirectoryDoctor(
 		},
 	}
 	command.Flags().BoolVar(&jsonOutput, "json", false, "print machine-readable output")
-	command.Flags().BoolVar(&fix, "fix", false, "create missing project directories")
+	command.Flags().StringVar(&format, "format", "text", "output format: text or json")
+	command.Flags().BoolVar(&fix, "fix", false, "apply the exact confirmed managed repair plan")
+	command.Flags().BoolVar(&yes, "yes", false, "confirm the current exact repair plan non-interactively")
+	command.Flags().StringVar(&target.machineName, "machine", "", "exact physical machine name")
+	command.Flags().StringVar(&target.machineID, "machine-id", "", "exact physical machine ID")
+	command.Flags().StringVar(&target.connectorID, "connector", "", "exact connector installation ID")
 	return command
 }
 

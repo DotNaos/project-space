@@ -24,6 +24,7 @@ const (
 	BlockedApprovalRequired  BlockedReason = "approval_required"
 	BlockedConnectorRequired BlockedReason = "connector_required"
 	BlockedInputRequired     BlockedReason = "input_required"
+	BlockedMachineNotReady   BlockedReason = "machine_not_ready"
 	BlockedOffline           BlockedReason = "offline"
 	BlockedStaleConnector    BlockedReason = "stale_connector"
 	BlockedThreadActive      BlockedReason = "thread_active"

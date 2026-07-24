@@ -2,17 +2,18 @@ import type {
   CodexMachineTaskBlockedReason,
   CodexMachineTaskTarget
 } from '../../src/shared/codex-machine-tasks-api';
-import { CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY } from '../../src/shared/codex-machine-tasks-api';
 import type {
   MachineRecord,
   PhysicalMachineRecord
 } from '../../src/shared/project-space-api';
+import type { MachineRuntimeStatusResult } from '../../src/shared/connector-runtime-api';
+import { evaluateMachineReadiness } from '../machine-readiness/model';
 
 export class CodexMachineTaskTargetError extends Error {
   constructor(
     readonly reason: Extract<
       CodexMachineTaskBlockedReason,
-      'connector_required' | 'offline' | 'stale_connector' | 'unauthorized'
+      'connector_required' | 'machine_not_ready' | 'offline' | 'stale_connector' | 'unauthorized'
     >,
     message: string
   ) {
@@ -28,41 +29,44 @@ export function resolveCodexMachineTaskTarget(input: {
   physicalMachineId?: string;
   physicalMachineName?: string;
   physicalMachines: readonly PhysicalMachineRecord[];
+  runtimeStatuses?: ReadonlyMap<string, MachineRuntimeStatusResult>;
   userCanUseConnector?(connectorId: string): boolean;
 }): CodexMachineTaskTarget {
   const physicalMachine = selectPhysicalMachine(input);
-  const connectorRecords = new Map(input.connectors.map((connector) => [connector.id, connector]));
-  const members = physicalMachine.connectorIds
-    .map((id) => connectorRecords.get(id))
-    .filter((connector): connector is MachineRecord => Boolean(connector));
-  const capable = members.filter((connector) => (
-    connector.connector.status === 'online' &&
-    connector.connector.capabilities?.includes(CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY)
-  ));
-
-  if (input.connectorId && !physicalMachine.connectorIds.includes(input.connectorId)) {
+  const readiness = evaluateMachineReadiness({
+    ...input,
+    checkedAt: new Date(0).toISOString()
+  });
+  if (readiness.state === 'ambiguous') {
     throw new CodexMachineTaskTargetError(
-      'unauthorized',
-      'The connector does not belong to the selected physical machine.'
+      'connector_required',
+      `${readiness.message} Run ${doctorCommand(physicalMachine)}.`
     );
+  }
+  if (readiness.state === 'unauthorized') {
+    throw new CodexMachineTaskTargetError('unauthorized', readiness.message);
   }
   if (input.connectorId && input.userCanUseConnector?.(input.connectorId) === false) {
     throw new CodexMachineTaskTargetError('unauthorized', 'Connector access is required.');
   }
-
-  const selected = input.connectorId
-    ? capable.find((connector) => connector.id === input.connectorId)
-    : capable.length === 1 ? capable[0] : undefined;
+  if (!readiness.ready || !readiness.selectedConnectorId) {
+    const reason = readiness.state === 'unreachable'
+      ? 'offline'
+      : readiness.state === 'uncertain'
+        ? 'stale_connector'
+        : 'machine_not_ready';
+    throw new CodexMachineTaskTargetError(
+      reason,
+      `${readiness.message} Run ${doctorCommand(physicalMachine)}.`
+    );
+  }
+  const selected = input.connectors.find(
+    (connector) => connector.id === readiness.selectedConnectorId
+  );
   if (!selected) {
-    if (!input.connectorId && capable.length > 1) {
-      throw new CodexMachineTaskTargetError(
-        'connector_required',
-        'Choose the exact connector installation for this physical machine.'
-      );
-    }
     throw new CodexMachineTaskTargetError(
       'offline',
-      'No online Codex-capable connector is available on this physical machine.'
+      `${readiness.message} Run ${doctorCommand(physicalMachine)}.`
     );
   }
   if (input.userCanUseConnector?.(selected.id) === false) {
@@ -87,6 +91,10 @@ export function resolveCodexMachineTaskTarget(input: {
     },
     physicalMachine: { id: physicalMachine.id, name: physicalMachine.name }
   };
+}
+
+function doctorCommand(machine: PhysicalMachineRecord) {
+  return `project doctor --machine-id ${machine.id}`;
 }
 
 function selectPhysicalMachine(input: {
