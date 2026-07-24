@@ -14,9 +14,15 @@ import (
 func TestClientUsesAWorktreeSizedDefaultStartTimeout(t *testing.T) {
 	client := testClient(t, "https://projects.example", Config{})
 	if client.httpClient.Timeout != defaultRequestTimeout ||
+		client.authorizationHTTPClient.Timeout != defaultAuthorizationTimeout ||
 		client.startHTTPClient.Timeout != defaultStartTimeout ||
 		client.startHTTPClient.Timeout < 3*time.Minute {
-		t.Fatalf("request timeout = %s start timeout = %s", client.httpClient.Timeout, client.startHTTPClient.Timeout)
+		t.Fatalf(
+			"request timeout = %s authorization timeout = %s start timeout = %s",
+			client.httpClient.Timeout,
+			client.authorizationHTTPClient.Timeout,
+			client.startHTTPClient.Timeout,
+		)
 	}
 }
 

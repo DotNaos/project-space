@@ -60,7 +60,7 @@ func (client *Client) Authorize(
 	result := AuthorizationResult{}
 	if _, err := client.doJSON(
 		ctx,
-		client.httpClient,
+		client.authorizationHTTPClient,
 		http.MethodPost,
 		authorizationPath,
 		nil,

@@ -73,7 +73,9 @@ function authorizationProcess(options: {
         }
       });
     }
-    if (message.method === 'account/login/cancel') server.send({ id: message.id, result: {} });
+    if (message.method === 'account/login/cancel') {
+      server.send({ id: message.id, result: { status: 'canceled' } });
+    }
   });
 }
 
@@ -237,6 +239,96 @@ describe('managed Codex device authorization', () => {
     }
   });
 
+  test('reconciles a not-found cancellation instead of claiming it succeeded', async () => {
+    let authorized = false;
+    const process = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+      if (message.method === 'account/read') {
+        server.send({
+          id: message.id,
+          result: {
+            account: authorized ? { type: 'chatgpt' } : null,
+            requiresOpenaiAuth: true
+          }
+        });
+      }
+      if (message.method === 'account/login/start') {
+        server.send({
+          id: message.id,
+          result: {
+            loginId: 'login-internal-1',
+            type: 'chatgptDeviceCode',
+            userCode: 'ABCD-1234',
+            verificationUrl: 'https://auth.openai.com/codex/device'
+          }
+        });
+      }
+      if (message.method === 'account/login/cancel') {
+        server.send({ id: message.id, result: { status: 'notFound' } });
+      }
+    });
+    const manager = new CodexDeviceAuthorizationManager({ processFactory: () => process });
+    try {
+      await manager.execute({
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-one'
+      });
+      await expect(manager.execute({
+        action: 'cancel',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-one'
+      })).resolves.toEqual({ state: 'ambiguous' });
+    } finally {
+      await manager.close();
+    }
+
+    const readyProcess = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+      if (message.method === 'account/read') {
+        server.send({
+          id: message.id,
+          result: {
+            account: authorized ? { type: 'chatgpt' } : null,
+            requiresOpenaiAuth: true
+          }
+        });
+      }
+      if (message.method === 'account/login/start') {
+        server.send({
+          id: message.id,
+          result: {
+            loginId: 'login-internal-1',
+            type: 'chatgptDeviceCode',
+            userCode: 'ABCD-1234',
+            verificationUrl: 'https://auth.openai.com/codex/device'
+          }
+        });
+      }
+      if (message.method === 'account/login/cancel') {
+        authorized = true;
+        server.send({ id: message.id, result: { status: 'notFound' } });
+      }
+    });
+    const readyManager = new CodexDeviceAuthorizationManager({
+      processFactory: () => readyProcess
+    });
+    try {
+      await readyManager.execute({
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-ready'
+      });
+      await expect(readyManager.execute({
+        action: 'cancel',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-ready'
+      })).resolves.toEqual({ state: 'ready' });
+    } finally {
+      await readyManager.close();
+    }
+  });
+
   test('enforces the deadline even when no client polls status', async () => {
     const process = authorizationProcess();
     const manager = new CodexDeviceAuthorizationManager({
@@ -333,5 +425,81 @@ describe('managed Codex device authorization', () => {
     expect(snapshot.find((record) => record.operationId === 'codex:login:operation-one')?.state)
       .toBe('ambiguous');
     await manager.close();
+  });
+
+  test('bounds an unresponsive account read and permits a later retry', async () => {
+    const stalled = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+    });
+    const recovered = authorizationProcess();
+    let launches = 0;
+    const manager = new CodexDeviceAuthorizationManager({
+      processFactory: () => launches++ === 0 ? stalled : recovered,
+      rpcTimeoutMs: 5
+    });
+    try {
+      await expect(manager.execute({
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-stalled'
+      })).rejects.toThrow();
+      await expect(manager.execute({
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-recovered'
+      })).resolves.toMatchObject({ state: 'pending' });
+      expect(stalled.signalCode).toBe('SIGTERM');
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('keeps a timed out login start ambiguous and releases the execution queue', async () => {
+    let now = Date.parse('2026-07-24T00:00:00.000Z');
+    const stalled = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+      if (message.method === 'account/read') {
+        server.send({
+          id: message.id,
+          result: { account: null, requiresOpenaiAuth: true }
+        });
+      }
+    });
+    const recovered = authorizationProcess();
+    let launches = 0;
+    const manager = new CodexDeviceAuthorizationManager({
+      now: () => now,
+      processFactory: () => launches++ === 0 ? stalled : recovered,
+      rpcTimeoutMs: 5
+    });
+    try {
+      await expect(manager.execute({
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-stalled'
+      })).resolves.toEqual({ state: 'ambiguous' });
+      await expect(manager.execute({
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-new'
+      })).resolves.toEqual({ state: 'ambiguous' });
+      expect(launches).toBe(1);
+      now = Date.parse('2026-07-24T00:15:00.000Z');
+      await expect(manager.execute({
+        action: 'status',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-stalled'
+      })).resolves.toEqual({ state: 'expired' });
+      await expect(manager.execute({
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-after-expiry'
+      })).resolves.toMatchObject({ state: 'pending' });
+      expect(recovered.requests.filter((entry) => entry.method === 'account/login/start'))
+        .toHaveLength(1);
+      expect(stalled.signalCode).toBe('SIGTERM');
+    } finally {
+      await manager.close();
+    }
   });
 });
