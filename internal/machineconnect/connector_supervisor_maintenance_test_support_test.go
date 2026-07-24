@@ -400,6 +400,7 @@ func maintenanceTestArchiveWithKeysAndCodex(
 	if target == "linux-x64" && includeCodex {
 		members["codex"] = []byte("codex-binary")
 		members["CODEX-LICENSE"] = []byte("codex-license")
+		members["CODEX-NOTICE"] = []byte("codex-notice")
 		members["CODEX-VERSION"] = []byte("0.145.0\n")
 	}
 	names := make([]string, 0, len(members))

@@ -230,6 +230,7 @@ func connectorSupervisorBundleMembers(target string) map[string]fs.FileMode {
 	if target == "linux-x64" {
 		members["codex"] = 0o700
 		members["CODEX-LICENSE"] = 0o600
+		members["CODEX-NOTICE"] = 0o600
 		members["CODEX-VERSION"] = 0o600
 	}
 	return members
@@ -246,7 +247,7 @@ func verifyConnectorSupervisorBundle(
 ) error {
 	members := connectorSupervisorBundleMembers(target)
 	if target == "linux-x64" {
-		optional := []string{"codex", "CODEX-LICENSE", "CODEX-VERSION"}
+		optional := []string{"codex", "CODEX-LICENSE", "CODEX-NOTICE", "CODEX-VERSION"}
 		present := 0
 		for _, name := range optional {
 			if _, ok := extracted[filepath.Base(bundleRoot)+"/"+name]; ok {
