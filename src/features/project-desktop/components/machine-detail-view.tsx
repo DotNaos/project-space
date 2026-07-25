@@ -31,6 +31,7 @@ import {
   runtimeVersionLabel
 } from './machine-connector-runtime-model';
 import { ConnectorChannelChip } from './connector-channel-chip';
+import { MachineResourcePanel } from './machine-resource-usage';
 
 function MachineDetailRow({ label, value }: { label: string; value: string }) {
   return (
@@ -376,6 +377,13 @@ export function MachineDetailView({
 
       {tab === 'overview' ? (
         <section className="grid gap-4 lg:grid-cols-2">
+          <Surface
+            variant="tertiary"
+            className="min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/45 p-4 lg:col-span-2"
+          >
+            <MachineResourcePanel resources={machine.resources} />
+          </Surface>
+
           <Surface
             variant="tertiary"
             className="min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/45 p-4"

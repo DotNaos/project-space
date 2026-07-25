@@ -1712,6 +1712,152 @@
         "commands": []
       },
       {
+        "path": "project machine",
+        "name": "machine",
+        "usage": "machine",
+        "short": "Inspect and manage Project machines",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for machine",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project machine resources",
+            "name": "resources",
+            "usage": "resources",
+            "short": "Inspect CPU, GPU, memory, and disk utilization",
+            "aliases": [],
+            "runnable": false,
+            "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for resources",
+                "inherited": false
+              }
+            ],
+            "commands": [
+              {
+                "path": "project machine resources list",
+                "name": "list",
+                "usage": "list",
+                "short": "List the latest resource state for accessible machine contexts",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: text or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for list",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project machine resources show",
+                "name": "show",
+                "usage": "show",
+                "short": "Show one machine context resource snapshot",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "context",
+                    "type": "string",
+                    "description": "exact context ID or label",
+                    "inherited": false
+                  },
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: text or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for show",
+                    "inherited": false
+                  },
+                  {
+                    "name": "here",
+                    "type": "bool",
+                    "description": "use the machine connected by this CLI",
+                    "inherited": false
+                  },
+                  {
+                    "name": "machine",
+                    "type": "string",
+                    "description": "exact machine ID or name",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project machine resources watch",
+                "name": "watch",
+                "usage": "watch",
+                "short": "Continuously watch one machine context resource snapshot",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "context",
+                    "type": "string",
+                    "description": "exact context ID or label",
+                    "inherited": false
+                  },
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: text or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for watch",
+                    "inherited": false
+                  },
+                  {
+                    "name": "here",
+                    "type": "bool",
+                    "description": "use the machine connected by this CLI",
+                    "inherited": false
+                  },
+                  {
+                    "name": "machine",
+                    "type": "string",
+                    "description": "exact machine ID or name",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              }
+            ]
+          }
+        ]
+      },
+      {
         "path": "project module",
         "name": "module",
         "usage": "module",

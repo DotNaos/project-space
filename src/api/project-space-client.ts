@@ -83,6 +83,7 @@ import type {
   ToolLaunchRequest,
   ToolLaunchResult
 } from '@/shared/project-space-api';
+import type { MachineResourcesResult } from '@/shared/machine-resources-api';
 import {
   refreshProjectSpaceAuthToken,
   setProjectSpaceAuthToken
@@ -124,6 +125,10 @@ class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements Project
 
   getConnectorOverview(): Promise<ConnectorOverviewResult> {
     return this.request('/api/connectors/overview');
+  }
+
+  getMachineResources(): Promise<MachineResourcesResult> {
+    return this.request('/api/machine-resources');
   }
 
   getMachineRuntime(machineId: string, signal?: AbortSignal): Promise<MachineRuntimeStatusResult> {

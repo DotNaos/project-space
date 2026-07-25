@@ -23,12 +23,14 @@ import type { createConfiguredMachineReadinessHandler } from './machine-readines
 import type {
   createConfiguredCodexAuthorizationHandler
 } from './codex-authorization/configured-runtime';
+import type { createConfiguredMachineResourcesHandler } from './machine-resources-http';
 
 interface ProjectSpaceApiHandlerOptions {
   codexAuthorization?: ReturnType<typeof createConfiguredCodexAuthorizationHandler>;
   codexSessions?: CodexSessionsHttpHandler;
   codexMachineTasks?: CodexMachineTasksHttpHandler;
   machineReadiness?: ReturnType<typeof createConfiguredMachineReadinessHandler>;
+  machineResources?: ReturnType<typeof createConfiguredMachineResourcesHandler>;
   machineConnection?: Pick<MachineConnectionRuntime, 'handleRequest'>;
   projectChat?: Pick<ProjectChatRuntime, 'handleRequest'>;
   projectTopology?: ProjectTopologyInventoryHttpHandler;
@@ -81,6 +83,10 @@ export function createProjectSpaceApiHandler(
       }
 
       if (options.machineReadiness && await options.machineReadiness(request, response, url)) {
+        return true;
+      }
+
+      if (options.machineResources && await options.machineResources(request, response, url)) {
         return true;
       }
 

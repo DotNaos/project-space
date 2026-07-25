@@ -1,6 +1,7 @@
 export type * from './dev-server-api';
 export type * from './worktree-action-api';
 export type * from './connector-runtime-api';
+export type * from './machine-resources-api';
 export type * from './roadmap-api';
 
 import type {
@@ -11,6 +12,7 @@ import type {
   MachineRuntimeStopResult,
   MachineRuntimeStatusResult
 } from './connector-runtime-api';
+import type { MachineResourceRecord } from './machine-resources-api';
 import type {
   RoadmapDependencyMutationRequest,
   RoadmapPlanUpdateRequest,
@@ -875,6 +877,7 @@ export interface MachineRecord {
   executionScopeId?: string;
   primaryUser?: string;
   profile?: string;
+  resources?: MachineResourceRecord;
   roles: string[];
   sourcePath: string;
   network: {

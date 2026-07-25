@@ -29,6 +29,7 @@ import {
 } from './settings-machine-group-model';
 import { SettingsMachineRuntimeStop } from './settings-machine-runtime-stop';
 import { SettingsMachineScopeEditor } from './settings-machine-scope-editor';
+import { MachineResourcePanel, MachineResourceSummary } from './machine-resource-usage';
 import {
   settingsMachineGroupsPresentation,
   type SettingsMachineGroupsStatus
@@ -49,6 +50,7 @@ function ConnectorInstanceRow({ instance, onRefresh }: {
   instance: SettingsConnectorInstance;
   onRefresh(): Promise<unknown>;
 }) {
+  const [showResources, setShowResources] = useState(false);
   const origin = instance.machine.connector.origin;
   const safeOrigin = safeConnectorOrigin(origin);
   return (
@@ -72,6 +74,7 @@ function ConnectorInstanceRow({ instance, onRefresh }: {
           <Text className="mt-0.5 block truncate text-xs text-neutral-600">
             {instance.machine.name}
           </Text>
+          <MachineResourceSummary className="mt-1" resources={instance.machine.resources} />
           {safeOrigin ? (
             <a
               className="mt-1 inline-flex max-w-full items-center gap-1 text-xs text-sky-400 hover:text-sky-300"
@@ -88,12 +91,30 @@ function ConnectorInstanceRow({ instance, onRefresh }: {
         </div>
       </div>
       <div className="flex items-center justify-end gap-2">
+        <Button
+          aria-expanded={showResources}
+          aria-label={`${showResources ? 'Hide' : 'Show'} resources for ${instance.machine.name}`}
+          isIconOnly
+          size="sm"
+          variant="ghost"
+          className="h-8 w-8 min-w-0 px-0"
+          onPress={() => setShowResources((current) => !current)}
+        >
+          <ChevronRight
+            className={`size-3.5 transition-transform ${showResources ? 'rotate-90' : ''}`}
+          />
+        </Button>
         <SettingsMachineRuntimeStop machine={instance.machine} onStopped={onRefresh} />
         <MachineConnectorActionsMenu
           machine={instance.machine}
           onOperationSettled={() => void onRefresh()}
         />
       </div>
+      {showResources ? (
+        <div className="border-t border-neutral-900 pt-2 sm:col-span-2">
+          <MachineResourcePanel resources={instance.machine.resources} />
+        </div>
+      ) : null}
     </div>
   );
 }

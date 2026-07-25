@@ -43,9 +43,16 @@ import {
 } from './project-connector-websocket-utils';
 import { createProjectConnectorWorktreeLoads } from './project-connector-worktree-loads';
 import { createProjectConnectorRuntimeStopControl } from './project-connector-runtime-stop';
+import { createMachineResourceCollector } from './machine-resource-collector';
+import type { MachineResourceSnapshot } from '../src/shared/machine-resources-api';
+
+const defaultResourceIntervalMs = 5_000;
+
 interface ProjectConnectorWebSocketOptions extends ProjectConnectorConnectionOptions {
   backend: ProjectSpaceBackend & Partial<ConnectorDevServerAdapter & ConnectorWorktreeActionAdapter>;
+  collectResources?(connectorId: string): Promise<MachineResourceSnapshot>;
   environment?: NodeJS.ProcessEnv;
+  resourceIntervalMs?: number;
   runtimeShutdown?(): Promise<void> | void;
 }
 
@@ -53,6 +60,11 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
   const { backend } = options;
   const connection = resolveProjectConnectorConnection(options);
   const { targets } = connection;
+  const resourceIntervalMs = options.resourceIntervalMs ?? defaultResourceIntervalMs;
+  if (!Number.isSafeInteger(resourceIntervalMs) || resourceIntervalMs <= 0) {
+    throw new Error('Connector resource interval must be a positive integer.');
+  }
+  const collectResources = options.collectResources ?? createMachineResourceCollector();
   if (targets.length === 0) {
     return {
       close() {}
@@ -205,9 +217,11 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
       let cleanedUp = false;
       let registryPublishPending = false;
       let registryTimer: ReturnType<typeof setInterval> | undefined;
+      let resourceTimer: ReturnType<typeof setInterval> | undefined;
       let registrationEvidence: ReturnType<typeof connectorRuntimeMaintenanceEvidence>;
       let registrationRegistry: ConnectorProjectRegistryResult | undefined;
       let registered = false;
+      let resourcePublishPending = false;
       let serialMessages = Promise.resolve();
       activeSocket = socket;
 
@@ -232,6 +246,10 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         if (registryTimer) {
           clearInterval(registryTimer);
           registryTimer = undefined;
+        }
+        if (resourceTimer) {
+          clearInterval(resourceTimer);
+          resourceTimer = undefined;
         }
         if (closeSocket) {
           socket.close();
@@ -292,6 +310,44 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         }, connection.registryIntervalMs);
       }
 
+      async function publishResources() {
+        const connectorId = registrationRegistry?.connector.machineId;
+        if (
+          !connectorId ||
+          !registered ||
+          !isCurrentConnection() ||
+          socket.readyState !== WebSocket.OPEN
+        ) {
+          return;
+        }
+        const payload = await collectResources(connectorId);
+        if (
+          payload.connectorId === connectorId &&
+          isCurrentConnection() &&
+          socket.readyState === WebSocket.OPEN
+        ) {
+          sendJson(socket, {
+            payload,
+            type: 'connector.resources'
+          });
+        }
+      }
+
+      function startResourcePublisher() {
+        if (resourceTimer || !isCurrentConnection()) return;
+        const publish = () => {
+          if (resourcePublishPending) return;
+          resourcePublishPending = true;
+          void publishResources()
+            .catch(() => undefined)
+            .finally(() => {
+              resourcePublishPending = false;
+            });
+        };
+        publish();
+        resourceTimer = setInterval(publish, resourceIntervalMs);
+      }
+
       socket.addEventListener('open', () => {
         void publishRegistry(true).then((published) => {
           if (!published && isCurrentConnection()) {
@@ -322,6 +378,7 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
             );
           }
           startRegistryPublisher();
+          startResourcePublisher();
           return;
         }
         if (!registered) throw new Error('Connector command arrived before registration.');

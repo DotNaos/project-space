@@ -22,6 +22,10 @@ import type {
   TerminalCommandResult
 } from '../src/shared/project-space-api';
 import {
+  isMachineResourceSnapshot,
+  type MachineResourceSnapshot
+} from '../src/shared/machine-resources-api';
+import {
   isConnectorDevServerResult,
   isConnectorDevServerListResult,
   isConnectorDevServerListWireRequest,
@@ -77,6 +81,10 @@ export type ConnectorHubMessage =
   | {
       payload: ConnectorProjectRegistryResult;
       type: 'connector.registry';
+    }
+  | {
+      payload: MachineResourceSnapshot;
+      type: 'connector.resources';
     }
   | {
       id: string;
@@ -510,6 +518,10 @@ export function isConnectorHubMessage(value: unknown): value is ConnectorHubMess
   }
   if (value.type === 'connector.registry') {
     return hasRegistryPayload(value);
+  }
+  if (value.type === 'connector.resources') {
+    return hasOnlyKeys(value, ['payload', 'type']) &&
+      isMachineResourceSnapshot(value.payload);
   }
   if (value.type === 'codex.chat.complete') {
     return hasCommandId(value);
