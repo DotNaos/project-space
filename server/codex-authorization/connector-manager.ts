@@ -42,6 +42,7 @@ export class CodexDeviceAuthorizationManager {
     binaryPath?: string;
     codexHome?: string;
     now?: () => number;
+    onReady?: () => Promise<void> | void;
     operationPersistence?: CodexAuthorizationOperationPersistence;
     processFactory?: CodexProcessFactory;
     authorizationDeadlineMs?: number;
@@ -124,9 +125,7 @@ export class CodexDeviceAuthorizationManager {
       return { state: 'ambiguous' };
     }
     if (await this.accountReady(signal)) {
-      await this.remember(operationId, 'ready');
-      await this.close();
-      return { state: 'ready' };
+      return this.finish(operationId, 'ready');
     }
     const deadlineAt = new Date(
       this.now() + (this.options.authorizationDeadlineMs ?? authorizationDeadlineMs)
@@ -258,6 +257,13 @@ export class CodexDeviceAuthorizationManager {
     }
     await this.remember(operationId, state, deadlineAt);
     if (!this.attempt) await this.close();
+    if (state === 'ready') {
+      try {
+        await this.options.onReady?.();
+      } catch {
+        // Authorization is already durable; the session runtime will reconnect on its next call.
+      }
+    }
     return { state };
   }
 

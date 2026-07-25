@@ -85,6 +85,7 @@ export class CodexSessionManager {
   private runtimeEpoch = 0;
   private readonly startingThreads = new Set<string>();
   private startPromise?: Promise<CodexStdioTransport>;
+  private startingTransport?: CodexStdioTransport;
   private transport?: CodexStdioTransport;
   private readonly transportEpochs = new WeakMap<CodexStdioTransport, number>();
 
@@ -308,9 +309,16 @@ export class CodexSessionManager {
 
   async close() {
     const transport = this.transport;
+    const startingTransport = this.startingTransport;
     this.transport = undefined;
+    this.startingTransport = undefined;
     this.startPromise = undefined;
-    await transport?.close();
+    await Promise.all([
+      transport?.close(),
+      startingTransport && startingTransport !== transport
+        ? startingTransport.close()
+        : undefined
+    ]);
   }
 
   private async call<Result>(
@@ -325,14 +333,21 @@ export class CodexSessionManager {
   private ensureTransport() {
     if (this.transport?.isOpen) return Promise.resolve(this.transport);
     if (this.startPromise) return this.startPromise;
-    this.startPromise = (async () => {
-      const transport = CodexStdioTransport.launch({
-        ...this.options,
-        onClose: () => this.handleTransportClose(),
-        onMessage: (message) => this.handleMessage(message)
-      });
+    const transport = CodexStdioTransport.launch({
+      ...this.options,
+      onClose: () => this.handleTransportClose(),
+      onMessage: (message) => this.handleMessage(message)
+    });
+    this.startingTransport = transport;
+    let startPromise!: Promise<CodexStdioTransport>;
+    startPromise = (async () => {
       try {
         await transport.initialize();
+        if (this.startingTransport !== transport) {
+          await transport.close();
+          throw new CodexAppServerRequestCancelledError();
+        }
+        this.startingTransport = undefined;
         this.runtimeEpoch += 1;
         this.transportEpochs.set(transport, this.runtimeEpoch);
         this.transport = transport;
@@ -341,10 +356,12 @@ export class CodexSessionManager {
         await transport.close();
         throw error;
       } finally {
-        this.startPromise = undefined;
+        if (this.startPromise === startPromise) this.startPromise = undefined;
+        if (this.startingTransport === transport) this.startingTransport = undefined;
       }
     })();
-    return this.startPromise;
+    this.startPromise = startPromise;
+    return startPromise;
   }
 
   private handleMessage(message: IncomingMessage) {

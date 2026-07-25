@@ -181,7 +181,7 @@ describe('Codex machine-task HTTP boundary', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/event-stream');
-    expect(await response.text()).toBe('');
+    expect(await response.text()).toBe(': ready\n\n');
   });
 
   test('streams the versioned progress envelope consumed by CLI and UI', async () => {
@@ -196,6 +196,7 @@ describe('Codex machine-task HTTP boundary', () => {
     );
     const body = await response.text();
 
+    expect(body).toStartWith(': ready\n\n');
     expect(body).toContain('id: 17');
     expect(body).toContain('"apiVersion":1');
     expect(body).toContain('"type":"progress"');

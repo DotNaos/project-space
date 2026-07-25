@@ -182,13 +182,15 @@ class CancellationCodexProcess extends EventEmitter implements CodexChildProcess
   readonly stdout = new PassThrough();
   readonly requests: RpcMessage[] = [];
 
-  constructor() {
+  constructor(private readonly initializeImmediately = true) {
     super();
     const lines = createInterface({ input: this.stdin });
     lines.on('line', (line) => {
       const request = JSON.parse(line) as RpcMessage;
       this.requests.push(request);
-      if (request.method === 'initialize') this.send({ id: request.id, result: {} });
+      if (request.method === 'initialize' && this.initializeImmediately) {
+        this.send({ id: request.id, result: {} });
+      }
       if (request.method === 'thread/loaded/list') {
         this.send({ id: request.id, result: { data: [] } });
       }
@@ -205,6 +207,36 @@ class CancellationCodexProcess extends EventEmitter implements CodexChildProcess
     return true;
   }
 }
+
+test('closing during initialization cannot revive the stale App Server or replace a new start', async () => {
+  const firstProcess = new CancellationCodexProcess(false);
+  const secondProcess = new CancellationCodexProcess();
+  let processStarts = 0;
+  const manager = new CodexSessionManager({
+    processFactory: () => {
+      processStarts += 1;
+      return processStarts === 1 ? firstProcess : secondProcess;
+    }
+  });
+  try {
+    const staleRequest = manager.listThreads({});
+    await waitFor(
+      () => firstProcess.requests.some((request) => request.method === 'initialize'),
+      'the first App Server initialization'
+    );
+
+    const closing = manager.close();
+    const freshRequest = manager.listLoadedThreads();
+
+    await expect(staleRequest).rejects.toBeInstanceOf(Error);
+    await expect(freshRequest).resolves.toEqual({ data: [] });
+    await closing;
+    expect(firstProcess.signalCode).toBe('SIGTERM');
+    expect(processStarts).toBe(2);
+  } finally {
+    await manager.close();
+  }
+});
 
 test('stdio cancellation removes the pending RPC, notifies App Server, and ignores its late reply', async () => {
   const process = new CancellationCodexProcess();

@@ -72,7 +72,9 @@ export class CodexSessionsConnectorDispatcher {
     manager: CodexSessionManager;
     verificationKey: KeyLike;
   }) {
-    this.authorization = options.authorization ?? new CodexDeviceAuthorizationManager();
+    this.authorization = options.authorization ?? new CodexDeviceAuthorizationManager({
+      onReady: () => options.manager.close()
+    });
   }
 
   setExpectedGeneration(generation?: number) {
