@@ -65,7 +65,9 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
     options.environment ?? process.env, options.runtimeCredential?.machineId
   );
   const codexAuthorizationManager = createProjectConnectorCodexAuthorizationManager(
-    options.environment ?? process.env, options.runtimeCredential?.machineId
+    options.environment ?? process.env,
+    options.runtimeCredential?.machineId,
+    { onReady: () => codexSessionManager.close() }
   );
   cleanupTasks.push(() => void codexSessionManager.close());
   cleanupTasks.push(() => void codexAuthorizationManager.close());

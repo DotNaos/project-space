@@ -7,6 +7,7 @@ import { describe, expect, test } from 'bun:test';
 import { CodexDeviceAuthorizationManager } from '../server/codex-authorization/connector-manager';
 import type { CodexAuthorizationOperationRecord } from '../server/codex-authorization/operation-store';
 import type { CodexChildProcess } from '../server/codex-sessions/contracts';
+import { createProjectConnectorCodexAuthorizationManager } from '../server/project-connector-codex-runtime';
 
 type RpcMessage = {
   id?: number;
@@ -80,6 +81,29 @@ function authorizationProcess(options: {
 }
 
 describe('managed Codex device authorization', () => {
+  test('wires the ready transition through the production connector factory', async () => {
+    let readyTransitions = 0;
+    const process = authorizationProcess({ authorized: () => true });
+    const manager = createProjectConnectorCodexAuthorizationManager(
+      {},
+      'connector-wsl',
+      {
+        onReady: () => { readyTransitions += 1; },
+        processFactory: () => process
+      }
+    );
+    try {
+      await expect(manager.execute({
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:production-factory'
+      })).resolves.toEqual({ state: 'ready' });
+      expect(readyTransitions).toBe(1);
+    } finally {
+      await manager.close();
+    }
+  });
+
   test('starts one constrained device flow and replays the same operation', async () => {
     const process = authorizationProcess();
     const manager = new CodexDeviceAuthorizationManager({
@@ -146,8 +170,12 @@ describe('managed Codex device authorization', () => {
 
   test('reconciles completion through account state without exposing account details', async () => {
     let authorized = false;
+    let readyTransitions = 0;
     const process = authorizationProcess({ authorized: () => authorized });
-    const manager = new CodexDeviceAuthorizationManager({ processFactory: () => process });
+    const manager = new CodexDeviceAuthorizationManager({
+      onReady: () => { readyTransitions += 1; },
+      processFactory: () => process
+    });
     try {
       await manager.execute({
         action: 'start',
@@ -164,6 +192,12 @@ describe('managed Codex device authorization', () => {
         machineId: 'connector-wsl',
         operationId: 'codex:login:operation-one'
       })).resolves.toEqual({ state: 'ready' });
+      await expect(manager.execute({
+        action: 'status',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:operation-one'
+      })).resolves.toEqual({ state: 'ready' });
+      expect(readyTransitions).toBe(1);
     } finally {
       await manager.close();
     }

@@ -191,7 +191,10 @@ async function stream(
       ...(sequence !== undefined ? { sequence } : {}),
       type: 'progress'
     })}\n\n`);
-  }, controller.signal, () => response.flushHeaders());
+  }, controller.signal, () => {
+    response.flushHeaders();
+    response.write(': ready\n\n');
+  });
   response.end();
 }
 

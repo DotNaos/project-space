@@ -1,6 +1,7 @@
 import type { ConnectorCodexMachineMessage } from './connector-command-codex-protocol';
 import { CodexDeviceAuthorizationManager } from './codex-authorization/connector-manager';
 import { createCodexAuthorizationOperationPersistence } from './codex-authorization/operation-store';
+import type { CodexProcessFactory } from './codex-sessions/contracts';
 import { CodexSessionsConnectorDispatcher } from './codex-sessions/connector-dispatch';
 import { CodexSessionManager } from './codex-sessions/manager';
 import { createCodexOperationSnapshotPersistence } from './codex-sessions/operation-snapshot-store';
@@ -21,10 +22,16 @@ export function createProjectConnectorCodexSessionManager(
 
 export function createProjectConnectorCodexAuthorizationManager(
   environment: NodeJS.ProcessEnv,
-  machineId?: string
+  machineId?: string,
+  options: {
+    onReady?: () => Promise<void> | void;
+    processFactory?: CodexProcessFactory;
+  } = {}
 ) {
   return new CodexDeviceAuthorizationManager({
-    operationPersistence: createCodexAuthorizationOperationPersistence(environment, machineId)
+    onReady: options.onReady,
+    operationPersistence: createCodexAuthorizationOperationPersistence(environment, machineId),
+    processFactory: options.processFactory
   });
 }
 
