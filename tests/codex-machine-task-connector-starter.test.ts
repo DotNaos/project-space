@@ -21,6 +21,13 @@ describe('Codex machine-task connector starter', () => {
   test('materializes, starts persistent thread, claims worktree, and begins the issue turn', async () => {
     const calls: unknown[] = [];
     const starter = createLocalCodexMachineTaskStarter({
+      operationSnapshot() {
+        return [];
+      },
+      async readThread() {
+        calls.push({ kind: 'read' });
+        return { thread: { id: threadId, status: { type: 'idle' }, turns: [] } };
+      },
       async startThread(input: unknown) {
         calls.push({ kind: 'thread', input });
         return { thread: { id: threadId } };
