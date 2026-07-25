@@ -208,6 +208,72 @@ describe('Codex machine-task connector starter', () => {
     });
   });
 
+  test.each([
+    [
+      'CODEX_THREAD_ID is not a valid Codex thread identifier: secret-thread-value',
+      'The connector returned an invalid Codex thread identity.'
+    ],
+    [
+      'worktree belongs to Codex thread secret-owner, not the current thread secret-current',
+      'The Project-managed worktree already belongs to another Codex thread.'
+    ],
+    [
+      'Codex thread secret-current already owns worktree /secret/first',
+      'The Codex thread already owns a different Project-managed worktree.'
+    ],
+    [
+      'unowned worktree contains changes in /secret/path',
+      'The unowned Project-managed worktree contains changes and was not claimed.'
+    ],
+    [
+      'unowned worktree HEAD does not match origin/main or refs/remotes/origin/secret',
+      'The unowned Project-managed worktree does not match an approved remote branch.'
+    ],
+    [
+      'another worktree ownership operation did not finish within 10s',
+      'Another Project worktree ownership operation is still active.'
+    ],
+    [
+      'worktree must use the project standard path /secret/path',
+      'The materialized worktree is not an isolated Project-managed checkout.'
+    ],
+    [
+      'record worktree ownership: cannot write /secret/config',
+      'Project could not record the worktree ownership metadata.'
+    ]
+  ])('reports a safe specific Project worktree claim failure for %s', async (stderr, message) => {
+    const starter = createLocalCodexMachineTaskStarter({
+      async startThread() { return { thread: { id: threadId } }; }
+    } as never, {
+      runProject: async () => ({
+        durationMs: 1,
+        exitCode: 1,
+        stderr,
+        stdout: ''
+      }),
+      worktreeAdapter: {
+        async runWorktreeAction() {
+          return {
+            branchName: request.branch,
+            checkedAt: '2026-07-17T00:00:00.000Z',
+            commitSha: request.commit,
+            generation: 7,
+            machineId: request.machineId,
+            operation: 'materialize' as const,
+            projectId: request.projectId,
+            projectPath: '/projects/project-space',
+            state: 'created' as const,
+            worktreePath: '/projects/.worktrees/project-space/issue-262-machine-tasks'
+          };
+        }
+      }
+    });
+
+    const result = await starter(request, { generation: 7, userId: 'user-owner' });
+    expect(result).toEqual({ message, state: 'worktree_failure' });
+    expect(JSON.stringify(result)).not.toContain('secret');
+  });
+
   test('reports a mismatched Project worktree claim as a deterministic failure', async () => {
     const starter = createLocalCodexMachineTaskStarter({
       async startThread() { return { thread: { id: threadId } }; }

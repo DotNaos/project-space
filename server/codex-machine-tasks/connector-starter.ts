@@ -63,7 +63,7 @@ export function createLocalCodexMachineTaskStarter(
       );
       if (claimed.exitCode !== 0) {
         return {
-          message: 'The Project-managed worktree could not be claimed.',
+          message: worktreeClaimFailureMessage(claimed.stderr),
           state: 'worktree_failure'
         };
       }
@@ -107,6 +107,43 @@ export function createLocalCodexMachineTaskStarter(
 function derivedOperationId(operationId: string, step: string) {
   const digest = createHash('sha256').update(`${step}\0${operationId}`).digest('hex').slice(0, 32);
   return `task:${step}:${digest}`;
+}
+
+function worktreeClaimFailureMessage(stderr: string) {
+  const detail = stderr.toLowerCase();
+  if (detail.includes('codex_thread_id') || detail.includes('codex thread identifier')) {
+    return 'The connector returned an invalid Codex thread identity.';
+  }
+  if (detail.includes('belongs to codex thread')) {
+    return 'The Project-managed worktree already belongs to another Codex thread.';
+  }
+  if (detail.includes('already owns worktree')) {
+    return 'The Codex thread already owns a different Project-managed worktree.';
+  }
+  if (detail.includes('contains changes')) {
+    return 'The unowned Project-managed worktree contains changes and was not claimed.';
+  }
+  if (detail.includes('head does not match')) {
+    return 'The unowned Project-managed worktree does not match an approved remote branch.';
+  }
+  if (detail.includes('another worktree ownership operation')) {
+    return 'Another Project worktree ownership operation is still active.';
+  }
+  if (
+    detail.includes('project standard path') ||
+    detail.includes('dedicated non-main branch') ||
+    detail.includes('main worktree is read-only')
+  ) {
+    return 'The materialized worktree is not an isolated Project-managed checkout.';
+  }
+  if (
+    detail.includes('record worktree ownership') ||
+    detail.includes('mark worktree as project-managed') ||
+    detail.includes('enable worktree-specific configuration')
+  ) {
+    return 'Project could not record the worktree ownership metadata.';
+  }
+  return 'The Project-managed worktree could not be claimed.';
 }
 
 function readClaim(value: string) {
