@@ -57,6 +57,11 @@ class FakeSessionManager {
     for (const listener of this.listeners) listener(event);
   }
 
+  operationSnapshot() {
+    this.calls.push({ method: 'operationSnapshot' });
+    return [];
+  }
+
   async listThreads(input: CodexThreadListInput) {
     this.calls.push({ input, method: 'listThreads' });
     const archived = input.archived === true;

@@ -44,6 +44,7 @@ import {
   presentCodexTurns,
   publicCodexRequestId
 } from './public-presenter';
+import { startTurnWithReadReconciliation } from './reconciled-turn-start';
 import {
   codexSessionRevision,
   resolveCodexTaskLocation,
@@ -380,7 +381,7 @@ export class CodexSessionsConnectorExecutor {
       if (resumed.thread.status?.type === 'active') {
         return operationResult(request, 'rejected', undefined, 'thread_active');
       }
-      const result = await this.options.manager.startTurn({
+      const result = await startTurnWithReadReconciliation(this.options.manager, {
         effort: request.effort,
         model: request.model,
         operationId: derivedOperationId(request.operationId, 'turn'),

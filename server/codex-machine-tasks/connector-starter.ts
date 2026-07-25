@@ -5,6 +5,7 @@ import type {
   CodexMachineTaskConnectorStartResult
 } from '../../src/shared/codex-machine-tasks-api';
 import { CodexOperationUncertainError, type CodexSessionManager } from '../codex-sessions';
+import { startTurnWithReadReconciliation } from '../codex-sessions/reconciled-turn-start';
 import { createLocalWorktreeActionAdapter } from '../local-worktree-action-adapter';
 import { loadLocalProjectWorktrees } from '../local-project-worktrees';
 import { runProjectBinary } from '../local-project-cli-client';
@@ -75,7 +76,7 @@ export function createLocalCodexMachineTaskStarter(
         candidate.status === 'ready'
       ));
       if (!worktree) return { state: 'uncertain' };
-      await manager.startTurn({
+      await startTurnWithReadReconciliation(manager, {
         operationId: derivedOperationId(request.operationId, 'turn'),
         prompt: request.initialPrompt,
         threadId
