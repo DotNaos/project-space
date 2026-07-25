@@ -122,7 +122,7 @@ describe('Codex machine-task connector starter', () => {
     });
   });
 
-  test('does not confirm a base checkout as an isolated worktree', async () => {
+  test('reports an unverifiable isolated worktree as a deterministic failure', async () => {
     const starter = createLocalCodexMachineTaskStarter({
       async startThread() { return { thread: { id: threadId } }; }
     } as never, {
@@ -169,7 +169,81 @@ describe('Codex machine-task connector starter', () => {
     });
 
     await expect(starter(request, { generation: 7, userId: 'user-owner' })).resolves.toEqual({
-      state: 'uncertain'
+      message: 'The isolated Project-managed worktree could not be verified.',
+      state: 'worktree_failure'
+    });
+  });
+
+  test('reports a failed Project worktree claim as a deterministic failure', async () => {
+    const starter = createLocalCodexMachineTaskStarter({
+      async startThread() { return { thread: { id: threadId } }; }
+    } as never, {
+      runProject: async () => ({
+        durationMs: 1,
+        exitCode: 1,
+        stderr: 'unsafe remote detail',
+        stdout: ''
+      }),
+      worktreeAdapter: {
+        async runWorktreeAction() {
+          return {
+            branchName: request.branch,
+            checkedAt: '2026-07-17T00:00:00.000Z',
+            commitSha: request.commit,
+            generation: 7,
+            machineId: request.machineId,
+            operation: 'materialize' as const,
+            projectId: request.projectId,
+            projectPath: '/projects/project-space',
+            state: 'created' as const,
+            worktreePath: '/projects/.worktrees/project-space/issue-262-machine-tasks'
+          };
+        }
+      }
+    });
+
+    await expect(starter(request, { generation: 7, userId: 'user-owner' })).resolves.toEqual({
+      message: 'The Project-managed worktree could not be claimed.',
+      state: 'worktree_failure'
+    });
+  });
+
+  test('reports a mismatched Project worktree claim as a deterministic failure', async () => {
+    const starter = createLocalCodexMachineTaskStarter({
+      async startThread() { return { thread: { id: threadId } }; }
+    } as never, {
+      runProject: async () => ({
+        durationMs: 1,
+        exitCode: 0,
+        stderr: '',
+        stdout: JSON.stringify({
+          branch: request.branch,
+          ownerThreadId: '019f6d33-6aad-7302-a45e-bb7a33fc399d',
+          path: '/projects/.worktrees/project-space/issue-262-machine-tasks',
+          status: 'claimed'
+        })
+      }),
+      worktreeAdapter: {
+        async runWorktreeAction() {
+          return {
+            branchName: request.branch,
+            checkedAt: '2026-07-17T00:00:00.000Z',
+            commitSha: request.commit,
+            generation: 7,
+            machineId: request.machineId,
+            operation: 'materialize' as const,
+            projectId: request.projectId,
+            projectPath: '/projects/project-space',
+            state: 'created' as const,
+            worktreePath: '/projects/.worktrees/project-space/issue-262-machine-tasks'
+          };
+        }
+      }
+    });
+
+    await expect(starter(request, { generation: 7, userId: 'user-owner' })).resolves.toEqual({
+      message: 'The Project-managed worktree claim could not be verified.',
+      state: 'worktree_failure'
     });
   });
 });

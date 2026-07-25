@@ -61,12 +61,22 @@ export function createLocalCodexMachineTaskStarter(
           timeoutMs: 60_000
         }
       );
-      if (claimed.exitCode !== 0) return { state: 'uncertain' };
+      if (claimed.exitCode !== 0) {
+        return {
+          message: 'The Project-managed worktree could not be claimed.',
+          state: 'worktree_failure'
+        };
+      }
       const claim = readClaim(claimed.stdout);
       if (
         !claim || claim.ownerThreadId !== threadId || claim.path !== materialized.worktreePath ||
         claim.branch !== request.branch || !['claimed', 'ready'].includes(claim.status)
-      ) return { state: 'uncertain' };
+      ) {
+        return {
+          message: 'The Project-managed worktree claim could not be verified.',
+          state: 'worktree_failure'
+        };
+      }
       const worktree = (await loadWorktrees(materialized.projectPath)).find((candidate) => (
         candidate.path === materialized.worktreePath &&
         candidate.branchName === request.branch &&
@@ -75,7 +85,12 @@ export function createLocalCodexMachineTaskStarter(
         candidate.kind === 'project-managed' &&
         candidate.status === 'ready'
       ));
-      if (!worktree) return { state: 'uncertain' };
+      if (!worktree) {
+        return {
+          message: 'The isolated Project-managed worktree could not be verified.',
+          state: 'worktree_failure'
+        };
+      }
       await startTurnWithReadReconciliation(manager, {
         operationId: derivedOperationId(request.operationId, 'turn'),
         prompt: request.initialPrompt,
