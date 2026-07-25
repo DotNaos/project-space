@@ -129,12 +129,14 @@ function worktreeClaimFailureMessage(stderr: string) {
   if (detail.includes('another worktree ownership operation')) {
     return 'Another Project worktree ownership operation is still active.';
   }
-  if (
-    detail.includes('project standard path') ||
-    detail.includes('dedicated non-main branch') ||
-    detail.includes('main worktree is read-only')
-  ) {
-    return 'The materialized worktree is not an isolated Project-managed checkout.';
+  if (detail.includes('main worktree is read-only')) {
+    return 'The connector selected the read-only main worktree instead of an isolated checkout.';
+  }
+  if (detail.includes('dedicated non-main branch')) {
+    return 'The materialized worktree does not have a dedicated non-main branch.';
+  }
+  if (detail.includes('project standard path')) {
+    return 'The materialized worktree is outside the Project-managed worktree root.';
   }
   if (
     detail.includes('record worktree ownership') ||

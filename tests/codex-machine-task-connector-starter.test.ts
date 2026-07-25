@@ -234,8 +234,16 @@ describe('Codex machine-task connector starter', () => {
       'Another Project worktree ownership operation is still active.'
     ],
     [
+      'the main worktree is read-only for implementation; run project worktree prepare',
+      'The connector selected the read-only main worktree instead of an isolated checkout.'
+    ],
+    [
+      'a dedicated non-main branch is required',
+      'The materialized worktree does not have a dedicated non-main branch.'
+    ],
+    [
       'worktree must use the project standard path /secret/path',
-      'The materialized worktree is not an isolated Project-managed checkout.'
+      'The materialized worktree is outside the Project-managed worktree root.'
     ],
     [
       'record worktree ownership: cannot write /secret/config',
