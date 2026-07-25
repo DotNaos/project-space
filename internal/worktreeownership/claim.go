@@ -58,7 +58,7 @@ func Claim(options ClaimOptions) (Result, error) {
 			return nil
 		}
 		if owner == "" {
-			if claimErr := ensureUnownedWorktreeClaimable(lockedPath, repo.baseRef); claimErr != nil {
+			if claimErr := ensureUnownedWorktreeClaimable(lockedPath, repo.baseRef, branch); claimErr != nil {
 				return claimErr
 			}
 		}
@@ -98,7 +98,7 @@ func Claim(options ClaimOptions) (Result, error) {
 	return result, nil
 }
 
-func ensureUnownedWorktreeClaimable(path string, baseRef string) error {
+func ensureUnownedWorktreeClaimable(path string, baseRef string, branch string) error {
 	status, err := git(path, "status", "--porcelain")
 	if err != nil {
 		return fmt.Errorf("inspect unowned worktree: %w", err)
@@ -114,10 +114,15 @@ func ensureUnownedWorktreeClaimable(path string, baseRef string) error {
 	if err != nil {
 		return fmt.Errorf("inspect unowned worktree base %s: %w", baseRef, err)
 	}
-	if strings.TrimSpace(head) != strings.TrimSpace(base) {
-		return fmt.Errorf("unowned worktree HEAD does not match %s; create a fresh worktree from the current base instead of claiming commits with unclear ownership", baseRef)
+	if strings.TrimSpace(head) == strings.TrimSpace(base) {
+		return nil
 	}
-	return nil
+	remoteBranch := "refs/remotes/origin/" + branch
+	remote, remoteErr := git(path, "rev-parse", "--verify", remoteBranch)
+	if remoteErr == nil && strings.TrimSpace(head) == strings.TrimSpace(remote) {
+		return nil
+	}
+	return fmt.Errorf("unowned worktree HEAD does not match %s or %s; create a fresh worktree from an approved remote branch instead of claiming commits with unclear ownership", baseRef, remoteBranch)
 }
 
 func claimedResult(repo repository, path string, branch string, owner string, status string) Result {

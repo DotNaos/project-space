@@ -121,6 +121,33 @@ func TestClaimSupportsDetachedAdministrativeCheckoutCreatedByMaterializer(t *tes
 	}
 }
 
+func TestClaimSupportsCleanApprovedRemoteBranchBehindCurrentMain(t *testing.T) {
+	mainPath := setupRepository(t)
+	branch := "issue-326-read-only-smoke"
+	command(t, mainPath, "git", "branch", branch, "origin/main")
+	command(t, mainPath, "git", "push", "-u", "origin", branch)
+
+	if err := os.WriteFile(filepath.Join(mainPath, "main.txt"), []byte("new main work\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	command(t, mainPath, "git", "add", "main.txt")
+	command(t, mainPath, "git", "commit", "-m", "Advance main")
+	command(t, mainPath, "git", "push", "origin", "main")
+
+	worktreePath := addRemoteBranchWorktree(t, mainPath, branch)
+	if head := commandOutput(t, worktreePath, "git", "rev-parse", "HEAD"); head == commandOutput(t, mainPath, "git", "rev-parse", "origin/main") {
+		t.Fatal("fixture branch unexpectedly matches current main")
+	}
+
+	claimed, err := Claim(ClaimOptions{StartPath: worktreePath, ThreadID: firstThread})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed.Status != "claimed" || claimed.Branch != branch || claimed.Owner != firstThread {
+		t.Fatalf("unexpected claim result: %#v", claimed)
+	}
+}
+
 func TestClaimedWorktreeMayContinueWithChangesAndCommits(t *testing.T) {
 	mainPath := setupRepository(t)
 	worktreePath := addStandardWorktree(t, mainPath, "task-owned-active-work")
@@ -355,6 +382,22 @@ func addStandardWorktree(t *testing.T, mainPath string, branch string) string {
 		branch,
 	)
 	command(t, mainPath, "git", "worktree", "add", "-b", branch, worktreePath, "origin/main")
+	return worktreePath
+}
+
+func addRemoteBranchWorktree(t *testing.T, mainPath string, branch string) string {
+	t.Helper()
+	canonicalMainPath, err := filepath.EvalSymlinks(mainPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktreePath := filepath.Join(
+		filepath.Dir(canonicalMainPath),
+		".worktrees",
+		filepath.Base(canonicalMainPath),
+		branch,
+	)
+	command(t, mainPath, "git", "worktree", "add", worktreePath, branch)
 	return worktreePath
 }
 
