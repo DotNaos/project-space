@@ -7,11 +7,12 @@ import (
 )
 
 var (
-	ErrCredentialNotFound = errors.New("machine credential not found")
-	ErrMachineKeyNotFound = errors.New("machine identity key not found")
-	ErrApprovalDenied     = errors.New("machine connection was not approved")
-	ErrApprovalExpired    = errors.New("machine connection approval expired")
-	ErrMachineRevoked     = errors.New("machine connection was revoked")
+	ErrCredentialNotFound    = errors.New("machine credential not found")
+	ErrMachineKeyNotFound    = errors.New("machine identity key not found")
+	ErrApprovalDenied        = errors.New("machine connection was not approved")
+	ErrApprovalExpired       = errors.New("machine connection approval expired")
+	ErrMachineRevoked        = errors.New("machine connection was revoked")
+	ErrUnsupportedSupervisor = errors.New("machine connector supervisor is unavailable")
 )
 
 type Machine struct {
@@ -117,6 +118,10 @@ type ApprovalPresenter interface {
 type Connector interface {
 	Start(context.Context) error
 	Stop(context.Context) error
+}
+
+type ConnectorPreflighter interface {
+	Preflight(context.Context) error
 }
 
 type Clock interface {

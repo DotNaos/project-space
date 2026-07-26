@@ -52,6 +52,43 @@ type ServiceConnector struct {
 }
 
 var _ Connector = (*ServiceConnector)(nil)
+var _ ConnectorPreflighter = (*ServiceConnector)(nil)
+
+func (connector *ServiceConnector) Preflight(ctx context.Context) error {
+	if connector.goos != "linux" || connector.wslDistro != "" {
+		return nil
+	}
+	output, err := connector.runner.Run(ctx, "systemctl", "--user", "show-environment")
+	if err != nil || !validSystemdEnvironment(output) {
+		return fmt.Errorf(
+			"%w: the systemd user manager is unavailable; use --connector-mode foreground under the container supervisor",
+			ErrUnsupportedSupervisor,
+		)
+	}
+	return nil
+}
+
+func validSystemdEnvironment(output []byte) bool {
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		if line == "" {
+			continue
+		}
+		separator := strings.IndexByte(line, '=')
+		if separator <= 0 {
+			return false
+		}
+		for index, character := range line[:separator] {
+			if character != '_' &&
+				(character < 'a' || character > 'z') &&
+				(character < 'A' || character > 'Z') &&
+				(index == 0 || character < '0' || character > '9') {
+				return false
+			}
+		}
+	}
+	return true
+}
 
 type serviceCommandRunner interface {
 	Run(context.Context, string, ...string) ([]byte, error)

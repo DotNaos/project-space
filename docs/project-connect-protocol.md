@@ -157,7 +157,11 @@ does not sign the user out or affect their other machines.
   silently falls back to plaintext storage.
 - Headless Linux and WSL use `~/.config/project-space/machine-credential.json` with a `0700`
   directory, a `0600` file, atomic replacement, a bounded state size, and a cross-process lock.
-- Normal Linux runs `project connector run` as a transient systemd user service. WSL instead
+- Normal Linux preflights its systemd user manager before requesting first-time browser approval
+  and runs `project connector run` as a transient user service. A container without a systemd user
+  manager must select `project connect --connector-mode foreground` explicitly; that command owns
+  the authenticated connector lifecycle until cancellation and never falls back to the generic
+  `service` command. WSL instead
   registers a Scheduled Task for the current Windows user because WSL tears down its systemd user
   manager when the last Windows-owned `wsl.exe` client exits. The task owns a long-running
   `wsl.exe -d <distribution> --user <linux-user> -- <absolute-project-cli> connector run` process,
