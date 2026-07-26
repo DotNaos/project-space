@@ -16,11 +16,13 @@ type ReconciledTurnManager = Pick<
   | 'startTurn'
 >;
 
+type ReconciliationThread = CodexThreadResult | { unmaterialized: true };
+
 export async function startTurnWithReadReconciliation(
   manager: ReconciledTurnManager,
   input: CodexStartTurnInput
 ): Promise<CodexTurnResult> {
-  const before = await manager.readThread(input.threadId, true);
+  const before = await readThreadForReconciliation(manager, input.threadId);
   const persisted = manager.operationSnapshot()
     .find((operation) => operation.operationId === input.operationId);
   if (persisted?.state === 'uncertain') {
@@ -44,7 +46,7 @@ export async function startTurnWithReadReconciliation(
     if (!(error instanceof CodexOperationUncertainError)) throw error;
   }
 
-  const after = await manager.readThread(input.threadId, true);
+  const after = await readThreadForReconciliation(manager, input.threadId);
   const addedTurnIds = [...turnIds(after)].filter((turnId) => !knownTurnIds.has(turnId));
   const matchingAddedTurnIds = turnsWithPrompt(after, input.prompt)
     .filter((turnId) => addedTurnIds.includes(turnId));
@@ -61,7 +63,26 @@ export async function startTurnWithReadReconciliation(
   return manager.startTurn(input);
 }
 
-function turnsWithPrompt(result: CodexThreadResult, prompt: string) {
+async function readThreadForReconciliation(
+  manager: Pick<CodexSessionManager, 'readThread'>,
+  threadId: string
+): Promise<ReconciliationThread> {
+  try {
+    return await manager.readThread(threadId, true);
+  } catch (error) {
+    if (isUnmaterializedThread(error)) return { unmaterialized: true };
+    throw error;
+  }
+}
+
+function isUnmaterializedThread(error: unknown) {
+  return error instanceof Error && error.message.includes(
+    'is not materialized yet; includeTurns is unavailable before first user message'
+  );
+}
+
+function turnsWithPrompt(result: ReconciliationThread, prompt: string) {
+  if ('unmaterialized' in result) return [];
   const turns = Array.isArray(result.thread.turns) ? result.thread.turns : [];
   return turns.flatMap((value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
@@ -93,7 +114,8 @@ function turnContainsPrompt(turn: Record<string, unknown>, prompt: string) {
   });
 }
 
-function turnIds(result: CodexThreadResult) {
+function turnIds(result: ReconciliationThread) {
+  if ('unmaterialized' in result) return new Set<string>();
   const turns = Array.isArray(result.thread.turns) ? result.thread.turns : [];
   return new Set(turns.flatMap((value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
@@ -107,7 +129,8 @@ function turnIds(result: CodexThreadResult) {
   }));
 }
 
-function provesNoActiveTurn(result: CodexThreadResult) {
+function provesNoActiveTurn(result: ReconciliationThread) {
+  if ('unmaterialized' in result) return true;
   return result.thread.status?.type === 'idle' || result.thread.status?.type === 'notLoaded';
 }
 
