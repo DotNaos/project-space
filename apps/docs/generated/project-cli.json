@@ -838,6 +838,12 @@
         "runnable": true,
         "flags": [
           {
+            "name": "connector-mode",
+            "type": "string",
+            "description": "connector lifecycle: managed or foreground",
+            "inherited": false
+          },
+          {
             "name": "help",
             "shorthand": "h",
             "type": "bool",
@@ -1569,6 +1575,12 @@
         "aliases": [],
         "runnable": true,
         "flags": [
+          {
+            "name": "connector-mode",
+            "type": "string",
+            "description": "connector lifecycle: managed or foreground",
+            "inherited": false
+          },
           {
             "name": "help",
             "shorthand": "h",

@@ -526,7 +526,11 @@ the old connector configuration or registration-token environment variables as
 a fallback. Messages and profile metadata that look like credentials are
 rejected before storage.
 
-Run `project connect` to establish or refresh this authenticated machine identity.
+Run `project connect` to establish or refresh this authenticated machine
+identity. Native Linux requires a working systemd user manager by default. In a
+container without one, run `project connect --connector-mode foreground` under
+the container supervisor and use `project disconnect --connector-mode
+foreground` when revoking that identity.
 
 ## Sync Template Snapshot
 

@@ -155,6 +155,17 @@ func (connector *recordingConnector) Stop(context.Context) error {
 	return connector.stopErr
 }
 
+type preflightConnector struct {
+	recordingConnector
+	preflightCalls int
+	preflightErr   error
+}
+
+func (connector *preflightConnector) Preflight(context.Context) error {
+	connector.preflightCalls++
+	return connector.preflightErr
+}
+
 type contextRecordingConnector struct {
 	startCtxErr error
 	stopCtxErr  error
@@ -232,6 +243,26 @@ func TestWorkflowConnectCompletesBackendMediatedApproval(t *testing.T) {
 	}
 }
 
+func TestWorkflowConnectPreflightsBeforeRequestingApproval(t *testing.T) {
+	now := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
+	backend := &fakeBackend{}
+	store := &memoryStore{}
+	presenter := &recordingPresenter{}
+	connector := &preflightConnector{preflightErr: ErrUnsupportedSupervisor}
+	workflow := newTestWorkflow(t, backend, store, presenter, connector, &fakeClock{now: now})
+
+	_, err := workflow.Connect(context.Background(), testMachine())
+	if !errors.Is(err, ErrUnsupportedSupervisor) {
+		t.Fatalf("connect error = %v", err)
+	}
+	if connector.preflightCalls != 1 || backend.healthCalls != 0 || backend.createCalls != 0 {
+		t.Fatalf("preflight did not fail before approval: connector=%#v backend=%#v", connector, backend)
+	}
+	if len(presenter.urls) != 0 || store.credential != nil || store.key != nil {
+		t.Fatalf("preflight changed machine state: presenter=%#v store=%#v", presenter, store)
+	}
+}
+
 func TestWorkflowConnectIsIdempotentForOnlineCredential(t *testing.T) {
 	now := time.Now().UTC()
 	credential := testCredential(now)
@@ -249,6 +280,24 @@ func TestWorkflowConnectIsIdempotentForOnlineCredential(t *testing.T) {
 	}
 	if connector.startCalls != 0 || store.saveCalls != 0 {
 		t.Fatalf("online connector was restarted or credential rewritten")
+	}
+}
+
+func TestWorkflowConnectPreflightsBeforeRestartingOfflineCredential(t *testing.T) {
+	now := time.Now().UTC()
+	credential := testCredential(now)
+	backend := &fakeBackend{connections: []ConnectionState{ConnectionOffline}}
+	store := &memoryStore{credential: &credential}
+	connector := &preflightConnector{preflightErr: ErrUnsupportedSupervisor}
+	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, connector, &fakeClock{now: now})
+
+	_, err := workflow.Connect(context.Background(), testMachine())
+	if !errors.Is(err, ErrUnsupportedSupervisor) {
+		t.Fatalf("connect error = %v", err)
+	}
+	if connector.preflightCalls != 1 || connector.startCalls != 0 ||
+		backend.connectionCalls != 1 || backend.createCalls != 0 {
+		t.Fatalf("offline preflight mismatch: connector=%#v backend=%#v", connector, backend)
 	}
 }
 

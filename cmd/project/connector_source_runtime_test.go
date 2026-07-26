@@ -67,3 +67,26 @@ func TestSourceConnectorRuntimeCanRestartAfterLateExit(t *testing.T) {
 	}
 	exits <- struct{}{}
 }
+
+func TestConnectorSourceRuntimeWaitStopsOnCancellation(t *testing.T) {
+	started := make(chan struct{})
+	runtime := &connectorSourceRuntime{supervisor: &sourceTestSupervisor{
+		run: func(ctx context.Context) error {
+			close(started)
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}}
+	runContext, cancelRun := context.WithCancel(context.Background())
+	if err := runtime.Start(runContext); err != nil {
+		t.Fatalf("start runtime: %v", err)
+	}
+	<-started
+	cancelRun()
+	if err := runtime.Wait(runContext); err != nil {
+		t.Fatalf("wait for cancelled runtime: %v", err)
+	}
+	if runtime.Running() {
+		t.Fatal("cancelled runtime still reports running")
+	}
+}

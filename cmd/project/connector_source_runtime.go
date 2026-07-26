@@ -117,6 +117,33 @@ func (runtime *connectorSourceRuntime) Stop(ctx context.Context) error {
 	}
 }
 
+func (runtime *connectorSourceRuntime) Running() bool {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return runtime.done != nil
+}
+
+func (runtime *connectorSourceRuntime) Wait(ctx context.Context) error {
+	runtime.mu.Lock()
+	done := runtime.done
+	runtime.mu.Unlock()
+	if done == nil {
+		return nil
+	}
+	select {
+	case err := <-done:
+		runtime.clear(done)
+		if errors.Is(err, context.Canceled) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+		stopContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		return runtime.Stop(stopContext)
+	}
+}
+
 func (runtime *connectorSourceRuntime) clear(done chan error) {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()

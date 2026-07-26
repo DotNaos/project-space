@@ -100,6 +100,28 @@ func (connector *commandConnector) Stop(context.Context) error {
 	return nil
 }
 
+type commandForegroundConnector struct {
+	commandConnector
+	started chan struct{}
+}
+
+func (connector *commandForegroundConnector) Start(ctx context.Context) error {
+	if err := connector.commandConnector.Start(ctx); err != nil {
+		return err
+	}
+	close(connector.started)
+	return nil
+}
+
+func (connector *commandForegroundConnector) Running() bool {
+	return connector.startCalls > 0
+}
+
+func (connector *commandForegroundConnector) Wait(ctx context.Context) error {
+	<-ctx.Done()
+	return nil
+}
+
 func TestConnectCommandKeepsApprovalOutOfJSONOutput(t *testing.T) {
 	dependencies, backend, store, connector := testCommandDependencies()
 	opened := 0
@@ -171,6 +193,57 @@ func TestConnectCommandDoesNotOpenBrowserOnHeadlessMachine(t *testing.T) {
 	}
 	if opened != 0 {
 		t.Fatalf("headless connect opened a browser %d times", opened)
+	}
+}
+
+func TestConnectCommandRunsExplicitForegroundConnectorUntilCancellation(t *testing.T) {
+	dependencies, _, _, managedConnector := testCommandDependencies()
+	foreground := &commandForegroundConnector{started: make(chan struct{})}
+	dependencies.NewForegroundConnector = func(io.Writer, io.Writer) (foregroundMachineConnector, error) {
+		return foreground, nil
+	}
+	command := newConnectCommandWithDependencies(dependencies)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	command.SetOut(stdout)
+	command.SetErr(stderr)
+	command.SetArgs([]string{"--connector-mode", "foreground", "--json"})
+	ctx, cancel := context.WithCancel(context.Background())
+	command.SetContext(ctx)
+	done := make(chan error, 1)
+	go func() { done <- command.Execute() }()
+
+	select {
+	case <-foreground.started:
+	case <-time.After(time.Second):
+		t.Fatal("foreground connector did not start")
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("execute foreground connect: %v", err)
+	}
+	if managedConnector.startCalls != 0 || foreground.startCalls != 1 {
+		t.Fatalf("connector selection mismatch: managed=%#v foreground=%#v", managedConnector, foreground)
+	}
+	if !strings.Contains(stdout.String(), `"status": "online"`) ||
+		!strings.Contains(stderr.String(), "Foreground connector is running") {
+		t.Fatalf("unexpected output: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestConnectCommandRejectsUnknownConnectorModeBeforeApproval(t *testing.T) {
+	dependencies, backend, _, _ := testCommandDependencies()
+	command := newConnectCommandWithDependencies(dependencies)
+	command.SetOut(&bytes.Buffer{})
+	command.SetErr(&bytes.Buffer{})
+	command.SetArgs([]string{"--connector-mode", "automatic"})
+
+	err := command.Execute()
+	if err == nil || !strings.Contains(err.Error(), "managed or foreground") {
+		t.Fatalf("connector mode error = %v", err)
+	}
+	if backend.healthCalls != 0 || backend.createCalls != 0 {
+		t.Fatalf("invalid mode requested approval: %#v", backend)
 	}
 }
 
@@ -279,6 +352,27 @@ func TestMachineManagementCommands(t *testing.T) {
 	}
 	if store.credential != nil || backend.revokeCalls != 1 || connector.stopCalls != 1 {
 		t.Fatalf("disconnect mismatch: store=%#v backend=%#v connector=%#v", store, backend, connector)
+	}
+}
+
+func TestDisconnectForegroundConnectionDoesNotRequireSystemd(t *testing.T) {
+	dependencies, backend, store, managedConnector := testCommandDependencies()
+	credential := backend.credential
+	store.credential = &credential
+	command := newDisconnectCommandWithDependencies(dependencies)
+	command.SetOut(&bytes.Buffer{})
+	command.SetArgs([]string{"--connector-mode", "foreground", "--json"})
+
+	if err := command.Execute(); err != nil {
+		t.Fatalf("disconnect foreground connection: %v", err)
+	}
+	if store.credential != nil || backend.revokeCalls != 1 || managedConnector.stopCalls != 0 {
+		t.Fatalf(
+			"foreground disconnect mismatch: store=%#v backend=%#v connector=%#v",
+			store,
+			backend,
+			managedConnector,
+		)
 	}
 }
 

@@ -127,6 +127,11 @@ func (workflow *Workflow) Connect(ctx context.Context, machine Machine) (
 			return ConnectResult{}, connectionErr
 		}
 		if state != ConnectionRevoked {
+			if state == ConnectionOffline {
+				if err := workflow.preflightConnector(ctx); err != nil {
+					return ConnectResult{}, err
+				}
+			}
 			return workflow.resume(ctx, credential, state)
 		}
 		if deleteErr := workflow.store.Delete(); deleteErr != nil {
@@ -135,6 +140,9 @@ func (workflow *Workflow) Connect(ctx context.Context, machine Machine) (
 		err = ErrCredentialNotFound
 	}
 	if !errors.Is(err, ErrCredentialNotFound) {
+		return ConnectResult{}, err
+	}
+	if err := workflow.preflightConnector(ctx); err != nil {
 		return ConnectResult{}, err
 	}
 	if err := workflow.backend.Health(ctx); err != nil {
@@ -191,6 +199,13 @@ func (workflow *Workflow) Connect(ctx context.Context, machine Machine) (
 		MachineName: credential.MachineName,
 		ApprovalURL: request.ApprovalURL,
 	}, nil
+}
+
+func (workflow *Workflow) preflightConnector(ctx context.Context) error {
+	if preflighter, ok := workflow.connector.(ConnectorPreflighter); ok {
+		return preflighter.Preflight(ctx)
+	}
+	return nil
 }
 
 func (workflow *Workflow) rollbackFirstConnection(
