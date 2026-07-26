@@ -114,7 +114,11 @@ func TestServiceConnectorPreflightLeavesWSLAndOtherPlatformsUnchanged(t *testing
 			WSLDistro:  "Ubuntu-24.04",
 			LinuxUser:  "oli",
 		},
-		{Executable: "/opt/project/bin/project", GOOS: "darwin"},
+		{
+			Executable: "/opt/project/bin/project",
+			GOOS:       "darwin",
+			UserID:     "501",
+		},
 	} {
 		runner := &scriptedServiceRunner{}
 		connector := testServiceConnector(t, options, runner, &recordingServiceFiles{})
