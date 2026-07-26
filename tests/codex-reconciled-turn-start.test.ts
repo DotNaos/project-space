@@ -20,6 +20,55 @@ describe('reconciled Codex turn start', () => {
     expect(manager.calls).toEqual(['read', 'snapshot', 'start']);
   });
 
+  test('starts the first turn when Codex reports the empty thread is not materialized', async () => {
+    const manager = managerFixture({
+      reads: [unmaterializedThread()],
+      starts: [{ turn: { id: 'turn-confirmed' } }]
+    });
+    await expect(startTurnWithReadReconciliation(manager, input)).resolves.toEqual({
+      turn: { id: 'turn-confirmed' }
+    });
+    expect(manager.calls).toEqual(['read', 'snapshot', 'start']);
+  });
+
+  test('retries a persisted turn when an unmaterialized thread proves it was not applied', async () => {
+    const manager = managerFixture({
+      reads: [unmaterializedThread()],
+      snapshotState: 'uncertain',
+      starts: [{ turn: { id: 'turn-retried' } }]
+    });
+    await expect(startTurnWithReadReconciliation(manager, input)).resolves.toEqual({
+      turn: { id: 'turn-retried' }
+    });
+    expect(manager.calls).toEqual(['read', 'snapshot', 'not-applied', 'start']);
+  });
+
+  test('retries an uncertain first turn after the thread remains unmaterialized', async () => {
+    const manager = managerFixture({
+      reads: [unmaterializedThread(), unmaterializedThread()],
+      starts: [
+        new CodexOperationUncertainError(),
+        { turn: { id: 'turn-retried' } }
+      ]
+    });
+    await expect(startTurnWithReadReconciliation(manager, input)).resolves.toEqual({
+      turn: { id: 'turn-retried' }
+    });
+    expect(manager.calls).toEqual([
+      'read', 'snapshot', 'start', 'read', 'not-applied', 'start'
+    ]);
+  });
+
+  test('does not treat other read failures as proof that no turn exists', async () => {
+    const manager = managerFixture({
+      reads: [new Error('thread/read failed')],
+      starts: []
+    });
+    await expect(startTurnWithReadReconciliation(manager, input))
+      .rejects.toThrow('thread/read failed');
+    expect(manager.calls).toEqual(['read']);
+  });
+
   test('retries the identical operation after read proves it was not applied', async () => {
     const manager = managerFixture({
       reads: [
@@ -123,7 +172,7 @@ function thread(turnIds: string[], status: 'active' | 'idle' | 'notLoaded') {
 }
 
 function managerFixture(options: {
-  reads?: Array<{
+  reads?: Array<Error | {
     thread: {
       id: string;
       status: { type: 'active' | 'idle' | 'notLoaded' };
@@ -150,7 +199,9 @@ function managerFixture(options: {
     },
     async readThread() {
       calls.push('read');
-      return reads.shift() ?? thread([], 'idle');
+      const result = reads.shift() ?? thread([], 'idle');
+      if (result instanceof Error) throw result;
+      return result;
     },
     async reconcileOperationCompleted(_operationId: string, result: { turn: { id: string } }) {
       calls.push(`completed:${result.turn.id}`);
@@ -165,6 +216,13 @@ function managerFixture(options: {
       return result!;
     }
   };
+}
+
+function unmaterializedThread() {
+  return new Error(
+    `thread ${input.threadId} is not materialized yet; ` +
+    'includeTurns is unavailable before first user message'
+  );
 }
 
 function threadWithPrompt(

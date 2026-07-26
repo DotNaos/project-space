@@ -26,7 +26,10 @@ describe('Codex machine-task connector starter', () => {
       },
       async readThread() {
         calls.push({ kind: 'read' });
-        return { thread: { id: threadId, status: { type: 'idle' }, turns: [] } };
+        throw new Error(
+          `thread ${threadId} is not materialized yet; ` +
+          'includeTurns is unavailable before first user message'
+        );
       },
       async startThread(input: unknown) {
         calls.push({ kind: 'thread', input });
