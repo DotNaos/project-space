@@ -104,10 +104,14 @@ jobs:
           jq -r '.removedPullRequests[]' reaper-result.json | while read -r pr_number; do
             [[ "$pr_number" =~ ^[1-9][0-9]*$ ]] || exit 64
             deployment_id=$(gh api "repos/$PREVIEW_REPOSITORY/deployments?environment=preview/pr-$pr_number&per_page=1" --jq '.[0].id // empty')
-            [[ -z "$deployment_id" ]] || gh api --method POST \
-              "repos/$PREVIEW_REPOSITORY/deployments/$deployment_id/statuses" --input - <<JSON
-            {"state":"inactive","environment":"preview/pr-$pr_number","auto_inactive":false,
-             "log_url":"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID",
-             "description":"Preview reaper positively removed runtime resources."}
-            JSON
+            if [[ -n "$deployment_id" ]]; then
+              jq -n \
+                --arg environment "preview/pr-$pr_number" \
+                --arg log_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+                --arg description "Preview reaper positively removed runtime resources." \
+                '{"state":"inactive","environment":$environment,"auto_inactive":false,
+                  "log_url":$log_url,"description":$description}' |
+                gh api --method POST \
+                  "repos/$PREVIEW_REPOSITORY/deployments/$deployment_id/statuses" --input -
+            fi
           done

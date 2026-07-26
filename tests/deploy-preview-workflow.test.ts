@@ -91,6 +91,8 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain('ssh project-space-preview reap');
     expect(workflow).toContain('.removedPullRequests');
     expect(workflow).toContain('"state":"inactive"');
+    expect(workflow).toContain('jq -n');
+    expect(workflow).not.toContain('<<JSON');
     expect(workflow).not.toContain('actions/checkout');
     expect(workflow).not.toContain('Production');
     expect(workflow.toLowerCase()).not.toContain('vercel');
