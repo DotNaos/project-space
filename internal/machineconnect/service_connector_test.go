@@ -70,6 +70,67 @@ func (files *recordingServiceFiles) RemoveFile(path string) error {
 	return nil
 }
 
+func TestSystemdServiceConnectorPreflightDetectsUserManager(t *testing.T) {
+	tests := []struct {
+		name      string
+		response  serviceCommandResponse
+		wantError bool
+	}{
+		{name: "available", response: serviceCommandResponse{output: "PATH=/usr/bin\nLANG=C.UTF-8\n"}},
+		{name: "empty environment", response: serviceCommandResponse{}},
+		{name: "unavailable", response: serviceCommandResponse{err: errors.New("Failed to connect to bus")}, wantError: true},
+		{name: "container shim", response: serviceCommandResponse{output: `"systemd" is not running in this container`}, wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &scriptedServiceRunner{responses: []serviceCommandResponse{test.response}}
+			connector := testServiceConnector(t, ServiceConnectorOptions{
+				Executable: "/opt/project/bin/project",
+				GOOS:       "linux",
+			}, runner, &recordingServiceFiles{})
+
+			err := connector.Preflight(context.Background())
+			if test.wantError {
+				if !errors.Is(err, ErrUnsupportedSupervisor) ||
+					!strings.Contains(err.Error(), "--connector-mode foreground") {
+					t.Fatalf("preflight error = %v", err)
+				}
+			} else if err != nil {
+				t.Fatalf("preflight: %v", err)
+			}
+			if len(runner.calls) != 1 ||
+				!reflect.DeepEqual(runner.calls[0].arguments, []string{"--user", "show-environment"}) {
+				t.Fatalf("preflight calls = %#v", runner.calls)
+			}
+		})
+	}
+}
+
+func TestServiceConnectorPreflightLeavesWSLAndOtherPlatformsUnchanged(t *testing.T) {
+	for _, options := range []ServiceConnectorOptions{
+		{
+			Executable: "/opt/project/bin/project",
+			GOOS:       "linux",
+			WSLDistro:  "Ubuntu-24.04",
+			LinuxUser:  "oli",
+		},
+		{
+			Executable: "/opt/project/bin/project",
+			GOOS:       "darwin",
+			UserID:     "501",
+		},
+	} {
+		runner := &scriptedServiceRunner{}
+		connector := testServiceConnector(t, options, runner, &recordingServiceFiles{})
+		if err := connector.Preflight(context.Background()); err != nil {
+			t.Fatalf("preflight %q: %v", options.GOOS, err)
+		}
+		if len(runner.calls) != 0 {
+			t.Fatalf("preflight %q called service manager: %#v", options.GOOS, runner.calls)
+		}
+	}
+}
+
 func TestSystemdServiceConnectorStartsHardenedTransientUserUnit(t *testing.T) {
 	skipNativeWindowsForeignServiceTest(t)
 	runner := &scriptedServiceRunner{responses: []serviceCommandResponse{

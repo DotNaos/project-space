@@ -14,6 +14,11 @@ type silentApprovalPresenter struct{}
 
 func (silentApprovalPresenter) Present(context.Context, string) error { return nil }
 
+type callerManagedConnector struct{}
+
+func (callerManagedConnector) Start(context.Context) error { return nil }
+func (callerManagedConnector) Stop(context.Context) error  { return nil }
+
 func newMachineStatusCommand() *cobra.Command {
 	return newMachineStatusCommandWithDependencyFactory(defaultMachineConnectionDependencies)
 }
@@ -213,6 +218,7 @@ func newDisconnectCommandWithDependencyFactory(
 	loadDependencies machineConnectionCommandDependencyFactory,
 ) *cobra.Command {
 	jsonOutput := false
+	connectorMode := "managed"
 	command := &cobra.Command{
 		Use:   "disconnect",
 		Short: "Disconnect this machine from Project Space",
@@ -221,6 +227,13 @@ func newDisconnectCommandWithDependencyFactory(
 			dependencies, err := loadDependencies()
 			if err != nil {
 				return err
+			}
+			switch connectorMode {
+			case "managed":
+			case "foreground":
+				dependencies.Connector = callerManagedConnector{}
+			default:
+				return errors.New("--connector-mode must be managed or foreground")
 			}
 			ctx, stopSignals := commandTerminationContext(command.Context())
 			defer stopSignals()
@@ -239,6 +252,12 @@ func newDisconnectCommandWithDependencyFactory(
 		},
 	}
 	command.Flags().BoolVar(&jsonOutput, "json", false, "print machine-readable output")
+	command.Flags().StringVar(
+		&connectorMode,
+		"connector-mode",
+		"managed",
+		"connector lifecycle: managed or foreground",
+	)
 	return command
 }
 
