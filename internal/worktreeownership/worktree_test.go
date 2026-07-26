@@ -121,6 +121,22 @@ func TestClaimSupportsDetachedAdministrativeCheckoutCreatedByMaterializer(t *tes
 	}
 }
 
+func TestClaimUsesAdministrativeCheckoutWhenMainBranchIsLinkedElsewhere(t *testing.T) {
+	mainPath := setupRepository(t)
+	worktreePath := addStandardWorktree(t, mainPath, "task-materialized-worktree")
+	command(t, mainPath, "git", "checkout", "--detach")
+	linkedMainPath := filepath.Join(t.TempDir(), "linked-main")
+	command(t, mainPath, "git", "worktree", "add", linkedMainPath, "main")
+
+	claimed, err := Claim(ClaimOptions{StartPath: worktreePath, ThreadID: firstThread})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed.Status != "claimed" || claimed.Path != worktreePath || claimed.Owner != firstThread {
+		t.Fatalf("unexpected claim result: %#v", claimed)
+	}
+}
+
 func TestClaimSupportsCleanApprovedRemoteBranchBehindCurrentMain(t *testing.T) {
 	mainPath := setupRepository(t)
 	branch := "issue-326-read-only-smoke"

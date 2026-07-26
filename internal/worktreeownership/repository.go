@@ -41,18 +41,9 @@ func inspectRepository(startPath string) (repository, string, error) {
 	if err != nil {
 		return repository{}, "", err
 	}
-	mainPath := ""
-	for _, entry := range entries {
-		if entry.branch == defaultBranch {
-			mainPath = entry.path
-			break
-		}
-	}
-	if mainPath == "" && len(entries) > 0 && entries[0].branch == "" {
-		mainPath = entries[0].path
-	}
-	if mainPath == "" {
-		return repository{}, "", fmt.Errorf("no worktree has the default branch %q checked out", defaultBranch)
+	mainPath, err := mainWorktreePath(currentPath, entries)
+	if err != nil {
+		return repository{}, "", err
 	}
 	project := filepath.Base(mainPath)
 	worktreesRoot := filepath.Join(filepath.Dir(mainPath), ".worktrees", project)
@@ -64,6 +55,31 @@ func inspectRepository(startPath string) (repository, string, error) {
 		worktrees:     entries,
 		worktreesRoot: worktreesRoot,
 	}, currentPath, nil
+}
+
+func mainWorktreePath(currentPath string, entries []worktree) (string, error) {
+	commonDirOutput, err := git(currentPath, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", fmt.Errorf("find main worktree: %w", err)
+	}
+	commonDir := strings.TrimSpace(commonDirOutput)
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(currentPath, commonDir)
+	}
+	commonDir, err = filepath.EvalSymlinks(commonDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve main worktree Git directory: %w", err)
+	}
+	if filepath.Base(commonDir) != ".git" {
+		return "", errors.New("repository uses an unsupported external Git directory")
+	}
+	mainPath := filepath.Dir(commonDir)
+	for _, entry := range entries {
+		if samePath(entry.path, mainPath) {
+			return entry.path, nil
+		}
+	}
+	return "", errors.New("main worktree is missing from the Git worktree list")
 }
 
 func defaultBranch(path string) string {
