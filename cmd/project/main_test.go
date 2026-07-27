@@ -32,6 +32,7 @@ func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 		"__docs-model",
 		"__runtime-supervisor",
 		"adopt",
+		"agent",
 		"approval",
 		"chat",
 		"codex",
