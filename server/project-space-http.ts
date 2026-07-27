@@ -35,6 +35,7 @@ import {
 import {
   createConfiguredCodexAuthorizationHandler
 } from './codex-authorization/configured-runtime';
+import { createConfiguredRoadmapCliHandler } from './roadmap/roadmap-cli-runtime';
 
 export interface ProjectSpaceHttpOptions {
   backend?: ProjectSpaceBackend;
@@ -85,6 +86,10 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
   });
+  const roadmapCli = createConfiguredRoadmapCliHandler({
+    backend: rawBackend,
+    machineConnection: options.machineConnectionRuntime
+  });
   const handleApiRequest = projectChatRuntime.then((runtime) =>
     createProjectSpaceApiHandler(backend, {
       codexAuthorization,
@@ -93,7 +98,8 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
       machineReadiness,
       machineConnection: options.machineConnectionRuntime,
       projectChat: runtime,
-      projectTopology
+      projectTopology,
+      roadmapCli
     })
   );
 

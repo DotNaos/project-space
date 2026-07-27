@@ -91,3 +91,31 @@ export interface RoadmapDependencyMutationRequest {
   expectedGraphRevision: string;
   fullName: string;
 }
+
+export type RoadmapGraphNodeState = 'DONE' | 'READY' | 'ACTIVE' | 'WAIT';
+
+export interface RoadmapGraphNodeReference {
+  number: number;
+  repository: string;
+}
+
+export interface RoadmapGraphNode extends RoadmapGraphNodeReference {
+  state: RoadmapGraphNodeState;
+  title: string;
+  url?: string;
+}
+
+export interface RoadmapGraphEdge {
+  from: RoadmapGraphNodeReference;
+  satisfied: boolean;
+  to: RoadmapGraphNodeReference;
+}
+
+export interface RoadmapGraph {
+  dependencyFreshness: RoadmapResult['dependencySync'];
+  edges: RoadmapGraphEdge[];
+  graphRevision: string;
+  nodes: RoadmapGraphNode[];
+  paths: RoadmapGraphNodeReference[][];
+  repository: string;
+}

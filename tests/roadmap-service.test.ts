@@ -55,6 +55,7 @@ function repositoryRouter(
     if (path === '/repos/DotNaos/project-space') return repo as T;
     if (path.startsWith('/repos/DotNaos/project-space/issues?')) return issues as T;
     if (init?.method === 'POST' && path.endsWith('/dependencies/blocked_by')) return {} as T;
+    if (init?.method === 'DELETE' && path.includes('/dependencies/blocked_by/')) return {} as T;
     const dependencyMatch = path.match(/issues\/(\d+)\/dependencies\/blocked_by\?per_page=100&page=(\d+)/);
     if (dependencyMatch?.[1]) {
       const result = blockedBy[Number(dependencyMatch[1])] ?? [];
@@ -415,6 +416,111 @@ describe('roadmap service', () => {
       headers: { 'Content-Type': 'application/json' },
       method: 'POST'
     });
+  });
+
+  test('removes dependencies through the same GitHub-native service', async () => {
+    const store = new InMemoryRoadmapPlanStore();
+    await store.updatePlan({
+      expectedRevision: 0,
+      goals: [],
+      items: [planItem(1), planItem(2)],
+      repositoryFullName: fullName,
+      repositoryId: 42
+    });
+    const calls: Array<{ init?: RequestInit; path: string }> = [];
+    const service = new RoadmapService(dependencies(
+      store,
+      repositoryRouter([issue(1), issue(2)], { 2: [issue(1)] }, calls)
+    ));
+    const current = await service.get(fullName);
+    await service.removeDependency({
+      blockedIssueNumber: 2,
+      blocker: { fullName, issueNumber: 1 },
+      expectedGraphRevision: current.graphRevision,
+      fullName
+    });
+    expect(calls.find((call) => call.init?.method === 'DELETE')).toMatchObject({
+      init: { method: 'DELETE' },
+      path: '/repos/DotNaos/project-space/issues/2/dependencies/blocked_by/1'
+    });
+  });
+
+  test('rejects stale dependency snapshots and concurrent graph revisions', async () => {
+    const store = new InMemoryRoadmapPlanStore();
+    await store.updatePlan({
+      expectedRevision: 0,
+      goals: [],
+      items: [planItem(1), planItem(2)],
+      repositoryFullName: fullName,
+      repositoryId: 42
+    });
+    const staleService = new RoadmapService(dependencies(
+      store,
+      repositoryRouter(
+        [issue(1), issue(2)],
+        { 2: new GitHubRequestError(503, false) }
+      )
+    ));
+    const stale = await staleService.get(fullName);
+    await expect(staleService.addDependency({
+      blockedIssueNumber: 2,
+      blocker: { fullName, issueNumber: 1 },
+      expectedGraphRevision: stale.graphRevision,
+      fullName
+    })).rejects.toThrow('Refresh GitHub dependencies');
+
+    let blockers: ReturnType<typeof issue>[] = [];
+    const calls: Array<{ init?: RequestInit; path: string }> = [];
+    const router = repositoryRouter([issue(1), issue(2)], {}, calls);
+    const changingRouter: RoadmapServiceDependencies['requestGitHub'] = (
+      path,
+      token,
+      init
+    ) => {
+      if (path.includes('/issues/2/dependencies/blocked_by?')) {
+        return Promise.resolve(blockers as never);
+      }
+      return router(path, token, init);
+    };
+    const service = new RoadmapService(dependencies(store, changingRouter));
+    const first = await service.get(fullName);
+    blockers = [issue(1)];
+    const conflict = await service.addDependency({
+      blockedIssueNumber: 2,
+      blocker: { fullName, issueNumber: 1 },
+      expectedGraphRevision: first.graphRevision,
+      fullName
+    });
+    expect(conflict.conflict).toBe('dependencies');
+    expect(calls.some((call) => call.init?.method === 'POST')).toBe(false);
+  });
+
+  test('requires repository edit permission for dependency mutations', async () => {
+    const store = new InMemoryRoadmapPlanStore();
+    await store.updatePlan({
+      expectedRevision: 0,
+      goals: [],
+      items: [planItem(1), planItem(2)],
+      repositoryFullName: fullName,
+      repositoryId: 42
+    });
+    const base = repositoryRouter([issue(1), issue(2)]);
+    const readOnlyRouter: RoadmapServiceDependencies['requestGitHub'] = (
+      path,
+      token,
+      init
+    ) => path === '/repos/DotNaos/project-space'
+      ? Promise.resolve({ ...repo, permissions: {} } as never)
+      : base(path, token, init);
+    const service = new RoadmapService(dependencies(store, readOnlyRouter));
+    const current = await service.get(fullName);
+    expect(current.canEdit).toBe(false);
+    await expect(service.addDependency({
+      blockedIssueNumber: 2,
+      blocker: { fullName, issueNumber: 1 },
+      expectedGraphRevision: current.graphRevision,
+      fullName
+    })).rejects.toThrow('permission to edit');
   });
 
   test('rejects a dependency that would contradict the durable manual order', async () => {

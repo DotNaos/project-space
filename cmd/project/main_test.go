@@ -45,6 +45,7 @@ func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 		"init",
 		"module",
 		"prepare",
+		"roadmap",
 		"run",
 		"self-update",
 		"serve",

@@ -49,6 +49,7 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(newPrepareCommand())
 	root.AddCommand(newRuntimeLogCommand())
 	root.AddCommand(newRunCommand())
+	root.AddCommand(newRoadmapCommand())
 	root.AddCommand(newSelfUpdateCommand())
 	root.AddCommand(newServeCommand())
 	root.AddCommand(newMachineStatusCommand())
