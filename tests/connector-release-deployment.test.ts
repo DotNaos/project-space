@@ -84,6 +84,7 @@ describe('connector release and production deployment contract', () => {
     const packageJson = JSON.parse(await source('package.json'));
     const buildInfo = await source('server/connector-build-info.ts');
     const linuxCodexPreparation = await source('packaging/linux/prepare-codex-runtime.sh');
+    const linuxCodexSmoke = await source('packaging/linux/smoke-codex-runtime.ts');
     const releaseWorkflow = await source('.github/workflows/release.yml');
     const windowsPackaging = await source('packaging/windows/test-release-packaging.ps1');
     const windowsDocumentation = await source('docs/windows-installation.md');
@@ -95,6 +96,9 @@ describe('connector release and production deployment contract', () => {
     expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.30');
     expect(linuxCodexPreparation).toContain('codex_version=0.145.0');
     expect(linuxCodexPreparation).not.toMatch(/releases\/latest|\/latest\//);
+    expect(linuxCodexSmoke).toContain("import { CodexStdioTransport }");
+    expect(linuxCodexSmoke).toContain('launch: (path) => CodexStdioTransport.launch({');
+    expect(linuxCodexSmoke).toContain('binaryPath: path');
     expect(releaseWorkflow).toContain('prepare-codex-runtime.sh "$(pwd -P)/dist/linux"');
     expect(releaseWorkflow).toContain(
       'bun packaging/linux/smoke-codex-runtime.ts "$(pwd -P)/dist/linux/codex"'
