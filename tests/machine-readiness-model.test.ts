@@ -220,6 +220,73 @@ describe('canonical machine readiness model', () => {
     }
   });
 
+  test('offers a new constrained update after a completed rollback', () => {
+    const priorOperation = {
+      ...operation('rolled-back'),
+      expectedBuildId: '0'.repeat(40),
+      expectedReleaseId: 'v0.4.9'
+    };
+    const retryStatus = {
+      ...status('update-available', priorOperation),
+      capabilities: ['codex.machine-tasks.v1', 'runtime.update']
+    };
+    const result = diagnose({
+      connector: connector({
+        capabilities: ['codex.machine-tasks.v1', 'runtime.update']
+      }),
+      generation: 4,
+      runtimeStatus: retryStatus
+    });
+
+    expect(result).toMatchObject({
+      operation: { id: 'repair-one', state: 'rolled-back' },
+      plan: {
+        actions: [{
+          connectorId: 'linux-stable',
+          fromVersion: '0.4.7',
+          kind: 'update-connector',
+          operation: 'update',
+          releaseId: 'v0.4.10',
+          toVersion: '0.4.10'
+        }]
+      },
+      ready: true,
+      state: 'degraded'
+    });
+  });
+
+  test('does not retry the same or an unidentified rolled-back update', () => {
+    for (const priorOperation of [
+      operation('rolled-back'),
+      {
+        ...operation('rolled-back'),
+        expectedBuildId: '0'.repeat(40),
+        expectedReleaseId: 'v0.4.10'
+      },
+      {
+        ...operation('rolled-back'),
+        expectedBuildId: 'f'.repeat(40),
+        expectedFingerprint: { ...runtime, capabilities: [], version: '0.4.10' },
+        expectedReleaseId: 'v0.4.9'
+      },
+      {
+        ...operation('rolled-back'),
+        expectedBuildId: '0'.repeat(40),
+        expectedReleaseId: 'v0.4.9',
+        operation: 'restart' as const
+      }
+    ]) {
+      const result = diagnose({
+        runtimeStatus: status('update-available', priorOperation)
+      });
+      expect(result).toMatchObject({
+        operation: { id: 'repair-one', state: 'rolled-back' },
+        state: 'rolled-back'
+      });
+      expect(result.plan).toBeUndefined();
+    }
+  });
+
   test('requires an exact connector when multiple candidates are equally ready', () => {
     const second = {
       ...connector({ capabilities: ['codex.machine-tasks.v1'] }),

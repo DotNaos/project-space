@@ -13,6 +13,7 @@ import type {
   MachineRecord,
   PhysicalMachineRecord
 } from '../../src/shared/project-space-api';
+import { connectorRuntimeRollbackAllowsRelease } from '../connector-runtime-status';
 
 const codexCapability = 'codex.machine-tasks.v1';
 const codexAuthorizationRequiredCapability = 'codex.authorization-required.v1';
@@ -159,6 +160,7 @@ function evaluateConnector(
   const capabilities = [...new Set(connector.connector.capabilities ?? [])].sort();
   const runtime = runtimeStatus?.runtime ?? connector.connector.runtime;
   const operation = runtimeStatus?.update.operation;
+  const action = repairAction(connectorId, runtimeStatus);
   const common = {
     capabilities,
     connectorId,
@@ -182,7 +184,9 @@ function evaluateConnector(
     return { check: { ...common, state: 'repairing',
       summary: 'A managed connector repair is in progress.' }, operation };
   }
-  if (operation?.state === 'rolled-back') {
+  if (operation?.state === 'rolled-back' &&
+      (action?.kind !== 'update-connector' ||
+        !connectorRuntimeRollbackAllowsRelease(operation, action.releaseId))) {
     return { check: { ...common, state: 'rolled-back',
       summary: 'The prior managed repair rolled back.' }, operation };
   }
@@ -197,7 +201,6 @@ function evaluateConnector(
 
   const codexReady = capabilities.includes(codexCapability) && generation !== undefined;
   const update = runtimeStatus?.update;
-  const action = repairAction(connectorId, runtimeStatus);
   const daemon = connector.connector.daemon;
   if (capabilities.includes(codexDaemonCapability)) {
     if (!daemon) {
