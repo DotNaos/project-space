@@ -7,6 +7,12 @@ description: Safely check and install a matching signed Project CLI and connecto
 
 If `project --help` does not list `self-update`, your installed binary predates this source command. Follow the guidance for its installation source in [Setup](/docs/setup).
 
+If the mandatory Codex startup command `project agent name --format json` is
+missing, run `project self-update --check` before starting the task. A current
+CLI distinguishes a real Project Space outage from missing authentication,
+unsupported server capability, malformed responses, and an exhausted name
+catalog instead of reporting every failure as an offline fallback.
+
 ## Check Before Updating
 
 ```sh

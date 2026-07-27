@@ -268,6 +268,21 @@ func TestClientRejectsRedirects(t *testing.T) {
 	}
 }
 
+func TestClientPreservesCallerCancellation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, writer, http.StatusOK, NameCatalog{})
+	}))
+	t.Cleanup(server.Close)
+
+	client := newTestClient(t, server)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := client.ListNames(ctx, testThreadID)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ListNames() error = %v, want context cancellation", err)
+	}
+}
+
 func TestClientEnforcesRequestAndResponseLimits(t *testing.T) {
 	t.Run("message", func(t *testing.T) {
 		var called atomic.Bool

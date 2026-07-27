@@ -27,6 +27,7 @@ project
 | Command | Aliases | Description |
 | --- | --- | --- |
 | [`adopt`](#project-adopt) | - | Plan adoption of an existing project |
+| [`agent`](#project-agent) | - | Manage the current Codex agent identity |
 | [`approval`](#project-approval) | - | Manage cryptographic human approvals |
 | [`chat`](#project-chat) | - | Coordinate with people and agents through Project Chat |
 | [`codex`](#project-codex) | - | Start, inspect, continue, or attach to persistent Codex tasks |
@@ -69,6 +70,32 @@ project adopt [directory]
 | `--reason` | `string` | local | reason for a waiver |
 | `--waive` | `string` | local | add a waiver for a path pattern |
 | `-y`, `--yes` | `bool` | local | apply the adoption action without prompting |
+
+<h3 id="project-agent" className="scroll-m-28"><code>project agent</code></h3>
+
+Manage the current Codex agent identity
+
+```sh
+project agent
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for agent |
+
+<h3 id="project-agent-name" className="scroll-m-28"><code>project agent name</code></h3>
+
+Claim a unique Codex agent name, with an offline fallback
+
+```sh
+project agent name
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--exclude` | `stringArray` | local | agent name already used by a visible Codex task (repeatable) |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for name |
 
 <h3 id="project-approval" className="scroll-m-28"><code>project approval</code></h3>
 
