@@ -42,6 +42,7 @@ project
 | [`init`](#project-init) | - | Initialize a project template lock |
 | [`module`](#project-module) | - | Manage project template modules |
 | [`prepare`](#project-prepare) | - | Run trusted repository setup steps |
+| [`roadmap`](#project-roadmap) | - | Read and update the issue dependency roadmap |
 | [`run`](#project-run) | - | Run a configured project script in the foreground |
 | [`self-update`](#project-self-update) | - | Check for and install a signed Project CLI release |
 | [`serve`](#project-serve) | - | Run a project script and expose it on this Tailnet |
@@ -853,6 +854,66 @@ project prepare status [directory]
 | `-h`, `--help` | `bool` | local | help for status |
 | `--json` | `bool` | local | print machine-readable JSON output |
 | `--step` | `string` | local | stable setup step ID (default: all steps in declaration order) |
+
+<h3 id="project-roadmap" className="scroll-m-28"><code>project roadmap</code></h3>
+
+Read and update the issue dependency roadmap
+
+```sh
+project roadmap
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for roadmap |
+| `--repository` | `string` | local | GitHub repository as owner/name (defaults to the current origin) |
+
+<h3 id="project-roadmap-dependency" className="scroll-m-28"><code>project roadmap dependency</code></h3>
+
+Update roadmap prerequisite relationships
+
+```sh
+project roadmap dependency
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | inherited | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for dependency |
+| `--repository` | `string` | inherited | GitHub repository as owner/name (defaults to the current origin) |
+
+<h3 id="project-roadmap-dependency-add" className="scroll-m-28"><code>project roadmap dependency add</code></h3>
+
+Add an issue prerequisite
+
+```sh
+project roadmap dependency add <issue>
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | inherited | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for add |
+| `--repository` | `string` | inherited | GitHub repository as owner/name (defaults to the current origin) |
+| `--requires` | `int` | local | prerequisite issue number |
+| `--requires-repository` | `string` | local | prerequisite repository as owner/name (defaults to --repository) |
+
+<h3 id="project-roadmap-dependency-remove" className="scroll-m-28"><code>project roadmap dependency remove</code></h3>
+
+Remove an issue prerequisite
+
+```sh
+project roadmap dependency remove <issue>
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | inherited | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for remove |
+| `--repository` | `string` | inherited | GitHub repository as owner/name (defaults to the current origin) |
+| `--requires` | `int` | local | prerequisite issue number |
+| `--requires-repository` | `string` | local | prerequisite repository as owner/name (defaults to --repository) |
 
 <h3 id="project-run" className="scroll-m-28"><code>project run</code></h3>
 

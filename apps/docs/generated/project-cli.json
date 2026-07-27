@@ -2019,6 +2019,152 @@
         ]
       },
       {
+        "path": "project roadmap",
+        "name": "roadmap",
+        "usage": "roadmap",
+        "short": "Read and update the issue dependency roadmap",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "format",
+            "type": "string",
+            "description": "output format: text or json",
+            "inherited": false
+          },
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for roadmap",
+            "inherited": false
+          },
+          {
+            "name": "repository",
+            "type": "string",
+            "description": "GitHub repository as owner/name (defaults to the current origin)",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project roadmap dependency",
+            "name": "dependency",
+            "usage": "dependency",
+            "short": "Update roadmap prerequisite relationships",
+            "aliases": [],
+            "runnable": false,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": true
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for dependency",
+                "inherited": false
+              },
+              {
+                "name": "repository",
+                "type": "string",
+                "description": "GitHub repository as owner/name (defaults to the current origin)",
+                "inherited": true
+              }
+            ],
+            "commands": [
+              {
+                "path": "project roadmap dependency add",
+                "name": "add",
+                "usage": "add <issue>",
+                "short": "Add an issue prerequisite",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: text or json",
+                    "inherited": true
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for add",
+                    "inherited": false
+                  },
+                  {
+                    "name": "repository",
+                    "type": "string",
+                    "description": "GitHub repository as owner/name (defaults to the current origin)",
+                    "inherited": true
+                  },
+                  {
+                    "name": "requires",
+                    "type": "int",
+                    "description": "prerequisite issue number",
+                    "inherited": false
+                  },
+                  {
+                    "name": "requires-repository",
+                    "type": "string",
+                    "description": "prerequisite repository as owner/name (defaults to --repository)",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project roadmap dependency remove",
+                "name": "remove",
+                "usage": "remove <issue>",
+                "short": "Remove an issue prerequisite",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: text or json",
+                    "inherited": true
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for remove",
+                    "inherited": false
+                  },
+                  {
+                    "name": "repository",
+                    "type": "string",
+                    "description": "GitHub repository as owner/name (defaults to the current origin)",
+                    "inherited": true
+                  },
+                  {
+                    "name": "requires",
+                    "type": "int",
+                    "description": "prerequisite issue number",
+                    "inherited": false
+                  },
+                  {
+                    "name": "requires-repository",
+                    "type": "string",
+                    "description": "prerequisite repository as owner/name (defaults to --repository)",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              }
+            ]
+          }
+        ]
+      },
+      {
         "path": "project run",
         "name": "run",
         "usage": "run <script> [directory]",
