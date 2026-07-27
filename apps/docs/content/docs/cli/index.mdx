@@ -43,7 +43,7 @@ project
 | [`module`](#project-module) | - | Manage project template modules |
 | [`prepare`](#project-prepare) | - | Run trusted repository setup steps |
 | [`run`](#project-run) | - | Run a configured project script in the foreground |
-| [`self-update`](#project-self-update) | - | Check for and install a signed Project CLI release |
+| [`self-update`](#project-self-update) | - | Check for and install a signed Project CLI and connector release |
 | [`serve`](#project-serve) | - | Run a project script and expose it on this Tailnet |
 | [`status`](#project-status) | - | Show this machine's Project Space connection |
 | [`template`](#project-template) | - | Manage the local project template snapshot |
@@ -870,7 +870,7 @@ project run <script> [directory]
 
 <h3 id="project-self-update" className="scroll-m-28"><code>project self-update</code></h3>
 
-Check for and install a signed Project CLI release
+Check for and install a signed Project CLI and connector release
 
 ```sh
 project self-update
@@ -881,6 +881,7 @@ project self-update
 | `--check` | `bool` | local | check the signed approved release without changing files |
 | `--format` | `string` | local | output format: pretty or json |
 | `-h`, `--help` | `bool` | local | help for self-update |
+| `--migrate-managed` | `bool` | local | migrate a verified Homebrew-owned CLI to signed managed delivery |
 | `-y`, `--yes` | `bool` | local | install the verified update without prompting |
 
 <h3 id="project-serve" className="scroll-m-28"><code>project serve</code></h3>

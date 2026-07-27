@@ -2,15 +2,21 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: ./install.sh [--install-dir <absolute-path>]" >&2
+  echo "Usage: ./install.sh [--install-dir <absolute-path>] [--migrate-from-homebrew <absolute-project-path>]" >&2
 }
 
 install_directory="${HOME}/.local/bin"
+migrate_from_homebrew=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --install-dir)
       [[ $# -ge 2 ]] || { usage; exit 64; }
       install_directory=$2
+      shift 2
+      ;;
+    --migrate-from-homebrew)
+      [[ $# -ge 2 ]] || { usage; exit 64; }
+      migrate_from_homebrew=$2
       shift 2
       ;;
     -h|--help)
@@ -39,6 +45,24 @@ fi
 if [[ -L $install_directory ]]; then
   echo "Refusing to install through a symbolic-link directory: $install_directory" >&2
   exit 73
+fi
+if [[ -n $migrate_from_homebrew ]]; then
+  homebrew_connector="$(dirname -- "$migrate_from_homebrew")/project-space-connector"
+  if [[ $install_directory != "${HOME}/.local/bin" ||
+    $migrate_from_homebrew != /* ||
+    $migrate_from_homebrew == *$'\n'* ||
+    $migrate_from_homebrew == *$'\r'* ||
+    $(basename -- "$migrate_from_homebrew") != project ||
+    $migrate_from_homebrew != */Cellar/project/* ||
+    ! -f $migrate_from_homebrew ||
+    ! -x $migrate_from_homebrew ||
+    -L $migrate_from_homebrew ||
+    ! -f $homebrew_connector ||
+    ! -x $homebrew_connector ||
+    -L $homebrew_connector ]]; then
+    echo "The Homebrew migration source or managed destination is invalid." >&2
+    exit 73
+  fi
 fi
 
 bundle_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
@@ -102,6 +126,7 @@ assert_connector_maintenance_idle
 
 legacy_plist="${HOME}/Library/LaunchAgents/net.os-home.project-space-connector.plist"
 modern_plist="${HOME}/Library/LaunchAgents/net.os-home.project-space.machine-connector-supervisor.plist"
+homebrew_plist="${HOME}/Library/LaunchAgents/homebrew.mxcl.project-space-connector.plist"
 if [[ -L $legacy_plist || -L $modern_plist ]]; then
   echo "Refusing to migrate a connector LaunchAgent through a symbolic link." >&2
   exit 73
@@ -115,9 +140,13 @@ if [[ -f $legacy_plist && -f $modern_plist ]]; then
 fi
 launch_domain="gui/$(id -u)"
 legacy_service="${launch_domain}/net.os-home.project-space-connector"
+homebrew_service_label="homebrew.mxcl.project-space-connector"
+homebrew_service="${launch_domain}/${homebrew_service_label}"
 existing_project="${install_directory}/project"
 previous_managed_project=""
-if [[ $service_mode == managed && ! -x $existing_project ]]; then
+if [[ $service_mode == managed && -n $migrate_from_homebrew ]]; then
+  previous_managed_project=$migrate_from_homebrew
+elif [[ $service_mode == managed && ! -x $existing_project ]]; then
   previous_managed_project=$(
     /usr/bin/plutil -extract ProgramArguments.0 raw -o - "$modern_plist" 2>/dev/null || true
   )
@@ -140,6 +169,8 @@ installation_started=0
 committed=0
 pointer_switched=0
 legacy_was_running=0
+homebrew_was_running=0
+homebrew_service_disable_changed=0
 changed_entries=()
 
 restore_entry() {
@@ -153,7 +184,7 @@ restore_entry() {
 }
 
 start_connector() {
-  if [[ $service_mode == legacy ]]; then
+  if [[ $service_mode == legacy && -z $migrate_from_homebrew ]]; then
     launchctl bootstrap "$launch_domain" "$legacy_plist"
     launchctl kickstart -k "$legacy_service"
   else
@@ -174,6 +205,13 @@ restart_previous_connector() {
   if [[ $migrate_legacy_service -eq 1 && $legacy_was_running -eq 1 ]]; then
     launchctl bootstrap "$launch_domain" "$legacy_plist" || restart_failed=1
     launchctl kickstart -k "$legacy_service" || restart_failed=1
+  fi
+  if [[ $homebrew_service_disable_changed -eq 1 ]]; then
+    launchctl enable "$homebrew_service" || restart_failed=1
+  fi
+  if [[ $homebrew_was_running -eq 1 ]]; then
+    launchctl bootstrap "$launch_domain" "$homebrew_plist" || restart_failed=1
+    launchctl kickstart -k "$homebrew_service" || restart_failed=1
   fi
   return "$restart_failed"
 }
@@ -257,11 +295,28 @@ for name in project project-space-connector project-approval-signer; do
 done
 
 installation_started=1
-if [[ $migrate_legacy_service -eq 1 ]] && launchctl print "$legacy_service" >/dev/null 2>&1; then
+if [[ -n $migrate_from_homebrew && -f $homebrew_plist ]]; then
+  if launchctl print "$homebrew_service" >/dev/null 2>&1; then
+    homebrew_was_running=1
+  fi
+  if ! launchctl print-disabled "$launch_domain" 2>/dev/null |
+    grep -Fq "\"${homebrew_service_label}\" => true"; then
+    launchctl disable "$homebrew_service"
+    homebrew_service_disable_changed=1
+  fi
+  if [[ $homebrew_was_running -eq 1 ]]; then
+    launchctl bootout "$homebrew_service"
+  fi
+fi
+if [[ ( $migrate_legacy_service -eq 1 || -n $migrate_from_homebrew ) &&
+  -f $legacy_plist ]] &&
+  launchctl print "$legacy_service" >/dev/null 2>&1; then
   legacy_was_running=1
   launchctl bootout "$legacy_service"
 fi
-if [[ $service_mode == legacy ]]; then
+if [[ -n $migrate_from_homebrew ]]; then
+  "$release_directory/project" connector service stop
+elif [[ $service_mode == legacy ]]; then
   if launchctl print "$legacy_service" >/dev/null 2>&1; then
     launchctl bootout "$legacy_service"
   fi
@@ -299,7 +354,7 @@ if ! start_connector; then
   echo "The new connector could not be started; the previous machine-tools release was restored." >&2
   exit 70
 fi
-if [[ $migrate_legacy_service -eq 1 ]]; then
+if [[ $migrate_legacy_service -eq 1 || -n $migrate_from_homebrew ]]; then
   rm -f -- "$legacy_plist"
 fi
 committed=1

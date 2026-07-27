@@ -1,3 +1,6 @@
+# frozen_string_literal: true
+
+# Installs the standalone Project Space connector and its Homebrew service.
 class ProjectSpaceConnector < Formula
   desc "Local connector for Project Space web and machine operations"
   homepage "https://projects.os-home.net/connector"
@@ -14,10 +17,12 @@ class ProjectSpaceConnector < Formula
 
   service do
     run [opt_bin/"project-space-connector"]
-    environment_variables PROJECT_CONNECTOR_HUB_URL: "https://projects.os-home.net",
+    environment_variables(
+      PROJECT_CONNECTOR_HUB_URL:      "https://projects.os-home.net",
       PROJECT_CONNECTOR_SERVICE_NAME: "project-space-connector",
-      PROJECT_SPACE_HOST: "127.0.0.1",
-      PROJECT_SPACE_PORT: "4173"
+      PROJECT_SPACE_HOST:             "127.0.0.1",
+      PROJECT_SPACE_PORT:             "4173",
+    )
     keep_alive true
     log_path var/"log/project-space-connector.log"
     error_log_path var/"log/project-space-connector.log"

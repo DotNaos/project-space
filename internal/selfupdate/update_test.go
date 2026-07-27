@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 )
 
@@ -27,19 +28,21 @@ func (resolver staticResolver) Resolve(context.Context, string) (Release, error)
 }
 
 type staticInstaller struct {
-	calls   int
-	outcome ApplyOutcome
-	err     error
+	calls        int
+	installation Installation
+	outcome      ApplyOutcome
+	err          error
 }
 
 func (installer *staticInstaller) Apply(
-	context.Context,
-	Installation,
-	Release,
-	io.Writer,
-	io.Writer,
+	_ context.Context,
+	installation Installation,
+	_ Release,
+	_ io.Writer,
+	_ io.Writer,
 ) (ApplyOutcome, error) {
 	installer.calls++
+	installer.installation = installation
 	return installer.outcome, installer.err
 }
 
@@ -59,6 +62,7 @@ func TestServicePlansCurrentAvailableAndUnsupportedSources(t *testing.T) {
 		{name: "current managed", install: Installation{CurrentVersion: "0.4.8", Source: InstallSourceManaged, Target: "linux-x64"}, want: StateCurrent},
 		{name: "managed update", install: Installation{CurrentVersion: "0.4.7", Source: InstallSourceManaged, Target: "linux-x64"}, want: StateUpdateAvailable},
 		{name: "homebrew", install: Installation{CurrentVersion: "0.4.7", Source: InstallSourceHomebrew, Target: "darwin-arm64"}, want: StateUnsupportedSource},
+		{name: "same-version homebrew", install: Installation{CurrentVersion: "0.4.8", Source: InstallSourceHomebrew, Target: "darwin-arm64"}, want: StateUnsupportedSource},
 		{name: "windows", install: Installation{CurrentVersion: "0.4.7", Source: InstallSourceWindows, Target: "windows-x64"}, want: StateUnsupportedSource},
 		{name: "source", install: Installation{CurrentVersion: "dev", Source: InstallSourceSourceCheckout, Target: "darwin-arm64"}, want: StateUnsupportedSource},
 	}
@@ -69,7 +73,7 @@ func TestServicePlansCurrentAvailableAndUnsupportedSources(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			plan, err := service.Plan(context.Background())
+			plan, err := service.Plan(context.Background(), PlanOptions{})
 			if err != nil {
 				t.Fatalf("Plan() error = %v", err)
 			}
@@ -90,7 +94,7 @@ func TestServiceRefusesUnverifiedReleaseAndDowngrade(t *testing.T) {
 		staticResolver{err: errors.New("bad signature")},
 		installer,
 	)
-	plan, err := service.Plan(context.Background())
+	plan, err := service.Plan(context.Background(), PlanOptions{})
 	if err == nil || plan.Result.State != StateVerificationFailed || installer.calls != 0 {
 		t.Fatalf("unverified plan = %#v, error = %v, calls = %d", plan, err, installer.calls)
 	}
@@ -100,9 +104,84 @@ func TestServiceRefusesUnverifiedReleaseAndDowngrade(t *testing.T) {
 		staticResolver{release: testRelease("0.4.8")},
 		installer,
 	)
-	plan, err = service.Plan(context.Background())
+	plan, err = service.Plan(context.Background(), PlanOptions{})
 	if err == nil || plan.Result.State != StateVerificationFailed || installer.calls != 0 {
 		t.Fatalf("downgrade plan = %#v, error = %v, calls = %d", plan, err, installer.calls)
+	}
+}
+
+func TestServicePlansSupportedHomebrewMigrationIncludingSameVersion(t *testing.T) {
+	for _, currentVersion := range []string{"0.4.7", "0.4.8"} {
+		t.Run(currentVersion, func(t *testing.T) {
+			installation := Installation{
+				CurrentVersion: "0.4.7",
+				ExecutablePath: "/opt/homebrew/Cellar/project/0.4.7/bin/project",
+				InstallDir:     "/Users/test/.local/bin",
+				Source:         InstallSourceHomebrew,
+				Target:         "darwin-arm64",
+			}
+			installation.CurrentVersion = currentVersion
+			service, _ := NewService(
+				staticDetector{installation: installation},
+				staticResolver{release: testRelease("0.4.8")},
+				&staticInstaller{},
+			)
+			plan, err := service.Plan(context.Background(), PlanOptions{
+				MigrateManaged: true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.Result.State != StateUpdateAvailable ||
+				!plan.Result.MigrateManaged ||
+				plan.Result.ManagedInstallDir != installation.InstallDir ||
+				plan.Result.ServiceTransition == "" ||
+				plan.Result.PreservedState == "" ||
+				plan.Result.RollbackBehavior == "" {
+				t.Fatalf("migration plan = %#v", plan)
+			}
+		})
+	}
+}
+
+func TestServiceKeepsHomebrewAsTheDefaultUpdateOwner(t *testing.T) {
+	service, _ := NewService(
+		staticDetector{installation: Installation{
+			CurrentVersion: "0.4.7",
+			Source:         InstallSourceHomebrew,
+			Target:         "darwin-arm64",
+		}},
+		staticResolver{release: testRelease("0.4.8")},
+		&staticInstaller{},
+	)
+	plan, err := service.Plan(context.Background(), PlanOptions{})
+	if err != nil ||
+		plan.Result.State != StateUnsupportedSource ||
+		!strings.Contains(plan.Result.ActionableBlocker, "Continue updating them with Homebrew") ||
+		!strings.Contains(plan.Result.ActionableBlocker, "--migrate-managed") ||
+		plan.Result.MigrateManaged {
+		t.Fatalf("Homebrew plan = %#v, %v", plan, err)
+	}
+}
+
+func TestServiceRejectsManagedMigrationForOtherSourcesAndPlatforms(t *testing.T) {
+	tests := []Installation{
+		{CurrentVersion: "0.4.7", Source: InstallSourceManaged, Target: "darwin-arm64", InstallDir: "/Users/test/.local/bin"},
+		{CurrentVersion: "0.4.7", Source: InstallSourceHomebrew, Target: "", InstallDir: "/Users/test/.local/bin"},
+		{CurrentVersion: "0.4.7", Source: InstallSourceHomebrew, Target: "linux-x64"},
+	}
+	for _, installation := range tests {
+		service, _ := NewService(
+			staticDetector{installation: installation},
+			staticResolver{release: testRelease("0.4.8")},
+			&staticInstaller{},
+		)
+		plan, err := service.Plan(context.Background(), PlanOptions{
+			MigrateManaged: true,
+		})
+		if err != nil || plan.Result.State != StateUnsupportedSource {
+			t.Fatalf("migration plan = %#v, error = %v", plan, err)
+		}
 	}
 }
 
@@ -136,6 +215,43 @@ func TestServiceMapsInstallerOutcomes(t *testing.T) {
 				t.Fatalf("Apply() = %#v, %v, calls %d", result, err, installer.calls)
 			}
 		})
+	}
+}
+
+func TestServiceAppliesHomebrewMigrationAndReportsExactRecovery(t *testing.T) {
+	installation := Installation{
+		CurrentVersion: "0.4.8",
+		ExecutablePath: "/opt/homebrew/Cellar/project/0.4.8/bin/project",
+		InstallDir:     "/Users/test/.local/bin",
+		Source:         InstallSourceHomebrew,
+		Target:         "darwin-arm64",
+	}
+	installer := &staticInstaller{
+		outcome: ApplyOutcomeRecoveryRequired,
+		err:     errors.New("fixture recovery"),
+	}
+	service, _ := NewService(
+		staticDetector{installation: installation},
+		staticResolver{release: testRelease("0.4.8")},
+		installer,
+	)
+	plan, err := service.Plan(context.Background(), PlanOptions{
+		MigrateManaged: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.Apply(
+		context.Background(),
+		plan,
+		&bytes.Buffer{},
+		&bytes.Buffer{},
+	)
+	if err == nil || installer.calls != 1 ||
+		installer.installation.Source != InstallSourceHomebrew ||
+		result.State != StateUpdateFailed ||
+		result.RecoveryCommand != `"/opt/homebrew/Cellar/project/0.4.8/bin/project" connector service start-if-connected` {
+		t.Fatalf("Apply() = %#v, %v, installer = %#v", result, err, installer)
 	}
 }
 

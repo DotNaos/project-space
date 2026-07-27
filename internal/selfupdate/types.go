@@ -31,6 +31,12 @@ type Result struct {
 	ActionableBlocker string        `json:"actionableBlocker,omitempty"`
 	CurrentVersion    string        `json:"currentVersion"`
 	InstallSource     InstallSource `json:"installSource"`
+	ManagedInstallDir string        `json:"managedInstallDir,omitempty"`
+	MigrateManaged    bool          `json:"migrateManaged,omitempty"`
+	PreservedState    string        `json:"preservedState,omitempty"`
+	RecoveryCommand   string        `json:"recoveryCommand,omitempty"`
+	RollbackBehavior  string        `json:"rollbackBehavior,omitempty"`
+	ServiceTransition string        `json:"serviceTransition,omitempty"`
 	State             State         `json:"state"`
 	TargetVersion     string        `json:"targetVersion"`
 }
@@ -83,9 +89,14 @@ type Installation struct {
 }
 
 type Plan struct {
-	Installation Installation
-	Release      Release
-	Result       Result
+	Installation   Installation
+	MigrateManaged bool
+	Release        Release
+	Result         Result
+}
+
+type PlanOptions struct {
+	MigrateManaged bool
 }
 
 type ReleaseResolver interface {
