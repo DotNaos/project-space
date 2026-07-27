@@ -30,15 +30,39 @@ type Selector struct {
 }
 
 type Check struct {
-	Capabilities   []string `json:"capabilities"`
-	ConnectorID    string   `json:"connectorId"`
-	ConnectorName  string   `json:"connectorName"`
-	Online         bool     `json:"online"`
-	RuntimeSource  string   `json:"runtimeSource,omitempty"`
-	RuntimeVersion string   `json:"runtimeVersion,omitempty"`
-	State          string   `json:"state"`
-	Summary        string   `json:"summary"`
-	UpdateState    string   `json:"updateState,omitempty"`
+	Capabilities   []string             `json:"capabilities"`
+	ConnectorID    string               `json:"connectorId"`
+	ConnectorName  string               `json:"connectorName"`
+	Daemon         *CodexDaemonEvidence `json:"daemon,omitempty"`
+	Online         bool                 `json:"online"`
+	RuntimeSource  string               `json:"runtimeSource,omitempty"`
+	RuntimeVersion string               `json:"runtimeVersion,omitempty"`
+	State          string               `json:"state"`
+	Summary        string               `json:"summary"`
+	UpdateState    string               `json:"updateState,omitempty"`
+}
+
+type CodexDaemonEvidence struct {
+	AppServerVersion     string `json:"appServerVersion,omitempty"`
+	Authenticated        bool   `json:"authenticated"`
+	CheckedAt            string `json:"checkedAt"`
+	CLIVersion           string `json:"cliVersion,omitempty"`
+	Compatible           bool   `json:"compatible"`
+	EnvironmentID        string `json:"environmentId,omitempty"`
+	Installed            bool   `json:"installed"`
+	Paired               bool   `json:"paired"`
+	Reachable            bool   `json:"reachable"`
+	RemoteControlEnabled bool   `json:"remoteControlEnabled"`
+	RemoteControlState   string `json:"remoteControlState"`
+	Running              bool   `json:"running"`
+	State                string `json:"state"`
+}
+
+type CodexDaemonOperation struct {
+	Evidence    CodexDaemonEvidence `json:"evidence"`
+	Operation   string              `json:"operation"`
+	OperationID string              `json:"operationId"`
+	State       string              `json:"state"`
 }
 
 type RepairAction struct {
@@ -94,11 +118,12 @@ type FixRequest struct {
 }
 
 type FixResult struct {
-	APIVersion       int               `json:"apiVersion"`
-	Diagnosis        Result            `json:"diagnosis"`
-	OperationID      string            `json:"operationId"`
-	RuntimeOperation *RuntimeOperation `json:"runtimeOperation,omitempty"`
-	State            string            `json:"state"`
+	APIVersion       int                   `json:"apiVersion"`
+	DaemonOperation  *CodexDaemonOperation `json:"daemonOperation,omitempty"`
+	Diagnosis        Result                `json:"diagnosis"`
+	OperationID      string                `json:"operationId"`
+	RuntimeOperation *RuntimeOperation     `json:"runtimeOperation,omitempty"`
+	State            string                `json:"state"`
 }
 
 func (result Result) Runnable() bool {

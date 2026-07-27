@@ -16,6 +16,7 @@ import type { MachineConnectionRuntime } from '../machine-connection-runtime';
 import { writeJson } from '../project-space-http-response';
 import { createMachineReadinessHttpApi } from './http';
 import { createMachineReadinessService } from './service';
+import { requestConnectorCodexSessions } from '../codex-sessions/connector-hub';
 
 export interface ConfiguredMachineReadinessOptions {
   backend: Pick<
@@ -70,6 +71,22 @@ async function createHandler(options: ConfiguredMachineReadinessOptions) {
         machineSession(userId),
         () => options.backend.getMachineRuntime(connectorId)
       );
+    },
+    async startDaemonOperation(connectorId, operation, operationId, userId) {
+      return runWithAuthSession(machineSession(userId), async () => {
+        const response = await requestConnectorCodexSessions('daemon', {
+          machineId: connectorId,
+          operation,
+          operationId
+        }, {
+          operationId,
+          userId
+        });
+        if (response.operation !== 'daemon') {
+          throw new Error('The connector returned an invalid managed daemon result.');
+        }
+        return response.result;
+      });
     },
     startRuntimeOperation(connectorId, request, userId) {
       return runWithAuthSession(

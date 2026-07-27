@@ -1,4 +1,8 @@
 import { EventEmitter } from 'node:events';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { createServer as createNetServer } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 
 import { describe, expect, test } from 'bun:test';
@@ -27,6 +31,34 @@ class FakeAttachProcess extends EventEmitter implements CodexChildProcess {
 }
 
 describe('Codex connector attach stdio relay', () => {
+  test('bounds a stalled shared-daemon handshake', async () => {
+    const fixtureRoot = await mkdtemp(join(tmpdir(), 'project-space-attach-stalled-'));
+    const socketPath = join(fixtureRoot, 'app-server.sock');
+    const sockets = new Set<import('node:net').Socket>();
+    const server = createNetServer((socket) => {
+      sockets.add(socket);
+      socket.once('close', () => sockets.delete(socket));
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(socketPath, resolve);
+    });
+    try {
+      const startedAt = Date.now();
+      await expect(createConnectorCodexAttachRelay({
+        connectTimeoutMs: 20,
+        daemonSocketPath: socketPath,
+        onClose: () => undefined,
+        onMessage: () => undefined
+      })).rejects.toThrow('unavailable');
+      expect(Date.now() - startedAt).toBeLessThan(1_000);
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await rm(fixtureRoot, { force: true, recursive: true });
+    }
+  });
+
   test('launches a private stdio App Server and relays bounded JSON messages', async () => {
     const child = new FakeAttachProcess();
     const output: string[] = [];

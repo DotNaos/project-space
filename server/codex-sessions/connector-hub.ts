@@ -1,6 +1,7 @@
 import type { KeyLike } from 'node:crypto';
 
 import { WebSocket } from 'ws';
+import { CODEX_DAEMON_CONNECTOR_CAPABILITY } from '../../src/shared/codex-daemon-api';
 
 import {
   CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY,
@@ -10,6 +11,7 @@ import {
   CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY,
   CODEX_AUTHORIZATION_CONNECTOR_CAPABILITY,
   CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY,
+  CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY,
   createCodexSessionsWireRequest,
   isCodexSessionsWireRequest,
   type CodexSessionAttachRequest,
@@ -19,9 +21,11 @@ import {
 } from '../codex-sessions-connector-contract';
 import { connectorDevServerSigningKey } from '../connector-dev-server-routing';
 import {
+  addConnectorCapabilities,
   connectorHasCapability,
   connectorSessionGeneration,
   connectorSocket,
+  removeConnectorCapabilities,
   sendConnectorJson
 } from '../connector-command-session-registry';
 import type { ConnectorHubMessage, ConnectorMachineMessage } from '../connector-command-protocol';
@@ -264,6 +268,7 @@ function run(
 }
 
 function requiredCapability(operation: CodexSessionsConnectorOperation, payload: CodexPayload) {
+  if (operation === 'daemon') return CODEX_DAEMON_CONNECTOR_CAPABILITY;
   if (operation === 'authorization') return CODEX_AUTHORIZATION_CONNECTOR_CAPABILITY;
   if (operation === 'start') return CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY;
   if (operation === 'browser') return CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY;
@@ -316,6 +321,24 @@ export function handleCodexSessionsConnectorMessage(
     const current = pending.get(message.id);
     if (!current || current.machineId !== machineId ||
       !boundCodexSessionsResultMatchesRequest(message.payload, current.request)) return true;
+    if (message.payload.result.operation === 'daemon') {
+      const daemonCapabilities = [
+        CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY,
+        CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY,
+        CODEX_SESSIONS_CONNECTOR_CAPABILITY,
+        CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY,
+        CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY,
+        CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY
+      ];
+      if (message.payload.result.result.evidence.state === 'ready') {
+        addConnectorCapabilities(machineId, daemonCapabilities);
+      } else {
+        removeConnectorCapabilities(machineId, [
+          ...daemonCapabilities,
+          CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY
+        ]);
+      }
+    }
     finish(message.id, message.payload.result);
     return true;
   }

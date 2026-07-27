@@ -16,6 +16,7 @@ import type {
   RoadmapPlanUpdateRequest,
   RoadmapResult
 } from './roadmap-api';
+import type { CodexDaemonEvidence } from './codex-daemon-api';
 
 export type WorkspaceTool = 'ide' | 'terminal' | 'git' | 'dev-server';
 
@@ -843,6 +844,7 @@ export interface ConnectorEnvironmentRecord {
 
 export interface MachineConnectorRecord {
   capabilities?: string[];
+  daemon?: CodexDaemonEvidence;
   installCommand: string;
   lastSeen?: string;
   origin?: string;
@@ -951,6 +953,7 @@ export interface ConnectorProjectRegistryResult {
   connector: {
     battery?: MachineBatteryRecord;
     capabilities?: string[];
+    daemon?: CodexDaemonEvidence;
     environment?: ConnectorEnvironmentRecord;
     executionScopeId?: string;
     kind?: string;

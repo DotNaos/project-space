@@ -28,10 +28,12 @@ import {
   type CodexOperationSnapshotPersist
 } from './operation-ledger';
 import {
+  type CodexAppServerTransport,
   CodexAppServerProtocolError,
   CodexAppServerRequestCancelledError,
   CodexStdioTransport
 } from './stdio-transport';
+import { CodexWebSocketTransport } from './websocket-transport';
 import {
   isNotificationMethod,
   isServerRequestMethod,
@@ -64,9 +66,12 @@ const unknownActiveTurn = '__active_turn__';
 export interface CodexSessionManagerOptions {
   binaryPath?: string;
   codexHome?: string;
+  daemonSocketPath?: string;
   operationSnapshot?: CodexOperationSnapshot;
   persistOperationSnapshot?: CodexOperationSnapshotPersist;
   processFactory?: CodexProcessFactory;
+  sharedDaemon?: boolean;
+  transportFactory?: () => Promise<CodexAppServerTransport>;
 }
 
 export class CodexThreadActiveError extends Error {
@@ -84,10 +89,11 @@ export class CodexSessionManager {
   >();
   private runtimeEpoch = 0;
   private readonly startingThreads = new Set<string>();
-  private startPromise?: Promise<CodexStdioTransport>;
-  private startingTransport?: CodexStdioTransport;
-  private transport?: CodexStdioTransport;
-  private readonly transportEpochs = new WeakMap<CodexStdioTransport, number>();
+  private startPromise?: Promise<CodexAppServerTransport>;
+  private startingTransport?: CodexAppServerTransport;
+  private transport?: CodexAppServerTransport;
+  private transportStartGeneration = 0;
+  private readonly transportEpochs = new WeakMap<CodexAppServerTransport, number>();
 
   constructor(private readonly options: CodexSessionManagerOptions = {}) {
     this.ledger = new CodexOperationLedger(
@@ -294,6 +300,14 @@ export class CodexSessionManager {
     return this.ledger.snapshot();
   }
 
+  executeManagedOperation<Result>(
+    operationId: string,
+    fingerprint: string,
+    action: () => Promise<Result>
+  ) {
+    return this.ledger.execute(operationId, fingerprint, action);
+  }
+
   currentRuntimeEpoch() {
     return this.runtimeEpoch;
   }
@@ -310,6 +324,7 @@ export class CodexSessionManager {
   async close() {
     const transport = this.transport;
     const startingTransport = this.startingTransport;
+    this.transportStartGeneration += 1;
     this.transport = undefined;
     this.startingTransport = undefined;
     this.startPromise = undefined;
@@ -333,14 +348,27 @@ export class CodexSessionManager {
   private ensureTransport() {
     if (this.transport?.isOpen) return Promise.resolve(this.transport);
     if (this.startPromise) return this.startPromise;
-    const transport = CodexStdioTransport.launch({
-      ...this.options,
-      onClose: () => this.handleTransportClose(),
-      onMessage: (message) => this.handleMessage(message)
-    });
-    this.startingTransport = transport;
-    let startPromise!: Promise<CodexStdioTransport>;
+    const startGeneration = ++this.transportStartGeneration;
+    let startPromise!: Promise<CodexAppServerTransport>;
     startPromise = (async () => {
+      const transport = this.options.transportFactory
+        ? await this.options.transportFactory()
+        : this.options.sharedDaemon
+          ? await CodexWebSocketTransport.connect({
+              onClose: () => this.handleTransportClose(),
+              onMessage: (message) => this.handleMessage(message),
+              socketPath: this.options.daemonSocketPath
+            })
+          : CodexStdioTransport.launch({
+              ...this.options,
+              onClose: () => this.handleTransportClose(),
+              onMessage: (message) => this.handleMessage(message)
+            });
+      if (startGeneration !== this.transportStartGeneration) {
+        await transport.close();
+        throw new CodexAppServerRequestCancelledError();
+      }
+      this.startingTransport = transport;
       try {
         await transport.initialize();
         if (this.startingTransport !== transport) {

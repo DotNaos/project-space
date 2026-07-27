@@ -14,6 +14,15 @@ import type {
   MachineRuntimeOperationResult,
   MachineRuntimeStatusResult
 } from '../../src/shared/connector-runtime-api';
+import type {
+  CodexDaemonConnectorResult,
+  CodexDaemonEvidence,
+  CodexDaemonOperation
+} from '../../src/shared/codex-daemon-api';
+import {
+  codexDaemonEvidenceIsConsistent,
+  codexDaemonResultStateForEvidence
+} from '../../src/shared/codex-daemon-api';
 import { evaluateMachineReadiness } from './model';
 
 export type MachineReadinessServiceErrorCode =
@@ -39,6 +48,12 @@ export interface MachineReadinessServiceOptions {
     physicalMachines: PhysicalMachineRecord[];
   }>;
   runtimeStatus(connectorId: string, userId: string): Promise<MachineRuntimeStatusResult>;
+  startDaemonOperation?(
+    connectorId: string,
+    operation: CodexDaemonOperation,
+    operationId: string,
+    userId: string
+  ): Promise<CodexDaemonConnectorResult>;
   startRuntimeOperation(
     connectorId: string,
     request: MachineRuntimeOperationRequest,
@@ -49,12 +64,16 @@ export interface MachineReadinessServiceOptions {
 export function createMachineReadinessService(options: MachineReadinessServiceOptions) {
   async function diagnose(
     actor: { userId: string },
-    selector: MachineReadinessSelector
+    selector: MachineReadinessSelector,
+    daemonOverride?: { connectorId: string; evidence: CodexDaemonEvidence }
   ): Promise<MachineReadinessResult> {
     if (!actor.userId) {
       throw new MachineReadinessServiceError('unauthorized', 'Authentication is required.');
     }
-    const inventory = await options.inventory(actor.userId);
+    const inventory = withDaemonEvidence(
+      await options.inventory(actor.userId),
+      daemonOverride
+    );
     const selectedPhysical = inventory.physicalMachines.filter((machine) =>
       selector.physicalMachineId
         ? machine.id === selector.physicalMachineId
@@ -116,30 +135,121 @@ export function createMachineReadinessService(options: MachineReadinessServiceOp
       }
       const action = before.plan.actions[0];
       if (before.plan.actions.length !== 1 || !action ||
-          (action.kind !== 'update-connector' && action.kind !== 'restart-connector') ||
-          (action.operation !== 'update' && action.operation !== 'restart') ||
+          ![
+            'ensure-codex-daemon', 'restart-codex-daemon',
+            'update-connector', 'restart-connector'
+          ].includes(action.kind) ||
+          !['ensure', 'update', 'restart'].includes(action.operation) ||
           (action.kind === 'update-connector' &&
             (action.operation !== 'update' || !action.releaseId)) ||
           (action.kind === 'restart-connector' &&
+            (action.operation !== 'restart' || action.releaseId !== undefined)) ||
+          (action.kind === 'ensure-codex-daemon' &&
+            (action.operation !== 'ensure' || action.releaseId !== undefined)) ||
+          (action.kind === 'restart-codex-daemon' &&
             (action.operation !== 'restart' || action.releaseId !== undefined))) {
         throw new MachineReadinessServiceError(
           'no-repair',
           'Doctor will not execute an unsupported or unconstrained repair plan.'
         );
       }
-      const started = await options.startRuntimeOperation(action.connectorId, {
-        operation: action.operation,
-        ...(action.releaseId ? { releaseId: action.releaseId } : {})
-      }, actor.userId);
-      const diagnosis = await diagnose(actor, request);
+      const daemonAction = action.kind === 'ensure-codex-daemon' ||
+        action.kind === 'restart-codex-daemon';
+      if (daemonAction && !options.startDaemonOperation) {
+        throw new MachineReadinessServiceError(
+          'no-repair',
+          'Doctor cannot dispatch the constrained managed daemon repair.'
+        );
+      }
+      const daemonOperation = daemonAction
+        ? await options.startDaemonOperation!(
+            action.connectorId,
+            action.operation as 'ensure' | 'restart',
+            request.operationId,
+            actor.userId
+          )
+        : undefined;
+      const daemonVerification = daemonAction
+        ? await options.startDaemonOperation!(
+            action.connectorId,
+            'status',
+            daemonVerificationOperationId(request.operationId),
+            actor.userId
+          )
+        : undefined;
+      const started = daemonAction
+        ? undefined
+        : await options.startRuntimeOperation(action.connectorId, {
+            operation: action.operation as 'restart' | 'update',
+            ...(action.releaseId ? { releaseId: action.releaseId } : {})
+          }, actor.userId);
+      const diagnosis = await diagnose(
+        actor,
+        request,
+        freshDaemonOverride(
+          before,
+          action.connectorId,
+          daemonVerificationOperationId(request.operationId),
+          daemonVerification
+        )
+      );
       return {
         apiVersion: MACHINE_READINESS_API_VERSION,
         diagnosis,
+        ...(daemonOperation ? { daemonOperation } : {}),
         operationId: request.operationId,
-        runtimeOperation: started.operation,
+        ...(started ? { runtimeOperation: started.operation } : {}),
         state: repairState(diagnosis)
       };
     }
+  };
+}
+
+function daemonVerificationOperationId(operationId: string) {
+  const digest = createHash('sha256').update(operationId).digest('hex').slice(0, 32);
+  return `doctor:daemon-status:${digest}`;
+}
+
+function freshDaemonOverride(
+  before: MachineReadinessResult,
+  connectorId: string,
+  operationId: string,
+  operation: CodexDaemonConnectorResult | undefined
+) {
+  if (!operation || operation.operationId !== operationId ||
+      operation.operation !== 'status' ||
+      operation.state !== codexDaemonResultStateForEvidence(operation.evidence) ||
+      !codexDaemonEvidenceIsConsistent(operation.evidence)) return undefined;
+  const priorCheckedAt = before.checks.find((check) =>
+    check.connectorId === connectorId
+  )?.daemon?.checkedAt;
+  const priorTime = priorCheckedAt ? Date.parse(priorCheckedAt) : Number.NaN;
+  const evidenceTime = Date.parse(operation.evidence.checkedAt);
+  if (!Number.isFinite(priorTime) || !Number.isFinite(evidenceTime) ||
+      evidenceTime <= priorTime || evidenceTime > Date.now() + 5 * 60_000) return undefined;
+  return { connectorId, evidence: operation.evidence };
+}
+
+function withDaemonEvidence(
+  inventory: { connectors: MachineRecord[]; physicalMachines: PhysicalMachineRecord[] },
+  override: { connectorId: string; evidence: CodexDaemonEvidence } | undefined
+) {
+  if (!override) return inventory;
+  return {
+    ...inventory,
+    connectors: inventory.connectors.map((machine) => {
+      if (machine.id !== override.connectorId) return machine;
+      const capabilities = new Set(machine.connector.capabilities ?? []);
+      if (override.evidence.state === 'ready') capabilities.add('codex.machine-tasks.v1');
+      return {
+        ...machine,
+        connector: {
+          ...machine.connector,
+          capabilities: [...capabilities],
+          daemon: override.evidence
+        }
+      };
+    })
   };
 }
 
@@ -158,3 +268,4 @@ function repairState(
   }
   return 'verification-pending';
 }
+import { createHash } from 'node:crypto';

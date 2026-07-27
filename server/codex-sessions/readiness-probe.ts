@@ -1,5 +1,5 @@
 import { resolveCodexBinary } from './binary-resolver';
-import { CodexStdioTransport } from './stdio-transport';
+import { CodexWebSocketTransport } from './websocket-transport';
 
 export type CodexRuntimeReadiness =
   | 'missing'
@@ -19,7 +19,7 @@ interface ReadinessTransport {
 
 export function createCodexRuntimeReadinessProbe(options: {
   cacheMs?: number;
-  launch?(binaryPath: string): ReadinessTransport;
+  launch?(binaryPath: string): Promise<ReadinessTransport> | ReadinessTransport;
   now?(): number;
   resolveBinary?(): string | undefined;
   timeoutMs?: number;
@@ -28,8 +28,7 @@ export function createCodexRuntimeReadinessProbe(options: {
   const timeoutMs = options.timeoutMs ?? 5_000;
   const now = options.now ?? Date.now;
   const resolveBinary = options.resolveBinary ?? (() => resolveCodexBinary().path);
-  const launch = options.launch ?? ((binaryPath) => CodexStdioTransport.launch({
-    binaryPath,
+  const launch = options.launch ?? (() => CodexWebSocketTransport.connect({
     onMessage: () => undefined
   }));
   let cached: { expiresAt: number; value: CodexRuntimeReadiness } | undefined;
@@ -58,7 +57,7 @@ export function createCodexRuntimeReadinessProbe(options: {
     let transport: ReadinessTransport | undefined;
     let initialized = false;
     try {
-      transport = launch(binaryPath);
+      transport = await launch(binaryPath);
       await transport.initialize({ signal: controller.signal });
       initialized = true;
       const result = await transport.call<unknown>(

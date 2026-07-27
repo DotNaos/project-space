@@ -117,6 +117,19 @@ describe('connector topology metadata', () => {
     const valid = registry('topology-protocol');
     valid.connector.environment = { kind: 'windows', label: 'Windows 11' };
     valid.connector.executionScopeId = 'office-pc';
+    valid.connector.daemon = {
+      authenticated: true,
+      checkedAt: '2026-07-17T00:00:00.000Z',
+      compatible: true,
+      environmentId: 'env_os_pc',
+      installed: true,
+      paired: true,
+      reachable: true,
+      remoteControlEnabled: true,
+      remoteControlState: 'connected',
+      running: true,
+      state: 'ready'
+    };
     expect(isConnectorProjectRegistryPayload(valid)).toBe(true);
 
     expect(isConnectorProjectRegistryPayload({
@@ -126,6 +139,13 @@ describe('connector topology metadata', () => {
     expect(isConnectorProjectRegistryPayload({
       ...valid,
       connector: { ...valid.connector, executionScopeId: '../office-pc' }
+    })).toBe(false);
+    expect(isConnectorProjectRegistryPayload({
+      ...valid,
+      connector: {
+        ...valid.connector,
+        daemon: { ...valid.connector.daemon, authenticated: false }
+      }
     })).toBe(false);
   });
 

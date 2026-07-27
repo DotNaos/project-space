@@ -23,6 +23,11 @@ ambiguous, manually blocked, rollback, rolled-back, and recovery-required
 outcomes. Structured output uses the same states and evidence as the
 human-readable result.
 
+For Codex machine tasks, this separately reports the managed App Server
+daemon, version compatibility, account authorization, Remote Control, and
+pairing/reachability. A healthy connector alone is not enough to call the
+machine ready.
+
 Other machine commands use the same readiness model. When a prerequisite is
 unhealthy, they stop and point back to the matching Doctor command rather than
 trying to repair it themselves.
@@ -54,6 +59,13 @@ Repeated `--fix` calls converge safely. An active operation is reported as
 `repairing`; an already-ready machine changes nothing; a failed or rolled-back
 operation remains an honest blocked result.
 
+On a signed managed connector, Doctor may copy the release-pinned Codex binary
+into Codex's managed standalone location, enable Remote Control, and start or
+restart the daemon. The operation is signed, generation-bound, allowlisted,
+and durable by operation ID. It does not run `bootstrap`, enable an updater,
+or download a different binary. The daemon continues to use the machine's
+existing `CODEX_HOME`, credentials, configuration, and thread database.
+
 Doctor may offer safe connector maintenance while readiness is
 `manually-blocked`, but it reports the final repair outcome as `blocked` unless
 the re-check actually proves the full machine ready.
@@ -62,9 +74,9 @@ the re-check actually proves the full machine ready.
 
 Doctor does not open a general remote shell, edit `PATH`, download arbitrary
 artifacts, request `sudo` or administrator access, or invent platform-specific
-setup. If the managed connector is current but Codex is still unavailable,
-Doctor reports `manually-blocked` because Project Space does not yet provide a
-signed managed Codex installation channel.
+setup. Doctor reports `manually-blocked` when the remaining step needs the
+user, such as Codex Desktop Remote Control pairing, or when no signed managed
+installation channel exists for the selected platform.
 
 The result names the next supported Project action. It does not prescribe
 manual remote setup for cases Project Space cannot repair safely.

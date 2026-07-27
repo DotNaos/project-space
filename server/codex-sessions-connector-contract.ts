@@ -30,6 +30,10 @@ import type {
   CodexMachineTaskConnectorStartRequest,
   CodexMachineTaskConnectorStartResult
 } from '../src/shared/codex-machine-tasks-api';
+import type {
+  CodexDaemonConnectorRequest,
+  CodexDaemonConnectorResult
+} from '../src/shared/codex-daemon-api';
 import { canonicalJson } from './codex-sessions/canonical-json';
 
 export const CODEX_SESSIONS_CONNECTOR_CAPABILITY = 'codex.sessions.v1';
@@ -52,6 +56,7 @@ export type CodexSessionsConnectorOperation =
   | 'authorization'
   | 'browser'
   | 'continue'
+  | 'daemon'
   | 'inspect'
   | 'input'
   | 'interrupt'
@@ -71,6 +76,7 @@ type CodexSessionsConnectorPayload =
   | CodexSessionListRequest
   | CodexSessionReadRequest
   | CodexMachineTaskConnectorStartRequest
+  | CodexDaemonConnectorRequest
   | CodexSessionUserInputResponse;
 
 export interface CodexSessionsCommandGrant {
@@ -105,6 +111,7 @@ export type CodexSessionsWireResult =
   | { operation: 'list'; result: CodexSessionListResult }
   | { operation: 'read'; result: CodexSessionReadResult }
   | { operation: 'inspect'; result: CodexSessionInspectResult }
+  | { operation: 'daemon'; result: CodexDaemonConnectorResult }
   | { operation: 'start'; result: CodexMachineTaskConnectorStartResult }
   | {
       operation: 'approval' | 'continue' | 'input' | 'interrupt';
@@ -263,7 +270,7 @@ export function isCodexSessionsWireRequest(value: unknown): value is CodexSessio
     typeof grant.payloadSha256 === 'string' && /^[0-9a-f]{64}$/.test(grant.payloadSha256) &&
     typeof grant.generation === 'number' && Number.isSafeInteger(grant.generation) && grant.generation >= 0 &&
     typeof grant.operation === 'string' && [
-      'approval', 'attach', 'authorization', 'browser', 'continue', 'inspect', 'input',
+      'approval', 'attach', 'authorization', 'browser', 'continue', 'daemon', 'inspect', 'input',
       'interrupt', 'list', 'read', 'start', 'stream'
     ].includes(grant.operation) &&
     boundedIdentifier(grant.machineId, 256) && boundedIdentifier(grant.userId, 256) &&
@@ -301,6 +308,11 @@ function boundedPayload(operation: CodexSessionsConnectorOperation, payload: Rec
   }
   if (JSON.stringify(payload).length > 24_000) return false;
   switch (operation) {
+    case 'daemon':
+      return hasOnlyKeys(payload, ['machineId', 'operation', 'operationId']) &&
+        boundedIdentifier(payload.operationId, 128) &&
+        typeof payload.operation === 'string' &&
+        ['ensure', 'restart', 'status'].includes(payload.operation);
     case 'authorization':
       return hasOnlyKeys(payload, ['action', 'machineId', 'operationId']) &&
         boundedIdentifier(payload.operationId, 128) &&

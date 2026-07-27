@@ -176,6 +176,7 @@ export async function getRegisteredConnectorMachines(): Promise<MachineRecord[]>
     battery: registry.connector.battery,
     connector: {
       capabilities,
+      daemon: registry.connector.daemon,
       installCommand: 'project-space-connector',
       lastSeen: receivedAt,
       origin: registry.connector.origin,

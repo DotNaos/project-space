@@ -113,6 +113,32 @@ func TestClientRejectsUnauthorizedAndInvalidResponses(t *testing.T) {
 	}
 }
 
+func TestCodexDaemonEvidenceRejectsContradictoryReadyState(t *testing.T) {
+	evidence := CodexDaemonEvidence{
+		Authenticated:        true,
+		CheckedAt:            "2026-07-24T00:00:00.000Z",
+		Compatible:           true,
+		EnvironmentID:        "env_os_pc",
+		Installed:            true,
+		Paired:               true,
+		Reachable:            true,
+		RemoteControlEnabled: true,
+		RemoteControlState:   "connected",
+		Running:              true,
+		State:                "ready",
+	}
+	if !validCodexDaemonEvidence(evidence) {
+		t.Fatal("complete ready evidence was rejected")
+	}
+	if codexDaemonResultState(evidence) != "completed" {
+		t.Fatal("ready evidence did not require a completed result")
+	}
+	evidence.Authenticated = false
+	if validCodexDaemonEvidence(evidence) {
+		t.Fatal("contradictory ready evidence was accepted")
+	}
+}
+
 func resultFixture(state State) Result {
 	return Result{
 		APIVersion: APIVersion,

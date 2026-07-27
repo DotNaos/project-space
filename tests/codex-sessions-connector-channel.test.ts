@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 import { generateKeyPairSync } from 'node:crypto';
 
 import { describe, expect, test } from 'bun:test';
@@ -7,12 +6,14 @@ import { WebSocket } from 'ws';
 import {
   CODEX_BROWSER_MAXIMUM_IMAGE_BYTES
 } from '../src/shared/codex-sessions-api';
+import { CODEX_DAEMON_CONNECTOR_CAPABILITY } from '../src/shared/codex-daemon-api';
 import {
   CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY,
+  CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY,
   createCodexSessionsWireRequest
 } from '../server/codex-sessions-connector-contract';
 import {
@@ -21,6 +22,7 @@ import {
   type ConnectorHubMessage
 } from '../server/connector-command-protocol';
 import {
+  connectorHasCapability,
   registerConnectorSession,
   removeConnectorSession
 } from '../server/connector-command-session-registry';
@@ -38,7 +40,6 @@ import {
 } from '../server/codex-sessions/connector-hub';
 import type { CodexSessionEventListener } from '../server/codex-sessions/contracts';
 import type { CodexSessionManager } from '../server/codex-sessions/manager';
-import { defaultCodexAppServerBinary } from '../server/codex-sessions/stdio-transport';
 import { createLocalProjectSpaceBackend } from '../server/local-project-space-backend';
 
 const keys = generateKeyPairSync('ed25519');
@@ -219,6 +220,123 @@ describe('Codex sessions connector channel', () => {
       const arbitrary = structuredClone(command) as unknown as { payload: Record<string, unknown> };
       arbitrary.payload.method = 'shell/execute';
       expect(isConnectorMachineMessage(arbitrary)).toBe(false);
+    } finally {
+      removeConnectorSession(machineId, socket);
+    }
+  });
+
+  test('accepts daemon results only for the exact requested lifecycle operation', async () => {
+    const { sent, socket } = fakeSocket([
+      CODEX_DAEMON_CONNECTOR_CAPABILITY,
+      CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY
+    ]);
+    try {
+      const pending = requestConnectorCodexSessions('daemon', {
+        machineId,
+        operation: 'ensure',
+        operationId: 'operation-daemon-ensure'
+      }, {
+        now,
+        operationId: 'operation-daemon-ensure',
+        signingKey: keys.privateKey,
+        userId: 'user-owner'
+      });
+      const command = sent[0] as {
+        id: string;
+        payload: ReturnType<typeof createCodexSessionsWireRequest>;
+      };
+      const daemonResult = {
+        evidence: {
+          authenticated: true,
+          checkedAt: new Date(now).toISOString(),
+          compatible: true,
+          environmentId: 'env_os_pc',
+          installed: true,
+          paired: true,
+          reachable: true,
+          remoteControlEnabled: true,
+          remoteControlState: 'connected' as const,
+          running: true,
+          state: 'ready' as const
+        },
+        operation: 'restart' as 'ensure' | 'restart',
+        operationId: 'operation-daemon-ensure',
+        state: 'completed' as const
+      };
+      const message = {
+        id: command.id,
+        payload: {
+          binding: bindingForCodexSessionsRequest(command.payload),
+          result: { operation: 'daemon' as const, result: daemonResult }
+        },
+        type: 'codex.sessions.result' as const
+      };
+      const contradictory = structuredClone(message);
+      contradictory.payload.result.result.evidence.authenticated = false;
+      expect(isConnectorHubMessage(contradictory)).toBe(false);
+      const contradictoryState = structuredClone(message);
+      contradictoryState.payload.result.result.state = 'blocked';
+      expect(isConnectorHubMessage(contradictoryState)).toBe(false);
+
+      handleCodexSessionsConnectorMessage(machineId, message);
+      expect(await Promise.race([
+        pending.then(() => 'resolved'),
+        Bun.sleep(5).then(() => 'pending')
+      ])).toBe('pending');
+
+      daemonResult.operation = 'ensure';
+      handleCodexSessionsConnectorMessage(machineId, message);
+      expect((await pending).result.operation).toBe('ensure');
+      expect(connectorHasCapability(machineId, CODEX_SESSIONS_CONNECTOR_CAPABILITY)).toBe(true);
+
+      const statusPending = requestConnectorCodexSessions('daemon', {
+        machineId,
+        operation: 'status',
+        operationId: 'operation-daemon-status'
+      }, {
+        now,
+        operationId: 'operation-daemon-status',
+        signingKey: keys.privateKey,
+        userId: 'user-owner'
+      });
+      const statusCommand = sent.at(-1) as {
+        id: string;
+        payload: ReturnType<typeof createCodexSessionsWireRequest>;
+      };
+      handleCodexSessionsConnectorMessage(machineId, {
+        id: statusCommand.id,
+        payload: {
+          binding: bindingForCodexSessionsRequest(statusCommand.payload),
+          result: {
+            operation: 'daemon',
+            result: {
+              evidence: {
+                authenticated: false,
+                checkedAt: new Date(now + 1).toISOString(),
+                cliVersion: '0.146.0',
+                compatible: false,
+                installed: true,
+                paired: false,
+                reachable: false,
+                remoteControlEnabled: false,
+                remoteControlState: 'unknown',
+                running: false,
+                state: 'stopped'
+              },
+              operation: 'status',
+              operationId: 'operation-daemon-status',
+              state: 'blocked'
+            }
+          }
+        },
+        type: 'codex.sessions.result'
+      });
+      await statusPending;
+      expect(connectorHasCapability(machineId, CODEX_SESSIONS_CONNECTOR_CAPABILITY)).toBe(false);
+      expect(connectorHasCapability(
+        machineId,
+        CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY
+      )).toBe(false);
     } finally {
       removeConnectorSession(machineId, socket);
     }
@@ -587,6 +705,62 @@ describe('Codex sessions connector dispatch', () => {
     dispatcher.close();
   });
 
+  test('publishes fresh registry evidence before returning a daemon result', async () => {
+    const order: string[] = [];
+    const dispatcher = new CodexSessionsConnectorDispatcher({
+      daemonManager: {
+        async execute(operation, operationId) {
+          return {
+            evidence: {
+              authenticated: true,
+              checkedAt: new Date().toISOString(),
+              compatible: true,
+              environmentId: 'env_os_pc',
+              installed: true,
+              paired: true,
+              reachable: true,
+              remoteControlEnabled: true,
+              remoteControlState: 'connected',
+              running: true,
+              state: 'ready'
+            },
+            operation,
+            operationId,
+            state: 'completed'
+          };
+        }
+      },
+      expectedMachineId: machineId,
+      manager: new DispatchManager() as unknown as CodexSessionManager,
+      onDaemonChanged: async () => {
+        order.push('registry');
+      },
+      verificationKey: keys.publicKey
+    });
+    dispatcher.setExpectedGeneration(22);
+    const request = createCodexSessionsWireRequest({
+      generation: 22,
+      operation: 'daemon',
+      operationId: 'operation-daemon-publish',
+      payload: {
+        machineId,
+        operation: 'ensure',
+        operationId: 'operation-daemon-publish'
+      },
+      userId: 'user-owner'
+    }, keys.privateKey, { nonce: 'nonce-daemon-publish', now: Date.now() });
+
+    dispatcher.dispatch('command-daemon-publish', request, () => {
+      order.push('result');
+    }, () => {
+      throw new Error('daemon grant was rejected');
+    });
+    await Bun.sleep(0);
+
+    expect(order).toEqual(['registry', 'result']);
+    dispatcher.close();
+  });
+
   test('emits bound results and closes authorization failures', async () => {
     const manager = new DispatchManager();
     const dispatcher = new CodexSessionsConnectorDispatcher({
@@ -666,18 +840,24 @@ describe('Codex sessions connector dispatch', () => {
 });
 
 describe('Codex sessions connector capability', () => {
-  test('advertises the capability only when the bundled App Server exists', async () => {
+  test('advertises sessions only when the shared managed daemon is ready', async () => {
     const backend = createLocalProjectSpaceBackend({ connectorMachineId: machineId });
     const registry = await backend.getConnectorProjectRegistry();
+    expect(registry.connector.capabilities?.includes(CODEX_DAEMON_CONNECTOR_CAPABILITY))
+      .toBe(
+        process.platform === 'linux' &&
+        process.env.PROJECT_SPACE_INSTALL_SOURCE === 'managed'
+      );
+    const sharedReady = registry.connector.daemon?.state === 'ready';
     expect(registry.connector.capabilities?.includes(CODEX_SESSIONS_CONNECTOR_CAPABILITY))
-      .toBe(existsSync(defaultCodexAppServerBinary));
+      .toBe(sharedReady);
     expect(registry.connector.capabilities?.includes(CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY))
-      .toBe(existsSync(defaultCodexAppServerBinary));
+      .toBe(sharedReady);
     expect(registry.connector.capabilities?.includes(CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY))
-      .toBe(existsSync(defaultCodexAppServerBinary));
+      .toBe(sharedReady);
     expect(registry.connector.capabilities?.includes(CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY))
-      .toBe(existsSync(defaultCodexAppServerBinary));
+      .toBe(sharedReady);
     expect(registry.connector.capabilities?.includes(CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY))
-      .toBe(existsSync(defaultCodexAppServerBinary));
+      .toBe(sharedReady);
   }, 15_000);
 });

@@ -22,6 +22,10 @@ import type {
   TerminalCommandResult
 } from '../src/shared/project-space-api';
 import {
+  codexDaemonEvidenceIsConsistent,
+  type CodexDaemonEvidence
+} from '../src/shared/codex-daemon-api';
+import {
   isConnectorDevServerResult,
   isConnectorDevServerListResult,
   isConnectorDevServerListWireRequest,
@@ -315,6 +319,7 @@ function hasConnectorMetadata(connector: Record<string, unknown>) {
     hasOnlyKeys(connector, [
       'battery',
       'capabilities',
+      'daemon',
       'environment',
       'executionScopeId',
       'kind',
@@ -329,6 +334,7 @@ function hasConnectorMetadata(connector: Record<string, unknown>) {
     isCanonicalMachineId(connector.machineId) &&
     isBoundedMetadata(connector.machineName) &&
     hasBatteryMetadata(connector.battery) &&
+    hasCodexDaemonEvidence(connector.daemon) &&
     (connector.environment === undefined ||
       isConnectorEnvironmentRecord(connector.environment)) &&
     (connector.executionScopeId === undefined ||
@@ -341,6 +347,30 @@ function hasConnectorMetadata(connector: Record<string, unknown>) {
     validKind &&
     validCapabilities
   );
+}
+
+function hasCodexDaemonEvidence(value: unknown) {
+  if (value === undefined) return true;
+  if (!isRecord(value) || !hasOnlyKeys(value, [
+    'appServerVersion', 'authenticated', 'checkedAt', 'cliVersion', 'compatible',
+    'environmentId', 'installed', 'paired', 'reachable', 'remoteControlEnabled',
+    'remoteControlState', 'running', 'state'
+  ])) return false;
+  return typeof value.checkedAt === 'string' &&
+    Number.isFinite(Date.parse(value.checkedAt)) &&
+    [
+      value.authenticated, value.compatible, value.installed, value.paired,
+      value.reachable, value.remoteControlEnabled, value.running
+    ].every((entry) => typeof entry === 'boolean') &&
+    ['disabled', 'connecting', 'connected', 'errored', 'unknown']
+      .includes(String(value.remoteControlState)) &&
+    [
+      'ready', 'missing', 'stopped', 'incompatible', 'authorization-required',
+      'remote-control-disabled', 'pairing-required', 'connecting', 'unsupported', 'uncertain'
+    ].includes(String(value.state)) &&
+    [value.appServerVersion, value.cliVersion, value.environmentId]
+      .every((entry) => entry === undefined || isBoundedMetadata(entry, 256)) &&
+    codexDaemonEvidenceIsConsistent(value as unknown as CodexDaemonEvidence);
 }
 
 function hasProject(value: unknown) {

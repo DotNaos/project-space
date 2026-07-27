@@ -5,13 +5,25 @@ import type { CodexChildProcess, CodexProcessFactory, CodexRpcId } from './contr
 import { CodexOperationUncertainError } from './operation-ledger';
 import { resolveCodexBinary } from './binary-resolver';
 
-type RpcMessage = {
+export type RpcMessage = {
   error?: { code?: number; message?: string };
   id?: CodexRpcId;
   method?: string;
   params?: unknown;
   result?: unknown;
 };
+
+export interface CodexAppServerTransport {
+  readonly isOpen: boolean;
+  call<Result>(
+    method: string,
+    params?: unknown,
+    options?: { signal?: AbortSignal }
+  ): Promise<Result>;
+  close(): Promise<void>;
+  initialize(options?: { signal?: AbortSignal }): Promise<void>;
+  respond(id: CodexRpcId, result: unknown): Promise<void>;
+}
 
 type PendingCall = {
   method: string;

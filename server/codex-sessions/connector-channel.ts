@@ -17,6 +17,11 @@ import {
 } from '../../src/shared/codex-sessions-api';
 import type { CodexMachineTaskConnectorStartResult } from '../../src/shared/codex-machine-tasks-api';
 import type { CodexAuthorizationConnectorResult } from '../../src/shared/codex-authorization-api';
+import {
+  codexDaemonEvidenceIsConsistent,
+  codexDaemonResultStateForEvidence,
+  type CodexDaemonConnectorResult
+} from '../../src/shared/codex-daemon-api';
 
 export interface CodexSessionsCommandBinding {
   generation: number;
@@ -213,6 +218,12 @@ export function boundCodexSessionsResultMatchesRequest(
   if (value.result.operation === 'authorization') {
     return isAuthorizationResult(value.result.result as CodexAuthorizationConnectorResult);
   }
+  if (value.result.operation === 'daemon') {
+    const result = value.result.result as CodexDaemonConnectorResult;
+    const payload = request.payload as { operation: string };
+    return result.operationId === expected.operationId &&
+      result.operation === payload.operation;
+  }
   const result = value.result.result as CodexSessionOperationResult;
   return result.operationId === expected.operationId && result.threadId === expected.threadId;
 }
@@ -236,9 +247,45 @@ export function isBoundCodexSessionsResult(value: unknown): value is BoundCodexS
     return isInspectResult(result.result);
   }
   if (result.operation === 'authorization') return isAuthorizationResult(result.result);
+  if (result.operation === 'daemon') return isDaemonResult(result.result);
   if (result.operation === 'start') return isStartResult(result.result);
   return ['approval', 'continue', 'input', 'interrupt'].includes(result.operation) &&
     isOperationResult(result.result);
+}
+
+function isDaemonResult(value: unknown): value is CodexDaemonConnectorResult {
+  if (!smallRecord(value) || !hasOnlyKeys(value, [
+    'evidence', 'operation', 'operationId', 'state'
+  ]) || !smallRecord(value.evidence)) return false;
+  const evidence = value.evidence;
+  return identifier(value.operationId, 128) &&
+    ['ensure', 'restart', 'status'].includes(String(value.operation)) &&
+    ['completed', 'blocked', 'uncertain'].includes(String(value.state)) &&
+    hasOnlyKeys(evidence, [
+      'appServerVersion', 'authenticated', 'checkedAt', 'cliVersion', 'compatible',
+      'environmentId', 'installed', 'paired', 'reachable', 'remoteControlEnabled',
+      'remoteControlState', 'running', 'state'
+    ]) &&
+    typeof evidence.checkedAt === 'string' &&
+    Number.isFinite(Date.parse(evidence.checkedAt)) &&
+    [
+      evidence.authenticated, evidence.compatible, evidence.installed, evidence.paired,
+      evidence.reachable, evidence.remoteControlEnabled, evidence.running
+    ].every((entry) => typeof entry === 'boolean') &&
+    ['disabled', 'connecting', 'connected', 'errored', 'unknown']
+      .includes(String(evidence.remoteControlState)) &&
+    [
+      'ready', 'missing', 'stopped', 'incompatible', 'authorization-required',
+      'remote-control-disabled', 'pairing-required', 'connecting', 'unsupported', 'uncertain'
+    ].includes(String(evidence.state)) &&
+    [evidence.appServerVersion, evidence.cliVersion, evidence.environmentId]
+      .every((entry) => entry === undefined || identifier(entry, 256)) &&
+    codexDaemonEvidenceIsConsistent(
+      evidence as unknown as CodexDaemonConnectorResult['evidence']
+    ) &&
+    value.state === codexDaemonResultStateForEvidence(
+      evidence as unknown as CodexDaemonConnectorResult['evidence']
+    );
 }
 
 function isAuthorizationResult(value: unknown): value is CodexAuthorizationConnectorResult {
@@ -293,7 +340,7 @@ function isBinding(value: unknown): value is CodexSessionsCommandBinding {
     identifier(value.operationId, 128) &&
     (value.threadId === undefined || identifier(value.threadId, 128)) &&
     typeof value.operation === 'string' && [
-      'approval', 'attach', 'authorization', 'browser', 'continue', 'inspect', 'input',
+      'approval', 'attach', 'authorization', 'browser', 'continue', 'daemon', 'inspect', 'input',
       'interrupt', 'list', 'read', 'start', 'stream'
     ].includes(value.operation);
 }
