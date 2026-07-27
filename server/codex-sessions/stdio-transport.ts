@@ -35,10 +35,18 @@ export class CodexAppServerProtocolError extends Error {
 }
 
 export class CodexAppServerRequestError extends Error {
-  readonly code = 'codex_app_server_request_failed';
+  readonly code: string = 'codex_app_server_request_failed';
 
   constructor(readonly rpcCode?: number) {
     super('Codex app-server rejected the request.');
+  }
+}
+
+export class CodexThreadUnmaterializedError extends CodexAppServerRequestError {
+  readonly code = 'codex_thread_unmaterialized';
+
+  constructor() {
+    super(-32600);
   }
 }
 
@@ -207,7 +215,9 @@ export class CodexStdioTransport {
       const pending = this.takePending(message.id);
       if (!pending) return;
       if (message.error) {
-        pending.reject(new CodexAppServerRequestError(message.error.code));
+        pending.reject(isUnmaterializedThreadRead(pending.method, message.error)
+          ? new CodexThreadUnmaterializedError()
+          : new CodexAppServerRequestError(message.error.code));
       } else if ('result' in message) {
         pending.resolve(message.result);
       } else {
@@ -273,4 +283,15 @@ export class CodexStdioTransport {
     if (pending.signalAbort) pending.signal?.removeEventListener('abort', pending.signalAbort);
     return pending;
   }
+}
+
+function isUnmaterializedThreadRead(
+  method: string,
+  error: { code?: number; message?: string }
+) {
+  return method === 'thread/read' &&
+    error.code === -32600 &&
+    typeof error.message === 'string' &&
+    /^thread [A-Za-z0-9][A-Za-z0-9._:@+-]{0,127} is not materialized yet; includeTurns is unavailable before first user message$/
+      .test(error.message);
 }

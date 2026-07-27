@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { createLocalCodexMachineTaskStarter } from '../server/codex-machine-tasks/connector-starter';
+import { CodexThreadUnmaterializedError } from '../server/codex-sessions/stdio-transport';
 
 const threadId = '019f6d33-6aad-7302-a45e-bb7a33fc399c';
 const request = {
@@ -26,10 +27,7 @@ describe('Codex machine-task connector starter', () => {
       },
       async readThread() {
         calls.push({ kind: 'read' });
-        throw new Error(
-          `thread ${threadId} is not materialized yet; ` +
-          'includeTurns is unavailable before first user message'
-        );
+        throw new CodexThreadUnmaterializedError();
       },
       async startThread(input: unknown) {
         calls.push({ kind: 'thread', input });

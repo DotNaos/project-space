@@ -5,6 +5,7 @@ import type {
 } from './contracts';
 import type { CodexSessionManager } from './manager';
 import { CodexOperationUncertainError } from './operation-ledger';
+import { CodexThreadUnmaterializedError } from './stdio-transport';
 import { validateIdentifier } from './validation';
 
 type ReconciledTurnManager = Pick<
@@ -76,9 +77,7 @@ async function readThreadForReconciliation(
 }
 
 function isUnmaterializedThread(error: unknown) {
-  return error instanceof Error && error.message.includes(
-    'is not materialized yet; includeTurns is unavailable before first user message'
-  );
+  return error instanceof CodexThreadUnmaterializedError;
 }
 
 function turnsWithPrompt(result: ReconciliationThread, prompt: string) {
