@@ -1,7 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 
 import { createConnectorCommandUpgradeHandler } from './connector-command-hub';
-import { getRegisteredConnectorMachines } from './connector-hub';
 import { createAuthorizedProjectSpaceBackend } from './authorized-project-space-backend';
 import { connectorInstallScript, requestPublicOrigin } from './connector-installation';
 import { resolveConnectorMachineTokenIdentity } from './connector-registration-auth';
@@ -159,12 +158,10 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
         : null;
       return machineIdentity ?? resolveConnectorMachineTokenIdentity(token, machineId);
     },
-    async decideConnectorRuntimeMaintenance({ machineId }) {
+    async decideConnectorRuntimeMaintenance({ machine }) {
       const decideReconnect = (backend as Partial<LocalProjectSpaceBackend>).decideReconnect;
       if (!decideReconnect) return undefined;
-      const machine = (await getRegisteredConnectorMachines())
-        .find((candidate) => candidate.id === machineId);
-      return machine ? decideReconnect(machine) : undefined;
+      return decideReconnect(machine);
     }
   });
   const codexAttach = createCodexAttachUpgradeHandler(codexAttachLeases);

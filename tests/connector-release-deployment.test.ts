@@ -89,11 +89,11 @@ describe('connector release and production deployment contract', () => {
     const windowsPackaging = await source('packaging/windows/test-release-packaging.ps1');
     const windowsDocumentation = await source('docs/windows-installation.md');
 
-    expect(packageJson.version).toBe('0.4.35');
-    expect(buildInfo).toContain("const developmentVersion = '0.4.35';");
-    expect(windowsPackaging).toContain("$version = '0.4.35'");
-    expect(windowsPackaging).toContain('/releases/download/v0.4.35/');
-    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.35');
+    expect(packageJson.version).toBe('0.4.36');
+    expect(buildInfo).toContain("const developmentVersion = '0.4.36';");
+    expect(windowsPackaging).toContain("$version = '0.4.36'");
+    expect(windowsPackaging).toContain('/releases/download/v0.4.36/');
+    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.36');
     expect(linuxCodexPreparation).toContain('codex_version=0.145.0');
     expect(linuxCodexPreparation).not.toMatch(/releases\/latest|\/latest\//);
     expect(linuxCodexSmoke).toContain("import { CodexStdioTransport }");

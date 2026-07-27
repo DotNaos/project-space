@@ -4,12 +4,18 @@ import type { Duplex } from 'node:stream';
 
 import { WebSocket, WebSocketServer } from 'ws';
 
-import type { ConnectorProjectRegistryResult } from '../src/shared/project-space-api';
+import type {
+  ConnectorProjectRegistryResult,
+  MachineRecord
+} from '../src/shared/project-space-api';
 import {
   sameMachineConnectorProfile,
   type MachineConnectorProfile
 } from './machine-connection-contract';
-import { registerConnectorProjectRegistry } from './connector-hub';
+import {
+  connectorMachineForRegistry,
+  registerConnectorProjectRegistry
+} from './connector-hub';
 import {
   isConnectorHubMessage,
   parseConnectorMessage,
@@ -46,6 +52,7 @@ export interface ConnectorCommandUpgradeHandlerOptions {
   credentialRevalidationIntervalMs?: number;
   decideConnectorRuntimeMaintenance?(input: {
     machineId: string;
+    machine: MachineRecord;
     registry: ConnectorProjectRegistryResult;
   }): Promise<ConnectorRuntimeMaintenanceDecision | undefined>;
 }
@@ -130,11 +137,13 @@ export function createConnectorCommandUpgradeHandlerCore(
 
     async function decideMaintenance(
       requestedMachineId: string,
-      registry: ConnectorProjectRegistryResult
+      registry: ConnectorProjectRegistryResult,
+      machine: MachineRecord
     ) {
       const evidence = connectorRuntimeMaintenanceEvidence(registry);
       if (!evidence) return undefined;
       const decision = await options.decideConnectorRuntimeMaintenance?.({
+        machine,
         machineId: requestedMachineId,
         registry
       });
@@ -168,15 +177,27 @@ export function createConnectorCommandUpgradeHandlerCore(
           return;
         }
 
+        let registeredMachine: MachineRecord;
         try {
-          await registerConnectorProjectRegistry(message.payload, identity.connectorProfile);
+          await registerConnectorProjectRegistry(
+            message.payload,
+            identity.connectorProfile
+          );
+          registeredMachine = connectorMachineForRegistry(
+            message.payload,
+            identity.connectorProfile
+          );
         } catch {
           socket.close(1008, 'Connector registration failed.');
           return;
         }
         let maintenance: ConnectorRuntimeMaintenanceDecision | undefined;
         try {
-          maintenance = await decideMaintenance(requestedMachineId, message.payload);
+          maintenance = await decideMaintenance(
+            requestedMachineId,
+            message.payload,
+            registeredMachine
+          );
         } catch {
           socket.close(1008, 'Connector runtime maintenance decision failed.');
           return;
@@ -224,14 +245,19 @@ export function createConnectorCommandUpgradeHandlerCore(
         if (!(await revalidateCredential()) || socket.readyState !== WebSocket.OPEN) {
           return;
         }
+        let registeredMachine: MachineRecord;
         try {
-          await registerConnectorProjectRegistry(message.payload, connectorProfile);
+          await registerConnectorProjectRegistry(
+            message.payload,
+            connectorProfile
+          );
+          registeredMachine = connectorMachineForRegistry(message.payload, connectorProfile);
         } catch {
           socket.close(1008, 'Connector registry profile changed.');
           return;
         }
         try {
-          await decideMaintenance(machineId, message.payload);
+          await decideMaintenance(machineId, message.payload, registeredMachine);
         } catch {
           socket.close(1008, 'Connector runtime maintenance decision failed.');
           return;

@@ -164,15 +164,18 @@ export async function getRegisteredConnectorRegistries() {
   );
 }
 
-export async function getRegisteredConnectorMachines(): Promise<MachineRecord[]> {
-  return (await getRegisteredConnectorRegistries()).map(({ connectorProfile, receivedAt, registry }) => {
-    const online = isFresh({ firstSeenAt: receivedAt, receivedAt, registry });
-    const capabilities = registry.connector.capabilities ?? [];
-    const supportsRuntimeMaintenance = Boolean(registry.connector.runtime) &&
-      capabilities.includes('runtime.restart') &&
-      capabilities.includes('runtime.update');
-    const reportedOsFamily = connectorReportedOsFamily(registry);
-    return ({
+function registeredConnectorMachine({
+  connectorProfile,
+  receivedAt,
+  registry
+}: RegisteredConnector): MachineRecord {
+  const online = isFresh({ firstSeenAt: receivedAt, receivedAt, registry });
+  const capabilities = registry.connector.capabilities ?? [];
+  const supportsRuntimeMaintenance = Boolean(registry.connector.runtime) &&
+    capabilities.includes('runtime.restart') &&
+    capabilities.includes('runtime.update');
+  const reportedOsFamily = connectorReportedOsFamily(registry);
+  return {
     battery: registry.connector.battery,
     connector: {
       capabilities,
@@ -202,8 +205,24 @@ export async function getRegisteredConnectorMachines(): Promise<MachineRecord[]>
     primaryUser: registry.connector.primaryUser,
     roles: ['connector'],
     sourcePath: connectorHubSourcePath
-    });
+  };
+}
+
+export function connectorMachineForRegistry(
+  registry: ConnectorProjectRegistryResult,
+  connectorProfile?: MachineConnectorProfile,
+  receivedAt = nowIso()
+) {
+  return registeredConnectorMachine({
+    connectorProfile,
+    firstSeenAt: receivedAt,
+    receivedAt,
+    registry
   });
+}
+
+export async function getRegisteredConnectorMachines(): Promise<MachineRecord[]> {
+  return (await getRegisteredConnectorRegistries()).map(registeredConnectorMachine);
 }
 
 export async function getRegisteredConnectorDiscovery(): Promise<ProjectDiscoveryResult> {

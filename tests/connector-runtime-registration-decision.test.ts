@@ -236,9 +236,11 @@ describe('connector runtime reconnect decisions', () => {
     let decisionCalls = 0;
     const hub = await listeningServer({
       async authenticateConnectorCredential() { return true; },
-      async decideConnectorRuntimeMaintenance({ registry: registered }) {
+      async decideConnectorRuntimeMaintenance({ machine, registry: registered }) {
         decisionCalls += 1;
         expect(registered.connector.runtime?.buildId).toBe('1'.repeat(40));
+        expect(machine.connector.runtime).toEqual(registered.connector.runtime);
+        expect(machine.connector.capabilities).toEqual(registered.connector.capabilities);
         return { action: 'commit', operationId: 'operation-bridge' };
       }
     });
