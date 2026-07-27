@@ -159,6 +159,7 @@ function evaluateConnector(
   }
   const capabilities = [...new Set(connector.connector.capabilities ?? [])].sort();
   const runtime = runtimeStatus?.runtime ?? connector.connector.runtime;
+  const update = runtimeStatus?.update;
   const operation = runtimeStatus?.update.operation;
   const action = repairAction(connectorId, runtimeStatus);
   const common = {
@@ -190,7 +191,13 @@ function evaluateConnector(
     return { check: { ...common, state: 'rolled-back',
       summary: 'The prior managed repair rolled back.' }, operation };
   }
-  if (operation?.state === 'failed') {
+  const provenFailedUpdateRetry = operation?.state === 'failed' &&
+    operation.operation === 'update' &&
+    operation.lastFailure?.code === 'download-failed' &&
+    operation.lastFailure.rollbackAvailable === false &&
+    update?.retryEvidence === 'exact-preinstall-download-failure' &&
+    action?.kind === 'update-connector';
+  if (operation?.state === 'failed' && !provenFailedUpdateRetry) {
     return { check: { ...common, state: 'failed',
       summary: 'The prior managed repair failed.' }, operation };
   }
@@ -200,7 +207,6 @@ function evaluateConnector(
   }
 
   const codexReady = capabilities.includes(codexCapability) && generation !== undefined;
-  const update = runtimeStatus?.update;
   const daemon = connector.connector.daemon;
   if (capabilities.includes(codexDaemonCapability)) {
     if (!daemon) {

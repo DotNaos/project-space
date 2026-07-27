@@ -161,7 +161,7 @@ function expectedFingerprint(
       ? {
         buildId: release.manifest.buildId,
         bundleVersions: { ...release.artifact.bundleVersions },
-        capabilities: [...release.artifact.capabilities],
+        capabilities: [...release.artifact.capabilities].sort(),
         instanceId: runtime.instanceId,
         protocolVersion: release.artifact.protocolVersion,
         releaseId: release.manifest.releaseId,

@@ -108,6 +108,7 @@ export interface ConnectorRuntimeUpdateRecord {
   lastCheckedAt?: string;
   lastFailure?: ConnectorRuntimeFailure;
   operation?: ConnectorRuntimeOperationRecord;
+  retryEvidence?: 'exact-preinstall-download-failure';
   state: ConnectorRuntimeState;
 }
 

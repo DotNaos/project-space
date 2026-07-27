@@ -144,6 +144,54 @@ export function connectorRuntimeRollbackAllowsRelease(
     releaseId !== targetReleaseIds[0];
 }
 
+function fingerprintsEqual(
+  left: ConnectorRuntimeFingerprint,
+  right: ConnectorRuntimeFingerprint
+) {
+  return left.buildId === right.buildId &&
+    left.version === right.version &&
+    left.protocolVersion === right.protocolVersion &&
+    left.releaseId === right.releaseId &&
+    left.instanceId === right.instanceId &&
+    left.bundleVersions.connector === right.bundleVersions.connector &&
+    left.bundleVersions.machineTools === right.bundleVersions.machineTools &&
+    left.bundleVersions.projectCli === right.bundleVersions.projectCli &&
+    left.capabilities.length === right.capabilities.length &&
+    left.capabilities.every((capability, index) => capability === right.capabilities[index]);
+}
+
+function failedUpdateCanRetry(
+  operation: ConnectorRuntimeOperationRecord | undefined,
+  runtime: ConnectorRuntimeRecord | undefined,
+  capabilities: readonly string[],
+  approved: ConnectorRuntimeApprovedRelease | undefined
+) {
+  const previous = operation?.previousFingerprint;
+  const expected = operation?.expectedFingerprint;
+  if (operation?.state !== 'failed' || operation.operation !== 'update' ||
+      operation.lastFailure?.code !== 'download-failed' ||
+      operation.lastFailure.rollbackAvailable || !runtime || !approved ||
+      !previous || !expected ||
+      previous.instanceId !== operation.previousInstanceId) return false;
+  const current = connectorRuntimeFingerprint(runtime, capabilities);
+  const approvedExpected: ConnectorRuntimeFingerprint = {
+    buildId: approved.manifest.buildId,
+    bundleVersions: { ...approved.artifact.bundleVersions },
+    capabilities: [...approved.artifact.capabilities].sort(),
+    instanceId: previous.instanceId,
+    protocolVersion: approved.artifact.protocolVersion,
+    releaseId: approved.manifest.releaseId,
+    version: approved.manifest.version
+  };
+  const sameApprovedRelease = approved.manifest.releaseId === expected.releaseId;
+  return fingerprintsEqual(current, previous) &&
+    operation.expectedBuildId === expected.buildId &&
+    operation.expectedReleaseId === expected.releaseId &&
+    (sameApprovedRelease
+      ? fingerprintsEqual(expected, approvedExpected)
+      : approved.manifest.buildId !== expected.buildId);
+}
+
 function supportsManagedUpdate(machine: MachineRecord, runtime: ConnectorRuntimeRecord) {
   const capabilities = machine.connector.capabilities ?? [];
   const targetSupported =
@@ -164,7 +212,15 @@ export function projectMachineRuntimeStatus(input: {
   const runtime = machine.connector.runtime;
   const operation = input.operation ?? undefined;
   const completedRollback = operation?.state === 'rolled-back';
-  const activeState = operation && !completedRollback ? progressState(operation) : undefined;
+  const retryableFailure = failedUpdateCanRetry(
+    operation,
+    runtime,
+    capabilities,
+    approved
+  );
+  const activeState = operation && !completedRollback && !retryableFailure
+    ? progressState(operation)
+    : undefined;
   const base = {
     capabilities,
     machineId: machine.id,
@@ -239,6 +295,9 @@ export function projectMachineRuntimeStatus(input: {
     update: {
       ...base.update,
       ...releaseDetails,
+      ...(retryableFailure
+        ? { retryEvidence: 'exact-preinstall-download-failure' as const }
+        : {}),
       state: incompatible ? 'update-required' : 'update-available'
     }
   };

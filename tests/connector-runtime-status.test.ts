@@ -222,6 +222,87 @@ describe('connector runtime status', () => {
     });
   });
 
+  test('retries only an unchanged exact target after a pre-install download failure', () => {
+    const expected = connectorRuntimeFingerprint({
+      ...runtime,
+      buildId: approved.manifest.buildId,
+      bundleVersions: approved.artifact.bundleVersions,
+      releaseId: approved.manifest.releaseId,
+      version: approved.manifest.version
+    }, approved.artifact.capabilities);
+    const failed = {
+      ...operation('failed'),
+      expectedBuildId: approved.manifest.buildId,
+      expectedFingerprint: expected,
+      expectedReleaseId: approved.manifest.releaseId,
+      lastFailure: {
+        at: '2026-07-14T00:00:01.000Z',
+        code: 'download-failed',
+        message: 'The connector could not download the signed release.',
+        rollbackAvailable: false
+      },
+      previousFingerprint: connectorRuntimeFingerprint(runtime, capabilities),
+      previousInstanceId: runtime.instanceId
+    };
+    expect(projectMachineRuntimeStatus({
+      approved, machine: machine(), operation: failed
+    }).update).toMatchObject({
+      retryEvidence: 'exact-preinstall-download-failure',
+      state: 'update-available'
+    });
+    expect(projectMachineRuntimeStatus({
+      approved,
+      machine: machine({ connector: {
+        capabilities,
+        installCommand: 'connector',
+        runtime: { ...runtime, buildId: 'f'.repeat(40) },
+        status: 'online'
+      } }),
+      operation: failed
+    }).update.state).toBe('failed');
+    expect(projectMachineRuntimeStatus({
+      approved,
+      machine: machine(),
+      operation: {
+        ...failed,
+        lastFailure: { ...failed.lastFailure, code: 'wrong-reconnect-version' }
+      }
+    }).update.state).toBe('failed');
+    expect(projectMachineRuntimeStatus({
+      approved: {
+        ...approved,
+        manifest: { ...approved.manifest, buildId: '2'.repeat(40) }
+      },
+      machine: machine(),
+      operation: failed
+    }).update.state).toBe('failed');
+    expect(projectMachineRuntimeStatus({
+      approved: {
+        artifact: {
+          ...approved.artifact,
+          assetName: 'project-space-machine-tools-darwin-arm64-v0.6.0.tar.gz',
+          bundleVersions: {
+            connector: '0.6.0', machineTools: '0.6.0', projectCli: '0.6.0'
+          },
+          downloadUrl:
+            'https://github.com/DotNaos/project-space/releases/download/v0.6.0/project-space-machine-tools-darwin-arm64-v0.6.0.tar.gz'
+        },
+        checkedAt: approved.checkedAt,
+        manifest: {
+          ...approved.manifest,
+          buildId: '2'.repeat(40),
+          releaseId: 'v0.6.0',
+          version: '0.6.0'
+        }
+      },
+      machine: machine(),
+      operation: failed
+    }).update).toMatchObject({
+      retryEvidence: 'exact-preinstall-download-failure',
+      state: 'update-available'
+    });
+  });
+
   test('does not retry the same or an unidentified rolled-back release', () => {
     expect(projectMachineRuntimeStatus({
       approved,
