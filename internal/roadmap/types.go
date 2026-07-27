@@ -3,6 +3,7 @@ package roadmap
 import (
 	"context"
 	"errors"
+	"net/http"
 )
 
 var (
@@ -84,4 +85,17 @@ func (failure *APIError) Error() string {
 		return failure.Message
 	}
 	return "Project Space rejected the roadmap request"
+}
+
+func (failure *APIError) Unwrap() error {
+	switch {
+	case failure.StatusCode == http.StatusUnauthorized ||
+		failure.StatusCode == http.StatusForbidden:
+		return ErrUnauthorized
+	case failure.StatusCode == http.StatusTooManyRequests ||
+		failure.StatusCode >= http.StatusInternalServerError:
+		return ErrUnavailable
+	default:
+		return nil
+	}
 }

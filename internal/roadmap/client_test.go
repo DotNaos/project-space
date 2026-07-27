@@ -154,6 +154,40 @@ func TestClientPreservesServerConflictMessage(t *testing.T) {
 	}
 }
 
+func TestClientClassifiesStructuredServerFailures(t *testing.T) {
+	for _, test := range []struct {
+		code     string
+		status   int
+		sentinel error
+	}{
+		{code: "github_auth_required", status: http.StatusUnauthorized, sentinel: ErrUnauthorized},
+		{code: "github_permission_denied", status: http.StatusForbidden, sentinel: ErrUnauthorized},
+		{code: "github_rate_limited", status: http.StatusTooManyRequests, sentinel: ErrUnavailable},
+		{code: "roadmap_unavailable", status: http.StatusServiceUnavailable, sentinel: ErrUnavailable},
+	} {
+		client := testClient(t, http.HandlerFunc(func(
+			response http.ResponseWriter,
+			_ *http.Request,
+		) {
+			response.WriteHeader(test.status)
+			_ = json.NewEncoder(response).Encode(map[string]any{
+				"error": map[string]string{
+					"code":    test.code,
+					"message": "Roadmap request failed.",
+				},
+			})
+		}))
+		_, err := client.Get(context.Background(), testRepository)
+		if !errors.Is(err, test.sentinel) {
+			t.Fatalf("status %d error = %#v, want %v", test.status, err, test.sentinel)
+		}
+		var failure *APIError
+		if !errors.As(err, &failure) || failure.Code != test.code {
+			t.Fatalf("status %d API error = %#v", test.status, err)
+		}
+	}
+}
+
 func TestClientRejectsIncompleteOrContradictoryGraphs(t *testing.T) {
 	for _, mutate := range []func(*Graph){
 		func(graph *Graph) { graph.Repository = "DotNaos/other" },

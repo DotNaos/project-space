@@ -16,6 +16,7 @@ type fakeRoadmapAPI struct {
 	addRequests     []roadmap.MutationRequest
 	getRepositories []string
 	graph           roadmap.Graph
+	mutationGraph   *roadmap.Graph
 	removeRequests  []roadmap.MutationRequest
 }
 
@@ -32,6 +33,9 @@ func (api *fakeRoadmapAPI) AddDependency(
 	request roadmap.MutationRequest,
 ) (roadmap.Graph, error) {
 	api.addRequests = append(api.addRequests, request)
+	if api.mutationGraph != nil {
+		return *api.mutationGraph, nil
+	}
 	return api.graph, nil
 }
 
@@ -40,6 +44,9 @@ func (api *fakeRoadmapAPI) RemoveDependency(
 	request roadmap.MutationRequest,
 ) (roadmap.Graph, error) {
 	api.removeRequests = append(api.removeRequests, request)
+	if api.mutationGraph != nil {
+		return *api.mutationGraph, nil
+	}
 	return api.graph, nil
 }
 
@@ -149,7 +156,14 @@ func TestRoadmapCommandUsesExplicitRepositoryAndWritesJSON(t *testing.T) {
 
 func TestRoadmapDependencyMutationsUseFreshRevisionAndRepeatRelationship(t *testing.T) {
 	for _, operation := range []string{"add", "remove"} {
-		api := &fakeRoadmapAPI{graph: roadmapCommandGraph()}
+		current := roadmapCommandGraph()
+		updated := current
+		if operation == "add" {
+			current.Edges = current.Edges[1:]
+		} else {
+			updated.Edges = updated.Edges[1:]
+		}
+		api := &fakeRoadmapAPI{graph: current, mutationGraph: &updated}
 		output, err := executeRoadmapCommand(
 			t,
 			api,
@@ -191,7 +205,13 @@ func TestRoadmapDependencyMutationsUseFreshRevisionAndRepeatRelationship(t *test
 }
 
 func TestRoadmapDependencySupportsExplicitCrossRepositoryBlocker(t *testing.T) {
-	api := &fakeRoadmapAPI{graph: roadmapCommandGraph()}
+	current := roadmapCommandGraph()
+	updated := current
+	updated.Edges = append(updated.Edges, roadmap.Edge{
+		From: roadmap.NodeReference{Number: 17, Repository: "DotNaos/platform"},
+		To:   roadmap.NodeReference{Number: 412, Repository: current.Repository},
+	})
+	api := &fakeRoadmapAPI{graph: current, mutationGraph: &updated}
 	output, err := executeRoadmapCommand(
 		t,
 		api,
@@ -214,6 +234,38 @@ func TestRoadmapDependencySupportsExplicitCrossRepositoryBlocker(t *testing.T) {
 	}
 	if api.addRequests[0].BlockerRepository != "DotNaos/platform" {
 		t.Fatalf("request = %#v", api.addRequests[0])
+	}
+}
+
+func TestRoadmapDependencyMutationReportsNoOpAccurately(t *testing.T) {
+	for _, test := range []struct {
+		operation string
+		requires  string
+		want      string
+	}{
+		{operation: "add", requires: "298", want: "Dependency already exists"},
+		{operation: "remove", requires: "500", want: "Dependency not present"},
+	} {
+		api := &fakeRoadmapAPI{graph: roadmapCommandGraph()}
+		output, err := executeRoadmapCommand(
+			t,
+			api,
+			func(context.Context) (string, error) {
+				return "DotNaos/project-space", nil
+			},
+			"dependency",
+			test.operation,
+			"412",
+			"--requires",
+			test.requires,
+		)
+		if err != nil {
+			t.Fatalf("%s dependency: %v", test.operation, err)
+		}
+		want := test.want + ": #412 requires #" + test.requires + "\n"
+		if output != want {
+			t.Fatalf("%s output = %q, want %q", test.operation, output, want)
+		}
 	}
 }
 

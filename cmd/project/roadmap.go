@@ -90,10 +90,8 @@ func newRoadmapDependencyMutationCommand(
 ) *cobra.Command {
 	var requires int
 	var requiresRepository string
-	pastTense := "Added"
 	verb := "Add"
 	if operation == "remove" {
-		pastTense = "Removed"
 		verb = "Remove"
 	}
 	command := &cobra.Command{
@@ -148,12 +146,25 @@ func newRoadmapDependencyMutationCommand(
 			if options.format == "json" {
 				return writeRoadmapGraph(command.OutOrStdout(), updated, options.format)
 			}
+			message, err := roadmapDependencyMutationMessage(
+				operation,
+				current,
+				updated,
+				request,
+			)
+			if err != nil {
+				return err
+			}
 			_, err = fmt.Fprintf(
 				command.OutOrStdout(),
-				"%s dependency: #%d requires %s\n",
-				pastTense,
-				blocked,
-				roadmapIssueLabel(blockerRepository, requires, repository),
+				"%s: #%d requires %s\n",
+				message,
+				request.BlockedIssueNumber,
+				roadmapIssueLabel(
+					request.BlockerRepository,
+					request.BlockerIssueNumber,
+					request.Repository,
+				),
 			)
 			return err
 		},
@@ -171,6 +182,50 @@ func newRoadmapDependencyMutationCommand(
 		"prerequisite repository as owner/name (defaults to --repository)",
 	)
 	return command
+}
+
+func roadmapDependencyMutationMessage(
+	operation string,
+	before roadmap.Graph,
+	after roadmap.Graph,
+	request roadmap.MutationRequest,
+) (string, error) {
+	from := roadmap.NodeReference{
+		Number:     request.BlockerIssueNumber,
+		Repository: request.BlockerRepository,
+	}
+	to := roadmap.NodeReference{
+		Number:     request.BlockedIssueNumber,
+		Repository: request.Repository,
+	}
+	existedBefore := roadmapHasDependency(before, from, to)
+	existsAfter := roadmapHasDependency(after, from, to)
+	switch {
+	case operation == "add" && !existedBefore && existsAfter:
+		return "Added dependency", nil
+	case operation == "add" && existedBefore && existsAfter:
+		return "Dependency already exists", nil
+	case operation == "remove" && existedBefore && !existsAfter:
+		return "Removed dependency", nil
+	case operation == "remove" && !existedBefore && !existsAfter:
+		return "Dependency not present", nil
+	default:
+		return "", roadmap.ErrInvalidResponse
+	}
+}
+
+func roadmapHasDependency(
+	graph roadmap.Graph,
+	from roadmap.NodeReference,
+	to roadmap.NodeReference,
+) bool {
+	key := roadmapEdgeKey(from, to)
+	for _, edge := range graph.Edges {
+		if roadmapEdgeKey(edge.From, edge.To) == key {
+			return true
+		}
+	}
+	return false
 }
 
 func validateRoadmapCommand(
