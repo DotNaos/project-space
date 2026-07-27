@@ -273,7 +273,7 @@ func (supervisor *ConnectorSupervisor) runConnectorCompanion(
 			return errors.Join(runErr, maintenanceErr)
 
 		case health := <-healthDone:
-			if health.err == nil &&
+			if health.err == nil && !health.result.RestartRequired &&
 				(health.result.Outcome == ConnectorSupervisorMaintenanceSucceeded ||
 					health.result.Outcome == ConnectorSupervisorMaintenanceRolledBack) {
 				healthDone = nil

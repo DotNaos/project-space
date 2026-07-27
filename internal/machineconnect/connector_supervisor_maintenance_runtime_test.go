@@ -158,6 +158,47 @@ func TestConnectorSupervisorRuntimeRollsBackRejectedReconnectAndRestarts(t *test
 	}
 }
 
+func TestConnectorSupervisorRuntimeRollsBackRejectedUpdateAndRestarts(t *testing.T) {
+	fixture, executable := newMaintenanceRuntimeFixture(t)
+	fixture.writeUpdateControl(
+		maintenanceTestOperation,
+		maintenanceTestArchive(t, fixture.maintenance.target),
+	)
+	if _, err := fixture.maintenance.ProcessControl(); err != nil {
+		t.Fatal(err)
+	}
+	updatedExecutable, err := fixture.maintenance.ManagedConnectorExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaceMaintenanceTestFile(t, os.Args[0], updatedExecutable, 0o700)
+
+	ready := filepath.Join(t.TempDir(), "connector-ready")
+	supervisor := maintenanceRuntimeSupervisor(
+		t,
+		fixture,
+		executable,
+		io.Discard,
+		"maintenance-block",
+		"supervisor-ready-file="+ready,
+	)
+	runDone := make(chan error, 1)
+	go func() { runDone <- supervisor.Run(context.Background()) }()
+	waitForMaintenanceTestFileWhileRunning(t, ready, runDone)
+	fixture.writeDecision(maintenanceTestOperation, "rollback")
+	runErr := <-runDone
+	if !errors.Is(runErr, ErrConnectorSupervisorRestartRequired) {
+		t.Fatalf("run error = %v, want rollback restart", runErr)
+	}
+	if fixture.pointer() != maintenanceTestOldPointer {
+		t.Fatalf("rollback pointer = %s", fixture.pointer())
+	}
+	state, stateErr := fixture.maintenance.readState()
+	if stateErr != nil || state.Phase != connectorSupervisorPhaseRolledBack {
+		t.Fatalf("update rollback state = %#v, err=%v", state, stateErr)
+	}
+}
+
 func TestConnectorSupervisorRuntimeAcknowledgesRolledBackReconnect(t *testing.T) {
 	fixture, executable := newMaintenanceRuntimeFixture(t)
 	if fixture.maintenance.target == "windows-x64" {
