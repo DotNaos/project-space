@@ -4,7 +4,12 @@ import type {
 } from '../../src/shared/codex-authorization-api';
 import type { CodexProcessFactory } from '../codex-sessions/contracts';
 import { CodexOperationUncertainError } from '../codex-sessions/operation-ledger';
-import { CodexStdioTransport } from '../codex-sessions/stdio-transport';
+import {
+  CodexAppServerRequestCancelledError,
+  CodexStdioTransport,
+  type CodexAppServerTransport
+} from '../codex-sessions/stdio-transport';
+import { CodexWebSocketTransport } from '../codex-sessions/websocket-transport';
 import type {
   CodexAuthorizationOperationPersistence,
   CodexAuthorizationOperationRecord
@@ -35,8 +40,10 @@ export class CodexDeviceAuthorizationManager {
   private executionTail = Promise.resolve();
   private expiryTimer?: ReturnType<typeof setTimeout>;
   private readonly operations = new Map<string, CodexAuthorizationOperationRecord>();
-  private startPromise?: Promise<CodexStdioTransport>;
-  private transport?: CodexStdioTransport;
+  private startPromise?: Promise<CodexAppServerTransport>;
+  private startingTransport?: CodexAppServerTransport;
+  private transport?: CodexAppServerTransport;
+  private transportStartGeneration = 0;
 
   constructor(private readonly options: {
     binaryPath?: string;
@@ -47,6 +54,8 @@ export class CodexDeviceAuthorizationManager {
     processFactory?: CodexProcessFactory;
     authorizationDeadlineMs?: number;
     rpcTimeoutMs?: number;
+    sharedDaemon?: boolean;
+    transportFactory?: () => Promise<CodexAppServerTransport>;
   } = {}) {
     for (const record of options.operationPersistence?.snapshot ?? []) {
       this.operations.set(record.operationId, record);
@@ -69,9 +78,17 @@ export class CodexDeviceAuthorizationManager {
       await this.remember(pending.operationId, 'ambiguous', pending.result.deadlineAt);
     }
     const transport = this.transport;
+    const startingTransport = this.startingTransport;
+    this.transportStartGeneration += 1;
     this.transport = undefined;
+    this.startingTransport = undefined;
     this.startPromise = undefined;
-    await transport?.close();
+    await Promise.all([
+      transport?.close(),
+      startingTransport && startingTransport !== transport
+        ? startingTransport.close()
+        : undefined
+    ]);
   }
 
   private async executeSerial(
@@ -310,38 +327,60 @@ export class CodexDeviceAuthorizationManager {
   private ensureTransport(signal: AbortSignal) {
     if (this.transport?.isOpen) return Promise.resolve(this.transport);
     if (this.startPromise) return this.startPromise;
-    this.startPromise = (async () => {
-      const transport = CodexStdioTransport.launch({
-        binaryPath: this.options.binaryPath,
-        codexHome: this.options.codexHome,
-        onClose: () => {
-          this.clearExpiryTimer();
-          if (this.transport === transport) this.transport = undefined;
-          const pending = this.attempt;
-          this.attempt = undefined;
-          if (pending) {
-            void this.remember(
-              pending.operationId,
-              'ambiguous',
-              pending.result.deadlineAt
-            );
-          }
-        },
-        onMessage: (message) => this.handleMessage(message),
-        processFactory: this.options.processFactory
-      });
+    const startGeneration = ++this.transportStartGeneration;
+    let startPromise!: Promise<CodexAppServerTransport>;
+    startPromise = (async () => {
+      const onClose = () => {
+        this.clearExpiryTimer();
+        if (this.transport === transport) this.transport = undefined;
+        const pending = this.attempt;
+        this.attempt = undefined;
+        if (pending) {
+          void this.remember(
+            pending.operationId,
+            'ambiguous',
+            pending.result.deadlineAt
+          );
+        }
+      };
+      const transport = this.options.transportFactory
+        ? await this.options.transportFactory()
+        : this.options.sharedDaemon
+          ? await CodexWebSocketTransport.connect({
+              onClose,
+              onMessage: (message) => this.handleMessage(message)
+            })
+          : CodexStdioTransport.launch({
+              binaryPath: this.options.binaryPath,
+              codexHome: this.options.codexHome,
+              onClose,
+              onMessage: (message) => this.handleMessage(message),
+              processFactory: this.options.processFactory
+            });
+      if (startGeneration !== this.transportStartGeneration) {
+        await transport.close();
+        throw new CodexAppServerRequestCancelledError();
+      }
+      this.startingTransport = transport;
       try {
         await transport.initialize({ signal });
+        if (this.startingTransport !== transport) {
+          await transport.close();
+          throw new CodexAppServerRequestCancelledError();
+        }
+        this.startingTransport = undefined;
         this.transport = transport;
         return transport;
       } catch (error) {
         await transport.close();
         throw error;
       } finally {
-        this.startPromise = undefined;
+        if (this.startPromise === startPromise) this.startPromise = undefined;
+        if (this.startingTransport === transport) this.startingTransport = undefined;
       }
     })();
-    return this.startPromise;
+    this.startPromise = startPromise;
+    return startPromise;
   }
 
   private async call<Result>(

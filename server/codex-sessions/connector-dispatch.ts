@@ -21,6 +21,8 @@ import {
   type BoundCodexAttachChunk
 } from './connector-channel';
 import type { CodexSessionManager } from './manager';
+import type { CodexDaemonManager } from '../codex-daemon/manager';
+import type { CodexDaemonConnectorRequest } from '../../src/shared/codex-daemon-api';
 import { CodexOperationUncertainError } from './operation-ledger';
 import { createLocalCodexMachineTaskStarter } from '../codex-machine-tasks/connector-starter';
 import {
@@ -55,6 +57,7 @@ export class CodexSessionsConnectorDispatcher {
     'close' | 'execute'
   >;
   private readonly authorizationReplay = new CodexSessionsGrantReplayProtection();
+  private readonly daemonReplay = new CodexSessionsGrantReplayProtection();
   private readonly attaches = new Map<string, ActiveAttach>();
   private readonly executions = new Map<string, AbortController>();
   private expectedGeneration?: number;
@@ -68,8 +71,10 @@ export class CodexSessionsConnectorDispatcher {
   constructor(private readonly options: {
     authorization?: Pick<CodexDeviceAuthorizationManager, 'close' | 'execute'>;
     createAttachRelay?: AttachRelayFactory;
+    daemonManager?: Pick<CodexDaemonManager, 'execute'>;
     expectedMachineId?: string;
     manager: CodexSessionManager;
+    onDaemonChanged?(): Promise<void> | void;
     verificationKey: KeyLike;
   }) {
     this.authorization = options.authorization ?? new CodexDeviceAuthorizationManager({
@@ -111,6 +116,10 @@ export class CodexSessionsConnectorDispatcher {
       this.authorize(id, request, expectedMachineId, binding, send, reject);
       return;
     }
+    if (operation === 'daemon') {
+      this.executeDaemon(id, request, expectedMachineId, binding, send, reject);
+      return;
+    }
     const executor = this.executor ??= new CodexSessionsConnectorExecutor({
       expectedGeneration: () => this.expectedGeneration ?? -1,
       expectedMachineId,
@@ -136,7 +145,7 @@ export class CodexSessionsConnectorDispatcher {
 
     const executableOperation = operation as Exclude<
       CodexSessionsConnectorOperation,
-      'attach' | 'authorization' | 'stream'
+      'attach' | 'authorization' | 'daemon' | 'stream'
     >;
     if (cancellableOperations.has(executableOperation)) {
       this.dispatchCancellable(
@@ -253,6 +262,40 @@ export class CodexSessionsConnectorDispatcher {
       payload: { binding, result: { operation: 'authorization', result } },
       type: 'codex.sessions.result'
     })).catch((error) => this.handleFailure(id, binding, error, send, reject));
+  }
+
+  private executeDaemon(
+    id: string,
+    request: CodexSessionsWireRequest,
+    expectedMachineId: string,
+    binding: ReturnType<typeof bindingForCodexSessionsRequest>,
+    send: (message: ConnectorHubMessage) => void,
+    reject: () => void
+  ) {
+    try {
+      if (!this.options.daemonManager || !isCodexSessionsWireRequest(request)) {
+        throw new CodexSessionsGrantError('binding-mismatch');
+      }
+      verifyCodexSessionsWireRequest(request, 'daemon', this.options.verificationKey, {
+        expectedGeneration: this.expectedGeneration ?? -1,
+        expectedMachineId,
+        replayProtection: this.daemonReplay
+      });
+    } catch (error) {
+      this.handleFailure(id, binding, error, send, reject);
+      return;
+    }
+    const payload = request.payload as CodexDaemonConnectorRequest;
+    void this.options.daemonManager.execute(payload.operation, payload.operationId)
+      .then(async (result) => {
+        await this.options.onDaemonChanged?.();
+        send({
+          id,
+          payload: { binding, result: { operation: 'daemon', result } },
+          type: 'codex.sessions.result'
+        });
+      })
+      .catch((error) => this.handleFailure(id, binding, error, send, reject));
   }
 
   private handleFailure(

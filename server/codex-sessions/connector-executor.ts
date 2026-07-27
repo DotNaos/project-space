@@ -54,7 +54,7 @@ import { readCodexBrowserSnapshot } from './browser-snapshot-reader';
 
 type ExecutableOperation = Exclude<
   CodexSessionsConnectorOperation,
-  'attach' | 'authorization' | 'stream'
+  'attach' | 'authorization' | 'daemon' | 'stream'
 >;
 type PendingRequest = {
   canAllow?: boolean;

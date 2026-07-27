@@ -16,7 +16,8 @@ export function createProjectConnectorCodexSessionManager(
   const operationPersistence = createCodexOperationSnapshotPersistence(environment, machineId);
   return new CodexSessionManager({
     operationSnapshot: operationPersistence.snapshot,
-    persistOperationSnapshot: operationPersistence.persist
+    persistOperationSnapshot: operationPersistence.persist,
+    sharedDaemon: true
   });
 }
 
@@ -31,7 +32,8 @@ export function createProjectConnectorCodexAuthorizationManager(
   return new CodexDeviceAuthorizationManager({
     onReady: options.onReady,
     operationPersistence: createCodexAuthorizationOperationPersistence(environment, machineId),
-    processFactory: options.processFactory
+    processFactory: options.processFactory,
+    sharedDaemon: !options.processFactory
   });
 }
 

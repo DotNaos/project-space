@@ -1,6 +1,7 @@
 import { isAbsolute } from 'node:path';
 
 import { createCodexRuntimeReadinessProbe } from '../../server/codex-sessions/readiness-probe';
+import { CodexStdioTransport } from '../../server/codex-sessions/stdio-transport';
 
 const binaryPath = process.argv[2];
 if (!binaryPath || !isAbsolute(binaryPath)) {
@@ -9,6 +10,10 @@ if (!binaryPath || !isAbsolute(binaryPath)) {
 
 const readiness = await createCodexRuntimeReadinessProbe({
   cacheMs: 0,
+  launch: (path) => CodexStdioTransport.launch({
+    binaryPath: path,
+    onMessage: () => undefined
+  }),
   resolveBinary: () => binaryPath,
   timeoutMs: 15_000
 })();

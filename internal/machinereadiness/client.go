@@ -121,6 +121,18 @@ func (client *Client) Fix(ctx context.Context, request FixRequest) (FixResult, e
 		validateResult(result.Diagnosis) != nil {
 		return FixResult{}, ErrInvalidResponse
 	}
+	if result.DaemonOperation != nil &&
+		(result.DaemonOperation.OperationID != request.OperationID ||
+			(result.DaemonOperation.Operation != "ensure" &&
+				result.DaemonOperation.Operation != "restart") ||
+			(result.DaemonOperation.State != "completed" &&
+				result.DaemonOperation.State != "blocked" &&
+				result.DaemonOperation.State != "uncertain") ||
+			!validCodexDaemonEvidence(result.DaemonOperation.Evidence) ||
+			result.DaemonOperation.State !=
+				codexDaemonResultState(result.DaemonOperation.Evidence)) {
+		return FixResult{}, ErrInvalidResponse
+	}
 	return result, nil
 }
 
@@ -223,6 +235,9 @@ func validateResult(result Result) error {
 			check.ConnectorName == "" || !validCheckState(check.State) {
 			return ErrInvalidResponse
 		}
+		if check.Daemon != nil && !validCodexDaemonEvidence(*check.Daemon) {
+			return ErrInvalidResponse
+		}
 	}
 	if result.Plan != nil {
 		if !planPattern.MatchString(result.Plan.ID) || len(result.Plan.Actions) != 1 {
@@ -230,16 +245,64 @@ func validateResult(result Result) error {
 		}
 		action := result.Plan.Actions[0]
 		if !identifierPattern.MatchString(action.ConnectorID) ||
-			(action.Kind != "update-connector" && action.Kind != "restart-connector") ||
-			(action.Operation != "update" && action.Operation != "restart") ||
+			(action.Kind != "update-connector" && action.Kind != "restart-connector" &&
+				action.Kind != "ensure-codex-daemon" && action.Kind != "restart-codex-daemon") ||
+			(action.Operation != "update" && action.Operation != "restart" &&
+				action.Operation != "ensure") ||
 			(action.Kind == "update-connector" &&
 				(action.Operation != "update" || action.ReleaseID == "")) ||
 			(action.Kind == "restart-connector" &&
+				(action.Operation != "restart" || action.ReleaseID != "")) ||
+			(action.Kind == "ensure-codex-daemon" &&
+				(action.Operation != "ensure" || action.ReleaseID != "")) ||
+			(action.Kind == "restart-codex-daemon" &&
 				(action.Operation != "restart" || action.ReleaseID != "")) {
 			return ErrInvalidResponse
 		}
 	}
 	return nil
+}
+
+func validCodexDaemonEvidence(evidence CodexDaemonEvidence) bool {
+	if _, err := time.Parse(time.RFC3339Nano, evidence.CheckedAt); err != nil {
+		return false
+	}
+	switch evidence.RemoteControlState {
+	case "disabled", "connecting", "connected", "errored", "unknown":
+	default:
+		return false
+	}
+	switch evidence.State {
+	case "ready", "missing", "stopped", "incompatible", "authorization-required",
+		"remote-control-disabled", "pairing-required", "connecting", "unsupported", "uncertain":
+	default:
+		return false
+	}
+	if evidence.Compatible && (!evidence.Installed || !evidence.Running) ||
+		evidence.Reachable && !evidence.Running ||
+		evidence.Authenticated && !evidence.Reachable ||
+		evidence.RemoteControlEnabled && !evidence.Running ||
+		evidence.Paired && (!evidence.RemoteControlEnabled ||
+			evidence.RemoteControlState != "connected" || evidence.EnvironmentID == "") {
+		return false
+	}
+	if evidence.State != "ready" {
+		return true
+	}
+	return evidence.Authenticated && evidence.Compatible && evidence.EnvironmentID != "" &&
+		evidence.Installed && evidence.Paired && evidence.Reachable &&
+		evidence.RemoteControlEnabled && evidence.RemoteControlState == "connected" &&
+		evidence.Running
+}
+
+func codexDaemonResultState(evidence CodexDaemonEvidence) string {
+	if evidence.State == "ready" {
+		return "completed"
+	}
+	if evidence.State == "uncertain" || evidence.State == "connecting" {
+		return "uncertain"
+	}
+	return "blocked"
 }
 
 func validState(state State) bool {

@@ -67,6 +67,18 @@ export function updateConnectorCapabilities(
   capabilities.set(machineId, new Set(advertisedCapabilities));
 }
 
+export function addConnectorCapabilities(machineId: string, addedCapabilities: string[]) {
+  const current = capabilities.get(machineId);
+  if (!current) return;
+  for (const capability of addedCapabilities) current.add(capability);
+}
+
+export function removeConnectorCapabilities(machineId: string, removedCapabilities: string[]) {
+  const current = capabilities.get(machineId);
+  if (!current) return;
+  for (const capability of removedCapabilities) current.delete(capability);
+}
+
 export function removeConnectorSession(machineId: string, expected?: WebSocket) {
   const current = sockets.get(machineId);
   if (!current || (expected && current !== expected)) {

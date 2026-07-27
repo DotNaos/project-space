@@ -1,8 +1,11 @@
 import { spawn } from 'node:child_process';
 
+import { WebSocket, type RawData } from 'ws';
+
 import type { CodexChildProcess, CodexProcessFactory } from '../codex-sessions/contracts';
 import { resolveCodexBinary } from '../codex-sessions/binary-resolver';
 import { CODEX_ATTACH_MAXIMUM_MESSAGE_BYTES } from '../codex-sessions/connector-channel';
+import { codexAppServerSocketPath } from '../codex-sessions/websocket-transport';
 
 export type ConnectorCodexAttachRelayCloseCode =
   | 'cancelled'
@@ -17,6 +20,8 @@ export interface ConnectorCodexAttachRelay {
 
 interface ConnectorCodexAttachRelayOptions {
   binaryPath?: string;
+  connectTimeoutMs?: number;
+  daemonSocketPath?: string;
   idleTimeoutMs?: number;
   maximumLifetimeMs?: number;
   onClose(code: ConnectorCodexAttachRelayCloseCode): void;
@@ -43,6 +48,9 @@ const defaultProcessFactory: CodexProcessFactory = ({ args, command, env }) =>
 export async function createConnectorCodexAttachRelay(
   options: ConnectorCodexAttachRelayOptions
 ): Promise<ConnectorCodexAttachRelay> {
+  if (!options.processFactory && !options.binaryPath) {
+    return WebSocketCodexAttachRelay.connect(options);
+  }
   const command = options.binaryPath ?? resolveCodexBinary().path;
   if (!command) throw new Error('Codex App Server is unavailable.');
   const env = { ...process.env };
@@ -55,6 +63,121 @@ export async function createConnectorCodexAttachRelay(
   const relay = new StdioCodexAttachRelay(child, options);
   await relay.ready();
   return relay;
+}
+
+class WebSocketCodexAttachRelay implements ConnectorCodexAttachRelay {
+  private closed = false;
+  private idleTimer?: ReturnType<typeof setTimeout>;
+  private readonly lifetimeTimer: ReturnType<typeof setTimeout>;
+  private queuedInputBytes = 0;
+  private writeQueue = Promise.resolve();
+
+  private constructor(
+    private readonly socket: WebSocket,
+    private readonly options: ConnectorCodexAttachRelayOptions
+  ) {
+    socket.on('message', (data, isBinary) => this.handleOutput(data, isBinary));
+    socket.once('error', () => this.finish('unavailable'));
+    socket.once('close', () => this.finish('process_exited'));
+    this.lifetimeTimer = setTimeout(
+      () => this.close('cancelled'),
+      boundedDuration(options.maximumLifetimeMs, defaultMaximumLifetimeMs)
+    );
+    this.lifetimeTimer.unref?.();
+    this.refreshIdleTimer();
+  }
+
+  static connect(options: ConnectorCodexAttachRelayOptions) {
+    const socketPath = options.daemonSocketPath ?? codexAppServerSocketPath();
+    const connectTimeoutMs = boundedDuration(options.connectTimeoutMs, 5_000);
+    const socket = new WebSocket(`ws+unix://${socketPath}:/`, {
+      handshakeTimeout: connectTimeoutMs,
+      maxPayload: CODEX_ATTACH_MAXIMUM_MESSAGE_BYTES,
+      perMessageDeflate: false
+    });
+    return new Promise<ConnectorCodexAttachRelay>((resolve, reject) => {
+      socket.on('error', () => {
+        // Suppress private socket diagnostics; the relay reports only a bounded state.
+      });
+      const fail = () => {
+        clearTimeout(timeout);
+        reject(new Error('Managed Codex App Server is unavailable.'));
+      };
+      const timeout = setTimeout(() => {
+        socket.terminate();
+        fail();
+      }, connectTimeoutMs);
+      timeout.unref?.();
+      socket.once('error', fail);
+      socket.once('open', () => {
+        clearTimeout(timeout);
+        socket.off('error', fail);
+        resolve(new WebSocketCodexAttachRelay(socket, options));
+      });
+    });
+  }
+
+  send(message: string) {
+    if (this.closed) return Promise.reject(new Error('Codex attach relay is closed.'));
+    const bytes = Buffer.byteLength(message, 'utf8');
+    if (!validProtocolMessage(message) ||
+      this.queuedInputBytes + bytes > maximumPendingInputBytes) {
+      this.close('protocol_error');
+      return Promise.reject(new Error('Codex attach input is invalid.'));
+    }
+    this.queuedInputBytes += bytes;
+    const write = this.writeQueue.then(() => new Promise<void>((resolve, reject) => {
+      this.socket.send(message, (error) => error ? reject(error) : resolve());
+    }));
+    this.writeQueue = write.catch(() => undefined);
+    return write.finally(() => {
+      this.queuedInputBytes -= bytes;
+      this.refreshIdleTimer();
+    });
+  }
+
+  close(code: ConnectorCodexAttachRelayCloseCode = 'cancelled') {
+    if (this.closed) return;
+    this.finish(code);
+    this.socket.close();
+  }
+
+  private handleOutput(data: RawData, isBinary: boolean) {
+    if (this.closed || isBinary) {
+      if (isBinary) this.close('protocol_error');
+      return;
+    }
+    const message = Buffer.isBuffer(data)
+      ? data.toString('utf8')
+      : String(data);
+    if (!validProtocolMessage(message)) {
+      this.close('protocol_error');
+      return;
+    }
+    try {
+      this.options.onMessage(message);
+      this.refreshIdleTimer();
+    } catch {
+      this.close('protocol_error');
+    }
+  }
+
+  private refreshIdleTimer() {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(
+      () => this.close('cancelled'),
+      boundedDuration(this.options.idleTimeoutMs, defaultIdleTimeoutMs)
+    );
+    this.idleTimer.unref?.();
+  }
+
+  private finish(code: ConnectorCodexAttachRelayCloseCode) {
+    if (this.closed) return;
+    this.closed = true;
+    clearTimeout(this.lifetimeTimer);
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.options.onClose(code);
+  }
 }
 
 class StdioCodexAttachRelay implements ConnectorCodexAttachRelay {

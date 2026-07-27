@@ -17,6 +17,7 @@ import type {
 const codexCapability = 'codex.machine-tasks.v1';
 const codexAuthorizationRequiredCapability = 'codex.authorization-required.v1';
 const codexRuntimeCapability = 'codex.runtime.v1';
+const codexDaemonCapability = 'codex.app-server-daemon.v1';
 const activeStates = new Set([
   'queued', 'validating', 'staging', 'verified', 'switching', 'restarting',
   'reconnecting', 'health-checking'
@@ -110,7 +111,7 @@ export function evaluateMachineReadiness(
   }
   if (repairable.length === 1) {
     return selectedResult(machine, checkedAt, checks, repairable[0]!, 'repairable',
-      'A signed managed connector update can make this machine ready.');
+      'A signed constrained repair can make this machine ready.');
   }
 
   const priority: Array<[MachineReadinessCheck['state'], MachineReadinessState, string]> = [
@@ -162,6 +163,7 @@ function evaluateConnector(
     capabilities,
     connectorId,
     connectorName: connector.name,
+    ...(connector.connector.daemon ? { daemon: connector.connector.daemon } : {}),
     online: connector.connector.status === 'online' || connector.connector.status === 'local',
     ...(runtime?.source ? { runtimeSource: runtime.source } : {}),
     ...(runtime?.version ? { runtimeVersion: runtime.version } : {}),
@@ -196,6 +198,48 @@ function evaluateConnector(
   const codexReady = capabilities.includes(codexCapability) && generation !== undefined;
   const update = runtimeStatus?.update;
   const action = repairAction(connectorId, runtimeStatus);
+  const daemon = connector.connector.daemon;
+  if (capabilities.includes(codexDaemonCapability)) {
+    if (!daemon) {
+      return { check: { ...common, state: 'uncertain',
+        summary: 'The connector did not provide managed Codex daemon evidence.' }, operation };
+    }
+    if (daemon.state !== 'ready') {
+      if (daemon.state === 'authorization-required') {
+        return { check: { ...common, state: 'authorization-required',
+          summary: 'The shared managed Codex daemon requires account authorization.' }, operation };
+      }
+      if (daemon.state === 'pairing-required') {
+        return { check: { ...common, state: 'manually-blocked',
+          summary: 'Remote Control pairing must be completed before this daemon is ready.' }, operation };
+      }
+      if (daemon.state === 'unsupported') {
+        return { check: { ...common, state: 'unsupported',
+          summary: 'This platform does not support the managed Codex daemon.' }, operation };
+      }
+      if (daemon.state === 'connecting' || daemon.state === 'uncertain') {
+        return { check: { ...common, state: 'uncertain',
+          summary: daemon.state === 'connecting'
+            ? 'The managed Codex daemon is still connecting to Remote Control.'
+            : 'Managed Codex daemon readiness could not be proven.' }, operation };
+      }
+      const daemonAction: MachineReadinessRepairAction = {
+        connectorId,
+        kind: 'ensure-codex-daemon',
+        operation: 'ensure',
+        summary: 'Ensure the signed shared Codex daemon and enable Remote Control.'
+      };
+      if (!canRepair) {
+        return { check: { ...common, state: 'authorization-required',
+          summary: 'Only the machine owner may authorize this managed daemon repair.' },
+          operation };
+      }
+      return { action: daemonAction, check: { ...common, state: 'repairable',
+        summary: daemon.state === 'incompatible'
+          ? 'The shared Codex daemon version is incompatible and can be repaired safely.'
+          : 'The shared Codex daemon can be installed or started safely.' }, operation };
+    }
+  }
   if (codexReady) {
     return action
       ? { action, check: { ...common, state: 'outdated',
@@ -326,7 +370,12 @@ function selectedResult(
     ...result,
     ...(selected.operation ? { operation: selected.operation } : {}),
     ...(plan ? { plan } : {}),
-    nextAction: state === 'authorization-required'
+    nextAction: selected.check.daemon?.state === 'pairing-required'
+      ? {
+          kind: 'supported-action',
+          message: 'Complete Remote Control pairing in Codex Desktop, then run Doctor again.'
+        }
+      : state === 'authorization-required'
       ? {
           command: `project codex login --machine-id ${machine.id} --connector ${selected.check.connectorId}`,
           kind: 'supported-action',

@@ -43,6 +43,7 @@ import {
 } from './project-connector-websocket-utils';
 import { createProjectConnectorWorktreeLoads } from './project-connector-worktree-loads';
 import { createProjectConnectorRuntimeStopControl } from './project-connector-runtime-stop';
+import { CodexDaemonManager } from './codex-daemon/manager';
 interface ProjectConnectorWebSocketOptions extends ProjectConnectorConnectionOptions {
   backend: ProjectSpaceBackend & Partial<ConnectorDevServerAdapter & ConnectorWorktreeActionAdapter>;
   environment?: NodeJS.ProcessEnv;
@@ -64,6 +65,10 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
   const codexSessionManager = createProjectConnectorCodexSessionManager(
     options.environment ?? process.env, options.runtimeCredential?.machineId
   );
+  const codexDaemonManager = new CodexDaemonManager({
+    environment: options.environment ?? process.env,
+    manager: codexSessionManager
+  });
   const codexAuthorizationManager = createProjectConnectorCodexAuthorizationManager(
     options.environment ?? process.env,
     options.runtimeCredential?.machineId,
@@ -127,6 +132,7 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
     const resolvedHubUrl = target.wsUrl;
     let activeSocket: WebSocket | undefined;
     let cleanupActiveConnection: (() => void) | undefined;
+    let publishCurrentRegistry: (() => Promise<boolean>) | undefined;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     const adapter: ConnectorDevServerAdapter =
       typeof backend.runDevServerCommand === 'function'
@@ -175,8 +181,12 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
     const codexSessionsDispatcher = commandGrantPublicKey
       ? new CodexSessionsConnectorDispatcher({
           authorization: codexAuthorizationManager,
+          daemonManager: codexDaemonManager,
           expectedMachineId: options.runtimeCredential?.machineId,
           manager: codexSessionManager,
+          onDaemonChanged: async () => {
+            await publishCurrentRegistry?.();
+          },
           verificationKey: commandGrantPublicKey
         })
       : undefined;
@@ -205,6 +215,7 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         (message) => sendJson(socket, message)
       );
       let cleanedUp = false;
+      let publishThisRegistry: (() => Promise<boolean>) | undefined;
       let registryPublishPending = false;
       let registryTimer: ReturnType<typeof setInterval> | undefined;
       let registrationEvidence: ReturnType<typeof connectorRuntimeMaintenanceEvidence>;
@@ -234,6 +245,9 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         if (registryTimer) {
           clearInterval(registryTimer);
           registryTimer = undefined;
+        }
+        if (publishCurrentRegistry === publishThisRegistry) {
+          publishCurrentRegistry = undefined;
         }
         if (closeSocket) {
           socket.close();
@@ -278,6 +292,8 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         sendJson(socket, message);
         return true;
       }
+      publishThisRegistry = () => publishRegistry();
+      publishCurrentRegistry = publishThisRegistry;
 
       function startRegistryPublisher() {
         if (registryTimer || !isCurrentConnection()) {

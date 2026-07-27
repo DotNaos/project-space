@@ -80,7 +80,11 @@ import {
   CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY,
   CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY
 } from './codex-sessions-connector-contract';
-import { createCodexRuntimeReadinessProbe } from './codex-sessions/readiness-probe';
+import {
+  CODEX_DAEMON_CONNECTOR_CAPABILITY,
+  type CodexDaemonEvidence
+} from '../src/shared/codex-daemon-api';
+import { CodexDaemonManager } from './codex-daemon/manager';
 import {
   applyProjectStructureAction,
   listProjectTrash,
@@ -173,12 +177,27 @@ const baseConnectorCommandCapabilities = [
   'worktrees.list',
   'worktrees.list.v2'
 ];
-const probeCodexRuntimeReadiness = createCodexRuntimeReadinessProbe();
+const codexDaemonInspector = new CodexDaemonManager({
+  manager: {
+    executeManagedOperation: async (_operationId, _fingerprint, action) => action()
+  }
+});
+const inspectCodexDaemon = () => codexDaemonInspector.inspect();
 
-async function connectorCommandCapabilities() {
-  const readiness = await probeCodexRuntimeReadiness();
+async function connectorCommandCapabilities(daemon: CodexDaemonEvidence) {
+  const readiness = daemon.state === 'ready'
+    ? 'ready'
+    : daemon.state === 'authorization-required'
+      ? 'authorization-required'
+      : daemon.installed
+        ? 'runtime-only'
+        : 'missing';
   return [
     ...baseConnectorCommandCapabilities,
+    ...(process.platform === 'linux' &&
+      process.env.PROJECT_SPACE_INSTALL_SOURCE === 'managed'
+      ? [CODEX_DAEMON_CONNECTOR_CAPABILITY]
+      : []),
     ...(readiness !== 'missing' ? [CODEX_RUNTIME_CONNECTOR_CAPABILITY] : []),
     ...(readiness !== 'missing' ? [CODEX_AUTHORIZATION_CONNECTOR_CAPABILITY] : []),
     ...(readiness === 'authorization-required'
@@ -242,11 +261,12 @@ export function createLocalProjectSpaceBackend(
       return connectorRuntime.stopMachineRuntime(machineId);
     },
     async getConnectorProjectRegistry() {
-      const [identity, rawDiscovery, capabilities] = await Promise.all([
+      const [identity, rawDiscovery, daemon] = await Promise.all([
         localConnectorIdentity(options.connectorMachineId),
         discoverLocalProjects(),
-        connectorCommandCapabilities()
+        inspectCodexDaemon()
       ]);
+      const capabilities = await connectorCommandCapabilities(daemon);
       const { connector, localMachine, machineId, machineName } = identity;
       const discovery = scopeDiscoveryToMachine(rawDiscovery, machineId);
       registerLocalDevServer(machineId);
@@ -256,6 +276,7 @@ export function createLocalProjectSpaceBackend(
         connector: {
           battery: localMachine?.battery,
           capabilities,
+          daemon,
           environment: localMachine?.environment,
           executionScopeId: localMachine?.executionScopeId,
           kind: process.env.PROJECT_CONNECTOR_MACHINE_KIND ?? localMachine?.kind,

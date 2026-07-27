@@ -25,6 +25,7 @@ const (
 var connectorEnvironmentAllowlist = []string{
 	"PATH",
 	"HOME",
+	"CODEX_HOME",
 	"USER",
 	"LOGNAME",
 	"USERPROFILE",

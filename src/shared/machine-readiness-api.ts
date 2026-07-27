@@ -2,6 +2,10 @@ import type {
   ConnectorRuntimeOperationRecord,
   ConnectorRuntimeState
 } from './connector-runtime-api';
+import type {
+  CodexDaemonConnectorResult,
+  CodexDaemonEvidence
+} from './codex-daemon-api';
 
 export const MACHINE_READINESS_API_VERSION = 1 as const;
 
@@ -50,6 +54,7 @@ export interface MachineReadinessCheck {
   capabilities: string[];
   connectorId: string;
   connectorName: string;
+  daemon?: CodexDaemonEvidence;
   online: boolean;
   runtimeSource?: string;
   runtimeVersion?: string;
@@ -61,8 +66,8 @@ export interface MachineReadinessCheck {
 export interface MachineReadinessRepairAction {
   connectorId: string;
   fromVersion?: string;
-  kind: 'restart-connector' | 'update-connector';
-  operation: 'restart' | 'update';
+  kind: 'ensure-codex-daemon' | 'restart-codex-daemon' | 'restart-connector' | 'update-connector';
+  operation: 'ensure' | 'restart' | 'update';
   releaseId?: string;
   summary: string;
   toVersion?: string;
@@ -102,6 +107,7 @@ export interface MachineReadinessFixRequest extends MachineReadinessSelector {
 export interface MachineReadinessFixResult {
   apiVersion: typeof MACHINE_READINESS_API_VERSION;
   diagnosis: MachineReadinessResult;
+  daemonOperation?: CodexDaemonConnectorResult;
   operationId: string;
   runtimeOperation?: ConnectorRuntimeOperationRecord;
   state:

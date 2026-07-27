@@ -7,7 +7,9 @@ description: Machine-owned Codex App Server sessions in Project Space.
 
 Project Space exposes stored Codex tasks through the authenticated connector on the machine that
 owns them. The browser never connects to Codex App Server directly. A connector-owned, long-lived
-App Server process is the only runtime whose loaded and live states Project Space reports.
+managed App Server daemon is the only runtime whose loaded and live states Project Space reports.
+Project Space, Codex Desktop, and other paired Codex clients therefore observe the same canonical
+thread IDs and live state.
 
 ## Product decisions
 
@@ -18,8 +20,8 @@ App Server process is the only runtime whose loaded and live states Project Spac
 - Task rows use the task name as their only primary text. Issue and pull-request references are
   separate metadata, and active work uses a spinner instead of a static “Running” status.
 - Opening history is read-only. It uses `thread/read` and never resumes or subscribes to the task.
-- Loaded state is labelled **Loaded by Project Space** because App Server loaded state is
-  process-local and cannot describe a separate Codex client.
+- Loaded state comes from the owning machine's shared daemon and is never inferred from another
+  connector or a stale registry snapshot.
 - Starting a new turn while one is active is rejected until the current turn becomes idle. Project
   Space does not silently queue or steer work.
 - The task workspace contains the stored conversation, live streaming, composer, approval and
@@ -34,8 +36,8 @@ App Server process is the only runtime whose loaded and live states Project Spac
    machine, operation, thread, request ID, and runtime generation.
 3. The connector exposes a fixed typed method set. It does not accept arbitrary App Server methods,
    commands, paths, URLs, environment variables, or process inputs from the browser.
-4. App Server stays on local stdio or a machine-local Unix socket. It is not exposed to the public
-   internet, LAN, or Tailnet.
+4. App Server stays on its machine-local Unix socket. Project Space never opens an unauthenticated
+   TCP listener on the public internet, LAN, or Tailnet.
 5. History responses omit internal paths beyond the task working directory, raw process output,
    environment data, credentials, Git origins with credentials, and unknown extension fields.
 6. Resume and turn start use a durable operation ID. Retries return or reconcile the original
@@ -63,6 +65,8 @@ App Server process is the only runtime whose loaded and live states Project Spac
    direct canonical task URLs and legacy URL canonicalization.
 5. Mirror the authenticated active browser safely, including reconnect and lifecycle states.
 6. Reconcile App Server restarts, offline/missing tasks, and multiple machines.
+7. Report and repair shared-daemon, authentication, Remote Control, compatibility, and pairing
+   readiness through Project Doctor's signed constrained connector operation.
 
 ## Finishing criteria
 
@@ -76,10 +80,14 @@ App Server process is the only runtime whose loaded and live states Project Spac
 - Focused and full TypeScript/Bun and Go tests, typecheck, production build, and repository quality
   checks pass before the pull request is marked ready.
 
-## Real dogfooding setup
+## Managed daemon lifecycle
 
-The connector uses `/Applications/ChatGPT.app/Contents/Resources/codex` on this Mac because the
-PATH-installed wrappers are broken. Dogfooding uses a long-lived local stdio process, the actual
-Project-managed #149 worktree, Portless for the web URL, and Browser at desktop and narrow widths.
-The source task is opened read-only first. Any real continuation uses a harmless, explicit prompt,
-waits for idle, records its operation ID, and verifies the same task ID afterward.
+Project Doctor provisions only the Codex binary pinned inside a signed managed connector release.
+It uses Codex's idempotent daemon lifecycle commands without enabling the standalone updater or
+downloading another binary. Existing `CODEX_HOME`, authentication, configuration, approvals,
+pairing state, and thread storage remain in place.
+
+Diagnosis passively verifies the daemon's Unix control socket, App Server version, account state,
+and initial Remote Control status notification. Repair may enable Remote Control and start or
+restart the daemon. A user-only pairing step is reported explicitly and is never replaced with
+remote shell access or credential handling.
