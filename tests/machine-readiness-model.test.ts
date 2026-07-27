@@ -255,6 +255,68 @@ describe('canonical machine readiness model', () => {
     });
   });
 
+  test('offers an exact constrained retry after a proven pre-install failure', () => {
+    const failedOperation = {
+      ...operation('failed'),
+      expectedBuildId: '1'.repeat(40),
+      expectedReleaseId: 'v0.4.10',
+      lastFailure: {
+        at: '2026-07-24T00:00:01.000Z',
+        code: 'download-failed',
+        message: 'The connector could not download the signed release.',
+        rollbackAvailable: false
+      }
+    };
+    const result = diagnose({
+      connector: connector({
+        capabilities: ['codex.machine-tasks.v1', 'runtime.update']
+      }),
+      generation: 4,
+      runtimeStatus: {
+        ...status('update-available', failedOperation),
+        capabilities: ['codex.machine-tasks.v1', 'runtime.update'],
+        update: {
+          ...status('update-available', failedOperation).update,
+          retryEvidence: 'exact-preinstall-download-failure'
+        }
+      }
+    });
+
+    expect(result).toMatchObject({
+      operation: { id: 'repair-one', state: 'failed' },
+      plan: { actions: [{
+        connectorId: 'linux-stable',
+        kind: 'update-connector',
+        operation: 'update',
+        releaseId: 'v0.4.10'
+      }] },
+      ready: true,
+      state: 'degraded'
+    });
+    for (const rejectedOperation of [
+      { ...failedOperation,
+        lastFailure: { ...failedOperation.lastFailure, code: 'wrong-reconnect-version' } },
+      { ...failedOperation, operation: 'restart' as const }
+    ]) {
+      const rejected = diagnose({
+        runtimeStatus: {
+          ...status('update-available', rejectedOperation),
+          update: {
+            ...status('update-available', rejectedOperation).update,
+            retryEvidence: 'exact-preinstall-download-failure'
+          }
+        }
+      });
+      expect(rejected.state).toBe('failed');
+      expect(rejected.plan).toBeUndefined();
+    }
+    const missingEvidence = diagnose({
+      runtimeStatus: status('update-available', failedOperation)
+    });
+    expect(missingEvidence.state).toBe('failed');
+    expect(missingEvidence.plan).toBeUndefined();
+  });
+
   test('does not retry the same or an unidentified rolled-back update', () => {
     for (const priorOperation of [
       operation('rolled-back'),
