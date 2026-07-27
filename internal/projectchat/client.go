@@ -307,6 +307,9 @@ func (client *Client) doJSON(
 
 	response, err := client.httpClient.Do(request)
 	if err != nil {
+		if contextError := ctx.Err(); contextError != nil {
+			return contextError
+		}
 		return ErrUnavailable
 	}
 	defer response.Body.Close()

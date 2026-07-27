@@ -82,6 +82,55 @@
         "commands": []
       },
       {
+        "path": "project agent",
+        "name": "agent",
+        "usage": "agent",
+        "short": "Manage the current Codex agent identity",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for agent",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project agent name",
+            "name": "name",
+            "usage": "name",
+            "short": "Claim a unique Codex agent name, with an offline fallback",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "exclude",
+                "type": "stringArray",
+                "description": "agent name already used by a visible Codex task (repeatable)",
+                "inherited": false
+              },
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for name",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      },
+      {
         "path": "project approval",
         "name": "approval",
         "usage": "approval",

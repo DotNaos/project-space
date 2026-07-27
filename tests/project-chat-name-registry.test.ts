@@ -8,6 +8,19 @@ const threadB='019f4b93-5703-7692-ad6e-101e32fc4be0';
 const agent=(threadId:string,accountId='account-a'):ProjectChatContext=>({spaceId:'space-a',actor:{kind:'agent',accountId,machineId:'machine-a',hostId:'host-a',threadId}});
 
 describe('Project Chat role-based name registry',()=>{
+  test('keeps existing claims stable while exposing enough main-agent names for startup',async()=>{
+    const service=new ProjectChatService({repository:new InMemoryProjectChatRepository()});
+    await service.claimName(agent(threadA),{name:'Athena',category:'mythology'});
+    const names=await service.listNames(agent(threadA));
+    const mythology=names.groups.find(group=>group.category==='mythology')!.names;
+    expect(mythology.length).toBeGreaterThan(40);
+    expect(mythology.find(entry=>entry.name==='Athena')).toMatchObject({
+      state:'claimed',
+      claimedByCurrentThread:true
+    });
+    expect(mythology.find(entry=>entry.name==='Apollo')).toMatchObject({state:'available'});
+  });
+
   test('claims a main name idempotently and rejects scoped collisions',async()=>{
     const service=new ProjectChatService({repository:new InMemoryProjectChatRepository()});
     const first=await service.claimName(agent(threadA),{name:'Athena',category:'mythology'});
