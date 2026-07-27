@@ -183,6 +183,72 @@ describe('machine readiness service', () => {
     expect(started.diagnosis.state).toBe('degraded');
   });
 
+  test('starts a new exact repair after a completed rollback', async () => {
+    const rolledBack = {
+      createdAt: '2026-07-24T00:00:00.000Z',
+      expectedBuildId: '0'.repeat(40),
+      expectedReleaseId: 'v0.4.9',
+      id: 'rolled-back-operation',
+      machineId: connector.id,
+      operation: 'update' as const,
+      requestedByUserId: 'owner',
+      state: 'rolled-back' as const,
+      updatedAt: '2026-07-24T00:00:01.000Z'
+    };
+    let current: MachineRuntimeStatusResult = {
+      ...repairableStatus(),
+      update: { ...repairableStatus().update, operation: rolledBack }
+    };
+    const starts: unknown[] = [];
+    const service = createMachineReadinessService({
+      generationFor: () => undefined,
+      async inventory() {
+        return {
+          connectors: [{
+            ...connector,
+            connector: { ...connector.connector, capabilities: current.capabilities }
+          }],
+          physicalMachines: [{
+            connectorIds: [connector.id],
+            id: 'physical-pc',
+            name: 'os-pc'
+          }]
+        };
+      },
+      async runtimeStatus() {
+        return current;
+      },
+      async startRuntimeOperation(connectorId, request) {
+        starts.push({ connectorId, request });
+        const operation = {
+          ...rolledBack,
+          id: 'retry-operation',
+          state: 'queued' as const
+        };
+        current = { ...current, update: { operation, state: 'updating' } };
+        return { operation, status: current };
+      }
+    });
+    const actor = { userId: 'owner' };
+    const selector = { physicalMachineName: 'os-pc' };
+    const diagnosis = await service.diagnose(actor, selector);
+    expect(diagnosis).toMatchObject({
+      operation: { id: 'rolled-back-operation', state: 'rolled-back' },
+      state: 'repairable'
+    });
+
+    const started = await service.fix(actor, {
+      ...selector,
+      operationId: 'doctor:retry',
+      planId: diagnosis.plan!.id
+    });
+    expect(started.state).toBe('repairing');
+    expect(starts).toEqual([{
+      connectorId: 'linux-stable',
+      request: { operation: 'update', releaseId: 'v0.4.10' }
+    }]);
+  });
+
   test('dispatches only the constrained restart from an exact stale-session plan', async () => {
     let current: MachineRuntimeStatusResult = {
       ...repairableStatus(),

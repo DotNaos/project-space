@@ -204,6 +204,87 @@ describe('connector runtime status', () => {
     }).update.state).toBe('rollback');
   });
 
+  test('offers a newer signed release again after a completed rollback', () => {
+    const status = projectMachineRuntimeStatus({
+      approved,
+      machine: machine(),
+      operation: {
+        ...operation('rolled-back'),
+        expectedBuildId: '0'.repeat(40),
+        expectedReleaseId: 'v0.4.1'
+      }
+    });
+
+    expect(status.update).toMatchObject({
+      availableReleaseId: 'v0.5.0',
+      operation: { id: 'operation-1', state: 'rolled-back' },
+      state: 'update-available'
+    });
+  });
+
+  test('does not retry the same or an unidentified rolled-back release', () => {
+    expect(projectMachineRuntimeStatus({
+      approved,
+      machine: machine(),
+      operation: operation('rolled-back')
+    }).update.state).toBe('rollback');
+    expect(projectMachineRuntimeStatus({
+      approved,
+      machine: machine(),
+      operation: {
+        ...operation('rolled-back'),
+        expectedBuildId: '0'.repeat(40),
+        expectedReleaseId: approved.manifest.releaseId
+      }
+    }).update.state).toBe('rollback');
+    expect(projectMachineRuntimeStatus({
+      approved,
+      machine: machine(),
+      operation: {
+        ...operation('rolled-back'),
+        expectedBuildId: runtime.buildId,
+        expectedFingerprint: connectorRuntimeFingerprint(runtime, capabilities),
+        expectedReleaseId: runtime.releaseId,
+        operation: 'restart'
+      }
+    }).update.state).toBe('rollback');
+    expect(projectMachineRuntimeStatus({
+      approved,
+      machine: machine(),
+      operation: {
+        ...operation('rolled-back'),
+        expectedBuildId: 'f'.repeat(40),
+        expectedFingerprint: connectorRuntimeFingerprint(runtime, capabilities),
+        expectedReleaseId: runtime.releaseId
+      }
+    }).update.state).toBe('rollback');
+  });
+
+  test('keeps rollback visible when a newer release is not actionable', () => {
+    const rolledBack = {
+      ...operation('rolled-back'),
+      expectedBuildId: runtime.buildId,
+      expectedReleaseId: runtime.releaseId
+    };
+    expect(projectMachineRuntimeStatus({
+      approved,
+      machine: machine({ connector: {
+        capabilities, installCommand: 'connector', runtime, status: 'offline'
+      } }),
+      operation: rolledBack
+    }).update.state).toBe('rollback');
+    expect(projectMachineRuntimeStatus({
+      approved,
+      machine: machine({ connector: {
+        capabilities,
+        installCommand: 'connector',
+        runtime: { ...runtime, architecture: 'x64', platform: 'windows' },
+        status: 'online'
+      } }),
+      operation: rolledBack
+    }).update.state).toBe('rollback');
+  });
+
   test('requires a new instance and the exact expected reconnect evidence', () => {
     const nextBundle = {
       connector: '0.5.0', machineTools: '0.5.0', projectCli: '0.5.0'

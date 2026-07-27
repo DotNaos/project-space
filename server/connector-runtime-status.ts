@@ -115,6 +115,28 @@ function progressState(operation: ConnectorRuntimeOperationRecord) {
   return undefined;
 }
 
+export function connectorRuntimeRollbackAllowsRelease(
+  operation: ConnectorRuntimeOperationRecord,
+  releaseId: string | undefined
+) {
+  if (operation.state !== 'rolled-back' || operation.operation !== 'update' || !releaseId) {
+    return false;
+  }
+  const targetReleaseIds = [
+    operation.expectedReleaseId,
+    operation.expectedFingerprint?.releaseId
+  ].filter((releaseId): releaseId is string => Boolean(releaseId));
+  const targetBuildIds = [
+    operation.expectedBuildId,
+    operation.expectedFingerprint?.buildId
+  ].filter((buildId): buildId is string => Boolean(buildId));
+  return targetReleaseIds.length > 0 &&
+    targetReleaseIds.every((targetReleaseId) => targetReleaseId === targetReleaseIds[0]) &&
+    targetBuildIds.length > 0 &&
+    targetBuildIds.every((targetBuildId) => targetBuildId === targetBuildIds[0]) &&
+    releaseId !== targetReleaseIds[0];
+}
+
 function supportsManagedUpdate(machine: MachineRecord, runtime: ConnectorRuntimeRecord) {
   const capabilities = machine.connector.capabilities ?? [];
   const targetSupported =
@@ -134,7 +156,8 @@ export function projectMachineRuntimeStatus(input: {
   const online = machine.connector.status === 'online' || machine.connector.status === 'local';
   const runtime = machine.connector.runtime;
   const operation = input.operation ?? undefined;
-  const activeState = operation ? progressState(operation) : undefined;
+  const completedRollback = operation?.state === 'rolled-back';
+  const activeState = operation && !completedRollback ? progressState(operation) : undefined;
   const base = {
     capabilities,
     machineId: machine.id,
@@ -145,17 +168,24 @@ export function projectMachineRuntimeStatus(input: {
       ...(operation ? { operation } : {})
     }
   };
+  const rolledBackResult = () => ({
+    ...base,
+    update: { ...base.update, state: 'rollback' as const }
+  });
 
   if (activeState) {
     return { ...base, update: { ...base.update, state: activeState } };
   }
   if (!online) {
+    if (completedRollback) return rolledBackResult();
     return { ...base, update: { ...base.update, state: 'offline' } };
   }
   if (!runtime || !supportsManagedUpdate(machine, runtime)) {
+    if (completedRollback) return rolledBackResult();
     return { ...base, update: { ...base.update, state: 'unsupported' } };
   }
   if (!approved) {
+    if (completedRollback) return rolledBackResult();
     return { ...base, update: { ...base.update, state: 'unknown' } };
   }
 
@@ -171,6 +201,7 @@ export function projectMachineRuntimeStatus(input: {
     manifest.version
   );
   if (versionOrder === undefined || versionOrder > 0) {
+    if (completedRollback) return rolledBackResult();
     return {
       ...base,
       update: { ...base.update, ...releaseDetails, state: 'unsupported' }
@@ -183,6 +214,7 @@ export function projectMachineRuntimeStatus(input: {
     runtime.bundleVersions.machineTools === artifact.bundleVersions.machineTools &&
     runtime.bundleVersions.projectCli === artifact.bundleVersions.projectCli;
   if (sameRelease) {
+    if (completedRollback) return rolledBackResult();
     return {
       ...base,
       update: { ...base.update, ...releaseDetails, state: 'up-to-date' }
@@ -191,6 +223,10 @@ export function projectMachineRuntimeStatus(input: {
 
   const incompatible = runtime.protocolVersion !== artifact.protocolVersion ||
     artifact.capabilities.some((capability) => !capabilities.includes(capability));
+  if (operation?.state === 'rolled-back' &&
+      !connectorRuntimeRollbackAllowsRelease(operation, manifest.releaseId)) {
+    return rolledBackResult();
+  }
   return {
     ...base,
     update: {
