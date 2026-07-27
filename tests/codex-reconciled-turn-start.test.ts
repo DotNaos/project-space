@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { startTurnWithReadReconciliation } from '../server/codex-sessions/reconciled-turn-start';
 import { CodexOperationUncertainError } from '../server/codex-sessions/operation-ledger';
+import { CodexThreadUnmaterializedError } from '../server/codex-sessions/stdio-transport';
 
 const input = {
   operationId: 'turn-operation',
@@ -61,11 +62,14 @@ describe('reconciled Codex turn start', () => {
 
   test('does not treat other read failures as proof that no turn exists', async () => {
     const manager = managerFixture({
-      reads: [new Error('thread/read failed')],
+      reads: [new Error(
+        `thread ${input.threadId} is not materialized yet; ` +
+        'includeTurns is unavailable before first user message'
+      )],
       starts: []
     });
     await expect(startTurnWithReadReconciliation(manager, input))
-      .rejects.toThrow('thread/read failed');
+      .rejects.toThrow('thread');
     expect(manager.calls).toEqual(['read']);
   });
 
@@ -219,10 +223,7 @@ function managerFixture(options: {
 }
 
 function unmaterializedThread() {
-  return new Error(
-    `thread ${input.threadId} is not materialized yet; ` +
-    'includeTurns is unavailable before first user message'
-  );
+  return new CodexThreadUnmaterializedError();
 }
 
 function threadWithPrompt(

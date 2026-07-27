@@ -30,7 +30,9 @@ import type {
 } from '../server/codex-sessions/contracts';
 import {
   CodexAppServerRequestCancelledError,
-  CodexSessionManager
+  CodexAppServerRequestError,
+  CodexSessionManager,
+  CodexThreadUnmaterializedError
 } from '../server/codex-sessions';
 
 const keys = generateKeyPairSync('ed25519');
@@ -168,6 +170,7 @@ describe('Codex read-only cancellation', () => {
 });
 
 type RpcMessage = {
+  error?: { code?: number; message?: string };
   id?: CodexRpcId;
   method?: string;
   params?: Record<string, unknown>;
@@ -207,6 +210,44 @@ class CancellationCodexProcess extends EventEmitter implements CodexChildProcess
     return true;
   }
 }
+
+test('classifies only the exact pre-first-turn thread/read rejection as unmaterialized', async () => {
+  const process = new CancellationCodexProcess();
+  const manager = new CodexSessionManager({ processFactory: () => process });
+  const threadId = '019fa32e-714e-7ef0-a755-1e046789a6b5';
+  try {
+    const unmaterialized = manager.readThread(threadId);
+    await waitFor(
+      () => process.requests.some((request) => request.method === 'thread/read'),
+      'the unmaterialized thread read'
+    );
+    const firstRead = process.requests.find((request) => request.method === 'thread/read')!;
+    process.send({
+      error: {
+        code: -32600,
+        message: `thread ${threadId} is not materialized yet; ` +
+          'includeTurns is unavailable before first user message'
+      },
+      id: firstRead.id
+    });
+    await expect(unmaterialized).rejects.toBeInstanceOf(CodexThreadUnmaterializedError);
+
+    const otherFailure = manager.readThread(threadId);
+    await waitFor(
+      () => process.requests.filter((request) => request.method === 'thread/read').length === 2,
+      'the other failed thread read'
+    );
+    const reads = process.requests.filter((request) => request.method === 'thread/read');
+    process.send({
+      error: { code: -32600, message: 'thread/read failed for another reason' },
+      id: reads[1]!.id
+    });
+    await expect(otherFailure).rejects.toBeInstanceOf(CodexAppServerRequestError);
+    await expect(otherFailure).rejects.not.toBeInstanceOf(CodexThreadUnmaterializedError);
+  } finally {
+    await manager.close();
+  }
+});
 
 test('closing during initialization cannot revive the stale App Server or replace a new start', async () => {
   const firstProcess = new CancellationCodexProcess(false);
