@@ -42,6 +42,7 @@ func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 		"disconnect",
 		"doctor",
 		"init",
+		"machine",
 		"module",
 		"prepare",
 		"run",
@@ -72,10 +73,20 @@ func TestRootCommandHelpListsMachineConnectionCommands(t *testing.T) {
 	if err := command.Execute(); err != nil {
 		t.Fatalf("execute root help: %v", err)
 	}
-	for _, name := range []string{"connect", "disconnect", "doctor", "status"} {
+	for _, name := range []string{"connect", "disconnect", "doctor", "machine", "status"} {
 		if !strings.Contains(output.String(), "  "+name+" ") {
 			t.Errorf("root help does not list %q:\n%s", name, output.String())
 		}
+	}
+}
+
+func TestRootCommandKeepsMachineResourcesDiscoverable(t *testing.T) {
+	command, _, err := newRootCommand().Find([]string{"machine", "resources", "show"})
+	if err != nil {
+		t.Fatalf("Find(machine resources show) error: %v", err)
+	}
+	if command.CommandPath() != "project machine resources show" {
+		t.Fatalf("command path = %q, want project machine resources show", command.CommandPath())
 	}
 }
 

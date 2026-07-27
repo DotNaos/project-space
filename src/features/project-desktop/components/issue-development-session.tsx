@@ -33,6 +33,7 @@ import { IssuePullRequestChip } from './issue-branch-menu';
 import { connectorLocationPresentation } from './machine-connector-topology-model';
 import { issueDevelopmentPullRequest } from './pull-request-preview-model';
 import { PullRequestPreviewStatusView } from './pull-request-preview-status';
+import { MachineResourceSummary } from './machine-resource-usage';
 
 interface IssueDevelopmentSessionProps {
   branches: GitHubBranchRecord[];
@@ -292,7 +293,7 @@ export function IssueDevelopmentSession({
             const canStart = Boolean(selectedBranch) && canRunMachineCommand(row.machine) && (hasCheckout || Boolean(repositoryCloneUrl));
             return <button key={row.machineId} type="button" disabled={!canStart || busyMachineId === row.machineId} onClick={() => void startDevelopment(row)} className="flex min-h-10 min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-neutral-300 transition hover:bg-neutral-900 hover:text-neutral-50 disabled:pointer-events-none disabled:opacity-45">
               {hasCheckout ? <Monitor className="size-3.5 shrink-0 text-neutral-500" /> : <Download className="size-3.5 shrink-0 text-neutral-500" />}
-              <span className="min-w-0 flex-1"><span className="block truncate">{busyMachineId === row.machineId ? 'Starting…' : location?.machineName ?? row.machineId}</span>{location && busyMachineId !== row.machineId ? <span className="block truncate text-[11px] text-neutral-500">{location.connectorLabel}</span> : null}</span>
+              <span className="min-w-0 flex-1"><span className="block truncate">{busyMachineId === row.machineId ? 'Starting…' : location?.machineName ?? row.machineId}</span>{location && busyMachineId !== row.machineId ? <span className="block truncate text-[11px] text-neutral-500">{location.connectorLabel}</span> : null}{row.machine && busyMachineId !== row.machineId ? <MachineResourceSummary resources={row.machine.resources} /> : null}</span>
               <span className={machineStatusClass(row.machine?.connector.status)}>{hasCheckout ? 'open' : 'clone'}</span>
             </button>;
           })}</div> : <Text className="text-xs text-neutral-500">No connector installations registered.</Text>}

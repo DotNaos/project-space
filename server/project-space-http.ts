@@ -36,6 +36,7 @@ import {
 import {
   createConfiguredCodexAuthorizationHandler
 } from './codex-authorization/configured-runtime';
+import { createConfiguredMachineResourcesHandler } from './machine-resources-http';
 
 export interface ProjectSpaceHttpOptions {
   backend?: ProjectSpaceBackend;
@@ -86,12 +87,17 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
   });
+  const machineResources = createConfiguredMachineResourcesHandler({
+    backend,
+    machineConnection: options.machineConnectionRuntime
+  });
   const handleApiRequest = projectChatRuntime.then((runtime) =>
     createProjectSpaceApiHandler(backend, {
       codexAuthorization,
       codexSessions,
       codexMachineTasks,
       machineReadiness,
+      machineResources,
       machineConnection: options.machineConnectionRuntime,
       projectChat: runtime,
       projectTopology

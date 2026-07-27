@@ -39,6 +39,7 @@ project
 | [`doctor`](#project-doctor) | - | Diagnose local or managed-machine Project Space readiness |
 | [`help`](#project-help) | - | Help about any command |
 | [`init`](#project-init) | - | Initialize a project template lock |
+| [`machine`](#project-machine) | - | Inspect and manage Project machines |
 | [`module`](#project-module) | - | Manage project template modules |
 | [`prepare`](#project-prepare) | - | Run trusted repository setup steps |
 | [`run`](#project-run) | - | Run a configured project script in the foreground |
@@ -721,6 +722,75 @@ project init [directory]
 | `--template` | `string` | local | template repository |
 | `--template-path` | `string` | local | template path |
 | `--version` | `string` | local | template version |
+
+<h3 id="project-machine" className="scroll-m-28"><code>project machine</code></h3>
+
+Inspect and manage Project machines
+
+```sh
+project machine
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for machine |
+
+<h3 id="project-machine-resources" className="scroll-m-28"><code>project machine resources</code></h3>
+
+Inspect CPU, GPU, memory, and disk utilization
+
+```sh
+project machine resources
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for resources |
+
+<h3 id="project-machine-resources-list" className="scroll-m-28"><code>project machine resources list</code></h3>
+
+List the latest resource state for accessible machine contexts
+
+```sh
+project machine resources list
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for list |
+
+<h3 id="project-machine-resources-show" className="scroll-m-28"><code>project machine resources show</code></h3>
+
+Show one machine context resource snapshot
+
+```sh
+project machine resources show
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--context` | `string` | local | exact context ID or label |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for show |
+| `--here` | `bool` | local | use the machine connected by this CLI |
+| `--machine` | `string` | local | exact machine ID or name |
+
+<h3 id="project-machine-resources-watch" className="scroll-m-28"><code>project machine resources watch</code></h3>
+
+Continuously watch one machine context resource snapshot
+
+```sh
+project machine resources watch
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--context` | `string` | local | exact context ID or label |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for watch |
+| `--here` | `bool` | local | use the machine connected by this CLI |
+| `--machine` | `string` | local | exact machine ID or name |
 
 <h3 id="project-module" className="scroll-m-28"><code>project module</code></h3>
 

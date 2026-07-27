@@ -10,6 +10,7 @@ import {
 } from './machine-visuals';
 import { machineSubtitle } from './project-main-model';
 import { ConnectorChannelChip } from './connector-channel-chip';
+import { MachineResourceSummary } from './machine-resource-usage';
 
 interface MachineListItemProps {
   className?: string;
@@ -64,6 +65,7 @@ export function MachineListItem({
             {resolvedSubtitle}
           </Text>
         ) : null}
+        {machine ? <MachineResourceSummary className="mt-0.5" resources={machine.resources} /> : null}
       </span>
       {machine ? <MachineBatteryMeter compact machine={machine} /> : null}
       {endContent}

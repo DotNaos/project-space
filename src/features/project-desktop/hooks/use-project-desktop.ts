@@ -7,6 +7,11 @@ import { useProjectDesktopLifecycle } from './use-project-desktop-lifecycle';
 import { useCodexDesktop } from './use-codex-desktop';
 import { createProjectDesktopTopologyNavigation } from './project-desktop-topology-navigation';
 import {
+  markMachineResourcesUnavailable,
+  mergeMachineResources,
+  preserveMachineResources
+} from './machine-resource-model';
+import {
   connectorOverviewRefreshIntervalMs,
   createGitHubProjectRecord,
   findMatchingProject,
@@ -143,6 +148,33 @@ export function useProjectDesktop() {
   const [isGitHubRefreshing, setIsGitHubRefreshing] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
   const codexDesktop = useCodexDesktop({ connectorOverview, setMainView });
+
+  useEffect(() => {
+    let canceled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    async function refreshMachineResources() {
+      try {
+        const result = await projectSpaceClient.getMachineResources();
+        if (!canceled) {
+          setConnectorOverview((current) => mergeMachineResources(current, result.machines));
+        }
+      } catch {
+        setConnectorOverview((current) => markMachineResourcesUnavailable(current));
+      } finally {
+        if (!canceled) {
+          timer = setTimeout(() => void refreshMachineResources(), 5_000);
+        }
+      }
+    }
+
+    void refreshMachineResources();
+
+    return () => {
+      canceled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
 
   const githubProjects = useMemo(() => {
     if (githubCatalog.status !== 'connected') {
@@ -292,10 +324,10 @@ export function useProjectDesktop() {
     try {
       const nextOverview = await projectSpaceClient.getConnectorOverview();
       const normalizedOverview = nextOverview ?? connectorFallback;
-      setConnectorOverview(normalizedOverview);
+      setConnectorOverview((current) => preserveMachineResources(normalizedOverview, current));
       return normalizedOverview;
     } catch {
-      setConnectorOverview(connectorFallback);
+      setConnectorOverview((current) => preserveMachineResources(connectorFallback, current));
       return connectorFallback;
     } finally {
       if (!silent) {

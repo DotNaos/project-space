@@ -27,6 +27,7 @@ import {
   connectorRuntimeMaintenanceEvidence,
   type ConnectorRuntimeMaintenanceDecision
 } from './connector-runtime-registration-decision';
+import { registerMachineResourceSnapshot } from './machine-resource-store';
 
 const connectorSocketPath = '/api/connectors/socket';
 const defaultCredentialRevalidationIntervalMs = 30_000;
@@ -237,6 +238,15 @@ export function createConnectorCommandUpgradeHandlerCore(
           return;
         }
         updateConnectorCapabilities(machineId, message.payload.connector.capabilities ?? []);
+        return;
+      }
+
+      if (message.type === 'connector.resources') {
+        if (message.payload.connectorId !== machineId) {
+          socket.close(1008, 'Connector resource snapshot changed machine.');
+          return;
+        }
+        registerMachineResourceSnapshot(machineId, message.payload);
         return;
       }
 
