@@ -383,6 +383,31 @@ describe('connector runtime maintenance service', () => {
     });
   });
 
+  test('commits an exact signed update when the supervisor preserves its instance id', async () => {
+    const stableInstance = new Harness();
+    const started = await stableInstance.service().request(
+      { machineId: 'machine-1', operation: 'update' }, 'owner-1'
+    );
+    await settleDispatch();
+    const updated = currentMachine({ connector: {
+      ...currentMachine().connector,
+      runtime: {
+        ...currentMachine().connector.runtime!,
+        buildId: manifest().buildId,
+        bundleVersions: manifest().artifacts[0]!.bundleVersions,
+        maintenance: { operationId: started.operation.id, state: 'pending-health-check' },
+        releaseId: manifest().releaseId,
+        version: manifest().version
+      }
+    } });
+
+    expect(await stableInstance.service().decideReconnect(updated)).toEqual({
+      action: 'commit', operationId: started.operation.id
+    });
+    expect((await stableInstance.operations.latest('machine-1'))?.state)
+      .toBe('health-checking');
+  });
+
   test('orders rollback for wrong reconnect evidence', async () => {
     const wrong = new Harness();
     const wrongStarted = await wrong.service().request(

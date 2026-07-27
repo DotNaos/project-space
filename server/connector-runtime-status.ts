@@ -88,11 +88,12 @@ export function runtimeMatchesExpectedFingerprint(
   runtime: ConnectorRuntimeRecord,
   capabilities: readonly string[],
   expected: ConnectorRuntimeFingerprint | undefined,
-  previousInstanceId: string | undefined
+  previousInstanceId: string | undefined,
+  previous?: ConnectorRuntimeFingerprint
 ) {
-  if (!expected || runtime.instanceId === previousInstanceId) return false;
+  if (!expected) return false;
   const actual = connectorRuntimeFingerprint(runtime, capabilities);
-  return actual.buildId === expected.buildId &&
+  const matchesExpected = actual.buildId === expected.buildId &&
     actual.version === expected.version &&
     actual.protocolVersion === expected.protocolVersion &&
     actual.releaseId === expected.releaseId &&
@@ -100,6 +101,12 @@ export function runtimeMatchesExpectedFingerprint(
     actual.bundleVersions.machineTools === expected.bundleVersions.machineTools &&
     actual.bundleVersions.projectCli === expected.bundleVersions.projectCli &&
     expected.capabilities.every((capability) => actual.capabilities.includes(capability));
+  if (!matchesExpected) return false;
+  if (runtime.instanceId !== previousInstanceId) return true;
+  return previous?.instanceId === previousInstanceId &&
+    expected.releaseId !== previous.releaseId &&
+    expected.buildId !== previous.buildId &&
+    expected.version !== previous.version;
 }
 
 function progressState(operation: ConnectorRuntimeOperationRecord) {

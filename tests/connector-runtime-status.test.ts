@@ -285,7 +285,7 @@ describe('connector runtime status', () => {
     }).update.state).toBe('rollback');
   });
 
-  test('requires a new instance and the exact expected reconnect evidence', () => {
+  test('requires exact reconnect evidence and a new instance or signed identity', () => {
     const nextBundle = {
       connector: '0.5.0', machineTools: '0.5.0', projectCli: '0.5.0'
     };
@@ -307,6 +307,43 @@ describe('connector runtime status', () => {
       capabilities,
       expected,
       'instance-before'
+    )).toBe(false);
+    expect(runtimeMatchesExpectedFingerprint(
+      { ...runtime, buildId: '1'.repeat(40), bundleVersions: nextBundle,
+        instanceId: 'instance-before', releaseId: 'v0.5.0', version: '0.5.0' },
+      capabilities,
+      expected,
+      'instance-before',
+      connectorRuntimeFingerprint(runtime, capabilities)
+    )).toBe(true);
+    expect(runtimeMatchesExpectedFingerprint(
+      { ...runtime, buildId: '1'.repeat(40), bundleVersions: nextBundle,
+        instanceId: 'instance-before', releaseId: 'v0.5.0', version: '0.5.0' },
+      capabilities,
+      expected,
+      'instance-before',
+      connectorRuntimeFingerprint(
+        { ...runtime, buildId: '1'.repeat(40) },
+        capabilities
+      )
+    )).toBe(false);
+    expect(runtimeMatchesExpectedFingerprint(
+      { ...runtime, buildId: '1'.repeat(40), bundleVersions: nextBundle,
+        instanceId: 'instance-before', releaseId: 'v0.5.0', version: '0.5.0' },
+      capabilities,
+      expected,
+      'instance-before',
+      connectorRuntimeFingerprint(
+        { ...runtime, releaseId: 'v0.5.0' },
+        capabilities
+      )
+    )).toBe(false);
+    expect(runtimeMatchesExpectedFingerprint(
+      runtime,
+      capabilities,
+      connectorRuntimeFingerprint(runtime, capabilities),
+      'instance-before',
+      connectorRuntimeFingerprint(runtime, capabilities)
     )).toBe(false);
     expect(runtimeMatchesExpectedFingerprint(
       { ...runtime, buildId: 'f'.repeat(40), bundleVersions: nextBundle,
