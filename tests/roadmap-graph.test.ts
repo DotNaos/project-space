@@ -154,4 +154,19 @@ describe('roadmap CLI graph', () => {
       [dependency(first, second), dependency(second, first)]
     ))).toThrow('contains a cycle');
   });
+
+  test('rejects branch-heavy graphs before producing an oversized response', () => {
+    const layers = Array.from({ length: 11 }, (_, layer) => [
+      issue(layer * 2 + 1, { availability: layer === 0 ? 'ready' : 'blocked' }),
+      issue(layer * 2 + 2, { availability: layer === 0 ? 'ready' : 'blocked' })
+    ]);
+    const dependencies = layers.slice(0, -1).flatMap((entries, layer) => (
+      entries.flatMap((blocker) => (
+        (layers[layer + 1] ?? []).map((blocked) => dependency(blocker, blocked))
+      ))
+    ));
+
+    expect(() => buildRoadmapGraph(result(layers.flat(), dependencies)))
+      .toThrow('too many complete dependency paths');
+  });
 });

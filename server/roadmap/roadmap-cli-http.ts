@@ -12,6 +12,7 @@ import { readJson, writeJson } from '../project-space-http-response';
 
 const graphRoute = '/api/roadmap';
 const dependenciesRoute = '/api/roadmap/dependencies';
+const maximumGraphResponseBytes = 4 << 20;
 
 interface RoadmapCliActor {
   userId: string;
@@ -31,7 +32,7 @@ export interface RoadmapCliHttpService {
 
 class RoadmapCliHttpError extends Error {
   constructor(
-    readonly statusCode: 400 | 401 | 403 | 409 | 503,
+    readonly statusCode: 400 | 401 | 403 | 409 | 429 | 503,
     readonly code: string,
     message: string
   ) {
@@ -98,7 +99,15 @@ function graphForResult(result: RoadmapResult) {
       result.message ?? 'The roadmap is unavailable.'
     );
   }
-  return buildRoadmapGraph(result);
+  const graph = buildRoadmapGraph(result);
+  if (Buffer.byteLength(JSON.stringify(graph)) > maximumGraphResponseBytes) {
+    throw new RoadmapCliHttpError(
+      503,
+      'roadmap_too_large',
+      'The roadmap graph is too large to return safely.'
+    );
+  }
+  return graph;
 }
 
 function repositoryFromUrl(url: URL) {
@@ -208,7 +217,21 @@ function writeRoadmapError(response: ServerResponse, error: unknown) {
 
 function mapRoadmapError(error: unknown) {
   if (error instanceof GitHubRequestError) {
-    if (error.statusCode === 401 || error.statusCode === 403) {
+    if (error.rateLimited) {
+      return new RoadmapCliHttpError(
+        429,
+        'github_rate_limited',
+        'GitHub rate limited this roadmap request. Try again later.'
+      );
+    }
+    if (error.statusCode === 401) {
+      return new RoadmapCliHttpError(
+        401,
+        'github_auth_required',
+        'Reconnect GitHub in Project Space before editing the roadmap.'
+      );
+    }
+    if (error.statusCode === 403) {
       return new RoadmapCliHttpError(
         403,
         'github_permission_denied',

@@ -13,6 +13,7 @@ import (
 	"time"
 )
 
+// Keep this aligned with the server's maximumGraphResponseBytes.
 const maximumResponseBytes = 4 << 20
 
 var (

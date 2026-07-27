@@ -2,6 +2,7 @@ import { createServer, type Server } from 'node:http';
 
 import { afterEach, describe, expect, test } from 'bun:test';
 
+import { GitHubRequestError } from '../server/local-github-catalog';
 import { getCurrentAuthSession } from '../server/local-auth-store';
 import {
   createRoadmapCliHttpApi,
@@ -207,6 +208,33 @@ describe('roadmap CLI HTTP boundary', () => {
     expect(await response.json()).toMatchObject({
       error: { code: 'revision_conflict' }
     });
+  });
+
+  test('distinguishes expired GitHub auth, rate limits, and permissions', async () => {
+    for (const [failure, status, code] of [
+      [new GitHubRequestError(401, false), 401, 'github_auth_required'],
+      [new GitHubRequestError(403, true), 429, 'github_rate_limited'],
+      [new GitHubRequestError(403, false), 403, 'github_permission_denied']
+    ] as const) {
+      const { service } = stub();
+      service.add = async () => { throw failure; };
+      const origin = await start(createRoadmapCliHttpApi(
+        service,
+        async () => ({ userId: 'owner' })
+      ));
+      const response = await fetch(`${origin}/api/roadmap/dependencies`, {
+        body: JSON.stringify({
+          blockedIssueNumber: 2,
+          blocker: { fullName: repository, issueNumber: 1 },
+          expectedGraphRevision: '12345678',
+          fullName: repository
+        }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST'
+      });
+      expect(response.status).toBe(status);
+      expect(await response.json()).toMatchObject({ error: { code } });
+    }
   });
 
   test('binds a connected machine to its owning user GitHub session', async () => {

@@ -9,7 +9,8 @@ import type {
 } from './roadmap-api';
 import { roadmapDependencyCycle, roadmapIssueKey } from './roadmap-model';
 
-const maximumGraphPaths = 100_000;
+const maximumGraphPaths = 10_000;
+const maximumGraphPathReferences = 10_000;
 
 function referenceKey(reference: RoadmapGraphNodeReference) {
   return `${reference.repository.toLowerCase()}#${reference.number}`;
@@ -81,15 +82,20 @@ function graphPaths(
     .map((node) => references.get(referenceKey(node)) as RoadmapGraphNodeReference)
     .sort(compareReferences);
   const paths: RoadmapGraphNodeReference[][] = [];
+  let pathReferences = 0;
   const walk = (
     current: RoadmapGraphNodeReference,
     path: RoadmapGraphNodeReference[]
   ) => {
     const targets = outgoing.get(referenceKey(current)) ?? [];
     if (targets.length === 0) {
-      if (paths.length >= maximumGraphPaths) {
+      if (
+        paths.length >= maximumGraphPaths
+        || pathReferences + path.length > maximumGraphPathReferences
+      ) {
         throw new Error('The roadmap has too many complete dependency paths to render safely.');
       }
+      pathReferences += path.length;
       paths.push(path);
       return;
     }
