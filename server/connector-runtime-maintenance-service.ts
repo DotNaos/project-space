@@ -315,7 +315,8 @@ export class ConnectorRuntimeMaintenanceService {
       runtime,
       machine.connector.capabilities ?? [],
       operation.expectedFingerprint,
-      operation.previousInstanceId
+      operation.previousInstanceId,
+      operation.previousFingerprint
     );
     if (matches) {
       await this.options.operations.transition({
