@@ -6,10 +6,10 @@ describe('connector build information', () => {
   test('uses the next immutable release version for source builds', () => {
     const record = connectorRuntimeRecord({});
 
-    expect(record.version).toBe('0.4.35');
-    expect(record.releaseId).toBe('dev-0.4.35');
+    expect(record.version).toBe('0.4.36');
+    expect(record.releaseId).toBe('dev-0.4.36');
     expect(record.bundleVersions).toEqual({
-      connector: '0.4.35', machineTools: '0.4.35', projectCli: '0.4.35'
+      connector: '0.4.36', machineTools: '0.4.36', projectCli: '0.4.36'
     });
   });
 
