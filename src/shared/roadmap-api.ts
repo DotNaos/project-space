@@ -38,11 +38,19 @@ export interface RoadmapPlan {
 
 export interface RoadmapIssueNode {
   availability: RoadmapIssueAvailability;
+  description?: string;
   issue: RoadmapIssueReference;
   labels: string[];
   state: 'open' | 'closed' | 'unknown';
   title: string;
   updatedAt?: string;
+}
+
+export interface RoadmapIssueSummary {
+  description: string;
+  issue: RoadmapIssueReference;
+  state: 'open' | 'closed';
+  title: string;
 }
 
 export interface RoadmapDependency {
@@ -52,6 +60,7 @@ export interface RoadmapDependency {
 }
 
 export interface RoadmapResult {
+  availableIssues?: RoadmapIssueSummary[];
   canEdit: boolean;
   checkedAt: string;
   conflict?: 'dependencies' | 'plan';
@@ -100,7 +109,14 @@ export interface RoadmapGraphNodeReference {
 }
 
 export interface RoadmapGraphNode extends RoadmapGraphNodeReference {
+  description: string;
   state: RoadmapGraphNodeState;
+  title: string;
+  url?: string;
+}
+
+export interface RoadmapGraphIssue extends RoadmapGraphNodeReference {
+  description: string;
   title: string;
   url?: string;
 }
@@ -115,6 +131,7 @@ export interface RoadmapGraph {
   dependencyFreshness: RoadmapResult['dependencySync'];
   edges: RoadmapGraphEdge[];
   graphRevision: string;
+  issues: RoadmapGraphIssue[];
   nodes: RoadmapGraphNode[];
   paths: RoadmapGraphNodeReference[][];
   repository: string;

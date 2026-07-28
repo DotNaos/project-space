@@ -40,9 +40,17 @@ type NodeReference struct {
 
 type Node struct {
 	NodeReference
-	State NodeState `json:"state"`
-	Title string    `json:"title"`
-	URL   string    `json:"url,omitempty"`
+	Description string    `json:"description"`
+	State       NodeState `json:"state"`
+	Title       string    `json:"title"`
+	URL         string    `json:"url,omitempty"`
+}
+
+type Issue struct {
+	NodeReference
+	Description string `json:"description"`
+	Title       string `json:"title"`
+	URL         string `json:"url,omitempty"`
 }
 
 type Edge struct {
@@ -55,6 +63,7 @@ type Graph struct {
 	DependencyFreshness string            `json:"dependencyFreshness"`
 	Edges               []Edge            `json:"edges"`
 	GraphRevision       string            `json:"graphRevision"`
+	Issues              []Issue           `json:"issues"`
 	Nodes               []Node            `json:"nodes"`
 	Paths               [][]NodeReference `json:"paths"`
 	Repository          string            `json:"repository"`

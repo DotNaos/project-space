@@ -173,8 +173,21 @@ func (client *Client) do(
 		return Graph{}, responseError(response.StatusCode, encoded)
 	}
 	var graph Graph
-	if json.Unmarshal(encoded, &graph) != nil ||
-		validateGraph(graph, expectedRepository) != nil {
+	if json.Unmarshal(encoded, &graph) != nil {
+		return Graph{}, ErrInvalidResponse
+	}
+	if graph.Issues == nil {
+		graph.Issues = make([]Issue, len(graph.Nodes))
+		for index, node := range graph.Nodes {
+			graph.Issues[index] = Issue{
+				NodeReference: node.NodeReference,
+				Description:   node.Description,
+				Title:         node.Title,
+				URL:           node.URL,
+			}
+		}
+	}
+	if validateGraph(graph, expectedRepository) != nil {
 		return Graph{}, ErrInvalidResponse
 	}
 	return graph, nil
@@ -233,13 +246,28 @@ func validateGraph(graph Graph, expectedRepository string) error {
 		(graph.DependencyFreshness != "current" && graph.DependencyFreshness != "stale") {
 		return ErrInvalidResponse
 	}
+	issues := make(map[string]Issue, len(graph.Issues))
+	for _, issue := range graph.Issues {
+		key, ok := referenceKey(issue.NodeReference)
+		if !ok || strings.TrimSpace(issue.Title) == "" {
+			return ErrInvalidResponse
+		}
+		if _, exists := issues[key]; exists {
+			return ErrInvalidResponse
+		}
+		issues[key] = issue
+	}
 	nodes := make(map[string]Node, len(graph.Nodes))
 	for _, node := range graph.Nodes {
 		key, ok := referenceKey(node.NodeReference)
 		if !ok || node.Title == "" || !validNodeState(node.State) {
 			return ErrInvalidResponse
 		}
-		if _, exists := nodes[key]; exists {
+		issue, exists := issues[key]
+		if !exists || issue.Title != node.Title || issue.Description != node.Description {
+			return ErrInvalidResponse
+		}
+		if _, duplicate := nodes[key]; duplicate {
 			return ErrInvalidResponse
 		}
 		nodes[key] = node

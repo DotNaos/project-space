@@ -14,7 +14,16 @@ const repo = {
   id: 42,
   permissions: { push: true }
 };
-const issue = (number: number, options: { id?: number; state?: 'open' | 'closed'; title?: string } = {}) => ({
+const issue = (
+  number: number,
+  options: {
+    body?: string | null;
+    id?: number;
+    state?: 'open' | 'closed';
+    title?: string;
+  } = {}
+) => ({
+  body: options.body,
   html_url: `https://github.com/${fullName}/issues/${number}`,
   id: options.id ?? number,
   labels: [],
@@ -98,7 +107,14 @@ describe('roadmap service', () => {
     const service = new RoadmapService(dependencies(
       store,
       repositoryRouter(
-        [issue(1), issue(2), issue(3, { state: 'closed' })],
+        [
+          issue(1, {
+            body: '# First description\n\nwith **Markdown**.\n\n' +
+              '<!-- project-space-issue-create:12345678-1234-4123-8123-123456789abc -->'
+          }),
+          issue(2, { body: null }),
+          issue(3, { body: 'Closed description', state: 'closed' })
+        ],
         { 2: [issue(1)] }
       )
     ));
@@ -108,6 +124,20 @@ describe('roadmap service', () => {
       [1, 'ready'],
       [2, 'blocked'],
       [3, 'closed']
+    ]);
+    expect(result.issues.map((entry) => entry.description)).toEqual([
+      '# First description\n\nwith **Markdown**.',
+      '',
+      'Closed description'
+    ]);
+    expect(result.availableIssues?.map((entry) => [
+      entry.issue.number,
+      entry.title,
+      entry.description
+    ])).toEqual([
+      [1, 'Issue 1', '# First description\n\nwith **Markdown**.'],
+      [2, 'Issue 2', ''],
+      [3, 'Issue 3', 'Closed description']
     ]);
   });
 
@@ -155,6 +185,7 @@ describe('roadmap service', () => {
     const stale = await service.get(fullName);
     expect(stale.dependencySync).toBe('stale');
     expect(stale.issues.find((entry) => entry.issue.number === 2)?.availability).toBe('missing');
+    expect(stale.issues.find((entry) => entry.issue.number === 2)?.description).toBe('');
 
     const saved = await service.updatePlan({
       expectedGraphRevision: stale.graphRevision,

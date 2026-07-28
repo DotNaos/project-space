@@ -146,6 +146,49 @@ describe('roadmap CLI graph', () => {
     ]);
   });
 
+  test('keeps the searchable issue catalog separate from graph paths', () => {
+    const planned = issue(10);
+    const source = result([planned], []);
+    source.availableIssues = [
+      {
+        description: '# Planned description',
+        issue: planned.issue,
+        state: 'open',
+        title: planned.title
+      },
+      {
+        description: 'Not yet on the roadmap',
+        issue: {
+          fullName: repository,
+          id: 99,
+          number: 99,
+          url: `https://github.com/${repository}/issues/99`
+        },
+        state: 'open',
+        title: 'Unplanned issue'
+      }
+    ];
+    const graph = buildRoadmapGraph(source);
+
+    expect(graph.nodes).toEqual([{
+      description: '',
+      number: 10,
+      repository,
+      state: 'READY',
+      title: 'Issue 10',
+      url: `https://github.com/${repository}/issues/10`
+    }]);
+    expect(graph.paths.map((path) => path.map((entry) => entry.number))).toEqual([[10]]);
+    expect(graph.issues.map(({ description, number, title }) => [
+      number,
+      title,
+      description
+    ])).toEqual([
+      [10, 'Issue 10', '# Planned description'],
+      [99, 'Unplanned issue', 'Not yet on the roadmap']
+    ]);
+  });
+
   test('rejects cyclic dependency snapshots instead of hiding paths', () => {
     const first = issue(1, { availability: 'cyclic' });
     const second = issue(2, { availability: 'cyclic' });

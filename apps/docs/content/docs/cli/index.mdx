@@ -910,6 +910,7 @@ project roadmap
 | `--format` | `string` | local | output format: text or json |
 | `-h`, `--help` | `bool` | local | help for roadmap |
 | `--repository` | `string` | local | GitHub repository as owner/name (defaults to the current origin) |
+| `--verbose` | `bool` | local | include issue titles and normalized descriptions |
 
 <h3 id="project-roadmap-dependency" className="scroll-m-28"><code>project roadmap dependency</code></h3>
 
@@ -930,7 +931,7 @@ project roadmap dependency
 Add an issue prerequisite
 
 ```sh
-project roadmap dependency add <issue>
+project roadmap dependency add [issue]
 ```
 
 | Flag | Type | Scope | Description |
@@ -946,7 +947,7 @@ project roadmap dependency add <issue>
 Remove an issue prerequisite
 
 ```sh
-project roadmap dependency remove <issue>
+project roadmap dependency remove [issue]
 ```
 
 | Flag | Type | Scope | Description |

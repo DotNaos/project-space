@@ -11,6 +11,7 @@ import {
   roadmapIssueKey
 } from '../../src/shared/roadmap-model';
 import { isValidGitHubRepositoryFullName } from '../../src/shared/github-repository-summary';
+import { stripGitHubIssueCreationMarker } from '../../src/shared/github-issue-creation-marker';
 import {
   getGitHubClientId,
   GitHubRequestError,
@@ -31,6 +32,7 @@ interface GitHubRepository {
 }
 
 export interface GitHubRoadmapIssue {
+  body?: string | null;
   html_url: string;
   id: number;
   labels?: Array<{ name?: string } | string>;
@@ -143,6 +145,7 @@ export function emptyRoadmapResult(
   message: string
 ): RoadmapResult {
   return {
+    availableIssues: [],
     canEdit: false,
     checkedAt,
     dependencies: [],
@@ -367,6 +370,7 @@ export async function buildRoadmapResult(
       const availability = unavailable.get(key) ?? 'inaccessible';
       return {
         availability,
+        description: '',
         issue: reference,
         labels: [],
         state: 'unknown',
@@ -382,6 +386,7 @@ export async function buildRoadmapResult(
         loadedGraph.staleBlockedKeys,
         cyclicKeys
       ),
+      description: stripGitHubIssueCreationMarker(issue.body ?? ''),
       issue: roadmapIssueReference(reference.fullName, issue),
       labels: issueLabels(issue),
       state: issue.state,
@@ -400,6 +405,12 @@ export async function buildRoadmapResult(
     );
   }
   return {
+    availableIssues: repositoryIssues.map((issue) => ({
+      description: stripGitHubIssueCreationMarker(issue.body ?? ''),
+      issue: roadmapIssueReference(context.repository.full_name, issue),
+      state: issue.state,
+      title: issue.title
+    })),
     canEdit: context.auth.source !== 'environment' && canEditRepository(context.repository),
     checkedAt,
     dependencies: loadedGraph.dependencies,
