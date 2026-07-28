@@ -37,6 +37,30 @@ function storeWithIds(
 }
 
 describe("database machine connection store", () => {
+  test("lists only safe machine identity fields for one authorized account", async () => {
+    const client = new ScriptedQueryClient((sql, values) => {
+      if (sql.includes("join machine_memberships membership") &&
+          sql.includes("membership.user_id = $1") &&
+          values[0] === "user-a") {
+        return [identityRow()];
+      }
+      return [];
+    });
+    const store = storeWithIds(client);
+
+    const identities = await store.listAuthorizedMachines("user-a");
+
+    expect(identities).toEqual([{
+      architecture: "amd64",
+      hostname: "os-pc",
+      id: newMachineId,
+      name: "OS PC",
+      operatingSystem: "linux",
+    }]);
+    expect(JSON.stringify(identities)).not.toContain("credential");
+    expect(JSON.stringify(identities)).not.toContain(publicKey);
+  });
+
   test("rejects a query client that cannot guarantee a single-connection transaction", async () => {
     let queried = false;
     const store = new DatabaseMachineConnectionStore({

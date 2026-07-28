@@ -3,6 +3,7 @@ export type * from './worktree-action-api';
 export type * from './connector-runtime-api';
 export type * from './roadmap-api';
 export type * from './project-catalog-api';
+export type * from './machine-directory-api';
 
 import type { PullRequestChangelogIdentity } from './pr-preview-changelog-api';
 import type {

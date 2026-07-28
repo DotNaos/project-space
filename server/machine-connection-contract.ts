@@ -84,6 +84,15 @@ export interface TrustedMachineCredentialIdentity {
   userId: string;
 }
 
+export interface AuthorizedMachineIdentity {
+  architecture: MachineArchitecture;
+  hostname: string;
+  id: string;
+  lastSeenAt?: string;
+  name: string;
+  operatingSystem: MachineOperatingSystem;
+}
+
 export interface MachineConnectRequestResult {
   approvalUrl: string;
   expiresAt: string;

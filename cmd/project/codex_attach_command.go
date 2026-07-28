@@ -63,5 +63,6 @@ func newCodexAttachCommand(dependencies codexCommandDependencies) *cobra.Command
 	command.Flags().StringVar(&operationID, "operation-id", "", "stable idempotency key for safe retries")
 	command.Flags().StringVar(&explicitBinary, "codex-binary", "", "explicit Codex CLI binary path")
 	addCodexTargetFlags(command, &target, false)
+	registerDirectoryCompletions(command, dependencies.Directory, &target)
 	return command
 }

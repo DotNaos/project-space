@@ -27,12 +27,16 @@ import type { createConfiguredRoadmapCliHandler } from './roadmap/roadmap-cli-ru
 import type {
   createConfiguredProjectCatalogCliHandler
 } from './project-catalog/project-catalog-cli-runtime';
+import type {
+  createConfiguredMachineDirectoryHandler
+} from './machine-directory/configured-runtime';
 
 interface ProjectSpaceApiHandlerOptions {
   codexAuthorization?: ReturnType<typeof createConfiguredCodexAuthorizationHandler>;
   codexSessions?: CodexSessionsHttpHandler;
   codexMachineTasks?: CodexMachineTasksHttpHandler;
   machineReadiness?: ReturnType<typeof createConfiguredMachineReadinessHandler>;
+  machineDirectory?: ReturnType<typeof createConfiguredMachineDirectoryHandler>;
   machineConnection?: Pick<MachineConnectionRuntime, 'handleRequest'>;
   projectChat?: Pick<ProjectChatRuntime, 'handleRequest'>;
   projectCatalogCli?: ReturnType<typeof createConfiguredProjectCatalogCliHandler>;
@@ -87,6 +91,10 @@ export function createProjectSpaceApiHandler(
       }
 
       if (options.machineReadiness && await options.machineReadiness(request, response, url)) {
+        return true;
+      }
+
+      if (options.machineDirectory && await options.machineDirectory(request, response, url)) {
         return true;
       }
 

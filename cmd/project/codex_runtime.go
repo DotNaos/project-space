@@ -32,9 +32,23 @@ type codexCommandDependencies struct {
 	ResolveBinary             func(context.Context, string) (string, error)
 	ResolveRepository         func(context.Context) (string, error)
 	Wait                      func(context.Context, time.Duration) error
+	Directory                 machineDirectoryDependencies
 }
 
 func normalizeCodexCommandDependencies(dependencies codexCommandDependencies) codexCommandDependencies {
+	defaultDirectory := defaultMachineDirectoryDependencies()
+	if dependencies.Directory.ListMachines == nil {
+		dependencies.Directory.ListMachines = defaultDirectory.ListMachines
+	}
+	if dependencies.Directory.ListThreads == nil {
+		dependencies.Directory.ListThreads = defaultDirectory.ListThreads
+	}
+	if dependencies.Directory.ResolveSSH == nil {
+		dependencies.Directory.ResolveSSH = defaultDirectory.ResolveSSH
+	}
+	if dependencies.Directory.RunSSH == nil {
+		dependencies.Directory.RunSSH = defaultDirectory.RunSSH
+	}
 	if dependencies.LookupEnv == nil {
 		dependencies.LookupEnv = os.LookupEnv
 	}

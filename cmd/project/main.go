@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -15,6 +16,10 @@ func main() {
 	defer stop()
 	root := newRootCommand()
 	if err := root.ExecuteContext(ctx); err != nil {
+		var exitCoder interface{ ExitCode() int }
+		if errors.As(err, &exitCoder) && exitCoder.ExitCode() >= 0 {
+			os.Exit(exitCoder.ExitCode())
+		}
 		fmt.Fprintln(os.Stderr, "VIOLATION", err)
 		os.Exit(1)
 	}
@@ -44,6 +49,7 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(newDeployCommand())
 	root.AddCommand(newDisconnectCommand())
 	root.AddCommand(newMachineDoctorCommand())
+	root.AddCommand(newMachineCommand())
 	root.AddCommand(newInitCommand())
 	root.AddCommand(newProjectListCommand())
 	root.AddCommand(newModuleCommand())

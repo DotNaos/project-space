@@ -40,6 +40,9 @@ import {
   createConfiguredProjectCatalogCliHandler
 } from './project-catalog/project-catalog-cli-runtime';
 import {
+  createConfiguredMachineDirectoryHandler
+} from './machine-directory/configured-runtime';
+import {
   createPreviewDocsProxy,
   type PreviewDocsProxyDependencies
 } from './preview-docs-proxy';
@@ -102,6 +105,10 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
   });
+  const machineDirectory = createConfiguredMachineDirectoryHandler({
+    backend: rawBackend,
+    machineConnection: options.machineConnectionRuntime
+  });
   const proxyPreviewDocs = createPreviewDocsProxy(
     process.env,
     options.previewDocsProxy
@@ -112,6 +119,7 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
       codexSessions,
       codexMachineTasks,
       machineReadiness,
+      machineDirectory,
       machineConnection: options.machineConnectionRuntime,
       projectChat: runtime,
       projectCatalogCli,
