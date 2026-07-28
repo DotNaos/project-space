@@ -15,6 +15,11 @@ const identity = {
   repositoryFullName: 'DotNaos/project-space'
 };
 
+const canonicalIdentity = {
+  ...identity,
+  pullRequestNumber: 361
+};
+
 const source = {
   entries: [
     {
@@ -48,14 +53,14 @@ const source = {
 
 describe('pull request changelog snapshot', () => {
   test('loads the canonical exact-source entry', () => {
-    const snapshot = pullRequestChangelogSnapshotFor(identity);
+    const snapshot = pullRequestChangelogSnapshotFor(canonicalIdentity);
 
     expect(snapshot.state).toBe('available');
     expect(snapshot.entries.map((entry) => entry.id)).toEqual([
       'pr-298-canonical-changelog-docs',
       'pr-298-preview-changelog-notice'
     ]);
-    expect(snapshot.docsHref).toBe('/docs/changelog?pr=298');
+    expect(snapshot.docsHref).toBe('/docs/changelog?pr=361');
   });
 
   test('returns every entry for only the requested pull request', () => {

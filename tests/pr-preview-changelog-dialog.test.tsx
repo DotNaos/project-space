@@ -67,7 +67,7 @@ const { PullRequestChangelogDialog } = await import(
 
 const identity = {
   headSha: 'a'.repeat(40),
-  pullRequestNumber: 298,
+  pullRequestNumber: 361,
   repositoryFullName: 'DotNaos/project-space'
 };
 
@@ -80,11 +80,11 @@ describe('pull request changelog dialog', () => {
     );
 
     expect(html).toContain('role="dialog"');
-    expect(html).toContain('What changed in PR #298');
+    expect(html).toContain('What changed in PR #361');
     expect(html).toContain(
       'Show exact-source changelog guidance for pull request previews.'
     );
-    expect(html).toContain('/docs/changelog?pr=298');
+    expect(html).toContain('/docs/changelog?pr=361');
     expect(html).not.toContain('https://');
   });
 

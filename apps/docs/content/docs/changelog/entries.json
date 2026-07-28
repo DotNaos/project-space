@@ -7,7 +7,7 @@
       "summary": "Add canonical changelog and release notes to Project Docs.",
       "body": "Project Docs now provide one changelog source with Unreleased and published-version groups plus exact pull request and version filters.",
       "issueNumber": 298,
-      "pullRequestNumber": 298,
+      "pullRequestNumber": 361,
       "testing": [
         "Open the complete changelog and confirm Unreleased appears before published versions.",
         "Try valid, missing, malformed, and contradictory pull request and version filters."
@@ -19,7 +19,7 @@
       "summary": "Show exact-source changelog guidance for pull request previews.",
       "body": "Pull request previews can present the changes and concrete testing guidance documented in the same repository revision that produced the preview.",
       "issueNumber": 298,
-      "pullRequestNumber": 298,
+      "pullRequestNumber": 361,
       "testing": [
         "Open a pull request Preview and confirm the changelog notice appears once for that exact revision.",
         "Follow the notice link and confirm the same Preview host opens Docs filtered to that pull request."
