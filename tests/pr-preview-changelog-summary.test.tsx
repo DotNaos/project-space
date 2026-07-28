@@ -37,6 +37,13 @@ mock.module(
 );
 
 mock.module('@heroui/react', () => ({
+  Disclosure: Object.assign(modalPassthrough, {
+    Body: modalPassthrough,
+    Content: modalPassthrough,
+    Heading: modalPassthrough,
+    Indicator: modalPassthrough,
+    Trigger: modalPassthrough
+  }),
   ModalBackdrop: modalPassthrough,
   ModalBody: modalPassthrough,
   ModalCloseTrigger: () => null,

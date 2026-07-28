@@ -25,8 +25,8 @@ export function PullRequestChangelogTestTargets({
 
   if (availableTargets.length === 0) {
     return (
-      <p className="mt-7 text-xs leading-5 text-neutral-600">
-        No verified test targets are available for this revision.
+      <p className="mt-4 text-xs leading-5 text-neutral-600">
+        No additional test links are available.
       </p>
     );
   }
@@ -34,7 +34,7 @@ export function PullRequestChangelogTestTargets({
   return (
     <section
       aria-labelledby="pull-request-changelog-test-targets"
-      className="mt-7"
+      className="mt-4"
     >
       <h3
         className="text-xs font-semibold text-neutral-300"

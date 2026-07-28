@@ -44,7 +44,13 @@ mock.module(
   () => testTargetsApi
 );
 mock.module('@heroui/react', () => ({
-  Chip: passthrough,
+  Disclosure: Object.assign(passthrough, {
+    Body: passthrough,
+    Content: passthrough,
+    Heading: passthrough,
+    Indicator: passthrough,
+    Trigger: passthrough
+  }),
   ModalBackdrop: Modal.Backdrop,
   ModalBody: Modal.Body,
   ModalCloseTrigger: Modal.CloseTrigger,
@@ -80,11 +86,13 @@ describe('pull request changelog dialog', () => {
     );
 
     expect(html).toContain('role="dialog"');
-    expect(html).toContain('What changed in PR #361');
+    expect(html).toContain('Changes in this Preview');
     expect(html).toContain(
       'Show exact-source changelog guidance for pull request previews.'
     );
-    expect(html).toContain('lucide-circle-check');
+    expect(html).not.toContain('>Added<');
+    expect(html).not.toContain('>Changed<');
+    expect(html).toContain('lucide-check');
     expect(html).toContain('Dismiss');
     expect(html).not.toContain('Continue to Preview');
     expect(html).toContain('/docs/changelog?pr=361');
@@ -130,6 +138,6 @@ describe('pull request changelog dialog', () => {
     );
 
     expect(html).toContain('role="dialog"');
-    expect(html).toContain('What changed in PR #361');
+    expect(html).toContain('Changes in this Preview');
   });
 });

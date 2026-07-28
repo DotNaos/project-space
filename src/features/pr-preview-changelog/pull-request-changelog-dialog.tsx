@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CircleCheck } from 'lucide-react';
+import { Check, ExternalLink } from 'lucide-react';
 import {
   ModalBackdrop,
   ModalBody,
@@ -109,29 +109,31 @@ export function PullRequestChangelogDialog({
       >
         <ModalContainer
           className="p-3 sm:p-5"
-          placement="auto"
+          placement="center"
           scroll="inside"
-          size="md"
+          size="sm"
         >
-          <ModalDialog className="max-h-[min(44rem,calc(100dvh-1.5rem))] overflow-hidden border border-neutral-800 bg-neutral-950 text-neutral-100 shadow-2xl shadow-black/70 sm:max-w-xl">
+          <ModalDialog className="max-h-[min(36rem,calc(100dvh-1.5rem))] overflow-hidden border border-neutral-800 bg-neutral-950 text-neutral-100 shadow-2xl shadow-black/70 sm:max-w-lg">
             <ModalCloseTrigger aria-label="Close preview changelog" />
-            <ModalHeader className="block px-5 pb-2 pt-5 pr-12 sm:px-6 sm:pt-6">
-              <ModalHeading className="text-xl font-semibold tracking-tight">
+            <ModalHeader className="block px-5 pb-2 pr-12 pt-5">
+              <ModalHeading className="text-lg font-semibold tracking-tight">
                 {identity
-                  ? `What changed in PR #${identity.pullRequestNumber}`
+                  ? 'Changes in this Preview'
                   : 'Changelog unavailable'}
               </ModalHeading>
               {identity ? (
                 <Text className="mt-1 block text-xs leading-5 text-neutral-500">
-                  Revision {identity.headSha.slice(0, 8)}
+                  PR #{identity.pullRequestNumber} ·{' '}
+                  {identity.headSha.slice(0, 8)}
                 </Text>
               ) : null}
             </ModalHeader>
 
-            <ModalBody className="px-5 pb-3 pt-2 sm:px-6">
+            <ModalBody className="px-5 pb-2 pt-2">
               {identity && snapshot ? (
                 <PullRequestChangelogSummary
                   expectedIdentity={identity}
+                  showDocsLink={false}
                   snapshot={snapshot}
                   testTargets={testTargets}
                 />
@@ -146,15 +148,25 @@ export function PullRequestChangelogDialog({
               )}
             </ModalBody>
 
-            <ModalFooter className="px-5 pb-5 pt-2 sm:px-6">
+            <ModalFooter className="justify-between gap-3 px-5 pb-5 pt-3">
+              {identity && snapshot?.docsHref ? (
+                <a
+                  className="inline-flex min-h-8 items-center gap-1.5 text-xs font-medium text-neutral-400 underline-offset-4 hover:text-neutral-200 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400"
+                  href={snapshot.docsHref}
+                >
+                  Full changelog
+                  <ExternalLink aria-hidden className="size-3.5" />
+                </a>
+              ) : (
+                <span />
+              )}
               <Button
-                className="w-full sm:w-auto"
                 aria-label="Dismiss preview changelog"
                 onPress={() => changeOpen(false)}
                 size="sm"
                 variant="ghost"
               >
-                <CircleCheck aria-hidden className="size-3.5" />
+                <Check aria-hidden className="size-3.5" />
                 Dismiss
               </Button>
             </ModalFooter>

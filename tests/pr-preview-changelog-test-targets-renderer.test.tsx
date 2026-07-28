@@ -26,7 +26,7 @@ describe('pull request changelog test-target renderer', () => {
     );
 
     expect(html).toContain(
-      'No verified test targets are available for this revision.'
+      'No additional test links are available.'
     );
     expect(html).not.toContain('Full Preview');
     expect(html).not.toContain('Mobile prototype');
