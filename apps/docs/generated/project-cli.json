@@ -1773,6 +1773,30 @@
         "commands": []
       },
       {
+        "path": "project list",
+        "name": "list",
+        "usage": "list",
+        "short": "List account projects and local availability",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "format",
+            "type": "string",
+            "description": "output format: text or json",
+            "inherited": false
+          },
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for list",
+            "inherited": false
+          }
+        ],
+        "commands": []
+      },
+      {
         "path": "project module",
         "name": "module",
         "usage": "module",
@@ -1920,6 +1944,54 @@
             "commands": []
           }
         ]
+      },
+      {
+        "path": "project open",
+        "name": "open",
+        "usage": "open <project>",
+        "short": "Open a local project in the system's selected terminal",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "format",
+            "type": "string",
+            "description": "output format: text or json",
+            "inherited": false
+          },
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for open",
+            "inherited": false
+          }
+        ],
+        "commands": []
+      },
+      {
+        "path": "project path",
+        "name": "path",
+        "usage": "path <project>",
+        "short": "Print a project's canonical local path",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "format",
+            "type": "string",
+            "description": "output format: path or json",
+            "inherited": false
+          },
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for path",
+            "inherited": false
+          }
+        ],
+        "commands": []
       },
       {
         "path": "project prepare",

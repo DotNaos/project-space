@@ -37,6 +37,9 @@ import {
 } from './codex-authorization/configured-runtime';
 import { createConfiguredRoadmapCliHandler } from './roadmap/roadmap-cli-runtime';
 import {
+  createConfiguredProjectCatalogCliHandler
+} from './project-catalog/project-catalog-cli-runtime';
+import {
   createPreviewDocsProxy,
   type PreviewDocsProxyDependencies
 } from './preview-docs-proxy';
@@ -95,6 +98,10 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
   });
+  const projectCatalogCli = createConfiguredProjectCatalogCliHandler({
+    backend: rawBackend,
+    machineConnection: options.machineConnectionRuntime
+  });
   const proxyPreviewDocs = createPreviewDocsProxy(
     process.env,
     options.previewDocsProxy
@@ -107,6 +114,7 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
       machineReadiness,
       machineConnection: options.machineConnectionRuntime,
       projectChat: runtime,
+      projectCatalogCli,
       projectTopology,
       roadmapCli
     })

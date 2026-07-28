@@ -24,6 +24,9 @@ import type {
   createConfiguredCodexAuthorizationHandler
 } from './codex-authorization/configured-runtime';
 import type { createConfiguredRoadmapCliHandler } from './roadmap/roadmap-cli-runtime';
+import type {
+  createConfiguredProjectCatalogCliHandler
+} from './project-catalog/project-catalog-cli-runtime';
 
 interface ProjectSpaceApiHandlerOptions {
   codexAuthorization?: ReturnType<typeof createConfiguredCodexAuthorizationHandler>;
@@ -32,6 +35,7 @@ interface ProjectSpaceApiHandlerOptions {
   machineReadiness?: ReturnType<typeof createConfiguredMachineReadinessHandler>;
   machineConnection?: Pick<MachineConnectionRuntime, 'handleRequest'>;
   projectChat?: Pick<ProjectChatRuntime, 'handleRequest'>;
+  projectCatalogCli?: ReturnType<typeof createConfiguredProjectCatalogCliHandler>;
   projectTopology?: ProjectTopologyInventoryHttpHandler;
   roadmapCli?: ReturnType<typeof createConfiguredRoadmapCliHandler>;
 }
@@ -87,6 +91,13 @@ export function createProjectSpaceApiHandler(
       }
 
       if (options.roadmapCli && await options.roadmapCli(request, response, url)) {
+        return true;
+      }
+
+      if (
+        options.projectCatalogCli &&
+        await options.projectCatalogCli(request, response, url)
+      ) {
         return true;
       }
 
