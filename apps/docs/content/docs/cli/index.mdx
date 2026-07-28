@@ -40,7 +40,10 @@ project
 | [`doctor`](#project-doctor) | - | Diagnose local or managed-machine Project Space readiness |
 | [`help`](#project-help) | - | Help about any command |
 | [`init`](#project-init) | - | Initialize a project template lock |
+| [`list`](#project-list) | - | List account projects and local availability |
 | [`module`](#project-module) | - | Manage project template modules |
+| [`open`](#project-open) | - | Open a local project in the system's selected terminal |
+| [`path`](#project-path) | - | Print a project's canonical local path |
 | [`prepare`](#project-prepare) | - | Run trusted repository setup steps |
 | [`roadmap`](#project-roadmap) | - | Read and update the issue dependency roadmap |
 | [`run`](#project-run) | - | Run a configured project script in the foreground |
@@ -750,6 +753,19 @@ project init [directory]
 | `--template-path` | `string` | local | template path |
 | `--version` | `string` | local | template version |
 
+<h3 id="project-list" className="scroll-m-28"><code>project list</code></h3>
+
+List account projects and local availability
+
+```sh
+project list
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for list |
+
 <h3 id="project-module" className="scroll-m-28"><code>project module</code></h3>
 
 Manage project template modules
@@ -820,6 +836,32 @@ project module show <module> [directory]
 | --- | --- | --- | --- |
 | `--format` | `string` | local | output format |
 | `-h`, `--help` | `bool` | local | help for show |
+
+<h3 id="project-open" className="scroll-m-28"><code>project open</code></h3>
+
+Open a local project in the system's selected terminal
+
+```sh
+project open <project>
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for open |
+
+<h3 id="project-path" className="scroll-m-28"><code>project path</code></h3>
+
+Print a project's canonical local path
+
+```sh
+project path <project>
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: path or json |
+| `-h`, `--help` | `bool` | local | help for path |
 
 <h3 id="project-prepare" className="scroll-m-28"><code>project prepare</code></h3>
 

@@ -2,6 +2,7 @@ export type * from './dev-server-api';
 export type * from './worktree-action-api';
 export type * from './connector-runtime-api';
 export type * from './roadmap-api';
+export type * from './project-catalog-api';
 
 import type {
   ConnectorRuntimeRecord,
