@@ -2044,6 +2044,12 @@
             "type": "string",
             "description": "GitHub repository as owner/name (defaults to the current origin)",
             "inherited": false
+          },
+          {
+            "name": "verbose",
+            "type": "bool",
+            "description": "include issue titles and normalized descriptions",
+            "inherited": false
           }
         ],
         "commands": [
@@ -2079,7 +2085,7 @@
               {
                 "path": "project roadmap dependency add",
                 "name": "add",
-                "usage": "add <issue>",
+                "usage": "add [issue]",
                 "short": "Add an issue prerequisite",
                 "aliases": [],
                 "runnable": true,
@@ -2121,7 +2127,7 @@
               {
                 "path": "project roadmap dependency remove",
                 "name": "remove",
-                "usage": "remove <issue>",
+                "usage": "remove [issue]",
                 "short": "Remove an issue prerequisite",
                 "aliases": [],
                 "runnable": true,

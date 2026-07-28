@@ -122,6 +122,7 @@ export function buildRoadmapGraph(result: RoadmapResult): RoadmapGraph {
   const nodes = result.issues
     .map<RoadmapGraphNode>((node) => ({
       ...nodeReference(node.issue),
+      description: node.description ?? '',
       state: graphNodeState(node, activeIssueKeys),
       title: node.title,
       ...(node.issue.url ? { url: node.issue.url } : {})
@@ -153,10 +154,31 @@ export function buildRoadmapGraph(result: RoadmapResult): RoadmapGraph {
     compareReferences(left.from, right.from)
     || compareReferences(left.to, right.to)
   ));
+  const issues = new Map((result.availableIssues ?? []).map((entry) => {
+    const reference = nodeReference(entry.issue);
+    return [referenceKey(reference), {
+      ...reference,
+      description: entry.description,
+      title: entry.title,
+      ...(entry.issue.url ? { url: entry.issue.url } : {})
+    }];
+  }));
+  for (const node of nodes) {
+    if (!issues.has(referenceKey(node))) {
+      issues.set(referenceKey(node), {
+        description: node.description,
+        number: node.number,
+        repository: node.repository,
+        title: node.title,
+        ...(node.url ? { url: node.url } : {})
+      });
+    }
+  }
   return {
     dependencyFreshness: result.dependencySync,
     edges,
     graphRevision: result.graphRevision,
+    issues: [...issues.values()].sort(compareReferences),
     nodes,
     paths: graphPaths(nodes, edges),
     repository: result.repository.fullName

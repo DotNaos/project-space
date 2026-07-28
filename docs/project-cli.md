@@ -211,6 +211,42 @@ reported without being overwritten. The result includes the appropriate
 package-manager, installer, or rebuild guidance. This is a user-invoked command;
 Project does not perform silent or background updates.
 
+## Read And Update The Issue Roadmap
+
+```sh
+project roadmap
+project roadmap --verbose
+project roadmap --format json
+project roadmap --repository DotNaos/project-space
+project roadmap dependency add 412 --requires 298
+project roadmap dependency remove 412 --requires 298
+```
+
+The default roadmap output keeps deterministic root-to-leaf paths, dependency
+arrows, issue state tokens, branches, joins, roots, and standalone nodes.
+`--verbose` prints each issue on its own line with its title and a normalized
+single-line description. Markdown and multiline descriptions are collapsed for
+terminal display, empty descriptions are called out explicitly, and long
+details are truncated to the current terminal width. JSON keeps the canonical
+title and visible issue description and is not changed by `--verbose`.
+
+Shell completion reads issue numbers, titles, and descriptions through the
+connected Project Space server. Completion for the positional issue and
+`--requires` never falls back to local filenames. Remove completion only offers
+relationships that currently exist.
+
+When either issue value is omitted in an interactive terminal, `add` and
+`remove` open a searchable issue table. Add chooses the dependent issue first
+and then its prerequisite. Remove only offers prerequisites already attached to
+the selected issue. Escape cancels without changing the roadmap. Scripts and
+other non-interactive callers must provide both numeric values; the command
+fails immediately instead of waiting for input.
+
+All reads and writes use the same server-owned roadmap and issue data as
+Project Space. Dependency updates still enforce the current graph revision,
+freshness, permissions, cycle checks, relationship validity, and manual plan
+order on the server.
+
 ## Run And Serve Project Scripts
 
 Projects declare a small, shared script catalog in `.project/scripts.yaml`:

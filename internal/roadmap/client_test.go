@@ -21,9 +21,26 @@ func testGraph() Graph {
 			To:        NodeReference{Number: 2, Repository: testRepository},
 		}},
 		GraphRevision: "12345678",
+		Issues: []Issue{
+			{
+				NodeReference: NodeReference{Number: 1, Repository: testRepository},
+				Description:   "First description",
+				Title:         "First",
+			},
+			{
+				NodeReference: NodeReference{Number: 2, Repository: testRepository},
+				Title:         "Second",
+			},
+			{
+				NodeReference: NodeReference{Number: 7, Repository: testRepository},
+				Description:   "Unplanned description",
+				Title:         "Unplanned",
+			},
+		},
 		Nodes: []Node{
 			{
 				NodeReference: NodeReference{Number: 1, Repository: testRepository},
+				Description:   "First description",
 				State:         NodeDone,
 				Title:         "First",
 			},
@@ -80,6 +97,25 @@ func TestClientReadsGraphWithMachineAuthentication(t *testing.T) {
 	}
 	if !reflect.DeepEqual(graph, testGraph()) {
 		t.Fatalf("graph = %#v, want %#v", graph, testGraph())
+	}
+}
+
+func TestClientSynthesizesCompletionIssuesFromLegacyGraphNodes(t *testing.T) {
+	legacy := testGraph()
+	legacy.Issues = nil
+	client := testClient(t, http.HandlerFunc(func(
+		response http.ResponseWriter,
+		_ *http.Request,
+	) {
+		_ = json.NewEncoder(response).Encode(legacy)
+	}))
+	graph, err := client.Get(context.Background(), testRepository)
+	if err != nil {
+		t.Fatalf("get legacy graph: %v", err)
+	}
+	if len(graph.Issues) != len(graph.Nodes) ||
+		graph.Issues[0].Title != graph.Nodes[0].Title {
+		t.Fatalf("legacy completion issues = %#v", graph.Issues)
 	}
 }
 
@@ -194,6 +230,8 @@ func TestClientRejectsIncompleteOrContradictoryGraphs(t *testing.T) {
 		func(graph *Graph) { graph.Paths = nil },
 		func(graph *Graph) { graph.Edges[0].Satisfied = false },
 		func(graph *Graph) { graph.Paths[0][1].Number = 3 },
+		func(graph *Graph) { graph.Issues[0].Description = "mismatch" },
+		func(graph *Graph) { graph.Issues = graph.Issues[1:] },
 	} {
 		graph := testGraph()
 		mutate(&graph)

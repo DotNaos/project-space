@@ -23,6 +23,7 @@ afterEach(async () => {
 function result(options: Partial<RoadmapResult> = {}): RoadmapResult {
   const first = {
     availability: 'closed' as const,
+    description: '# First description',
     issue: { fullName: repository, id: 1, number: 1 },
     labels: [],
     state: 'closed' as const,
@@ -30,12 +31,33 @@ function result(options: Partial<RoadmapResult> = {}): RoadmapResult {
   };
   const second = {
     availability: 'ready' as const,
+    description: '',
     issue: { fullName: repository, id: 2, number: 2 },
     labels: [],
     state: 'open' as const,
     title: 'Second'
   };
   return {
+    availableIssues: [
+      {
+        description: '# First description',
+        issue: first.issue,
+        state: 'closed' as const,
+        title: first.title
+      },
+      {
+        description: '',
+        issue: second.issue,
+        state: 'open' as const,
+        title: second.title
+      },
+      {
+        description: 'Searchable unplanned issue',
+        issue: { fullName: repository, id: 7, number: 7 },
+        state: 'open' as const,
+        title: 'Seventh'
+      }
+    ],
     canEdit: true,
     checkedAt: '2026-07-27T00:00:00.000Z',
     dependencies: [{ blocked: second.issue, blocker: first.issue, freshness: 'current' }],
@@ -108,6 +130,42 @@ describe('roadmap CLI HTTP boundary', () => {
         to: { number: 2, repository }
       }],
       graphRevision: '12345678',
+      issues: [
+        {
+          description: '# First description',
+          number: 1,
+          repository,
+          title: 'First'
+        },
+        {
+          description: '',
+          number: 2,
+          repository,
+          title: 'Second'
+        },
+        {
+          description: 'Searchable unplanned issue',
+          number: 7,
+          repository,
+          title: 'Seventh'
+        }
+      ],
+      nodes: [
+        {
+          description: '# First description',
+          number: 1,
+          repository,
+          state: 'DONE',
+          title: 'First'
+        },
+        {
+          description: '',
+          number: 2,
+          repository,
+          state: 'READY',
+          title: 'Second'
+        }
+      ],
       paths: [[
         { number: 1, repository },
         { number: 2, repository }
@@ -131,6 +189,29 @@ describe('roadmap CLI HTTP boundary', () => {
     }
     expect(calls.map(({ kind }) => kind)).toEqual(['get', 'add', 'remove']);
     expect(calls[1]).toEqual({ actor: { userId: 'owner' }, kind: 'add', value: mutation });
+  });
+
+  test('rejects issue descriptions that exceed the graph response budget', async () => {
+    const { service } = stub();
+    service.get = async () => result({
+      availableIssues: [{
+        description: 'x'.repeat((4 << 20) + 1),
+        issue: { fullName: repository, id: 1, number: 1 },
+        state: 'open',
+        title: 'Oversized'
+      }]
+    });
+    const origin = await start(createRoadmapCliHttpApi(
+      service,
+      async () => ({ userId: 'owner' })
+    ));
+    const response = await fetch(
+      `${origin}/api/roadmap?fullName=${encodeURIComponent(repository)}`
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'roadmap_too_large' }
+    });
   });
 
   test('rejects malformed requests before dispatch', async () => {
