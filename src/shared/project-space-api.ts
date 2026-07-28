@@ -1139,6 +1139,10 @@ export interface PullRequestPreviewStatus {
   pullRequestState?: GitHubPullRequestRecord['state'];
   pullRequestTitle?: string;
   pullRequestUrl?: string;
+  prototypeHealthy?: boolean;
+  prototypeMetaSha?: string;
+  prototypeUrl?: string;
+  prototypeUrlState?: 'available' | 'not-configured' | 'withheld';
   repositoryFullName: string;
   requestedSha?: string;
   runningSha?: string;

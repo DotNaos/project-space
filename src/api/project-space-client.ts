@@ -167,6 +167,27 @@ class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements Project
     );
   }
 
+  getPullRequestTestSurfaces(repositoryFullName: string, pullRequestNumber: number) {
+    const query = new URLSearchParams({
+      pullRequestNumber: String(pullRequestNumber),
+      repositoryFullName
+    });
+    return this.request<
+      import('@/shared/pr-preview-test-surfaces-api').PullRequestTestSurfacesResult
+    >(`/api/pull-request-previews/test-surfaces?${query.toString()}`);
+  }
+
+  sendPullRequestPrototypeFeedback(
+    feedback: import('@/shared/pr-preview-test-surfaces-api').PullRequestPrototypeFeedbackRequest
+  ) {
+    return this.request<
+      import('@/shared/pr-preview-test-surfaces-api').PullRequestPrototypeFeedbackResult
+    >('/api/pull-request-previews/feedback', {
+      body: JSON.stringify(feedback),
+      method: 'POST'
+    });
+  }
+
   getConnectorInstallCommand(): Promise<ConnectorInstallerResult> {
     return this.request('/api/connectors/install-command', { method: 'POST' });
   }

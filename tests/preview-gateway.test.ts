@@ -53,17 +53,22 @@ async function captureServer(captured: CapturedRequest[], label: string) {
   });
 }
 
-async function gatewayFixture() {
+async function gatewayFixture(options: { prototypeConfigured?: boolean } = {}) {
   const upstreamRequests: CapturedRequest[] = [];
   const brokerRequests: CapturedRequest[] = [];
+  const prototypeRequests: CapturedRequest[] = [];
   const upstreamOrigin = await captureServer(upstreamRequests, 'upstream');
   const brokerOrigin = await captureServer(brokerRequests, 'broker');
+  const prototypeOrigin = await captureServer(prototypeRequests, 'prototype');
   const publicOrigin = 'https://pr-263.projects.os-home.net';
   const handler = createPreviewGatewayRequestHandler({
     PROJECT_SPACE_PREVIEW_BROKER_ORIGIN: brokerOrigin,
     PROJECT_SPACE_PREVIEW_GATEWAY_SECRET: 'preview-only-secret-that-is-long-enough-for-hmac',
     PROJECT_SPACE_PREVIEW_HEAD_SHA: 'a'.repeat(40),
     PROJECT_SPACE_PREVIEW_PR_NUMBER: '263',
+    ...(options.prototypeConfigured === false
+      ? {}
+      : { PROJECT_SPACE_PREVIEW_PROTOTYPE_UPSTREAM_ORIGIN: prototypeOrigin }),
     PROJECT_SPACE_PREVIEW_REPOSITORY: 'DotNaos/project-space',
     PROJECT_SPACE_PREVIEW_UPSTREAM_ORIGIN: upstreamOrigin,
     PROJECT_SPACE_PUBLIC_ORIGIN: publicOrigin
@@ -82,7 +87,7 @@ async function gatewayFixture() {
       ...headers
     }
   });
-  return { brokerRequests, gatewayOrigin, request, upstreamRequests };
+  return { brokerRequests, gatewayOrigin, prototypeRequests, request, upstreamRequests };
 }
 
 describe('Preview gateway', () => {
@@ -103,6 +108,43 @@ describe('Preview gateway', () => {
     expect(fixture.upstreamRequests[0]?.authorization).toBeUndefined();
     expect(fixture.upstreamRequests[0]?.identity).toBeTruthy();
     expect(fixture.upstreamRequests[0]?.signature).toBeTruthy();
+  });
+
+  test('serves only fixed standalone prototype paths without forwarding credentials or identity', async () => {
+    const fixture = await gatewayFixture();
+    const response = await fixture.request(
+      '/prototype/desktop/?scenario=ready&viewport=phone',
+      'valid-clerk-token',
+      {
+        Cookie: '__session=must-not-leave-the-gateway',
+        [previewIdentityHeader]: 'client-supplied-identity',
+        [previewSignatureHeader]: 'client-supplied-signature'
+      }
+    );
+
+    expect(await response.json()).toEqual({ label: 'prototype' });
+    expect(fixture.prototypeRequests[0]).toMatchObject({
+      authorization: undefined,
+      cookie: undefined,
+      identity: undefined,
+      pathname: '/prototype/desktop/',
+      signature: undefined
+    });
+    expect(fixture.upstreamRequests).toHaveLength(0);
+    expect(fixture.brokerRequests).toHaveLength(0);
+
+    expect((await fixture.request('/prototype/meta.json', 'valid-clerk-token')).status).toBe(200);
+    expect((await fixture.request('/prototype/mobile/', 'valid-clerk-token')).status).toBe(200);
+    expect(fixture.prototypeRequests).toHaveLength(3);
+  });
+
+  test('keeps prototype routes unavailable until the trusted runner configures the static upstream', async () => {
+    const fixture = await gatewayFixture({ prototypeConfigured: false });
+
+    expect((await fixture.request('/prototype/desktop/')).status).toBe(404);
+    expect(fixture.prototypeRequests).toHaveLength(0);
+    expect(fixture.upstreamRequests).toHaveLength(0);
+    expect(fixture.brokerRequests).toHaveLength(0);
   });
 
   test('brokers GitHub and auth session calls with the Clerk token but no Preview assertion', async () => {

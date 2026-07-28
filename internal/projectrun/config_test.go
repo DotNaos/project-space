@@ -63,6 +63,24 @@ func TestLoadDeclarationPreservesTrustedSetupOrder(t *testing.T) {
 	}
 }
 
+func TestLoadDeclarationBindsPrototypeSurfaceToServer(t *testing.T) {
+	project := t.TempDir()
+	writeScriptsBody(t, project, "version: 2\nsetup:\n  - id: tools\n    command: [bun, install]\nservers:\n  prototype-desktop:\n    prototypeSurface: desktop-prototype\n    command: [bun, run, prototype]\n")
+	declaration, err := LoadDeclaration(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if declaration.Server["prototype-desktop"].PrototypeSurface != "desktop-prototype" {
+		t.Fatalf("declaration = %#v", declaration)
+	}
+
+	writeScriptsBody(t, project, "version: 2\nsetup:\n  - id: tools\n    command: [bun, install]\nservers:\n  prototype:\n    prototypeSurface: full-preview\n    command: [bun, run, prototype]\n")
+	if _, err := LoadDeclaration(project); err == nil ||
+		!strings.Contains(err.Error(), "prototypeSurface") {
+		t.Fatalf("invalid surface error = %v", err)
+	}
+}
+
 func TestLoadDeclarationBoundsStepAndServerCountsAndIdentifiers(t *testing.T) {
 	project := t.TempDir()
 	setup := make([]string, 0, maximumSetupSteps+1)

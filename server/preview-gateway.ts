@@ -22,6 +22,24 @@ function parseOrigin(name: string, value: string | undefined) {
   return url.origin;
 }
 
+function parseOptionalOrigin(name: string, value: string | undefined) {
+  return value?.trim() ? parseOrigin(name, value.trim()) : undefined;
+}
+
+function isPrototypeNamespace(pathname: string) {
+  return pathname === '/prototype' || pathname.startsWith('/prototype/');
+}
+
+function isTrustedPrototypePath(pathname: string) {
+  return (
+    pathname === '/prototype/meta.json' ||
+    pathname === '/prototype/desktop' ||
+    pathname.startsWith('/prototype/desktop/') ||
+    pathname === '/prototype/mobile' ||
+    pathname.startsWith('/prototype/mobile/')
+  );
+}
+
 async function readBody(request: IncomingMessage) {
   if (request.method === 'GET' || request.method === 'HEAD') return undefined;
   const chunks: Buffer[] = [];
@@ -112,6 +130,10 @@ export function createPreviewGatewayRequestHandler(
     'PROJECT_SPACE_PREVIEW_UPSTREAM_ORIGIN',
     environment.PROJECT_SPACE_PREVIEW_UPSTREAM_ORIGIN
   );
+  const prototypeOrigin = parseOptionalOrigin(
+    'PROJECT_SPACE_PREVIEW_PROTOTYPE_UPSTREAM_ORIGIN',
+    environment.PROJECT_SPACE_PREVIEW_PROTOTYPE_UPSTREAM_ORIGIN
+  );
   const brokerOrigin = parseOrigin(
     'PROJECT_SPACE_PREVIEW_BROKER_ORIGIN',
     environment.PROJECT_SPACE_PREVIEW_BROKER_ORIGIN ?? 'https://projects.os-home.net'
@@ -148,6 +170,15 @@ export function createPreviewGatewayRequestHandler(
       }
 
       const headers = forwardingHeaders(request.headers);
+      if (isPrototypeNamespace(requestUrl.pathname)) {
+        if (!prototypeOrigin || !isTrustedPrototypePath(requestUrl.pathname)) {
+          response.writeHead(404).end('Prototype surface unavailable.');
+          return;
+        }
+        headers.delete('authorization');
+        await proxy(request, response, prototypeOrigin, headers, requestUrl);
+        return;
+      }
       const isPublicUpstreamPath =
         requestUrl.pathname === '/api/health' || requestUrl.pathname === '/api/app/meta';
       if (isPublicUpstreamPath || !requestUrl.pathname.startsWith('/api/')) {

@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@heroui/styles";
+@source "..";
 
 @theme {
   --color-app-canvas: #0a0a0a;

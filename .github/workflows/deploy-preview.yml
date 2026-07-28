@@ -141,6 +141,7 @@ jobs:
     outputs:
       docs_digest: ${{ steps.docs.outputs.digest }}
       gateway_digest: ${{ steps.gateway.outputs.digest }}
+      prototype_digest: ${{ steps.prototype.outputs.digest }}
       web_digest: ${{ steps.web.outputs.digest }}
     steps:
       - name: Check out trusted workflow assets
@@ -183,6 +184,17 @@ jobs:
           build-args: PROJECT_SPACE_BUILD_COMMIT=${{ needs.resolve.outputs.head_sha }}
           push: true
           tags: ghcr.io/dotnaos/project-space-preview-docs:pr-${{ needs.resolve.outputs.pr_number }}-${{ needs.resolve.outputs.head_sha }}
+      - name: Build and publish static PR prototype image from trusted Dockerfile
+        id: prototype
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: source
+          file: trusted/deploy/preview.prototype.Dockerfile
+          build-contexts: |
+            trusted-assets=trusted
+          build-args: PROJECT_SPACE_BUILD_COMMIT=${{ needs.resolve.outputs.head_sha }}
+          push: true
+          tags: ghcr.io/dotnaos/project-space-preview-prototype:pr-${{ needs.resolve.outputs.pr_number }}-${{ needs.resolve.outputs.head_sha }}
       - name: Build trusted gateway exclusively from main-owned source
         id: gateway
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
@@ -289,6 +301,7 @@ jobs:
           DOCS_DIGEST: ${{ needs.build.outputs.docs_digest }}
           GATEWAY_DIGEST: ${{ needs.build.outputs.gateway_digest }}
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          PROTOTYPE_DIGEST: ${{ needs.build.outputs.prototype_digest }}
           REQUESTED_SHA: ${{ needs.resolve.outputs.head_sha }}
           WEB_DIGEST: ${{ needs.build.outputs.web_digest }}
         run: |
@@ -298,7 +311,9 @@ jobs:
             --arg web "ghcr.io/dotnaos/project-space-preview-web@$WEB_DIGEST" \
             --arg docs "ghcr.io/dotnaos/project-space-preview-docs@$DOCS_DIGEST" \
             --arg gateway "ghcr.io/dotnaos/project-space-preview-gateway@$GATEWAY_DIGEST" \
-            '{repository:$repository,prNumber:$pr,headSha:$sha,webImage:$web,docsImage:$docs,gatewayImage:$gateway}' |
+            --arg prototype "ghcr.io/dotnaos/project-space-preview-prototype@$PROTOTYPE_DIGEST" \
+            '{repository:$repository,prNumber:$pr,headSha:$sha,webImage:$web,docsImage:$docs,
+              gatewayImage:$gateway,prototypeImage:$prototype}' |
             ssh project-space-preview apply > preview-result.json
           exit_code=$?
           set -e

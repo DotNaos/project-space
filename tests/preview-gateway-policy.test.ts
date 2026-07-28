@@ -122,6 +122,10 @@ describe('Preview gateway policy', () => {
   test('keeps raw infrastructure and machine operations out of Preview', () => {
     expect(isBlockedPreviewPath('/api/platform/deploy-project')).toBe(true);
     expect(isBlockedPreviewPath('/api/connectors/credentials')).toBe(true);
+    expect(isBlockedPreviewPath('/api/dev-servers/inspect')).toBe(true);
+    expect(isBlockedPreviewPath('/api/pull-request-previews/test-surfaces')).toBe(true);
+    expect(isBlockedPreviewPath('/api/pull-request-previews/dev-server/heartbeat')).toBe(true);
+    expect(isBlockedPreviewPath('/api/pull-request-previews/feedback')).toBe(true);
     expect(isBlockedPreviewPath('/api/github/catalog')).toBe(false);
     expect(isGitHubApiPath('/api/github/catalog')).toBe(true);
     expect(isTrustedGitHubBrokerRequest('GET', '/api/github/catalog')).toBe(true);

@@ -33,6 +33,7 @@ services:
       PROJECT_SPACE_PREVIEW_GATEWAY_SECRET: ${PREVIEW_GATEWAY_SECRET:?set PREVIEW_GATEWAY_SECRET}
       PROJECT_SPACE_PREVIEW_HEAD_SHA: ${PREVIEW_HEAD_SHA}
       PROJECT_SPACE_PREVIEW_PR_NUMBER: ${PREVIEW_PR_NUMBER}
+      PROJECT_SPACE_PREVIEW_PROTOTYPE_UPSTREAM_ORIGIN: ${PREVIEW_PROTOTYPE_UPSTREAM_ORIGIN:-}
       PROJECT_SPACE_PREVIEW_REPOSITORY: ${PREVIEW_REPOSITORY}
       PROJECT_SPACE_PREVIEW_UPSTREAM_ORIGIN: http://preview-web:4173
       PROJECT_SPACE_PUBLIC_ORIGIN: https://${PREVIEW_DOMAIN:?set PREVIEW_DOMAIN}
@@ -118,6 +119,28 @@ services:
     networks: [preview-internal]
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=32m
+
+  prototype:
+    <<: *runtime-security
+    # The trusted runner enables this profile only after accepting an immutable
+    # prototype image digest for the exact PR head.
+    profiles: [prototype]
+    image: ${PREVIEW_PROTOTYPE_IMAGE:-project-space-preview-prototype-image-not-configured}
+    cpus: 0.50
+    mem_limit: 256m
+    healthcheck:
+      test: [CMD-SHELL, "wget -q -O /dev/null http://127.0.0.1:8080/prototype/meta.json"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    labels: *preview-labels
+    logging: *runtime-logs
+    networks:
+      preview-internal:
+        aliases: [preview-prototype]
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m
 
   db:
     image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193

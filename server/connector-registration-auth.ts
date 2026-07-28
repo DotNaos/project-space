@@ -11,6 +11,7 @@ import type { MachineConnectorProfile } from './machine-connection-contract';
 export interface ConnectorMachineTokenIdentity {
   connectorProfile?: MachineConnectorProfile;
   machineId: string;
+  userId?: string;
 }
 
 function connectorRegistrationToken() {

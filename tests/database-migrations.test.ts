@@ -78,7 +78,8 @@ describe('database migrations', () => {
       '0021_codex_machine_tasks',
       '0022_codex_machine_task_durable_operations',
       '0023_codex_machine_task_start_payload',
-      '0024_roadmap_plans'
+      '0024_roadmap_plans',
+      '0025_pr_dev_server_leases'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -175,6 +176,8 @@ describe('database migrations', () => {
     expect(sql).toContain('create table roadmap_dependency_snapshots');
     expect(sql).toContain('primary key (repository_id, principal_id)');
     expect(sql).toContain('revision bigint not null default 0');
+    expect(sql).toContain('create table pull_request_dev_server_leases');
+    expect(sql).toContain('pull_request_dev_server_leases_current_scope_idx');
   });
 
   test('applies pending migrations once under a transaction and records checksums', async () => {

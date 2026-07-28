@@ -15,5 +15,12 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["vite.config.ts", "electron", "server", "src/shared"]
+  "include": [
+    "vite.config.ts",
+    "apps/prototype/vite.config.ts",
+    "electron",
+    "scripts/dev-prototype.ts",
+    "server",
+    "src/shared"
+  ]
 }
