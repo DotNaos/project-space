@@ -54,7 +54,8 @@ describe('pull request changelog snapshot', () => {
     expect(snapshot.state).toBe('available');
     expect(snapshot.entries.map((entry) => entry.id)).toEqual([
       'pr-298-canonical-changelog-docs',
-      'pr-298-preview-changelog-notice'
+      'pr-298-preview-changelog-notice',
+      'pr-298-docs-deployment-context'
     ]);
     expect(snapshot.docsHref).toBe('/docs/changelog?pr=361');
   });

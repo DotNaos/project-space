@@ -163,6 +163,9 @@ describe('Preview Docs proxy', () => {
       404
     );
     expect((await fetch(`${enabled.origin}/projects`)).status).toBe(404);
+    expect((await fetch(`${enabled.origin}/api/app/meta`)).status).toBe(
+      404
+    );
   });
 
   test('recognizes the Docs search namespace', async () => {

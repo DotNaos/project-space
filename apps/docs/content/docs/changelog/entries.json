@@ -24,6 +24,18 @@
         "Open a pull request Preview and confirm the changelog notice appears once for that exact revision.",
         "Follow the notice link and confirm the same Preview host opens Docs filtered to that pull request."
       ]
+    },
+    {
+      "id": "pr-298-docs-deployment-context",
+      "category": "added",
+      "summary": "Show the deployed Docs version and return path.",
+      "body": "The Docs sidebar now identifies the verified Project Space version and source revision, then returns to the same pull request Preview or production host.",
+      "issueNumber": 298,
+      "pullRequestNumber": 361,
+      "testing": [
+        "Open Docs from the pull request Preview and confirm the sidebar shows PR #361, the deployed version, and the exact short revision.",
+        "Use the sidebar return link and confirm it opens the same Preview host; on production Docs it should return to Project Space."
+      ]
     }
   ]
 }
