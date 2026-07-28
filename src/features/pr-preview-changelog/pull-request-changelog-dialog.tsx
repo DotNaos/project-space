@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { BookOpenText, TriangleAlert } from 'lucide-react';
+import { BookOpenText, CircleCheck, TriangleAlert } from 'lucide-react';
 import {
   ModalBackdrop,
   ModalBody,
@@ -9,7 +9,6 @@ import {
   ModalFooter,
   ModalHeader,
   ModalHeading,
-  ModalIcon,
   ModalRoot
 } from '@heroui/react';
 
@@ -116,29 +115,36 @@ export function PullRequestChangelogDialog({
         >
           <ModalDialog className="max-h-[min(44rem,calc(100dvh-1.5rem))] overflow-hidden border border-neutral-800 bg-neutral-950 text-neutral-100 shadow-2xl shadow-black/70 sm:max-w-xl">
             <ModalCloseTrigger aria-label="Close preview changelog" />
-            <ModalHeader className="flex-row items-start gap-3 border-b border-neutral-900 px-5 py-4 sm:px-6">
-              <ModalIcon className="bg-sky-500/10 text-sky-300">
+            <ModalHeader className="block px-5 pb-2 pt-5 pr-12 sm:px-6 sm:pt-6">
+              <div className="mb-2 flex items-center gap-2 text-xs font-medium text-neutral-500">
                 {identity ? (
-                  <BookOpenText aria-hidden className="size-5" />
+                  <BookOpenText
+                    aria-hidden
+                    className="size-3.5 text-sky-300"
+                  />
                 ) : (
-                  <TriangleAlert aria-hidden className="size-5 text-amber-300" />
+                  <TriangleAlert
+                    aria-hidden
+                    className="size-3.5 text-amber-300"
+                  />
                 )}
-              </ModalIcon>
-              <div className="min-w-0">
-                <ModalHeading className="text-lg font-semibold">
-                  {identity
-                    ? `What changed in PR #${identity.pullRequestNumber}`
-                    : 'Preview changelog unavailable'}
-                </ModalHeading>
-                <Text className="mt-1 block text-xs leading-5 text-neutral-500">
-                  {identity
-                    ? `From this Preview's exact source revision ${identity.headSha.slice(0, 8)}.`
-                    : 'This Preview could not verify its pull request build identity.'}
-                </Text>
+                <span>
+                  {identity ? 'Preview update' : 'Preview metadata'}
+                </span>
               </div>
+              <ModalHeading className="text-xl font-semibold tracking-tight">
+                {identity
+                  ? `What changed in PR #${identity.pullRequestNumber}`
+                  : 'Changelog unavailable'}
+              </ModalHeading>
+              <Text className="mt-1 block text-xs leading-5 text-neutral-500">
+                {identity
+                  ? `Exact source · ${identity.headSha.slice(0, 8)}`
+                  : 'This build could not verify its pull request identity.'}
+              </Text>
             </ModalHeader>
 
-            <ModalBody className="px-3 py-3 sm:px-4 sm:py-4">
+            <ModalBody className="px-5 pb-3 pt-2 sm:px-6">
               {identity && snapshot ? (
                 <PullRequestChangelogSummary
                   expectedIdentity={identity}
@@ -146,25 +152,27 @@ export function PullRequestChangelogDialog({
                   testTargets={testTargets}
                 />
               ) : (
-                <div
-                  className="rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-4 text-sm leading-6 text-neutral-300"
+                <p
+                  className="text-sm leading-6 text-neutral-400"
                   role="alert"
                 >
                   No changelog entries or testing links are shown because the
                   deployed repository, pull request, commit, and running build
                   could not be matched exactly.
-                </div>
+                </p>
               )}
             </ModalBody>
 
-            <ModalFooter className="border-t border-neutral-900 px-5 py-3 sm:px-6">
+            <ModalFooter className="px-5 pb-5 pt-2 sm:px-6">
               <Button
                 className="w-full sm:w-auto"
+                aria-label="Dismiss preview changelog"
                 onPress={() => changeOpen(false)}
                 size="sm"
-                variant="secondary"
+                variant="ghost"
               >
-                Continue to Preview
+                <CircleCheck aria-hidden className="size-3.5" />
+                Dismiss
               </Button>
             </ModalFooter>
           </ModalDialog>

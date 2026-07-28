@@ -84,6 +84,9 @@ describe('pull request changelog dialog', () => {
     expect(html).toContain(
       'Show exact-source changelog guidance for pull request previews.'
     );
+    expect(html).toContain('lucide-circle-check');
+    expect(html).toContain('Dismiss');
+    expect(html).not.toContain('Continue to Preview');
     expect(html).toContain('/docs/changelog?pr=361');
     expect(html).not.toContain('https://');
   });
@@ -98,7 +101,7 @@ describe('pull request changelog dialog', () => {
       />
     );
 
-    expect(html).toContain('Preview changelog unavailable');
+    expect(html).toContain('Changelog unavailable');
     expect(html).toContain('could not be matched exactly');
     expect(html).not.toContain('Open complete changelog');
     expect(html).not.toContain('<a');

@@ -29,6 +29,9 @@ describe('pull request changelog test-target renderer', () => {
     expect(html).toContain('Mobile prototype');
     expect(html).toContain('Desktop prototype');
     expect(html).toContain('Live Dev Server');
+    expect(
+      html.match(/No verified deployment link was provided/g)
+    ).toHaveLength(1);
     expect(html).not.toContain('href=');
   });
 

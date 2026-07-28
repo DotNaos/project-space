@@ -37,13 +37,6 @@ mock.module(
 );
 
 mock.module('@heroui/react', () => ({
-  Chip: ({
-    children,
-    ...props
-  }: {
-    children?: ReactNode;
-    [key: string]: unknown;
-  }) => createElement('span', props, children),
   ModalBackdrop: modalPassthrough,
   ModalBody: modalPassthrough,
   ModalCloseTrigger: () => null,
@@ -109,7 +102,38 @@ describe('pull request changelog summary', () => {
     expect(html).toContain('Add exact-source changelog guidance.');
     expect(html).toContain('What to test');
     expect(html).toContain('/docs/changelog?pr=298');
-    expect(html).toContain('1 change');
+    expect(html).not.toContain('Pull request #298');
+  });
+
+  test('consolidates testing guidance across multiple entries', () => {
+    const snapshot = availableSnapshot();
+    const html = renderToStaticMarkup(
+      <PullRequestChangelogSummary
+        expectedIdentity={identity}
+        snapshot={{
+          ...snapshot,
+          entries: [
+            ...snapshot.entries,
+            {
+              category: 'changed',
+              id: 'pr-298-second-change',
+              pullRequestNumber: 298,
+              summary: 'Keep the notice calm and focused.',
+              testing: [
+                'Open the changelog for this pull request.',
+                'Check the compact modal at a narrow width.'
+              ]
+            }
+          ]
+        }}
+      />
+    );
+
+    expect(html).toContain('Keep the notice calm and focused.');
+    expect(html.match(/What to test/g)).toHaveLength(1);
+    expect(
+      html.match(/Open the changelog for this pull request\./g)
+    ).toHaveLength(1);
   });
 
   test('renders an honest missing state without fabricated guidance', () => {
