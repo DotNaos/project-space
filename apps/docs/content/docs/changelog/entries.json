@@ -1,0 +1,17 @@
+{
+  "schema": "project-space.changelog/v1",
+  "entries": [
+    {
+      "id": "pr-298-changelog-on-pr-deployments",
+      "category": "added",
+      "summary": "Show exact-source changelog guidance for pull request previews.",
+      "body": "Pull request previews can present the changes and concrete testing guidance documented in the same repository revision that produced the preview.",
+      "issueNumber": 298,
+      "pullRequestNumber": 298,
+      "testing": [
+        "Open the changelog from a pull request preview and confirm it is filtered to that pull request.",
+        "Confirm missing or contradictory changelog metadata is reported without showing unrelated guidance."
+      ]
+    }
+  ]
+}
