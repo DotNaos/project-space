@@ -1,0 +1,112 @@
+import { describe, expect, mock, test } from 'bun:test';
+import { createElement, type ReactNode } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+
+import * as changelogApi from '../src/shared/pr-preview-changelog-api';
+import * as testTargetsApi from '../src/shared/pr-preview-changelog-test-targets';
+
+function passthrough({
+  children
+}: {
+  children?: ReactNode;
+  [key: string]: unknown;
+}) {
+  return createElement('div', null, children);
+}
+
+const Modal = Object.assign(
+  ({
+    children,
+    isOpen
+  }: {
+    children?: ReactNode;
+    isOpen?: boolean;
+  }) => (isOpen ? createElement('div', { role: 'dialog' }, children) : null),
+  {
+    Backdrop: passthrough,
+    Body: passthrough,
+    CloseTrigger: () => null,
+    Container: passthrough,
+    Dialog: passthrough,
+    Footer: passthrough,
+    Header: passthrough,
+    Heading: passthrough,
+    Icon: passthrough
+  }
+);
+
+mock.module('@/lib/utils', () => ({
+  cn: (...values: unknown[]) => values.filter(Boolean).join(' ')
+}));
+mock.module('@/shared/pr-preview-changelog-api', () => changelogApi);
+mock.module(
+  '@/shared/pr-preview-changelog-test-targets',
+  () => testTargetsApi
+);
+mock.module('@heroui/react', () => ({
+  Chip: passthrough,
+  ModalBackdrop: Modal.Backdrop,
+  ModalBody: Modal.Body,
+  ModalCloseTrigger: Modal.CloseTrigger,
+  ModalContainer: Modal.Container,
+  ModalDialog: Modal.Dialog,
+  ModalFooter: Modal.Footer,
+  ModalHeader: Modal.Header,
+  ModalHeading: Modal.Heading,
+  ModalIcon: Modal.Icon,
+  ModalRoot: Modal
+}));
+mock.module('@/app/dotnaos-ui', () => ({
+  Button: passthrough,
+  Text: passthrough
+}));
+
+const { PullRequestChangelogDialog } = await import(
+  '../src/features/pr-preview-changelog/pull-request-changelog-dialog'
+);
+
+const identity = {
+  headSha: 'a'.repeat(40),
+  pullRequestNumber: 298,
+  repositoryFullName: 'DotNaos/project-space'
+};
+
+describe('pull request changelog dialog', () => {
+  test('opens with exact-source guidance and a same-host Docs link', () => {
+    const html = renderToStaticMarkup(
+      <PullRequestChangelogDialog
+        preview={{ identity, state: 'verified' }}
+      />
+    );
+
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('What changed in PR #298');
+    expect(html).toContain(
+      'Show exact-source changelog guidance for pull request previews.'
+    );
+    expect(html).toContain('/docs/changelog?pr=298');
+    expect(html).not.toContain('https://');
+  });
+
+  test('shows an honest closed-data state for invalid build metadata', () => {
+    const html = renderToStaticMarkup(
+      <PullRequestChangelogDialog
+        preview={{
+          reasonCode: 'head-mismatch',
+          state: 'invalid'
+        }}
+      />
+    );
+
+    expect(html).toContain('Preview changelog unavailable');
+    expect(html).toContain('could not be matched exactly');
+    expect(html).not.toContain('Open complete changelog');
+    expect(html).not.toContain('<a');
+  });
+
+  test('does not render in a released build without Preview metadata', () => {
+    expect(
+      renderToStaticMarkup(<PullRequestChangelogDialog />)
+    ).toBe('');
+  });
+});

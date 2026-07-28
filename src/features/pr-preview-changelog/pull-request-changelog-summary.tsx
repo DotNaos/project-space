@@ -8,6 +8,8 @@ import {
   type PullRequestChangelogIdentity,
   type PullRequestChangelogSnapshot
 } from '@/shared/pr-preview-changelog-api';
+import type { PullRequestChangelogTestTargetsSnapshot } from '@/shared/pr-preview-changelog-test-targets';
+import { PullRequestChangelogTestTargets } from './pull-request-changelog-test-targets';
 
 const categoryLabels: Record<PullRequestChangelogCategory, string> = {
   added: 'Added',
@@ -34,12 +36,14 @@ export interface PullRequestChangelogSummaryProps {
   className?: string;
   expectedIdentity?: PullRequestChangelogIdentity;
   snapshot: PullRequestChangelogSnapshot;
+  testTargets?: PullRequestChangelogTestTargetsSnapshot;
 }
 
 export function PullRequestChangelogSummary({
   className,
   expectedIdentity,
-  snapshot
+  snapshot,
+  testTargets
 }: PullRequestChangelogSummaryProps) {
   const presentation = pullRequestChangelogPresentation(
     snapshot,
@@ -127,6 +131,13 @@ export function PullRequestChangelogSummary({
           ))}
         </div>
       )}
+
+      {presentation.state === 'available' && expectedIdentity ? (
+        <PullRequestChangelogTestTargets
+          expectedIdentity={expectedIdentity}
+          snapshot={testTargets}
+        />
+      ) : null}
 
       {presentation.docsHref ? (
         <footer className="border-t border-neutral-800/70 px-4 py-3">

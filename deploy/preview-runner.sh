@@ -208,12 +208,25 @@ verify_runtime() {
     [ -z "$expected_image" ] || [ "$(docker inspect --format '{{.Config.Image}}' "$container")" = "$expected_image" ] || return 1
   done
   meta=$(curl --fail --silent --show-error --max-time 20 "https://$domain/api/app/meta") || return 1
-  [ "$(printf '%s' "$meta" | jq -er '.commit')" = "$sha" ] || return 1
+  printf '%s' "$meta" | jq -e \
+    --arg repository "$repository" \
+    --argjson pr "$pr" \
+    --arg sha "$sha" \
+    '.commit == $sha and
+      .preview.state == "verified" and
+      .preview.identity.repositoryFullName == $repository and
+      .preview.identity.pullRequestNumber == $pr and
+      .preview.identity.headSha == $sha' >/dev/null || return 1
   health=$(curl --fail --silent --show-error --max-time 20 "https://$domain/api/health") || return 1
   printf '%s' "$health" | jq -e '.ok == true' >/dev/null || return 1
   session_status=$(curl --silent --show-error --max-time 20 --output /dev/null --write-out '%{http_code}' "https://$domain/api/auth/session") || return 1
   [ "$session_status" = 401 ] || return 1
   curl --fail --silent --show-error --max-time 20 --output /dev/null "https://$domain/" || return 1
+  docs_headers=$(curl --fail --silent --show-error --max-time 20 \
+    --dump-header - --output /dev/null \
+    "https://$domain/docs/changelog?pr=$pr") || return 1
+  printf '%s\n' "$docs_headers" | tr -d '\r' | \
+    grep -Eiq '^x-project-space-preview-docs-source:[[:space:]]*exact-pr-source$' || return 1
 }
 
 runtime_record() {

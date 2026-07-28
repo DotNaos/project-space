@@ -3,12 +3,38 @@ import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import * as changelogApi from '../src/shared/pr-preview-changelog-api';
+import * as testTargetsApi from '../src/shared/pr-preview-changelog-test-targets';
+
+function modalPassthrough({
+  children
+}: {
+  children?: ReactNode;
+  [key: string]: unknown;
+}) {
+  return createElement('div', null, children);
+}
+
+function modalRoot({
+  children,
+  isOpen
+}: {
+  children?: ReactNode;
+  isOpen?: boolean;
+}) {
+  return isOpen
+    ? createElement('div', { role: 'dialog' }, children)
+    : null;
+}
 
 mock.module('@/lib/utils', () => ({
   cn: (...values: unknown[]) => values.filter(Boolean).join(' ')
 }));
 
 mock.module('@/shared/pr-preview-changelog-api', () => changelogApi);
+mock.module(
+  '@/shared/pr-preview-changelog-test-targets',
+  () => testTargetsApi
+);
 
 mock.module('@heroui/react', () => ({
   Chip: ({
@@ -17,7 +43,17 @@ mock.module('@heroui/react', () => ({
   }: {
     children?: ReactNode;
     [key: string]: unknown;
-  }) => createElement('span', props, children)
+  }) => createElement('span', props, children),
+  ModalBackdrop: modalPassthrough,
+  ModalBody: modalPassthrough,
+  ModalCloseTrigger: () => null,
+  ModalContainer: modalPassthrough,
+  ModalDialog: modalPassthrough,
+  ModalFooter: modalPassthrough,
+  ModalHeader: modalPassthrough,
+  ModalHeading: modalPassthrough,
+  ModalIcon: modalPassthrough,
+  ModalRoot: modalRoot
 }));
 
 import {

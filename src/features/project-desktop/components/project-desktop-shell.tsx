@@ -19,6 +19,7 @@ import {
   projectSpacePrimaryNavigation,
   projectSpaceViewPlacement
 } from '@/features/project-topology/project-space-information-architecture';
+import { PullRequestChangelogDialog } from '@/features/pr-preview-changelog/pull-request-changelog-dialog';
 import { useProjectDesktop } from '../hooks/use-project-desktop';
 import type { ProjectMainView } from '../hooks/use-project-desktop';
 import { useResizableSidebar } from '../hooks/use-resizable-sidebar';
@@ -363,6 +364,8 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           onOpenRoot={desktop.openRoot}
         />
       ) : null}
+
+      <PullRequestChangelogDialog preview={desktop.appMeta.preview} />
     </div>
   );
 }

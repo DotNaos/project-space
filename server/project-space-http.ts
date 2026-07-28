@@ -36,6 +36,10 @@ import {
   createConfiguredCodexAuthorizationHandler
 } from './codex-authorization/configured-runtime';
 import { createConfiguredRoadmapCliHandler } from './roadmap/roadmap-cli-runtime';
+import {
+  createPreviewDocsProxy,
+  type PreviewDocsProxyDependencies
+} from './preview-docs-proxy';
 
 export interface ProjectSpaceHttpOptions {
   backend?: ProjectSpaceBackend;
@@ -45,6 +49,7 @@ export interface ProjectSpaceHttpOptions {
   machineConnectionRuntime?: MachineConnectionRuntime;
   port?: number;
   projectChatRuntime?: ProjectChatRuntime;
+  previewDocsProxy?: PreviewDocsProxyDependencies;
   staticRoot?: string;
 }
 
@@ -90,6 +95,10 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
   });
+  const proxyPreviewDocs = createPreviewDocsProxy(
+    process.env,
+    options.previewDocsProxy
+  );
   const handleApiRequest = projectChatRuntime.then((runtime) =>
     createProjectSpaceApiHandler(backend, {
       codexAuthorization,
@@ -116,6 +125,10 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
         connectorInstallScript(requestPublicOrigin(request)),
         'text/x-shellscript; charset=utf-8'
       );
+      return;
+    }
+
+    if (await proxyPreviewDocs(request, response, url)) {
       return;
     }
 
