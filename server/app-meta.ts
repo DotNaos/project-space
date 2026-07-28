@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import type { AppMeta } from '../src/shared/project-space-api';
+import { pullRequestPreviewMetadataFromBuild } from './pr-preview-build-identity';
 
 const execFileAsync = promisify(execFile);
 
@@ -19,6 +20,10 @@ export async function readAppMeta(): Promise<AppMeta> {
     envOrGit('PROJECT_SPACE_BUILD_REF', ['branch', '--show-current'])
   ]);
   const commit = gitCommit || undefined;
+  const preview = pullRequestPreviewMetadataFromBuild(
+    process.env,
+    commit
+  );
 
   return {
     buildTime: process.env.PROJECT_SPACE_BUILD_TIME || undefined,
@@ -28,6 +33,7 @@ export async function readAppMeta(): Promise<AppMeta> {
     name: process.env.PROJECT_SPACE_BUILD_NAME || packageJson.name || 'project-space',
     nodeVersion: process.version,
     platform: process.platform,
+    ...(preview ? { preview } : {}),
     ref: gitBranch || undefined,
     version:
       process.env.PROJECT_SPACE_BUILD_VERSION ||

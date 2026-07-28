@@ -3,6 +3,7 @@ export type * from './worktree-action-api';
 export type * from './connector-runtime-api';
 export type * from './roadmap-api';
 
+import type { PullRequestChangelogIdentity } from './pr-preview-changelog-api';
 import type {
   ConnectorRuntimeRecord,
   ConnectorRuntimeUpdateRecord,
@@ -20,6 +21,19 @@ import type { CodexDaemonEvidence } from './codex-daemon-api';
 
 export type WorkspaceTool = 'ide' | 'terminal' | 'git' | 'dev-server';
 
+export type PullRequestPreviewBuildMetadata =
+  | {
+      identity: PullRequestChangelogIdentity;
+      state: 'verified';
+    }
+  | {
+      reasonCode:
+        | 'build-commit-unavailable'
+        | 'head-mismatch'
+        | 'invalid-identity';
+      state: 'invalid';
+    };
+
 export interface AppMeta {
   name: string;
   version: string;
@@ -29,6 +43,7 @@ export interface AppMeta {
   commitShort?: string;
   environment?: string;
   nodeVersion?: string;
+  preview?: PullRequestPreviewBuildMetadata;
   ref?: string;
 }
 

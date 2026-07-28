@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  BookOpenText,
   Check,
   Copy,
   Download,
@@ -11,6 +12,7 @@ import {
   Trash2,
   TerminalSquare
 } from 'lucide-react';
+import { Link } from '@heroui/react';
 import { Button, Chip, Surface, Text } from '@/app/dotnaos-ui';
 import { GitHubMark } from './github-mark';
 import { projectSpaceClient } from '@/api/project-space-client';
@@ -26,6 +28,7 @@ import type {
 import { GitHubConnectPanel } from './github-connect-panel';
 import type { RailAccount } from './app-rail';
 import { SettingsMachineGroups } from './settings-machine-groups';
+import { releasedChangelogHref } from '@/features/pr-preview-changelog/changelog-links';
 
 function SettingsSection({
   children,
@@ -249,6 +252,7 @@ export function SettingsView({
   const currentCredentials = credentials.filter(
     (credential) => credential.status === 'active' || credential.status === 'pending'
   );
+  const whatsNewHref = releasedChangelogHref(appMeta.version);
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-4">
@@ -281,6 +285,22 @@ export function SettingsView({
             value={[appMeta.platform, appMeta.nodeVersion].filter(Boolean).join(' / ')}
           />
         </div>
+        {whatsNewHref ? (
+          <Link
+            className="mt-3 inline-flex w-fit items-center gap-1.5 text-xs text-sky-300"
+            href={whatsNewHref}
+          >
+            What&apos;s new in v{appMeta.version}
+            <Link.Icon className="size-3.5">
+              <BookOpenText />
+            </Link.Icon>
+          </Link>
+        ) : (
+          <Text className="mt-3 block text-xs text-neutral-600">
+            What&apos;s new is unavailable because this running version is not
+            documented in the changelog.
+          </Text>
+        )}
       </SettingsSection>
 
       <SettingsSection

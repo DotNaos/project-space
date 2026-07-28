@@ -149,6 +149,14 @@ describe('trusted Preview runner contract', () => {
     expect(runner.indexOf('acquire_lock')).toBeLessThan(runner.indexOf('revalidate_open_pr "$head_sha"'));
     expect(runner).toContain('project-space-preview-${kind}@sha256:');
     expect(runner).toContain('RUNTIME_ROOT=$PLATFORM_ROOT/previews/project-space');
+    expect(runner).toContain('.preview.state == "verified"');
+    expect(runner).toContain('.preview.identity.repositoryFullName == $repository');
+    expect(runner).toContain('.preview.identity.pullRequestNumber == $pr');
+    expect(runner).toContain('.preview.identity.headSha == $sha');
+    expect(runner).toContain('"https://$domain/docs/changelog?pr=$pr"');
+    expect(runner).toContain(
+      'x-project-space-preview-docs-source:[[:space:]]*exact-pr-source'
+    );
     expect(runner).not.toContain('docker system prune');
     expect(runner).not.toContain('/opt/platform/apps/project-space');
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_MODE: "1"');

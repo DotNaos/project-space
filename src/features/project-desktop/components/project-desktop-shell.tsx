@@ -4,7 +4,6 @@ import {
   FolderKanban,
   House,
   MessageSquare,
-  Settings,
   TriangleAlert
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -19,10 +18,16 @@ import {
   projectSpacePrimaryNavigation,
   projectSpaceViewPlacement
 } from '@/features/project-topology/project-space-information-architecture';
+import { PullRequestChangelogDialog } from '@/features/pr-preview-changelog/pull-request-changelog-dialog';
 import { useProjectDesktop } from '../hooks/use-project-desktop';
 import type { ProjectMainView } from '../hooks/use-project-desktop';
 import { useResizableSidebar } from '../hooks/use-resizable-sidebar';
-import { AppRail, type AppSection, type RailAccount } from './app-rail';
+import {
+  AppRail,
+  CompactUtilityBar,
+  type AppSection,
+  type RailAccount
+} from './app-rail';
 import { ContextPanel } from './context-panel';
 import { ProjectMainPanel } from './project-main-panel';
 import { shouldShowProjectSpaceSessionGate } from './project-desktop-session-gate';
@@ -202,6 +207,7 @@ function ProjectSpaceLoginScreen({
 
 function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }) {
   const desktop = useProjectDesktop();
+  const [changelogOpenRequestId, setChangelogOpenRequestId] = useState(0);
   const [isCompact, setIsCompact] = useState(isCompactViewport);
   const [isPanelOpen, setIsPanelOpen] = useState(defaultContextPanelOpen);
   const defaultPanelModeRef = useRef(defaultContextPanelOpen());
@@ -239,6 +245,14 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
     : showContextPanel
       ? `${RAIL_WIDTH}px ${sidebarWidth}px minmax(0,1fr)`
       : `${RAIL_WIDTH}px minmax(0,1fr)`;
+  const openChangelog = desktop.appMeta.preview
+    ? () => {
+        setChangelogOpenRequestId((current) => current + 1);
+      }
+    : undefined;
+  const openDocumentation = () => {
+    window.location.assign('/docs');
+  };
 
   return (
     <div className="relative h-full overflow-hidden bg-app-canvas text-neutral-100">
@@ -256,6 +270,8 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
             hasContextPanel={hasContextPanel}
             isContextPanelOpen={isPanelOpen}
             onOpenChat={desktop.openChat}
+            onOpenChangelog={openChangelog}
+            onOpenDocumentation={openDocumentation}
             onOpenHome={desktop.openRoot}
             onOpenProjects={desktop.openProjects}
             onOpenSettings={desktop.openSettings}
@@ -342,17 +358,13 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
         />
       </div>
 
-      {isCompact && activeSection !== 'settings' ? (
-        <Button
-          aria-label="Settings"
-          isIconOnly
-          onPress={desktop.openSettings}
-          size="sm"
-          variant="ghost"
-          className="app-no-drag absolute right-3 top-3 z-[60] h-9 w-9 min-w-0 rounded-xl bg-app-panel/80 px-0 text-neutral-400 shadow-sm backdrop-blur hover:text-neutral-100"
-        >
-          <Settings className="size-4" strokeWidth={1.9} />
-        </Button>
+      {isCompact ? (
+        <CompactUtilityBar
+          isSettingsActive={activeSection === 'settings'}
+          onOpenChangelog={openChangelog}
+          onOpenDocumentation={openDocumentation}
+          onOpenSettings={desktop.openSettings}
+        />
       ) : null}
 
       {isCompact ? (
@@ -363,6 +375,11 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           onOpenRoot={desktop.openRoot}
         />
       ) : null}
+
+      <PullRequestChangelogDialog
+        openRequestId={changelogOpenRequestId}
+        preview={desktop.appMeta.preview}
+      />
     </div>
   );
 }
