@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { BookOpenText, CircleCheck, TriangleAlert } from 'lucide-react';
+import { CircleCheck } from 'lucide-react';
 import {
   ModalBackdrop,
   ModalBody,
@@ -116,32 +116,16 @@ export function PullRequestChangelogDialog({
           <ModalDialog className="max-h-[min(44rem,calc(100dvh-1.5rem))] overflow-hidden border border-neutral-800 bg-neutral-950 text-neutral-100 shadow-2xl shadow-black/70 sm:max-w-xl">
             <ModalCloseTrigger aria-label="Close preview changelog" />
             <ModalHeader className="block px-5 pb-2 pt-5 pr-12 sm:px-6 sm:pt-6">
-              <div className="mb-2 flex items-center gap-2 text-xs font-medium text-neutral-500">
-                {identity ? (
-                  <BookOpenText
-                    aria-hidden
-                    className="size-3.5 text-sky-300"
-                  />
-                ) : (
-                  <TriangleAlert
-                    aria-hidden
-                    className="size-3.5 text-amber-300"
-                  />
-                )}
-                <span>
-                  {identity ? 'Preview update' : 'Preview metadata'}
-                </span>
-              </div>
               <ModalHeading className="text-xl font-semibold tracking-tight">
                 {identity
                   ? `What changed in PR #${identity.pullRequestNumber}`
                   : 'Changelog unavailable'}
               </ModalHeading>
-              <Text className="mt-1 block text-xs leading-5 text-neutral-500">
-                {identity
-                  ? `Exact source · ${identity.headSha.slice(0, 8)}`
-                  : 'This build could not verify its pull request identity.'}
-              </Text>
+              {identity ? (
+                <Text className="mt-1 block text-xs leading-5 text-neutral-500">
+                  Revision {identity.headSha.slice(0, 8)}
+                </Text>
+              ) : null}
             </ModalHeader>
 
             <ModalBody className="px-5 pb-3 pt-2 sm:px-6">
@@ -156,9 +140,8 @@ export function PullRequestChangelogDialog({
                   className="text-sm leading-6 text-neutral-400"
                   role="alert"
                 >
-                  No changelog entries or testing links are shown because the
-                  deployed repository, pull request, commit, and running build
-                  could not be matched exactly.
+                  This Preview could not verify its pull request identity, so
+                  no changelog or testing links are shown.
                 </p>
               )}
             </ModalBody>

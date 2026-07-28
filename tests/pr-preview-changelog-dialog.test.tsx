@@ -102,7 +102,11 @@ describe('pull request changelog dialog', () => {
     );
 
     expect(html).toContain('Changelog unavailable');
-    expect(html).toContain('could not be matched exactly');
+    expect(html).toContain(
+      'could not verify its pull request identity'
+    );
+    expect(html).not.toContain('Preview metadata');
+    expect(html).not.toContain('This build could not verify');
     expect(html).not.toContain('Open complete changelog');
     expect(html).not.toContain('<a');
   });

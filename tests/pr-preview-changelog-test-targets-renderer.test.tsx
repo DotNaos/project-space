@@ -25,13 +25,13 @@ describe('pull request changelog test-target renderer', () => {
       <PullRequestChangelogTestTargets expectedIdentity={identity} />
     );
 
-    expect(html).toContain('Full Preview');
-    expect(html).toContain('Mobile prototype');
-    expect(html).toContain('Desktop prototype');
-    expect(html).toContain('Live Dev Server');
-    expect(
-      html.match(/No verified deployment link was provided/g)
-    ).toHaveLength(1);
+    expect(html).toContain(
+      'No verified test targets are available for this revision.'
+    );
+    expect(html).not.toContain('Full Preview');
+    expect(html).not.toContain('Mobile prototype');
+    expect(html).not.toContain('Desktop prototype');
+    expect(html).not.toContain('Live Dev Server');
     expect(html).not.toContain('href=');
   });
 
@@ -57,9 +57,9 @@ describe('pull request changelog test-target renderer', () => {
 
     expect(html).toContain('href="https://pr-398.projects.os-home.net/"');
     expect(html).toContain('aria-label="Open Full Preview"');
-    expect(html).toContain(
-      'Live Dev Server details stay outside the public Preview boundary.'
-    );
+    expect(html).not.toContain('Live Dev Server');
+    expect(html).not.toContain('Mobile prototype');
+    expect(html).not.toContain('Desktop prototype');
     expect(html).not.toContain('thread');
     expect(html).not.toContain('feedback');
     expect(html).not.toContain('tailscale');
