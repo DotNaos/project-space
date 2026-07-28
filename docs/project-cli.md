@@ -29,6 +29,35 @@ for multiple related changes.
 See [Codex Worktree Ownership](./codex-worktrees.md) for the complete workflow
 and collision rules.
 
+## Discover And Open Projects
+
+```sh
+project list
+project list --format json
+project path <project>
+project open <project>
+```
+
+`list` starts with repositories visible to the connected Project Space account,
+then reports which ones have a verified checkout on the current machine.
+`path` accepts a unique repository name, exact `owner/name`, or stable
+`github:<id>` selector and prints only the canonical local directory by default.
+Neither command clones or changes a checkout.
+
+`open` passes that verified directory directly to the operating system's
+terminal launcher. It does not run a project script or any command from the
+repository. macOS uses the user's Launch Services shell-script handler. Windows
+starts a new console in the directory so the configured default terminal host
+receives it. Linux uses `xdg-terminal-exec` when available, then the documented
+`x-terminal-emulator` fallback; headless systems and systems without either
+launcher fail explicitly. Human and JSON output identify the selected launcher
+and whether it was the system selection or a fallback.
+
+Generated shell completion discovers the same account projects dynamically.
+When the service is briefly unavailable, completion may use a credential-scoped
+cache for up to one minute. Cached suggestions say that local availability is
+unverified; `list`, `path`, and `open` never use this completion fallback.
+
 ## Create A Project
 
 ```sh
