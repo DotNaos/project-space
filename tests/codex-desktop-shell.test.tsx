@@ -41,7 +41,7 @@ mock.module('@/app/dotnaos-ui', () => ({
   Tooltip
 }));
 
-const { AppRail } = await import(
+const { AppRail, CompactUtilityBar } = await import(
   '../src/features/project-desktop/components/app-rail'
 );
 
@@ -53,6 +53,7 @@ describe('Project desktop primary navigation', () => {
         hasContextPanel={false}
         isContextPanelOpen={false}
         onOpenChat={() => {}}
+        onOpenDocumentation={() => {}}
         onOpenHome={() => {}}
         onOpenProjects={() => {}}
         onOpenSettings={() => {}}
@@ -63,9 +64,56 @@ describe('Project desktop primary navigation', () => {
     expect(html).toContain('data-testid="sidebar-home"');
     expect(html).toContain('data-testid="sidebar-chat"');
     expect(html).toContain('data-testid="sidebar-projects"');
+    expect(html).toContain('data-testid="sidebar-documentation"');
     expect(html).toContain('data-testid="sidebar-settings"');
+    expect(html).not.toContain('data-testid="sidebar-preview-changelog"');
     expect(html).not.toContain('data-testid="sidebar-codex"');
     expect(html).not.toContain('data-testid="sidebar-topology"');
     expect(html).not.toContain('data-testid="sidebar-machines"');
+  });
+
+  test('adds a changelog action only when a Preview supplies it', () => {
+    const html = renderToStaticMarkup(
+      <AppRail
+        activeSection="home"
+        hasContextPanel={false}
+        isContextPanelOpen={false}
+        onOpenChat={() => {}}
+        onOpenChangelog={() => {}}
+        onOpenDocumentation={() => {}}
+        onOpenHome={() => {}}
+        onOpenProjects={() => {}}
+        onOpenSettings={() => {}}
+        onToggleContextPanel={() => {}}
+      />
+    );
+
+    expect(html).toContain('data-testid="sidebar-preview-changelog"');
+    expect(html).toContain('aria-label="Preview changelog"');
+  });
+
+  test('keeps Docs and the Preview changelog reachable in compact view', () => {
+    const releasedHtml = renderToStaticMarkup(
+      <CompactUtilityBar
+        isSettingsActive={false}
+        onOpenDocumentation={() => {}}
+        onOpenSettings={() => {}}
+      />
+    );
+    const previewHtml = renderToStaticMarkup(
+      <CompactUtilityBar
+        isSettingsActive
+        onOpenChangelog={() => {}}
+        onOpenDocumentation={() => {}}
+        onOpenSettings={() => {}}
+      />
+    );
+
+    expect(releasedHtml).toContain('aria-label="Documentation"');
+    expect(releasedHtml).toContain('aria-label="Settings"');
+    expect(releasedHtml).not.toContain('aria-label="Preview changelog"');
+    expect(previewHtml).toContain('aria-label="Documentation"');
+    expect(previewHtml).toContain('aria-label="Preview changelog"');
+    expect(previewHtml).not.toContain('aria-label="Settings"');
   });
 });
