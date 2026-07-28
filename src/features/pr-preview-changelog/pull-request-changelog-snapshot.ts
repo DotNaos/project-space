@@ -9,7 +9,7 @@ import {
   type PullRequestChangelogEntry,
   type PullRequestChangelogIdentity,
   type PullRequestChangelogSnapshot
-} from '@/shared/pr-preview-changelog-api';
+} from '../../shared/pr-preview-changelog-api';
 
 const changelogSourceSchema = 'project-space.changelog/v1';
 const entryId = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;

@@ -1,8 +1,4 @@
-import { describe, expect, mock, test } from 'bun:test';
-
-import * as changelogApi from '../src/shared/pr-preview-changelog-api';
-
-mock.module('@/shared/pr-preview-changelog-api', () => changelogApi);
+import { describe, expect, test } from 'bun:test';
 
 import {
   pullRequestChangelogSnapshotFor,
