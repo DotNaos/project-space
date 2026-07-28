@@ -1,8 +1,10 @@
 import {
+  BookOpen,
   FolderKanban,
   House,
   LogOut,
   MessageSquare,
+  ScrollText,
   Settings
 } from 'lucide-react';
 import {
@@ -59,6 +61,62 @@ function RailItem({ icon: Icon, isActive, label, onPress, testId }: RailItemProp
         {label}
       </Tooltip.Content>
     </Tooltip>
+  );
+}
+
+interface CompactUtilityBarProps {
+  isSettingsActive: boolean;
+  onOpenChangelog?(): void;
+  onOpenDocumentation(): void;
+  onOpenSettings(): void;
+}
+
+export function CompactUtilityBar({
+  isSettingsActive,
+  onOpenChangelog,
+  onOpenDocumentation,
+  onOpenSettings
+}: CompactUtilityBarProps) {
+  const buttonClassName =
+    'h-9 w-9 min-w-0 rounded-xl bg-app-panel/80 px-0 text-neutral-400 shadow-sm backdrop-blur hover:text-neutral-100';
+
+  return (
+    <div className="app-no-drag absolute right-3 top-3 z-[60] flex items-center gap-1">
+      <Button
+        aria-label="Documentation"
+        isIconOnly
+        onPress={onOpenDocumentation}
+        size="sm"
+        variant="ghost"
+        className={buttonClassName}
+      >
+        <BookOpen className="size-4" strokeWidth={1.9} />
+      </Button>
+      {onOpenChangelog ? (
+        <Button
+          aria-label="Preview changelog"
+          isIconOnly
+          onPress={onOpenChangelog}
+          size="sm"
+          variant="ghost"
+          className={buttonClassName}
+        >
+          <ScrollText className="size-4" strokeWidth={1.9} />
+        </Button>
+      ) : null}
+      {!isSettingsActive ? (
+        <Button
+          aria-label="Settings"
+          isIconOnly
+          onPress={onOpenSettings}
+          size="sm"
+          variant="ghost"
+          className={buttonClassName}
+        >
+          <Settings className="size-4" strokeWidth={1.9} />
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
@@ -130,6 +188,8 @@ interface AppRailProps {
   hasContextPanel: boolean;
   isContextPanelOpen: boolean;
   onOpenChat(): void;
+  onOpenChangelog?(): void;
+  onOpenDocumentation(): void;
   onOpenHome(): void;
   onOpenProjects(): void;
   onOpenSettings(): void;
@@ -142,6 +202,8 @@ export function AppRail({
   hasContextPanel,
   isContextPanelOpen,
   onOpenChat,
+  onOpenChangelog,
+  onOpenDocumentation,
   onOpenHome,
   onOpenProjects,
   onOpenSettings,
@@ -193,6 +255,22 @@ export function AppRail({
       <div className="flex-1" />
 
       <div className="app-no-drag flex flex-col items-center gap-2">
+        <RailItem
+          icon={BookOpen}
+          isActive={false}
+          label="Documentation"
+          testId="sidebar-documentation"
+          onPress={onOpenDocumentation}
+        />
+        {onOpenChangelog ? (
+          <RailItem
+            icon={ScrollText}
+            isActive={false}
+            label="Preview changelog"
+            testId="sidebar-preview-changelog"
+            onPress={onOpenChangelog}
+          />
+        ) : null}
         <RailItem
           icon={Settings}
           isActive={activeSection === 'settings'}

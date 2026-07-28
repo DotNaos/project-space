@@ -109,4 +109,20 @@ describe('pull request changelog dialog', () => {
       renderToStaticMarkup(<PullRequestChangelogDialog />)
     ).toBe('');
   });
+
+  test('can be reopened manually after the automatic notice was dismissed', () => {
+    const html = renderToStaticMarkup(
+      <PullRequestChangelogDialog
+        openRequestId={1}
+        preview={{ identity, state: 'verified' }}
+        storage={{
+          getItem: () => '1',
+          setItem: () => undefined
+        }}
+      />
+    );
+
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('What changed in PR #361');
+  });
 });

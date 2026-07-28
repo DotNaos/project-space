@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BookOpenText, TriangleAlert } from 'lucide-react';
 import {
   ModalBackdrop,
@@ -26,6 +26,7 @@ import {
 } from './pull-request-changelog-dialog-state';
 
 export interface PullRequestChangelogDialogProps {
+  openRequestId?: number;
   preview?: PullRequestPreviewBuildMetadata;
   storage?: PreviewChangelogDismissalStorage;
   testTargets?: PullRequestChangelogTestTargetsSnapshot;
@@ -40,6 +41,7 @@ function browserSessionStorage() {
 }
 
 export function PullRequestChangelogDialog({
+  openRequestId = 0,
   preview,
   storage = browserSessionStorage(),
   testTargets
@@ -55,9 +57,11 @@ export function PullRequestChangelogDialog({
     : preview
       ? `invalid:${preview.state}`
       : '';
+  const previousOpenRequestId = useRef(openRequestId);
   const [isOpen, setIsOpen] = useState(
     () =>
       hasInvalidMetadata ||
+      openRequestId > 0 ||
       Boolean(
         identity &&
           shouldOpenPreviewChangelog(identity, storage)
@@ -73,6 +77,15 @@ export function PullRequestChangelogDialog({
         )
     );
   }, [hasInvalidMetadata, identityKey, storage]);
+
+  useEffect(() => {
+    if (openRequestId === previousOpenRequestId.current) {
+      return;
+    }
+
+    previousOpenRequestId.current = openRequestId;
+    setIsOpen(true);
+  }, [openRequestId]);
 
   if (!preview) {
     return null;
