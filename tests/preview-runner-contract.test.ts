@@ -190,6 +190,7 @@ describe('trusted Preview runner contract', () => {
       encoding: 'utf8',
       env: {
         ...process.env,
+        COMPOSE_PROFILES: 'prototype',
         PREVIEW_COMPOSE_PROJECT: 'project-space-preview-pr-263',
         PREVIEW_DOCS_IMAGE: `ghcr.io/dotnaos/project-space-preview-docs@sha256:${'c'.repeat(64)}`,
         PREVIEW_DOMAIN: 'pr-263.projects.os-home.net',
@@ -199,6 +200,8 @@ describe('trusted Preview runner contract', () => {
         PREVIEW_HEAD_SHA: 'd'.repeat(40),
         PREVIEW_POSTGRES_PASSWORD: 'preview-test-postgres-password',
         PREVIEW_PR_NUMBER: '263',
+        PREVIEW_PROTOTYPE_IMAGE: `ghcr.io/dotnaos/project-space-preview-prototype@sha256:${'e'.repeat(64)}`,
+        PREVIEW_PROTOTYPE_UPSTREAM_ORIGIN: 'http://preview-prototype:8080',
         PREVIEW_REPOSITORY: 'DotNaos/project-space',
         PREVIEW_REPOSITORY_PATH: repositoryRoot,
         PREVIEW_WEB_IMAGE: `ghcr.io/dotnaos/project-space-preview-web@sha256:${'b'.repeat(64)}`
@@ -210,6 +213,10 @@ describe('trusted Preview runner contract', () => {
     expect(parsed.services.gateway.environment.PROJECT_SPACE_PREVIEW_UPSTREAM_ORIGIN)
       .toBe('http://preview-web:4173');
     expect(parsed.services.web.networks['preview-internal'].aliases).toEqual(['preview-web']);
+    expect(parsed.services.prototype.networks['preview-internal'].aliases)
+      .toEqual(['preview-prototype']);
+    expect(parsed.services.gateway.environment.PROJECT_SPACE_PREVIEW_PROTOTYPE_UPSTREAM_ORIGIN)
+      .toBe('http://preview-prototype:8080');
     expect(labels['traefik.http.routers.project-space-preview-pr-263-gateway.rule'])
       .toBe('Host(`pr-263.projects.os-home.net`)');
     expect(labels['traefik.http.services.project-space-preview-pr-263-gateway.loadbalancer.server.port'])

@@ -56,6 +56,7 @@ func newServeCommandWithManager(managerFactory projectManagerFactory) *cobra.Com
 	cmd.Flags().StringArrayVar(&options.AllowedHosts, "allowed-host", nil, "explicit Vite host allowed to reach this session (repeatable)")
 	cmd.AddCommand(newServeReconcileCommand(managerFactory))
 	cmd.AddCommand(newServeListCommand())
+	cmd.AddCommand(newServePublishPullRequestCommand(managerFactory))
 	cmd.AddCommand(newServeStatusCommand(managerFactory))
 	cmd.AddCommand(newServeStopCommand(managerFactory))
 	return cmd

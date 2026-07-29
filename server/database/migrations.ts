@@ -26,6 +26,10 @@ import {
   codexMachineTaskStartPayloadMigrationId,
   codexMachineTaskStartPayloadMigrationSql
 } from './codex-machine-task-start-payload-migration';
+import {
+  prDevServerLeaseMigrationId,
+  prDevServerLeaseMigrationSql
+} from './pr-dev-server-lease-migration';
 import { roadmapMigrationId, roadmapMigrationSql } from './roadmap-migration';
 
 export interface DatabaseMigration {
@@ -635,6 +639,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: roadmapMigrationId,
     sql: roadmapMigrationSql
+  },
+  {
+    id: prDevServerLeaseMigrationId,
+    sql: prDevServerLeaseMigrationSql
   }
 ];
 

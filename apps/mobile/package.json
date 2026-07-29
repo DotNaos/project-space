@@ -5,7 +5,8 @@
   "scripts": {
     "auth": "sh -c 'if [ -f .env.local ]; then node --env-file=.env.local server/auth-server.mjs; elif [ -f ../../../.env ]; then node --env-file=../../../.env server/auth-server.mjs; else node server/auth-server.mjs; fi'",
     "inventory": "node scripts/generate-project-inventory.mjs",
-    "build:hosted": "npm run inventory && npx expo export --platform web --output-dir dist && cp public/project-inventory.json dist/project-inventory.json",
+    "build:hosted": "npm run inventory && EXPO_PUBLIC_PROJECT_SPACE_PROTOTYPE=0 npx expo export --clear --platform web --output-dir dist && cp public/project-inventory.json dist/project-inventory.json",
+    "build:prototype": "EXPO_PUBLIC_PROJECT_SPACE_PROTOTYPE=1 npx expo export --clear --platform web --output-dir dist-prototype",
     "native:dev": "npm run inventory && npx expo start --host lan",
     "native:ios": "npm run inventory && npx expo start --ios",
     "dev": "concurrently -k -n auth,web \"npm run auth\" \"npm run web -- --port 8082\"",
@@ -27,6 +28,7 @@
     "expo-secure-store": "~15.0.8",
     "expo-status-bar": "~3.0.9",
     "heroui-native": "^1.0.0",
+    "lucide-react-native": "1.27.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",

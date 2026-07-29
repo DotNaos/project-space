@@ -1,0 +1,19 @@
+{
+  "desktop": {
+    "height": 900,
+    "minimumScale": 0.5,
+    "width": 1440
+  },
+  "phone": {
+    "bezel": 12,
+    "height": 844,
+    "minimumScale": 0.72,
+    "width": 390
+  },
+  "tablet": {
+    "bezel": 16,
+    "height": 1180,
+    "minimumScale": 0.5,
+    "width": 820
+  }
+}

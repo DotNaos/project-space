@@ -1,9 +1,10 @@
 import type {
   CodexSessionsClient,
+  CodexSessionSettingsRequest,
   CodexSessionTurnSettings
 } from '../../shared/codex-sessions-api';
 import type { MachineRuntimeStatusResult } from '../../shared/project-space-api';
-import { codexContinueBlockReason } from './codex-sessions-model';
+import { codexContinueBlockReason, codexSteerBlockReason } from './codex-sessions-model';
 import type {
   CodexApprovalDecision,
   CodexThreadOrigin,
@@ -205,7 +206,8 @@ export class CodexSessionsController {
   async continue(
     origin: CodexThreadOrigin,
     message: string,
-    settings?: CodexSessionTurnSettings
+    settings?: CodexSessionTurnSettings,
+    imageAttachmentIds: readonly string[] = []
   ) {
     const session = this.requireSelectedSession(origin);
     const machine = this.state.machines.find((entry) => entry.id === origin.machineId);
@@ -227,10 +229,12 @@ export class CodexSessionsController {
       origin.machineId,
       origin.threadId,
       selectedSettings ?? null,
+      imageAttachmentIds,
       cleanMessage
     ])}`;
     const result = await this.runOperation(key, (operationId) => this.client.continue({
       ...origin,
+      ...(imageAttachmentIds.length ? { imageAttachmentIds: [...imageAttachmentIds] } : {}),
       message: cleanMessage,
       ...selectedSettings,
       operationId
@@ -247,6 +251,46 @@ export class CodexSessionsController {
     return result;
   }
 
+  async steer(
+    origin: CodexThreadOrigin,
+    message: string,
+    imageAttachmentIds: readonly string[] = []
+  ) {
+    const session = this.requireSelectedSession(origin);
+    const machine = this.state.machines.find((entry) => entry.id === origin.machineId);
+    const blocked = codexSteerBlockReason(session, machine);
+    if (blocked) {
+      throw new CodexSessionsControllerError(
+        'thread_not_active',
+        blocked
+      );
+    }
+    const expectedTurnId = this.state.activeTurnId;
+    if (!expectedTurnId) {
+      throw new CodexSessionsControllerError(
+        'missing_turn',
+        'The active Codex turn is no longer available.'
+      );
+    }
+    const cleanMessage = message.trim();
+    if (!cleanMessage) throw new CodexSessionsControllerError('empty_message', 'Enter a message first.');
+    const key = `steer:${JSON.stringify([
+      origin.machineId,
+      origin.threadId,
+      expectedTurnId,
+      imageAttachmentIds,
+      cleanMessage
+    ])}`;
+    return this.runOperation(key, (operationId) => this.client.continue({
+      delivery: 'steer',
+      expectedTurnId,
+      ...(imageAttachmentIds.length ? { imageAttachmentIds: [...imageAttachmentIds] } : {}),
+      ...origin,
+      message: cleanMessage,
+      operationId
+    }));
+  }
+
   browser(origin: CodexThreadOrigin) {
     return this.client.browser(origin);
   }
@@ -256,6 +300,35 @@ export class CodexSessionsController {
     return this.runOperation(key, (operationId) => this.client.interrupt({
       ...origin, operationId, turnId
     }));
+  }
+
+  async updatePermissionProfile(
+    origin: CodexThreadOrigin,
+    permissionProfileId: string
+  ) {
+    this.requireSelectedSession(origin);
+    const profileId = permissionProfileId.trim();
+    if (!profileId) {
+      throw new CodexSessionsControllerError(
+        'invalid_permission_profile',
+        'Choose a permission profile first.'
+      );
+    }
+    const key = `settings:${origin.machineId}:${origin.threadId}:${profileId}`;
+    const result = await this.runOperation(key, (operationId) => this.client.settings({
+      ...origin,
+      operationId,
+      permissionProfileId: profileId
+    } satisfies CodexSessionSettingsRequest));
+    if (result.status === 'accepted' || result.status === 'completed') {
+      this.update({
+        ...this.state,
+        sessions: this.state.sessions.map((session) => sameCodexOrigin(session, origin)
+          ? { ...session, permissionProfileId: profileId }
+          : session)
+      });
+    }
+    return result;
   }
 
   async resolveApproval(decision: CodexApprovalDecision) {

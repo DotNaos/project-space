@@ -106,6 +106,10 @@ function stubService() {
       calls.push({ input, method: 'input' });
       return accepted(input);
     },
+    async settings(_context, input) {
+      calls.push({ input, method: 'settings' });
+      return accepted(input);
+    },
     async stream(_context, input, emit) {
       calls.push({ input, method: 'stream' });
       emit({
@@ -249,6 +253,7 @@ describe('Codex sessions authenticated HTTP boundary', () => {
     const origin = await startApi(service);
     const path = `${origin}/api/codex/sessions/${threadId}/continue?machineId=machine-one`;
     const valid = await fetch(path, mutation({
+      imageAttachmentIds: ['9cb4681a-52f4-4c20-8c2f-377120980ebf'],
       machineId: 'machine-one',
       message: 'Continue with this model',
       effort: 'high',
@@ -267,6 +272,7 @@ describe('Codex sessions authenticated HTTP boundary', () => {
     expect(invalid.status).toBe(400);
     expect(calls).toEqual([{
       input: {
+        imageAttachmentIds: ['9cb4681a-52f4-4c20-8c2f-377120980ebf'],
         machineId: 'machine-one',
         message: 'Continue with this model',
         effort: 'high',
@@ -277,6 +283,64 @@ describe('Codex sessions authenticated HTTP boundary', () => {
       },
       method: 'continue'
     }]);
+  });
+
+  test('changes only the selected task permission profile', async () => {
+    const { calls, service } = stubService();
+    const origin = await startApi(service);
+    const client = createCodexSessionsClient({ baseUrl: origin });
+
+    const result = await client.settings({
+      machineId: 'machine-one',
+      operationId: 'settings:workspace:0001',
+      permissionProfileId: ':workspace',
+      threadId
+    });
+
+    expect(result.status).toBe('accepted');
+    expect(calls.at(-1)).toEqual({
+      input: {
+        machineId: 'machine-one',
+        operationId: 'settings:workspace:0001',
+        permissionProfileId: ':workspace',
+        threadId
+      },
+      method: 'settings'
+    });
+  });
+
+  test('accepts an exact active-turn steer and rejects mixed turn settings', async () => {
+    const { calls, service } = stubService();
+    const origin = await startApi(service);
+    const path = `${origin}/api/codex/sessions/${threadId}/continue?machineId=machine-one`;
+    const steer = await fetch(path, mutation({
+      delivery: 'steer',
+      expectedTurnId: 'turn-active',
+      machineId: 'machine-one',
+      message: 'Change direction now',
+      operationId: 'operation-steer-1'
+    }));
+    const mixed = await fetch(path, mutation({
+      delivery: 'steer',
+      expectedTurnId: 'turn-active',
+      machineId: 'machine-one',
+      message: 'Invalid steer',
+      model: 'gpt-5-mini',
+      operationId: 'operation-steer-2'
+    }));
+    expect(steer.status).toBe(200);
+    expect(mixed.status).toBe(400);
+    expect(calls).toContainEqual({
+      input: {
+        delivery: 'steer',
+        expectedTurnId: 'turn-active',
+        machineId: 'machine-one',
+        message: 'Change direction now',
+        operationId: 'operation-steer-1',
+        threadId
+      },
+      method: 'continue'
+    });
   });
 
   test('preserves every approval and user-input correlation identifier', async () => {
@@ -389,7 +453,14 @@ describe('Codex sessions browser client', () => {
       message: 'Wait for the active turn to finish.',
       name: 'CodexSessionsRequestError'
     } satisfies Partial<CodexSessionsRequestError>));
-    expect(seen).toEqual([expect.objectContaining({ header: 'operation-client-1' })]);
+    expect(seen).toEqual([{
+      body: {
+        machineId: 'machine-one',
+        message: 'Continue',
+        operationId: 'operation-client-1'
+      },
+      header: 'operation-client-1'
+    }]);
   });
 
   test('cancels a Codex inventory request that exceeds its deadline', async () => {

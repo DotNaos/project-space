@@ -111,6 +111,9 @@ func TestPreviewStatusJSONMatchesServerAdapterContract(t *testing.T) {
 		RequestedSHA:       strings.Repeat("a", 40),
 		RunningSHA:         strings.Repeat("b", 40),
 		LiveURL:            "https://pr-263.projects.os-home.net",
+		PrototypeURL:       "https://pr-263.projects.os-home.net/prototype/desktop/",
+		PrototypeMetaSHA:   strings.Repeat("b", 40),
+		PrototypeHealthy:   true,
 		State:              "ready",
 		VerifiedAt:         "2026-07-22T10:01:00Z",
 		UpdatedAt:          "2026-07-22T10:02:00Z",
@@ -134,7 +137,7 @@ func TestPreviewStatusJSONMatchesServerAdapterContract(t *testing.T) {
 		t.Fatalf("previews = %#v", raw["previews"])
 	}
 	preview := previews[0].(map[string]any)
-	wantFields := []string{"repositoryFullName", "pullRequestNumber", "pullRequestUrl", "headBranch", "requestedSha", "runningSha", "liveUrl", "state", "verifiedAt", "updatedAt", "message"}
+	wantFields := []string{"repositoryFullName", "pullRequestNumber", "pullRequestUrl", "headBranch", "requestedSha", "runningSha", "liveUrl", "prototypeUrl", "prototypeMetaSha", "prototypeHealthy", "state", "verifiedAt", "updatedAt", "message"}
 	if len(preview) != len(wantFields) {
 		t.Fatalf("preview keys = %#v", preview)
 	}
@@ -166,6 +169,13 @@ func TestDecodePreviewStatusFiltersRepositoryDeduplicatesAndRejectsUnsafeURL(t *
 	unsafeText := fmt.Sprintf(`{"repositoryFullName":"DotNaos/project-space","pullRequestNumber":263,"requestedSha":"%s","state":"ready","message":"unsafe\u001b[31m"}`, sha)
 	if _, err := decodePreviewStatus(strings.NewReader(unsafeText), "DotNaos/project-space"); err == nil || !strings.Contains(err.Error(), "control characters") {
 		t.Fatalf("unsafe text error = %v", err)
+	}
+	unsafePrototype := fmt.Sprintf(
+		`{"repositoryFullName":"DotNaos/project-space","pullRequestNumber":263,"requestedSha":"%s","runningSha":"%s","prototypeUrl":"https://evil.example/prototype/desktop/","prototypeMetaSha":"%s","prototypeHealthy":true,"state":"ready"}`,
+		sha, sha, sha,
+	)
+	if _, err := decodePreviewStatus(strings.NewReader(unsafePrototype), "DotNaos/project-space"); err == nil || !strings.Contains(err.Error(), "prototypeUrl") {
+		t.Fatalf("unsafe prototype URL error = %v", err)
 	}
 }
 

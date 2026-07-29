@@ -1,0 +1,14 @@
+{
+  "phone": {
+    "image": { "height": 1504, "width": 697 },
+    "screen": { "height": 1443, "width": 625, "x": 36, "y": 29 }
+  },
+  "tablet": {
+    "image": { "height": 1313, "width": 952 },
+    "screen": { "height": 1225, "width": 864, "x": 45, "y": 45 }
+  },
+  "desktop": {
+    "image": { "height": 869, "width": 1411 },
+    "screen": { "height": 735, "width": 1122, "x": 145, "y": 32 }
+  }
+}

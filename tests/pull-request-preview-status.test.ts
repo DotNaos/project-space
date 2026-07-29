@@ -37,6 +37,38 @@ describe('pull request Preview status adapter', () => {
     });
   });
 
+  test('exposes the prototype only with a healthy exact-head receipt', () => {
+    expect(sanitizePullRequestPreview({
+      prototypeHealthy: true,
+      prototypeMetaSha: runningSha,
+      prototypeUrl: 'https://pr-263.projects.os-home.net/prototype/desktop/',
+      pullRequestNumber: 263,
+      repositoryFullName: 'DotNaos/project-space',
+      requestedSha,
+      runningSha,
+      state: 'ready'
+    }, 'DotNaos/project-space')).toMatchObject({
+      prototypeHealthy: true,
+      prototypeMetaSha: runningSha,
+      prototypeUrl: 'https://pr-263.projects.os-home.net/prototype/desktop/',
+      prototypeUrlState: 'available'
+    });
+
+    expect(sanitizePullRequestPreview({
+      prototypeHealthy: true,
+      prototypeMetaSha: requestedSha,
+      prototypeUrl: 'https://pr-263.projects.os-home.net/prototype/desktop/',
+      pullRequestNumber: 263,
+      repositoryFullName: 'DotNaos/project-space',
+      requestedSha,
+      runningSha,
+      state: 'ready'
+    }, 'DotNaos/project-space')).toMatchObject({
+      prototypeUrl: undefined,
+      prototypeUrlState: 'withheld'
+    });
+  });
+
   test('accepts removed and absent tombstones without a SHA but never a link', () => {
     for (const state of ['removed', 'absent']) {
       expect(sanitizePullRequestPreview({

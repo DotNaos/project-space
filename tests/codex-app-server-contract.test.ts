@@ -180,7 +180,8 @@ describe('Codex app-server fixed contract', () => {
     } as CodexStartTurnInput & { cwd: string });
     expect(server.received.find((message) => message.method === 'turn/start')?.params)
       .toEqual({
-        input: [{ text: 'Hello', type: 'text' }],
+        clientUserMessageId: 'turn-operation',
+        input: [{ text: 'Hello', text_elements: [], type: 'text' }],
         effort: 'high',
         model: 'gpt-5-mini',
         serviceTier: 'fast',

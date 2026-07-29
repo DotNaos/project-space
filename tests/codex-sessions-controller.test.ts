@@ -8,6 +8,7 @@ import type {
   CodexSessionOperationResult,
   CodexSessionReadRequest,
   CodexSessionReadResult,
+  CodexSessionSettingsRequest,
   CodexSessionSubscribeRequest,
   CodexSessionsClient,
   CodexSessionStreamEvent,
@@ -76,6 +77,7 @@ interface FakeCalls {
   interrupts: CodexSessionInterruptRequest[];
   lists: CodexSessionListRequest[];
   reads: CodexSessionReadRequest[];
+  settings: CodexSessionSettingsRequest[];
   subscriptions: CodexSessionSubscribeRequest[];
 }
 
@@ -84,7 +86,8 @@ function fakeClient(options: {
   readImplementation?(request: CodexSessionReadRequest): Promise<CodexSessionReadResult>;
 } = {}) {
   const calls: FakeCalls = {
-    approvals: [], continues: [], inputs: [], interrupts: [], lists: [], reads: [], subscriptions: []
+    approvals: [], continues: [], inputs: [], interrupts: [], lists: [], reads: [],
+    settings: [], subscriptions: []
   };
   let onEvent: ((event: CodexSessionStreamEvent) => void) | undefined;
   const client: CodexSessionsClient = {
@@ -110,6 +113,10 @@ function fakeClient(options: {
     },
     async respondToUserInput(request) {
       calls.inputs.push(request);
+      return accepted(request.operationId);
+    },
+    async settings(request) {
+      calls.settings.push(request);
       return accepted(request.operationId);
     },
     subscribe(request, handler) {
@@ -292,6 +299,57 @@ describe('Codex sessions UI controller', () => {
     ]);
   });
 
+  test('keeps live permissions and context usage on the selected task', async () => {
+    const fake = fakeClient({
+      readImplementation: async () => ({
+        ...readResult(),
+        permissionProfileId: ':workspace',
+        permissionProfiles: [
+          { allowed: true, id: ':read-only' },
+          { allowed: true, id: ':workspace' }
+        ]
+      })
+    });
+    const controller = new CodexSessionsController(fake.client, operationIds());
+    await controller.loadMachines([origin.machineId]);
+    await controller.select(origin);
+    await controller.updatePermissionProfile(origin, ':read-only');
+    fake.event({
+      eventId: 'usage-1',
+      tokenUsage: {
+        last: {
+          cachedInputTokens: 400,
+          inputTokens: 1_000,
+          outputTokens: 200,
+          reasoningOutputTokens: 100,
+          totalTokens: 1_300
+        },
+        modelContextWindow: 10_000,
+        total: {
+          cachedInputTokens: 400,
+          inputTokens: 1_000,
+          outputTokens: 200,
+          reasoningOutputTokens: 100,
+          totalTokens: 1_300
+        }
+      },
+      turnId: 'turn-1',
+      type: 'token-usage'
+    });
+
+    expect(fake.calls.settings[0]).toMatchObject({
+      ...origin,
+      permissionProfileId: ':read-only'
+    });
+    expect(controller.getState().sessions[0]).toMatchObject({
+      permissionProfileId: ':read-only',
+      tokenUsage: {
+        modelContextWindow: 10_000,
+        last: { inputTokens: 1_000 }
+      }
+    });
+  });
+
   test('rejects continuation locally while the selected thread is active', async () => {
     const fake = fakeClient({ readImplementation: async () => readResult('active') });
     const controller = new CodexSessionsController(fake.client, operationIds());
@@ -303,6 +361,26 @@ describe('Codex sessions UI controller', () => {
       name: 'CodexSessionsControllerError'
     } satisfies Partial<CodexSessionsControllerError>);
     expect(fake.calls.continues).toHaveLength(0);
+  });
+
+  test('steers the exact selected active turn and preserves attachment identity', async () => {
+    const fake = fakeClient({ readImplementation: async () => readResult('active') });
+    const controller = new CodexSessionsController(fake.client, operationIds());
+    await controller.loadMachines([origin.machineId]);
+    await controller.select(origin);
+
+    await controller.steer(origin, 'Adjust this while working', ['image-one']);
+
+    expect(fake.calls.continues).toEqual([
+      expect.objectContaining({
+        delivery: 'steer',
+        expectedTurnId: 'turn-1',
+        imageAttachmentIds: ['image-one'],
+        machineId: origin.machineId,
+        message: 'Adjust this while working',
+        threadId: origin.threadId
+      })
+    ]);
   });
 
   test('reuses the same operation identifier after an ambiguous network failure', async () => {

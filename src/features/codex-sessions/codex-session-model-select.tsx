@@ -3,28 +3,17 @@ import { Drawer, Popover } from '@heroui/react';
 import { Check, ChevronRight, SlidersHorizontal } from 'lucide-react';
 import { ListBox, ListBoxItem, Select } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
-import type { CodexSessionTurnSettings } from '@/shared/codex-sessions-api';
 import type {
   CodexModelRecord,
   CodexReasoningEffortOptionRecord
 } from '@/shared/project-space-api';
+import { CodexSessionDesktopModelSelect } from './codex-session-desktop-model-select';
+import type { CodexSessionModelSelection } from './codex-session-model-selection';
 
 const standardTier = '__standard__';
 const unchangedSetting = '__unchanged__';
 
-export interface CodexSessionModelSelection {
-  disabled: boolean;
-  effort?: string;
-  error?: string;
-  models: CodexModelRecord[];
-  onChange(value: string): void;
-  onEffortChange(value: string): void;
-  onServiceTierChange(value: string | null): void;
-  override?: CodexSessionTurnSettings;
-  serviceTier?: string | null;
-  usesCatalogueDefault?: boolean;
-  value: string;
-}
+export type { CodexSessionModelSelection } from './codex-session-model-selection';
 
 export function CodexSessionModelSelect(selection: CodexSessionModelSelection) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -52,46 +41,51 @@ export function CodexSessionModelSelect(selection: CodexSessionModelSelection) {
 
   return (
     <>
-      <Popover isOpen={quickOpen} onOpenChange={setQuickOpen}>
-        <Popover.Trigger
-          aria-label="Codex model settings"
-          className="flex h-9 max-w-52 min-w-0 items-center gap-1 rounded-full px-2.5 text-xs font-medium text-neutral-400 outline-none transition hover:bg-neutral-800 hover:text-neutral-100 focus-visible:ring-2 focus-visible:ring-neutral-700"
-        >
-          <span className="min-w-0 truncate">{summary}</span>
-          <ChevronRight className="size-3.5 shrink-0" />
-        </Popover.Trigger>
-        <Popover.Content
-          className="w-[min(22rem,calc(100vw-2rem))] rounded-[1.75rem] border border-neutral-700/80 bg-neutral-900/95 p-2 shadow-2xl shadow-black/70 backdrop-blur-xl"
-          offset={10}
-          placement="top"
-        >
-          <Popover.Dialog className="outline-none">
-            <button
-              className="flex w-full items-center justify-center gap-1 rounded-2xl px-3 py-3 text-sm font-semibold text-neutral-100 transition hover:bg-neutral-800"
-              onClick={() => {
-                setQuickOpen(false);
-                setAdvancedOpen(true);
-              }}
-              type="button"
-            >
-              <span className="truncate">{summary}</span>
-              <ChevronRight className="size-4 shrink-0 text-neutral-400" />
-            </button>
-            <ReasoningQuickSelect
-              onChange={selection.onEffortChange}
-              options={selected?.supportedReasoningEfforts ?? []}
-              value={selection.effort}
-            />
-          </Popover.Dialog>
-        </Popover.Content>
-      </Popover>
+      <div className="hidden md:block">
+        <CodexSessionDesktopModelSelect {...selection} />
+      </div>
+      <div className="md:hidden">
+        <Popover isOpen={quickOpen} onOpenChange={setQuickOpen}>
+          <Popover.Trigger
+            aria-label="Codex model settings"
+            className="flex h-9 max-w-52 min-w-0 items-center gap-1 rounded-full px-2.5 text-xs font-medium text-neutral-400 outline-none transition hover:bg-neutral-800 hover:text-neutral-100 focus-visible:ring-2 focus-visible:ring-neutral-700"
+          >
+            <span className="min-w-0 truncate">{summary}</span>
+            <ChevronRight className="size-3.5 shrink-0" />
+          </Popover.Trigger>
+          <Popover.Content
+            className="w-[min(22rem,calc(100vw-2rem))] rounded-[1.75rem] border border-neutral-700/80 bg-neutral-900/95 p-2 shadow-2xl shadow-black/70 backdrop-blur-xl"
+            offset={10}
+            placement="top"
+          >
+            <Popover.Dialog className="outline-none">
+              <button
+                className="flex w-full items-center justify-center gap-1 rounded-2xl px-3 py-3 text-sm font-semibold text-neutral-100 transition hover:bg-neutral-800"
+                onClick={() => {
+                  setQuickOpen(false);
+                  setAdvancedOpen(true);
+                }}
+                type="button"
+              >
+                <span className="truncate">{summary}</span>
+                <ChevronRight className="size-4 shrink-0 text-neutral-400" />
+              </button>
+              <ReasoningQuickSelect
+                onChange={selection.onEffortChange}
+                options={selected?.supportedReasoningEfforts ?? []}
+                value={selection.effort}
+              />
+            </Popover.Dialog>
+          </Popover.Content>
+        </Popover>
 
-      <ModelSettingsDrawer
-        {...selection}
-        isOpen={advancedOpen}
-        onOpenChange={setAdvancedOpen}
-        selected={selected}
-      />
+        <ModelSettingsDrawer
+          {...selection}
+          isOpen={advancedOpen}
+          onOpenChange={setAdvancedOpen}
+          selected={selected}
+        />
+      </div>
     </>
   );
 }

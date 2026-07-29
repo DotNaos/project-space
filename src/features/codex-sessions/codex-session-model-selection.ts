@@ -1,0 +1,16 @@
+import type { CodexSessionTurnSettings } from '@/shared/codex-sessions-api';
+import type { CodexModelRecord } from '@/shared/project-space-api';
+
+export interface CodexSessionModelSelection {
+  disabled: boolean;
+  effort?: string;
+  error?: string;
+  models: CodexModelRecord[];
+  onChange(value: string): void;
+  onEffortChange(value: string): void;
+  onServiceTierChange(value: string | null): void;
+  override?: CodexSessionTurnSettings;
+  serviceTier?: string | null;
+  usesCatalogueDefault?: boolean;
+  value: string;
+}

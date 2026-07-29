@@ -23,9 +23,11 @@ import type {
   CodexSessionOperationResult,
   CodexSessionReadRequest,
   CodexSessionReadResult,
+  CodexSessionSettingsRequest,
   CodexSessionStreamEvent,
   CodexSessionUserInputResponse
 } from '../src/shared/codex-sessions-api';
+import { CODEX_PERMISSION_PROFILE_ID_PATTERN } from '../src/shared/codex-sessions-api';
 import type {
   CodexMachineTaskConnectorStartRequest,
   CodexMachineTaskConnectorStartResult
@@ -62,6 +64,7 @@ export type CodexSessionsConnectorOperation =
   | 'interrupt'
   | 'list'
   | 'read'
+  | 'settings'
   | 'start'
   | 'stream';
 
@@ -75,6 +78,7 @@ type CodexSessionsConnectorPayload =
   | CodexSessionInterruptRequest
   | CodexSessionListRequest
   | CodexSessionReadRequest
+  | CodexSessionSettingsRequest
   | CodexMachineTaskConnectorStartRequest
   | CodexDaemonConnectorRequest
   | CodexSessionUserInputResponse;
@@ -114,7 +118,7 @@ export type CodexSessionsWireResult =
   | { operation: 'daemon'; result: CodexDaemonConnectorResult }
   | { operation: 'start'; result: CodexMachineTaskConnectorStartResult }
   | {
-      operation: 'approval' | 'continue' | 'input' | 'interrupt';
+      operation: 'approval' | 'continue' | 'input' | 'interrupt' | 'settings';
       result: CodexSessionOperationResult;
     };
 
@@ -271,7 +275,7 @@ export function isCodexSessionsWireRequest(value: unknown): value is CodexSessio
     typeof grant.generation === 'number' && Number.isSafeInteger(grant.generation) && grant.generation >= 0 &&
     typeof grant.operation === 'string' && [
       'approval', 'attach', 'authorization', 'browser', 'continue', 'daemon', 'inspect', 'input',
-      'interrupt', 'list', 'read', 'start', 'stream'
+      'interrupt', 'list', 'read', 'settings', 'start', 'stream'
     ].includes(grant.operation) &&
     boundedIdentifier(grant.machineId, 256) && boundedIdentifier(grant.userId, 256) &&
     boundedIdentifier(grant.nonce, 128) && boundedIdentifier(grant.operationId, 128) &&
@@ -356,9 +360,29 @@ function boundedPayload(operation: CodexSessionsConnectorOperation, payload: Rec
         ));
     case 'continue':
       return hasOnlyKeys(payload, [
-        'effort', 'machineId', 'message', 'model', 'operationId', 'serviceTier', 'threadId'
+        'delivery', 'effort', 'expectedTurnId', 'imageAttachmentIds', 'machineId',
+        'message', 'model', 'operationId', 'serviceTier', 'threadId'
       ]) &&
         boundedIdentifier(payload.threadId, 128) && boundedIdentifier(payload.operationId, 128) &&
+        (payload.delivery === undefined || payload.delivery === 'new-turn' || payload.delivery === 'steer') &&
+        (payload.expectedTurnId === undefined || boundedIdentifier(payload.expectedTurnId, 128)) &&
+        (payload.delivery === 'steer'
+          ? boundedIdentifier(payload.expectedTurnId, 128) &&
+            payload.effort === undefined &&
+            payload.model === undefined &&
+            payload.serviceTier === undefined
+          : payload.expectedTurnId === undefined) &&
+        (payload.imageAttachmentIds === undefined || (
+          Array.isArray(payload.imageAttachmentIds) &&
+          payload.imageAttachmentIds.length > 0 &&
+          payload.imageAttachmentIds.length <= 3 &&
+          new Set(payload.imageAttachmentIds).size === payload.imageAttachmentIds.length &&
+          payload.imageAttachmentIds.every(
+            (id) =>
+              typeof id === 'string' &&
+              /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id)
+          )
+        )) &&
         (payload.effort === undefined || boundedIdentifier(payload.effort, 128)) &&
         (payload.model === undefined || boundedIdentifier(payload.model, 128)) &&
         (payload.serviceTier === undefined || payload.serviceTier === null ||
@@ -368,6 +392,13 @@ function boundedPayload(operation: CodexSessionsConnectorOperation, payload: Rec
       return hasOnlyKeys(payload, ['machineId', 'operationId', 'threadId', 'turnId']) &&
         boundedIdentifier(payload.threadId, 128) && boundedIdentifier(payload.turnId, 128) &&
         boundedIdentifier(payload.operationId, 128);
+    case 'settings':
+      return hasOnlyKeys(payload, [
+        'machineId', 'operationId', 'permissionProfileId', 'threadId'
+      ]) &&
+        boundedIdentifier(payload.threadId, 128) &&
+        boundedIdentifier(payload.operationId, 128) &&
+        boundedPermissionProfileId(payload.permissionProfileId);
     case 'approval':
       return hasOnlyKeys(payload, [
         'approvalId', 'decision', 'itemId', 'machineId', 'operationId', 'requestId', 'threadId', 'turnId'
@@ -391,6 +422,11 @@ function boundedPayload(operation: CodexSessionsConnectorOperation, payload: Rec
 function boundedIdentifier(value: unknown, maximum: number): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= maximum &&
     /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value);
+}
+
+function boundedPermissionProfileId(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 128 &&
+    CODEX_PERMISSION_PROFILE_ID_PATTERN.test(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

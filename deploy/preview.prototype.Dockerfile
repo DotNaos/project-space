@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1.7
+
+FROM oven/bun:1 AS deps
+
+WORKDIR /workspace
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends build-essential python3 \
+  && rm -rf /var/lib/apt/lists/*
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
+
+FROM oven/bun:1 AS build
+
+WORKDIR /workspace
+ARG PROJECT_SPACE_BUILD_COMMIT
+COPY --from=deps /workspace/node_modules /workspace/node_modules
+COPY . .
+RUN test -n "$PROJECT_SPACE_BUILD_COMMIT" \
+  && printf '%s' "$PROJECT_SPACE_BUILD_COMMIT" | grep -Eq '^[0-9a-f]{40}$' \
+  && bun run check \
+  && bun ./node_modules/vite/bin/vite.js build \
+    --config apps/prototype/vite.config.ts \
+    --base /prototype/desktop/ \
+  && cd apps/mobile \
+  && npm ci --ignore-scripts \
+  && npm run build:prototype \
+  && cd /workspace \
+  && printf '{"commit":"%s","surfaces":["mobile-prototype","desktop-prototype"]}\n' \
+    "$PROJECT_SPACE_BUILD_COMMIT" > /workspace/prototype-meta.json
+
+FROM nginxinc/nginx-unprivileged:1.27-alpine@sha256:65e3e85dbaed8ba248841d9d58a899b6197106c23cb0ff1a132b7bfe0547e4c0 AS runner
+
+ARG PROJECT_SPACE_BUILD_COMMIT
+LABEL org.opencontainers.image.revision=$PROJECT_SPACE_BUILD_COMMIT
+COPY --from=trusted-assets deploy/preview.prototype.nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /workspace/apps/prototype/dist /usr/share/nginx/html/prototype/desktop
+COPY --from=build /workspace/apps/mobile/dist-prototype /usr/share/nginx/html/prototype/mobile
+COPY --from=build /workspace/prototype-meta.json /usr/share/nginx/html/prototype/meta.json
+EXPOSE 8080

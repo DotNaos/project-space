@@ -24,10 +24,14 @@ interface PreviewIdentityAssertion extends PreviewGatewayBinding {
 const blockedPreviewPathPrefixes = [
   '/api/codex',
   '/api/connectors',
+  '/api/dev-servers',
   '/api/git',
   '/api/machines',
   '/api/physical-machines',
   '/api/platform',
+  '/api/pull-request-previews/dev-server',
+  '/api/pull-request-previews/feedback',
+  '/api/pull-request-previews/test-surfaces',
   '/api/scope-devbox',
   '/api/terminal',
   '/api/workspace-tool'

@@ -7,6 +7,7 @@ import type {
   CodexSessionInspectRequest,
   CodexSessionInterruptRequest,
   CodexSessionReadRequest,
+  CodexSessionSettingsRequest,
   CodexSessionUserInputResponse
 } from '../../src/shared/codex-sessions-api';
 import { CODEX_SESSION_LIST_DEADLINE_MS } from '../../src/shared/codex-session-inventory-window';
@@ -47,6 +48,7 @@ type MutationRequest =
   | CodexSessionApprovalRequest
   | CodexSessionContinueRequest
   | CodexSessionInterruptRequest
+  | CodexSessionSettingsRequest
   | CodexSessionUserInputResponse;
 
 export interface ConfiguredCodexSessionsRuntimeOptions {
@@ -244,7 +246,7 @@ async function request(
 }
 
 async function mutate(
-  operation: 'approval' | 'continue' | 'input' | 'interrupt',
+  operation: 'approval' | 'continue' | 'input' | 'interrupt' | 'settings',
   payload: MutationRequest,
   userId: string
 ) {

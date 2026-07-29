@@ -1,4 +1,9 @@
-import type { CodexConversationItemKind } from '@/shared/codex-sessions-api';
+import type {
+  CodexConversationImageRecord,
+  CodexConversationItemKind,
+  CodexSessionPermissionProfile,
+  CodexSessionTokenUsage
+} from '@/shared/codex-sessions-api';
 
 export type CodexMachineStatus = 'connected' | 'offline' | 'unavailable';
 
@@ -35,17 +40,21 @@ export interface CodexSession {
   loadedByProjectSpace: boolean;
   machineId: string;
   model?: string;
+  permissionProfileId?: string;
+  permissionProfiles?: CodexSessionPermissionProfile[];
   projectName?: string;
   status: CodexSessionStatus;
   statusDetail?: string;
   stored: boolean;
   threadId: string;
   title: string;
+  tokenUsage?: CodexSessionTokenUsage;
 }
 
 export type CodexConversationItem =
   | {
       id: string;
+      images?: CodexConversationImageRecord[];
       kind: 'message';
       role: 'assistant' | 'user';
       text: string;

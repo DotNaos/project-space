@@ -1,12 +1,9 @@
-import { createHash } from 'node:crypto';
-import { isAbsolute } from 'node:path';
-
-import { CODEX_THREAD_ID_PATTERN } from '../../src/shared/codex-sessions-api';
 import type {
   CodexApprovalResponseInput,
   CodexInterruptTurnInput,
   CodexLoadedThreadListResult,
   CodexOperationSnapshot,
+  CodexPermissionProfileListResult,
   CodexPermissionResponseInput,
   CodexProcessFactory,
   CodexResumeThreadInput,
@@ -15,11 +12,14 @@ import type {
   CodexSessionEventListener,
   CodexStartThreadInput,
   CodexStartTurnInput,
+  CodexSteerTurnInput,
   CodexThreadListInput,
   CodexThreadListResult,
   CodexThreadResult,
+  CodexThreadSettingsSnapshot,
   CodexThreadSummary,
-  CodexTurnResult,
+  CodexThreadTokenUsageSnapshot,
+  CodexUpdateThreadSettingsInput,
   CodexUserInputResponseInput
 } from './contracts';
 import {
@@ -38,14 +38,30 @@ import {
   isNotificationMethod,
   isServerRequestMethod,
   rpcIdKey,
-  CodexSessionValidationError,
-  sanitizeProtocolValue,
   validateAnswers,
   validateIdentifier,
   validatePrompt,
   validateRpcId,
-  validateThreadListInput
+  validateThreadListInput,
+  sanitizeProtocolValue
 } from './validation';
+import {
+  fingerprint,
+  protocolError,
+  readLoadedThreads,
+  readPermissionProfile,
+  readResumedThreadResult,
+  readStartedThreadResult,
+  readStartedTurnResult,
+  readThread,
+  readThreadResult,
+  readThreadTokenUsage,
+  requireRecord,
+  sanitizeErrorNotification,
+  validateCwd,
+  validateLocalImagePaths,
+  validatePermissionProfileId
+} from './protocol-readers';
 
 type IncomingMessage = {
   id?: CodexRpcId;
@@ -67,6 +83,7 @@ export interface CodexSessionManagerOptions {
   binaryPath?: string;
   codexHome?: string;
   daemonSocketPath?: string;
+  maximumThreadReadLineCharacters?: number;
   operationSnapshot?: CodexOperationSnapshot;
   persistOperationSnapshot?: CodexOperationSnapshotPersist;
   processFactory?: CodexProcessFactory;
@@ -83,6 +100,8 @@ export class CodexSessionManager {
   private readonly listeners = new Set<CodexSessionEventListener>();
   private readonly ledger: CodexOperationLedger;
   private readonly pendingServerRequests = new Map<string, PendingServerRequest>();
+  private readonly settingsByThread = new Map<string, CodexThreadSettingsSnapshot>();
+  private readonly tokenUsageByThread = new Map<string, CodexThreadTokenUsageSnapshot>();
   private readonly resolutionWaiters = new Map<
     string,
     { reject: (error: Error) => void; resolve: () => void }
@@ -128,6 +147,22 @@ export class CodexSessionManager {
     return readLoadedThreads(await this.call<unknown>('thread/loaded/list', {}, signal));
   }
 
+  async listPermissionProfiles(
+    cwd?: string,
+    signal?: AbortSignal
+  ): Promise<CodexPermissionProfileListResult> {
+    const result = requireRecord(await this.call<unknown>(
+      'permissionProfile/list',
+      { ...(cwd ? { cwd: validateCwd(cwd) } : {}), limit: 100 },
+      signal
+    ));
+    if (!Array.isArray(result.data) || result.data.length > 100) throw protocolError();
+    return {
+      data: result.data.map(readPermissionProfile),
+      nextCursor: typeof result.nextCursor === 'string' ? result.nextCursor : null
+    };
+  }
+
   async readThread(
     threadId: string,
     includeTurns = true,
@@ -137,7 +172,11 @@ export class CodexSessionManager {
     return readThreadResult(await this.call('thread/read', { includeTurns, threadId }, signal));
   }
 
-  async readInspectionSnapshot(threadId: string, signal?: AbortSignal) {
+  async readInspectionSnapshot(
+    threadId: string,
+    signal?: AbortSignal,
+    includeTurns = true
+  ) {
     const normalizedThreadId = validateIdentifier(threadId, 'threadId');
     const transport = await waitForCodexRequest(this.ensureTransport(), signal);
     const runtimeEpoch = this.transportEpochs.get(transport);
@@ -145,7 +184,7 @@ export class CodexSessionManager {
     const [thread, loaded] = await Promise.all([
       transport.call<unknown>(
         'thread/read',
-        { includeTurns: true, threadId: normalizedThreadId },
+        { includeTurns, threadId: normalizedThreadId },
         { signal }
       ),
       transport.call<unknown>('thread/loaded/list', {}, { signal })
@@ -163,14 +202,41 @@ export class CodexSessionManager {
       input.operationId,
       fingerprint('thread/resume', { threadId }),
       async () => {
+        const response = await this.call<unknown>('thread/resume', { threadId });
         const result = readResumedThreadResult(
-          await this.call('thread/resume', { threadId }),
+          response,
           threadId
         );
+        this.captureThreadSettings(threadId, response);
         this.captureThreadStatus(result.thread);
         return result;
       }
     );
+  }
+
+  updateThreadSettings(input: CodexUpdateThreadSettingsInput) {
+    const threadId = validateIdentifier(input.threadId, 'threadId');
+    const permissionProfileId = validatePermissionProfileId(input.permissionProfileId);
+    return this.ledger.execute(
+      input.operationId,
+      fingerprint('thread/settings/update', { permissionProfileId, threadId }),
+      async () => {
+        await this.call('thread/settings/update', {
+          permissions: permissionProfileId,
+          threadId
+        });
+        this.settingsByThread.set(threadId, { permissionProfileId });
+        return {};
+      }
+    );
+  }
+
+  threadSettings(threadId: string) {
+    return this.settingsByThread.get(validateIdentifier(threadId, 'threadId'));
+  }
+
+  threadTokenUsage(threadId: string) {
+    return this.tokenUsageByThread.get(validateIdentifier(threadId, 'threadId'));
   }
 
   startThread(input: CodexStartThreadInput) {
@@ -191,6 +257,7 @@ export class CodexSessionManager {
   startTurn(input: CodexStartTurnInput) {
     const threadId = validateIdentifier(input.threadId, 'threadId');
     const prompt = validatePrompt(input.prompt);
+    const localImagePaths = validateLocalImagePaths(input.localImagePaths);
     const effort = input.effort === undefined
       ? undefined
       : validateIdentifier(input.effort, 'effort');
@@ -209,7 +276,7 @@ export class CodexSessionManager {
     };
     return this.ledger.execute(
       input.operationId,
-      fingerprint('turn/start', { ...settings, prompt, threadId }),
+      fingerprint('turn/start', { ...settings, localImagePaths, prompt, threadId }),
       async () => {
         if (this.activeTurns.has(threadId) || this.startingThreads.has(threadId)) {
           throw new CodexThreadActiveError('Wait for the active turn to finish.');
@@ -218,7 +285,11 @@ export class CodexSessionManager {
         try {
           const result = readStartedTurnResult(
             await this.call('turn/start', {
-              input: [{ text: prompt, type: 'text' }],
+              clientUserMessageId: input.operationId,
+              input: [
+                { text: prompt, text_elements: [], type: 'text' },
+                ...localImagePaths.map((path) => ({ path, type: 'localImage' as const }))
+              ],
               ...settings,
               threadId
             })
@@ -228,6 +299,31 @@ export class CodexSessionManager {
         } finally {
           this.startingThreads.delete(threadId);
         }
+      }
+    );
+  }
+
+  steerTurn(input: CodexSteerTurnInput) {
+    const threadId = validateIdentifier(input.threadId, 'threadId');
+    const expectedTurnId = validateIdentifier(input.expectedTurnId, 'turnId');
+    const prompt = validatePrompt(input.prompt);
+    const localImagePaths = validateLocalImagePaths(input.localImagePaths);
+    return this.ledger.execute(
+      input.operationId,
+      fingerprint('turn/steer', { expectedTurnId, localImagePaths, prompt, threadId }),
+      async () => {
+        const result = requireRecord(await this.call('turn/steer', {
+          clientUserMessageId: input.operationId,
+          expectedTurnId,
+          input: [
+            { text: prompt, text_elements: [], type: 'text' },
+            ...localImagePaths.map((path) => ({ path, type: 'localImage' as const }))
+          ],
+          threadId
+        }));
+        const turnId = validateIdentifier(result.turnId, 'turnId');
+        this.activeTurns.set(threadId, turnId);
+        return { turnId };
       }
     );
   }
@@ -456,6 +552,14 @@ export class CodexSessionManager {
       const status = requireRecord(record.status);
       if (status.type !== 'active') this.activeTurns.delete(threadId);
     }
+    if (method === 'thread/settings/updated') {
+      const threadId = validateIdentifier(record.threadId, 'threadId');
+      this.captureThreadSettings(threadId, record.threadSettings);
+    }
+    if (method === 'thread/tokenUsage/updated') {
+      const threadId = validateIdentifier(record.threadId, 'threadId');
+      this.tokenUsageByThread.set(threadId, readThreadTokenUsage(record.tokenUsage));
+    }
     if (method === 'serverRequest/resolved') {
       const requestId = record.requestId;
       if (requestId !== undefined) {
@@ -540,6 +644,8 @@ export class CodexSessionManager {
     this.activeTurns.clear();
     this.startingThreads.clear();
     this.pendingServerRequests.clear();
+    this.settingsByThread.clear();
+    this.tokenUsageByThread.clear();
     for (const waiter of this.resolutionWaiters.values()) {
       waiter.reject(new CodexOperationUncertainError('Codex app-server restarted before confirmation.'));
     }
@@ -552,6 +658,17 @@ export class CodexSessionManager {
     } else {
       this.activeTurns.delete(thread.id);
     }
+  }
+
+  private captureThreadSettings(threadId: string, value: unknown) {
+    const record = requireRecord(value);
+    const settings = record.threadSettings && typeof record.threadSettings === 'object'
+      ? requireRecord(record.threadSettings)
+      : record;
+    const active = settings.activePermissionProfile;
+    if (!active || typeof active !== 'object' || Array.isArray(active)) return;
+    const profileId = validatePermissionProfileId(requireRecord(active).id);
+    this.settingsByThread.set(threadId, { permissionProfileId: profileId });
   }
 
   private emit(event: CodexSessionEvent) {
@@ -567,101 +684,4 @@ function waitForCodexRequest<T>(promise: Promise<T>, signal?: AbortSignal): Prom
     signal.addEventListener('abort', abort, { once: true });
     promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
   });
-}
-
-function requireRecord(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw protocolError();
-  return value as Record<string, unknown>;
-}
-
-function readThread(value: unknown): CodexThreadSummary {
-  const thread = sanitizeProtocolValue(requireRecord(value)) as CodexThreadSummary;
-  thread.id = validateIdentifier(thread.id, 'threadId');
-  return thread;
-}
-
-function readThreadResult(value: unknown): CodexThreadResult {
-  return { thread: readThread(requireRecord(value).thread) };
-}
-
-function readStartedThreadResult(value: unknown): CodexThreadResult {
-  try {
-    const result = readThreadResult(value);
-    if (!CODEX_THREAD_ID_PATTERN.test(result.thread.id) || result.thread.ephemeral !== false) {
-      throw protocolError();
-    }
-    return result;
-  } catch {
-    throw new CodexOperationUncertainError(
-      'Codex app-server did not confirm a persistent thread id.'
-    );
-  }
-}
-
-function readResumedThreadResult(value: unknown, expectedThreadId: string): CodexThreadResult {
-  try {
-    const result = readThreadResult(value);
-    if (result.thread.id !== expectedThreadId) throw protocolError();
-    return result;
-  } catch {
-    throw new CodexOperationUncertainError(
-      'Codex app-server did not confirm the resumed thread id.'
-    );
-  }
-}
-
-function readLoadedThreads(value: unknown): CodexLoadedThreadListResult {
-  const result = requireRecord(value);
-  if (!Array.isArray(result.data) || result.data.length > 10_000) throw protocolError();
-  return { data: result.data.map((id) => validateIdentifier(id, 'threadId')) };
-}
-
-function readTurnResult(value: unknown): CodexTurnResult {
-  const turn = sanitizeProtocolValue(requireRecord(requireRecord(value).turn)) as CodexTurnResult['turn'];
-  turn.id = validateIdentifier(turn.id, 'turnId');
-  return { turn };
-}
-
-function readStartedTurnResult(value: unknown): CodexTurnResult {
-  try {
-    return readTurnResult(value);
-  } catch {
-    throw new CodexOperationUncertainError('Codex app-server did not confirm a turn id.');
-  }
-}
-
-function protocolError() {
-  return new CodexAppServerProtocolError('Codex app-server returned invalid data.');
-}
-
-function fingerprint(method: string, params: unknown) {
-  return createHash('sha256')
-    .update(`${method}:${JSON.stringify(params)}`, 'utf8')
-    .digest('hex');
-}
-
-function validateCwd(value: unknown) {
-  if (
-    typeof value !== 'string'
-    || !isAbsolute(value)
-    || value.length > 4_096
-    || /[\u0000\r\n]/.test(value)
-  ) {
-    throw new CodexSessionValidationError('Codex working directory is invalid.');
-  }
-  return value;
-}
-
-function sanitizeErrorNotification(value: unknown) {
-  const params = requireRecord(value);
-  const result: Record<string, unknown> = {
-    error: { message: 'Codex turn failed.' }
-  };
-  if (typeof params.threadId === 'string') {
-    result.threadId = validateIdentifier(params.threadId, 'threadId');
-  }
-  if (typeof params.turnId === 'string') {
-    result.turnId = validateIdentifier(params.turnId, 'turnId');
-  }
-  return result;
 }

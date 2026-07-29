@@ -27,6 +27,9 @@ type previewStatusItem struct {
 	RequestedSHA       string `json:"requestedSha,omitempty"`
 	RunningSHA         string `json:"runningSha,omitempty"`
 	LiveURL            string `json:"liveUrl,omitempty"`
+	PrototypeURL       string `json:"prototypeUrl,omitempty"`
+	PrototypeMetaSHA   string `json:"prototypeMetaSha,omitempty"`
+	PrototypeHealthy   bool   `json:"prototypeHealthy,omitempty"`
 	State              string `json:"state"`
 	VerifiedAt         string `json:"verifiedAt,omitempty"`
 	UpdatedAt          string `json:"updatedAt,omitempty"`
@@ -156,12 +159,38 @@ func validatePreviewStatusItem(item previewStatusItem) error {
 			return err
 		}
 	}
+	if item.PrototypeURL != "" {
+		if err := validatePreviewPrototypeURL(item.PrototypeURL, item.PullRequestNumber); err != nil {
+			return err
+		}
+		if !item.PrototypeHealthy || item.PrototypeMetaSHA == "" ||
+			item.PrototypeMetaSHA != item.RunningSHA {
+			return fmt.Errorf("prototypeUrl requires healthy exact-head prototype evidence")
+		}
+	}
+	if item.PrototypeMetaSHA != "" && !fullGitSHA.MatchString(item.PrototypeMetaSHA) {
+		return fmt.Errorf("prototypeMetaSha must be a full lowercase Git SHA")
+	}
 	for name, value := range map[string]string{"verifiedAt": item.VerifiedAt, "updatedAt": item.UpdatedAt} {
 		if value != "" {
 			if _, err := time.Parse(time.RFC3339, value); err != nil {
 				return fmt.Errorf("%s must be RFC3339", name)
 			}
 		}
+	}
+	return nil
+}
+
+func validatePreviewPrototypeURL(value string, pullRequest int) error {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil ||
+		parsed.RawQuery != "" || parsed.Fragment != "" ||
+		parsed.Path != "/prototype/desktop/" {
+		return fmt.Errorf("prototypeUrl must be the exact HTTPS desktop prototype path")
+	}
+	expectedHost := fmt.Sprintf("pr-%d.projects.os-home.net", pullRequest)
+	if parsed.Host != expectedHost {
+		return fmt.Errorf("prototypeUrl does not match the preview identity")
 	}
 	return nil
 }
@@ -234,6 +263,9 @@ func printPreviewStatus(cmd *cobra.Command, report previewStatusReport, format s
 		}
 		if item.LiveURL != "" {
 			fmt.Fprintf(cmd.OutOrStdout(), "Verified URL: %s\n", item.LiveURL)
+		}
+		if item.PrototypeURL != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "Verified prototype: %s\n", item.PrototypeURL)
 		}
 		if item.Message != "" {
 			fmt.Fprintf(cmd.OutOrStdout(), "Message: %s\n", item.Message)

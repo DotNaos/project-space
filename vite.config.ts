@@ -19,6 +19,8 @@ import {
 } from './server/machine-terminal-websocket';
 import { startProjectConnectorWebSocket } from './server/project-connector-websocket';
 import { createProjectSpaceRequestHandler } from './server/project-space-http';
+import { writeJson } from './server/project-space-http-response';
+import { createPrototypeReviewLocalRuntime } from './server/prototype-review-local-runtime';
 
 const configuredAllowedHosts = (process.env.PROJECT_ALLOWED_HOSTS ?? '')
   .split(',')
@@ -38,8 +40,15 @@ function projectSpaceApiPlugin(): Plugin {
       const bridge = connectorBridgeEnabled
         ? startProjectConnectorWebSocket({ backend })
         : undefined;
+      const localReviewRuntime = createPrototypeReviewLocalRuntime({
+        backend,
+        repositoryRoot: __dirname
+      });
       const handler = createProjectSpaceRequestHandler({
-        backend
+        backend,
+        codexSessions: async (request, response, url) => (
+          (await localReviewRuntime).codexSessions(request, response, url)
+        )
       });
       const handleMachineTerminalUpgrade = createMachineTerminalUpgradeHandler(authorizedBackend);
       const handleProjectTerminalUpgrade = createProjectTerminalUpgradeHandler();
@@ -50,6 +59,7 @@ function projectSpaceApiPlugin(): Plugin {
       server.httpServer?.once('close', () => {
         bridge?.close();
         void connectorCommands.close();
+        void localReviewRuntime.then((runtime) => runtime.close());
       });
 
       server.httpServer?.on('upgrade', (request, socket, head) => {
@@ -72,10 +82,67 @@ function projectSpaceApiPlugin(): Plugin {
           return;
         }
 
+        const url = new URL(request.url, 'http://127.0.0.1');
+        if (
+          request.method === 'GET' &&
+          url.pathname === '/api/prototype-review/local-context'
+        ) {
+          void localReviewRuntime
+            .then((runtime) => runtime.readContext(
+              url.searchParams.get('repository')?.trim() || undefined,
+              positiveInteger(url.searchParams.get('pr'))
+            ))
+            .then((context) => writeJson(response, 200, context))
+            .catch(() => writeJson(response, 503, {
+              checkedAt: new Date().toISOString(),
+              checkout: { reason: 'checkout-unavailable', state: 'unavailable' },
+              codex: { reason: 'codex-unavailable', state: 'unavailable' }
+            }));
+          return;
+        }
+        if (url.pathname.startsWith('/api/prototype-review/codex-images')) {
+          void localReviewRuntime
+            .then((runtime) => runtime.codexImages(request, response, url))
+            .then((handled) => {
+              if (!handled) writeJson(response, 404, { error: 'Route not found.' });
+            })
+            .catch(() => writeJson(response, 503, {
+              error: 'The local image attachment service is temporarily unavailable.'
+            }));
+          return;
+        }
+        if (url.pathname === '/api/prototype-review/codex-models') {
+          void localReviewRuntime
+            .then((runtime) => runtime.codexModels(request, response, url))
+            .then((handled) => {
+              if (!handled) writeJson(response, 404, { error: 'Route not found.' });
+            })
+            .catch(() => writeJson(response, 503, {
+              error: 'Codex model settings are temporarily unavailable.'
+            }));
+          return;
+        }
+        if (url.pathname.startsWith('/api/codex/sessions')) {
+          void localReviewRuntime
+            .then((runtime) => runtime.codexSessions(request, response, url))
+            .then((handled) => {
+              if (!handled) writeJson(response, 404, { error: 'Route not found.' });
+            })
+            .catch(() => writeJson(response, 503, {
+              error: 'The local Codex task is temporarily unavailable.'
+            }));
+          return;
+        }
+
         void handler(request, response);
       });
     }
   };
+}
+
+function positiveInteger(value: string | null) {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : undefined;
 }
 
 export default defineConfig(({ command, mode }) => {

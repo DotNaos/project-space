@@ -16,13 +16,17 @@ import type {
   ConnectorProjectRegistryResult,
   ProjectSpaceBackend
 } from '../src/shared/project-space-api';
+import { createPullRequestDevServerConnectorRoutes } from './pr-test-surfaces/connector-http';
 
 export function createProjectSpacePublicApiRoutes(backend: ProjectSpaceBackend) {
+  const handlePullRequestDevServer = createPullRequestDevServerConnectorRoutes();
   return async function handleProjectSpacePublicApiRoute(
     request: IncomingMessage,
     response: ServerResponse,
     url: URL
   ) {
+    if (await handlePullRequestDevServer(request, response, url)) return true;
+
     if (request.method === 'GET' && url.pathname === '/api/health') {
       writeJson(response, 200, { ok: true });
       return true;

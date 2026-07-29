@@ -36,7 +36,9 @@ describe('trusted PR Preview workflow contract', () => {
     expect(build).toContain('ref: ${{ needs.resolve.outputs.head_sha }}');
     expect(build).toContain('file: trusted/deploy/preview.web.Dockerfile');
     expect(build).toContain('file: trusted/deploy/preview.docs.Dockerfile');
+    expect(build).toContain('file: trusted/deploy/preview.prototype.Dockerfile');
     expect(build).toContain('file: trusted/deploy/preview.gateway.Dockerfile');
+    expect(build).toContain('trusted-assets=trusted');
     expect(build).toContain('context: trusted');
     expect(build).toContain('VITE_CLERK_PUBLISHABLE_KEY=${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}');
     expect(workflow).not.toContain('file: source/deploy/');
@@ -54,6 +56,13 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain('ghcr.io/dotnaos/project-space-preview-web@$WEB_DIGEST');
     expect(workflow).toContain('ghcr.io/dotnaos/project-space-preview-docs@$DOCS_DIGEST');
     expect(workflow).toContain('ghcr.io/dotnaos/project-space-preview-gateway@$GATEWAY_DIGEST');
+    expect(workflow).toContain(
+      'ghcr.io/dotnaos/project-space-preview-prototype:pr-${{ needs.resolve.outputs.pr_number }}-${{ needs.resolve.outputs.head_sha }}'
+    );
+    expect(workflow).toContain(
+      'ghcr.io/dotnaos/project-space-preview-prototype@$PROTOTYPE_DIGEST'
+    );
+    expect(workflow).toContain('prototypeImage:$prototype');
     expect(workflow).toContain('https://pr-${{ needs.resolve.outputs.pr_number }}.projects.os-home.net');
     expect(workflow).toContain('environment_url');
   });

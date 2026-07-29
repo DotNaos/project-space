@@ -5,7 +5,6 @@ import {
   type CodexSessionsHttpService,
   type CodexSessionsRequestContext
 } from '../codex-sessions-http';
-import type { CodexSessionsStore } from '../codex-sessions-store';
 import {
   getCurrentAuthSession,
   isProjectSpaceAuthRequired
@@ -17,6 +16,7 @@ import {
   CodexTransportUnavailableError,
   createCodexSessionsService,
   type CodexSessionsActor,
+  type CodexSessionsServiceStore,
   type CodexSessionsTransport
 } from './service';
 
@@ -30,7 +30,7 @@ export function createCodexSessionsRuntime(options: {
   monotonicNow?: () => number;
   now?: () => Date;
   resolveContext?: () => CodexSessionsRequestContext | undefined;
-  store: CodexSessionsStore;
+  store: CodexSessionsServiceStore;
   transport: CodexSessionsTransport;
 }): CodexSessionsRuntime {
   const service = createCodexSessionsService(options);
@@ -69,6 +69,7 @@ function wrapHttpService(
     respondToUserInput: (actor, request) => withHttpErrors(
       () => service.respondToUserInput(actor, request)
     ),
+    settings: (actor, request) => withHttpErrors(() => service.settings(actor, request)),
     stream: (actor, request, emit, signal) => withHttpErrors(async () => {
       await Promise.all([
         service.stream(actor, request, emit, signal),

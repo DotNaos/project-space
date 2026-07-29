@@ -1016,6 +1016,27 @@ project serve list [directory]
 | `-h`, `--help` | `bool` | local | help for list |
 | `--json` | `bool` | local | print machine-readable JSON output |
 
+<h3 id="project-serve-publish-pr" className="scroll-m-28"><code>project serve publish-pr</code></h3>
+
+Publish a managed dev server to one pull request
+
+```sh
+project serve publish-pr [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--branch` | `string` | local | expected checked-out branch |
+| `--codex-thread` | `string` | local | exact Codex task eligible to receive feedback |
+| `--commit` | `string` | local | expected checked-out commit |
+| `-h`, `--help` | `bool` | local | help for publish-pr |
+| `--machine-id` | `string` | local | Project Space physical machine ID |
+| `--pr` | `int` | local | pull request number |
+| `--project-id` | `string` | local | connector inventory project ID |
+| `--repository` | `string` | local | GitHub owner/name |
+| `--script` | `string` | local | configured prototype server |
+| `--worktree-id` | `string` | local | connector inventory worktree ID |
+
 <h3 id="project-serve-reconcile" className="scroll-m-28"><code>project serve reconcile</code></h3>
 
 Check managed project servers and clean stale sessions

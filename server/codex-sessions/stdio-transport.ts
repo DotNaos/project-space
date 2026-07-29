@@ -34,12 +34,13 @@ type PendingCall = {
 };
 
 const MAXIMUM_STANDARD_LINE_CHARACTERS = 2_000_000;
-const MAXIMUM_THREAD_READ_LINE_CHARACTERS = 16 * 1024 * 1024;
+const DEFAULT_MAXIMUM_THREAD_READ_LINE_CHARACTERS = 16 * 1024 * 1024;
 const UNCERTAIN_ON_PROTOCOL_FAILURE_METHODS = new Set([
   'thread/resume',
   'thread/start',
   'turn/interrupt',
-  'turn/start'
+  'turn/start',
+  'turn/steer'
 ]);
 
 export class CodexAppServerProtocolError extends Error {
@@ -90,7 +91,9 @@ export class CodexStdioTransport {
   constructor(
     private readonly child: CodexChildProcess,
     private readonly onMessage: (message: RpcMessage) => void,
-    private readonly onTransportClose: () => void
+    private readonly onTransportClose: () => void,
+    private readonly maximumThreadReadLineCharacters =
+      DEFAULT_MAXIMUM_THREAD_READ_LINE_CHARACTERS
   ) {
     this.stdout = createInterface({ input: child.stdout });
     this.stdout.on('line', (line) => this.handleLine(line));
@@ -108,6 +111,7 @@ export class CodexStdioTransport {
     onClose?: () => void;
     onMessage: (message: RpcMessage) => void;
     processFactory?: CodexProcessFactory;
+    maximumThreadReadLineCharacters?: number;
   }) {
     const factory = options.processFactory ?? defaultProcessFactory;
     const command = options.binaryPath ?? (
@@ -126,7 +130,12 @@ export class CodexStdioTransport {
         ...(options.codexHome ? { CODEX_HOME: options.codexHome } : {})
       }
     });
-    return new CodexStdioTransport(child, options.onMessage, options.onClose ?? (() => {}));
+    return new CodexStdioTransport(
+      child,
+      options.onMessage,
+      options.onClose ?? (() => {}),
+      options.maximumThreadReadLineCharacters
+    );
   }
 
   get isOpen() {
@@ -200,7 +209,7 @@ export class CodexStdioTransport {
   private handleLine(line: string) {
     if (!this.open) return;
     if (!line.trim()) return;
-    if (line.length > MAXIMUM_THREAD_READ_LINE_CHARACTERS) {
+    if (line.length > this.maximumThreadReadLineCharacters) {
       this.failProtocol();
       return;
     }

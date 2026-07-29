@@ -25,6 +25,7 @@ export {
 } from './codex-sessions-controller';
 export {
   codexContinueBlockReason,
+  codexSteerBlockReason,
   codexThreadOrigin,
   effectiveCodexSessionStatus,
   formatCodexActivity,

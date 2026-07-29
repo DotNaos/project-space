@@ -106,6 +106,7 @@ export function toCodexConversationItem(
   if (item.kind === 'agent-message' || item.kind === 'user-message') {
     return {
       id: item.id,
+      ...(item.images?.length ? { images: item.images.map((image) => ({ ...image })) } : {}),
       kind: 'message',
       role: item.kind === 'agent-message' ? 'assistant' : 'user',
       streaming: item.status === 'in-progress',
@@ -133,7 +134,16 @@ export function applyCodexReadResult(
   state: CodexSessionsControllerState,
   result: CodexSessionReadResult
 ): CodexSessionsControllerState {
-  const session = toCodexSession(result.session);
+  const session = {
+    ...toCodexSession(result.session),
+    ...(result.permissionProfileId
+      ? { permissionProfileId: result.permissionProfileId }
+      : {}),
+    ...(result.permissionProfiles
+      ? { permissionProfiles: result.permissionProfiles }
+      : {}),
+    ...(result.tokenUsage ? { tokenUsage: result.tokenUsage } : {})
+  };
   const conversation: CodexConversation = {
     items: result.turns.flatMap((turn) => turn.items.map(toCodexConversationItem)),
     machineId: session.machineId,
@@ -181,6 +191,19 @@ export function applyCodexStreamEvent(
   } else if (event.type === 'session-status') {
     sessions = sessions.map((session) => sameCodexOrigin(session, origin)
       ? { ...session, status: event.status }
+      : session);
+  } else if (event.type === 'session-settings') {
+    sessions = sessions.map((session) => sameCodexOrigin(session, origin)
+      ? {
+          ...session,
+          ...(event.permissionProfileId
+            ? { permissionProfileId: event.permissionProfileId }
+            : {})
+        }
+      : session);
+  } else if (event.type === 'token-usage') {
+    sessions = sessions.map((session) => sameCodexOrigin(session, origin)
+      ? { ...session, tokenUsage: event.tokenUsage }
       : session);
   } else if (event.type === 'approval-requested') {
     activeTurnId = event.turnId;

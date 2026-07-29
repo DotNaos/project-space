@@ -29,7 +29,8 @@ const uncertainMethods = new Set([
   'thread/resume',
   'thread/start',
   'turn/interrupt',
-  'turn/start'
+  'turn/start',
+  'turn/steer'
 ]);
 
 export function codexAppServerSocketPath(

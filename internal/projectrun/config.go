@@ -45,9 +45,10 @@ type SetupStep struct {
 }
 
 type Script struct {
-	Label       string       `yaml:"label,omitempty"`
-	Command     []string     `yaml:"command"`
-	HealthCheck *HealthCheck `yaml:"healthCheck,omitempty"`
+	Label            string       `yaml:"label,omitempty"`
+	Command          []string     `yaml:"command"`
+	HealthCheck      *HealthCheck `yaml:"healthCheck,omitempty"`
+	PrototypeSurface string       `yaml:"prototypeSurface,omitempty"`
 }
 
 type HealthCheck struct {
@@ -178,6 +179,9 @@ func validateScriptsConfig(config ScriptsConfig) error {
 		if config.Version == 1 && script.Label != "" {
 			return fmt.Errorf("version 1 scripts do not support labels")
 		}
+		if config.Version == 1 && script.PrototypeSurface != "" {
+			return fmt.Errorf("version 1 scripts do not support prototypeSurface")
+		}
 		if err := validateCommand("server", name, script.Command); err != nil {
 			return err
 		}
@@ -188,6 +192,14 @@ func validateScriptsConfig(config ScriptsConfig) error {
 		}
 		if strings.TrimSpace(script.Label) != script.Label || len(script.Label) > 80 || strings.ContainsAny(script.Label, "\r\n\t") {
 			return fmt.Errorf("server %q label must be a trimmed single-line value of at most 80 bytes", name)
+		}
+		if script.PrototypeSurface != "" &&
+			script.PrototypeSurface != "mobile-prototype" &&
+			script.PrototypeSurface != "desktop-prototype" {
+			return fmt.Errorf(
+				"server %q prototypeSurface must be mobile-prototype or desktop-prototype",
+				name,
+			)
 		}
 	}
 	return nil

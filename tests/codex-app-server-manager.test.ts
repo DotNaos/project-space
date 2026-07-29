@@ -81,10 +81,42 @@ function standardHandler(message: RpcMessage, server: FakeCodexProcess) {
   if (message.method === 'turn/start') {
     server.send({ id: message.id, result: { turn: { id: 'turn-1', status: 'inProgress' } } });
   }
+  if (message.method === 'turn/steer') {
+    server.send({ id: message.id, result: { turnId: 'turn-1' } });
+  }
   if (message.method === 'turn/interrupt') server.send({ id: message.id, result: {} });
 }
 
 describe('Codex app-server session manager', () => {
+  test('steers the exact active turn with text and local images', async () => {
+    const process = new FakeCodexProcess(standardHandler);
+    const manager = new CodexSessionManager({ processFactory: () => process });
+    try {
+      const result = await manager.steerTurn({
+        expectedTurnId: 'turn-1',
+        localImagePaths: ['/tmp/prototype.png'],
+        operationId: 'operation-steer',
+        prompt: 'Focus on this detail',
+        threadId: 'thread-1'
+      });
+      expect(result).toEqual({ turnId: 'turn-1' });
+      expect(process.requests.find((request) => request.method === 'turn/steer'))
+        .toMatchObject({
+          params: {
+            clientUserMessageId: 'operation-steer',
+            expectedTurnId: 'turn-1',
+            input: [
+              { text: 'Focus on this detail', text_elements: [], type: 'text' },
+              { path: '/tmp/prototype.png', type: 'localImage' }
+            ],
+            threadId: 'thread-1'
+          }
+        });
+    } finally {
+      await manager.close();
+    }
+  });
+
   test('rejects oversized non-history responses instead of widening every protocol message', async () => {
     const process = new FakeCodexProcess((message, server) => {
       if (message.method === 'initialize') server.send({ id: message.id, result: {} });
@@ -485,8 +517,9 @@ describe('Codex app-server session manager', () => {
       expect(process.requests.filter((request) => request.method === 'turn/start')).toEqual([
         expect.objectContaining({
           params: {
+            clientUserMessageId: operation.operationId,
             effort: operation.effort,
-            input: [{ text: operation.prompt, type: 'text' }],
+            input: [{ text: operation.prompt, text_elements: [], type: 'text' }],
             model: operation.model,
             serviceTier: operation.serviceTier,
             threadId: operation.threadId
@@ -534,6 +567,32 @@ describe('Codex app-server session manager', () => {
         threadId: 'thread-1'
       });
       expect(process.requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('sends validated local images as Codex image inputs', async () => {
+    const process = new FakeCodexProcess(standardHandler);
+    const manager = new CodexSessionManager({ processFactory: () => process });
+
+    try {
+      await manager.startTurn({
+        localImagePaths: ['/tmp/prototype-one.png', '/tmp/prototype-two.jpg'],
+        operationId: 'operation-with-images',
+        prompt: 'Review these images',
+        threadId: 'thread-1'
+      });
+      expect(process.requests.find((request) => request.method === 'turn/start')?.params)
+        .toEqual({
+          clientUserMessageId: 'operation-with-images',
+          input: [
+            { text: 'Review these images', text_elements: [], type: 'text' },
+            { path: '/tmp/prototype-one.png', type: 'localImage' },
+            { path: '/tmp/prototype-two.jpg', type: 'localImage' }
+          ],
+          threadId: 'thread-1'
+        });
     } finally {
       await manager.close();
     }
@@ -671,6 +730,81 @@ describe('Codex app-server session manager', () => {
       expect(JSON.stringify(events)).not.toContain('another-secret');
       expect(JSON.stringify(events)).not.toContain('hidden-secret');
       expect(JSON.stringify(events)).toContain('Visible response');
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('uses advertised permission profiles and captures live context usage', async () => {
+    const process = new FakeCodexProcess((message, server) => {
+      standardHandler(message, server);
+      if (message.method === 'permissionProfile/list') {
+        server.send({
+          id: message.id,
+          result: {
+            data: [
+              { allowed: true, description: 'Workspace access', id: ':workspace' },
+              { allowed: true, description: 'Read only', id: ':read-only' }
+            ],
+            nextCursor: null
+          }
+        });
+      }
+      if (message.method === 'thread/settings/update') {
+        server.send({ id: message.id, result: {} });
+      }
+    });
+    const manager = new CodexSessionManager({ processFactory: () => process });
+    try {
+      expect(await manager.listPermissionProfiles()).toEqual({
+        data: [
+          { allowed: true, description: 'Workspace access', id: ':workspace' },
+          { allowed: true, description: 'Read only', id: ':read-only' }
+        ],
+        nextCursor: null
+      });
+      await manager.updateThreadSettings({
+        operationId: 'settings-1',
+        permissionProfileId: ':read-only',
+        threadId: 'thread-1'
+      });
+      process.send({
+        method: 'thread/tokenUsage/updated',
+        params: {
+          threadId: 'thread-1',
+          tokenUsage: {
+            last: {
+              cachedInputTokens: 400,
+              inputTokens: 1_000,
+              outputTokens: 200,
+              reasoningOutputTokens: 100,
+              totalTokens: 1_300
+            },
+            modelContextWindow: 10_000,
+            total: {
+              cachedInputTokens: 400,
+              inputTokens: 1_000,
+              outputTokens: 200,
+              reasoningOutputTokens: 100,
+              totalTokens: 1_300
+            }
+          },
+          turnId: 'turn-1'
+        }
+      });
+      await Bun.sleep(0);
+
+      expect(process.requests.find((request) => request.method === 'thread/settings/update'))
+        .toMatchObject({
+          params: { permissions: ':read-only', threadId: 'thread-1' }
+        });
+      expect(manager.threadSettings('thread-1')).toEqual({
+        permissionProfileId: ':read-only'
+      });
+      expect(manager.threadTokenUsage('thread-1')).toMatchObject({
+        last: { inputTokens: 1_000 },
+        modelContextWindow: 10_000
+      });
     } finally {
       await manager.close();
     }

@@ -134,7 +134,7 @@ function ProjectSummaryRow({
         ) : null}
       </div>
 
-      <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-1 @sm:grid-cols-4">
         <SummaryAction
           count={counts.issues}
           href={href(actions.issues)}
@@ -226,7 +226,7 @@ export function ProjectRootSummary({
   });
 
   return (
-    <section className={cn('mx-auto w-full max-w-5xl', className)} aria-labelledby="recent-projects-heading">
+    <section className={cn('@container mx-auto w-full max-w-5xl', className)} aria-labelledby="recent-projects-heading">
       <div className="mb-4 flex items-start justify-between gap-3 px-1">
         <div>
           <Text
@@ -246,7 +246,7 @@ export function ProjectRootSummary({
               setRetryGeneration((generation) => generation + 1);
               onRetry?.();
             }}
-            className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-neutral-400 transition hover:bg-neutral-900 hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 sm:min-h-8"
+            className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-neutral-400 transition hover:bg-neutral-900 hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 @sm:min-h-8"
           >
             <RotateCcw className="size-3.5" />
             Retry counts

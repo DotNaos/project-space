@@ -1,5 +1,7 @@
 export const CODEX_THREAD_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const CODEX_OPERATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
+export const CODEX_PERMISSION_PROFILE_ID_PATTERN =
+  /^(?::[A-Za-z0-9][A-Za-z0-9._-]*|[A-Za-z0-9][A-Za-z0-9._:-]*)$/;
 
 export type CodexSessionStatus =
   | 'active'
@@ -93,9 +95,16 @@ export type CodexConversationItemKind =
   | 'status'
   | 'user-message';
 
+export interface CodexConversationImageRecord {
+  dataUrl: string;
+  id: string;
+  mediaType: 'image/jpeg' | 'image/png';
+}
+
 export interface CodexConversationItemRecord {
   detail?: string;
   id: string;
+  images?: CodexConversationImageRecord[];
   kind: CodexConversationItemKind;
   status?: 'completed' | 'failed' | 'in-progress' | 'pending';
   text?: string;
@@ -113,6 +122,26 @@ export interface CodexSessionReadRequest {
   connectorGeneration?: number;
   machineId: string;
   threadId: string;
+}
+
+export interface CodexSessionPermissionProfile {
+  allowed: boolean;
+  description?: string;
+  id: string;
+}
+
+export interface CodexSessionTokenUsageBreakdown {
+  cachedInputTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+}
+
+export interface CodexSessionTokenUsage {
+  last: CodexSessionTokenUsageBreakdown;
+  modelContextWindow?: number;
+  total: CodexSessionTokenUsageBreakdown;
 }
 
 export interface CodexSessionBrowserRequest {
@@ -154,8 +183,11 @@ export type CodexSessionBrowserResult =
 
 export interface CodexSessionReadResult {
   openedReadOnly: true;
+  permissionProfileId?: string;
+  permissionProfiles?: CodexSessionPermissionProfile[];
   session: CodexSessionRecord;
   streamCursor?: number;
+  tokenUsage?: CodexSessionTokenUsage;
   turns: CodexConversationTurnRecord[];
 }
 
@@ -183,7 +215,10 @@ export interface CodexSessionTurnSettings {
 
 export interface CodexSessionContinueRequest {
   connectorGeneration?: number;
+  delivery?: 'new-turn' | 'steer';
   effort?: string;
+  expectedTurnId?: string;
+  imageAttachmentIds?: string[];
   machineId: string;
   message: string;
   model?: string;
@@ -197,6 +232,13 @@ export interface CodexSessionInterruptRequest {
   operationId: string;
   threadId: string;
   turnId: string;
+}
+
+export interface CodexSessionSettingsRequest {
+  machineId: string;
+  operationId: string;
+  permissionProfileId: string;
+  threadId: string;
 }
 
 export interface CodexSessionApprovalRequest {
@@ -263,6 +305,17 @@ export type CodexSessionStreamEvent =
       turnId: string;
       type: 'user-input-requested';
     }
+  | {
+      eventId: string;
+      permissionProfileId?: string;
+      type: 'session-settings';
+    }
+  | {
+      eventId: string;
+      tokenUsage: CodexSessionTokenUsage;
+      type: 'token-usage';
+      turnId: string;
+    }
   | { eventId: string; reason?: string; type: 'turn-completed'; turnId: string };
 
 export interface CodexSessionsClient {
@@ -273,6 +326,7 @@ export interface CodexSessionsClient {
   inspect?(request: CodexSessionInspectRequest): Promise<CodexSessionInspectResult>;
   list(request: CodexSessionListRequest): Promise<CodexSessionListResult>;
   read(request: CodexSessionReadRequest): Promise<CodexSessionReadResult>;
+  settings(request: CodexSessionSettingsRequest): Promise<CodexSessionOperationResult>;
   respondToUserInput(
     request: CodexSessionUserInputResponse
   ): Promise<CodexSessionOperationResult>;

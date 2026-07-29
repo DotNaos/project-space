@@ -2375,6 +2375,78 @@
             "commands": []
           },
           {
+            "path": "project serve publish-pr",
+            "name": "publish-pr",
+            "usage": "publish-pr [directory]",
+            "short": "Publish a managed dev server to one pull request",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "branch",
+                "type": "string",
+                "description": "expected checked-out branch",
+                "inherited": false
+              },
+              {
+                "name": "codex-thread",
+                "type": "string",
+                "description": "exact Codex task eligible to receive feedback",
+                "inherited": false
+              },
+              {
+                "name": "commit",
+                "type": "string",
+                "description": "expected checked-out commit",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for publish-pr",
+                "inherited": false
+              },
+              {
+                "name": "machine-id",
+                "type": "string",
+                "description": "Project Space physical machine ID",
+                "inherited": false
+              },
+              {
+                "name": "pr",
+                "type": "int",
+                "description": "pull request number",
+                "inherited": false
+              },
+              {
+                "name": "project-id",
+                "type": "string",
+                "description": "connector inventory project ID",
+                "inherited": false
+              },
+              {
+                "name": "repository",
+                "type": "string",
+                "description": "GitHub owner/name",
+                "inherited": false
+              },
+              {
+                "name": "script",
+                "type": "string",
+                "description": "configured prototype server",
+                "inherited": false
+              },
+              {
+                "name": "worktree-id",
+                "type": "string",
+                "description": "connector inventory worktree ID",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
             "path": "project serve reconcile",
             "name": "reconcile",
             "usage": "reconcile",

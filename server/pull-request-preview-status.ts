@@ -34,6 +34,29 @@ function publicHttpsUrl(value: unknown, pullRequestNumber: number) {
   }
 }
 
+function prototypeHttpsUrl(value: unknown, pullRequestNumber: number) {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  try {
+    const url = new URL(value);
+    const expectedHost = `pr-${pullRequestNumber}.projects.os-home.net`;
+    if (
+      url.protocol !== 'https:' ||
+      url.hostname.toLowerCase() !== expectedHost ||
+      url.port ||
+      url.username ||
+      url.password ||
+      url.pathname !== '/prototype/desktop/' ||
+      url.search ||
+      url.hash
+    ) {
+      return undefined;
+    }
+    return `https://${expectedHost}/prototype/desktop/`;
+  } catch {
+    return undefined;
+  }
+}
+
 function pullRequestLink(value: unknown, repositoryFullName: string, pullRequestNumber: number) {
   if (typeof value !== 'string' || !value.trim()) return undefined;
   try {
@@ -160,6 +183,16 @@ export function sanitizePullRequestPreview(
   const rawUrl = raw.liveUrl ?? raw.webUrl ?? raw.url;
   const sanitizedLiveUrl = publicHttpsUrl(rawUrl, pullRequestNumber);
   const liveUrl = requestedSha && runningSha ? sanitizedLiveUrl : undefined;
+  const rawPrototypeUrl = raw.prototypeUrl;
+  const prototypeMetaSha = sha(raw.prototypeMetaSha);
+  const prototypeHealthy = raw.prototypeHealthy === true;
+  const sanitizedPrototypeUrl = prototypeHttpsUrl(rawPrototypeUrl, pullRequestNumber);
+  const prototypeUrl = requestedSha &&
+    runningSha &&
+    prototypeMetaSha === runningSha &&
+    prototypeHealthy
+    ? sanitizedPrototypeUrl
+    : undefined;
   return {
     headBranch: text(raw.headBranch ?? raw.branch ?? raw.headRef, 256),
     liveUrl,
@@ -169,6 +202,14 @@ export function sanitizePullRequestPreview(
         ? 'withheld'
         : 'not-configured',
     pullRequestNumber,
+    prototypeHealthy,
+    prototypeMetaSha,
+    prototypeUrl,
+    prototypeUrlState: prototypeUrl
+      ? 'available'
+      : typeof rawPrototypeUrl === 'string' && rawPrototypeUrl.trim()
+        ? 'withheld'
+        : 'not-configured',
     repositoryFullName: expectedRepository,
     requestedSha,
     runningSha,

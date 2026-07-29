@@ -132,10 +132,12 @@ write_runtime_env() {
   web_image=$3
   docs_image=$4
   gateway_image=$5
-  postgres_password=$6
-  gateway_secret=$7
+  prototype_image=$6
+  postgres_password=$7
+  gateway_secret=$8
   gateway_env_file=$(config_value PREVIEW_GATEWAY_ENV_FILE)
   validate_image "$gateway_image" gateway
+  validate_image "$prototype_image" prototype
   case "$gateway_env_file" in "$PLATFORM_ROOT"/secrets/project-space-preview/*) ;; *) fail 'gateway env file is outside the Preview secret root' 78;; esac
   [ -f "$gateway_env_file" ] && [ ! -L "$gateway_env_file" ] ||
     fail 'gateway env file must be a regular non-symlink file' 78
@@ -147,6 +149,7 @@ write_runtime_env() {
   umask 077
   cat > "$tmp" <<EOF
 PREVIEW_COMPOSE_PROJECT=$compose_project
+COMPOSE_PROFILES=prototype
 PREVIEW_DOMAIN=$domain
 PREVIEW_DOCS_IMAGE=$docs_image
 PREVIEW_GATEWAY_ENV_FILE=$gateway_env_file
@@ -155,6 +158,8 @@ PREVIEW_GATEWAY_SECRET=$gateway_secret
 PREVIEW_HEAD_SHA=$sha
 PREVIEW_POSTGRES_PASSWORD=$postgres_password
 PREVIEW_PR_NUMBER=$pr
+PREVIEW_PROTOTYPE_IMAGE=$prototype_image
+PREVIEW_PROTOTYPE_UPSTREAM_ORIGIN=http://preview-prototype:8080
 PREVIEW_REPOSITORY=$repository
 PREVIEW_REPOSITORY_PATH=$repo_path
 PREVIEW_WEB_IMAGE=$web_image
@@ -191,7 +196,7 @@ check_quota() {
 
 verify_runtime() {
   sha=$1
-  for service in gateway web docs db; do
+  for service in gateway web docs prototype db; do
     container=$(compose ps -q "$service")
     [ -n "$container" ] || return 1
     [ "$(docker inspect --format '{{.State.Status}}' "$container")" = running ] || return 1
@@ -203,6 +208,7 @@ verify_runtime() {
       gateway) expected_image=$(sed -n 's/^PREVIEW_GATEWAY_IMAGE=//p' "$env_file");;
       web) expected_image=$(sed -n 's/^PREVIEW_WEB_IMAGE=//p' "$env_file");;
       docs) expected_image=$(sed -n 's/^PREVIEW_DOCS_IMAGE=//p' "$env_file");;
+      prototype) expected_image=$(sed -n 's/^PREVIEW_PROTOTYPE_IMAGE=//p' "$env_file");;
       *) expected_image=;;
     esac
     [ -z "$expected_image" ] || [ "$(docker inspect --format '{{.Config.Image}}' "$container")" = "$expected_image" ] || return 1
@@ -217,6 +223,14 @@ verify_runtime() {
       .preview.identity.repositoryFullName == $repository and
       .preview.identity.pullRequestNumber == $pr and
       .preview.identity.headSha == $sha' >/dev/null || return 1
+  prototype_meta=$(curl --fail --silent --show-error --max-time 20 "https://$domain/prototype/meta.json") || return 1
+  [ "$(printf '%s' "$prototype_meta" | jq -er '.commit')" = "$sha" ] || return 1
+  printf '%s' "$prototype_meta" |
+    jq -e '.surfaces == ["mobile-prototype","desktop-prototype"]' >/dev/null || return 1
+  curl --fail --silent --show-error --max-time 20 --output /dev/null \
+    "https://$domain/prototype/desktop/?scenario=ready&viewport=desktop" || return 1
+  curl --fail --silent --show-error --max-time 20 --output /dev/null \
+    "https://$domain/prototype/mobile/?scenario=populated&viewport=phone" || return 1
   health=$(curl --fail --silent --show-error --max-time 20 "https://$domain/api/health") || return 1
   printf '%s' "$health" | jq -e '.ok == true' >/dev/null || return 1
   session_status=$(curl --silent --show-error --max-time 20 --output /dev/null --write-out '%{http_code}' "https://$domain/api/auth/session") || return 1
@@ -236,14 +250,19 @@ runtime_record() {
   web_image=$4
   docs_image=$5
   gateway_image=$6
+  prototype_image=$7
   now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   jq -n \
     --arg status "$status" --arg repository "$repository" --argjson pr "$pr" \
     --arg requestedSha "$requested_sha" --arg runningSha "$running_sha" \
     --arg webImage "$web_image" --arg docsImage "$docs_image" --arg gatewayImage "$gateway_image" \
-    --arg liveUrl "https://$domain" --arg verifiedAt "$now" \
+    --arg prototypeImage "$prototype_image" \
+    --arg liveUrl "https://$domain" \
+    --arg prototypeUrl "https://$domain/prototype/desktop/" --arg verifiedAt "$now" \
     '{state:$status,repositoryFullName:$repository,pullRequestNumber:$pr,requestedSha:$requestedSha,
       runningSha:$runningSha,webImageDigest:$webImage,docsImageDigest:$docsImage,gatewayImageDigest:$gatewayImage,
+      prototypeImageDigest:$prototypeImage,prototypeUrl:$prototypeUrl,prototypeMetaSha:$runningSha,
+      prototypeHealthy:true,
       liveUrl:$liveUrl,composeHealthy:true,httpHealthy:true,liveOriginHealthy:true,
       metaSha:$runningSha,verifiedAt:$verifiedAt,updatedAt:$verifiedAt}'
 }
@@ -292,10 +311,12 @@ apply_preview() {
   web_image=$(json_string webImage)
   docs_image=$(json_string docsImage)
   gateway_image=$(json_string gatewayImage)
+  prototype_image=$(json_string prototypeImage)
   validate_sha "$head_sha"
   validate_image "$web_image" web
   validate_image "$docs_image" docs
   validate_image "$gateway_image" gateway
+  validate_image "$prototype_image" prototype
   [ -f "$COMPOSE_FILE" ] || fail 'trusted Preview Compose asset is missing' 78
   prepare_directories
   acquire_lock
@@ -316,9 +337,11 @@ apply_preview() {
     postgres_password=$(sed -n 's/^PREVIEW_POSTGRES_PASSWORD=//p' "$previous_env")
     gateway_secret=$(sed -n 's/^PREVIEW_GATEWAY_SECRET=//p' "$previous_env")
   fi
-  write_runtime_env "$env_file" "$head_sha" "$web_image" "$docs_image" "$gateway_image" "$postgres_password" "$gateway_secret"
+  write_runtime_env "$env_file" "$head_sha" "$web_image" "$docs_image" "$gateway_image" \
+    "$prototype_image" "$postgres_password" "$gateway_secret"
   if compose pull --quiet && compose up -d --wait --wait-timeout 240 && verify_runtime "$head_sha"; then
-    record=$(runtime_record ready "$head_sha" "$head_sha" "$web_image" "$docs_image" "$gateway_image")
+    record=$(runtime_record ready "$head_sha" "$head_sha" "$web_image" "$docs_image" \
+      "$gateway_image" "$prototype_image")
     atomic_json_write "$runtime_file" "$record"
     rm -f -- "$tombstone_file" "$previous_env"
     rm -rf -- "$runtime_dir/repository.previous"
