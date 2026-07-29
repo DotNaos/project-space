@@ -10,7 +10,7 @@ An agent can create a pull request, but the user cannot open that exact PR build
 
 The feature needs four connected capabilities:
 
-1. a Project CLI command that requests a preview for one open PR;
+1. automatic trusted lifecycle handling, with Project CLI recovery for one open PR;
 2. a trusted build and VPS runtime path isolated from Production and Beta;
 3. a read-only preview inventory that proves what is actually running;
 4. deterministic cleanup when the PR closes or merges.
@@ -46,7 +46,13 @@ The existing Private Platform adapter is also not the current answer. It can cre
 
 ### 4.1 Control path
 
-The user-facing command is:
+Opening, reopening, or synchronizing a same-repository PR against `main` is the
+standard control path. Trusted `pull_request_target` workflow code resolves the
+event's full head SHA through the GitHub API and requires the API result to still
+match the event before continuing. A stale event fails closed so that its newer
+lifecycle event owns the update.
+
+The manual recovery command is:
 
 ```sh
 project deploy preview --pr 263 --format json
@@ -76,11 +82,13 @@ project deploy preview destroy --pr 263 --format json
 
 ### 4.2 Trusted build boundary
 
-The preview workflow is owned by `main` and uses pinned actions. It separates untrusted code execution from infrastructure credentials:
+The preview workflow is owned by `main` and uses pinned actions. Automatic
+lifecycle events and manual recovery share the same exact-SHA gates. It separates
+untrusted code execution from infrastructure credentials:
 
 1. resolve and revalidate the current PR head;
-2. check out the exact PR head with persisted credentials disabled;
-3. run the normal validation suite without Preview or Production secrets;
+2. fetch the exact PR head anonymously from the fixed public repository URL;
+3. run the normal validation suite with no job token, environment, Preview, or Production secrets;
 4. build images using a trusted Dockerfile/build recipe sourced from `main`, not from the PR;
 5. publish immutable images identified by digest;
 6. pass only PR number, repository, exact SHA, and image digests to the Preview deploy job.
@@ -423,7 +431,9 @@ Preview records are kept outside the durable environment array, so a healthy PR 
 
 ## 13. Disallowed error cases
 
-- executing `pull_request_target` with a PR checkout or PR-controlled shell values;
+- executing PR-controlled source in a `pull_request_target` job that has a
+  checkout token, Preview credentials, write-capable permissions, deployment
+  control inputs, or a protected environment;
 - running PR deployment files or a PR-local Project CLI with Preview credentials;
 - passing any Production secret or mount to PR containers;
 - treating branch, tag, workflow success, GitHub Deployment success, or URL shape as runtime proof;
@@ -450,8 +460,12 @@ Preview records are kept outside the durable environment array, so a healthy PR 
    - add trusted build/Compose assets outside PR control;
    - implement exact-SHA deployment, first-deploy cleanup, update rollback, registry writes, and resource limits.
 
-3. **Lifecycle cleanup and Reaper**
-   - use `pull_request_target: closed` only for trusted cleanup without PR checkout;
+3. **Automatic lifecycle and Reaper**
+   - use trusted `pull_request_target` events to resolve same-repository PR heads
+     on open, reopen, and synchronize, rejecting stale event heads;
+   - execute PR validation only in a separate credential-free job, then build
+     with trusted recipes and deploy immutable digests;
+   - use `pull_request_target: closed` for trusted cleanup without PR checkout;
    - serialize close/update on the same PR lane and VPS lock;
    - add a scheduled and manual Reaper for closed PRs, expired previews, and cleanup failures;
    - mark GitHub Deployment status inactive after positive cleanup evidence.
@@ -503,7 +517,7 @@ Preview records are kept outside the durable environment array, so a healthy PR 
 
 ### Documentation
 
-- explain the CLI command and machine-readable result;
+- explain automatic lifecycle deployment plus CLI recovery and machine-readable results;
 - document the trust boundary and why PR-local deploy assets are ignored;
 - document Preview identity, limits, TTL, cleanup, Reaper, and manual destroy;
 - document external DNS/TLS, exact Clerk origin binding, the reused GitHub OAuth application, trusted gateway, Tailscale, SSH, 1Password, and GitHub Actions environment setup;

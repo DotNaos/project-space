@@ -9,14 +9,22 @@ function actionReferences(workflow: string) {
 }
 
 describe('trusted PR Preview workflow contract', () => {
-  test('dispatches deploy or destroy from trusted main and cleans every closed PR', async () => {
+  test('automatically deploys current PR heads, supports manual recovery, and cleans closed PRs', async () => {
     const workflow = await readFile(deploymentWorkflowPath, 'utf8');
 
     expect(workflow).toContain('action:');
     expect(workflow).toContain('options: [deploy, destroy]');
-    expect(workflow).toContain("if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy'");
+    expect(workflow).toContain(
+      "(github.event_name == 'pull_request_target' && github.event.action != 'closed')"
+    );
     expect(workflow).toContain("if: github.event_name == 'workflow_dispatch' && inputs.action == 'destroy'");
-    expect(workflow).toContain('pull_request_target:\n    types: [closed]');
+    expect(workflow).toContain(
+      'pull_request_target:\n    types: [opened, reopened, synchronize, closed]'
+    );
+    expect(workflow).toContain('REQUESTED_PR: ${{ inputs.pr || github.event.pull_request.number }}');
+    expect(workflow).toContain('EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}');
+    expect(workflow).toContain('if [[ "$EVENT_NAME" == workflow_dispatch ]]');
+    expect(workflow).toContain('"$head_sha" != "$EVENT_HEAD_SHA"');
     expect(workflow).toContain('[[ "$GITHUB_REF" == refs/heads/main ]]');
     expect(workflow).toContain('^preview-[0-9a-f]{32}$');
     expect(workflow).toContain('group: project-space-preview-pr-${{ inputs.pr || github.event.pull_request.number }}');
@@ -24,6 +32,20 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).not.toContain('queue:');
     expect(workflow).toContain('ssh project-space-preview destroy');
     expect(workflow).toContain('"state":"inactive"');
+  });
+
+  test('executes PR-controlled validation without credentials', async () => {
+    const workflow = await readFile(deploymentWorkflowPath, 'utf8');
+    const validate = workflow.slice(workflow.indexOf('  validate:'), workflow.indexOf('  build:'));
+
+    expect(validate).toContain('permissions: {}');
+    expect(validate).toContain('git fetch --no-tags --depth=1 origin "$REQUESTED_SHA"');
+    expect(validate).toContain('[[ "$(git rev-parse HEAD)" == "$REQUESTED_SHA" ]]');
+    expect(validate).not.toContain('actions/checkout');
+    expect(validate).not.toContain('github.token');
+    expect(validate).not.toContain('environment:');
+    expect(validate).not.toContain('secrets.');
+    expect(validate).not.toContain('packages: write');
   });
 
   test('separates PR source from main-owned build and runtime assets', async () => {

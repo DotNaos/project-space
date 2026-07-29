@@ -77,7 +77,12 @@ project deploy status --all-envs --format json
 
 ## Pull request previews
 
-Preview changes without promoting them to production:
+Opening, reopening, or updating a same-repository pull request against `main`
+automatically validates and deploys its exact head without promoting it to
+production. Fork pull requests, non-`main` pull requests, and stale lifecycle
+events fail closed.
+
+Use the CLI for recovery, inspection, or manual removal:
 
 ```sh
 project deploy preview --pr 263 --format json
@@ -91,11 +96,13 @@ The CLI sends only `status-all` through this alias. Its separate SSH key must be
 bound to `deploy/preview-status-entrypoint.sh` as the server-side forced command;
 do not reuse the mutating Preview deployment key.
 
-Preview deployment and removal are dispatched through
-`.github/workflows/deploy-preview.yml` from trusted `main`. Before dispatching,
-the CLI verifies the GitHub repository, the PR identity and full head SHA, the
-`main` base branch, same-repository branches, and the caller's write permission.
-The workflow receives only the action, PR number, and a random operation ID.
+Preview deployment and removal run through
+`.github/workflows/deploy-preview.yml` from trusted `main`. Automatic events and
+manual dispatches both verify the GitHub repository, PR identity and full head
+SHA, the `main` base branch, and same-repository branches. Automatic events must
+still match the current API head; manual dispatch also verifies the caller's
+write permission and receives only the action, PR number, and a random operation
+ID.
 
 `expectedLiveUrl` describes where the preview will be available; it is not live
 evidence. Read verified state with `project deploy preview status`. Ready
