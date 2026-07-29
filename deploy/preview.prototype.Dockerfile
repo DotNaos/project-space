@@ -22,8 +22,8 @@ RUN test -n "$PROJECT_SPACE_BUILD_COMMIT" \
     --config apps/prototype/vite.config.ts \
     --base /prototype/desktop/ \
   && cd apps/mobile \
-  && npm ci --ignore-scripts \
-  && npm run build:prototype \
+  && bunx pnpm@11.10.0 --ignore-workspace install --frozen-lockfile --ignore-scripts \
+  && bun run build:prototype \
   && cd /workspace \
   && printf '{"commit":"%s","surfaces":["mobile-prototype","desktop-prototype"]}\n' \
     "$PROJECT_SPACE_BUILD_COMMIT" > /workspace/prototype-meta.json

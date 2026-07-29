@@ -1,6 +1,6 @@
 {
   "name": "project-space",
-  "version": "0.4.39",
+  "version": "0.4.40",
   "private": true,
   "description": "Desktop-first workspace management foundation for project-centered workflows.",
   "type": "module",
@@ -15,8 +15,8 @@
     "serve:prototype:desktop": "PROJECT_SPACE_ALLOW_DIRECT_DEV=1 vite --config apps/prototype/vite.config.ts",
     "dev:direct": "PROJECT_SPACE_ALLOW_DIRECT_DEV=1 vite --host 127.0.0.1",
     "dev:electron": "portless run vite --mode electron --host 127.0.0.1",
-    "build": "tsc -b && vite build && vite build --config apps/prototype/vite.config.ts && cd apps/mobile && npm ci && npm run build:prototype",
-    "build:prototype": "tsc -b && vite build --config apps/prototype/vite.config.ts && cd apps/mobile && npm ci && npm run build:prototype",
+    "build": "tsc -b && vite build && vite build --config apps/prototype/vite.config.ts && cd apps/mobile && bunx pnpm@11.10.0 --ignore-workspace install --frozen-lockfile && bun run build:prototype",
+    "build:prototype": "tsc -b && vite build --config apps/prototype/vite.config.ts && cd apps/mobile && bunx pnpm@11.10.0 --ignore-workspace install --frozen-lockfile && bun run build:prototype",
     "test": "bun test --isolate",
     "build:connector:native": "bun packaging/release/build-connector.ts bun dist/project-space-connector",
     "build:connector:macos-arm64": "bun packaging/release/build-connector.ts bun-darwin-arm64 dist/project-space-connector",

@@ -5,15 +5,15 @@
   "scripts": {
     "auth": "sh -c 'if [ -f .env.local ]; then node --env-file=.env.local server/auth-server.mjs; elif [ -f ../../../.env ]; then node --env-file=../../../.env server/auth-server.mjs; else node server/auth-server.mjs; fi'",
     "inventory": "node scripts/generate-project-inventory.mjs",
-    "build:hosted": "npm run inventory && EXPO_PUBLIC_PROJECT_SPACE_PROTOTYPE=0 npx expo export --clear --platform web --output-dir dist && cp public/project-inventory.json dist/project-inventory.json",
-    "build:prototype": "EXPO_PUBLIC_PROJECT_SPACE_PROTOTYPE=1 npx expo export --clear --platform web --output-dir dist-prototype",
-    "native:dev": "npm run inventory && npx expo start --host lan",
+    "build:hosted": "bun run inventory && EXPO_PUBLIC_PROJECT_SPACE_PROTOTYPE=0 bunx expo export --clear --platform web --output-dir dist && cp public/project-inventory.json dist/project-inventory.json",
+    "build:prototype": "EXPO_PUBLIC_PROJECT_SPACE_PROTOTYPE=1 bunx expo export --clear --platform web --output-dir dist-prototype",
+    "native:dev": "bun run inventory && bunx expo start --host lan",
     "native:review": "node scripts/start-native-review.mjs",
-    "native:ios": "npm run inventory && npx expo start --ios",
-    "dev": "concurrently -k -n auth,web \"npm run auth\" \"npm run web -- --port 8082\"",
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "native:ios": "bun run inventory && bunx expo start --ios",
+    "dev": "concurrently -k -n auth,web \"bun run auth\" \"bun run web -- --port 8082\"",
+    "start": "bunx expo start",
+    "android": "bunx expo start --android",
+    "ios": "bunx expo start --ios",
     "web": "sh -c 'if [ -f .env.local ]; then node --env-file=.env.local ./node_modules/expo/bin/cli start --web \"$@\"; elif [ -f ../../../.env ]; then node --env-file=../../../.env ./node_modules/expo/bin/cli start --web \"$@\"; else expo start --web \"$@\"; fi' --"
   },
   "dependencies": {
