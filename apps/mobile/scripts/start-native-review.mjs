@@ -33,6 +33,15 @@ async function contextMatches(origin, issue) {
   }
 }
 
+async function waitForVerifiedContext(origin, issue, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs;
+  do {
+    if (await contextMatches(origin, issue)) return true;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 500));
+  } while (Date.now() < deadline);
+  return false;
+}
+
 async function verifiedReviewOrigin(issue) {
   const override = process.env.PROJECT_SPACE_REVIEW_ORIGIN?.trim();
   if (override) return new URL(override).origin;
@@ -96,7 +105,7 @@ if (
 
 process.env.CODEX_THREAD_ID = claim.ownerThreadId;
 const reviewOrigin = await verifiedReviewOrigin(claim.issue);
-if (!(await contextMatches(reviewOrigin, claim.issue))) {
+if (!(await waitForVerifiedContext(reviewOrigin, claim.issue))) {
   throw new Error(
     'The Review server could not verify this worktree and Codex task.'
   );
