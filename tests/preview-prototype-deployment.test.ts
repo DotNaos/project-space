@@ -47,6 +47,11 @@ describe('trusted PR prototype deployment', () => {
         'pnpm --dir apps/mobile run build:prototype'
       );
       expect(dockerfile).not.toContain('bunx pnpm');
+      expect(dockerfile).toContain('COPY src ./src');
+      expect(dockerfile).toContain('COPY config ./config');
+      expect(dockerfile).toContain(
+        'apps/docs/content/docs/changelog/entries.json'
+      );
       expect(dockerfile).toContain(
         'COPY --from=mobile-build /workspace/apps/mobile/dist-prototype'
       );
