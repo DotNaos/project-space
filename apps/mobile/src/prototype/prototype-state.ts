@@ -150,3 +150,28 @@ export function prototypeDeviceScale(input: {
     Math.max(input.minimumScale, input.availableWidth / input.frameWidth)
   );
 }
+
+export function prototypeFitScale(input: {
+  availableHeight: number;
+  availableWidth: number;
+  frameHeight: number;
+  frameWidth: number;
+}) {
+  const values = [
+    input.availableHeight,
+    input.availableWidth,
+    input.frameHeight,
+    input.frameWidth,
+  ];
+  if (
+    values.some((value) => !Number.isFinite(value) || value <= 0)
+  ) {
+    return 1;
+  }
+
+  return Math.min(
+    1,
+    input.availableWidth / input.frameWidth,
+    input.availableHeight / input.frameHeight
+  );
+}

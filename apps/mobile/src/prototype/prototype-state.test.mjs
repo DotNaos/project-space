@@ -5,6 +5,7 @@ import {
   mobilePrototypeSearch,
   prototypePresentationSearch,
   prototypeDeviceScale,
+  prototypeFitScale,
   readPrototypePresentation,
   readMobilePrototypeLocation,
   webPrototypePath,
@@ -119,6 +120,33 @@ describe('mobile prototype state', () => {
         availableWidth: Number.NaN,
         frameWidth: 414,
         minimumScale: 0.75,
+      })
+    ).toBe(1);
+  });
+
+  test('fits the complete review device inside both canvas dimensions', () => {
+    expect(
+      prototypeFitScale({
+        availableHeight: 540,
+        availableWidth: 336,
+        frameHeight: 1020,
+        frameWidth: 1512,
+      })
+    ).toBeCloseTo(336 / 1512);
+    expect(
+      prototypeFitScale({
+        availableHeight: 540,
+        availableWidth: 500,
+        frameHeight: 1180,
+        frameWidth: 820,
+      })
+    ).toBeCloseTo(540 / 1180);
+    expect(
+      prototypeFitScale({
+        availableHeight: Number.NaN,
+        availableWidth: 336,
+        frameHeight: 1020,
+        frameWidth: 1512,
       })
     ).toBe(1);
   });

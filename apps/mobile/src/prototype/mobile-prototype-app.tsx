@@ -5,6 +5,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Uniwind } from 'uniwind';
 
 import { ProjectOverviewScreen } from '../features/overview/components/project-overview-screen';
@@ -20,6 +21,8 @@ import {
   PrototypeViewportTabs,
 } from './prototype-controls';
 import { PrototypeDeviceCanvas } from './prototype-device-frame';
+import { NativeReviewDock } from '../review/native-review-dock';
+import { nativeReviewConfig } from '../review/native-review-api';
 import {
   mobilePrototypeSearch,
   prototypePresentationSearch,
@@ -137,6 +140,12 @@ function EmbeddedMobilePrototype() {
 
 function MobilePrototypeWorkspace() {
   const { width } = useWindowDimensions();
+  const safeArea = useSafeAreaInsets();
+  const controlsTopInset = Platform.OS === 'web' ? 0 : safeArea.top;
+  const reviewConfig = useMemo(
+    () => (Platform.OS === 'web' ? undefined : nativeReviewConfig()),
+    []
+  );
   const scenarioIds = useMemo(
     () => PROJECT_OVERVIEW_PROTOTYPE_SCENARIOS.map((scenario) => scenario.id),
     []
@@ -176,6 +185,7 @@ function MobilePrototypeWorkspace() {
   >(undefined);
   const scenario = projectOverviewPrototypeScenario(scenarioId);
   const compactControls = width < 900;
+  const phoneControls = width < 520;
   const controlsVisible = !presentation.fullscreen || hudVisible;
 
   const cancelHudHide = () => {
@@ -277,8 +287,6 @@ function MobilePrototypeWorkspace() {
       ) : null}
       <View
         className={`relative w-full ${
-          compactControls ? 'h-28' : 'h-[60px]'
-        } ${
           presentation.fullscreen
             ? 'absolute inset-x-0 top-0 z-40'
             : presentation.theme === 'dark'
@@ -290,14 +298,18 @@ function MobilePrototypeWorkspace() {
           presentation.fullscreen ? scheduleHudHide : undefined
         }
         style={{
+          height: (compactControls ? 112 : 60) + controlsTopInset,
           opacity: controlsVisible ? 1 : 0,
           pointerEvents: controlsVisible ? 'auto' : 'none',
           transform: [{ translateY: controlsVisible ? 0 : -16 }],
           transitionDuration: '220ms',
           transitionProperty: 'opacity, transform',
-        }}
+        } as never}
       >
-        <View className="absolute left-3 top-2">
+        <View
+          className="absolute left-3"
+          style={{ top: controlsTopInset + 8 }}
+        >
           <PrototypeSurfaceTabs
             onChange={(surface) => {
               if (surface === 'web') openWebPrototype(scenarioId, viewport);
@@ -307,11 +319,13 @@ function MobilePrototypeWorkspace() {
           />
         </View>
         <View
-          className={`absolute left-1/2 flex-row items-center gap-1 -translate-x-1/2 ${
-            compactControls ? 'top-[60px]' : 'top-2'
+          className={`absolute flex-row items-center gap-1 ${
+            phoneControls ? 'left-3' : 'left-1/2 -translate-x-1/2'
           }`}
+          style={{ top: controlsTopInset + (compactControls ? 60 : 8) }}
         >
           <PrototypeViewportTabs
+            iconOnly={phoneControls}
             onChange={chooseViewport}
             theme={presentation.theme}
             viewport={viewport}
@@ -345,10 +359,13 @@ function MobilePrototypeWorkspace() {
           rotateDisabled={
             viewport === 'desktop' || isRotating || isSwitchingViewport
           }
+          topInset={controlsTopInset}
           theme={presentation.theme}
         />
       </View>
       <PrototypeDeviceCanvas
+        bottomInset={reviewConfig && !presentation.fullscreen ? 116 : 0}
+        fitToCanvas={Boolean(reviewConfig)}
         fullscreen={presentation.fullscreen}
         isRotating={isRotating}
         isSwitchingViewport={isSwitchingViewport}
@@ -367,6 +384,14 @@ function MobilePrototypeWorkspace() {
           sourceLabel={scenario.sourceLabel}
         />
       </PrototypeDeviceCanvas>
+      {reviewConfig && !presentation.fullscreen ? (
+        <NativeReviewDock
+          config={reviewConfig}
+          orientation={presentation.orientation}
+          theme={presentation.theme}
+          viewport={viewport}
+        />
+      ) : null}
     </View>
   );
 }

@@ -531,5 +531,16 @@ describe('Codex sessions browser client', () => {
   test('rejects credential-bearing and insecure remote base URLs', () => {
     expect(() => createCodexSessionsClient({ baseUrl: 'https://user:pass@example.test' })).toThrow();
     expect(() => createCodexSessionsClient({ baseUrl: 'http://example.test' })).toThrow();
+    expect(() => createCodexSessionsClient({
+      baseUrl: 'http://os-macbook.tail5bb1d7.ts.net:1355'
+    })).not.toThrow();
+    expect(() => createCodexSessionsClient({
+      baseUrl: 'http://100.64.12.8:1355'
+    })).not.toThrow();
+    expect(() => createCodexSessionsClient({ baseUrl: 'http://100.63.255.255' })).toThrow();
+    expect(() => createCodexSessionsClient({ baseUrl: 'http://100.128.0.1' })).toThrow();
+    expect(() => createCodexSessionsClient({
+      baseUrl: 'http://os-macbook.tail5bb1d7.ts.net.example.test'
+    })).toThrow();
   });
 });

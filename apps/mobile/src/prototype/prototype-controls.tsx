@@ -183,6 +183,7 @@ export function PrototypePresentationControls({
   onThemeToggle,
   rotateDisabled,
   theme,
+  topInset = 0,
 }: {
   fullscreen: boolean;
   onFullscreenToggle(): void;
@@ -190,13 +191,14 @@ export function PrototypePresentationControls({
   onThemeToggle(): void;
   rotateDisabled: boolean;
   theme: PrototypeTheme;
+  topInset?: number;
 }) {
   const palette = hudPalettes[theme];
 
   return (
     <View
-      className="absolute right-3 top-2 z-50 flex-row items-center gap-1 rounded-2xl p-1"
-      style={{ backgroundColor: palette.background }}
+      className="absolute right-3 z-50 flex-row items-center gap-1 rounded-2xl p-1"
+      style={{ backgroundColor: palette.background, top: topInset + 8 }}
     >
       <Button
         accessibilityLabel={
@@ -281,10 +283,12 @@ export function PrototypeFrameControl({
 }
 
 export function PrototypeViewportTabs({
+  iconOnly = false,
   onChange,
   theme,
   viewport,
 }: {
+  iconOnly?: boolean;
   onChange(viewport: PrototypeViewport): void;
   theme: PrototypeTheme;
   viewport: PrototypeViewport;
@@ -300,7 +304,7 @@ export function PrototypeViewportTabs({
     >
       <Tabs.List style={{ backgroundColor: palette.background }}>
         <Tabs.ScrollView
-          contentContainerClassName="min-w-full"
+          contentContainerClassName={iconOnly ? undefined : 'min-w-full'}
           scrollAlign="center"
           showsHorizontalScrollIndicator={false}
         >
@@ -314,7 +318,11 @@ export function PrototypeViewportTabs({
             }}
           />
           {(['phone', 'tablet', 'desktop'] as const).map((value) => (
-            <Tabs.Trigger key={value} value={value}>
+            <Tabs.Trigger
+              accessibilityLabel={`Use ${value} viewport`}
+              key={value}
+              value={value}
+            >
               {({ isSelected }) => (
                 <View className="flex-row items-center gap-2">
                   <PrototypeDeviceIcon
@@ -322,14 +330,16 @@ export function PrototypeViewportTabs({
                     palette={palette}
                     viewport={value}
                   />
-                  <Tabs.Label
-                    className={labelClass(isSelected)}
-                    style={{
-                      color: isSelected ? palette.foreground : palette.muted,
-                    }}
-                  >
-                    {value[0]!.toUpperCase() + value.slice(1)}
-                  </Tabs.Label>
+                  {iconOnly ? null : (
+                    <Tabs.Label
+                      className={labelClass(isSelected)}
+                      style={{
+                        color: isSelected ? palette.foreground : palette.muted,
+                      }}
+                    >
+                      {value[0]!.toUpperCase() + value.slice(1)}
+                    </Tabs.Label>
+                  )}
                 </View>
               )}
             </Tabs.Trigger>

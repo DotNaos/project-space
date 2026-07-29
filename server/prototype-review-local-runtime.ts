@@ -55,8 +55,13 @@ export async function createPrototypeReviewLocalRuntime(options: {
   const registry = await options.backend.getConnectorProjectRegistry();
   const machineId = registry.connector.machineId;
   const machineName = registry.connector.machineName;
-  const threadId = cleanThreadId(environment.CODEX_THREAD_ID);
   const repositoryRoot = await realpath(options.repositoryRoot);
+  const readWorktreeClaim =
+    options.readWorktreeClaim ?? defaultReadWorktreeClaim;
+  const initialClaim = await readWorktreeClaim(repositoryRoot);
+  const threadId =
+    cleanThreadId(environment.CODEX_THREAD_ID) ??
+    cleanThreadId(initialClaim?.ownerThreadId);
   const transcript = new LocalCodexTranscriptReader({
     codexHome: environment.CODEX_HOME
   });
@@ -65,10 +70,9 @@ export async function createPrototypeReviewLocalRuntime(options: {
     threadId: threadId ?? '__missing_local_thread__',
     transcript
   });
-  const readWorktreeClaim = options.readWorktreeClaim ?? defaultReadWorktreeClaim;
   let claimLoad: Promise<LocalWorktreeClaim | undefined> | undefined;
-  let lastVerifiedClaim: LocalWorktreeClaim | undefined;
-  let lastVerifiedClaimAt = 0;
+  let lastVerifiedClaim: LocalWorktreeClaim | undefined = initialClaim;
+  let lastVerifiedClaimAt = initialClaim ? Date.now() : 0;
   const stableWorktreeClaim = async () => {
     if (claimLoad) return claimLoad;
     claimLoad = (async () => {
@@ -322,10 +326,28 @@ interface LocalWorktreeClaim {
 
 async function defaultReadWorktreeClaim(repositoryRoot: string) {
   try {
+    const { stdout: ownerOutput } = await execFileAsync(
+      'git',
+      [
+        '-C',
+        repositoryRoot,
+        'config',
+        '--worktree',
+        '--get',
+        'project.codexThreadId'
+      ],
+      gitOptions
+    );
+    const ownerThreadId = cleanThreadId(String(ownerOutput));
+    if (!ownerThreadId) return undefined;
     const { stdout } = await execFileAsync(
-      'project',
+      join(repositoryRoot, 'bin', 'project'),
       ['worktree', 'check', '--format', 'json'],
-      { ...gitOptions, cwd: repositoryRoot }
+      {
+        ...gitOptions,
+        cwd: repositoryRoot,
+        env: { ...process.env, CODEX_THREAD_ID: ownerThreadId }
+      }
     );
     const value: unknown = JSON.parse(String(stdout));
     if (!value || typeof value !== 'object') return undefined;
