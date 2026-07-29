@@ -9,6 +9,16 @@ RUN apt-get update \
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
+FROM ghcr.io/pnpm/pnpm:11.10.0 AS mobile-build
+
+WORKDIR /workspace
+RUN pnpm runtime set node 24 -g
+COPY package.json ./
+COPY apps/mobile/package.json apps/mobile/pnpm-lock.yaml ./apps/mobile/
+RUN pnpm --dir apps/mobile --ignore-workspace install --frozen-lockfile --ignore-scripts
+COPY apps/mobile ./apps/mobile
+RUN pnpm --dir apps/mobile run build:prototype
+
 FROM oven/bun:1 AS build
 
 WORKDIR /workspace
@@ -21,12 +31,9 @@ RUN test -n "$PROJECT_SPACE_BUILD_COMMIT" \
   && bun ./node_modules/vite/bin/vite.js build \
     --config apps/prototype/vite.config.ts \
     --base /prototype/desktop/ \
-  && cd apps/mobile \
-  && bunx pnpm@11.10.0 --ignore-workspace install --frozen-lockfile --ignore-scripts \
-  && bun run build:prototype \
-  && cd /workspace \
   && printf '{"commit":"%s","surfaces":["mobile-prototype","desktop-prototype"]}\n' \
     "$PROJECT_SPACE_BUILD_COMMIT" > /workspace/prototype-meta.json
+COPY --from=mobile-build /workspace/apps/mobile/dist-prototype /workspace/apps/mobile/dist-prototype
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine@sha256:65e3e85dbaed8ba248841d9d58a899b6197106c23cb0ff1a132b7bfe0547e4c0 AS runner
 

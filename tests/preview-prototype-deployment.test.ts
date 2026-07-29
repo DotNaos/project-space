@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 
 const dockerfilePath = new URL('../deploy/preview.prototype.Dockerfile', import.meta.url);
+const productionDockerfilePath = new URL('../deploy/Dockerfile', import.meta.url);
 const nginxPath = new URL('../deploy/preview.prototype.nginx.conf', import.meta.url);
 const composePath = new URL('../deploy/preview.compose.yml', import.meta.url);
 
@@ -13,7 +14,14 @@ describe('trusted PR prototype deployment', () => {
     expect(dockerfile).toContain("grep -Eq '^[0-9a-f]{40}$'");
     expect(dockerfile).toContain('--base /prototype/desktop/');
     expect(dockerfile).toContain('/workspace/apps/prototype/dist');
-    expect(dockerfile).toContain('bun run build:prototype');
+    expect(dockerfile).toContain(
+      'FROM ghcr.io/pnpm/pnpm:11.10.0 AS mobile-build'
+    );
+    expect(dockerfile).toContain('pnpm runtime set node 24 -g');
+    expect(dockerfile).toContain(
+      'pnpm --dir apps/mobile run build:prototype'
+    );
+    expect(dockerfile).not.toContain('bunx pnpm');
     expect(dockerfile).toContain('/workspace/apps/mobile/dist-prototype');
     expect(dockerfile).toContain(
       '"surfaces":["mobile-prototype","desktop-prototype"]'
@@ -25,6 +33,24 @@ describe('trusted PR prototype deployment', () => {
     expect(runtime).not.toContain('COPY . .');
     expect(runtime).not.toContain('/workspace/server');
     expect(runtime).not.toContain('PROJECT_SPACE_PREVIEW_GATEWAY_SECRET');
+  });
+
+  test('builds the mobile export with pinned pnpm and a real Node runtime', async () => {
+    for (const path of [dockerfilePath, productionDockerfilePath]) {
+      const dockerfile = await readFile(path, 'utf8');
+
+      expect(dockerfile).toContain(
+        'FROM ghcr.io/pnpm/pnpm:11.10.0 AS mobile-build'
+      );
+      expect(dockerfile).toContain('pnpm runtime set node 24 -g');
+      expect(dockerfile).toContain(
+        'pnpm --dir apps/mobile run build:prototype'
+      );
+      expect(dockerfile).not.toContain('bunx pnpm');
+      expect(dockerfile).toContain(
+        'COPY --from=mobile-build /workspace/apps/mobile/dist-prototype'
+      );
+    }
   });
 
   test('serves only fixed prototype namespaces with a network-denying CSP', async () => {

@@ -7,6 +7,16 @@ RUN apt-get update \
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
+FROM ghcr.io/pnpm/pnpm:11.10.0 AS mobile-build
+
+WORKDIR /workspace
+RUN pnpm runtime set node 24 -g
+COPY package.json ./
+COPY apps/mobile/package.json apps/mobile/pnpm-lock.yaml ./apps/mobile/
+RUN pnpm --dir apps/mobile --ignore-workspace install --frozen-lockfile
+COPY apps/mobile ./apps/mobile
+RUN pnpm --dir apps/mobile run build:prototype
+
 FROM oven/bun:1 AS build
 
 WORKDIR /workspace
@@ -15,7 +25,8 @@ ENV VITE_PROJECT_SPACE_API_BASE_URL=
 ENV VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY
 COPY --from=deps /workspace/node_modules /workspace/node_modules
 COPY . .
-RUN bun run build
+RUN bun run build:web
+COPY --from=mobile-build /workspace/apps/mobile/dist-prototype /workspace/apps/mobile/dist-prototype
 
 FROM golang:1.26-bookworm AS cli-build
 WORKDIR /workspace
