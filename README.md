@@ -70,6 +70,7 @@ The repository currently targets a web-first fullstack MVP:
 - [Connector install and usage guide](docs/connector.md)
 - [Linux and WSL installation guide](docs/linux-installation.md)
 - [Windows installation guide](docs/windows-installation.md)
+- [Mobile prototype setup](apps/mobile/README.md)
 - `.dev/product.md`
 - `.dev/vision.md`
 - `.dev/scope/iteration-1.md`
