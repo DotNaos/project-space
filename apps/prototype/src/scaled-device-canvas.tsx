@@ -10,14 +10,10 @@ function fitScale(
   availableWidth: number,
   availableHeight: number,
   frameWidth: number,
-  frameHeight: number,
-  minimumScale = 0
+  frameHeight: number
 ) {
   if (availableWidth <= 0 || availableHeight <= 0) return 1;
-  return Math.max(
-    minimumScale,
-    Math.min(1, availableWidth / frameWidth, availableHeight / frameHeight)
-  );
+  return Math.min(1, availableWidth / frameWidth, availableHeight / frameHeight);
 }
 
 export function ScaledDeviceCanvas({
@@ -38,7 +34,7 @@ export function ScaledDeviceCanvas({
   viewport: PrototypeViewportPreset;
 }) {
   const host = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(viewport.minimumScale);
+  const [scale, setScale] = useState(1);
   const landscape = orientation === 'landscape' && viewport.kind !== 'desktop';
   const screenHeight = landscape ? viewport.width : viewport.height;
   const screenWidth = landscape ? viewport.height : viewport.width;
@@ -57,8 +53,7 @@ export function ScaledDeviceCanvas({
         Math.max(0, bounds.width - canvasInset),
         Math.max(0, bounds.height - canvasInset),
         outerWidth,
-        outerHeight,
-        viewport.minimumScale
+        outerHeight
       ));
     };
     const observer = new ResizeObserver(update);
@@ -68,8 +63,7 @@ export function ScaledDeviceCanvas({
   }, [
     fullscreen,
     outerHeight,
-    outerWidth,
-    viewport.minimumScale
+    outerWidth
   ]);
 
   return (

@@ -181,6 +181,28 @@ export class CodexPublicEventPresenter {
       };
     }
 
+    if (event.method === 'thread/settings/updated') {
+      const settings = record(params.threadSettings);
+      const activeProfile = record(settings?.activePermissionProfile);
+      const permissionProfileId = stringValue(activeProfile?.id);
+      return {
+        eventId: eventId(event.method, threadId, permissionProfileId),
+        ...(permissionProfileId ? { permissionProfileId } : {}),
+        type: 'session-settings'
+      };
+    }
+
+    if (event.method === 'thread/tokenUsage/updated' && turnId) {
+      const tokenUsage = presentTokenUsage(params.tokenUsage);
+      if (!tokenUsage) return undefined;
+      return {
+        eventId: eventId(event.method, threadId, turnId, tokenUsage),
+        tokenUsage,
+        turnId,
+        type: 'token-usage'
+      };
+    }
+
     if (event.method === 'turn/completed' && turnId) {
       return {
         eventId: eventId(event.method, threadId, turnId, turn?.status),
@@ -321,6 +343,49 @@ export function presentCodexPermissionSummary(value: unknown) {
 function safeText(value: unknown) {
   if (typeof value !== 'string' || !value) return undefined;
   return scanProjectChatText(value).safe ? value.slice(0, 32_000) : redactedText;
+}
+
+function presentTokenUsage(value: unknown) {
+  const usage = record(value);
+  const last = presentTokenBreakdown(usage?.last);
+  const total = presentTokenBreakdown(usage?.total);
+  if (!last || !total) return undefined;
+  const contextWindow = safeInteger(usage?.modelContextWindow);
+  return {
+    last,
+    ...(contextWindow && contextWindow > 0 ? { modelContextWindow: contextWindow } : {}),
+    total
+  };
+}
+
+function presentTokenBreakdown(value: unknown) {
+  const usage = record(value);
+  if (!usage) return undefined;
+  const cachedInputTokens = safeInteger(usage.cachedInputTokens);
+  const inputTokens = safeInteger(usage.inputTokens);
+  const outputTokens = safeInteger(usage.outputTokens);
+  const reasoningOutputTokens = safeInteger(usage.reasoningOutputTokens);
+  const totalTokens = safeInteger(usage.totalTokens);
+  if (
+    cachedInputTokens === undefined ||
+    inputTokens === undefined ||
+    outputTokens === undefined ||
+    reasoningOutputTokens === undefined ||
+    totalTokens === undefined
+  ) return undefined;
+  return {
+    cachedInputTokens,
+    inputTokens,
+    outputTokens,
+    reasoningOutputTokens,
+    totalTokens
+  };
+}
+
+function safeInteger(value: unknown) {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : undefined;
 }
 
 function numericTimestamp(value: unknown) {

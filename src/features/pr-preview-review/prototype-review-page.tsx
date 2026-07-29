@@ -2,57 +2,80 @@ import { useEffect, useMemo, useRef, useState, type Key } from 'react';
 import { Button, Tabs } from '@heroui/react';
 import {
   AppWindow,
-  Bot,
   Eye,
   EyeOff,
-  FileClock,
   Globe2,
   Maximize2,
   Minimize2,
   Moon,
   Monitor,
   RotateCw,
+  ScrollText,
   Smartphone,
   Sun,
-  Tablet as TabletIcon,
-  X
+  Tablet as TabletIcon
 } from 'lucide-react';
 
 import { projectSpaceClient } from '@/api/project-space-client';
 import { Text } from '@/app/dotnaos-ui';
-import { PullRequestChangelogSummary } from '@/features/pr-preview-changelog/pull-request-changelog-summary';
-import { pullRequestChangelogSnapshotFor } from '@/features/pr-preview-changelog/pull-request-changelog-snapshot';
 import type { PullRequestTestSurfacesResult } from '@/shared/pr-preview-test-surfaces-api';
-import {
-  type PullRequestChangelogIdentity
-} from '@/shared/pr-preview-changelog-api';
 import {
   prototypeViewportKinds,
   prototypeViewportPresets,
   type PrototypeTheme,
   type PrototypeViewportKind
 } from '@/shared/prototype-canvas';
-import { PrototypeReviewCodexPanel } from './prototype-review-codex-panel';
+import { PrototypeReviewChangelogModal } from './prototype-review-changelog-modal';
+import { PrototypeReviewCodexDock } from './prototype-review-codex-dock';
+import { PrototypeReviewCodexStatus } from './prototype-review-codex-status';
 import { PrototypeReviewDevice } from './prototype-review-device';
+import { usePrototypeReviewAnnotations } from './prototype-review-annotations';
+import {
+  usePrototypeReviewLocalContext,
+  type PrototypeReviewLocalContextResult
+} from './use-prototype-review-local-context';
 import {
   developmentPrototypeTarget,
   embeddedPrototypeUrl,
   isIsolatedPrototypeTarget,
   parsePrototypeReviewRoute,
+  prototypeReviewCodexContext,
   verifiedPrototypeTarget,
   type PrototypeReviewSurface
 } from './prototype-review-model';
 
-type ReviewPanel = 'changelog' | 'codex';
+type ReviewPanel = 'changelog';
 
 const ROTATION_DURATION_MS = 360;
 const ROTATION_CONTENT_HIDE_MS = 100;
+const FRAME_REVEAL_DELAY_MS = 220;
 
 const deviceIcons = {
   desktop: Monitor,
   phone: Smartphone,
   tablet: TabletIcon
 };
+
+function localCodexStatusMessage(result: PrototypeReviewLocalContextResult) {
+  if (result.state === 'loading') return 'Connecting to the local Codex task…';
+  if (result.state !== 'available') {
+    return 'The local Codex connection could not be verified.';
+  }
+  if (result.context.checkout.state === 'unavailable') {
+    return 'The local checkout could not be verified.';
+  }
+  if (result.context.codex.state === 'available') {
+    return 'Connecting to the local Codex task…';
+  }
+  const messages = {
+    'checkout-unavailable': 'The local checkout could not be verified.',
+    'codex-unavailable': 'Codex is unavailable through the owning connector.',
+    'missing-thread': 'No owning Codex task is attached to this dev server.',
+    'repository-mismatch': 'This checkout does not match the requested repository.',
+    'task-mismatch': 'This dev server belongs to a different Codex task.'
+  } as const;
+  return messages[result.context.codex.reason];
+}
 
 function SurfaceTabs({
   onChange,
@@ -75,13 +98,13 @@ function SurfaceTabs({
           <Tabs.Tab id="web">
             <span className="inline-flex items-center gap-2">
               <Globe2 aria-hidden className="size-3.5 shrink-0" />
-              Web
+              <span className="max-[340px]:sr-only">Web</span>
             </span>
           </Tabs.Tab>
           <Tabs.Tab id="native">
             <span className="inline-flex items-center gap-2">
               <AppWindow aria-hidden className="size-3.5 shrink-0" />
-              Native
+              <span className="max-[340px]:sr-only">Native</span>
             </span>
           </Tabs.Tab>
         </Tabs.List>
@@ -103,7 +126,10 @@ function ViewportTabs({
       selectedKey={viewport}
       variant="primary"
       onSelectionChange={(key: Key) => {
-        if (typeof key === 'string' && prototypeViewportKinds.includes(key as PrototypeViewportKind)) {
+        if (
+          typeof key === 'string' &&
+          prototypeViewportKinds.includes(key as PrototypeViewportKind)
+        ) {
           onChange(key as PrototypeViewportKind);
         }
       }}
@@ -116,7 +142,9 @@ function ViewportTabs({
               <Tabs.Tab id={kind} key={kind}>
                 <span className="inline-flex items-center gap-2">
                   <Icon aria-hidden className="size-3.5 shrink-0" />
-                  {prototypeViewportPresets[kind].label}
+                  <span className="max-[640px]:sr-only">
+                    {prototypeViewportPresets[kind].label}
+                  </span>
                 </span>
               </Tabs.Tab>
             );
@@ -124,47 +152,6 @@ function ViewportTabs({
         </Tabs.List>
       </Tabs.ListContainer>
     </Tabs>
-  );
-}
-
-function ChangelogSlot({
-  pullRequestNumber,
-  repositoryFullName,
-  result
-}: {
-  pullRequestNumber?: number;
-  repositoryFullName?: string;
-  result?: PullRequestTestSurfacesResult;
-}) {
-  if (!pullRequestNumber || !repositoryFullName || !result) {
-    return (
-      <section className="grid h-full place-items-center bg-neutral-950 px-6 text-center">
-        <div className="max-w-sm">
-          <FileClock className="mx-auto size-6 text-neutral-700" />
-          <Text as="h2" className="mt-4 block text-sm font-medium text-neutral-200">
-            Changelog is unavailable
-          </Text>
-          <Text className="mt-2 block text-xs leading-5 text-neutral-500">
-            A verified repository, pull request, and head revision are required.
-          </Text>
-        </div>
-      </section>
-    );
-  }
-  const identity: PullRequestChangelogIdentity = {
-    headSha: result.headSha,
-    pullRequestNumber,
-    repositoryFullName
-  };
-  const snapshot = pullRequestChangelogSnapshotFor(identity);
-  return (
-    <section className="h-full overflow-y-auto bg-neutral-950 px-3 pb-4 pt-12">
-      <PullRequestChangelogSummary
-        className="border-t-0"
-        expectedIdentity={identity}
-        snapshot={snapshot}
-      />
-    </section>
   );
 }
 
@@ -181,9 +168,11 @@ export function PrototypeReviewPage() {
   const [fullscreen, setFullscreen] = useState(false);
   const [hudVisible, setHudVisible] = useState(true);
   const [isRotating, setIsRotating] = useState(false);
+  const [loadedTargetUrl, setLoadedTargetUrl] = useState<string>();
   const [panel, setPanel] = useState<ReviewPanel>();
   const [result, setResult] = useState<PullRequestTestSurfacesResult>();
   const [surfaceError, setSurfaceError] = useState<string>();
+  const frameRevealTimer = useRef<number | undefined>(undefined);
   const hideHudTimer = useRef<number | undefined>(undefined);
   const rotationTimer = useRef<number | undefined>(undefined);
 
@@ -232,28 +221,56 @@ export function PrototypeReviewPage() {
     return () => window.removeEventListener('keydown', onEscape);
   }, [fullscreen, panel]);
 
-  useEffect(() => () => {
-    if (hideHudTimer.current !== undefined) window.clearTimeout(hideHudTimer.current);
-    if (rotationTimer.current !== undefined) window.clearTimeout(rotationTimer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (frameRevealTimer.current !== undefined) window.clearTimeout(frameRevealTimer.current);
+      if (hideHudTimer.current !== undefined) window.clearTimeout(hideHudTimer.current);
+      if (rotationTimer.current !== undefined) window.clearTimeout(rotationTimer.current);
+    },
+    []
+  );
 
   const verified = verifiedPrototypeTarget(result, surface);
   const development = import.meta.env.DEV
     ? developmentPrototypeTarget(initial.devTargetUrl, window.location.href, surface)
     : undefined;
-  const candidateTarget = verified ?? development;
+  const candidateTarget = development ?? verified;
   const target = isIsolatedPrototypeTarget(candidateTarget, window.location.href)
     ? candidateTarget
     : undefined;
   const targetUrl = target
-    ? embeddedPrototypeUrl(
-        target,
-        initial.scenario,
-        viewport,
-        orientation,
-        theme
-      )
+    ? embeddedPrototypeUrl(target, initial.scenario, viewport, orientation, theme)
     : undefined;
+  const localContextResult = usePrototypeReviewLocalContext({
+    enabled: import.meta.env.DEV && target?.source === 'development-override',
+    pullRequestNumber: initial.pullRequestNumber,
+    repositoryFullName: initial.repositoryFullName
+  });
+  const localContext = localContextResult.context;
+  const developmentContext = prototypeReviewCodexContext(
+    import.meta.env.DEV,
+    result,
+    target,
+    localContext
+  );
+  const localCodexStatus = target?.source === 'development-override' && !developmentContext
+    ? localCodexStatusMessage(localContextResult)
+    : undefined;
+  const targetOrigin = target ? new URL(target.url).origin : undefined;
+  const { annotations, clearAnnotations, iframeRef, onFrameLoad, toggleAnnotations } =
+    usePrototypeReviewAnnotations({
+      enabled: Boolean(developmentContext),
+      targetKey: targetUrl,
+      targetOrigin
+    });
+
+  useEffect(() => {
+    setLoadedTargetUrl(undefined);
+    if (frameRevealTimer.current !== undefined) {
+      window.clearTimeout(frameRevealTimer.current);
+      frameRevealTimer.current = undefined;
+    }
+  }, [targetUrl]);
 
   function scheduleHudHide() {
     if (hideHudTimer.current !== undefined) window.clearTimeout(hideHudTimer.current);
@@ -272,9 +289,7 @@ export function PrototypeReviewPage() {
     if (viewport === 'desktop' || isRotating) return;
     setIsRotating(true);
     rotationTimer.current = window.setTimeout(() => {
-      setOrientation((current) =>
-        current === 'portrait' ? 'landscape' : 'portrait'
-      );
+      setOrientation((current) => (current === 'portrait' ? 'landscape' : 'portrait'));
       rotationTimer.current = window.setTimeout(() => {
         setIsRotating(false);
         rotationTimer.current = undefined;
@@ -286,9 +301,7 @@ export function PrototypeReviewPage() {
     <main
       data-theme={theme}
       className={`fixed inset-0 flex min-h-0 flex-col overflow-hidden ${
-        theme === 'dark'
-          ? 'bg-black text-neutral-100'
-          : 'bg-white text-neutral-900'
+        theme === 'dark' ? 'bg-black text-neutral-100' : 'bg-white text-neutral-900'
       }`}
     >
       {fullscreen ? (
@@ -302,20 +315,18 @@ export function PrototypeReviewPage() {
         />
       ) : null}
       <div
-        className={`z-50 h-[60px] w-full transition-[opacity,transform] duration-200 max-[900px]:h-28 ${
-          fullscreen
-            ? 'fixed inset-x-0 top-0'
-            : 'relative shrink-0'
+        className={`z-50 grid h-[60px] w-full grid-cols-[1fr_auto_1fr] items-start px-3 pt-2 transition-[opacity,transform] duration-200 max-[900px]:h-28 max-[900px]:grid-cols-[1fr_auto] max-[900px]:grid-rows-[44px_44px] max-[900px]:gap-y-2 max-[640px]:px-2 ${
+          fullscreen ? 'fixed inset-x-0 top-0' : 'relative shrink-0'
         } ${fullscreen && !hudVisible ? '-translate-y-4 opacity-0 pointer-events-none' : ''}`}
         onMouseEnter={() => {
           if (hideHudTimer.current !== undefined) window.clearTimeout(hideHudTimer.current);
         }}
         onMouseLeave={fullscreen ? scheduleHudHide : undefined}
       >
-        <div className="absolute left-3 top-2">
+        <div className="min-w-0 justify-self-start">
           <SurfaceTabs onChange={setSurface} surface={surface} />
         </div>
-        <div className="absolute left-1/2 top-2 flex -translate-x-1/2 items-center gap-1 max-[900px]:top-[60px]">
+        <div className="col-start-2 flex min-w-0 items-center gap-1 justify-self-center max-[900px]:col-span-2 max-[900px]:col-start-1 max-[900px]:row-start-2 max-[900px]:justify-self-start">
           <ViewportTabs onChange={setViewport} viewport={viewport} />
           <Button
             aria-label={showDeviceFrame ? 'Hide device frame' : 'Show device frame'}
@@ -331,9 +342,24 @@ export function PrototypeReviewPage() {
           >
             {showDeviceFrame ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
           </Button>
+          <Button
+            aria-label="Rotate device"
+            className={`rounded-2xl backdrop-blur-xl ${
+              theme === 'dark'
+                ? 'bg-neutral-900/95 shadow-[0_14px_42px_rgba(0,0,0,0.32)]'
+                : 'bg-white/95 shadow-[0_14px_42px_rgba(39,39,42,0.10)]'
+            }`}
+            isDisabled={viewport === 'desktop' || isRotating}
+            isIconOnly
+            size="sm"
+            variant="ghost"
+            onPress={rotateDevice}
+          >
+            <RotateCw className="size-4" />
+          </Button>
         </div>
         <div
-          className={`absolute right-3 top-2 flex items-center gap-0.5 rounded-2xl p-1 backdrop-blur-xl ${
+          className={`col-start-3 flex items-center gap-0.5 justify-self-end rounded-2xl p-1 backdrop-blur-xl max-[900px]:col-start-2 max-[900px]:row-start-1 ${
             theme === 'dark'
               ? 'bg-neutral-900/95 shadow-[0_14px_42px_rgba(0,0,0,0.32)]'
               : 'bg-white/95 shadow-[0_14px_42px_rgba(39,39,42,0.10)]'
@@ -345,24 +371,10 @@ export function PrototypeReviewPage() {
             size="sm"
             variant="ghost"
             onPress={() => {
-              setTheme((current) => current === 'dark' ? 'light' : 'dark');
+              setTheme((current) => (current === 'dark' ? 'light' : 'dark'));
             }}
           >
-            {theme === 'dark' ? (
-              <Sun className="size-4" />
-            ) : (
-              <Moon className="size-4" />
-            )}
-          </Button>
-          <Button
-            aria-label="Rotate device"
-            isDisabled={viewport === 'desktop' || isRotating}
-            isIconOnly
-            size="sm"
-            variant="ghost"
-            onPress={rotateDevice}
-          >
-            <RotateCw className="size-4" />
+            {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
           </Button>
           <Button
             aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
@@ -392,13 +404,26 @@ export function PrototypeReviewPage() {
         >
           {targetUrl ? (
             <iframe
-              className={`size-full border-0 ${
-                theme === 'dark' ? 'bg-neutral-950' : 'bg-stone-50'
+              className={`size-full border-0 bg-neutral-950 transition-opacity duration-150 ${
+                loadedTargetUrl === targetUrl ? 'opacity-100' : 'opacity-0'
               }`}
-              referrerPolicy="no-referrer"
+              referrerPolicy="origin"
+              ref={iframeRef}
               sandbox="allow-same-origin allow-scripts"
               src={targetUrl}
               title={`${surface === 'native' ? 'Native' : 'Web'} prototype`}
+              onLoad={() => {
+                onFrameLoad();
+                if (frameRevealTimer.current !== undefined) {
+                  window.clearTimeout(frameRevealTimer.current);
+                }
+                frameRevealTimer.current = window.setTimeout(() => {
+                  if (iframeRef.current?.src === targetUrl) {
+                    setLoadedTargetUrl(targetUrl);
+                  }
+                  frameRevealTimer.current = undefined;
+                }, FRAME_REVEAL_DELAY_MS);
+              }}
             />
           ) : (
             <div className="grid size-full place-items-center bg-neutral-950 px-8 text-center">
@@ -415,71 +440,67 @@ export function PrototypeReviewPage() {
             </div>
           )}
         </PrototypeReviewDevice>
-
-        {panel && !fullscreen ? (
-          <aside className="absolute inset-y-3 right-3 z-30 w-[min(26rem,calc(100%-1.5rem))] overflow-hidden rounded-2xl bg-neutral-950/98 shadow-[0_24px_80px_rgba(0,0,0,0.6)] backdrop-blur-xl max-[720px]:inset-x-3 max-[720px]:bottom-3 max-[720px]:top-auto max-[720px]:h-[min(68vh,38rem)] max-[720px]:w-auto">
-            <Button
-              aria-label="Close review panel"
-              className="absolute right-2 top-2 z-20"
-              isIconOnly
-              size="sm"
-              variant="ghost"
-              onPress={() => setPanel(undefined)}
-            >
-              <X className="size-4" />
-            </Button>
-            {panel === 'changelog' ? (
-              <ChangelogSlot
-                pullRequestNumber={initial.pullRequestNumber}
-                repositoryFullName={initial.repositoryFullName}
-                result={result}
-              />
-            ) : initial.repositoryFullName && initial.pullRequestNumber ? (
-              <PrototypeReviewCodexPanel
-                pullRequestNumber={initial.pullRequestNumber}
-                repositoryFullName={initial.repositoryFullName}
-                result={result}
-                scenario={initial.scenario}
-                target={target}
-                viewport={viewport}
-              />
-            ) : (
-              <section className="grid h-full place-items-center px-6 text-center">
-                <div className="max-w-sm">
-                  <Bot className="mx-auto size-6 text-neutral-700" />
-                  <Text className="mt-4 block text-sm text-neutral-300">PR context is missing</Text>
-                  <Text className="mt-2 block text-xs leading-5 text-neutral-500">
-                    Open this workspace from a pull request before connecting its Codex task.
-                  </Text>
-                </div>
-              </section>
-            )}
-          </aside>
-        ) : null}
       </div>
 
       {!fullscreen ? (
-        <nav aria-label="Prototype review tools" className="z-20 flex shrink-0 justify-center px-3 pb-3 pt-1">
-          <div className="flex items-center gap-1 rounded-2xl bg-neutral-900/95 p-1 shadow-[0_14px_42px_rgba(0,0,0,0.32)] backdrop-blur-xl">
-            <Button
-              size="sm"
-              variant={panel === 'changelog' ? 'primary' : 'ghost'}
-              onPress={() => setPanel((current) => current === 'changelog' ? undefined : 'changelog')}
-            >
-              <FileClock className="size-3.5" />
-              Changelog
-            </Button>
-            <Button
-              size="sm"
-              variant={panel === 'codex' ? 'primary' : 'ghost'}
-              onPress={() => setPanel((current) => current === 'codex' ? undefined : 'codex')}
-            >
-              <Bot className="size-3.5" />
-              Codex
-            </Button>
+        <footer className="z-30 grid shrink-0 grid-cols-[max-content_minmax(0,1fr)_max-content] items-end gap-3 px-3 pb-3 pt-1 max-[1400px]:grid-cols-[max-content_minmax(0,1fr)] max-[640px]:grid-cols-1 max-[640px]:gap-2 max-[640px]:px-2">
+          <Button
+            aria-label="Open pull request changelog"
+            className={`h-12 min-w-12 justify-self-start rounded-full px-4 backdrop-blur-xl max-[640px]:size-11 max-[640px]:min-w-11 max-[640px]:px-0 ${
+              theme === 'dark'
+                ? 'bg-neutral-900/95 shadow-[0_14px_42px_rgba(0,0,0,0.32)]'
+                : 'bg-stone-100/95 shadow-[0_14px_42px_rgba(39,39,42,0.14)]'
+            }`}
+            variant="ghost"
+            onPress={() => setPanel('changelog')}
+          >
+            <ScrollText className="size-[1.125rem]" />
+            <span className="max-[640px]:hidden">Changelog</span>
+          </Button>
+
+          <div className="min-w-0 max-[640px]:w-full">
+            {developmentContext && initial.repositoryFullName && initial.pullRequestNumber ? (
+              <PrototypeReviewCodexDock
+                annotations={annotations}
+                key={
+                  developmentContext
+                    ? `${developmentContext.machineId}:${developmentContext.threadId}:${target?.surfaceKind}`
+                    : 'inactive'
+                }
+                development={developmentContext}
+                onAnnotationsSent={clearAnnotations}
+                onToggleAnnotations={toggleAnnotations}
+                theme={theme}
+              />
+            ) : localCodexStatus ? (
+              <PrototypeReviewCodexStatus
+                isConnecting={localContextResult.state === 'loading'}
+                message={localCodexStatus}
+                theme={theme}
+                onRetry={localContextResult.retry}
+              />
+            ) : null}
           </div>
-        </nav>
+
+          <div
+            aria-hidden
+            className="invisible flex h-12 items-center gap-2 px-4 max-[1400px]:hidden"
+          >
+            <ScrollText className="size-[1.125rem]" />
+            <span className="max-[640px]:hidden">Changelog</span>
+          </div>
+        </footer>
       ) : null}
+
+      <PrototypeReviewChangelogModal
+        isOpen={!fullscreen && panel === 'changelog'}
+        pullRequestNumber={initial.pullRequestNumber}
+        repositoryFullName={initial.repositoryFullName}
+        localContext={localContext}
+        result={result}
+        theme={theme}
+        onOpenChange={(open) => setPanel(open ? 'changelog' : undefined)}
+      />
     </main>
   );
 }

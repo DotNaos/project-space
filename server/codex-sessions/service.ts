@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
-
 import {
   CODEX_BROWSER_MAXIMUM_IMAGE_BYTES,
   type CodexSessionApprovalRequest,
@@ -17,6 +16,7 @@ import {
   type CodexSessionReadRequest,
   type CodexSessionReadResult,
   type CodexSessionRecord,
+  type CodexSessionSettingsRequest,
   type CodexSessionStreamEvent,
   type CodexSessionUserInputResponse
 } from '../../src/shared/codex-sessions-api';
@@ -50,12 +50,13 @@ export interface CodexSessionsTransport {
   list(input: CodexSessionsMachineScope): Promise<CodexSessionListResult>;
   inspect(input: CodexSessionInspectRequest & { userId: string }): Promise<CodexSessionInspectResult>;
   mutate(input: {
-    kind: 'approval' | 'continue' | 'input' | 'interrupt';
+    kind: 'approval' | 'continue' | 'input' | 'interrupt' | 'settings';
     machineId: string;
     request:
       | CodexSessionApprovalRequest
       | CodexSessionContinueRequest
       | CodexSessionInterruptRequest
+      | CodexSessionSettingsRequest
       | CodexSessionUserInputResponse;
     threadId: string;
     userId: string;
@@ -76,6 +77,19 @@ export interface CodexSessionsMachineScope {
   machineId: string;
   userId: string;
 }
+
+export type CodexSessionsServiceStore = Pick<
+  CodexSessionsStore,
+  | 'appendEvent'
+  | 'completeOperation'
+  | 'latestEventSequence'
+  | 'listEvents'
+  | 'listInventory'
+  | 'markOperationAmbiguous'
+  | 'reconcileOperation'
+  | 'reserveOperation'
+  | 'saveInventory'
+>;
 
 interface SessionScope extends CodexSessionsMachineScope {
   threadId: string;
@@ -106,18 +120,7 @@ export function createCodexSessionsService(options: {
   authorize(actor: CodexSessionsActor, machineId: string): Promise<void>;
   monotonicNow?: () => number;
   now?: () => Date;
-  store: Pick<
-    CodexSessionsStore,
-    | 'appendEvent'
-    | 'completeOperation'
-    | 'latestEventSequence'
-    | 'listEvents'
-    | 'listInventory'
-    | 'markOperationAmbiguous'
-    | 'reconcileOperation'
-    | 'reserveOperation'
-    | 'saveInventory'
-  >;
+  store: CodexSessionsServiceStore;
   transport: CodexSessionsTransport;
 }) {
   const now = options.now ?? (() => new Date());
@@ -245,16 +248,16 @@ export function createCodexSessionsService(options: {
 
   function mutate(
     actor: CodexSessionsActor,
-    kind: 'approval' | 'continue' | 'input' | 'interrupt',
-    request: CodexSessionApprovalRequest | CodexSessionContinueRequest | CodexSessionInterruptRequest | CodexSessionUserInputResponse
+    kind: 'approval' | 'continue' | 'input' | 'interrupt' | 'settings',
+    request: CodexSessionApprovalRequest | CodexSessionContinueRequest | CodexSessionInterruptRequest | CodexSessionSettingsRequest | CodexSessionUserInputResponse
   ) {
     return runMutation(actor, kind, request);
   }
 
   async function runMutation(
     actor: CodexSessionsActor,
-    kind: 'approval' | 'continue' | 'input' | 'interrupt',
-    request: CodexSessionApprovalRequest | CodexSessionContinueRequest | CodexSessionInterruptRequest | CodexSessionUserInputResponse
+    kind: 'approval' | 'continue' | 'input' | 'interrupt' | 'settings',
+    request: CodexSessionApprovalRequest | CodexSessionContinueRequest | CodexSessionInterruptRequest | CodexSessionSettingsRequest | CodexSessionUserInputResponse
   ) {
     const operation = await operationFor(actor, kind, request);
     const key = operationKey(operation);
@@ -281,8 +284,8 @@ export function createCodexSessionsService(options: {
 
   async function operationFor(
     actor: CodexSessionsActor,
-    kind: 'approval' | 'continue' | 'input' | 'interrupt',
-    request: CodexSessionApprovalRequest | CodexSessionContinueRequest | CodexSessionInterruptRequest | CodexSessionUserInputResponse
+    kind: 'approval' | 'continue' | 'input' | 'interrupt' | 'settings',
+    request: CodexSessionApprovalRequest | CodexSessionContinueRequest | CodexSessionInterruptRequest | CodexSessionSettingsRequest | CodexSessionUserInputResponse
   ) {
     const machineScope = await scope(actor, request.machineId);
     const threadId = required(request.threadId, 'threadId');
@@ -334,8 +337,8 @@ export function createCodexSessionsService(options: {
   }
 
   async function executeReserved(
-    kind: 'approval' | 'continue' | 'input' | 'interrupt',
-    request: CodexSessionApprovalRequest | CodexSessionContinueRequest | CodexSessionInterruptRequest | CodexSessionUserInputResponse,
+    kind: 'approval' | 'continue' | 'input' | 'interrupt' | 'settings',
+    request: CodexSessionApprovalRequest | CodexSessionContinueRequest | CodexSessionInterruptRequest | CodexSessionSettingsRequest | CodexSessionUserInputResponse,
     operation: ScopedOperation
   ) {
     try {
@@ -468,6 +471,7 @@ export function createCodexSessionsService(options: {
     read,
     reconcileContinue,
     respondToUserInput: (actor: CodexSessionsActor, request: CodexSessionUserInputResponse) => mutate(actor, 'input', request),
+    settings: (actor: CodexSessionsActor, request: CodexSessionSettingsRequest) => mutate(actor, 'settings', request),
     stream,
     transportStream
   };
@@ -690,7 +694,7 @@ function sessionKey(scope: SessionScope) {
 }
 
 function operationName(
-  kind: 'approval' | 'continue' | 'input' | 'interrupt'
+  kind: 'approval' | 'continue' | 'input' | 'interrupt' | 'settings'
 ): CodexStoredOperationName {
   return kind;
 }

@@ -1,4 +1,4 @@
-import { createHash, type KeyLike } from 'node:crypto';
+import type { KeyLike } from 'node:crypto';
 
 import type {
   CodexSessionApprovalRequest,
@@ -10,6 +10,7 @@ import type {
   CodexSessionListRequest,
   CodexSessionOperationResult,
   CodexSessionReadRequest,
+  CodexSessionSettingsRequest,
   CodexSessionStreamEvent,
   CodexSessionUserInputResponse
 } from '../../src/shared/codex-sessions-api';
@@ -26,6 +27,8 @@ import {
   type CodexSessionsWireResult
 } from '../codex-sessions-connector-contract';
 import type {
+  CodexStartTurnInput,
+  CodexSteerTurnInput,
   CodexRpcId,
   CodexSessionEvent,
   CodexThreadListInput,
@@ -36,6 +39,15 @@ import {
   CodexThreadActiveError,
   type CodexSessionManager
 } from './index';
+import {
+  throwIfCodexExecutionCancelled,
+  waitForCodexExecution
+} from './execution-control';
+import { createLocalCodexTransport } from './local-transport';
+import {
+  CodexThreadMissingError,
+  type CodexSessionsTransport
+} from './service';
 import {
   CodexPublicEventPresenter,
   eventThreadId,
@@ -51,6 +63,13 @@ import {
   type CodexTaskLocationResolver
 } from './task-access-evidence';
 import { readCodexBrowserSnapshot } from './browser-snapshot-reader';
+import type { LocalCodexTranscriptSource } from './transcript-reader';
+import {
+  asRecord,
+  derivedOperationId,
+  operationResult,
+  stringValue
+} from './connector-executor-helpers';
 
 type ExecutableOperation = Exclude<
   CodexSessionsConnectorOperation,
@@ -76,11 +95,14 @@ export interface CodexSessionsConnectorExecutorOptions {
     options?: { afterImageRevision?: string }
   ) => Promise<CodexSessionBrowserResult>;
   replayProtection?: CodexSessionsGrantReplayProtection;
+  resolveImageAttachments?: (attachmentIds: readonly string[]) => Promise<string[]>;
   resolveTaskLocation?: CodexTaskLocationResolver;
   startTask?(
     request: CodexMachineTaskConnectorStartRequest,
     context: { generation: number; userId: string }
   ): Promise<CodexMachineTaskConnectorStartResult>;
+  startTurn?(input: CodexStartTurnInput): Promise<{ turn: { id: string } }>;
+  steerTurn?(input: CodexSteerTurnInput): Promise<{ turnId: string }>;
   verificationKey: KeyLike;
 }
 
@@ -153,6 +175,11 @@ export class CodexSessionsConnectorExecutor {
           operation,
           result: await this.continue(request.payload as CodexSessionContinueRequest)
         };
+      case 'settings':
+        return {
+          operation,
+          result: await this.settings(request.payload as CodexSessionSettingsRequest)
+        };
       case 'start':
         if (!this.options.startTask) throw new CodexSessionsExecutorError();
         return {
@@ -196,6 +223,52 @@ export class CodexSessionsConnectorExecutor {
     this.unsubscribeManager();
     this.subscribers.clear();
     this.pending.clear();
+  }
+
+  createLocalTransport(
+    threadId: string,
+    transcript?: LocalCodexTranscriptSource
+  ): CodexSessionsTransport {
+    return createLocalCodexTransport({
+      createInvalidResponseError: () => new CodexSessionsExecutorError(),
+      expectedGeneration: () => this.expectedGeneration(),
+      expectedMachineId: this.options.expectedMachineId,
+      inspectFallback: (request) => this.inspect(request, this.expectedGeneration()),
+      machineName: this.options.machineName,
+      manager: this.options.manager,
+      mutate: async ({ kind, machineId, request, threadId: candidateThreadId }) => {
+        const result = kind === 'continue'
+          ? await this.continue(request as CodexSessionContinueRequest)
+          : kind === 'interrupt'
+            ? await this.interrupt(request as CodexSessionInterruptRequest)
+            : kind === 'approval'
+              ? await this.approve(request as CodexSessionApprovalRequest)
+              : kind === 'settings'
+                ? await this.settings(request as CodexSessionSettingsRequest)
+                : await this.respondToInput(request as CodexSessionUserInputResponse);
+        return { machineId, result, threadId: candidateThreadId };
+      },
+      now: () => this.options.now?.() ?? Date.now(),
+      readFallback: (request) => this.read(request),
+      resolveTaskLocation: this.options.resolveTaskLocation,
+      streamFallback: async (_request, emit, signal) => {
+        const listeners = this.subscribers.get(threadId) ?? new Set();
+        listeners.add(emit);
+        this.subscribers.set(threadId, listeners);
+        try {
+          if (!signal.aborted) {
+            await new Promise<void>((resolve) => {
+              signal.addEventListener('abort', () => resolve(), { once: true });
+            });
+          }
+        } finally {
+          listeners.delete(emit);
+          if (listeners.size === 0) this.subscribers.delete(threadId);
+        }
+      },
+      threadId,
+      transcript
+    });
   }
 
   private verify(value: unknown, operation: CodexSessionsConnectorOperation) {
@@ -301,9 +374,19 @@ export class CodexSessionsConnectorExecutor {
       machineId: this.options.expectedMachineId,
       machineName: this.options.machineName
     });
+    const manager = this.options.manager as Partial<CodexSessionManager>;
+    const profiles = await manager.listPermissionProfiles?.(session.cwd, signal)
+      .catch(() => undefined);
+    const settings = manager.threadSettings?.(request.threadId);
+    const tokenUsage = manager.threadTokenUsage?.(request.threadId);
     return {
       openedReadOnly: true as const,
+      ...(settings?.permissionProfileId
+        ? { permissionProfileId: settings.permissionProfileId }
+        : {}),
+      ...(profiles ? { permissionProfiles: profiles.data } : {}),
       session,
+      ...(tokenUsage ? { tokenUsage } : {}),
       turns: presentCodexTurns(result.thread)
     };
   }
@@ -374,6 +457,41 @@ export class CodexSessionsConnectorExecutor {
 
   private async continue(request: CodexSessionContinueRequest) {
     try {
+      const localImagePaths = request.imageAttachmentIds?.length
+        ? await this.options.resolveImageAttachments?.(request.imageAttachmentIds)
+        : undefined;
+      if (request.imageAttachmentIds?.length && !localImagePaths) {
+        throw new CodexSessionsExecutorError();
+      }
+      if (request.delivery === 'steer') {
+        if (
+          !request.expectedTurnId ||
+          request.effort !== undefined ||
+          request.model !== undefined ||
+          request.serviceTier !== undefined
+        ) {
+          throw new CodexSessionsExecutorError();
+        }
+        if (!this.options.steerTurn) {
+          const resumed = await this.options.manager.resumeThread({
+            operationId: derivedOperationId(request.operationId, 'resume-steer'),
+            threadId: request.threadId
+          });
+          if (resumed.thread.status?.type !== 'active') {
+            return operationResult(request, 'rejected');
+          }
+        }
+        const steerTurn = this.options.steerTurn ??
+          ((input: CodexSteerTurnInput) => this.options.manager.steerTurn(input));
+        const result = await steerTurn({
+          expectedTurnId: request.expectedTurnId,
+          ...(localImagePaths?.length ? { localImagePaths } : {}),
+          operationId: derivedOperationId(request.operationId, 'steer'),
+          prompt: request.message,
+          threadId: request.threadId
+        });
+        return operationResult(request, 'accepted', result.turnId);
+      }
       const resumed = await this.options.manager.resumeThread({
         operationId: derivedOperationId(request.operationId, 'resume'),
         threadId: request.threadId
@@ -381,21 +499,25 @@ export class CodexSessionsConnectorExecutor {
       if (resumed.thread.status?.type === 'active') {
         return operationResult(request, 'rejected', undefined, 'thread_active');
       }
-      const result = await startTurnWithReadReconciliation(this.options.manager, {
+      const startInput = {
         effort: request.effort,
+        ...(localImagePaths?.length ? { localImagePaths } : {}),
         model: request.model,
         operationId: derivedOperationId(request.operationId, 'turn'),
         prompt: request.message,
         serviceTier: request.serviceTier,
         threadId: request.threadId
-      });
+      };
+      const result = this.options.startTurn
+        ? await this.options.startTurn(startInput)
+        : await startTurnWithReadReconciliation(this.options.manager, startInput);
       return operationResult(request, 'accepted', result.turn.id);
     } catch (error) {
       if (error instanceof CodexThreadActiveError) {
         return operationResult(request, 'rejected', undefined, 'thread_active');
       }
       if (error instanceof CodexOperationUncertainError) return operationResult(request, 'ambiguous');
-      throw new CodexSessionsExecutorError();
+      return operationResult(request, 'rejected');
     }
   }
 
@@ -409,6 +531,30 @@ export class CodexSessionsConnectorExecutor {
       return operationResult(request, 'accepted', request.turnId);
     } catch (error) {
       if (error instanceof CodexOperationUncertainError) return operationResult(request, 'ambiguous');
+      throw new CodexSessionsExecutorError();
+    }
+  }
+
+  private async settings(request: CodexSessionSettingsRequest) {
+    try {
+      const thread = await this.options.manager.readThread(request.threadId, false);
+      const profiles = await this.options.manager.listPermissionProfiles(thread.thread.cwd);
+      const selected = profiles.data.find(
+        (profile) => profile.id === request.permissionProfileId
+      );
+      if (!selected?.allowed) {
+        return operationResult(request, 'rejected');
+      }
+      await this.options.manager.updateThreadSettings({
+        operationId: derivedOperationId(request.operationId, 'settings'),
+        permissionProfileId: selected.id,
+        threadId: request.threadId
+      });
+      return operationResult(request, 'completed');
+    } catch (error) {
+      if (error instanceof CodexOperationUncertainError) {
+        return operationResult(request, 'ambiguous');
+      }
       throw new CodexSessionsExecutorError();
     }
   }
@@ -542,59 +688,4 @@ async function listAllThreads(
     cursor = result.nextCursor;
   }
   throw new CodexSessionsExecutorError();
-}
-
-function waitForCodexExecution<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
-  if (!signal) return promise;
-  try {
-    throwIfCodexExecutionCancelled(signal);
-  } catch (error) {
-    return Promise.reject(error);
-  }
-  return new Promise<T>((resolve, reject) => {
-    const abort = () => reject(codexExecutionCancelledError(signal));
-    signal.addEventListener('abort', abort, { once: true });
-    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
-  });
-}
-
-function throwIfCodexExecutionCancelled(signal?: AbortSignal) {
-  if (signal?.aborted) throw codexExecutionCancelledError(signal);
-}
-
-function codexExecutionCancelledError(signal: AbortSignal) {
-  return signal.reason instanceof Error
-    ? signal.reason
-    : new Error('The Codex session command was cancelled.');
-}
-
-function derivedOperationId(operationId: string, step: string) {
-  const digest = createHash('sha256').update(`${step}\u0000${operationId}`).digest('hex').slice(0, 32);
-  return `codex:${step}:${digest}`;
-}
-
-function operationResult(
-  request: { operationId: string; threadId: string },
-  status: CodexSessionOperationResult['status'],
-  turnId?: string,
-  reason?: CodexSessionOperationResult['reason']
-): CodexSessionOperationResult {
-  return {
-    operationId: request.operationId,
-    replayed: false,
-    status,
-    threadId: request.threadId,
-    ...(reason ? { reason } : {}),
-    ...(turnId ? { turnId } : {})
-  };
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined;
-}
-
-function stringValue(value: unknown) {
-  return typeof value === 'string' && value ? value : undefined;
 }

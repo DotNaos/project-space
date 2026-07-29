@@ -63,15 +63,57 @@ export interface CodexResumeThreadInput extends CodexMutationInput {
   threadId: string;
 }
 
+export interface CodexPermissionProfileSummary {
+  allowed: boolean;
+  description?: string;
+  id: string;
+}
+
+export interface CodexPermissionProfileListResult {
+  data: CodexPermissionProfileSummary[];
+  nextCursor: string | null;
+}
+
+export interface CodexThreadSettingsSnapshot {
+  permissionProfileId?: string;
+}
+
+export interface CodexTokenUsageBreakdown {
+  cachedInputTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+}
+
+export interface CodexThreadTokenUsageSnapshot {
+  last: CodexTokenUsageBreakdown;
+  modelContextWindow?: number;
+  total: CodexTokenUsageBreakdown;
+}
+
+export interface CodexUpdateThreadSettingsInput extends CodexMutationInput {
+  permissionProfileId: string;
+  threadId: string;
+}
+
 export interface CodexStartThreadInput extends CodexMutationInput {
   cwd: string;
 }
 
 export interface CodexStartTurnInput extends CodexMutationInput {
   effort?: string;
+  localImagePaths?: string[];
   model?: string;
   prompt: string;
   serviceTier?: string | null;
+  threadId: string;
+}
+
+export interface CodexSteerTurnInput extends CodexMutationInput {
+  expectedTurnId: string;
+  localImagePaths?: string[];
+  prompt: string;
   threadId: string;
 }
 
@@ -122,6 +164,8 @@ export const codexNotificationMethods = [
   'thread/closed',
   'thread/started',
   'thread/status/changed',
+  'thread/settings/updated',
+  'thread/tokenUsage/updated',
   'turn/completed',
   'turn/diff/updated',
   'turn/plan/updated',

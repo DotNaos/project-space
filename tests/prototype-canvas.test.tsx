@@ -69,10 +69,10 @@ describe('standalone prototype canvas', () => {
     expect(landscape.screenHeight).toBe(390);
   });
 
-  test('uses overflow below the readable minimum scale', () => {
-    expect(fitScale(250, 400, 1472, 964, 0.5)).toBe(0.5);
-    expect(fitScale(1200, 800, 1472, 964, 0.5)).toBeCloseTo(1200 / 1472);
-    expect(fitScale(2000, 1200, 1472, 964, 0.5)).toBe(1);
+  test('always fits the complete device inside the available canvas', () => {
+    expect(fitScale(250, 400, 1472, 964)).toBeCloseTo(250 / 1472);
+    expect(fitScale(1200, 800, 1472, 964)).toBeCloseTo(1200 / 1472);
+    expect(fitScale(2000, 1200, 1472, 964)).toBe(1);
   });
 
   test('renders the screen within the hardware shell', () => {

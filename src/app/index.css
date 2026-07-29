@@ -89,13 +89,39 @@ body.issue-dragging {
   }
 }
 
+.prototype-codex-visor-text {
+  color: transparent;
+  background-image: linear-gradient(
+    100deg,
+    rgb(115 115 115) 36%,
+    rgb(229 229 229) 50%,
+    rgb(115 115 115) 64%
+  );
+  background-position: 130% 50%;
+  background-size: 260% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: prototype-codex-visor-text 3.2s linear infinite;
+}
+
+@keyframes prototype-codex-visor-text {
+  from {
+    background-position: 130% 50%;
+  }
+
+  to {
+    background-position: -130% 50%;
+  }
+}
+
 .issue-drag-preview {
   animation: issue-drag-pop 0.16s ease-out both;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .issue-rise-in,
-  .issue-drag-preview {
+  .issue-drag-preview,
+  .prototype-codex-visor-text {
     animation: none;
   }
 }

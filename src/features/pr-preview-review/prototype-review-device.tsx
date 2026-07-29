@@ -54,14 +54,10 @@ function fitScale(
   availableWidth: number,
   availableHeight: number,
   frameWidth: number,
-  frameHeight: number,
-  minimumScale: number
+  frameHeight: number
 ) {
   if (availableWidth <= 0 || availableHeight <= 0) return 1;
-  return Math.max(
-    minimumScale,
-    Math.min(1, availableWidth / frameWidth, availableHeight / frameHeight)
-  );
+  return Math.max(0.1, Math.min(1, availableWidth / frameWidth, availableHeight / frameHeight));
 }
 
 function DeviceHardware({
@@ -69,14 +65,12 @@ function DeviceHardware({
   isRotating,
   orientation,
   showFrame,
-  theme,
   viewport
 }: {
   children: ReactNode;
   isRotating: boolean;
   orientation: PrototypeOrientation;
   showFrame: boolean;
-  theme: PrototypeTheme;
   viewport: PrototypeViewportPreset;
 }) {
   const metrics = frameMetrics(viewport, orientation);
@@ -119,9 +113,7 @@ function DeviceHardware({
         }}
       >
         <div
-          className={`size-full transition-opacity ease-out ${
-            theme === 'dark' ? 'bg-neutral-950' : 'bg-stone-50'
-          } ${
+          className={`size-full bg-neutral-950 transition-opacity ease-out ${
             isRotating
               ? 'pointer-events-none opacity-0 duration-75'
               : 'opacity-100 duration-150'
@@ -188,25 +180,19 @@ export function PrototypeReviewDevice({
     if (!element) return;
     const update = () => {
       const bounds = element.getBoundingClientRect();
-      const canvasInset = fullscreen ? 0 : 32;
+      const canvasInset = fullscreen ? 0 : bounds.width <= 640 ? 16 : 32;
       setScale(fitScale(
         Math.max(0, bounds.width - canvasInset),
         Math.max(0, bounds.height - canvasInset),
         outerWidth,
-        outerHeight,
-        viewport.minimumScale
+        outerHeight
       ));
     };
     const observer = new ResizeObserver(update);
     observer.observe(element);
     update();
     return () => observer.disconnect();
-  }, [
-    fullscreen,
-    outerHeight,
-    outerWidth,
-    viewport.minimumScale
-  ]);
+  }, [fullscreen, outerHeight, outerWidth]);
 
   return (
     <div
@@ -216,7 +202,7 @@ export function PrototypeReviewDevice({
       } ${
         fullscreen
           ? 'flex items-center justify-center overflow-hidden'
-          : 'flex overflow-auto p-4'
+          : 'flex items-center justify-center overflow-hidden p-4 max-[640px]:p-2'
       }`}
     >
       <div
@@ -238,7 +224,6 @@ export function PrototypeReviewDevice({
             isRotating={isRotating}
             orientation={orientation}
             showFrame={renderDeviceFrame}
-            theme={theme}
             viewport={viewport}
           >
             {children}

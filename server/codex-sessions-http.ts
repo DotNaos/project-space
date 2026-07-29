@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import {
   CODEX_OPERATION_ID_PATTERN,
+  CODEX_PERMISSION_PROFILE_ID_PATTERN,
   CODEX_THREAD_ID_PATTERN,
   type CodexSessionApprovalRequest,
   type CodexSessionBrowserRequest,
@@ -14,6 +15,7 @@ import {
   type CodexSessionOperationResult,
   type CodexSessionReadRequest,
   type CodexSessionReadResult,
+  type CodexSessionSettingsRequest,
   type CodexSessionListResult,
   type CodexSessionStreamEvent,
   type CodexSessionUserInputResponse
@@ -60,6 +62,10 @@ export interface CodexSessionsHttpService {
   respondToUserInput(
     context: CodexSessionsRequestContext,
     request: CodexSessionUserInputResponse
+  ): Promise<CodexSessionOperationResult>;
+  settings(
+    context: CodexSessionsRequestContext,
+    request: CodexSessionSettingsRequest
   ): Promise<CodexSessionOperationResult>;
   stream(
     context: CodexSessionsRequestContext,
@@ -137,13 +143,13 @@ export function createCodexSessionsHttpApi(
 type Route =
   | { kind: 'list' }
   | {
-      kind: 'approval' | 'browser' | 'continue' | 'input' | 'inspect' | 'interrupt' | 'read' | 'stream';
+      kind: 'approval' | 'browser' | 'continue' | 'input' | 'inspect' | 'interrupt' | 'read' | 'settings' | 'stream';
       threadId: string;
     };
 
 function routeFor(method: string | undefined, pathname: string): Route | undefined {
   if (method === 'GET' && pathname === '/api/codex/sessions') return { kind: 'list' };
-  const match = pathname.match(/^\/api\/codex\/sessions\/([^/]+)(?:\/(browser|continue|interrupt|approval|input|inspect|stream))?$/);
+  const match = pathname.match(/^\/api\/codex\/sessions\/([^/]+)(?:\/(browser|continue|interrupt|approval|input|inspect|settings|stream))?$/);
   if (!match) return undefined;
   let threadId = '';
   try {
@@ -159,7 +165,10 @@ function routeFor(method: string | undefined, pathname: string): Route | undefin
   if (method === 'GET' && action === 'stream') return { kind: 'stream', threadId };
   if (method === 'POST' && action &&
     !['browser', 'inspect', 'stream'].includes(action)) {
-    return { kind: action as 'approval' | 'continue' | 'input' | 'interrupt', threadId };
+    return {
+      kind: action as 'approval' | 'continue' | 'input' | 'interrupt' | 'settings',
+      threadId
+    };
   }
   return undefined;
 }
@@ -219,18 +228,58 @@ async function executeRoute(
   const common = { machineId, operationId, threadId: route.threadId };
 
   if (route.kind === 'continue') {
-    onlyKeys(body, ['effort', 'machineId', 'message', 'model', 'operationId', 'serviceTier']);
+    onlyKeys(body, [
+      'delivery',
+      'effort',
+      'expectedTurnId',
+      'imageAttachmentIds',
+      'machineId',
+      'message',
+      'model',
+      'operationId',
+      'serviceTier'
+    ]);
     const message = requiredString(body, 'message');
+    const delivery = body.delivery === undefined
+      ? undefined
+      : body.delivery === 'new-turn' || body.delivery === 'steer'
+        ? body.delivery
+        : (() => { throw invalidRequest('The delivery mode is invalid.'); })();
+    const expectedTurnId = optionalIdentifier(body, 'expectedTurnId');
+    const imageAttachmentIds = optionalAttachmentIds(body.imageAttachmentIds);
     const effort = optionalIdentifier(body, 'effort');
     const model = optionalIdentifier(body, 'model');
     const serviceTier = optionalNullableIdentifier(body, 'serviceTier');
     if (message.length > 16_000) throw invalidRequest('The message is too long.');
+    if (
+      delivery === 'steer'
+        ? !expectedTurnId || effort !== undefined || model !== undefined || serviceTier !== undefined
+        : expectedTurnId !== undefined
+    ) {
+      throw invalidRequest('The delivery mode fields are inconsistent.');
+    }
     return service.continue(context, {
       ...common,
+      ...(delivery ? { delivery } : {}),
       ...(effort ? { effort } : {}),
+      ...(expectedTurnId ? { expectedTurnId } : {}),
+      ...(imageAttachmentIds.length ? { imageAttachmentIds } : {}),
       message,
       ...(model ? { model } : {}),
       ...(serviceTier !== undefined ? { serviceTier } : {})
+    });
+  }
+
+  if (route.kind === 'settings') {
+    onlyKeys(body, ['machineId', 'operationId', 'permissionProfileId']);
+    const permissionProfileId = requiredString(
+      body,
+      'permissionProfileId',
+      CODEX_PERMISSION_PROFILE_ID_PATTERN
+    );
+    return service.settings(context, {
+      ...common,
+      permissionProfileId
     });
   }
 
@@ -286,8 +335,9 @@ async function streamSession(
 ) {
   const afterSequence = streamCursor(request);
   const controller = new AbortController();
-  request.once('aborted', () => controller.abort());
-  response.once('close', () => controller.abort());
+  const abort = () => controller.abort();
+  request.once('aborted', abort);
+  request.socket.once('close', abort);
   response.writeHead(200, {
     'Cache-Control': 'private, no-store',
     Connection: 'keep-alive',
@@ -295,15 +345,20 @@ async function streamSession(
     'X-Accel-Buffering': 'no'
   });
   response.write('retry: 1000\n\n');
-  await service.stream(context, {
-    ...input,
-    ...(afterSequence === undefined ? {} : { afterSequence })
-  }, (event, sequence) => {
-    if (!response.destroyed) {
-      response.write(`id: ${sequence ?? event.eventId}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
-    }
-  }, controller.signal);
-  if (!response.destroyed) response.end();
+  try {
+    await service.stream(context, {
+      ...input,
+      ...(afterSequence === undefined ? {} : { afterSequence })
+    }, (event, sequence) => {
+      if (!response.destroyed) {
+        response.write(`id: ${sequence ?? event.eventId}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+      }
+    }, controller.signal);
+    if (!response.destroyed) response.end();
+  } finally {
+    request.off('aborted', abort);
+    request.socket.off('close', abort);
+  }
 }
 
 function streamCursor(request: IncomingMessage) {
@@ -381,6 +436,24 @@ function optionalIdentifier(value: Record<string, unknown>, key: string) {
 
 function optionalNullableIdentifier(value: Record<string, unknown>, key: string) {
   return value[key] === null ? null : optionalIdentifier(value, key);
+}
+
+function optionalAttachmentIds(value: unknown) {
+  if (value === undefined) return [];
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.length > 3 ||
+    value.some(
+      (id) =>
+        typeof id !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id)
+    ) ||
+    new Set(value).size !== value.length
+  ) {
+    throw invalidRequest('The image attachments are invalid.');
+  }
+  return value as string[];
 }
 
 function onlyKeys(value: Record<string, unknown>, allowed: string[]) {

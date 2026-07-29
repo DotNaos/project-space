@@ -18,6 +18,7 @@ import type {
   CodexSessionEvent,
   CodexSessionEventListener,
   CodexStartTurnInput,
+  CodexSteerTurnInput,
   CodexThreadListInput,
   CodexUserInputResponseInput
 } from '../server/codex-sessions/contracts';
@@ -124,6 +125,11 @@ class FakeSessionManager {
     return { turn: { id: 'turn-started', status: 'inProgress' } };
   }
 
+  async steerTurn(input: CodexSteerTurnInput) {
+    this.calls.push({ input, method: 'steerTurn' });
+    return { turnId: input.expectedTurnId };
+  }
+
   async interruptTurn(input: CodexInterruptTurnInput) {
     this.calls.push({ input, method: 'interruptTurn' });
     return {};
@@ -148,7 +154,8 @@ class FakeSessionManager {
 function createExecutor(
   manager = new FakeSessionManager(),
   generation: number | (() => number) = 4,
-  readBrowserSnapshot?: (machineId: string, threadId: string) => Promise<CodexSessionBrowserResult>
+  readBrowserSnapshot?: (machineId: string, threadId: string) => Promise<CodexSessionBrowserResult>,
+  resolveImageAttachments?: (attachmentIds: readonly string[]) => Promise<string[]>
 ) {
   return {
     executor: new CodexSessionsConnectorExecutor({
@@ -158,6 +165,7 @@ function createExecutor(
       manager: manager as unknown as CodexSessionManager,
       now: manager.clock,
       ...(readBrowserSnapshot ? { readBrowserSnapshot } : {}),
+      ...(resolveImageAttachments ? { resolveImageAttachments } : {}),
       verificationKey: keys.publicKey
     }),
     manager
@@ -363,6 +371,99 @@ describe('Codex connector executor', () => {
     expect(resume.operationId).toMatch(/^codex:resume:/);
     expect(start.operationId).toMatch(/^codex:turn:/);
     expect(start.operationId).not.toBe(resume.operationId);
+    executor.close();
+  });
+
+  test('resolves opaque image ids before starting the local Codex turn', async () => {
+    const attachmentId = '9cb4681a-52f4-4c20-8c2f-377120980ebf';
+    const resolved: readonly string[][] = [];
+    const { executor, manager } = createExecutor(
+      new FakeSessionManager(),
+      4,
+      undefined,
+      async (attachmentIds) => {
+        resolved.push([...attachmentIds]);
+        return ['/tmp/review-image.png'];
+      }
+    );
+    const request: CodexSessionContinueRequest = {
+      imageAttachmentIds: [attachmentId],
+      machineId,
+      message: 'Review the image',
+      operationId: 'operation-continue-image',
+      threadId
+    };
+    const result = await executor.execute(
+      'continue',
+      signed('continue', request, request.operationId)
+    );
+    expect(result.operation).toBe('continue');
+    expect(resolved).toEqual([[attachmentId]]);
+    expect(manager.calls.find((call) => call.method === 'startTurn')?.input)
+      .toMatchObject({ localImagePaths: ['/tmp/review-image.png'] });
+    executor.close();
+  });
+
+  test('reports a missing local image as rejected instead of an uncertain send', async () => {
+    const { executor } = createExecutor(
+      new FakeSessionManager(),
+      4,
+      undefined,
+      async () => {
+        throw new Error('Image not found.');
+      }
+    );
+    const request: CodexSessionContinueRequest = {
+      imageAttachmentIds: ['9cb4681a-52f4-4c20-8c2f-377120980ebf'],
+      machineId,
+      message: 'Review the image',
+      operationId: 'operation-missing-image',
+      threadId
+    };
+    const result = await executor.execute(
+      'continue',
+      signed('continue', request, request.operationId)
+    );
+    expect(result.operation).toBe('continue');
+    expect(result.result).toMatchObject({ status: 'rejected', threadId });
+    executor.close();
+  });
+
+  test('steers the exact active turn without starting a new turn', async () => {
+    const attachmentId = '9cb4681a-52f4-4c20-8c2f-377120980ebf';
+    const manager = new FakeSessionManager();
+    manager.active = true;
+    const { executor } = createExecutor(
+      manager,
+      4,
+      undefined,
+      async () => ['/tmp/steer.png']
+    );
+    const request: CodexSessionContinueRequest = {
+      delivery: 'steer',
+      expectedTurnId: 'turn-active',
+      imageAttachmentIds: [attachmentId],
+      machineId,
+      message: 'Use this direction now',
+      operationId: 'operation-steer-active',
+      threadId
+    };
+    const result = await executor.execute(
+      'continue',
+      signed('continue', request, request.operationId)
+    );
+    expect(result.operation).toBe('continue');
+    expect(result.result).toMatchObject({ status: 'accepted', turnId: 'turn-active' });
+    expect(manager.calls.find((call) => call.method === 'resumeThread')?.input)
+      .toMatchObject({ threadId });
+    expect(manager.calls.find((call) => call.method === 'steerTurn')?.input)
+      .toMatchObject({
+        expectedTurnId: 'turn-active',
+        localImagePaths: ['/tmp/steer.png'],
+        prompt: 'Use this direction now',
+        threadId
+      });
+    expect(manager.calls.some((call) => call.method === 'startTurn')).toBe(false);
     executor.close();
   });
 

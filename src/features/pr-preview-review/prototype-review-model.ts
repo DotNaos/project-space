@@ -12,6 +12,7 @@ import {
   type PrototypeTheme,
   type PrototypeViewportKind
 } from '../../shared/prototype-canvas';
+import type { PrototypeReviewLocalContext } from '../../shared/prototype-review-local-api';
 
 export const prototypeReviewPath = '/prototype-review';
 
@@ -33,6 +34,16 @@ export interface PrototypeReviewTarget {
   source: 'deployed' | 'development-override' | 'live';
   surfaceKind: PullRequestPrototypeSurfaceKind;
   url: string;
+}
+
+export interface PrototypeReviewDevelopmentContext {
+  connectionKind: 'local' | 'private' | 'tailscale';
+  connectorId?: string;
+  heartbeatAt?: string;
+  leaseExpiresAt?: string;
+  machineId: string;
+  source: 'local-runtime' | 'verified-live';
+  threadId: string;
 }
 
 function cleanRepositoryFullName(value: string | null) {
@@ -107,16 +118,11 @@ export function isSafeDevelopmentTarget(value: string, currentHref: string) {
   try {
     const current = new URL(currentHref);
     const target = new URL(value, current);
-    const local = (hostname: string) =>
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname === '::1' ||
-      hostname.endsWith('.localhost');
     return ['http:', 'https:'].includes(target.protocol) &&
       !target.username &&
       !target.password &&
-      local(current.hostname) &&
-      local(target.hostname);
+      isDevelopmentHost(current.hostname) &&
+      isDevelopmentHost(target.hostname);
   } catch {
     return false;
   }
@@ -190,5 +196,116 @@ export function feedbackMatchesTarget(
   ) {
     return false;
   }
-  return result.liveContext.servedSurface === target.surfaceKind;
+  const surface = result.surfaces.find((candidate): candidate is AvailablePullRequestDevServerSurface =>
+    candidate.kind === 'dev-server' &&
+    candidate.state === 'available' &&
+    candidate.servedSurface === target.surfaceKind
+  );
+  return result.liveContext.servedSurface === target.surfaceKind &&
+    surface !== undefined &&
+    sameTargetUrl(surface.url, target.url);
+}
+
+export function prototypeReviewDevelopmentContext(
+  result: PullRequestTestSurfacesResult | undefined,
+  target: PrototypeReviewTarget | undefined,
+  localContext?: PrototypeReviewLocalContext
+): PrototypeReviewDevelopmentContext | undefined {
+  if (
+    target?.source === 'development-override' &&
+    localContext?.codex.state === 'available'
+  ) {
+    return {
+      connectionKind: prototypeConnectionKind(target.url),
+      machineId: localContext.codex.machineId,
+      source: 'local-runtime',
+      threadId: localContext.codex.threadId
+    };
+  }
+  if (!result || !target || !feedbackMatchesTarget(result, target)) return undefined;
+  if (result.feedback.state !== 'available' || result.liveContext.state !== 'available') {
+    return undefined;
+  }
+  const surface = result.surfaces.find((candidate): candidate is AvailablePullRequestDevServerSurface =>
+    candidate.kind === 'dev-server' &&
+    candidate.state === 'available' &&
+    candidate.servedSurface === target.surfaceKind &&
+    sameTargetUrl(candidate.url, target.url)
+  );
+  if (!surface) return undefined;
+  return {
+    connectionKind: prototypeConnectionKind(surface.url),
+    connectorId: result.liveContext.connectorId,
+    heartbeatAt: result.liveContext.heartbeatAt,
+    leaseExpiresAt: result.liveContext.leaseExpiresAt,
+    machineId: result.liveContext.machineId,
+    source: 'verified-live',
+    threadId: result.feedback.threadId
+  };
+}
+
+export function prototypeReviewCodexContext(
+  localReviewRuntime: boolean,
+  result: PullRequestTestSurfacesResult | undefined,
+  target: PrototypeReviewTarget | undefined,
+  localContext?: PrototypeReviewLocalContext
+) {
+  return localReviewRuntime
+    ? prototypeReviewDevelopmentContext(result, target, localContext)
+    : undefined;
+}
+
+export function prototypeConnectionKind(value: string) {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    if (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname.endsWith('.localhost')
+    ) {
+      return 'local' as const;
+    }
+    if (isTailscaleHost(hostname)) {
+      return 'tailscale' as const;
+    }
+  } catch {
+    // Verified live URLs are parsed before reaching this helper.
+  }
+  return 'private' as const;
+}
+
+function isDevelopmentHost(hostname: string) {
+  const normalized = hostname.toLowerCase();
+  return normalized === 'localhost' ||
+    normalized === '127.0.0.1' ||
+    normalized === '::1' ||
+    normalized.endsWith('.localhost') ||
+    isTailscaleHost(normalized);
+}
+
+function isTailscaleHost(hostname: string) {
+  return hostname.endsWith('.ts.net') || isTailscaleIpv4(hostname);
+}
+
+function sameTargetUrl(left: string, right: string) {
+  try {
+    const normalized = (value: string) => {
+      const url = new URL(value);
+      url.hash = '';
+      return url.toString();
+    };
+    return normalized(left) === normalized(right);
+  } catch {
+    return false;
+  }
+}
+
+function isTailscaleIpv4(hostname: string) {
+  const octets = hostname.split('.').map(Number);
+  return octets.length === 4 &&
+    octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255) &&
+    octets[0] === 100 &&
+    octets[1]! >= 64 &&
+    octets[1]! <= 127;
 }

@@ -111,6 +111,16 @@ async function sessionsRoot(options: CodexBrowserSnapshotReaderOptions) {
   return realpath(requested);
 }
 
+export async function resolveCodexRolloutPath(
+  threadId: string,
+  options: Pick<CodexBrowserSnapshotReaderOptions, 'codexHome' | 'sessionsRoot'> = {}
+) {
+  if (!CODEX_THREAD_ID_PATTERN.test(threadId)) return undefined;
+  const root = await sessionsRoot(options);
+  const path = await findRollout(root, threadId, options);
+  return path ? { path, root } : undefined;
+}
+
 async function findRollout(
   root: string,
   threadId: string,

@@ -163,7 +163,9 @@ body {
   min-width: 0;
   min-height: 0;
   flex: 1;
-  overflow: auto;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
   padding: 1rem;
 }
 
@@ -373,6 +375,9 @@ body {
 
   .prototype-hud__devices {
     top: 3.75rem;
+    left: 0.75rem;
+    justify-content: flex-start;
+    transform: none;
   }
 }
 

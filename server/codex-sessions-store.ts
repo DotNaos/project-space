@@ -13,6 +13,7 @@ export type CodexStoredOperationName =
   | 'continue'
   | 'input'
   | 'interrupt'
+  | 'settings'
   | 'resume'
   | 'turn-start';
 

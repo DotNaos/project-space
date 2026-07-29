@@ -87,6 +87,12 @@ export function codexContinueBlockReason(session: CodexSession, machine?: CodexM
   }
 }
 
+export function codexSteerBlockReason(session: CodexSession, machine?: CodexMachine) {
+  return effectiveCodexSessionStatus(session, machine) === 'active'
+    ? undefined
+    : codexContinueBlockReason(session, machine) ?? 'The Codex task is not active.';
+}
+
 export function formatCodexActivity(isoDate: string, now = new Date()) {
   const elapsedMs = Math.max(0, now.getTime() - Date.parse(isoDate));
   const minutes = Math.floor(elapsedMs / 60_000);

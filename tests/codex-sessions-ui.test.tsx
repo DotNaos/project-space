@@ -81,6 +81,30 @@ mock.module('@heroui/react', () => ({
     variant?: string;
     [key: string]: unknown;
   }) => createElement('button', { ...props, disabled: isDisabled }, children),
+  Dropdown: Object.assign(
+    ({ children }: { children?: ReactNode }) => createElement('div', null, children),
+    {
+      Item: ({ children, id, textValue: _textValue, ...props }: {
+        children?: ReactNode;
+        id?: string;
+        textValue?: string;
+        [key: string]: unknown;
+      }) => createElement('div', { ...props, 'data-id': id }, children),
+      Menu: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => (
+        createElement('div', props, children)
+      ),
+      Popover: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => (
+        createElement('div', props, children)
+      ),
+      SubmenuIndicator: (props: Record<string, unknown>) => createElement('span', props),
+      SubmenuTrigger: ({ children }: { children?: ReactNode }) => (
+        createElement('div', null, children)
+      ),
+      Trigger: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => (
+        createElement('button', props, children)
+      )
+    }
+  ),
   Drawer: Object.assign(
     ({ children }: { children?: ReactNode }) => createElement('div', null, children),
     {
@@ -437,6 +461,13 @@ describe('Canonical Codex task page', () => {
     expect(html).toContain('aria-label="Exact machine and task authorization"');
     expect(html).toContain('aria-label="Codex model settings"');
     expect(html).toContain('GPT-6 Orbit Deep');
+    expect(html).toContain('data-codex-desktop-model-trigger="true"');
+    expect(html).toContain('data-codex-desktop-model-quick="true"');
+    expect(html).toContain('data-codex-desktop-reasoning-quick="true"');
+    expect(html).toContain('aria-label="Advanced Codex settings"');
+    expect(html).toContain('aria-label="Use Fast responses"');
+    expect(html).toContain('aria-label="Reasoning effort"');
+    expect(html).toContain('data-codex-reasoning-label="true"');
     expect(html).toContain('data-codex-reasoning-quick="true"');
     expect(html).toContain('Intelligence Balanced');
     expect(html).toContain('Intelligence Deep');

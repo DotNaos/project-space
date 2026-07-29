@@ -10,6 +10,7 @@ import type {
   CodexSessionOperationResult,
   CodexSessionReadRequest,
   CodexSessionReadResult,
+  CodexSessionSettingsRequest,
   CodexSessionsClient,
   CodexSessionStreamEvent,
   CodexSessionUserInputResponse
@@ -102,9 +103,22 @@ export function createCodexSessionsClient(
     });
   }
 
+  function threadMutation<
+    T extends { machineId: string; operationId: string; threadId: string }
+  >(
+    operation: string,
+    input: T
+  ) {
+    const { threadId, ...body } = input;
+    return mutation(
+      `/api/codex/sessions/${encodeURIComponent(threadId)}/${operation}`,
+      body
+    );
+  }
+
   return {
     approve(input: CodexSessionApprovalRequest) {
-      return mutation(`/api/codex/sessions/${encodeURIComponent(input.threadId)}/approval`, input);
+      return threadMutation('approval', input);
     },
     browser(input: CodexSessionBrowserRequest) {
       const path = pathWithMachine(
@@ -116,10 +130,10 @@ export function createCodexSessionsClient(
         : path);
     },
     continue(input: CodexSessionContinueRequest) {
-      return mutation(`/api/codex/sessions/${encodeURIComponent(input.threadId)}/continue`, input);
+      return threadMutation('continue', input);
     },
     interrupt(input: CodexSessionInterruptRequest) {
-      return mutation(`/api/codex/sessions/${encodeURIComponent(input.threadId)}/interrupt`, input);
+      return threadMutation('interrupt', input);
     },
     inspect(input) {
       return request<CodexSessionInspectResult>(pathWithMachine(
@@ -139,8 +153,11 @@ export function createCodexSessionsClient(
         input.machineId
       ));
     },
+    settings(input: CodexSessionSettingsRequest) {
+      return threadMutation('settings', input);
+    },
     respondToUserInput(input: CodexSessionUserInputResponse) {
-      return mutation(`/api/codex/sessions/${encodeURIComponent(input.threadId)}/input`, input);
+      return threadMutation('input', input);
     },
     subscribe(input, onEvent, onError) {
       const controller = new AbortController();

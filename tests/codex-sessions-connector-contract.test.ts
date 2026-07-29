@@ -169,6 +169,31 @@ describe('Codex sessions connector grants', () => {
     })).toThrow(expect.objectContaining({ code: 'binding-mismatch' }));
   });
 
+  test('accepts only one exact advertised permission profile setting', () => {
+    const request = createCodexSessionsWireRequest({
+      generation: 7,
+      operation: 'settings',
+      operationId: 'operation-settings-1',
+      payload: {
+        machineId: 'machine-one',
+        operationId: 'operation-settings-1',
+        permissionProfileId: ':workspace',
+        threadId
+      },
+      userId: 'user-owner'
+    }, keys.privateKey, { nonce: 'nonce-settings-1', now: 1_000_000 });
+
+    expect(isCodexSessionsWireRequest(request)).toBe(true);
+    expect(verifyCodexSessionsWireRequest(request, 'settings', keys.publicKey, {
+      expectedGeneration: 7,
+      expectedMachineId: 'machine-one',
+      now: 1_001_000
+    })).toEqual({ userId: 'user-owner' });
+
+    request.payload.permissionProfileId = ':workspace/../../danger';
+    expect(isCodexSessionsWireRequest(request)).toBe(false);
+  });
+
   test('rejects wrong machine, stale generation, expiry, and replay', () => {
     const request = continueRequest();
     expect(() => verifyCodexSessionsWireRequest(request, 'continue', keys.publicKey, {
