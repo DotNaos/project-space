@@ -58,6 +58,50 @@ When the service is briefly unavailable, completion may use a credential-scoped
 cache for up to one minute. Cached suggestions say that local availability is
 unverified; `list`, `path`, and `open` never use this completion fallback.
 
+## Discover Machines And Codex Tasks
+
+```sh
+project machine list
+project machine status --machine <physical-machine-name>
+project machine status --machine-id <physical-machine-id> --format json
+project codex list
+project codex list --machine <physical-machine-name> --search <text>
+project codex list --state <state> --archived --format json
+```
+
+Machine discovery uses the connected Project Space account's existing physical
+machine inventory. Tailscale reachability, SSH availability, connector
+readiness, and Codex App Server availability are reported separately with their
+last-seen evidence. Missing evidence stays unknown or stale; it is never
+reported as proof that a machine is powered off.
+
+Codex discovery lists the exact task ID, readable title, owning physical
+machine name and ID, state, updated time, and available project or repository
+context. A failed host is reported as a partial result without hiding healthy
+tasks from other hosts. Archived tasks are omitted unless `--archived` is
+present.
+
+Completion for machine selectors and the `--thread` flag on `codex attach`,
+`codex read`, and `codex send` is dynamic. Readable names and titles appear as
+descriptions, while completion inserts stable machine or task IDs. A
+credential-, backend-, and machine-scoped cache may be used for up to one
+minute only when completion cannot reach Project Space; cached descriptions say
+that the evidence is cached.
+
+## Open A Machine SSH Terminal
+
+```sh
+project machine ssh --machine <physical-machine-name>
+project machine ssh --machine-id <physical-machine-id>
+```
+
+SSH opens the normal interactive system SSH client for the approved Tailscale
+hostname. The terminal, resize events, signals, prompts, and final exit status
+remain those of SSH. Connector readiness and Codex App Server readiness are not
+requirements when Tailscale and SSH are available. Project Space returns no
+credential or private key, and this command does not change SSH, Tailscale, or
+machine configuration.
+
 ## Create A Project
 
 ```sh

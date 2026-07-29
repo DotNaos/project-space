@@ -492,6 +492,60 @@
             "commands": []
           },
           {
+            "path": "project codex list",
+            "name": "list",
+            "usage": "list",
+            "short": "List account Codex tasks across known physical machines",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "archived",
+                "type": "bool",
+                "description": "include archived tasks",
+                "inherited": false
+              },
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for list",
+                "inherited": false
+              },
+              {
+                "name": "machine",
+                "type": "string",
+                "description": "exact physical machine name",
+                "inherited": false
+              },
+              {
+                "name": "machine-id",
+                "type": "string",
+                "description": "exact physical machine ID",
+                "inherited": false
+              },
+              {
+                "name": "search",
+                "type": "string",
+                "description": "search titles and project context",
+                "inherited": false
+              },
+              {
+                "name": "state",
+                "type": "stringSlice",
+                "description": "task state filter (repeatable)",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
             "path": "project codex login",
             "name": "login",
             "usage": "login",
@@ -1795,6 +1849,115 @@
           }
         ],
         "commands": []
+      },
+      {
+        "path": "project machine",
+        "name": "machine",
+        "usage": "machine",
+        "short": "Discover physical machines and open SSH sessions",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for machine",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project machine list",
+            "name": "list",
+            "usage": "list",
+            "short": "List account machines and their independent readiness signals",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for list",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project machine ssh",
+            "name": "ssh",
+            "usage": "ssh",
+            "short": "Open an interactive SSH terminal to a reachable physical machine",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for ssh",
+                "inherited": false
+              },
+              {
+                "name": "machine",
+                "type": "string",
+                "description": "exact physical machine name",
+                "inherited": false
+              },
+              {
+                "name": "machine-id",
+                "type": "string",
+                "description": "exact physical machine ID",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project machine status",
+            "name": "status",
+            "usage": "status",
+            "short": "Show evidence for one physical machine",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for status",
+                "inherited": false
+              },
+              {
+                "name": "machine",
+                "type": "string",
+                "description": "exact physical machine name",
+                "inherited": false
+              },
+              {
+                "name": "machine-id",
+                "type": "string",
+                "description": "exact physical machine ID",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
       },
       {
         "path": "project module",

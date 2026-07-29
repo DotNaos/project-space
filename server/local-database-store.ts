@@ -4,7 +4,10 @@ import pg from 'pg';
 
 import type { DatabaseQueryClient } from './database/client';
 import { runDatabaseMigrations } from './database/migrations';
-import type { TransactionalDatabaseQueryClient } from './machine-connection-database-store';
+import {
+  DatabaseMachineConnectionStore,
+  type TransactionalDatabaseQueryClient
+} from './machine-connection-database-store';
 import { PostgresProjectChatRepository } from './project-chat/postgres-store';
 import { PostgresRoadmapPlanStore, type RoadmapPlanStore } from './roadmap/roadmap-store';
 import { ConnectorMachineSnapshotStore } from './connector-machine-snapshot-store';
@@ -370,6 +373,13 @@ export async function readMachineMembership(input: MachineMembershipKey) {
 
 export async function listMachineMemberships(userId: string) {
   return (await getDatabaseRepository()).listMachineMemberships(userId);
+}
+
+export async function listAuthorizedMachineIdentities(userId: string) {
+  const store = new DatabaseMachineConnectionStore(
+    await getMachineConnectionDatabaseClient()
+  );
+  return store.listAuthorizedMachines(userId);
 }
 
 export async function readProjectRunSettings(input: ProjectRunSettingsKey) {

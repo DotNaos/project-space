@@ -41,6 +41,7 @@ project
 | [`help`](#project-help) | - | Help about any command |
 | [`init`](#project-init) | - | Initialize a project template lock |
 | [`list`](#project-list) | - | List account projects and local availability |
+| [`machine`](#project-machine) | - | Discover physical machines and open SSH sessions |
 | [`module`](#project-module) | - | Manage project template modules |
 | [`open`](#project-open) | - | Open a local project in the system's selected terminal |
 | [`path`](#project-path) | - | Print a project's canonical local path |
@@ -268,6 +269,24 @@ project codex attach
 | `--machine-id` | `string` | local | exact physical machine ID |
 | `--operation-id` | `string` | local | stable idempotency key for safe retries |
 | `--thread` | `string` | local | persistent Codex thread ID |
+
+<h3 id="project-codex-list" className="scroll-m-28"><code>project codex list</code></h3>
+
+List account Codex tasks across known physical machines
+
+```sh
+project codex list
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--archived` | `bool` | local | include archived tasks |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for list |
+| `--machine` | `string` | local | exact physical machine name |
+| `--machine-id` | `string` | local | exact physical machine ID |
+| `--search` | `string` | local | search titles and project context |
+| `--state` | `stringSlice` | local | task state filter (repeatable) |
 
 <h3 id="project-codex-login" className="scroll-m-28"><code>project codex login</code></h3>
 
@@ -765,6 +784,60 @@ project list
 | --- | --- | --- | --- |
 | `--format` | `string` | local | output format: text or json |
 | `-h`, `--help` | `bool` | local | help for list |
+
+<h3 id="project-machine" className="scroll-m-28"><code>project machine</code></h3>
+
+Discover physical machines and open SSH sessions
+
+```sh
+project machine
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for machine |
+
+<h3 id="project-machine-list" className="scroll-m-28"><code>project machine list</code></h3>
+
+List account machines and their independent readiness signals
+
+```sh
+project machine list
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for list |
+
+<h3 id="project-machine-ssh" className="scroll-m-28"><code>project machine ssh</code></h3>
+
+Open an interactive SSH terminal to a reachable physical machine
+
+```sh
+project machine ssh
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for ssh |
+| `--machine` | `string` | local | exact physical machine name |
+| `--machine-id` | `string` | local | exact physical machine ID |
+
+<h3 id="project-machine-status" className="scroll-m-28"><code>project machine status</code></h3>
+
+Show evidence for one physical machine
+
+```sh
+project machine status
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for status |
+| `--machine` | `string` | local | exact physical machine name |
+| `--machine-id` | `string` | local | exact physical machine ID |
 
 <h3 id="project-module" className="scroll-m-28"><code>project module</code></h3>
 

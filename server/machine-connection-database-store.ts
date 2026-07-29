@@ -6,6 +6,7 @@ import {
   machineConnectorProfile,
   sameMachineConnectorProfile,
   type MachineConnectionStore,
+  type AuthorizedMachineIdentity,
   type MachineConnectRequestRecord,
   type MachineConnectRequestStatus,
   type MachineCredentialMutationResult,
@@ -188,6 +189,21 @@ function mapIdentity(row: IdentityRow, credentialHash: string): MachineIdentityR
     ownerUserId: requiredString(row.owner_user_id, "owner_user_id"),
     publicKey: requiredString(row.public_key, "public_key"),
     revokedAt: optionalTimestamp(row.revoked_at, "revoked_at"),
+  };
+}
+
+function mapAuthorizedIdentity(row: IdentityRow): AuthorizedMachineIdentity {
+  return {
+    architecture: enumValue(row.architecture, architectures, "architecture"),
+    hostname: requiredString(row.hostname, "hostname"),
+    id: requiredString(row.id, "id"),
+    lastSeenAt: optionalTimestamp(row.last_seen_at, "last_seen_at"),
+    name: requiredString(row.name, "name"),
+    operatingSystem: enumValue(
+      row.operating_system,
+      operatingSystems,
+      "operating_system",
+    ),
   };
 }
 
@@ -538,6 +554,21 @@ export class DatabaseMachineConnectionStore implements MachineConnectionStore {
         status: existing ? ("rotated" as const) : ("created" as const),
       };
     });
+  }
+
+  async listAuthorizedMachines(userId: string): Promise<AuthorizedMachineIdentity[]> {
+    const client = await this.resolveClient();
+    const result = await client.query<IdentityRow>(
+      `select ${qualifiedIdentityColumns}
+         from machine_identities mi
+         join machine_memberships membership
+           on membership.machine_id = mi.id
+          and membership.user_id = $1
+        where mi.revoked_at is null
+        order by lower(mi.hostname), mi.id`,
+      [requiredString(userId, "user_id")],
+    );
+    return result.rows.map(mapAuthorizedIdentity);
   }
 
   async getMachine(id: string) {

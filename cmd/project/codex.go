@@ -45,6 +45,7 @@ func newCodexCommandWithDependencies(dependencies codexCommandDependencies) *cob
 		Short: "Start, inspect, continue, or attach to persistent Codex tasks",
 	}
 	command.AddCommand(newCodexStartCommand(dependencies))
+	command.AddCommand(newCodexListCommand(dependencies.Directory))
 	command.AddCommand(newCodexLoginCommand(dependencies))
 	command.AddCommand(newCodexReadCommand(dependencies))
 	command.AddCommand(newCodexSendCommand(dependencies))
@@ -116,6 +117,7 @@ func newCodexStartCommand(dependencies codexCommandDependencies) *cobra.Command 
 	command.Flags().StringVar(&operationID, "operation-id", "", "stable idempotency key for safe retries")
 	command.Flags().StringVar(&format, "format", "text", "output format: text or json")
 	addCodexTargetFlags(command, &target, true)
+	registerDirectoryCompletions(command, dependencies.Directory, nil)
 	return command
 }
 
@@ -154,6 +156,7 @@ func newCodexReadCommand(dependencies codexCommandDependencies) *cobra.Command {
 	command.Flags().IntVar(&last, "last", 0, "return only the last N turns")
 	command.Flags().StringVar(&format, "format", "json", "output format: json")
 	addCodexTargetFlags(command, &target, false)
+	registerDirectoryCompletions(command, dependencies.Directory, &target)
 	return command
 }
 
@@ -224,6 +227,7 @@ func newCodexSendCommand(dependencies codexCommandDependencies) *cobra.Command {
 	command.Flags().StringVar(&operationID, "operation-id", "", "stable idempotency key for safe retries")
 	command.Flags().StringVar(&format, "format", "json", "output format: json or ndjson")
 	addCodexTargetFlags(command, &target, false)
+	registerDirectoryCompletions(command, dependencies.Directory, &target)
 	return command
 }
 
