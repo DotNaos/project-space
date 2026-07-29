@@ -17,6 +17,10 @@ COPY package.json ./
 COPY apps/mobile/package.json apps/mobile/pnpm-lock.yaml ./apps/mobile/
 RUN pnpm --dir apps/mobile --ignore-workspace install --frozen-lockfile --ignore-scripts
 COPY apps/mobile ./apps/mobile
+COPY src ./src
+COPY config ./config
+COPY apps/docs/content/docs/changelog/entries.json \
+  ./apps/docs/content/docs/changelog/entries.json
 RUN pnpm --dir apps/mobile run build:prototype
 
 FROM oven/bun:1 AS build
