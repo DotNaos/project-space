@@ -221,12 +221,24 @@ function safeBaseUrl(value = '') {
   }
   const host = url.hostname.toLowerCase();
   const loopback = host === 'localhost' || host.endsWith('.localhost') || host === '127.0.0.1' || host === '[::1]' || host === '::1';
-  if (url.protocol === 'http:' && !loopback) {
-    throw new Error('Codex sessions requires HTTPS for non-local servers.');
+  if (url.protocol === 'http:' && !loopback && !isTailscaleHost(host)) {
+    throw new Error('Codex sessions requires HTTPS outside local or Tailscale servers.');
   }
   url.hash = '';
   url.search = '';
   return url.toString().replace(/\/+$/, '');
+}
+
+function isTailscaleHost(hostname: string) {
+  if (hostname.endsWith('.ts.net')) return true;
+  const parts = hostname.split('.').map(Number);
+  return (
+    parts.length === 4 &&
+    parts.every((part) => Number.isInteger(part) && part >= 0 && part <= 255) &&
+    parts[0] === 100 &&
+    parts[1]! >= 64 &&
+    parts[1]! <= 127
+  );
 }
 
 function cleanAuthToken(value: string | null | undefined) {

@@ -104,14 +104,16 @@ describe('prototype review local runtime', () => {
     }
   });
 
-  test('keeps the changelog checkout available when no Codex task is exported', async () => {
+  test('derives the exact Codex task from the ready Project worktree claim', async () => {
     const runtime = await createRuntime({ environment: {} });
     try {
       const context = await runtime.readContext('DotNaos/project-space', 356);
       expect(context.checkout.state).toBe('available');
       expect(context.codex).toEqual({
-        reason: 'missing-thread',
-        state: 'unavailable'
+        machineId: 'os-macbook',
+        machineName: 'MacBook',
+        state: 'available',
+        threadId
       });
     } finally {
       await runtime.close();
@@ -176,7 +178,7 @@ describe('prototype review local runtime', () => {
         .toBe('available');
       expect((await runtime.readContext('DotNaos/project-space', 356)).codex.state)
         .toBe('available');
-      expect(reads).toBe(2);
+      expect(reads).toBe(3);
     } finally {
       await runtime.close();
     }

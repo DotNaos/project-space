@@ -11,6 +11,7 @@ import { prototypeDeviceOverlayLayout } from '../../../../src/shared/prototype-d
 import {
   PROTOTYPE_VIEWPORTS,
   prototypeDeviceScale,
+  prototypeFitScale,
   type PrototypeOrientation,
   type PrototypeViewport,
 } from './prototype-state';
@@ -26,6 +27,8 @@ export function PrototypeDeviceCanvas({
   fullscreen,
   isRotating = false,
   isSwitchingViewport = false,
+  fitToCanvas = false,
+  bottomInset = 0,
   orientation,
   showDeviceFrame,
   theme,
@@ -35,6 +38,8 @@ export function PrototypeDeviceCanvas({
   fullscreen: boolean;
   isRotating?: boolean;
   isSwitchingViewport?: boolean;
+  fitToCanvas?: boolean;
+  bottomInset?: number;
   orientation: PrototypeOrientation;
   showDeviceFrame: boolean;
   theme: 'dark' | 'light';
@@ -57,12 +62,17 @@ export function PrototypeDeviceCanvas({
     : overlay.screenHeight;
   const canvasInset = fullscreen ? 0 : 32;
   const availableWidth = Math.max(1, canvasSize.width - canvasInset);
-  const availableHeight = Math.max(1, canvasSize.height - canvasInset);
-  const scale = fullscreen
-    ? Math.max(
-        definition.minimumScale,
-        Math.min(1, availableWidth / outerWidth, availableHeight / outerHeight)
-      )
+  const availableHeight = Math.max(
+    1,
+    canvasSize.height - canvasInset - bottomInset
+  );
+  const scale = fullscreen || fitToCanvas
+    ? prototypeFitScale({
+        availableHeight,
+        availableWidth,
+        frameHeight: outerHeight,
+        frameWidth: outerWidth,
+      })
     : prototypeDeviceScale({
         availableWidth,
         frameWidth: outerWidth,
@@ -81,16 +91,18 @@ export function PrototypeDeviceCanvas({
         theme === 'dark' ? 'bg-black' : 'bg-white'
       }`}
       onLayout={measureCanvas}
+      style={{ paddingBottom: bottomInset }}
     >
       <ScrollView
         className="min-h-0 flex-1"
+        scrollEnabled={!fitToCanvas}
         contentContainerStyle={{
           minHeight: fullscreen
             ? Math.max(canvasSize.height, scaledHeight)
             : Math.max(canvasSize.height, scaledHeight + 48),
         }}
         nestedScrollEnabled
-        showsVerticalScrollIndicator
+        showsVerticalScrollIndicator={!fitToCanvas}
       >
         <ScrollView
           contentContainerStyle={{
@@ -99,16 +111,19 @@ export function PrototypeDeviceCanvas({
             minHeight: fullscreen
               ? Math.max(canvasSize.height, scaledHeight)
               : Math.max(canvasSize.height, scaledHeight + 48),
-            minWidth: Math.max(
-              canvasSize.width,
-              scaledWidth + (fullscreen ? 0 : 32)
-            ),
+            minWidth: fitToCanvas
+              ? Math.max(1, canvasSize.width)
+              : Math.max(
+                  canvasSize.width,
+                  scaledWidth + (fullscreen ? 0 : 32)
+                ),
             paddingHorizontal: fullscreen ? 0 : 16,
             paddingVertical: fullscreen ? 0 : 24,
           }}
           horizontal
           nestedScrollEnabled
-          showsHorizontalScrollIndicator
+          scrollEnabled={!fitToCanvas}
+          showsHorizontalScrollIndicator={!fitToCanvas}
         >
           <View
             style={{
@@ -120,7 +135,7 @@ export function PrototypeDeviceCanvas({
                 : 'height, opacity, width',
               transitionTimingFunction: 'ease-out',
               width: scaledWidth,
-            }}
+            } as never}
           >
             <View
               accessibilityLabel={`${definition.label} ${
@@ -135,7 +150,7 @@ export function PrototypeDeviceCanvas({
                 transitionTimingFunction:
                   'cubic-bezier(0.4, 0, 0.2, 1)',
                 width: outerWidth,
-              }}
+              } as never}
             >
               <View
                 className="bg-transparent"
@@ -146,7 +161,7 @@ export function PrototypeDeviceCanvas({
                   transitionTimingFunction:
                     'cubic-bezier(0.4, 0, 0.2, 1)',
                   width: overlay.outerWidth,
-                }}
+                } as never}
               >
                 <View
                   className="absolute overflow-hidden"
@@ -179,7 +194,7 @@ export function PrototypeDeviceCanvas({
                     transitionTimingFunction:
                       'cubic-bezier(0.4, 0, 0.2, 1)',
                     width: overlay.screenWidth,
-                  }}
+                  } as never}
                 >
                   <View
                     className="min-h-0 flex-1 bg-background"
@@ -188,7 +203,7 @@ export function PrototypeDeviceCanvas({
                       transitionDuration: isRotating ? '80ms' : '140ms',
                       transitionProperty: 'opacity',
                       transitionTimingFunction: 'ease-out',
-                    }}
+                    } as never}
                   >
                     {children}
                   </View>
@@ -201,7 +216,6 @@ export function PrototypeDeviceCanvas({
                     height: overlay.overlayHeight,
                     left: (overlay.outerWidth - overlay.overlayWidth) / 2,
                     opacity: renderDeviceFrame ? 1 : 0,
-                    pointerEvents: 'none',
                     position: 'absolute',
                     top: (overlay.outerHeight - overlay.overlayHeight) / 2,
                     transform: [
@@ -214,7 +228,7 @@ export function PrototypeDeviceCanvas({
                     transitionTimingFunction:
                       'cubic-bezier(0.4, 0, 0.2, 1)',
                     width: overlay.overlayWidth,
-                  }}
+                  } as never}
                 />
               </View>
             </View>
