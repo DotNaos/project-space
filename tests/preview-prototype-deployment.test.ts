@@ -13,7 +13,7 @@ describe('trusted PR prototype deployment', () => {
     expect(dockerfile).toContain("grep -Eq '^[0-9a-f]{40}$'");
     expect(dockerfile).toContain('--base /prototype/desktop/');
     expect(dockerfile).toContain('/workspace/apps/prototype/dist');
-    expect(dockerfile).toContain('npm run build:prototype');
+    expect(dockerfile).toContain('bun run build:prototype');
     expect(dockerfile).toContain('/workspace/apps/mobile/dist-prototype');
     expect(dockerfile).toContain(
       '"surfaces":["mobile-prototype","desktop-prototype"]'
