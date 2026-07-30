@@ -6,6 +6,7 @@ import type {
 import {
   filterIssues,
   groupIssuesByColumn,
+  normalizeHiddenIssueColumns,
   normalizeIssueColumnOrder,
   resolveIssueColumn,
   topIssueLabels
@@ -71,6 +72,20 @@ describe('issue board model', () => {
       'backlog',
       'in-progress'
     ]);
+  });
+
+  test('keeps a current column visible when migrating hidden legacy columns', () => {
+    expect(
+      Array.from(
+        normalizeHiddenIssueColumns([
+          'backlog',
+          'in-progress',
+          'closed',
+          'ready',
+          'blocked'
+        ])
+      )
+    ).toEqual(['in-progress', 'closed']);
   });
 
   test('shares query and label filtering across list and board presentations', () => {

@@ -135,6 +135,20 @@ export function orderedIssueColumns(order: IssueColumnId[]) {
 
 const hiddenColumnsStorageKey = 'project-space:issue-board-hidden-columns:v1';
 
+export function normalizeHiddenIssueColumns(values: unknown[]) {
+  const hidden = new Set(
+    values.filter(
+      (value): value is IssueColumnId => typeof value === 'string' && columnIds.has(value)
+    )
+  );
+
+  if (hidden.size >= issueColumns.length) {
+    hidden.delete(issueColumns[0].id);
+  }
+
+  return hidden;
+}
+
 export function loadHiddenIssueColumns(): Set<IssueColumnId> {
   try {
     const raw = window.localStorage.getItem(hiddenColumnsStorageKey);
@@ -144,11 +158,7 @@ export function loadHiddenIssueColumns(): Set<IssueColumnId> {
       return new Set();
     }
 
-    return new Set(
-      parsed.filter(
-        (value): value is IssueColumnId => typeof value === 'string' && columnIds.has(value)
-      )
-    );
+    return normalizeHiddenIssueColumns(parsed);
   } catch {
     return new Set();
   }
@@ -156,7 +166,10 @@ export function loadHiddenIssueColumns(): Set<IssueColumnId> {
 
 export function saveHiddenIssueColumns(hidden: ReadonlySet<IssueColumnId>) {
   try {
-    window.localStorage.setItem(hiddenColumnsStorageKey, JSON.stringify(Array.from(hidden)));
+    window.localStorage.setItem(
+      hiddenColumnsStorageKey,
+      JSON.stringify(Array.from(normalizeHiddenIssueColumns(Array.from(hidden))))
+    );
   } catch {
     // Persisting the column setup is best-effort.
   }
