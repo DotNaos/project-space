@@ -55,6 +55,9 @@ export interface CodexMachineTaskIdentity extends CodexMachineTaskTarget {
 export interface CodexMachineTaskStartRequest {
   connectorId?: string;
   dryRun?: boolean;
+  expectedBranch?: string;
+  expectedCommit?: string;
+  expectedPullRequestNumber?: number;
   issue: number;
   operationId: string;
   physicalMachineId?: string;

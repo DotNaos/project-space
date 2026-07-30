@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   NATIVE_PROTOTYPE_STATE_OPTIONS,
+  nativePrototypeIdentityFromUrl,
   nativePrototypeCapabilities,
   nativePrototypePrimaryAction,
   nativePrototypeScenarioState,
@@ -68,5 +69,35 @@ describe('native prototype launch state', () => {
     expect(shortNativePrototypeSha('646d44c1aca7a60a08be2d4a53658950b4da595b')).toBe(
       '646d44c'
     );
+  });
+
+  test('loads exact identity from the Expo or web launch URL', () => {
+    const identity = nativePrototypeIdentityFromUrl(
+      `projectspace://prototype?repository=DotNaos%2Fproject-space&pr=382` +
+      `&issue=381&project=project-space&head=${'a'.repeat(40)}` +
+      '&surface=native&branch=issue-381&machine=os-mac' +
+      '&thread=019fae8d-1eae-7282-9278-b57771a9c877&worktree=issue-381'
+    );
+    expect(identity).toEqual({
+      branchName: 'issue-381',
+      headSha: 'a'.repeat(40),
+      issueNumber: 381,
+      machineId: 'os-mac',
+      projectId: 'project-space',
+      pullRequestNumber: 382,
+      repositoryFullName: 'DotNaos/project-space',
+      surface: 'mobile-prototype',
+      threadId: '019fae8d-1eae-7282-9278-b57771a9c877',
+      worktreeId: 'issue-381',
+    });
+  });
+
+  test('fails closed when native launch identity is incomplete or targets web', () => {
+    expect(nativePrototypeIdentityFromUrl('projectspace://prototype?pr=382'))
+      .toBeUndefined();
+    expect(nativePrototypeIdentityFromUrl(
+      `projectspace://prototype?repository=DotNaos%2Fproject-space&pr=382` +
+      `&project=project-space&head=${'a'.repeat(40)}&surface=web`
+    )).toBeUndefined();
   });
 });

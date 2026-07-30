@@ -33,6 +33,7 @@ import { IssuePullRequestChip } from './issue-branch-menu';
 import { connectorLocationPresentation } from './machine-connector-topology-model';
 import { issueDevelopmentPullRequest } from './pull-request-preview-model';
 import { PullRequestPreviewStatusView } from './pull-request-preview-status';
+import { PullRequestPrototypeAction } from './pull-request-prototype-action';
 
 interface IssueDevelopmentSessionProps {
   branches: GitHubBranchRecord[];
@@ -89,6 +90,7 @@ export function IssueDevelopmentSession({
   const [pullRequestError, setPullRequestError] = useState('');
   const [busyMachineId, setBusyMachineId] = useState('');
   const [machineMessage, setMachineMessage] = useState('');
+  const [prototypeMachineId, setPrototypeMachineId] = useState('');
 
   useEffect(() => {
     setBranchName(suggestedBranch);
@@ -119,6 +121,13 @@ export function IssueDevelopmentSession({
     () => getIssueMachineRows({ connectorOverview, project, projects, repoFullName }),
     [connectorOverview, project, projects, repoFullName]
   );
+  const prototypeMachineRows = useMemo(
+    () => machineRows.filter((row) => canRunMachineCommand(row.machine)),
+    [machineRows]
+  );
+  const prototypeMachine = prototypeMachineRows.find(
+    (row) => row.machineId === prototypeMachineId
+  ) ?? prototypeMachineRows[0];
   const preview = usePullRequestPreviewStatus({
     enabled: Boolean(repoFullName && selectedPullRequest),
     pullRequestNumber: selectedPullRequest?.number,
@@ -127,6 +136,16 @@ export function IssueDevelopmentSession({
   const repositoryCloneUrl = cloneUrl(repoFullName, repoUrl);
   const repositoryName = repositoryNameFromProject(project, repoFullName);
   const fallbackRelativePath = relativeClonePath(targetPath || project.rootPath, repositoryName);
+
+  useEffect(() => {
+    if (
+      prototypeMachineId &&
+      prototypeMachineRows.some((row) => row.machineId === prototypeMachineId)
+    ) {
+      return;
+    }
+    setPrototypeMachineId(prototypeMachineRows[0]?.machineId ?? '');
+  }, [prototypeMachineId, prototypeMachineRows]);
 
   async function createBranch(branchNameOverride?: string) {
     if (!repoFullName) {
@@ -285,7 +304,45 @@ export function IssueDevelopmentSession({
         </div>
 
         <div className="grid gap-2 rounded-lg border border-neutral-800 bg-black/20 p-2">
-          <StepHeading number={4} title="Start development" />
+          <StepHeading
+            complete={preview.inventory.state === 'ready'}
+            number={4}
+            title="Prototype"
+          />
+          {prototypeMachineRows.length > 1 ? (
+            <div className="flex min-w-0 flex-wrap gap-1">
+              {prototypeMachineRows.map((row) => (
+                <Button
+                  key={row.machineId}
+                  size="sm"
+                  variant={prototypeMachine?.machineId === row.machineId
+                    ? 'secondary'
+                    : 'ghost'}
+                  onPress={() => setPrototypeMachineId(row.machineId)}
+                >
+                  <Monitor className="size-3.5" />
+                  {row.machine?.name ?? row.machineId}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+          {selectedPullRequest && repoFullName ? (
+            <PullRequestPrototypeAction
+              connectorId={prototypeMachine?.machineId}
+              issueNumber={issue.number}
+              projectId={project.id}
+              pullRequest={selectedPullRequest}
+              repositoryFullName={repoFullName}
+            />
+          ) : (
+            <Text className="text-xs text-neutral-500">
+              Link a pull request before starting its prototype.
+            </Text>
+          )}
+        </div>
+
+        <div className="grid gap-2 rounded-lg border border-neutral-800 bg-black/20 p-2">
+          <StepHeading number={5} title="Start development" />
           {machineRows.length ? <div className="grid gap-1">{machineRows.map((row) => {
             const hasCheckout = Boolean(row.project);
             const location = row.machine ? connectorLocationPresentation({ connector: row.machine, physicalMachines: connectorOverview.physicalMachines ?? [] }) : undefined;
@@ -300,7 +357,7 @@ export function IssueDevelopmentSession({
         </div>
 
         <div className="grid gap-2 rounded-lg border border-neutral-800 bg-black/20 p-2">
-          <StepHeading number={5} title="Run tests" />
+          <StepHeading number={6} title="Run tests" />
           <Button variant="ghost" isDisabled><Play className="size-4" />Run tests</Button>
         </div>
       </div>

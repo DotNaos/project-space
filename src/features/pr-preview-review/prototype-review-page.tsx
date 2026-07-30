@@ -256,7 +256,14 @@ export function PrototypeReviewPage() {
     ? candidateTarget
     : undefined;
   const targetUrl = target
-    ? embeddedPrototypeUrl(target, initial.scenario, viewport, orientation, theme)
+    ? embeddedPrototypeUrl(
+        target,
+        initial.scenario,
+        viewport,
+        orientation,
+        theme,
+        launchIdentity
+      )
     : undefined;
   const localContextResult = usePrototypeReviewLocalContext({
     enabled: import.meta.env.DEV && target?.source === 'development-override',

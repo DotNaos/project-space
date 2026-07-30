@@ -71,6 +71,9 @@ describe('Codex machine-task HTTP boundary', () => {
     const origin = await startApi(stub);
     const response = await fetch(`${origin}/api/codex/tasks/start`, mutation('start-262', {
       connectorId: 'connector-wsl',
+      expectedBranch: 'issue-262-machine-task-core',
+      expectedCommit: 'a'.repeat(40),
+      expectedPullRequestNumber: 381,
       issue: 262,
       physicalMachineId: 'physical-pc',
       repositoryId: 'R_repo'
@@ -81,6 +84,9 @@ describe('Codex machine-task HTTP boundary', () => {
       request: {
         connectorId: 'connector-wsl',
         dryRun: false,
+        expectedBranch: 'issue-262-machine-task-core',
+        expectedCommit: 'a'.repeat(40),
+        expectedPullRequestNumber: 381,
         issue: 262,
         operationId: 'start-262',
         physicalMachineId: 'physical-pc',
@@ -105,6 +111,9 @@ describe('Codex machine-task HTTP boundary', () => {
       request: {
         connectorId: undefined,
         dryRun: false,
+        expectedBranch: undefined,
+        expectedCommit: undefined,
+        expectedPullRequestNumber: undefined,
         issue: 262,
         operationId: 'start-by-name',
         physicalMachineId: undefined,

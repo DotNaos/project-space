@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { Button, Chip, Spinner, useThemeColor } from 'heroui-native';
 import ArrowLeft from 'lucide-react-native/icons/arrow-left';
@@ -18,9 +18,12 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { PrototypeLaunchState } from '../../../../src/shared/prototype-launch';
 import {
-  NATIVE_PROTOTYPE_MOCK_IDENTITY,
+  prototypeIdentityLinks,
+  type PrototypeLaunchIdentity,
+  type PrototypeLaunchState,
+} from '../../../../src/shared/prototype-launch';
+import {
   NATIVE_PROTOTYPE_STATE_OPTIONS,
   nativePrototypeCapabilities,
   nativePrototypePrimaryAction,
@@ -31,7 +34,9 @@ import {
 } from './prototype-launch-native-state';
 
 interface PrototypeLaunchScreenProps {
+  identity?: PrototypeLaunchIdentity;
   initialState?: PrototypeLaunchState;
+  onOpenLink?(href: string): void;
 }
 
 type IconComponent = typeof CircleDot;
@@ -73,11 +78,13 @@ function IdentityRow({
 
 function NavigationButton({
   active,
+  disabled,
   icon: Icon,
   label,
   onPress,
 }: {
   active?: boolean;
+  disabled?: boolean;
   icon: IconComponent;
   label: string;
   onPress(): void;
@@ -87,6 +94,7 @@ function NavigationButton({
     <Button
       accessibilityLabel={`Open ${label}`}
       className="min-w-0 basis-[47%] grow"
+      isDisabled={disabled}
       size="sm"
       variant={active ? 'primary' : 'secondary'}
       onPress={onPress}
@@ -101,9 +109,11 @@ function NavigationButton({
 
 function ContextHeader({
   context,
+  identity,
   onBack,
 }: {
   context: NativePrototypeContext;
+  identity?: PrototypeLaunchIdentity;
   onBack(): void;
 }) {
   const accent = useThemeColor('accent');
@@ -113,7 +123,7 @@ function ContextHeader({
     return (
       <>
         <Text className="text-xs font-semibold uppercase tracking-[1.4px] text-muted">
-          {NATIVE_PROTOTYPE_MOCK_IDENTITY.repositoryFullName}
+          {identity?.repositoryFullName ?? 'Prototype identity unavailable'}
         </Text>
         <View className="mt-3 flex-row items-center gap-2">
           {context === 'issue' ? (
@@ -123,8 +133,12 @@ function ContextHeader({
           )}
           <Text className="min-w-0 flex-1 text-sm font-semibold text-foreground">
             {context === 'issue'
-              ? `Issue #${NATIVE_PROTOTYPE_MOCK_IDENTITY.issueNumber}`
-              : `Pull request #${NATIVE_PROTOTYPE_MOCK_IDENTITY.pullRequestNumber}`}
+              ? identity?.issueNumber
+                ? `Issue #${identity.issueNumber}`
+                : 'Issue unavailable'
+              : identity?.pullRequestNumber
+                ? `Pull request #${identity.pullRequestNumber}`
+                : 'Pull request unavailable'}
           </Text>
         </View>
         <Text className="mt-3 text-[26px] font-semibold leading-8 text-foreground">
@@ -157,27 +171,30 @@ function ContextHeader({
 }
 
 export function PrototypeLaunchScreen({
+  identity,
   initialState = 'ready',
+  onOpenLink,
 }: PrototypeLaunchScreenProps) {
   const safeArea = useSafeAreaInsets();
   const [context, setContext] = useState<NativePrototypeContext>('issue');
   const [launchState, setLaunchState] =
-    useState<PrototypeLaunchState>(initialState);
+    useState<PrototypeLaunchState>(identity ? initialState : 'unavailable');
   const [surfaceMode, setSurfaceMode] =
     useState<NativePrototypeSurfaceMode>('local');
   const [notice, setNotice] = useState(
     'Exact repository, pull request, and head are linked.'
-  );
-  const readyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined
   );
   const capabilities = useMemo(
     () => nativePrototypeCapabilities(surfaceMode),
     [surfaceMode]
   );
   const primaryAction = nativePrototypePrimaryAction(launchState);
-  const shortSha = shortNativePrototypeSha(
-    NATIVE_PROTOTYPE_MOCK_IDENTITY.headSha
+  const shortSha = identity
+    ? shortNativePrototypeSha(identity.headSha)
+    : 'unverified';
+  const links = useMemo(
+    () => identity ? prototypeIdentityLinks(identity) : undefined,
+    [identity]
   );
   const foreground = useThemeColor('foreground');
   const accentForeground = useThemeColor('accent-foreground');
@@ -188,35 +205,34 @@ export function PrototypeLaunchScreen({
       setNotice(`Opened the verified Expo Go surface at ${shortSha}.`);
       return;
     }
-    setLaunchState('starting');
-    setNotice(`Starting the selected machine at exact head ${shortSha}…`);
-    if (readyTimer.current !== undefined) clearTimeout(readyTimer.current);
-    readyTimer.current = setTimeout(() => {
-      setLaunchState('ready');
-      setNotice(`Prototype is ready and verified at ${shortSha}.`);
-      readyTimer.current = undefined;
-    }, 900);
+    if (links?.issue && onOpenLink) {
+      onOpenLink(links.issue);
+      setNotice(`Opened the trusted Project Space start flow at ${shortSha}.`);
+      return;
+    }
+    setNotice('A verified issue identity is required before starting a prototype.');
   };
 
-  useEffect(
-    () => () => {
-      if (readyTimer.current !== undefined) clearTimeout(readyTimer.current);
-    },
-    []
-  );
+  useEffect(() => {
+    setLaunchState(identity ? initialState : 'unavailable');
+    setNotice(identity
+      ? 'Exact repository, pull request, and head are linked.'
+      : 'The launch URL does not contain a complete prototype identity.');
+  }, [identity, initialState]);
 
   const chooseState = (state: PrototypeLaunchState) => {
-    if (readyTimer.current !== undefined) clearTimeout(readyTimer.current);
-    readyTimer.current = undefined;
+    if (!identity) return;
     setLaunchState(state);
     setNotice(nativePrototypeStateDescription(state));
   };
 
   const navigate = (
     nextContext: NativePrototypeContext,
-    destination: string
+    destination: string,
+    href?: string
   ) => {
     setContext(nextContext);
+    if (href && onOpenLink) onOpenLink(href);
     setNotice(`Opened the exact ${destination} context.`);
   };
 
@@ -233,7 +249,8 @@ export function PrototypeLaunchScreen({
       >
         <ContextHeader
           context={context}
-          onBack={() => navigate('issue', 'issue')}
+          identity={identity}
+          onBack={() => navigate('issue', 'issue', links?.issue)}
         />
 
         <View className="mt-5 flex-row flex-wrap gap-2">
@@ -332,30 +349,30 @@ export function PrototypeLaunchScreen({
         <View className="mt-5 rounded-[20px] bg-surface-secondary px-4 py-1">
           <IdentityRow
             label="Repository"
-            value={NATIVE_PROTOTYPE_MOCK_IDENTITY.repositoryFullName}
+            value={identity?.repositoryFullName ?? 'Unavailable'}
           />
           <IdentityRow
             label="Issue / pull request"
-            value={`#${NATIVE_PROTOTYPE_MOCK_IDENTITY.issueNumber} / #${NATIVE_PROTOTYPE_MOCK_IDENTITY.pullRequestNumber}`}
+            value={`${identity?.issueNumber ? `#${identity.issueNumber}` : 'Unavailable'} / #${identity?.pullRequestNumber ?? 'Unavailable'}`}
           />
           <IdentityRow
             label="Exact head"
-            value={`${shortSha} · ${NATIVE_PROTOTYPE_MOCK_IDENTITY.branchName}`}
+            value={`${shortSha} · ${identity?.branchName ?? 'branch unavailable'}`}
           />
           <IdentityRow
             label="Task / worktree"
-            value={`#381 task · ${NATIVE_PROTOTYPE_MOCK_IDENTITY.worktreeId}`}
+            value={`${identity?.threadId ?? 'Task unavailable'} · ${identity?.worktreeId ?? 'Worktree unavailable'}`}
           />
           <IdentityRow
             label="Machine / surface"
-            value={`${NATIVE_PROTOTYPE_MOCK_IDENTITY.machineId} · Expo Go`}
+            value={`${identity?.machineId ?? 'Machine unavailable'} · Expo Go`}
           />
         </View>
 
         <View className="mt-5">
           <Button
             accessibilityLabel={primaryAction.label}
-            isDisabled={primaryAction.disabled}
+            isDisabled={primaryAction.disabled || !identity}
             variant="primary"
             onPress={startPrototype}
           >
@@ -387,30 +404,46 @@ export function PrototypeLaunchScreen({
           <View className="mt-3 flex-row flex-wrap gap-2">
             <NavigationButton
               active={context === 'issue'}
+              disabled={!links?.issue}
               icon={CircleDot}
               label="Issue"
-              onPress={() => navigate('issue', 'issue')}
+              onPress={() => navigate('issue', 'issue', links?.issue)}
             />
             <NavigationButton
               active={context === 'pull-request'}
+              disabled={!links?.pullRequest}
               icon={GitPullRequest}
               label="Pull request"
-              onPress={() => navigate('pull-request', 'pull request')}
+              onPress={() =>
+                navigate('pull-request', 'pull request', links?.pullRequest)
+              }
             />
             <NavigationButton
               icon={Bot}
               label="Codex task"
-              onPress={() => setNotice('Opened the owning #381 Codex task.')}
+              disabled={!links?.task}
+              onPress={() => {
+                if (links?.task && onOpenLink) onOpenLink(links.task);
+                setNotice('Opened the exact owning Codex task.');
+              }}
             />
             <NavigationButton
               icon={FolderGit2}
               label="Worktree"
-              onPress={() => setNotice('Opened the Project-managed worktree.')}
+              disabled={!links?.worktree}
+              onPress={() => {
+                if (links?.worktree && onOpenLink) onOpenLink(links.worktree);
+                setNotice('Opened the exact Project-managed worktree.');
+              }}
             />
             <NavigationButton
               icon={Monitor}
               label="Machine"
-              onPress={() => setNotice('Opened os-mac-studio.')}
+              disabled={!links?.machine}
+              onPress={() => {
+                if (links?.machine && onOpenLink) onOpenLink(links.machine);
+                setNotice('Opened the exact running machine.');
+              }}
             />
             <NavigationButton
               active={context === 'prototype'}

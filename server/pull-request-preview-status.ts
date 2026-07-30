@@ -233,6 +233,7 @@ export function correlatePullRequestPreviews(
         ...preview,
         currentHeadSha: sha(pullRequest.headSha),
         headBranch: pullRequest.headBranch ?? preview.headBranch,
+        linkedIssueNumbers: pullRequest.linkedIssueNumbers,
         pullRequestState: pullRequest.state,
         pullRequestTitle: pullRequest.title,
         pullRequestUrl: pullRequestLink(

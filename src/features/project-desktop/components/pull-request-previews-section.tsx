@@ -15,6 +15,7 @@ function pullRequestEvidence(preview: PullRequestPreviewStatus): GitHubPullReque
   return {
     headBranch: preview.headBranch,
     headSha: preview.currentHeadSha,
+    linkedIssueNumbers: preview.linkedIssueNumbers,
     number: preview.pullRequestNumber,
     state: preview.pullRequestState ?? (preview.state === 'removed' ? 'closed' : 'open'),
     title: preview.pullRequestTitle ?? `Pull request #${preview.pullRequestNumber}`,

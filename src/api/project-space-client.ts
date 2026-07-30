@@ -87,6 +87,10 @@ import {
   refreshProjectSpaceAuthToken,
   setProjectSpaceAuthToken
 } from './project-space-client-auth';
+import type {
+  CodexMachineTaskStartRequest,
+  CodexMachineTaskStartResult
+} from '@/shared/codex-machine-tasks-api';
 import { GitHubProjectSpaceClient } from './project-space-client-github';
 import { resolveApiBaseUrl, resolveApiRequestUrl } from './project-space-client-http';
 
@@ -175,6 +179,16 @@ class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements Project
     return this.request<
       import('@/shared/pr-preview-test-surfaces-api').PullRequestTestSurfacesResult
     >(`/api/pull-request-previews/test-surfaces?${query.toString()}`);
+  }
+
+  startCodexMachineTask(
+    request: CodexMachineTaskStartRequest
+  ): Promise<CodexMachineTaskStartResult> {
+    return this.request('/api/codex/tasks/start', {
+      body: JSON.stringify(request),
+      headers: { 'Idempotency-Key': request.operationId },
+      method: 'POST'
+    });
   }
 
   sendPullRequestPrototypeFeedback(

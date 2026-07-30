@@ -116,5 +116,8 @@ describe('prototype launch contract', () => {
       threadId: undefined,
       worktreeId: undefined
     });
+    expect(parsePrototypeLaunchRouteIdentity(
+      '?repository=DotNaos/project-space%3Ftab%3Dsettings&pr=382'
+    ).repositoryFullName).toBeUndefined();
   });
 });

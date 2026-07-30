@@ -233,7 +233,9 @@ function cleanPositiveInteger(value: string | null) {
 
 function cleanRepository(value: string | null) {
   const trimmed = value?.trim();
-  return trimmed && /^[^/\s]+\/[^/\s]+$/.test(trimmed) ? trimmed : undefined;
+  return trimmed && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(trimmed)
+    ? trimmed
+    : undefined;
 }
 
 function cleanHeadSha(value: string | null) {

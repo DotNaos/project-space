@@ -8,6 +8,7 @@ import {
   prototypeFitScale,
   readPrototypePresentation,
   readMobilePrototypeLocation,
+  prototypeSearchFromUrl,
   webPrototypePath,
 } from './prototype-state.ts';
 
@@ -98,6 +99,20 @@ describe('mobile prototype state', () => {
       })
     ).toBe('?theme=dark');
     expect(readPrototypePresentation('', 'light').theme).toBe('light');
+  });
+
+  test('reads presentation state from Expo and web launch URLs', () => {
+    expect(
+      prototypeSearchFromUrl(
+        'exp://192.168.0.50:58484/?theme=dark&surface=native'
+      )
+    ).toBe('?theme=dark&surface=native');
+    expect(
+      prototypeSearchFromUrl(
+        'https://example.test/prototype/mobile/?theme=light'
+      )
+    ).toBe('?theme=light');
+    expect(prototypeSearchFromUrl('not a URL')).toBe('');
   });
 
   test('fits devices until their readable scale floor and rejects invalid input', () => {

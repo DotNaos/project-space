@@ -2,6 +2,7 @@ import type {
   PrototypeLaunchIdentity,
   PrototypeLaunchState,
 } from '../../../../src/shared/prototype-launch';
+import { parsePrototypeLaunchRouteIdentity } from '../../../../src/shared/prototype-launch';
 
 export type NativePrototypeContext = 'issue' | 'pull-request' | 'prototype';
 export type NativePrototypeSurfaceMode = 'deployed' | 'local';
@@ -18,21 +19,6 @@ export interface NativePrototypeCapabilities {
   hostAccess: boolean;
   readOnly: boolean;
 }
-
-export const NATIVE_PROTOTYPE_MOCK_IDENTITY: PrototypeLaunchIdentity = {
-  branchName:
-    'issue-381-start-and-navigate-issue-pr-prototypes-from-project-spac',
-  headSha: '646d44c1aca7a60a08be2d4a53658950b4da595b',
-  issueNumber: 381,
-  machineId: 'os-mac-studio',
-  projectId: 'project-space',
-  pullRequestNumber: 382,
-  repositoryFullName: 'DotNaos/project-space',
-  surface: 'mobile-prototype',
-  threadId: '019fae8d-1eae-7282-9278-b57771a9c877',
-  worktreeId:
-    'issue-381-start-and-navigate-issue-pr-prototypes-from-project-spac',
-};
 
 export const NATIVE_PROTOTYPE_STATE_OPTIONS: readonly NativePrototypeStateOption[] =
   [
@@ -133,4 +119,27 @@ export function nativePrototypeStateDescription(state: PrototypeLaunchState) {
 
 export function shortNativePrototypeSha(headSha: string) {
   return headSha.slice(0, 7);
+}
+
+export function nativePrototypeIdentityFromUrl(
+  value: string | undefined
+): PrototypeLaunchIdentity | undefined {
+  if (!value) return undefined;
+  let search: string;
+  try {
+    search = new URL(value, 'https://projects.os-home.net').search;
+  } catch {
+    return undefined;
+  }
+  const identity = parsePrototypeLaunchRouteIdentity(search);
+  if (
+    !identity.headSha ||
+    !identity.projectId ||
+    !identity.pullRequestNumber ||
+    !identity.repositoryFullName ||
+    identity.surface !== 'mobile-prototype'
+  ) {
+    return undefined;
+  }
+  return identity as PrototypeLaunchIdentity;
 }

@@ -12,6 +12,7 @@ import {
   type PrototypeTheme,
   type PrototypeViewportKind
 } from '../../shared/prototype-canvas';
+import type { PrototypeLaunchRouteIdentity } from '../../shared/prototype-launch';
 import type { PrototypeReviewLocalContext } from '../../shared/prototype-review-local-api';
 
 export const prototypeReviewPath = '/prototype-review';
@@ -157,7 +158,8 @@ export function embeddedPrototypeUrl(
   scenario: PrototypeScenarioKind,
   viewport: PrototypeViewportKind,
   orientation: PrototypeOrientation,
-  theme: PrototypeTheme
+  theme: PrototypeTheme,
+  identity?: PrototypeLaunchRouteIdentity
 ) {
   const url = new URL(target.url);
   url.searchParams.set('embedded', '1');
@@ -171,7 +173,43 @@ export function embeddedPrototypeUrl(
   url.searchParams.set('theme', theme);
   url.searchParams.delete('frame');
   url.searchParams.delete('fullscreen');
+  appendPublicPrototypeIdentity(url.searchParams, identity, target.surfaceKind);
   return url.toString();
+}
+
+function appendPublicPrototypeIdentity(
+  params: URLSearchParams,
+  identity: PrototypeLaunchRouteIdentity | undefined,
+  surface: PullRequestPrototypeSurfaceKind
+) {
+  for (const key of [
+    'repository',
+    'repositoryFullName',
+    'pr',
+    'pullRequestNumber',
+    'issue',
+    'project',
+    'head',
+    'surface',
+    'branch',
+    'machine',
+    'thread',
+    'worktree'
+  ]) {
+    params.delete(key);
+  }
+  if (!identity) return;
+  if (identity.repositoryFullName) {
+    params.set('repository', identity.repositoryFullName);
+  }
+  if (identity.pullRequestNumber) {
+    params.set('pr', String(identity.pullRequestNumber));
+  }
+  if (identity.issueNumber) params.set('issue', String(identity.issueNumber));
+  if (identity.projectId) params.set('project', identity.projectId);
+  if (identity.headSha) params.set('head', identity.headSha);
+  params.set('surface', surface === 'mobile-prototype' ? 'native' : 'web');
+  if (identity.branchName) params.set('branch', identity.branchName);
 }
 
 export function isIsolatedPrototypeTarget(

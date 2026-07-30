@@ -105,4 +105,78 @@ describe('Codex machine-task issue provider', () => {
       expect(writes).toBe(scenario === 'branch' ? 1 : 0);
     }
   });
+
+  test('fails closed when the requested pull request head moved', async () => {
+    const provider = createCodexMachineTaskIssueProvider({
+      async createGitHubBranch() {
+        throw new Error('Branch creation must not run.');
+      },
+      async getGitHubCatalog() {
+        return { checkedAt: '', repositories: [repository], status: 'connected' as const };
+      },
+      async getGitHubRepositoryDetails() {
+        return {
+          branches: [{
+            commitSha: commit,
+            isDefault: false,
+            name: 'issue-262-build-codex-machine-task-core-and-cli'
+          }],
+          checkedAt: '',
+          issues: [issue],
+          pullRequests: [],
+          status: 'connected' as const
+        };
+      }
+    });
+
+    const rejected = provider({
+      expectedBranch: 'issue-262-build-codex-machine-task-core-and-cli',
+      expectedCommit: 'b'.repeat(40),
+      issue: 262,
+      repositoryId: repository.fullName,
+      userId: 'user-owner'
+    });
+    await expect(rejected).rejects.toMatchObject({
+      message: 'The issue branch no longer matches the requested pull request head.',
+      reason: 'worktree_failure'
+    });
+  });
+
+  test('accepts only the exact open pull request linked to the issue head', async () => {
+    const branchName = 'feature/custom-prototype-branch';
+    const provider = createCodexMachineTaskIssueProvider({
+      async createGitHubBranch() {
+        throw new Error('Branch creation must not run.');
+      },
+      async getGitHubCatalog() {
+        return { checkedAt: '', repositories: [repository], status: 'connected' as const };
+      },
+      async getGitHubRepositoryDetails() {
+        return {
+          branches: [{ commitSha: commit, isDefault: false, name: branchName }],
+          checkedAt: '',
+          issues: [issue],
+          pullRequests: [{
+            headBranch: branchName,
+            headSha: commit,
+            linkedIssueNumbers: [issue.number],
+            number: 381,
+            state: 'open' as const,
+            title: 'Prototype launch',
+            url: 'https://github.com/DotNaos/project-space/pull/381'
+          }],
+          status: 'connected' as const
+        };
+      }
+    });
+
+    await expect(provider({
+      expectedBranch: branchName,
+      expectedCommit: commit,
+      expectedPullRequestNumber: 381,
+      issue: issue.number,
+      repositoryId: repository.fullName,
+      userId: 'user-owner'
+    })).resolves.toMatchObject({ branch: branchName, commit });
+  });
 });

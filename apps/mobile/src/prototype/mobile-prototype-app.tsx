@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as Linking from 'expo-linking';
 import {
   Platform,
   Pressable,
@@ -25,6 +26,7 @@ import { nativeReviewConfig } from '../review/native-review-api';
 import {
   mobilePrototypeSearch,
   prototypePresentationSearch,
+  prototypeSearchFromUrl,
   readPrototypePresentation,
   readMobilePrototypeLocation,
   type PrototypePresentation,
@@ -32,7 +34,10 @@ import {
   webPrototypePath,
 } from './prototype-state';
 import { PrototypeLaunchScreen } from './prototype-launch-screen';
-import { nativePrototypeScenarioState } from './prototype-launch-native-state';
+import {
+  nativePrototypeIdentityFromUrl,
+  nativePrototypeScenarioState,
+} from './prototype-launch-native-state';
 
 const ROTATION_DURATION_MS = 360;
 const ROTATION_CONTENT_HIDE_MS = 100;
@@ -41,7 +46,7 @@ const VIEWPORT_SWAP_MS = 16;
 
 function currentLocation() {
   if (Platform.OS !== 'web' || typeof window === 'undefined') {
-    return { search: '' };
+    return { href: '', search: '' };
   }
   return window.location;
 }
@@ -87,7 +92,15 @@ function replacePrototypePresentation(presentation: PrototypePresentation) {
   );
 }
 
-function EmbeddedMobilePrototype() {
+function EmbeddedMobilePrototype({
+  identity,
+  launchSearch,
+  onOpenLink,
+}: {
+  identity: ReturnType<typeof nativePrototypeIdentityFromUrl>;
+  launchSearch: string;
+  onOpenLink(href: string): void;
+}) {
   const scenarioIds = useMemo(
     () => PROJECT_OVERVIEW_PROTOTYPE_SCENARIOS.map((scenario) => scenario.id),
     []
@@ -95,22 +108,20 @@ function EmbeddedMobilePrototype() {
   const initial = useMemo(
     () =>
       readMobilePrototypeLocation(
-        currentLocation().search,
+        launchSearch,
         scenarioIds,
         DEFAULT_PROJECT_OVERVIEW_SCENARIO_ID
       ),
-    [scenarioIds]
+    [launchSearch, scenarioIds]
   );
   const scenario = projectOverviewPrototypeScenario(initial.scenarioId);
   const presentation = useMemo(
-    () => readPrototypePresentation(currentLocation().search, scenario.theme),
-    [scenario.theme]
+    () => readPrototypePresentation(launchSearch, scenario.theme),
+    [launchSearch, scenario.theme]
   );
 
   useEffect(() => {
-    Uniwind.setTheme(
-      Platform.OS === 'web' ? presentation.theme : 'system'
-    );
+    Uniwind.setTheme(presentation.theme);
   }, [presentation.theme]);
 
   return (
@@ -130,13 +141,23 @@ function EmbeddedMobilePrototype() {
       }}
     >
       <PrototypeLaunchScreen
+        identity={identity}
         initialState={nativePrototypeScenarioState(scenario.id)}
+        onOpenLink={onOpenLink}
       />
     </View>
   );
 }
 
-function MobilePrototypeWorkspace() {
+function MobilePrototypeWorkspace({
+  identity,
+  launchSearch,
+  onOpenLink,
+}: {
+  identity: ReturnType<typeof nativePrototypeIdentityFromUrl>;
+  launchSearch: string;
+  onOpenLink(href: string): void;
+}) {
   const { width } = useWindowDimensions();
   const safeArea = useSafeAreaInsets();
   const controlsTopInset = Platform.OS === 'web' ? 0 : safeArea.top;
@@ -151,20 +172,20 @@ function MobilePrototypeWorkspace() {
   const initial = useMemo(
     () =>
       readMobilePrototypeLocation(
-        currentLocation().search,
+        launchSearch,
         scenarioIds,
         DEFAULT_PROJECT_OVERVIEW_SCENARIO_ID
       ),
-    [scenarioIds]
+    [launchSearch, scenarioIds]
   );
   const initialScenario = projectOverviewPrototypeScenario(initial.scenarioId);
   const initialPresentation = useMemo(
     () =>
       readPrototypePresentation(
-        currentLocation().search,
+        launchSearch,
         initialScenario.theme
       ),
-    [initialScenario.theme]
+    [initialScenario.theme, launchSearch]
   );
   const [scenarioId] = useState(initial.scenarioId);
   const [viewport, setViewport] = useState<PrototypeViewport>(initial.viewport);
@@ -240,9 +261,7 @@ function MobilePrototypeWorkspace() {
   };
 
   useEffect(() => {
-    Uniwind.setTheme(
-      Platform.OS === 'web' ? presentation.theme : 'system'
-    );
+    Uniwind.setTheme(presentation.theme);
   }, [presentation.theme]);
 
   useEffect(() => {
@@ -375,8 +394,10 @@ function MobilePrototypeWorkspace() {
         viewport={viewport}
       >
         <PrototypeLaunchScreen
+          identity={identity}
           key={scenario.id}
           initialState={nativePrototypeScenarioState(scenario.id)}
+          onOpenLink={onOpenLink}
         />
       </PrototypeDeviceCanvas>
       {reviewConfig && !presentation.fullscreen ? (
@@ -392,9 +413,41 @@ function MobilePrototypeWorkspace() {
 }
 
 export function MobilePrototypeApp() {
+  const linkedUrl = Linking.useURL();
+  const launchUrl =
+    Platform.OS === 'web' ? currentLocation().href : linkedUrl ?? undefined;
+  const launchSearch = prototypeSearchFromUrl(launchUrl);
+  const identity = useMemo(
+    () => nativePrototypeIdentityFromUrl(launchUrl),
+    [launchUrl]
+  );
+  const onOpenLink = useCallback((href: string) => {
+    const projectSpaceOrigin =
+      process.env.EXPO_PUBLIC_PROJECT_SPACE_URL ?? 'https://projects.os-home.net';
+    const target = new URL(href, projectSpaceOrigin).toString();
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.open(target, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    void Linking.openURL(target);
+  }, []);
   const embedded =
     Platform.OS === 'web' &&
     typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).get('embedded') === '1';
-  return embedded ? <EmbeddedMobilePrototype /> : <MobilePrototypeWorkspace />;
+  return embedded ? (
+    <EmbeddedMobilePrototype
+      identity={identity}
+      key={launchSearch}
+      launchSearch={launchSearch}
+      onOpenLink={onOpenLink}
+    />
+  ) : (
+    <MobilePrototypeWorkspace
+      identity={identity}
+      key={launchSearch}
+      launchSearch={launchSearch}
+      onOpenLink={onOpenLink}
+    />
+  );
 }

@@ -139,6 +139,7 @@ describe('pull request Preview status adapter', () => {
       issues: [],
       pullRequests: [{
         headSha: requestedSha,
+        linkedIssueNumbers: [381],
         number: 263,
         state: 'open' as const,
         title: 'Preview deployments',
@@ -146,6 +147,8 @@ describe('pull request Preview status adapter', () => {
       }],
       status: 'connected' as const
     };
+    expect(correlatePullRequestPreviews(result, details).previews[0]?.linkedIssueNumbers)
+      .toEqual([381]);
     expect(correlatePullRequestPreviews(result, details).previews[0]?.pullRequestUrl).toBeUndefined();
     details.pullRequests[0]!.url = 'https://github.com/DotNaos/project-space/pull/263';
     expect(correlatePullRequestPreviews(result, details).previews[0]?.pullRequestUrl)
