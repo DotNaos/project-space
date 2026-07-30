@@ -67,7 +67,7 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain('https://pr-${{ needs.resolve.outputs.pr_number }}.projects.os-home.net');
     expect(workflow).toContain('environment_url');
     expect(workflow).toContain('ssh project-space-preview apply > preview-output.log');
-    expect(workflow).toContain("sed -n '/^{/,$p' preview-output.log > preview-result.json");
+    expect(workflow).toContain("sed -n '/^{/,/^}$/p' preview-output.log > preview-result.json");
     expect(workflow).toContain('.repositoryFullName == $repository');
     expect(workflow).toContain('.pullRequestNumber == $pr');
     expect(workflow).toContain('.requestedSha == $sha');
@@ -75,7 +75,7 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain('.prototypeMetaSha == $sha');
   });
 
-  test('keeps trusted runner progress outside the final JSON receipt', () => {
+  test('keeps trusted runner progress and transport trailers outside the final JSON receipt', () => {
     const receipt = {
       prototypeMetaSha: 'a'.repeat(40),
       pullRequestNumber: 396,
@@ -87,8 +87,9 @@ describe('trusted PR Preview workflow contract', () => {
     const progress = ` Image project-space-preview-web Pulling
  Container project-space-preview-pr-396-web-1 Healthy
 ${JSON.stringify(receipt, null, 2)}
+Connection to project-space-preview closed.
 `;
-    const normalized = spawnSync('sed', ['-n', '/^{/,$p'], {
+    const normalized = spawnSync('sed', ['-n', '/^{/,/^}$/p'], {
       encoding: 'utf8',
       input: progress
     });
