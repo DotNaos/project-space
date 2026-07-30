@@ -281,7 +281,9 @@ function readGitEntries(ref: string) {
     '--',
     entriesPath,
   ]);
-  for (const path of output.split('\n').filter(Boolean)) {
+  for (const path of output
+    .split('\n')
+    .filter((path) => path.endsWith('.mdx'))) {
     files.set(
       basename(path),
       gitOutput(['show', `${ref}:${path}`], false),
