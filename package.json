@@ -15,7 +15,7 @@
     "serve:prototype:desktop": "PROJECT_SPACE_ALLOW_DIRECT_DEV=1 vite --config apps/prototype/vite.config.ts",
     "dev:direct": "PROJECT_SPACE_ALLOW_DIRECT_DEV=1 vite --host 127.0.0.1",
     "dev:electron": "portless run vite --mode electron --host 127.0.0.1",
-    "build": "bun run build:web && cd apps/mobile && bunx pnpm@11.10.0 --ignore-workspace install --frozen-lockfile && bun run build:prototype",
+    "build": "bun scripts/build-project.ts",
     "build:web": "tsc -b && vite build && vite build --config apps/prototype/vite.config.ts",
     "build:prototype": "tsc -b && vite build --config apps/prototype/vite.config.ts && cd apps/mobile && bunx pnpm@11.10.0 --ignore-workspace install --frozen-lockfile && bun run build:prototype",
     "test": "bun test --isolate",

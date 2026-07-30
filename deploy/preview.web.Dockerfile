@@ -18,7 +18,7 @@ COPY --from=deps /workspace/node_modules /workspace/node_modules
 COPY . .
 RUN test -n "$PROJECT_SPACE_BUILD_COMMIT" \
   && test -n "$VITE_CLERK_PUBLISHABLE_KEY" \
-  && bun run build
+  && bun run build:web
 
 FROM golang:1.26-bookworm AS cli-build
 WORKDIR /workspace
