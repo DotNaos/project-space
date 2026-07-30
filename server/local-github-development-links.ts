@@ -10,12 +10,6 @@ interface GitHubGraphQLPageInfo {
 }
 
 interface GitHubGraphQLPullRequest {
-  closingIssuesReferences?: {
-    nodes?: Array<{
-      number: number;
-    } | null>;
-    pageInfo?: GitHubGraphQLPageInfo | null;
-  } | null;
   headRefName?: string | null;
   headRefOid?: string | null;
   headRef?: {
@@ -35,42 +29,68 @@ interface GitHubGraphQLPullRequest {
   url: string;
 }
 
+interface GitHubGraphQLPullRequestConnection {
+  nodes?: Array<GitHubGraphQLPullRequest | null>;
+  pageInfo?: GitHubGraphQLPageInfo | null;
+}
+
+interface GitHubGraphQLIssue {
+  closedByPullRequestsReferences?: GitHubGraphQLPullRequestConnection | null;
+  linkedBranches?: {
+    nodes?: Array<{
+      ref?: {
+        name?: string;
+        target?: {
+          oid?: string | null;
+        } | null;
+      } | null;
+    } | null>;
+  } | null;
+  number: number;
+}
+
 interface GitHubGraphQLDevelopmentLinks {
   repository?: {
     issues?: {
-      nodes?: Array<{
-        linkedBranches?: {
-          nodes?: Array<{
-            ref?: {
-              name?: string;
-              target?: {
-                oid?: string | null;
-              } | null;
-            } | null;
-          } | null>;
-        } | null;
-        number: number;
-      } | null>;
-    } | null;
-    pullRequests?: {
-      nodes?: Array<GitHubGraphQLPullRequest | null>;
-      pageInfo?: GitHubGraphQLPageInfo | null;
+      nodes?: Array<GitHubGraphQLIssue | null>;
     } | null;
   } | null;
 }
 
-interface GitHubGraphQLClosingIssues {
+interface GitHubGraphQLIssuePullRequests {
   repository?: {
-    pullRequest?: {
-      closingIssuesReferences?: {
-        nodes?: Array<{
-          number: number;
-        } | null>;
-        pageInfo?: GitHubGraphQLPageInfo | null;
-      } | null;
+    issue?: {
+      closedByPullRequestsReferences?: GitHubGraphQLPullRequestConnection | null;
     } | null;
   } | null;
 }
+
+interface LinkedPullRequest {
+  issueNumbers: Set<number>;
+  pullRequest: GitHubGraphQLPullRequest;
+}
+
+const pullRequestFragment = `
+  fragment DevelopmentPullRequestFields on PullRequest {
+    number
+    title
+    url
+    state
+    headRefName
+    headRefOid
+    headRef {
+      id
+    }
+    headRepository {
+      nameWithOwner
+    }
+    isCrossRepository
+    mergeCommit {
+      oid
+    }
+    updatedAt
+  }
+`;
 
 function addLinkedIssue(
   linkedIssueNumbersByBranch: Map<string, Set<number>>,
@@ -81,6 +101,37 @@ function addLinkedIssue(
 
   current.add(issueNumber);
   linkedIssueNumbersByBranch.set(branchName, current);
+}
+
+function addPullRequestLink(
+  linkedPullRequests: Map<number, LinkedPullRequest>,
+  pullRequest: GitHubGraphQLPullRequest,
+  issueNumber: number
+) {
+  const current = linkedPullRequests.get(pullRequest.number) ?? {
+    issueNumbers: new Set<number>(),
+    pullRequest
+  };
+
+  current.issueNumbers.add(issueNumber);
+  linkedPullRequests.set(pullRequest.number, current);
+}
+
+function requireNextCursor(
+  pageInfo: GitHubGraphQLPageInfo | null | undefined,
+  issueNumber: number
+) {
+  if (!pageInfo?.hasNextPage) {
+    return null;
+  }
+
+  if (!pageInfo.endCursor) {
+    throw new Error(
+      `GitHub pull request pagination for issue #${issueNumber} did not include a cursor.`
+    );
+  }
+
+  return pageInfo.endCursor;
 }
 
 export async function loadRepositoryDevelopmentLinks(
@@ -102,20 +153,10 @@ export async function loadRepositoryDevelopmentLinks(
     };
   }
 
-  const pullRequests: GitHubGraphQLPullRequest[] = [];
-  let data: GitHubGraphQLDevelopmentLinks | undefined;
-  let pullRequestCursor: string | null = null;
-
-  do {
-    const page: GitHubGraphQLDevelopmentLinks =
-      await request<GitHubGraphQLDevelopmentLinks>(
-        token,
-        `
-      query RepositoryDevelopmentLinks(
-        $owner: String!
-        $name: String!
-        $pullRequestCursor: String
-      ) {
+  const data = await request<GitHubGraphQLDevelopmentLinks>(
+    token,
+    `
+      query RepositoryDevelopmentLinks($owner: String!, $name: String!) {
         repository(owner: $owner, name: $name) {
           issues(first: 100, states: [OPEN, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC}) {
             nodes {
@@ -130,35 +171,9 @@ export async function loadRepositoryDevelopmentLinks(
                   }
                 }
               }
-            }
-          }
-          pullRequests(
-            first: 100
-            after: $pullRequestCursor
-            states: [OPEN, CLOSED, MERGED]
-            orderBy: {field: UPDATED_AT, direction: DESC}
-          ) {
-            nodes {
-              number
-              title
-              url
-              state
-              headRefName
-              headRefOid
-              headRef {
-                id
-              }
-              headRepository {
-                nameWithOwner
-              }
-              isCrossRepository
-              mergeCommit {
-                oid
-              }
-              updatedAt
-              closingIssuesReferences(first: 100) {
+              closedByPullRequestsReferences(first: 100) {
                 nodes {
-                  number
+                  ...DevelopmentPullRequestFields
                 }
                 pageInfo {
                   hasNextPage
@@ -166,107 +181,18 @@ export async function loadRepositoryDevelopmentLinks(
                 }
               }
             }
-            pageInfo {
-              hasNextPage
-              endCursor
-            }
           }
         }
       }
-        `,
-        { name, owner, pullRequestCursor }
-      );
-
-    data ??= page;
-    pullRequests.push(
-      ...(page.repository?.pullRequests?.nodes ?? []).filter(
-        (
-          pullRequest: GitHubGraphQLPullRequest | null
-        ): pullRequest is GitHubGraphQLPullRequest => Boolean(pullRequest)
-      )
-    );
-
-    const pageInfo: GitHubGraphQLPageInfo | null | undefined =
-      page.repository?.pullRequests?.pageInfo;
-
-    if (!pageInfo?.hasNextPage) {
-      pullRequestCursor = null;
-      break;
-    }
-
-    if (!pageInfo.endCursor) {
-      throw new Error('GitHub pull request pagination did not include a cursor.');
-    }
-
-    pullRequestCursor = pageInfo.endCursor;
-  } while (pullRequestCursor);
-
-  for (const pullRequest of pullRequests) {
-    const closingIssuePageInfo = pullRequest.closingIssuesReferences?.pageInfo;
-
-    if (closingIssuePageInfo?.hasNextPage && !closingIssuePageInfo.endCursor) {
-      throw new Error(
-        `GitHub closing issue pagination for pull request #${pullRequest.number} did not include a cursor.`
-      );
-    }
-
-    let closingIssueCursor = closingIssuePageInfo?.hasNextPage
-      ? closingIssuePageInfo.endCursor
-      : null;
-
-    while (closingIssueCursor) {
-      const closingIssuesPage = await request<GitHubGraphQLClosingIssues>(
-        token,
-        `
-          query PullRequestClosingIssues(
-            $owner: String!
-            $name: String!
-            $number: Int!
-            $closingIssueCursor: String
-          ) {
-            repository(owner: $owner, name: $name) {
-              pullRequest(number: $number) {
-                closingIssuesReferences(first: 100, after: $closingIssueCursor) {
-                  nodes {
-                    number
-                  }
-                  pageInfo {
-                    hasNextPage
-                    endCursor
-                  }
-                }
-              }
-            }
-          }
-        `,
-        { closingIssueCursor, name, number: pullRequest.number, owner }
-      );
-      const connection =
-        closingIssuesPage.repository?.pullRequest?.closingIssuesReferences;
-
-      pullRequest.closingIssuesReferences ??= { nodes: [] };
-      pullRequest.closingIssuesReferences.nodes ??= [];
-      pullRequest.closingIssuesReferences.nodes.push(...(connection?.nodes ?? []));
-
-      if (!connection?.pageInfo?.hasNextPage) {
-        closingIssueCursor = null;
-        break;
-      }
-
-      if (!connection.pageInfo.endCursor) {
-        throw new Error(
-          `GitHub closing issue pagination for pull request #${pullRequest.number} did not include a cursor.`
-        );
-      }
-
-      closingIssueCursor = connection.pageInfo.endCursor;
-    }
-  }
-
+      ${pullRequestFragment}
+    `,
+    { name, owner }
+  );
   const linkedIssueNumbersByBranch = new Map<string, Set<number>>();
   const linkedBranchShaByName = new Map<string, string | undefined>();
+  const linkedPullRequests = new Map<number, LinkedPullRequest>();
 
-  for (const issue of data?.repository?.issues?.nodes ?? []) {
+  for (const issue of data.repository?.issues?.nodes ?? []) {
     if (!issue) {
       continue;
     }
@@ -282,7 +208,84 @@ export async function loadRepositoryDevelopmentLinks(
         );
       }
     }
+
+    const initialConnection = issue.closedByPullRequestsReferences;
+
+    for (const pullRequest of initialConnection?.nodes ?? []) {
+      if (pullRequest) {
+        addPullRequestLink(linkedPullRequests, pullRequest, issue.number);
+      }
+    }
+
+    let cursor = requireNextCursor(initialConnection?.pageInfo, issue.number);
+
+    while (cursor) {
+      const page = await request<GitHubGraphQLIssuePullRequests>(
+        token,
+        `
+          query IssuePullRequestLinks(
+            $owner: String!
+            $name: String!
+            $issueNumber: Int!
+            $cursor: String
+          ) {
+            repository(owner: $owner, name: $name) {
+              issue(number: $issueNumber) {
+                closedByPullRequestsReferences(first: 100, after: $cursor) {
+                  nodes {
+                    ...DevelopmentPullRequestFields
+                  }
+                  pageInfo {
+                    hasNextPage
+                    endCursor
+                  }
+                }
+              }
+            }
+          }
+          ${pullRequestFragment}
+        `,
+        { cursor, issueNumber: issue.number, name, owner }
+      );
+      const connection =
+        page.repository?.issue?.closedByPullRequestsReferences;
+
+      if (!connection) {
+        throw new Error(
+          `GitHub pull request pagination for issue #${issue.number} did not return a page.`
+        );
+      }
+
+      for (const pullRequest of connection.nodes ?? []) {
+        if (pullRequest) {
+          addPullRequestLink(linkedPullRequests, pullRequest, issue.number);
+        }
+      }
+
+      cursor = requireNextCursor(connection.pageInfo, issue.number);
+    }
   }
+
+  const pullRequests = Array.from(linkedPullRequests.values())
+    .map(({ issueNumbers, pullRequest }) => ({
+      headBranch: pullRequest.headRefName ?? undefined,
+      headRefPresent: Boolean(pullRequest.headRef),
+      headRepositoryFullName: pullRequest.headRepository?.nameWithOwner ?? undefined,
+      headSha: pullRequest.headRefOid ?? undefined,
+      isCrossRepository: pullRequest.isCrossRepository ?? undefined,
+      linkedIssueNumbers: Array.from(issueNumbers).sort((left, right) => left - right),
+      mergeCommitHash: pullRequest.mergeCommit?.oid ?? undefined,
+      number: pullRequest.number,
+      state: pullRequest.state.toLowerCase() as GitHubPullRequestRecord['state'],
+      title: pullRequest.title,
+      updatedAt: pullRequest.updatedAt ?? undefined,
+      url: pullRequest.url
+    }))
+    .sort(
+      (left, right) =>
+        (right.updatedAt ?? '').localeCompare(left.updatedAt ?? '') ||
+        right.number - left.number
+    );
 
   return {
     linkedBranches: Array.from(linkedIssueNumbersByBranch, ([name, issueNumbers]) => ({
@@ -292,22 +295,6 @@ export async function loadRepositoryDevelopmentLinks(
       name
     })),
     linkedIssueNumbersByBranch,
-    pullRequests: pullRequests.map((pullRequest) => ({
-      headBranch: pullRequest.headRefName ?? undefined,
-      headRefPresent: Boolean(pullRequest.headRef),
-      headRepositoryFullName: pullRequest.headRepository?.nameWithOwner ?? undefined,
-      headSha: pullRequest.headRefOid ?? undefined,
-      isCrossRepository: pullRequest.isCrossRepository ?? undefined,
-      linkedIssueNumbers:
-        pullRequest.closingIssuesReferences?.nodes
-          ?.map((issue) => issue?.number)
-          .filter((number): number is number => typeof number === 'number') ?? [],
-      mergeCommitHash: pullRequest.mergeCommit?.oid ?? undefined,
-      number: pullRequest.number,
-      state: pullRequest.state.toLowerCase() as GitHubPullRequestRecord['state'],
-      title: pullRequest.title,
-      updatedAt: pullRequest.updatedAt ?? undefined,
-      url: pullRequest.url
-    }))
+    pullRequests
   };
 }

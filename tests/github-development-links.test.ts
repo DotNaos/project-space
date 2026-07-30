@@ -2,27 +2,37 @@ import { describe, expect, test } from 'bun:test';
 import { loadRepositoryDevelopmentLinks } from '../server/local-github-development-links';
 import type { requestGitHubGraphQL } from '../server/github-graphql-client';
 
+function pullRequest(number: number, overrides: Record<string, unknown> = {}) {
+  return {
+    headRef: { id: `REF_${number}` },
+    headRefName: `issue-${number}`,
+    headRepository: { nameWithOwner: 'DotNaos/project-space' },
+    isCrossRepository: false,
+    number,
+    state: 'OPEN',
+    title: `Pull request ${number}`,
+    url: `https://github.com/DotNaos/project-space/pull/${number}`,
+    ...overrides
+  };
+}
+
 describe('GitHub development links', () => {
-  test('requests and preserves the full pull request head SHA', async () => {
+  test('requests linked pull requests from displayed issues and preserves the full head SHA', async () => {
     const headSha = 'a'.repeat(40);
     let query = '';
     const request = (async <Result>(_token: string, value: string) => {
       query = value;
       return {
         repository: {
-          issues: { nodes: [] },
-          pullRequests: { nodes: [{
-            closingIssuesReferences: { nodes: [{ number: 263 }] },
-            headRef: { id: 'REF_263' },
-            headRefName: 'issue-263-preview',
-            headRefOid: headSha,
-            headRepository: { nameWithOwner: 'DotNaos/project-space' },
-            isCrossRepository: false,
-            number: 263,
-            state: 'OPEN',
-            title: 'Preview deployments',
-            url: 'https://github.com/DotNaos/project-space/pull/263'
-          }] }
+          issues: {
+            nodes: [{
+              closedByPullRequestsReferences: {
+                nodes: [pullRequest(263, { headRefOid: headSha })],
+                pageInfo: { endCursor: null, hasNextPage: false }
+              },
+              number: 263
+            }]
+          }
         }
       } as Result;
     }) as typeof requestGitHubGraphQL;
@@ -33,12 +43,15 @@ describe('GitHub development links', () => {
       request
     );
 
+    expect(query).toContain('closedByPullRequestsReferences(first: 100)');
+    expect(query).not.toContain('pullRequests(first:');
     expect(query).toContain('headRefOid');
     expect(result.pullRequests[0]).toMatchObject({
       headRefPresent: true,
       headRepositoryFullName: 'DotNaos/project-space',
       headSha,
       isCrossRepository: false,
+      linkedIssueNumbers: [263],
       number: 263
     });
   });
@@ -49,6 +62,7 @@ describe('GitHub development links', () => {
       repository: {
         issues: {
           nodes: [{
+            closedByPullRequestsReferences: { nodes: [] },
             linkedBranches: {
               nodes: [{
                 ref: {
@@ -59,8 +73,7 @@ describe('GitHub development links', () => {
             },
             number: 408
           }]
-        },
-        pullRequests: { nodes: [] }
+        }
       }
     }) as Result) as typeof requestGitHubGraphQL;
 
@@ -78,7 +91,7 @@ describe('GitHub development links', () => {
     }]);
   });
 
-  test('loads pull requests beyond the first GraphQL page', async () => {
+  test('paginates every pull request linked to one displayed issue', async () => {
     const requests: Array<Record<string, unknown>> = [];
     const request = (async <Result>(
       _token: string,
@@ -87,73 +100,12 @@ describe('GitHub development links', () => {
     ) => {
       requests.push(variables);
 
-      if (!variables.pullRequestCursor) {
+      if (variables.cursor) {
         return {
           repository: {
-            issues: { nodes: [] },
-            pullRequests: {
-              nodes: [{
-                closingIssuesReferences: { nodes: [] },
-                number: 420,
-                state: 'OPEN',
-                title: 'Current pull request',
-                url: 'https://github.com/DotNaos/project-space/pull/420'
-              }],
-              pageInfo: { endCursor: 'older-prs', hasNextPage: true }
-            }
-          }
-        } as Result;
-      }
-
-      return {
-        repository: {
-          issues: { nodes: [] },
-          pullRequests: {
-            nodes: [{
-              closingIssuesReferences: { nodes: [{ number: 398 }] },
-              number: 388,
-              state: 'OPEN',
-              title: 'Older pull request',
-              url: 'https://github.com/DotNaos/project-space/pull/388'
-            }],
-            pageInfo: { endCursor: null, hasNextPage: false }
-          }
-        }
-      } as Result;
-    }) as typeof requestGitHubGraphQL;
-
-    const result = await loadRepositoryDevelopmentLinks(
-      'DotNaos/project-space',
-      'secret-token',
-      request
-    );
-
-    expect(requests.map((variables) => variables.pullRequestCursor)).toEqual([
-      null,
-      'older-prs'
-    ]);
-    expect(result.pullRequests.map((pullRequest) => pullRequest.number)).toEqual([
-      420,
-      388
-    ]);
-    expect(result.pullRequests[1]?.linkedIssueNumbers).toEqual([398]);
-  });
-
-  test('loads every closing issue linked to a pull request', async () => {
-    const queries: string[] = [];
-    const request = (async <Result>(
-      _token: string,
-      query: string,
-      variables: Record<string, unknown>
-    ) => {
-      queries.push(query);
-
-      if (variables.closingIssueCursor) {
-        return {
-          repository: {
-            pullRequest: {
-              closingIssuesReferences: {
-                nodes: [{ number: 399 }],
+            issue: {
+              closedByPullRequestsReferences: {
+                nodes: [pullRequest(388)],
                 pageInfo: { endCursor: null, hasNextPage: false }
               }
             }
@@ -163,19 +115,14 @@ describe('GitHub development links', () => {
 
       return {
         repository: {
-          issues: { nodes: [] },
-          pullRequests: {
+          issues: {
             nodes: [{
-              closingIssuesReferences: {
-                nodes: [{ number: 398 }],
-                pageInfo: { endCursor: 'more-issues', hasNextPage: true }
+              closedByPullRequestsReferences: {
+                nodes: [pullRequest(420)],
+                pageInfo: { endCursor: 'more-linked-prs', hasNextPage: true }
               },
-              number: 420,
-              state: 'OPEN',
-              title: 'Board status model',
-              url: 'https://github.com/DotNaos/project-space/pull/420'
-            }],
-            pageInfo: { endCursor: null, hasNextPage: false }
+              number: 398
+            }]
           }
         }
       } as Result;
@@ -187,10 +134,53 @@ describe('GitHub development links', () => {
       request
     );
 
-    expect(queries).toHaveLength(2);
-    expect(queries[0]).toContain('pullRequests(');
-    expect(queries[0]).toContain('pageInfo');
-    expect(queries[1]).toContain('closingIssuesReferences(first: 100, after: $closingIssueCursor)');
-    expect(result.pullRequests[0]?.linkedIssueNumbers).toEqual([398, 399]);
+    expect(requests).toEqual([
+      { name: 'project-space', owner: 'DotNaos' },
+      {
+        cursor: 'more-linked-prs',
+        issueNumber: 398,
+        name: 'project-space',
+        owner: 'DotNaos'
+      }
+    ]);
+    expect(result.pullRequests.map((item) => item.number)).toEqual([420, 388]);
+    expect(result.pullRequests.every(
+      (item) => item.linkedIssueNumbers?.[0] === 398
+    )).toBe(true);
+  });
+
+  test('deduplicates one pull request linked to several displayed issues', async () => {
+    const sharedPullRequest = pullRequest(420, { updatedAt: '2026-07-30T12:00:00Z' });
+    const request = (async <Result>() => ({
+      repository: {
+        issues: {
+          nodes: [
+            {
+              closedByPullRequestsReferences: {
+                nodes: [sharedPullRequest],
+                pageInfo: { endCursor: null, hasNextPage: false }
+              },
+              number: 398
+            },
+            {
+              closedByPullRequestsReferences: {
+                nodes: [sharedPullRequest],
+                pageInfo: { endCursor: null, hasNextPage: false }
+              },
+              number: 419
+            }
+          ]
+        }
+      }
+    }) as Result) as typeof requestGitHubGraphQL;
+
+    const result = await loadRepositoryDevelopmentLinks(
+      'DotNaos/project-space',
+      'secret-token',
+      request
+    );
+
+    expect(result.pullRequests).toHaveLength(1);
+    expect(result.pullRequests[0]?.linkedIssueNumbers).toEqual([398, 419]);
   });
 });
