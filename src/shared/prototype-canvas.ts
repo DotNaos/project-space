@@ -14,7 +14,8 @@ export const prototypeScenarioKinds = [
   'ready',
   'empty',
   'offline',
-  'long-content'
+  'long-content',
+  'branch-head-preview'
 ] as const;
 export type PrototypeScenarioKind = (typeof prototypeScenarioKinds)[number];
 
@@ -70,7 +71,8 @@ export const prototypeScenarioLabels: Record<PrototypeScenarioKind, string> = {
   ready: 'Ready',
   empty: 'Empty',
   offline: 'Offline',
-  'long-content': 'Long content'
+  'long-content': 'Long content',
+  'branch-head-preview': 'Branch head preview'
 };
 
 export function isPrototypeViewportKind(value: unknown): value is PrototypeViewportKind {

@@ -47,9 +47,11 @@ import { usePrototypeReviewBuildIdentity } from './use-prototype-review-build-id
 import {
   developmentPrototypeTarget,
   embeddedPrototypeUrl,
-  isIsolatedPrototypeTarget,
+  isSafePrototypeTarget,
   parsePrototypeReviewRoute,
+  prototypeFrameSandbox,
   prototypeReviewCodexContext,
+  verifiedPreviewBuildPrototypeTarget,
   verifiedPrototypeTarget,
   type PrototypeReviewSurface
 } from './prototype-review-model';
@@ -219,6 +221,7 @@ export function PrototypeReviewPage() {
   );
   const [result, setResult] = useState<PullRequestTestSurfacesResult>();
   const [surfaceError, setSurfaceError] = useState<string>();
+  const previewBuildIdentity = usePrototypeReviewBuildIdentity();
   const frameRevealTimer = useRef<number | undefined>(undefined);
   const hideHudTimer = useRef<number | undefined>(undefined);
   const rotationTimer = useRef<number | undefined>(undefined);
@@ -294,6 +297,12 @@ export function PrototypeReviewPage() {
   const verified = exactResult
     ? verifiedPrototypeTarget(result, surface)
     : undefined;
+  const verifiedBuild = verifiedPreviewBuildPrototypeTarget({
+    currentHref: window.location.href,
+    expectedIdentity: requestedIdentity,
+    previewBuildIdentity,
+    surface
+  });
   const development = import.meta.env.DEV
     ? developmentPrototypeTarget(
         initial.devTargetUrl,
@@ -303,9 +312,9 @@ export function PrototypeReviewPage() {
     : undefined;
   const candidateTarget =
     initialSelection.state === 'ready'
-      ? development ?? verified
+      ? development ?? verified ?? verifiedBuild
       : undefined;
-  const target = isIsolatedPrototypeTarget(candidateTarget, window.location.href)
+  const target = isSafePrototypeTarget(candidateTarget, window.location.href)
     ? candidateTarget
     : undefined;
   const targetUrl = target
@@ -327,7 +336,6 @@ export function PrototypeReviewPage() {
     repositoryFullName: initial.repositoryFullName
   });
   const localContext = localContextResult.context;
-  const previewBuildIdentity = usePrototypeReviewBuildIdentity();
   const developmentContext = prototypeReviewCodexContext(
     import.meta.env.DEV,
     result,
@@ -490,7 +498,11 @@ export function PrototypeReviewPage() {
               }`}
               referrerPolicy="origin"
               ref={iframeRef}
-              sandbox="allow-same-origin allow-scripts"
+              sandbox={
+                target
+                  ? prototypeFrameSandbox(target, window.location.href)
+                  : undefined
+              }
               src={targetUrl}
               title={`${surface === 'native' ? 'Native' : 'Web'} prototype`}
               onLoad={() => {

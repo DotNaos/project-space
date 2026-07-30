@@ -7,10 +7,13 @@ import {
   embeddedPrototypeUrl,
   feedbackMatchesTarget,
   isIsolatedPrototypeTarget,
+  isSafePrototypeTarget,
   parsePrototypeReviewRoute,
+  prototypeFrameSandbox,
   prototypeConnectionKind,
   prototypeReviewCodexContext,
   prototypeReviewDevelopmentContext,
+  verifiedPreviewBuildPrototypeTarget,
   verifiedPrototypeTarget
 } from '../src/features/pr-preview-review/prototype-review-model';
 
@@ -233,6 +236,79 @@ describe('prototype review model', () => {
     expect(isIsolatedPrototypeTarget(
       { ...target!, url: 'https://projects.os-home.net/prototype/desktop/' },
       'https://projects.os-home.net/prototype-review'
+    )).toBe(false);
+  });
+
+  test('uses only exact build identity for the same-origin static PR prototype', () => {
+    const identity = {
+      headSha: 'a'.repeat(40),
+      pullRequestNumber: 356,
+      repositoryFullName: 'DotNaos/project-space'
+    };
+    const target = verifiedPreviewBuildPrototypeTarget({
+      currentHref: 'https://pr-356.projects.os-home.net/prototype-review',
+      expectedIdentity: identity,
+      previewBuildIdentity: identity,
+      surface: 'web'
+    });
+    expect(target).toEqual({
+      source: 'preview-build',
+      surfaceKind: 'desktop-prototype',
+      url: 'https://pr-356.projects.os-home.net/prototype/desktop/'
+    });
+    expect(isSafePrototypeTarget(
+      target,
+      'https://pr-356.projects.os-home.net/prototype-review'
+    )).toBe(true);
+    expect(prototypeFrameSandbox(
+      target!,
+      'https://pr-356.projects.os-home.net/prototype-review'
+    )).toBe('allow-scripts');
+  });
+
+  test('rejects mismatched build identity and non-Preview hosts', () => {
+    const identity = {
+      headSha: 'a'.repeat(40),
+      pullRequestNumber: 356,
+      repositoryFullName: 'DotNaos/project-space'
+    };
+    expect(verifiedPreviewBuildPrototypeTarget({
+      currentHref: 'https://pr-356.projects.os-home.net/prototype-review',
+      expectedIdentity: identity,
+      previewBuildIdentity: { ...identity, headSha: 'b'.repeat(40) },
+      surface: 'web'
+    })).toBeUndefined();
+    expect(verifiedPreviewBuildPrototypeTarget({
+      currentHref: 'https://projects.os-home.net/prototype-review',
+      expectedIdentity: identity,
+      previewBuildIdentity: identity,
+      surface: 'web'
+    })).toBeUndefined();
+    expect(verifiedPreviewBuildPrototypeTarget({
+      currentHref: 'https://pr-356.projects.os-home.net/prototype-review',
+      expectedIdentity: identity,
+      previewBuildIdentity: identity,
+      surface: 'native'
+    })).toBeUndefined();
+    expect(verifiedPreviewBuildPrototypeTarget({
+      currentHref: 'http://pr-356.projects.os-home.net/prototype-review',
+      expectedIdentity: identity,
+      previewBuildIdentity: identity,
+      surface: 'web'
+    })).toBeUndefined();
+    expect(verifiedPreviewBuildPrototypeTarget({
+      currentHref: 'https://pr-356.projects.os-home.net:444/prototype-review',
+      expectedIdentity: identity,
+      previewBuildIdentity: identity,
+      surface: 'web'
+    })).toBeUndefined();
+    expect(isSafePrototypeTarget(
+      {
+        source: 'deployed',
+        surfaceKind: 'desktop-prototype',
+        url: 'https://pr-356.projects.os-home.net/prototype/desktop/'
+      },
+      'https://pr-356.projects.os-home.net/prototype-review'
     )).toBe(false);
   });
 });

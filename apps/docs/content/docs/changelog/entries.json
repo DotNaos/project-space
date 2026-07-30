@@ -9,7 +9,7 @@
       "issueNumber": 408,
       "pullRequestNumber": 411,
       "prototype": {
-        "scenarioId": "ready",
+        "scenarioId": "branch-head-preview",
         "surface": "desktop-prototype",
         "viewport": "desktop"
       },

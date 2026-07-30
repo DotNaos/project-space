@@ -29,6 +29,7 @@ import {
   type PrototypeViewportKind
 } from '../../../src/shared/prototype-canvas';
 import { desktopPrototypeScenario } from './desktop-prototype-scenarios';
+import { BranchHeadPrototype } from './branch-head-prototype';
 import { ScaledDeviceCanvas } from './scaled-device-canvas';
 import './prototype.css';
 
@@ -141,6 +142,9 @@ function DesktopTarget({
   theme: PrototypeTheme;
 }) {
   const fixture = useMemo(() => desktopPrototypeScenario(scenario), [scenario]);
+  if (scenario === 'branch-head-preview') {
+    return <BranchHeadPrototype theme={theme} />;
+  }
   return (
     <div
       className={`prototype-target min-h-full px-5 py-7 @md:px-8 @md:py-9 ${
