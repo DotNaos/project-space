@@ -2,6 +2,23 @@
   "schema": "project-space.changelog/v1",
   "entries": [
     {
+      "id": "pr-408-branch-head-graph-preview",
+      "category": "added",
+      "summary": "Preview the verified branch head against the default branch.",
+      "body": "The issue Development session now shows a compact Git graph beside the verified pull request or branch head, including whether it is current, ahead, behind, or diverged. Behind and diverged states are clearly marked as requiring action.",
+      "issueNumber": 408,
+      "pullRequestNumber": 411,
+      "prototype": {
+        "scenarioId": "ready",
+        "surface": "desktop-prototype",
+        "viewport": "desktop"
+      },
+      "testing": [
+        "Open an issue with a verified pull request head and confirm the status and compact graph agree with the default branch comparison.",
+        "Check the preview at desktop and narrow widths, then use the History action to open the full graph focused on both branches."
+      ]
+    },
+    {
       "id": "pr-396-changelog-prototype-chooser",
       "category": "added",
       "summary": "Choose every pull request prototype from its changelog.",
