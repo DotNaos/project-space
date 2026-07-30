@@ -1,0 +1,54 @@
+---
+title: "Secure PR prototype iteration"
+version: "0.4.50"
+bump: "patch"
+pullRequest: 404
+issues:
+  - 395
+areas:
+  - web
+  - deploy
+  - machines
+  - security
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  Pull request prototypes now require Project Space authentication and
+  expose trusted live-development controls only when every repository,
+  revision, machine, worktree, task, and lease identity matches exactly.
+</ReleaseSummary>
+
+## Changes
+
+### Added
+
+- Exact repository, pull request, Change, surface, viewport, target, and full head revision are preserved through sign-in and return navigation
+- Trusted prototype controls show the verified machine, worktree, branch, head, Codex task, and Tailscale development-server lease state
+- An exact fresh lease can be opened, while an authorized exact online workspace can start or reuse only its predefined repository development server
+- Reviewers can return to the matching changelog Change or the deployed prototype without losing source identity
+
+### Security
+
+- Pull request code never receives terminal access, arbitrary command input, connector or machine credentials, privileged tokens, or direct machine APIs
+- Stale, offline, mismatched, unauthorized, ambiguous, or unverifiable evidence fails closed without Start or Open actions
+- Privileged requests are attributed to the authenticated Project Space user and the exact repository, pull request, Change, and head revision
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Open the exact PR Change while signed out and confirm only the trusted sign-in gate appears before any prototype content
+- Complete sign-in and confirm the repository, PR, full head, Change, surface, viewport, and prototype target are preserved exactly
+- Confirm unavailable, stale, offline, unauthorized, or mismatched live evidence exposes neither Start dev server nor Open dev server
+- With an exact verified workspace, confirm Start uses only the predefined repository operation and a fresh exact lease enables Open dev server
+- Return to the matching changelog Change and deployed prototype, then confirm no machine, connector, task, worktree, credential, or token identity enters the embedded prototype URL
+
+</PreviewOnly>
