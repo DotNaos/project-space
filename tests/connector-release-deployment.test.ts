@@ -318,7 +318,8 @@ describe('connector release and production deployment contract', () => {
     expect(publish).toContain('asset-count=10');
     expect(publish).toContain('"draft": True');
     expect(publish).toContain('Verify remote draft asset names and sizes');
-    expect(publish).toContain('Release provenance changed before publication.');
+    expect(publish).toContain('Release commit must be reachable from current main.');
+    expect(publish).toContain('$api_root/compare/$EXPECTED_SHA...main');
     expect(publish).toContain('"draft":false');
     expect(publish).toContain('Delete incomplete draft release');
     expect(publish).toContain("steps.publish.outcome != 'success'");

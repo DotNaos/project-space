@@ -125,7 +125,7 @@ describe('pull request changelog snapshot', () => {
     ).toBe(true);
     expect(
       snapshot.entries.some(
-        (entry) => entry.id === 'release-0-4-44-added-1'
+        (entry) => entry.id === 'release-0-4-45-added-1'
       )
     ).toBe(true);
   });
