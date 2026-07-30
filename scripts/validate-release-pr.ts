@@ -4,7 +4,10 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { parseReleaseCatalog } from '../apps/docs/lib/releases/catalog';
 import { parseReleaseEntryMdx } from '../apps/docs/lib/releases/mdx';
-import { validatePullRequestRelease } from '../apps/docs/lib/releases/pull-request-gate';
+import {
+  validateReleasePullRequest,
+  type ChangedReleaseFile,
+} from '../apps/docs/lib/releases/pull-request-gate';
 
 const entryDirectory =
   'apps/docs/content/docs/releases/entries';
@@ -17,17 +20,19 @@ async function main() {
     validateHeadCatalog();
     return;
   }
+  const requestedPullRequest =
+    mode === '--pull-request' ? value : process.env.PR_NUMBER;
   if (
-    mode !== '--pull-request' ||
-    !value ||
-    !/^[1-9]\d*$/.test(value)
+    (mode !== undefined && mode !== '--pull-request') ||
+    !requestedPullRequest ||
+    !/^[1-9]\d*$/.test(requestedPullRequest)
   ) {
     fail(
       'Usage: bun scripts/validate-release-pr.ts --pull-request <number> or --catalog',
     );
   }
 
-  const pullRequest = Number(value);
+  const pullRequest = Number(requestedPullRequest);
   await run(['git', 'fetch', '--no-tags', 'origin', 'main']);
   await run(['git', 'fetch', '--tags', '--force', 'origin']);
 
@@ -51,13 +56,11 @@ async function main() {
   );
   const headEntrySources = readHeadEntries();
   const mainEntrySources = await readGitEntries('origin/main');
-  const ownedSource = headEntrySources.find(
-    ({ fileName }) => fileName === `${pullRequest}.mdx`,
-  );
+  const ownedSource = headEntrySources.get(`${pullRequest}.mdx`);
   const parsedOwned = ownedSource
     ? parseReleaseEntryMdx(
-        ownedSource.source,
-        ownedSource.fileName,
+        ownedSource,
+        `${pullRequest}.mdx`,
       )
     : undefined;
   const candidateTag = parsedOwned?.ok
@@ -72,15 +75,15 @@ async function main() {
     ? await findGitHubRelease(candidateTag)
     : [];
 
-  const result = validatePullRequestRelease({
-    actualPullRequest: pullRequest,
-    changedReleasePaths,
+  const result = validateReleasePullRequest({
+    changedReleaseFiles: changedReleasePaths,
     currentMainVersion,
-    existingGitHubReleases,
-    existingTags,
-    headEntrySources,
+    existingGithubReleaseTags: new Set(existingGitHubReleases),
+    existingGitTags: new Set(existingTags),
+    headEntries: headEntrySources,
     headPackageVersion,
-    mainEntrySources,
+    mainEntries: mainEntrySources,
+    pullRequestNumber: pullRequest,
   });
   if (!result.ok) {
     fail(result.errors);
@@ -110,20 +113,23 @@ function validateHeadCatalog() {
 }
 
 function readHeadEntries() {
+  const entries = new Map<string, string>();
   try {
-    return readdirSync(entryDirectory)
+    for (const fileName of readdirSync(entryDirectory)
       .filter((fileName) => fileName.endsWith('.mdx'))
-      .sort()
-      .map((fileName) => ({
-        fileName: basename(fileName),
-        source: readFileSync(
+      .sort()) {
+      entries.set(
+        basename(fileName),
+        readFileSync(
           join(entryDirectory, fileName),
           'utf8',
         ),
-      }));
+      );
+    }
   } catch {
-    return [];
+    return entries;
   }
+  return entries;
 }
 
 async function readGitEntries(ref: string) {
@@ -139,21 +145,37 @@ async function readGitEntries(ref: string) {
   )
     .split('\n')
     .filter((path) => path.endsWith('.mdx'));
-  return Promise.all(
-    names.map(async (path) => ({
-      fileName: basename(path),
-      source: await gitText('show', `${ref}:${path}`),
-    })),
-  );
+  const entries = new Map<string, string>();
+  for (const path of names) {
+    entries.set(
+      basename(path),
+      await gitText('show', `${ref}:${path}`),
+    );
+  }
+  return entries;
 }
 
-function parseNameStatus(value: string) {
+function parseNameStatus(value: string): ChangedReleaseFile[] {
   return value
     .split('\n')
     .filter(Boolean)
     .map((line) => {
-      const [status, path] = line.split('\t');
-      return { path: path ?? '', status: status ?? '' };
+      const [rawStatus, path = ''] = line.split('\t');
+      const status = rawStatus.startsWith('A')
+        ? 'added'
+        : rawStatus.startsWith('D')
+          ? 'deleted'
+          : rawStatus.startsWith('R')
+            ? 'renamed'
+            : 'modified';
+      return {
+        path,
+        source:
+          status === 'deleted'
+            ? undefined
+            : readFileSync(path, 'utf8'),
+        status,
+      };
     });
 }
 
@@ -178,8 +200,8 @@ async function findGitHubRelease(tag: string) {
     {
       headers: {
         accept: 'application/vnd.github+json',
-        ...(process.env.GITHUB_TOKEN
-          ? { authorization: `Bearer ${process.env.GITHUB_TOKEN}` }
+        ...(process.env.GH_TOKEN
+          ? { authorization: `Bearer ${process.env.GH_TOKEN}` }
           : {}),
         'user-agent': 'project-space-release-gate',
         'x-github-api-version': '2022-11-28',

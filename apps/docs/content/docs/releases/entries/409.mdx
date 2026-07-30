@@ -1,0 +1,60 @@
+---
+title: "Enforce versioned release documentation"
+version: "0.4.44"
+bump: "patch"
+pullRequest: 409
+issues:
+  - 383
+areas:
+  - docs
+  - deploy
+  - security
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  Every pull request targeting main now owns one validated, versioned
+  release entry. Project Docs present those entries as a continuous
+  release history with exact Preview and publication identity.
+</ReleaseSummary>
+
+## Changes
+
+### Added
+
+- Collapsible Major, Minor, and Patch release navigation inside the existing Docs sidebar
+- One continuous article for every minor release line with stable patch anchors and scroll-following navigation
+- Compact release sections with summaries, categorized changes, upgrade guidance, and verified publication references
+- Exact Docs version or pull request Preview identity on every documentation article
+- A trusted post-merge handoff that starts the existing release pipeline from the exact merged commit
+
+### Changed
+
+- Pull requests targeting main must add exactly one valid release MDX file named for the public pull request number
+- Preview-only testing guidance is shown only for the matching pull request revision and is omitted from published articles
+
+### Security
+
+- Release MDX is parsed through a constrained content schema that rejects executable expressions, imports, exports, unsafe HTML, images, unsafe links, and placeholder content
+- The merge gate rechecks version order, bump consistency, duplicate entries, Git tags, and GitHub Releases against the latest main revision
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Open the v0.4 release line on a wide desktop and confirm the existing Docs sidebar expands from v0 to v0.4 to v0.4.44.
+- Open the same release at 390 pixels wide and confirm each Summary, Changes, Upgrade, Preview tests, and References row stacks without clipping.
+- Use the keyboard to collapse and expand the release groups, then open v0.4.44 directly from the sidebar.
+- Open the direct v0.4.44 anchor, scroll through the continuous article, and confirm the active patch link follows the reading position.
+- Confirm there is no patch pagination or previous and next release control.
+- Confirm the article identifies Preview PR 409 and expected v0.4.44 from the exact deployed head revision.
+- Confirm What to test appears in this Preview while published release metadata remains marked not published.
+
+</PreviewOnly>

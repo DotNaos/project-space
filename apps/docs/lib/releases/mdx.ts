@@ -1,42 +1,16 @@
 import {
-  releaseAreas,
-  releaseBumps,
-  releaseChangeCategories,
-  type ReleaseArea,
   type ReleaseBump,
   type ReleaseChange,
   type ReleaseChangeCategory,
-  type ReleaseEntry,
   type ReleaseEntryParseResult,
   type ReleaseUpgrade,
 } from './types';
-import { parseStableSemver } from './semver';
+import { parseReleaseFrontmatter } from './frontmatter';
 
-const frontmatterKeySet = new Set([
-  'title',
-  'version',
-  'bump',
-  'pullRequest',
-  'issues',
-  'areas',
-  'breaking',
-  'upgrade',
-]);
 const placeholderPattern =
-  /\b(?:todo|tbd|placeholder|lorem ipsum|coming soon|fill (?:this|me) in)\b/i;
+  /\b(?:todo|tbd|lorem ipsum|coming soon|fill (?:this|me) in)\b|^(?:placeholder|short user-facing release title|concisely explain|describe one concrete)/i;
 const bodyPattern =
   /^\s*<ReleaseSummary>\s*([\s\S]*?)\s*<\/ReleaseSummary>\s*## Changes\s*([\s\S]*?)(?:\s*## Breaking changes\s*([\s\S]*?))?\s*## Upgrade notes\s*<UpgradeNotes type="(none|required)">\s*([\s\S]*?)\s*<\/UpgradeNotes>\s*<PreviewOnly>\s*## What to test\s*([\s\S]*?)\s*<\/PreviewOnly>\s*$/;
-
-interface ParsedFrontmatter {
-  areas?: unknown;
-  breaking?: unknown;
-  bump?: unknown;
-  issues?: unknown;
-  pullRequest?: unknown;
-  title?: unknown;
-  upgrade?: unknown;
-  version?: unknown;
-}
 
 export function parseReleaseEntryMdx(
   source: string,
@@ -47,10 +21,13 @@ export function parseReleaseEntryMdx(
   const document = splitFrontmatter(normalized, errors);
   if (!document) return { ok: false, errors };
 
-  const frontmatter = parseFrontmatter(document.frontmatter, errors);
+  const metadata = parseReleaseFrontmatter(
+    document.frontmatter,
+    fileName,
+    errors,
+  );
   validateSafeMdx(document.body, errors);
   const body = parseBody(document.body, errors);
-  const metadata = validateFrontmatter(frontmatter, fileName, errors);
 
   if (!body || !metadata) {
     return { ok: false, errors: unique(errors) };
@@ -81,164 +58,6 @@ function splitFrontmatter(source: string, errors: string[]) {
     return undefined;
   }
   return { frontmatter: match[1], body: match[2] };
-}
-
-function parseFrontmatter(
-  source: string,
-  errors: string[],
-): ParsedFrontmatter {
-  const result: Record<string, unknown> = {};
-  const lines = source.split('\n');
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (!line.trim()) continue;
-    const keyMatch = /^([A-Za-z][A-Za-z0-9]*):(?:\s*(.*))?$/.exec(
-      line,
-    );
-    if (!keyMatch) {
-      errors.push(
-        `Frontmatter line ${index + 1} must be a top-level key or an indented list item.`,
-      );
-      continue;
-    }
-
-    const [, key, rawValue = ''] = keyMatch;
-    if (!frontmatterKeySet.has(key)) {
-      errors.push(`Frontmatter field "${key}" is not allowed.`);
-      continue;
-    }
-    if (Object.hasOwn(result, key)) {
-      errors.push(`Frontmatter field "${key}" may appear only once.`);
-      continue;
-    }
-
-    if (rawValue.trim()) {
-      result[key] = parseScalar(rawValue.trim(), key, errors);
-      continue;
-    }
-
-    const values: unknown[] = [];
-    while (
-      index + 1 < lines.length &&
-      /^\s+-\s+/.test(lines[index + 1])
-    ) {
-      index += 1;
-      const item = lines[index].replace(/^\s+-\s+/, '').trim();
-      values.push(parseScalar(item, key, errors));
-    }
-    result[key] = values;
-  }
-
-  return result;
-}
-
-function parseScalar(
-  raw: string,
-  key: string,
-  errors: string[],
-): unknown {
-  if (raw === '[]') return [];
-  if (raw === 'true') return true;
-  if (raw === 'false') return false;
-  if (/^(0|[1-9]\d*)$/.test(raw)) return Number(raw);
-  if (
-    (raw.startsWith('"') && raw.endsWith('"')) ||
-    (raw.startsWith("'") && raw.endsWith("'"))
-  ) {
-    const value = raw.slice(1, -1);
-    if (/[\n\r]/.test(value)) {
-      errors.push(`Frontmatter field "${key}" contains an invalid newline.`);
-    }
-    return value;
-  }
-  if (/^[A-Za-z0-9._/-]+$/.test(raw)) return raw;
-
-  errors.push(
-    `Frontmatter field "${key}" must use a string, integer, boolean, or indented list.`,
-  );
-  return undefined;
-}
-
-function validateFrontmatter(
-  value: ParsedFrontmatter,
-  fileName: string,
-  errors: string[],
-) {
-  const title = requiredString(value.title, 'title', errors);
-  const version = requiredString(value.version, 'version', errors);
-  const bump = requiredEnum(
-    value.bump,
-    releaseBumps,
-    'bump',
-    errors,
-  );
-  const pullRequest = positiveInteger(
-    value.pullRequest,
-    'pullRequest',
-    errors,
-  );
-  const issues = integerList(value.issues, 'issues', errors);
-  const areas = enumList(
-    value.areas,
-    releaseAreas,
-    'areas',
-    errors,
-  );
-  const breaking =
-    typeof value.breaking === 'boolean'
-      ? value.breaking
-      : undefined;
-  const upgrade = requiredEnum(
-    value.upgrade,
-    ['none', 'required'] as const,
-    'upgrade',
-    errors,
-  );
-
-  if (breaking === undefined) {
-    errors.push('Frontmatter field "breaking" must be an explicit boolean.');
-  }
-  if (title && (title.length < 4 || title.length > 100)) {
-    errors.push('Frontmatter field "title" must contain 4 to 100 characters.');
-  }
-  if (version && !parseStableSemver(version)) {
-    errors.push(
-      'Frontmatter field "version" must be stable Semantic Versioning such as 0.4.43.',
-    );
-  }
-  if (pullRequest && fileName !== `${pullRequest}.mdx`) {
-    errors.push(
-      `Release filename "${fileName}" must match pullRequest ${pullRequest} as "${pullRequest}.mdx".`,
-    );
-  }
-  if (areas && areas.length === 0) {
-    errors.push('Frontmatter field "areas" must contain at least one product area.');
-  }
-
-  if (
-    !title ||
-    !version ||
-    !bump ||
-    !pullRequest ||
-    !issues ||
-    !areas ||
-    breaking === undefined ||
-    !upgrade
-  ) {
-    return undefined;
-  }
-
-  return {
-    areas: areas as ReleaseArea[],
-    breaking,
-    bump: bump as ReleaseBump,
-    issues,
-    pullRequest,
-    title,
-    upgrade: upgrade as ReleaseUpgrade,
-    version,
-  };
 }
 
 function validateSafeMdx(body: string, errors: string[]) {
@@ -484,98 +303,6 @@ function validatePlaceholders(
       'Release entry contains placeholder text; describe the actual release instead.',
     );
   }
-}
-
-function requiredString(
-  value: unknown,
-  key: string,
-  errors: string[],
-) {
-  if (typeof value !== 'string' || !value.trim()) {
-    errors.push(`Frontmatter field "${key}" must be a non-empty string.`);
-    return undefined;
-  }
-  return value.trim();
-}
-
-function requiredEnum<const T extends readonly string[]>(
-  value: unknown,
-  allowed: T,
-  key: string,
-  errors: string[],
-): T[number] | undefined {
-  if (typeof value !== 'string' || !allowed.includes(value)) {
-    errors.push(
-      `Frontmatter field "${key}" must be one of: ${allowed.join(', ')}.`,
-    );
-    return undefined;
-  }
-  return value as T[number];
-}
-
-function positiveInteger(
-  value: unknown,
-  key: string,
-  errors: string[],
-) {
-  if (
-    typeof value !== 'number' ||
-    !Number.isSafeInteger(value) ||
-    value <= 0
-  ) {
-    errors.push(`Frontmatter field "${key}" must be a positive integer.`);
-    return undefined;
-  }
-  return value;
-}
-
-function integerList(
-  value: unknown,
-  key: string,
-  errors: string[],
-) {
-  if (
-    !Array.isArray(value) ||
-    value.some(
-      (item) =>
-        typeof item !== 'number' ||
-        !Number.isSafeInteger(item) ||
-        item <= 0,
-    )
-  ) {
-    errors.push(
-      `Frontmatter field "${key}" must be a list of positive integers (it may be empty).`,
-    );
-    return undefined;
-  }
-  if (new Set(value).size !== value.length) {
-    errors.push(`Frontmatter field "${key}" may not contain duplicates.`);
-  }
-  return value as number[];
-}
-
-function enumList<const T extends readonly string[]>(
-  value: unknown,
-  allowed: T,
-  key: string,
-  errors: string[],
-): T[number][] | undefined {
-  if (
-    !Array.isArray(value) ||
-    value.some(
-      (item) =>
-        typeof item !== 'string' || !allowed.includes(item),
-    )
-  ) {
-    errors.push(
-      `Frontmatter field "${key}" must use only: ${allowed.join(', ')}.`,
-    );
-    return undefined;
-  }
-  if (new Set(value).size !== value.length) {
-    errors.push(`Frontmatter field "${key}" may not contain duplicates.`);
-  }
-  return value as T[number][];
 }
 
 function normalizeParagraph(value: string) {
