@@ -319,7 +319,9 @@ export function PrototypeReviewPage() {
       )
     : undefined;
   const localContextResult = usePrototypeReviewLocalContext({
-    enabled: import.meta.env.DEV && target?.source === 'development-override',
+    enabled:
+      import.meta.env.DEV &&
+      development?.source === 'development-override',
     pullRequestNumber: initial.pullRequestNumber,
     repositoryFullName: initial.repositoryFullName
   });
