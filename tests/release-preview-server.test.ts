@@ -80,7 +80,7 @@ describe('release Preview server identity', () => {
       previewTestsForCurrentBuild(
         parsed.entry,
         environment,
-        '0.4.46',
+        '0.4.47',
       ),
     ).toHaveLength(7);
     expect(

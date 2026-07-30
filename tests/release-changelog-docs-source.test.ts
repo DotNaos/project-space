@@ -71,7 +71,7 @@ describe('release entries in the Docs changelog', () => {
           PROJECT_SPACE_PREVIEW_REPOSITORY:
             'DotNaos/project-space',
         },
-        '0.4.46',
+        '0.4.47',
       ),
     );
 
@@ -83,7 +83,7 @@ describe('release entries in the Docs changelog', () => {
     expect(view.state).toBe('ready');
     if (view.state !== 'ready') return;
     expect(view.groups).toHaveLength(1);
-    expect(view.groups[0]?.label).toBe('0.4.46');
+    expect(view.groups[0]?.label).toBe('0.4.47');
     expect(view.groups[0]?.entries).toHaveLength(9);
     expect(
       view.groups[0]?.entries.every(
@@ -115,14 +115,14 @@ describe('release entries in the Docs changelog', () => {
           PROJECT_SPACE_PREVIEW_REPOSITORY:
             'DotNaos/project-space',
         },
-        '0.4.46',
+        '0.4.47',
       ),
     );
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const view = buildChangelogView(result.catalog, {
-      version: '0.4.46',
+      version: '0.4.47',
     });
     expect(view.state).toBe('ready');
     if (view.state !== 'ready') return;
@@ -149,7 +149,7 @@ describe('release entries in the Docs changelog', () => {
     expect(view.state).toBe('ready');
     if (view.state !== 'ready') return;
     expect(view.groups).toHaveLength(1);
-    expect(view.groups[0]?.label).toBe('0.4.46');
+    expect(view.groups[0]?.label).toBe('0.4.47');
     expect(view.groups[0]?.entries).toHaveLength(10);
     expect(
       view.groups[0]?.entries.find(
@@ -173,7 +173,7 @@ describe('release entries in the Docs changelog', () => {
         entries: [{
           body: 'Existing body.',
           category: 'added',
-          id: 'release-0-4-46-added-1',
+          id: 'release-0-4-47-added-1',
           pullRequestNumber: 400,
           summary: 'Existing summary.',
           testing: ['Test the existing change.'],
@@ -183,9 +183,9 @@ describe('release entries in the Docs changelog', () => {
       {
         schema: 'project-space.changelog-versions/v1',
         versions: [{
-          entryIds: ['release-0-4-46-added-1'],
+          entryIds: ['release-0-4-47-added-1'],
           releasedAt: '2026-07-29',
-          version: '0.4.46',
+          version: '0.4.47',
         }],
       },
     );
