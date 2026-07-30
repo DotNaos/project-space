@@ -1,6 +1,6 @@
 {
   "name": "project-space",
-  "version": "0.4.48",
+  "version": "0.4.49",
   "private": true,
   "description": "Desktop-first workspace management foundation for project-centered workflows.",
   "type": "module",
