@@ -29,7 +29,8 @@ export type PrototypeOrientation = 'landscape' | 'portrait';
 export type PrototypeTheme = 'dark' | 'light';
 
 export interface MobilePrototypeLocation {
-  scenarioId: string;
+  scenarioId?: string;
+  scenarioState: 'missing' | 'ready' | 'unknown';
   viewport: PrototypeViewport;
 }
 
@@ -51,7 +52,7 @@ export function isPrototypeViewport(
 export function readMobilePrototypeLocation(
   search: string,
   scenarioIds: readonly string[],
-  defaultScenarioId: string
+  _defaultScenarioId: string
 ): MobilePrototypeLocation {
   const params = new URLSearchParams(search);
   const requestedScenario = params.get('scenario');
@@ -61,7 +62,13 @@ export function readMobilePrototypeLocation(
     scenarioId:
       requestedScenario && scenarioIds.includes(requestedScenario)
         ? requestedScenario
-        : defaultScenarioId,
+        : undefined,
+    scenarioState:
+      requestedScenario && scenarioIds.includes(requestedScenario)
+        ? 'ready'
+        : requestedScenario
+          ? 'unknown'
+          : 'missing',
     viewport: isPrototypeViewport(requestedViewport)
       ? requestedViewport
       : DEFAULT_VIEWPORT,
@@ -70,10 +77,11 @@ export function readMobilePrototypeLocation(
 
 export function mobilePrototypeSearch(
   currentSearch: string,
-  state: MobilePrototypeLocation
+  state: Pick<MobilePrototypeLocation, 'scenarioId' | 'viewport'>
 ) {
   const params = new URLSearchParams(currentSearch);
-  params.set('scenario', state.scenarioId);
+  if (state.scenarioId) params.set('scenario', state.scenarioId);
+  else params.delete('scenario');
   params.set('viewport', state.viewport);
   return `?${params.toString()}`;
 }

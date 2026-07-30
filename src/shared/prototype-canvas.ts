@@ -33,6 +33,12 @@ export interface PrototypePresentation {
   theme: PrototypeTheme;
 }
 
+export interface PrototypeSelection {
+  scenario?: PrototypeScenarioKind;
+  scenarioState: 'missing' | 'ready' | 'unknown';
+  viewport: PrototypeViewportKind;
+}
+
 export const prototypeViewportPresets: Record<
   PrototypeViewportKind,
   PrototypeViewportPreset
@@ -80,12 +86,18 @@ export function isPrototypeScenarioKind(value: unknown): value is PrototypeScena
 export function prototypeSelectionFromSearch(
   search: string,
   fallbackViewport: PrototypeViewportKind
-) {
+): PrototypeSelection {
   const params = new URLSearchParams(search);
   const viewport = params.get('viewport');
   const scenario = params.get('scenario');
+  const scenarioState = isPrototypeScenarioKind(scenario)
+    ? 'ready'
+    : scenario
+      ? 'unknown'
+      : 'missing';
   return {
-    scenario: isPrototypeScenarioKind(scenario) ? scenario : 'ready',
+    scenario: isPrototypeScenarioKind(scenario) ? scenario : undefined,
+    scenarioState,
     viewport: isPrototypeViewportKind(viewport) ? viewport : fallbackViewport
   };
 }

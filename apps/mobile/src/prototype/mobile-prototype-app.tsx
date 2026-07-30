@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Platform,
   Pressable,
+  Text,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -102,8 +103,12 @@ function EmbeddedMobilePrototype() {
   );
   const scenario = projectOverviewPrototypeScenario(initial.scenarioId);
   const presentation = useMemo(
-    () => readPrototypePresentation(currentLocation().search, scenario.theme),
-    [scenario.theme]
+    () =>
+      readPrototypePresentation(
+        currentLocation().search,
+        scenario?.theme ?? 'dark'
+      ),
+    [scenario?.theme]
   );
 
   useEffect(() => {
@@ -126,14 +131,20 @@ function EmbeddedMobilePrototype() {
             : 0,
       }}
     >
-      <ProjectOverviewScreen
-        accountLabel={scenario.accountLabel}
-        errorMessage={scenario.errorMessage}
-        inventory={scenario.inventory}
-        isRefreshing={scenario.isRefreshing}
-        onRefresh={() => undefined}
-        sourceLabel={scenario.sourceLabel}
-      />
+      {scenario ? (
+        <ProjectOverviewScreen
+          accountLabel={scenario.accountLabel}
+          errorMessage={scenario.errorMessage}
+          inventory={scenario.inventory}
+          isRefreshing={scenario.isRefreshing}
+          onRefresh={() => undefined}
+          sourceLabel={scenario.sourceLabel}
+        />
+      ) : (
+        <PrototypeSelectionUnavailable
+          reason={initial.scenarioState}
+        />
+      )}
     </View>
   );
 }
@@ -164,9 +175,9 @@ function MobilePrototypeWorkspace() {
     () =>
       readPrototypePresentation(
         currentLocation().search,
-        initialScenario.theme
+        initialScenario?.theme ?? 'dark'
       ),
-    [initialScenario.theme]
+    [initialScenario?.theme]
   );
   const [scenarioId] = useState(initial.scenarioId);
   const [viewport, setViewport] = useState<PrototypeViewport>(initial.viewport);
@@ -246,7 +257,7 @@ function MobilePrototypeWorkspace() {
   }, [presentation.theme]);
 
   useEffect(() => {
-    replacePrototypeLocation(scenarioId, viewport);
+    if (scenarioId) replacePrototypeLocation(scenarioId, viewport);
   }, [scenarioId, viewport]);
 
   useEffect(() => {
@@ -312,7 +323,9 @@ function MobilePrototypeWorkspace() {
         >
           <PrototypeSurfaceTabs
             onChange={(surface) => {
-              if (surface === 'web') openWebPrototype(scenarioId, viewport);
+              if (surface === 'web' && scenarioId) {
+                openWebPrototype(scenarioId, viewport);
+              }
             }}
             surface="expo"
             theme={presentation.theme}
@@ -374,15 +387,21 @@ function MobilePrototypeWorkspace() {
         theme={presentation.theme}
         viewport={viewport}
       >
-        <ProjectOverviewScreen
-          key={scenario.id}
-          accountLabel={scenario.accountLabel}
-          errorMessage={scenario.errorMessage}
-          inventory={scenario.inventory}
-          isRefreshing={scenario.isRefreshing}
-          onRefresh={() => undefined}
-          sourceLabel={scenario.sourceLabel}
-        />
+        {scenario ? (
+          <ProjectOverviewScreen
+            key={scenario.id}
+            accountLabel={scenario.accountLabel}
+            errorMessage={scenario.errorMessage}
+            inventory={scenario.inventory}
+            isRefreshing={scenario.isRefreshing}
+            onRefresh={() => undefined}
+            sourceLabel={scenario.sourceLabel}
+          />
+        ) : (
+          <PrototypeSelectionUnavailable
+            reason={initial.scenarioState}
+          />
+        )}
       </PrototypeDeviceCanvas>
       {reviewConfig && !presentation.fullscreen ? (
         <NativeReviewDock
@@ -392,6 +411,28 @@ function MobilePrototypeWorkspace() {
           viewport={viewport}
         />
       ) : null}
+    </View>
+  );
+}
+
+function PrototypeSelectionUnavailable({
+  reason,
+}: {
+  reason: 'missing' | 'ready' | 'unknown';
+}) {
+  return (
+    <View
+      accessibilityRole="alert"
+      className="min-h-72 flex-1 items-center justify-center bg-background px-8"
+    >
+      <Text className="text-center text-sm font-semibold text-foreground">
+        Prototype Change unavailable
+      </Text>
+      <Text className="mt-2 max-w-sm text-center text-xs leading-5 text-muted">
+        {reason === 'unknown'
+          ? 'This prototype does not recognize the requested Change.'
+          : 'Choose a Change from the pull request changelog.'}
+      </Text>
     </View>
   );
 }

@@ -15,6 +15,11 @@ const entriesSource = {
       summary: 'Show a preview notice.',
       body: 'The preview now explains its source revision.',
       issueNumber: 298,
+      prototype: {
+        scenarioId: 'ready',
+        surface: 'desktop-prototype',
+        viewport: 'desktop',
+      },
       pullRequestNumber: 298,
       testing: ['Open the preview notice.'],
     },
@@ -120,6 +125,11 @@ describe('Docs changelog catalog', () => {
       'pr-298-preview-notice',
       'pr-298-docs-link',
     ]);
+    expect(view.groups[0]?.entries[0]?.prototype).toEqual({
+      scenarioId: 'ready',
+      surface: 'desktop-prototype',
+      viewport: 'desktop',
+    });
   });
 
   test('returns complete release notes and highlights the selected PR', () => {
@@ -204,6 +214,22 @@ describe('Docs changelog catalog', () => {
     expect(result.errors.join('\n')).toContain('real YYYY-MM-DD date');
     expect(result.errors.join('\n')).toContain('unknown entry');
     expect(result.errors.join('\n')).toContain('assigned to both');
+  });
+
+  test('rejects malformed prototype discovery metadata', () => {
+    const source = structuredClone(entriesSource);
+    source.entries[0]!.prototype = {
+      scenarioId: 'UNKNOWN',
+      surface: 'desktop-prototype',
+      viewport: 'desktop',
+    };
+    const result = parseChangelogCatalog(source, versionsSource);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.join('\n')).toContain(
+      'scenarioId must use lowercase words'
+    );
   });
 
   test('allows one release to contain multiple pull requests', () => {

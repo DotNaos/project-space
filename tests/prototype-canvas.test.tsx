@@ -32,7 +32,23 @@ describe('standalone prototype canvas', () => {
       '/prototype/mobile/?scenario=error&viewport=desktop&theme=dark'
     );
     expect(prototypeSelectionFromSearch('?scenario=long-content&viewport=phone', 'desktop'))
-      .toEqual({ scenario: 'long-content', viewport: 'phone' });
+      .toEqual({
+        scenario: 'long-content',
+        scenarioState: 'ready',
+        viewport: 'phone'
+      });
+    expect(prototypeSelectionFromSearch('?viewport=phone', 'desktop'))
+      .toEqual({
+        scenario: undefined,
+        scenarioState: 'missing',
+        viewport: 'phone'
+      });
+    expect(prototypeSelectionFromSearch('?scenario=unknown', 'desktop'))
+      .toEqual({
+        scenario: undefined,
+        scenarioState: 'unknown',
+        viewport: 'desktop'
+      });
   });
 
   test('preserves frame, fullscreen, rotation, and theme across app switches', () => {

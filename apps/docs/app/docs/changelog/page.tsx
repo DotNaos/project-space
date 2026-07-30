@@ -1,4 +1,5 @@
 import { changelogCatalogResult } from '@/lib/changelog/source';
+import { ChangelogPrototypeAction } from '@/components/changelog-prototype-action';
 import {
   buildChangelogView,
   parseChangelogFilters,
@@ -237,6 +238,14 @@ function ChangelogEntryRow({
         )}
       </div>
       <p className="mt-4 max-w-3xl leading-7 text-fd-muted-foreground">{entry.body}</p>
+      {entry.prototype && (
+        <ChangelogPrototypeAction
+          changeId={entry.id}
+          prototype={entry.prototype}
+          pullRequestNumber={entry.pullRequestNumber}
+          title={entry.summary}
+        />
+      )}
       <div className="mt-6">
         <h4 className="text-base font-semibold text-fd-foreground">
           What to test
