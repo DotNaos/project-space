@@ -18,6 +18,15 @@ import {
 
 import { projectSpaceClient } from '@/api/project-space-client';
 import { Text } from '@/app/dotnaos-ui';
+import { pullRequestChangelogSnapshotFor } from '@/features/pr-preview-changelog/pull-request-changelog-snapshot';
+import {
+  isPullRequestChangelogIdentity,
+  type PullRequestChangelogIdentity
+} from '@/shared/pr-preview-changelog-api';
+import {
+  pullRequestChangelogPrototypeSelection,
+  pullRequestPrototypeIdentityMatches
+} from '@/shared/pr-preview-changelog-prototypes';
 import type { PullRequestTestSurfacesResult } from '@/shared/pr-preview-test-surfaces-api';
 import {
   prototypeViewportKinds,
@@ -160,7 +169,42 @@ export function PrototypeReviewPage() {
     () => parsePrototypeReviewRoute(window.location.pathname, window.location.search),
     []
   );
-  const [surface, setSurface] = useState(initial.surface);
+  const requestedIdentity = useMemo(
+    (): PullRequestChangelogIdentity | undefined => {
+      const identity = {
+        headSha: initial.headSha ?? '',
+        pullRequestNumber: initial.pullRequestNumber ?? 0,
+        repositoryFullName: initial.repositoryFullName ?? ''
+      };
+      return isPullRequestChangelogIdentity(identity)
+        ? identity
+        : undefined;
+    },
+    [initial.headSha, initial.pullRequestNumber, initial.repositoryFullName]
+  );
+  const initialSelection = useMemo(
+    () =>
+      requestedIdentity
+        ? pullRequestChangelogPrototypeSelection(
+            pullRequestChangelogSnapshotFor(requestedIdentity),
+            requestedIdentity,
+            initial.changeId
+          )
+        : {
+            message:
+              'A verified repository, pull request, and full head revision are required.',
+            state: 'unavailable' as const
+          },
+    [initial.changeId, requestedIdentity]
+  );
+  const selectedSurface =
+    initialSelection.state === 'ready'
+      ? initialSelection.entry.prototype!.surface ===
+        'mobile-prototype'
+        ? 'native'
+        : 'web'
+      : initial.surface;
+  const [surface, setSurface] = useState(selectedSurface);
   const [viewport, setViewport] = useState(initial.viewport);
   const [orientation, setOrientation] = useState(initial.orientation);
   const [theme, setTheme] = useState<PrototypeTheme>(initial.theme);
@@ -169,7 +213,9 @@ export function PrototypeReviewPage() {
   const [hudVisible, setHudVisible] = useState(true);
   const [isRotating, setIsRotating] = useState(false);
   const [loadedTargetUrl, setLoadedTargetUrl] = useState<string>();
-  const [panel, setPanel] = useState<ReviewPanel>();
+  const [panel, setPanel] = useState<ReviewPanel | undefined>(
+    initialSelection.state === 'ready' ? undefined : 'changelog'
+  );
   const [result, setResult] = useState<PullRequestTestSurfacesResult>();
   const [surfaceError, setSurfaceError] = useState<string>();
   const frameRevealTimer = useRef<number | undefined>(undefined);
@@ -230,19 +276,52 @@ export function PrototypeReviewPage() {
     []
   );
 
-  const verified = verifiedPrototypeTarget(result, surface);
-  const development = import.meta.env.DEV
-    ? developmentPrototypeTarget(initial.devTargetUrl, window.location.href, surface)
+  const resultIdentity = result
+    ? {
+        headSha: result.headSha,
+        pullRequestNumber: result.pullRequestNumber,
+        repositoryFullName: result.repositoryFullName
+      }
     : undefined;
-  const candidateTarget = development ?? verified;
+  const exactResult = Boolean(
+    requestedIdentity &&
+      pullRequestPrototypeIdentityMatches(
+        requestedIdentity,
+        resultIdentity
+      )
+  );
+  const verified = exactResult
+    ? verifiedPrototypeTarget(result, surface)
+    : undefined;
+  const development = import.meta.env.DEV
+    ? developmentPrototypeTarget(
+        initial.devTargetUrl,
+        window.location.href,
+        surface
+      )
+    : undefined;
+  const candidateTarget =
+    initialSelection.state === 'ready'
+      ? development ?? verified
+      : undefined;
   const target = isIsolatedPrototypeTarget(candidateTarget, window.location.href)
     ? candidateTarget
     : undefined;
   const targetUrl = target
-    ? embeddedPrototypeUrl(target, initial.scenario, viewport, orientation, theme)
+    ? embeddedPrototypeUrl(
+        target,
+        initialSelection.state === 'ready'
+          ? initialSelection.entry.prototype!.scenarioId
+          : '',
+        viewport,
+        orientation,
+        theme
+      )
     : undefined;
   const localContextResult = usePrototypeReviewLocalContext({
-    enabled: import.meta.env.DEV && target?.source === 'development-override',
+    enabled:
+      import.meta.env.DEV &&
+      development?.source === 'development-override',
     pullRequestNumber: initial.pullRequestNumber,
     repositoryFullName: initial.repositoryFullName
   });
@@ -434,7 +513,11 @@ export function PrototypeReviewPage() {
                 </Text>
                 <Text className="mt-2 block text-xs leading-5 text-neutral-500">
                   {surfaceError ??
-                    'Open this workspace from a verified PR surface or a local development target.'}
+                    (initialSelection.state !== 'ready'
+                      ? initialSelection.message
+                      : !exactResult && !development
+                        ? 'The available prototype does not match the requested repository, PR, and head commit.'
+                        : 'Open this workspace from a verified PR surface or a local development target.')}
                 </Text>
               </div>
             </div>
@@ -496,8 +579,11 @@ export function PrototypeReviewPage() {
         isOpen={!fullscreen && panel === 'changelog'}
         pullRequestNumber={initial.pullRequestNumber}
         repositoryFullName={initial.repositoryFullName}
+        expectedIdentity={requestedIdentity}
         localContext={localContext}
+        prototypeTarget={initial.devTargetUrl}
         result={result}
+        selectedChangeId={initial.changeId}
         theme={theme}
         onOpenChange={(open) => setPanel(open ? 'changelog' : undefined)}
       />

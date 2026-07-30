@@ -181,7 +181,17 @@ function EmbeddedDesktopPrototype() {
             : ''
       }`}
     >
-      <DesktopTarget scenario={initial.scenario} theme={presentation.theme} />
+      {initial.scenario ? (
+        <DesktopTarget
+          scenario={initial.scenario}
+          theme={presentation.theme}
+        />
+      ) : (
+        <PrototypeSelectionUnavailable
+          reason={initial.scenarioState}
+          theme={presentation.theme}
+        />
+      )}
     </main>
   );
 }
@@ -191,7 +201,9 @@ function PrototypeWorkspace() {
   const initialPresentation = prototypePresentationFromSearch(
     window.location.search
   );
-  const [scenario] = useState<PrototypeScenarioKind>(initial.scenario);
+  const [scenario] = useState<PrototypeScenarioKind | undefined>(
+    initial.scenario
+  );
   const [viewport, setViewport] = useState<PrototypeViewportKind>(initial.viewport);
   const [presentation, setPresentation] = useState(initialPresentation);
   const [hudVisible, setHudVisible] = useState(!initialPresentation.fullscreen);
@@ -220,7 +232,7 @@ function PrototypeWorkspace() {
   };
   const updatePresentation = (next: PrototypePresentation) => {
     setPresentation(next);
-    replaceSelection(viewport, scenario, next);
+    if (scenario) replaceSelection(viewport, scenario, next);
     if (next.fullscreen) {
       setHudVisible(false);
     } else {
@@ -234,7 +246,7 @@ function PrototypeWorkspace() {
     setIsSwitchingViewport(true);
     viewportSwitchTimer.current = window.setTimeout(() => {
       setViewport(next);
-      replaceSelection(next, scenario, presentation);
+      if (scenario) replaceSelection(next, scenario, presentation);
       viewportSwitchTimer.current = window.setTimeout(() => {
         setIsSwitchingViewport(false);
         viewportSwitchTimer.current = undefined;
@@ -242,7 +254,7 @@ function PrototypeWorkspace() {
     }, VIEWPORT_HIDE_MS);
   };
   const chooseSurface = (next: 'web' | 'expo') => {
-    if (next === 'web') return;
+    if (next === 'web' || !scenario) return;
     window.location.assign(
       prototypeSurfaceHref(
         'expo',
@@ -410,10 +422,54 @@ function PrototypeWorkspace() {
           showDeviceFrame={presentation.showDeviceFrame}
           viewport={preset}
         >
-          <DesktopTarget scenario={scenario} theme={presentation.theme} />
+          {scenario ? (
+            <DesktopTarget
+              scenario={scenario}
+              theme={presentation.theme}
+            />
+          ) : (
+            <PrototypeSelectionUnavailable
+              reason={initial.scenarioState}
+              theme={presentation.theme}
+            />
+          )}
         </ScaledDeviceCanvas>
       </section>
     </main>
+  );
+}
+
+function PrototypeSelectionUnavailable({
+  reason,
+  theme
+}: {
+  reason: 'missing' | 'ready' | 'unknown';
+  theme: PrototypeTheme;
+}) {
+  return (
+    <section
+      className={`grid size-full min-h-72 place-items-center px-8 text-center ${
+        theme === 'light'
+          ? 'bg-stone-50 text-neutral-900'
+          : 'bg-neutral-950 text-neutral-100'
+      }`}
+      role="alert"
+    >
+      <div className="max-w-sm">
+        <Monitor
+          aria-hidden
+          className="mx-auto size-6 text-neutral-500"
+        />
+        <h1 className="mt-4 text-sm font-semibold">
+          Prototype Change unavailable
+        </h1>
+        <p className="mt-2 text-xs leading-5 text-neutral-500">
+          {reason === 'unknown'
+            ? 'This prototype does not recognize the requested Change.'
+            : 'Choose a Change from the pull request changelog.'}
+        </p>
+      </div>
+    </section>
   );
 }
 

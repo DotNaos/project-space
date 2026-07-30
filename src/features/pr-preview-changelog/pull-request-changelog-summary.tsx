@@ -1,5 +1,9 @@
 import { Disclosure } from '@heroui/react';
-import { ExternalLink } from 'lucide-react';
+import {
+  ExternalLink,
+  Monitor,
+  Smartphone
+} from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import {
@@ -7,12 +11,17 @@ import {
   type PullRequestChangelogIdentity,
   type PullRequestChangelogSnapshot
 } from '@/shared/pr-preview-changelog-api';
+import {
+  pullRequestPrototypeReviewHref,
+  pullRequestPrototypeSurfaceLabels
+} from '@/shared/pr-preview-changelog-prototypes';
 import type { PullRequestChangelogTestTargetsSnapshot } from '@/shared/pr-preview-changelog-test-targets';
-import { PullRequestChangelogTestTargets } from './pull-request-changelog-test-targets';
 
 export interface PullRequestChangelogSummaryProps {
   className?: string;
   expectedIdentity?: PullRequestChangelogIdentity;
+  prototypeTarget?: string;
+  selectedChangeId?: string;
   showDocsLink?: boolean;
   snapshot: PullRequestChangelogSnapshot;
   testTargets?: PullRequestChangelogTestTargetsSnapshot;
@@ -21,18 +30,14 @@ export interface PullRequestChangelogSummaryProps {
 export function PullRequestChangelogSummary({
   className,
   expectedIdentity,
+  prototypeTarget,
+  selectedChangeId,
   showDocsLink = true,
-  snapshot,
-  testTargets
+  snapshot
 }: PullRequestChangelogSummaryProps) {
   const presentation = pullRequestChangelogPresentation(
     snapshot,
     expectedIdentity
-  );
-  const testingSteps = Array.from(
-    new Set(
-      presentation.entries.flatMap((entry) => entry.testing)
-    )
   );
 
   return (
@@ -49,48 +54,97 @@ export function PullRequestChangelogSummary({
           {presentation.message}
         </p>
       ) : (
-        <>
-          <ul className="space-y-3">
+        <ul className="divide-y divide-neutral-800/80">
             {presentation.entries.map((entry) => (
-              <li className="flex gap-3" key={entry.id}>
-                <span
-                  aria-hidden
-                  className="mt-[0.6rem] size-1 shrink-0 rounded-full bg-neutral-500"
-                />
-                <p className="text-sm leading-6 text-neutral-200">
-                  {entry.summary}
-                </p>
+              <li
+                className="py-5 first:pt-0 last:pb-0"
+                data-selected={
+                  entry.id === selectedChangeId || undefined
+                }
+                id={`change-${entry.id}`}
+                key={entry.id}
+              >
+                <article aria-labelledby={`change-title-${entry.id}`}>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-600">
+                    Change
+                  </p>
+                  <h3
+                    className="mt-1.5 text-sm font-semibold leading-6 text-neutral-100"
+                    id={`change-title-${entry.id}`}
+                  >
+                    {entry.summary}
+                  </h3>
+                  <p className="mt-1.5 text-xs leading-5 text-neutral-400">
+                    {entry.description}
+                  </p>
+
+                  {entry.prototype ? (
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                      <span className="inline-flex items-center gap-2 text-xs font-medium text-neutral-400">
+                        {entry.prototype.surface ===
+                        'mobile-prototype' ? (
+                          <Smartphone
+                            aria-hidden
+                            className="size-3.5"
+                          />
+                        ) : (
+                          <Monitor
+                            aria-hidden
+                            className="size-3.5"
+                          />
+                        )}
+                        {
+                          pullRequestPrototypeSurfaceLabels[
+                            entry.prototype.surface
+                          ]
+                        }
+                        <span aria-hidden>·</span>
+                        {entry.prototype.viewport}
+                      </span>
+                      {expectedIdentity ? (
+                        <a
+                          aria-label={`Open prototype for ${entry.summary}`}
+                          className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-neutral-100 px-3 text-xs font-semibold text-neutral-950 transition hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-300"
+                          href={pullRequestPrototypeReviewHref(
+                            expectedIdentity,
+                            entry,
+                            { target: prototypeTarget }
+                          )}
+                        >
+                          Open prototype
+                          <ExternalLink
+                            aria-hidden
+                            className="size-3.5"
+                          />
+                        </a>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  <Disclosure className="mt-4">
+                    <Disclosure.Heading>
+                      <Disclosure.Trigger className="flex min-h-9 w-full items-center justify-between rounded-md py-1 text-sm text-neutral-400 outline-none transition hover:text-neutral-200 focus-visible:ring-2 focus-visible:ring-neutral-500">
+                        <span>What to test</span>
+                        <span className="flex items-center gap-2 text-xs text-neutral-600">
+                          {entry.testing.length}
+                          <Disclosure.Indicator className="size-4" />
+                        </span>
+                      </Disclosure.Trigger>
+                    </Disclosure.Heading>
+                    <Disclosure.Content>
+                      <Disclosure.Body className="pb-1 pt-2">
+                        <ul className="list-disc space-y-1.5 pl-5 text-xs leading-5 text-neutral-400">
+                          {entry.testing.map((step) => (
+                            <li key={step}>{step}</li>
+                          ))}
+                        </ul>
+                      </Disclosure.Body>
+                    </Disclosure.Content>
+                  </Disclosure>
+                </article>
               </li>
             ))}
           </ul>
-
-          <Disclosure className="mt-5">
-            <Disclosure.Heading>
-              <Disclosure.Trigger className="flex min-h-9 w-full items-center justify-between rounded-md py-1 text-sm text-neutral-400 outline-none transition hover:text-neutral-200 focus-visible:ring-2 focus-visible:ring-neutral-500">
-                <span>What to test</span>
-                <span className="flex items-center gap-2 text-xs text-neutral-600">
-                  {testingSteps.length}
-                  <Disclosure.Indicator className="size-4" />
-                </span>
-              </Disclosure.Trigger>
-            </Disclosure.Heading>
-            <Disclosure.Content>
-              <Disclosure.Body className="pb-1 pt-2">
-                <ul className="list-disc space-y-1.5 pl-5 text-xs leading-5 text-neutral-400">
-                  {testingSteps.map((step) => (
-                    <li key={step}>{step}</li>
-                  ))}
-                </ul>
-                {expectedIdentity ? (
-                  <PullRequestChangelogTestTargets
-                    expectedIdentity={expectedIdentity}
-                    snapshot={testTargets}
-                  />
-                ) : null}
-              </Disclosure.Body>
-            </Disclosure.Content>
-          </Disclosure>
-        </>
       )}
 
       {showDocsLink && presentation.docsHref ? (

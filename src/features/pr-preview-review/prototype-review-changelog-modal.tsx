@@ -4,28 +4,35 @@ import { FileClock } from 'lucide-react';
 import { Text } from '@/app/dotnaos-ui';
 import { PullRequestChangelogSummary } from '@/features/pr-preview-changelog/pull-request-changelog-summary';
 import { pullRequestChangelogSnapshotFor } from '@/features/pr-preview-changelog/pull-request-changelog-snapshot';
+import type { PullRequestChangelogIdentity } from '@/shared/pr-preview-changelog-api';
 import type { PullRequestTestSurfacesResult } from '@/shared/pr-preview-test-surfaces-api';
 import type { PrototypeTheme } from '@/shared/prototype-canvas';
 import type { PrototypeReviewLocalContext } from '@/shared/prototype-review-local-api';
 import { prototypeReviewChangelogIdentity } from './prototype-review-changelog';
 
 interface PrototypeReviewChangelogModalProps {
+  expectedIdentity?: PullRequestChangelogIdentity;
   isOpen: boolean;
   localContext?: PrototypeReviewLocalContext;
   onOpenChange(open: boolean): void;
+  prototypeTarget?: string;
   pullRequestNumber?: number;
   repositoryFullName?: string;
   result?: PullRequestTestSurfacesResult;
+  selectedChangeId?: string;
   theme: PrototypeTheme;
 }
 
 export function PrototypeReviewChangelogModal({
+  expectedIdentity,
   isOpen,
   localContext,
   onOpenChange,
+  prototypeTarget,
   pullRequestNumber,
   repositoryFullName,
   result,
+  selectedChangeId,
   theme
 }: PrototypeReviewChangelogModalProps) {
   return (
@@ -47,10 +54,13 @@ export function PrototypeReviewChangelogModal({
             </Modal.Header>
             <Modal.Body className="min-h-0 overflow-y-auto p-2">
               <ChangelogContent
+                expectedIdentity={expectedIdentity}
+                localContext={localContext}
+                prototypeTarget={prototypeTarget}
                 pullRequestNumber={pullRequestNumber}
                 repositoryFullName={repositoryFullName}
-                localContext={localContext}
                 result={result}
+                selectedChangeId={selectedChangeId}
               />
             </Modal.Body>
           </Modal.Dialog>
@@ -61,17 +71,24 @@ export function PrototypeReviewChangelogModal({
 }
 
 function ChangelogContent({
+  expectedIdentity,
+  localContext,
+  prototypeTarget,
   pullRequestNumber,
   repositoryFullName,
-  localContext,
-  result
+  result,
+  selectedChangeId
 }: {
+  expectedIdentity?: PullRequestChangelogIdentity;
   localContext?: PrototypeReviewLocalContext;
+  prototypeTarget?: string;
   pullRequestNumber?: number;
   repositoryFullName?: string;
   result?: PullRequestTestSurfacesResult;
+  selectedChangeId?: string;
 }) {
   const identity = prototypeReviewChangelogIdentity({
+    expectedIdentity,
     localContext,
     pullRequestNumber,
     repositoryFullName,
@@ -97,6 +114,8 @@ function ChangelogContent({
       <PullRequestChangelogSummary
         className="border-t-0"
         expectedIdentity={identity}
+        prototypeTarget={prototypeTarget}
+        selectedChangeId={selectedChangeId}
         snapshot={pullRequestChangelogSnapshotFor(identity)}
       />
     </section>

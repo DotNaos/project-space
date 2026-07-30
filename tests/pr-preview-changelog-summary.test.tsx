@@ -3,6 +3,7 @@ import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import * as changelogApi from '../src/shared/pr-preview-changelog-api';
+import * as prototypesApi from '../src/shared/pr-preview-changelog-prototypes';
 import * as testTargetsApi from '../src/shared/pr-preview-changelog-test-targets';
 
 function modalPassthrough({
@@ -31,6 +32,10 @@ mock.module('@/lib/utils', () => ({
 }));
 
 mock.module('@/shared/pr-preview-changelog-api', () => changelogApi);
+mock.module(
+  '@/shared/pr-preview-changelog-prototypes',
+  () => prototypesApi
+);
 mock.module(
   '@/shared/pr-preview-changelog-test-targets',
   () => testTargetsApi
@@ -82,8 +87,15 @@ function availableSnapshot(): PullRequestChangelogSnapshot {
     entries: [
       {
         category: 'added',
+        description:
+          'Reviewers can open the documented prototype directly.',
         id: 'pr-298-changelog',
         issueNumber: 298,
+        prototype: {
+          scenarioId: 'ready',
+          surface: 'desktop-prototype',
+          viewport: 'desktop'
+        },
         pullRequestNumber: 298,
         summary: 'Add exact-source changelog guidance.',
         testing: [
@@ -109,10 +121,14 @@ describe('pull request changelog summary', () => {
     expect(html).toContain('Add exact-source changelog guidance.');
     expect(html).toContain('What to test');
     expect(html).toContain('/docs/changelog?pr=298');
+    expect(html).toContain('Open prototype');
+    expect(html).toContain('change=pr-298-changelog');
+    expect(html).toContain(`head=${identity.headSha}`);
+    expect(html).not.toContain('scenario=ready');
     expect(html).not.toContain('Pull request #298');
   });
 
-  test('consolidates testing guidance across multiple entries', () => {
+  test('keeps testing guidance and actions with each Change', () => {
     const snapshot = availableSnapshot();
     const html = renderToStaticMarkup(
       <PullRequestChangelogSummary
@@ -123,7 +139,14 @@ describe('pull request changelog summary', () => {
             ...snapshot.entries,
             {
               category: 'changed',
+              description:
+                'The chooser keeps every testable Change separate.',
               id: 'pr-298-second-change',
+              prototype: {
+                scenarioId: 'mobile-workflow',
+                surface: 'mobile-prototype',
+                viewport: 'phone'
+              },
               pullRequestNumber: 298,
               summary: 'Keep the notice calm and focused.',
               testing: [
@@ -137,10 +160,12 @@ describe('pull request changelog summary', () => {
     );
 
     expect(html).toContain('Keep the notice calm and focused.');
-    expect(html.match(/What to test/g)).toHaveLength(1);
+    expect(html.match(/>Open prototype</g)).toHaveLength(2);
+    expect(html).toContain('change=pr-298-second-change');
+    expect(html.match(/What to test/g)).toHaveLength(2);
     expect(
       html.match(/Open the changelog for this pull request\./g)
-    ).toHaveLength(1);
+    ).toHaveLength(2);
   });
 
   test('renders an honest missing state without fabricated guidance', () => {

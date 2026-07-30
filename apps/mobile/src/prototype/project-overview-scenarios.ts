@@ -161,10 +161,8 @@ export const PROJECT_OVERVIEW_PROTOTYPE_SCENARIOS: readonly ProjectOverviewProto
 export const DEFAULT_PROJECT_OVERVIEW_SCENARIO_ID =
   PROJECT_OVERVIEW_PROTOTYPE_SCENARIOS[0]!.id;
 
-export function projectOverviewPrototypeScenario(id: string) {
-  return (
-    PROJECT_OVERVIEW_PROTOTYPE_SCENARIOS.find(
-      (scenario) => scenario.id === id
-    ) ?? PROJECT_OVERVIEW_PROTOTYPE_SCENARIOS[0]!
+export function projectOverviewPrototypeScenario(id: string | undefined) {
+  return PROJECT_OVERVIEW_PROTOTYPE_SCENARIOS.find(
+    (scenario) => scenario.id === id
   );
 }

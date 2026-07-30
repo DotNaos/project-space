@@ -60,6 +60,22 @@ describe('pull request changelog snapshot', () => {
     expect(snapshot.docsHref).toBe('/docs/changelog?pr=361');
   });
 
+  test('loads every testable Change for a multi-prototype PR', () => {
+    const snapshot = pullRequestChangelogSnapshotFor({
+      ...identity,
+      pullRequestNumber: 396
+    });
+
+    expect(snapshot.state).toBe('available');
+    expect(snapshot.entries.map((entry) => entry.id)).toEqual([
+      'pr-396-changelog-prototype-chooser',
+      'pr-396-fail-closed-prototype-routing'
+    ]);
+    expect(
+      snapshot.entries.map((entry) => entry.prototype?.surface)
+    ).toEqual(['desktop-prototype', 'mobile-prototype']);
+  });
+
   test('returns every entry for only the requested pull request', () => {
     const snapshot = pullRequestChangelogSnapshotFromSource(
       identity,
