@@ -89,10 +89,15 @@ The provisioner therefore uses JetKVM's supported SSH/Tailscale installation
 path, then performs one version-pinned and identity-guarded replacement of the
 `mqtt_config` subtree. It never copies a whole configuration between devices
 because that file also contains device-specific authentication and cloud
-secrets. After a factory reset or on a replacement device, the only unavoidable
-bootstrap is enabling Developer Mode and adding the stored SSH public key once;
-the repository command owns everything after SSH becomes available. Re-review
-the application hash and config format before accepting new JetKVM firmware.
+secrets. After a factory reset of the same device, the only unavoidable
+bootstrap is enabling Developer Mode and adding the stored SSH public key once.
+A replacement device must also be deliberately enrolled: verify and store its
+new device ID, MAC address, SSH host key and firmware pin, create separate
+least-privilege broker identities, and regenerate the ACL. This enrollment
+updates the non-secret contract; it does not require manually re-entering
+Tailscale or MQTT settings in the browser. The repository command owns those
+settings after SSH becomes available. Re-review the application hash and config
+format before accepting new JetKVM firmware.
 
 If multiple owners use the same human machine selector, provisioning fails
 until the operator also supplies the immutable physical machine ID. The

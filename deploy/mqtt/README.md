@@ -76,8 +76,11 @@ remains available. It never copies
 `/userdata/kvm_config.json` between devices. Browser automation, cookies, and
 user-facing device credentials are not part of the provider or provisioner.
 
-A factory-reset or replacement JetKVM still needs the minimum supported local
+A factory reset of the same JetKVM still needs the minimum supported local
 bootstrap: enable Developer Mode and add the 1Password-backed SSH public key.
-After SSH is available, the stored command is idempotent. Until JetKVM offers a
-supported service-token provisioning API, changing the pinned firmware or
-configuration format must fail closed and receive an explicit review.
+A replacement device additionally needs deliberate enrollment of its new
+identity pins and separate least-privilege MQTT identities before regenerating
+the ACL. After SSH is available, the stored command applies Tailscale and MQTT
+idempotently without browser automation. Until JetKVM offers a supported
+service-token provisioning API, changing the pinned firmware or configuration
+format must fail closed and receive an explicit review.
