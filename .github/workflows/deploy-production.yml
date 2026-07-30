@@ -318,6 +318,27 @@ jobs:
             "Live URL: https://projects.os-home.net"
           ' deploy-result.json | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: Activate exact trusted Preview assets
+        if: steps.deployment.outputs.exit_code == '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -C deploy -czf - \
+            preview-runner.sh \
+            preview-ssh-entrypoint.sh \
+            preview-status-entrypoint.sh \
+            preview.compose.yml |
+            ssh project-space-production "
+              set -e
+              stage=\$(mktemp -d /tmp/project-space-preview-assets.XXXXXX)
+              trap 'rm -rf -- \"\$stage\"' EXIT INT TERM HUP
+              tar -xzf - -C \"\$stage\"
+              sudo -n /bin/sh \
+                /opt/platform/apps/project-space/deploy/install-preview-assets.sh \
+                \"\$stage\" \
+                '$REQUESTED_COMMIT'
+            "
+
       - name: Independently confirm exact live commit
         if: steps.deployment.outputs.exit_code == '0'
         shell: bash
@@ -327,10 +348,31 @@ jobs:
           remote_head="$(ssh project-space-production 'cd /opt/platform/apps/project-space && git rev-parse HEAD')"
           running_head="$(curl --fail --silent --show-error --max-time 20 https://projects.os-home.net/api/app/meta | jq -er '.commit')"
           health="$(curl --fail --silent --show-error --max-time 20 https://projects.os-home.net/api/health | jq -er '.ok')"
+          preview_asset_commit="$(ssh project-space-production 'cat /opt/platform/share/project-space-preview-current/asset-commit')"
+          local_asset_hashes="$(
+            cd deploy
+            sha256sum \
+              preview-runner.sh \
+              preview-ssh-entrypoint.sh \
+              preview-status-entrypoint.sh \
+              preview.compose.yml
+          )"
+          remote_asset_hashes="$(
+            ssh project-space-production '
+              cd /opt/platform/share/project-space-preview-current
+              sha256sum \
+                preview-runner.sh \
+                preview-ssh-entrypoint.sh \
+                preview-status-entrypoint.sh \
+                preview.compose.yml
+            '
+          )"
           [[ "$main_head" == "$REQUESTED_COMMIT" ]]
           [[ "$remote_head" == "$REQUESTED_COMMIT" ]]
           [[ "$running_head" == "$REQUESTED_COMMIT" ]]
           [[ "$health" == true ]]
+          [[ "$preview_asset_commit" == "$REQUESTED_COMMIT" ]]
+          [[ "$remote_asset_hashes" == "$local_asset_hashes" ]]
           curl --fail --silent --show-error --max-time 20 --output /dev/null https://projects.os-home.net/
 
       - name: Fail the GitHub deployment when rollout failed
