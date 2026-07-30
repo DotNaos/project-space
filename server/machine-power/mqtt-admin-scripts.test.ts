@@ -8,6 +8,7 @@ const root = resolve(process.cwd(), 'deploy/mqtt');
 const updateScript = resolve(root, 'update-password-client.sh');
 const removeScript = resolve(root, 'remove-password-client.sh');
 const expectScript = resolve(root, 'update-password-client.expect');
+const expectAvailable = spawnSync('expect', ['-v']).status === 0;
 const maliciousUsernames = [
   'project-space-jetkvm-a;touch-pwned',
   'jetkvm-a$(id)',
@@ -23,21 +24,32 @@ test('MQTT credential scripts reject shell syntax before any privileged work', (
       assert.equal(result.status, 64, `${script} accepted ${JSON.stringify(username)}`);
       assert.match(result.stderr, /usage:/);
     }
-    const wrapper = spawnSync('expect', [expectScript], {
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        MQTT_CLIENT_PASSWORD: 'test-only-not-a-secret',
-        MQTT_CLIENT_USERNAME: username,
-        REMOTE_SCRIPT_PATH: '/tmp/does-not-exist'
-      }
-    });
-    assert.equal(wrapper.status, 64, `Expect accepted ${JSON.stringify(username)}`);
-    assert.match(wrapper.stderr, /invalid MQTT client username/);
+    if (expectAvailable) {
+      const wrapper = spawnSync('expect', [expectScript], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          MQTT_CLIENT_PASSWORD: 'test-only-not-a-secret',
+          MQTT_CLIENT_USERNAME: username,
+          REMOTE_SCRIPT_PATH: '/tmp/does-not-exist'
+        }
+      });
+      assert.equal(
+        wrapper.status,
+        64,
+        `Expect accepted ${JSON.stringify(username)}`
+      );
+      assert.match(wrapper.stderr, /invalid MQTT client username/);
+    }
   }
 });
 
 test('MQTT password mutations are serialized and atomically replace one unique file', async () => {
+  const wrapper = await readFile(expectScript, 'utf8');
+  assert.match(wrapper, /regexp \{\[\^A-Za-z0-9\._-\]\}/);
+  assert.match(wrapper, /string length \$username/);
+  assert.match(wrapper, /invalid MQTT client username/);
+
   for (const script of [updateScript, removeScript]) {
     const source = await readFile(script, 'utf8');
     const lock = source.indexOf('flock -x 9');
