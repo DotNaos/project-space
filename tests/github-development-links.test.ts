@@ -17,7 +17,7 @@ function pullRequest(number: number, overrides: Record<string, unknown> = {}) {
 }
 
 describe('GitHub development links', () => {
-  test('requests linked pull requests from displayed issues and preserves the full head SHA', async () => {
+  test('keeps recent repository pull requests while deriving displayed issue links', async () => {
     const headSha = 'a'.repeat(40);
     let query = '';
     const request = (async <Result>(_token: string, value: string) => {
@@ -32,6 +32,9 @@ describe('GitHub development links', () => {
               },
               number: 263
             }]
+          },
+          pullRequests: {
+            nodes: [pullRequest(420, { headRefOid: 'b'.repeat(40) })]
           }
         }
       } as Result;
@@ -43,16 +46,23 @@ describe('GitHub development links', () => {
       request
     );
 
-    expect(query).toContain('closedByPullRequestsReferences(first: 100)');
-    expect(query).not.toContain('pullRequests(first:');
+    expect(query).toContain(
+      'closedByPullRequestsReferences(first: 100, includeClosedPrs: true)'
+    );
+    expect(query).toContain('states: [OPEN, CLOSED, MERGED]');
     expect(query).toContain('headRefOid');
-    expect(result.pullRequests[0]).toMatchObject({
+    expect(result.pullRequests).toHaveLength(2);
+    expect(result.pullRequests.find((item) => item.number === 263)).toMatchObject({
       headRefPresent: true,
       headRepositoryFullName: 'DotNaos/project-space',
       headSha,
       isCrossRepository: false,
       linkedIssueNumbers: [263],
       number: 263
+    });
+    expect(result.pullRequests.find((item) => item.number === 420)).toMatchObject({
+      linkedIssueNumbers: [],
+      number: 420
     });
   });
 
@@ -93,11 +103,13 @@ describe('GitHub development links', () => {
 
   test('paginates every pull request linked to one displayed issue', async () => {
     const requests: Array<Record<string, unknown>> = [];
+    const queries: string[] = [];
     const request = (async <Result>(
       _token: string,
-      _query: string,
+      query: string,
       variables: Record<string, unknown>
     ) => {
+      queries.push(query);
       requests.push(variables);
 
       if (variables.cursor) {
@@ -143,6 +155,7 @@ describe('GitHub development links', () => {
         owner: 'DotNaos'
       }
     ]);
+    expect(queries.every((query) => query.includes('includeClosedPrs: true'))).toBe(true);
     expect(result.pullRequests.map((item) => item.number)).toEqual([420, 388]);
     expect(result.pullRequests.every(
       (item) => item.linkedIssueNumbers?.[0] === 398

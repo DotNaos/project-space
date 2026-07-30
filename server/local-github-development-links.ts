@@ -54,6 +54,7 @@ interface GitHubGraphQLDevelopmentLinks {
     issues?: {
       nodes?: Array<GitHubGraphQLIssue | null>;
     } | null;
+    pullRequests?: GitHubGraphQLPullRequestConnection | null;
   } | null;
 }
 
@@ -103,18 +104,21 @@ function addLinkedIssue(
   linkedIssueNumbersByBranch.set(branchName, current);
 }
 
-function addPullRequestLink(
-  linkedPullRequests: Map<number, LinkedPullRequest>,
+function addPullRequest(
+  pullRequests: Map<number, LinkedPullRequest>,
   pullRequest: GitHubGraphQLPullRequest,
-  issueNumber: number
+  issueNumber?: number
 ) {
-  const current = linkedPullRequests.get(pullRequest.number) ?? {
+  const current = pullRequests.get(pullRequest.number) ?? {
     issueNumbers: new Set<number>(),
     pullRequest
   };
 
-  current.issueNumbers.add(issueNumber);
-  linkedPullRequests.set(pullRequest.number, current);
+  if (issueNumber !== undefined) {
+    current.issueNumbers.add(issueNumber);
+  }
+
+  pullRequests.set(pullRequest.number, current);
 }
 
 function requireNextCursor(
@@ -171,7 +175,7 @@ export async function loadRepositoryDevelopmentLinks(
                   }
                 }
               }
-              closedByPullRequestsReferences(first: 100) {
+              closedByPullRequestsReferences(first: 100, includeClosedPrs: true) {
                 nodes {
                   ...DevelopmentPullRequestFields
                 }
@@ -182,6 +186,15 @@ export async function loadRepositoryDevelopmentLinks(
               }
             }
           }
+          pullRequests(
+            first: 100
+            states: [OPEN, CLOSED, MERGED]
+            orderBy: {field: UPDATED_AT, direction: DESC}
+          ) {
+            nodes {
+              ...DevelopmentPullRequestFields
+            }
+          }
         }
       }
       ${pullRequestFragment}
@@ -190,7 +203,13 @@ export async function loadRepositoryDevelopmentLinks(
   );
   const linkedIssueNumbersByBranch = new Map<string, Set<number>>();
   const linkedBranchShaByName = new Map<string, string | undefined>();
-  const linkedPullRequests = new Map<number, LinkedPullRequest>();
+  const pullRequestsByNumber = new Map<number, LinkedPullRequest>();
+
+  for (const pullRequest of data.repository?.pullRequests?.nodes ?? []) {
+    if (pullRequest) {
+      addPullRequest(pullRequestsByNumber, pullRequest);
+    }
+  }
 
   for (const issue of data.repository?.issues?.nodes ?? []) {
     if (!issue) {
@@ -213,7 +232,7 @@ export async function loadRepositoryDevelopmentLinks(
 
     for (const pullRequest of initialConnection?.nodes ?? []) {
       if (pullRequest) {
-        addPullRequestLink(linkedPullRequests, pullRequest, issue.number);
+        addPullRequest(pullRequestsByNumber, pullRequest, issue.number);
       }
     }
 
@@ -231,7 +250,11 @@ export async function loadRepositoryDevelopmentLinks(
           ) {
             repository(owner: $owner, name: $name) {
               issue(number: $issueNumber) {
-                closedByPullRequestsReferences(first: 100, after: $cursor) {
+                closedByPullRequestsReferences(
+                  first: 100
+                  after: $cursor
+                  includeClosedPrs: true
+                ) {
                   nodes {
                     ...DevelopmentPullRequestFields
                   }
@@ -258,7 +281,7 @@ export async function loadRepositoryDevelopmentLinks(
 
       for (const pullRequest of connection.nodes ?? []) {
         if (pullRequest) {
-          addPullRequestLink(linkedPullRequests, pullRequest, issue.number);
+          addPullRequest(pullRequestsByNumber, pullRequest, issue.number);
         }
       }
 
@@ -266,7 +289,7 @@ export async function loadRepositoryDevelopmentLinks(
     }
   }
 
-  const pullRequests = Array.from(linkedPullRequests.values())
+  const pullRequests = Array.from(pullRequestsByNumber.values())
     .map(({ issueNumbers, pullRequest }) => ({
       headBranch: pullRequest.headRefName ?? undefined,
       headRefPresent: Boolean(pullRequest.headRef),
