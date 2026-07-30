@@ -43,6 +43,7 @@ import {
   usePrototypeReviewLocalContext,
   type PrototypeReviewLocalContextResult
 } from './use-prototype-review-local-context';
+import { usePrototypeReviewBuildIdentity } from './use-prototype-review-build-identity';
 import {
   developmentPrototypeTarget,
   embeddedPrototypeUrl,
@@ -326,6 +327,7 @@ export function PrototypeReviewPage() {
     repositoryFullName: initial.repositoryFullName
   });
   const localContext = localContextResult.context;
+  const previewBuildIdentity = usePrototypeReviewBuildIdentity();
   const developmentContext = prototypeReviewCodexContext(
     import.meta.env.DEV,
     result,
@@ -581,6 +583,7 @@ export function PrototypeReviewPage() {
         repositoryFullName={initial.repositoryFullName}
         expectedIdentity={requestedIdentity}
         localContext={localContext}
+        previewBuildIdentity={previewBuildIdentity}
         prototypeTarget={initial.devTargetUrl}
         result={result}
         selectedChangeId={initial.changeId}

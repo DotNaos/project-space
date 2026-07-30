@@ -9,6 +9,7 @@ import type { PrototypeReviewLocalContext } from '../../shared/prototype-review-
 export function prototypeReviewChangelogIdentity(input: {
   expectedIdentity?: PullRequestChangelogIdentity;
   localContext?: PrototypeReviewLocalContext;
+  previewBuildIdentity?: PullRequestChangelogIdentity;
   pullRequestNumber?: number;
   repositoryFullName?: string;
   result?: PullRequestTestSurfacesResult;
@@ -16,6 +17,7 @@ export function prototypeReviewChangelogIdentity(input: {
   const {
     expectedIdentity,
     localContext,
+    previewBuildIdentity,
     pullRequestNumber,
     repositoryFullName,
     result
@@ -46,6 +48,20 @@ export function prototypeReviewChangelogIdentity(input: {
       repositoryFullName: localContext.checkout.repositoryFullName
     };
     return expectedIdentity ?? identity;
+  }
+  if (
+    previewBuildIdentity &&
+    isPullRequestChangelogIdentity(previewBuildIdentity) &&
+    previewBuildIdentity.pullRequestNumber === pullRequestNumber &&
+    previewBuildIdentity.repositoryFullName.toLowerCase() ===
+      repositoryFullName.toLowerCase() &&
+    (!expectedIdentity ||
+      samePullRequestChangelogIdentity(
+        expectedIdentity,
+        previewBuildIdentity
+      ))
+  ) {
+    return expectedIdentity ?? previewBuildIdentity;
   }
   if (!result) return undefined;
   const resultIdentity = {
