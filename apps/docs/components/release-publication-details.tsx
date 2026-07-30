@@ -5,7 +5,7 @@ import {
   publicationMatchesDeployment,
 } from '@/lib/releases/publication';
 import type {
-  ReleaseEntry,
+  PublishedReleaseEntry,
   ReleasePublication,
 } from '@/lib/releases/types';
 import { useDocsDeploymentIdentity } from './docs-article-identity';
@@ -28,7 +28,7 @@ export function ReleasePublicationDetails({
   entry,
 }: {
   children: React.ReactNode;
-  entry: ReleaseEntry;
+  entry: PublishedReleaseEntry;
 }) {
   const identity = useDocsDeploymentIdentity();
   const [publication, setPublication] =
@@ -121,38 +121,12 @@ export function ReleasePublicationDetails({
   );
 }
 
-export function PreviewTestingGuidance({
-  entry,
-}: {
-  entry: ReleaseEntry;
-}) {
-  const identity = useDocsDeploymentIdentity();
-  if (!canShowPreviewOnly(entry, identity)) {
-    return null;
-  }
-
-  return (
-    <ReleaseGridRow label="Preview tests">
-      <div data-preview-only>
-        <h3 className="font-semibold text-fd-foreground">
-          What to test
-        </h3>
-        <ul className="mt-3 list-disc space-y-2 pl-5 marker:text-fd-muted-foreground">
-          {entry.previewTests.map((test) => (
-            <li key={test}>{test}</li>
-          ))}
-        </ul>
-      </div>
-    </ReleaseGridRow>
-  );
-}
-
 function ReleaseStatus({
   entry,
   publication,
   status,
 }: {
-  entry: ReleaseEntry;
+  entry: PublishedReleaseEntry;
   publication?: ReleasePublication;
   status: string;
 }) {
@@ -179,7 +153,7 @@ function ReleaseReferences({
   publication,
 }: {
   commit?: string;
-  entry: ReleaseEntry;
+  entry: PublishedReleaseEntry;
   publication?: ReleasePublication;
 }) {
   return (

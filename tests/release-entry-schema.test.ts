@@ -232,4 +232,61 @@ upgrade: "none"`,
       'What to test must contain at least one',
     );
   });
+
+  test('rejects contradictory major, minor, and required-upgrade claims', () => {
+    const major = parseReleaseEntryMdx(
+      releaseEntryFixture({
+        frontmatter: `title: "Compatible major"
+version: "1.0.0"
+bump: "major"
+pullRequest: 403
+issues: []
+areas:
+  - docs
+breaking: false
+upgrade: "none"`,
+      }),
+      '403.mdx',
+    );
+    expect(major.ok).toBe(false);
+    if (!major.ok) {
+      expect(major.errors).toContain(
+        'Major releases must declare breaking: true.',
+      );
+    }
+
+    const minor = parseReleaseEntryMdx(
+      releaseEntryFixture({
+        frontmatter: `title: "Breaking minor"
+version: "0.5.0"
+bump: "minor"
+pullRequest: 403
+issues: []
+areas:
+  - docs
+breaking: true
+upgrade: "required"`,
+        body: releaseEntryFixture()
+          .split('---\n\n')[1]
+          .replace(
+            '## Upgrade notes',
+            '## Breaking changes\n\n- Existing links stop working.\n\n## Upgrade notes',
+          )
+          .replace(
+            '<UpgradeNotes type="none">',
+            '<UpgradeNotes type="required">',
+          ),
+      }),
+      '403.mdx',
+    );
+    expect(minor.ok).toBe(false);
+    if (!minor.ok) {
+      expect(minor.errors).toContain(
+        'Minor releases may not declare breaking changes.',
+      );
+      expect(minor.errors.join('\n')).toContain(
+        'may not claim that no manual action is required',
+      );
+    }
+  });
 });

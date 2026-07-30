@@ -74,6 +74,46 @@ function ownerMarker(
 }
 
 describe('isolated GitHub release publication semantics', () => {
+  test('accepts the exact tag when its release commit remains reachable from main', async () => {
+    const directory = await temporaryDirectory();
+    const tagPath = join(directory, 'tag.json');
+    const ancestryPath = join(directory, 'ancestry.json');
+    const sourceSha = '9'.repeat(40);
+    await writeFile(tagPath, JSON.stringify({ sha: sourceSha }));
+    await writeFile(
+      ancestryPath,
+      JSON.stringify({
+        merge_base_commit: { sha: sourceSha },
+        status: 'ahead',
+      }),
+    );
+
+    expect(
+      await runInlinePython('PY', [
+        tagPath,
+        ancestryPath,
+        sourceSha,
+      ]),
+    ).toMatchObject({ exitCode: 0, stderr: '' });
+
+    await writeFile(
+      ancestryPath,
+      JSON.stringify({
+        merge_base_commit: { sha: '8'.repeat(40) },
+        status: 'diverged',
+      }),
+    );
+    expect(
+      (
+        await runInlinePython('PY', [
+          tagPath,
+          ancestryPath,
+          sourceSha,
+        ])
+      ).exitCode,
+    ).not.toBe(0);
+  });
+
   test('accepts GitHub normalizing target_commitish to main for a verified existing tag', async () => {
     const directory = await temporaryDirectory();
     const responsePath = join(directory, 'created-release.json');

@@ -4,6 +4,10 @@ import {
   activeAnchorAtReadingLine,
   canShowPreviewOnly,
 } from '../apps/docs/lib/releases/presentation';
+import {
+  previewTestsForExactBuild,
+  publishedReleaseEntry,
+} from '../apps/docs/lib/releases/preview';
 import { parseReleaseEntryMdx } from '../apps/docs/lib/releases/mdx';
 import { releaseEntryFixture } from './release-entry-schema.test';
 import {
@@ -42,6 +46,8 @@ describe('release documentation navigation', () => {
     ).toEqual(['v0.4', 'v0.3']);
     const v04 = v0.children[0];
     if (v04.type !== 'folder') throw new Error('expected v0.4');
+    expect(v04.collapsible).toBe(true);
+    expect(v04.index?.url).toBe('/docs/releases/v0.4');
     expect(v04.children.map((node) => String(node.name))).toEqual([
       'v0.4.44 · Latest',
       'v0.4.43',
@@ -151,5 +157,42 @@ describe('release documentation navigation', () => {
         pullRequestNumber: 404,
       }),
     ).toBe(false);
+  });
+
+  test('omits Preview-only data unless the server proves the exact build', () => {
+    const release = entry('0.4.44', 403);
+    const head = 'a'.repeat(40);
+    const environment = {
+      PROJECT_SPACE_BUILD_COMMIT: head,
+      PROJECT_SPACE_PREVIEW_HEAD_SHA: head,
+      PROJECT_SPACE_PREVIEW_MODE: '1',
+      PROJECT_SPACE_PREVIEW_PR_NUMBER: '403',
+      PROJECT_SPACE_PREVIEW_REPOSITORY: 'DotNaos/project-space',
+    };
+
+    expect(
+      previewTestsForExactBuild(
+        release,
+        environment,
+        '0.4.44',
+      ),
+    ).toEqual(release.previewTests);
+    expect(
+      previewTestsForExactBuild(
+        release,
+        { ...environment, PROJECT_SPACE_BUILD_COMMIT: 'b'.repeat(40) },
+        '0.4.44',
+      ),
+    ).toBeUndefined();
+    expect(
+      previewTestsForExactBuild(
+        release,
+        environment,
+        '0.4.45',
+      ),
+    ).toBeUndefined();
+    expect(publishedReleaseEntry(release)).not.toHaveProperty(
+      'previewTests',
+    );
   });
 });

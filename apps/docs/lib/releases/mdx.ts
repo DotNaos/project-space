@@ -272,9 +272,23 @@ function validateContradictions(
   if (metadata.breaking && metadata.bump === 'patch') {
     errors.push('Patch releases may not declare breaking changes.');
   }
+  if (metadata.breaking && metadata.bump === 'minor') {
+    errors.push('Minor releases may not declare breaking changes.');
+  }
+  if (!metadata.breaking && metadata.bump === 'major') {
+    errors.push('Major releases must declare breaking: true.');
+  }
   if (metadata.breaking && metadata.upgrade !== 'required') {
     errors.push(
       'A breaking release must declare upgrade: "required".',
+    );
+  }
+  if (
+    metadata.upgrade === 'required' &&
+    body.upgradeNotes.includes('No manual action is required.')
+  ) {
+    errors.push(
+      'upgrade: "required" may not claim that no manual action is required.',
     );
   }
 }

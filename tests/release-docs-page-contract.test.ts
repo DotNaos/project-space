@@ -13,6 +13,22 @@ const sidebarItem = readFileSync(
   'apps/docs/components/release-sidebar-item.tsx',
   'utf8',
 );
+const sidebarFolder = readFileSync(
+  'apps/docs/components/release-sidebar-folder.tsx',
+  'utf8',
+);
+const publicationDetails = readFileSync(
+  'apps/docs/components/release-publication-details.tsx',
+  'utf8',
+);
+const publicationRoute = readFileSync(
+  'apps/docs/app/docs/api/releases/[version]/route.ts',
+  'utf8',
+);
+const changelogSource = readFileSync(
+  'apps/docs/lib/changelog/source.ts',
+  'utf8',
+);
 const docsPages = [
   'apps/docs/app/docs/[[...slug]]/page.tsx',
   'apps/docs/app/docs/changelog/page.tsx',
@@ -26,6 +42,8 @@ describe('continuous release Docs page contract', () => {
     expect(releasePage).toContain('data-release-anchor={anchor}');
     expect(sidebarItem).toContain('activeAnchor === hash');
     expect(sidebarItem).toContain('<SidebarItem');
+    expect(sidebarFolder).toContain('aria-label={`Toggle ${item.name} releases`}');
+    expect(sidebarFolder).toContain('aria-current={active ?');
   });
 
   test('has no patch pagination or previous/next release controls', () => {
@@ -50,5 +68,21 @@ describe('continuous release Docs page contract', () => {
     for (const source of docsPages) {
       expect(source).toContain('<DocsArticleIdentity');
     }
+  });
+
+  test('keeps Preview-only guidance out of the published client payload', () => {
+    expect(releasePage).toContain(
+      'previewTestsForCurrentBuild(entry)',
+    );
+    expect(releasePage).toContain('publishedReleaseEntry(entry)');
+    expect(publicationDetails).not.toContain('entry.previewTests');
+    expect(changelogSource).not.toContain(
+      'release-entries.generated.json',
+    );
+  });
+
+  test('rejects unknown release metadata before calling GitHub', () => {
+    expect(publicationRoute.indexOf('catalog.versions.has(version)'))
+      .toBeLessThan(publicationRoute.indexOf('loadGithubPublication(version)'));
   });
 });

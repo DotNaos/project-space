@@ -5,6 +5,7 @@ import { baseOptions } from '@/lib/layout.shared';
 import { releaseCatalogResult } from '@/lib/releases/source';
 import { withReleaseNavigation } from '@/lib/releases/navigation';
 import { ReleaseSidebarItem } from '@/components/release-sidebar-item';
+import { ReleaseSidebarFolder } from '@/components/release-sidebar-folder';
 import { DocsDeploymentIdentityProvider } from '@/components/docs-article-identity';
 import { headers } from 'next/headers';
 
@@ -30,6 +31,7 @@ export default async function Layout({ children }: LayoutProps<'/docs'>) {
       })}
       sidebar={{
         components: {
+          Folder: ReleaseSidebarFolder,
           Item: ReleaseSidebarItem,
         },
         footer: <DocsDeploymentFooter key="deployment-identity" />,

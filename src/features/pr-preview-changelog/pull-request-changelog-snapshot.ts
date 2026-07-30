@@ -1,4 +1,5 @@
 import changelogSource from '../../../apps/docs/content/docs/changelog/entries.json';
+import releaseChangelogSource from '../../../apps/docs/content/docs/changelog/release-entries.generated.json';
 
 import {
   isPullRequestChangelogIdentity,
@@ -209,6 +210,12 @@ export function pullRequestChangelogSnapshotFor(
 ): PullRequestChangelogSnapshot {
   return pullRequestChangelogSnapshotFromSource(
     identity,
-    changelogSource
+    {
+      entries: [
+        ...releaseChangelogSource.entries,
+        ...changelogSource.entries
+      ],
+      schema: changelogSource.schema
+    }
   );
 }

@@ -45,6 +45,11 @@ export interface ReleaseEntry {
   version: string;
 }
 
+export type PublishedReleaseEntry = Omit<
+  ReleaseEntry,
+  'previewTests'
+>;
+
 export interface ReleaseEntryParseSuccess {
   entry: ReleaseEntry;
   ok: true;

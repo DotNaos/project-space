@@ -1,4 +1,5 @@
 import { loadGithubPublication } from '@/lib/releases/github-publication';
+import { releaseCatalogResult } from '@/lib/releases/source';
 import { parseStableSemver } from '@/lib/releases/semver';
 import { NextResponse } from 'next/server';
 
@@ -11,6 +12,15 @@ export async function GET(
     return NextResponse.json(
       { error: 'A stable release version is required.' },
       { status: 400 },
+    );
+  }
+  if (
+    !releaseCatalogResult.ok ||
+    !releaseCatalogResult.catalog.versions.has(version)
+  ) {
+    return NextResponse.json(
+      { error: `Release v${version} is not in Project Docs.` },
+      { status: releaseCatalogResult.ok ? 404 : 503 },
     );
   }
 

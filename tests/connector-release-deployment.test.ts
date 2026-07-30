@@ -258,7 +258,9 @@ describe('connector release and production deployment contract', () => {
     expect(restoreDefault).toBeGreaterThan(-1);
     expect(deleteKeychain).toBeGreaterThan(-1);
     expect(restoreDefault).toBeLessThan(deleteKeychain);
-    expect(upload).toContain("if: success() && github.event_name == 'push'");
+    expect(upload).toContain(
+      "if: success() && github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')",
+    );
 
     const packageScript = await source(
       'packaging/macos/package-isolated-release-artifact.sh'

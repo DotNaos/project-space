@@ -1,6 +1,5 @@
 import { DocsArticleIdentity } from '@/components/docs-article-identity';
 import {
-  PreviewTestingGuidance,
   ReleaseGridRow,
   ReleasePublicationDetails,
 } from '@/components/release-publication-details';
@@ -11,6 +10,10 @@ import {
   releaseAnchor,
   releaseMinor,
 } from '@/lib/releases/semver';
+import { publishedReleaseEntry } from '@/lib/releases/preview';
+import {
+  previewTestsForCurrentBuild,
+} from '@/lib/releases/preview-server';
 import type {
   ReleaseChange,
   ReleaseEntry,
@@ -97,10 +100,12 @@ function ReleaseSection({
   latest: boolean;
 }) {
   const anchor = releaseAnchor(entry.version);
+  const previewTests = previewTestsForCurrentBuild(entry);
+  const publishedEntry = publishedReleaseEntry(entry);
   return (
     <article
       aria-labelledby={`${anchor}-title`}
-      className="scroll-mt-24 border-b border-fd-border py-14 first:pt-0 last:border-b-0"
+      className="scroll-mt-24 border-b border-fd-border py-14 focus:outline-none first:pt-0 last:border-b-0"
       data-release-anchor={anchor}
       data-release-latest={latest || undefined}
       id={anchor}
@@ -123,7 +128,7 @@ function ReleaseSection({
         >
           {entry.title}
         </h2>
-        <ReleasePublicationDetails entry={entry}>
+        <ReleasePublicationDetails entry={publishedEntry}>
           <ReleaseGridRow label="Summary">
             <p>{entry.summary}</p>
           </ReleaseGridRow>
@@ -159,7 +164,16 @@ function ReleaseSection({
               </div>
             </div>
           </ReleaseGridRow>
-          <PreviewTestingGuidance entry={entry} />
+          {previewTests && (
+            <ReleaseGridRow label="Preview tests">
+              <div data-preview-only>
+                <h3 className="font-semibold text-fd-foreground">
+                  What to test
+                </h3>
+                <BulletList items={previewTests} />
+              </div>
+            </ReleaseGridRow>
+          )}
         </ReleasePublicationDetails>
       </div>
     </article>

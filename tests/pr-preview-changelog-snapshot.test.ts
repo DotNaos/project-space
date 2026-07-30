@@ -96,6 +96,28 @@ describe('pull request changelog snapshot', () => {
     ]);
   });
 
+  test('exposes every release Change with its exact Preview tests', () => {
+    const snapshot = pullRequestChangelogSnapshotFor({
+      ...identity,
+      pullRequestNumber: 409
+    });
+
+    expect(snapshot.state).toBe('available');
+    expect(snapshot.entries.length).toBeGreaterThan(1);
+    expect(
+      snapshot.entries.every(
+        (entry) =>
+          entry.pullRequestNumber === 409 &&
+          entry.testing.length === 7
+      )
+    ).toBe(true);
+    expect(
+      snapshot.entries.some(
+        (entry) => entry.id === 'release-0-4-44-added-1'
+      )
+    ).toBe(true);
+  });
+
   test('returns every entry for only the requested pull request', () => {
     const snapshot = pullRequestChangelogSnapshotFromSource(
       identity,

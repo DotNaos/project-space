@@ -3,6 +3,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { parseReleaseCatalog } from '../apps/docs/lib/releases/catalog';
+import { generatedReleaseChangelogSource } from '../apps/docs/lib/releases/changelog-source';
 import { parseReleaseEntryMdx } from '../apps/docs/lib/releases/mdx';
 import {
   validateReleasePullRequest,
@@ -11,6 +12,8 @@ import {
 
 const entryDirectory =
   'apps/docs/content/docs/releases/entries';
+const generatedChangelogPath =
+  'apps/docs/content/docs/changelog/release-entries.generated.json';
 const repository =
   process.env.GITHUB_REPOSITORY || 'DotNaos/project-space';
 
@@ -33,28 +36,31 @@ async function main() {
   }
 
   const pullRequest = Number(requestedPullRequest);
+  const headRef = releaseHeadRef();
   await run(['git', 'fetch', '--no-tags', 'origin', 'main']);
   await run(['git', 'fetch', '--tags', '--force', 'origin']);
+  await run(['git', 'cat-file', '-e', `${headRef}^{commit}`]);
 
   const currentMainVersion = packageVersion(
     await gitText('show', 'origin/main:package.json'),
     'latest main package.json',
   );
   const headPackageVersion = packageVersion(
-    readFileSync('package.json', 'utf8'),
+    await gitText('show', `${headRef}:package.json`),
     'PR package.json',
   );
-  const changedReleasePaths = parseNameStatus(
+  const changedReleasePaths = await parseNameStatus(
     await gitText(
       'diff',
       '--name-status',
       '--no-renames',
-      'origin/main...HEAD',
+      `origin/main...${headRef}`,
       '--',
       entryDirectory,
     ),
+    headRef,
   );
-  const headEntrySources = readHeadEntries();
+  const headEntrySources = await readGitEntries(headRef);
   const mainEntrySources = await readGitEntries('origin/main');
   const ownedSource = headEntrySources.get(`${pullRequest}.mdx`);
   const parsedOwned = ownedSource
@@ -88,6 +94,7 @@ async function main() {
   if (!result.ok) {
     fail(result.errors);
   }
+  await validateGeneratedChangelog(headRef, headEntrySources);
 
   console.log(
     `Release gate passed: PR #${pullRequest} owns ${result.entry.fileName}, version ${result.entry.version} (${result.entry.bump} from latest main ${currentMainVersion}).`,
@@ -155,11 +162,15 @@ async function readGitEntries(ref: string) {
   return entries;
 }
 
-function parseNameStatus(value: string): ChangedReleaseFile[] {
-  return value
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => {
+async function parseNameStatus(
+  value: string,
+  headRef: string,
+): Promise<ChangedReleaseFile[]> {
+  return Promise.all(
+    value
+      .split('\n')
+      .filter(Boolean)
+      .map(async (line) => {
       const [rawStatus, path = ''] = line.split('\t');
       const status = rawStatus.startsWith('A')
         ? 'added'
@@ -173,10 +184,49 @@ function parseNameStatus(value: string): ChangedReleaseFile[] {
         source:
           status === 'deleted'
             ? undefined
-            : readFileSync(path, 'utf8'),
+            : await gitText('show', `${headRef}:${path}`),
         status,
       };
-    });
+      }),
+  );
+}
+
+async function validateGeneratedChangelog(
+  headRef: string,
+  entries: Map<string, string>,
+) {
+  const catalog = parseReleaseCatalog(entries);
+  if (!catalog.ok) fail(catalog.errors);
+  const expected = JSON.stringify(
+    generatedReleaseChangelogSource(catalog.catalog.entries),
+    null,
+    2,
+  );
+  let actual: string;
+  try {
+    actual = await gitText(
+      'show',
+      `${headRef}:${generatedChangelogPath}`,
+    );
+  } catch {
+    fail(
+      'Generated release changelog source is missing. Run bun run docs:release:source.',
+    );
+  }
+  if (actual.trimEnd() !== expected.trimEnd()) {
+    fail(
+      'Generated release changelog source is stale. Run bun run docs:release:source.',
+    );
+  }
+}
+
+function releaseHeadRef() {
+  const value = process.env.RELEASE_HEAD_SHA?.trim();
+  if (value === undefined || value === '') return 'HEAD';
+  if (!/^[0-9a-f]{40}$/.test(value)) {
+    fail('RELEASE_HEAD_SHA must be a full lowercase Git commit SHA.');
+  }
+  return value;
 }
 
 function packageVersion(source: string, label: string) {

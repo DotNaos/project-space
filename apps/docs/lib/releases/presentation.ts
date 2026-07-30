@@ -1,8 +1,8 @@
 import type { DocsDeploymentIdentity } from '../deployment-identity';
-import type { ReleaseEntry } from './types';
+import type { PublishedReleaseEntry } from './types';
 
 export function canShowPreviewOnly(
-  entry: ReleaseEntry,
+  entry: PublishedReleaseEntry,
   identity: DocsDeploymentIdentity | undefined,
 ) {
   return (

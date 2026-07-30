@@ -35,7 +35,6 @@ const after = requiredCommit(
 try {
   process.chdir(repositoryRoot);
   const pullRequestNumber = await mergedPullRequestNumber();
-  const releaseTags = await githubReleaseTags();
   const changedReleaseFiles = readChangedFiles();
   const currentMainVersion = packageVersion(
     gitOutput(['show', `${before}:package.json`]),
@@ -59,7 +58,8 @@ try {
 
   const tag = `v${result.entry.version}`;
   const existingTagCommit = await githubTagCommit(tag);
-  if (releaseTags.has(tag)) {
+  const existingRelease = await githubRelease(tag);
+  if (existingRelease?.state === 'published') {
     if (existingTagCommit !== after) {
       throw new Error(
         `GitHub Release ${tag} exists but does not identify merged commit ${after}.`,
@@ -71,6 +71,11 @@ try {
     writeOutput('tag', tag);
     writeOutput('release_exists', 'true');
     process.exit(0);
+  }
+  if (existingRelease?.state === 'draft') {
+    throw new Error(
+      `Draft GitHub Release ${tag} exists and is not published. Recover or rerun its exact release workflow before retrying this handoff.`,
+    );
   }
 
   if (existingTagCommit && existingTagCommit !== after) {
@@ -127,24 +132,37 @@ async function mergedPullRequestNumber() {
   return matches[0].number;
 }
 
-async function githubReleaseTags() {
+async function githubRelease(tag: string) {
   const response = await githubFetch(
-    `/repos/${repository}/releases?per_page=100`,
+    `/repos/${repository}/releases/tags/${encodeURIComponent(tag)}`,
   );
+  if (response.status === 404) return undefined;
   if (!response.ok) {
-    throw new Error('Could not revalidate existing GitHub Releases.');
+    throw new Error(`Could not revalidate GitHub Release ${tag}.`);
   }
   const body: unknown = await response.json();
-  if (!Array.isArray(body)) {
-    throw new Error('GitHub returned invalid release data.');
+  if (
+    !isRecord(body) ||
+    body.tag_name !== tag ||
+    typeof body.draft !== 'boolean'
+  ) {
+    throw new Error(
+      `GitHub returned invalid publication data for ${tag}.`,
+    );
   }
-  return new Set(
-    body.flatMap((release) =>
-      isRecord(release) && typeof release.tag_name === 'string'
-        ? [release.tag_name]
-        : [],
-    ),
-  );
+  if (body.draft) return { state: 'draft' as const };
+  if (
+    typeof body.published_at !== 'string' ||
+    body.published_at.trim() === ''
+  ) {
+    throw new Error(
+      `GitHub Release ${tag} is not a verifiably published release.`,
+    );
+  }
+  return {
+    publishedAt: body.published_at,
+    state: 'published' as const,
+  };
 }
 
 async function githubTagCommit(tag: string) {

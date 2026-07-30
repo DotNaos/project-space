@@ -139,7 +139,7 @@ jobs:
             "$RUNNER_TEMP/project-space-macos-signing-input"
 
       - name: Upload immutable unsigned runtime
-        if: github.event_name == 'push' && github.ref_type == 'tag'
+        if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         id: upload-runtime
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -150,7 +150,7 @@ jobs:
           retention-days: 1
 
       - name: Upload immutable signing input
-        if: github.event_name == 'push' && github.ref_type == 'tag'
+        if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         id: upload-signing
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -162,7 +162,7 @@ jobs:
 
   sign:
     name: Sign macOS approval helper in isolation
-    if: github.event_name == 'push' && github.ref_type == 'tag'
+    if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: unsigned
     runs-on: macos-15
     timeout-minutes: 15
@@ -474,7 +474,7 @@ jobs:
             > "$signed/SHA256SUMS.txt"
           echo "signed-sha=$signed_sha" >> "$GITHUB_OUTPUT"
       - name: Confirm signing identity cleanup
-        if: always() && github.event_name == 'push' && github.ref_type == 'tag'
+        if: always() && github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         shell: /bin/bash --noprofile --norc {0}
         env:
           BASH_ENV: /dev/null
@@ -549,7 +549,7 @@ jobs:
             && ! -e $RUNNER_TEMP/project-space-release-codesign.log ]] || cleanup_status=1
           exit "$cleanup_status"
       - name: Upload signed helper after cleanup
-        if: success() && github.event_name == 'push' && github.ref_type == 'tag'
+        if: success() && github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         id: upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -560,7 +560,7 @@ jobs:
           retention-days: 1
   package:
     name: Package verified macOS machine tools
-    if: github.event_name == 'push' && github.ref_type == 'tag'
+    if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs:
       - unsigned
       - sign
