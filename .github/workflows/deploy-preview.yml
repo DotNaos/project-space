@@ -317,7 +317,7 @@ jobs:
             ssh project-space-preview apply > preview-output.log
           exit_code=$?
           set -e
-          sed -n '/^{/,$p' preview-output.log > preview-result.json
+          sed -n '/^{/,/^}$/p' preview-output.log > preview-result.json
           echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
       - name: Publish GitHub deployment result
         if: always()
