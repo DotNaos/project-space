@@ -28,6 +28,27 @@ function pullRequestMatchesIssue(
   );
 }
 
+function selectHistoricalPullRequest(
+  pullRequests: GitHubPullRequestRecord[],
+  linkedBranches: GitHubBranchRecord[]
+) {
+  const explicitBranch = linkedBranches.length === 1 ? linkedBranches[0] : undefined;
+  const branchMatch = explicitBranch
+    ? pullRequests.find((pullRequest) => sameBranch(
+        pullRequest.headBranch,
+        explicitBranch.name
+      ))
+    : undefined;
+
+  return branchMatch ?? pullRequests
+    .slice()
+    .sort((left, right) => {
+      const stateOrder = { merged: 0, closed: 1, open: 2 } as const;
+      return stateOrder[left.state] - stateOrder[right.state] ||
+        right.number - left.number;
+    })[0];
+}
+
 export type IssueDevelopmentHeadResolution =
   | {
       branch: GitHubBranchRecord;
@@ -51,9 +72,10 @@ export function resolveIssueDevelopmentHead(input: {
   repositoryFullName?: string;
 }): IssueDevelopmentHeadResolution {
   const linkedBranches = issueBranchesForIssue(input);
-  const openPullRequests = input.pullRequests
-    .filter((pullRequest) => pullRequest.state === 'open')
+  const matchingPullRequests = input.pullRequests
     .filter((pullRequest) => pullRequestMatchesIssue(pullRequest, input.issue, linkedBranches));
+  const openPullRequests = matchingPullRequests
+    .filter((pullRequest) => pullRequest.state === 'open');
 
   if (openPullRequests.length > 1) {
     return {
@@ -62,7 +84,8 @@ export function resolveIssueDevelopmentHead(input: {
     };
   }
 
-  const pullRequest = openPullRequests[0];
+  const pullRequest = openPullRequests[0] ??
+    selectHistoricalPullRequest(matchingPullRequests, linkedBranches);
   if (pullRequest) {
     if (
       pullRequest.isCrossRepository ||
