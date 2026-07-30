@@ -8,6 +8,7 @@ import {
   readFile,
   readlink,
   rm,
+  stat,
   symlink,
   writeFile
 } from 'node:fs/promises';
@@ -66,6 +67,7 @@ describe('trusted Preview asset installation', () => {
     const firstRelease = join(platform, 'share/project-space-preview-releases', firstCommit);
     expect(await readlink(currentLink)).toBe(firstRelease);
     expect(await readFile(join(firstRelease, 'asset-commit'), 'utf8')).toBe(`${firstCommit}\n`);
+    expect((await stat(firstRelease)).mode & 0o777).toBe(0o755);
     expect(install(source, platform, firstCommit).status).toBe(0);
     expect(await readlink(currentLink)).toBe(firstRelease);
 

@@ -53,6 +53,7 @@ install -m 0755 "$source_dir/preview-status-entrypoint.sh" "$next_dir/preview-st
 install -m 0644 "$source_dir/preview.compose.yml" "$next_dir/preview.compose.yml"
 printf '%s\n' "$commit" > "$next_dir/asset-commit"
 chmod 0644 "$next_dir/asset-commit"
+chmod 0755 "$next_dir"
 
 if [ -e "$release_dir" ] || [ -L "$release_dir" ]; then
   [ -d "$release_dir" ] && [ ! -L "$release_dir" ] ||
