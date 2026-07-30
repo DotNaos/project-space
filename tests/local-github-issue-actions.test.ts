@@ -30,14 +30,22 @@ describe('local GitHub issue actions', () => {
   test('keeps the full pull request head SHA returned by GitHub', () => {
     const headSha = 'f'.repeat(40);
     expect(mapGitHubPullRequest({
-      head: { ref: 'issue-263-preview', sha: headSha },
+      base: { repo: { full_name: 'DotNaos/project-space' } },
+      head: {
+        ref: 'issue-263-preview',
+        repo: { full_name: 'DotNaos/project-space' },
+        sha: headSha
+      },
       html_url: 'https://github.com/DotNaos/project-space/pull/263',
       number: 263,
       state: 'open',
       title: 'Preview deployments'
     }, 263)).toMatchObject({
       headBranch: 'issue-263-preview',
+      headRefPresent: true,
+      headRepositoryFullName: 'DotNaos/project-space',
       headSha,
+      isCrossRepository: false,
       linkedIssueNumbers: [263]
     });
   });

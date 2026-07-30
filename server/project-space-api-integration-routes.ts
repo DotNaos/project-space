@@ -33,6 +33,7 @@ import type {
   ToolLaunchRequest
 } from '../src/shared/project-space-api';
 import { createGitHubRepositorySummaryRoute } from './github-repository-summary-route';
+import { isGitHubBranchComparisonRequest } from './github-branch-comparison';
 import type { GitHubRepositorySummaryResult } from '../src/shared/github-repository-summary';
 
 interface ProjectSpaceIntegrationApiRouteOptions {
@@ -323,6 +324,17 @@ export function createProjectSpaceIntegrationApiRoutes(
     if (request.method === 'POST' && url.pathname === '/api/github/history') {
       const payload = await readJson<GitHubHistoryRequest>(request);
       writeJson(response, 200, await backend.getGitHubHistory(payload));
+      return true;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/github/branch-comparison') {
+      const payload = await readJson<unknown>(request);
+      if (!isGitHubBranchComparisonRequest(payload)) {
+        writeJson(response, 400, { error: 'Invalid GitHub branch comparison request.' });
+        return true;
+      }
+      response.setHeader('Cache-Control', 'private, no-store');
+      writeJson(response, 200, await backend.getGitHubBranchComparison(payload));
       return true;
     }
 

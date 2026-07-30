@@ -131,6 +131,7 @@ describe('Preview gateway policy', () => {
     expect(isTrustedGitHubBrokerRequest('GET', '/api/github/catalog')).toBe(true);
     expect(isTrustedGitHubBrokerRequest('GET', '/api/auth/session')).toBe(true);
     expect(isTrustedGitHubBrokerRequest('POST', '/api/github/history')).toBe(true);
+    expect(isTrustedGitHubBrokerRequest('POST', '/api/github/branch-comparison')).toBe(true);
     expect(isTrustedGitHubBrokerRequest('POST', '/api/github/issues')).toBe(false);
     expect(isTrustedGitHubBrokerRequest('DELETE', '/api/github/branches')).toBe(false);
     expect(isTrustedGitHubBrokerRequest('GET', '/api/github/raw-proxy')).toBe(false);

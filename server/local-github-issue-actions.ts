@@ -78,9 +78,17 @@ interface GitHubApiIssueComment {
 }
 
 interface GitHubApiPullRequest {
+  base?: {
+    repo?: {
+      full_name?: string | null;
+    } | null;
+  } | null;
   body?: string | null;
   head?: {
     ref?: string | null;
+    repo?: {
+      full_name?: string | null;
+    } | null;
     sha?: string | null;
   } | null;
   html_url: string;
@@ -111,7 +119,14 @@ export function mapGitHubPullRequest(
 ): GitHubPullRequestRecord {
   return {
     headBranch: pullRequest.head?.ref ?? undefined,
+    headRefPresent: Boolean(pullRequest.head?.ref && pullRequest.head?.sha),
+    headRepositoryFullName: pullRequest.head?.repo?.full_name ?? undefined,
     headSha: pullRequest.head?.sha ?? undefined,
+    isCrossRepository:
+      pullRequest.head?.repo?.full_name && pullRequest.base?.repo?.full_name
+      ? pullRequest.head.repo.full_name.toLowerCase() !==
+        pullRequest.base.repo.full_name.toLowerCase()
+      : undefined,
     linkedIssueNumbers: linkedIssueNumber ? [linkedIssueNumber] : [],
     number: pullRequest.number,
     state: pullRequest.state,

@@ -34,6 +34,7 @@ import { ProjectTemplateSetupPanel } from './project-template-setup-panel';
 import { ProjectctlManifestPanel } from './projectctl-manifest-panel';
 import { RepositoryActivityPanel } from './repository-activity-panel';
 import { projectTabItems } from './project-detail-tabs';
+import type { GitHistoryFocus } from './git-focused-history';
 
 const templateStatusTitle: Record<FullstackTemplateCheck['status'], string> = {
   implemented: 'Implemented',
@@ -259,10 +260,12 @@ export interface ProjectDetailProps {
   chat: React.ReactNode;
   codex: React.ReactNode;
   connectorOverview: ConnectorOverviewResult;
+  historyFocus?: GitHistoryFocus;
   launcherError: string;
   onOpenMachine(machineId: string, tab?: MachineDetailTab): void;
   onOpenWorktreeBranch(machineId: string, branchName: string, path?: string): void;
   onOpenIssue(issueNumber: number): void;
+  onOpenHistory(focus: Omit<GitHistoryFocus, 'requestId'>): void;
   onOpenWorkflowRun(runId: number): void;
   onCloseWorkflowRun(): void;
   onRefreshWorktrees(): Promise<ProjectWorktreeRecord[]>;
@@ -286,10 +289,12 @@ export function ProjectDetail({
   chat,
   codex,
   connectorOverview,
+  historyFocus,
   launcherError,
   onOpenMachine,
   onOpenWorktreeBranch,
   onOpenIssue,
+  onOpenHistory,
   onOpenWorkflowRun,
   onCloseWorkflowRun,
   onRefreshWorktrees,
@@ -417,6 +422,7 @@ export function ProjectDetail({
             repository={selectedRepository}
             repositoryFullName={selectedRepository?.fullName}
             targetPath={selectedTargetPath}
+            focus={historyFocus}
           />
         ) : null}
 
@@ -425,6 +431,7 @@ export function ProjectDetail({
             connectorOverview={connectorOverview}
             issueNumber={selectedIssueNumber}
             onBack={() => onSelectTab('issues')}
+            onOpenHistory={onOpenHistory}
             onOpenIssue={onOpenIssue}
             project={project}
             projects={projects}

@@ -56,6 +56,7 @@ import type {
   ProjectsState,
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
+import type { GitHistoryFocus } from '../components/git-focused-history';
 
 const emptyDiscovery: ProjectDiscoveryResult = {
   groups: [],
@@ -133,6 +134,7 @@ export function useProjectDesktop() {
   const [machineTab, setMachineTab] = useState<MachineDetailTab>('overview');
   const [selectedIssueNumber, setSelectedIssueNumber] = useState<number | undefined>();
   const [selectedWorkflowRunId, setSelectedWorkflowRunId] = useState<number | undefined>();
+  const [historyFocus, setHistoryFocus] = useState<GitHistoryFocus>();
   const [launcherApps, setLauncherApps] = useState<LauncherAppRecord[]>([]);
   const [launcherError, setLauncherError] = useState('');
   const [connectorOverview, setConnectorOverview] =
@@ -488,6 +490,7 @@ export function useProjectDesktop() {
     discoveryRoot: discovery.rootPath,
     githubCatalog,
     groups: discovery.groups,
+    historyFocus,
     launcherApps,
     launcherError,
     isConnectorRefreshing,
@@ -559,6 +562,19 @@ export function useProjectDesktop() {
 
       if (mainView === 'project' && selectedProjectId) {
         writeRoute('project', selectedProjectId, true, nextTab);
+      }
+    },
+    openProjectHistory(focus: Omit<GitHistoryFocus, 'requestId'>) {
+      setHistoryFocus({
+        ...focus,
+        requestId: Date.now()
+      });
+      setProjectTab('history');
+      setSelectedIssueNumber(undefined);
+      setSelectedWorkflowRunId(undefined);
+
+      if (mainView === 'project' && selectedProjectId) {
+        writeRoute('project', selectedProjectId, true, 'history');
       }
     },
     selectMachineTab(nextTab: MachineDetailTab) {
