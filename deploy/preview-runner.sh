@@ -350,7 +350,7 @@ apply_preview() {
   fi
   write_runtime_env "$env_file" "$head_sha" "$web_image" "$docs_image" "$gateway_image" \
     "$prototype_image" "$postgres_password" "$gateway_secret"
-  if compose pull --quiet && compose up -d --wait --wait-timeout 240 &&
+  if compose pull --quiet >&2 && compose up -d --wait --wait-timeout 240 >&2 &&
     verify_runtime_with_retry "$head_sha"; then
     record=$(runtime_record ready "$head_sha" "$head_sha" "$web_image" "$docs_image" \
       "$gateway_image" "$prototype_image")
@@ -365,7 +365,7 @@ apply_preview() {
     mv -- "$runtime_dir/repository.previous" "$repo_path"
     mv -f -- "$previous_env" "$env_file"
     old_sha=$(printf '%s' "$previous_record" | jq -er '.runningSha')
-    if compose up -d --wait --wait-timeout 240 && verify_runtime_with_retry "$old_sha"; then
+    if compose up -d --wait --wait-timeout 240 >&2 && verify_runtime_with_retry "$old_sha"; then
       failed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
       record=$(printf '%s' "$previous_record" | jq --arg requested "$head_sha" --arg updated "$failed_at" \
         '.state="update_failed" | .requestedSha=$requested | .updatedAt=$updated | .message="Latest Preview update failed; prior verified SHA remains live."')

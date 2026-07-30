@@ -158,6 +158,8 @@ describe('trusted Preview runner contract', () => {
     expect(runner).toContain('sleep 5');
     expect(runner).toContain('verify_runtime_with_retry "$head_sha"');
     expect(runner).toContain('verify_runtime_with_retry "$old_sha"');
+    expect(runner).toContain('compose pull --quiet >&2');
+    expect(runner).toContain('compose up -d --wait --wait-timeout 240 >&2');
     expect(runner).toContain(
       'x-project-space-preview-docs-source:[[:space:]]*exact-pr-source'
     );
