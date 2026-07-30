@@ -38,6 +38,7 @@ export function PrototypeReviewIdentityNav({
   const completeIdentity = {
     ...identity,
     branchName: identity.branchName ?? verifiedLive?.branchName,
+    connectorId: identity.connectorId ?? verifiedLive?.connectorId,
     headSha: identity.headSha ?? result?.headSha,
     machineId: identity.machineId ?? verifiedLive?.machineId,
     projectId: identity.projectId ?? verifiedLive?.projectId,

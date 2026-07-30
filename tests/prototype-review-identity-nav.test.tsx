@@ -6,6 +6,7 @@ import type { PullRequestTestSurfacesResult } from '../src/shared/pr-preview-tes
 
 const headSha = 'a'.repeat(40);
 const search = new URLSearchParams({
+  connector: 'connector-os-mac',
   head: headSha,
   issue: '381',
   machine: 'os-mac',
@@ -44,7 +45,7 @@ describe('prototype review identity navigation', () => {
     expect(html).toContain('PR #382');
     expect(html).toContain('/projects/project-space/issues/381');
     expect(html).toContain('github.com/DotNaos/project-space/pull/382');
-    expect(html).toContain('/codex/machines/os-mac/threads/');
+    expect(html).toContain('/codex/machines/connector-os-mac/threads/');
     expect(html).toContain('/projects/project-space/workspaces?worktree=issue-381');
     expect(html).toContain('/machines/os-mac');
   });

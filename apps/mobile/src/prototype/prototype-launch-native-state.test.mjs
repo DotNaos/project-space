@@ -75,11 +75,12 @@ describe('native prototype launch state', () => {
     const identity = nativePrototypeIdentityFromUrl(
       `projectspace://prototype?repository=DotNaos%2Fproject-space&pr=382` +
       `&issue=381&project=project-space&head=${'a'.repeat(40)}` +
-      '&surface=native&branch=issue-381&machine=os-mac' +
+      '&surface=native&branch=issue-381&connector=connector-os-mac&machine=os-mac' +
       '&thread=019fae8d-1eae-7282-9278-b57771a9c877&worktree=issue-381'
     );
     expect(identity).toEqual({
       branchName: 'issue-381',
+      connectorId: 'connector-os-mac',
       headSha: 'a'.repeat(40),
       issueNumber: 381,
       machineId: 'os-mac',

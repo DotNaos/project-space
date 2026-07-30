@@ -17,6 +17,7 @@ export type PrototypeLaunchState = (typeof prototypeLaunchStates)[number];
 
 export interface PrototypeLaunchIdentity {
   branchName?: string;
+  connectorId?: string;
   headSha: string;
   issueNumber?: number;
   machineId?: string;
@@ -156,6 +157,7 @@ export function buildPrototypeReviewHref(
   params.set('head', identity.headSha);
   params.set('surface', identity.surface === 'mobile-prototype' ? 'native' : 'web');
   appendOptional(params, 'branch', identity.branchName);
+  appendOptional(params, 'connector', identity.connectorId);
   appendOptional(params, 'machine', identity.machineId);
   appendOptional(params, 'thread', identity.threadId);
   appendOptional(params, 'worktree', identity.worktreeId);
@@ -171,6 +173,7 @@ export function parsePrototypeLaunchRouteIdentity(
   const surface = params.get('surface');
   return {
     branchName: cleanOptional(params.get('branch')),
+    connectorId: cleanOptional(params.get('connector')),
     headSha: cleanHeadSha(params.get('head')),
     issueNumber: cleanPositiveInteger(params.get('issue')),
     machineId: cleanOptional(params.get('machine')),
@@ -194,8 +197,8 @@ export function prototypeIdentityLinks(identity: PrototypeLaunchRouteIdentity) {
   const issue = identity.projectId && identity.issueNumber
     ? `/projects/${encodeURIComponent(identity.projectId)}/issues/${identity.issueNumber}`
     : undefined;
-  const task = identity.machineId && identity.threadId
-    ? `/codex/machines/${encodeURIComponent(identity.machineId)}/threads/` +
+  const task = identity.connectorId && identity.threadId
+    ? `/codex/machines/${encodeURIComponent(identity.connectorId)}/threads/` +
       encodeURIComponent(identity.threadId)
     : undefined;
   const worktree = identity.projectId

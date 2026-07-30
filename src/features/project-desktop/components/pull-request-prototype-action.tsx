@@ -48,6 +48,7 @@ export function PullRequestPrototypeAction({
   const identity = pullRequest.headSha
     ? {
         branchName: live?.branchName ?? pullRequest.headBranch,
+        connectorId: live?.connectorId ?? connectorId,
         headSha: pullRequest.headSha,
         issueNumber,
         machineId: live?.machineId,

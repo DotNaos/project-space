@@ -212,7 +212,8 @@ describe('prototype review model', () => {
   test('adds presentation and public identity context to the verified target URL', () => {
     const target = verifiedPrototypeTarget(result, 'web');
     expect(target).toBeDefined();
-    target!.url += '?machine=old-machine&thread=old-thread&worktree=old-worktree';
+    target!.url +=
+      '?connector=old-connector&machine=old-machine&thread=old-thread&worktree=old-worktree';
     const url = new URL(
       embeddedPrototypeUrl(
         target!,
@@ -222,6 +223,7 @@ describe('prototype review model', () => {
         'light',
         {
           branchName: 'issue-381-prototype-launch',
+          connectorId: 'private-connector',
           headSha: 'ee6d16eff074313441ec50825aa6619b36db5c8e',
           issueNumber: 381,
           machineId: 'private-machine',
@@ -248,6 +250,7 @@ describe('prototype review model', () => {
     );
     expect(url.searchParams.get('surface')).toBe('web');
     expect(url.searchParams.get('branch')).toBe('issue-381-prototype-launch');
+    expect(url.searchParams.has('connector')).toBe(false);
     expect(url.searchParams.has('machine')).toBe(false);
     expect(url.searchParams.has('thread')).toBe(false);
     expect(url.searchParams.has('worktree')).toBe(false);

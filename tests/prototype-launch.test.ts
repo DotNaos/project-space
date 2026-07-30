@@ -12,6 +12,7 @@ import type { PullRequestTestSurfacesResult } from '../src/shared/pr-preview-tes
 const headSha = 'a'.repeat(40);
 const identity: PrototypeLaunchIdentity = {
   branchName: 'issue-381-prototype-launch',
+  connectorId: 'connector-os-mac',
   headSha,
   issueNumber: 381,
   machineId: 'os-mac',
@@ -52,8 +53,16 @@ describe('prototype launch contract', () => {
       issue: '/projects/project-space/issues/381',
       machine: '/machines/os-mac',
       pullRequest: 'https://github.com/DotNaos/project-space/pull/382',
-      task: '/codex/machines/os-mac/threads/019fae8d-1eae-7282-9278-b57771a9c877',
+      task: '/codex/machines/connector-os-mac/threads/019fae8d-1eae-7282-9278-b57771a9c877',
       worktree: '/projects/project-space/workspaces?worktree=issue-381'
+    });
+    expect(prototypeIdentityLinks({ ...identity, connectorId: undefined })).toMatchObject({
+      machine: '/machines/os-mac',
+      task: undefined
+    });
+    expect(prototypeIdentityLinks({ ...identity, machineId: undefined })).toMatchObject({
+      machine: undefined,
+      task: '/codex/machines/connector-os-mac/threads/019fae8d-1eae-7282-9278-b57771a9c877'
     });
     expect(prototypeIdentityLinks({ repositoryFullName: 'DotNaos/project-space' }))
       .toEqual({
@@ -106,6 +115,7 @@ describe('prototype launch contract', () => {
       '?repository=not-a-repo&pr=-1&issue=zero&head=xyz&project='
     )).toEqual({
       branchName: undefined,
+      connectorId: undefined,
       headSha: undefined,
       issueNumber: undefined,
       machineId: undefined,

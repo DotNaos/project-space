@@ -210,6 +210,7 @@ function appendPublicPrototypeIdentity(
     'head',
     'surface',
     'branch',
+    'connector',
     'machine',
     'thread',
     'worktree'
