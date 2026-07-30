@@ -108,6 +108,12 @@ services:
     image: ${PREVIEW_DOCS_IMAGE:?set PREVIEW_DOCS_IMAGE}
     cpus: 0.75
     mem_limit: 768m
+    environment:
+      PROJECT_SPACE_BUILD_COMMIT: ${PREVIEW_HEAD_SHA}
+      PROJECT_SPACE_PREVIEW_HEAD_SHA: ${PREVIEW_HEAD_SHA}
+      PROJECT_SPACE_PREVIEW_MODE: "1"
+      PROJECT_SPACE_PREVIEW_PR_NUMBER: ${PREVIEW_PR_NUMBER}
+      PROJECT_SPACE_PREVIEW_REPOSITORY: ${PREVIEW_REPOSITORY}
     healthcheck:
       test: [CMD, bun, -e, "const r=await fetch('http://127.0.0.1:3000/');if(!r.ok)process.exit(1)"]
       interval: 10s

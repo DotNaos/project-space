@@ -177,6 +177,12 @@ describe('trusted Preview runner contract', () => {
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_REPOSITORY');
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_PR_NUMBER');
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_HEAD_SHA');
+    const docsService = compose.slice(compose.indexOf('  docs:'), compose.indexOf('\n  prototype:'));
+    expect(docsService).toContain('PROJECT_SPACE_BUILD_COMMIT: ${PREVIEW_HEAD_SHA}');
+    expect(docsService).toContain('PROJECT_SPACE_PREVIEW_HEAD_SHA: ${PREVIEW_HEAD_SHA}');
+    expect(docsService).toContain('PROJECT_SPACE_PREVIEW_MODE: "1"');
+    expect(docsService).toContain('PROJECT_SPACE_PREVIEW_PR_NUMBER: ${PREVIEW_PR_NUMBER}');
+    expect(docsService).toContain('PROJECT_SPACE_PREVIEW_REPOSITORY: ${PREVIEW_REPOSITORY}');
     expect(compose).toContain('CLERK_SECRET_KEY');
     expect(compose).not.toContain('GITHUB_TOKEN');
     expect(compose).not.toContain('PROJECT_CONNECTOR_REGISTRATION_TOKEN');
@@ -190,8 +196,12 @@ describe('trusted Preview runner contract', () => {
     expect(compose).toContain('postgres:17-alpine@sha256:');
     expect(sshEntrypoint).toContain('apply|destroy|reap');
     expect(sshEntrypoint).not.toContain('status-all');
+    expect(sshEntrypoint).toContain('/opt/platform/share/project-space-preview-current');
+    expect(sshEntrypoint).toContain('PROJECT_SPACE_PREVIEW_ASSET_ROOT="$asset_root"');
     expect(statusEntrypoint).toContain('permits only status-all');
     expect(statusEntrypoint).not.toContain('apply|destroy');
+    expect(statusEntrypoint).toContain('/opt/platform/share/project-space-preview-current');
+    expect(statusEntrypoint).toContain('PROJECT_SPACE_PREVIEW_ASSET_ROOT="$asset_root"');
   });
 
   test('Compose expands every PR-specific Traefik label key', () => {
