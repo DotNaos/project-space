@@ -197,6 +197,33 @@ function ChangelogSection({
           />
         ))}
       </div>
+      {group.releaseTesting.map((testing) => (
+        <section
+          aria-labelledby={`release-testing-${group.key}-${testing.pullRequestNumber}`}
+          className="mt-12 border-t border-fd-border pt-8"
+          key={testing.pullRequestNumber}
+        >
+          <h3
+            className="text-xl font-semibold text-fd-foreground"
+            id={`release-testing-${group.key}-${testing.pullRequestNumber}`}
+          >
+            What to test
+          </h3>
+          <p className="mt-2 text-sm text-fd-muted-foreground">
+            Preview-only checks for PR #{testing.pullRequestNumber}
+          </p>
+          <ul className="mt-4 list-disc space-y-2 pl-5 marker:text-fd-muted-foreground">
+            {testing.items.map((guidance) => (
+              <li
+                className="pl-1 text-sm leading-6 text-fd-muted-foreground"
+                key={guidance}
+              >
+                {guidance}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
     </section>
   );
 }
@@ -248,18 +275,20 @@ function ChangelogEntryRow({
           title={entry.summary}
         />
       )}
-      <div className="mt-6">
-        <h4 className="text-base font-semibold text-fd-foreground">
-          What to test
-        </h4>
-        <ul className="mt-3 list-disc space-y-2 pl-5 marker:text-fd-muted-foreground">
-          {entry.testing.map((guidance) => (
-            <li key={guidance} className="pl-1 text-sm leading-6 text-fd-muted-foreground">
-              {guidance}
-            </li>
-          ))}
-        </ul>
-      </div>
+      {entry.testing.length > 0 && (
+        <div className="mt-6">
+          <h4 className="text-base font-semibold text-fd-foreground">
+            What to test
+          </h4>
+          <ul className="mt-3 list-disc space-y-2 pl-5 marker:text-fd-muted-foreground">
+            {entry.testing.map((guidance) => (
+              <li key={guidance} className="pl-1 text-sm leading-6 text-fd-muted-foreground">
+                {guidance}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </article>
   );
 }

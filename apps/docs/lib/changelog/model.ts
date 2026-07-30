@@ -37,6 +37,8 @@ export interface ChangelogEntry {
   issueNumber?: number;
   prototype?: ChangelogPrototype;
   pullRequestNumber: number;
+  releaseTesting?: string[];
+  releaseVersion?: string;
   testing: string[];
 }
 
@@ -55,7 +57,13 @@ export interface ChangelogGroup {
   key: string;
   label: string;
   releasedAt?: string;
+  releaseTesting: ChangelogReleaseTesting[];
   entries: ChangelogEntry[];
+}
+
+export interface ChangelogReleaseTesting {
+  items: string[];
+  pullRequestNumber: number;
 }
 
 export interface ChangelogFilters {
@@ -198,19 +206,28 @@ export function buildChangelogView(
     return {
       state: 'ready',
       filters,
-      groups: [versionGroup],
+      groups: [
+        pullRequestNumber === undefined
+          ? versionGroup
+          : filterGroupForPullRequest(
+              versionGroup,
+              pullRequestNumber,
+              false,
+            ),
+      ],
       highlightedPullRequest: pullRequestNumber,
     };
   }
 
   if (pullRequestNumber !== undefined) {
     const groups = allGroups
-      .map((group) => ({
-        ...group,
-        entries: group.entries.filter(
-          (entry) => entry.pullRequestNumber === pullRequestNumber,
+      .map((group) =>
+        filterGroupForPullRequest(
+          group,
+          pullRequestNumber,
+          true,
         ),
-      }))
+      )
       .filter((group) => group.entries.length > 0);
 
     if (groups.length === 0) {
@@ -235,27 +252,109 @@ export function buildChangelogView(
 function buildGroups(catalog: ChangelogCatalog): ChangelogGroup[] {
   const entryById = new Map(catalog.entries.map((entry) => [entry.id, entry]));
   const releasedIds = new Set(catalog.versions.flatMap((version) => version.entryIds));
-  const unreleased = catalog.entries.filter((entry) => !releasedIds.has(entry.id));
+  const publishedVersions = new Set(
+    catalog.versions.map((version) => version.version),
+  );
+  const unreleased = catalog.entries.filter(
+    (entry) => !releasedIds.has(entry.id) && !entry.releaseVersion,
+  );
+  const pendingVersions = new Map<string, ChangelogEntry[]>();
   const groups: ChangelogGroup[] = [];
 
   if (unreleased.length > 0) {
     groups.push({
       key: 'unreleased',
       label: 'Unreleased',
+      releaseTesting: releaseTestingFor(unreleased),
       entries: unreleased,
     });
   }
 
+  for (const entry of catalog.entries) {
+    if (
+      releasedIds.has(entry.id) ||
+      !entry.releaseVersion ||
+      publishedVersions.has(entry.releaseVersion)
+    ) {
+      continue;
+    }
+    const entries = pendingVersions.get(entry.releaseVersion) ?? [];
+    entries.push(entry);
+    pendingVersions.set(entry.releaseVersion, entries);
+  }
+  for (const [version, entries] of [...pendingVersions].sort(
+    ([left], [right]) => compareChangelogVersions(right, left),
+  )) {
+    groups.push({
+      key: version,
+      label: version,
+      releaseTesting: releaseTestingFor(entries),
+      entries,
+    });
+  }
+
   for (const release of catalog.versions) {
+    const entries = release.entryIds.map((id) => entryById.get(id)!);
+    entries.push(
+      ...catalog.entries.filter(
+        (entry) =>
+          entry.releaseVersion === release.version &&
+          !releasedIds.has(entry.id),
+      ),
+    );
     groups.push({
       key: release.version,
       label: release.version,
       releasedAt: release.releasedAt,
-      entries: release.entryIds.map((id) => entryById.get(id)!),
+      releaseTesting: releaseTestingFor(entries),
+      entries,
     });
   }
 
   return groups;
+}
+
+function filterGroupForPullRequest(
+  group: ChangelogGroup,
+  pullRequestNumber: number,
+  filterEntries: boolean,
+): ChangelogGroup {
+  return {
+    ...group,
+    entries: filterEntries
+      ? group.entries.filter(
+          (entry) =>
+            entry.pullRequestNumber === pullRequestNumber,
+        )
+      : group.entries,
+    releaseTesting: group.releaseTesting.filter(
+      (testing) =>
+        testing.pullRequestNumber === pullRequestNumber,
+    ),
+  };
+}
+
+function releaseTestingFor(
+  entries: ChangelogEntry[],
+): ChangelogReleaseTesting[] {
+  const byPullRequest = new Map<number, string[]>();
+  for (const entry of entries) {
+    if (
+      entry.releaseTesting &&
+      !byPullRequest.has(entry.pullRequestNumber)
+    ) {
+      byPullRequest.set(
+        entry.pullRequestNumber,
+        entry.releaseTesting,
+      );
+    }
+  }
+  return [...byPullRequest].map(
+    ([pullRequestNumber, items]) => ({
+      items,
+      pullRequestNumber,
+    }),
+  );
 }
 
 function parseEntries(source: unknown, errors: string[]): ChangelogEntry[] | undefined {

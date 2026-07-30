@@ -80,6 +80,12 @@ describe('continuous release Docs page contract', () => {
     expect(changelogSource).not.toContain(
       'release-entries.generated.json',
     );
+    expect(changelogSource).toContain(
+      'withReleaseChangelogEntries',
+    );
+    expect(changelogSource).toContain(
+      'previewTestsForCurrentBuild',
+    );
     expect(viteConfig).toContain(
       '__PROJECT_RELEASE_CHANGELOG_SOURCE__',
     );

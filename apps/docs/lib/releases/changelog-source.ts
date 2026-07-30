@@ -1,4 +1,7 @@
-import type { ReleaseEntry } from './types';
+import type {
+  ReleaseChangeCategory,
+  ReleaseEntry,
+} from './types';
 
 export const generatedReleaseChangelogSchema =
   'project-space.changelog/v1' as const;
@@ -17,7 +20,8 @@ export function generatedReleaseChangelogSource(
             change.category.toLowerCase(),
             String(index + 1),
           ].join('-'),
-          category: change.category.toLowerCase(),
+          category: change.category.toLowerCase() as
+            Lowercase<ReleaseChangeCategory>,
           summary: item,
           body: entry.summary,
           ...(entry.issues[0]
