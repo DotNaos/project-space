@@ -5,8 +5,10 @@ import { withReleaseChangelogEntries } from './release-catalog';
 import { previewTestsForCurrentBuild } from '../releases/preview-server';
 import { releaseCatalogResult } from '../releases/source';
 
-export const changelogCatalogResult = withReleaseChangelogEntries(
-  parseChangelogCatalog(entriesSource, versionsSource),
-  releaseCatalogResult,
-  previewTestsForCurrentBuild,
-);
+export function changelogCatalogForCurrentBuild() {
+  return withReleaseChangelogEntries(
+    parseChangelogCatalog(entriesSource, versionsSource),
+    releaseCatalogResult,
+    previewTestsForCurrentBuild,
+  );
+}

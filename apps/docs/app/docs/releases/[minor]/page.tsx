@@ -20,6 +20,7 @@ import type {
 } from '@/lib/releases/types';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { connection } from 'next/server';
 import {
   DocsBody,
   DocsDescription,
@@ -30,6 +31,7 @@ import {
 export default async function ReleaseMinorPage(
   props: PageProps<'/docs/releases/[minor]'>,
 ) {
+  await connection();
   const { minor } = await props.params;
   const entries = entriesForMinor(minor);
   if (entries.length === 0) notFound();

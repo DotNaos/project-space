@@ -1,4 +1,4 @@
-import { changelogCatalogResult } from '@/lib/changelog/source';
+import { changelogCatalogForCurrentBuild } from '@/lib/changelog/source';
 import { ChangelogPrototypeAction } from '@/components/changelog-prototype-action';
 import {
   buildChangelogView,
@@ -10,6 +10,7 @@ import {
 import { ArrowRight } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { connection } from 'next/server';
 import {
   DocsBody,
   DocsDescription,
@@ -39,8 +40,11 @@ const categoryLabels: Record<ChangelogEntry['category'], string> = {
 };
 
 export default async function ChangelogPage({ searchParams }: ChangelogPageProps) {
+  await connection();
   const rawSearchParams = await searchParams;
   const filterResult = parseChangelogFilters(rawSearchParams);
+  const changelogCatalogResult =
+    changelogCatalogForCurrentBuild();
 
   return (
     <DocsPage toc={[]} full>

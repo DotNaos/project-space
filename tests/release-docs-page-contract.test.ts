@@ -86,6 +86,11 @@ describe('continuous release Docs page contract', () => {
     expect(changelogSource).toContain(
       'previewTestsForCurrentBuild',
     );
+    expect(changelogSource).toContain(
+      'changelogCatalogForCurrentBuild',
+    );
+    expect(releasePage).toContain('await connection()');
+    expect(docsPages[1]).toContain('await connection()');
     expect(viteConfig).toContain(
       '__PROJECT_RELEASE_CHANGELOG_SOURCE__',
     );

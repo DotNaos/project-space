@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { previewTestsForExactBuild } from './preview';
 import type { ReleaseEntry } from './types';
 
 export function previewTestsForCurrentBuild(
   entry: ReleaseEntry,
   environment: NodeJS.ProcessEnv = process.env,
+  buildVersion = projectSpacePackageVersion(),
 ) {
   return previewTestsForExactBuild(
     entry,
@@ -21,27 +22,39 @@ export function previewTestsForCurrentBuild(
       PROJECT_SPACE_PREVIEW_REPOSITORY:
         environment.PROJECT_SPACE_PREVIEW_REPOSITORY,
     },
-    rootPackageVersion(),
+    buildVersion,
   );
 }
 
-function rootPackageVersion() {
-  try {
-    const source = readFileSync(
-      resolve(process.cwd(), '../../package.json'),
-      'utf8',
-    );
-    const value: unknown = JSON.parse(source);
-    if (
-      typeof value === 'object' &&
-      value !== null &&
-      'version' in value &&
-      typeof value.version === 'string'
-    ) {
-      return value.version;
+type ReadTextFile = (path: string) => string;
+
+export function projectSpacePackageVersion(
+  startDirectory = process.cwd(),
+  readTextFile: ReadTextFile = (path) =>
+    readFileSync(path, 'utf8'),
+) {
+  let directory = startDirectory;
+  for (let depth = 0; depth < 8; depth += 1) {
+    try {
+      const value: unknown = JSON.parse(
+        readTextFile(join(directory, 'package.json')),
+      );
+      if (
+        typeof value === 'object' &&
+        value !== null &&
+        'name' in value &&
+        value.name === 'project-space' &&
+        'version' in value &&
+        typeof value.version === 'string'
+      ) {
+        return value.version;
+      }
+    } catch {
+      // Continue toward the repository root.
     }
-  } catch {
-    return undefined;
+    const parent = dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
   }
   return undefined;
 }
