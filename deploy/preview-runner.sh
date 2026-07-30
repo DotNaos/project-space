@@ -11,6 +11,7 @@ STATE_ROOT=$PLATFORM_ROOT/state/project-space-preview
 RUNTIME_ROOT=$PLATFORM_ROOT/previews/project-space
 LOCK_ROOT=$PLATFORM_ROOT/locks
 COMPOSE_FILE=$ASSET_ROOT/preview.compose.yml
+PREVIEW_RECEIPT_PREFIX=PROJECT_SPACE_PREVIEW_RECEIPT=
 
 fail() {
   printf '%s\n' "$1" >&2
@@ -263,7 +264,7 @@ runtime_record() {
   gateway_image=$6
   prototype_image=$7
   now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  jq -n \
+  jq -cn \
     --arg status "$status" --arg repository "$repository" --argjson pr "$pr" \
     --arg requestedSha "$requested_sha" --arg runningSha "$running_sha" \
     --arg webImage "$web_image" --arg docsImage "$docs_image" --arg gatewayImage "$gateway_image" \
@@ -276,6 +277,13 @@ runtime_record() {
       prototypeHealthy:true,
       liveUrl:$liveUrl,composeHealthy:true,httpHealthy:true,liveOriginHealthy:true,
       metaSha:$runningSha,verifiedAt:$verifiedAt,updatedAt:$verifiedAt}'
+}
+
+emit_receipt() {
+  record=$1
+  compact_record=$(printf '%s' "$record" | jq -ce 'select(type == "object")') ||
+    fail 'Preview receipt must be one JSON object' 70
+  printf '%s%s\n' "$PREVIEW_RECEIPT_PREFIX" "$compact_record"
 }
 
 destroy_resources() {
@@ -357,7 +365,7 @@ apply_preview() {
     atomic_json_write "$runtime_file" "$record"
     rm -f -- "$tombstone_file" "$previous_env"
     rm -rf -- "$runtime_dir/repository.previous"
-    printf '%s\n' "$record"
+    emit_receipt "$record"
     return
   fi
   if [ -n "$previous_record" ] && [ -f "$previous_env" ] && [ -d "$runtime_dir/repository.previous" ]; then
@@ -370,7 +378,7 @@ apply_preview() {
       record=$(printf '%s' "$previous_record" | jq --arg requested "$head_sha" --arg updated "$failed_at" \
         '.state="update_failed" | .requestedSha=$requested | .updatedAt=$updated | .message="Latest Preview update failed; prior verified SHA remains live."')
       atomic_json_write "$runtime_file" "$record"
-      printf '%s\n' "$record"
+      emit_receipt "$record"
       exit 72
     fi
   fi

@@ -160,6 +160,10 @@ describe('trusted Preview runner contract', () => {
     expect(runner).toContain('verify_runtime_with_retry "$old_sha"');
     expect(runner).toContain('compose pull --quiet >&2');
     expect(runner).toContain('compose up -d --wait --wait-timeout 240 >&2');
+    expect(runner).toContain('PREVIEW_RECEIPT_PREFIX=PROJECT_SPACE_PREVIEW_RECEIPT=');
+    expect(runner).toContain('jq -cn');
+    expect(runner).toContain("jq -ce 'select(type == \"object\")'");
+    expect(runner.match(/emit_receipt "\$record"/g)).toHaveLength(2);
     expect(runner).toContain(
       'x-project-space-preview-docs-source:[[:space:]]*exact-pr-source'
     );

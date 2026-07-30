@@ -317,8 +317,21 @@ jobs:
             ssh project-space-preview apply > preview-output.log
           exit_code=$?
           set -e
-          sed -n '/^{/,/^}$/p' preview-output.log > preview-result.json
+          receipt_valid=false
+          if jq -Rsce --arg prefix 'PROJECT_SPACE_PREVIEW_RECEIPT=' '
+            split("\n")
+            | map(select(startswith($prefix)) | ltrimstr($prefix))
+            | select(length == 1)
+            | .[0]
+            | fromjson
+            | select(type == "object")
+          ' preview-output.log > preview-result.json; then
+            receipt_valid=true
+          else
+            : > preview-result.json
+          fi
           echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+          echo "receipt_valid=$receipt_valid" >> "$GITHUB_OUTPUT"
       - name: Publish GitHub deployment result
         if: always()
         shell: bash
@@ -328,11 +341,12 @@ jobs:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
           REQUESTED_SHA: ${{ needs.resolve.outputs.head_sha }}
           RUNNER_EXIT_CODE: ${{ steps.apply.outputs.exit_code }}
+          RUNNER_RECEIPT_VALID: ${{ steps.apply.outputs.receipt_valid }}
         run: |
           set -euo pipefail
           state=failure
           description='Preview deployment failed.'
-          if [[ "$RUNNER_EXIT_CODE" == 0 ]] && jq -e \
+          if [[ "$RUNNER_EXIT_CODE" == 0 && "$RUNNER_RECEIPT_VALID" == true ]] && jq -e \
             --arg repository "$PREVIEW_REPOSITORY" \
             --argjson pr "$PR_NUMBER" \
             --arg sha "$REQUESTED_SHA" \
