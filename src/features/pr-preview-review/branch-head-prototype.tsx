@@ -25,7 +25,7 @@ export function BranchHeadPrototype({ theme }: { theme: PrototypeTheme }) {
         </Chip>
       </header>
 
-      <main className="mx-auto grid w-full max-w-5xl gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,0.78fr)]">
+      <main className="mx-auto grid w-full max-w-5xl gap-6 @lg:grid-cols-[minmax(0,1fr)_minmax(22rem,0.78fr)]">
         <section className="min-w-0 pt-1">
           <Text as="h1" className="block text-xl font-semibold leading-tight text-neutral-100">
             {branchHeadPrototypeCopy.issueTitle}
