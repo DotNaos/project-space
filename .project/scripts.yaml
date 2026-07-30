@@ -37,3 +37,19 @@ servers:
     healthCheck:
       path: /prototype/desktop/
       timeoutSeconds: 45
+  prototype-mobile:
+    label: PR native prototype
+    prototypeSurface: mobile-prototype
+    command:
+      - bun
+      - run
+      - serve:prototype:desktop
+      - --
+      - --host
+      - "{host}"
+      - --port
+      - "{port}"
+      - --strictPort
+    healthCheck:
+      path: /prototype/mobile/
+      timeoutSeconds: 45

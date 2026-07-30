@@ -172,6 +172,10 @@ describe('trusted Preview runner contract', () => {
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_MODE: "1"');
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_BROKER_ORIGIN: https://projects.os-home.net');
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_GATEWAY_SECRET');
+    expect(compose).toContain('PROJECT_SPACE_PROTOTYPE_ACCESS_SECRET');
+    const webService = compose.slice(compose.indexOf('  web:'), compose.indexOf('\n  docs:'));
+    expect(webService).not.toContain('PROJECT_SPACE_PROTOTYPE_ACCESS_SECRET');
+    expect(runner).toContain('PREVIEW_PROTOTYPE_ACCESS_SECRET=');
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_UPSTREAM_ORIGIN: http://preview-web:4173');
     expect(compose).toContain('aliases: [preview-web]');
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_REPOSITORY');
@@ -221,6 +225,7 @@ describe('trusted Preview runner contract', () => {
         PREVIEW_POSTGRES_PASSWORD: 'preview-test-postgres-password',
         PREVIEW_PR_NUMBER: '263',
         PREVIEW_PROTOTYPE_IMAGE: `ghcr.io/dotnaos/project-space-preview-prototype@sha256:${'e'.repeat(64)}`,
+        PREVIEW_PROTOTYPE_ACCESS_SECRET: 'preview-test-prototype-access-secret-that-is-long-enough',
         PREVIEW_PROTOTYPE_UPSTREAM_ORIGIN: 'http://preview-prototype:8080',
         PREVIEW_REPOSITORY: 'DotNaos/project-space',
         PREVIEW_REPOSITORY_PATH: repositoryRoot,

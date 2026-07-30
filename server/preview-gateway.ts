@@ -2,11 +2,13 @@ import { createServer, type IncomingHttpHeaders, type IncomingMessage, type Serv
 
 import { readAuthTokenFromRequest, readProjectSpaceAuthSession } from './local-auth-store';
 import {
+  createPrototypeAccessCookie,
   createPreviewIdentityHeaders,
   isGitHubApiPath,
   isBlockedPreviewPath,
   isTrustedGitHubBrokerRequest,
   parsePreviewGatewayBinding,
+  readPrototypeAccessCookie,
   previewIdentityHeader,
   previewSignatureHeader
 } from './preview-gateway-policy';
@@ -38,6 +40,88 @@ function isTrustedPrototypePath(pathname: string) {
     pathname === '/prototype/mobile' ||
     pathname.startsWith('/prototype/mobile/')
   );
+}
+
+const prototypeAccessPath = '/api/pull-request-previews/prototype-access';
+const prototypeReviewQueryKeys = [
+  'change',
+  'orientation',
+  'theme',
+  'viewport'
+] as const;
+
+function prototypeSurface(pathname: string) {
+  if (pathname === '/prototype/desktop' || pathname.startsWith('/prototype/desktop/')) {
+    return 'desktop-prototype' as const;
+  }
+  if (pathname === '/prototype/mobile' || pathname.startsWith('/prototype/mobile/')) {
+    return 'mobile-prototype' as const;
+  }
+  return undefined;
+}
+
+function isPrototypeEntryPath(pathname: string) {
+  return [
+    '/prototype/desktop',
+    '/prototype/desktop/',
+    '/prototype/mobile',
+    '/prototype/mobile/'
+  ].includes(pathname);
+}
+
+function prototypeAccessScope(url: URL) {
+  const changeValues = url.searchParams.getAll('change');
+  const surfaceValues = url.searchParams.getAll('surface');
+  if (
+    [...url.searchParams.keys()].some((key) => key !== 'change' && key !== 'surface') ||
+    changeValues.length !== 1 ||
+    surfaceValues.length !== 1 ||
+    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(changeValues[0] ?? '') ||
+    !['desktop-prototype', 'mobile-prototype'].includes(surfaceValues[0] ?? '')
+  ) {
+    return undefined;
+  }
+  return {
+    changeId: changeValues[0]!,
+    surface: surfaceValues[0] as 'desktop-prototype' | 'mobile-prototype'
+  };
+}
+
+function prototypeReviewUrl(
+  binding: ReturnType<typeof parsePreviewGatewayBinding>,
+  brokerOrigin: string,
+  requestUrl: URL
+) {
+  const target = new URL('/prototype-review', brokerOrigin);
+  target.searchParams.set('repositoryFullName', binding.repositoryFullName);
+  target.searchParams.set('pullRequestNumber', String(binding.pullRequestNumber));
+  target.searchParams.set('head', binding.headSha);
+  const requestedReviewSurface = requestUrl.searchParams.getAll('surface');
+  target.searchParams.set(
+    'surface',
+    requestedReviewSurface.length === 1 && requestedReviewSurface[0] === 'native'
+      ? 'native'
+      : (
+          requestUrl.pathname === '/prototype/mobile' ||
+          requestUrl.pathname.startsWith('/prototype/mobile/')
+        )
+        ? 'native'
+        : 'web'
+  );
+  for (const key of prototypeReviewQueryKeys) {
+    const values = requestUrl.searchParams.getAll(key);
+    if (values.length === 1 && values[0]) target.searchParams.set(key, values[0]);
+  }
+  return target.toString();
+}
+
+function setPrototypeAccessCors(response: ServerResponse, brokerOrigin: string) {
+  response.setHeader('Access-Control-Allow-Credentials', 'true');
+  response.setHeader('Access-Control-Allow-Headers', 'authorization');
+  response.setHeader('Access-Control-Allow-Methods', 'POST');
+  response.setHeader('Access-Control-Allow-Origin', brokerOrigin);
+  response.setHeader('Cache-Control', 'no-store');
+  response.setHeader('Vary', 'Origin');
 }
 
 async function readBody(request: IncomingMessage) {
@@ -103,7 +187,8 @@ async function proxy(
   const result = await fetch(target, {
     body,
     headers,
-    method: request.method
+    method: request.method,
+    redirect: 'error'
   });
   response.statusCode = result.status;
   copyResponseHeaders(result.headers, response);
@@ -142,6 +227,10 @@ export function createPreviewGatewayRequestHandler(
   if (gatewaySecret.length < 32) {
     throw new Error('PROJECT_SPACE_PREVIEW_GATEWAY_SECRET must contain at least 32 characters.');
   }
+  const prototypeAccessSecret = environment.PROJECT_SPACE_PROTOTYPE_ACCESS_SECRET ?? '';
+  if (prototypeAccessSecret.length < 32) {
+    throw new Error('PROJECT_SPACE_PROTOTYPE_ACCESS_SECRET must contain at least 32 characters.');
+  }
   const authenticate = dependencies.authenticate ?? readProjectSpaceAuthSession;
 
   return async function handlePreviewGatewayRequest(
@@ -155,6 +244,51 @@ export function createPreviewGatewayRequestHandler(
         requestUrl.origin !== binding.origin
       ) {
         response.writeHead(421).end('Preview host mismatch.');
+        return;
+      }
+      if (requestUrl.pathname === prototypeAccessPath) {
+        if (request.headers.origin !== brokerOrigin) {
+          response.writeHead(403).end('Trusted Project Space origin required.');
+          return;
+        }
+        setPrototypeAccessCors(response, brokerOrigin);
+        if (request.method === 'OPTIONS') {
+          response.writeHead(204).end();
+          return;
+        }
+        if (request.method !== 'POST') {
+          response.writeHead(405, { Allow: 'OPTIONS, POST' }).end();
+          return;
+        }
+        const accessScope = prototypeAccessScope(requestUrl);
+        if (!accessScope) {
+          response.writeHead(400).end('Invalid prototype access scope.');
+          return;
+        }
+        const session = await authenticate(readAuthTokenFromRequest(request), {
+          authorizedParties: [brokerOrigin]
+        });
+        if (!session) {
+          response.writeHead(401).end('Login required.');
+          return;
+        }
+        response.setHeader('Set-Cookie', createPrototypeAccessCookie({
+          ...accessScope,
+          binding,
+          secret: prototypeAccessSecret,
+          session
+        }));
+        response.writeHead(204).end();
+        return;
+      }
+      if (
+        requestUrl.pathname === '/prototype-review' ||
+        requestUrl.pathname.startsWith('/prototype-review/')
+      ) {
+        response.writeHead(302, {
+          'Cache-Control': 'no-store',
+          Location: prototypeReviewUrl(binding, brokerOrigin, requestUrl)
+        }).end();
         return;
       }
       if (isBlockedPreviewPath(requestUrl.pathname)) {
@@ -173,6 +307,38 @@ export function createPreviewGatewayRequestHandler(
       if (isPrototypeNamespace(requestUrl.pathname)) {
         if (!prototypeOrigin || !isTrustedPrototypePath(requestUrl.pathname)) {
           response.writeHead(404).end('Prototype surface unavailable.');
+          return;
+        }
+        const requestedSurface = prototypeSurface(requestUrl.pathname);
+        const requestedChanges = requestUrl.searchParams.getAll('change');
+        const requestedChange = requestedChanges.length === 1
+          ? requestedChanges[0]
+          : undefined;
+        const validRequestedChange = Boolean(
+          requestedChange && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(requestedChange)
+        );
+        const invalidChangeScope =
+          requestedChanges.length > 1 ||
+          (requestedChanges.length === 1 && !validRequestedChange) ||
+          (Boolean(requestedSurface) &&
+            isPrototypeEntryPath(requestUrl.pathname) &&
+            !validRequestedChange);
+        const access = !invalidChangeScope && readPrototypeAccessCookie({
+          binding,
+          changeId: requestedSurface ? requestedChange : undefined,
+          request,
+          secret: prototypeAccessSecret,
+          surface: requestedSurface
+        });
+        if (!access) {
+          if (request.method === 'GET' || request.method === 'HEAD') {
+            response.writeHead(302, {
+              'Cache-Control': 'no-store',
+              Location: prototypeReviewUrl(binding, brokerOrigin, requestUrl)
+            }).end();
+            return;
+          }
+          response.writeHead(401).end('Login required.');
           return;
         }
         headers.delete('authorization');

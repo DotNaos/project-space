@@ -136,6 +136,7 @@ write_runtime_env() {
   prototype_image=$6
   postgres_password=$7
   gateway_secret=$8
+  prototype_access_secret=$9
   gateway_env_file=$(config_value PREVIEW_GATEWAY_ENV_FILE)
   validate_image "$gateway_image" gateway
   validate_image "$prototype_image" prototype
@@ -160,6 +161,7 @@ PREVIEW_HEAD_SHA=$sha
 PREVIEW_POSTGRES_PASSWORD=$postgres_password
 PREVIEW_PR_NUMBER=$pr
 PREVIEW_PROTOTYPE_IMAGE=$prototype_image
+PREVIEW_PROTOTYPE_ACCESS_SECRET=$prototype_access_secret
 PREVIEW_PROTOTYPE_UPSTREAM_ORIGIN=http://preview-prototype:8080
 PREVIEW_REPOSITORY=$repository
 PREVIEW_REPOSITORY_PATH=$repo_path
@@ -352,12 +354,15 @@ apply_preview() {
   prepare_repository "$head_sha"
   postgres_password=$(openssl rand -hex 32)
   gateway_secret=$(openssl rand -hex 32)
+  prototype_access_secret=$(openssl rand -hex 32)
   if [ -n "$previous_env" ]; then
     postgres_password=$(sed -n 's/^PREVIEW_POSTGRES_PASSWORD=//p' "$previous_env")
     gateway_secret=$(sed -n 's/^PREVIEW_GATEWAY_SECRET=//p' "$previous_env")
+    prototype_access_secret=$(sed -n 's/^PREVIEW_PROTOTYPE_ACCESS_SECRET=//p' "$previous_env")
+    [ -n "$prototype_access_secret" ] || prototype_access_secret=$(openssl rand -hex 32)
   fi
   write_runtime_env "$env_file" "$head_sha" "$web_image" "$docs_image" "$gateway_image" \
-    "$prototype_image" "$postgres_password" "$gateway_secret"
+    "$prototype_image" "$postgres_password" "$gateway_secret" "$prototype_access_secret"
   if compose pull --quiet >&2 && compose up -d --wait --wait-timeout 240 >&2 &&
     verify_runtime_with_retry "$head_sha"; then
     record=$(runtime_record ready "$head_sha" "$head_sha" "$web_image" "$docs_image" \

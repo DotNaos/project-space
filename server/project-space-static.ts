@@ -37,7 +37,14 @@ export function serveProjectSpaceStatic(
     return;
   }
 
+  const isHtml = extname(targetPath) === '.html';
   response.writeHead(200, {
+    ...(isHtml
+      ? {
+          'Content-Security-Policy': "frame-ancestors 'none'",
+          'X-Frame-Options': 'DENY'
+        }
+      : {}),
     'Content-Type': contentTypes[extname(targetPath)] ?? 'application/octet-stream'
   });
   createReadStream(targetPath).pipe(response);

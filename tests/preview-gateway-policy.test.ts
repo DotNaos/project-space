@@ -3,14 +3,17 @@ import { createHmac } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 
 import {
+  createPrototypeAccessCookie,
   createPreviewIdentityHeaders,
   derivePreviewOrigin,
   isGitHubApiPath,
   isBlockedPreviewPath,
   isTrustedGitHubBrokerRequest,
   parsePreviewGatewayBinding,
+  readPrototypeAccessCookie,
   previewIdentityHeader,
   previewSignatureHeader,
+  prototypeAccessCookieName,
   readPreviewIdentityAssertion
 } from '../server/preview-gateway-policy';
 import { readAuthSessionFromRequest } from '../server/local-auth-store';
@@ -119,6 +122,67 @@ describe('Preview gateway policy', () => {
     })).toBeNull();
   });
 
+  test('accepts only one current prototype cookie bound to the exact PR and head', () => {
+    const now = new Date('2026-07-22T10:00:00.000Z');
+    const setCookie = createPrototypeAccessCookie({
+      binding,
+      changeId: 'secure-live-context',
+      now,
+      secret,
+      session,
+      surface: 'desktop-prototype'
+    });
+    const cookie = setCookie.split(';')[0]!;
+    expect(cookie).toStartWith(`${prototypeAccessCookieName}=`);
+    expect(setCookie).toContain('HttpOnly');
+    expect(setCookie).toContain('Secure');
+    expect(setCookie).toContain('Max-Age=30');
+    expect(readPrototypeAccessCookie({
+      binding,
+      now: new Date('2026-07-22T10:00:20.000Z'),
+      request: requestWith({ cookie }),
+      secret
+    })).toEqual({
+      changeId: 'secure-live-context',
+      surface: 'desktop-prototype',
+      userId: session.userId
+    });
+    expect(readPrototypeAccessCookie({
+      binding: { ...binding, headSha: 'b'.repeat(40) },
+      now,
+      request: requestWith({ cookie }),
+      secret
+    })).toBeNull();
+    expect(readPrototypeAccessCookie({
+      binding,
+      now: new Date('2026-07-22T10:00:31.000Z'),
+      request: requestWith({ cookie }),
+      secret
+    })).toBeNull();
+    expect(readPrototypeAccessCookie({
+      binding,
+      changeId: 'other-change',
+      now,
+      request: requestWith({ cookie }),
+      secret,
+      surface: 'desktop-prototype'
+    })).toBeNull();
+    expect(readPrototypeAccessCookie({
+      binding,
+      changeId: 'secure-live-context',
+      now,
+      request: requestWith({ cookie }),
+      secret,
+      surface: 'mobile-prototype'
+    })).toBeNull();
+    expect(readPrototypeAccessCookie({
+      binding,
+      now,
+      request: requestWith({ cookie: `${cookie}; ${cookie}` }),
+      secret
+    })).toBeNull();
+  });
+
   test('keeps raw infrastructure and machine operations out of Preview', () => {
     expect(isBlockedPreviewPath('/api/platform/deploy-project')).toBe(true);
     expect(isBlockedPreviewPath('/api/connectors/credentials')).toBe(true);
@@ -126,6 +190,7 @@ describe('Preview gateway policy', () => {
     expect(isBlockedPreviewPath('/api/pull-request-previews/test-surfaces')).toBe(true);
     expect(isBlockedPreviewPath('/api/pull-request-previews/dev-server/heartbeat')).toBe(true);
     expect(isBlockedPreviewPath('/api/pull-request-previews/feedback')).toBe(true);
+    expect(isBlockedPreviewPath('/api/pull-request-previews/prototype-iteration')).toBe(true);
     expect(isBlockedPreviewPath('/api/github/catalog')).toBe(false);
     expect(isGitHubApiPath('/api/github/catalog')).toBe(true);
     expect(isTrustedGitHubBrokerRequest('GET', '/api/github/catalog')).toBe(true);

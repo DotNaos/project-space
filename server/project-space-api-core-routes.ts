@@ -71,6 +71,7 @@ import {
 } from './physical-machine-validation';
 import { createLocalPhysicalMachineStore } from './local-physical-machine-store';
 import { createPullRequestTestSurfacesTrustedRoute } from './pr-test-surfaces/trusted-http';
+import { createPullRequestPrototypeIterationRoute } from './pr-prototype-iteration-http';
 
 export function createProjectSpaceCoreApiRoutes(
   backend: ProjectSpaceBackend,
@@ -80,6 +81,7 @@ export function createProjectSpaceCoreApiRoutes(
 ) {
   const handleConnectorRuntime = createConnectorRuntimeHttpHandler(backend);
   const handlePullRequestTestSurfaces = createPullRequestTestSurfacesTrustedRoute(backend);
+  const handlePullRequestPrototypeIteration = createPullRequestPrototypeIterationRoute(backend);
   const localPhysicalMachines = createLocalPhysicalMachineStore();
   const canUseLocalPhysicalMachines = () => !isDatabaseConfigured() && !isProjectSpaceAuthRequired();
   const loadPhysicalMachines = (userId: string) => isDatabaseConfigured()
@@ -126,6 +128,7 @@ export function createProjectSpaceCoreApiRoutes(
   ) {
     if (await handleConnectorRuntime(request, response, url)) return true;
     if (await handlePullRequestTestSurfaces(request, response, url, userId)) return true;
+    if (await handlePullRequestPrototypeIteration(request, response, url, userId)) return true;
 
     if (request.method === 'GET' && url.pathname === '/api/deployed-environments/status') {
       const repositoryFullName = url.searchParams.get('repositoryFullName');

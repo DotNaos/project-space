@@ -191,6 +191,32 @@ class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements Project
     });
   }
 
+  getPullRequestPrototypeIteration(
+    request: import('@/shared/pr-prototype-iteration-api').PullRequestPrototypeIterationRequest,
+    signal?: AbortSignal
+  ) {
+    const query = new URLSearchParams({
+      headSha: request.headSha,
+      pullRequestNumber: String(request.pullRequestNumber),
+      repositoryFullName: request.repositoryFullName,
+      surface: request.surface
+    });
+    return this.request<
+      import('@/shared/pr-prototype-iteration-api').PullRequestPrototypeIterationResult
+    >(`/api/pull-request-previews/prototype-iteration?${query.toString()}`, { signal });
+  }
+
+  startPullRequestPrototypeIteration(
+    request: import('@/shared/pr-prototype-iteration-api').PullRequestPrototypeIterationRequest
+  ) {
+    return this.request<
+      import('@/shared/pr-prototype-iteration-api').PullRequestPrototypeIterationResult
+    >('/api/pull-request-previews/prototype-iteration', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
   sendPullRequestPrototypeFeedback(
     feedback: import('@/shared/pr-preview-test-surfaces-api').PullRequestPrototypeFeedbackRequest
   ) {
