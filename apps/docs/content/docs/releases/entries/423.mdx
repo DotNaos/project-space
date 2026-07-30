@@ -1,0 +1,47 @@
+---
+title: "Repair trusted release handoff"
+version: "0.4.48"
+bump: "patch"
+pullRequest: 423
+issues:
+  - 383
+areas:
+  - deploy
+  - security
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  Published releases now preserve their approved verification roots and
+  start exact production delivery without depending on a checked-out
+  repository.
+</ReleaseSummary>
+
+## Changes
+
+### Fixed
+
+- Protected tag-dispatch releases no longer replace pinned public verification roots with disposable validation keys
+- The post-release handoff now identifies the Project Space repository explicitly when starting production delivery
+
+### Security
+
+- Pinned verification-root hashes are enforced for both tag-push and protected workflow-dispatch releases
+- Focused workflow tests keep protected and disposable trust-root paths mutually exclusive
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Confirm the release gate accepts exactly this PR-owned v0.4.48 entry for PR 423
+- Confirm focused CI covers protected workflow-dispatch trust roots and a production dispatcher without a checkout
+- Confirm the published article omits this Preview-only test guidance after release
+
+</PreviewOnly>
