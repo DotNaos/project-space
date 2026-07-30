@@ -25,5 +25,6 @@ jobs:
           set -euo pipefail
           [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           gh workflow run deploy-production.yml \
+            --repo "$GITHUB_REPOSITORY" \
             --ref main \
             -f commit="$RELEASE_COMMIT"

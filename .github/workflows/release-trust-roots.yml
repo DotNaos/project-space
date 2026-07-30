@@ -92,7 +92,7 @@ jobs:
           /bin/chmod 0644 "$public_root"/*.pem
 
       - name: Create disposable validation roots
-        if: github.event_name != 'push' || github.ref_type != 'tag'
+        if: github.ref_type != 'tag' || (github.event_name != 'push' && github.event_name != 'workflow_dispatch')
         shell: /bin/bash --noprofile --norc -euo pipefail {0}
         env:
           BASH_ENV: /dev/null
@@ -127,7 +127,7 @@ jobs:
           /usr/bin/openssl pkey -pubin -in "$root/release-manifest-signing-public-key.pem" -noout
           command_digest=$(/usr/bin/sha256sum "$root/connector-command-signing-public-key.pem" | /usr/bin/cut -d ' ' -f 1)
           release_digest=$(/usr/bin/sha256sum "$root/release-manifest-signing-public-key.pem" | /usr/bin/cut -d ' ' -f 1)
-          if [[ $GITHUB_EVENT_NAME == push && $GITHUB_REF_TYPE == tag ]]; then
+          if [[ $GITHUB_REF_TYPE == tag && ($GITHUB_EVENT_NAME == push || $GITHUB_EVENT_NAME == workflow_dispatch) ]]; then
             [[ $command_digest == 502f8b9dbbabec58aa8d2c794c7c052d5974215e2180f9e47ed4d7cff4ee45c1 ]]
             [[ $release_digest == aff71d44e194f87e7e958296306059d3d5b55d7c369963b61d57627e03f4a451 ]]
           fi

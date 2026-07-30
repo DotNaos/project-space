@@ -51,8 +51,12 @@ test('publishes a merged release only through the validated exact tag', () => {
     'gh workflow run deploy-production.yml',
   );
   expect(releaseDeployWorkflow).toContain(
+    '--repo "$GITHUB_REPOSITORY"',
+  );
+  expect(releaseDeployWorkflow).toContain(
     '-f commit="$RELEASE_COMMIT"',
   );
+  expect(releaseDeployWorkflow).not.toContain('actions/checkout@');
   for (const source of releaseWorkflowFiles) {
     expect(source).not.toContain(
       "github.event_name == 'push' && github.ref_type == 'tag'",
