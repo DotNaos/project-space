@@ -103,6 +103,15 @@ describe('release trust roots', () => {
     );
     expect(releaseWorkflow).toContain('--now "$verification_now"');
     expect(releaseWorkflow).not.toContain('date -u -r');
+    expect(trustWorkflow.match(
+      /github\.ref_type == 'tag' && \(github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch'\)/g
+    )).toHaveLength(2);
+    expect(trustWorkflow).toContain(
+      "github.ref_type != 'tag' || (github.event_name != 'push' && github.event_name != 'workflow_dispatch')"
+    );
+    expect(trustWorkflow).toContain(
+      '[[ $GITHUB_REF_TYPE == tag && ($GITHUB_EVENT_NAME == push || $GITHUB_EVENT_NAME == workflow_dispatch) ]]'
+    );
 
     for (const [fileName, expectedDigest] of pinnedRoots) {
       const bytes = await readFile(join(import.meta.dir, 'trust-roots', fileName));
