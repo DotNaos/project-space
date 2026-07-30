@@ -323,6 +323,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           onOpenMachines={desktop.openMachines}
           onOpenProjects={desktop.openProjects}
           onOpenProjectChat={desktop.openProjectChat}
+          onOpenProjectIssueCreation={desktop.openProjectIssueCreation}
           onOpenRoot={desktop.openRoot}
           onOpenSelectedTarget={desktop.openSelectedTargetInApp}
           onRefreshProjectDiscovery={desktop.refreshProjectDiscovery}

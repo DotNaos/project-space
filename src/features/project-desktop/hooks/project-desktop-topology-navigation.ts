@@ -67,6 +67,16 @@ export function createProjectDesktopTopologyNavigation({
       setMainView('chat');
       writeRoute('chat', projectId);
     },
+    openProjectIssueCreation() {
+      if (!selectedProjectId || !projectsById[selectedProjectId]) {
+        return;
+      }
+
+      setProjectTab('issues');
+      setSelectedIssueNumber(undefined);
+      setMainView('project');
+      writeRoute('project', selectedProjectId, false, 'issues', 'new');
+    },
     openProjectIssue(issueNumber: number, projectIdOverride?: string) {
       const targetProjectId = projectIdOverride ?? selectedProjectId;
       if (!targetProjectId || !Number.isSafeInteger(issueNumber) || issueNumber <= 0) {

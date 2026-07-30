@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, ExternalLink, Inbox } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Inbox, Plus } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { Button, Surface, Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
@@ -80,6 +80,7 @@ export function ProjectIssueDetailPanel({
   connectorOverview,
   issueNumber,
   onBack,
+  onCreateIssue,
   onOpenIssue,
   project,
   projects,
@@ -89,6 +90,7 @@ export function ProjectIssueDetailPanel({
   connectorOverview: ConnectorOverviewResult;
   issueNumber?: number;
   onBack(): void;
+  onCreateIssue(): void;
   onOpenIssue(issueNumber: number): void;
   project: ProjectSpaceRecord;
   projects: ProjectSpaceRecord[];
@@ -144,15 +146,28 @@ export function ProjectIssueDetailPanel({
   return (
     <Surface variant="transparent" className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       {issueNumber ? (
-        <div className="mb-4 flex min-w-0 shrink-0 items-center justify-between gap-3">
+        <div className="mb-4 flex min-w-0 shrink-0 items-center gap-3">
           <Button size="sm" variant="ghost" onPress={onBack}>
             <ArrowLeft className="size-4" /> Issues
           </Button>
-          {issue?.url ? (
-            <a href={issue.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-neutral-500 transition hover:bg-neutral-900 hover:text-neutral-200">
-              <GitHubMark className="size-3.5" /> Open on GitHub <ExternalLink className="size-3" />
-            </a>
-          ) : null}
+          <div className="flex shrink-0 items-center gap-1 sm:ml-auto sm:gap-2">
+            <Button size="sm" variant="secondary" onPress={onCreateIssue}>
+              <Plus className="size-4" /> Create issue
+            </Button>
+            {issue?.url ? (
+              <a
+                aria-label="Open on GitHub"
+                href={issue.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-neutral-500 transition hover:bg-neutral-900 hover:text-neutral-200"
+              >
+                <GitHubMark className="size-3.5" />
+                <span className="hidden sm:inline">Open on GitHub</span>
+                <ExternalLink className="size-3" />
+              </a>
+            ) : null}
+          </div>
         </div>
       ) : null}
 

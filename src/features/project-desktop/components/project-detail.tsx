@@ -260,6 +260,7 @@ export interface ProjectDetailProps {
   codex: React.ReactNode;
   connectorOverview: ConnectorOverviewResult;
   launcherError: string;
+  onCreateIssue(): void;
   onOpenMachine(machineId: string, tab?: MachineDetailTab): void;
   onOpenWorktreeBranch(machineId: string, branchName: string, path?: string): void;
   onOpenIssue(issueNumber: number): void;
@@ -287,6 +288,7 @@ export function ProjectDetail({
   codex,
   connectorOverview,
   launcherError,
+  onCreateIssue,
   onOpenMachine,
   onOpenWorktreeBranch,
   onOpenIssue,
@@ -425,6 +427,7 @@ export function ProjectDetail({
             connectorOverview={connectorOverview}
             issueNumber={selectedIssueNumber}
             onBack={() => onSelectTab('issues')}
+            onCreateIssue={onCreateIssue}
             onOpenIssue={onOpenIssue}
             project={project}
             projects={projects}
