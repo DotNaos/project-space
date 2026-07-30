@@ -138,6 +138,25 @@ describe('issue development head resolution', () => {
     });
   });
 
+  test('keeps an explicit follow-up branch when historical PRs use another branch', () => {
+    const result = resolveIssueDevelopmentHead({
+      branches: [branch('issue-408-follow-up')],
+      issue,
+      pullRequests: [pullRequest(499, {
+        headBranch: 'issue-408-original',
+        state: 'merged'
+      })],
+      repositoryFullName
+    });
+
+    expect(result).toMatchObject({
+      branch: { name: 'issue-408-follow-up' },
+      source: 'linked-branch',
+      state: 'verified'
+    });
+    expect(result).not.toHaveProperty('pullRequest');
+  });
+
   test('blocks ambiguous branch and pull request linkage', () => {
     expect(resolveIssueDevelopmentHead({
       branches: [],

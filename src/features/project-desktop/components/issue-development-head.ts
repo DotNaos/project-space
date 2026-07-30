@@ -33,14 +33,16 @@ function selectHistoricalPullRequest(
   linkedBranches: GitHubBranchRecord[]
 ) {
   const explicitBranch = linkedBranches.length === 1 ? linkedBranches[0] : undefined;
-  const branchMatch = explicitBranch
-    ? pullRequests.find((pullRequest) => sameBranch(
+  if (explicitBranch) {
+    return pullRequests.find((pullRequest) =>
+      sameBranch(
         pullRequest.headBranch,
         explicitBranch.name
-      ))
-    : undefined;
+      )
+    );
+  }
 
-  return branchMatch ?? pullRequests
+  return pullRequests
     .slice()
     .sort((left, right) => {
       const stateOrder = { merged: 0, closed: 1, open: 2 } as const;
