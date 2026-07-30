@@ -12,6 +12,7 @@ import {
   type PrototypeTheme,
   type PrototypeViewportKind
 } from '../../shared/prototype-canvas';
+import type { PrototypeLaunchRouteIdentity } from '../../shared/prototype-launch';
 import type { PrototypeReviewLocalContext } from '../../shared/prototype-review-local-api';
 import {
   samePullRequestChangelogIdentity,
@@ -43,13 +44,16 @@ export interface PrototypeReviewTarget {
 }
 
 export interface PrototypeReviewDevelopmentContext {
+  branchName?: string;
   connectionKind: 'local' | 'private' | 'tailscale';
   connectorId?: string;
   heartbeatAt?: string;
   leaseExpiresAt?: string;
   machineId: string;
+  projectId?: string;
   source: 'local-runtime' | 'verified-live';
   threadId: string;
+  worktreeId?: string;
 }
 
 function cleanRepositoryFullName(value: string | null) {
@@ -218,7 +222,8 @@ export function embeddedPrototypeUrl(
   scenario: string,
   viewport: PrototypeViewportKind,
   orientation: PrototypeOrientation,
-  theme: PrototypeTheme
+  theme: PrototypeTheme,
+  identity?: PrototypeLaunchRouteIdentity
 ) {
   const url = new URL(target.url);
   url.searchParams.set('embedded', '1');
@@ -232,7 +237,44 @@ export function embeddedPrototypeUrl(
   url.searchParams.set('theme', theme);
   url.searchParams.delete('frame');
   url.searchParams.delete('fullscreen');
+  appendPublicPrototypeIdentity(url.searchParams, identity, target.surfaceKind);
   return url.toString();
+}
+
+function appendPublicPrototypeIdentity(
+  params: URLSearchParams,
+  identity: PrototypeLaunchRouteIdentity | undefined,
+  surface: PullRequestPrototypeSurfaceKind
+) {
+  for (const key of [
+    'repository',
+    'repositoryFullName',
+    'pr',
+    'pullRequestNumber',
+    'issue',
+    'project',
+    'head',
+    'surface',
+    'branch',
+    'connector',
+    'machine',
+    'thread',
+    'worktree'
+  ]) {
+    params.delete(key);
+  }
+  if (!identity) return;
+  if (identity.repositoryFullName) {
+    params.set('repository', identity.repositoryFullName);
+  }
+  if (identity.pullRequestNumber) {
+    params.set('pr', String(identity.pullRequestNumber));
+  }
+  if (identity.issueNumber) params.set('issue', String(identity.issueNumber));
+  if (identity.projectId) params.set('project', identity.projectId);
+  if (identity.headSha) params.set('head', identity.headSha);
+  params.set('surface', surface === 'mobile-prototype' ? 'native' : 'web');
+  if (identity.branchName) params.set('branch', identity.branchName);
 }
 
 export function isIsolatedPrototypeTarget(
@@ -336,13 +378,16 @@ export function prototypeReviewDevelopmentContext(
   );
   if (!surface) return undefined;
   return {
+    branchName: result.liveContext.branchName,
     connectionKind: prototypeConnectionKind(surface.url),
     connectorId: result.liveContext.connectorId,
     heartbeatAt: result.liveContext.heartbeatAt,
     leaseExpiresAt: result.liveContext.leaseExpiresAt,
     machineId: result.liveContext.machineId,
+    projectId: result.liveContext.projectId,
     source: 'verified-live',
-    threadId: result.feedback.threadId
+    threadId: result.feedback.threadId,
+    worktreeId: result.liveContext.worktreeId
   };
 }
 

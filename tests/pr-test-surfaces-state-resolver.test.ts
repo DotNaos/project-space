@@ -206,6 +206,18 @@ describe('PR test-surface state resolver', () => {
       threadId,
       verifiedAt: checkedAt
     });
+    expect(healthy.liveContext).toEqual({
+      branchName: 'issue-356-prototypes',
+      connectorId: 'connector-a',
+      heartbeatAt: '2026-07-27T11:59:30.000Z',
+      leaseExpiresAt: '2026-07-27T12:00:15.000Z',
+      machineId: 'machine-a',
+      projectId: 'connector-a:project-space',
+      servedSurface: 'mobile-prototype',
+      state: 'available',
+      verifiedAt: '2026-07-27T11:59:30.000Z',
+      worktreeId: 'wt-356'
+    });
 
     const unavailableTask = resolvePullRequestTestSurfaces(input({
       taskEvidence: { reason: 'unavailable', state: 'unavailable' }

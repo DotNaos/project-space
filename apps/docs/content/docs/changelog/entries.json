@@ -2,6 +2,23 @@
   "schema": "project-space.changelog/v1",
   "entries": [
     {
+      "id": "pr-382-issue-pr-prototype-launch",
+      "category": "added",
+      "summary": "Start and reopen exact issue and pull request prototypes.",
+      "body": "Issue and pull request views now preserve the exact repository, revision, project, machine, task, worktree, and surface while starting, reopening, and returning from a prototype.",
+      "issueNumber": 381,
+      "pullRequestNumber": 382,
+      "prototype": {
+        "scenarioId": "dark-theme",
+        "surface": "mobile-prototype",
+        "viewport": "phone"
+      },
+      "testing": [
+        "Open this Change and confirm the native launch view shows the exact issue, pull request, full head revision, project, machine, task, worktree, and surface identity.",
+        "Exercise ready, stale, unavailable, stopped, start, retry, open, and return actions, then confirm deployed mode remains read-only without machine, task, or worktree access."
+      ]
+    },
+    {
       "id": "pr-408-branch-head-graph-preview",
       "category": "added",
       "summary": "Preview the verified branch head against the default branch.",

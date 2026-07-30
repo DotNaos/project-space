@@ -105,6 +105,15 @@ export function readPrototypePresentation(
   };
 }
 
+export function prototypeSearchFromUrl(value: string | null | undefined) {
+  if (!value) return '';
+  try {
+    return new URL(value).search;
+  } catch {
+    return '';
+  }
+}
+
 export function prototypePresentationSearch(
   currentSearch: string,
   presentation: PrototypePresentation

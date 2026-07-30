@@ -65,6 +65,12 @@ export function createCodexMachineTasksHttpApi(
         writeJson(response, 200, await service.start(actor, {
           connectorId: optionalSelector(body.connectorId),
           dryRun: body.dryRun === true,
+          expectedBranch: optionalSelector(body.expectedBranch),
+          expectedCommit: optionalCommit(body.expectedCommit),
+          expectedPullRequestNumber: optionalPositiveInteger(
+            body.expectedPullRequestNumber,
+            'Pull request must be positive.'
+          ),
           issue,
           operationId,
           physicalMachineId: optionalSelector(body.physicalMachineId),
@@ -248,6 +254,21 @@ function optionalPhysicalMachineName(value: unknown) {
   const name = value.trim();
   if (!name || name.length > 80) throw invalid('Physical machine name is invalid.');
   return name;
+}
+
+function optionalCommit(value: unknown) {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string' || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(value)) {
+    throw invalid('Expected commit is invalid.');
+  }
+  return value.toLowerCase();
+}
+
+function optionalPositiveInteger(value: unknown, message: string) {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) throw invalid(message);
+  return parsed;
 }
 
 function operation(value: unknown) {

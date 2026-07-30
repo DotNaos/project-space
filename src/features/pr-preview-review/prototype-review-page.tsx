@@ -37,6 +37,9 @@ import {
 } from '@/shared/pr-preview-changelog-prototypes';
 import type { PullRequestTestSurfacesResult } from '@/shared/pr-preview-test-surfaces-api';
 import {
+  parsePrototypeLaunchRouteIdentity
+} from '@/shared/prototype-launch';
+import {
   prototypeViewportKinds,
   prototypeViewportPresets,
   type PrototypeTheme,
@@ -46,6 +49,7 @@ import { PrototypeReviewChangelogModal } from './prototype-review-changelog-moda
 import { PrototypeReviewCodexDock } from './prototype-review-codex-dock';
 import { PrototypeReviewCodexStatus } from './prototype-review-codex-status';
 import { PrototypeReviewDevice } from './prototype-review-device';
+import { PrototypeReviewIdentityNav } from './prototype-review-identity-nav';
 import { usePrototypeReviewAnnotations } from './prototype-review-annotations';
 import {
   usePrototypeReviewLocalContext,
@@ -184,6 +188,10 @@ function ViewportTabs({
 export function PrototypeReviewPage() {
   const initial = useMemo(
     () => parsePrototypeReviewRoute(window.location.pathname, window.location.search),
+    []
+  );
+  const launchIdentity = useMemo(
+    () => parsePrototypeLaunchRouteIdentity(window.location.search),
     []
   );
   const requestedIdentity = useMemo(
@@ -343,7 +351,8 @@ export function PrototypeReviewPage() {
           : '',
         viewport,
         orientation,
-        theme
+        theme,
+        launchIdentity
       )
     : undefined;
   const rendersVerifiedBuildInline = rendersPreviewBuildInline(
@@ -505,6 +514,14 @@ export function PrototypeReviewPage() {
           </Button>
         </div>
       </div>
+
+      {!fullscreen ? (
+        <PrototypeReviewIdentityNav
+          result={result}
+          search={window.location.search}
+          theme={theme}
+        />
+      ) : null}
 
       <div className="relative flex min-h-0 min-w-0 flex-1">
         <PrototypeReviewDevice

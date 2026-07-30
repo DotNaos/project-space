@@ -152,6 +152,9 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       } else {
         try {
           issue = await options.issue({
+            expectedBranch: request.expectedBranch,
+            expectedCommit: request.expectedCommit,
+            expectedPullRequestNumber: request.expectedPullRequestNumber,
             issue: request.issue,
             repositoryId: request.repositoryId,
             userId: actor.userId

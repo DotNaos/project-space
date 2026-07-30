@@ -1138,6 +1138,7 @@ export interface PullRequestPreviewStatus {
   headBranch?: string;
   liveUrl?: string;
   liveUrlState: 'available' | 'not-configured' | 'withheld';
+  linkedIssueNumbers?: number[];
   pullRequestNumber: number;
   pullRequestState?: GitHubPullRequestRecord['state'];
   pullRequestTitle?: string;

@@ -111,6 +111,9 @@ export interface CodexMachineTasksServiceOptions {
     runtimeStatuses?: ReadonlyMap<string, MachineRuntimeStatusResult>;
   }>;
   issue(input: {
+    expectedBranch?: string;
+    expectedCommit?: string;
+    expectedPullRequestNumber?: number;
     issue: number;
     repositoryId?: string;
     userId: string;

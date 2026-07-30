@@ -471,6 +471,7 @@ export function ProjectDetail({
           <ProjectDeploymentsPanel
             onCloseWorkflowRun={onCloseWorkflowRun}
             onOpenWorkflowRun={onOpenWorkflowRun}
+            projectId={project.id}
             projectName={project.name}
             repository={selectedRepository ?? project.github}
             selectedWorkflowRunId={selectedWorkflowRunId}

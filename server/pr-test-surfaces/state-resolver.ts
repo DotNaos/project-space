@@ -334,13 +334,16 @@ function liveContextFrom(
 ): PullRequestLiveDevelopmentContext {
   if (live.kind === 'dev-server' && live.state === 'available' && lease) {
     return {
+      branchName: lease.branchName,
       connectorId: lease.connectorId,
       heartbeatAt: lease.heartbeatAt,
       leaseExpiresAt: lease.expiresAt,
       machineId: lease.machineId,
+      projectId: lease.projectId,
       servedSurface: lease.servedSurface,
       state: 'available',
-      verifiedAt: live.verifiedAt
+      verifiedAt: live.verifiedAt,
+      worktreeId: lease.worktreeId
     };
   }
   return {

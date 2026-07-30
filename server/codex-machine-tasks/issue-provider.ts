@@ -19,6 +19,9 @@ export function createCodexMachineTaskIssueProvider(
   >
 ) {
   return async function prepare(input: {
+    expectedBranch?: string;
+    expectedCommit?: string;
+    expectedPullRequestNumber?: number;
     issue: number;
     repositoryId?: string;
     userId: string;
@@ -44,9 +47,38 @@ export function createCodexMachineTaskIssueProvider(
       if (!issue || issue.state !== 'open') {
         throw new CodexMachineTaskIssueError('unauthorized', 'The GitHub issue is not available and open.');
       }
-      const branchName = `issue-${issue.number}-${slug(issue.title)}`;
+      const expectedPullRequest = input.expectedPullRequestNumber
+        ? details.pullRequests.find(
+            (candidate) => candidate.number === input.expectedPullRequestNumber
+          )
+        : undefined;
+      if (
+        input.expectedPullRequestNumber &&
+        (
+          !input.expectedBranch ||
+          !input.expectedCommit ||
+          !expectedPullRequest ||
+          expectedPullRequest.state !== 'open' ||
+          !expectedPullRequest.linkedIssueNumbers?.includes(issue.number) ||
+          expectedPullRequest.headBranch !== input.expectedBranch ||
+          expectedPullRequest.headSha?.toLowerCase() !== input.expectedCommit.toLowerCase()
+        )
+      ) {
+        throw new CodexMachineTaskIssueError(
+          'worktree_failure',
+          'The requested pull request no longer matches the issue branch and exact head.'
+        );
+      }
+      const branchName = expectedPullRequest?.headBranch ??
+        `issue-${issue.number}-${slug(issue.title)}`;
       let branch = details.branches.find((candidate) => candidate.name === branchName);
       if (!branch) {
+        if (expectedPullRequest) {
+          throw new CodexMachineTaskIssueError(
+            'worktree_failure',
+            'The requested pull request branch is unavailable.'
+          );
+        }
         const created = await backend.createGitHubBranch({
           fullName: repository.fullName,
           issueNumber: issue.number,
@@ -71,6 +103,16 @@ export function createCodexMachineTaskIssueProvider(
         throw new CodexMachineTaskIssueError(
           'worktree_failure',
           'The issue branch does not have an exact commit.'
+        );
+      }
+      if (
+        (input.expectedBranch && branch.name !== input.expectedBranch) ||
+        (input.expectedCommit &&
+          branch.commitSha.toLowerCase() !== input.expectedCommit.toLowerCase())
+      ) {
+        throw new CodexMachineTaskIssueError(
+          'worktree_failure',
+          'The issue branch no longer matches the requested pull request head.'
         );
       }
       return {

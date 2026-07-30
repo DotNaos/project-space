@@ -27,13 +27,16 @@ const result: PullRequestTestSurfacesResult = {
   },
   headSha: 'a'.repeat(40),
   liveContext: {
+    branchName: 'issue-356-prototypes',
     connectorId: 'connector-os-mac',
     heartbeatAt: '2026-07-28T10:00:00.000Z',
     leaseExpiresAt: '2026-07-28T10:01:00.000Z',
     machineId: 'os-mac',
+    projectId: 'project-space',
     servedSurface: 'desktop-prototype',
     state: 'available',
-    verifiedAt: '2026-07-28T10:00:00.000Z'
+    verifiedAt: '2026-07-28T10:00:00.000Z',
+    worktreeId: 'wt-356'
   },
   pullRequestNumber: 356,
   repositoryFullName: 'DotNaos/project-space',
@@ -124,11 +127,14 @@ describe('prototype review model', () => {
     });
     expect(feedbackMatchesTarget(result, target)).toBe(true);
     expect(prototypeReviewDevelopmentContext(result, target)).toMatchObject({
+      branchName: 'issue-356-prototypes',
       connectionKind: 'tailscale',
       connectorId: 'connector-os-mac',
       machineId: 'os-mac',
+      projectId: 'project-space',
       source: 'verified-live',
-      threadId: '019fa483-564c-7b01-9d89-5f8ef37af7d0'
+      threadId: '019fa483-564c-7b01-9d89-5f8ef37af7d0',
+      worktreeId: 'wt-356'
     });
   });
 
@@ -207,16 +213,31 @@ describe('prototype review model', () => {
     )?.url).toBe('https://os-mac.example.ts.net/prototype/desktop/');
   });
 
-  test('adds only presentation context to the verified target URL', () => {
+  test('adds presentation and public identity context to the verified target URL', () => {
     const target = verifiedPrototypeTarget(result, 'web');
     expect(target).toBeDefined();
+    target!.url +=
+      '?connector=old-connector&machine=old-machine&thread=old-thread&worktree=old-worktree';
     const url = new URL(
       embeddedPrototypeUrl(
         target!,
         'long-content',
         'desktop',
         'landscape',
-        'light'
+        'light',
+        {
+          branchName: 'issue-381-prototype-launch',
+          connectorId: 'private-connector',
+          headSha: 'ee6d16eff074313441ec50825aa6619b36db5c8e',
+          issueNumber: 381,
+          machineId: 'private-machine',
+          projectId: 'project-space',
+          pullRequestNumber: 382,
+          repositoryFullName: 'DotNaos/project-space',
+          surface: 'mobile-prototype',
+          threadId: 'private-task',
+          worktreeId: 'private-worktree'
+        }
       )
     );
     expect(url.searchParams.get('embedded')).toBe('1');
@@ -224,6 +245,19 @@ describe('prototype review model', () => {
     expect(url.searchParams.get('viewport')).toBe('desktop');
     expect(url.searchParams.get('orientation')).toBe('landscape');
     expect(url.searchParams.get('theme')).toBe('light');
+    expect(url.searchParams.get('repository')).toBe('DotNaos/project-space');
+    expect(url.searchParams.get('pr')).toBe('382');
+    expect(url.searchParams.get('issue')).toBe('381');
+    expect(url.searchParams.get('project')).toBe('project-space');
+    expect(url.searchParams.get('head')).toBe(
+      'ee6d16eff074313441ec50825aa6619b36db5c8e'
+    );
+    expect(url.searchParams.get('surface')).toBe('web');
+    expect(url.searchParams.get('branch')).toBe('issue-381-prototype-launch');
+    expect(url.searchParams.has('connector')).toBe(false);
+    expect(url.searchParams.has('machine')).toBe(false);
+    expect(url.searchParams.has('thread')).toBe(false);
+    expect(url.searchParams.has('worktree')).toBe(false);
     expect(url.searchParams.has('fullscreen')).toBe(false);
     expect(url.searchParams.has('frame')).toBe(false);
   });
