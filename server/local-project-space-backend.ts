@@ -56,6 +56,7 @@ import { isWebHubMachine, loadMergedConnectorOverview } from './local-project-ma
 import { createLocalProjectMachineBackend } from './local-project-machine-backend';
 import { runProjectCliCommand } from './local-project-cli-client';
 import { getDeployedEnvironmentStatus } from './deployed-environment-status';
+import { getGitHubBranchComparison } from './github-branch-comparison';
 import { getTemplateAdherence } from './local-template-adherence';
 import {
   addRoadmapDependency,
@@ -343,6 +344,9 @@ export function createLocalProjectSpaceBackend(
     },
     async getGitHubHistory(request) {
       return getGitHubHistory(request);
+    },
+    async getGitHubBranchComparison(request) {
+      return getGitHubBranchComparison(request);
     },
     async updateGitHubIssue(request) {
       return updateGitHubIssue(request);

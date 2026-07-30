@@ -62,7 +62,11 @@ These changes are external to application implementation and need their own oper
 3. Create a protected GitHub Actions environment named `Preview`, separate from `Production`.
 4. Give that environment only the Preview 1Password service account, forced-command SSH identity, and required Tailscale identity. Both authorized-key entries must use OpenSSH `restrict` together with their `command=...` binding, which disables port, agent, and X11 forwarding plus PTY allocation.
 5. Bind the mutating key with `restrict,command="/opt/platform/share/project-space-preview/preview-ssh-entrypoint.sh"`. Configure the local SSH alias `project-space-preview-status` from `deploy/deploy.yaml` with a separate key bound by `restrict,command="/opt/platform/share/project-space-preview/preview-status-entrypoint.sh"`. The two keys must not be interchangeable.
-6. Install the trusted runner assets under `/opt/platform/share/project-space-preview` and its configuration under `/opt/platform/config/project-space-preview.env`.
+6. Let the normal Production workflow install each exact-main trusted runner and Compose
+   release under `/opt/platform/share/project-space-preview-releases`, atomically activate
+   `/opt/platform/share/project-space-preview-current`, and refresh only the two fixed
+   forced-command entrypoints under `/opt/platform/share/project-space-preview`. Keep its
+   configuration under `/opt/platform/config/project-space-preview.env`.
 
 The runner configuration contains limits, not application secrets:
 

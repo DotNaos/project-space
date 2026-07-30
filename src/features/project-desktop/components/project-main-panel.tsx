@@ -41,6 +41,7 @@ import { SettingsView } from './settings-view';
 import { projectRecordsForCodex, resolveProjectRepository } from './project-main-model';
 import { cn } from '@/lib/utils';
 import { connectorLocationPresentation } from './machine-connector-topology-model';
+import type { GitHistoryFocus } from './git-focused-history';
 
 const projectChatClient = createProjectChatClient({
   baseUrl: typeof window === 'undefined'
@@ -186,6 +187,7 @@ export interface ProjectMainPanelProps {
   codexMachineIds: string[];
   githubCatalog: GitHubCatalogResult;
   hasBottomTabBar?: boolean;
+  historyFocus?: GitHistoryFocus;
   isConnectorRefreshing: boolean;
   isGitHubRefreshing: boolean;
   launcherApps: LauncherAppRecord[];
@@ -200,6 +202,7 @@ export interface ProjectMainPanelProps {
   onOpenProjects(): void;
   onOpenProjectChat(projectId: string): void;
   onOpenProjectIssue(issueNumber: number, projectIdOverride?: string): void;
+  onOpenProjectHistory(focus: Omit<GitHistoryFocus, 'requestId'>): void;
   onOpenProjectWorkflowRun(runId: number): void;
   onCloseProjectWorkflowRun(): void;
   onOpenRoot(): void;
@@ -241,6 +244,7 @@ export function ProjectMainPanel({
   codexMachineIds,
   githubCatalog,
   hasBottomTabBar = false,
+  historyFocus,
   isConnectorRefreshing,
   isGitHubRefreshing,
   launcherApps,
@@ -254,6 +258,7 @@ export function ProjectMainPanel({
   onOpenMachines,
   onOpenProjects,
   onOpenProjectChat,
+  onOpenProjectHistory,
   onOpenProjectIssue,
   onOpenProjectWorkflowRun,
   onCloseProjectWorkflowRun,
@@ -631,10 +636,12 @@ export function ProjectMainPanel({
               />
             )}
             connectorOverview={connectorOverview}
+            historyFocus={historyFocus}
             launcherError={launcherError}
             onOpenMachine={onOpenMachine}
             onOpenWorktreeBranch={openProjectWorktreeBranch}
             onOpenIssue={onOpenProjectIssue}
+            onOpenHistory={onOpenProjectHistory}
             onOpenWorkflowRun={onOpenProjectWorkflowRun}
             onCloseWorkflowRun={onCloseProjectWorkflowRun}
             onRefreshWorktrees={onRefreshProjectWorktrees}

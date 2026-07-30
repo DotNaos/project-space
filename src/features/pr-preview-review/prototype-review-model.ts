@@ -14,6 +14,10 @@ import {
 } from '../../shared/prototype-canvas';
 import type { PrototypeLaunchRouteIdentity } from '../../shared/prototype-launch';
 import type { PrototypeReviewLocalContext } from '../../shared/prototype-review-local-api';
+import {
+  samePullRequestChangelogIdentity,
+  type PullRequestChangelogIdentity
+} from '../../shared/pr-preview-changelog-api';
 
 export const prototypeReviewPath = '/prototype-review';
 
@@ -34,7 +38,7 @@ export interface PrototypeReviewRoute {
 }
 
 export interface PrototypeReviewTarget {
-  source: 'deployed' | 'development-override' | 'live';
+  source: 'deployed' | 'development-override' | 'live' | 'preview-build';
   surfaceKind: PullRequestPrototypeSurfaceKind;
   url: string;
 }
@@ -134,6 +138,48 @@ export function verifiedPrototypeTarget(
   return availableSurface(deployed)
     ? { source: 'deployed', surfaceKind, url: deployed.url }
     : undefined;
+}
+
+export function verifiedPreviewBuildPrototypeTarget(input: {
+  currentHref: string;
+  expectedIdentity?: PullRequestChangelogIdentity;
+  previewBuildIdentity?: PullRequestChangelogIdentity;
+  surface: PrototypeReviewSurface;
+}): PrototypeReviewTarget | undefined {
+  const {
+    currentHref,
+    expectedIdentity,
+    previewBuildIdentity,
+    surface
+  } = input;
+  if (
+    !expectedIdentity ||
+    !previewBuildIdentity ||
+    surface !== 'web' ||
+    !samePullRequestChangelogIdentity(expectedIdentity, previewBuildIdentity)
+  ) {
+    return undefined;
+  }
+  try {
+    const current = new URL(currentHref);
+    if (
+      current.protocol !== 'https:' ||
+      current.username ||
+      current.password ||
+      current.port ||
+      current.hostname !==
+        `pr-${expectedIdentity.pullRequestNumber}.projects.os-home.net`
+    ) {
+      return undefined;
+    }
+    return {
+      source: 'preview-build',
+      surfaceKind: 'desktop-prototype',
+      url: new URL('/prototype/desktop/', current.origin).toString()
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 export function isSafeDevelopmentTarget(value: string, currentHref: string) {
@@ -241,6 +287,44 @@ export function isIsolatedPrototypeTarget(
   } catch {
     return false;
   }
+}
+
+export function isSafePrototypeTarget(
+  target: PrototypeReviewTarget | undefined,
+  currentHref: string
+) {
+  if (!target) return false;
+  if (isIsolatedPrototypeTarget(target, currentHref)) return true;
+  if (target.source !== 'preview-build') return false;
+  try {
+    const current = new URL(currentHref);
+    const candidate = new URL(target.url);
+    return (
+      candidate.origin === current.origin &&
+      candidate.pathname === '/prototype/desktop/' &&
+      !candidate.username &&
+      !candidate.password
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function prototypeFrameSandbox(
+  target: PrototypeReviewTarget,
+  currentHref: string
+) {
+  return isIsolatedPrototypeTarget(target, currentHref)
+    ? 'allow-same-origin allow-scripts'
+    : 'allow-scripts';
+}
+
+export function rendersPreviewBuildInline(
+  target: PrototypeReviewTarget | undefined,
+  scenarioId: string | undefined
+) {
+  return target?.source === 'preview-build' &&
+    scenarioId === 'branch-head-preview';
 }
 
 export function feedbackMatchesTarget(

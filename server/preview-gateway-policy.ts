@@ -121,9 +121,12 @@ export function isTrustedGitHubBrokerRequest(method: string | undefined, pathnam
   if (method === 'GET' && /^\/api\/github\/workflow-runs\/[1-9][0-9]*$/.test(pathname)) {
     return true;
   }
-  // GitHub history is a bounded read operation whose existing API uses POST
-  // only because it accepts a structured revision request body.
-  return method === 'POST' && pathname === '/api/github/history';
+  // These GitHub history reads are bounded operations whose APIs use POST only
+  // because they accept structured revision request bodies.
+  return method === 'POST' && (
+    pathname === '/api/github/history' ||
+    pathname === '/api/github/branch-comparison'
+  );
 }
 
 function signatureFor(encodedAssertion: string, secret: string) {

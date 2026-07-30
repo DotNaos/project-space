@@ -37,6 +37,14 @@ describe('standalone prototype canvas', () => {
         scenarioState: 'ready',
         viewport: 'phone'
       });
+    expect(prototypeSelectionFromSearch(
+      '?scenario=branch-head-preview&viewport=desktop',
+      'phone'
+    )).toEqual({
+      scenario: 'branch-head-preview',
+      scenarioState: 'ready',
+      viewport: 'desktop'
+    });
     expect(prototypeSelectionFromSearch('?viewport=phone', 'desktop'))
       .toEqual({
         scenario: undefined,

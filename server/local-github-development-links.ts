@@ -1,4 +1,7 @@
-import type { GitHubPullRequestRecord } from '../src/shared/project-space-api';
+import type {
+  GitHubBranchRecord,
+  GitHubPullRequestRecord
+} from '../src/shared/project-space-api';
 import { requestGitHubGraphQL } from './github-graphql-client';
 
 interface GitHubGraphQLDevelopmentLinks {
@@ -9,6 +12,9 @@ interface GitHubGraphQLDevelopmentLinks {
           nodes?: Array<{
             ref?: {
               name?: string;
+              target?: {
+                oid?: string | null;
+              } | null;
             } | null;
           } | null>;
         } | null;
@@ -24,6 +30,13 @@ interface GitHubGraphQLDevelopmentLinks {
         } | null;
         headRefName?: string | null;
         headRefOid?: string | null;
+        headRef?: {
+          id?: string | null;
+        } | null;
+        headRepository?: {
+          nameWithOwner?: string | null;
+        } | null;
+        isCrossRepository?: boolean | null;
         mergeCommit?: {
           oid?: string | null;
         } | null;
@@ -53,6 +66,7 @@ export async function loadRepositoryDevelopmentLinks(
   token: string,
   request: typeof requestGitHubGraphQL = requestGitHubGraphQL
 ): Promise<{
+  linkedBranches: GitHubBranchRecord[];
   linkedIssueNumbersByBranch: Map<string, Set<number>>;
   pullRequests: GitHubPullRequestRecord[];
 }> {
@@ -60,6 +74,7 @@ export async function loadRepositoryDevelopmentLinks(
 
   if (!owner || !name) {
     return {
+      linkedBranches: [],
       linkedIssueNumbersByBranch: new Map(),
       pullRequests: []
     };
@@ -77,6 +92,9 @@ export async function loadRepositoryDevelopmentLinks(
                 nodes {
                   ref {
                     name
+                    target {
+                      oid
+                    }
                   }
                 }
               }
@@ -90,6 +108,13 @@ export async function loadRepositoryDevelopmentLinks(
               state
               headRefName
               headRefOid
+              headRef {
+                id
+              }
+              headRepository {
+                nameWithOwner
+              }
+              isCrossRepository
               mergeCommit {
                 oid
               }
@@ -107,6 +132,7 @@ export async function loadRepositoryDevelopmentLinks(
     { name, owner }
   );
   const linkedIssueNumbersByBranch = new Map<string, Set<number>>();
+  const linkedBranchShaByName = new Map<string, string | undefined>();
 
   for (const issue of data.repository?.issues?.nodes ?? []) {
     if (!issue) {
@@ -118,17 +144,30 @@ export async function loadRepositoryDevelopmentLinks(
 
       if (branchName) {
         addLinkedIssue(linkedIssueNumbersByBranch, branchName, issue.number);
+        linkedBranchShaByName.set(
+          branchName,
+          linkedBranch?.ref?.target?.oid ?? linkedBranchShaByName.get(branchName)
+        );
       }
     }
   }
 
   return {
+    linkedBranches: Array.from(linkedIssueNumbersByBranch, ([name, issueNumbers]) => ({
+      commitSha: linkedBranchShaByName.get(name),
+      isDefault: false,
+      linkedIssueNumbers: Array.from(issueNumbers).sort((left, right) => left - right),
+      name
+    })),
     linkedIssueNumbersByBranch,
     pullRequests: (data.repository?.pullRequests?.nodes ?? [])
       .filter((pullRequest): pullRequest is NonNullable<typeof pullRequest> => Boolean(pullRequest))
       .map((pullRequest) => ({
         headBranch: pullRequest.headRefName ?? undefined,
+        headRefPresent: Boolean(pullRequest.headRef),
+        headRepositoryFullName: pullRequest.headRepository?.nameWithOwner ?? undefined,
         headSha: pullRequest.headRefOid ?? undefined,
+        isCrossRepository: pullRequest.isCrossRepository ?? undefined,
         linkedIssueNumbers:
           pullRequest.closingIssuesReferences?.nodes
             ?.map((issue) => issue?.number)

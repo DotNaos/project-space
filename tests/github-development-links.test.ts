@@ -13,8 +13,11 @@ describe('GitHub development links', () => {
           issues: { nodes: [] },
           pullRequests: { nodes: [{
             closingIssuesReferences: { nodes: [{ number: 263 }] },
+            headRef: { id: 'REF_263' },
             headRefName: 'issue-263-preview',
             headRefOid: headSha,
+            headRepository: { nameWithOwner: 'DotNaos/project-space' },
+            isCrossRepository: false,
             number: 263,
             state: 'OPEN',
             title: 'Preview deployments',
@@ -31,6 +34,47 @@ describe('GitHub development links', () => {
     );
 
     expect(query).toContain('headRefOid');
-    expect(result.pullRequests[0]).toMatchObject({ headSha, number: 263 });
+    expect(result.pullRequests[0]).toMatchObject({
+      headRefPresent: true,
+      headRepositoryFullName: 'DotNaos/project-space',
+      headSha,
+      isCrossRepository: false,
+      number: 263
+    });
+  });
+
+  test('preserves linked branches beyond the REST branch window with their exact SHA', async () => {
+    const branchSha = 'b'.repeat(40);
+    const request = (async <Result>() => ({
+      repository: {
+        issues: {
+          nodes: [{
+            linkedBranches: {
+              nodes: [{
+                ref: {
+                  name: 'issue-408-graph',
+                  target: { oid: branchSha }
+                }
+              }]
+            },
+            number: 408
+          }]
+        },
+        pullRequests: { nodes: [] }
+      }
+    }) as Result) as typeof requestGitHubGraphQL;
+
+    const result = await loadRepositoryDevelopmentLinks(
+      'DotNaos/project-space',
+      'secret-token',
+      request
+    );
+
+    expect(result.linkedBranches).toEqual([{
+      commitSha: branchSha,
+      isDefault: false,
+      linkedIssueNumbers: [408],
+      name: 'issue-408-graph'
+    }]);
   });
 });

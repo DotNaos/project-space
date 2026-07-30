@@ -1,5 +1,7 @@
 import type {
   GitHubBranchCreateRequest,
+  GitHubBranchComparisonRequest,
+  GitHubBranchComparisonResult,
   GitHubBranchDeleteRequest,
   GitHubBranchMutationResult,
   GitHubCatalogResult,
@@ -148,6 +150,15 @@ export class GitHubProjectSpaceClient extends ProjectSpaceHttpClient {
 
   getGitHubHistory(request: GitHubHistoryRequest): Promise<GitHistoryResult> {
     return this.request('/api/github/history', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  getGitHubBranchComparison(
+    request: GitHubBranchComparisonRequest
+  ): Promise<GitHubBranchComparisonResult> {
+    return this.request('/api/github/branch-comparison', {
       body: JSON.stringify(request),
       method: 'POST'
     });

@@ -22,6 +22,11 @@ describe('production deployment workflow contract', () => {
     expect(workflow).toContain('ref: ${{ steps.requested-commit.outputs.commit }}');
     expect(workflow).toContain('REQUESTED_COMMIT: ${{ needs.validate.outputs.requested_commit }}');
     expect(workflow).toContain('https://projects.os-home.net/api/app/meta');
+    expect(workflow).toContain('Activate exact trusted Preview assets');
+    expect(workflow).toContain('/opt/platform/apps/project-space/deploy/install-preview-assets.sh');
+    expect(workflow).toContain('/opt/platform/share/project-space-preview-current/asset-commit');
+    expect(workflow).toContain('[[ "$preview_asset_commit" == "$REQUESTED_COMMIT" ]]');
+    expect(workflow).toContain('[[ "$remote_asset_hashes" == "$local_asset_hashes" ]]');
     expect(workflow).not.toContain('vercel');
   });
 
@@ -65,6 +70,12 @@ describe('production deployment workflow contract', () => {
     expect(workflow).not.toContain("            '.releaseId == $release_id");
     expect(workflow.indexOf('Verify the approved connector release is published')).toBeLessThan(
       workflow.indexOf('Validate the exact deployment plan')
+    );
+    expect(workflow.indexOf('Deploy, verify, and roll back on failure')).toBeLessThan(
+      workflow.indexOf('Activate exact trusted Preview assets')
+    );
+    expect(workflow.indexOf('Activate exact trusted Preview assets')).toBeLessThan(
+      workflow.indexOf('Independently confirm exact live commit')
     );
     expect(workflow).toContain('bun test --isolate');
     expect(workflow).toContain('go test ./...');

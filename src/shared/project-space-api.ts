@@ -521,7 +521,10 @@ export interface GitHubBranchRecord {
 
 export interface GitHubPullRequestRecord {
   headBranch?: string;
+  headRefPresent?: boolean;
+  headRepositoryFullName?: string;
   headSha?: string;
+  isCrossRepository?: boolean;
   linkedIssueNumbers?: number[];
   mergeCommitHash?: string;
   number: number;
@@ -1383,6 +1386,52 @@ export interface GitHubHistoryRequest {
   ref?: string;
 }
 
+export type GitHubBranchComparisonState =
+  | 'up-to-date'
+  | 'ahead'
+  | 'behind'
+  | 'diverged';
+
+export type GitHubBranchComparisonReason =
+  | 'auth-required'
+  | 'not-configured'
+  | 'unauthorized'
+  | 'rate-limited'
+  | 'repository-not-found'
+  | 'head-not-found'
+  | 'history-unavailable'
+  | 'stale-head';
+
+export interface GitHubBranchComparisonRequest {
+  expectedHeadSha?: string;
+  fullName: string;
+  headBranch: string;
+  limit?: number;
+}
+
+export interface GitHubBranchComparisonResult {
+  aheadBy?: number;
+  checkedAt: string;
+  commits: GitHistoryCommit[];
+  defaultBranch?: {
+    name: string;
+    sha: string;
+  };
+  freshness: 'current' | 'stale' | 'unavailable';
+  head?: {
+    name: string;
+    sha: string;
+  };
+  behindBy?: number;
+  mergeBaseIncluded: boolean;
+  mergeBaseSha?: string;
+  message?: string;
+  reason?: GitHubBranchComparisonReason;
+  state?: GitHubBranchComparisonState;
+  status: GitHubCatalogStatus;
+  truncated: boolean;
+}
+
 export interface GitHistoryCommit {
   author: string;
   date: string;
@@ -1418,6 +1467,9 @@ export interface ProjectSpaceBackend {
   runProjectCliCommand(request: ProjectCliCommandRequest): Promise<ProjectCliCommandResult>;
   getTemplateAdherence(request: TemplateAdherenceRequest): Promise<TemplateAdherenceReport>;
   getGitHubCatalog(options?: { forceRefresh?: boolean }): Promise<GitHubCatalogResult>;
+  getGitHubBranchComparison(
+    request: GitHubBranchComparisonRequest
+  ): Promise<GitHubBranchComparisonResult>;
   getGitHubHistory(request: GitHubHistoryRequest): Promise<GitHistoryResult>;
   getGitHubPipelineStatus(
     fullName: string,

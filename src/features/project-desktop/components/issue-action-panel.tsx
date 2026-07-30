@@ -24,6 +24,7 @@ interface IssueActionPanelProps {
   issue: GitHubIssueRecord;
   onBranchCreated(branch: GitHubBranchRecord): void;
   onIssueUpdated(issue: GitHubIssueRecord): void;
+  onOpenHistory(input: { defaultBranch: string; headBranch: string }): void;
   onPullRequestCreated(pullRequest: GitHubPullRequestRecord): void;
   project: ProjectSpaceRecord;
   projects: ProjectSpaceRecord[];
@@ -39,6 +40,7 @@ export function IssueActionPanel({
   issue,
   onBranchCreated,
   onIssueUpdated,
+  onOpenHistory,
   onPullRequestCreated,
   project,
   projects,
@@ -145,6 +147,7 @@ export function IssueActionPanel({
         connectorOverview={connectorOverview}
         issue={issue}
         onBranchCreated={onBranchCreated}
+        onOpenHistory={onOpenHistory}
         onPullRequestCreated={onPullRequestCreated}
         project={project}
         projects={projects}

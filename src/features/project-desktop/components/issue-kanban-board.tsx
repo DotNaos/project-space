@@ -22,10 +22,8 @@ import type {
 } from '@/shared/project-space-api';
 import { GitHubMark } from './github-mark';
 import { IssueBranchMenu, IssuePullRequestChip } from './issue-branch-menu';
-import {
-  issueBranchesForIssue,
-  issuePullRequestsForIssue
-} from './issue-branch-model';
+import { issuePullRequestsForIssue } from './issue-branch-model';
+import { resolveIssueDevelopmentHead } from './issue-development-head';
 import {
   groupIssuesByColumn,
   type IssueColumnDefinition,
@@ -442,8 +440,13 @@ function BoardCard({
   style?: React.CSSProperties;
   suppressClickRef: { current: boolean };
 }) {
-  const linkedBranches = issueBranchesForIssue({ branches, issue });
-  const hasLinkedBranch = linkedBranches.length > 0;
+  const developmentHead = resolveIssueDevelopmentHead({
+    branches,
+    issue,
+    pullRequests,
+    repositoryFullName: repoFullName
+  });
+  const hasDevelopmentHead = developmentHead.state !== 'none';
 
   return (
     <article
@@ -478,7 +481,7 @@ function BoardCard({
         data-no-drag
         className={cn(
           'absolute bottom-1.5 left-3 right-28 top-auto transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(pointer:fine)]:bottom-auto [@media(pointer:fine)]:left-auto [@media(pointer:fine)]:right-8 [@media(pointer:fine)]:top-1.5',
-          hasLinkedBranch
+          hasDevelopmentHead
             ? 'opacity-100'
             : 'opacity-100 [@media(pointer:fine)]:opacity-0'
         )}
@@ -489,6 +492,7 @@ function BoardCard({
           defaultBranch={defaultBranch}
           issue={issue}
           onBranchCreated={onBranchCreated}
+          pullRequests={pullRequests}
           repoFullName={repoFullName}
         />
       </div>

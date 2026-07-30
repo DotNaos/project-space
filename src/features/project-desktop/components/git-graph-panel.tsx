@@ -40,6 +40,10 @@ import { PaneResizeHandle } from './pane-resize-handle';
 import { commitsBehindRef, correlateEnvironments } from './git-environment-correlation';
 import { normalizedFullSha } from './deployment-status-model';
 import { EnvironmentMarker, GitEnvironmentSummary, SelectedCommitEnvironments } from './git-environment-status';
+import {
+  mergeFocusedGitHistories,
+  type GitHistoryFocus
+} from './git-focused-history';
 
 function addMergedPullRequestSegments({
   branchColorByLabel,
@@ -277,6 +281,7 @@ function CommitDotTooltip({
 
 export function GitGraphPanel({
   connectorOverview,
+  focus,
   githubBranches = [],
   onOpenMachine,
   onRefreshRepositoryDetails,
@@ -288,6 +293,7 @@ export function GitGraphPanel({
   targetPath
 }: {
   connectorOverview?: ConnectorOverviewResult;
+  focus?: GitHistoryFocus;
   githubBranches?: GitHubBranchRecord[];
   onOpenMachine?(machineId: string, tab?: MachineDetailTab): void;
   onRefreshRepositoryDetails?(): Promise<void> | void;
@@ -324,6 +330,8 @@ export function GitGraphPanel({
   });
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isDetailCollapsed, setIsDetailCollapsed] = useState(false);
+  const appliedFocusKey = useRef('');
+  const selectedFocusTipKey = useRef('');
 
   useEffect(() => {
     const narrowViewport = window.matchMedia('(max-width: 639px)');
@@ -425,7 +433,14 @@ export function GitGraphPanel({
   }, [repositoryFullName, targetPath]);
 
   const branchSourceCommits = useMemo(
-    () => withoutDeletedBranchRefs(allCommits.length > 0 ? allCommits : commits, deletedBranchLabels),
+    () => withoutDeletedBranchRefs(
+      Array.from(
+        new Map(
+          [...allCommits, ...commits].map((commit) => [commit.hash, commit])
+        ).values()
+      ),
+      deletedBranchLabels
+    ),
     [allCommits, commits, deletedBranchLabels]
   );
   const graphCommits = useMemo(
@@ -505,6 +520,31 @@ export function GitGraphPanel({
     () => Array.from(visibleBranchLabels).sort().join('\0'),
     [visibleBranchLabels]
   );
+  const selectedBranches = useMemo(
+    () =>
+      coloredBranchOptions.filter((branch) =>
+        visibleBranchLabels.has(branch.label)
+      ),
+    [coloredBranchOptions, visibleBranchKey]
+  );
+  const selectedBranchRefKey = useMemo(
+    () =>
+      selectedBranches
+        .map((branch) => `${branch.label}\0${branch.ref}`)
+        .sort()
+        .join('\u0001'),
+    [selectedBranches]
+  );
+  const focusKey = focus
+    ? `${focus.requestId}\0${focus.headBranch}\0${focus.defaultBranch}`
+    : '';
+  const branchTipKey = useMemo(
+    () =>
+      coloredBranchOptions
+        .map((branch) => `${branch.label}\0${branch.tip?.hash ?? ''}`)
+        .join('\u0001'),
+    [coloredBranchOptions]
+  );
 
   useEffect(() => {
     const labels = coloredBranchOptions.map((branch) => branch.label);
@@ -521,6 +561,40 @@ export function GitGraphPanel({
       return nextLabels;
     });
   }, [branchLabelKey, coloredBranchOptions]);
+
+  useEffect(() => {
+    if (!focus) return;
+    if (appliedFocusKey.current === focusKey) return;
+    const requestedLabels = [focus.headBranch, focus.defaultBranch];
+    const availableLabels = new Set(coloredBranchOptions.map((branch) => branch.label));
+
+    if (!requestedLabels.every((label) => availableLabels.has(label))) return;
+
+    setVisibleBranchLabels(new Set(requestedLabels));
+    setIsBranchFilterActive(true);
+    appliedFocusKey.current = focusKey;
+  }, [
+    branchLabelKey,
+    focus?.defaultBranch,
+    focus?.headBranch,
+    focusKey
+  ]);
+
+  useEffect(() => {
+    if (!focus || selectedFocusTipKey.current === `${focusKey}\0${branchTipKey}`) {
+      return;
+    }
+    const head = coloredBranchOptions.find((branch) => branch.label === focus.headBranch);
+    if (head?.tip) {
+      selectCommit(head.tip.hash, { branchLabel: head.label, scroll: true });
+      selectedFocusTipKey.current = `${focusKey}\0${branchTipKey}`;
+    }
+  }, [
+    branchTipKey,
+    focus?.defaultBranch,
+    focus?.headBranch,
+    focusKey
+  ]);
 
   useEffect(() => {
     let isCanceled = false;
@@ -541,10 +615,6 @@ export function GitGraphPanel({
         return;
       }
 
-      const selectedBranches = coloredBranchOptions.filter((branch) =>
-        visibleBranchLabels.has(branch.label)
-      );
-
       if (selectedBranches.length === 0) {
         setCommits([]);
         setSelectedHash('');
@@ -564,27 +634,11 @@ export function GitGraphPanel({
           return;
         }
 
-        const commitByHash = new Map<string, GraphCommit>();
-
-        for (const history of branchHistories) {
-          if (!history) {
-            continue;
-          }
-
-          for (const commit of history.commits) {
-            commitByHash.set(commit.hash, commit);
-          }
-        }
-
-        const orderedCommits = allCommits
-          .filter((commit) => commitByHash.has(commit.hash))
-          .map((commit) => commitByHash.get(commit.hash) ?? commit);
-
-        for (const commit of commitByHash.values()) {
-          if (!orderedCommits.some((orderedCommit) => orderedCommit.hash === commit.hash)) {
-            orderedCommits.push(commit);
-          }
-        }
+        const orderedCommits = mergeFocusedGitHistories(
+          branchHistories
+            .filter((history): history is NonNullable<typeof history> => Boolean(history))
+            .map((history) => history.commits)
+        );
 
         setCommits(orderedCommits);
         setSelectedHash((previousHash) =>
@@ -614,12 +668,11 @@ export function GitGraphPanel({
     };
   }, [
     allCommits,
-    coloredBranchOptions,
     isBranchFilterActive,
     repositoryFullName,
+    selectedBranchRefKey,
     targetPath,
-    visibleBranchKey,
-    visibleBranchLabels
+    visibleBranchKey
   ]);
   const graphWidth = maxLanes * GRAPH_LANE_WIDTH;
   const selectedCommit = commits.find((commit) => commit.hash === selectedHash) ?? commits[0];
@@ -770,7 +823,9 @@ export function GitGraphPanel({
           <Text className="truncate text-sm font-semibold text-neutral-100">Commit graph</Text>
           <Text className="shrink-0 text-xs text-neutral-500">
             {rows.length > 0
-              ? `${rows.length}${rows.length >= GRAPH_COMMIT_LIMIT ? '+' : ''} commits, all branches`
+              ? isBranchFilterActive
+                ? `${rows.length}${rows.length >= GRAPH_COMMIT_LIMIT ? '+' : ''} commits, ${selectedBranches.length} branches`
+                : `${rows.length}${rows.length >= GRAPH_COMMIT_LIMIT ? '+' : ''} commits, all branches`
               : ''}
           </Text>
         </div>

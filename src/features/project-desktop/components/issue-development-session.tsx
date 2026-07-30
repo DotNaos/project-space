@@ -18,6 +18,8 @@ import type {
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
 import { usePullRequestPreviewStatus } from '../hooks/use-pull-request-preview-status';
+import { useBranchHeadComparison } from '../hooks/use-branch-head-comparison';
+import { BranchHeadGraphPreview } from './branch-head-graph-preview';
 import {
   canRunMachineCommand,
   cloneUrl,
@@ -28,7 +30,8 @@ import {
   repositoryNameFromProject,
   type IssueMachineProjectRow
 } from './issue-development-machine-actions';
-import { branchNameForIssue, issueBranchesForIssue } from './issue-branch-model';
+import { branchNameForIssue } from './issue-branch-model';
+import { resolveIssueDevelopmentHead } from './issue-development-head';
 import { IssuePullRequestChip } from './issue-branch-menu';
 import { connectorLocationPresentation } from './machine-connector-topology-model';
 import { issueDevelopmentPullRequest } from './pull-request-preview-model';
@@ -47,6 +50,7 @@ interface IssueDevelopmentSessionProps {
   repoFullName?: string;
   repoUrl?: string;
   targetPath: string;
+  onOpenHistory(input: { defaultBranch: string; headBranch: string }): void;
 }
 
 function StepHeading({ complete = false, number, title }: {
@@ -76,9 +80,10 @@ export function IssueDevelopmentSession({
   pullRequests,
   repoFullName,
   repoUrl,
-  targetPath
+  targetPath,
+  onOpenHistory
 }: IssueDevelopmentSessionProps) {
-  const defaultBranch = branches.find((branch) => branch.isDefault)?.name ?? 'main';
+  const defaultBranch = branches.find((branch) => branch.isDefault)?.name ?? '';
   const suggestedBranch = branchNameForIssue(issue);
   const [branchName, setBranchName] = useState(suggestedBranch);
   const [showBranchPicker, setShowBranchPicker] = useState(false);
@@ -100,15 +105,27 @@ export function IssueDevelopmentSession({
     setPullRequestMessage('');
   }, [issue.number, suggestedBranch]);
 
-  const linkedBranches = useMemo(
-    () => issueBranchesForIssue({ branches, issue }),
-    [branches, issue]
+  const developmentHead = useMemo(
+    () => resolveIssueDevelopmentHead({
+      branches,
+      issue,
+      pullRequests,
+      repositoryFullName: repoFullName
+    }),
+    [branches, issue, pullRequests, repoFullName]
   );
-  const selectedBranch = linkedBranches[0];
-  const selectedPullRequest = useMemo(
+  const selectedBranch =
+    developmentHead.state === 'verified' ? developmentHead.branch : undefined;
+  const fallbackPullRequest = useMemo(
     () => issueDevelopmentPullRequest({ branches, issue, pullRequests }),
     [branches, issue, pullRequests]
   );
+  const selectedPullRequest =
+    developmentHead.state === 'verified' && developmentHead.pullRequest
+      ? developmentHead.pullRequest
+      : developmentHead.state === 'verified'
+        ? fallbackPullRequest
+        : undefined;
   const visibleBranches = useMemo(
     () => branches
       .filter((branch) => !branch.isDefault)
@@ -131,6 +148,13 @@ export function IssueDevelopmentSession({
   const preview = usePullRequestPreviewStatus({
     enabled: Boolean(repoFullName && selectedPullRequest),
     pullRequestNumber: selectedPullRequest?.number,
+    repositoryFullName: repoFullName
+  });
+  const branchComparison = useBranchHeadComparison({
+    enabled: Boolean(repoFullName && selectedBranch),
+    expectedHeadSha:
+      developmentHead.state === 'verified' ? developmentHead.expectedHeadSha : undefined,
+    headBranch: selectedBranch?.name,
     repositoryFullName: repoFullName
   });
   const repositoryCloneUrl = cloneUrl(repoFullName, repoUrl);
@@ -158,6 +182,10 @@ export function IssueDevelopmentSession({
       return;
     }
     const existingBranch = branches.find((branch) => branch.name === trimmedBranchName);
+    if (!existingBranch && !defaultBranch) {
+      setBranchError('The repository default branch is unavailable.');
+      return;
+    }
     setIsCreatingBranch(true);
     setBranchError('');
     setBranchMessage('');
@@ -181,8 +209,16 @@ export function IssueDevelopmentSession({
   }
 
   async function createPullRequest() {
-    if (!repoFullName || !selectedBranch || selectedPullRequest) {
-      setPullRequestError(selectedPullRequest ? 'A pull request is already linked.' : 'Link a branch first.');
+    if (selectedPullRequest) {
+      setPullRequestError('A pull request is already linked.');
+      return;
+    }
+    if (!defaultBranch) {
+      setPullRequestError('The repository default branch is unavailable.');
+      return;
+    }
+    if (!repoFullName || !selectedBranch) {
+      setPullRequestError('Link a branch first.');
       return;
     }
     setIsCreatingPullRequest(true);
@@ -260,10 +296,24 @@ export function IssueDevelopmentSession({
               <GitBranch className="size-3.5 shrink-0 text-neutral-500" />
               <Text className="min-w-0 flex-1 truncate font-mono text-xs text-neutral-200">{selectedBranch.name}</Text>
             </div>
-          ) : <Text className="text-xs text-neutral-500">No branch linked yet.</Text>}
-          <Button size="sm" variant="ghost" isDisabled={Boolean(selectedBranch)} className="justify-start" onPress={() => setShowBranchPicker((value) => !value)}>
-            <GitBranchPlus className="size-4" />Create linked branch
-          </Button>
+          ) : developmentHead.state === 'none' ? (
+            <Text className="text-xs text-neutral-500">No branch linked yet.</Text>
+          ) : (
+            <Text className="text-xs text-amber-200">
+              {'message' in developmentHead ? developmentHead.message : 'Branch position is unavailable.'}
+            </Text>
+          )}
+          {selectedBranch ? (
+            <BranchHeadGraphPreview
+              comparison={branchComparison}
+              onOpenHistory={onOpenHistory}
+            />
+          ) : null}
+          {developmentHead.state === 'none' ? (
+            <Button size="sm" variant="ghost" className="justify-start" onPress={() => setShowBranchPicker((value) => !value)}>
+              <GitBranchPlus className="size-4" />Create linked branch
+            </Button>
+          ) : null}
           {showBranchPicker ? (
             <div className="issue-rise-in grid gap-2 border-t border-neutral-800 pt-2">
               {visibleBranches.length ? <div className="grid gap-1">
@@ -276,7 +326,7 @@ export function IssueDevelopmentSession({
                 <Text className="text-xs text-neutral-500">Branch name</Text>
                 <input value={branchName} onChange={(event) => setBranchName(event.currentTarget.value)} className="h-8 rounded-md border border-neutral-800 bg-neutral-950 px-2 font-mono text-xs text-neutral-100 outline-none transition focus:border-neutral-600" />
               </label>
-              <Button size="sm" isDisabled={isCreatingBranch || !repoFullName || !branchName.trim()} onPress={() => void createBranch()}>
+              <Button size="sm" isDisabled={isCreatingBranch || !repoFullName || !branchName.trim() || !defaultBranch} onPress={() => void createBranch()}>
                 <GitBranchPlus className="size-4" />{isCreatingBranch ? 'Creating…' : 'Create linked branch'}
               </Button>
             </div>
@@ -289,8 +339,10 @@ export function IssueDevelopmentSession({
           <StepHeading complete={Boolean(selectedPullRequest)} number={2} title="Pull request" />
           {selectedPullRequest ? (
             <IssuePullRequestChip className="max-w-full justify-self-start" pullRequest={selectedPullRequest} />
+          ) : developmentHead.state === 'ambiguous' ? (
+            <Text className="text-xs text-amber-200">Resolve the conflicting development links before creating another pull request.</Text>
           ) : (
-            <Button variant="secondary" isDisabled={!selectedBranch || !repoFullName || isCreatingPullRequest} onPress={() => void createPullRequest()}>
+            <Button variant="secondary" isDisabled={!selectedBranch || !repoFullName || !defaultBranch || isCreatingPullRequest} onPress={() => void createPullRequest()}>
               <Rocket className="size-4" />{isCreatingPullRequest ? 'Creating PR…' : 'Create PR'}
             </Button>
           )}
