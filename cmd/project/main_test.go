@@ -44,6 +44,7 @@ func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 		"doctor",
 		"init",
 		"list",
+		"machine",
 		"module",
 		"open",
 		"path",

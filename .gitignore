@@ -3,6 +3,7 @@ dist
 dist-electron
 .env
 .env.*
+deploy/mqtt/config/password_file
 !.env.example
 tmp/
 temp/

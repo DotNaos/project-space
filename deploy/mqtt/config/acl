@@ -1,0 +1,17 @@
+# Generated from config/machine-power/*.json.
+# Run: bun run machine-power:mqtt-acl:generate
+# Every application and device credential is restricted to one exact JetKVM.
+
+# Project Space provider for os-pc.
+user project-space-jetkvm-b46e1a936ac89a4e
+topic read project-space/jetkvm/jetkvm-b46e1a936ac89a4e/status
+topic read project-space/jetkvm/jetkvm-b46e1a936ac89a4e/atx/state
+topic read project-space/jetkvm/jetkvm-b46e1a936ac89a4e/update/state
+topic write project-space/jetkvm/jetkvm-b46e1a936ac89a4e/atx_power_short/set
+
+# JetKVM device for os-pc.
+user jetkvm-b46e1a936ac89a4e
+topic write project-space/jetkvm/jetkvm-b46e1a936ac89a4e/status
+topic write project-space/jetkvm/jetkvm-b46e1a936ac89a4e/atx/state
+topic write project-space/jetkvm/jetkvm-b46e1a936ac89a4e/update/state
+topic read project-space/jetkvm/jetkvm-b46e1a936ac89a4e/atx_power_short/set

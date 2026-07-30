@@ -33,6 +33,9 @@ import {
   createConfiguredMachineReadinessHandler
 } from './machine-readiness/configured-runtime';
 import {
+  createConfiguredMachinePowerHandler
+} from './machine-power/configured-runtime';
+import {
   createConfiguredCodexAuthorizationHandler
 } from './codex-authorization/configured-runtime';
 import { createConfiguredRoadmapCliHandler } from './roadmap/roadmap-cli-runtime';
@@ -94,6 +97,9 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
   });
+  const machinePower = createConfiguredMachinePowerHandler({
+    machineConnection: options.machineConnectionRuntime
+  });
   const roadmapCli = createConfiguredRoadmapCliHandler({
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
@@ -112,6 +118,7 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
       codexSessions,
       codexMachineTasks,
       machineReadiness,
+      machinePower,
       machineConnection: options.machineConnectionRuntime,
       projectChat: runtime,
       projectCatalogCli,

@@ -41,6 +41,7 @@ project
 | [`help`](#project-help) | - | Help about any command |
 | [`init`](#project-init) | - | Initialize a project template lock |
 | [`list`](#project-list) | - | List account projects and local availability |
+| [`machine`](#project-machine) | - | Manage exact physical machines |
 | [`module`](#project-module) | - | Manage project template modules |
 | [`open`](#project-open) | - | Open a local project in the system's selected terminal |
 | [`path`](#project-path) | - | Print a project's canonical local path |
@@ -765,6 +766,77 @@ project list
 | --- | --- | --- | --- |
 | `--format` | `string` | local | output format: text or json |
 | `-h`, `--help` | `bool` | local | help for list |
+
+<h3 id="project-machine" className="scroll-m-28"><code>project machine</code></h3>
+
+Manage exact physical machines
+
+```sh
+project machine
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for machine |
+
+<h3 id="project-machine-power" className="scroll-m-28"><code>project machine power</code></h3>
+
+Inspect or request managed physical power
+
+```sh
+project machine power
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for power |
+
+<h3 id="project-machine-power-off" className="scroll-m-28"><code>project machine power off</code></h3>
+
+Request the exact managed machine to power off
+
+```sh
+project machine power off
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for off |
+| `--machine` | `string` | local | exact physical machine name |
+| `--machine-id` | `string` | local | exact physical machine ID |
+
+<h3 id="project-machine-power-on" className="scroll-m-28"><code>project machine power on</code></h3>
+
+Request the exact managed machine to power on
+
+```sh
+project machine power on
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for on |
+| `--machine` | `string` | local | exact physical machine name |
+| `--machine-id` | `string` | local | exact physical machine ID |
+| `--no-wait` | `bool` | local | return after the provider delivery attempt |
+| `--timeout` | `duration` | local | maximum time to wait for physical confirmation |
+
+<h3 id="project-machine-power-status" className="scroll-m-28"><code>project machine power status</code></h3>
+
+Show fresh managed physical-power evidence
+
+```sh
+project machine power status
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for status |
+| `--machine` | `string` | local | exact physical machine name |
+| `--machine-id` | `string` | local | exact physical machine ID |
 
 <h3 id="project-module" className="scroll-m-28"><code>project module</code></h3>
 

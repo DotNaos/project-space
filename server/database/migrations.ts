@@ -31,6 +31,10 @@ import {
   prDevServerLeaseMigrationSql
 } from './pr-dev-server-lease-migration';
 import { roadmapMigrationId, roadmapMigrationSql } from './roadmap-migration';
+import {
+  machinePowerMigrationId,
+  machinePowerMigrationSql
+} from './machine-power-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -643,6 +647,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: prDevServerLeaseMigrationId,
     sql: prDevServerLeaseMigrationSql
+  },
+  {
+    id: machinePowerMigrationId,
+    sql: machinePowerMigrationSql
   }
 ];
 
