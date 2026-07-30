@@ -10,6 +10,7 @@ import {
   isSafePrototypeTarget,
   parsePrototypeReviewRoute,
   prototypeFrameSandbox,
+  rendersPreviewBuildInline,
   prototypeConnectionKind,
   prototypeReviewCodexContext,
   prototypeReviewDevelopmentContext,
@@ -264,6 +265,12 @@ describe('prototype review model', () => {
       target!,
       'https://pr-356.projects.os-home.net/prototype-review'
     )).toBe('allow-scripts');
+    expect(rendersPreviewBuildInline(target, 'branch-head-preview')).toBe(true);
+    expect(rendersPreviewBuildInline(target, 'ready')).toBe(false);
+    expect(rendersPreviewBuildInline(
+      { ...target!, source: 'deployed' },
+      'branch-head-preview'
+    )).toBe(false);
   });
 
   test('rejects mismatched build identity and non-Preview hosts', () => {

@@ -277,6 +277,14 @@ export function prototypeFrameSandbox(
     : 'allow-scripts';
 }
 
+export function rendersPreviewBuildInline(
+  target: PrototypeReviewTarget | undefined,
+  scenarioId: string | undefined
+) {
+  return target?.source === 'preview-build' &&
+    scenarioId === 'branch-head-preview';
+}
+
 export function feedbackMatchesTarget(
   result: PullRequestTestSurfacesResult | undefined,
   target: PrototypeReviewTarget | undefined

@@ -1,51 +1,12 @@
 import { GitBranch, GitPullRequest, History, Play } from 'lucide-react';
 
-import { Chip, Surface, Text } from '../../../src/app/dotnaos-ui';
-import { BranchHeadGraphPreview } from '../../../src/features/project-desktop/components/branch-head-graph-preview';
-import type { GitHubBranchComparisonResult } from '../../../src/shared/project-space-api';
-import type { PrototypeTheme } from '../../../src/shared/prototype-canvas';
-
-const mergeBase = '1'.repeat(40);
-const headSha = 'a'.repeat(40);
-const headParent = 'b'.repeat(40);
-const defaultSha = 'd'.repeat(40);
-const defaultParent = 'e'.repeat(40);
-const checkedAt = '2026-07-30T09:00:00.000Z';
-
-const comparison: GitHubBranchComparisonResult = {
-  aheadBy: 2,
-  behindBy: 2,
-  checkedAt,
-  commits: [
-    commit(headSha, [headParent], 'Show the verified branch head graph'),
-    commit(defaultSha, [defaultParent], 'Keep default branch checks current'),
-    commit(headParent, [mergeBase], 'Add bounded comparison states'),
-    commit(defaultParent, [mergeBase], 'Harden preview deployment status'),
-    commit(mergeBase, [], 'Share issue development context')
-  ],
-  defaultBranch: { name: 'main', sha: defaultSha },
-  freshness: 'current',
-  head: {
-    name: 'issue-408-show-a-focused-git-graph-around-the-linked-branch-head',
-    sha: headSha
-  },
-  mergeBaseIncluded: true,
-  mergeBaseSha: mergeBase,
-  state: 'diverged',
-  status: 'connected',
-  truncated: true
-};
-
-function commit(hash: string, parents: string[], subject: string) {
-  return {
-    author: 'DotNaos',
-    date: checkedAt,
-    hash,
-    parents,
-    refs: [],
-    subject
-  };
-}
+import { Chip, Surface, Text } from '../../app/dotnaos-ui';
+import { BranchHeadGraphPreview } from '../project-desktop/components/branch-head-graph-preview';
+import type { PrototypeTheme } from '../../shared/prototype-canvas';
+import {
+  branchHeadPrototypeComparison,
+  branchHeadPrototypeCopy
+} from './branch-head-prototype-fixture';
 
 export function BranchHeadPrototype({ theme }: { theme: PrototypeTheme }) {
   return (
@@ -67,7 +28,7 @@ export function BranchHeadPrototype({ theme }: { theme: PrototypeTheme }) {
       <main className="mx-auto grid w-full max-w-5xl gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,0.78fr)]">
         <section className="min-w-0 pt-1">
           <Text as="h1" className="block text-xl font-semibold leading-tight text-neutral-100">
-            Show a focused Git graph around the linked branch head
+            {branchHeadPrototypeCopy.issueTitle}
           </Text>
           <Text className="mt-3 block max-w-2xl text-sm leading-6 text-neutral-400">
             See whether the verified pull request head is current, ahead, behind, or diverged
@@ -96,11 +57,11 @@ export function BranchHeadPrototype({ theme }: { theme: PrototypeTheme }) {
             <div className="flex min-w-0 items-center gap-2 rounded-md bg-neutral-900/70 px-2 py-1.5">
               <GitBranch className="size-3.5 shrink-0 text-neutral-500" />
               <Text className="min-w-0 flex-1 truncate font-mono text-xs text-neutral-200">
-                issue-408-show-a-focused-git-graph-around-the-linked-branch-head
+                {branchHeadPrototypeCopy.branch}
               </Text>
             </div>
             <BranchHeadGraphPreview
-              comparison={{ result: comparison, state: 'ready' }}
+              comparison={{ result: branchHeadPrototypeComparison, state: 'ready' }}
               onOpenHistory={() => undefined}
             />
           </div>

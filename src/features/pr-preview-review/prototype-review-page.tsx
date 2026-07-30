@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type Key } from 'react';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Key
+} from 'react';
 import { Button, Tabs } from '@heroui/react';
 import {
   AppWindow,
@@ -51,6 +59,7 @@ import {
   parsePrototypeReviewRoute,
   prototypeFrameSandbox,
   prototypeReviewCodexContext,
+  rendersPreviewBuildInline,
   verifiedPreviewBuildPrototypeTarget,
   verifiedPrototypeTarget,
   type PrototypeReviewSurface
@@ -61,6 +70,11 @@ type ReviewPanel = 'changelog';
 const ROTATION_DURATION_MS = 360;
 const ROTATION_CONTENT_HIDE_MS = 100;
 const FRAME_REVEAL_DELAY_MS = 220;
+
+const BranchHeadPrototype = lazy(async () => {
+  const module = await import('./branch-head-prototype');
+  return { default: module.BranchHeadPrototype };
+});
 
 const deviceIcons = {
   desktop: Monitor,
@@ -312,7 +326,11 @@ export function PrototypeReviewPage() {
     : undefined;
   const candidateTarget =
     initialSelection.state === 'ready'
-      ? development ?? verified ?? verifiedBuild
+      ? development ??
+        verified ??
+        (initialSelection.entry.prototype?.scenarioId === 'branch-head-preview'
+          ? verifiedBuild
+          : undefined)
       : undefined;
   const target = isSafePrototypeTarget(candidateTarget, window.location.href)
     ? candidateTarget
@@ -328,6 +346,12 @@ export function PrototypeReviewPage() {
         theme
       )
     : undefined;
+  const rendersVerifiedBuildInline = rendersPreviewBuildInline(
+    target,
+    initialSelection.state === 'ready'
+      ? initialSelection.entry.prototype?.scenarioId
+      : undefined
+  );
   const localContextResult = usePrototypeReviewLocalContext({
     enabled:
       import.meta.env.DEV &&
@@ -491,7 +515,13 @@ export function PrototypeReviewPage() {
           theme={theme}
           viewportKind={viewport}
         >
-          {targetUrl ? (
+          {rendersVerifiedBuildInline ? (
+            <div className="size-full overflow-auto bg-neutral-950">
+              <Suspense fallback={null}>
+                <BranchHeadPrototype theme={theme} />
+              </Suspense>
+            </div>
+          ) : targetUrl ? (
             <iframe
               className={`size-full border-0 bg-neutral-950 transition-opacity duration-150 ${
                 loadedTargetUrl === targetUrl ? 'opacity-100' : 'opacity-0'

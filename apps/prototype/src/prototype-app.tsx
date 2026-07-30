@@ -29,7 +29,7 @@ import {
   type PrototypeViewportKind
 } from '../../../src/shared/prototype-canvas';
 import { desktopPrototypeScenario } from './desktop-prototype-scenarios';
-import { BranchHeadPrototype } from './branch-head-prototype';
+import { BranchHeadPrototype } from '../../../src/features/pr-preview-review/branch-head-prototype';
 import { ScaledDeviceCanvas } from './scaled-device-canvas';
 import './prototype.css';
 
