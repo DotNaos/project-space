@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 
 const deploymentWorkflowPath = new URL('../.github/workflows/deploy-preview.yml', import.meta.url);
@@ -65,6 +66,35 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain('prototypeImage:$prototype');
     expect(workflow).toContain('https://pr-${{ needs.resolve.outputs.pr_number }}.projects.os-home.net');
     expect(workflow).toContain('environment_url');
+    expect(workflow).toContain('ssh project-space-preview apply > preview-output.log');
+    expect(workflow).toContain("sed -n '/^{/,$p' preview-output.log > preview-result.json");
+    expect(workflow).toContain('.repositoryFullName == $repository');
+    expect(workflow).toContain('.pullRequestNumber == $pr');
+    expect(workflow).toContain('.requestedSha == $sha');
+    expect(workflow).toContain('.runningSha == $sha');
+    expect(workflow).toContain('.prototypeMetaSha == $sha');
+  });
+
+  test('keeps trusted runner progress outside the final JSON receipt', () => {
+    const receipt = {
+      prototypeMetaSha: 'a'.repeat(40),
+      pullRequestNumber: 396,
+      repositoryFullName: 'DotNaos/project-space',
+      requestedSha: 'a'.repeat(40),
+      runningSha: 'a'.repeat(40),
+      state: 'ready'
+    };
+    const progress = ` Image project-space-preview-web Pulling
+ Container project-space-preview-pr-396-web-1 Healthy
+${JSON.stringify(receipt, null, 2)}
+`;
+    const normalized = spawnSync('sed', ['-n', '/^{/,$p'], {
+      encoding: 'utf8',
+      input: progress
+    });
+
+    expect(normalized.status).toBe(0);
+    expect(JSON.parse(normalized.stdout)).toEqual(receipt);
   });
 
   test('isolates slow and module-mocking tests from the bulk validation process', async () => {

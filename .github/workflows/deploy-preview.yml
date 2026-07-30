@@ -314,9 +314,10 @@ jobs:
             --arg prototype "ghcr.io/dotnaos/project-space-preview-prototype@$PROTOTYPE_DIGEST" \
             '{repository:$repository,prNumber:$pr,headSha:$sha,webImage:$web,docsImage:$docs,
               gatewayImage:$gateway,prototypeImage:$prototype}' |
-            ssh project-space-preview apply > preview-result.json
+            ssh project-space-preview apply > preview-output.log
           exit_code=$?
           set -e
+          sed -n '/^{/,$p' preview-output.log > preview-result.json
           echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
       - name: Publish GitHub deployment result
         if: always()
@@ -325,12 +326,23 @@ jobs:
           DEPLOYMENT_ID: ${{ steps.github-deployment.outputs.deployment_id }}
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          REQUESTED_SHA: ${{ needs.resolve.outputs.head_sha }}
           RUNNER_EXIT_CODE: ${{ steps.apply.outputs.exit_code }}
         run: |
           set -euo pipefail
           state=failure
           description='Preview deployment failed.'
-          if [[ "$RUNNER_EXIT_CODE" == 0 ]] && jq -e '.state == "ready"' preview-result.json >/dev/null; then
+          if [[ "$RUNNER_EXIT_CODE" == 0 ]] && jq -e \
+            --arg repository "$PREVIEW_REPOSITORY" \
+            --argjson pr "$PR_NUMBER" \
+            --arg sha "$REQUESTED_SHA" \
+            '.state == "ready" and
+             .repositoryFullName == $repository and
+             .pullRequestNumber == $pr and
+             .requestedSha == $sha and
+             .runningSha == $sha and
+             .prototypeMetaSha == $sha' \
+            preview-result.json >/dev/null; then
             state=success
             description='Exact PR head is live and verified.'
           fi
