@@ -60,6 +60,42 @@ describe('pull request changelog snapshot', () => {
     expect(snapshot.docsHref).toBe('/docs/changelog?pr=361');
   });
 
+  test('loads every testable Change for a multi-prototype PR', () => {
+    const snapshot = pullRequestChangelogSnapshotFor({
+      ...identity,
+      pullRequestNumber: 396
+    });
+
+    expect(snapshot.state).toBe('available');
+    expect(snapshot.entries.map((entry) => entry.id)).toEqual([
+      'pr-396-changelog-prototype-chooser',
+      'pr-396-fail-closed-prototype-routing'
+    ]);
+    expect(
+      snapshot.entries.map((entry) => entry.prototype?.surface)
+    ).toEqual(['desktop-prototype', 'mobile-prototype']);
+  });
+
+  test('loads the issue and pull request prototype launch Change', () => {
+    const snapshot = pullRequestChangelogSnapshotFor({
+      ...identity,
+      pullRequestNumber: 382
+    });
+
+    expect(snapshot.state).toBe('available');
+    expect(snapshot.entries).toMatchObject([
+      {
+        id: 'pr-382-issue-pr-prototype-launch',
+        issueNumber: 381,
+        prototype: {
+          scenarioId: 'dark-theme',
+          surface: 'mobile-prototype',
+          viewport: 'phone'
+        }
+      }
+    ]);
+  });
+
   test('returns every entry for only the requested pull request', () => {
     const snapshot = pullRequestChangelogSnapshotFromSource(
       identity,

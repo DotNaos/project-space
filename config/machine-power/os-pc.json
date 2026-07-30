@@ -1,0 +1,53 @@
+{
+  "schema": "project-space.machine-power-provider/v1",
+  "machine": {
+    "ownerUserId": "user_3FttZKw76HQHfv7mRADNRyAwaEh",
+    "physicalMachineId": "24000000-0000-4000-8000-000000000001",
+    "selector": "os-pc"
+  },
+  "provider": {
+    "kind": "jetkvm-mqtt",
+    "deviceId": "b46e1a936ac89a4e",
+    "firmwareCompatibility": "release/0.5.8",
+    "broker": "mqtts://mqtt.os-home.net:443",
+    "topicPrefix": "project-space/jetkvm/jetkvm-b46e1a936ac89a4e",
+    "projectCredential": {
+      "credentialId": "jetkvm-b46e1a936ac89a4e",
+      "expectedUsername": "project-space-jetkvm-b46e1a936ac89a4e"
+    },
+    "desiredJetKvmSettings": {
+      "enabled": true,
+      "broker": "mqtt.os-home.net",
+      "port": 443,
+      "usernameRef": "op://projects/jetkvm-os-pc-mqtt-client/username",
+      "passwordRef": "op://projects/jetkvm-os-pc-mqtt-client/password",
+      "base_topic": "project-space/jetkvm/jetkvm-b46e1a936ac89a4e",
+      "use_tls": true,
+      "tls_insecure": false,
+      "enable_ha_discovery": false,
+      "enable_actions": true,
+      "expectedUsername": "jetkvm-b46e1a936ac89a4e",
+      "debounce_ms": 500
+    }
+  },
+  "provisioning": {
+    "schema": "project-space.jetkvm-provisioning/v1",
+    "bootstrapAddress": "192.168.0.65",
+    "identity": {
+      "deviceHostname": "jetkvm-b46e1a936ac89a4e",
+      "ethernetMac": "30:52:53:08:5f:89",
+      "applicationSha256": "ae9616fa9cf5877e2b5ca9d78b628308c990d7952354b72af284e9d74a39e1d3",
+      "sshHostKeySha256": "SHA256:BtiJFccIxEjTr+MbXTI8CJ2hbe9q17QUQAhxn+x/rYM",
+      "sshPrivateKeyRef": "op://projects/jetkvm-provisioning-ssh/private_key",
+      "sshPublicKeyRef": "op://projects/jetkvm-provisioning-ssh/public_key"
+    },
+    "tailscale": {
+      "version": "1.98.10",
+      "hostname": "jetkvm-os-pc",
+      "tag": "tag:jetkvm",
+      "packageBaseUrl": "https://pkgs.tailscale.com/stable",
+      "oauthClientIdRef": "op://projects/jetkvm-provisioning-tailscale/username",
+      "oauthClientSecretRef": "op://projects/jetkvm-provisioning-tailscale/password"
+    }
+  }
+}

@@ -8,11 +8,13 @@ import {
   type PullRequestChangelogCategory,
   type PullRequestChangelogEntry,
   type PullRequestChangelogIdentity,
+  type PullRequestChangelogPrototype,
   type PullRequestChangelogSnapshot
 } from '../../shared/pr-preview-changelog-api';
 
 const changelogSourceSchema = 'project-space.changelog/v1';
 const entryId = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const scenarioId = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 interface ChangelogSourceEntry extends PullRequestChangelogEntry {
   body: string;
@@ -44,6 +46,29 @@ function isCategory(
   );
 }
 
+function parsePrototype(
+  value: unknown
+): PullRequestChangelogPrototype | undefined {
+  if (!isRecord(value)) return undefined;
+  if (
+    Object.keys(value).length !== 3 ||
+    !isNonEmptyString(value.scenarioId) ||
+    !scenarioId.test(value.scenarioId) ||
+    (value.surface !== 'desktop-prototype' &&
+      value.surface !== 'mobile-prototype') ||
+    (value.viewport !== 'phone' &&
+      value.viewport !== 'tablet' &&
+      value.viewport !== 'desktop')
+  ) {
+    return undefined;
+  }
+  return {
+    scenarioId: value.scenarioId,
+    surface: value.surface,
+    viewport: value.viewport
+  };
+}
+
 function parseEntry(value: unknown): ChangelogSourceEntry | undefined {
   if (!isRecord(value)) return undefined;
   if (!isNonEmptyString(value.id) || !entryId.test(value.id)) {
@@ -66,15 +91,22 @@ function parseEntry(value: unknown): ChangelogSourceEntry | undefined {
   ) {
     return undefined;
   }
+  const prototype =
+    value.prototype === undefined
+      ? undefined
+      : parsePrototype(value.prototype);
+  if (value.prototype !== undefined && !prototype) return undefined;
 
   return {
     body: value.body.trim(),
     category: value.category,
+    description: value.body.trim(),
     id: value.id,
     ...(value.issueNumber === undefined
       ? {}
       : { issueNumber: value.issueNumber }),
     pullRequestNumber: value.pullRequestNumber,
+    ...(prototype ? { prototype } : {}),
     summary: value.summary.trim(),
     testing: value.testing.map((step) => step.trim())
   };
@@ -130,16 +162,20 @@ export function pullRequestChangelogSnapshotFromSource(
     .map(
       ({
         category,
+        description,
         id,
         issueNumber,
+        prototype,
         pullRequestNumber,
         summary,
         testing
       }): PullRequestChangelogEntry => ({
         category,
+        description,
         id,
         ...(issueNumber === undefined ? {} : { issueNumber }),
         pullRequestNumber,
+        ...(prototype ? { prototype } : {}),
         summary,
         testing
       })

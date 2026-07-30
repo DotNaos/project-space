@@ -3,6 +3,7 @@ import * as Linking from 'expo-linking';
 import {
   Platform,
   Pressable,
+  Text,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -116,8 +117,12 @@ function EmbeddedMobilePrototype({
   );
   const scenario = projectOverviewPrototypeScenario(initial.scenarioId);
   const presentation = useMemo(
-    () => readPrototypePresentation(launchSearch, scenario.theme),
-    [launchSearch, scenario.theme]
+    () =>
+      readPrototypePresentation(
+        launchSearch,
+        scenario?.theme ?? 'dark'
+      ),
+    [launchSearch, scenario?.theme]
   );
 
   useEffect(() => {
@@ -140,11 +145,17 @@ function EmbeddedMobilePrototype({
             : 0,
       }}
     >
-      <PrototypeLaunchScreen
-        identity={identity}
-        initialState={nativePrototypeScenarioState(scenario.id)}
-        onOpenLink={onOpenLink}
-      />
+      {scenario ? (
+        <PrototypeLaunchScreen
+          identity={identity}
+          initialState={nativePrototypeScenarioState(scenario.id)}
+          onOpenLink={onOpenLink}
+        />
+      ) : (
+        <PrototypeSelectionUnavailable
+          reason={initial.scenarioState}
+        />
+      )}
     </View>
   );
 }
@@ -183,9 +194,9 @@ function MobilePrototypeWorkspace({
     () =>
       readPrototypePresentation(
         launchSearch,
-        initialScenario.theme
+        initialScenario?.theme ?? 'dark'
       ),
-    [initialScenario.theme, launchSearch]
+    [initialScenario?.theme, launchSearch]
   );
   const [scenarioId] = useState(initial.scenarioId);
   const [viewport, setViewport] = useState<PrototypeViewport>(initial.viewport);
@@ -265,7 +276,7 @@ function MobilePrototypeWorkspace({
   }, [presentation.theme]);
 
   useEffect(() => {
-    replacePrototypeLocation(scenarioId, viewport);
+    if (scenarioId) replacePrototypeLocation(scenarioId, viewport);
   }, [scenarioId, viewport]);
 
   useEffect(() => {
@@ -331,7 +342,9 @@ function MobilePrototypeWorkspace({
         >
           <PrototypeSurfaceTabs
             onChange={(surface) => {
-              if (surface === 'web') openWebPrototype(scenarioId, viewport);
+              if (surface === 'web' && scenarioId) {
+                openWebPrototype(scenarioId, viewport);
+              }
             }}
             surface="expo"
             theme={presentation.theme}
@@ -393,12 +406,18 @@ function MobilePrototypeWorkspace({
         theme={presentation.theme}
         viewport={viewport}
       >
-        <PrototypeLaunchScreen
-          identity={identity}
-          key={scenario.id}
-          initialState={nativePrototypeScenarioState(scenario.id)}
-          onOpenLink={onOpenLink}
-        />
+        {scenario ? (
+          <PrototypeLaunchScreen
+            identity={identity}
+            key={scenario.id}
+            initialState={nativePrototypeScenarioState(scenario.id)}
+            onOpenLink={onOpenLink}
+          />
+        ) : (
+          <PrototypeSelectionUnavailable
+            reason={initial.scenarioState}
+          />
+        )}
       </PrototypeDeviceCanvas>
       {reviewConfig && !presentation.fullscreen ? (
         <NativeReviewDock
@@ -408,6 +427,28 @@ function MobilePrototypeWorkspace({
           viewport={viewport}
         />
       ) : null}
+    </View>
+  );
+}
+
+function PrototypeSelectionUnavailable({
+  reason,
+}: {
+  reason: 'missing' | 'ready' | 'unknown';
+}) {
+  return (
+    <View
+      accessibilityRole="alert"
+      className="min-h-72 flex-1 items-center justify-center bg-background px-8"
+    >
+      <Text className="text-center text-sm font-semibold text-foreground">
+        Prototype Change unavailable
+      </Text>
+      <Text className="mt-2 max-w-sm text-center text-xs leading-5 text-muted">
+        {reason === 'unknown'
+          ? 'This prototype does not recognize the requested Change.'
+          : 'Choose a Change from the pull request changelog.'}
+      </Text>
     </View>
   );
 }

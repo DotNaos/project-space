@@ -2,6 +2,57 @@
   "schema": "project-space.changelog/v1",
   "entries": [
     {
+      "id": "pr-382-issue-pr-prototype-launch",
+      "category": "added",
+      "summary": "Start and reopen exact issue and pull request prototypes.",
+      "body": "Issue and pull request views now preserve the exact repository, revision, project, machine, task, worktree, and surface while starting, reopening, and returning from a prototype.",
+      "issueNumber": 381,
+      "pullRequestNumber": 382,
+      "prototype": {
+        "scenarioId": "dark-theme",
+        "surface": "mobile-prototype",
+        "viewport": "phone"
+      },
+      "testing": [
+        "Open this Change and confirm the native launch view shows the exact issue, pull request, full head revision, project, machine, task, worktree, and surface identity.",
+        "Exercise ready, stale, unavailable, stopped, start, retry, open, and return actions, then confirm deployed mode remains read-only without machine, task, or worktree access."
+      ]
+    },
+    {
+      "id": "pr-396-changelog-prototype-chooser",
+      "category": "added",
+      "summary": "Choose every pull request prototype from its changelog.",
+      "body": "The exact-source pull request changelog now presents each testable Change separately with its own summary, guidance, surface, and direct prototype action.",
+      "issueNumber": 394,
+      "pullRequestNumber": 396,
+      "prototype": {
+        "scenarioId": "ready",
+        "surface": "desktop-prototype",
+        "viewport": "desktop"
+      },
+      "testing": [
+        "Open the PR #396 changelog and confirm both testable Changes are listed independently.",
+        "Open this desktop prototype, return with the Changelog action, and choose the other Change."
+      ]
+    },
+    {
+      "id": "pr-396-fail-closed-prototype-routing",
+      "category": "fixed",
+      "summary": "Keep missing prototype choices from opening unrelated fixtures.",
+      "body": "Prototype routes now resolve the selected Change through exact changelog metadata and show an unavailable state when a Change or internal scenario is missing or unknown.",
+      "issueNumber": 394,
+      "pullRequestNumber": 396,
+      "prototype": {
+        "scenarioId": "error",
+        "surface": "mobile-prototype",
+        "viewport": "phone"
+      },
+      "testing": [
+        "Open this mobile prototype and confirm the selected Change remains tied to PR #396 and its exact head revision.",
+        "Remove or replace the Change identifier in the review URL and confirm unrelated fixture content does not open."
+      ]
+    },
+    {
       "id": "pr-298-canonical-changelog-docs",
       "category": "added",
       "summary": "Add canonical changelog and release notes to Project Docs.",

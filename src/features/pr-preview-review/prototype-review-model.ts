@@ -20,12 +20,14 @@ export const prototypeReviewPath = '/prototype-review';
 export type PrototypeReviewSurface = 'native' | 'web';
 
 export interface PrototypeReviewRoute {
+  changeId?: string;
   devTargetUrl?: string;
+  headSha?: string;
   matches: boolean;
   pullRequestNumber?: number;
   repositoryFullName?: string;
   orientation: PrototypeOrientation;
-  scenario: PrototypeScenarioKind;
+  scenario?: PrototypeScenarioKind;
   surface: PrototypeReviewSurface;
   theme: PrototypeTheme;
   viewport: PrototypeViewportKind;
@@ -60,6 +62,20 @@ function cleanPullRequestNumber(value: string | null) {
   return Number.isSafeInteger(number) && number > 0 ? number : undefined;
 }
 
+function cleanChangeId(value: string | null) {
+  const trimmed = value?.trim();
+  return trimmed && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(trimmed)
+    ? trimmed
+    : undefined;
+}
+
+function cleanHeadSha(value: string | null) {
+  const trimmed = value?.trim();
+  return trimmed && /^[0-9a-f]{40}$/i.test(trimmed)
+    ? trimmed.toLowerCase()
+    : undefined;
+}
+
 function cleanSurface(value: string | null): PrototypeReviewSurface {
   return value === 'native' ? 'native' : 'web';
 }
@@ -69,7 +85,9 @@ export function parsePrototypeReviewRoute(pathname: string, search: string): Pro
   const scenario = params.get('scenario');
   const viewport = params.get('viewport');
   return {
+    changeId: cleanChangeId(params.get('change')),
     devTargetUrl: params.get('target')?.trim() || undefined,
+    headSha: cleanHeadSha(params.get('head')),
     matches: pathname === prototypeReviewPath || pathname.startsWith(`${prototypeReviewPath}/`),
     pullRequestNumber: cleanPullRequestNumber(
       params.get('pullRequestNumber') ?? params.get('pr')
@@ -79,7 +97,7 @@ export function parsePrototypeReviewRoute(pathname: string, search: string): Pro
     ),
     orientation:
       params.get('orientation') === 'landscape' ? 'landscape' : 'portrait',
-    scenario: isPrototypeScenarioKind(scenario) ? scenario : 'ready',
+    scenario: isPrototypeScenarioKind(scenario) ? scenario : undefined,
     surface: cleanSurface(params.get('surface')),
     theme: params.get('theme') === 'light' ? 'light' : 'dark',
     viewport: isPrototypeViewportKind(viewport) ? viewport : 'phone'
@@ -155,7 +173,7 @@ export function developmentPrototypeTarget(
 
 export function embeddedPrototypeUrl(
   target: PrototypeReviewTarget,
-  scenario: PrototypeScenarioKind,
+  scenario: string,
   viewport: PrototypeViewportKind,
   orientation: PrototypeOrientation,
   theme: PrototypeTheme,

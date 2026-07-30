@@ -3,6 +3,7 @@ import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import * as changelogApi from '../src/shared/pr-preview-changelog-api';
+import * as prototypesApi from '../src/shared/pr-preview-changelog-prototypes';
 import * as testTargetsApi from '../src/shared/pr-preview-changelog-test-targets';
 
 function passthrough({
@@ -39,6 +40,10 @@ mock.module('@/lib/utils', () => ({
   cn: (...values: unknown[]) => values.filter(Boolean).join(' ')
 }));
 mock.module('@/shared/pr-preview-changelog-api', () => changelogApi);
+mock.module(
+  '@/shared/pr-preview-changelog-prototypes',
+  () => prototypesApi
+);
 mock.module(
   '@/shared/pr-preview-changelog-test-targets',
   () => testTargetsApi

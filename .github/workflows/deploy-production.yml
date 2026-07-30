@@ -230,6 +230,8 @@ jobs:
           PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64: op://projects/project-connector-command-signing-key/private_key_b64
           PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: op://projects/project-space-release-manifest-signing-key/public_key_b64
           PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET: op://projects/project-space-machine-rate-limit/password
+          PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_PASSWORD: op://projects/project-space-mqtt-jetkvm-b46e1a936ac89a4e-client/password
+          PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_USERNAME: op://projects/project-space-mqtt-jetkvm-b46e1a936ac89a4e-client/username
           VITE_CLERK_PUBLISHABLE_KEY: op://projects/clerk-project/publishable_key
 
       - name: Configure pinned SSH identity
@@ -278,6 +280,8 @@ jobs:
           PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64: ${{ steps.deploy-secrets.outputs.PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64 }}
           PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: ${{ steps.deploy-secrets.outputs.PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64 }}
           PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET: ${{ steps.deploy-secrets.outputs.PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET }}
+          PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_PASSWORD: ${{ steps.deploy-secrets.outputs.PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_PASSWORD }}
+          PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_USERNAME: ${{ steps.deploy-secrets.outputs.PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_USERNAME }}
           VITE_CLERK_PUBLISHABLE_KEY: ${{ steps.deploy-secrets.outputs.VITE_CLERK_PUBLISHABLE_KEY }}
         run: |
           set +e

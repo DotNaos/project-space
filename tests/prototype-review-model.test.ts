@@ -87,17 +87,31 @@ describe('prototype review model', () => {
   test('parses a bounded review route', () => {
     expect(parsePrototypeReviewRoute(
       '/prototype-review',
-      '?repository=DotNaos%2Fproject-space&pr=356&surface=native&viewport=tablet&scenario=offline&orientation=landscape&theme=light'
+      `?repository=DotNaos%2Fproject-space&pr=356&head=${'a'.repeat(40)}&change=mobile-workflow&surface=native&viewport=tablet&orientation=landscape&theme=light`
     )).toMatchObject({
+      changeId: 'mobile-workflow',
+      headSha: 'a'.repeat(40),
       matches: true,
       orientation: 'landscape',
       pullRequestNumber: 356,
       repositoryFullName: 'DotNaos/project-space',
-      scenario: 'offline',
+      scenario: undefined,
       surface: 'native',
       theme: 'light',
       viewport: 'tablet'
     });
+  });
+
+  test('does not translate missing or unknown scenario parameters into fixture content', () => {
+    expect(
+      parsePrototypeReviewRoute(
+        '/prototype-review',
+        '?scenario=unknown'
+      ).scenario
+    ).toBeUndefined();
+    expect(
+      parsePrototypeReviewRoute('/prototype-review', '').scenario
+    ).toBeUndefined();
   });
 
   test('prefers an exact live surface over the deployed surface', () => {

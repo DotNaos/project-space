@@ -30,14 +30,18 @@ describe('mobile prototype state', () => {
     });
   });
 
-  test('restores valid URL state and safely falls back', () => {
+  test('restores valid URL state and fails closed for unknown Changes', () => {
     expect(
       readMobilePrototypeLocation(
         '?scenario=dark-theme&viewport=tablet',
         scenarioIds,
         'populated'
       )
-    ).toEqual({ scenarioId: 'dark-theme', viewport: 'tablet' });
+    ).toEqual({
+      scenarioId: 'dark-theme',
+      scenarioState: 'ready',
+      viewport: 'tablet',
+    });
 
     expect(
       readMobilePrototypeLocation(
@@ -45,7 +49,22 @@ describe('mobile prototype state', () => {
         scenarioIds,
         'populated'
       )
-    ).toEqual({ scenarioId: 'populated', viewport: 'desktop' });
+    ).toEqual({
+      scenarioId: undefined,
+      scenarioState: 'unknown',
+      viewport: 'desktop',
+    });
+    expect(
+      readMobilePrototypeLocation(
+        '?viewport=phone',
+        scenarioIds,
+        'populated'
+      )
+    ).toEqual({
+      scenarioId: undefined,
+      scenarioState: 'missing',
+      viewport: 'phone',
+    });
   });
 
   test('preserves unrelated query values while updating prototype state', () => {

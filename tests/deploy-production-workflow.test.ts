@@ -85,4 +85,25 @@ describe('production deployment workflow contract', () => {
     expect(dockerIgnore.split('\n')).toContain('.env');
     expect(dockerIgnore.split('\n')).toContain('.env.*');
   });
+
+  test('loads and forwards every managed machine-power credential', async () => {
+    const workflow = await readFile(workflowPath, 'utf8');
+    const credentials = [
+      {
+        name: 'PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_PASSWORD',
+        reference: 'op://projects/project-space-mqtt-jetkvm-b46e1a936ac89a4e-client/password'
+      },
+      {
+        name: 'PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_USERNAME',
+        reference: 'op://projects/project-space-mqtt-jetkvm-b46e1a936ac89a4e-client/username'
+      }
+    ] as const;
+
+    for (const credential of credentials) {
+      expect(workflow).toContain(`${credential.name}: ${credential.reference}`);
+      expect(workflow).toContain(
+        `${credential.name}: \${{ steps.deploy-secrets.outputs.${credential.name} }}`
+      );
+    }
+  });
 });

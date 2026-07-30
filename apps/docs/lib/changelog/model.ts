@@ -14,12 +14,28 @@ export const changelogCategories = [
 
 export type ChangelogCategory = (typeof changelogCategories)[number];
 
+export type ChangelogPrototypeSurface =
+  | 'desktop-prototype'
+  | 'mobile-prototype';
+
+export type ChangelogPrototypeViewport =
+  | 'phone'
+  | 'tablet'
+  | 'desktop';
+
+export interface ChangelogPrototype {
+  scenarioId: string;
+  surface: ChangelogPrototypeSurface;
+  viewport: ChangelogPrototypeViewport;
+}
+
 export interface ChangelogEntry {
   id: string;
   category: ChangelogCategory;
   summary: string;
   body: string;
   issueNumber?: number;
+  prototype?: ChangelogPrototype;
   pullRequestNumber: number;
   testing: string[];
 }
@@ -73,6 +89,7 @@ type SearchValue = string | string[] | undefined;
 const entrySchema = 'project-space.changelog/v1';
 const versionsSchema = 'project-space.changelog-versions/v1';
 const entryIdPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const scenarioIdPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const categories = new Set<string>(changelogCategories);
 
@@ -274,6 +291,10 @@ function parseEntries(source: unknown, errors: string[]): ChangelogEntry[] | und
         ? undefined
         : positiveInteger(value.issueNumber, `${path}.issueNumber`, errors);
     const testing = stringList(value.testing, `${path}.testing`, errors);
+    const prototype =
+      value.prototype === undefined
+        ? undefined
+        : parsePrototype(value.prototype, `${path}.prototype`, errors);
 
     if (id && !entryIdPattern.test(id)) {
       errors.push(`${path}.id must use lowercase words separated by hyphens.`);
@@ -304,12 +325,66 @@ function parseEntries(source: unknown, errors: string[]): ChangelogEntry[] | und
         body: body.trim(),
         pullRequestNumber,
         ...(issueNumber ? { issueNumber } : {}),
+        ...(prototype ? { prototype } : {}),
         testing: testing.map((guidance) => guidance.trim()),
       });
     }
   });
 
   return entries;
+}
+
+function parsePrototype(
+  value: unknown,
+  path: string,
+  errors: string[],
+): ChangelogPrototype | undefined {
+  if (!isRecord(value)) {
+    errors.push(`${path} must be an object.`);
+    return undefined;
+  }
+  const scenarioId = requiredString(
+    value.scenarioId,
+    `${path}.scenarioId`,
+    errors,
+  );
+  if (scenarioId && !scenarioIdPattern.test(scenarioId)) {
+    errors.push(
+      `${path}.scenarioId must use lowercase words separated by hyphens.`,
+    );
+  }
+  if (
+    value.surface !== 'desktop-prototype' &&
+    value.surface !== 'mobile-prototype'
+  ) {
+    errors.push(
+      `${path}.surface must be desktop-prototype or mobile-prototype.`,
+    );
+  }
+  if (
+    value.viewport !== 'phone' &&
+    value.viewport !== 'tablet' &&
+    value.viewport !== 'desktop'
+  ) {
+    errors.push(`${path}.viewport must be phone, tablet, or desktop.`);
+  }
+  if (
+    Object.keys(value).length !== 3 ||
+    !scenarioId ||
+    !scenarioIdPattern.test(scenarioId) ||
+    (value.surface !== 'desktop-prototype' &&
+      value.surface !== 'mobile-prototype') ||
+    (value.viewport !== 'phone' &&
+      value.viewport !== 'tablet' &&
+      value.viewport !== 'desktop')
+  ) {
+    return undefined;
+  }
+  return {
+    scenarioId,
+    surface: value.surface,
+    viewport: value.viewport,
+  };
 }
 
 function parseVersions(source: unknown, errors: string[]): ChangelogVersion[] | undefined {

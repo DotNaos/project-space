@@ -13,6 +13,29 @@ export const pullRequestChangelogCategories = [
 export type PullRequestChangelogCategory =
   (typeof pullRequestChangelogCategories)[number];
 
+export const pullRequestChangelogPrototypeSurfaces = [
+  'desktop-prototype',
+  'mobile-prototype'
+] as const;
+
+export type PullRequestChangelogPrototypeSurface =
+  (typeof pullRequestChangelogPrototypeSurfaces)[number];
+
+export const pullRequestChangelogPrototypeViewports = [
+  'phone',
+  'tablet',
+  'desktop'
+] as const;
+
+export type PullRequestChangelogPrototypeViewport =
+  (typeof pullRequestChangelogPrototypeViewports)[number];
+
+export interface PullRequestChangelogPrototype {
+  scenarioId: string;
+  surface: PullRequestChangelogPrototypeSurface;
+  viewport: PullRequestChangelogPrototypeViewport;
+}
+
 export interface PullRequestChangelogIdentity {
   headSha: string;
   pullRequestNumber: number;
@@ -21,8 +44,10 @@ export interface PullRequestChangelogIdentity {
 
 export interface PullRequestChangelogEntry {
   category: PullRequestChangelogCategory;
+  description: string;
   id: string;
   issueNumber?: number;
+  prototype?: PullRequestChangelogPrototype;
   pullRequestNumber: number;
   summary: string;
   testing: readonly string[];

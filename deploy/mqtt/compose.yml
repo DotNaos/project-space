@@ -1,0 +1,35 @@
+name: platform-mqtt
+
+services:
+  broker:
+    image: eclipse-mosquitto:2.1.2-alpine
+    container_name: private-platform-mqtt
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - ./config:/mosquitto/config:ro
+      - /opt/platform/state/mqtt/data:/mosquitto/data
+    networks:
+      - public
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 1883"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    labels:
+      traefik.enable: "true"
+      traefik.constraint-label: traefik-public
+      traefik.tcp.routers.platform-mqtt.rule: HostSNI(`mqtt.os-home.net`)
+      traefik.tcp.routers.platform-mqtt.entrypoints: websecure
+      traefik.tcp.routers.platform-mqtt.tls: "true"
+      traefik.tcp.routers.platform-mqtt.tls.certresolver: letsencrypt-dns
+      traefik.tcp.routers.platform-mqtt.service: platform-mqtt
+      traefik.tcp.services.platform-mqtt.loadbalancer.server.port: "1883"
+
+networks:
+  public:
+    external: true
+    name: traefik-public
