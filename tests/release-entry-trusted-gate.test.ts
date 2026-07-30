@@ -12,17 +12,31 @@ test('runs the release gate from trusted main against the exact PR commit as dat
   );
 
   expect(workflow).toContain('pull_request_target:');
+  expect(workflow).toContain('push:\n    branches: [main]');
   expect(workflow).toContain(
-    'ref: ${{ github.event.pull_request.base.sha }}',
+    'ref: main',
   );
   expect(workflow).toContain(
-    'RELEASE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}',
+    'RELEASE_HEAD_SHA: ${{ matrix.headSha }}',
   );
   expect(workflow).toContain(
     '"pull/${PR_NUMBER}/head:${target_ref}"',
   );
   expect(workflow).not.toContain(
     'ref: ${{ github.event.pull_request.head.sha }}',
+  );
+  expect(workflow).toContain('checks: write');
+  expect(workflow).toContain(
+    "name 'Versioned release entry'",
+  );
+  expect(workflow).toContain(
+    '"repos/${GITHUB_REPOSITORY}/check-runs"',
+  );
+  expect(workflow).toContain(
+    '"repos/${GITHUB_REPOSITORY}/check-runs/${CHECK_ID}"',
+  );
+  expect(workflow).toContain(
+    'pulls?state=open&base=main&per_page=100',
   );
   expect(workflow).not.toContain('persist-credentials: true');
   expect(workflow).toContain(
@@ -31,7 +45,7 @@ test('runs the release gate from trusted main against the exact PR commit as dat
   expect(validator).toContain(
     "await gitText('show', `${headRef}:package.json`)",
   );
-  expect(validator).toContain(
-    'await validateGeneratedChangelog(headRef, headEntrySources)',
+  expect(validator).not.toContain(
+    'release-entries.generated.json',
   );
 });

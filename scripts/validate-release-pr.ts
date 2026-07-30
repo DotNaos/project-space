@@ -3,7 +3,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { parseReleaseCatalog } from '../apps/docs/lib/releases/catalog';
-import { generatedReleaseChangelogSource } from '../apps/docs/lib/releases/changelog-source';
 import { parseReleaseEntryMdx } from '../apps/docs/lib/releases/mdx';
 import {
   validateReleasePullRequest,
@@ -12,8 +11,6 @@ import {
 
 const entryDirectory =
   'apps/docs/content/docs/releases/entries';
-const generatedChangelogPath =
-  'apps/docs/content/docs/changelog/release-entries.generated.json';
 const repository =
   process.env.GITHUB_REPOSITORY || 'DotNaos/project-space';
 
@@ -94,7 +91,6 @@ async function main() {
   if (!result.ok) {
     fail(result.errors);
   }
-  await validateGeneratedChangelog(headRef, headEntrySources);
 
   console.log(
     `Release gate passed: PR #${pullRequest} owns ${result.entry.fileName}, version ${result.entry.version} (${result.entry.bump} from latest main ${currentMainVersion}).`,
@@ -189,35 +185,6 @@ async function parseNameStatus(
       };
       }),
   );
-}
-
-async function validateGeneratedChangelog(
-  headRef: string,
-  entries: Map<string, string>,
-) {
-  const catalog = parseReleaseCatalog(entries);
-  if (!catalog.ok) fail(catalog.errors);
-  const expected = JSON.stringify(
-    generatedReleaseChangelogSource(catalog.catalog.entries),
-    null,
-    2,
-  );
-  let actual: string;
-  try {
-    actual = await gitText(
-      'show',
-      `${headRef}:${generatedChangelogPath}`,
-    );
-  } catch {
-    fail(
-      'Generated release changelog source is missing. Run bun run docs:release:source.',
-    );
-  }
-  if (actual.trimEnd() !== expected.trimEnd()) {
-    fail(
-      'Generated release changelog source is stale. Run bun run docs:release:source.',
-    );
-  }
 }
 
 function releaseHeadRef() {

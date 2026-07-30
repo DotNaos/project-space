@@ -571,17 +571,19 @@ jobs:
           RELEASE_ID: ${{ steps.create.outputs.release-id }}
           VALIDATOR_SHA: ${{ steps.verify-draft.outputs.validator-sha }}
         run: |
-          for ref in "$EXPECTED_REF" main; do
-            actual=$(/usr/bin/curl --fail --silent --show-error \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${ref}" | \
-              /usr/bin/python3 -I -c 'import json,sys; print(json.load(sys.stdin)["sha"])')
-            [[ $actual == "$GITHUB_SHA" ]] || {
-              /usr/bin/printf 'Release provenance changed before publication.\n' >&2
-              exit 65
-            }
-          done
+          api_root="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}"
+          tag_sha=$(/usr/bin/curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$api_root/commits/$EXPECTED_REF" | \
+            /usr/bin/python3 -I -c 'import json,sys; print(json.load(sys.stdin)["sha"])')
+          [[ $tag_sha == "$EXPECTED_SHA" ]]
+          ancestry=$(/usr/bin/curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$api_root/compare/$EXPECTED_SHA...main" | \
+            /usr/bin/python3 -I -c 'import json,sys; d=json.load(sys.stdin); print((d.get("merge_base_commit") or {}).get("sha",""), d.get("status",""))')
+          [[ $ancestry == "$EXPECTED_SHA ahead" || $ancestry == "$EXPECTED_SHA identical" ]]
           release_api="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}"
           /usr/bin/printf '%s' '{"draft":false,"make_latest":"true"}' \
             > "$RUNNER_TEMP/publish-release-request.json"

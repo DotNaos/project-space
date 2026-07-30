@@ -1,5 +1,4 @@
 import changelogSource from '../../../apps/docs/content/docs/changelog/entries.json';
-import releaseChangelogSource from '../../../apps/docs/content/docs/changelog/release-entries.generated.json';
 
 import {
   isPullRequestChangelogIdentity,
@@ -16,6 +15,10 @@ import {
 const changelogSourceSchema = 'project-space.changelog/v1';
 const entryId = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const scenarioId = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const releaseChangelogSource =
+  typeof __PROJECT_RELEASE_CHANGELOG_SOURCE__ === 'undefined'
+    ? { entries: [], schema: changelogSourceSchema }
+    : __PROJECT_RELEASE_CHANGELOG_SOURCE__;
 
 interface ChangelogSourceEntry extends PullRequestChangelogEntry {
   body: string;
@@ -210,12 +213,23 @@ export function pullRequestChangelogSnapshotFor(
 ): PullRequestChangelogSnapshot {
   return pullRequestChangelogSnapshotFromSource(
     identity,
-    {
-      entries: [
-        ...releaseChangelogSource.entries,
-        ...changelogSource.entries
-      ],
-      schema: changelogSource.schema
-    }
+    combinedChangelogSource()
   );
+}
+
+function combinedChangelogSource(): unknown {
+  if (
+    !isRecord(releaseChangelogSource) ||
+    releaseChangelogSource.schema !== changelogSourceSchema ||
+    !Array.isArray(releaseChangelogSource.entries)
+  ) {
+    return releaseChangelogSource;
+  }
+  return {
+    entries: [
+      ...releaseChangelogSource.entries,
+      ...changelogSource.entries
+    ],
+    schema: changelogSourceSchema
+  };
 }

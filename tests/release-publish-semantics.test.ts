@@ -112,6 +112,16 @@ describe('isolated GitHub release publication semantics', () => {
         ])
       ).exitCode,
     ).not.toBe(0);
+
+    const workflow = await workflowSource();
+    expect(
+      workflow.match(
+        /compare\/\$EXPECTED_SHA\.\.\.main/g,
+      ),
+    ).toHaveLength(2);
+    expect(workflow).not.toContain(
+      'for ref in "$EXPECTED_REF" main',
+    );
   });
 
   test('accepts GitHub normalizing target_commitish to main for a verified existing tag', async () => {

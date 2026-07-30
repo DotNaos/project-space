@@ -29,6 +29,7 @@ const changelogSource = readFileSync(
   'apps/docs/lib/changelog/source.ts',
   'utf8',
 );
+const viteConfig = readFileSync('vite.config.ts', 'utf8');
 const docsPages = [
   'apps/docs/app/docs/[[...slug]]/page.tsx',
   'apps/docs/app/docs/changelog/page.tsx',
@@ -78,6 +79,12 @@ describe('continuous release Docs page contract', () => {
     expect(publicationDetails).not.toContain('entry.previewTests');
     expect(changelogSource).not.toContain(
       'release-entries.generated.json',
+    );
+    expect(viteConfig).toContain(
+      '__PROJECT_RELEASE_CHANGELOG_SOURCE__',
+    );
+    expect(viteConfig).toContain(
+      'readReleaseCatalog',
     );
   });
 

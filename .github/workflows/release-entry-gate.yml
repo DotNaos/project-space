@@ -4,38 +4,98 @@ on:
   pull_request_target:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review]
+  push:
+    branches: [main]
 
 permissions:
+  checks: write
   contents: read
   pull-requests: read
 
 concurrency:
-  group: release-entry-gate-${{ github.event.pull_request.number }}
+  group: release-entry-gate-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 jobs:
-  gate:
-    name: Trusted release entry
+  discover:
+    name: Find pull requests to revalidate
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
+    outputs:
+      matrix: ${{ steps.candidates.outputs.matrix }}
     steps:
-      - name: Check out trusted main validator
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-          ref: ${{ github.event.pull_request.base.sha }}
-
-      - name: Fetch the exact pull request revision as data
-        shell: bash
+      - name: Resolve exact open pull request heads
+        id: candidates
         env:
+          GH_TOKEN: ${{ github.token }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == pull_request_target ]]; then
+            candidates=$(jq -cn \
+              --argjson number "$PR_NUMBER" \
+              --arg headSha "$PR_HEAD_SHA" \
+              '[{number: $number, headSha: $headSha}]')
+          else
+            candidates=$(gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=main&per_page=100" \
+              --slurp | jq -c \
+              '[.[][] | {number, headSha: .head.sha}]')
+          fi
+          matrix=$(jq -cn \
+            --argjson include "$candidates" \
+            '{include: $include}')
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  revalidate:
+    name: Revalidate trusted release entry
+    needs: discover
+    if: ${{ needs.discover.outputs.matrix != '{"include":[]}' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.discover.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Start required check on exact PR head
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_HEAD_SHA: ${{ matrix.headSha }}
+          PR_NUMBER: ${{ matrix.number }}
+        run: |
+          set -euo pipefail
           [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          jq -n \
+            --arg name 'Versioned release entry' \
+            --arg head_sha "$PR_HEAD_SHA" \
+            --arg status in_progress \
+            --arg started_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg title "Validating PR #${PR_NUMBER} against latest main" \
+            '{name: $name, head_sha: $head_sha, status: $status,
+              started_at: $started_at, output: {title: $title,
+              summary: "Trusted validation is running."}}' \
+            > "$RUNNER_TEMP/check.json"
+          check_id=$(gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/check-runs" \
+            --input "$RUNNER_TEMP/check.json" --jq .id)
+          [[ "$check_id" =~ ^[1-9][0-9]*$ ]]
+          echo "check_id=$check_id" >> "$GITHUB_OUTPUT"
+
+      - name: Check out trusted latest main validator
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: main
+
+      - name: Fetch exact pull request revision as data
+        env:
+          PR_HEAD_SHA: ${{ matrix.headSha }}
+          PR_NUMBER: ${{ matrix.number }}
+        run: |
+          set -euo pipefail
           target_ref="refs/remotes/origin/release-gate/${PR_NUMBER}"
           git fetch --no-tags origin \
             "pull/${PR_NUMBER}/head:${target_ref}"
@@ -50,8 +110,39 @@ jobs:
         run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Enforce one exact versioned release entry
+        id: validation
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          RELEASE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ matrix.number }}
+          RELEASE_HEAD_SHA: ${{ matrix.headSha }}
         run: bun scripts/validate-release-pr.ts
+
+      - name: Publish exact-head required check
+        if: ${{ always() && steps.check.outputs.check_id }}
+        env:
+          CHECK_ID: ${{ steps.check.outputs.check_id }}
+          GH_TOKEN: ${{ github.token }}
+          VALIDATION_OUTCOME: ${{ steps.validation.outcome }}
+        run: |
+          set -euo pipefail
+          conclusion=failure
+          summary='The trusted latest-main release entry validation failed.'
+          if [[ "$VALIDATION_OUTCOME" == success ]]; then
+            conclusion=success
+            summary='The exact pull request head passed trusted latest-main validation.'
+          fi
+          jq -n \
+            --arg status completed \
+            --arg conclusion "$conclusion" \
+            --arg completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg title 'Versioned release entry' \
+            --arg summary "$summary" \
+            '{status: $status, conclusion: $conclusion,
+              completed_at: $completed_at,
+              output: {title: $title, summary: $summary}}' \
+            > "$RUNNER_TEMP/result.json"
+          gh api --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/check-runs/${CHECK_ID}" \
+            --input "$RUNNER_TEMP/result.json" >/dev/null
+          [[ "$conclusion" == success ]]

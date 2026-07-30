@@ -42,9 +42,6 @@ jobs:
             bun run docs:release:check
           fi
 
-      - name: Verify generated release changelog source
-        run: bun run docs:release:source:check
-
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:

@@ -30,8 +30,6 @@
     "docs:build": "cd apps/docs && bun run build",
     "docs:release:check": "bun scripts/validate-release-pr.ts --catalog",
     "docs:release:pr": "bun scripts/validate-release-pr.ts",
-    "docs:release:source": "bun scripts/generate-release-changelog.ts",
-    "docs:release:source:check": "bun scripts/generate-release-changelog.ts --check",
     "docs:cli:check": "bun scripts/generate-cli-docs.ts --check",
     "docs:cli:generate": "bun scripts/generate-cli-docs.ts",
     "machine-power:mqtt-acl:check": "bun scripts/generate-machine-power-mqtt-acl.ts --check",
