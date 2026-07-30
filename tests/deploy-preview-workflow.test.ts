@@ -67,7 +67,9 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain('https://pr-${{ needs.resolve.outputs.pr_number }}.projects.os-home.net');
     expect(workflow).toContain('environment_url');
     expect(workflow).toContain('ssh project-space-preview apply > preview-output.log');
-    expect(workflow).toContain("sed -n '/^{/,/^}$/p' preview-output.log > preview-result.json");
+    expect(workflow).toContain("jq -Rsce --arg prefix 'PROJECT_SPACE_PREVIEW_RECEIPT='");
+    expect(workflow).toContain('select(length == 1)');
+    expect(workflow).toContain('RUNNER_RECEIPT_VALID: ${{ steps.apply.outputs.receipt_valid }}');
     expect(workflow).toContain('.repositoryFullName == $repository');
     expect(workflow).toContain('.pullRequestNumber == $pr');
     expect(workflow).toContain('.requestedSha == $sha');
@@ -75,7 +77,7 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain('.prototypeMetaSha == $sha');
   });
 
-  test('keeps trusted runner progress and transport trailers outside the final JSON receipt', () => {
+  test('extracts exactly one framed receipt from the real Preview update output path', () => {
     const receipt = {
       prototypeMetaSha: 'a'.repeat(40),
       pullRequestNumber: 396,
@@ -84,18 +86,53 @@ describe('trusted PR Preview workflow contract', () => {
       runningSha: 'a'.repeat(40),
       state: 'ready'
     };
-    const progress = ` Image project-space-preview-web Pulling
+    const progress = ` Container project-space-preview-pr-396-web-1 Recreate
+{"status":"unrelated transport progress"}
  Container project-space-preview-pr-396-web-1 Healthy
-${JSON.stringify(receipt, null, 2)}
+PROJECT_SPACE_PREVIEW_RECEIPT=${JSON.stringify(receipt)}
 Connection to project-space-preview closed.
 `;
-    const normalized = spawnSync('sed', ['-n', '/^{/,/^}$/p'], {
+    const normalized = spawnSync('jq', [
+      '-Rsce',
+      '--arg',
+      'prefix',
+      'PROJECT_SPACE_PREVIEW_RECEIPT=',
+      `split("\\n")
+        | map(select(startswith($prefix)) | ltrimstr($prefix))
+        | select(length == 1)
+        | .[0]
+        | fromjson
+        | select(type == "object")`
+    ], {
       encoding: 'utf8',
       input: progress
     });
 
     expect(normalized.status).toBe(0);
     expect(JSON.parse(normalized.stdout)).toEqual(receipt);
+  });
+
+  test('fails closed when the framed Preview receipt is missing, malformed, or duplicated', () => {
+    const filter = `split("\\n")
+      | map(select(startswith($prefix)) | ltrimstr($prefix))
+      | select(length == 1)
+      | .[0]
+      | fromjson
+      | select(type == "object")`;
+    const extract = (input: string) => spawnSync('jq', [
+      '-Rsce',
+      '--arg',
+      'prefix',
+      'PROJECT_SPACE_PREVIEW_RECEIPT=',
+      filter
+    ], { encoding: 'utf8', input });
+
+    expect(extract('Container healthy\n').status).not.toBe(0);
+    expect(extract('PROJECT_SPACE_PREVIEW_RECEIPT=not-json\n').status).not.toBe(0);
+    expect(extract([
+      'PROJECT_SPACE_PREVIEW_RECEIPT={"state":"ready"}',
+      'PROJECT_SPACE_PREVIEW_RECEIPT={"state":"ready"}'
+    ].join('\n')).status).not.toBe(0);
   });
 
   test('isolates slow and module-mocking tests from the bulk validation process', async () => {
