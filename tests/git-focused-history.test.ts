@@ -49,4 +49,20 @@ describe('focused Git history merging', () => {
 
     expect(result).toEqual([base]);
   });
+
+  test('keeps both branch refs when focused histories share one tip', () => {
+    const head = {
+      ...commit('shared', [], '2026-07-30T10:00:00Z'),
+      refs: ['refs/heads/feature']
+    };
+    const defaultHead = {
+      ...head,
+      refs: ['refs/heads/main']
+    };
+
+    expect(mergeFocusedGitHistories([[head], [defaultHead]])).toEqual([{
+      ...defaultHead,
+      refs: ['refs/heads/feature', 'refs/heads/main']
+    }]);
+  });
 });

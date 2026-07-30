@@ -35,7 +35,13 @@ export function mergeFocusedGitHistories(
       if (!inputOrder.has(commit.hash)) {
         inputOrder.set(commit.hash, inputOrder.size);
       }
-      commits.set(commit.hash, commit);
+      const current = commits.get(commit.hash);
+      commits.set(commit.hash, current
+        ? {
+            ...commit,
+            refs: Array.from(new Set([...current.refs, ...commit.refs]))
+          }
+        : commit);
     }
   }
 
