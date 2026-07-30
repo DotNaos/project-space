@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ExternalLink, Inbox } from 'lucide-react';
-import { projectSpaceClient } from '@/api/project-space-client';
 import { Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type {
@@ -12,9 +11,6 @@ import type {
 import type { RoadmapController } from '../../roadmap/use-roadmap';
 import { RoadmapIssuesGraphView } from '../../roadmap/roadmap-issues-graph-view';
 import { GitHubMark } from './github-mark';
-import { moveIssueToColumn } from './issue-board-move';
-import { IssueBoardMoveLock } from './issue-board-move-lock';
-import { IssueBoardMoveStatus } from './issue-board-move-status';
 import { IssueBoardSettings } from './issue-board-settings';
 import {
   browserIssueCreationHistory,
@@ -31,14 +27,11 @@ import {
   groupIssuesByColumn,
   loadHiddenIssueColumns,
   loadIssueColumnOrder,
-  loadIssueColumnOverrides,
   orderedIssueColumns,
   saveHiddenIssueColumns,
   saveIssueColumnOrder,
-  saveIssueColumnOverrides,
   topIssueLabels,
   type IssueColumnId,
-  type IssueColumnOverrides,
   type IssueViewMode
 } from './issue-board-model';
 
@@ -64,35 +57,18 @@ interface IssueIndexPanelProps {
   viewMode: IssueViewMode;
 }
 
-interface IssueMoveFailure {
-  columnId: IssueColumnId;
-  issueNumber: number;
-  message: string;
-}
-
 export function IssueIndexPanel(props: IssueIndexPanelProps) {
-  const repoFullName = props.repository?.fullName;
-  const [overrides, setOverrides] = useState<IssueColumnOverrides>(() =>
-    loadIssueColumnOverrides(repoFullName)
-  );
   const [hiddenColumns, setHiddenColumns] = useState<ReadonlySet<IssueColumnId>>(() =>
     loadHiddenIssueColumns()
   );
   const [columnOrder, setColumnOrder] = useState<IssueColumnId[]>(() => loadIssueColumnOrder());
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [moveFailure, setMoveFailure] = useState<IssueMoveFailure | null>(null);
-  const [movingIssues, setMovingIssues] = useState<ReadonlyMap<number, IssueColumnId>>(
-    () => new Map()
-  );
   const [isCreationOpen, setIsCreationOpen] = useState(() =>
     typeof window !== 'undefined'
       && isIssueCreationPath(window.location.pathname, props.projectId)
   );
   const [creationCloseRequest, setCreationCloseRequest] = useState(0);
   const creationHistoryRef = useRef<IssueCreationHistoryController | null>(null);
-  const moveLockRef = useRef(new IssueBoardMoveLock());
-  const moveRequestsRef = useRef(new Map<number, number>());
-  const repositoryScopeRef = useRef(repoFullName);
   const creationSucceededRef = useRef(false);
   const creationTriggerRef = useRef<HTMLElement | null>(null);
   const pendingCreatedIssueRef = useRef<{
@@ -101,15 +77,6 @@ export function IssueIndexPanel(props: IssueIndexPanelProps) {
   } | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
-  repositoryScopeRef.current = repoFullName;
-
-  useEffect(() => {
-    setOverrides(loadIssueColumnOverrides(repoFullName));
-    setMoveFailure(null);
-    moveLockRef.current.clear();
-    setMovingIssues(new Map());
-    moveRequestsRef.current.clear();
-  }, [repoFullName]);
 
   const closeFilter = useCallback(() => setIsFilterOpen(false), []);
   const restoreCreationTrigger = useCallback(() => {
@@ -189,53 +156,7 @@ export function IssueIndexPanel(props: IssueIndexPanelProps) {
   const hasFilter = props.query.trim().length > 0 || props.activeLabels.size > 0;
   const orderedColumns = orderedIssueColumns(columnOrder);
   const visibleColumns = orderedColumns.filter((column) => !hiddenColumns.has(column.id));
-  const columnGroups = groupIssuesByColumn(filteredIssues, overrides, props.issues);
-
-  const moveIssue = async (issueNumber: number, columnId: IssueColumnId) => {
-    const moveToken = moveLockRef.current.begin(issueNumber, columnId);
-    if (!moveToken) return;
-
-    setMovingIssues(moveLockRef.current.snapshot());
-    const issue = props.issues.find((entry) => entry.number === issueNumber);
-    const repositoryFullName = props.repository?.fullName;
-    const requestId = (moveRequestsRef.current.get(issueNumber) ?? 0) + 1;
-    moveRequestsRef.current.set(issueNumber, requestId);
-
-    const result = await moveIssueToColumn({
-      columnId,
-      isCurrentRepository: () => (
-        repositoryScopeRef.current === repositoryFullName
-        && moveRequestsRef.current.get(issueNumber) === requestId
-      ),
-      issue,
-      repositoryFullName,
-      updateIssue: (request) => projectSpaceClient.updateGitHubIssue(request)
-    });
-    moveLockRef.current.finish(moveToken);
-    setMovingIssues(moveLockRef.current.snapshot());
-    if (
-      repositoryScopeRef.current !== repositoryFullName
-      || moveRequestsRef.current.get(issueNumber) !== requestId
-    ) {
-      return;
-    }
-    if (result.state === 'blocked') {
-      setMoveFailure({ columnId, issueNumber, message: result.message });
-      return;
-    }
-    setMoveFailure((failure) => (
-      failure?.issueNumber === issueNumber && failure.columnId === columnId
-        ? null
-        : failure
-    ));
-    if (result.issue) propsRef.current.onIssueCreated(result.issue);
-
-    setOverrides((previous) => {
-      const next = { ...previous, [issueNumber]: columnId };
-      saveIssueColumnOverrides(repositoryFullName, next);
-      return next;
-    });
-  };
+  const columnGroups = groupIssuesByColumn(filteredIssues, props.pullRequests);
 
   const toggleColumn = (columnId: IssueColumnId) => {
     setHiddenColumns((previous) => {
@@ -296,7 +217,7 @@ export function IssueIndexPanel(props: IssueIndexPanelProps) {
         <>
           <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
             <Text className="text-xs font-medium leading-5 text-neutral-400">
-              Local placement · GitHub open/closed state stays authoritative
+              GitHub-derived · Issues with a linked pull request are in progress
             </Text>
             <IssueBoardSettings
               counts={Object.fromEntries(
@@ -309,25 +230,12 @@ export function IssueIndexPanel(props: IssueIndexPanelProps) {
               visibleColumnCount={visibleColumns.length}
             />
           </div>
-          {moveFailure ? (
-            <IssueBoardMoveStatus
-              isRetrying={
-                movingIssues.get(moveFailure.issueNumber) === moveFailure.columnId
-              }
-              message={moveFailure.message}
-              onDismiss={() => setMoveFailure(null)}
-              onRetry={() => void moveIssue(moveFailure.issueNumber, moveFailure.columnId)}
-            />
-          ) : null}
         </>
       ) : null}
 
       <IssueContent
         {...props}
         filteredIssues={filteredIssues}
-        movingIssueNumbers={new Set(movingIssues.keys())}
-        onMoveIssue={moveIssue}
-        overrides={overrides}
         visibleColumns={visibleColumns}
       />
 
@@ -365,12 +273,9 @@ function IssueContent({
   filteredIssues,
   isLoading,
   issues,
-  movingIssueNumbers,
   onBranchCreated,
-  onMoveIssue,
   onOpenIssue,
   onRetry,
-  overrides,
   pullRequests,
   repository,
   roadmap,
@@ -378,9 +283,6 @@ function IssueContent({
   visibleColumns
 }: IssueIndexPanelProps & {
   filteredIssues: GitHubIssueRecord[];
-  movingIssueNumbers: ReadonlySet<number>;
-  onMoveIssue(issueNumber: number, columnId: IssueColumnId): void;
-  overrides: IssueColumnOverrides;
   visibleColumns: ReturnType<typeof orderedIssueColumns>;
 }) {
   if (viewMode === 'graph') {
@@ -411,14 +313,10 @@ function IssueContent({
         branches={branches}
         defaultBranch={branches.find((branch) => branch.isDefault)?.name ?? 'main'}
         issues={filteredIssues}
-        movingIssueNumbers={movingIssueNumbers}
         onBranchCreated={onBranchCreated}
-        onMoveIssue={onMoveIssue}
         onOpenIssue={onOpenIssue}
         pullRequests={pullRequests}
         repoFullName={repository?.fullName}
-        overrides={overrides}
-        placementIssues={issues}
         visibleColumns={visibleColumns}
       />
     );
@@ -430,7 +328,6 @@ function IssueContent({
       issues={filteredIssues}
       onBranchCreated={onBranchCreated}
       onOpenIssue={onOpenIssue}
-      placementIssues={issues}
       pullRequests={pullRequests}
       roadmap={roadmap}
       repoFullName={repository?.fullName}

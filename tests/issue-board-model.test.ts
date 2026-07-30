@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import type { GitHubIssueRecord } from '../src/shared/project-space-api';
+import type {
+  GitHubIssueRecord,
+  GitHubPullRequestRecord
+} from '../src/shared/project-space-api';
 import {
   filterIssues,
   groupIssuesByColumn,
-  issuePlacementIndices,
   normalizeIssueColumnOrder,
   resolveIssueColumn,
-  resolveIssueColumnFromPlacement,
   topIssueLabels
 } from '../src/features/project-desktop/components/issue-board-model';
 
@@ -19,22 +20,56 @@ function issue(
   return { labels, number, state, title, url: `https://github.test/issues/${number}` };
 }
 
+function pullRequest(
+  number: number,
+  linkedIssueNumbers: number[],
+  state: GitHubPullRequestRecord['state'] = 'open'
+): GitHubPullRequestRecord {
+  return {
+    linkedIssueNumbers,
+    number,
+    state,
+    title: `Pull request ${number}`,
+    url: `https://github.test/pull/${number}`
+  };
+}
+
 describe('issue board model', () => {
-  test('keeps closed state authoritative over local placement', () => {
-    const closed = issue(1, 'Done', ['ready'], 'closed');
-    const reopened = issue(1, 'Reopened work');
-    expect(resolveIssueColumn(closed, 0, { 1: 'in-progress' })).toBe('closed');
-    expect(groupIssuesByColumn([closed], { 1: 'ready' }).closed).toEqual([closed]);
-    expect(resolveIssueColumn(reopened, 4, { 1: 'closed' })).toBe('backlog');
+  test('derives columns from GitHub issue state and linked pull requests', () => {
+    const backlog = issue(1, 'Unstarted work');
+    const inProgress = issue(2, 'Active work');
+    const closedWithPullRequest = issue(3, 'Done', [], 'closed');
+    const pullRequests = [
+      pullRequest(20, [2]),
+      pullRequest(21, [3], 'merged')
+    ];
+
+    expect(resolveIssueColumn(backlog, pullRequests)).toBe('backlog');
+    expect(resolveIssueColumn(inProgress, pullRequests)).toBe('in-progress');
+    expect(resolveIssueColumn(closedWithPullRequest, pullRequests)).toBe('closed');
+    expect(groupIssuesByColumn(
+      [backlog, inProgress, closedWithPullRequest],
+      pullRequests
+    )).toEqual({
+      backlog: [backlog],
+      closed: [closedWithPullRequest],
+      'in-progress': [inProgress]
+    });
+  });
+
+  test('treats every linked pull request state as active until the issue closes', () => {
+    const openIssue = issue(8, 'Follow-up remains open');
+
+    expect(resolveIssueColumn(openIssue, [pullRequest(80, [8], 'open')])).toBe('in-progress');
+    expect(resolveIssueColumn(openIssue, [pullRequest(81, [8], 'closed')])).toBe('in-progress');
+    expect(resolveIssueColumn(openIssue, [pullRequest(82, [8], 'merged')])).toBe('in-progress');
   });
 
   test('normalizes board order without losing or duplicating columns', () => {
-    expect(normalizeIssueColumnOrder(['closed', 'ready', 'ready'])).toEqual([
+    expect(normalizeIssueColumnOrder(['closed', 'closed'])).toEqual([
       'closed',
-      'ready',
       'backlog',
-      'in-progress',
-      'blocked'
+      'in-progress'
     ]);
   });
 
@@ -53,22 +88,15 @@ describe('issue board model', () => {
     expect(topIssueLabels(issues)).toEqual(['frontend', 'backend', 'mobile']);
   });
 
-  test('keeps derived placement stable while filtering cards', () => {
-    const issues = Array.from({ length: 5 }, (_, index) =>
-      issue(index + 1, `Generic issue ${index + 1}`)
-    );
-    const filtered = filterIssues(issues, '#5', new Set());
+  test('keeps GitHub-derived placement stable while filtering cards', () => {
+    const issues = [
+      issue(1, 'Generic issue'),
+      issue(2, 'Active issue')
+    ];
+    const pullRequests = [pullRequest(22, [2])];
+    const filtered = filterIssues(issues, '#2', new Set());
 
-    expect(groupIssuesByColumn(issues, {}).backlog).toEqual([issues[4]]);
-    expect(groupIssuesByColumn(filtered, {}, issues).backlog).toEqual([issues[4]]);
-    expect(groupIssuesByColumn(filtered, {}, issues).ready).toEqual([]);
-    expect(
-      resolveIssueColumnFromPlacement(
-        filtered[0],
-        0,
-        {},
-        issuePlacementIndices(issues)
-      )
-    ).toBe('backlog');
+    expect(groupIssuesByColumn(issues, pullRequests).backlog).toEqual([issues[0]]);
+    expect(groupIssuesByColumn(filtered, pullRequests)['in-progress']).toEqual([issues[1]]);
   });
 });

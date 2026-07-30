@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useState } from 'react';
 import { ListPlus } from 'lucide-react';
 import { Button, Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
@@ -13,11 +12,7 @@ import { IssueBranchMenu, IssuePullRequestChip } from './issue-branch-menu';
 import { issuePullRequestsForIssue } from './issue-branch-model';
 import {
   issueUpdatedAtLabel,
-  issuePlacementIndices,
-  loadIssueColumnOverrides,
-  resolveIssueColumn,
-  resolveIssueColumnFromPlacement,
-  type IssueColumnOverrides
+  resolveIssueColumn
 } from './issue-board-model';
 import { IssueAuthorAvatar, IssueLabelChip, IssueStatusDot } from './issue-visuals';
 
@@ -27,7 +22,6 @@ export function IssueListView({
   issues,
   onBranchCreated,
   onOpenIssue,
-  placementIssues,
   pullRequests,
   roadmap,
   repoFullName
@@ -37,23 +31,10 @@ export function IssueListView({
   issues: GitHubIssueRecord[];
   onBranchCreated(branch: GitHubBranchRecord): void;
   onOpenIssue(issueNumber: number): void;
-  placementIssues: GitHubIssueRecord[];
   pullRequests: GitHubPullRequestRecord[];
   roadmap?: RoadmapController;
   repoFullName?: string;
 }) {
-  const [overrides, setOverrides] = useState<IssueColumnOverrides>(() =>
-    loadIssueColumnOverrides(repoFullName)
-  );
-  const placementIndices = useMemo(
-    () => issuePlacementIndices(placementIssues),
-    [placementIssues]
-  );
-
-  useEffect(() => {
-    setOverrides(loadIssueColumnOverrides(repoFullName));
-  }, [repoFullName]);
-
   return (
     <div className="issue-rise-in flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-neutral-800/70 bg-neutral-950/40">
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -61,12 +42,7 @@ export function IssueListView({
           <IssueListRow
             branches={branches}
             key={issue.number}
-            columnId={resolveIssueColumnFromPlacement(
-              issue,
-              index,
-              overrides,
-              placementIndices
-            )}
+            columnId={resolveIssueColumn(issue, pullRequests)}
             defaultBranch={defaultBranch}
             isLast={index === issues.length - 1}
             issue={issue}

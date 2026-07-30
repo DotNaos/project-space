@@ -276,7 +276,13 @@ function IssueDetailWorkbench({ branches, connectorOverview, issue, issues, onBr
 }) {
   return (
     <div className="grid min-h-0 flex-1 auto-rows-max content-start gap-4 overflow-y-auto lg:auto-rows-auto lg:grid-cols-[minmax(13rem,0.55fr)_minmax(0,1.2fr)_minmax(14rem,0.6fr)] lg:content-stretch lg:overflow-hidden">
-      <IssueDetailList className="hidden lg:flex" issues={issues} onOpenIssue={onOpenIssue} repoFullName={repoFullName} selectedIssueNumber={issue.number} />
+      <IssueDetailList
+        className="hidden lg:flex"
+        issues={issues}
+        onOpenIssue={onOpenIssue}
+        pullRequests={pullRequests}
+        selectedIssueNumber={issue.number}
+      />
       <IssueBody issue={issue} onIssueUpdated={onIssueUpdated} repoFullName={repoFullName} />
       <IssueActionPanel branches={branches} connectorOverview={connectorOverview} issue={issue} onBranchCreated={onBranchCreated} onIssueUpdated={onIssueUpdated} onOpenHistory={onOpenHistory} onPullRequestCreated={onPullRequestCreated} project={project} projects={projects} pullRequests={pullRequests} repoFullName={repoFullName} repoUrl={repoUrl} targetPath={targetPath} />
     </div>

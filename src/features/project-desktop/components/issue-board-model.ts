@@ -1,12 +1,14 @@
-import type { GitHubIssueRecord } from '@/shared/project-space-api';
+import type {
+  GitHubIssueRecord,
+  GitHubPullRequestRecord
+} from '@/shared/project-space-api';
 import { formatRelativeTime } from './project-main-model';
 
-export type IssueColumnId = 'backlog' | 'blocked' | 'closed' | 'in-progress' | 'ready';
+export type IssueColumnId = 'backlog' | 'closed' | 'in-progress';
 export type IssueViewMode = 'board' | 'graph' | 'list';
 
 export interface IssueColumnDefinition {
   dotClass: string;
-  dropClass: string;
   hint: string;
   id: IssueColumnId;
   label: string;
@@ -15,35 +17,18 @@ export interface IssueColumnDefinition {
 export const issueColumns: IssueColumnDefinition[] = [
   {
     dotClass: 'bg-neutral-500',
-    dropClass: 'border-neutral-500/60 bg-neutral-500/[0.04]',
     hint: 'Not scheduled yet',
     id: 'backlog',
     label: 'Backlog'
   },
   {
-    dotClass: 'bg-emerald-400',
-    dropClass: 'border-emerald-400/50 bg-emerald-400/[0.04]',
-    hint: 'Cleared to pick up',
-    id: 'ready',
-    label: 'Ready'
-  },
-  {
     dotClass: 'bg-sky-400',
-    dropClass: 'border-sky-400/50 bg-sky-400/[0.04]',
-    hint: 'Being worked on',
+    hint: 'Open issues with a linked pull request',
     id: 'in-progress',
     label: 'In progress'
   },
   {
-    dotClass: 'bg-rose-400',
-    dropClass: 'border-rose-400/50 bg-rose-400/[0.04]',
-    hint: 'Waiting on something',
-    id: 'blocked',
-    label: 'Blocked'
-  },
-  {
     dotClass: 'bg-violet-400',
-    dropClass: 'border-violet-400/50 bg-violet-400/[0.04]',
     hint: 'Completed work',
     id: 'closed',
     label: 'Closed'
@@ -54,81 +39,33 @@ export function issueColumnById(columnId: IssueColumnId) {
   return issueColumns.find((column) => column.id === columnId) ?? issueColumns[0];
 }
 
-export type IssueColumnOverrides = Record<number, IssueColumnId>;
-
-function derivedIssueColumn(issue: GitHubIssueRecord, index: number): IssueColumnId {
-  if (issue.state === 'closed') {
-    return 'closed';
-  }
-
-  const text = `${issue.title} ${issue.labels.join(' ')}`.toLowerCase();
-
-  if (text.includes('blocked') || text.includes('blocker') || text.includes('waiting')) {
-    return 'blocked';
-  }
-
-  if (text.includes('in progress') || text.includes('wip') || text.includes('doing')) {
-    return 'in-progress';
-  }
-
-  if (text.includes('ready') || index < 4) {
-    return 'ready';
-  }
-
-  return 'backlog';
-}
-
 export function resolveIssueColumn(
   issue: GitHubIssueRecord,
-  index: number,
-  overrides: IssueColumnOverrides
+  pullRequests: GitHubPullRequestRecord[]
 ): IssueColumnId {
   if (issue.state === 'closed') {
     return 'closed';
   }
 
-  const override = overrides[issue.number];
-  return override && override !== 'closed'
-    ? override
-    : derivedIssueColumn(issue, index);
-}
-
-export function issuePlacementIndices(issues: GitHubIssueRecord[]) {
-  return new Map(issues.map((issue, index) => [issue.number, index]));
-}
-
-export function resolveIssueColumnFromPlacement(
-  issue: GitHubIssueRecord,
-  fallbackIndex: number,
-  overrides: IssueColumnOverrides,
-  placementIndices: ReadonlyMap<number, number>
-) {
-  return resolveIssueColumn(
-    issue,
-    placementIndices.get(issue.number) ?? fallbackIndex,
-    overrides
-  );
+  return pullRequests.some((pullRequest) =>
+    pullRequest.linkedIssueNumbers?.includes(issue.number)
+  )
+    ? 'in-progress'
+    : 'backlog';
 }
 
 export function groupIssuesByColumn(
   issues: GitHubIssueRecord[],
-  overrides: IssueColumnOverrides,
-  placementIssues: GitHubIssueRecord[] = issues
+  pullRequests: GitHubPullRequestRecord[]
 ) {
   const groups: Record<IssueColumnId, GitHubIssueRecord[]> = {
     backlog: [],
-    blocked: [],
     closed: [],
-    'in-progress': [],
-    ready: []
+    'in-progress': []
   };
 
-  const placementIndices = issuePlacementIndices(placementIssues);
-
-  issues.forEach((issue, fallbackIndex) => {
-    groups[
-      resolveIssueColumnFromPlacement(issue, fallbackIndex, overrides, placementIndices)
-    ].push(issue);
+  issues.forEach((issue) => {
+    groups[resolveIssueColumn(issue, pullRequests)].push(issue);
   });
 
   return groups;
@@ -194,54 +131,6 @@ export function orderedIssueColumns(order: IssueColumnId[]) {
   return normalizeIssueColumnOrder(order)
     .map((columnId) => byId.get(columnId))
     .filter((column): column is IssueColumnDefinition => Boolean(column));
-}
-
-function boardStorageKey(repoFullName: string) {
-  return `project-space:issue-board:v1:${repoFullName}`;
-}
-
-export function loadIssueColumnOverrides(repoFullName?: string): IssueColumnOverrides {
-  if (!repoFullName) {
-    return {};
-  }
-
-  try {
-    const raw = window.localStorage.getItem(boardStorageKey(repoFullName));
-    const parsed: unknown = raw ? JSON.parse(raw) : {};
-
-    if (!parsed || typeof parsed !== 'object') {
-      return {};
-    }
-
-    const overrides: IssueColumnOverrides = {};
-
-    for (const [key, value] of Object.entries(parsed)) {
-      const issueNumber = Number(key);
-
-      if (Number.isInteger(issueNumber) && typeof value === 'string' && columnIds.has(value)) {
-        overrides[issueNumber] = value as IssueColumnId;
-      }
-    }
-
-    return overrides;
-  } catch {
-    return {};
-  }
-}
-
-export function saveIssueColumnOverrides(
-  repoFullName: string | undefined,
-  overrides: IssueColumnOverrides
-) {
-  if (!repoFullName) {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(boardStorageKey(repoFullName), JSON.stringify(overrides));
-  } catch {
-    // Persisting the board layout is best-effort.
-  }
 }
 
 const hiddenColumnsStorageKey = 'project-space:issue-board-hidden-columns:v1';
