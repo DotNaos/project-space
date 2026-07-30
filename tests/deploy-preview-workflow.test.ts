@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 const deploymentWorkflowPath = new URL('../.github/workflows/deploy-preview.yml', import.meta.url);
 const reaperWorkflowPath = new URL('../.github/workflows/reap-previews.yml', import.meta.url);
+const previewDocsDockerfilePath = new URL('../deploy/preview.docs.Dockerfile', import.meta.url);
 
 function actionReferences(workflow: string) {
   return [...workflow.matchAll(/uses: [^@\n]+@([^\s#]+)/g)].map((match) => match[1]);
@@ -44,6 +45,18 @@ describe('trusted PR Preview workflow contract', () => {
     expect(build).toContain('VITE_CLERK_PUBLISHABLE_KEY=${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}');
     expect(workflow).not.toContain('file: source/deploy/');
     expect(workflow).not.toContain('./bin/project');
+  });
+
+  test('keeps the Project Space version available to Preview docs at runtime', async () => {
+    const dockerfile = await readFile(previewDocsDockerfilePath, 'utf8');
+    const build = dockerfile.slice(
+      dockerfile.indexOf('FROM oven/bun:1 AS build'),
+      dockerfile.indexOf('FROM oven/bun:1 AS runner')
+    );
+    const runner = dockerfile.slice(dockerfile.indexOf('FROM oven/bun:1 AS runner'));
+
+    expect(build).toContain('COPY package.json /workspace/package.json');
+    expect(runner).toContain('COPY --from=build /workspace/package.json /workspace/package.json');
   });
 
   test('revalidates exact same-repository head and passes only immutable digests to the runner', async () => {

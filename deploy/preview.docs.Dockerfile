@@ -8,6 +8,7 @@ FROM oven/bun:1 AS build
 
 WORKDIR /workspace
 COPY --from=deps /workspace/apps/docs/node_modules /workspace/apps/docs/node_modules
+COPY package.json /workspace/package.json
 COPY apps/docs /workspace/apps/docs
 WORKDIR /workspace/apps/docs
 RUN bun run build
@@ -22,5 +23,6 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 COPY --from=build /workspace/apps/docs /workspace/apps/docs
+COPY --from=build /workspace/package.json /workspace/package.json
 EXPOSE 3000
 CMD ["bun", "run", "start", "--", "-H", "0.0.0.0", "-p", "3000"]
