@@ -1,0 +1,35 @@
+---
+title: "Short user-facing release title"
+version: "0.0.0"
+bump: "patch"
+pullRequest: 0
+issues: []
+areas:
+  - docs
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  Concisely explain what changed for Project Space users.
+</ReleaseSummary>
+
+## Changes
+
+### Added
+
+- Describe one concrete user-visible change.
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Describe one concrete check in the exact PR Preview.
+
+</PreviewOnly>

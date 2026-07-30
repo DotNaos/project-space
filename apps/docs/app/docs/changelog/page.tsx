@@ -16,6 +16,7 @@ import {
   DocsPage,
   DocsTitle,
 } from 'fumadocs-ui/layouts/docs/page';
+import { DocsArticleIdentity } from '@/components/docs-article-identity';
 
 export const metadata: Metadata = {
   title: 'Changelog',
@@ -44,6 +45,7 @@ export default async function ChangelogPage({ searchParams }: ChangelogPageProps
   return (
     <DocsPage toc={[]} full>
       <DocsTitle>Changelog</DocsTitle>
+      <DocsArticleIdentity title="Changelog" />
       <DocsDescription>
         Release notes and concrete testing guidance, read from this exact source revision.
       </DocsDescription>
