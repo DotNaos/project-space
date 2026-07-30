@@ -75,4 +75,11 @@ test('publishes a merged release only through the validated exact tag', () => {
   );
   expect(publisher).not.toContain('releases?per_page=100');
   expect(publisher).not.toContain('git push');
+  const gitEntriesReader = publisher.slice(
+    publisher.indexOf('function readGitEntries'),
+    publisher.indexOf('function packageVersion'),
+  );
+  expect(gitEntriesReader).toContain(
+    ".filter((path) => path.endsWith('.mdx'))",
+  );
 });

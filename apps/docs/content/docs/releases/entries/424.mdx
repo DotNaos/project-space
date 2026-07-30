@@ -1,0 +1,46 @@
+---
+title: "Recover merged release validation"
+version: "0.4.49"
+bump: "patch"
+pullRequest: 424
+issues:
+  - 383
+areas:
+  - deploy
+  - security
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  Merged release validation now reads only versioned MDX entries, so
+  authoring guidance cannot block an otherwise valid release handoff.
+</ReleaseSummary>
+
+## Changes
+
+### Fixed
+
+- Prior-main release catalogs no longer parse the entry-directory README as release content
+- Exact merged releases can advance from validation to tag creation when authoring guidance is present
+
+### Security
+
+- The release handoff remains fail-closed for malformed MDX entries while excluding files outside the release-entry contract
+- A focused regression test protects the exact catalog filtering used after merge
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Confirm the release gate accepts exactly this PR-owned v0.4.49 entry for PR 424
+- Confirm merged release validation ignores `entries/README.md` but still validates every `.mdx` entry
+- Confirm the published article omits this Preview-only test guidance after release
+
+</PreviewOnly>
