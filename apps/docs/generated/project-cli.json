@@ -1797,6 +1797,164 @@
         "commands": []
       },
       {
+        "path": "project machine",
+        "name": "machine",
+        "usage": "machine",
+        "short": "Manage exact physical machines",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for machine",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project machine power",
+            "name": "power",
+            "usage": "power",
+            "short": "Inspect or request managed physical power",
+            "aliases": [],
+            "runnable": false,
+            "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for power",
+                "inherited": false
+              }
+            ],
+            "commands": [
+              {
+                "path": "project machine power off",
+                "name": "off",
+                "usage": "off",
+                "short": "Request the exact managed machine to power off",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: text or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for off",
+                    "inherited": false
+                  },
+                  {
+                    "name": "machine",
+                    "type": "string",
+                    "description": "exact physical machine name",
+                    "inherited": false
+                  },
+                  {
+                    "name": "machine-id",
+                    "type": "string",
+                    "description": "exact physical machine ID",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project machine power on",
+                "name": "on",
+                "usage": "on",
+                "short": "Request the exact managed machine to power on",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: text or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for on",
+                    "inherited": false
+                  },
+                  {
+                    "name": "machine",
+                    "type": "string",
+                    "description": "exact physical machine name",
+                    "inherited": false
+                  },
+                  {
+                    "name": "machine-id",
+                    "type": "string",
+                    "description": "exact physical machine ID",
+                    "inherited": false
+                  },
+                  {
+                    "name": "no-wait",
+                    "type": "bool",
+                    "description": "return after the provider delivery attempt",
+                    "inherited": false
+                  },
+                  {
+                    "name": "timeout",
+                    "type": "duration",
+                    "description": "maximum time to wait for physical confirmation",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project machine power status",
+                "name": "status",
+                "usage": "status",
+                "short": "Show fresh managed physical-power evidence",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: text or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for status",
+                    "inherited": false
+                  },
+                  {
+                    "name": "machine",
+                    "type": "string",
+                    "description": "exact physical machine name",
+                    "inherited": false
+                  },
+                  {
+                    "name": "machine-id",
+                    "type": "string",
+                    "description": "exact physical machine ID",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              }
+            ]
+          }
+        ]
+      },
+      {
         "path": "project module",
         "name": "module",
         "usage": "module",

@@ -79,7 +79,8 @@ describe('database migrations', () => {
       '0022_codex_machine_task_durable_operations',
       '0023_codex_machine_task_start_payload',
       '0024_roadmap_plans',
-      '0025_pr_dev_server_leases'
+      '0025_pr_dev_server_leases',
+      '0026_machine_power_operations'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -94,6 +95,14 @@ describe('database migrations', () => {
     expect(sql).toContain('drop index if exists dev_server_sessions_one_active_per_worktree');
     expect(sql).toContain('create table if not exists dev_server_sessions');
     expect(sql).toContain('foreign key (machine_id, owner_user_id)');
+    expect(sql).toContain('create table machine_power_operations');
+    expect(sql).toContain('create unique index machine_power_one_dispatch_per_machine');
+    expect(sql).toContain('dispatch_attempted boolean not null default false');
+    expect(sql).toContain("state in ('accepted', 'uncertain') and dispatch_attempted");
+    expect(sql).toContain("'expired'");
+    expect(sql).toContain("actor_type text not null");
+    expect(sql).toContain("actor_type = 'machine'");
+    expect(sql).toContain('caller_machine_id text');
     expect(sql).toContain('add column expected_machine_id text');
     expect(sql).toContain("'revoked-enrollment-' || id::text");
     expect(sql).toContain('alter column expected_machine_id set not null');
