@@ -15,6 +15,7 @@ interface PrototypeReviewChangelogModalProps {
   isOpen: boolean;
   localContext?: PrototypeReviewLocalContext;
   onOpenChange(open: boolean): void;
+  previewBuildIdentity?: PullRequestChangelogIdentity;
   prototypeTarget?: string;
   pullRequestNumber?: number;
   repositoryFullName?: string;
@@ -28,6 +29,7 @@ export function PrototypeReviewChangelogModal({
   isOpen,
   localContext,
   onOpenChange,
+  previewBuildIdentity,
   prototypeTarget,
   pullRequestNumber,
   repositoryFullName,
@@ -56,6 +58,7 @@ export function PrototypeReviewChangelogModal({
               <ChangelogContent
                 expectedIdentity={expectedIdentity}
                 localContext={localContext}
+                previewBuildIdentity={previewBuildIdentity}
                 prototypeTarget={prototypeTarget}
                 pullRequestNumber={pullRequestNumber}
                 repositoryFullName={repositoryFullName}
@@ -73,6 +76,7 @@ export function PrototypeReviewChangelogModal({
 function ChangelogContent({
   expectedIdentity,
   localContext,
+  previewBuildIdentity,
   prototypeTarget,
   pullRequestNumber,
   repositoryFullName,
@@ -81,6 +85,7 @@ function ChangelogContent({
 }: {
   expectedIdentity?: PullRequestChangelogIdentity;
   localContext?: PrototypeReviewLocalContext;
+  previewBuildIdentity?: PullRequestChangelogIdentity;
   prototypeTarget?: string;
   pullRequestNumber?: number;
   repositoryFullName?: string;
@@ -90,6 +95,7 @@ function ChangelogContent({
   const identity = prototypeReviewChangelogIdentity({
     expectedIdentity,
     localContext,
+    previewBuildIdentity,
     pullRequestNumber,
     repositoryFullName,
     result

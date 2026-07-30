@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type Key } from 'react';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Key
+} from 'react';
 import { Button, Tabs } from '@heroui/react';
 import {
   AppWindow,
@@ -43,12 +51,16 @@ import {
   usePrototypeReviewLocalContext,
   type PrototypeReviewLocalContextResult
 } from './use-prototype-review-local-context';
+import { usePrototypeReviewBuildIdentity } from './use-prototype-review-build-identity';
 import {
   developmentPrototypeTarget,
   embeddedPrototypeUrl,
-  isIsolatedPrototypeTarget,
+  isSafePrototypeTarget,
   parsePrototypeReviewRoute,
+  prototypeFrameSandbox,
   prototypeReviewCodexContext,
+  rendersPreviewBuildInline,
+  verifiedPreviewBuildPrototypeTarget,
   verifiedPrototypeTarget,
   type PrototypeReviewSurface
 } from './prototype-review-model';
@@ -58,6 +70,11 @@ type ReviewPanel = 'changelog';
 const ROTATION_DURATION_MS = 360;
 const ROTATION_CONTENT_HIDE_MS = 100;
 const FRAME_REVEAL_DELAY_MS = 220;
+
+const BranchHeadPrototype = lazy(async () => {
+  const module = await import('./branch-head-prototype');
+  return { default: module.BranchHeadPrototype };
+});
 
 const deviceIcons = {
   desktop: Monitor,
@@ -218,6 +235,7 @@ export function PrototypeReviewPage() {
   );
   const [result, setResult] = useState<PullRequestTestSurfacesResult>();
   const [surfaceError, setSurfaceError] = useState<string>();
+  const previewBuildIdentity = usePrototypeReviewBuildIdentity();
   const frameRevealTimer = useRef<number | undefined>(undefined);
   const hideHudTimer = useRef<number | undefined>(undefined);
   const rotationTimer = useRef<number | undefined>(undefined);
@@ -293,6 +311,12 @@ export function PrototypeReviewPage() {
   const verified = exactResult
     ? verifiedPrototypeTarget(result, surface)
     : undefined;
+  const verifiedBuild = verifiedPreviewBuildPrototypeTarget({
+    currentHref: window.location.href,
+    expectedIdentity: requestedIdentity,
+    previewBuildIdentity,
+    surface
+  });
   const development = import.meta.env.DEV
     ? developmentPrototypeTarget(
         initial.devTargetUrl,
@@ -302,9 +326,13 @@ export function PrototypeReviewPage() {
     : undefined;
   const candidateTarget =
     initialSelection.state === 'ready'
-      ? development ?? verified
+      ? development ??
+        verified ??
+        (initialSelection.entry.prototype?.scenarioId === 'branch-head-preview'
+          ? verifiedBuild
+          : undefined)
       : undefined;
-  const target = isIsolatedPrototypeTarget(candidateTarget, window.location.href)
+  const target = isSafePrototypeTarget(candidateTarget, window.location.href)
     ? candidateTarget
     : undefined;
   const targetUrl = target
@@ -318,6 +346,12 @@ export function PrototypeReviewPage() {
         theme
       )
     : undefined;
+  const rendersVerifiedBuildInline = rendersPreviewBuildInline(
+    target,
+    initialSelection.state === 'ready'
+      ? initialSelection.entry.prototype?.scenarioId
+      : undefined
+  );
   const localContextResult = usePrototypeReviewLocalContext({
     enabled:
       import.meta.env.DEV &&
@@ -481,14 +515,24 @@ export function PrototypeReviewPage() {
           theme={theme}
           viewportKind={viewport}
         >
-          {targetUrl ? (
+          {rendersVerifiedBuildInline ? (
+            <div className="size-full overflow-auto bg-neutral-950">
+              <Suspense fallback={null}>
+                <BranchHeadPrototype theme={theme} />
+              </Suspense>
+            </div>
+          ) : targetUrl ? (
             <iframe
               className={`size-full border-0 bg-neutral-950 transition-opacity duration-150 ${
                 loadedTargetUrl === targetUrl ? 'opacity-100' : 'opacity-0'
               }`}
               referrerPolicy="origin"
               ref={iframeRef}
-              sandbox="allow-same-origin allow-scripts"
+              sandbox={
+                target
+                  ? prototypeFrameSandbox(target, window.location.href)
+                  : undefined
+              }
               src={targetUrl}
               title={`${surface === 'native' ? 'Native' : 'Web'} prototype`}
               onLoad={() => {
@@ -581,6 +625,7 @@ export function PrototypeReviewPage() {
         repositoryFullName={initial.repositoryFullName}
         expectedIdentity={requestedIdentity}
         localContext={localContext}
+        previewBuildIdentity={previewBuildIdentity}
         prototypeTarget={initial.devTargetUrl}
         result={result}
         selectedChangeId={initial.changeId}

@@ -337,11 +337,13 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           onSelectWorkspace={desktop.selectWorkspace}
           onSelectWorktree={desktop.selectWorktree}
           onOpenProjectIssue={desktop.openProjectIssue}
+          onOpenProjectHistory={desktop.openProjectHistory}
           onOpenProjectWorkflowRun={desktop.openProjectWorkflowRun}
           onCloseProjectWorkflowRun={desktop.closeProjectWorkflowRun}
           project={desktop.project}
           projects={desktop.projects}
           projectTab={desktop.projectTab}
+          historyFocus={desktop.historyFocus}
           recentProjectIds={desktop.recentProjectIds}
           selectedApp={desktop.selectedLauncherApp}
           selectedCodexOrigin={desktop.selectedCodexOrigin}

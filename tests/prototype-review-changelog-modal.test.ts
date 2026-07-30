@@ -33,4 +33,35 @@ describe('prototype review changelog identity', () => {
       repositoryFullName: 'DotNaos/other'
     })).toBeUndefined();
   });
+
+  test('uses the verified identity embedded in the PR Preview build', () => {
+    const previewBuildIdentity = {
+      headSha: 'c'.repeat(40),
+      pullRequestNumber: 411,
+      repositoryFullName: 'DotNaos/project-space'
+    };
+    expect(prototypeReviewChangelogIdentity({
+      expectedIdentity: previewBuildIdentity,
+      previewBuildIdentity,
+      pullRequestNumber: 411,
+      repositoryFullName: 'DotNaos/project-space'
+    })).toEqual(previewBuildIdentity);
+  });
+
+  test('rejects a Preview build from another revision', () => {
+    expect(prototypeReviewChangelogIdentity({
+      expectedIdentity: {
+        headSha: 'd'.repeat(40),
+        pullRequestNumber: 411,
+        repositoryFullName: 'DotNaos/project-space'
+      },
+      previewBuildIdentity: {
+        headSha: 'c'.repeat(40),
+        pullRequestNumber: 411,
+        repositoryFullName: 'DotNaos/project-space'
+      },
+      pullRequestNumber: 411,
+      repositoryFullName: 'DotNaos/project-space'
+    })).toBeUndefined();
+  });
 });

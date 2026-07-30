@@ -163,6 +163,7 @@ function IssueListRow({
         defaultBranch={defaultBranch}
         issue={issue}
         onBranchCreated={onBranchCreated}
+        pullRequests={pullRequests}
         repoFullName={repoFullName}
       />
       {issuePullRequests.slice(0, 1).map((pullRequest) => (

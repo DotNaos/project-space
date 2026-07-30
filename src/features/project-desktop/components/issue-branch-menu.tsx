@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, GitBranch, GitBranchPlus, GitPullRequest, X } from 'lucide-react';
+import { AlertTriangle, Check, GitBranch, GitBranchPlus, GitPullRequest, X } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import {
   ListBox,
@@ -19,6 +19,7 @@ import {
   issueBranchesForIssue
 } from './issue-branch-model';
 import { GitBranchCreatePreview } from './git-branch-create-preview';
+import { resolveIssueDevelopmentHead } from './issue-development-head';
 
 export function IssueBranchChip({
   branch,
@@ -72,6 +73,7 @@ export function IssueBranchMenu({
   defaultBranch,
   issue,
   onBranchCreated,
+  pullRequests,
   repoFullName
 }: {
   branches: GitHubBranchRecord[];
@@ -79,6 +81,7 @@ export function IssueBranchMenu({
   defaultBranch: string;
   issue: GitHubIssueRecord;
   onBranchCreated(branch: GitHubBranchRecord): void;
+  pullRequests: GitHubPullRequestRecord[];
   repoFullName?: string;
 }) {
   const [isCreating, setIsCreating] = useState(false);
@@ -87,8 +90,16 @@ export function IssueBranchMenu({
   const [branchName, setBranchName] = useState('');
   const [baseBranchName, setBaseBranchName] = useState(defaultBranch);
   const linkedBranches = issueBranchesForIssue({ branches, issue });
+  const developmentHead = resolveIssueDevelopmentHead({
+    branches,
+    issue,
+    pullRequests,
+    repositoryFullName: repoFullName
+  });
   const suggestedBranch = branchNameForIssue(issue);
-  const primaryBranch = linkedBranches[0];
+  const primaryBranch =
+    developmentHead.state === 'verified' ? developmentHead.branch : undefined;
+  const dialogBranches = primaryBranch ? [primaryBranch] : linkedBranches;
   const branchOptions = useMemo(() => {
     const names = new Set<string>();
     if (defaultBranch) {
@@ -153,35 +164,46 @@ export function IssueBranchMenu({
 
   return (
     <>
-      <button
-        type="button"
-        data-no-drag
-        onClick={() => setIsOpen(true)}
-        className={cn(
-          'inline-flex min-w-0 items-center justify-center rounded-full text-left transition',
-          !primaryBranch &&
+      {developmentHead.state !== 'verified' && developmentHead.state !== 'none' ? (
+        <span
+          aria-label={developmentHead.message}
+          title={developmentHead.message}
+          className={cn(
+            'inline-flex min-w-0 max-w-32 items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-200',
+            className
+          )}
+        >
+          <AlertTriangle className="size-3 shrink-0" />
+          <span className="truncate">
+            {developmentHead.state === 'ambiguous' ? 'Branch ambiguous' : 'Branch unavailable'}
+          </span>
+        </span>
+      ) : primaryBranch ? (
+        <IssueBranchChip branch={primaryBranch} className={className} />
+      ) : (
+        <button
+          type="button"
+          data-no-drag
+          onClick={() => setIsOpen(true)}
+          className={cn(
+            'inline-flex min-w-0 items-center justify-center rounded-full text-left transition',
             'gap-1 border border-neutral-800 bg-neutral-900/80 px-2 py-0.5 text-[11px] text-neutral-500 opacity-0 hover:border-neutral-700 hover:text-neutral-200 group-hover/row:opacity-100 group-hover:opacity-100',
-          className
-        )}
-      >
-        {primaryBranch ? (
-          <IssueBranchChip branch={primaryBranch} />
-        ) : (
-          <>
-            <GitBranchPlus className="size-3" />
-            Branch
-          </>
-        )}
-      </button>
+            className
+          )}
+        >
+          <GitBranchPlus className="size-3" />
+          Branch
+        </button>
+      )}
 
-      {isOpen && typeof document !== 'undefined' ? createPortal(
+      {isOpen && developmentHead.state === 'none' && typeof document !== 'undefined' ? createPortal(
         <IssueBranchDialog
           baseBranchName={baseBranchName}
           branchName={branchName}
           branchOptions={branchOptions}
           defaultBranch={defaultBranch}
           isCreating={isCreating}
-          linkedBranches={linkedBranches}
+          linkedBranches={dialogBranches}
           message={message}
           onBaseBranchChange={setBaseBranchName}
           onBranchNameChange={setBranchName}

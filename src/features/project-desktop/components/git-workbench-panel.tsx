@@ -13,6 +13,7 @@ import type {
 import type { MachineDetailTab } from '../hooks/use-project-desktop';
 import { GitChangesPanel } from './git-changes-panel';
 import { GitGraphPanel } from './git-graph-panel';
+import type { GitHistoryFocus } from './git-focused-history';
 
 type GitWorkbenchView = 'history' | 'changes';
 
@@ -79,6 +80,7 @@ function useGitWorkbenchData({
 
 export function GitWorkbenchPanel({
   connectorOverview,
+  focus,
   onOpenMachine,
   project,
   projects,
@@ -87,6 +89,7 @@ export function GitWorkbenchPanel({
   targetPath
 }: {
   connectorOverview?: ConnectorOverviewResult;
+  focus?: GitHistoryFocus;
   onOpenMachine?(machineId: string, tab?: MachineDetailTab): void;
   project?: ProjectSpaceRecord;
   projects?: ProjectSpaceRecord[];
@@ -140,6 +143,7 @@ export function GitWorkbenchPanel({
         {view === 'history' ? (
           <GitGraphPanel
             connectorOverview={connectorOverview}
+            focus={focus}
             githubBranches={data.githubBranches}
             onOpenMachine={onOpenMachine}
             onRefreshRepositoryDetails={data.refresh}

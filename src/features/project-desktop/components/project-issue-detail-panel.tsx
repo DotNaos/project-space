@@ -80,6 +80,7 @@ export function ProjectIssueDetailPanel({
   connectorOverview,
   issueNumber,
   onBack,
+  onOpenHistory,
   onOpenIssue,
   project,
   projects,
@@ -89,6 +90,7 @@ export function ProjectIssueDetailPanel({
   connectorOverview: ConnectorOverviewResult;
   issueNumber?: number;
   onBack(): void;
+  onOpenHistory(input: { defaultBranch: string; headBranch: string }): void;
   onOpenIssue(issueNumber: number): void;
   project: ProjectSpaceRecord;
   projects: ProjectSpaceRecord[];
@@ -164,6 +166,7 @@ export function ProjectIssueDetailPanel({
           issues={safeDetails.issues}
           onBranchCreated={upsertBranch}
           onIssueUpdated={upsertIssue}
+          onOpenHistory={onOpenHistory}
           onOpenIssue={onOpenIssue}
           onPullRequestCreated={upsertPullRequest}
           project={project}
@@ -254,13 +257,14 @@ function IssueEmptyState({ message, onRetry }: { message: string; onRetry?(): vo
   );
 }
 
-function IssueDetailWorkbench({ branches, connectorOverview, issue, issues, onBranchCreated, onIssueUpdated, onOpenIssue, onPullRequestCreated, project, projects, pullRequests, repoFullName, repoUrl, targetPath }: {
+function IssueDetailWorkbench({ branches, connectorOverview, issue, issues, onBranchCreated, onIssueUpdated, onOpenHistory, onOpenIssue, onPullRequestCreated, project, projects, pullRequests, repoFullName, repoUrl, targetPath }: {
   branches: GitHubBranchRecord[];
   connectorOverview: ConnectorOverviewResult;
   issue: GitHubIssueRecord;
   issues: GitHubIssueRecord[];
   onBranchCreated(branch: GitHubBranchRecord): void;
   onIssueUpdated(issue: GitHubIssueRecord): void;
+  onOpenHistory(input: { defaultBranch: string; headBranch: string }): void;
   onOpenIssue(issueNumber: number): void;
   onPullRequestCreated(pullRequest: GitHubPullRequestRecord): void;
   project: ProjectSpaceRecord;
@@ -274,7 +278,7 @@ function IssueDetailWorkbench({ branches, connectorOverview, issue, issues, onBr
     <div className="grid min-h-0 flex-1 auto-rows-max content-start gap-4 overflow-y-auto lg:auto-rows-auto lg:grid-cols-[minmax(13rem,0.55fr)_minmax(0,1.2fr)_minmax(14rem,0.6fr)] lg:content-stretch lg:overflow-hidden">
       <IssueDetailList className="hidden lg:flex" issues={issues} onOpenIssue={onOpenIssue} repoFullName={repoFullName} selectedIssueNumber={issue.number} />
       <IssueBody issue={issue} onIssueUpdated={onIssueUpdated} repoFullName={repoFullName} />
-      <IssueActionPanel branches={branches} connectorOverview={connectorOverview} issue={issue} onBranchCreated={onBranchCreated} onIssueUpdated={onIssueUpdated} onPullRequestCreated={onPullRequestCreated} project={project} projects={projects} pullRequests={pullRequests} repoFullName={repoFullName} repoUrl={repoUrl} targetPath={targetPath} />
+      <IssueActionPanel branches={branches} connectorOverview={connectorOverview} issue={issue} onBranchCreated={onBranchCreated} onIssueUpdated={onIssueUpdated} onOpenHistory={onOpenHistory} onPullRequestCreated={onPullRequestCreated} project={project} projects={projects} pullRequests={pullRequests} repoFullName={repoFullName} repoUrl={repoUrl} targetPath={targetPath} />
     </div>
   );
 }

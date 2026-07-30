@@ -34,6 +34,7 @@ import {
 import { PostgresGitHubCatalogCacheStore } from './github-catalog-cache-store';
 import { GitHubCatalogService } from './github-catalog-service';
 import { getGitHubCatalogRequestTiming } from './github-catalog-timing';
+import { pullRequestHeadBranchRecord } from './github-branch-record';
 
 interface StoredGitHubToken {
   accessToken: string;
@@ -631,6 +632,15 @@ export async function getGitHubHistory({
     const histories = await mapWithConcurrency(branchNames, 4, (branchName) =>
       loadGitHubBranchCommits(fullName, branchName, auth.token, perBranchLimit)
     );
+    const selectedTipSha = normalizedRef ? histories[0]?.[0]?.sha : undefined;
+
+    if (normalizedRef && selectedTipSha) {
+      addBranchRefs(
+        refsByHash,
+        { commit: { sha: selectedTipSha }, name: normalizedRef },
+        repo.default_branch
+      );
+    }
 
     for (const branchCommits of histories) {
       for (const commit of branchCommits) {
@@ -690,9 +700,10 @@ export async function getGitHubRepositoryDetails(
       listRepositoryIssues(repoPath, auth.token),
       loadRepositoryDevelopmentLinks(fullName, auth.token)
     ]);
+    const branchRecords = new Map<string, GitHubBranchRecord>();
 
-    return {
-      branches: branches.map<GitHubBranchRecord>((branch) => ({
+    for (const branch of branches) {
+      branchRecords.set(branch.name, {
         commitSha: branch.commit?.sha,
         isDefault: branch.name === repo.default_branch,
         linkedIssueNumbers: Array.from(
@@ -700,7 +711,55 @@ export async function getGitHubRepositoryDetails(
         ).sort((left, right) => left - right),
         name: branch.name,
         url: branchWebUrl(repo.html_url, branch.name)
-      })),
+      });
+    }
+    if (repo.default_branch && !branchRecords.has(repo.default_branch)) {
+      branchRecords.set(repo.default_branch, {
+        isDefault: true,
+        linkedIssueNumbers: [],
+        name: repo.default_branch,
+        url: branchWebUrl(repo.html_url, repo.default_branch)
+      });
+    }
+    for (const linkedBranch of developmentLinks.linkedBranches) {
+      const current = branchRecords.get(linkedBranch.name);
+      branchRecords.set(linkedBranch.name, {
+        ...linkedBranch,
+        ...current,
+        commitSha: current?.commitSha ?? linkedBranch.commitSha,
+        linkedIssueNumbers: Array.from(new Set([
+          ...(current?.linkedIssueNumbers ?? []),
+          ...(linkedBranch.linkedIssueNumbers ?? [])
+        ])).sort((left, right) => left - right),
+        url: current?.url ?? branchWebUrl(repo.html_url, linkedBranch.name)
+      });
+    }
+    for (const pullRequest of developmentLinks.pullRequests) {
+      if (
+        pullRequest.state !== 'open' ||
+        pullRequest.headRefPresent !== true ||
+        pullRequest.isCrossRepository !== false ||
+        pullRequest.headRepositoryFullName?.toLowerCase() !== fullName.toLowerCase() ||
+        !pullRequest.headBranch ||
+        !pullRequest.headSha
+      ) {
+        continue;
+      }
+      const current = branchRecords.get(pullRequest.headBranch);
+      branchRecords.set(
+        pullRequest.headBranch,
+        pullRequestHeadBranchRecord({
+          branchName: pullRequest.headBranch,
+          commitSha: pullRequest.headSha,
+          current,
+          linkedIssueNumbers: pullRequest.linkedIssueNumbers ?? [],
+          repositoryUrl: repo.html_url
+        })
+      );
+    }
+
+    return {
+      branches: Array.from(branchRecords.values()),
       checkedAt: new Date().toISOString(),
       issues: issues
         .filter((issue) => !issue.pull_request)
