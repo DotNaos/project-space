@@ -26,7 +26,7 @@ permissions:
 jobs:
   publish:
     name: Publish immutable release handoff
-    if: github.event_name == 'push' && github.ref_type == 'tag'
+    if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -49,27 +49,27 @@ jobs:
           [[ $GITHUB_SHA == "$EXPECTED_SHA" ]]
           [[ $GITHUB_REF == "refs/tags/${EXPECTED_REF}" ]]
           [[ $GITHUB_REF_NAME == "$EXPECTED_REF" ]]
-          api_root="https://api.github.com/repos/${GITHUB_REPOSITORY}/commits"
+          api_root="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}"
           /usr/bin/curl --fail --silent --show-error \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H 'X-GitHub-Api-Version: 2022-11-28' \
-            "$api_root/main" > "$RUNNER_TEMP/main-commit.json"
+            "$api_root/commits/$EXPECTED_REF" > "$RUNNER_TEMP/tag-commit.json"
           /usr/bin/curl --fail --silent --show-error \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H 'X-GitHub-Api-Version: 2022-11-28' \
-            "$api_root/$EXPECTED_REF" > "$RUNNER_TEMP/tag-commit.json"
+            "$api_root/compare/$EXPECTED_SHA...main" > "$RUNNER_TEMP/main-ancestry.json"
           /usr/bin/python3 -I - \
-            "$RUNNER_TEMP/main-commit.json" \
             "$RUNNER_TEMP/tag-commit.json" \
+            "$RUNNER_TEMP/main-ancestry.json" \
             "$EXPECTED_SHA" <<'PY'
-          import json
-          import pathlib
-          import sys
-          main = json.loads(pathlib.Path(sys.argv[1]).read_text())
-          tag = json.loads(pathlib.Path(sys.argv[2]).read_text())
+          import json, pathlib, sys
+          tag = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          ancestry = json.loads(pathlib.Path(sys.argv[2]).read_text())
           expected_sha = sys.argv[3]
-          if main.get("sha") != expected_sha or tag.get("sha") != expected_sha:
-              raise SystemExit("Release tags must point at the exact current main commit.")
+          if tag.get("sha") != expected_sha:
+              raise SystemExit("Release tag must point at the exact release commit.")
+          if ancestry.get("status") not in {"ahead", "identical"} or (ancestry.get("merge_base_commit") or {}).get("sha") != expected_sha:
+              raise SystemExit("Release commit must be reachable from current main.")
           PY
       - name: Validate immutable handoff metadata
         shell: /bin/bash --noprofile --norc -euo pipefail {0}
@@ -571,17 +571,19 @@ jobs:
           RELEASE_ID: ${{ steps.create.outputs.release-id }}
           VALIDATOR_SHA: ${{ steps.verify-draft.outputs.validator-sha }}
         run: |
-          for ref in "$EXPECTED_REF" main; do
-            actual=$(/usr/bin/curl --fail --silent --show-error \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${ref}" | \
-              /usr/bin/python3 -I -c 'import json,sys; print(json.load(sys.stdin)["sha"])')
-            [[ $actual == "$GITHUB_SHA" ]] || {
-              /usr/bin/printf 'Release provenance changed before publication.\n' >&2
-              exit 65
-            }
-          done
+          api_root="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}"
+          tag_sha=$(/usr/bin/curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$api_root/commits/$EXPECTED_REF" | \
+            /usr/bin/python3 -I -c 'import json,sys; print(json.load(sys.stdin)["sha"])')
+          [[ $tag_sha == "$EXPECTED_SHA" ]]
+          ancestry=$(/usr/bin/curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$api_root/compare/$EXPECTED_SHA...main" | \
+            /usr/bin/python3 -I -c 'import json,sys; d=json.load(sys.stdin); print((d.get("merge_base_commit") or {}).get("sha",""), d.get("status",""))')
+          [[ $ancestry == "$EXPECTED_SHA ahead" || $ancestry == "$EXPECTED_SHA identical" ]]
           release_api="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}"
           /usr/bin/printf '%s' '{"draft":false,"make_latest":"true"}' \
             > "$RUNNER_TEMP/publish-release-request.json"

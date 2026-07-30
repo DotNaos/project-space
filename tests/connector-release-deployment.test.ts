@@ -89,11 +89,11 @@ describe('connector release and production deployment contract', () => {
     const windowsPackaging = await source('packaging/windows/test-release-packaging.ps1');
     const windowsDocumentation = await source('docs/windows-installation.md');
 
-    expect(packageJson.version).toBe('0.4.46');
-    expect(buildInfo).toContain("const developmentVersion = '0.4.46';");
-    expect(windowsPackaging).toContain("$version = '0.4.46'");
-    expect(windowsPackaging).toContain('/releases/download/v0.4.46/');
-    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.46');
+    expect(packageJson.version).toBe('0.4.47');
+    expect(buildInfo).toContain("const developmentVersion = '0.4.47';");
+    expect(windowsPackaging).toContain("$version = '0.4.47'");
+    expect(windowsPackaging).toContain('/releases/download/v0.4.47/');
+    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.47');
     expect(linuxCodexPreparation).toContain('codex_version=0.145.0');
     expect(linuxCodexPreparation).not.toMatch(/releases\/latest|\/latest\//);
     expect(linuxCodexSmoke).toContain("import { CodexStdioTransport }");
@@ -258,7 +258,9 @@ describe('connector release and production deployment contract', () => {
     expect(restoreDefault).toBeGreaterThan(-1);
     expect(deleteKeychain).toBeGreaterThan(-1);
     expect(restoreDefault).toBeLessThan(deleteKeychain);
-    expect(upload).toContain("if: success() && github.event_name == 'push'");
+    expect(upload).toContain(
+      "if: success() && github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')",
+    );
 
     const packageScript = await source(
       'packaging/macos/package-isolated-release-artifact.sh'
@@ -316,7 +318,8 @@ describe('connector release and production deployment contract', () => {
     expect(publish).toContain('asset-count=10');
     expect(publish).toContain('"draft": True');
     expect(publish).toContain('Verify remote draft asset names and sizes');
-    expect(publish).toContain('Release provenance changed before publication.');
+    expect(publish).toContain('Release commit must be reachable from current main.');
+    expect(publish).toContain('$api_root/compare/$EXPECTED_SHA...main');
     expect(publish).toContain('"draft":false');
     expect(publish).toContain('Delete incomplete draft release');
     expect(publish).toContain("steps.publish.outcome != 'success'");

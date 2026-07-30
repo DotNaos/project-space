@@ -18,6 +18,12 @@
   "include": [
     "vite.config.ts",
     "apps/prototype/vite.config.ts",
+    "apps/docs/lib/releases/catalog.ts",
+    "apps/docs/lib/releases/changelog-source.ts",
+    "apps/docs/lib/releases/frontmatter.ts",
+    "apps/docs/lib/releases/mdx.ts",
+    "apps/docs/lib/releases/semver.ts",
+    "apps/docs/lib/releases/types.ts",
     "electron",
     "scripts/dev-prototype.ts",
     "server",

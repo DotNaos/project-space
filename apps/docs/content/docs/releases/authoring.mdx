@@ -1,0 +1,28 @@
+---
+title: Release authoring
+description: Add the one versioned release entry required for every pull request.
+---
+
+Every pull request targeting `main` owns exactly one file at
+`apps/docs/content/docs/releases/entries/<PR>.mdx`. Its filename,
+`pullRequest`, expected Semantic Version, and the pull request must agree.
+
+Copy `apps/docs/content/docs/releases/entry-template.mdx.template`, replace
+every example value with real release information, and save it under the
+public pull request number. The required Docs check validates the file again
+against the latest `main` before merge.
+
+## Authoring rules
+
+- Use `patch` for the normal compatible correction or small improvement.
+- Use `minor` for a compatible new capability.
+- Use `major` only for an intentionally incompatible release.
+- Keep all user-visible changes from the pull request in this one release.
+- Put exact Preview checks inside `PreviewOnly`; they are not published.
+- Never add imports, exports, executable expressions, raw HTML, images,
+  credentials, placeholder text, or unsafe links.
+- Keep `No manual action is required.` exactly when `upgrade` is `none`.
+
+The validator never writes or fabricates a passing entry. It reports each
+missing or contradictory field so the pull request author can correct the
+source.

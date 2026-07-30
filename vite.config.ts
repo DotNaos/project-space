@@ -21,12 +21,27 @@ import { startProjectConnectorWebSocket } from './server/project-connector-webso
 import { createProjectSpaceRequestHandler } from './server/project-space-http';
 import { writeJson } from './server/project-space-http-response';
 import { createPrototypeReviewLocalRuntime } from './server/prototype-review-local-runtime';
+import { readReleaseCatalog } from './apps/docs/lib/releases/catalog';
+import { generatedReleaseChangelogSource } from './apps/docs/lib/releases/changelog-source';
 
 const configuredAllowedHosts = (process.env.PROJECT_ALLOWED_HOSTS ?? '')
   .split(',')
   .map((host) => host.trim())
   .filter(Boolean);
 const connectorBridgeEnabled = process.env.PROJECT_SPACE_ENABLE_CONNECTOR_BRIDGE === '1';
+
+function releaseChangelogSourceForBuild() {
+  const catalog = readReleaseCatalog(resolve(
+    __dirname,
+    'apps/docs/content/docs/releases/entries'
+  ));
+  if (!catalog.ok) {
+    throw new Error(
+      `Release changelog source is invalid:\n${catalog.errors.join('\n')}`
+    );
+  }
+  return generatedReleaseChangelogSource(catalog.catalog.entries);
+}
 
 function projectSpaceApiPlugin(): Plugin {
   return {
@@ -157,6 +172,11 @@ export default defineConfig(({ command, mode }) => {
   }
 
   return ({
+  define: {
+    __PROJECT_RELEASE_CHANGELOG_SOURCE__: JSON.stringify(
+      releaseChangelogSourceForBuild()
+    )
+  },
   plugins: [
     react(),
     tailwindcss(),

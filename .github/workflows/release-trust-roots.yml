@@ -32,7 +32,7 @@ jobs:
 
     steps:
       - name: Validate release context
-        if: github.event_name == 'push' && github.ref_type == 'tag'
+        if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         shell: /bin/bash --noprofile --norc -euo pipefail {0}
         env:
           BASH_ENV: /dev/null
@@ -69,7 +69,7 @@ jobs:
           echo "artifact-name=connector-runtime-trust-roots-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Materialize pinned public trust roots
-        if: github.event_name == 'push' && github.ref_type == 'tag'
+        if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         shell: /bin/bash --noprofile --norc -euo pipefail {0}
         env:
           BASH_ENV: /dev/null

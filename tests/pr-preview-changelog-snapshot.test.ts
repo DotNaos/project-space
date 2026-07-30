@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 
 import {
   pullRequestChangelogSnapshotFor,
   pullRequestChangelogSnapshotFromSource
 } from '../src/features/pr-preview-changelog/pull-request-changelog-snapshot';
+import { generatedReleaseChangelogSource } from '../apps/docs/lib/releases/changelog-source';
+import { parseReleaseEntryMdx } from '../apps/docs/lib/releases/mdx';
 
 const identity = {
   headSha: 'a'.repeat(40),
@@ -94,6 +97,37 @@ describe('pull request changelog snapshot', () => {
         }
       }
     ]);
+  });
+
+  test('exposes every release Change with its exact Preview tests', () => {
+    const parsed = parseReleaseEntryMdx(
+      readFileSync(
+        'apps/docs/content/docs/releases/entries/409.mdx',
+        'utf8'
+      ),
+      '409.mdx'
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const snapshot = pullRequestChangelogSnapshotFromSource(
+      { ...identity, pullRequestNumber: 409 },
+      generatedReleaseChangelogSource([parsed.entry])
+    );
+
+    expect(snapshot.state).toBe('available');
+    expect(snapshot.entries.length).toBeGreaterThan(1);
+    expect(
+      snapshot.entries.every(
+        (entry) =>
+          entry.pullRequestNumber === 409 &&
+          entry.testing.length === 7
+      )
+    ).toBe(true);
+    expect(
+      snapshot.entries.some(
+        (entry) => entry.id === 'release-0-4-47-added-1'
+      )
+    ).toBe(true);
   });
 
   test('returns every entry for only the requested pull request', () => {

@@ -1,4 +1,4 @@
-import { changelogCatalogResult } from '@/lib/changelog/source';
+import { changelogCatalogForCurrentBuild } from '@/lib/changelog/source';
 import { ChangelogPrototypeAction } from '@/components/changelog-prototype-action';
 import {
   buildChangelogView,
@@ -10,12 +10,14 @@ import {
 import { ArrowRight } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { connection } from 'next/server';
 import {
   DocsBody,
   DocsDescription,
   DocsPage,
   DocsTitle,
 } from 'fumadocs-ui/layouts/docs/page';
+import { DocsArticleIdentity } from '@/components/docs-article-identity';
 
 export const metadata: Metadata = {
   title: 'Changelog',
@@ -38,12 +40,16 @@ const categoryLabels: Record<ChangelogEntry['category'], string> = {
 };
 
 export default async function ChangelogPage({ searchParams }: ChangelogPageProps) {
+  await connection();
   const rawSearchParams = await searchParams;
   const filterResult = parseChangelogFilters(rawSearchParams);
+  const changelogCatalogResult =
+    changelogCatalogForCurrentBuild();
 
   return (
     <DocsPage toc={[]} full>
       <DocsTitle>Changelog</DocsTitle>
+      <DocsArticleIdentity title="Changelog" />
       <DocsDescription>
         Release notes and concrete testing guidance, read from this exact source revision.
       </DocsDescription>
@@ -195,6 +201,33 @@ function ChangelogSection({
           />
         ))}
       </div>
+      {group.releaseTesting.map((testing) => (
+        <section
+          aria-labelledby={`release-testing-${group.key}-${testing.pullRequestNumber}`}
+          className="mt-12 border-t border-fd-border pt-8"
+          key={testing.pullRequestNumber}
+        >
+          <h3
+            className="text-xl font-semibold text-fd-foreground"
+            id={`release-testing-${group.key}-${testing.pullRequestNumber}`}
+          >
+            What to test
+          </h3>
+          <p className="mt-2 text-sm text-fd-muted-foreground">
+            Preview-only checks for PR #{testing.pullRequestNumber}
+          </p>
+          <ul className="mt-4 list-disc space-y-2 pl-5 marker:text-fd-muted-foreground">
+            {testing.items.map((guidance) => (
+              <li
+                className="pl-1 text-sm leading-6 text-fd-muted-foreground"
+                key={guidance}
+              >
+                {guidance}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
     </section>
   );
 }
@@ -246,18 +279,20 @@ function ChangelogEntryRow({
           title={entry.summary}
         />
       )}
-      <div className="mt-6">
-        <h4 className="text-base font-semibold text-fd-foreground">
-          What to test
-        </h4>
-        <ul className="mt-3 list-disc space-y-2 pl-5 marker:text-fd-muted-foreground">
-          {entry.testing.map((guidance) => (
-            <li key={guidance} className="pl-1 text-sm leading-6 text-fd-muted-foreground">
-              {guidance}
-            </li>
-          ))}
-        </ul>
-      </div>
+      {entry.testing.length > 0 && (
+        <div className="mt-6">
+          <h4 className="text-base font-semibold text-fd-foreground">
+            What to test
+          </h4>
+          <ul className="mt-3 list-disc space-y-2 pl-5 marker:text-fd-muted-foreground">
+            {entry.testing.map((guidance) => (
+              <li key={guidance} className="pl-1 text-sm leading-6 text-fd-muted-foreground">
+                {guidance}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </article>
   );
 }

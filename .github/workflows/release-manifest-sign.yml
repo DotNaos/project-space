@@ -49,7 +49,7 @@ permissions:
 jobs:
   sign:
     name: Sign manifest on an isolated runner
-    if: github.event_name == 'push' && github.ref_type == 'tag'
+    if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     environment: release-signing
     runs-on: ubuntu-24.04
     timeout-minutes: 10
