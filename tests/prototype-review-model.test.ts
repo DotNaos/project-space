@@ -23,13 +23,16 @@ const result: PullRequestTestSurfacesResult = {
   },
   headSha: 'a'.repeat(40),
   liveContext: {
+    branchName: 'issue-356-prototypes',
     connectorId: 'connector-os-mac',
     heartbeatAt: '2026-07-28T10:00:00.000Z',
     leaseExpiresAt: '2026-07-28T10:01:00.000Z',
     machineId: 'os-mac',
+    projectId: 'project-space',
     servedSurface: 'desktop-prototype',
     state: 'available',
-    verifiedAt: '2026-07-28T10:00:00.000Z'
+    verifiedAt: '2026-07-28T10:00:00.000Z',
+    worktreeId: 'wt-356'
   },
   pullRequestNumber: 356,
   repositoryFullName: 'DotNaos/project-space',
@@ -106,11 +109,14 @@ describe('prototype review model', () => {
     });
     expect(feedbackMatchesTarget(result, target)).toBe(true);
     expect(prototypeReviewDevelopmentContext(result, target)).toMatchObject({
+      branchName: 'issue-356-prototypes',
       connectionKind: 'tailscale',
       connectorId: 'connector-os-mac',
       machineId: 'os-mac',
+      projectId: 'project-space',
       source: 'verified-live',
-      threadId: '019fa483-564c-7b01-9d89-5f8ef37af7d0'
+      threadId: '019fa483-564c-7b01-9d89-5f8ef37af7d0',
+      worktreeId: 'wt-356'
     });
   });
 

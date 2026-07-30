@@ -30,6 +30,7 @@ interface ProjectDeploymentsPanelProps {
   loadedCommitShas?: ReadonlySet<string>;
   onCloseWorkflowRun?(): void;
   onOpenWorkflowRun?(runId: number): void;
+  projectId: string;
   projectName: string;
   repository?: { fullName: string; url?: string };
   selectedWorkflowRunId?: number;
@@ -47,7 +48,7 @@ export function ProjectDeploymentsPanel(props: ProjectDeploymentsPanelProps) {
   return <DeploymentsOverview {...props} />;
 }
 
-function DeploymentsOverview({ loadedCommitShas, onOpenWorkflowRun, repository }: ProjectDeploymentsPanelProps) {
+function DeploymentsOverview({ loadedCommitShas, onOpenWorkflowRun, projectId, repository }: ProjectDeploymentsPanelProps) {
   const repositoryFullName = repository?.fullName;
   const data = useDeploymentOverview(repositoryFullName, true);
   const previews = usePullRequestPreviewStatus({
@@ -96,7 +97,11 @@ function DeploymentsOverview({ loadedCommitShas, onOpenWorkflowRun, repository }
 
     <section className="grid gap-2">
       <SectionTitle icon={<GitPullRequest className="size-4" />} title="Pull request previews" />
-      <PullRequestPreviewsSection inventory={previews.inventory} repositoryFullName={repositoryFullName} />
+      <PullRequestPreviewsSection
+        inventory={previews.inventory}
+        projectId={projectId}
+        repositoryFullName={repositoryFullName}
+      />
     </section>
 
     <section className="grid gap-2">

@@ -37,13 +37,16 @@ export interface PrototypeReviewTarget {
 }
 
 export interface PrototypeReviewDevelopmentContext {
+  branchName?: string;
   connectionKind: 'local' | 'private' | 'tailscale';
   connectorId?: string;
   heartbeatAt?: string;
   leaseExpiresAt?: string;
   machineId: string;
+  projectId?: string;
   source: 'local-runtime' | 'verified-live';
   threadId: string;
+  worktreeId?: string;
 }
 
 function cleanRepositoryFullName(value: string | null) {
@@ -234,13 +237,16 @@ export function prototypeReviewDevelopmentContext(
   );
   if (!surface) return undefined;
   return {
+    branchName: result.liveContext.branchName,
     connectionKind: prototypeConnectionKind(surface.url),
     connectorId: result.liveContext.connectorId,
     heartbeatAt: result.liveContext.heartbeatAt,
     leaseExpiresAt: result.liveContext.leaseExpiresAt,
     machineId: result.liveContext.machineId,
+    projectId: result.liveContext.projectId,
     source: 'verified-live',
-    threadId: result.feedback.threadId
+    threadId: result.feedback.threadId,
+    worktreeId: result.liveContext.worktreeId
   };
 }
 

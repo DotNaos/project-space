@@ -8,7 +8,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Uniwind } from 'uniwind';
 
-import { ProjectOverviewScreen } from '../features/overview/components/project-overview-screen';
 import {
   DEFAULT_PROJECT_OVERVIEW_SCENARIO_ID,
   PROJECT_OVERVIEW_PROTOTYPE_SCENARIOS,
@@ -32,6 +31,8 @@ import {
   type PrototypeViewport,
   webPrototypePath,
 } from './prototype-state';
+import { PrototypeLaunchScreen } from './prototype-launch-screen';
+import { nativePrototypeScenarioState } from './prototype-launch-native-state';
 
 const ROTATION_DURATION_MS = 360;
 const ROTATION_CONTENT_HIDE_MS = 100;
@@ -107,7 +108,9 @@ function EmbeddedMobilePrototype() {
   );
 
   useEffect(() => {
-    Uniwind.setTheme(presentation.theme);
+    Uniwind.setTheme(
+      Platform.OS === 'web' ? presentation.theme : 'system'
+    );
   }, [presentation.theme]);
 
   return (
@@ -126,13 +129,8 @@ function EmbeddedMobilePrototype() {
             : 0,
       }}
     >
-      <ProjectOverviewScreen
-        accountLabel={scenario.accountLabel}
-        errorMessage={scenario.errorMessage}
-        inventory={scenario.inventory}
-        isRefreshing={scenario.isRefreshing}
-        onRefresh={() => undefined}
-        sourceLabel={scenario.sourceLabel}
+      <PrototypeLaunchScreen
+        initialState={nativePrototypeScenarioState(scenario.id)}
       />
     </View>
   );
@@ -242,7 +240,9 @@ function MobilePrototypeWorkspace() {
   };
 
   useEffect(() => {
-    Uniwind.setTheme(presentation.theme);
+    Uniwind.setTheme(
+      Platform.OS === 'web' ? presentation.theme : 'system'
+    );
   }, [presentation.theme]);
 
   useEffect(() => {
@@ -374,14 +374,9 @@ function MobilePrototypeWorkspace() {
         theme={presentation.theme}
         viewport={viewport}
       >
-        <ProjectOverviewScreen
+        <PrototypeLaunchScreen
           key={scenario.id}
-          accountLabel={scenario.accountLabel}
-          errorMessage={scenario.errorMessage}
-          inventory={scenario.inventory}
-          isRefreshing={scenario.isRefreshing}
-          onRefresh={() => undefined}
-          sourceLabel={scenario.sourceLabel}
+          initialState={nativePrototypeScenarioState(scenario.id)}
         />
       </PrototypeDeviceCanvas>
       {reviewConfig && !presentation.fullscreen ? (

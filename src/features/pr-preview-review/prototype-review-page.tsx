@@ -20,6 +20,10 @@ import { projectSpaceClient } from '@/api/project-space-client';
 import { Text } from '@/app/dotnaos-ui';
 import type { PullRequestTestSurfacesResult } from '@/shared/pr-preview-test-surfaces-api';
 import {
+  parsePrototypeLaunchRouteIdentity,
+  prototypeResultMatchesIdentity
+} from '@/shared/prototype-launch';
+import {
   prototypeViewportKinds,
   prototypeViewportPresets,
   type PrototypeTheme,
@@ -29,6 +33,7 @@ import { PrototypeReviewChangelogModal } from './prototype-review-changelog-moda
 import { PrototypeReviewCodexDock } from './prototype-review-codex-dock';
 import { PrototypeReviewCodexStatus } from './prototype-review-codex-status';
 import { PrototypeReviewDevice } from './prototype-review-device';
+import { PrototypeReviewIdentityNav } from './prototype-review-identity-nav';
 import { usePrototypeReviewAnnotations } from './prototype-review-annotations';
 import {
   usePrototypeReviewLocalContext,
@@ -160,6 +165,10 @@ export function PrototypeReviewPage() {
     () => parsePrototypeReviewRoute(window.location.pathname, window.location.search),
     []
   );
+  const launchIdentity = useMemo(
+    () => parsePrototypeLaunchRouteIdentity(window.location.search),
+    []
+  );
   const [surface, setSurface] = useState(initial.surface);
   const [viewport, setViewport] = useState(initial.viewport);
   const [orientation, setOrientation] = useState(initial.orientation);
@@ -230,7 +239,15 @@ export function PrototypeReviewPage() {
     []
   );
 
-  const verified = verifiedPrototypeTarget(result, surface);
+  const exactResult = result && launchIdentity.headSha &&
+      launchIdentity.pullRequestNumber && launchIdentity.repositoryFullName
+    ? prototypeResultMatchesIdentity(result, {
+        headSha: launchIdentity.headSha,
+        pullRequestNumber: launchIdentity.pullRequestNumber,
+        repositoryFullName: launchIdentity.repositoryFullName
+      })
+    : true;
+  const verified = exactResult ? verifiedPrototypeTarget(result, surface) : undefined;
   const development = import.meta.env.DEV
     ? developmentPrototypeTarget(initial.devTargetUrl, window.location.href, surface)
     : undefined;
@@ -393,6 +410,14 @@ export function PrototypeReviewPage() {
         </div>
       </div>
 
+      {!fullscreen ? (
+        <PrototypeReviewIdentityNav
+          result={result}
+          search={window.location.search}
+          theme={theme}
+        />
+      ) : null}
+
       <div className="relative flex min-h-0 min-w-0 flex-1">
         <PrototypeReviewDevice
           fullscreen={fullscreen}
@@ -434,7 +459,9 @@ export function PrototypeReviewPage() {
                 </Text>
                 <Text className="mt-2 block text-xs leading-5 text-neutral-500">
                   {surfaceError ??
-                    'Open this workspace from a verified PR surface or a local development target.'}
+                    (!exactResult
+                      ? 'The available prototype does not match the requested repository, PR, and head commit.'
+                      : 'Open this workspace from a verified PR surface or a local development target.')}
                 </Text>
               </div>
             </div>

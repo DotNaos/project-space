@@ -216,6 +216,7 @@ export function PrototypeDeviceCanvas({
                     height: overlay.overlayHeight,
                     left: (overlay.outerWidth - overlay.overlayWidth) / 2,
                     opacity: renderDeviceFrame ? 1 : 0,
+                    pointerEvents: 'none',
                     position: 'absolute',
                     top: (overlay.outerHeight - overlay.overlayHeight) / 2,
                     transform: [

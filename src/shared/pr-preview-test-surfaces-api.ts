@@ -92,13 +92,16 @@ export type PullRequestFeedbackEligibility =
 
 export type PullRequestLiveDevelopmentContext =
   | {
+      branchName: string;
       connectorId: string;
       heartbeatAt: string;
       leaseExpiresAt: string;
       machineId: string;
+      projectId: string;
       servedSurface: PullRequestPrototypeSurfaceKind;
       state: 'available';
       verifiedAt: string;
+      worktreeId: string;
     }
   | {
       reasonCode: PullRequestTestSurfaceReasonCode;
