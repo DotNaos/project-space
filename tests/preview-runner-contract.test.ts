@@ -154,6 +154,10 @@ describe('trusted Preview runner contract', () => {
     expect(runner).toContain('.preview.identity.pullRequestNumber == $pr');
     expect(runner).toContain('.preview.identity.headSha == $sha');
     expect(runner).toContain('"https://$domain/docs/changelog?pr=$pr"');
+    expect(runner).toContain('max_attempts=12');
+    expect(runner).toContain('sleep 5');
+    expect(runner).toContain('verify_runtime_with_retry "$head_sha"');
+    expect(runner).toContain('verify_runtime_with_retry "$old_sha"');
     expect(runner).toContain(
       'x-project-space-preview-docs-source:[[:space:]]*exact-pr-source'
     );

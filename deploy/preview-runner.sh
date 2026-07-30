@@ -243,6 +243,17 @@ verify_runtime() {
     grep -Eiq '^x-project-space-preview-docs-source:[[:space:]]*exact-pr-source$' || return 1
 }
 
+verify_runtime_with_retry() {
+  sha=$1
+  attempt=1
+  max_attempts=12
+  while ! verify_runtime "$sha"; do
+    [ "$attempt" -lt "$max_attempts" ] || return 1
+    attempt=$((attempt + 1))
+    sleep 5
+  done
+}
+
 runtime_record() {
   status=$1
   requested_sha=$2
@@ -339,7 +350,8 @@ apply_preview() {
   fi
   write_runtime_env "$env_file" "$head_sha" "$web_image" "$docs_image" "$gateway_image" \
     "$prototype_image" "$postgres_password" "$gateway_secret"
-  if compose pull --quiet && compose up -d --wait --wait-timeout 240 && verify_runtime "$head_sha"; then
+  if compose pull --quiet && compose up -d --wait --wait-timeout 240 &&
+    verify_runtime_with_retry "$head_sha"; then
     record=$(runtime_record ready "$head_sha" "$head_sha" "$web_image" "$docs_image" \
       "$gateway_image" "$prototype_image")
     atomic_json_write "$runtime_file" "$record"
@@ -353,7 +365,7 @@ apply_preview() {
     mv -- "$runtime_dir/repository.previous" "$repo_path"
     mv -f -- "$previous_env" "$env_file"
     old_sha=$(printf '%s' "$previous_record" | jq -er '.runningSha')
-    if compose up -d --wait --wait-timeout 240 && verify_runtime "$old_sha"; then
+    if compose up -d --wait --wait-timeout 240 && verify_runtime_with_retry "$old_sha"; then
       failed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
       record=$(printf '%s' "$previous_record" | jq --arg requested "$head_sha" --arg updated "$failed_at" \
         '.state="update_failed" | .requestedSha=$requested | .updatedAt=$updated | .message="Latest Preview update failed; prior verified SHA remains live."')
