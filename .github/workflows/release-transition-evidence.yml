@@ -30,26 +30,26 @@ jobs:
           gh api --paginate \
             "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/jobs?per_page=100" \
             --slurp > "$RUNNER_TEMP/jobs-pages.json"
-          logs_available=false
-          if gh api \
-            "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/logs" \
-            > "$RUNNER_TEMP/delivery-logs.zip" 2>/dev/null; then
-            logs_available=true
-          fi
           failure_class=infrastructure_failure
-          if [[ "$SOURCE_CONCLUSION" == cancelled ]]; then
+          superseded=false
+          if [[ "$SOURCE_CONCLUSION" == cancelled &&
+                "$SOURCE_WORKFLOW" == Release &&
+                "$SOURCE_EVENT" == pull_request ]]; then
+            superseded=true
             failure_class=expected_deferred
-          elif [[ "$logs_available" == true ]] &&
-            unzip -p "$RUNNER_TEMP/delivery-logs.zip" 2>/dev/null |
-              grep -Ei \
-                'Requested commit must be a full lowercase Git SHA|Production delivery must be dispatched from trusted main|does not match package.json version|not an ancestor of the requested app commit' \
-                >/dev/null; then
+          elif jq -e '
+            [.[].jobs[]?.steps[]? |
+              select(.conclusion == "failure") |
+              .name] |
+            any(. == "Resolve requested commit")
+          ' "$RUNNER_TEMP/jobs-pages.json" >/dev/null; then
             failure_class=invalid_change
-          elif [[ "$logs_available" == true ]] &&
-            unzip -p "$RUNNER_TEMP/delivery-logs.zip" 2>/dev/null |
-              grep -E \
-                'TestWSLConnectorQuiescenceWaitsForLinuxProcesses|durable Codex operation snapshots|connector runtime stop signed contract' \
-                >/dev/null; then
+          elif jq -e '
+            [.[].jobs[]?.steps[]? |
+              select(.conclusion == "failure") |
+              .name] |
+            any(. == "Verify repaired flaky signatures")
+          ' "$RUNNER_TEMP/jobs-pages.json" >/dev/null; then
             failure_class=flaky_test_signature
           elif jq -e '
             [.[].jobs[]? |
@@ -65,8 +65,10 @@ jobs:
             'Deploy production') transition=production ;;
             *) transition=delivery ;;
           esac
-          if [[ "$SOURCE_CONCLUSION" == cancelled ]]; then
+          if [[ "$superseded" == true ]]; then
             error_code="${transition}_superseded"
+          elif [[ "$SOURCE_CONCLUSION" == cancelled ]]; then
+            error_code="${transition}_cancelled"
           else
             error_code="${transition}_transition_failed"
           fi

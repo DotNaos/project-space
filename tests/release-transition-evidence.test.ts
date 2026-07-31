@@ -22,9 +22,12 @@ test('publishes sanitized evidence for every failed delivery workflow', () => {
   expect(workflow).toContain('failure_class=application_regression');
   expect(workflow).toContain('failure_class=infrastructure_failure');
   expect(workflow).toContain('select(.conclusion == "failure")');
+  expect(workflow).toContain('any(. == "Resolve requested commit")');
+  expect(workflow).toContain('error_code="${transition}_cancelled"');
+  expect(workflow).toContain('"$SOURCE_EVENT" == pull_request');
   expect(workflow).toContain('failedJobs:');
   expect(workflow).toContain('delivery-transition.json');
   expect(workflow).toContain('path: delivery-transition.json');
-  expect(workflow).not.toContain('path: delivery-logs.zip');
+  expect(workflow).not.toContain('/logs');
   expect(workflow).not.toContain('secrets.');
 });
