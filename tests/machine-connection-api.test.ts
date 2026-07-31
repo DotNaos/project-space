@@ -10,6 +10,7 @@ import {
 } from '../server/machine-connection-service';
 
 const servers: Array<{ close(): Promise<void> }> = [];
+const physicalMachineId = '11111111-1111-4111-8111-111111111111';
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => server.close()));
@@ -18,6 +19,11 @@ afterEach(async () => {
 async function startApi(allowCreateRequest = true) {
   const onlineMachines = new Map<string, string>();
   const store = new MemoryMachineConnectionStore();
+  store.addPhysicalMachine('user_oli', {
+    id: physicalMachineId,
+    kind: 'physical',
+    name: 'Office PC'
+  });
   const service = new MachineConnectionService({
     isMachineOnline: (machineId, credential) =>
       onlineMachines.get(machineId) === credential,
@@ -93,9 +99,37 @@ describe('machine connection API', () => {
     );
     expect(unauthenticatedApproval.status).toBe(401);
 
+    const approvalView = await fetch(
+      `${api.origin}/api/machine-connections/${created.requestId}/approval`,
+      { headers: { Authorization: 'Bearer browser-session' } }
+    );
+    expect(await json(approvalView)).toMatchObject({
+      physicalMachines: [{ id: physicalMachineId, kind: 'physical', name: 'Office PC' }]
+    });
+
+    const missingAssignment = await fetch(
+      `${api.origin}/api/machine-connections/${created.requestId}/approve`,
+      {
+        body: '{}',
+        headers: {
+          Authorization: 'Bearer browser-session',
+          'Content-Type': 'application/json'
+        },
+        method: 'POST'
+      }
+    );
+    expect(missingAssignment.status).toBe(400);
+
     const approval = await fetch(
       `${api.origin}/api/machine-connections/${created.requestId}/approve`,
-      { headers: { Authorization: 'Bearer browser-session' }, method: 'POST' }
+      {
+        body: JSON.stringify({ physicalMachineId }),
+        headers: {
+          Authorization: 'Bearer browser-session',
+          'Content-Type': 'application/json'
+        },
+        method: 'POST'
+      }
     );
     expect(approval.status).toBe(200);
 

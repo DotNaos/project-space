@@ -914,9 +914,12 @@ export interface MachineRecord {
  */
 export type ConnectorInstallationRecord = MachineRecord;
 
+export type ManagedMachineKind = 'physical' | 'virtual';
+
 export interface PhysicalMachineRecord {
   connectorIds: string[];
   id: string;
+  kind: ManagedMachineKind;
   name: string;
 }
 
@@ -927,6 +930,7 @@ export interface PhysicalMachinesResult {
 export interface PhysicalMachineSaveRequest {
   connectorIds: string[];
   id?: string;
+  kind: ManagedMachineKind;
   name: string;
 }
 

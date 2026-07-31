@@ -2,6 +2,12 @@ export type ApprovalStatus =
   "approved" | "consumed" | "denied" | "expired" | "pending";
 export type MachineConnectionDecision = "approve" | "deny";
 
+export interface MachineConnectionApprovalMachine {
+  id: string;
+  kind: "physical" | "virtual";
+  name: string;
+}
+
 export interface MachineConnectionApproval {
   architecture: "amd64" | "arm64";
   clientVersion: string;
@@ -9,6 +15,7 @@ export interface MachineConnectionApproval {
   hostname: string;
   name: string;
   operatingSystem: "darwin" | "linux" | "windows";
+  physicalMachines: MachineConnectionApprovalMachine[];
   status: ApprovalStatus;
 }
 
@@ -29,6 +36,8 @@ const operatingSystems = new Set<MachineConnectionApproval["operatingSystem"]>([
   "windows",
 ]);
 const machineNamePattern = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/;
+const physicalMachineIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const physicalMachineNamePattern = /^\S(?:.{0,78}\S)?$/;
 const hostnamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const versionPattern = /^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$/;
 const maximumErrorMessageLength = 500;
@@ -80,6 +89,7 @@ export function parseMachineConnectionApproval(
   const hostname = stringMatching(payload.hostname, hostnamePattern);
   const name = stringMatching(payload.name, machineNamePattern);
   const operatingSystem = payload.operatingSystem;
+  const physicalMachines = payload.physicalMachines;
   const status = payload.status;
 
   if (
@@ -93,6 +103,15 @@ export function parseMachineConnectionApproval(
     !operatingSystems.has(
       operatingSystem as MachineConnectionApproval["operatingSystem"],
     ) ||
+    !Array.isArray(physicalMachines) ||
+    physicalMachines.some((machine) => (
+      !isRecord(machine) ||
+      typeof machine.id !== "string" ||
+      !physicalMachineIdPattern.test(machine.id) ||
+      (machine.kind !== "physical" && machine.kind !== "virtual") ||
+      typeof machine.name !== "string" ||
+      !physicalMachineNamePattern.test(machine.name)
+    )) ||
     !approvalStatuses.has(status as ApprovalStatus)
   ) {
     return invalidPayload(
@@ -108,6 +127,11 @@ export function parseMachineConnectionApproval(
     name,
     operatingSystem:
       operatingSystem as MachineConnectionApproval["operatingSystem"],
+    physicalMachines: physicalMachines.map((machine) => ({
+      id: machine.id as string,
+      kind: machine.kind as MachineConnectionApprovalMachine["kind"],
+      name: machine.name as string,
+    })),
     status: status as ApprovalStatus,
   };
 }

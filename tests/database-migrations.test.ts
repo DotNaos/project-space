@@ -80,7 +80,8 @@ describe('database migrations', () => {
       '0023_codex_machine_task_start_payload',
       '0024_roadmap_plans',
       '0025_pr_dev_server_leases',
-      '0026_machine_power_operations'
+      '0026_machine_power_operations',
+      '0027_connector_machine_membership_required'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');

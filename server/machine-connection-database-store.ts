@@ -47,6 +47,7 @@ interface RequestRow {
   name: unknown;
   operating_system: unknown;
   poll_token_hash: unknown;
+  physical_machine_id: unknown;
   public_key: unknown;
   status: unknown;
 }
@@ -90,7 +91,7 @@ const operatingSystems = ["darwin", "linux", "windows"] as const;
 const requestColumns = `id, poll_token_hash, public_key, name, hostname,
   operating_system, architecture, client_version, status, approval_challenge,
   approved_by_user_id, created_at, expires_at, approved_at, denied_at, consumed_at,
-  connector_channel, connector_source`;
+  connector_channel, connector_source, physical_machine_id`;
 const identityColumns = `id, owner_user_id, public_key, name, hostname,
   operating_system, architecture, client_version, created_at, last_seen_at, revoked_at,
   current_credential_id, connector_channel, connector_source`;
@@ -164,6 +165,7 @@ function mapRequest(row: RequestRow): MachineConnectRequestRecord {
       "operating_system",
     ),
     pollTokenHash: hash(row.poll_token_hash, "poll_token_hash"),
+    physicalMachineId: optionalString(row.physical_machine_id, "physical_machine_id"),
     publicKey: requiredString(row.public_key, "public_key"),
     status: enumValue(row.status, requestStatuses, "status"),
   };
@@ -271,10 +273,10 @@ export class DatabaseMachineConnectionStore implements MachineConnectionStore {
          id, poll_token_hash, public_key, name, hostname, operating_system,
          architecture, client_version, status, approval_challenge,
          approved_by_user_id, created_at, expires_at, approved_at, denied_at, consumed_at,
-         connector_channel, connector_source
+         connector_channel, connector_source, physical_machine_id
        ) values (
          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-         $17, $18
+         $17, $18, $19
        )`,
       [
         request.id,
@@ -295,6 +297,7 @@ export class DatabaseMachineConnectionStore implements MachineConnectionStore {
         request.consumedAt ?? null,
         request.connectorProfile?.channel ?? null,
         request.connectorProfile?.source ?? null,
+        request.physicalMachineId ?? null,
       ],
     );
   }
@@ -308,6 +311,22 @@ export class DatabaseMachineConnectionStore implements MachineConnectionStore {
       [id],
     );
     return result.rows[0] ? mapRequest(result.rows[0]) : null;
+  }
+
+  async listPhysicalMachines(userId: string) {
+    const client = await this.resolveClient();
+    const result = await client.query<{ id: unknown; kind: unknown; name: unknown }>(
+      `select id, kind, name
+         from physical_machines
+        where owner_user_id = $1
+        order by lower(name), id`,
+      [requiredString(userId, "user_id")],
+    );
+    return result.rows.map((row) => ({
+      id: requiredString(row.id, "physical_machine_id"),
+      kind: enumValue(row.kind, ["physical", "virtual"] as const, "physical_machine_kind"),
+      name: requiredString(row.name, "physical_machine_name"),
+    }));
   }
 
   async cleanupOldRequests() {
@@ -350,24 +369,26 @@ export class DatabaseMachineConnectionStore implements MachineConnectionStore {
     }>(
       `update machine_connection_requests
           set status = case
-                when $9::timestamptz is not null and expires_at <= $9::timestamptz
+                when $10::timestamptz is not null and expires_at <= $10::timestamptz
                   then 'expired'
                 else $3
               end,
-              approval_challenge = case when $9::timestamptz is not null
-                and expires_at <= $9::timestamptz then approval_challenge else $4 end,
-              approved_at = case when $9::timestamptz is not null
-                and expires_at <= $9::timestamptz then approved_at else $5 end,
-              approved_by_user_id = case when $9::timestamptz is not null
-                and expires_at <= $9::timestamptz then approved_by_user_id else $6 end,
-              denied_at = case when $9::timestamptz is not null
-                and expires_at <= $9::timestamptz then denied_at else $7 end,
-              consumed_at = case when $9::timestamptz is not null
-                and expires_at <= $9::timestamptz then consumed_at else $8 end
+              approval_challenge = case when $10::timestamptz is not null
+                and expires_at <= $10::timestamptz then approval_challenge else $4 end,
+              approved_at = case when $10::timestamptz is not null
+                and expires_at <= $10::timestamptz then approved_at else $5 end,
+              approved_by_user_id = case when $10::timestamptz is not null
+                and expires_at <= $10::timestamptz then approved_by_user_id else $6 end,
+              denied_at = case when $10::timestamptz is not null
+                and expires_at <= $10::timestamptz then denied_at else $7 end,
+              consumed_at = case when $10::timestamptz is not null
+                and expires_at <= $10::timestamptz then consumed_at else $8 end,
+              physical_machine_id = case when $10::timestamptz is not null
+                and expires_at <= $10::timestamptz then physical_machine_id else $9 end
         where id = $1 and status = $2
       returning status,
-                ($9::timestamptz is not null
-                  and expires_at <= $9::timestamptz) as expired_by_boundary`,
+                ($10::timestamptz is not null
+                  and expires_at <= $10::timestamptz) as expired_by_boundary`,
       [
         request.id,
         expectedStatus,
@@ -377,6 +398,7 @@ export class DatabaseMachineConnectionStore implements MachineConnectionStore {
         request.approvedByUserId ?? null,
         request.deniedAt ?? null,
         request.consumedAt ?? null,
+        request.physicalMachineId ?? null,
         unexpiredAt ?? null,
       ],
     );
@@ -419,6 +441,9 @@ export class DatabaseMachineConnectionStore implements MachineConnectionStore {
 
       if (!machineMatchesRequest(current, machine)) {
         throw new Error("Locked machine request does not match the enrollment.");
+      }
+      if (!current.physicalMachineId) {
+        throw new Error("Connector enrollment requires a physical machine assignment.");
       }
 
       await transaction.query("select pg_advisory_xact_lock(hashtext($1))", [
@@ -494,6 +519,14 @@ export class DatabaseMachineConnectionStore implements MachineConnectionStore {
          on conflict (machine_id, user_id) do update set
            role = 'owner', updated_at = $4::timestamptz`,
         [membershipId, machineId, machine.ownerUserId, machine.createdAt],
+      );
+      await transaction.query(
+        `insert into physical_machine_connectors (
+           physical_machine_id, owner_user_id, connector_id
+         ) values ($1, $2, $3)
+         on conflict (owner_user_id, connector_id) do update set
+           physical_machine_id = excluded.physical_machine_id`,
+        [current.physicalMachineId, machine.ownerUserId, machineId],
       );
       await transaction.query(
         `update connector_credentials

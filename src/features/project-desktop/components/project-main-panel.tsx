@@ -38,6 +38,7 @@ import { ProjectDetail } from './project-detail';
 import { ProjectHomeOverview } from './project-home-overview';
 import { ProjectRootSummary } from './project-root-summary';
 import { SettingsView } from './settings-view';
+import { MachinesView } from './machines-view';
 import { projectRecordsForCodex, resolveProjectRepository } from './project-main-model';
 import { cn } from '@/lib/utils';
 import { connectorLocationPresentation } from './machine-connector-topology-model';
@@ -428,7 +429,7 @@ export function ProjectMainPanel({
   let onBack: (() => void) | undefined;
 
   if (mainView === 'machines' || mainView === 'machine') {
-    segments = [homeSegment, { label: 'Settings' }];
+    segments = [homeSegment, { label: 'Machines' }];
     onBack = handleBack;
   } else if (mainView === 'projects') {
     segments = [homeSegment, { label: 'Projects' }];
@@ -590,14 +591,18 @@ export function ProjectMainPanel({
             onSelectProject={onSelectProject}
             recentProjectIds={recentProjectIds}
           />
-        ) : mainView === 'settings' || mainView === 'machines' || mainView === 'machine' ? (
+        ) : mainView === 'machines' || mainView === 'machine' ? (
+          <MachinesView
+            connectorOverview={connectorOverview}
+            onRefreshConnectorOverview={onRefreshConnectorOverview}
+          />
+        ) : mainView === 'settings' ? (
           <SettingsView
             account={account}
             appMeta={appMeta}
             connectorOverview={connectorOverview}
             githubCatalog={githubCatalog}
             isGitHubRefreshing={isGitHubRefreshing}
-            onRefreshConnectorOverview={onRefreshConnectorOverview}
             onRefreshGitHubCatalog={onRefreshGitHubCatalog}
           />
         ) : project ? (

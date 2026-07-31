@@ -108,7 +108,7 @@ function projectPath(projectId: string) {
 const settingsPath = '/settings';
 
 export function isLegacyMachinesRoute(pathname: string) {
-  return pathname === machinesPath || pathname.startsWith(`${machinesPath}/`);
+  return pathname !== machinesPath && pathname.startsWith(`${machinesPath}/`);
 }
 
 export function routeForView(view: ProjectMainView, projectId = '', tab = '', detail = '') {
@@ -125,7 +125,7 @@ export function routeForView(view: ProjectMainView, projectId = '', tab = '', de
   }
 
   if (view === 'machines' || view === 'machine') {
-    return settingsPath;
+    return machinesPath;
   }
 
   if (view === 'projects') {
@@ -192,8 +192,8 @@ export function parseProjectRoute(pathname: string): ParsedProjectRoute {
     return { view: 'settings' };
   }
 
-  if (isLegacyMachinesRoute(pathname)) {
-    return { view: 'settings' };
+  if (pathname === machinesPath || pathname === `${machinesPath}/` || isLegacyMachinesRoute(pathname)) {
+    return { view: 'machines' };
   }
 
   if (pathname === projectsPath || pathname === `${projectsPath}/`) {
@@ -226,7 +226,9 @@ export function parseProjectRoute(pathname: string): ParsedProjectRoute {
 
 export function initialProjectMainView(pathname: string): ProjectMainView {
   const view = parseProjectRoute(pathname).view;
-  return view === 'chat' || view === 'codex' || view === 'settings' ? view : 'root';
+  return view === 'chat' || view === 'codex' || view === 'machines' || view === 'settings'
+    ? view
+    : 'root';
 }
 
 export function resolveRouteProject(
@@ -308,7 +310,7 @@ export function replaceLegacyMachinesRoute(pathname: string) {
     return false;
   }
 
-  writeRoute('settings', '', true);
+  writeRoute('machines', '', true);
   return true;
 }
 

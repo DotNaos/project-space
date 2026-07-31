@@ -300,6 +300,7 @@ export function createProjectSpaceCoreApiRoutes(
       const machine = isDatabaseConfigured()
         ? await savePhysicalMachine({
             connectorIds: payload.connectorIds,
+            kind: payload.kind,
             name: payload.name,
             physicalMachineId: payload.id,
             userId
@@ -307,6 +308,7 @@ export function createProjectSpaceCoreApiRoutes(
         : localPhysicalMachines.save({
             allowedConnectorIds: (await backend.getConnectorOverview()).machines.map((entry) => entry.id),
             connectorIds: payload.connectorIds,
+            kind: payload.kind,
             name: payload.name,
             physicalMachineId: payload.id,
             userId

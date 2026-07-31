@@ -70,9 +70,17 @@ const server = await createProjectSpaceServer({
 });
 
 try {
+  const physicalMachineId = '11111111-1111-4111-8111-111111111111';
+  await databaseClient.query(
+    `insert into physical_machines (id, owner_user_id, kind, name)
+     values ($1, $2, 'virtual', $3)
+     on conflict (id, owner_user_id) do nothing`,
+    [physicalMachineId, userId, 'Project Chat E2E VM']
+  );
   const credential = await enrollProjectChatE2EMachine({
     backendUrl: server.origin,
     hostId,
+    physicalMachineId,
     store: new DatabaseMachineConnectionStore(databaseClient),
     userId
   });

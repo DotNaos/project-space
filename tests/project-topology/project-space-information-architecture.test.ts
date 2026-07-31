@@ -11,6 +11,7 @@ describe('Project Space information architecture', () => {
     expect(projectSpacePrimaryNavigation).toEqual([
       { destination: 'home', label: 'Home' },
       { destination: 'chat', label: 'Chat' },
+      { destination: 'machines', label: 'Machines' },
       { destination: 'projects', label: 'Projects' }
     ]);
     expect(defaultProjectHomeView).toBe('summary');
@@ -30,8 +31,7 @@ describe('Project Space information architecture', () => {
       layer: 'agent'
     });
     expect(projectSpaceViewPlacement('machines')).toEqual({
-      context: 'machines',
-      destination: 'projects'
+      destination: 'machines'
     });
   });
 

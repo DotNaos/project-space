@@ -21,14 +21,14 @@ afterEach(() => {
   });
 });
 
-describe('legacy Machines route canonicalization', () => {
-  test('uses Settings as the only destination for machine navigation', () => {
-    expect(routeForView('machines')).toBe('/settings');
-    expect(routeForView('machine', 'machine:os-pc')).toBe('/settings');
-    expect(routeForView('machine', 'machine:os-pc', 'terminal')).toBe('/settings');
+describe('Machines route canonicalization', () => {
+  test('uses the dedicated Machines destination for machine navigation', () => {
+    expect(routeForView('machines')).toBe('/machines');
+    expect(routeForView('machine', 'machine:os-pc')).toBe('/machines');
+    expect(routeForView('machine', 'machine:os-pc', 'terminal')).toBe('/machines');
   });
 
-  test('parses every former Machines route as Settings', () => {
+  test('parses the canonical and former nested Machines routes as Machines', () => {
     for (const pathname of [
       '/machines',
       '/machines/',
@@ -36,15 +36,15 @@ describe('legacy Machines route canonicalization', () => {
       '/machines/machine%3Aos-pc/projects',
       '/machines/machine%3Aos-pc/terminal'
     ]) {
-      expect(parseProjectRoute(pathname)).toEqual({ view: 'settings' });
+      expect(parseProjectRoute(pathname)).toEqual({ view: 'machines' });
     }
 
     expect(parseProjectRoute('/machineship')).toEqual({ view: 'root' });
   });
 
-  test('starts Settings directly even when unrelated discovery data is unavailable', () => {
+  test('starts Machines directly even when unrelated discovery data is unavailable', () => {
     expect(initialProjectMainView('/settings')).toBe('settings');
-    expect(initialProjectMainView('/machines/connector-id')).toBe('settings');
+    expect(initialProjectMainView('/machines/connector-id')).toBe('machines');
   });
 
   test('replace-navigates a legacy URL without losing search or hash state', () => {
@@ -70,7 +70,7 @@ describe('legacy Machines route canonicalization', () => {
 
     expect(replaceLegacyMachinesRoute('/machines/machine%3Aos-pc/projects')).toBe(true);
 
-    expect(replacedUrls).toEqual(['/settings?source=legacy#connectors']);
+    expect(replacedUrls).toEqual(['/machines?source=legacy#connectors']);
   });
 
   test('canonicalizes a legacy history entry while parsing browser navigation', () => {
@@ -92,9 +92,9 @@ describe('legacy Machines route canonicalization', () => {
     });
 
     expect(parseProjectNavigationRoute('/machines/old-machine/terminal')).toEqual({
-      view: 'settings'
+      view: 'machines'
     });
-    expect(replacedUrls).toEqual(['/settings?from=history#connector']);
+    expect(replacedUrls).toEqual(['/machines?from=history#connector']);
   });
 
   test('does not rewrite unrelated paths', () => {

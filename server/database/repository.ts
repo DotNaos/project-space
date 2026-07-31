@@ -89,6 +89,7 @@ interface MachineExecutionScopeRow {
 interface PhysicalMachineRow {
   connector_ids: string[];
   id: string;
+  kind: PhysicalMachineRecord['kind'];
   name: string;
 }
 
@@ -209,7 +210,7 @@ export class ProjectSpaceDatabaseRepository {
 
   async listPhysicalMachines(userId: string): Promise<PhysicalMachineRecord[]> {
     const result = await this.client.query<PhysicalMachineRow>(
-      `select machine.id, machine.name,
+      `select machine.id, machine.kind, machine.name,
               coalesce(array_agg(connector.connector_id order by connector.connector_id)
                 filter (where connector.connector_id is not null), '{}') as connector_ids
          from physical_machines machine
@@ -217,7 +218,7 @@ export class ProjectSpaceDatabaseRepository {
            on connector.physical_machine_id = machine.id
           and connector.owner_user_id = machine.owner_user_id
         where machine.owner_user_id = $1
-        group by machine.id, machine.owner_user_id, machine.name
+        group by machine.id, machine.owner_user_id, machine.kind, machine.name
         order by lower(machine.name), machine.id`,
       [requireValue(userId, 'userId')]
     );
@@ -225,6 +226,7 @@ export class ProjectSpaceDatabaseRepository {
     return result.rows.map((row) => ({
       connectorIds: row.connector_ids,
       id: row.id,
+      kind: row.kind,
       name: row.name
     }));
   }
@@ -238,7 +240,9 @@ export class ProjectSpaceDatabaseRepository {
     const connectorIds = [
       ...new Set(input.connectorIds.map((id) => requireValue(id, 'connectorId')))
     ];
-    if (connectorIds.length === 0) throw new Error('Choose at least one connector installation.');
+    if (input.kind !== 'physical' && input.kind !== 'virtual') {
+      throw new Error('Machine kind must be physical or virtual.');
+    }
     const physicalMachineId = input.physicalMachineId
       ? requireValue(input.physicalMachineId, 'physicalMachineId')
       : this.createId();
@@ -258,14 +262,15 @@ export class ProjectSpaceDatabaseRepository {
         throw new Error('Only connector installations owned by this account can be grouped.');
       }
 
-      const machine = await client.query<{ id: string; name: string }>(
-        `insert into physical_machines (id, owner_user_id, name)
-         values ($1, $2, $3)
+      const machine = await client.query<{ id: string; kind: PhysicalMachineRecord['kind']; name: string }>(
+        `insert into physical_machines (id, owner_user_id, kind, name)
+         values ($1, $2, $3, $4)
          on conflict (id, owner_user_id) do update set
+           kind = excluded.kind,
            name = excluded.name,
            updated_at = now()
-         returning id, name`,
-        [physicalMachineId, userId, name]
+         returning id, kind, name`,
+        [physicalMachineId, userId, input.kind, name]
       );
       if (!machine.rows[0]) throw new Error('The physical machine could not be saved.');
 
@@ -286,22 +291,10 @@ export class ProjectSpaceDatabaseRepository {
            physical_machine_id = excluded.physical_machine_id`,
         [physicalMachineId, userId, connectorIds]
       );
-      await client.query(
-        `delete from physical_machines machine
-          where machine.owner_user_id = $1
-            and machine.id <> $2
-            and not exists (
-              select 1
-                from physical_machine_connectors connector
-               where connector.physical_machine_id = machine.id
-                 and connector.owner_user_id = machine.owner_user_id
-            )`,
-        [userId, physicalMachineId]
-      );
-
       return {
         connectorIds,
         id: machine.rows[0].id,
+        kind: machine.rows[0].kind,
         name: machine.rows[0].name
       };
     };
@@ -313,8 +306,20 @@ export class ProjectSpaceDatabaseRepository {
 
   async deletePhysicalMachine(input: PhysicalMachineKey) {
     const result = await this.client.query<{ id: string }>(
-      `delete from physical_machines
+      `delete from physical_machines machine
         where id = $1 and owner_user_id = $2
+          and not exists (
+            select 1
+              from physical_machine_connectors connector
+             where connector.physical_machine_id = machine.id
+               and connector.owner_user_id = machine.owner_user_id
+          )
+          and not exists (
+            select 1
+              from machine_connection_requests request
+             where request.physical_machine_id = machine.id
+               and request.approved_by_user_id = machine.owner_user_id
+          )
       returning id`,
       [
         requireValue(input.physicalMachineId, 'physicalMachineId'),

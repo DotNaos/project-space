@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { AlertTriangle, Check, X } from 'lucide-react';
-import { AlertDialog, Checkbox, Input, Modal } from '@heroui/react';
+import { AlertDialog, Checkbox, Input, Modal, Radio, RadioGroup } from '@heroui/react';
 import { Button, Text } from '@/app/dotnaos-ui';
 import type {
   ConnectorInstallationRecord,
@@ -24,7 +24,9 @@ export function SettingsMachineScopeEditor({
   physicalMachines: readonly PhysicalMachineRecord[];
 }) {
   const [name, setName] = useState(editing?.name ?? '');
+  const [kind, setKind] = useState<PhysicalMachineRecord['kind']>(editing?.kind ?? 'virtual');
   const [selected, setSelected] = useState(() => new Set(editing?.connectorIds ?? []));
+  const fixedConnectorIds = useMemo(() => new Set(editing?.connectorIds ?? []), [editing?.connectorIds]);
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isConfirmingMoves, setIsConfirmingMoves] = useState(false);
@@ -43,11 +45,11 @@ export function SettingsMachineScopeEditor({
   )], [machineByConnectorId, selected]);
 
   async function persist() {
-    if (!name.trim() || selected.size === 0) return;
+    if (!name.trim()) return;
     setIsSaving(true);
     setError('');
     try {
-      await onSave({ connectorIds: [...selected], id: editing?.id, name: name.trim() });
+      await onSave({ connectorIds: [...selected], id: editing?.id, kind, name: name.trim() });
       onClose();
     } catch (caught) {
       setIsConfirmingMoves(false);
@@ -85,6 +87,22 @@ export function SettingsMachineScopeEditor({
                   <Input autoFocus fullWidth placeholder="os-pc" value={name} variant="secondary" onChange={(event) => setName(event.currentTarget.value)} />
                 </label>
                 <div>
+                  <Text className="mb-2 block text-xs font-medium text-neutral-300">Machine type</Text>
+                  <RadioGroup
+                    className="flex-row gap-3"
+                    name="machine-kind"
+                    value={kind}
+                    variant="secondary"
+                    onChange={(value) => setKind(value as PhysicalMachineRecord['kind'])}
+                  >
+                    <Radio value="physical"><Radio.Content><Radio.Control><Radio.Indicator /></Radio.Control>Physical</Radio.Content></Radio>
+                    <Radio value="virtual"><Radio.Content><Radio.Control><Radio.Indicator /></Radio.Control>Virtual</Radio.Content></Radio>
+                  </RadioGroup>
+                  <Text className="mt-1.5 block text-xs text-neutral-500">
+                    Physical machines may use JetKVM power control. Virtual machines never expose a physical power switch.
+                  </Text>
+                </div>
+                <div>
                   <Text className="mb-2 block text-xs font-medium text-neutral-300">Connector installations</Text>
                   <div className="divide-y divide-neutral-900 rounded-lg border border-neutral-800">
                     {connectors.map((machine) => {
@@ -93,11 +111,12 @@ export function SettingsMachineScopeEditor({
                         <Checkbox
                           key={machine.id}
                           className="flex w-full items-center gap-3 px-3 py-3"
+                          isDisabled={fixedConnectorIds.has(machine.id)}
                           isSelected={selected.has(machine.id)}
                           onChange={(checked) => setSelected((current) => {
                             const next = new Set(current);
                             if (checked) next.add(machine.id);
-                            else next.delete(machine.id);
+                            else if (!fixedConnectorIds.has(machine.id)) next.delete(machine.id);
                             return next;
                           })}
                         >
@@ -115,6 +134,11 @@ export function SettingsMachineScopeEditor({
                                 Currently in {currentMachine.name}; selecting it will move it.
                               </span>
                             ) : null}
+                            {fixedConnectorIds.has(machine.id) ? (
+                              <span className="mt-0.5 block truncate text-xs text-neutral-500">
+                                Assigned here; move it by selecting it on another machine.
+                              </span>
+                            ) : null}
                           </Checkbox.Content>
                         </Checkbox>
                       );
@@ -125,7 +149,7 @@ export function SettingsMachineScopeEditor({
               </Modal.Body>
               <Modal.Footer className="gap-2">
                 <Button variant="ghost" onPress={onClose}>Cancel</Button>
-                <Button isDisabled={!name.trim() || selected.size === 0 || isSaving} variant="primary" onPress={save}>
+                <Button isDisabled={!name.trim() || isSaving} variant="primary" onPress={save}>
                   {isSaving ? 'Saving…' : 'Save machine'}
                 </Button>
               </Modal.Footer>
@@ -145,7 +169,7 @@ export function SettingsMachineScopeEditor({
               <AlertDialog.Body>
                 <Text className="block text-sm leading-6 text-neutral-300">
                   Your selection moves connector installations out of {movedMachines.map((machine) => machine.name).join(', ')}.
-                  Empty machines will be removed automatically.
+                  The previous machines remain available even when they no longer have connectors.
                 </Text>
                 {error ? <Text className="mt-3 block text-xs text-red-300">{error}</Text> : null}
               </AlertDialog.Body>

@@ -32,6 +32,7 @@ export interface SettingsMachineGroup {
   id: string;
   instances: SettingsConnectorInstance[];
   connectorIds: string[];
+  kind: PhysicalMachineRecord['kind'];
   name: string;
   onlineConnectorCount: number;
   platformLabels: string[];
@@ -154,9 +155,8 @@ function splitInstances(instances: readonly SettingsConnectorInstance[]) {
 function machineGroup(
   physicalMachine: PhysicalMachineRecord,
   instances: readonly SettingsConnectorInstance[]
-): SettingsMachineGroup | undefined {
+): SettingsMachineGroup {
   const split = splitInstances(instances);
-  if (split.active.length === 0 && split.archived.length === 0) return undefined;
 
   const allInstances = [...split.active, ...split.archived];
   return {
@@ -166,6 +166,7 @@ function machineGroup(
     id: physicalMachine.id,
     instances: split.active,
     connectorIds: [...new Set(physicalMachine.connectorIds)],
+    kind: physicalMachine.kind,
     name: physicalMachine.name,
     onlineConnectorCount: split.active.filter((instance) => instance.isOnline).length,
     platformLabels: [...new Set(allInstances.flatMap((instance) => (
@@ -216,14 +217,13 @@ export function groupSettingsMachines({
     }
   }
 
-  const groups = physicalMachines.flatMap((physicalMachine) => {
+  const groups = physicalMachines.map((physicalMachine) => {
     const instances = [...new Set(physicalMachine.connectorIds)].flatMap((machineId) => {
       const memberships = scopeIdsByMachineId.get(machineId) ?? [];
       const instance = instancesById.get(machineId);
       return instance && memberships.length === 1 ? [instance] : [];
     });
-    const group = machineGroup(physicalMachine, instances);
-    return group ? [group] : [];
+    return machineGroup(physicalMachine, instances);
   });
   const splitUnscoped = splitInstances(unscoped);
 

@@ -8,6 +8,9 @@ import {
   machineApprovalProofMessage,
 } from "../server/machine-connection-service";
 
+const physicalMachineId = "11111111-1111-4111-8111-111111111111";
+const otherPhysicalMachineId = "22222222-2222-4222-8222-222222222222";
+
 function keyPair() {
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   const jwk = publicKey.export({ format: "jwk" });
@@ -21,6 +24,16 @@ function setup(options: { onMachineRevoked?(machineId: string): void | Promise<v
   let now = new Date("2026-07-11T10:00:00.000Z");
   const onlineMachines = new Map<string, string>();
   const store = new MemoryMachineConnectionStore();
+  store.addPhysicalMachine("user_oli", {
+    id: physicalMachineId,
+    kind: "physical",
+    name: "Office PC",
+  });
+  store.addPhysicalMachine("user_other", {
+    id: otherPhysicalMachineId,
+    kind: "virtual",
+    name: "Other VM",
+  });
   const service = new MachineConnectionService({
     isMachineOnline: (machineId, credential) =>
       onlineMachines.get(machineId) === credential,
@@ -57,7 +70,7 @@ function metadata(publicKey: string) {
 async function approvedConnection(context = setup()) {
   const keys = keyPair();
   const created = await context.service.createRequest(metadata(keys.publicKey));
-  await context.service.approveRequest(created.requestId, "user_oli");
+  await context.service.approveRequest(created.requestId, "user_oli", physicalMachineId);
   const approved = await context.service.pollRequest(
     created.requestId,
     created.pollToken,
@@ -83,7 +96,11 @@ async function connectWithKey(
     ...metadata(keys.publicKey),
     clientVersion,
   });
-  await service.approveRequest(created.requestId, userId);
+  await service.approveRequest(
+    created.requestId,
+    userId,
+    userId === "user_other" ? otherPhysicalMachineId : physicalMachineId,
+  );
   const approved = await service.pollRequest(
     created.requestId,
     created.pollToken,
@@ -105,7 +122,7 @@ async function connectWithKey(
 
 describe("machine connection state machine", () => {
   test("requires backend approval and machine-key proof before issuing a credential", async () => {
-    const { service, created, signature } = await approvedConnection();
+    const { service, store, created, signature } = await approvedConnection();
     const exchanged = await service.exchangeApproval(
       created.requestId,
       created.pollToken,
@@ -114,6 +131,7 @@ describe("machine connection state machine", () => {
 
     expect(exchanged.machineName).toBe("os-pc-wsl");
     expect(exchanged.credential.length).toBeGreaterThan(32);
+    expect(store.connectorAssignments.get(exchanged.machineId)).toBe(physicalMachineId);
     expect(
       await service.getConnectionStatus(
         exchanged.machineId,
@@ -125,6 +143,23 @@ describe("machine connection state machine", () => {
       machineName: "os-pc-wsl",
       status: "offline",
     });
+  });
+
+  test("lists only owned machines and rejects missing or foreign assignments", async () => {
+    const { service, store } = setup();
+    const keys = keyPair();
+    const created = await service.createRequest(metadata(keys.publicKey));
+
+    await expect(service.getApprovalView(created.requestId, "user_oli")).resolves.toMatchObject({
+      physicalMachines: [{ id: physicalMachineId, kind: "physical", name: "Office PC" }],
+    });
+    await expect(
+      service.approveRequest(created.requestId, "user_oli", ""),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(
+      service.approveRequest(created.requestId, "user_oli", otherPhysicalMachineId),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    expect(store.requests.get(created.requestId)?.status).toBe("pending");
   });
 
   test("does not reveal request state without the private polling token", async () => {
@@ -167,7 +202,7 @@ describe("machine connection state machine", () => {
       status: "expired",
     });
     expect(
-      service.approveRequest(created.requestId, "user_oli"),
+      service.approveRequest(created.requestId, "user_oli", physicalMachineId),
     ).rejects.toMatchObject({
       code: "expired",
     } satisfies Partial<MachineConnectionError>);
@@ -181,6 +216,11 @@ describe("machine connection state machine", () => {
       new Date(startedAt.getTime() + 600_001),
     ];
     const store = new MemoryMachineConnectionStore();
+    store.addPhysicalMachine("user_oli", {
+      id: physicalMachineId,
+      kind: "physical",
+      name: "Office PC",
+    });
     const service = new MachineConnectionService({
       now: () => times.shift() ?? times.at(-1) ?? startedAt,
       publicOrigin: "https://projects.os-home.net",
@@ -191,7 +231,7 @@ describe("machine connection state machine", () => {
     const created = await service.createRequest(metadata(keys.publicKey));
 
     expect(
-      service.approveRequest(created.requestId, "user_oli"),
+      service.approveRequest(created.requestId, "user_oli", physicalMachineId),
     ).rejects.toMatchObject({
       code: "expired",
     } satisfies Partial<MachineConnectionError>);

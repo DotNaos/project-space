@@ -46,7 +46,7 @@ const { AppRail, CompactUtilityBar } = await import(
 );
 
 describe('Project desktop primary navigation', () => {
-  test('keeps Codex inside Chat and limits the rail to primary destinations', () => {
+  test('keeps Codex inside Chat and exposes Machines as a primary destination', () => {
     const html = renderToStaticMarkup(
       <AppRail
         activeSection="chat"
@@ -55,6 +55,7 @@ describe('Project desktop primary navigation', () => {
         onOpenChat={() => {}}
         onOpenDocumentation={() => {}}
         onOpenHome={() => {}}
+        onOpenMachines={() => {}}
         onOpenProjects={() => {}}
         onOpenSettings={() => {}}
         onToggleContextPanel={() => {}}
@@ -69,7 +70,7 @@ describe('Project desktop primary navigation', () => {
     expect(html).not.toContain('data-testid="sidebar-preview-changelog"');
     expect(html).not.toContain('data-testid="sidebar-codex"');
     expect(html).not.toContain('data-testid="sidebar-topology"');
-    expect(html).not.toContain('data-testid="sidebar-machines"');
+    expect(html).toContain('data-testid="sidebar-machines"');
   });
 
   test('adds a changelog action only when a Preview supplies it', () => {
@@ -82,6 +83,7 @@ describe('Project desktop primary navigation', () => {
         onOpenChangelog={() => {}}
         onOpenDocumentation={() => {}}
         onOpenHome={() => {}}
+        onOpenMachines={() => {}}
         onOpenProjects={() => {}}
         onOpenSettings={() => {}}
         onToggleContextPanel={() => {}}

@@ -1,4 +1,4 @@
-export type ProjectSpacePrimaryDestination = 'chat' | 'home' | 'projects';
+export type ProjectSpacePrimaryDestination = 'chat' | 'home' | 'machines' | 'projects';
 export type ProjectHomeView = 'map' | 'summary';
 
 export interface ProjectSpacePrimaryNavigationItem {
@@ -9,6 +9,7 @@ export interface ProjectSpacePrimaryNavigationItem {
 export const projectSpacePrimaryNavigation: readonly ProjectSpacePrimaryNavigationItem[] = [
   { destination: 'home', label: 'Home' },
   { destination: 'chat', label: 'Chat' },
+  { destination: 'machines', label: 'Machines' },
   { destination: 'projects', label: 'Projects' }
 ];
 
@@ -71,6 +72,7 @@ export type LegacyProjectSpaceView =
 export type ProjectSpaceViewPlacement =
   | { destination: 'chat'; layer: 'agent' | 'lead' }
   | { destination: 'home'; view: ProjectHomeView }
+  | { destination: 'machines' }
   | { destination: 'projects'; context?: 'machines' }
   | { destination: 'settings'; section?: 'machines-and-connectors' };
 
@@ -80,7 +82,7 @@ export function projectSpaceViewPlacement(view: LegacyProjectSpaceView): Project
   if (view === 'chat') return { destination: 'chat', layer: 'lead' };
   if (view === 'codex') return { destination: 'chat', layer: 'agent' };
   if (view === 'machine' || view === 'machines') {
-    return { destination: 'projects', context: 'machines' };
+    return { destination: 'machines' };
   }
   if (view === 'settings') {
     return { destination: 'settings', section: 'machines-and-connectors' };

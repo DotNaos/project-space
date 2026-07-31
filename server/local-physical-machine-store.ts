@@ -5,6 +5,7 @@ import type { PhysicalMachineRecord } from '../src/shared/project-space-api';
 interface LocalPhysicalMachineSaveInput {
   allowedConnectorIds: readonly string[];
   connectorIds: readonly string[];
+  kind: PhysicalMachineRecord['kind'];
   name: string;
   physicalMachineId?: string;
   userId: string;
@@ -26,6 +27,8 @@ export function createLocalPhysicalMachineStore(): LocalPhysicalMachineStore {
   return {
     delete(userId, physicalMachineId) {
       const machines = machinesByUser.get(userId) ?? [];
+      const target = machines.find((machine) => machine.id === physicalMachineId);
+      if (!target || target.connectorIds.length > 0) return false;
       const remaining = machines.filter((machine) => machine.id !== physicalMachineId);
       machinesByUser.set(userId, remaining);
       return remaining.length !== machines.length;
@@ -38,6 +41,9 @@ export function createLocalPhysicalMachineStore(): LocalPhysicalMachineStore {
     },
 
     save(input) {
+      if (input.kind !== 'physical' && input.kind !== 'virtual') {
+        throw new Error('Machine kind must be physical or virtual.');
+      }
       const allowedConnectorIds = new Set(input.allowedConnectorIds);
       if (input.connectorIds.some((connectorId) => !allowedConnectorIds.has(connectorId))) {
         throw new Error('Only connector installations visible in this local workspace can be grouped.');
@@ -51,9 +57,13 @@ export function createLocalPhysicalMachineStore(): LocalPhysicalMachineStore {
         .map((machine) => ({
           ...machine,
           connectorIds: machine.connectorIds.filter((id) => !connectorIds.includes(id))
-        }))
-        .filter((machine) => machine.connectorIds.length > 0);
-      const machine = { connectorIds, id: physicalMachineId, name: input.name };
+        }));
+      const machine = {
+        connectorIds,
+        id: physicalMachineId,
+        kind: input.kind,
+        name: input.name
+      };
       machinesByUser.set(input.userId, [...next, machine]);
       return cloneMachine(machine);
     }

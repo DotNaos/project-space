@@ -83,6 +83,11 @@ import type {
   ToolLaunchRequest,
   ToolLaunchResult
 } from '@/shared/project-space-api';
+import type {
+  MachinePowerOperationResult,
+  MachinePowerRequest,
+  MachinePowerStatusResult
+} from '@/shared/machine-power-api';
 import {
   refreshProjectSpaceAuthToken,
   setProjectSpaceAuthToken
@@ -291,6 +296,19 @@ class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements Project
   deletePhysicalMachine(physicalMachineId: string): Promise<{ deleted: boolean }> {
     return this.request(`/api/physical-machines/${encodeURIComponent(physicalMachineId)}`, {
       method: 'DELETE'
+    });
+  }
+
+  getMachinePowerStatus(physicalMachineId: string): Promise<MachinePowerStatusResult> {
+    const query = new URLSearchParams({ physicalMachineId });
+    return this.request(`/api/machine-power?${query.toString()}`);
+  }
+
+  requestMachinePower(request: MachinePowerRequest): Promise<MachinePowerOperationResult> {
+    return this.request('/api/machine-power', {
+      body: JSON.stringify(request),
+      headers: { 'Idempotency-Key': request.operationId },
+      method: 'POST'
     });
   }
 

@@ -161,7 +161,7 @@ export function createMachineConnectionApiHandler(options: MachineConnectionApiO
       );
       if (!userId) return true;
       try {
-        writeJson(response, 200, await options.service.getApprovalView(approvalMatch[1]));
+        writeJson(response, 200, await options.service.getApprovalView(approvalMatch[1], userId));
       } catch (error) {
         handleError(response, error);
       }
@@ -179,10 +179,20 @@ export function createMachineConnectionApiHandler(options: MachineConnectionApiO
       );
       if (!userId) return true;
       try {
-        const result =
-          decisionMatch[2] === 'approve'
-            ? await options.service.approveRequest(decisionMatch[1], userId)
-            : await options.service.denyRequest(decisionMatch[1], userId);
+        let result;
+        if (decisionMatch[2] === 'approve') {
+          const body = await readJson(request);
+          const physicalMachineId = isRecord(body)
+            ? stringValue(body.physicalMachineId)
+            : '';
+          result = await options.service.approveRequest(
+            decisionMatch[1],
+            userId,
+            physicalMachineId
+          );
+        } else {
+          result = await options.service.denyRequest(decisionMatch[1], userId);
+        }
         writeJson(response, 200, result);
       } catch (error) {
         handleError(response, error);
