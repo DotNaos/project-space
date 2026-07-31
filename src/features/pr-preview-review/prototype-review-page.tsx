@@ -50,6 +50,7 @@ import { PrototypeReviewCodexDock } from './prototype-review-codex-dock';
 import { PrototypeReviewCodexStatus } from './prototype-review-codex-status';
 import { PrototypeReviewDevice } from './prototype-review-device';
 import { PrototypeReviewIdentityNav } from './prototype-review-identity-nav';
+import { PrototypeIterationControl } from './prototype-iteration-control';
 import { usePrototypeReviewAnnotations } from './prototype-review-annotations';
 import {
   usePrototypeReviewLocalContext,
@@ -65,9 +66,12 @@ import {
   prototypeReviewCodexContext,
   rendersPreviewBuildInline,
   verifiedPreviewBuildPrototypeTarget,
+  prototypeSurfaceKind,
   verifiedPrototypeTarget,
   type PrototypeReviewSurface
 } from './prototype-review-model';
+import { usePrototypeAccess } from './use-prototype-access';
+import { usePullRequestPrototypeIteration } from './use-pull-request-prototype-iteration';
 
 type ReviewPanel = 'changelog';
 
@@ -238,6 +242,7 @@ export function PrototypeReviewPage() {
   const [hudVisible, setHudVisible] = useState(true);
   const [isRotating, setIsRotating] = useState(false);
   const [loadedTargetUrl, setLoadedTargetUrl] = useState<string>();
+  const [openedLiveUrl, setOpenedLiveUrl] = useState<string>();
   const [panel, setPanel] = useState<ReviewPanel | undefined>(
     initialSelection.state === 'ready' ? undefined : 'changelog'
   );
@@ -302,6 +307,26 @@ export function PrototypeReviewPage() {
     []
   );
 
+  const iterationRequest = useMemo(
+    () => initial.repositoryFullName && initial.pullRequestNumber && initial.headSha
+      ? {
+          headSha: initial.headSha,
+          pullRequestNumber: initial.pullRequestNumber,
+          repositoryFullName: initial.repositoryFullName,
+          surface: prototypeSurfaceKind(surface)
+        }
+      : undefined,
+    [
+      initial.headSha,
+      initial.pullRequestNumber,
+      initial.repositoryFullName,
+      surface
+    ]
+  );
+  const iteration = usePullRequestPrototypeIteration(iterationRequest);
+  const exactOpenLease = iteration.result?.state === 'available' &&
+    openedLiveUrl === iteration.result.url &&
+    Date.parse(iteration.result.leaseExpiresAt) > Date.now();
   const resultIdentity = result
     ? {
         headSha: result.headSha,
@@ -317,7 +342,7 @@ export function PrototypeReviewPage() {
       )
   );
   const verified = exactResult
-    ? verifiedPrototypeTarget(result, surface)
+    ? verifiedPrototypeTarget(result, surface, exactOpenLease)
     : undefined;
   const verifiedBuild = verifiedPreviewBuildPrototypeTarget({
     currentHref: window.location.href,
@@ -343,9 +368,14 @@ export function PrototypeReviewPage() {
   const target = isSafePrototypeTarget(candidateTarget, window.location.href)
     ? candidateTarget
     : undefined;
-  const targetUrl = target
+  const prototypeAccess = usePrototypeAccess(
+    target,
+    initial.pullRequestNumber,
+    initial.changeId
+  );
+  const targetUrl = target && prototypeAccess.targetUrl
     ? embeddedPrototypeUrl(
-        target,
+        { ...target, url: prototypeAccess.targetUrl },
         initialSelection.state === 'ready'
           ? initialSelection.entry.prototype!.scenarioId
           : '',
@@ -378,7 +408,9 @@ export function PrototypeReviewPage() {
   const localCodexStatus = target?.source === 'development-override' && !developmentContext
     ? localCodexStatusMessage(localContextResult)
     : undefined;
-  const targetOrigin = target ? new URL(target.url).origin : undefined;
+  const targetOrigin = prototypeAccess.targetUrl
+    ? new URL(prototypeAccess.targetUrl).origin
+    : undefined;
   const { annotations, clearAnnotations, iframeRef, onFrameLoad, toggleAnnotations } =
     usePrototypeReviewAnnotations({
       enabled: Boolean(developmentContext),
@@ -576,9 +608,10 @@ export function PrototypeReviewPage() {
                   {surfaceError ??
                     (initialSelection.state !== 'ready'
                       ? initialSelection.message
-                      : !exactResult && !development
-                        ? 'The available prototype does not match the requested repository, PR, and head commit.'
-                        : 'Open this workspace from a verified PR surface or a local development target.')}
+                      : prototypeAccess.error ??
+                        (!exactResult && !development
+                          ? 'The available prototype does not match the requested repository, PR, and head commit.'
+                          : 'Open this workspace from a verified PR surface or a local development target.'))}
                 </Text>
               </div>
             </div>
@@ -588,19 +621,30 @@ export function PrototypeReviewPage() {
 
       {!fullscreen ? (
         <footer className="z-30 grid shrink-0 grid-cols-[max-content_minmax(0,1fr)_max-content] items-end gap-3 px-3 pb-3 pt-1 max-[1400px]:grid-cols-[max-content_minmax(0,1fr)] max-[640px]:grid-cols-1 max-[640px]:gap-2 max-[640px]:px-2">
-          <Button
-            aria-label="Open pull request changelog"
-            className={`h-12 min-w-12 justify-self-start rounded-full px-4 backdrop-blur-xl max-[640px]:size-11 max-[640px]:min-w-11 max-[640px]:px-0 ${
-              theme === 'dark'
-                ? 'bg-neutral-900/95 shadow-[0_14px_42px_rgba(0,0,0,0.32)]'
-                : 'bg-stone-100/95 shadow-[0_14px_42px_rgba(39,39,42,0.14)]'
-            }`}
-            variant="ghost"
-            onPress={() => setPanel('changelog')}
-          >
-            <ScrollText className="size-[1.125rem]" />
-            <span className="max-[640px]:hidden">Changelog</span>
-          </Button>
+          <div className="flex items-center gap-2 justify-self-start">
+            <Button
+              aria-label="Open pull request changelog"
+              className={`h-12 min-w-12 rounded-full px-4 backdrop-blur-xl max-[640px]:size-11 max-[640px]:min-w-11 max-[640px]:px-0 ${
+                theme === 'dark'
+                  ? 'bg-neutral-900/95 shadow-[0_14px_42px_rgba(0,0,0,0.32)]'
+                  : 'bg-stone-100/95 shadow-[0_14px_42px_rgba(39,39,42,0.14)]'
+              }`}
+              variant="ghost"
+              onPress={() => setPanel('changelog')}
+            >
+              <ScrollText className="size-[1.125rem]" />
+              <span className="max-[640px]:hidden">Changelog</span>
+            </Button>
+            <PrototypeIterationControl
+              error={iteration.error}
+              liveOpened={exactOpenLease}
+              result={iteration.result}
+              starting={iteration.starting}
+              onOpen={setOpenedLiveUrl}
+              onReturnToDeployed={() => setOpenedLiveUrl(undefined)}
+              onStart={() => void iteration.start()}
+            />
+          </div>
 
           <div className="min-w-0 max-[640px]:w-full">
             {developmentContext && initial.repositoryFullName && initial.pullRequestNumber ? (

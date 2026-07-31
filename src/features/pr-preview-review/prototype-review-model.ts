@@ -122,15 +122,18 @@ function availableSurface(
 
 export function verifiedPrototypeTarget(
   result: PullRequestTestSurfacesResult | undefined,
-  surface: PrototypeReviewSurface
+  surface: PrototypeReviewSurface,
+  includeLive = true
 ): PrototypeReviewTarget | undefined {
   if (!result) return undefined;
   const surfaceKind = prototypeSurfaceKind(surface);
-  const live = result.surfaces.find((candidate): candidate is AvailablePullRequestDevServerSurface =>
-    candidate.kind === 'dev-server' &&
-    candidate.state === 'available' &&
-    candidate.servedSurface === surfaceKind
-  );
+  const live = includeLive
+    ? result.surfaces.find((candidate): candidate is AvailablePullRequestDevServerSurface =>
+        candidate.kind === 'dev-server' &&
+        candidate.state === 'available' &&
+        candidate.servedSurface === surfaceKind
+      )
+    : undefined;
   if (live) {
     return { source: 'live', surfaceKind, url: live.url };
   }
@@ -397,9 +400,8 @@ export function prototypeReviewCodexContext(
   target: PrototypeReviewTarget | undefined,
   localContext?: PrototypeReviewLocalContext
 ) {
-  return localReviewRuntime
-    ? prototypeReviewDevelopmentContext(result, target, localContext)
-    : undefined;
+  if (target?.source === 'development-override' && !localReviewRuntime) return undefined;
+  return prototypeReviewDevelopmentContext(result, target, localContext);
 }
 
 export function prototypeConnectionKind(value: string) {

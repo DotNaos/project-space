@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import type { PullRequestTestSurfacesResult } from '../src/shared/pr-preview-test-surfaces-api';
 import type { PrototypeReviewLocalContext } from '../src/shared/prototype-review-local-api';
+import { prototypeAccessTargetUrl } from '../src/api/prototype-access-client';
 import {
   developmentPrototypeTarget,
   embeddedPrototypeUrl,
@@ -136,6 +137,11 @@ describe('prototype review model', () => {
       threadId: '019fa483-564c-7b01-9d89-5f8ef37af7d0',
       worktreeId: 'wt-356'
     });
+    expect(verifiedPrototypeTarget(result, 'web', false)).toEqual({
+      source: 'deployed',
+      surfaceKind: 'desktop-prototype',
+      url: 'https://pr-356.projects-os-home.net/prototype/desktop/'
+    });
   });
 
   test('uses the exact local App Server task for a local development target', () => {
@@ -161,10 +167,14 @@ describe('prototype review model', () => {
     expect(prototypeReviewDevelopmentContext(undefined, deployed, localContext)).toBeUndefined();
   });
 
-  test('keeps a deployed review shell read-only even with a verified live target', () => {
+  test('enables Codex only for an exactly verified live target', () => {
     const target = verifiedPrototypeTarget(result, 'web');
     expect(target?.source).toBe('live');
-    expect(prototypeReviewCodexContext(false, result, target, localContext)).toBeUndefined();
+    expect(prototypeReviewCodexContext(false, result, target, localContext)).toMatchObject({
+      machineId: 'os-mac',
+      source: 'verified-live',
+      threadId: '019fa483-564c-7b01-9d89-5f8ef37af7d0'
+    });
   });
 
   test('uses deployed native without exposing feedback', () => {
@@ -218,9 +228,14 @@ describe('prototype review model', () => {
     expect(target).toBeDefined();
     target!.url +=
       '?connector=old-connector&machine=old-machine&thread=old-thread&worktree=old-worktree';
+    const scopedTarget = prototypeAccessTargetUrl(
+      target!.url,
+      'secure-live-context'
+    );
+    expect(scopedTarget).toBeDefined();
     const url = new URL(
       embeddedPrototypeUrl(
-        target!,
+        { ...target!, url: scopedTarget! },
         'long-content',
         'desktop',
         'landscape',
@@ -258,6 +273,7 @@ describe('prototype review model', () => {
     expect(url.searchParams.has('machine')).toBe(false);
     expect(url.searchParams.has('thread')).toBe(false);
     expect(url.searchParams.has('worktree')).toBe(false);
+    expect(url.searchParams.get('change')).toBe('secure-live-context');
     expect(url.searchParams.has('fullscreen')).toBe(false);
     expect(url.searchParams.has('frame')).toBe(false);
   });

@@ -5,6 +5,8 @@ import type { ProjectSpaceAuthSession } from './local-auth-store';
 
 export const previewIdentityHeader = 'x-project-space-preview-identity';
 export const previewSignatureHeader = 'x-project-space-preview-signature';
+export const prototypeAccessCookieName = '__Host-project-space-prototype-access';
+const prototypeAccessLifetimeSeconds = 30;
 
 export interface PreviewGatewayBinding {
   headSha: string;
@@ -21,6 +23,16 @@ interface PreviewIdentityAssertion extends PreviewGatewayBinding {
   version: 1;
 }
 
+interface PrototypeAccessAssertion extends PreviewGatewayBinding {
+  audience: 'project-space-prototype';
+  changeId: string;
+  expiresAt: number;
+  issuedAt: number;
+  surface: 'desktop-prototype' | 'mobile-prototype';
+  userId: string;
+  version: 1;
+}
+
 const blockedPreviewPathPrefixes = [
   '/api/codex',
   '/api/connectors',
@@ -31,6 +43,7 @@ const blockedPreviewPathPrefixes = [
   '/api/platform',
   '/api/pull-request-previews/dev-server',
   '/api/pull-request-previews/feedback',
+  '/api/pull-request-previews/prototype-iteration',
   '/api/pull-request-previews/test-surfaces',
   '/api/scope-devbox',
   '/api/terminal',
@@ -131,6 +144,121 @@ export function isTrustedGitHubBrokerRequest(method: string | undefined, pathnam
 
 function signatureFor(encodedAssertion: string, secret: string) {
   return createHmac('sha256', secret).update(encodedAssertion).digest('base64url');
+}
+
+function signedValue(assertion: object, secret: string) {
+  if (secret.length < 32) {
+    throw new Error('Preview gateway secret must contain at least 32 characters.');
+  }
+  const encoded = Buffer.from(JSON.stringify(assertion)).toString('base64url');
+  return `${encoded}.${signatureFor(encoded, secret)}`;
+}
+
+function verifiedSignedValue(value: string, secret: string) {
+  if (secret.length < 32 || value.length > 4_096) return undefined;
+  const separator = value.lastIndexOf('.');
+  if (separator <= 0 || separator === value.length - 1) return undefined;
+  const encoded = value.slice(0, separator);
+  const suppliedSignature = value.slice(separator + 1);
+  const expected = Buffer.from(signatureFor(encoded, secret));
+  const supplied = Buffer.from(suppliedSignature);
+  if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+export function createPrototypeAccessCookie(input: {
+  binding: PreviewGatewayBinding;
+  changeId: string;
+  now?: Date;
+  secret: string;
+  session: ProjectSpaceAuthSession;
+  surface: PrototypeAccessAssertion['surface'];
+}) {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(input.changeId)) {
+    throw new Error('Prototype Change id is invalid.');
+  }
+  const issuedAt = Math.floor((input.now ?? new Date()).getTime() / 1000);
+  const sessionExpiresAt = input.session.expiresAt
+    ? Math.floor(Date.parse(input.session.expiresAt) / 1000)
+    : Number.POSITIVE_INFINITY;
+  const assertion: PrototypeAccessAssertion = {
+    ...input.binding,
+    audience: 'project-space-prototype',
+    changeId: input.changeId,
+    expiresAt: Math.min(issuedAt + prototypeAccessLifetimeSeconds, sessionExpiresAt),
+    issuedAt,
+    surface: input.surface,
+    userId: input.session.userId,
+    version: 1
+  };
+  return [
+    `${prototypeAccessCookieName}=${signedValue(assertion, input.secret)}`,
+    'Path=/',
+    'HttpOnly',
+    'Secure',
+    'SameSite=Lax',
+    `Max-Age=${prototypeAccessLifetimeSeconds}`
+  ].join('; ');
+}
+
+function readCookie(request: IncomingMessage, name: string) {
+  const header = request.headers.cookie;
+  if (!header || header.length > 8_192 || /[\r\n\u0000]/.test(header)) return undefined;
+  const values = header
+    .split(';')
+    .map((part) => part.trim())
+    .filter((part) => part.startsWith(`${name}=`))
+    .map((part) => part.slice(name.length + 1));
+  return values.length === 1 && values[0] ? values[0] : undefined;
+}
+
+export function readPrototypeAccessCookie(input: {
+  binding: PreviewGatewayBinding;
+  changeId?: string;
+  now?: Date;
+  request: IncomingMessage;
+  secret: string;
+  surface?: PrototypeAccessAssertion['surface'];
+}) {
+  const value = readCookie(input.request, prototypeAccessCookieName);
+  if (!value) return null;
+  const assertion = verifiedSignedValue(value, input.secret) as
+    | Partial<PrototypeAccessAssertion>
+    | undefined;
+  if (!assertion) return null;
+  const now = Math.floor((input.now ?? new Date()).getTime() / 1000);
+  const matchesBinding =
+    assertion.audience === 'project-space-prototype' &&
+    assertion.version === 1 &&
+    assertion.repositoryFullName === input.binding.repositoryFullName &&
+    assertion.pullRequestNumber === input.binding.pullRequestNumber &&
+    assertion.headSha === input.binding.headSha &&
+    assertion.origin === input.binding.origin &&
+    (!input.changeId || assertion.changeId === input.changeId) &&
+    (!input.surface || assertion.surface === input.surface);
+  const timeIsValid =
+    typeof assertion.issuedAt === 'number' &&
+    assertion.issuedAt <= now + 5 &&
+    typeof assertion.expiresAt === 'number' &&
+    assertion.expiresAt >= now &&
+    assertion.expiresAt <= assertion.issuedAt + prototypeAccessLifetimeSeconds;
+  return matchesBinding &&
+    timeIsValid &&
+    typeof assertion.userId === 'string' &&
+    typeof assertion.changeId === 'string' &&
+    ['desktop-prototype', 'mobile-prototype'].includes(assertion.surface ?? '')
+    ? {
+        changeId: assertion.changeId,
+        surface: assertion.surface as PrototypeAccessAssertion['surface'],
+        userId: assertion.userId
+      }
+    : null;
 }
 
 export function createPreviewIdentityHeaders(input: {
