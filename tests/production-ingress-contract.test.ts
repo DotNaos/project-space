@@ -29,19 +29,37 @@ function renderProductionWebLabels() {
   return labels ?? {};
 }
 
+function normalizeLabelKeys(labels: Record<string, string>) {
+  return Object.fromEntries(
+    Object.entries(labels).map(([key, value]) => [key.toLowerCase(), value])
+  );
+}
+
+function traefikHttpServiceIdentities(labels: Record<string, string>) {
+  return new Set(
+    Object.keys(normalizeLabelKeys(labels))
+      .filter((key) => key.startsWith('traefik.http.services.'))
+      .map((key) => key.split('.')[3])
+  );
+}
+
 describe('Production ingress contract', () => {
   test('all web-container routers use the single explicit web service', () => {
     const labels = renderProductionWebLabels();
-    const serviceIdentities = new Set(
-      Object.keys(labels)
-        .filter((key) => key.startsWith('traefik.http.services.'))
-        .map((key) => key.split('.')[3])
-    );
-    expect(serviceIdentities).toEqual(new Set(['project-space-prod-web']));
+    const normalizedLabels = normalizeLabelKeys(labels);
+    expect(traefikHttpServiceIdentities(labels))
+      .toEqual(new Set(['project-space-prod-web']));
 
     for (const router of ['web', 'preview-host', 'api']) {
-      expect(labels[`traefik.http.routers.project-space-prod-${router}.service`])
+      expect(normalizedLabels[`traefik.http.routers.project-space-prod-${router}.service`])
         .toBe('project-space-prod-web');
     }
+  });
+
+  test('counts differently cased Traefik service labels', () => {
+    expect(traefikHttpServiceIdentities({
+      'traefik.http.services.project-space-prod-web.loadbalancer.server.port': '4173',
+      'Traefik.HTTP.Services.other.LoadBalancer.Server.URL': 'http://127.0.0.1:9999'
+    })).toEqual(new Set(['project-space-prod-web', 'other']));
   });
 });
