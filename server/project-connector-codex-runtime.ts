@@ -1,3 +1,5 @@
+import type { WebSocket } from 'ws';
+
 import type { ConnectorCodexMachineMessage } from './connector-command-codex-protocol';
 import { CodexDeviceAuthorizationManager } from './codex-authorization/connector-manager';
 import { createCodexAuthorizationOperationPersistence } from './codex-authorization/operation-store';

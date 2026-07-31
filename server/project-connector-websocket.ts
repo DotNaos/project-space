@@ -1,3 +1,7 @@
+import { HttpsProxyAgent } from 'https-proxy-agent';
+import { getProxyForUrl } from 'proxy-from-env';
+import { WebSocket } from 'ws';
+
 import type { ConnectorProjectRegistryResult, ProjectSpaceBackend } from '../src/shared/project-space-api';
 import { ConnectorDevServerCommandExecutor } from './connector-dev-server-executor';
 import {
@@ -48,6 +52,20 @@ interface ProjectConnectorWebSocketOptions extends ProjectConnectorConnectionOpt
   backend: ProjectSpaceBackend & Partial<ConnectorDevServerAdapter & ConnectorWorktreeActionAdapter>;
   environment?: NodeJS.ProcessEnv;
   runtimeShutdown?(): Promise<void> | void;
+}
+
+export function projectConnectorProxyForUrl(url: string) {
+  return getProxyForUrl(url);
+}
+
+function createProjectConnectorWebSocket(url: string) {
+  const proxyUrl = projectConnectorProxyForUrl(url);
+  if (!proxyUrl) return new WebSocket(url);
+  try {
+    return new WebSocket(url, { agent: new HttpsProxyAgent(proxyUrl) });
+  } catch {
+    throw new Error('Connector proxy configuration is invalid.');
+  }
 }
 
 export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocketOptions) {
@@ -119,13 +137,6 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
 
   function startWebSocketBridge(target: ProjectConnectorHubTarget) {
     if (!target.wsUrl) {
-      return;
-    }
-
-    if (typeof WebSocket === 'undefined') {
-      console.warn(
-        `Connector hub ${target.name} has a WebSocket URL, but WebSocket is not available.`
-      );
       return;
     }
 
@@ -208,7 +219,14 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         return;
       }
 
-      const socket = new WebSocket(resolvedHubUrl);
+      let socket: WebSocket;
+      try {
+        socket = createProjectConnectorWebSocket(resolvedHubUrl);
+      } catch (error) {
+        console.warn(error instanceof Error ? error.message : 'Connector proxy configuration is invalid.');
+        scheduleReconnect();
+        return;
+      }
       const runningChats = new Map<string, AbortController>();
       const worktreeLoads = createProjectConnectorWorktreeLoads(
         backend,
@@ -692,6 +710,10 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
       });
 
       socket.addEventListener('error', () => {
+        console.warn(
+          `Connector hub ${target.name} could not establish its WebSocket. ` +
+          'Check proxy, no-proxy, and CA configuration.'
+        );
         socket.close();
       });
     }
