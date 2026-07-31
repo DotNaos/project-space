@@ -97,6 +97,27 @@ describe('trusted Preview asset installation', () => {
     }
   });
 
+  test('bootstraps missing runner configuration without replacing operator values', async () => {
+    const { platform, source } = await createFixture();
+    const configDirectory = join(platform, 'config');
+    const configPath = join(configDirectory, 'project-space-preview.env');
+    await mkdir(configDirectory, { recursive: true });
+    await writeFile(configPath, 'PREVIEW_MAX_ACTIVE=7\n');
+
+    const result = install(source, platform, 'f'.repeat(40));
+
+    expect(result.status).toBe(0);
+    const config = await readFile(configPath, 'utf8');
+    expect(config).toContain('PREVIEW_MAX_ACTIVE=7\n');
+    expect(config).not.toContain('PREVIEW_MAX_ACTIVE=3\n');
+    expect(config).toContain('PREVIEW_MIN_FREE_BYTES=21474836480\n');
+    expect(config).toContain('PREVIEW_STORAGE_BUDGET_BYTES=214748364800\n');
+    expect(config).toContain('PREVIEW_IDLE_SECONDS=3600\n');
+    expect(config).toContain(
+      'PREVIEW_GATEWAY_ENV_FILE=/opt/platform/secrets/project-space-preview/gateway.env\n'
+    );
+  });
+
   test('fails closed without changing the active release when staged input is unsafe', async () => {
     const { platform, root, source } = await createFixture();
     const firstCommit = 'c'.repeat(40);
