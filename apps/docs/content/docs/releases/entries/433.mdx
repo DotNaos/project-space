@@ -1,0 +1,39 @@
+---
+title: "Bootstrap Preview runner configuration"
+version: "0.4.55"
+bump: "patch"
+pullRequest: 433
+issues:
+  - 426
+areas:
+  - deploy
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  Trusted Preview asset activation now bootstraps newly required non-secret
+  runner configuration without replacing operator-provided values.
+</ReleaseSummary>
+
+## Changes
+
+### Fixed
+
+- Preview asset activation adds documented defaults for missing runner configuration values.
+- Existing operator overrides remain unchanged.
+- Hosts upgraded to the storage-aware runner receive the required storage budget before the runner is activated.
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Activate the exact main assets on a host with a legacy Preview configuration and confirm offline registration emits a valid receipt.
+
+</PreviewOnly>
