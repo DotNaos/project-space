@@ -29,7 +29,7 @@ services:
       # Root-owned file contains CLERK_SECRET_KEY; it is mounted only into this trusted gateway.
       - ${PREVIEW_GATEWAY_ENV_FILE:?set PREVIEW_GATEWAY_ENV_FILE}
     environment:
-      PROJECT_SPACE_PREVIEW_BROKER_ORIGIN: https://projects.os-home.net
+      PROJECT_SPACE_PREVIEW_BROKER_ORIGIN: https://pr.projects.os-home.net
       PROJECT_SPACE_PREVIEW_GATEWAY_SECRET: ${PREVIEW_GATEWAY_SECRET:?set PREVIEW_GATEWAY_SECRET}
       PROJECT_SPACE_PREVIEW_HEAD_SHA: ${PREVIEW_HEAD_SHA}
       PROJECT_SPACE_PREVIEW_PR_NUMBER: ${PREVIEW_PR_NUMBER}
@@ -50,6 +50,7 @@ services:
       - "traefik.http.routers.${PREVIEW_COMPOSE_PROJECT}-gateway.entrypoints=websecure"
       - "traefik.http.routers.${PREVIEW_COMPOSE_PROJECT}-gateway.middlewares=secure-headers@file,gzip@file"
       - "traefik.http.routers.${PREVIEW_COMPOSE_PROJECT}-gateway.rule=Host(`${PREVIEW_DOMAIN}`)"
+      - "traefik.http.routers.${PREVIEW_COMPOSE_PROJECT}-gateway.priority=20"
       - "traefik.http.routers.${PREVIEW_COMPOSE_PROJECT}-gateway.tls=true"
       - "traefik.http.routers.${PREVIEW_COMPOSE_PROJECT}-gateway.tls.certresolver=letsencrypt-dns"
       - "traefik.http.services.${PREVIEW_COMPOSE_PROJECT}-gateway.loadbalancer.server.port=4173"

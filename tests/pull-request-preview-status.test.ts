@@ -135,6 +135,33 @@ describe('pull request Preview status adapter', () => {
     }
   });
 
+  test('exposes only bounded lease, storage, and failure evidence', () => {
+    const result = sanitizePullRequestPreview({
+      activityLeaseExpiresAt: '2026-07-31T10:00:00Z',
+      lastActivityAt: '2026-07-31T09:00:00Z',
+      message: 'Runtime health failed.',
+      pullRequestNumber: 263,
+      repositoryFullName: 'DotNaos/project-space',
+      requestedSha,
+      safeStorageBytes: 1024,
+      state: 'failed'
+    }, 'DotNaos/project-space');
+    expect(result).toMatchObject({
+      activeLeaseExpiresAt: '2026-07-31T10:00:00.000Z',
+      lastActivityAt: '2026-07-31T09:00:00.000Z',
+      message: 'Runtime health failed.',
+      safeStorageBytes: 1024,
+      state: 'failed'
+    });
+    expect(sanitizePullRequestPreview({
+      pullRequestNumber: 263,
+      repositoryFullName: 'DotNaos/project-space',
+      requestedSha,
+      safeStorageBytes: Number.MAX_SAFE_INTEGER,
+      state: 'ready'
+    }, 'DotNaos/project-space')).toMatchObject({ safeStorageBytes: undefined });
+  });
+
   test('binds correlated pull request links to the exact GitHub identity', () => {
     const result = {
       checkedAt: '2026-07-22T10:00:00.000Z',

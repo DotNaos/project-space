@@ -41,6 +41,11 @@ func deployStatusEnv(project deployProject, options deployOptions) string {
 		"PROJECT_DOMAIN=" + shellQuote(options.ProjectDomain),
 		"PROJECT_API_DOMAIN=" + shellQuote(options.APIDomain),
 	}
+	if project.Environment == "prod" {
+		parts = append(parts, "PROJECT_PREVIEW_HUB_DOMAIN=pr.projects.os-home.net")
+		parts = append(parts, "PROJECT_PREVIEW_HOST_SUFFIX=projects.os-home.net")
+		parts = append(parts, "PROJECT_PREVIEW_HOST_TLS_DOMAIN=projects.os-home.net")
+	}
 	if options.AcmeEmail != "" {
 		parts = append(parts, "TRAEFIK_ACME_EMAIL="+shellQuote(options.AcmeEmail))
 	}
@@ -65,6 +70,11 @@ func deployEnvFileContent(project deployProject, options deployOptions, includeS
 		"PROJECT_SPACE_BUILD_COMMIT=" + project.BuildCommit,
 		"PROJECT_SPACE_BUILD_REF=" + project.BuildRef,
 		"PROJECT_SPACE_BUILD_TIME=" + project.BuildTime,
+	}
+	if project.Environment == "prod" {
+		lines = append(lines, "PROJECT_PREVIEW_HUB_DOMAIN=pr.projects.os-home.net")
+		lines = append(lines, "PROJECT_PREVIEW_HOST_SUFFIX=projects.os-home.net")
+		lines = append(lines, "PROJECT_PREVIEW_HOST_TLS_DOMAIN=projects.os-home.net")
 	}
 	if options.AcmeEmail != "" {
 		lines = append(lines, "TRAEFIK_ACME_EMAIL="+options.AcmeEmail)

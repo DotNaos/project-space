@@ -54,6 +54,7 @@ async function captureServer(captured: CapturedRequest[], label: string) {
 }
 
 async function gatewayFixture(options: {
+  offline?: boolean;
   prototypeConfigured?: boolean;
   prototypeRedirect?: boolean;
 } = {}) {
@@ -73,6 +74,8 @@ async function gatewayFixture(options: {
   const publicOrigin = 'https://pr-263.projects.os-home.net';
   const handler = createPreviewGatewayRequestHandler({
     PROJECT_SPACE_PREVIEW_BROKER_ORIGIN: brokerOrigin,
+    PROJECT_SPACE_PREVIEW_OFFLINE: options.offline ? '1' : '0',
+    PROJECT_SPACE_PREVIEW_VERIFIED: options.offline ? '0' : '1',
     PROJECT_SPACE_PREVIEW_GATEWAY_SECRET: 'preview-only-secret-that-is-long-enough-for-hmac',
     PROJECT_SPACE_PREVIEW_HEAD_SHA: 'a'.repeat(40),
     PROJECT_SPACE_PREVIEW_PR_NUMBER: '263',
@@ -116,6 +119,18 @@ async function gatewayFixture(options: {
 }
 
 describe('Preview gateway', () => {
+  test('redirects offline browser requests to the trusted hub without touching PR code', async () => {
+    const fixture = await gatewayFixture({ offline: true });
+    const response = await fixture.request('/deep/path?filter=ready');
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe(
+      `${fixture.brokerOrigin}/?pr=263&return=%2Fdeep%2Fpath%3Ffilter%3Dready`
+    );
+    expect(fixture.upstreamRequests).toHaveLength(0);
+    expect(fixture.prototypeRequests).toHaveLength(0);
+    expect(fixture.brokerRequests).toHaveLength(0);
+  });
+
   test('serves static/meta from the PR upstream without forwarding bearer credentials', async () => {
     const fixture = await gatewayFixture();
     expect(await (await fixture.request('/api/app/meta', 'valid-clerk-token')).json())
@@ -305,6 +320,7 @@ describe('Preview gateway', () => {
     const publicOrigin = 'https://pr-263.projects.os-home.net';
     const gatewayOrigin = await listen(createPreviewGatewayRequestHandler({
       PROJECT_SPACE_PREVIEW_BROKER_ORIGIN: brokerOrigin,
+      PROJECT_SPACE_PREVIEW_VERIFIED: '1',
       PROJECT_SPACE_PREVIEW_GATEWAY_SECRET: 'preview-only-secret-that-is-long-enough-for-hmac',
       PROJECT_SPACE_PREVIEW_HEAD_SHA: 'a'.repeat(40),
       PROJECT_SPACE_PREVIEW_PR_NUMBER: '263',

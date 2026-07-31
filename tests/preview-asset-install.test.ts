@@ -20,6 +20,9 @@ const repositoryRoot = new URL('..', import.meta.url).pathname;
 const installerPath = join(repositoryRoot, 'deploy/install-preview-assets.sh');
 const assetNames = [
   'preview-runner.sh',
+  'preview-reaper.sh',
+  'preview-runtime-verification.sh',
+  'preview-storage-policy.sh',
   'preview-ssh-entrypoint.sh',
   'preview-status-entrypoint.sh',
   'preview.compose.yml'

@@ -1,0 +1,46 @@
+---
+title: "Start Project Space Previews on demand"
+version: "0.4.52"
+bump: "patch"
+pullRequest: 427
+issues:
+  - 426
+areas:
+  - deploy
+  - security
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  Project Space Previews can be registered offline, started when needed, and
+  stopped without automatically replacing another review environment.
+</ReleaseSummary>
+
+## Changes
+
+### Added
+
+- A trusted Preview hub lists eligible pull requests and provides explicit start, stop, and replacement choices within the three-runtime limit.
+- Offline Preview records retain the exact change identity and storage evidence while deep links return safely through the authenticated hub.
+- Idle review runtimes can return to a ready offline state after their trusted activity lease expires.
+
+### Security
+
+- Preview lifecycle actions require Project Space authentication and exact repository, pull request, head, and health verification.
+- Preview credentials and host controls remain outside pull-request application code, and production resources remain isolated from Preview failures.
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Confirm the hub keeps an offline deep link safe, starts the selected exact head when capacity is available, and asks for explicit replacement at full capacity.
+- Confirm stop, idle shutdown, stale-head, and failed-start recovery states remain truthful.
+
+</PreviewOnly>

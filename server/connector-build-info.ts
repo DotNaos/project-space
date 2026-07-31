@@ -12,7 +12,7 @@ declare const __PROJECT_SPACE_BUILD_ID__: string | undefined;
 declare const __PROJECT_SPACE_RELEASE_ID__: string | undefined;
 declare const __PROJECT_SPACE_VERSION__: string | undefined;
 
-const developmentVersion = '0.4.51';
+const developmentVersion = '0.4.52';
 const protocolVersion = '2';
 const runtimeInstanceId = randomUUID();
 const maintenanceOperationPattern = /^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,255}$/;

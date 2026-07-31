@@ -3,6 +3,7 @@ export type * from './worktree-action-api';
 export type * from './connector-runtime-api';
 export type * from './roadmap-api';
 export type * from './project-catalog-api';
+export type * from './pull-request-preview-hub-api';
 
 import type { PullRequestChangelogIdentity } from './pr-preview-changelog-api';
 import type {
@@ -1124,6 +1125,11 @@ export type PullRequestPreviewLifecycle =
   | 'deploying'
   | 'verifying'
   | 'ready'
+  | 'starting'
+  | 'online'
+  | 'stopping'
+  | 'failed'
+  | 'expired'
   | 'rejected'
   | 'superseded'
   | 'failed-initial'
@@ -1135,10 +1141,13 @@ export type PullRequestPreviewLifecycle =
   | 'unknown';
 
 export interface PullRequestPreviewStatus {
+  activeLeaseExpiresAt?: string;
+  capacityBlocked?: boolean;
   currentHeadSha?: string;
   headBranch?: string;
   liveUrl?: string;
   liveUrlState: 'available' | 'not-configured' | 'withheld';
+  lastActivityAt?: string;
   linkedIssueNumbers?: number[];
   pullRequestNumber: number;
   pullRequestState?: GitHubPullRequestRecord['state'];
@@ -1151,7 +1160,9 @@ export interface PullRequestPreviewStatus {
   repositoryFullName: string;
   requestedSha?: string;
   runningSha?: string;
+  safeStorageBytes?: number;
   state: PullRequestPreviewLifecycle;
+  message?: string;
   updatedAt?: string;
   verifiedAt?: string;
 }

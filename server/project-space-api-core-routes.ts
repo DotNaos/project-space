@@ -50,7 +50,10 @@ import type {
   ProjectSpaceBackend,
   ProjectsState,
   ProjectStructureActionRequest,
-  ProjectTrashRestoreRequest
+  ProjectTrashRestoreRequest,
+  PreviewHubStartRequest,
+  PreviewHubStopRequest,
+  PreviewHubTouchRequest
 } from '../src/shared/project-space-api';
 import {
   correlatePullRequestPreviews,
@@ -72,6 +75,7 @@ import {
 import { createLocalPhysicalMachineStore } from './local-physical-machine-store';
 import { createPullRequestTestSurfacesTrustedRoute } from './pr-test-surfaces/trusted-http';
 import { createPullRequestPrototypeIterationRoute } from './pr-prototype-iteration-http';
+import { createPreviewHubService } from './preview-hub-service';
 
 export function createProjectSpaceCoreApiRoutes(
   backend: ProjectSpaceBackend,
@@ -82,6 +86,7 @@ export function createProjectSpaceCoreApiRoutes(
   const handleConnectorRuntime = createConnectorRuntimeHttpHandler(backend);
   const handlePullRequestTestSurfaces = createPullRequestTestSurfacesTrustedRoute(backend);
   const handlePullRequestPrototypeIteration = createPullRequestPrototypeIterationRoute(backend);
+  const previewHub = createPreviewHubService(backend);
   const localPhysicalMachines = createLocalPhysicalMachineStore();
   const canUseLocalPhysicalMachines = () => !isDatabaseConfigured() && !isProjectSpaceAuthRequired();
   const loadPhysicalMachines = (userId: string) => isDatabaseConfigured()
@@ -129,6 +134,50 @@ export function createProjectSpaceCoreApiRoutes(
     if (await handleConnectorRuntime(request, response, url)) return true;
     if (await handlePullRequestTestSurfaces(request, response, url, userId)) return true;
     if (await handlePullRequestPrototypeIteration(request, response, url, userId)) return true;
+
+    if (request.method === 'GET' && url.pathname === '/api/pull-request-preview-hub') {
+      const repositoryFullName = url.searchParams.get('repositoryFullName') ?? 'DotNaos/project-space';
+      if ([...url.searchParams.keys()].some((key) => key !== 'repositoryFullName')) {
+        writeJson(response, 400, { error: 'Invalid Preview hub query.' });
+        return true;
+      }
+      response.setHeader('Cache-Control', 'private, no-store');
+      writeJson(response, 200, await previewHub.inventory(repositoryFullName, userId));
+      return true;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/pull-request-preview-hub/start') {
+      response.setHeader('Cache-Control', 'private, no-store');
+      const payload = parsePreviewHubStartRequest(await readJson<unknown>(request));
+      if (!payload) {
+        writeJson(response, 400, { error: 'Invalid Preview start request.' });
+        return true;
+      }
+      writeJson(response, 200, await previewHub.start(payload, userId));
+      return true;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/pull-request-preview-hub/stop') {
+      response.setHeader('Cache-Control', 'private, no-store');
+      const payload = parsePreviewHubStopRequest(await readJson<unknown>(request));
+      if (!payload) {
+        writeJson(response, 400, { error: 'Invalid Preview stop request.' });
+        return true;
+      }
+      writeJson(response, 200, await previewHub.stop(payload, userId));
+      return true;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/pull-request-preview-hub/touch') {
+      response.setHeader('Cache-Control', 'private, no-store');
+      const payload = parsePreviewHubTouchRequest(await readJson<unknown>(request));
+      if (!payload) {
+        writeJson(response, 400, { error: 'Invalid Preview activity request.' });
+        return true;
+      }
+      writeJson(response, 200, await previewHub.touch(payload, userId));
+      return true;
+    }
 
     if (request.method === 'GET' && url.pathname === '/api/deployed-environments/status') {
       const repositoryFullName = url.searchParams.get('repositoryFullName');
@@ -589,4 +638,43 @@ export function createProjectSpaceCoreApiRoutes(
 
     return false;
   };
+}
+
+function parsePreviewHubStartRequest(value: unknown): PreviewHubStartRequest | null {
+  if (!isRecord(value) || !isRepository(value.repositoryFullName) ||
+      !isPositiveInteger(value.pullRequestNumber) || !isSha(value.requestedHeadSha)) return null;
+  if (value.returnTarget !== undefined && typeof value.returnTarget !== 'string') return null;
+  if (value.inventoryRevision !== undefined && typeof value.inventoryRevision !== 'string') return null;
+  if (value.selectedReplacementPullRequestNumber !== undefined && !isPositiveInteger(value.selectedReplacementPullRequestNumber)) return null;
+  if (value.selectedReplacementRepositoryFullName !== undefined && !isRepository(value.selectedReplacementRepositoryFullName)) return null;
+  if (value.selectedReplacementHeadSha !== undefined && !isSha(value.selectedReplacementHeadSha)) return null;
+  return value as unknown as PreviewHubStartRequest;
+}
+
+function parsePreviewHubStopRequest(value: unknown): PreviewHubStopRequest | null {
+  if (!isRecord(value) || !isRepository(value.repositoryFullName) ||
+      !isPositiveInteger(value.pullRequestNumber) || !isSha(value.requestedHeadSha)) return null;
+  return value as unknown as PreviewHubStopRequest;
+}
+
+function parsePreviewHubTouchRequest(value: unknown): PreviewHubTouchRequest | null {
+  if (!isRecord(value) || !isRepository(value.repositoryFullName) ||
+      !isPositiveInteger(value.pullRequestNumber) || !isSha(value.requestedHeadSha)) return null;
+  return value as unknown as PreviewHubTouchRequest;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+function isSha(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{40}$/.test(value);
+}
+
+function isRepository(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value);
 }

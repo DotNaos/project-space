@@ -10,6 +10,7 @@ GITHUB_API_BASE=${PROJECT_SPACE_PREVIEW_GITHUB_API_BASE:-https://api.github.com}
 STATE_ROOT=$PLATFORM_ROOT/state/project-space-preview
 RUNTIME_ROOT=$PLATFORM_ROOT/previews/project-space
 LOCK_ROOT=$PLATFORM_ROOT/locks
+CAPACITY_LOCK_FILE=$LOCK_ROOT/project-space-preview-capacity.lock
 COMPOSE_FILE=$ASSET_ROOT/preview.compose.yml
 PREVIEW_RECEIPT_PREFIX=PROJECT_SPACE_PREVIEW_RECEIPT=
 
@@ -85,6 +86,14 @@ acquire_lock() {
   flock -w 900 9 || fail "Preview lock timeout for PR ${pr}" 73
 }
 
+acquire_lifecycle_locks() {
+  # Stable order: global online-capacity lock, then the PR-local lock.
+  exec 8>>"$CAPACITY_LOCK_FILE"
+  chmod 600 "$CAPACITY_LOCK_FILE"
+  flock -w 900 8 || fail 'Preview capacity lock timeout' 73
+  acquire_lock
+}
+
 github_get() {
   endpoint=$1
   if [ -s "$GITHUB_TOKEN_FILE" ]; then
@@ -105,14 +114,25 @@ github_get() {
 
 revalidate_open_pr() {
   expected_sha=$1
-  pr_json=$(github_get "/repos/$PROJECT_REPOSITORY/pulls/$pr") ||
-    fail 'could not revalidate PR under lock' 69
+  pr_json=$(github_get "/repos/$PROJECT_REPOSITORY/pulls/$pr") || fail 'could not revalidate PR under lock' 75
   printf '%s' "$pr_json" | jq -e \
     --arg repository "$PROJECT_REPOSITORY" \
     --arg sha "$expected_sha" \
     '.state == "open" and .base.ref == "main" and
      .base.repo.full_name == $repository and .head.repo.full_name == $repository and
      .head.sha == $sha' >/dev/null || fail 'PR is closed, forked, targets another base, or its head was superseded' 75
+}
+
+revalidate_open_pr_for() {
+  selected_pr=$1
+  expected_sha=$2
+  pr_json=$(github_get "/repos/$PROJECT_REPOSITORY/pulls/$selected_pr") || return 1
+  printf '%s' "$pr_json" | jq -e \
+    --arg repository "$PROJECT_REPOSITORY" \
+    --arg sha "$expected_sha" \
+    '.state == "open" and .base.ref == "main" and
+     .base.repo.full_name == $repository and .head.repo.full_name == $repository and
+     .head.sha == $sha' >/dev/null
 }
 
 atomic_json_write() {
@@ -122,6 +142,17 @@ atomic_json_write() {
   printf '%s\n' "$body" > "$tmp"
   chmod 640 "$tmp"
   mv -f -- "$tmp" "$target"
+}
+
+assert_state_transition() {
+  target=$1
+  next_state=$2
+  [ -f "$target" ] || return 0
+  current_state=$(jq -er '.state' "$target") || fail 'Preview registry record has no lifecycle state' 75
+  case "$current_state:$next_state" in
+    building:ready|building:failed|ready:ready|ready:starting|ready:failed|starting:starting|starting:online|starting:failed|online:online|online:stopping|online:failed|update_failed:stopping|stopping:stopping|stopping:ready|stopping:online|stopping:failed|failed:failed|failed:ready|failed:starting|expired:ready|removed:building|removed:ready) ;;
+    *) fail "Invalid Preview lifecycle transition $current_state -> $next_state" 75;;
+  esac
 }
 
 compose() {
@@ -138,6 +169,7 @@ write_runtime_env() {
   postgres_password=$7
   gateway_secret=$8
   prototype_access_secret=$9
+  verification_secret=$10
   gateway_env_file=$(config_value PREVIEW_GATEWAY_ENV_FILE)
   validate_image "$gateway_image" gateway
   validate_image "$prototype_image" prototype
@@ -167,6 +199,9 @@ PREVIEW_PROTOTYPE_UPSTREAM_ORIGIN=http://preview-prototype:8080
 PREVIEW_REPOSITORY=$repository
 PREVIEW_REPOSITORY_PATH=$repo_path
 PREVIEW_WEB_IMAGE=$web_image
+PROJECT_SPACE_PREVIEW_VERIFIED=0
+PROJECT_SPACE_PREVIEW_VERIFICATION_SECRET=$verification_secret
+PROJECT_SPACE_PREVIEW_OFFLINE=1
 EOF
   chmod 600 "$tmp"
   mv -f -- "$tmp" "$target"
@@ -194,7 +229,12 @@ check_quota() {
   min_free=$(config_value PREVIEW_MIN_FREE_BYTES)
   printf '%s' "$max_active" | grep -Eq '^[1-9][0-9]*$' || fail 'PREVIEW_MAX_ACTIVE is invalid' 78
   printf '%s' "$min_free" | grep -Eq '^[1-9][0-9]*$' || fail 'PREVIEW_MIN_FREE_BYTES is invalid' 78
-  active=$(find "$STATE_ROOT" -mindepth 2 -maxdepth 2 -name runtime.json -type f 2>/dev/null | wc -l | tr -d ' ')
+  files=$(find "$STATE_ROOT" -mindepth 2 -maxdepth 2 -name runtime.json -type f 2>/dev/null | sort)
+  if [ -n "$files" ]; then
+    active=$(jq -s '[.[] | select(.state == "online" or .capacityBlocked == true)] | length' $files)
+  else
+    active=0
+  fi
   if [ ! -f "$runtime_file" ] && [ "$active" -ge "$max_active" ]; then
     capacity_error_code=preview_quota_full
     capacity_message='Preview capacity is full; production and existing Previews were untouched.'
@@ -221,90 +261,10 @@ blocked_capacity_record() {
   jq -cn \
     --arg status "$status" --arg errorCode "$error_code" --arg message "$message" \
     --arg repository "$repository" --argjson pr "$pr" \
-    --arg requestedSha "$requested_sha" --arg runningSha "$running_sha" \
-    --arg updatedAt "$now" \
-    '{state:$status,errorCode:$errorCode,message:$message,
-      repositoryFullName:$repository,pullRequestNumber:$pr,
-      requestedSha:$requestedSha,updatedAt:$updatedAt} |
-      if $runningSha != "" then
-        .runningSha=$runningSha |
-        .liveUrl=("https://pr-" + ($pr|tostring) + ".projects.os-home.net")
-      else . end'
-}
-
-verify_tls_identity() {
-  openssl s_client \
-    -connect "$domain:443" \
-    -servername "$domain" \
-    -verify_hostname "$domain" \
-    -verify_return_error </dev/null >/dev/null 2>&1
-}
-
-verify_runtime() {
-  sha=$1
-  for service in gateway web docs prototype db; do
-    container=$(compose ps -q "$service")
-    [ -n "$container" ] || return 1
-    [ "$(docker inspect --format '{{.State.Status}}' "$container")" = running ] || return 1
-    health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$container")
-    [ -z "$health" ] || [ "$health" = healthy ] || return 1
-    [ "$(docker inspect --format '{{index .Config.Labels "com.dotnaos.project-space.pr"}}' "$container")" = "$pr" ] || return 1
-    [ "$(docker inspect --format '{{index .Config.Labels "com.dotnaos.project-space.sha"}}' "$container")" = "$sha" ] || return 1
-    case "$service" in
-      gateway) expected_image=$(sed -n 's/^PREVIEW_GATEWAY_IMAGE=//p' "$env_file");;
-      web) expected_image=$(sed -n 's/^PREVIEW_WEB_IMAGE=//p' "$env_file");;
-      docs) expected_image=$(sed -n 's/^PREVIEW_DOCS_IMAGE=//p' "$env_file");;
-      prototype) expected_image=$(sed -n 's/^PREVIEW_PROTOTYPE_IMAGE=//p' "$env_file");;
-      *) expected_image=;;
-    esac
-    [ -z "$expected_image" ] || [ "$(docker inspect --format '{{.Config.Image}}' "$container")" = "$expected_image" ] || return 1
-  done
-  verify_tls_identity || return 1
-  meta=$(curl --fail --silent --show-error --max-time 20 "https://$domain/api/app/meta") || return 1
-  printf '%s' "$meta" | jq -e \
-    --arg repository "$repository" \
-    --argjson pr "$pr" \
-    --arg sha "$sha" \
-    '.commit == $sha and
-      .preview.state == "verified" and
-      .preview.identity.repositoryFullName == $repository and
-      .preview.identity.pullRequestNumber == $pr and
-      .preview.identity.headSha == $sha' >/dev/null || return 1
-  gateway_container=$(compose ps -q gateway)
-  [ -n "$gateway_container" ] || return 1
-  prototype_meta=$(docker exec "$gateway_container" node --input-type=module -e '
-    const response = await fetch("http://preview-prototype:8080/prototype/meta.json");
-    if (!response.ok) process.exit(1);
-    process.stdout.write(await response.text());
-  ') || return 1
-  [ "$(printf '%s' "$prototype_meta" | jq -er '.commit')" = "$sha" ] || return 1
-  printf '%s' "$prototype_meta" |
-    jq -e '.surfaces == ["mobile-prototype","desktop-prototype"]' >/dev/null || return 1
-  curl --fail --silent --show-error --max-time 20 --output /dev/null \
-    "https://$domain/prototype/desktop/?scenario=ready&viewport=desktop" || return 1
-  curl --fail --silent --show-error --max-time 20 --output /dev/null \
-    "https://$domain/prototype/mobile/?scenario=populated&viewport=phone" || return 1
-  health=$(curl --fail --silent --show-error --max-time 20 "https://$domain/api/health") || return 1
-  printf '%s' "$health" | jq -e '.ok == true' >/dev/null || return 1
-  session_status=$(curl --silent --show-error --max-time 20 --output /dev/null --write-out '%{http_code}' "https://$domain/api/auth/session") || return 1
-  [ "$session_status" = 401 ] || return 1
-  curl --fail --silent --show-error --max-time 20 --output /dev/null "https://$domain/" || return 1
-  docs_headers=$(curl --fail --silent --show-error --max-time 20 \
-    --dump-header - --output /dev/null \
-    "https://$domain/docs/changelog?pr=$pr") || return 1
-  printf '%s\n' "$docs_headers" | tr -d '\r' | \
-    grep -Eiq '^x-project-space-preview-docs-source:[[:space:]]*exact-pr-source$' || return 1
-}
-
-verify_runtime_with_retry() {
-  sha=$1
-  attempt=1
-  max_attempts=24
-  while ! verify_runtime "$sha"; do
-    [ "$attempt" -lt "$max_attempts" ] || return 1
-    attempt=$((attempt + 1))
-    sleep 5
-  done
+    --arg requestedSha "$requested_sha" --arg runningSha "$running_sha" --arg updatedAt "$now" \
+    '{state:$status,errorCode:$errorCode,message:$message,repositoryFullName:$repository,
+      pullRequestNumber:$pr,requestedSha:$requestedSha,updatedAt:$updatedAt} |
+      if $runningSha != "" then .runningSha=$runningSha | .liveUrl=("https://pr-" + ($pr|tostring) + ".projects.os-home.net") else . end'
 }
 
 runtime_record() {
@@ -316,19 +276,44 @@ runtime_record() {
   gateway_image=$6
   prototype_image=$7
   now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  storage_bytes=$(preview_record_storage_bytes "$runtime_dir" "$state_dir" "$pr" "$web_image" "$docs_image" "$gateway_image" "$prototype_image")
+  activity_lease=
+  if [ "$status" = online ]; then
+    idle_seconds=$(config_value PREVIEW_IDLE_SECONDS)
+    printf '%s' "$idle_seconds" | grep -Eq '^[1-9][0-9]*$' || fail 'PREVIEW_IDLE_SECONDS is invalid' 78
+    activity_lease=$(date -u -d "@$(( $(date +%s) + idle_seconds ))" +%Y-%m-%dT%H:%M:%SZ)
+  fi
   jq -cn \
     --arg status "$status" --arg repository "$repository" --argjson pr "$pr" \
     --arg requestedSha "$requested_sha" --arg runningSha "$running_sha" \
     --arg webImage "$web_image" --arg docsImage "$docs_image" --arg gatewayImage "$gateway_image" \
     --arg prototypeImage "$prototype_image" \
+    --arg activityLeaseExpiresAt "$activity_lease" \
+    --argjson safeStorageBytes "$storage_bytes" \
     --arg liveUrl "https://$domain" \
     --arg prototypeUrl "https://$domain/prototype/desktop/" --arg verifiedAt "$now" \
-    '{state:$status,repositoryFullName:$repository,pullRequestNumber:$pr,requestedSha:$requestedSha,
+    '{state:$status,capacityBlocked:false,repositoryFullName:$repository,pullRequestNumber:$pr,requestedSha:$requestedSha,
       runningSha:$runningSha,webImageDigest:$webImage,docsImageDigest:$docsImage,gatewayImageDigest:$gatewayImage,
       prototypeImageDigest:$prototypeImage,prototypeUrl:$prototypeUrl,prototypeMetaSha:$runningSha,
+      safeStorageBytes:$safeStorageBytes,
       prototypeHealthy:true,
       liveUrl:$liveUrl,composeHealthy:true,httpHealthy:true,liveOriginHealthy:true,
-      metaSha:$runningSha,verifiedAt:$verifiedAt,updatedAt:$verifiedAt}'
+      metaSha:$runningSha,verifiedAt:(if $status == "online" or ($status == "ready" and $runningSha != "") then $verifiedAt else null end),updatedAt:$verifiedAt,
+      lastActivityAt:(if $status == "online" then $verifiedAt else null end),
+      activityLeaseExpiresAt:(if $status == "online" then $activityLeaseExpiresAt else null end)}'
+}
+
+inventory_revision() {
+  files=$(find "$STATE_ROOT" -mindepth 2 -maxdepth 2 -type f -name runtime.json 2>/dev/null | sort)
+  [ -n "$files" ] || { printf '0'; return; }
+  jq -s -c 'sort_by([.repositoryFullName, .pullRequestNumber]) |
+    map({repositoryFullName, pullRequestNumber,
+      requestedSha,
+      runningSha:(if .state == "online" and .runningSha != "" then .runningSha else null end),
+      state:(if .state == "update_failed" or .state == "failed_initial" or .state == "cleanup_failed" then "failed" else .state end),
+      capacityBlocked:(.capacityBlocked // false), updatedAt})' $files |
+    tr -d '\n' |
+    sha256sum | awk '{print $1}'
 }
 
 emit_receipt() {
@@ -355,6 +340,14 @@ assert_removed() {
   ! docker volume inspect "${compose_project}_postgres-data" >/dev/null 2>&1 || fail 'Preview volume remains after cleanup' 71
   route_status=$(curl --silent --output /dev/null --max-time 10 --write-out '%{http_code}' "https://$domain/" || true)
   case "$route_status" in 000|404|410) ;; *) fail "Preview route still responds with HTTP $route_status" 71;; esac
+}
+
+assert_runtime_resources_absent_for() {
+  selected_pr=$1
+  selected_compose_project="project-space-preview-pr-$selected_pr"
+  containers=$(docker ps -aq --filter "label=com.dotnaos.project-space.repository=$PROJECT_REPOSITORY" --filter "label=com.dotnaos.project-space.pr=$selected_pr")
+  [ -z "$containers" ] || return 1
+  ! docker network inspect "${selected_compose_project}_preview-internal" >/dev/null 2>&1 || return 1
 }
 
 remove_runtime_tree() {
@@ -390,16 +383,31 @@ apply_preview() {
   validate_image "$prototype_image" prototype
   [ -f "$COMPOSE_FILE" ] || fail 'trusted Preview Compose asset is missing' 78
   prepare_directories
-  acquire_lock
+  acquire_lifecycle_locks
   revalidate_open_pr "$head_sha"
+  mode=$(printf '%s' "$request" | jq -r '.mode // "online"')
+  if [ "$mode" = register ]; then
+    if [ -f "$runtime_file" ] && [ "$(jq -er '.state' "$runtime_file" 2>/dev/null || true)" = online ]; then
+      fail 'Cannot register a new build over an online Preview; stop it explicitly first' 73
+    fi
+    assert_state_transition "$runtime_file" ready
+    prepare_storage_policy
+    record=$(runtime_record ready "$head_sha" "" "$web_image" "$docs_image" "$gateway_image" "$prototype_image" |
+      jq '.verifiedAt=null | .prototypeHealthy=false | .prototypeMetaSha=null | .prototypeUrl=null | .liveUrl=null | .composeHealthy=false | .httpHealthy=false | .liveOriginHealthy=false')
+    atomic_json_write "$runtime_file" "$record"
+    rm -f -- "$tombstone_file"
+    emit_receipt "$record"
+    return
+  fi
   if ! check_quota; then
-    record=$(blocked_capacity_record blocked_capacity "$capacity_error_code" \
-      "$capacity_message" "$head_sha")
+    record=$(blocked_capacity_record blocked_capacity "$capacity_error_code" "$capacity_message" "$head_sha")
     atomic_json_write "$state_dir/blocked.json" "$record"
     emit_receipt "$record"
     exit 73
   fi
   rm -f -- "$state_dir/blocked.json"
+  prepare_storage_policy
+  assert_state_transition "$runtime_file" online
   previous_record=
   previous_env=
   if [ -f "$runtime_file" ] && [ -f "$env_file" ]; then
@@ -412,6 +420,7 @@ apply_preview() {
   postgres_password=$(openssl rand -hex 32)
   gateway_secret=$(openssl rand -hex 32)
   prototype_access_secret=$(openssl rand -hex 32)
+  verification_secret=$(openssl rand -hex 32)
   if [ -n "$previous_env" ]; then
     postgres_password=$(sed -n 's/^PREVIEW_POSTGRES_PASSWORD=//p' "$previous_env")
     gateway_secret=$(sed -n 's/^PREVIEW_GATEWAY_SECRET=//p' "$previous_env")
@@ -419,13 +428,19 @@ apply_preview() {
     [ -n "$prototype_access_secret" ] || prototype_access_secret=$(openssl rand -hex 32)
   fi
   write_runtime_env "$env_file" "$head_sha" "$web_image" "$docs_image" "$gateway_image" \
-    "$prototype_image" "$postgres_password" "$gateway_secret" "$prototype_access_secret"
-  if compose pull --quiet >&2 && compose up -d --wait --wait-timeout 240 >&2 &&
+    "$prototype_image" "$postgres_password" "$gateway_secret" "$prototype_access_secret" "$verification_secret"
+  if compose pull --quiet >&2 && check_storage_policy && compose up -d --wait --wait-timeout 240 >&2 &&
     verify_runtime_with_retry "$head_sha"; then
-    record=$(runtime_record ready "$head_sha" "$head_sha" "$web_image" "$docs_image" \
+    sed -e 's/^PROJECT_SPACE_PREVIEW_VERIFIED=.*/PROJECT_SPACE_PREVIEW_VERIFIED=1/' \
+      -e 's/^PROJECT_SPACE_PREVIEW_OFFLINE=.*/PROJECT_SPACE_PREVIEW_OFFLINE=0/' \
+      "$env_file" > "$env_file.verified"
+    chmod 600 "$env_file.verified"
+    mv -f -- "$env_file.verified" "$env_file"
+    compose up -d --no-deps --force-recreate --wait --wait-timeout 60 gateway >&2 || fail 'Preview gateway activation could not be verified' 72
+    record=$(runtime_record online "$head_sha" "$head_sha" "$web_image" "$docs_image" \
       "$gateway_image" "$prototype_image")
     atomic_json_write "$runtime_file" "$record"
-    rm -f -- "$tombstone_file" "$state_dir/blocked.json" "$previous_env"
+    rm -f -- "$tombstone_file" "$previous_env"
     rm -rf -- "$runtime_dir/repository.previous"
     emit_receipt "$record"
     return
@@ -438,7 +453,7 @@ apply_preview() {
     if compose up -d --wait --wait-timeout 240 >&2 && verify_runtime_with_retry "$old_sha"; then
       failed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
       record=$(printf '%s' "$previous_record" | jq --arg requested "$head_sha" --arg updated "$failed_at" \
-        '.state="update_failed" | .requestedSha=$requested | .updatedAt=$updated | .message="Latest Preview update failed; prior verified SHA remains live."')
+        '.state="update_failed" | .capacityBlocked=true | .requestedSha=$requested | .updatedAt=$updated | .message="Latest Preview update failed; prior verified SHA remains live."')
       atomic_json_write "$runtime_file" "$record"
       emit_receipt "$record"
       exit 72
@@ -452,7 +467,7 @@ apply_preview() {
 destroy_preview() {
   reason=$(printf '%s' "$request" | jq -er '.reason // "manual" | select(type == "string")')
   prepare_directories
-  acquire_lock
+  acquire_lifecycle_locks
   last_requested=
   last_running=
   if [ -f "$runtime_file" ]; then
@@ -468,6 +483,228 @@ destroy_preview() {
   cat "$tombstone_file"
 }
 
+stop_selected_runtime() {
+  selected_pr=$1
+  selected_runtime_dir="$RUNTIME_ROOT/pr-$selected_pr"
+  selected_state_dir="$STATE_ROOT/pr-$selected_pr"
+  selected_env_file="$selected_runtime_dir/runtime.env"
+  selected_runtime_file="$selected_state_dir/runtime.json"
+  selected_lock_file="$LOCK_ROOT/project-space-preview-pr-${selected_pr}.lock"
+  selected_compose_project="project-space-preview-pr-$selected_pr"
+  [ -f "$selected_env_file" ] && [ -f "$selected_runtime_file" ] ||
+    fail 'selected replacement Preview has no complete runtime record' 75
+  : > "$selected_lock_file"
+  chmod 600 "$selected_lock_file"
+  exec 10>>"$selected_lock_file"
+  flock -w 900 10 || fail "Preview lock timeout for PR ${selected_pr}" 73
+  [ "$(jq -er '.state' "$selected_runtime_file")" = online ] ||
+    fail 'selected replacement Preview is no longer online' 75
+  selected_head_sha=$(jq -er '.requestedSha' "$selected_runtime_file")
+  revalidate_open_pr_for "$selected_pr" "$selected_head_sha" ||
+    fail 'selected replacement Preview no longer matches an open exact-head PR' 75
+  atomic_json_write "$selected_runtime_file" "$(jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.state="stopping" | .updatedAt=$now' "$selected_runtime_file")"
+  docker compose --env-file "$selected_env_file" -p "$selected_compose_project" \
+    -f "$COMPOSE_FILE" down --remove-orphans --timeout 30 >/dev/null 2>&1 ||
+    {
+      capacity_blocked=true
+      assert_runtime_resources_absent_for "$selected_pr" && capacity_blocked=false || true
+      assert_state_transition "$selected_runtime_file" failed
+      atomic_json_write "$selected_runtime_file" "$(jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson capacityBlocked "$capacity_blocked" '.state="failed" | .failureCode="operation_failed" | .capacityBlocked=$capacityBlocked | .message="Selected replacement Preview could not be stopped." | .updatedAt=$now' "$selected_runtime_file")"
+      fail 'selected replacement Preview could not be stopped' 72
+    }
+  assert_runtime_resources_absent_for "$selected_pr" || {
+    assert_state_transition "$selected_runtime_file" failed
+    atomic_json_write "$selected_runtime_file" "$(jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.state="failed" | .failureCode="operation_failed" | .capacityBlocked=true | .message="Selected replacement Preview teardown was not positively confirmed." | .updatedAt=$now' "$selected_runtime_file")"
+    fail 'selected replacement Preview teardown was not positively confirmed' 72
+  }
+  selected_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  assert_state_transition "$selected_runtime_file" ready
+  atomic_json_write "$selected_runtime_file" "$(jq --arg now "$selected_now" \
+    '.state="ready" | .capacityBlocked=false | .runningSha=null | .verifiedAt=null | .prototypeHealthy=false |
+     .prototypeMetaSha=null | .prototypeUrl=null | .liveUrl=null | .updatedAt=$now |
+     .message="Preview is ready offline; runtime resources are stopped."' "$selected_runtime_file")"
+}
+
+restore_selected_runtime() {
+  selected_pr=$1
+  selected_head_sha=$2
+  selected_runtime_dir="$RUNTIME_ROOT/pr-$selected_pr"
+  selected_state_dir="$STATE_ROOT/pr-$selected_pr"
+  selected_env_file="$selected_runtime_dir/runtime.env"
+  selected_runtime_file="$selected_state_dir/runtime.json"
+  selected_compose_project="project-space-preview-pr-$selected_pr"
+  [ -f "$selected_env_file" ] || return 1
+  [ "$(jq -er '.state' "$selected_runtime_file" 2>/dev/null || true)" = ready ] || return 1
+  revalidate_open_pr_for "$selected_pr" "$selected_head_sha" || return 1
+  if ! docker compose --env-file "$selected_env_file" -p "$selected_compose_project" \
+    -f "$COMPOSE_FILE" up -d --wait --wait-timeout 240 >&2; then
+    docker compose --env-file "$selected_env_file" -p "$selected_compose_project" \
+      -f "$COMPOSE_FILE" down --remove-orphans --timeout 30 >/dev/null 2>&1 || true
+    capacity_blocked=true
+    assert_runtime_resources_absent_for "$selected_pr" && capacity_blocked=false || true
+    assert_state_transition "$selected_runtime_file" failed
+    atomic_json_write "$selected_runtime_file" "$(jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --argjson capacityBlocked "$capacity_blocked" '.state="failed" | .failureCode="operation_failed" | .capacityBlocked=$capacityBlocked | .message="Previous Preview restoration failed before health verification." | .updatedAt=$now' "$selected_runtime_file")"
+    return 1
+  fi
+
+  saved_pr=$pr; saved_domain=$domain; saved_compose_project=$compose_project
+  saved_runtime_dir=$runtime_dir; saved_state_dir=$state_dir; saved_env_file=$env_file
+  saved_runtime_file=$runtime_file; saved_repo_path=$repo_path
+  pr=$selected_pr; domain="pr-${selected_pr}.projects.os-home.net"
+  compose_project=$selected_compose_project; runtime_dir=$selected_runtime_dir
+  state_dir=$selected_state_dir; env_file=$selected_env_file
+  runtime_file=$selected_runtime_file; repo_path="$selected_runtime_dir/repository"
+  if verify_runtime_with_retry "$selected_head_sha"; then
+    restored=$(runtime_record online "$selected_head_sha" "$selected_head_sha" \
+      "$(sed -n 's/^PREVIEW_WEB_IMAGE=//p' "$selected_env_file")" \
+      "$(sed -n 's/^PREVIEW_DOCS_IMAGE=//p' "$selected_env_file")" \
+      "$(sed -n 's/^PREVIEW_GATEWAY_IMAGE=//p' "$selected_env_file")" \
+      "$(sed -n 's/^PREVIEW_PROTOTYPE_IMAGE=//p' "$selected_env_file")")
+    atomic_json_write "$selected_runtime_file" "$restored"
+    pr=$saved_pr; domain=$saved_domain; compose_project=$saved_compose_project
+    runtime_dir=$saved_runtime_dir; state_dir=$saved_state_dir; env_file=$saved_env_file
+    runtime_file=$saved_runtime_file; repo_path=$saved_repo_path
+    return 0
+  fi
+  docker compose --env-file "$selected_env_file" -p "$selected_compose_project" \
+    -f "$COMPOSE_FILE" down --remove-orphans --timeout 30 >/dev/null 2>&1 || true
+  capacity_blocked=true
+  assert_runtime_resources_absent_for "$selected_pr" && capacity_blocked=false || true
+  assert_state_transition "$selected_runtime_file" failed
+  atomic_json_write "$selected_runtime_file" "$(jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --argjson capacityBlocked "$capacity_blocked" '.state="failed" | .failureCode="unhealthy" | .capacityBlocked=$capacityBlocked | .message="Previous Preview restoration failed exact-head health verification." | .updatedAt=$now' "$selected_runtime_file")"
+  pr=$saved_pr; domain=$saved_domain; compose_project=$saved_compose_project
+  runtime_dir=$saved_runtime_dir; state_dir=$saved_state_dir; env_file=$saved_env_file
+  runtime_file=$saved_runtime_file; repo_path=$saved_repo_path
+  return 1
+}
+
+start_preview() {
+  prepare_directories
+  acquire_lifecycle_locks
+  [ -f "$runtime_file" ] || fail 'Preview is not registered; build it before starting' 74
+  state=$(jq -er '.state' "$runtime_file")
+  [ "$state" = ready ] || fail "Preview is not startable from state $state" 74
+  requested_sha=$(jq -er '.requestedSha' "$runtime_file"); validate_sha "$requested_sha"
+  revalidate_open_pr "$requested_sha"
+  max_active=$(config_value PREVIEW_MAX_ACTIVE)
+  active=$(find "$STATE_ROOT" -mindepth 2 -maxdepth 2 -name runtime.json -type f -print0 2>/dev/null | xargs -0 -r jq -s '[.[] | select(.state == "online" or .capacityBlocked == true)] | length')
+  replacement_pr=$(printf '%s' "$request" | jq -er '.selectedReplacementPullRequestNumber // empty | select(type == "number" and . == floor and . > 0)' 2>/dev/null || true)
+  replacement_head=$(printf '%s' "$request" | jq -er '.selectedReplacementHeadSha // empty | select(type == "string")' 2>/dev/null || true)
+  replacement_repository=$(printf '%s' "$request" | jq -er '.selectedReplacementRepositoryFullName // empty | select(type == "string")' 2>/dev/null || true)
+  if [ "$active" -ge "$max_active" ]; then
+    [ -n "$replacement_pr" ] && [ "$replacement_repository" = "$PROJECT_REPOSITORY" ] ||
+      fail 'Preview online capacity is full; explicit replacement is required' 73
+    validate_sha "$replacement_head"
+    requested_revision=$(printf '%s' "$request" | jq -er '.inventoryRevision // empty | select(type == "string" and length > 0)' 2>/dev/null || true)
+    [ -n "$requested_revision" ] && [ "$requested_revision" = "$(inventory_revision)" ] ||
+      fail 'Preview inventory changed; choose a replacement again' 73
+    selected_file="$STATE_ROOT/pr-$replacement_pr/runtime.json"
+    [ -f "$selected_file" ] || fail 'selected replacement Preview no longer exists' 75
+    [ "$(jq -er '.state' "$selected_file")" = online ] || fail 'selected replacement Preview is no longer online' 75
+    [ "$(jq -er '.requestedSha' "$selected_file")" = "$replacement_head" ] ||
+      fail 'selected replacement Preview head changed' 75
+  fi
+  web_image=$(jq -er '.webImageDigest' "$runtime_file")
+  docs_image=$(jq -er '.docsImageDigest' "$runtime_file")
+  gateway_image=$(jq -er '.gatewayImageDigest' "$runtime_file")
+  prototype_image=$(jq -er '.prototypeImageDigest' "$runtime_file")
+  postgres_password=$(openssl rand -hex 32); gateway_secret=$(openssl rand -hex 32); prototype_access_secret=$(openssl rand -hex 32)
+  verification_secret=$(openssl rand -hex 32)
+  prepare_storage_policy
+  write_runtime_env "$env_file" "$requested_sha" "$web_image" "$docs_image" "$gateway_image" "$prototype_image" "$postgres_password" "$gateway_secret" "$prototype_access_secret" "$verification_secret"
+  prepare_repository "$requested_sha"
+  compose pull --quiet >&2 || fail 'could not prepare the exact Preview images' 70
+  check_storage_policy
+  if [ "$active" -ge "$max_active" ]; then
+    stop_selected_runtime "$replacement_pr"
+  fi
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  assert_state_transition "$runtime_file" starting
+  atomic_json_write "$runtime_file" "$(jq --arg now "$now" '.state="starting" | .updatedAt=$now' "$runtime_file")"
+  if compose up -d --wait --wait-timeout 240 >&2 && verify_runtime_with_retry "$requested_sha"; then
+    sed -e 's/^PROJECT_SPACE_PREVIEW_VERIFIED=.*/PROJECT_SPACE_PREVIEW_VERIFIED=1/' \
+      -e 's/^PROJECT_SPACE_PREVIEW_OFFLINE=.*/PROJECT_SPACE_PREVIEW_OFFLINE=0/' \
+      "$env_file" > "$env_file.verified"
+    chmod 600 "$env_file.verified"
+    mv -f -- "$env_file.verified" "$env_file"
+    compose up -d --no-deps --force-recreate --wait --wait-timeout 60 gateway >&2 || fail 'Preview gateway activation could not be verified' 72
+    record=$(runtime_record online "$requested_sha" "$requested_sha" "$web_image" "$docs_image" "$gateway_image" "$prototype_image")
+    atomic_json_write "$runtime_file" "$record"
+    emit_receipt "$record"
+    return
+  fi
+  if [ "$active" -ge "$max_active" ]; then
+    destroy_resources
+  fi
+  target_resources_absent=true
+  assert_runtime_resources_absent_for "$pr" || target_resources_absent=false
+  if [ "$active" -ge "$max_active" ] && [ "$target_resources_absent" = true ] && restore_selected_runtime "$replacement_pr" "$replacement_head"; then
+    assert_state_transition "$runtime_file" failed
+    atomic_json_write "$runtime_file" "$(jq --arg now "$now" \
+      '.state="failed" | .failureCode="operation_failed" |
+       .capacityBlocked=false | .message="Target Preview failed; the selected previous Preview was restored." |
+       .updatedAt=$now | .runningSha=null | .verifiedAt=null' "$runtime_file")"
+    fail 'Preview start failed; the selected previous Preview was restored' 72
+  fi
+  assert_state_transition "$runtime_file" failed
+  capacity_blocked=false
+  [ "$target_resources_absent" = true ] || capacity_blocked=true
+  atomic_json_write "$runtime_file" "$(jq --arg now "$now" --argjson capacityBlocked "$capacity_blocked" '.state="failed" | .failureCode="unhealthy" | .capacityBlocked=$capacityBlocked | .message="Exact-head health verification failed; Preview remains offline." | .updatedAt=$now | .runningSha=null | .verifiedAt=null' "$runtime_file")"
+  destroy_resources
+  fail 'Preview start failed exact-head or health verification' 72
+}
+
+stop_preview() {
+  prepare_directories
+  acquire_lifecycle_locks
+  [ -f "$runtime_file" ] || fail 'Preview is not registered' 74
+  state=$(jq -er '.state' "$runtime_file")
+  [ "$state" = online ] || [ "$state" = update_failed ] || fail "Preview is not online; refusing implicit transition from $state" 74
+  requested_head_sha=$(printf '%s' "$request" | jq -er '.requestedHeadSha // .headSha // empty | select(type == "string")' 2>/dev/null || true)
+  if [ -n "$requested_head_sha" ]; then
+    validate_sha "$requested_head_sha"
+    [ "$(jq -er '.requestedSha' "$runtime_file")" = "$requested_head_sha" ] ||
+      fail 'Preview head changed; refusing to stop stale identity' 75
+  fi
+  assert_state_transition "$runtime_file" stopping
+  atomic_json_write "$runtime_file" "$(jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.state="stopping" | .updatedAt=$now' "$runtime_file")"
+  compose down --remove-orphans --timeout 30 >/dev/null 2>&1 || {
+    capacity_blocked=true
+    assert_runtime_resources_absent_for "$pr" && capacity_blocked=false || true
+    atomic_json_write "$runtime_file" "$(jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson capacityBlocked "$capacity_blocked" '.state="failed" | .failureCode="operation_failed" | .capacityBlocked=$capacityBlocked | .message="Preview stop was not positively confirmed." | .updatedAt=$now' "$runtime_file")"
+    fail 'Preview stop was not positively confirmed' 72
+  }
+  assert_runtime_resources_absent_for "$pr" || {
+    atomic_json_write "$runtime_file" "$(jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.state="failed" | .failureCode="operation_failed" | .capacityBlocked=true | .message="Preview stop teardown was not positively confirmed." | .updatedAt=$now' "$runtime_file")"
+    fail 'Preview stop teardown was not positively confirmed' 72
+  }
+  assert_state_transition "$runtime_file" ready
+  record=$(jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.state="ready" | .capacityBlocked=false | .runningSha=null | .verifiedAt=null | .prototypeHealthy=false | .prototypeMetaSha=null | .prototypeUrl=null | .liveUrl=null | .updatedAt=$now | .message="Preview is ready offline; runtime resources are stopped."' "$runtime_file")
+  atomic_json_write "$runtime_file" "$record"
+  emit_receipt "$record"
+}
+
+touch_preview() {
+  prepare_directories
+  acquire_lifecycle_locks
+  [ -f "$runtime_file" ] || fail 'Preview is not registered' 74
+  [ "$(jq -er '.state' "$runtime_file")" = online ] || fail 'Preview is not online' 74
+  requested_head_sha=$(printf '%s' "$request" | jq -er '.requestedHeadSha // .headSha // empty | select(type == "string")')
+  validate_sha "$requested_head_sha"
+  revalidate_open_pr "$requested_head_sha"
+  [ "$(jq -er '.requestedSha' "$runtime_file")" = "$requested_head_sha" ] || fail 'Preview head changed; refusing stale activity lease' 75
+  idle_seconds=$(config_value PREVIEW_IDLE_SECONDS)
+  printf '%s' "$idle_seconds" | grep -Eq '^[1-9][0-9]*$' || fail 'PREVIEW_IDLE_SECONDS is invalid' 78
+  now_epoch=$(date +%s)
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  lease=$(date -u -d "@$((now_epoch + idle_seconds))" +%Y-%m-%dT%H:%M:%SZ)
+  record=$(jq --arg now "$now" --arg lease "$lease" '.lastActivityAt=$now | .activityLeaseExpiresAt=$lease | .updatedAt=$now' "$runtime_file")
+  atomic_json_write "$runtime_file" "$record"
+  emit_receipt "$record"
+}
+
 status_preview() {
   if [ -f "$state_dir/blocked.json" ]; then cat "$state_dir/blocked.json"; return; fi
   if [ -f "$runtime_file" ]; then cat "$runtime_file"; return; fi
@@ -476,41 +713,41 @@ status_preview() {
 }
 
 status_all_previews() {
-  files=$(find "$STATE_ROOT" -mindepth 2 -maxdepth 2 -type f \
-    \( -name runtime.json -o -name blocked.json -o -name tombstone.json \) 2>/dev/null | sort)
+  files=$(find "$STATE_ROOT" -mindepth 2 -maxdepth 2 -type f \( -name runtime.json -o -name tombstone.json -o -name blocked.json \) 2>/dev/null | sort)
   if [ -z "$files" ]; then printf '{"records":[]}\n'; return; fi
   # Registry files contain only the bounded public status contract, never runtime.env or controller secrets.
   jq -s '{records: map(select(.repositoryFullName == "DotNaos/project-space"))}' $files
 }
 
-reap_previews() {
-  open_prs=$(printf '%s' "$request" | jq -cer '.openPullRequests | select(type == "array" and all(.[]; type == "number" and . == floor and . > 0)) | unique')
-  ttl_hours=$(printf '%s' "$request" | jq -er '.ttlHours | select(type == "number" and . == floor and . >= 1 and . <= 720)')
-  now=$(date +%s)
-  removed='[]'
-  for file in "$STATE_ROOT"/pr-*/runtime.json; do
-    [ -f "$file" ] || continue
-    candidate=$(jq -er '.pullRequestNumber | select(type == "number" and . == floor and . > 0)' "$file") || continue
-    verified=$(jq -er '.verifiedAt' "$file" 2>/dev/null || true)
-    verified_epoch=$(date -d "$verified" +%s 2>/dev/null || stat -c %Y "$file" 2>/dev/null || stat -f %m "$file")
-    age_hours=$(( (now - verified_epoch) / 3600 ))
-    is_open=$(printf '%s' "$open_prs" | jq -e --argjson pr "$candidate" 'index($pr) != null' >/dev/null && printf true || printf false)
-    if [ "$is_open" = true ] && [ "$age_hours" -lt "$ttl_hours" ]; then continue; fi
-    request=$(jq -n --arg repository "$PROJECT_REPOSITORY" --argjson pr "$candidate" --arg reason "reaper" \
-      '{repository:$repository,prNumber:$pr,reason:$reason}')
-    prepare_identity
-    destroy_preview >/dev/null
-    removed=$(printf '%s' "$removed" | jq --argjson pr "$candidate" '. + [$pr]')
-  done
-  jq -n --argjson removed "$removed" '{status:"complete",removedPullRequests:$removed}'
-}
-
 require_command jq
+reaper_script=${PROJECT_SPACE_PREVIEW_REAPER_SCRIPT:-$ASSET_ROOT/preview-reaper.sh}
+[ -f "$reaper_script" ] || reaper_script=$(dirname "$0")/preview-reaper.sh
+. "$reaper_script"
+storage_policy_script=${PROJECT_SPACE_PREVIEW_STORAGE_POLICY_SCRIPT:-$ASSET_ROOT/preview-storage-policy.sh}
+[ -f "$storage_policy_script" ] || storage_policy_script=$(dirname "$0")/preview-storage-policy.sh
+. "$storage_policy_script"
+runtime_verification_script=${PROJECT_SPACE_PREVIEW_RUNTIME_VERIFICATION_SCRIPT:-$ASSET_ROOT/preview-runtime-verification.sh}
+[ -f "$runtime_verification_script" ] || runtime_verification_script=$(dirname "$0")/preview-runtime-verification.sh
+. "$runtime_verification_script"
 command_name=${1:-}
 case "$command_name" in
   apply)
     require_command curl; require_command docker; require_command flock; require_command git; require_command openssl
     read_request; prepare_identity; apply_preview
+    ;;
+  register)
+    require_command curl; require_command docker; require_command flock; require_command jq; read_request; prepare_identity; apply_preview
+    ;;
+  start)
+    require_command curl; require_command docker; require_command flock; require_command jq; require_command git; require_command openssl
+    read_request; prepare_identity; start_preview
+    ;;
+  stop)
+    require_command docker; require_command flock; require_command jq
+    read_request; prepare_identity; stop_preview
+    ;;
+  touch)
+    require_command flock; require_command jq; read_request; prepare_identity; touch_preview
     ;;
   destroy)
     require_command curl; require_command docker; require_command flock; read_request; prepare_identity; destroy_preview
@@ -524,5 +761,5 @@ case "$command_name" in
   reap)
     require_command curl; require_command docker; require_command flock; read_request; reap_previews
     ;;
-  *) fail 'usage: preview-runner.sh apply|destroy|status|status-all|reap' 64;;
+  *) fail 'usage: preview-runner.sh apply|register|start|stop|touch|destroy|status|status-all|reap' 64;;
 esac

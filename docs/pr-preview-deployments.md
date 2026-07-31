@@ -73,6 +73,8 @@ The runner configuration contains limits, not application secrets:
 ```text
 PREVIEW_MAX_ACTIVE=3
 PREVIEW_MIN_FREE_BYTES=21474836480
+PREVIEW_STORAGE_BUDGET_BYTES=214748364800
+PREVIEW_IDLE_SECONDS=3600
 PREVIEW_GATEWAY_ENV_FILE=/opt/platform/secrets/project-space-preview/gateway.env
 ```
 

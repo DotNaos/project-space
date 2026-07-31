@@ -74,6 +74,12 @@ export function resolveApiRequestUrl(baseUrl: string, path: string) {
   return requestUrl.toString();
 }
 
+function shouldUseCentralPreviewHub() {
+  if (typeof window === 'undefined') return false;
+  return window.location.hostname === 'pr.projects.os-home.net' ||
+    /^pr-[1-9][0-9]{0,8}\.projects\.os-home\.net$/i.test(window.location.hostname);
+}
+
 async function readJsonResponse<T>(response: Response): Promise<T> {
   const payload = (await response.json().catch(() => undefined)) as
     { error?: string } | T | undefined;
@@ -106,5 +112,41 @@ export class ProjectSpaceHttpClient {
       },
       redirect: 'error'
     }).then((response) => readJsonResponse<T>(response));
+  }
+
+  protected async requestPreviewHub<T>(path: string, init?: RequestInit): Promise<T> {
+    const requestUrl = shouldUseCentralPreviewHub()
+      ? new URL(path, 'https://pr.projects.os-home.net').toString()
+      : resolveApiRequestUrl(this.baseUrl, path);
+    const token = await refreshProjectSpaceAuthToken();
+    return fetch(requestUrl, {
+      ...init,
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+        ...init?.headers
+      },
+      redirect: 'error'
+    }).then((response) => readJsonResponse<T>(response));
+  }
+
+  protected async establishPreviewAccess(pullRequestNumber: number) {
+    if (!Number.isSafeInteger(pullRequestNumber) || pullRequestNumber <= 0) {
+      throw new Error('Preview pull request number is invalid.');
+    }
+    const token = await refreshProjectSpaceAuthToken();
+    const previewOrigin = typeof window !== 'undefined' && window.location.hostname.endsWith('.localhost')
+      ? window.location.origin
+      : `https://pr-${pullRequestNumber}.projects.os-home.net`;
+    const response = await fetch(`${previewOrigin}/api/pull-request-preview-access`, {
+      credentials: 'include',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        Origin: 'https://pr.projects.os-home.net'
+      },
+      method: 'POST',
+      redirect: 'error'
+    });
+    if (!response.ok) throw new Error(`Preview access was not granted (${response.status}).`);
   }
 }
