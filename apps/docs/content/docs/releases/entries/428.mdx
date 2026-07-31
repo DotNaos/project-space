@@ -1,0 +1,38 @@
+---
+title: "Keep Production Preview routing unambiguous"
+version: "0.4.53"
+bump: "patch"
+pullRequest: 428
+issues:
+  - 426
+areas:
+  - deploy
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  Production routes the Project Space app, API, Preview hub, and offline
+  Preview hosts through one explicitly selected web service.
+</ReleaseSummary>
+
+## Changes
+
+### Fixed
+
+- Production web, API, Preview hub, and offline Preview-host routers now select the same trusted web service explicitly.
+- A deployment contract test prevents a second ambiguous web service from being introduced again.
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Confirm the main Project Space origin and API remain healthy while the Preview hub and an offline Preview hostname route through the trusted app.
+
+</PreviewOnly>
