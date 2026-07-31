@@ -2,20 +2,23 @@ name: Release
 on:
   pull_request:
     paths:
+      - '.github/actions/release-quality/**'
       - '.github/workflows/release*.yml'
       - 'cmd/project/**'
       - 'go.mod'
       - 'go.sum'
+      - 'internal/approvalsigner/**'
       - 'internal/machineconnect/**'
       - 'internal/projectrun/**'
       - 'internal/selfupdate/**'
       - 'package.json'
       - 'bun.lock'
-      - 'packaging/linux/**'
-      - 'packaging/macos/**'
-      - 'packaging/release/**'
-      - 'packaging/windows/**'
+      - 'packaging/**'
       - 'server/**'
+      - 'scripts/ci-preflight.ts'
+      - 'scripts/prepare-release-pr.ts'
+      - 'scripts/release-identity.ts'
+      - 'scripts/release-verification-policy.ts'
       - 'tests/**'
   push:
     tags:

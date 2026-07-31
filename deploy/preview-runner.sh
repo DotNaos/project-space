@@ -112,15 +112,20 @@ github_get() {
   fi
 }
 
-revalidate_open_pr() {
+open_pr_is_current() {
   expected_sha=$1
-  pr_json=$(github_get "/repos/$PROJECT_REPOSITORY/pulls/$pr") || fail 'could not revalidate PR under lock' 75
+  pr_json=$(github_get "/repos/$PROJECT_REPOSITORY/pulls/$pr") || return 1
   printf '%s' "$pr_json" | jq -e \
     --arg repository "$PROJECT_REPOSITORY" \
     --arg sha "$expected_sha" \
     '.state == "open" and .base.ref == "main" and
      .base.repo.full_name == $repository and .head.repo.full_name == $repository and
-     .head.sha == $sha' >/dev/null || fail 'PR is closed, forked, targets another base, or its head was superseded' 75
+     .head.sha == $sha' >/dev/null
+}
+
+revalidate_open_pr() {
+  open_pr_is_current "$1" ||
+    fail 'PR could not be proven open on the requested exact head under lock' 75
 }
 
 revalidate_open_pr_for() {
@@ -333,6 +338,24 @@ destroy_resources() {
   docker volume inspect "$volume" >/dev/null 2>&1 && docker volume rm "$volume" >/dev/null || true
 }
 
+refuse_superseded_activation() {
+  requested_sha=$1
+  web_image=$2
+  docs_image=$3
+  gateway_image=$4
+  prototype_image=$5
+  destroy_resources
+  remove_runtime_tree
+  assert_state_transition "$runtime_file" failed
+  record=$(runtime_record failed "$requested_sha" "" "$web_image" "$docs_image" "$gateway_image" "$prototype_image" |
+    jq '.failureCode="superseded" | .capacityBlocked=false |
+      .message="The exact PR head was superseded before activation; all target resources were removed." |
+      .runningSha=null | .prototypeMetaSha=null | .metaSha=null | .prototypeHealthy=false |
+      .composeHealthy=false | .httpHealthy=false | .liveOriginHealthy=false |
+      .prototypeUrl=null | .liveUrl=null | .verifiedAt=null | .lastActivityAt=null')
+  atomic_json_write "$runtime_file" "$record"
+}
+
 assert_removed() {
   containers=$(docker ps -aq --filter "label=com.dotnaos.project-space.repository=$repository" --filter "label=com.dotnaos.project-space.pr=$pr")
   [ -z "$containers" ] || fail 'Preview containers remain after cleanup' 71
@@ -394,6 +417,7 @@ apply_preview() {
     prepare_storage_policy
     record=$(runtime_record ready "$head_sha" "" "$web_image" "$docs_image" "$gateway_image" "$prototype_image" |
       jq '.verifiedAt=null | .prototypeHealthy=false | .prototypeMetaSha=null | .prototypeUrl=null | .liveUrl=null | .composeHealthy=false | .httpHealthy=false | .liveOriginHealthy=false')
+    revalidate_open_pr "$head_sha"
     atomic_json_write "$runtime_file" "$record"
     rm -f -- "$tombstone_file"
     emit_receipt "$record"
@@ -431,6 +455,10 @@ apply_preview() {
     "$prototype_image" "$postgres_password" "$gateway_secret" "$prototype_access_secret" "$verification_secret"
   if compose pull --quiet >&2 && check_storage_policy && compose up -d --wait --wait-timeout 240 >&2 &&
     verify_runtime_with_retry "$head_sha"; then
+    if ! open_pr_is_current "$head_sha"; then
+      refuse_superseded_activation "$head_sha" "$web_image" "$docs_image" "$gateway_image" "$prototype_image"
+      fail 'PR head was superseded before Preview activation; target resources were removed' 75
+    fi
     sed -e 's/^PROJECT_SPACE_PREVIEW_VERIFIED=.*/PROJECT_SPACE_PREVIEW_VERIFIED=1/' \
       -e 's/^PROJECT_SPACE_PREVIEW_OFFLINE=.*/PROJECT_SPACE_PREVIEW_OFFLINE=0/' \
       "$env_file" > "$env_file.verified"
@@ -624,6 +652,13 @@ start_preview() {
   assert_state_transition "$runtime_file" starting
   atomic_json_write "$runtime_file" "$(jq --arg now "$now" '.state="starting" | .updatedAt=$now' "$runtime_file")"
   if compose up -d --wait --wait-timeout 240 >&2 && verify_runtime_with_retry "$requested_sha"; then
+    if ! open_pr_is_current "$requested_sha"; then
+      refuse_superseded_activation "$requested_sha" "$web_image" "$docs_image" "$gateway_image" "$prototype_image"
+      if [ "$active" -ge "$max_active" ]; then
+        restore_selected_runtime "$replacement_pr" "$replacement_head" || true
+      fi
+      fail 'PR head was superseded before Preview activation; target resources were removed' 75
+    fi
     sed -e 's/^PROJECT_SPACE_PREVIEW_VERIFIED=.*/PROJECT_SPACE_PREVIEW_VERIFIED=1/' \
       -e 's/^PROJECT_SPACE_PREVIEW_OFFLINE=.*/PROJECT_SPACE_PREVIEW_OFFLINE=0/' \
       "$env_file" > "$env_file.verified"

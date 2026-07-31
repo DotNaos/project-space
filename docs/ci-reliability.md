@@ -19,6 +19,70 @@ validator from an exact `main` revision.
 - A completed check is reused only when both its exact PR head and exact
   trusted-main input are unchanged.
 
+The always-on documentation workflow now skips only the numbered entry step
+for drafts. Generated CLI documentation, documentation type checks, and the
+documentation build still run. `ready_for_review` is an explicit trigger, so a
+draft cannot become ready without immediately entering both the documentation
+and trusted latest-main entry gates.
+
+## Canonical local handoff
+
+Run the repository-owned preflight against a committed, clean exact revision:
+
+```sh
+bun run ci:preflight --base origin/main --head HEAD --pull-request 435 --format json
+```
+
+The optional pull-request number enables exact PR-owned release validation. A
+run without it validates the current catalog and is suitable for the coherent
+draft revision used to obtain a PR number. The JSON report includes schema
+version, exact base and head SHAs, changed paths, the same release verification
+classification used by GitHub, every command and result, duration, and every
+protected remote-only gate. Child command output is written to stderr so stdout
+remains one machine-readable document.
+
+The command refuses a dirty worktree because otherwise `HEAD` would not name
+the content that was actually tested. Documentation, TypeScript, the full Bun
+test suite, web, mobile Expo, and locked dependency checks run for every PR
+because the documentation and Preview workflows are unconditional. Go
+race/vet, workflow lint, shell syntax, and host-native packaging are selected
+from the changed-path/release-matrix contract. Foreign-host packaging, signing,
+artifact and receipt handoffs, Preview/VPS access, TLS, capacity, rollback,
+exact remote identity, and health remain explicitly remote-only and fail
+closed.
+
+The Release trigger now includes every trust and policy path classified as
+release-critical. A change to the classifier, its composite action, approval
+signing, packaging, or the preflight/release helpers therefore cannot bypass
+the matrix by making the classifier unreachable.
+
+## Atomic release preparation
+
+After the draft has a number, author a complete
+`apps/docs/content/docs/releases/entries/<PR>.mdx`. Use `__VERSION__` and
+`__PR_NUMBER__` only for those two frontmatter values, then run from an
+otherwise clean worktree:
+
+```sh
+bun run release:prepare --pull-request 435 --version 0.4.56 --format json
+```
+
+The helper refreshes current main, verifies ancestry and the intended Semantic
+Versioning bump, rejects existing tags or GitHub Releases, validates the full
+catalog, and updates these identities as one rollback-capable transaction:
+
+- root package version;
+- connector development identity;
+- Windows packaging version and release URL;
+- rendered Windows installation example;
+- connector and release contract fixtures;
+- the PR-owned entry identity.
+
+Staged changes, unrelated changes, incomplete bundles, stale main/version
+input, schema errors, duplicate versions, and occurrence-count drift are
+refused before writing. A second invocation succeeds only when the exact seven
+path bundle is already prepared and byte-stable.
+
 One-time migration for pull requests created before this contract:
 
 1. Record each open pull request's exact head.
@@ -71,6 +135,36 @@ the policy implementation itself. Ambiguous changes use the full matrix.
 
 Superseded pull request runs are cancelled by PR number. Tag and on-demand
 release runs remain non-cancelling.
+
+Preview transactions remain serialized so a remote apply is never cancelled
+mid-operation. Instead, the trusted workflow binds automatic work to the event
+head, classifies a positively newer or closed PR before credential handoff, and
+skips the outdated transaction neutrally. After handoff, exit code 75 is neutral
+only when a fresh GitHub read positively proves that the requested head was
+superseded or closed. API uncertainty, a current-head exit 75, a receipt error,
+or a runner that did not positively refuse the stale head remains failed. A
+manual GitHub deployment proven superseded is marked inactive; current exact
+heads retain every identity, receipt, capacity, TLS, and health requirement.
+
+## First-push measurement window
+
+The post-#425 audit through PR #433 is the baseline: 81 PR-event runs, 35
+successful, 24 cancelled, 21 failed, and one running. Roughly 12 failures were
+locally preventable; 20 cancellations came from one drip-fed version bundle.
+
+For each of the next five representative PRs, record the exact head, change
+surface, first-push local-preflight result, first required remote conclusion,
+time to required green, avoidable failures, cancellations, feedback duration,
+and summed runner minutes. Do not count a superseded neutral/cancelled Preview
+as a product regression, and do not hide infrastructure, protected Preview,
+release, or production failures. The comparable after window is complete only
+after five PRs; this implementation cannot fabricate future delivery data.
+
+The read-only snapshot in `docs/open-pr-ci-inventory-2026-07-31.md` records the
+legacy starting state. Refresh it with
+`bun run ci:inventory:open-prs --format markdown --output <docs/path.md>`.
+The report never edits or closes an unrelated branch and never rewrites a stale
+historical check.
 
 ## Release and production sequencing
 

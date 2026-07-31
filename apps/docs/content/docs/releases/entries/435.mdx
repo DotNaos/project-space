@@ -1,0 +1,47 @@
+---
+title: "Make pull request revisions green on first push"
+version: "0.4.56"
+bump: "patch"
+pullRequest: 435
+issues:
+  - 434
+areas:
+  - cli
+  - docs
+  - deploy
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  Pull request revisions now have one exact local readiness check, atomic release
+  preparation, draft-safe documentation checks, and superseded Preview fencing.
+</ReleaseSummary>
+
+## Changes
+
+### Added
+
+- Added one machine-readable local preflight for the exact committed revision.
+- Added atomic, idempotent preparation for every coupled release identity.
+- Added a read-only inventory that separates active migrations, neutral drafts, and owner decisions.
+
+### Fixed
+
+- Draft pull requests skip only their numbered release-entry check until they become ready.
+- A Preview head superseded before activation is refused and its target resources are removed.
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Confirm the exact PR Preview completes its current-head identity, receipt, TLS, capacity, and health gates.
+- Convert the PR between draft and ready and confirm only the numbered release-entry requirement changes behavior.
+
+</PreviewOnly>
