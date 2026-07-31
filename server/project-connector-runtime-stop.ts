@@ -1,4 +1,5 @@
 import type { KeyLike } from 'node:crypto';
+import type { WebSocket } from 'ws';
 
 import type { ConnectorProjectRegistryResult } from '../src/shared/project-space-api';
 import { connectorRuntimeReleaseTarget } from './connector-runtime-maintenance-contract';

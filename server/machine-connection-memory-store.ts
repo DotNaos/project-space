@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 
 import type {
   MachineConnectionStore,
+  MachineConnectPhysicalMachine,
   MachineConnectRequestRecord,
   MachineIdentityRecord,
 } from "./machine-connection-contract";
@@ -24,8 +25,14 @@ function equalHash(expected: string, actual: string) {
 }
 
 export class MemoryMachineConnectionStore implements MachineConnectionStore {
+  readonly connectorAssignments = new Map<string, string>();
   readonly machines = new Map<string, MachineIdentityRecord>();
+  readonly physicalMachines = new Map<string, MachineConnectPhysicalMachine & { ownerUserId: string }>();
   readonly requests = new Map<string, MachineConnectRequestRecord>();
+
+  addPhysicalMachine(userId: string, machine: MachineConnectPhysicalMachine) {
+    this.physicalMachines.set(machine.id, { ...structuredClone(machine), ownerUserId: userId });
+  }
 
   async consumeRequestAndUpsertMachine(
     request: MachineConnectRequestRecord,
@@ -42,6 +49,12 @@ export class MemoryMachineConnectionStore implements MachineConnectionStore {
         status: "expired",
       });
       return { status: "expired" as const };
+    }
+    const physicalMachine = current.physicalMachineId
+      ? this.physicalMachines.get(current.physicalMachineId)
+      : undefined;
+    if (!physicalMachine || physicalMachine.ownerUserId !== machine.ownerUserId) {
+      throw new Error("Connector enrollment requires an owned physical machine.");
     }
 
     const existing = [...this.machines.values()].find(
@@ -69,6 +82,7 @@ export class MemoryMachineConnectionStore implements MachineConnectionStore {
       return { status: "request_unavailable" as const };
     }
     this.machines.set(persisted.id, persisted);
+    this.connectorAssignments.set(persisted.id, physicalMachine.id);
     this.requests.set(request.id, copyRequest(request));
     return {
       machine: copyMachine(persisted),
@@ -91,6 +105,13 @@ export class MemoryMachineConnectionStore implements MachineConnectionStore {
   async getRequest(id: string) {
     const request = this.requests.get(id);
     return request ? copyRequest(request) : null;
+  }
+
+  async listPhysicalMachines(userId: string) {
+    return [...this.physicalMachines.values()]
+      .filter((machine) => machine.ownerUserId === userId)
+      .map(({ id, kind, name }) => ({ id, kind, name }))
+      .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
   }
 
   async markMachineOnline(

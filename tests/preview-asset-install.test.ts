@@ -45,8 +45,8 @@ async function createFixture() {
   return { platform, root, source };
 }
 
-function install(source: string, platform: string, commit: string) {
-  return spawnSync('sh', [installerPath, source, commit], {
+function install(source: string, platform: string, commit: string, gatewayEnvironment?: string) {
+  return spawnSync('sh', [installerPath, source, commit, ...(gatewayEnvironment ? [gatewayEnvironment] : [])], {
     cwd: repositoryRoot,
     encoding: 'utf8',
     env: {
@@ -144,5 +144,21 @@ describe('trusted Preview asset installation', () => {
     expect(rejected.status).toBe(64);
     expect(rejected.stderr).toContain('invalid shell syntax');
     await expect(lstat(join(platform, 'share/project-space-preview-current'))).rejects.toThrow();
+  });
+
+  test('accepts the gateway secret only from the fixed staged path and contract', async () => {
+    const { platform, root, source } = await createFixture();
+    const outside = join(root, 'outside.env');
+    await writeFile(outside, 'CLERK_SECRET_KEY=test\n');
+
+    const rejectedPath = install(source, platform, 'f'.repeat(40), outside);
+    expect(rejectedPath.status).toBe(64);
+    expect(rejectedPath.stderr).toContain('fixed staged path');
+
+    const staged = join(source, 'project-space-preview-gateway.env');
+    await writeFile(staged, 'CLERK_SECRET_KEY=test\nNODE_OPTIONS=unsafe\n');
+    const rejectedContent = install(source, platform, 'f'.repeat(40), staged);
+    expect(rejectedContent.status).toBe(64);
+    expect(rejectedContent.stderr).toContain('invalid contract');
   });
 });

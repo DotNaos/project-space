@@ -35,6 +35,10 @@ import {
   machinePowerMigrationId,
   machinePowerMigrationSql
 } from './machine-power-migration';
+import {
+  connectorMachineMembershipMigrationId,
+  connectorMachineMembershipMigrationSql
+} from './connector-machine-membership-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -651,6 +655,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: machinePowerMigrationId,
     sql: machinePowerMigrationSql
+  },
+  {
+    id: connectorMachineMembershipMigrationId,
+    sql: connectorMachineMembershipMigrationSql
   }
 ];
 

@@ -109,6 +109,19 @@ describe('trusted PR Preview workflow contract', () => {
     expect(build).toContain('exit 1');
   });
 
+  test('checks trusted host readiness before building and preserves every runner failure', async () => {
+    const workflow = await readFile(deploymentWorkflowPath, 'utf8');
+    const preflight = workflow.slice(workflow.indexOf('  preflight:'), workflow.indexOf('  build:'));
+
+    expect(preflight).toContain('ssh project-space-preview preflight');
+    expect(preflight).toContain('PROJECT_SPACE_PREVIEW_PREFLIGHT=ready');
+    expect(workflow).toContain('needs: [resolve, validate, preflight]');
+    expect(workflow).toContain("if: always() && steps.apply.outcome != 'skipped'");
+    expect(workflow).not.toContain(
+      "if: always() && steps.freshness.outputs.disposition == 'current' && inputs.action == 'deploy'\n        uses: actions/upload-artifact",
+    );
+  });
+
   test('accepts only a complete lowercase sha256 digest for each Bake target', () => {
     const filter = `.[$target]["containerimage.digest"]
       | select(type == "string" and test("^sha256:[0-9a-f]{64}$"))`;

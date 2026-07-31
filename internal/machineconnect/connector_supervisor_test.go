@@ -18,6 +18,11 @@ import (
 
 const supervisorTestToken = "supervisor-test-machine-token"
 
+const (
+	supervisorTestProxyURL = "http://proxy-user:proxy-password@proxy.example.test:8080"
+	supervisorTestCAFile   = "/project-space/test-ca.pem"
+)
+
 type supervisorTestStore struct {
 	credential      Credential
 	err             error
@@ -66,6 +71,7 @@ type supervisorHelperResult struct {
 	MaintenanceSource          string `json:"maintenanceSource"`
 	MaintenanceState           string `json:"maintenanceState"`
 	MaintenanceID              string `json:"maintenanceId"`
+	NetworkEnvironmentOK       bool   `json:"networkEnvironmentOk"`
 	ReleaseSigningKey          string `json:"releaseSigningKey"`
 	ReleaseID                  string `json:"releaseId"`
 	ReadyFile                  string `json:"readyFile"`
@@ -98,6 +104,14 @@ func TestConnectorSupervisorPassesMinimalCredentialOverStdin(t *testing.T) {
 	t.Setenv("LANG", "en_US.UTF-8")
 	t.Setenv("LC_ALL", "C.UTF-8")
 	t.Setenv("LC_CTYPE", "UTF-8")
+	t.Setenv("HTTPS_PROXY", supervisorTestProxyURL)
+	t.Setenv("NO_PROXY", "localhost,127.0.0.1")
+	t.Setenv("NODE_EXTRA_CA_CERTS", supervisorTestCAFile)
+	t.Setenv("NODE_USE_ENV_PROXY", "1")
+	if runtime.GOOS != "windows" {
+		t.Setenv("https_proxy", supervisorTestProxyURL)
+		t.Setenv("no_proxy", "localhost,127.0.0.1")
+	}
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -134,6 +148,7 @@ func TestConnectorSupervisorPassesMinimalCredentialOverStdin(t *testing.T) {
 	if result.PrivateKeyPresent || result.SecretInArguments || result.SecretInEnvironment || result.LegacyTokenPresent ||
 		result.UnexpectedProjectEnv || !result.ProtocolMarkerOK || result.CommandSigningKey != "" ||
 		!result.RuntimePathOK || !result.MinimalFields || !result.ShellAndLocaleOK ||
+		!result.NetworkEnvironmentOK ||
 		!filepath.IsAbs(result.ReadyFile) || filepath.Base(result.ReadyFile) != connectorRuntimeReadyName ||
 		result.CodexOperationSnapshotFile != snapshotPath ||
 		result.ReadyAttemptNonce != strings.Repeat("1", 64) {
@@ -141,6 +156,9 @@ func TestConnectorSupervisorPassesMinimalCredentialOverStdin(t *testing.T) {
 	}
 	if stderr.String() != "connector helper stderr\n" {
 		t.Fatalf("stderr was not passed through: %q", stderr.String())
+	}
+	if strings.Contains(stdout.String(), "proxy-password") || strings.Contains(stderr.String(), "proxy-password") {
+		t.Fatal("proxy credentials were written to connector output")
 	}
 }
 
@@ -275,6 +293,49 @@ func TestConnectorEnvironmentAddsUnixNonLoginToolsAndRejectsOtherProjectValues(t
 	}
 	if actual["PATH"] != expectedPath {
 		t.Fatalf("connector PATH = %q, want %q", actual["PATH"], expectedPath)
+	}
+}
+
+func TestConnectorEnvironmentForwardsOnlySupportedNetworkConfiguration(t *testing.T) {
+	environment := []string{
+		"ALL_PROXY=" + supervisorTestProxyURL,
+		"HTTP_PROXY=" + supervisorTestProxyURL,
+		"HTTPS_PROXY=" + supervisorTestProxyURL,
+		"NO_PROXY=localhost,127.0.0.1",
+		"WS_PROXY=" + supervisorTestProxyURL,
+		"WSS_PROXY=" + supervisorTestProxyURL,
+		"NODE_EXTRA_CA_CERTS=" + supervisorTestCAFile,
+		"NODE_USE_ENV_PROXY=1",
+		"SSL_CERT_DIR=/project-space/test-ca-directory",
+		"SSL_CERT_FILE=" + supervisorTestCAFile,
+		"NODE_TLS_REJECT_UNAUTHORIZED=0",
+		"NODE_OPTIONS=--require=/tmp/untrusted.js",
+	}
+	if runtime.GOOS != "windows" {
+		environment = append(environment,
+			"all_proxy="+supervisorTestProxyURL,
+			"http_proxy="+supervisorTestProxyURL,
+			"https_proxy="+supervisorTestProxyURL,
+			"no_proxy=localhost,127.0.0.1",
+			"ws_proxy="+supervisorTestProxyURL,
+			"wss_proxy="+supervisorTestProxyURL,
+		)
+	}
+
+	actual := environmentMap(connectorEnvironment(environment))
+	for _, allowed := range environment {
+		name, value, _ := strings.Cut(allowed, "=")
+		if name == "NODE_TLS_REJECT_UNAUTHORIZED" || name == "NODE_OPTIONS" {
+			continue
+		}
+		if actual[name] != value {
+			t.Fatalf("connector environment %s = %q, want %q", name, actual[name], value)
+		}
+	}
+	for _, forbidden := range []string{"NODE_TLS_REJECT_UNAUTHORIZED", "NODE_OPTIONS"} {
+		if _, found := actual[forbidden]; found {
+			t.Fatalf("unsafe Node environment value %s was forwarded", forbidden)
+		}
 	}
 }
 
@@ -414,14 +475,23 @@ func TestConnectorSupervisorHelper(t *testing.T) {
 		MaintenancePathsOK: filepath.IsAbs(os.Getenv(ConnectorSupervisorMaintenanceControlEnv)) &&
 			filepath.IsAbs(os.Getenv(ConnectorSupervisorMaintenanceDecisionEnv)) &&
 			filepath.IsAbs(os.Getenv(ConnectorSupervisorMaintenanceStagingEnv)),
-		MaintenanceSource:          os.Getenv(ConnectorRuntimeInstallSourceEnv),
-		MaintenanceState:           os.Getenv(ConnectorSupervisorMaintenanceStateEnv),
-		MaintenanceID:              os.Getenv(ConnectorSupervisorMaintenanceOperationIDEnv),
+		MaintenanceSource: os.Getenv(ConnectorRuntimeInstallSourceEnv),
+		MaintenanceState:  os.Getenv(ConnectorSupervisorMaintenanceStateEnv),
+		MaintenanceID:     os.Getenv(ConnectorSupervisorMaintenanceOperationIDEnv),
+		NetworkEnvironmentOK: os.Getenv("HTTPS_PROXY") == supervisorTestProxyURL &&
+			os.Getenv("NO_PROXY") == "localhost,127.0.0.1" &&
+			os.Getenv("NODE_EXTRA_CA_CERTS") == supervisorTestCAFile &&
+			os.Getenv("NODE_USE_ENV_PROXY") == "1",
 		ReleaseSigningKey:          os.Getenv(ConnectorReleaseSigningKeyFileEnv),
 		ReleaseID:                  os.Getenv(ConnectorRuntimeReleaseIDEnv),
 		ReadyFile:                  os.Getenv(ConnectorRuntimeReadyFileEnv),
 		ReadyAttemptNonce:          os.Getenv(ConnectorRuntimeReadyAttemptNonceEnv),
 		CodexOperationSnapshotFile: os.Getenv(CodexOperationSnapshotFileEnv),
+	}
+	if runtime.GOOS != "windows" {
+		result.NetworkEnvironmentOK = result.NetworkEnvironmentOK &&
+			os.Getenv("https_proxy") == supervisorTestProxyURL &&
+			os.Getenv("no_proxy") == "localhost,127.0.0.1"
 	}
 	for _, argument := range os.Args {
 		result.SecretInArguments = result.SecretInArguments ||

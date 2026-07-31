@@ -13,9 +13,16 @@ import {
 describe('Project Chat E2E machine harness', () => {
   test('enrolls a machine through the public approval and key-proof flow', async () => {
     const store = new MemoryMachineConnectionStore();
+    const physicalMachineId = '11111111-1111-4111-8111-111111111111';
+    store.addPhysicalMachine('e2e-user', {
+      id: physicalMachineId,
+      kind: 'virtual',
+      name: 'E2E VM'
+    });
     const credential = await enrollProjectChatE2EMachine({
       backendUrl: 'http://127.0.0.1:4173',
       hostId: 'project-chat-e2e',
+      physicalMachineId,
       store,
       userId: 'e2e-user'
     });

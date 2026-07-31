@@ -81,6 +81,44 @@ describe('trusted Preview runner contract', () => {
     expect(JSON.parse(result.stdout)).toEqual({ records: [] });
   });
 
+  test('preflight verifies trusted assets, configuration, gateway permissions, and Docker', async () => {
+    const { bin, root } = await testRoot();
+    const assets = join(root, 'share/project-space-preview');
+    const secrets = join(root, 'secrets/project-space-preview');
+    await mkdir(join(root, 'config'), { recursive: true });
+    await mkdir(assets, { recursive: true });
+    await mkdir(secrets, { recursive: true });
+    await writeFile(join(assets, 'asset-commit'), `${'a'.repeat(40)}\n`);
+    await writeFile(join(assets, 'preview.compose.yml'), 'services: {}\n');
+    await writeFile(join(secrets, 'gateway.env'), 'CLERK_SECRET_KEY=test\n');
+    await chmod(join(secrets, 'gateway.env'), 0o640);
+    await writeFile(join(bin, 'stat'), '#!/bin/sh\nprintf root:preview-deploy:640\n');
+    await chmod(join(bin, 'stat'), 0o755);
+    await writeFile(
+      join(root, 'config/project-space-preview.env'),
+      [
+        'PREVIEW_MAX_ACTIVE=3',
+        'PREVIEW_MIN_FREE_BYTES=1',
+        'PREVIEW_STORAGE_BUDGET_BYTES=100000000',
+        'PREVIEW_IDLE_SECONDS=3600',
+        `PREVIEW_GATEWAY_ENV_FILE=${join(secrets, 'gateway.env')}`,
+      ].join('\n'),
+    );
+
+    const result = runRunner(undefined, 'preflight', root, bin);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('PROJECT_SPACE_PREVIEW_PREFLIGHT=ready\n');
+
+    await writeFile(
+      join(root, 'config/project-space-preview.env'),
+      'PREVIEW_MAX_ACTIVE=not-a-number\n',
+    );
+    const invalid = runRunner(undefined, 'preflight', root, bin);
+    expect(invalid.status).toBe(78);
+    expect(invalid.stderr).toContain('PREVIEW_MAX_ACTIVE');
+  });
+
   test('reports full Preview quota as a persisted capacity block with exact identity', async () => {
     const { bin, root } = await testRoot();
     const requestedSha = 'a'.repeat(40);
@@ -390,7 +428,7 @@ printf '%s\n' "{\"state\":\"open\",\"base\":{\"ref\":\"main\",\"repo\":{\"full_n
     expect(compose).toContain('mem_limit:');
     expect(compose).toContain('max-size: 10m');
     expect(compose).toContain('postgres:17-alpine@sha256:');
-    expect(sshEntrypoint).toContain('apply|register|start|stop|touch|destroy|reap');
+    expect(sshEntrypoint).toContain('apply|register|start|stop|touch|destroy|preflight|reap');
     expect(sshEntrypoint).not.toContain('status-all');
     expect(sshEntrypoint).toContain('/opt/platform/share/project-space-preview-current');
     expect(sshEntrypoint).toContain('PROJECT_SPACE_PREVIEW_ASSET_ROOT="$asset_root"');

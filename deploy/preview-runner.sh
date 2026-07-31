@@ -754,6 +754,29 @@ status_all_previews() {
   jq -s '{records: map(select(.repositoryFullName == "DotNaos/project-space"))}' $files
 }
 
+preflight_preview() {
+  [ -f "$COMPOSE_FILE" ] && [ ! -L "$COMPOSE_FILE" ] ||
+    fail 'trusted Preview Compose asset is missing or unsafe' 78
+  asset_commit=$(cat "$ASSET_ROOT/asset-commit" 2>/dev/null || true)
+  printf '%s' "$asset_commit" | grep -Eq '^[0-9a-f]{40}$' ||
+    fail 'trusted Preview asset identity is missing or invalid' 78
+  for key in PREVIEW_MAX_ACTIVE PREVIEW_MIN_FREE_BYTES PREVIEW_STORAGE_BUDGET_BYTES PREVIEW_IDLE_SECONDS; do
+    value=$(config_value "$key")
+    printf '%s' "$value" | grep -Eq '^[1-9][0-9]*$' ||
+      fail "trusted Preview runner config has invalid ${key}" 78
+  done
+  gateway_env_file=$(config_value PREVIEW_GATEWAY_ENV_FILE)
+  case "$gateway_env_file" in "$PLATFORM_ROOT"/secrets/project-space-preview/*) ;; *)
+    fail 'gateway env file is outside the Preview secret root' 78;;
+  esac
+  [ -f "$gateway_env_file" ] && [ ! -L "$gateway_env_file" ] ||
+    fail 'gateway env file must be a regular non-symlink file' 78
+  [ "$(stat -c '%U:%G:%a' "$gateway_env_file")" = 'root:preview-deploy:640' ] ||
+    fail 'gateway env file must be root:preview-deploy mode 0640' 78
+  docker info >/dev/null 2>&1 || fail 'Preview controller cannot access Docker' 69
+  printf 'PROJECT_SPACE_PREVIEW_PREFLIGHT=ready\n'
+}
+
 require_command jq
 reaper_script=${PROJECT_SPACE_PREVIEW_REAPER_SCRIPT:-$ASSET_ROOT/preview-reaper.sh}
 [ -f "$reaper_script" ] || reaper_script=$(dirname "$0")/preview-reaper.sh
@@ -793,8 +816,11 @@ case "$command_name" in
   status-all)
     status_all_previews
     ;;
+  preflight)
+    require_command docker; require_command stat; preflight_preview
+    ;;
   reap)
     require_command curl; require_command docker; require_command flock; read_request; reap_previews
     ;;
-  *) fail 'usage: preview-runner.sh apply|register|start|stop|touch|destroy|status|status-all|reap' 64;;
+  *) fail 'usage: preview-runner.sh apply|register|start|stop|touch|destroy|status|status-all|preflight|reap' 64;;
 esac

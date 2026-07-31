@@ -24,6 +24,9 @@ describe('production deployment workflow contract', () => {
     expect(workflow).toContain('https://projects.os-home.net/api/app/meta');
     expect(workflow).toContain('Activate exact trusted Preview assets');
     expect(workflow).toContain('/opt/platform/apps/project-space/deploy/install-preview-assets.sh');
+    expect(workflow).toContain('PREVIEW_CLERK_SECRET_KEY: ${{ steps.deploy-secrets.outputs.CLERK_SECRET_KEY }}');
+    expect(workflow).toContain('project-space-preview-gateway.env');
+    expect(workflow).toContain('$stage/project-space-preview-gateway.env');
     expect(workflow).toContain('/opt/platform/share/project-space-preview-current/asset-commit');
     expect(workflow).toContain('[[ "$preview_asset_commit" == "$REQUESTED_COMMIT" ]]');
     expect(workflow).toContain('[[ "$remote_asset_hashes" == "$local_asset_hashes" ]]');

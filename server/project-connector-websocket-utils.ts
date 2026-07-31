@@ -1,3 +1,5 @@
+import { WebSocket } from 'ws';
+
 const filesystemCommandTimeoutMs = 8_000;
 
 export function sendConnectorJson(socket: WebSocket, payload: unknown) {

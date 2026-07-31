@@ -4,6 +4,7 @@ import {
   House,
   LogOut,
   MessageSquare,
+  MonitorCog,
   ScrollText,
   Settings
 } from 'lucide-react';
@@ -21,7 +22,7 @@ import {
 import { cn } from '@/lib/utils';
 import { SidebarToggleButton } from './sidebar-toggle-button';
 
-export type AppSection = 'home' | 'chat' | 'projects' | 'settings';
+export type AppSection = 'home' | 'chat' | 'machines' | 'projects' | 'settings';
 
 export interface RailAccount {
   email?: string;
@@ -191,6 +192,7 @@ interface AppRailProps {
   onOpenChangelog?(): void;
   onOpenDocumentation(): void;
   onOpenHome(): void;
+  onOpenMachines(): void;
   onOpenProjects(): void;
   onOpenSettings(): void;
   onToggleContextPanel(): void;
@@ -205,6 +207,7 @@ export function AppRail({
   onOpenChangelog,
   onOpenDocumentation,
   onOpenHome,
+  onOpenMachines,
   onOpenProjects,
   onOpenSettings,
   onToggleContextPanel
@@ -242,6 +245,13 @@ export function AppRail({
           label="Chat"
           testId="sidebar-chat"
           onPress={onOpenChat}
+        />
+        <RailItem
+          icon={MonitorCog}
+          isActive={activeSection === 'machines'}
+          label="Machines"
+          testId="sidebar-machines"
+          onPress={onOpenMachines}
         />
         <RailItem
           icon={FolderKanban}

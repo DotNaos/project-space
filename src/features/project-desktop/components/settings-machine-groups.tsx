@@ -29,6 +29,7 @@ import {
 } from './settings-machine-group-model';
 import { SettingsMachineRuntimeStop } from './settings-machine-runtime-stop';
 import { SettingsMachineScopeEditor } from './settings-machine-scope-editor';
+import { MachinePowerControl } from './machine-power-control';
 import {
   settingsMachineGroupsPresentation,
   type SettingsMachineGroupsStatus
@@ -111,9 +112,16 @@ function MachineGroupRow({ group, onDelete, onEdit, onRefresh }: {
           <Disclosure.Indicator className="size-4 shrink-0 text-neutral-500 transition-transform group-aria-expanded:rotate-90">
             <ChevronRight />
           </Disclosure.Indicator>
-          <MachineDeviceIcon machine={group.instances[0]?.machine ?? group.archivedInstances[0]!.machine} />
+          {group.instances[0]?.machine || group.archivedInstances[0]?.machine ? (
+            <MachineDeviceIcon machine={group.instances[0]?.machine ?? group.archivedInstances[0]!.machine} />
+          ) : (
+            <MonitorCog className="size-4 shrink-0 text-neutral-500" />
+          )}
           <span className="min-w-0 flex-1">
-            <Text className="block truncate text-sm font-semibold text-neutral-100">{group.name}</Text>
+            <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <Text className="block truncate text-sm font-semibold text-neutral-100">{group.name}</Text>
+              <Chip size="sm" variant="secondary">{group.kind === 'physical' ? 'Physical' : 'Virtual'}</Chip>
+            </span>
             <Text className="block truncate text-xs text-neutral-500">
               {group.onlineConnectorCount} of {group.connectorCount} connectors online
               {group.platformLabels.length ? ` · ${group.platformLabels.join(', ')}` : ''}
@@ -121,10 +129,16 @@ function MachineGroupRow({ group, onDelete, onEdit, onRefresh }: {
           </span>
         </Disclosure.Trigger>
         <span className="flex shrink-0 items-center gap-1 pr-3 sm:pr-4">
+          <MachinePowerControl machine={{
+            connectorIds: group.connectorIds,
+            id: group.id,
+            kind: group.kind,
+            name: group.name
+          }} />
           <Button aria-label={`Edit ${group.name}`} isIconOnly size="sm" variant="ghost" className="h-8 w-8 min-w-0 px-0" onPress={onEdit}>
             <Pencil className="size-3.5" />
           </Button>
-          <Button aria-label={`Ungroup ${group.name}`} isIconOnly size="sm" variant="ghost" className="h-8 w-8 min-w-0 px-0 text-neutral-500 hover:text-red-300" onPress={onDelete}>
+          <Button aria-label={`Delete ${group.name}`} isDisabled={group.connectorIds.length > 0} isIconOnly size="sm" variant="ghost" className="h-8 w-8 min-w-0 px-0 text-neutral-500 hover:text-red-300" onPress={onDelete}>
             <Trash2 className="size-3.5" />
           </Button>
         </span>
@@ -134,6 +148,9 @@ function MachineGroupRow({ group, onDelete, onEdit, onRefresh }: {
           {group.instances.map((instance) => (
             <ConnectorInstanceRow key={instance.id} instance={instance} onRefresh={onRefresh} />
           ))}
+          {group.instances.length === 0 ? (
+            <Text className="block px-4 py-4 text-xs text-neutral-500">No connector installations assigned.</Text>
+          ) : null}
         </Disclosure.Body>
       </Disclosure.Content>
     </Disclosure>
@@ -162,7 +179,7 @@ export function SettingsMachineGroups({
   const editing = physicalMachines.find((machine) => machine.id === editorScopeId);
   const archivedCount = grouping.groups.reduce(
     (count, group) => count + group.archivedConnectorCount,
-    grouping.archivedUnscopedInstances.length + grouping.unmatchedCredentials.filter(
+    grouping.unmatchedCredentials.filter(
       (credential) => credential.status === 'revoked' || credential.status === 'expired'
     ).length
   );
@@ -175,7 +192,7 @@ export function SettingsMachineGroups({
       await onDeleteMachine(deletingGroup.id);
       setDeletingGroup(undefined);
     } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : 'Could not ungroup the machine.');
+      setDeleteError(error instanceof Error ? error.message : 'Could not delete the machine.');
     } finally {
       setIsDeleting(false);
     }
@@ -212,24 +229,21 @@ export function SettingsMachineGroups({
               <Text className="block text-xs text-amber-200">{loadError}</Text>
             </div>
           ) : null}
+          {grouping.unscopedInstances.length > 0 || grouping.scopeConflicts.length > 0 ? (
+            <div className="mb-2 rounded-md border border-red-500/25 bg-red-500/5 px-3 py-2" role="alert">
+              <Text className="block text-xs text-red-200">
+                Connector assignment data is inconsistent. Reconnect the affected installation before managing it.
+              </Text>
+            </div>
+          ) : null}
           <div className="overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950/35">
             {grouping.groups.map((group) => (
               <MachineGroupRow key={group.id} group={group} onDelete={() => setDeletingGroup(group)} onEdit={() => setEditorScopeId(group.id)} onRefresh={onRefresh} />
             ))}
-            {grouping.unscopedInstances.length > 0 ? (
-              <div className="border-t border-neutral-800 first:border-t-0">
-                <Text className="block bg-neutral-950/60 px-4 py-2 text-xs font-medium text-neutral-500">
-                  Ungrouped connector installations
-                </Text>
-                {grouping.unscopedInstances.map((instance) => (
-                  <ConnectorInstanceRow key={instance.id} instance={instance} onRefresh={onRefresh} />
-                ))}
-              </div>
-            ) : null}
-            {grouping.groups.length === 0 && grouping.unscopedInstances.length === 0 ? (
+            {grouping.groups.length === 0 ? (
               <div className="px-4 py-8 text-center">
                 <MonitorCog className="mx-auto size-5 text-neutral-600" />
-                <Text className="mt-2 block text-sm text-neutral-500">No connector installations found.</Text>
+                <Text className="mt-2 block text-sm text-neutral-500">No machines found.</Text>
               </div>
             ) : null}
           </div>
@@ -248,7 +262,7 @@ export function SettingsMachineGroups({
           </Disclosure.Heading>
           <Disclosure.Content>
             <Disclosure.Body className="space-y-1 pb-2 pl-5">
-              {grouping.groups.flatMap((group) => group.archivedInstances).concat(grouping.archivedUnscopedInstances).map((instance) => (
+              {grouping.groups.flatMap((group) => group.archivedInstances).map((instance) => (
                 <div key={instance.id} className="flex min-w-0 items-center gap-2 text-xs text-neutral-600">
                   <MachineOsMark machine={instance.machine} />
                   <span className="truncate">
@@ -284,17 +298,17 @@ export function SettingsMachineGroups({
             <AlertDialog.Dialog className="border border-neutral-800 bg-neutral-950 text-neutral-100">
               <AlertDialog.Header>
                 <AlertDialog.Icon status="warning"><AlertTriangle className="size-5" /></AlertDialog.Icon>
-                <AlertDialog.Heading>Ungroup {deletingGroup?.name}?</AlertDialog.Heading>
+                <AlertDialog.Heading>Delete {deletingGroup?.name}?</AlertDialog.Heading>
               </AlertDialog.Header>
               <AlertDialog.Body>
                 <Text className="block text-sm leading-6 text-neutral-300">
-                  The machine group will be removed. Its connector installations stay registered and will appear as ungrouped.
+                  Empty machines can be deleted. A machine with connector installations must be emptied by moving those connectors first.
                 </Text>
               </AlertDialog.Body>
               <AlertDialog.Footer className="gap-2">
                 <Button variant="ghost" isDisabled={isDeleting} onPress={() => setDeletingGroup(undefined)}>Cancel</Button>
                 <Button variant="danger" isDisabled={isDeleting} onPress={() => void deleteScope()}>
-                  {isDeleting ? 'Ungrouping…' : 'Ungroup'}
+                  {isDeleting ? 'Deleting…' : 'Delete'}
                 </Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>

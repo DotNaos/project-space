@@ -58,7 +58,14 @@ export interface MachineConnectRequestRecord extends MachineConnectMetadata {
   expiresAt: string;
   id: string;
   pollTokenHash: string;
+  physicalMachineId?: string;
   status: MachineConnectRequestStatus;
+}
+
+export interface MachineConnectPhysicalMachine {
+  id: string;
+  kind: "physical" | "virtual";
+  name: string;
 }
 
 export interface MachineIdentityRecord {
@@ -100,6 +107,7 @@ export interface MachineConnectApprovalView {
   hostname: string;
   name: string;
   operatingSystem: MachineOperatingSystem;
+  physicalMachines: MachineConnectPhysicalMachine[];
   status: MachineConnectRequestStatus;
 }
 
@@ -140,6 +148,7 @@ export interface MachineConnectionStore {
   createRequest(request: MachineConnectRequestRecord): Promise<void>;
   getMachine(id: string): Promise<MachineIdentityRecord | null>;
   getRequest(id: string): Promise<MachineConnectRequestRecord | null>;
+  listPhysicalMachines(userId: string): Promise<MachineConnectPhysicalMachine[]>;
   markMachineOnline(
     machineId: string,
     credentialHash: string,

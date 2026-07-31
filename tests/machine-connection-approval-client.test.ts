@@ -16,6 +16,11 @@ const approval = {
   hostname: "office-mac",
   name: "Office Mac",
   operatingSystem: "darwin",
+  physicalMachines: [{
+    id: "11111111-1111-4111-8111-111111111111",
+    kind: "physical",
+    name: "Office Mac",
+  }],
   status: "pending",
 };
 

@@ -17,11 +17,11 @@ export function parsePhysicalMachineSaveRequest(
     typeof candidate.name !== 'string' ||
     !candidate.name.trim() ||
     candidate.name.trim().length > 80 ||
+    (candidate.kind !== 'physical' && candidate.kind !== 'virtual') ||
     (candidate.id !== undefined && (
       typeof candidate.id !== 'string' || !isPhysicalMachineId(candidate.id)
     )) ||
     !Array.isArray(candidate.connectorIds) ||
-    candidate.connectorIds.length === 0 ||
     candidate.connectorIds.length > maxConnectorInstallationsPerMachine ||
     candidate.connectorIds.some((connectorId) => (
       typeof connectorId !== 'string' ||
@@ -37,6 +37,7 @@ export function parsePhysicalMachineSaveRequest(
       ...new Set(candidate.connectorIds.map((connectorId) => (connectorId as string).trim()))
     ],
     id: candidate.id as string | undefined,
+    kind: candidate.kind,
     name: candidate.name.trim()
   };
 }

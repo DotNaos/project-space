@@ -1,0 +1,57 @@
+---
+title: "Connect proxied environments to typed machines"
+version: "0.4.57"
+bump: "patch"
+pullRequest: 431
+issues:
+  - 429
+  - 432
+areas:
+  - cli
+  - machines
+  - security
+breaking: false
+upgrade: "required"
+---
+
+<ReleaseSummary>
+  Foreground connectors can now reach Project Space from proxied containers
+  and every connector installation is assigned to an explicit physical or
+  virtual machine.
+</ReleaseSummary>
+
+## Changes
+
+### Fixed
+
+- The Project CLI preserves only the supported HTTP, WebSocket, no-proxy, and CA variables when it starts a foreground connector.
+- The compiled connector routes WebSocket traffic through the configured proxy while honoring standard `NO_PROXY` rules.
+- Connection failures now identify proxy, no-proxy, and CA configuration as actionable checks without logging proxy URLs or credentials.
+- Machines now have their own primary page and can exist before any connector is installed.
+- Connector approval requires selecting an owned machine, or creating a physical or virtual machine first.
+- Physical machines can expose configured JetKVM power-on controls; virtual machines never resolve a physical power provider.
+- Preview builds now verify trusted host readiness first and retain sanitized runner evidence for automatic PR registrations.
+
+### Security
+
+- Unrelated environment variables and unsafe Node runtime switches remain excluded from the connector child process.
+- Proxy credentials remain outside command arguments, status output, and connector logs.
+- The database backfills legacy connector installations and enforces exactly one machine assignment for every connector identity.
+- Production installs the Preview-only Clerk environment atomically with its required restricted ownership and permissions.
+
+## Upgrade notes
+
+<UpgradeNotes type="required">
+  Update the Project CLI, connector, and Project Space server together. The server migration assigns existing connectors to compatibility machines.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Pair a foreground Linux connector from a proxied container and confirm that Project Space reports the machine online.
+- Confirm direct-network connectors and `NO_PROXY` destinations continue to connect without using the proxy.
+- Create `ChatGPT-Work-VM` as a virtual machine, pair a connector into it, and confirm no JetKVM power control appears.
+- Create an empty physical machine, configure its JetKVM binding, and confirm only a safe power-on action appears when it is off.
+
+</PreviewOnly>

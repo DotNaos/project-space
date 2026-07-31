@@ -65,6 +65,9 @@ export function createMachinePowerService(options: MachinePowerServiceOptions) {
       );
     }
     const machine = machines[0]!;
+    if (machine.kind !== 'physical') {
+      return { binding: undefined, machine };
+    }
     const bindings = (await options.bindings()).filter(
       (binding) => binding.machine.ownerUserId === actor.userId &&
         binding.machine.physicalMachineId === machine.id &&

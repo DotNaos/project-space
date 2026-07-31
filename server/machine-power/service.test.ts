@@ -16,6 +16,7 @@ import {
 const machine = {
   connectorIds: ['connector-os-pc'],
   id: '11111111-1111-4111-8111-111111111111',
+  kind: 'physical' as const,
   name: 'os-pc'
 };
 
@@ -100,6 +101,30 @@ function fixture(
 }
 
 describe('machine power service', () => {
+  test('never resolves a JetKVM provider for a virtual machine', async () => {
+    let probes = 0;
+    const service = createMachinePowerService({
+      bindings: async () => [binding],
+      inventory: async () => [{ ...machine, kind: 'virtual' }],
+      operations: new MemoryMachinePowerOperationStore(),
+      provider: {
+        probe: async () => {
+          probes += 1;
+          return evidence(false);
+        },
+        requestPowerOn: async () => ({ attempted: false, evidence: evidence(false) })
+      }
+    });
+
+    const status = await service.status(
+      { userId: 'owner' },
+      { physicalMachineName: 'os-pc' }
+    );
+    assert.equal(status.provider.deviceId, '');
+    assert.equal(status.state, 'unsupported');
+    assert.equal(probes, 0);
+  });
+
   test('records exactly one delivery attempt and replays it safely', async () => {
     let presses = 0;
     const service = fixture({

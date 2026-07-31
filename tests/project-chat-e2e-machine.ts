@@ -22,6 +22,7 @@ export interface ProjectChatE2EMachineCredential {
 interface EnrollProjectChatE2EMachineOptions {
   backendUrl: string;
   hostId: string;
+  physicalMachineId: string;
   store: MachineConnectionStore;
   userId: string;
 }
@@ -52,7 +53,11 @@ export async function enrollProjectChatE2EMachine(
     publicKey: keys.publicKey
   });
 
-  await service.approveRequest(created.requestId, options.userId);
+  await service.approveRequest(
+    created.requestId,
+    options.userId,
+    options.physicalMachineId
+  );
   const approved = await service.pollRequest(created.requestId, created.pollToken);
   if (approved.status !== 'approved') {
     throw new Error('E2E machine enrollment was not approved.');

@@ -51,7 +51,7 @@ function machine({
 }
 
 function physicalMachine(id: string, connectorIds: string[]): PhysicalMachineRecord {
-  return { connectorIds, id, name: id };
+  return { connectorIds, id, kind: 'physical', name: id };
 }
 
 function credential(
@@ -182,7 +182,10 @@ describe('settings machine grouping model', () => {
       ]
     });
 
-    expect(result.groups).toEqual([]);
+    expect(result.groups).toEqual([
+      expect.objectContaining({ connectorCount: 0, id: 'scope-a', kind: 'physical' }),
+      expect.objectContaining({ connectorCount: 0, id: 'scope-b', kind: 'physical' })
+    ]);
     expect(result.unscopedInstances.map(({ id }) => id)).toEqual(['conflicted']);
     expect(result.scopeConflicts).toEqual([
       { machineId: 'conflicted', scopeIds: ['scope-a', 'scope-b'] }

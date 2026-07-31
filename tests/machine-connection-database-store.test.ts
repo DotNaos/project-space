@@ -17,6 +17,7 @@ import {
   newMachineId,
   oldCredentialId,
   oldCredentialHash,
+  physicalMachineId,
   pollToken,
   publicKey,
   requestId,
@@ -98,7 +99,7 @@ describe("database machine connection store", () => {
     const insert = client.calls.find((call) =>
       call.sql.includes("insert into machine_connection_requests"),
     );
-    expect(insert?.values.slice(-2)).toEqual(["dev", "source"]);
+    expect(insert?.values.slice(16, 18)).toEqual(["dev", "source"]);
   });
 
   test("cleans expired requests in one bounded skip-locked batch", async () => {
@@ -412,7 +413,7 @@ describe("database machine connection store", () => {
   test("applies request decisions atomically and reports an expiry-boundary loss", async () => {
     const client = new ScriptedQueryClient((sql, values) =>
       sql.includes("update machine_connection_requests")
-        ? [{ expired_by_boundary: values[8] !== null, status: "expired" }]
+        ? [{ expired_by_boundary: values[9] != null, status: "expired" }]
         : [],
     );
     const store = storeWithIds(client);
@@ -421,7 +422,7 @@ describe("database machine connection store", () => {
     await expect(
       store.updateRequestIfStatus(approved, "pending", expiresAt),
     ).resolves.toBe("expired");
-    expect(client.calls[0]?.sql).toContain("expires_at <= $9::timestamptz");
+    expect(client.calls[0]?.sql).toContain("expires_at <= $10::timestamptz");
     expect(client.calls[0]?.values).toEqual([
       requestId,
       "pending",
@@ -431,6 +432,7 @@ describe("database machine connection store", () => {
       "user-a",
       null,
       null,
+      physicalMachineId,
       expiresAt,
     ]);
     await expect(

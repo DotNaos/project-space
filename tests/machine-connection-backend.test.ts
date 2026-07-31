@@ -16,6 +16,8 @@ interface QueryCall {
   values: readonly unknown[];
 }
 
+const physicalMachineId = "11111111-1111-4111-8111-111111111111";
+
 class CompositionDatabase implements DatabaseQueryClient {
   readonly calls: QueryCall[] = [];
   cleanupCount = 0;
@@ -45,6 +47,9 @@ class CompositionDatabase implements DatabaseQueryClient {
     }
     if (sql.includes("from machine_connection_requests")) {
       return this.result([this.requestRow()]);
+    }
+    if (sql.includes("from physical_machines")) {
+      return this.result([{ id: physicalMachineId, kind: "physical", name: "Office PC" }]);
     }
     if (sql.includes("update machine_connection_requests")) {
       return this.result([
@@ -147,6 +152,7 @@ class CompositionDatabase implements DatabaseQueryClient {
       name: "OS PC",
       operating_system: "linux",
       poll_token_hash: "a".repeat(64),
+      physical_machine_id: null,
       public_key: Buffer.alloc(32, 4).toString("base64url"),
       status: "pending",
     };
@@ -315,7 +321,11 @@ describe("machine connection backend composition", () => {
     const approval = await fetch(
       `${server.origin}/api/machine-connections/request-1/approve`,
       {
-        headers: { Authorization: "Bearer browser-session" },
+        body: JSON.stringify({ physicalMachineId }),
+        headers: {
+          Authorization: "Bearer browser-session",
+          "Content-Type": "application/json",
+        },
         method: "POST",
       },
     );

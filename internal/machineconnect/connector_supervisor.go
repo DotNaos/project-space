@@ -40,6 +40,22 @@ var connectorEnvironmentAllowlist = []string{
 	"WINDIR",
 	"ComSpec",
 	"PATHEXT",
+	"ALL_PROXY",
+	"HTTP_PROXY",
+	"HTTPS_PROXY",
+	"NO_PROXY",
+	"WS_PROXY",
+	"WSS_PROXY",
+	"all_proxy",
+	"http_proxy",
+	"https_proxy",
+	"no_proxy",
+	"ws_proxy",
+	"wss_proxy",
+	"NODE_EXTRA_CA_CERTS",
+	"NODE_USE_ENV_PROXY",
+	"SSL_CERT_DIR",
+	"SSL_CERT_FILE",
 }
 
 // ConnectorRuntimeCredential is the least-privilege identity passed to the

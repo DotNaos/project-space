@@ -27,6 +27,7 @@ const defaultPollIntervalMs = 2_000;
 const invalidCredentialHash = secretHash("invalid-machine-credential");
 const machineNamePattern = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/;
 const hostnamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const physicalMachineIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const versionPattern = /^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$/;
 
 interface MachineConnectionServiceOptions {
@@ -170,6 +171,7 @@ export class MachineConnectionService {
 
   async getApprovalView(
     requestId: string,
+    userId: string,
   ): Promise<MachineConnectApprovalView> {
     const request = await this.expireIfNeeded(
       await this.requireRequest(requestId),
@@ -182,6 +184,7 @@ export class MachineConnectionService {
       hostname: request.hostname,
       name: request.name,
       operatingSystem: request.operatingSystem,
+      physicalMachines: await this.store.listPhysicalMachines(userId),
       status: request.status,
     };
   }
@@ -214,13 +217,24 @@ export class MachineConnectionService {
     throw new Error("Approved connection request is missing its challenge.");
   }
 
-  async approveRequest(requestId: string, userId: string) {
+  async approveRequest(
+    requestId: string,
+    userId: string,
+    physicalMachineId: string,
+  ) {
     const request = await this.expireIfNeeded(
       await this.requireRequest(requestId),
     );
     if (!userId.trim()) {
       throw new MachineConnectionError(
         "Authenticated user is required.",
+        "invalid_input",
+      );
+    }
+    const normalizedPhysicalMachineId = physicalMachineId.trim();
+    if (!physicalMachineIdPattern.test(normalizedPhysicalMachineId)) {
+      throw new MachineConnectionError(
+        "Select a machine before approving this connector.",
         "invalid_input",
       );
     }
@@ -236,6 +250,14 @@ export class MachineConnectionService {
         "already_decided",
       );
     }
+    const physicalMachine = (await this.store.listPhysicalMachines(userId.trim()))
+      .find((candidate) => candidate.id === normalizedPhysicalMachineId);
+    if (!physicalMachine) {
+      throw new MachineConnectionError(
+        "The selected machine is unavailable for this account.",
+        "invalid_input",
+      );
+    }
 
     const approvedAt = this.now().toISOString();
     const approved: MachineConnectRequestRecord = {
@@ -243,6 +265,7 @@ export class MachineConnectionService {
       approvalChallenge: base64Url(randomBytes(32)),
       approvedAt,
       approvedByUserId: userId.trim(),
+      physicalMachineId: physicalMachine.id,
       status: "approved",
     };
     const approvalResult = await this.store.updateRequestIfStatus(
@@ -348,6 +371,12 @@ export class MachineConnectionService {
     if (!current.approvedByUserId || !verifyApprovalProof(current, signature)) {
       throw new MachineConnectionError(
         "Machine key proof is invalid.",
+        "invalid_proof",
+      );
+    }
+    if (!current.physicalMachineId) {
+      throw new MachineConnectionError(
+        "Connector approval is missing its machine assignment.",
         "invalid_proof",
       );
     }

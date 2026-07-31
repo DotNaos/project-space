@@ -42,6 +42,7 @@ export class ScriptedQueryClient implements DatabaseQueryClient {
 }
 
 export const requestId = "11111111-1111-4111-8111-111111111111";
+export const physicalMachineId = "77777777-7777-4777-8777-777777777777";
 export const newMachineId = "22222222-2222-4222-8222-222222222222";
 export const stableMachineId = "33333333-3333-4333-8333-333333333333";
 export const membershipId = "44444444-4444-4444-8444-444444444444";
@@ -79,6 +80,7 @@ export function approvedRequest(
     id: requestId,
     name: "OS PC",
     operatingSystem: "linux",
+    physicalMachineId,
     pollTokenHash,
     publicKey,
     status: "approved",
@@ -130,6 +132,7 @@ export function requestRow(
     id: request.id,
     name: request.name,
     operating_system: request.operatingSystem,
+    physical_machine_id: request.physicalMachineId,
     poll_token_hash: request.pollTokenHash,
     public_key: request.publicKey,
     status: request.status,

@@ -7,9 +7,11 @@ import {
   Clock3,
   Laptop,
   LoaderCircle,
+  MonitorCog,
   ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
+import { Input, Radio, RadioGroup } from "@heroui/react";
 
 import { isClerkConfigured } from "@/auth/clerk-provider";
 import { Button, Chip, Surface, Text } from "@/app/dotnaos-ui";
@@ -22,6 +24,7 @@ import {
   parseMachineConnectionDecision,
   readMachineConnectionResponse,
   shouldRefreshAfterDecisionError,
+  type MachineConnectionApprovalMachine,
 } from "./machine-connection-approval-client";
 
 const localAuthDisabled =
@@ -37,11 +40,17 @@ async function machineConnectionRequest<Result>(
   token: string | null,
   parse: (payload: unknown) => Result,
   action?: MachineConnectionDecision,
+  physicalMachineId?: string,
 ) {
   const response = await fetch(requestPath(requestId, action), {
-    headers: token
-      ? { Accept: "application/json", Authorization: `Bearer ${token}` }
-      : { Accept: "application/json" },
+    body: action === "approve"
+      ? JSON.stringify({ physicalMachineId })
+      : undefined,
+    headers: {
+      Accept: "application/json",
+      ...(action === "approve" ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     method: action ? "POST" : "GET",
   });
   return readMachineConnectionResponse(
@@ -51,6 +60,28 @@ async function machineConnectionRequest<Result>(
       ? "Could not update this machine connection request."
       : "Could not load this machine connection request.",
   );
+}
+
+function parseCreatedMachine(payload: unknown): MachineConnectionApprovalMachine {
+  const candidate = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>).machine
+    : undefined;
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+    throw new Error("Project Space returned an invalid machine response.");
+  }
+  const machine = candidate as Record<string, unknown>;
+  if (
+    typeof machine.id !== "string" ||
+    typeof machine.name !== "string" ||
+    (machine.kind !== "physical" && machine.kind !== "virtual")
+  ) {
+    throw new Error("Project Space returned an invalid machine response.");
+  }
+  return {
+    id: machine.id,
+    kind: machine.kind,
+    name: machine.name,
+  };
 }
 
 function machinePlatform(machine: MachineConnectionApproval) {
@@ -178,8 +209,12 @@ function MachineApproval({
     null,
   );
   const [isChangingAccount, setIsChangingAccount] = useState(false);
+  const [isCreatingMachine, setIsCreatingMachine] = useState(false);
   const [message, setMessage] = useState("");
+  const [newMachineKind, setNewMachineKind] = useState<"physical" | "virtual">("virtual");
+  const [newMachineName, setNewMachineName] = useState("");
   const [requiresAuthentication, setRequiresAuthentication] = useState(false);
+  const [selectedPhysicalMachineId, setSelectedPhysicalMachineId] = useState("");
 
   const loadRequest = useCallback(async () => {
     setIsLoading(true);
@@ -205,6 +240,41 @@ function MachineApproval({
     }
   }, [getToken, requestId]);
 
+  async function createMachine() {
+    const name = newMachineName.trim();
+    if (!name) return;
+    setIsCreatingMachine(true);
+    setMessage("");
+    try {
+      const token = await getToken();
+      const response = await fetch("/api/physical-machines", {
+        body: JSON.stringify({ connectorIds: [], kind: newMachineKind, name }),
+        headers: {
+          Accept: "application/json",
+          Authorization: token ? `Bearer ${token}` : "",
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+      });
+      const created = await readMachineConnectionResponse(
+        response,
+        parseCreatedMachine,
+        "Could not create the machine.",
+      );
+      setMachine((current) => current ? {
+        ...current,
+        physicalMachines: [...current.physicalMachines, created]
+          .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id)),
+      } : current);
+      setSelectedPhysicalMachineId(created.id);
+      setNewMachineName("");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not create the machine.");
+    } finally {
+      setIsCreatingMachine(false);
+    }
+  }
+
   useEffect(() => {
     void loadRequest();
   }, [loadRequest]);
@@ -226,6 +296,10 @@ function MachineApproval({
   }
 
   async function decide(action: MachineConnectionDecision) {
+    if (action === "approve" && !selectedPhysicalMachineId) {
+      setMessage("Select or create a machine before approving this connector.");
+      return;
+    }
     setDecision(action);
     setMessage("");
     setRequiresAuthentication(false);
@@ -236,6 +310,7 @@ function MachineApproval({
         token,
         (payload) => parseMachineConnectionDecision(payload, action),
         action,
+        action === "approve" ? selectedPhysicalMachineId : undefined,
       );
       setMachine((current) =>
         current ? { ...current, status: result.status } : current,
@@ -328,7 +403,7 @@ function MachineApproval({
             as="h1"
             className="mt-2 text-3xl font-semibold tracking-tight text-neutral-50"
           >
-            Approve this machine?
+            Approve this connector installation?
           </Text>
           <Text
             as="p"
@@ -336,7 +411,7 @@ function MachineApproval({
           >
             Only approve if you started{" "}
             <span className="font-mono text-neutral-200">project connect</span>{" "}
-            on this machine.
+            in this environment.
           </Text>
         </div>
       </div>
@@ -364,6 +439,79 @@ function MachineApproval({
             </dd>
           </div>
         </dl>
+      </Surface>
+
+      <Surface className="mt-5 rounded-xl p-5" variant="secondary">
+        <Text as="h2" className="text-sm font-semibold text-neutral-100">
+          Assign to a machine
+        </Text>
+        <Text as="p" className="mt-1 text-xs leading-5 text-neutral-500">
+          Every connector belongs to exactly one machine. Create the machine first if it is not listed yet.
+        </Text>
+
+        {machine.physicalMachines.length > 0 ? (
+          <RadioGroup
+            className="mt-4 gap-2"
+            name="physical-machine"
+            value={selectedPhysicalMachineId}
+            variant="secondary"
+            onChange={setSelectedPhysicalMachineId}
+          >
+            {machine.physicalMachines.map((physicalMachine) => (
+              <Radio
+                key={physicalMachine.id}
+                className="rounded-lg border border-neutral-800 px-3 py-2.5 data-[selected=true]:border-sky-500/60 data-[selected=true]:bg-sky-500/5"
+                value={physicalMachine.id}
+              >
+                <Radio.Content className="flex items-center gap-3">
+                  <Radio.Control><Radio.Indicator /></Radio.Control>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm text-neutral-200">{physicalMachine.name}</span>
+                    <span className="block text-xs capitalize text-neutral-500">{physicalMachine.kind} machine</span>
+                  </span>
+                </Radio.Content>
+              </Radio>
+            ))}
+          </RadioGroup>
+        ) : (
+          <Text className="mt-4 block text-xs text-amber-200">
+            No machines exist yet. Create one before approval.
+          </Text>
+        )}
+
+        <div className="mt-4 border-t border-neutral-800 pt-4">
+          <Text className="mb-2 block text-xs font-medium text-neutral-300">Create machine</Text>
+          <RadioGroup
+            className="mb-3 flex-row gap-2"
+            name="new-machine-kind"
+            value={newMachineKind}
+            variant="secondary"
+            onChange={(value) => setNewMachineKind(value as "physical" | "virtual")}
+          >
+            <Radio value="virtual"><Radio.Content><Radio.Control><Radio.Indicator /></Radio.Control>Virtual</Radio.Content></Radio>
+            <Radio value="physical"><Radio.Content><Radio.Control><Radio.Indicator /></Radio.Control>Physical</Radio.Content></Radio>
+          </RadioGroup>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              aria-label="New machine name"
+              className="min-w-0 flex-1"
+              fullWidth
+              maxLength={80}
+              placeholder="ChatGPT-Work-VM"
+              value={newMachineName}
+              variant="secondary"
+              onChange={(event) => setNewMachineName(event.currentTarget.value)}
+            />
+            <Button
+              isDisabled={!newMachineName.trim() || isCreatingMachine || decision !== null}
+              variant="outline"
+              onPress={() => void createMachine()}
+            >
+              {isCreatingMachine ? <LoaderCircle className="size-4 animate-spin" /> : <MonitorCog className="size-4" />}
+              Create
+            </Button>
+          </div>
+        </div>
       </Surface>
 
       <div className="mt-5 flex items-start gap-2 text-xs leading-5 text-neutral-500">
@@ -410,7 +558,7 @@ function MachineApproval({
           Deny
         </Button>
         <Button
-          isDisabled={decision !== null}
+          isDisabled={decision !== null || !selectedPhysicalMachineId}
           size="lg"
           variant="primary"
           onPress={() => void decide("approve")}

@@ -4,6 +4,7 @@ import {
   FolderKanban,
   House,
   MessageSquare,
+  MonitorCog,
   TriangleAlert
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -55,6 +56,7 @@ export function sectionForView(view: ProjectMainView): AppSection {
 interface MobileTabBarProps {
   activeSection: AppSection;
   onOpenChat(): void;
+  onOpenMachines(): void;
   onOpenProjects(): void;
   onOpenRoot(): void;
 }
@@ -62,17 +64,20 @@ interface MobileTabBarProps {
 export function MobileTabBar({
   activeSection,
   onOpenChat,
+  onOpenMachines,
   onOpenProjects,
   onOpenRoot
 }: MobileTabBarProps) {
   const actions = {
     chat: onOpenChat,
     home: onOpenRoot,
+    machines: onOpenMachines,
     projects: onOpenProjects
   };
   const icons = {
     chat: MessageSquare,
     home: House,
+    machines: MonitorCog,
     projects: FolderKanban
   };
   const items = projectSpacePrimaryNavigation.map((item) => ({
@@ -87,7 +92,7 @@ export function MobileTabBar({
       aria-label="Primary"
       className="app-no-drag pointer-events-auto absolute inset-x-0 bottom-0 z-50 border-t border-neutral-800/90 bg-app-panel/95 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-16px_40px_rgba(0,0,0,0.35)] backdrop-blur"
     >
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-4 gap-2">
         {items.map((item) => {
           const Icon = item.icon;
 
@@ -273,6 +278,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
             onOpenChangelog={openChangelog}
             onOpenDocumentation={openDocumentation}
             onOpenHome={desktop.openRoot}
+            onOpenMachines={desktop.openMachines}
             onOpenProjects={desktop.openProjects}
             onOpenSettings={desktop.openSettings}
             onToggleContextPanel={() => {
@@ -318,9 +324,9 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           mainView={desktop.mainView}
           onCreateProject={desktop.createProject}
           onOpenChat={desktop.openChat}
+          onOpenMachines={desktop.openMachines}
           onOpenCodex={desktop.openCodex}
           onOpenMachine={desktop.openMachine}
-          onOpenMachines={desktop.openMachines}
           onOpenProjects={desktop.openProjects}
           onOpenProjectChat={desktop.openProjectChat}
           onOpenRoot={desktop.openRoot}
@@ -373,6 +379,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
         <MobileTabBar
           activeSection={activeSection}
           onOpenChat={desktop.openChat}
+          onOpenMachines={desktop.openMachines}
           onOpenProjects={desktop.openProjects}
           onOpenRoot={desktop.openRoot}
         />

@@ -106,6 +106,8 @@ const silentProjectChatRuntime: ProjectChatRuntime = {
   stop() {}
 };
 
+const physicalMachineId = '11111111-1111-4111-8111-111111111111';
+
 async function waitForChannel(machineId: string, online: boolean) {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     if (isConnectorCommandChannelAvailable(machineId) === online) {
@@ -133,7 +135,7 @@ async function connectMachine(
     operatingSystem: 'linux',
     publicKey: keys.publicKey
   });
-  await service.approveRequest(request.requestId, 'user_postgres_test');
+  await service.approveRequest(request.requestId, 'user_postgres_test', physicalMachineId);
   const approval = await service.pollRequest(request.requestId, request.pollToken);
   if (approval.status !== 'approved') throw new Error('Request was not approved.');
   const signature = sign(
@@ -168,6 +170,12 @@ describe('machine connection PostgreSQL integration', () => {
         } finally {
           migrationConnection.release();
         }
+
+        await pool.query(
+          `insert into physical_machines (id, owner_user_id, kind, name)
+           values ($1, $2, 'physical', $3)`,
+          [physicalMachineId, 'user_postgres_test', 'PostgreSQL test machine']
+        );
 
         const client = transactionalClient(pool);
         const onlineMachines = new Map<string, string>();
@@ -274,7 +282,11 @@ describe('machine connection PostgreSQL integration', () => {
           const approvalResponse = await fetch(
             `${server.origin}/api/machine-connections/${createdHttp.requestId}/approve`,
             {
-              headers: { Authorization: 'Bearer browser-session' },
+              body: JSON.stringify({ physicalMachineId }),
+              headers: {
+                Authorization: 'Bearer browser-session',
+                'Content-Type': 'application/json'
+              },
               method: 'POST'
             }
           );

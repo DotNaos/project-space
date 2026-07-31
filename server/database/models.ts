@@ -157,6 +157,7 @@ export interface PhysicalMachineKey {
 
 export interface SavePhysicalMachineInput {
   connectorIds: string[];
+  kind: 'physical' | 'virtual';
   name: string;
   physicalMachineId?: string;
   userId: string;

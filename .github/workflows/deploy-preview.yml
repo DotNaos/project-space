@@ -172,9 +172,65 @@ jobs:
           bun run check
           bun run build
 
+  preflight:
+    name: Verify trusted Preview host before building images
+    needs: resolve
+    if: needs.resolve.outputs.disposition == 'current' && ((github.event_name == 'workflow_dispatch' && contains(fromJSON('["build","deploy"]'), inputs.action)) || (github.event_name == 'pull_request_target' && github.event.action != 'closed'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: Preview
+    permissions:
+      contents: read
+    steps:
+      - name: Load Preview-only controller credentials
+        id: preview-secrets
+        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SSH_PRIVATE_KEY: op://projects/Project Space Preview Deploy SSH/private_key
+          TS_OAUTH_CLIENT_ID: op://projects/Project Space Preview Tailscale CI Client ID/credential
+          TS_OAUTH_SECRET: op://projects/Project Space Preview Tailscale CI Secret/credential
+      - name: Configure forced-command Preview SSH identity
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ steps.preview-secrets.outputs.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          umask 077
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/project-space-preview"
+          printf '%s\n' '${{ vars.PROJECT_SPACE_PREVIEW_SSH_KNOWN_HOSTS }}' > "$HOME/.ssh/known_hosts"
+          cat > "$HOME/.ssh/config" <<SSH_CONFIG
+          Host project-space-preview
+            HostName ${{ vars.PROJECT_SPACE_PREVIEW_DEPLOY_IP }}
+            User preview-deploy
+            IdentityFile ~/.ssh/project-space-preview
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+            ForwardAgent no
+            ForwardX11 no
+            BatchMode yes
+            PasswordAuthentication no
+            KbdInteractiveAuthentication no
+          SSH_CONFIG
+          chmod 600 "$HOME/.ssh/config" "$HOME/.ssh/known_hosts" "$HOME/.ssh/project-space-preview"
+      - name: Connect ephemeral Preview CI identity to Tailscale
+        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
+        with:
+          oauth-client-id: ${{ steps.preview-secrets.outputs.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ steps.preview-secrets.outputs.TS_OAUTH_SECRET }}
+          tags: tag:ci-project-space-preview
+          ping: ${{ vars.PROJECT_SPACE_PREVIEW_DEPLOY_IP }}
+      - name: Verify trusted Preview assets and configuration
+        run: |
+          set -euo pipefail
+          [[ "$(ssh project-space-preview preflight)" == PROJECT_SPACE_PREVIEW_PREFLIGHT=ready ]]
+
   build:
     name: Build immutable Preview images with trusted recipes
-    needs: [resolve, validate]
+    needs: [resolve, validate, preflight]
     if: needs.resolve.outputs.disposition == 'current' && ((github.event_name == 'workflow_dispatch' && contains(fromJSON('["build","deploy"]'), inputs.action)) || (github.event_name == 'pull_request_target' && github.event.action != 'closed'))
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -555,7 +611,7 @@ jobs:
           exit 1
 
       - name: Upload sanitized Preview transition evidence
-        if: always() && steps.freshness.outputs.disposition == 'current' && inputs.action == 'deploy'
+        if: always() && steps.apply.outcome != 'skipped'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: preview-transition-${{ needs.resolve.outputs.pr_number }}-${{ github.run_id }}-${{ github.run_attempt }}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   BookOpenText,
   Check,
@@ -6,7 +6,6 @@ import {
   Download,
   Info,
   LogOut,
-  MonitorCog,
   Network,
   RefreshCw,
   Trash2,
@@ -21,13 +20,10 @@ import type {
   ConnectorCredentialRecord,
   ConnectorOverviewResult,
   GitHubCatalogResult,
-  GitHubOAuthDeviceStartResult,
-  PhysicalMachineRecord,
-  PhysicalMachineSaveRequest
+  GitHubOAuthDeviceStartResult
 } from '@/shared/project-space-api';
 import { GitHubConnectPanel } from './github-connect-panel';
 import type { RailAccount } from './app-rail';
-import { SettingsMachineGroups } from './settings-machine-groups';
 import { releasedChangelogHref } from '@/features/pr-preview-changelog/changelog-links';
 
 function SettingsSection({
@@ -92,7 +88,6 @@ export interface SettingsViewProps {
   connectorOverview: ConnectorOverviewResult;
   githubCatalog: GitHubCatalogResult;
   isGitHubRefreshing: boolean;
-  onRefreshConnectorOverview(): Promise<ConnectorOverviewResult>;
   onRefreshGitHubCatalog(forceRefresh?: boolean): Promise<GitHubCatalogResult>;
 }
 
@@ -102,7 +97,6 @@ export function SettingsView({
   connectorOverview,
   githubCatalog,
   isGitHubRefreshing,
-  onRefreshConnectorOverview,
   onRefreshGitHubCatalog
 }: SettingsViewProps) {
   const [githubFlow, setGitHubFlow] = useState<GitHubOAuthDeviceStartResult>();
@@ -113,12 +107,6 @@ export function SettingsView({
   const [isGeneratingInstaller, setIsGeneratingInstaller] = useState(false);
   const [credentials, setCredentials] = useState<ConnectorCredentialRecord[]>([]);
   const [credentialListError, setCredentialListError] = useState('');
-  const [physicalMachines, setPhysicalMachines] = useState<PhysicalMachineRecord[]>([]);
-  const [physicalMachinesStatus, setPhysicalMachinesStatus] = useState<
-    'error' | 'loading' | 'ready' | 'refreshing'
-  >('loading');
-  const [physicalMachinesError, setPhysicalMachinesError] = useState('');
-  const hasPhysicalMachinesSnapshot = useRef(false);
   const [revokingCredentialId, setRevokingCredentialId] = useState('');
   const [installerError, setInstallerError] = useState('');
 
@@ -134,46 +122,9 @@ export function SettingsView({
     }
   }
 
-  async function refreshPhysicalMachines() {
-    setPhysicalMachinesStatus(hasPhysicalMachinesSnapshot.current ? 'refreshing' : 'loading');
-    setPhysicalMachinesError('');
-    try {
-      const result = await projectSpaceClient.listPhysicalMachines();
-      setPhysicalMachines(result.machines);
-      hasPhysicalMachinesSnapshot.current = true;
-      setPhysicalMachinesStatus('ready');
-      return result.machines;
-    } catch (error) {
-      setPhysicalMachinesStatus(hasPhysicalMachinesSnapshot.current ? 'ready' : 'error');
-      setPhysicalMachinesError(
-        error instanceof Error ? error.message : 'Could not load machine groups.'
-      );
-      throw error;
-    }
-  }
-
-  async function refreshMachineAdministration() {
-    await Promise.all([
-      refreshConnectorCredentials(),
-      refreshPhysicalMachines(),
-      onRefreshConnectorOverview()
-    ]);
-  }
-
   useEffect(() => {
     void refreshConnectorCredentials();
-    void refreshPhysicalMachines().catch(() => undefined);
   }, []);
-
-  async function savePhysicalMachine(request: PhysicalMachineSaveRequest) {
-    await projectSpaceClient.savePhysicalMachine(request);
-    await refreshPhysicalMachines();
-  }
-
-  async function deletePhysicalMachine(machineId: string) {
-    await projectSpaceClient.deletePhysicalMachine(machineId);
-    await refreshPhysicalMachines();
-  }
 
   async function connectGitHub() {
     setIsConnectingGitHub(true);
@@ -332,23 +283,6 @@ export function SettingsView({
             onRetry={() => onRefreshGitHubCatalog(true)}
           />
         )}
-      </SettingsSection>
-
-      <SettingsSection
-        icon={MonitorCog}
-        title="Machines & connectors"
-        description="One physical machine can contain multiple independently managed connector installations."
-      >
-          <SettingsMachineGroups
-          connectors={connectorOverview.machines}
-          credentials={credentials}
-          loadError={physicalMachinesError}
-          onDeleteMachine={deletePhysicalMachine}
-          onRefresh={refreshMachineAdministration}
-          onSaveMachine={savePhysicalMachine}
-          physicalMachines={physicalMachines}
-          status={physicalMachinesStatus}
-        />
       </SettingsSection>
 
       <SettingsSection
