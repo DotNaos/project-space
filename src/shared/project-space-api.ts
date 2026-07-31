@@ -1120,6 +1120,7 @@ export type PullRequestPreviewLifecycle =
   | 'validating'
   | 'building'
   | 'waiting-for-lock'
+  | 'blocked-capacity'
   | 'deploying'
   | 'verifying'
   | 'ready'

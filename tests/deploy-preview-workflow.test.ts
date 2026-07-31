@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 const deploymentWorkflowPath = new URL('../.github/workflows/deploy-preview.yml', import.meta.url);
 const reaperWorkflowPath = new URL('../.github/workflows/reap-previews.yml', import.meta.url);
+const previewBakePath = new URL('../deploy/preview-bake.hcl', import.meta.url);
 const previewDocsDockerfilePath = new URL('../deploy/preview.docs.Dockerfile', import.meta.url);
 
 function actionReferences(workflow: string) {
@@ -30,21 +31,74 @@ describe('trusted PR Preview workflow contract', () => {
 
   test('separates PR source from main-owned build and runtime assets', async () => {
     const workflow = await readFile(deploymentWorkflowPath, 'utf8');
+    const bake = await readFile(previewBakePath, 'utf8');
     const build = workflow.slice(workflow.indexOf('  build:'), workflow.indexOf('  deploy:'));
 
     expect(build).toContain('path: trusted');
     expect(build).toContain('ref: ${{ github.workflow_sha }}');
     expect(build).toContain('path: source');
     expect(build).toContain('ref: ${{ needs.resolve.outputs.head_sha }}');
-    expect(build).toContain('file: trusted/deploy/preview.web.Dockerfile');
-    expect(build).toContain('file: trusted/deploy/preview.docs.Dockerfile');
-    expect(build).toContain('file: trusted/deploy/preview.prototype.Dockerfile');
-    expect(build).toContain('file: trusted/deploy/preview.gateway.Dockerfile');
-    expect(build).toContain('trusted-assets=trusted');
-    expect(build).toContain('context: trusted');
-    expect(build).toContain('VITE_CLERK_PUBLISHABLE_KEY=${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}');
+    expect(build).toContain('SOURCE_CONTEXT: ${{ github.workspace }}/source');
+    expect(build).toContain('TRUSTED_CONTEXT: ${{ github.workspace }}/trusted');
+    expect(build).toContain('--file trusted/deploy/preview-bake.hcl');
+    expect(bake).toContain('dockerfile = "${TRUSTED_CONTEXT}/deploy/preview.web.Dockerfile"');
+    expect(bake).toContain('dockerfile = "${TRUSTED_CONTEXT}/deploy/preview.docs.Dockerfile"');
+    expect(bake).toContain(
+      'dockerfile = "${TRUSTED_CONTEXT}/deploy/preview.prototype.Dockerfile"'
+    );
+    expect(bake).toContain(
+      'dockerfile = "${TRUSTED_CONTEXT}/deploy/preview.gateway.Dockerfile"'
+    );
+    expect(bake).toContain('trusted-assets = TRUSTED_CONTEXT');
+    expect(bake).toContain('target "gateway" {\n  context    = TRUSTED_CONTEXT');
+    expect(build).toContain(
+      'VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}'
+    );
+    expect(bake).toContain('VITE_CLERK_PUBLISHABLE_KEY = VITE_CLERK_PUBLISHABLE_KEY');
     expect(workflow).not.toContain('file: source/deploy/');
     expect(workflow).not.toContain('./bin/project');
+  });
+
+  test('builds all Preview images concurrently and rejects missing or mutable digests', async () => {
+    const workflow = await readFile(deploymentWorkflowPath, 'utf8');
+    const bake = await readFile(previewBakePath, 'utf8');
+    const build = workflow.slice(workflow.indexOf('  build:'), workflow.indexOf('  deploy:'));
+
+    expect(bake).toContain(
+      'group "preview-images" {\n  targets = ["web", "docs", "prototype", "gateway"]\n}'
+    );
+    expect(build.match(/docker buildx bake/g)).toHaveLength(1);
+    expect(build).toContain('--push \\\n            preview-images');
+    expect(build).not.toContain('docker/build-push-action');
+    expect(build).not.toContain('cache-from');
+    expect(build).not.toContain('cache-to');
+    expect(build).toContain('docs_digest: ${{ steps.digests.outputs.docs_digest }}');
+    expect(build).toContain('gateway_digest: ${{ steps.digests.outputs.gateway_digest }}');
+    expect(build).toContain(
+      'prototype_digest: ${{ steps.digests.outputs.prototype_digest }}'
+    );
+    expect(build).toContain('web_digest: ${{ steps.digests.outputs.web_digest }}');
+    expect(build).toContain('for target in web docs prototype gateway; do');
+    expect(build).toContain('test("^sha256:[0-9a-f]{64}$")');
+    expect(build).toContain('exit 1');
+  });
+
+  test('accepts only a complete lowercase sha256 digest for each Bake target', () => {
+    const filter = `.[$target]["containerimage.digest"]
+      | select(type == "string" and test("^sha256:[0-9a-f]{64}$"))`;
+    const extract = (metadata: unknown, target = 'web') =>
+      spawnSync('jq', ['-er', '--arg', 'target', target, filter], {
+        encoding: 'utf8',
+        input: JSON.stringify(metadata)
+      });
+    const digest = `sha256:${'a'.repeat(64)}`;
+
+    expect(extract({ web: { 'containerimage.digest': digest } }).stdout.trim()).toBe(digest);
+    expect(extract({}).status).not.toBe(0);
+    expect(extract({ web: { 'containerimage.digest': `latest-${digest}` } }).status).not.toBe(0);
+    expect(
+      extract({ web: { 'containerimage.digest': `sha256:${'A'.repeat(64)}` } }).status
+    ).not.toBe(0);
   });
 
   test('keeps the Project Space version available to Preview docs at runtime', async () => {
@@ -61,6 +115,7 @@ describe('trusted PR Preview workflow contract', () => {
 
   test('revalidates exact same-repository head and passes only immutable digests to the runner', async () => {
     const workflow = await readFile(deploymentWorkflowPath, 'utf8');
+    const bake = await readFile(previewBakePath, 'utf8');
 
     expect(workflow.match(/\.state == "open"/g)?.length).toBeGreaterThanOrEqual(2);
     expect(workflow.match(/\.base\.ref == "main"/g)?.length).toBeGreaterThanOrEqual(2);
@@ -70,8 +125,8 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain('ghcr.io/dotnaos/project-space-preview-web@$WEB_DIGEST');
     expect(workflow).toContain('ghcr.io/dotnaos/project-space-preview-docs@$DOCS_DIGEST');
     expect(workflow).toContain('ghcr.io/dotnaos/project-space-preview-gateway@$GATEWAY_DIGEST');
-    expect(workflow).toContain(
-      'ghcr.io/dotnaos/project-space-preview-prototype:pr-${{ needs.resolve.outputs.pr_number }}-${{ needs.resolve.outputs.head_sha }}'
+    expect(bake).toContain(
+      'ghcr.io/dotnaos/project-space-preview-prototype:pr-${PR_NUMBER}-${PR_HEAD_SHA}'
     );
     expect(workflow).toContain(
       'ghcr.io/dotnaos/project-space-preview-prototype@$PROTOTYPE_DIGEST'
@@ -79,7 +134,7 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain('prototypeImage:$prototype');
     expect(workflow).toContain('https://pr-${{ needs.resolve.outputs.pr_number }}.projects.os-home.net');
     expect(workflow).toContain('environment_url');
-    expect(workflow).toContain('ssh project-space-preview apply > preview-output.log');
+    expect(workflow).toContain('ssh project-space-preview apply > preview-output.log 2> preview-error.log');
     expect(workflow).toContain("jq -Rsce --arg prefix 'PROJECT_SPACE_PREVIEW_RECEIPT='");
     expect(workflow).toContain('select(length == 1)');
     expect(workflow).toContain('RUNNER_RECEIPT_VALID: ${{ steps.apply.outputs.receipt_valid }}');
@@ -88,6 +143,15 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain('.requestedSha == $sha');
     expect(workflow).toContain('.runningSha == $sha');
     expect(workflow).toContain('.prototypeMetaSha == $sha');
+    expect(workflow).toContain('.state == "blocked_capacity"');
+    expect(workflow).toContain('.errorCode == "preview_quota_full"');
+    expect(workflow).toContain('.errorCode == "preview_storage_low"');
+    expect(workflow).toContain('state=pending');
+    expect(workflow).toContain('preview-transition.json');
+    expect(workflow).toContain('failure_class=invalid_change');
+    expect(workflow).toContain('failure_class=infrastructure_failure');
+    expect(workflow).toContain('failure_class=capacity_block');
+    expect(workflow).toContain('Upload sanitized Preview transition evidence');
   });
 
   test('extracts exactly one framed receipt from the real Preview update output path', () => {

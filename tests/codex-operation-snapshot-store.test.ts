@@ -1,6 +1,6 @@
-import { lstat, mkdtemp, rm } from 'node:fs/promises';
+import { lstat, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { afterEach, describe, expect, test } from 'bun:test';
 
@@ -173,15 +173,20 @@ describe('durable Codex operation snapshots', () => {
     const path = await snapshotPath();
     const environment = { [codexOperationSnapshotFileEnvironment]: path };
     const persistence = createCodexOperationSnapshotPersistence(environment, machineId);
-    const operations = Array.from({ length: 520 }, (_, index) => ({
+    const paddingBytes = 3 * 1024 * 1024;
+    const operations = Array.from({ length: 3 }, (_, index) => ({
       fingerprint: index.toString(16).padStart(64, '0'),
       operationId: `long-lived-operation-${index}`,
-      result: { padding: 'x'.repeat(16_384), turnId: `turn-${index}` },
+      result: { padding: 'x'.repeat(paddingBytes), turnId: `turn-${index}` },
       state: 'completed' as const
     }));
 
+    expect(operations.length * paddingBytes).toBeGreaterThan(8 * 1024 * 1024);
     await persistence.persist(operations);
     expect(createCodexOperationSnapshotPersistence(environment, machineId).snapshot)
       .toHaveLength(operations.length);
-  });
+    const recordNames = await readdir(join(dirname(path), 'codex-operation-records'));
+    expect(recordNames).toHaveLength(operations.length);
+    expect(recordNames.every((name) => /^[a-f0-9]{64}\.json$/.test(name))).toBe(true);
+  }, 15_000);
 });

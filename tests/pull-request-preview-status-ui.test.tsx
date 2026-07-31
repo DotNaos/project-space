@@ -63,4 +63,30 @@ describe('pull request Preview status UI', () => {
     expect(html).toContain('Preview unavailable');
     expect(html).not.toContain('<a');
   });
+
+  test('renders a capacity block as pending rather than failed', () => {
+    const html = renderToStaticMarkup(<PullRequestPreviewStatusView
+      inventory={{
+        result: {
+          checkedAt: '2026-07-22T10:00:00.000Z',
+          previews: [{
+            liveUrlState: 'not-configured',
+            pullRequestNumber: 263,
+            repositoryFullName,
+            requestedSha: headSha,
+            state: 'blocked-capacity'
+          }],
+          repositoryFullName,
+          status: 'available'
+        },
+        state: 'ready'
+      }}
+      pullRequest={pullRequest}
+      repositoryFullName={repositoryFullName}
+    />);
+    expect(html).toContain('Waiting for capacity');
+    expect(html).toContain('request remains pending');
+    expect(html).not.toContain('<a');
+    expect(html).not.toContain('failed');
+  });
 });

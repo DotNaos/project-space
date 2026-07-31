@@ -7,9 +7,13 @@ import { describe, expect, test } from 'bun:test';
 
 const repositoryRoot = join(import.meta.dir, '..');
 const releaseWorkflowPaths = [
+  '.github/actions/release-quality/action.yml',
   '.github/workflows/release.yml',
   '.github/workflows/release-trust-roots.yml',
+  '.github/workflows/release-quality.yml',
+  '.github/workflows/release-linux.yml',
   '.github/workflows/release-macos.yml',
+  '.github/workflows/release-windows.yml',
   '.github/workflows/release-manifest-sign.yml',
   '.github/workflows/release-publish.yml'
 ] as const;
@@ -85,22 +89,22 @@ describe('connector release and production deployment contract', () => {
     const buildInfo = await source('server/connector-build-info.ts');
     const linuxCodexPreparation = await source('packaging/linux/prepare-codex-runtime.sh');
     const linuxCodexSmoke = await source('packaging/linux/smoke-codex-runtime.ts');
-    const releaseWorkflow = await source('.github/workflows/release.yml');
+    const linuxReleaseWorkflow = await source('.github/workflows/release-linux.yml');
     const windowsPackaging = await source('packaging/windows/test-release-packaging.ps1');
     const windowsDocumentation = await source('docs/windows-installation.md');
 
-    expect(packageJson.version).toBe('0.4.50');
-    expect(buildInfo).toContain("const developmentVersion = '0.4.50';");
-    expect(windowsPackaging).toContain("$version = '0.4.50'");
-    expect(windowsPackaging).toContain('/releases/download/v0.4.50/');
-    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.50');
+    expect(packageJson.version).toBe('0.4.51');
+    expect(buildInfo).toContain("const developmentVersion = '0.4.51';");
+    expect(windowsPackaging).toContain("$version = '0.4.51'");
+    expect(windowsPackaging).toContain('/releases/download/v0.4.51/');
+    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.51');
     expect(linuxCodexPreparation).toContain('codex_version=0.145.0');
     expect(linuxCodexPreparation).not.toMatch(/releases\/latest|\/latest\//);
     expect(linuxCodexSmoke).toContain("import { CodexStdioTransport }");
     expect(linuxCodexSmoke).toContain('launch: (path) => CodexStdioTransport.launch({');
     expect(linuxCodexSmoke).toContain('binaryPath: path');
-    expect(releaseWorkflow).toContain('prepare-codex-runtime.sh "$(pwd -P)/dist/linux"');
-    expect(releaseWorkflow).toContain(
+    expect(linuxReleaseWorkflow).toContain('prepare-codex-runtime.sh "$(pwd -P)/dist/linux"');
+    expect(linuxReleaseWorkflow).toContain(
       'bun packaging/linux/smoke-codex-runtime.ts "$(pwd -P)/dist/linux/codex"'
     );
     expect(packageJson.scripts['build:project-cli:macos-arm64:finalize']).toContain(
@@ -114,7 +118,7 @@ describe('connector release and production deployment contract', () => {
   test('pins every third-party action and permits only immutable reusable calls', async () => {
     for (const path of releaseWorkflowPaths) {
       for (const reference of actionReferences(await source(path))) {
-        const isLocalWorkflow = reference.startsWith('./.github/workflows/');
+        const isLocalWorkflow = reference.startsWith('./.github/');
         const isPinnedAction = /^[^@\s]+@[a-f0-9]{40}$/.test(reference);
         const isPinnedReusable =
           /^DotNaos\/project-space\/.github\/workflows\/[A-Za-z0-9._-]+@[a-f0-9]{40}$/.test(

@@ -1,0 +1,56 @@
+---
+title: "Make delivery checks faster and more reliable"
+version: "0.4.51"
+bump: "patch"
+pullRequest: 425
+issues:
+  - 419
+areas:
+  - deploy
+  - security
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  Pull request feedback is faster for ordinary patches, while release and
+  deployment checks now distinguish expected waiting states from real failures.
+</ReleaseSummary>
+
+## Changes
+
+### Changed
+
+- Ordinary patch pull requests use measured Linux verification while release-critical and platform changes retain every platform gate
+- Mandatory TypeScript, mobile, Go, trust-root, and platform checks begin in parallel after exact-source classification
+- Preview web, docs, prototype, and gateway images build concurrently from trusted recipes
+- Draft pull requests wait for a real numbered release entry before trusted validation starts
+- Preview capacity limits remain visible as pending work instead of appearing as product regressions
+
+### Fixed
+
+- Release publication now finishes before exact production delivery can begin
+- Preview readiness verifies the public certificate for the exact requested hostname
+- Three confirmed timing-sensitive tests now use deterministic completion conditions
+- Failed Preview, Release, and Production transitions retain bounded machine-readable evidence
+
+### Security
+
+- Invalid release entries remain unmergeable at their exact pull request revision
+- Signing, exact-identity, rollback, health, and full release verification gates remain fail-closed
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Confirm the release gate accepts exactly this PR-owned v0.4.51 entry for PR 425
+- Confirm workflow contract tests keep invalid entries failed and release-critical changes on the full platform matrix
+- Confirm the published article omits this Preview-only test guidance after release
+
+</PreviewOnly>

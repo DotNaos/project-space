@@ -139,6 +139,14 @@ function presentationForPreview(
   }
 
   const progress = progressLabel(preview);
+  if (preview.state === 'blocked-capacity') {
+    return {
+      detail: 'Preview capacity is temporarily full. The exact-head request remains pending.',
+      label: 'Waiting for capacity',
+      state: 'progress',
+      tone: 'warning'
+    };
+  }
   if (progress) {
     return {
       detail: `Preparing ${shortSha(preview.requestedSha)}. A link appears after verification.`,

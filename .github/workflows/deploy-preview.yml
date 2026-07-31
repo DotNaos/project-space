@@ -139,10 +139,10 @@ jobs:
       contents: read
       packages: write
     outputs:
-      docs_digest: ${{ steps.docs.outputs.digest }}
-      gateway_digest: ${{ steps.gateway.outputs.digest }}
-      prototype_digest: ${{ steps.prototype.outputs.digest }}
-      web_digest: ${{ steps.web.outputs.digest }}
+      docs_digest: ${{ steps.digests.outputs.docs_digest }}
+      gateway_digest: ${{ steps.digests.outputs.gateway_digest }}
+      prototype_digest: ${{ steps.digests.outputs.prototype_digest }}
+      web_digest: ${{ steps.digests.outputs.web_digest }}
     steps:
       - name: Check out trusted workflow assets
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -164,46 +164,41 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - name: Build and publish PR web image from trusted Dockerfile
-        id: web
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: source
-          file: trusted/deploy/preview.web.Dockerfile
-          build-args: |
-            PROJECT_SPACE_BUILD_COMMIT=${{ needs.resolve.outputs.head_sha }}
-            VITE_CLERK_PUBLISHABLE_KEY=${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
-          push: true
-          tags: ghcr.io/dotnaos/project-space-preview-web:pr-${{ needs.resolve.outputs.pr_number }}-${{ needs.resolve.outputs.head_sha }}
-      - name: Build and publish PR docs image from trusted Dockerfile
-        id: docs
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: source
-          file: trusted/deploy/preview.docs.Dockerfile
-          build-args: PROJECT_SPACE_BUILD_COMMIT=${{ needs.resolve.outputs.head_sha }}
-          push: true
-          tags: ghcr.io/dotnaos/project-space-preview-docs:pr-${{ needs.resolve.outputs.pr_number }}-${{ needs.resolve.outputs.head_sha }}
-      - name: Build and publish static PR prototype image from trusted Dockerfile
-        id: prototype
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: source
-          file: trusted/deploy/preview.prototype.Dockerfile
-          build-contexts: |
-            trusted-assets=trusted
-          build-args: PROJECT_SPACE_BUILD_COMMIT=${{ needs.resolve.outputs.head_sha }}
-          push: true
-          tags: ghcr.io/dotnaos/project-space-preview-prototype:pr-${{ needs.resolve.outputs.pr_number }}-${{ needs.resolve.outputs.head_sha }}
-      - name: Build trusted gateway exclusively from main-owned source
-        id: gateway
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: trusted
-          file: trusted/deploy/preview.gateway.Dockerfile
-          build-args: PROJECT_SPACE_BUILD_COMMIT=${{ github.workflow_sha }}
-          push: true
-          tags: ghcr.io/dotnaos/project-space-preview-gateway:${{ github.workflow_sha }}
+      - name: Build and publish Preview images concurrently from trusted recipes
+        env:
+          PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          SOURCE_CONTEXT: ${{ github.workspace }}/source
+          TRUSTED_CONTEXT: ${{ github.workspace }}/trusted
+          TRUSTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
+        run: |
+          set -euo pipefail
+          metadata_file="$RUNNER_TEMP/preview-bake-metadata.json"
+          docker buildx bake \
+            --file trusted/deploy/preview-bake.hcl \
+            --metadata-file "$metadata_file" \
+            --push \
+            preview-images
+      - name: Validate and expose immutable Preview image digests
+        id: digests
+        env:
+          METADATA_FILE: ${{ runner.temp }}/preview-bake-metadata.json
+        run: |
+          set -euo pipefail
+          for target in web docs prototype gateway; do
+            if ! digest="$(
+              jq -er \
+                --arg target "$target" \
+                '.[$target]["containerimage.digest"]
+                  | select(type == "string" and test("^sha256:[0-9a-f]{64}$"))' \
+                "$METADATA_FILE"
+            )"; then
+              echo "::error::Bake did not return a valid immutable digest for $target"
+              exit 1
+            fi
+            printf '%s_digest=%s\n' "$target" "$digest" >> "$GITHUB_OUTPUT"
+          done
 
   deploy:
     name: Deploy exact PR head through trusted Preview runner
@@ -314,9 +309,13 @@ jobs:
             --arg prototype "ghcr.io/dotnaos/project-space-preview-prototype@$PROTOTYPE_DIGEST" \
             '{repository:$repository,prNumber:$pr,headSha:$sha,webImage:$web,docsImage:$docs,
               gatewayImage:$gateway,prototypeImage:$prototype}' |
-            ssh project-space-preview apply > preview-output.log
+            ssh project-space-preview apply > preview-output.log 2> preview-error.log
           exit_code=$?
           set -e
+          sed -E \
+            -e 's/([A-Za-z0-9_]*(TOKEN|PASSWORD|SECRET|PRIVATE_KEY)[A-Za-z0-9_]*)=[^[:space:]]+/\1=[REDACTED]/Ig' \
+            -e 's/(Bearer|Basic)[[:space:]]+[A-Za-z0-9._~+\/=-]+/\1 [REDACTED]/Ig' \
+            preview-error.log | tail -n 40 > preview-error.sanitized.log
           receipt_valid=false
           if jq -Rsce --arg prefix 'PROJECT_SPACE_PREVIEW_RECEIPT=' '
             split("\n")
@@ -345,7 +344,11 @@ jobs:
         run: |
           set -euo pipefail
           state=failure
+          transition_state=failed
+          failure_class=infrastructure_failure
+          error_code=preview_infrastructure_failure
           description='Preview deployment failed.'
+          summary='The trusted Preview runner failed without valid exact-head evidence.'
           if [[ "$RUNNER_EXIT_CODE" == 0 && "$RUNNER_RECEIPT_VALID" == true ]] && jq -e \
             --arg repository "$PREVIEW_REPOSITORY" \
             --argjson pr "$PR_NUMBER" \
@@ -358,14 +361,68 @@ jobs:
              .prototypeMetaSha == $sha' \
             preview-result.json >/dev/null; then
             state=success
+            transition_state=ready
+            failure_class=none
+            error_code=preview_ready
             description='Exact PR head is live and verified.'
+            summary='Exact PR head, public hostname, certificate, and runtime identity are verified.'
+          elif [[ "$RUNNER_EXIT_CODE" == 73 && "$RUNNER_RECEIPT_VALID" == true ]] && jq -e \
+            --arg repository "$PREVIEW_REPOSITORY" \
+            --argjson pr "$PR_NUMBER" \
+            --arg sha "$REQUESTED_SHA" \
+            '.state == "blocked_capacity" and
+             (.errorCode == "preview_quota_full" or .errorCode == "preview_storage_low") and
+             .repositoryFullName == $repository and
+             .pullRequestNumber == $pr and
+             .requestedSha == $sha' \
+            preview-result.json >/dev/null; then
+            state=pending
+            transition_state=blocked_capacity
+            failure_class=capacity_block
+            error_code=$(jq -r '.errorCode' preview-result.json)
+            description='Blocked by Preview capacity; no product regression.'
+            summary=$(jq -r '.message' preview-result.json)
+          elif [[ "$RUNNER_EXIT_CODE" == 64 || "$RUNNER_EXIT_CODE" == 75 ]]; then
+            failure_class=invalid_change
+            error_code=preview_invalid_change
+          elif [[ "$RUNNER_EXIT_CODE" == 69 || "$RUNNER_EXIT_CODE" == 70 ||
+                  "$RUNNER_EXIT_CODE" == 71 || "$RUNNER_EXIT_CODE" == 73 ||
+                  "$RUNNER_EXIT_CODE" == 78 ]]; then
+            failure_class=infrastructure_failure
+            error_code=preview_infrastructure_failure
           fi
+          jq -n \
+            --arg errorCode "$error_code" \
+            --arg failureClass "$failure_class" \
+            --arg state "$transition_state" \
+            --arg summary "$summary" \
+            --arg repository "$PREVIEW_REPOSITORY" \
+            --argjson pr "$PR_NUMBER" \
+            --arg requestedSha "$REQUESTED_SHA" \
+            '{errorCode:$errorCode,failureClass:$failureClass,state:$state,summary:$summary,
+              repositoryFullName:$repository,pullRequestNumber:$pr,
+              requestedSha:$requestedSha}' \
+            > preview-transition.json
+          printf 'Transition code: `%s`\n\nSummary: %s\n' \
+            "$error_code" "$summary" >> "$GITHUB_STEP_SUMMARY"
           gh api --method POST "repos/$PREVIEW_REPOSITORY/deployments/$DEPLOYMENT_ID/statuses" --input - <<JSON
           {"state":"$state","environment":"preview/pr-$PR_NUMBER","auto_inactive":true,
            "environment_url":"https://pr-$PR_NUMBER.projects.os-home.net",
            "log_url":"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID","description":"$description"}
           JSON
-          [[ "$state" == success ]]
+          [[ "$state" == success || "$state" == pending ]]
+
+      - name: Upload sanitized Preview transition evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: preview-transition-${{ needs.resolve.outputs.pr_number }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            preview-result.json
+            preview-transition.json
+            preview-error.sanitized.log
+          if-no-files-found: error
+          retention-days: 14
 
   cleanup:
     name: Remove closed or merged PR preview

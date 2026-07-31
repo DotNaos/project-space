@@ -79,6 +79,107 @@ describe('trusted Preview runner contract', () => {
     expect(JSON.parse(result.stdout)).toEqual({ records: [] });
   });
 
+  test('reports full Preview quota as a persisted capacity block with exact identity', async () => {
+    const { bin, root } = await testRoot();
+    const requestedSha = 'a'.repeat(40);
+    const digest = (kind: string, character: string) =>
+      `ghcr.io/dotnaos/project-space-preview-${kind}@sha256:${character.repeat(64)}`;
+    await mkdir(join(root, 'config'), { recursive: true });
+    await writeFile(
+      join(root, 'config/project-space-preview.env'),
+      'PREVIEW_MAX_ACTIVE=1\nPREVIEW_MIN_FREE_BYTES=1\n',
+    );
+    await mkdir(
+      join(root, 'share/project-space-preview'),
+      { recursive: true },
+    );
+    await writeFile(
+      join(root, 'share/project-space-preview/preview.compose.yml'),
+      'services: {}\n',
+    );
+    await mkdir(
+      join(root, 'state/project-space-preview/pr-1'),
+      { recursive: true },
+    );
+    await writeFile(
+      join(root, 'state/project-space-preview/pr-1/runtime.json'),
+      JSON.stringify({
+        pullRequestNumber: 1,
+        repositoryFullName: 'DotNaos/project-space',
+        requestedSha,
+        runningSha: requestedSha,
+        state: 'ready',
+      }),
+    );
+    await writeFile(
+      join(bin, 'curl'),
+      `#!/bin/sh
+printf '%s\\n' '{"state":"open","base":{"ref":"main","repo":{"full_name":"DotNaos/project-space"}},"head":{"sha":"${requestedSha}","repo":{"full_name":"DotNaos/project-space"}}}'
+`,
+    );
+    await chmod(join(bin, 'curl'), 0o755);
+
+    const result = runRunner({
+      docsImage: digest('docs', 'b'),
+      gatewayImage: digest('gateway', 'c'),
+      headSha: requestedSha,
+      prNumber: 263,
+      prototypeImage: digest('prototype', 'd'),
+      repository: 'DotNaos/project-space',
+      webImage: digest('web', 'e'),
+    }, 'apply', root, bin);
+
+    expect(result.status).toBe(73);
+    const receiptLine = result.stdout.trim();
+    expect(receiptLine.startsWith('PROJECT_SPACE_PREVIEW_RECEIPT=')).toBe(true);
+    const receipt = JSON.parse(receiptLine.split('=', 2)[1]);
+    expect(receipt).toMatchObject({
+      errorCode: 'preview_quota_full',
+      pullRequestNumber: 263,
+      repositoryFullName: 'DotNaos/project-space',
+      requestedSha,
+      state: 'blocked_capacity',
+    });
+    const persisted = JSON.parse(await readFile(
+      join(root, 'state/project-space-preview/pr-263/blocked.json'),
+      'utf8',
+    ));
+    expect(persisted).toEqual(receipt);
+    expect(persisted.message).toContain('existing Previews were untouched');
+
+    const status = runRunner({
+      repository: 'DotNaos/project-space',
+      prNumber: 263,
+    }, 'status', root, bin);
+    expect(status.status).toBe(0);
+    expect(JSON.parse(status.stdout)).toEqual(receipt);
+
+    await writeFile(
+      join(root, 'config/project-space-preview.env'),
+      'PREVIEW_MAX_ACTIVE=2\nPREVIEW_MIN_FREE_BYTES=1\n',
+    );
+    await writeFile(join(bin, 'git'), '#!/bin/sh\nexit 1\n');
+    await chmod(join(bin, 'git'), 0o755);
+    const retry = runRunner({
+      docsImage: digest('docs', 'b'),
+      gatewayImage: digest('gateway', 'c'),
+      headSha: requestedSha,
+      prNumber: 263,
+      prototypeImage: digest('prototype', 'd'),
+      repository: 'DotNaos/project-space',
+      webImage: digest('web', 'e'),
+    }, 'apply', root, bin);
+    expect(retry.status).toBe(70);
+    const statusAfterRetry = runRunner({
+      repository: 'DotNaos/project-space',
+      prNumber: 263,
+    }, 'status', root, bin);
+    expect(JSON.parse(statusAfterRetry.stdout)).toMatchObject({
+      pullRequestNumber: 263,
+      state: 'absent',
+    });
+  });
+
   test('idempotent destroy proves absence and writes a bounded tombstone without inventing a SHA', async () => {
     const { bin, root } = await testRoot();
     const result = runRunner({
@@ -160,8 +261,17 @@ describe('trusted Preview runner contract', () => {
       '"https://$domain/prototype/meta.json"'
     );
     expect(runner).toContain('"https://$domain/docs/changelog?pr=$pr"');
-    expect(runner).toContain('max_attempts=12');
+    expect(runner).toContain('max_attempts=24');
     expect(runner).toContain('sleep 5');
+    expect(runner).toContain('-servername "$domain"');
+    expect(runner).toContain('-verify_hostname "$domain"');
+    expect(runner).toContain('-verify_return_error');
+    expect(runner).toContain('blocked_capacity_record');
+    expect(runner).toContain('preview_quota_full');
+    expect(runner).toContain('preview_storage_low');
+    expect(runner).toContain(
+      "fail 'could not revalidate PR under lock' 69",
+    );
     expect(runner).toContain('verify_runtime_with_retry "$head_sha"');
     expect(runner).toContain('verify_runtime_with_retry "$old_sha"');
     expect(runner).toContain('compose pull --quiet >&2');
@@ -169,7 +279,7 @@ describe('trusted Preview runner contract', () => {
     expect(runner).toContain('PREVIEW_RECEIPT_PREFIX=PROJECT_SPACE_PREVIEW_RECEIPT=');
     expect(runner).toContain('jq -cn');
     expect(runner).toContain("jq -ce 'select(type == \"object\")'");
-    expect(runner.match(/emit_receipt "\$record"/g)).toHaveLength(2);
+    expect(runner.match(/emit_receipt "\$record"/g)).toHaveLength(3);
     expect(runner).toContain(
       'x-project-space-preview-docs-source:[[:space:]]*exact-pr-source'
     );
