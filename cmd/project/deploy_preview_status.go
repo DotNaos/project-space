@@ -20,6 +20,7 @@ type previewStatusReport struct {
 }
 
 type previewStatusItem struct {
+	ActiveLeaseExpiresAt string `json:"activityLeaseExpiresAt,omitempty"`
 	RepositoryFullName string `json:"repositoryFullName"`
 	PullRequestNumber  int    `json:"pullRequestNumber"`
 	PullRequestURL     string `json:"pullRequestUrl,omitempty"`
@@ -34,6 +35,8 @@ type previewStatusItem struct {
 	VerifiedAt         string `json:"verifiedAt,omitempty"`
 	UpdatedAt          string `json:"updatedAt,omitempty"`
 	Message            string `json:"message,omitempty"`
+	LastActivityAt     string `json:"lastActivityAt,omitempty"`
+	SafeStorageBytes   int64  `json:"safeStorageBytes,omitempty"`
 }
 
 func readPreviewStatus(projectRoot string, pullRequest int, deps previewDependencies) (previewStatusReport, error) {
@@ -171,7 +174,10 @@ func validatePreviewStatusItem(item previewStatusItem) error {
 	if item.PrototypeMetaSHA != "" && !fullGitSHA.MatchString(item.PrototypeMetaSHA) {
 		return fmt.Errorf("prototypeMetaSha must be a full lowercase Git SHA")
 	}
-	for name, value := range map[string]string{"verifiedAt": item.VerifiedAt, "updatedAt": item.UpdatedAt} {
+	if item.SafeStorageBytes < 0 || item.SafeStorageBytes > 1_000_000_000_000_000 {
+		return fmt.Errorf("safeStorageBytes is outside the allowed range")
+	}
+	for name, value := range map[string]string{"verifiedAt": item.VerifiedAt, "updatedAt": item.UpdatedAt, "lastActivityAt": item.LastActivityAt, "activityLeaseExpiresAt": item.ActiveLeaseExpiresAt} {
 		if value != "" {
 			if _, err := time.Parse(time.RFC3339, value); err != nil {
 				return fmt.Errorf("%s must be RFC3339", name)

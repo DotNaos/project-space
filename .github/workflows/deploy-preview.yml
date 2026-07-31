@@ -309,7 +309,7 @@ jobs:
             --arg prototype "ghcr.io/dotnaos/project-space-preview-prototype@$PROTOTYPE_DIGEST" \
             '{repository:$repository,prNumber:$pr,headSha:$sha,webImage:$web,docsImage:$docs,
               gatewayImage:$gateway,prototypeImage:$prototype}' |
-            ssh project-space-preview apply > preview-output.log 2> preview-error.log
+            ssh project-space-preview "$runner_command" > preview-output.log 2> preview-error.log
           exit_code=$?
           set -e
           sed -E \

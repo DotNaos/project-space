@@ -6,7 +6,9 @@ import type { ProjectSpaceAuthSession } from './local-auth-store';
 export const previewIdentityHeader = 'x-project-space-preview-identity';
 export const previewSignatureHeader = 'x-project-space-preview-signature';
 export const prototypeAccessCookieName = '__Host-project-space-prototype-access';
+export const previewAccessCookieName = '__Host-project-space-preview-access';
 const prototypeAccessLifetimeSeconds = 30;
+const previewAccessLifetimeSeconds = 3_600;
 
 export interface PreviewGatewayBinding {
   headSha: string;
@@ -29,6 +31,14 @@ interface PrototypeAccessAssertion extends PreviewGatewayBinding {
   expiresAt: number;
   issuedAt: number;
   surface: 'desktop-prototype' | 'mobile-prototype';
+  userId: string;
+  version: 1;
+}
+
+interface PreviewAccessAssertion extends PreviewGatewayBinding {
+  audience: 'project-space-preview-access';
+  expiresAt: number;
+  issuedAt: number;
   userId: string;
   version: 1;
 }
@@ -207,6 +217,34 @@ export function createPrototypeAccessCookie(input: {
   ].join('; ');
 }
 
+export function createPreviewAccessCookie(input: {
+  binding: PreviewGatewayBinding;
+  now?: Date;
+  secret: string;
+  session: ProjectSpaceAuthSession;
+}) {
+  const issuedAt = Math.floor((input.now ?? new Date()).getTime() / 1000);
+  const sessionExpiresAt = input.session.expiresAt
+    ? Math.floor(Date.parse(input.session.expiresAt) / 1000)
+    : Number.POSITIVE_INFINITY;
+  const assertion: PreviewAccessAssertion = {
+    ...input.binding,
+    audience: 'project-space-preview-access',
+    expiresAt: Math.min(issuedAt + previewAccessLifetimeSeconds, sessionExpiresAt),
+    issuedAt,
+    userId: input.session.userId,
+    version: 1
+  };
+  return [
+    `${previewAccessCookieName}=${signedValue(assertion, input.secret)}`,
+    'Path=/',
+    'HttpOnly',
+    'Secure',
+    'SameSite=Lax',
+    `Max-Age=${previewAccessLifetimeSeconds}`
+  ].join('; ');
+}
+
 function readCookie(request: IncomingMessage, name: string) {
   const header = request.headers.cookie;
   if (!header || header.length > 8_192 || /[\r\n\u0000]/.test(header)) return undefined;
@@ -258,6 +296,37 @@ export function readPrototypeAccessCookie(input: {
         surface: assertion.surface as PrototypeAccessAssertion['surface'],
         userId: assertion.userId
       }
+    : null;
+}
+
+export function readPreviewAccessCookie(input: {
+  binding: PreviewGatewayBinding;
+  now?: Date;
+  request: IncomingMessage;
+  secret: string;
+}) {
+  const value = readCookie(input.request, previewAccessCookieName);
+  if (!value) return null;
+  const assertion = verifiedSignedValue(value, input.secret) as
+    | Partial<PreviewAccessAssertion>
+    | undefined;
+  if (!assertion) return null;
+  const now = Math.floor((input.now ?? new Date()).getTime() / 1000);
+  const matchesBinding =
+    assertion.audience === 'project-space-preview-access' &&
+    assertion.version === 1 &&
+    assertion.repositoryFullName === input.binding.repositoryFullName &&
+    assertion.pullRequestNumber === input.binding.pullRequestNumber &&
+    assertion.headSha === input.binding.headSha &&
+    assertion.origin === input.binding.origin;
+  const timeIsValid =
+    typeof assertion.issuedAt === 'number' &&
+    assertion.issuedAt <= now + 5 &&
+    typeof assertion.expiresAt === 'number' &&
+    assertion.expiresAt >= now &&
+    assertion.expiresAt <= assertion.issuedAt + previewAccessLifetimeSeconds;
+  return matchesBinding && timeIsValid && typeof assertion.userId === 'string'
+    ? { userId: assertion.userId }
     : null;
 }
 

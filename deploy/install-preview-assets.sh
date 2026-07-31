@@ -21,12 +21,12 @@ if [ "$platform_root" = /opt/platform ] && [ "$(id -u)" -ne 0 ]; then
   fail 'Preview assets must be installed as root.' 77
 fi
 
-asset_files='preview-runner.sh preview-ssh-entrypoint.sh preview-status-entrypoint.sh preview.compose.yml'
+asset_files='preview-runner.sh preview-reaper.sh preview-runtime-verification.sh preview-storage-policy.sh preview-ssh-entrypoint.sh preview-status-entrypoint.sh preview.compose.yml'
 for asset in $asset_files; do
   [ -f "$source_dir/$asset" ] && [ ! -L "$source_dir/$asset" ] ||
     fail "Preview asset is missing or unsafe: $asset" 64
 done
-for script in preview-runner.sh preview-ssh-entrypoint.sh preview-status-entrypoint.sh; do
+for script in preview-runner.sh preview-reaper.sh preview-runtime-verification.sh preview-storage-policy.sh preview-ssh-entrypoint.sh preview-status-entrypoint.sh; do
   sh -n "$source_dir/$script" ||
     fail "Preview asset has invalid shell syntax: $script" 64
 done
@@ -48,6 +48,9 @@ cleanup() {
 trap cleanup EXIT INT TERM HUP
 
 install -m 0755 "$source_dir/preview-runner.sh" "$next_dir/preview-runner.sh"
+install -m 0755 "$source_dir/preview-reaper.sh" "$next_dir/preview-reaper.sh"
+install -m 0755 "$source_dir/preview-runtime-verification.sh" "$next_dir/preview-runtime-verification.sh"
+install -m 0755 "$source_dir/preview-storage-policy.sh" "$next_dir/preview-storage-policy.sh"
 install -m 0755 "$source_dir/preview-ssh-entrypoint.sh" "$next_dir/preview-ssh-entrypoint.sh"
 install -m 0755 "$source_dir/preview-status-entrypoint.sh" "$next_dir/preview-status-entrypoint.sh"
 install -m 0644 "$source_dir/preview.compose.yml" "$next_dir/preview.compose.yml"

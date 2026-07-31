@@ -94,6 +94,12 @@ function timestamp(value: unknown) {
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : undefined;
 }
 
+function boundedBytes(value: unknown) {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000_000_000_000
+    ? value
+    : undefined;
+}
+
 const lifecycleAliases: Record<string, PullRequestPreviewLifecycle> = {
   queued: 'queued',
   validating: 'validating',
@@ -104,6 +110,11 @@ const lifecycleAliases: Record<string, PullRequestPreviewLifecycle> = {
   deploying: 'deploying',
   verifying: 'verifying',
   ready: 'ready',
+  starting: 'starting',
+  online: 'online',
+  stopping: 'stopping',
+  failed: 'failed',
+  expired: 'expired',
   rejected: 'rejected',
   superseded: 'superseded',
   failedinitial: 'failed-initial',
@@ -195,6 +206,8 @@ export function sanitizePullRequestPreview(
     ? sanitizedPrototypeUrl
     : undefined;
   return {
+    activeLeaseExpiresAt: timestamp(raw.activityLeaseExpiresAt),
+    capacityBlocked: raw.capacityBlocked === true,
     headBranch: text(raw.headBranch ?? raw.branch ?? raw.headRef, 256),
     liveUrl,
     liveUrlState: liveUrl
@@ -202,6 +215,7 @@ export function sanitizePullRequestPreview(
       : typeof rawUrl === 'string' && rawUrl.trim()
         ? 'withheld'
         : 'not-configured',
+    lastActivityAt: timestamp(raw.lastActivityAt),
     pullRequestNumber,
     prototypeHealthy,
     prototypeMetaSha,
@@ -214,7 +228,9 @@ export function sanitizePullRequestPreview(
     repositoryFullName: expectedRepository,
     requestedSha,
     runningSha,
+    safeStorageBytes: boundedBytes(raw.safeStorageBytes),
     state,
+    message: text(raw.message, 512),
     updatedAt: timestamp(raw.updatedAt ?? raw.lastTransitionAt),
     verifiedAt: timestamp(raw.verifiedAt)
   };

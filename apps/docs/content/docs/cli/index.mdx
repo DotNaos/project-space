@@ -638,7 +638,11 @@ project deploy preview [directory]
 | --- | --- | --- | --- |
 | `--format` | `string` | local | output format: pretty or json |
 | `-h`, `--help` | `bool` | local | help for preview |
+| `--inventory-revision` | `string` | local | current Preview inventory revision for a confirmed replacement |
 | `--pr` | `int` | local | GitHub pull request number |
+| `--replace-head-sha` | `string` | local | exact head SHA of the selected replacement Preview |
+| `--replace-pr` | `int` | local | online Preview PR selected for explicit replacement |
+| `--replace-repository` | `string` | local | repository of the selected replacement Preview |
 
 <h3 id="project-deploy-preview-destroy" className="scroll-m-28"><code>project deploy preview destroy</code></h3>
 
@@ -652,7 +656,29 @@ project deploy preview destroy [directory]
 | --- | --- | --- | --- |
 | `--format` | `string` | local | output format: pretty or json |
 | `-h`, `--help` | `bool` | local | help for destroy |
+| `--inventory-revision` | `string` | local | current Preview inventory revision for a confirmed replacement |
 | `--pr` | `int` | local | GitHub pull request number |
+| `--replace-head-sha` | `string` | local | exact head SHA of the selected replacement Preview |
+| `--replace-pr` | `int` | local | online Preview PR selected for explicit replacement |
+| `--replace-repository` | `string` | local | repository of the selected replacement Preview |
+
+<h3 id="project-deploy-preview-start" className="scroll-m-28"><code>project deploy preview start</code></h3>
+
+Explicitly start an on-demand pull request Preview
+
+```sh
+project deploy preview start [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for start |
+| `--inventory-revision` | `string` | local | current Preview inventory revision for a confirmed replacement |
+| `--pr` | `int` | local | GitHub pull request number |
+| `--replace-head-sha` | `string` | local | exact head SHA of the selected replacement Preview |
+| `--replace-pr` | `int` | local | online Preview PR selected for explicit replacement |
+| `--replace-repository` | `string` | local | repository of the selected replacement Preview |
 
 <h3 id="project-deploy-preview-status" className="scroll-m-28"><code>project deploy preview status</code></h3>
 
@@ -667,7 +693,47 @@ project deploy preview status [directory]
 | `--all` | `bool` | local | show all pull request previews for this repository |
 | `--format` | `string` | local | output format: pretty or json |
 | `-h`, `--help` | `bool` | local | help for status |
+| `--inventory-revision` | `string` | local | current Preview inventory revision for a confirmed replacement |
 | `--pr` | `int` | local | GitHub pull request number |
+| `--replace-head-sha` | `string` | local | exact head SHA of the selected replacement Preview |
+| `--replace-pr` | `int` | local | online Preview PR selected for explicit replacement |
+| `--replace-repository` | `string` | local | repository of the selected replacement Preview |
+
+<h3 id="project-deploy-preview-stop" className="scroll-m-28"><code>project deploy preview stop</code></h3>
+
+Explicitly stop an on-demand pull request Preview
+
+```sh
+project deploy preview stop [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for stop |
+| `--inventory-revision` | `string` | local | current Preview inventory revision for a confirmed replacement |
+| `--pr` | `int` | local | GitHub pull request number |
+| `--replace-head-sha` | `string` | local | exact head SHA of the selected replacement Preview |
+| `--replace-pr` | `int` | local | online Preview PR selected for explicit replacement |
+| `--replace-repository` | `string` | local | repository of the selected replacement Preview |
+
+<h3 id="project-deploy-preview-touch" className="scroll-m-28"><code>project deploy preview touch</code></h3>
+
+Explicitly touch an on-demand pull request Preview
+
+```sh
+project deploy preview touch [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for touch |
+| `--inventory-revision` | `string` | local | current Preview inventory revision for a confirmed replacement |
+| `--pr` | `int` | local | GitHub pull request number |
+| `--replace-head-sha` | `string` | local | exact head SHA of the selected replacement Preview |
+| `--replace-pr` | `int` | local | online Preview PR selected for explicit replacement |
+| `--replace-repository` | `string` | local | repository of the selected replacement Preview |
 
 <h3 id="project-deploy-status" className="scroll-m-28"><code>project deploy status</code></h3>
 

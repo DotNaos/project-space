@@ -16,10 +16,14 @@ describe('trusted PR Preview workflow contract', () => {
     const workflow = await readFile(deploymentWorkflowPath, 'utf8');
 
     expect(workflow).toContain('action:');
-    expect(workflow).toContain('options: [deploy, destroy]');
-    expect(workflow).toContain("if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy'");
+    expect(workflow).toContain('options: [build, start, stop, touch, deploy, destroy]');
+    expect(workflow).toContain("if: always() && inputs.action == 'deploy'");
     expect(workflow).toContain("if: github.event_name == 'workflow_dispatch' && inputs.action == 'destroy'");
-    expect(workflow).toContain('pull_request_target:\n    types: [closed]');
+    expect(workflow).toContain('pull_request_target:\n    types: [opened, reopened, synchronize, ready_for_review, closed]');
+    expect(workflow).toContain('runner_command=register; runner_mode=register');
+    expect(workflow).toContain('requested_head_sha');
+    expect(workflow).toContain('replacement_head_sha');
+    expect(workflow).toContain('Verify offline Preview registration');
     expect(workflow).toContain('[[ "$GITHUB_REF" == refs/heads/main ]]');
     expect(workflow).toContain('^preview-[0-9a-f]{32}$');
     expect(workflow).toContain('group: project-space-preview-pr-${{ inputs.pr || github.event.pull_request.number }}');
@@ -134,7 +138,10 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain('prototypeImage:$prototype');
     expect(workflow).toContain('https://pr-${{ needs.resolve.outputs.pr_number }}.projects.os-home.net');
     expect(workflow).toContain('environment_url');
-    expect(workflow).toContain('ssh project-space-preview apply > preview-output.log 2> preview-error.log');
+    expect(workflow).toContain('ssh project-space-preview "$runner_command" > preview-output.log');
+    expect(workflow).toContain('ssh project-space-preview "$ACTION" | tee lifecycle-output.log');
+    expect(workflow).toContain("jq -Rsce --arg prefix 'PROJECT_SPACE_PREVIEW_RECEIPT='");
+    expect(workflow).toContain('ssh project-space-preview "$runner_command" > preview-output.log 2> preview-error.log');
     expect(workflow).toContain("jq -Rsce --arg prefix 'PROJECT_SPACE_PREVIEW_RECEIPT='");
     expect(workflow).toContain('select(length == 1)');
     expect(workflow).toContain('RUNNER_RECEIPT_VALID: ${{ steps.apply.outputs.receipt_valid }}');

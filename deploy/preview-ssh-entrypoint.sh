@@ -2,8 +2,8 @@
 set -eu
 
 case "${SSH_ORIGINAL_COMMAND:-}" in
-  apply|destroy|reap) command_name=$SSH_ORIGINAL_COMMAND;;
-  *) printf '%s\n' 'Preview SSH key permits only apply, destroy, or reap.' >&2; exit 77;;
+  apply|register|start|stop|touch|destroy|reap) command_name=$SSH_ORIGINAL_COMMAND;;
+  *) printf '%s\n' 'Preview SSH key permits only trusted lifecycle commands.' >&2; exit 77;;
 esac
 
 current_assets=/opt/platform/share/project-space-preview-current

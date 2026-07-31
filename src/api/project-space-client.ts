@@ -171,6 +171,37 @@ class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements Project
     );
   }
 
+  getPullRequestPreviewHub(repositoryFullName = 'DotNaos/project-space') {
+    return this.requestPreviewHub<import('@/shared/pull-request-preview-hub-api').PreviewHubInventoryResult>(
+      `/api/pull-request-preview-hub?repositoryFullName=${encodeURIComponent(repositoryFullName)}`
+    );
+  }
+
+  startPullRequestPreview(request: import('@/shared/pull-request-preview-hub-api').PreviewHubStartRequest) {
+    return this.requestPreviewHub<import('@/shared/pull-request-preview-hub-api').PreviewHubMutationResult>(
+      '/api/pull-request-preview-hub/start',
+      { body: JSON.stringify(request), method: 'POST' }
+    );
+  }
+
+  stopPullRequestPreview(request: import('@/shared/pull-request-preview-hub-api').PreviewHubStopRequest) {
+    return this.requestPreviewHub<import('@/shared/pull-request-preview-hub-api').PreviewHubMutationResult>(
+      '/api/pull-request-preview-hub/stop',
+      { body: JSON.stringify(request), method: 'POST' }
+    );
+  }
+
+  touchPullRequestPreview(request: import('@/shared/pull-request-preview-hub-api').PreviewHubTouchRequest) {
+    return this.requestPreviewHub<import('@/shared/pull-request-preview-hub-api').PreviewHubMutationResult>(
+      '/api/pull-request-preview-hub/touch',
+      { body: JSON.stringify(request), method: 'POST' }
+    );
+  }
+
+  establishPullRequestPreviewAccess(pullRequestNumber: number) {
+    return this.establishPreviewAccess(pullRequestNumber);
+  }
+
   getPullRequestTestSurfaces(repositoryFullName: string, pullRequestNumber: number) {
     const query = new URLSearchParams({
       pullRequestNumber: String(pullRequestNumber),

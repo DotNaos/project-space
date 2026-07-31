@@ -22,6 +22,7 @@ import {
 import { writeJson, writeText } from './project-space-http-response';
 import { serveProjectSpaceStatic } from './project-space-static';
 import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
+import { previewPullRequestNumberFromHostname } from '../src/shared/preview-host';
 import type { CodexSessionsHttpHandler } from './codex-sessions-http';
 import { createConfiguredCodexSessionsHandler } from './codex-sessions/configured-runtime';
 import { createProjectTopologyInventoryService } from './project-topology/project-inventory-service';
@@ -70,6 +71,18 @@ function resolveProjectChatRuntime(
     authenticateMachine: projectChatMachineAuthenticator(options.machineConnectionRuntime),
     backend
   });
+}
+
+export function previewHubRedirectForOfflineHost(hostname: string, pathname: string, search = '') {
+  const pullRequestNumber = previewPullRequestNumberFromHostname(hostname.replace(/:\d+$/, '').toLowerCase());
+  if (pullRequestNumber === undefined) return undefined;
+  const target = new URL('https://pr.projects.os-home.net/');
+  target.searchParams.set('pr', String(pullRequestNumber));
+  const returnTarget = `${pathname || '/'}${search}`;
+  if (returnTarget.startsWith('/') && !returnTarget.startsWith('//') && !/[\u0000-\u001f\u007f]/.test(returnTarget)) {
+    target.searchParams.set('return', returnTarget.slice(0, 2_048));
+  }
+  return target.toString();
 }
 
 export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOptions = {}) {
@@ -132,6 +145,16 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     response: ServerResponse
   ) {
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+
+    const offlinePreviewRedirect = previewHubRedirectForOfflineHost(
+      String(request.headers.host ?? ''),
+      url.pathname,
+      url.search
+    );
+    if (offlinePreviewRedirect) {
+      response.writeHead(302, { 'Cache-Control': 'no-store', Location: offlinePreviewRedirect }).end();
+      return;
+    }
 
     if (request.method === 'GET' && url.pathname === '/connector/install.sh') {
       writeText(

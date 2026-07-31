@@ -3,12 +3,14 @@ import { createServer, type IncomingHttpHeaders, type IncomingMessage, type Serv
 import { readAuthTokenFromRequest, readProjectSpaceAuthSession } from './local-auth-store';
 import {
   createPrototypeAccessCookie,
+  createPreviewAccessCookie,
   createPreviewIdentityHeaders,
   isGitHubApiPath,
   isBlockedPreviewPath,
   isTrustedGitHubBrokerRequest,
   parsePreviewGatewayBinding,
   readPrototypeAccessCookie,
+  readPreviewAccessCookie,
   previewIdentityHeader,
   previewSignatureHeader
 } from './preview-gateway-policy';
@@ -43,6 +45,8 @@ function isTrustedPrototypePath(pathname: string) {
 }
 
 const prototypeAccessPath = '/api/pull-request-previews/prototype-access';
+const previewAccessPath = '/api/pull-request-preview-access';
+const previewVerificationHeader = 'x-project-space-preview-verification';
 const prototypeReviewQueryKeys = [
   'change',
   'orientation',
@@ -58,6 +62,37 @@ function prototypeSurface(pathname: string) {
     return 'mobile-prototype' as const;
   }
   return undefined;
+}
+
+function offlineHubRedirect(binding: ReturnType<typeof parsePreviewGatewayBinding>, brokerOrigin: string, requestUrl: URL) {
+  const target = new URL('/', brokerOrigin);
+  target.searchParams.set('pr', String(binding.pullRequestNumber));
+  const returnTarget = `${requestUrl.pathname || '/'}${requestUrl.search}`;
+  if (returnTarget.startsWith('/') && !returnTarget.startsWith('//') && !/[\u0000-\u001f\u007f]/.test(returnTarget)) {
+    target.searchParams.set('return', returnTarget.slice(0, 2_048));
+  }
+  return target.toString();
+}
+
+async function notifyPreviewActivity(
+  binding: ReturnType<typeof parsePreviewGatewayBinding>,
+  brokerOrigin: string,
+  token: string
+) {
+  await fetch(new URL('/api/pull-request-preview-hub/touch', brokerOrigin), {
+    body: JSON.stringify({
+      pullRequestNumber: binding.pullRequestNumber,
+      repositoryFullName: binding.repositoryFullName,
+      requestedHeadSha: binding.headSha
+    }),
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      Origin: brokerOrigin
+    },
+    method: 'POST',
+    redirect: 'error'
+  }).catch(() => undefined);
 }
 
 function isPrototypeEntryPath(pathname: string) {
@@ -161,6 +196,7 @@ function forwardingHeaders(headers: IncomingHttpHeaders) {
   }
   forwarded.delete(previewIdentityHeader);
   forwarded.delete(previewSignatureHeader);
+  forwarded.delete(previewVerificationHeader);
   return forwarded;
 }
 
@@ -221,7 +257,7 @@ export function createPreviewGatewayRequestHandler(
   );
   const brokerOrigin = parseOrigin(
     'PROJECT_SPACE_PREVIEW_BROKER_ORIGIN',
-    environment.PROJECT_SPACE_PREVIEW_BROKER_ORIGIN ?? 'https://projects.os-home.net'
+    environment.PROJECT_SPACE_PREVIEW_BROKER_ORIGIN ?? 'https://pr.projects.os-home.net'
   );
   const gatewaySecret = environment.PROJECT_SPACE_PREVIEW_GATEWAY_SECRET ?? '';
   if (gatewaySecret.length < 32) {
@@ -281,6 +317,34 @@ export function createPreviewGatewayRequestHandler(
         response.writeHead(204).end();
         return;
       }
+      if (requestUrl.pathname === previewAccessPath) {
+        if (request.headers.origin !== brokerOrigin) {
+          response.writeHead(403).end('Trusted Project Space origin required.');
+          return;
+        }
+        if (environment.PROJECT_SPACE_PREVIEW_VERIFIED !== '1') {
+          response.writeHead(503).end('Preview is not positively verified yet.');
+          return;
+        }
+        if (request.method !== 'POST') {
+          response.writeHead(405, { Allow: 'POST' }).end();
+          return;
+        }
+        const session = await authenticate(readAuthTokenFromRequest(request), {
+          authorizedParties: [brokerOrigin, binding.origin]
+        });
+        if (!session) {
+          response.writeHead(401).end('Login required.');
+          return;
+        }
+        response.setHeader('Set-Cookie', createPreviewAccessCookie({
+          binding,
+          secret: prototypeAccessSecret,
+          session
+        }));
+        response.writeHead(204).end();
+        return;
+      }
       if (
         requestUrl.pathname === '/prototype-review' ||
         requestUrl.pathname.startsWith('/prototype-review/')
@@ -289,6 +353,26 @@ export function createPreviewGatewayRequestHandler(
           'Cache-Control': 'no-store',
           Location: prototypeReviewUrl(binding, brokerOrigin, requestUrl)
         }).end();
+        return;
+      }
+      if (environment.PROJECT_SPACE_PREVIEW_OFFLINE === '1' && requestUrl.pathname !== '/api/health' && requestUrl.pathname !== '/api/app/meta') {
+        response.writeHead(302, {
+          'Cache-Control': 'no-store',
+          Location: offlineHubRedirect(binding, brokerOrigin, requestUrl)
+        }).end();
+        return;
+      }
+      const isPublicUpstreamPath =
+        requestUrl.pathname === '/api/health' || requestUrl.pathname === '/api/app/meta';
+      const verificationSecret = environment.PROJECT_SPACE_PREVIEW_VERIFICATION_SECRET ?? '';
+      const trustedVerificationRequest =
+        request.headers[previewVerificationHeader] === verificationSecret && verificationSecret.length >= 32;
+      if (!isPublicUpstreamPath && environment.PROJECT_SPACE_PREVIEW_VERIFIED !== '1' && !trustedVerificationRequest) {
+        response.writeHead(503, { 'Cache-Control': 'no-store' }).end('Preview is not positively verified yet.');
+        return;
+      }
+      if (trustedVerificationRequest && requestUrl.pathname === '/api/auth/session') {
+        response.writeHead(401).end('Login required.');
         return;
       }
       if (isBlockedPreviewPath(requestUrl.pathname)) {
@@ -330,7 +414,7 @@ export function createPreviewGatewayRequestHandler(
           secret: prototypeAccessSecret,
           surface: requestedSurface
         });
-        if (!access) {
+        if (!access && !trustedVerificationRequest) {
           if (request.method === 'GET' || request.method === 'HEAD') {
             response.writeHead(302, {
               'Cache-Control': 'no-store',
@@ -345,20 +429,41 @@ export function createPreviewGatewayRequestHandler(
         await proxy(request, response, prototypeOrigin, headers, requestUrl);
         return;
       }
-      const isPublicUpstreamPath =
-        requestUrl.pathname === '/api/health' || requestUrl.pathname === '/api/app/meta';
-      if (isPublicUpstreamPath || !requestUrl.pathname.startsWith('/api/')) {
+      if (isPublicUpstreamPath) {
         headers.delete('authorization');
         await proxy(request, response, upstreamOrigin, headers, requestUrl);
         return;
       }
 
       const token = readAuthTokenFromRequest(request);
-      const session = await authenticate(token, {
-        authorizedParties: [binding.origin]
-      });
+      let session = trustedVerificationRequest
+        ? { email: undefined, expiresAt: undefined, login: 'preview-runner', role: 'user' as const, userId: 'preview-runner' }
+        : token
+          ? await authenticate(token, { authorizedParties: [binding.origin, brokerOrigin] })
+          : null;
       if (!session) {
-        response.writeHead(401).end('Login required.');
+        const access = readPreviewAccessCookie({
+          binding,
+          request,
+          secret: prototypeAccessSecret
+        });
+        session = access ? {
+          email: undefined,
+          expiresAt: undefined,
+          login: 'preview-cookie',
+          role: 'user' as const,
+          userId: access.userId
+        } : null;
+      }
+      if (!session) {
+        if ((request.method === 'GET' || request.method === 'HEAD') && !requestUrl.pathname.startsWith('/api/')) {
+          response.writeHead(302, {
+            'Cache-Control': 'no-store',
+            Location: offlineHubRedirect(binding, brokerOrigin, requestUrl)
+          }).end();
+        } else {
+          response.writeHead(401).end('Login required.');
+        }
         return;
       }
 
@@ -368,6 +473,7 @@ export function createPreviewGatewayRequestHandler(
       }
 
       headers.delete('authorization');
+      if (token) void notifyPreviewActivity(binding, brokerOrigin, token);
       const identityHeaders = createPreviewIdentityHeaders({
         binding,
         secret: gatewaySecret,

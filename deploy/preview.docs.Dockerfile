@@ -18,6 +18,7 @@ FROM oven/bun:1 AS runner
 WORKDIR /workspace/apps/docs
 ARG PROJECT_SPACE_BUILD_COMMIT
 LABEL org.opencontainers.image.revision=$PROJECT_SPACE_BUILD_COMMIT
+LABEL com.dotnaos.project-space.preview=true
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME=0.0.0.0

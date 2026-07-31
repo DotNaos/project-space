@@ -35,10 +35,15 @@ type previewGitHubPullRequestRef struct {
 }
 
 func dispatchPreview(projectRoot string, operation string, pullRequest int, deps previewDependencies) (previewDispatchResult, error) {
+	return dispatchPreviewWithOptions(projectRoot, operation, previewOptions{PullRequest: pullRequest}, deps)
+}
+
+func dispatchPreviewWithOptions(projectRoot string, operation string, options previewOptions, deps previewDependencies) (previewDispatchResult, error) {
+	pullRequest := options.PullRequest
 	if pullRequest <= 0 {
 		return previewDispatchResult{}, fmt.Errorf("--pr must be a positive pull request number")
 	}
-	if operation != "deploy" && operation != "destroy" {
+	if operation != "deploy" && operation != "destroy" && operation != "start" && operation != "stop" && operation != "touch" {
 		return previewDispatchResult{}, fmt.Errorf("unsupported preview operation %q", operation)
 	}
 	repository, err := resolvePreviewRepository(projectRoot, deps.run)
@@ -62,32 +67,43 @@ func dispatchPreview(projectRoot string, operation string, pullRequest int, deps
 	if err != nil {
 		return previewDispatchResult{}, err
 	}
-	if err := validatePreviewPullRequest(repository, pullRequest, pull, operation == "deploy"); err != nil {
+	if err := validatePreviewPullRequest(repository, pullRequest, pull, operation != "stop"); err != nil {
 		return previewDispatchResult{}, err
 	}
 	operationID, err := newPreviewOperationID(deps.random)
 	if err != nil {
 		return previewDispatchResult{}, err
 	}
-	_, err = deps.run(projectRoot, nil, "gh", "workflow", "run", previewWorkflowFile,
-		"--repo", repository, "--ref", previewWorkflowRef,
-		"-f", "action="+operation,
-		"-f", fmt.Sprintf("pr=%d", pullRequest),
-		"-f", "operation_id="+operationID)
-	if err != nil {
+	args := []string{"--repo", repository, "--ref", previewWorkflowRef, "-f", "action=" + operation,
+		"-f", fmt.Sprintf("pr=%d", pullRequest), "-f", "operation_id=" + operationID}
+	if operation == "start" || operation == "stop" || operation == "touch" {
+		args = append(args, "-f", "requested_head_sha="+pull.Head.SHA)
+	}
+	if operation == "start" {
+		// Replacement details are passed only after the caller has explicitly selected
+		// an online Preview and its current inventory revision.
+		for _, value := range []struct{ key, value string }{
+			{"inventory_revision", options.InventoryRevision},
+			{"replacement_pr", fmt.Sprintf("%d", options.ReplacementPR)},
+			{"replacement_repository", options.ReplacementRepository},
+			{"replacement_head_sha", options.ReplacementHeadSHA},
+		} {
+			if value.value != "" && value.value != "0" { args = append(args, "-f", value.key+"="+value.value) }
+		}
+	}
+	return dispatchPreviewWorkflow(projectRoot, repository, operation, pullRequest, pull, operationID, args, deps)
+}
+
+func dispatchPreviewWorkflow(projectRoot, repository, operation string, pullRequest int, pull previewGitHubPullRequest, operationID string, args []string, deps previewDependencies) (previewDispatchResult, error) {
+	workflowArgs := append([]string{"workflow", "run", previewWorkflowFile}, args...)
+	if _, err := deps.run(projectRoot, nil, "gh", workflowArgs...); err != nil {
 		return previewDispatchResult{}, fmt.Errorf("dispatch trusted preview workflow: %w", err)
 	}
 	return previewDispatchResult{
-		Operation:          operation,
-		OperationID:        operationID,
-		RepositoryFullName: repositoryRecord.FullName,
-		PullRequest: previewPullRequestEvidence{
-			Number: pull.Number, URL: pull.URL, State: pull.State,
-			BaseRef: pull.Base.Ref, HeadRef: pull.Head.Ref, HeadSHA: pull.Head.SHA,
-		},
-		PreviewID:       previewID(repository, pullRequest),
-		ExpectedLiveURL: previewLiveURL(pullRequest),
-		Workflow:        previewWorkflowDispatch{File: previewWorkflowFile, Ref: previewWorkflowRef, State: "queued"},
+		Operation: operation, OperationID: operationID, RepositoryFullName: repository,
+		PullRequest: previewPullRequestEvidence{Number: pull.Number, URL: pull.URL, State: pull.State, BaseRef: pull.Base.Ref, HeadRef: pull.Head.Ref, HeadSHA: pull.Head.SHA},
+		PreviewID: previewID(repository, pullRequest), ExpectedLiveURL: previewLiveURL(pullRequest),
+		Workflow: previewWorkflowDispatch{File: previewWorkflowFile, Ref: previewWorkflowRef, State: "queued"},
 	}, nil
 }
 

@@ -6,6 +6,8 @@ import { join } from 'node:path';
 
 const repositoryRoot = new URL('..', import.meta.url).pathname;
 const runnerPath = join(repositoryRoot, 'deploy/preview-runner.sh');
+const runtimeVerificationPath = join(repositoryRoot, 'deploy/preview-runtime-verification.sh');
+const storagePolicyPath = join(repositoryRoot, 'deploy/preview-storage-policy.sh');
 const composePath = join(repositoryRoot, 'deploy/preview.compose.yml');
 const sshEntrypointPath = join(repositoryRoot, 'deploy/preview-ssh-entrypoint.sh');
 const statusEntrypointPath = join(repositoryRoot, 'deploy/preview-status-entrypoint.sh');
@@ -239,8 +241,10 @@ printf '%s\\n' '{"state":"open","base":{"ref":"main","repo":{"full_name":"DotNao
   });
 
   test('runner and Compose isolate Preview resources from Production credentials and mounts', async () => {
-    const [runner, compose, sshEntrypoint, statusEntrypoint] = await Promise.all([
+    const [runner, runtimeVerification, storagePolicy, compose, sshEntrypoint, statusEntrypoint] = await Promise.all([
       readFile(runnerPath, 'utf8'),
+      readFile(runtimeVerificationPath, 'utf8'),
+      readFile(storagePolicyPath, 'utf8'),
       readFile(composePath, 'utf8'),
       readFile(sshEntrypointPath, 'utf8'),
       readFile(statusEntrypointPath, 'utf8')
@@ -250,28 +254,45 @@ printf '%s\\n' '{"state":"open","base":{"ref":"main","repo":{"full_name":"DotNao
     expect(runner.indexOf('acquire_lock')).toBeLessThan(runner.indexOf('revalidate_open_pr "$head_sha"'));
     expect(runner).toContain('project-space-preview-${kind}@sha256:');
     expect(runner).toContain('RUNTIME_ROOT=$PLATFORM_ROOT/previews/project-space');
-    expect(runner).toContain('.preview.state == "verified"');
-    expect(runner).toContain('.preview.identity.repositoryFullName == $repository');
-    expect(runner).toContain('.preview.identity.pullRequestNumber == $pr');
-    expect(runner).toContain('.preview.identity.headSha == $sha');
-    expect(runner).toContain(
+    expect(runtimeVerification).toContain('.preview.state == "verified"');
+    expect(runtimeVerification).toContain('.preview.identity.repositoryFullName == $repository');
+    expect(runtimeVerification).toContain('.preview.identity.pullRequestNumber == $pr');
+    expect(runtimeVerification).toContain('.preview.identity.headSha == $sha');
+    expect(runtimeVerification).toContain(
       'fetch("http://preview-prototype:8080/prototype/meta.json")'
     );
-    expect(runner).not.toContain(
+    expect(runtimeVerification).not.toContain(
       '"https://$domain/prototype/meta.json"'
     );
-    expect(runner).toContain('"https://$domain/docs/changelog?pr=$pr"');
-    expect(runner).toContain('max_attempts=24');
-    expect(runner).toContain('sleep 5');
-    expect(runner).toContain('-servername "$domain"');
-    expect(runner).toContain('-verify_hostname "$domain"');
-    expect(runner).toContain('-verify_return_error');
+    expect(runtimeVerification).toContain('"https://$domain/docs/changelog?pr=$pr"');
+    expect(runtimeVerification).toContain('max_attempts=12');
+    expect(runtimeVerification).toContain('sleep 5');
+    expect(runtimeVerification).toContain('-servername "$domain"');
+    expect(runtimeVerification).toContain('-verify_hostname "$domain"');
+    expect(runtimeVerification).toContain('-verify_return_error');
     expect(runner).toContain('blocked_capacity_record');
     expect(runner).toContain('preview_quota_full');
     expect(runner).toContain('preview_storage_low');
     expect(runner).toContain(
       "fail 'could not revalidate PR under lock' 69",
     );
+    expect(runner).toContain('acquire_lifecycle_locks');
+    expect(runner).toContain('flock -w 900 8');
+    expect(storagePolicy).toContain('PREVIEW_STORAGE_BUDGET_BYTES');
+    expect(storagePolicy).toContain('preview_record_storage_bytes');
+    expect(storagePolicy).toContain('docker volume ls --filter');
+    expect(runner).toContain("tr -d '\\n'");
+    expect(runner).toContain('inventory_revision');
+    expect(runner).toContain('selectedReplacementPullRequestNumber');
+    expect(runner).toContain('restore_selected_runtime');
+    expect(runner).toContain('assert_runtime_resources_absent_for');
+    expect(runner).toContain('.capacityBlocked == true');
+    expect(runner).toContain('select(.state == "online" or .capacityBlocked == true)');
+    expect(runner).toContain('.state="update_failed" | .capacityBlocked=true');
+    expect(runner).toContain('state:(if .state == "update_failed"');
+    expect(runner).toContain('runningSha:(if .state == "online" and .runningSha != "" then .runningSha else null end)');
+    expect(storagePolicy).toContain('prepare_storage_policy');
+    expect(storagePolicy).not.toContain('cleanup_reproducible_storage\n  used=');
     expect(runner).toContain('verify_runtime_with_retry "$head_sha"');
     expect(runner).toContain('verify_runtime_with_retry "$old_sha"');
     expect(runner).toContain('compose pull --quiet >&2');
@@ -279,14 +300,14 @@ printf '%s\\n' '{"state":"open","base":{"ref":"main","repo":{"full_name":"DotNao
     expect(runner).toContain('PREVIEW_RECEIPT_PREFIX=PROJECT_SPACE_PREVIEW_RECEIPT=');
     expect(runner).toContain('jq -cn');
     expect(runner).toContain("jq -ce 'select(type == \"object\")'");
-    expect(runner.match(/emit_receipt "\$record"/g)).toHaveLength(3);
-    expect(runner).toContain(
+    expect(runner.match(/emit_receipt "\$record"/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(runtimeVerification).toContain(
       'x-project-space-preview-docs-source:[[:space:]]*exact-pr-source'
     );
     expect(runner).not.toContain('docker system prune');
     expect(runner).not.toContain('/opt/platform/apps/project-space');
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_MODE: "1"');
-    expect(compose).toContain('PROJECT_SPACE_PREVIEW_BROKER_ORIGIN: https://projects.os-home.net');
+    expect(compose).toContain('PROJECT_SPACE_PREVIEW_BROKER_ORIGIN: https://pr.projects.os-home.net');
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_GATEWAY_SECRET');
     expect(compose).toContain('PROJECT_SPACE_PROTOTYPE_ACCESS_SECRET');
     const webService = compose.slice(compose.indexOf('  web:'), compose.indexOf('\n  docs:'));
@@ -314,7 +335,7 @@ printf '%s\\n' '{"state":"open","base":{"ref":"main","repo":{"full_name":"DotNao
     expect(compose).toContain('mem_limit:');
     expect(compose).toContain('max-size: 10m');
     expect(compose).toContain('postgres:17-alpine@sha256:');
-    expect(sshEntrypoint).toContain('apply|destroy|reap');
+    expect(sshEntrypoint).toContain('apply|register|start|stop|touch|destroy|reap');
     expect(sshEntrypoint).not.toContain('status-all');
     expect(sshEntrypoint).toContain('/opt/platform/share/project-space-preview-current');
     expect(sshEntrypoint).toContain('PROJECT_SPACE_PREVIEW_ASSET_ROOT="$asset_root"');

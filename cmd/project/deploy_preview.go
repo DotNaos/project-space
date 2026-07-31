@@ -22,6 +22,10 @@ type previewOptions struct {
 	PullRequest int
 	All         bool
 	Format      string
+	InventoryRevision string
+	ReplacementPR int
+	ReplacementRepository string
+	ReplacementHeadSHA string
 }
 
 type previewCommandRunner func(dir string, stdin []byte, name string, args ...string) (string, error)
@@ -88,7 +92,25 @@ func newDeployPreviewCommandWithDependencies(deps previewDependencies) *cobra.Co
 		},
 	}
 	addPreviewFlags(cmd, &options, true)
-	cmd.AddCommand(newDeployPreviewStatusCommand(deps), newDeployPreviewDestroyCommand(deps))
+	cmd.AddCommand(newDeployPreviewStatusCommand(deps), newDeployPreviewDestroyCommand(deps), newDeployPreviewLifecycleCommand(deps, "start"), newDeployPreviewLifecycleCommand(deps, "stop"), newDeployPreviewLifecycleCommand(deps, "touch"))
+	return cmd
+}
+
+func newDeployPreviewLifecycleCommand(deps previewDependencies, operation string) *cobra.Command {
+	options := previewOptions{}
+	cmd := &cobra.Command{
+		Use: operation + " [directory]",
+		Short: "Explicitly " + operation + " an on-demand pull request Preview",
+		Args: cobra.MaximumNArgs(1),
+		ValidArgsFunction: directoryCompletion,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validatePreviewFormat(options.Format); err != nil { return err }
+			root, err := previewProjectRoot(args); if err != nil { return err }
+			result, err := dispatchPreviewWithOptions(root, operation, options, deps); if err != nil { return err }
+			return printPreviewDispatch(cmd, result, options.Format)
+		},
+	}
+	addPreviewFlags(cmd, &options, true)
 	return cmd
 }
 
@@ -155,6 +177,10 @@ func addPreviewFlags(cmd *cobra.Command, options *previewOptions, requirePR bool
 	if requirePR {
 		must(cmd.MarkFlagRequired("pr"))
 	}
+	cmd.Flags().StringVar(&options.InventoryRevision, "inventory-revision", "", "current Preview inventory revision for a confirmed replacement")
+	cmd.Flags().IntVar(&options.ReplacementPR, "replace-pr", 0, "online Preview PR selected for explicit replacement")
+	cmd.Flags().StringVar(&options.ReplacementRepository, "replace-repository", "", "repository of the selected replacement Preview")
+	cmd.Flags().StringVar(&options.ReplacementHeadSHA, "replace-head-sha", "", "exact head SHA of the selected replacement Preview")
 }
 
 func previewProjectRoot(args []string) (string, error) {

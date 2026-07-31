@@ -3,6 +3,8 @@ import { PrototypeReviewAuthBoundary } from '@/auth/prototype-review-auth-bounda
 import { ConnectorSetupPage } from '@/features/connector-setup/components/connector-setup-page';
 import { PrototypeReviewPage } from '@/features/pr-preview-review/prototype-review-page';
 import { ProjectDesktopShell } from '@/features/project-desktop/components/project-desktop-shell';
+import { PreviewHubPage } from '@/features/pr-preview-hub/preview-hub-page';
+import { isPreviewHubHostname } from '@/shared/preview-host';
 
 export function App() {
   if (window.location.pathname.startsWith('/connector')) {
@@ -19,6 +21,10 @@ export function App() {
         <PrototypeReviewPage />
       </PrototypeReviewAuthBoundary>
     );
+  }
+
+  if (isPreviewHubHostname(window.location.hostname) || window.location.pathname.startsWith('/preview-hub')) {
+    return <PreviewHubPage />;
   }
 
   return <ProjectDesktopShell />;

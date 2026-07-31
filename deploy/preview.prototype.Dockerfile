@@ -43,6 +43,7 @@ FROM nginxinc/nginx-unprivileged:1.27-alpine@sha256:65e3e85dbaed8ba248841d9d58a8
 
 ARG PROJECT_SPACE_BUILD_COMMIT
 LABEL org.opencontainers.image.revision=$PROJECT_SPACE_BUILD_COMMIT
+LABEL com.dotnaos.project-space.preview=true
 COPY --from=trusted-assets deploy/preview.prototype.nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /workspace/apps/prototype/dist /usr/share/nginx/html/prototype/desktop
 COPY --from=build /workspace/apps/mobile/dist-prototype /usr/share/nginx/html/prototype/mobile
