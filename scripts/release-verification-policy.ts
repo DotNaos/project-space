@@ -24,6 +24,25 @@ const releaseCriticalPaths = [
   /^tests\/release-verification-policy\.test\.ts$/,
 ];
 
+const releaseWorkflowPaths = [
+  /^\.github\/actions\/release-quality\//,
+  /^\.github\/workflows\/release(?:-|\.yml)/,
+  /^cmd\/project\//,
+  /^(?:go\.mod|go\.sum|package\.json|bun\.lock)$/,
+  /^internal\/(?:approvalsigner|machineconnect|projectrun|selfupdate)\//,
+  /^packaging\//,
+  /^server\//,
+  /^scripts\/(?:ci-preflight|prepare-release-pr|release-identity|release-verification-policy)\.ts$/,
+  /^tests\//,
+];
+
+export function releaseWorkflowTriggered(changedPaths: string[]) {
+  if (changedPaths.length === 0) return true;
+  return changedPaths.some((path) =>
+    releaseWorkflowPaths.some((pattern) => pattern.test(path)),
+  );
+}
+
 export function releaseVerificationPolicy(input: ReleaseVerificationInput) {
   if (input.eventName !== 'pull_request') {
     return {

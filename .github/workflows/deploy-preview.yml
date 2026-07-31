@@ -61,6 +61,7 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
+      disposition: ${{ steps.pull-request.outputs.disposition }}
       head_sha: ${{ steps.pull-request.outputs.head_sha }}
       pr_number: ${{ steps.pull-request.outputs.pr_number }}
     steps:
@@ -71,7 +72,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           OPERATION_ID: ${{ inputs.operation_id }}
           REQUESTED_PR: ${{ inputs.pr || github.event.pull_request.number }}
-          REQUESTED_HEAD_SHA: ${{ inputs.requested_head_sha }}
+          REQUESTED_HEAD_SHA: ${{ inputs.requested_head_sha || github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF" == refs/heads/main ]] || {
@@ -89,28 +90,41 @@ jobs:
           permission=$(gh api "repos/$PREVIEW_REPOSITORY/collaborators/$GITHUB_ACTOR/permission" --jq .permission)
           case "$permission" in admin|maintain|write) ;; *) echo 'Preview dispatch requires repository write permission.' >&2; exit 77;; esac
           pr_json=$(gh api "repos/$PREVIEW_REPOSITORY/pulls/$REQUESTED_PR")
-          head_sha=$(jq -er --arg repository "$PREVIEW_REPOSITORY" '
-            select(.state == "open" and .base.ref == "main" and
-              .base.repo.full_name == $repository and .head.repo.full_name == $repository) |
-            .head.sha | select(test("^[0-9a-f]{40}$"))
-          ' <<<"$pr_json")
+          jq -e --arg repository "$PREVIEW_REPOSITORY" '
+            .base.ref == "main" and .base.repo.full_name == $repository and
+            .head.repo.full_name == $repository and
+            (.state == "open" or .state == "closed")
+          ' <<<"$pr_json" >/dev/null
+          head_sha=$(jq -er '.head.sha | select(test("^[0-9a-f]{40}$"))' <<<"$pr_json")
+          state=$(jq -er '.state' <<<"$pr_json")
           if [[ -n "$REQUESTED_HEAD_SHA" ]]; then
             [[ "$REQUESTED_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || {
               echo 'Requested Preview head must be a full lowercase Git SHA.' >&2
               exit 64
             }
-            [[ "$head_sha" == "$REQUESTED_HEAD_SHA" ]] || {
-              echo 'Requested Preview head was superseded; refusing to dispatch a different head.' >&2
-              exit 75
-            }
           fi
+          if [[ "$state" == closed ]]; then
+            echo 'disposition=closed' >> "$GITHUB_OUTPUT"
+            echo "head_sha=$REQUESTED_HEAD_SHA" >> "$GITHUB_OUTPUT"
+            echo "pr_number=$REQUESTED_PR" >> "$GITHUB_OUTPUT"
+            echo 'The pull request closed before Preview work began; no Preview transaction will run.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ -n "$REQUESTED_HEAD_SHA" && "$head_sha" != "$REQUESTED_HEAD_SHA" ]]; then
+            echo 'disposition=superseded' >> "$GITHUB_OUTPUT"
+            echo "head_sha=$REQUESTED_HEAD_SHA" >> "$GITHUB_OUTPUT"
+            echo "pr_number=$REQUESTED_PR" >> "$GITHUB_OUTPUT"
+            echo 'This Preview revision was superseded before work began; no outdated head will run.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo 'disposition=current' >> "$GITHUB_OUTPUT"
           echo "pr_number=$REQUESTED_PR" >> "$GITHUB_OUTPUT"
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
 
   validate:
     name: Validate untrusted PR code without Preview credentials
     needs: resolve
-    if: (github.event_name == 'workflow_dispatch' && contains(fromJSON('["build","deploy"]'), inputs.action)) || (github.event_name == 'pull_request_target' && github.event.action != 'closed')
+    if: needs.resolve.outputs.disposition == 'current' && ((github.event_name == 'workflow_dispatch' && contains(fromJSON('["build","deploy"]'), inputs.action)) || (github.event_name == 'pull_request_target' && github.event.action != 'closed'))
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
@@ -161,7 +175,7 @@ jobs:
   build:
     name: Build immutable Preview images with trusted recipes
     needs: [resolve, validate]
-    if: (github.event_name == 'workflow_dispatch' && contains(fromJSON('["build","deploy"]'), inputs.action)) || (github.event_name == 'pull_request_target' && github.event.action != 'closed')
+    if: needs.resolve.outputs.disposition == 'current' && ((github.event_name == 'workflow_dispatch' && contains(fromJSON('["build","deploy"]'), inputs.action)) || (github.event_name == 'pull_request_target' && github.event.action != 'closed'))
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
@@ -234,7 +248,7 @@ jobs:
   deploy:
     name: Deploy exact PR head through trusted Preview runner
     needs: [resolve, build]
-    if: (github.event_name == 'workflow_dispatch' && contains(fromJSON('["build","deploy"]'), inputs.action)) || (github.event_name == 'pull_request_target' && github.event.action != 'closed')
+    if: needs.resolve.outputs.disposition == 'current' && ((github.event_name == 'workflow_dispatch' && contains(fromJSON('["build","deploy"]'), inputs.action)) || (github.event_name == 'pull_request_target' && github.event.action != 'closed'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
@@ -246,6 +260,7 @@ jobs:
       pull-requests: read
     steps:
       - name: Revalidate exact PR head before VPS handoff
+        id: freshness
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -253,14 +268,23 @@ jobs:
           REQUESTED_SHA: ${{ needs.resolve.outputs.head_sha }}
         run: |
           set -euo pipefail
-          gh api "repos/$PREVIEW_REPOSITORY/pulls/$PR_NUMBER" | jq -e \
-            --arg repository "$PREVIEW_REPOSITORY" --arg sha "$REQUESTED_SHA" '
-              .state == "open" and .base.ref == "main" and
-              .base.repo.full_name == $repository and .head.repo.full_name == $repository and
-              .head.sha == $sha
-            ' >/dev/null
+          pr_json=$(gh api "repos/$PREVIEW_REPOSITORY/pulls/$PR_NUMBER")
+          jq -e --arg repository "$PREVIEW_REPOSITORY" '
+            .base.ref == "main" and .base.repo.full_name == $repository and
+            .head.repo.full_name == $repository and
+            (.state == "open" or .state == "closed") and
+            (.head.sha | test("^[0-9a-f]{40}$"))
+          ' <<<"$pr_json" >/dev/null
+          if jq -e --arg sha "$REQUESTED_SHA" '
+            .state == "open" and .head.sha == $sha
+          ' <<<"$pr_json" >/dev/null; then
+            echo 'disposition=current' >> "$GITHUB_OUTPUT"
+          else
+            echo 'disposition=superseded' >> "$GITHUB_OUTPUT"
+            echo 'The pull request closed or advanced before credential handoff; no outdated Preview transaction will run.' >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Create transient GitHub deployment
-        if: inputs.action == 'deploy'
+        if: steps.freshness.outputs.disposition == 'current' && inputs.action == 'deploy'
         id: github-deployment
         shell: bash
         env:
@@ -282,6 +306,7 @@ jobs:
            "log_url":"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"}
           JSON
       - name: Load Preview-only controller credentials
+        if: steps.freshness.outputs.disposition == 'current'
         id: preview-secrets
         uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
         env:
@@ -290,6 +315,7 @@ jobs:
           TS_OAUTH_CLIENT_ID: op://projects/Project Space Preview Tailscale CI Client ID/credential
           TS_OAUTH_SECRET: op://projects/Project Space Preview Tailscale CI Secret/credential
       - name: Configure forced-command Preview SSH identity
+        if: steps.freshness.outputs.disposition == 'current'
         shell: bash
         env:
           SSH_PRIVATE_KEY: ${{ steps.preview-secrets.outputs.SSH_PRIVATE_KEY }}
@@ -315,6 +341,7 @@ jobs:
           SSH_CONFIG
           chmod 600 "$HOME/.ssh/config" "$HOME/.ssh/known_hosts" "$HOME/.ssh/project-space-preview"
       - name: Connect ephemeral Preview CI identity to Tailscale
+        if: steps.freshness.outputs.disposition == 'current'
         uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
         with:
           oauth-client-id: ${{ steps.preview-secrets.outputs.TS_OAUTH_CLIENT_ID }}
@@ -323,6 +350,7 @@ jobs:
           ping: ${{ vars.PROJECT_SPACE_PREVIEW_DEPLOY_IP }}
       - name: Apply trusted Preview transaction
         id: apply
+        if: steps.freshness.outputs.disposition == 'current'
         shell: bash
         env:
           DOCS_DIGEST: ${{ needs.build.outputs.docs_digest }}
@@ -367,8 +395,36 @@ jobs:
           fi
           echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
           echo "receipt_valid=$receipt_valid" >> "$GITHUB_OUTPUT"
+      - name: Classify exact-head state after runner handoff
+        id: handoff
+        if: always() && steps.freshness.outputs.disposition == 'current'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          REQUESTED_SHA: ${{ needs.resolve.outputs.head_sha }}
+          RUNNER_EXIT_CODE: ${{ steps.apply.outputs.exit_code }}
+        run: |
+          set -euo pipefail
+          pr_json=$(gh api "repos/$PREVIEW_REPOSITORY/pulls/$PR_NUMBER")
+          jq -e --arg repository "$PREVIEW_REPOSITORY" '
+            .base.ref == "main" and .base.repo.full_name == $repository and
+            .head.repo.full_name == $repository and
+            (.state == "open" or .state == "closed") and
+            (.head.sha | test("^[0-9a-f]{40}$"))
+          ' <<<"$pr_json" >/dev/null
+          if jq -e --arg sha "$REQUESTED_SHA" '
+            .state == "open" and .head.sha == $sha
+          ' <<<"$pr_json" >/dev/null; then
+            echo 'disposition=current' >> "$GITHUB_OUTPUT"
+          elif [[ "$RUNNER_EXIT_CODE" == 75 ]]; then
+            echo 'disposition=superseded' >> "$GITHUB_OUTPUT"
+            echo 'The runner refused a positively superseded exact head; this is not a product regression.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'disposition=unsafe-supersession' >> "$GITHUB_OUTPUT"
+          fi
       - name: Publish GitHub deployment result
-        if: always() && inputs.action == 'deploy'
+        if: always() && steps.freshness.outputs.disposition == 'current' && inputs.action == 'deploy'
         shell: bash
         env:
           DEPLOYMENT_ID: ${{ steps.github-deployment.outputs.deployment_id }}
@@ -385,7 +441,22 @@ jobs:
           error_code=preview_infrastructure_failure
           description='Preview deployment failed.'
           summary='The trusted Preview runner failed without valid exact-head evidence.'
-          if [[ "$RUNNER_EXIT_CODE" == 0 && "$RUNNER_RECEIPT_VALID" == true ]] && jq -e \
+          if [[ "${{ steps.handoff.outcome }}" != success ]]; then
+            failure_class=application_regression
+            error_code=preview_supersession_fence_failed
+            summary='The post-run exact-head fence could not be proven; success is forbidden.'
+          elif [[ "${{ steps.handoff.outputs.disposition }}" == superseded ]]; then
+            state=inactive
+            transition_state=superseded
+            failure_class=none
+            error_code=preview_superseded
+            description='Preview revision superseded; no outdated head was deployed.'
+            summary='The runner positively refused the outdated exact head.'
+          elif [[ "${{ steps.handoff.outputs.disposition }}" != current ]]; then
+            failure_class=application_regression
+            error_code=preview_supersession_fence_failed
+            summary='The pull request advanced without a positive runner supersession refusal, or exact-head evidence was incomplete.'
+          elif [[ "$RUNNER_EXIT_CODE" == 0 && "$RUNNER_RECEIPT_VALID" == true ]] && jq -e \
             --arg repository "$PREVIEW_REPOSITORY" \
             --argjson pr "$PR_NUMBER" \
             --arg sha "$REQUESTED_SHA" \
@@ -446,10 +517,10 @@ jobs:
            "environment_url":"https://pr-$PR_NUMBER.projects.os-home.net",
            "log_url":"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID","description":"$description"}
           JSON
-          [[ "$state" == success || "$state" == pending ]]
+          [[ "$state" == success || "$state" == pending || "$state" == inactive ]]
 
       - name: Verify offline Preview registration
-        if: inputs.action == 'build' || github.event_name == 'pull_request_target'
+        if: steps.handoff.outputs.disposition == 'current' && (inputs.action == 'build' || github.event_name == 'pull_request_target')
         shell: bash
         env:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
@@ -473,8 +544,18 @@ jobs:
              (.runningSha == null or .runningSha == "") and
              .prototypeHealthy == false' preview-result.json >/dev/null
 
+      - name: Record neutral superseded registration
+        if: steps.handoff.outputs.disposition == 'superseded' && (inputs.action == 'build' || github.event_name == 'pull_request_target')
+        run: echo 'Superseded exact head was positively refused; no outdated Preview was registered.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail closed when the supersession fence is not proven
+        if: steps.handoff.outputs.disposition == 'unsafe-supersession'
+        run: |
+          echo 'The Preview supersession fence was not positively proven.' >&2
+          exit 1
+
       - name: Upload sanitized Preview transition evidence
-        if: always() && inputs.action == 'deploy'
+        if: always() && steps.freshness.outputs.disposition == 'current' && inputs.action == 'deploy'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: preview-transition-${{ needs.resolve.outputs.pr_number }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -488,7 +569,7 @@ jobs:
   lifecycle:
     name: Explicitly start or stop a registered Preview
     needs: resolve
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["start","stop","touch"]'), inputs.action)
+    if: needs.resolve.outputs.disposition == 'current' && github.event_name == 'workflow_dispatch' && contains(fromJSON('["start","stop","touch"]'), inputs.action)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:

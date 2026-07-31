@@ -182,6 +182,57 @@ printf '%s\\n' '{"state":"open","base":{"ref":"main","repo":{"full_name":"DotNao
     });
   });
 
+  test('refuses a registration superseded under the runner lock without recording it', async () => {
+    const { bin, root } = await testRoot();
+    const requestedSha = 'a'.repeat(40);
+    const newerSha = 'f'.repeat(40);
+    const countFile = join(root, 'github-read-count');
+    const digest = (kind: string, character: string) =>
+      `ghcr.io/dotnaos/project-space-preview-${kind}@sha256:${character.repeat(64)}`;
+    await mkdir(join(root, 'config'), { recursive: true });
+    await writeFile(
+      join(root, 'config/project-space-preview.env'),
+      'PREVIEW_MAX_ACTIVE=2\nPREVIEW_MIN_FREE_BYTES=1\nPREVIEW_STORAGE_BUDGET_BYTES=100000000\n',
+    );
+    await mkdir(join(root, 'share/project-space-preview'), { recursive: true });
+    await writeFile(join(root, 'share/project-space-preview/preview.compose.yml'), 'services: {}\n');
+    await writeFile(
+      join(bin, 'curl'),
+      `#!/bin/sh
+count=0
+[ ! -f ${JSON.stringify(countFile)} ] || count=$(cat ${JSON.stringify(countFile)})
+count=$((count + 1))
+printf '%s' "$count" > ${JSON.stringify(countFile)}
+sha=${requestedSha}
+[ "$count" -eq 1 ] || sha=${newerSha}
+printf '%s\n' "{\"state\":\"open\",\"base\":{\"ref\":\"main\",\"repo\":{\"full_name\":\"DotNaos/project-space\"}},\"head\":{\"sha\":\"$sha\",\"repo\":{\"full_name\":\"DotNaos/project-space\"}}}"
+`,
+    );
+    await chmod(join(bin, 'curl'), 0o755);
+
+    const result = runRunner({
+      docsImage: digest('docs', 'b'),
+      gatewayImage: digest('gateway', 'c'),
+      headSha: requestedSha,
+      mode: 'register',
+      prNumber: 263,
+      prototypeImage: digest('prototype', 'd'),
+      repository: 'DotNaos/project-space',
+      webImage: digest('web', 'e'),
+    }, 'register', root, bin);
+
+    expect(result.status).toBe(75);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('could not be proven open on the requested exact head');
+    const status = runRunner(
+      { repository: 'DotNaos/project-space', prNumber: 263 },
+      'status',
+      root,
+      bin,
+    );
+    expect(JSON.parse(status.stdout)).toMatchObject({ state: 'absent' });
+  });
+
   test('idempotent destroy proves absence and writes a bounded tombstone without inventing a SHA', async () => {
     const { bin, root } = await testRoot();
     const result = runRunner({
@@ -251,6 +302,10 @@ printf '%s\\n' '{"state":"open","base":{"ref":"main","repo":{"full_name":"DotNao
     ]);
 
     expect(runner).toContain('revalidate_open_pr "$head_sha"');
+    expect(runner).toContain('open_pr_is_current "$head_sha"');
+    expect(runner).toContain('open_pr_is_current "$requested_sha"');
+    expect(runner).toContain('refuse_superseded_activation');
+    expect(runner).toContain('target resources were removed');
     expect(runner.indexOf('acquire_lock')).toBeLessThan(runner.indexOf('revalidate_open_pr "$head_sha"'));
     expect(runner).toContain('project-space-preview-${kind}@sha256:');
     expect(runner).toContain('RUNTIME_ROOT=$PLATFORM_ROOT/previews/project-space');
@@ -274,7 +329,7 @@ printf '%s\\n' '{"state":"open","base":{"ref":"main","repo":{"full_name":"DotNao
     expect(runner).toContain('preview_quota_full');
     expect(runner).toContain('preview_storage_low');
     expect(runner).toContain(
-      "fail 'could not revalidate PR under lock' 75",
+      "fail 'PR could not be proven open on the requested exact head under lock' 75",
     );
     expect(runner).toContain('acquire_lifecycle_locks');
     expect(runner).toContain('flock -w 900 8');
