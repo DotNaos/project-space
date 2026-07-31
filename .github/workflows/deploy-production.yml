@@ -421,6 +421,9 @@ jobs:
           set -euo pipefail
           tar -C deploy -czf - \
             preview-runner.sh \
+            preview-reaper.sh \
+            preview-runtime-verification.sh \
+            preview-storage-policy.sh \
             preview-ssh-entrypoint.sh \
             preview-status-entrypoint.sh \
             preview.compose.yml |
@@ -449,6 +452,9 @@ jobs:
             cd deploy
             sha256sum \
               preview-runner.sh \
+              preview-reaper.sh \
+              preview-runtime-verification.sh \
+              preview-storage-policy.sh \
               preview-ssh-entrypoint.sh \
               preview-status-entrypoint.sh \
               preview.compose.yml
@@ -458,6 +464,9 @@ jobs:
               cd /opt/platform/share/project-space-preview-current
               sha256sum \
                 preview-runner.sh \
+                preview-reaper.sh \
+                preview-runtime-verification.sh \
+                preview-storage-policy.sh \
                 preview-ssh-entrypoint.sh \
                 preview-status-entrypoint.sh \
                 preview.compose.yml
