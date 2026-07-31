@@ -137,6 +137,8 @@ describe('Preview gateway', () => {
 
   test('requires a trusted authenticated viewing grant before serving prototype code', async () => {
     const fixture = await gatewayFixture();
+    expect((await fixture.request('/prototype/meta.json')).status).toBe(302);
+    expect(fixture.prototypeRequests).toHaveLength(0);
     const unauthenticated = await fixture.request(
       '/prototype/desktop/?change=secure-live-context&scenario=ready&viewport=phone',
       'valid-clerk-token'

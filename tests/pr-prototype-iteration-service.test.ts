@@ -205,6 +205,7 @@ function fixture() {
       async start(input) {
         calls.start.push(input);
         const result = overview('running');
+        values.servers = result;
         values.afterStart?.();
         return result;
       }
@@ -396,6 +397,26 @@ describe('pull request prototype iteration service', () => {
     });
     expect(changed.calls.start).toHaveLength(1);
     expect(changed.calls.register).toHaveLength(0);
+  });
+
+  test('refreshes runtime evidence and refuses a stale post-start lease', async () => {
+    const staleRuntime = fixture();
+    staleRuntime.values.afterStart = () => {
+      staleRuntime.values.servers = {
+        ...overview('running'),
+        servers: [{
+          ...overview('running').servers[0]!,
+          checkedAt: '2026-07-30T09:59:40.000Z'
+        }]
+      };
+    };
+    expect(await staleRuntime.service.start('user-1', request)).toMatchObject({
+      action: 'none',
+      reasonCode: 'dev-server-undeclared',
+      state: 'unavailable'
+    });
+    expect(staleRuntime.calls.start).toHaveLength(1);
+    expect(staleRuntime.calls.register).toHaveLength(0);
   });
 
   test('fails closed for a changed PR head and mismatched worktree', async () => {

@@ -226,7 +226,13 @@ verify_runtime() {
       .preview.identity.repositoryFullName == $repository and
       .preview.identity.pullRequestNumber == $pr and
       .preview.identity.headSha == $sha' >/dev/null || return 1
-  prototype_meta=$(curl --fail --silent --show-error --max-time 20 "https://$domain/prototype/meta.json") || return 1
+  gateway_container=$(compose ps -q gateway)
+  [ -n "$gateway_container" ] || return 1
+  prototype_meta=$(docker exec "$gateway_container" node --input-type=module -e '
+    const response = await fetch("http://preview-prototype:8080/prototype/meta.json");
+    if (!response.ok) process.exit(1);
+    process.stdout.write(await response.text());
+  ') || return 1
   [ "$(printf '%s' "$prototype_meta" | jq -er '.commit')" = "$sha" ] || return 1
   printf '%s' "$prototype_meta" |
     jq -e '.surfaces == ["mobile-prototype","desktop-prototype"]' >/dev/null || return 1

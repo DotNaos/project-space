@@ -25,6 +25,7 @@ import type {
 import type { PullRequestDevServerLease } from './pr-test-surfaces/lease-service';
 
 const evidenceFreshnessMs = 45_000;
+const leaseEvidenceFreshnessMs = 15_000;
 
 interface IterationDependencies {
   devServers: {
@@ -118,10 +119,14 @@ function blocked(
   };
 }
 
-function isFresh(value: string | undefined, checkedAt: Date) {
+function isFresh(
+  value: string | undefined,
+  checkedAt: Date,
+  maximumAgeMs = evidenceFreshnessMs
+) {
   const observed = value ? Date.parse(value) : Number.NaN;
   const age = checkedAt.getTime() - observed;
-  return Number.isFinite(observed) && age >= -5_000 && age <= evidenceFreshnessMs;
+  return Number.isFinite(observed) && age >= -5_000 && age <= maximumAgeMs;
 }
 
 function containsPath(root: string, candidate: string | undefined) {
@@ -383,7 +388,7 @@ export function createPullRequestPrototypeIterationService(
     const checkedAt = now().toISOString();
     try {
       const target = await discover(userId, input);
-      const overview = await dependencies.devServers.start({
+      await dependencies.devServers.start({
         machineId: target.identity.connectorId,
         projectId: target.identity.projectId,
         serverId: target.identity.serverId,
@@ -401,16 +406,21 @@ export function createPullRequestPrototypeIterationService(
         );
       }
       const identity = verifiedAfterStart.identity;
-      const server = overview.servers.find((candidate) =>
+      const runtimeOverview = await dependencies.devServers.inspect({
+        machineId: identity.connectorId,
+        projectId: identity.projectId
+      });
+      const server = runtimeOverview.servers.find((candidate) =>
         candidate.worktreeId === identity.worktreeId &&
         candidate.serverId === identity.serverId
       );
       if (
+        !['owner', 'member'].includes(runtimeOverview.access) ||
         !server ||
         server.state !== 'running' ||
         !server.tailscaleIPv4 ||
         !server.publicPort ||
-        !isFresh(server.checkedAt, now())
+        !isFresh(server.checkedAt, now(), leaseEvidenceFreshnessMs)
       ) {
         throw new IterationBlocked(
           'unavailable',

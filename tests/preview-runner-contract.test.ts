@@ -153,6 +153,12 @@ describe('trusted Preview runner contract', () => {
     expect(runner).toContain('.preview.identity.repositoryFullName == $repository');
     expect(runner).toContain('.preview.identity.pullRequestNumber == $pr');
     expect(runner).toContain('.preview.identity.headSha == $sha');
+    expect(runner).toContain(
+      'fetch("http://preview-prototype:8080/prototype/meta.json")'
+    );
+    expect(runner).not.toContain(
+      '"https://$domain/prototype/meta.json"'
+    );
     expect(runner).toContain('"https://$domain/docs/changelog?pr=$pr"');
     expect(runner).toContain('max_attempts=12');
     expect(runner).toContain('sleep 5');
