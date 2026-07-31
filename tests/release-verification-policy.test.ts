@@ -42,12 +42,24 @@ describe('release verification policy', () => {
       '.github/actions/release-quality/action.yml',
       'utf8',
     );
+    const quality = readFileSync(
+      '.github/workflows/release-quality.yml',
+      'utf8',
+    );
+    const linux = readFileSync(
+      '.github/workflows/release-linux.yml',
+      'utf8',
+    );
+    const windows = readFileSync(
+      '.github/workflows/release-windows.yml',
+      'utf8',
+    );
     const docs = readFileSync('docs/ci-reliability.md', 'utf8');
-    const windows = workflow.slice(
+    const windowsCall = workflow.slice(
       workflow.indexOf('  windows-x64:'),
       workflow.indexOf('  linux-x64:'),
     );
-    const linux = workflow.slice(
+    const linuxCall = workflow.slice(
       workflow.indexOf('  linux-x64:'),
       workflow.indexOf('  macos-arm64:'),
     );
@@ -63,23 +75,79 @@ describe('release verification policy', () => {
       "cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
     );
     expect(workflow).toContain(
-      'full-matrix: ${{ steps.quality.outputs.full-matrix }}',
+      'full-matrix: ${{ steps.classify.outputs.full-matrix }}',
     );
-    expect(windows).toContain(
-      "if: needs.quality.outputs.full-matrix == 'true'",
+    expect(workflow).toContain(
+      'uses: ./.github/workflows/release-quality.yml',
     );
+    expect(windowsCall).toContain(
+      "if: needs.classify.outputs.full-matrix == 'true'",
+    );
+    expect(windowsCall).toContain('uses: ./.github/workflows/release-windows.yml');
     expect(macos).toContain(
-      "if: needs.quality.outputs.full-matrix == 'true'",
+      "if: needs.classify.outputs.full-matrix == 'true'",
     );
-    expect(linux).not.toContain('full-matrix');
+    expect(linuxCall).not.toContain('full-matrix');
+    expect(linuxCall).toContain('uses: ./.github/workflows/release-linux.yml');
+    expect(workflow).toContain('name: Cross-platform quality gates');
+    expect(workflow).toContain(
+      'SHARED_QUALITY_RESULT: ${{ needs.shared-quality.result }}',
+    );
+    expect(workflow).toContain('[[ "$SHARED_QUALITY_RESULT" == success ]]');
     expect(workflow).toContain('name: Release verification policy');
+    expect(workflow).toContain('QUALITY_RESULT: ${{ needs.quality.result }}');
+    expect(workflow).toContain('[[ "$QUALITY_RESULT" == success ]]');
     expect(workflow).toContain(
       '[[ "$WINDOWS_RESULT" == skipped && "$MACOS_RESULT" == skipped ]]',
     );
+
     expect(action).toContain('bun scripts/release-verification-policy.ts');
-    expect(action).toContain('go test -race ./...');
+    expect(action).not.toContain('bun install');
+    expect(action).not.toContain('bun test');
+    expect(action).not.toContain('go test');
+    expect(action).not.toContain('go vet');
+
+    const typescript = quality.slice(
+      quality.indexOf('  typescript:'),
+      quality.indexOf('  mobile:'),
+    );
+    const mobile = quality.slice(
+      quality.indexOf('  mobile:'),
+      quality.indexOf('  go:'),
+    );
+    const go = quality.slice(quality.indexOf('  go:'));
+    expect(typescript).not.toContain('needs:');
+    expect(mobile).not.toContain('needs:');
+    expect(go).not.toContain('needs:');
+    expect(typescript).toContain('bun run check');
+    expect(typescript).toContain('bun test --isolate');
+    expect(typescript).toContain('bun run build:web');
+    expect(mobile).toContain(
+      'bunx pnpm@11.10.0 --ignore-workspace install --frozen-lockfile',
+    );
+    expect(mobile).toContain('bun run build:prototype');
+    expect(go).toContain('go test -race ./...');
+    expect(go).toContain('go vet ./...');
+
+    const exactCacheKey =
+      "key: bun-${{ runner.os }}-${{ runner.arch }}-1.3.14-${{ hashFiles('bun.lock') }}";
+    for (const cachedWorkflow of [quality, linux, windows]) {
+      expect(cachedWorkflow).toContain(
+        'actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830',
+      );
+      expect(cachedWorkflow).toContain(exactCacheKey);
+      expect(cachedWorkflow).not.toContain('restore-keys:');
+    }
+    expect(linux).toContain('packaging/linux/test-release-packaging.sh "$VERSION"');
+    expect(linux).not.toContain('go test ');
+    expect(linux).not.toContain('go vet ');
+    expect(windows).toContain('bun test tests/windows-release-version.test.ts');
+    expect(windows).not.toContain('bun run check');
+    expect(windows).toContain('packaging\\windows\\test-release-packaging.ps1');
+    expect(windows).toContain('winget validate --ignore-warnings');
+
     expect(docs).toContain(
-      '| Ordinary sequential patch | required | required | required | skipped | skipped |',
+      '| Ordinary sequential patch | required | required | required | required | required | skipped | skipped |',
     );
     expect(docs).toContain(
       '| Median runner use | 8.65 min | 4.35 min | -49.7% |',

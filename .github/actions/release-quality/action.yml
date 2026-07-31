@@ -1,5 +1,5 @@
-name: Validate release source
-description: Classify and run the source-level release quality gates.
+name: Classify release source
+description: Validate the exact source and select the required release verification matrix.
 inputs:
   base-sha:
     description: Exact pull request base SHA
@@ -26,11 +26,6 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Set up Go
-      uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-      with:
-        go-version-file: go.mod
-        cache: true
     - name: Set up Bun
       uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       with:
@@ -59,17 +54,3 @@ runs:
         printf 'Verification mode: `%s` — %s\n' \
           "$(jq -r '.mode' <<<"$policy")" \
           "$(jq -r '.reason' <<<"$policy")" >> "$GITHUB_STEP_SUMMARY"
-    - name: Install dependencies
-      shell: bash
-      run: bun install --frozen-lockfile
-    - name: Test and build TypeScript
-      shell: bash
-      run: |
-        bun run check
-        bun test --isolate
-        bun run build
-    - name: Test and vet Go
-      shell: bash
-      run: |
-        go test -race ./...
-        go vet ./...

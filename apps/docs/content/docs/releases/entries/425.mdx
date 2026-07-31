@@ -22,6 +22,8 @@ upgrade: "none"
 ### Changed
 
 - Ordinary patch pull requests use measured Linux verification while release-critical and platform changes retain every platform gate
+- Mandatory TypeScript, mobile, Go, trust-root, and platform checks begin in parallel after exact-source classification
+- Preview web, docs, prototype, and gateway images build concurrently from trusted recipes
 - Draft pull requests wait for a real numbered release entry before trusted validation starts
 - Preview capacity limits remain visible as pending work instead of appearing as product regressions
 

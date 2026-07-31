@@ -139,10 +139,10 @@ jobs:
       contents: read
       packages: write
     outputs:
-      docs_digest: ${{ steps.docs.outputs.digest }}
-      gateway_digest: ${{ steps.gateway.outputs.digest }}
-      prototype_digest: ${{ steps.prototype.outputs.digest }}
-      web_digest: ${{ steps.web.outputs.digest }}
+      docs_digest: ${{ steps.digests.outputs.docs_digest }}
+      gateway_digest: ${{ steps.digests.outputs.gateway_digest }}
+      prototype_digest: ${{ steps.digests.outputs.prototype_digest }}
+      web_digest: ${{ steps.digests.outputs.web_digest }}
     steps:
       - name: Check out trusted workflow assets
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -164,46 +164,41 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - name: Build and publish PR web image from trusted Dockerfile
-        id: web
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: source
-          file: trusted/deploy/preview.web.Dockerfile
-          build-args: |
-            PROJECT_SPACE_BUILD_COMMIT=${{ needs.resolve.outputs.head_sha }}
-            VITE_CLERK_PUBLISHABLE_KEY=${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
-          push: true
-          tags: ghcr.io/dotnaos/project-space-preview-web:pr-${{ needs.resolve.outputs.pr_number }}-${{ needs.resolve.outputs.head_sha }}
-      - name: Build and publish PR docs image from trusted Dockerfile
-        id: docs
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: source
-          file: trusted/deploy/preview.docs.Dockerfile
-          build-args: PROJECT_SPACE_BUILD_COMMIT=${{ needs.resolve.outputs.head_sha }}
-          push: true
-          tags: ghcr.io/dotnaos/project-space-preview-docs:pr-${{ needs.resolve.outputs.pr_number }}-${{ needs.resolve.outputs.head_sha }}
-      - name: Build and publish static PR prototype image from trusted Dockerfile
-        id: prototype
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: source
-          file: trusted/deploy/preview.prototype.Dockerfile
-          build-contexts: |
-            trusted-assets=trusted
-          build-args: PROJECT_SPACE_BUILD_COMMIT=${{ needs.resolve.outputs.head_sha }}
-          push: true
-          tags: ghcr.io/dotnaos/project-space-preview-prototype:pr-${{ needs.resolve.outputs.pr_number }}-${{ needs.resolve.outputs.head_sha }}
-      - name: Build trusted gateway exclusively from main-owned source
-        id: gateway
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: trusted
-          file: trusted/deploy/preview.gateway.Dockerfile
-          build-args: PROJECT_SPACE_BUILD_COMMIT=${{ github.workflow_sha }}
-          push: true
-          tags: ghcr.io/dotnaos/project-space-preview-gateway:${{ github.workflow_sha }}
+      - name: Build and publish Preview images concurrently from trusted recipes
+        env:
+          PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          SOURCE_CONTEXT: ${{ github.workspace }}/source
+          TRUSTED_CONTEXT: ${{ github.workspace }}/trusted
+          TRUSTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
+        run: |
+          set -euo pipefail
+          metadata_file="$RUNNER_TEMP/preview-bake-metadata.json"
+          docker buildx bake \
+            --file trusted/deploy/preview-bake.hcl \
+            --metadata-file "$metadata_file" \
+            --push \
+            preview-images
+      - name: Validate and expose immutable Preview image digests
+        id: digests
+        env:
+          METADATA_FILE: ${{ runner.temp }}/preview-bake-metadata.json
+        run: |
+          set -euo pipefail
+          for target in web docs prototype gateway; do
+            if ! digest="$(
+              jq -er \
+                --arg target "$target" \
+                '.[$target]["containerimage.digest"]
+                  | select(type == "string" and test("^sha256:[0-9a-f]{64}$"))' \
+                "$METADATA_FILE"
+            )"; then
+              echo "::error::Bake did not return a valid immutable digest for $target"
+              exit 1
+            fi
+            printf '%s_digest=%s\n' "$target" "$digest" >> "$GITHUB_OUTPUT"
+          done
 
   deploy:
     name: Deploy exact PR head through trusted Preview runner

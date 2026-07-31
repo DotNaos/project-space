@@ -10,7 +10,10 @@ const releaseWorkflowPaths = [
   '.github/actions/release-quality/action.yml',
   '.github/workflows/release.yml',
   '.github/workflows/release-trust-roots.yml',
+  '.github/workflows/release-quality.yml',
+  '.github/workflows/release-linux.yml',
   '.github/workflows/release-macos.yml',
+  '.github/workflows/release-windows.yml',
   '.github/workflows/release-manifest-sign.yml',
   '.github/workflows/release-publish.yml'
 ] as const;
@@ -86,7 +89,7 @@ describe('connector release and production deployment contract', () => {
     const buildInfo = await source('server/connector-build-info.ts');
     const linuxCodexPreparation = await source('packaging/linux/prepare-codex-runtime.sh');
     const linuxCodexSmoke = await source('packaging/linux/smoke-codex-runtime.ts');
-    const releaseWorkflow = await source('.github/workflows/release.yml');
+    const linuxReleaseWorkflow = await source('.github/workflows/release-linux.yml');
     const windowsPackaging = await source('packaging/windows/test-release-packaging.ps1');
     const windowsDocumentation = await source('docs/windows-installation.md');
 
@@ -100,8 +103,8 @@ describe('connector release and production deployment contract', () => {
     expect(linuxCodexSmoke).toContain("import { CodexStdioTransport }");
     expect(linuxCodexSmoke).toContain('launch: (path) => CodexStdioTransport.launch({');
     expect(linuxCodexSmoke).toContain('binaryPath: path');
-    expect(releaseWorkflow).toContain('prepare-codex-runtime.sh "$(pwd -P)/dist/linux"');
-    expect(releaseWorkflow).toContain(
+    expect(linuxReleaseWorkflow).toContain('prepare-codex-runtime.sh "$(pwd -P)/dist/linux"');
+    expect(linuxReleaseWorkflow).toContain(
       'bun packaging/linux/smoke-codex-runtime.ts "$(pwd -P)/dist/linux/codex"'
     );
     expect(packageJson.scripts['build:project-cli:macos-arm64:finalize']).toContain(

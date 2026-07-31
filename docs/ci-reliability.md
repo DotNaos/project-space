@@ -35,18 +35,34 @@ One-time migration for pull requests created before this contract:
 The policy fails closed to the full matrix when its version or changed paths
 are missing or ambiguous.
 
-| Change | Ubuntu quality | Trust roots | Linux artifact | Windows | macOS |
-| --- | --- | --- | --- | --- | --- |
-| Ordinary sequential patch | required | required | required | skipped | skipped |
-| Minor or major version | required | required | required | required | required |
-| Release candidate or ambiguous version | required | required | required | required | required |
-| Platform-specific or release-critical path | required | required | required | required | required |
-| Tag release or on-demand verification | required | required | required | required | required |
+| Change | TypeScript/web | Mobile Expo | Go race/vet | Trust roots | Linux artifact | Windows | macOS |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Ordinary sequential patch | required | required | required | required | required | skipped | skipped |
+| Minor or major version | required | required | required | required | required | required | required |
+| Release candidate or ambiguous version | required | required | required | required | required | required | required |
+| Platform-specific or release-critical path | required | required | required | required | required | required | required |
+| Tag release or on-demand verification | required | required | required | required | required | required | required |
 
-The Ubuntu quality lane still runs all TypeScript checks and tests, the complete
-build, race-enabled Go tests, and Go vet. The Linux lane proves the release
-artifact and trust-root handoff. The policy job verifies that skipped platforms
-match an ordinary patch classification; a missing required platform fails.
+Classification now finishes before the independent TypeScript/web, mobile Expo,
+Go race/vet, trust-root, and selected platform lanes start. TypeScript tests and
+web builds, the mobile Expo export, race-enabled Go tests, and Go vet therefore
+remain mandatory for every release pull request without forming one serial
+queue. The Linux lane proves the release artifact and exact trust-root handoff.
+The final policy requires the complete shared-quality workflow and every
+selected platform to succeed; a missing required lane fails.
+
+Linux no longer repeats targeted Go tests and vet already covered on the same
+Ubuntu source by the mandatory Go lane. Windows retains its native packaging,
+platform-specific tests, Go verification, binary and installer builds, and
+WinGet validation, but no longer repeats the cross-platform TypeScript check.
+Exact Bun package-download caches have no broad fallback: their keys bind the
+runner OS, architecture, Bun 1.3.14, and exact lockfile hash. `bun install
+--frozen-lockfile` still validates every restored download.
+
+Inno Setup is deliberately not cached. Its installer download is checksum
+verified, but the current installer script does not authenticate a restored
+installed compiler tree before use. Caching that tree would trade speed for an
+unverified release input.
 
 Release-critical classification includes release workflows and their policy
 action, dependency manifests, packaging, approval signing, machine connection,
@@ -89,6 +105,12 @@ Ready is stricter: the runner verifies the certificate with the exact public
 hostname as both TLS server name and hostname before checking the exact PR head,
 images, runtime metadata, prototype metadata, health, and public origin.
 
+The four Preview images now build concurrently through one trusted Buildx Bake
+plan. The PR checkout remains only the web, docs, and prototype source context;
+all Dockerfiles, the gateway context, and prototype trusted assets come from the
+exact trusted workflow checkout. Deployment still receives only four validated
+immutable digests. No shared registry cache is used.
+
 ## Measured baseline and expected patch-path effect
 
 Measured on 2026-07-30 from the latest 25 successful `Release` pull-request runs
@@ -107,6 +129,24 @@ and Linux job durations from those same runs; it does not estimate job speed.
 The small policy job is not present in the historical sample, so live
 post-merge measurements should include its runtime. It is bounded to five
 minutes and performs no checkout or build.
+
+The parallel follow-up uses measured step components from the current workflow:
+about 19 seconds for a root Bun install, 105 seconds for TypeScript checks,
+tests, and builds, 43–46 seconds for the mobile Expo portion, and 48 seconds for
+Go race tests and vet. It also removes about 17 seconds of duplicate Linux Go
+checks and about 21 seconds of duplicate Windows TypeScript work. Those
+components support a roughly 1.75–2.25 minute ordinary-patch feedback target
+and a roughly 3.5 minute full-matrix target, but they are forecasts rather than
+post-merge observations. Cache hits and runner use must be measured from live
+runs after merge; splitting lanes adds small checkout/setup overhead even while
+reducing wall-clock feedback.
+
+The five most recent successful Preview image stages before the Bake change took
+5.32–5.82 minutes because web, docs, prototype, and gateway were built one after
+another. Their latest individual build times were about 2.10, 1.03, 1.23, and
+0.45 minutes. Concurrent execution therefore has a structural target of roughly
+2.5–3 minutes for the same stage, including setup and metadata validation. This
+is also a forecast until a live trusted Preview run records the after state.
 
 The preceding 48-hour audit found 54 failed workflow runs, including 31 manual
 retries. The new contracts remove the known avoidable red classifications
