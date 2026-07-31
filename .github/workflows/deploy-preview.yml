@@ -314,9 +314,13 @@ jobs:
             --arg prototype "ghcr.io/dotnaos/project-space-preview-prototype@$PROTOTYPE_DIGEST" \
             '{repository:$repository,prNumber:$pr,headSha:$sha,webImage:$web,docsImage:$docs,
               gatewayImage:$gateway,prototypeImage:$prototype}' |
-            ssh project-space-preview apply > preview-output.log
+            ssh project-space-preview apply > preview-output.log 2> preview-error.log
           exit_code=$?
           set -e
+          sed -E \
+            -e 's/([A-Za-z0-9_]*(TOKEN|PASSWORD|SECRET|PRIVATE_KEY)[A-Za-z0-9_]*)=[^[:space:]]+/\1=[REDACTED]/Ig' \
+            -e 's/(Bearer|Basic)[[:space:]]+[A-Za-z0-9._~+\/=-]+/\1 [REDACTED]/Ig' \
+            preview-error.log | tail -n 40 > preview-error.sanitized.log
           receipt_valid=false
           if jq -Rsce --arg prefix 'PROJECT_SPACE_PREVIEW_RECEIPT=' '
             split("\n")
@@ -345,7 +349,10 @@ jobs:
         run: |
           set -euo pipefail
           state=failure
+          transition_state=failed
+          error_code=preview_runner_failure
           description='Preview deployment failed.'
+          summary='The trusted Preview runner failed without valid exact-head evidence.'
           if [[ "$RUNNER_EXIT_CODE" == 0 && "$RUNNER_RECEIPT_VALID" == true ]] && jq -e \
             --arg repository "$PREVIEW_REPOSITORY" \
             --argjson pr "$PR_NUMBER" \
@@ -358,14 +365,57 @@ jobs:
              .prototypeMetaSha == $sha' \
             preview-result.json >/dev/null; then
             state=success
+            transition_state=ready
+            error_code=preview_ready
             description='Exact PR head is live and verified.'
+            summary='Exact PR head, public hostname, certificate, and runtime identity are verified.'
+          elif [[ "$RUNNER_EXIT_CODE" == 73 && "$RUNNER_RECEIPT_VALID" == true ]] && jq -e \
+            --arg repository "$PREVIEW_REPOSITORY" \
+            --argjson pr "$PR_NUMBER" \
+            --arg sha "$REQUESTED_SHA" \
+            '.state == "blocked_capacity" and
+             (.errorCode == "preview_quota_full" or .errorCode == "preview_storage_low") and
+             .repositoryFullName == $repository and
+             .pullRequestNumber == $pr and
+             .requestedSha == $sha' \
+            preview-result.json >/dev/null; then
+            state=pending
+            transition_state=blocked_capacity
+            error_code=$(jq -r '.errorCode' preview-result.json)
+            description='Blocked by Preview capacity; no product regression.'
+            summary=$(jq -r '.message' preview-result.json)
           fi
+          jq -n \
+            --arg errorCode "$error_code" \
+            --arg state "$transition_state" \
+            --arg summary "$summary" \
+            --arg repository "$PREVIEW_REPOSITORY" \
+            --argjson pr "$PR_NUMBER" \
+            --arg requestedSha "$REQUESTED_SHA" \
+            '{errorCode:$errorCode,state:$state,summary:$summary,
+              repositoryFullName:$repository,pullRequestNumber:$pr,
+              requestedSha:$requestedSha}' \
+            > preview-transition.json
+          printf 'Transition code: `%s`\n\nSummary: %s\n' \
+            "$error_code" "$summary" >> "$GITHUB_STEP_SUMMARY"
           gh api --method POST "repos/$PREVIEW_REPOSITORY/deployments/$DEPLOYMENT_ID/statuses" --input - <<JSON
           {"state":"$state","environment":"preview/pr-$PR_NUMBER","auto_inactive":true,
            "environment_url":"https://pr-$PR_NUMBER.projects.os-home.net",
            "log_url":"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID","description":"$description"}
           JSON
-          [[ "$state" == success ]]
+          [[ "$state" == success || "$state" == pending ]]
+
+      - name: Upload sanitized Preview transition evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: preview-transition-${{ needs.resolve.outputs.pr_number }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            preview-result.json
+            preview-transition.json
+            preview-error.sanitized.log
+          if-no-files-found: error
+          retention-days: 14
 
   cleanup:
     name: Remove closed or merged PR preview

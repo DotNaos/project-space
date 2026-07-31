@@ -33,13 +33,15 @@ async function main() {
   }
 
   const pullRequest = Number(requestedPullRequest);
+  const baseRef = releaseBaseRef();
   const headRef = releaseHeadRef();
   await run(['git', 'fetch', '--no-tags', 'origin', 'main']);
   await run(['git', 'fetch', '--tags', '--force', 'origin']);
+  await run(['git', 'cat-file', '-e', `${baseRef}^{commit}`]);
   await run(['git', 'cat-file', '-e', `${headRef}^{commit}`]);
 
   const currentMainVersion = packageVersion(
-    await gitText('show', 'origin/main:package.json'),
+    await gitText('show', `${baseRef}:package.json`),
     'latest main package.json',
   );
   const headPackageVersion = packageVersion(
@@ -51,14 +53,14 @@ async function main() {
       'diff',
       '--name-status',
       '--no-renames',
-      `origin/main...${headRef}`,
+      `${baseRef}...${headRef}`,
       '--',
       entryDirectory,
     ),
     headRef,
   );
   const headEntrySources = await readGitEntries(headRef);
-  const mainEntrySources = await readGitEntries('origin/main');
+  const mainEntrySources = await readGitEntries(baseRef);
   const ownedSource = headEntrySources.get(`${pullRequest}.mdx`);
   const parsedOwned = ownedSource
     ? parseReleaseEntryMdx(
@@ -192,6 +194,15 @@ function releaseHeadRef() {
   if (value === undefined || value === '') return 'HEAD';
   if (!/^[0-9a-f]{40}$/.test(value)) {
     fail('RELEASE_HEAD_SHA must be a full lowercase Git commit SHA.');
+  }
+  return value;
+}
+
+function releaseBaseRef() {
+  const value = process.env.RELEASE_BASE_SHA?.trim();
+  if (value === undefined || value === '') return 'origin/main';
+  if (!/^[0-9a-f]{40}$/.test(value)) {
+    fail('RELEASE_BASE_SHA must be a full lowercase Git commit SHA.');
   }
   return value;
 }

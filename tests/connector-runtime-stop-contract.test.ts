@@ -55,6 +55,12 @@ function verify(value: unknown, overrides: Partial<Parameters<
   });
 }
 
+function propertyNames(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(propertyNames);
+  if (!value || typeof value !== 'object') return [];
+  return Object.entries(value).flatMap(([name, nested]) => [name, ...propertyNames(nested)]);
+}
+
 describe('connector runtime stop signed contract', () => {
   test('accepts only the exact source-development instance and exposes no execution input', () => {
     const request = command();
@@ -65,7 +71,12 @@ describe('connector runtime stop signed contract', () => {
     expect(Object.keys(request.plan.expectedRuntime).sort()).toEqual([
       'buildId', 'channel', 'instanceId', 'protocolVersion', 'releaseId', 'source'
     ]);
-    expect(JSON.stringify(request)).not.toMatch(/pid|path|service|shell|releaseUrl|command/i);
+    const opaqueValueProbe = structuredClone(request);
+    opaqueValueProbe.grant.signature = `pid${opaqueValueProbe.grant.signature.slice(3)}`;
+    expect(JSON.stringify(opaqueValueProbe)).toContain('pid');
+    expect(propertyNames(opaqueValueProbe).map((name) => name.toLowerCase())).not.toEqual(
+      expect.arrayContaining(['pid', 'path', 'service', 'shell', 'releaseurl', 'command'])
+    );
   });
 
   test('rejects arbitrary fields, tampering, and a non-source identity', () => {

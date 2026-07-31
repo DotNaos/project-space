@@ -1,10 +1,6 @@
 name: Deploy production
 
 on:
-  push:
-    branches: [main]
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       commit:
@@ -41,26 +37,10 @@ jobs:
         run: |
           set -euo pipefail
           requested_commit="$REQUESTED_COMMIT"
-          if [[ "$GITHUB_EVENT_NAME" == release ]]; then
-            [[ "$GITHUB_REF" == refs/tags/v* ]] || {
-              echo 'Release-triggered deployment requires an immutable v* tag.' >&2
-              exit 64
-            }
-            main_metadata="$RUNNER_TEMP/current-main.json"
-            curl --fail --silent --show-error \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/commits/main" \
-              > "$main_metadata"
-            requested_commit=$(jq -er \
-              '.sha | select(test("^[0-9a-f]{40}$"))' \
-              "$main_metadata")
-          else
-            [[ "$GITHUB_REF" == refs/heads/main ]] || {
-              echo 'Manual production recovery must be dispatched from main.' >&2
-              exit 64
-            }
-          fi
+          [[ "$GITHUB_REF" == refs/heads/main ]] || {
+            echo 'Production delivery must be dispatched from trusted main.' >&2
+            exit 64
+          }
           if [[ ! "$requested_commit" =~ ^[0-9a-f]{40}$ ]]; then
             echo 'Requested commit must be a full lowercase Git SHA.' >&2
             exit 64
@@ -292,12 +272,49 @@ jobs:
             --format json > deploy-result.json 2> deploy-error.log
           exit_code=$?
           set -e
+          sed -E \
+            -e 's/([A-Za-z0-9_]*(TOKEN|PASSWORD|SECRET|PRIVATE_KEY)[A-Za-z0-9_]*)=[^[:space:]]+/\1=[REDACTED]/Ig' \
+            -e 's/(Bearer|Basic)[[:space:]]+[A-Za-z0-9._~+\/=-]+/\1 [REDACTED]/Ig' \
+            deploy-error.log | tail -n 40 > deploy-error.sanitized.log
           echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
 
       - name: Report deployment evidence
         if: always()
         shell: bash
+        env:
+          DEPLOY_EXIT_CODE: ${{ steps.deployment.outputs.exit_code }}
         run: |
+          set -euo pipefail
+          status=failed_before_deploy
+          error_code=production_result_missing
+          summary='Project CLI failed before producing machine-readable deployment evidence.'
+          if jq -e 'type == "object"' deploy-result.json >/dev/null 2>&1; then
+            status=$(jq -r '.status // "failed_before_deploy"' deploy-result.json)
+            error_code="production_${status}"
+            result_error=$(jq -r '.error // empty' deploy-result.json | sed -E \
+              -e 's/([A-Za-z0-9_]*(TOKEN|PASSWORD|SECRET|PRIVATE_KEY)[A-Za-z0-9_]*)=[^[:space:]]+/\1=[REDACTED]/Ig' \
+              -e 's/(Bearer|Basic)[[:space:]]+[A-Za-z0-9._~+\/=-]+/\1 [REDACTED]/Ig' |
+              tr '\n' ' ' | cut -c1-1000)
+            if [[ -n "$result_error" ]]; then
+              summary="$result_error"
+            elif [[ "$status" == success ]]; then
+              summary='Exact production rollout and independent health verification passed.'
+            else
+              summary="Production transition ended in ${status}."
+            fi
+          elif [[ -s deploy-error.sanitized.log ]]; then
+            summary=$(tr '\n' ' ' < deploy-error.sanitized.log | cut -c1-1000)
+          fi
+          jq -n \
+            --arg code "$error_code" \
+            --arg status "$status" \
+            --arg summary "$summary" \
+            --arg requestedCommit "$REQUESTED_COMMIT" \
+            '{errorCode:$code,status:$status,summary:$summary,
+              requestedCommit:$requestedCommit}' \
+            > deployment-transition.json
+          printf 'Transition code: `%s`\n\nSummary: %s\n' \
+            "$error_code" "$summary" >> "$GITHUB_STEP_SUMMARY"
           if [[ ! -s deploy-result.json ]]; then
             echo 'Deployment produced no machine-readable result.' >> "$GITHUB_STEP_SUMMARY"
             exit 1
@@ -317,6 +334,19 @@ jobs:
             "Rollback: `\(.rollback.status // "not needed")`\n" +
             "Live URL: https://projects.os-home.net"
           ' deploy-result.json | tee -a "$GITHUB_STEP_SUMMARY"
+          [[ "$DEPLOY_EXIT_CODE" == 0 && "$status" == success ]]
+
+      - name: Upload sanitized production transition evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: production-transition-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            deploy-result.json
+            deployment-transition.json
+            deploy-error.sanitized.log
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Activate exact trusted Preview assets
         if: steps.deployment.outputs.exit_code == '0'

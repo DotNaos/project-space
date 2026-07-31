@@ -124,22 +124,33 @@ func TestWSLConnectorQuiescenceWaitsForLinuxProcesses(t *testing.T) {
 		"connector",
 		"run",
 	)
-	done := make(chan error, 1)
-	go func() {
-		done <- waitForWSLConnectorRuntimeStopAt(
-			context.Background(),
-			fixture.project,
-			fixture.procRoot,
-			time.Second,
-			time.Millisecond,
-		)
-	}()
-	time.Sleep(10 * time.Millisecond)
-	if err := os.RemoveAll(processRoot); err != nil {
+	blockedContext, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := waitForWSLConnectorRuntimeStopAt(
+		blockedContext,
+		fixture.project,
+		fixture.procRoot,
+		time.Second,
+		time.Millisecond,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("running managed process did not block stop: %v", err)
+	}
+
+	if err := os.Remove(filepath.Join(processRoot, "exe")); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-done; err != nil {
+	if err := waitForWSLConnectorRuntimeStopAt(
+		context.Background(),
+		fixture.project,
+		fixture.procRoot,
+		time.Second,
+		time.Millisecond,
+	); err != nil {
 		t.Fatalf("wait for managed process exit: %v", err)
+	}
+	if err := os.RemoveAll(processRoot); err != nil {
+		t.Fatalf("remove exited process fixture after reader closed: %v", err)
 	}
 }
 

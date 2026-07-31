@@ -1,0 +1,63 @@
+name: Release transition evidence
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  evidence:
+    name: Publish failed release evidence
+    if: github.event.workflow_run.conclusion != 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Build sanitized machine-readable evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          SOURCE_EVENT: ${{ github.event.workflow_run.event }}
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+          gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/jobs?per_page=100" \
+            --slurp > "$RUNNER_TEMP/jobs-pages.json"
+          jq -n \
+            --arg conclusion "$SOURCE_CONCLUSION" \
+            --arg event "$SOURCE_EVENT" \
+            --arg headSha "$SOURCE_HEAD_SHA" \
+            --argjson runId "$SOURCE_RUN_ID" \
+            --arg runUrl "$SOURCE_RUN_URL" \
+            --slurpfile pages "$RUNNER_TEMP/jobs-pages.json" \
+            '{errorCode:(if $conclusion == "cancelled" then "release_superseded"
+              else "release_transition_failed" end),
+              conclusion:$conclusion,event:$event,headSha:$headSha,
+              runId:$runId,runUrl:$runUrl,
+              failedJobs:[$pages[][]?.jobs[] |
+                select(.conclusion == "failure" or .conclusion == "cancelled") |
+                {name,conclusion,startedAt:.started_at,completedAt:.completed_at,htmlUrl:.html_url}]}' \
+            > release-transition.json
+          jq -r '
+            "Transition code: `\(.errorCode)`\n\n" +
+            "Source run: [\(.runId)](\(.runUrl))\n\n" +
+            (if (.failedJobs | length) == 0 then
+              "No failed job was published; the source run ended as `\(.conclusion)`."
+             else
+              "Failed jobs:\n" +
+              ([.failedJobs[] | "- `\(.name)`: `\(.conclusion)`"] | join("\n"))
+             end)
+          ' release-transition.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload release transition evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-transition-${{ github.event.workflow_run.id }}
+          path: release-transition.json
+          if-no-files-found: error
+          retention-days: 14

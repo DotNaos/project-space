@@ -79,7 +79,7 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain('prototypeImage:$prototype');
     expect(workflow).toContain('https://pr-${{ needs.resolve.outputs.pr_number }}.projects.os-home.net');
     expect(workflow).toContain('environment_url');
-    expect(workflow).toContain('ssh project-space-preview apply > preview-output.log');
+    expect(workflow).toContain('ssh project-space-preview apply > preview-output.log 2> preview-error.log');
     expect(workflow).toContain("jq -Rsce --arg prefix 'PROJECT_SPACE_PREVIEW_RECEIPT='");
     expect(workflow).toContain('select(length == 1)');
     expect(workflow).toContain('RUNNER_RECEIPT_VALID: ${{ steps.apply.outputs.receipt_valid }}');
@@ -88,6 +88,12 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain('.requestedSha == $sha');
     expect(workflow).toContain('.runningSha == $sha');
     expect(workflow).toContain('.prototypeMetaSha == $sha');
+    expect(workflow).toContain('.state == "blocked_capacity"');
+    expect(workflow).toContain('.errorCode == "preview_quota_full"');
+    expect(workflow).toContain('.errorCode == "preview_storage_low"');
+    expect(workflow).toContain('state=pending');
+    expect(workflow).toContain('preview-transition.json');
+    expect(workflow).toContain('Upload sanitized Preview transition evidence');
   });
 
   test('extracts exactly one framed receipt from the real Preview update output path', () => {

@@ -25,58 +25,32 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: release-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  group: release-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   quality:
     name: Cross-platform quality gates
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
-      version: ${{ steps.release-metadata.outputs.version }}
+      full-matrix: ${{ steps.quality.outputs.full-matrix }}
+      policy-reason: ${{ steps.quality.outputs.policy-reason }}
+      version: ${{ steps.quality.outputs.version }}
     steps:
       - name: Check out source
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          fetch-depth: 0
           persist-credentials: false
-      - name: Resolve release metadata
-        id: release-metadata
-        shell: bash
-        env:
-          RELEASE_REF_NAME: ${{ github.ref_name }}
-          RELEASE_REF_TYPE: ${{ github.ref_type }}
-        run: |
-          set -euo pipefail
-          package_version=$(awk -F '"' '/"version"/ { print $4; exit }' package.json)
-          if [[ ! $package_version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "package.json contains an invalid release version: $package_version" >&2
-            exit 64
-          fi
-          if [[ $RELEASE_REF_TYPE == tag && $RELEASE_REF_NAME != "v${package_version}" ]]; then
-            echo "Tag $RELEASE_REF_NAME does not match package.json version $package_version." >&2
-            exit 65
-          fi
-          echo "version=$package_version" >> "$GITHUB_OUTPUT"
-      - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      - name: Classify and validate exact source
+        id: quality
+        uses: ./.github/actions/release-quality
         with:
-          go-version-file: go.mod
-          cache: true
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.3.14
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Test and build TypeScript
-        run: |
-          bun run check
-          bun test --isolate
-          bun run build
-      - name: Test and vet Go
-        run: |
-          go test -race ./...
-          go vet ./...
+          base-sha: ${{ github.event.pull_request.base.sha }}
+          event-name: ${{ github.event_name }}
+          head-sha: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref-name: ${{ github.ref_name }}
+          ref-type: ${{ github.ref_type }}
   trust-roots:
     name: Derive connector trust roots
     needs: quality
@@ -84,10 +58,10 @@ jobs:
     with:
       source-sha: ${{ github.sha }}
       version: ${{ needs.quality.outputs.version }}
-
   windows-x64:
     name: Windows x64 machine tools
     needs: quality
+    if: needs.quality.outputs.full-matrix == 'true'
     runs-on: windows-2025
     timeout-minutes: 45
     outputs:
@@ -95,24 +69,20 @@ jobs:
       artifact-id: ${{ steps.upload.outputs.artifact-id }}
       artifact-name: ${{ steps.version.outputs.artifact-name }}
       version: ${{ steps.version.outputs.version }}
-
     steps:
       - name: Check out source
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
-
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
           cache: true
-
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.14
-
       - name: Resolve and verify release version
         id: version
         shell: powershell
@@ -134,10 +104,8 @@ jobs:
           "version=$packageVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "artifact-name=project-space-machine-tools-windows-x64-v$packageVersion" |
             Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
       - name: Run Windows release checks
         shell: powershell
         run: |
@@ -154,7 +122,6 @@ jobs:
           go vet ./cmd/project ./internal/machineconnect ./internal/selfupdate
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & .\packaging\windows\test-release-packaging.ps1
-
       - name: Build native Windows binaries
         shell: powershell
         run: |
@@ -165,7 +132,6 @@ jobs:
           $ldflags = "-s -w -X main.projectMachineClientVersion=$env:VERSION -X main.projectMachineClientReleaseID=v$env:VERSION -X main.projectMachineClientBuildID=$env:GITHUB_SHA -X main.projectSpaceMachineBackendURL=https://projects.os-home.net"
           go build -trimpath -ldflags $ldflags -o dist\windows\project.exe .\cmd\project
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
       - name: Install verified Inno Setup compiler
         shell: powershell
         run: |
@@ -339,6 +305,7 @@ jobs:
             dist/linux-release/project-space-machine-tools-linux-x64-v${{ steps.version.outputs.version }}.tar.gz.sha256
 
   macos-arm64:
+    if: needs.quality.outputs.full-matrix == 'true'
     name: macOS arm64 machine tools
     needs: [quality, trust-roots]
     permissions:
@@ -354,10 +321,40 @@ jobs:
       trust-artifact-name: ${{ needs.trust-roots.outputs.artifact-name }}
       version: ${{ needs.quality.outputs.version }}
 
+  verification-policy:
+    name: Release verification policy
+    if: always()
+    needs: [quality, trust-roots, windows-x64, linux-x64, macos-arm64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Enforce the selected platform matrix
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          FULL_MATRIX: ${{ needs.quality.outputs.full-matrix }}
+          LINUX_RESULT: ${{ needs.linux-x64.result }}
+          MACOS_RESULT: ${{ needs.macos-arm64.result }}
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          TRUST_RESULT: ${{ needs.trust-roots.result }}
+          WINDOWS_RESULT: ${{ needs.windows-x64.result }}
+        run: |
+          set -euo pipefail
+          [[ "$QUALITY_RESULT" == success && "$TRUST_RESULT" == success && "$LINUX_RESULT" == success ]]
+          if [[ "$FULL_MATRIX" == true ]]; then
+            [[ "$WINDOWS_RESULT" == success && "$MACOS_RESULT" == success ]]
+          else
+            [[ "$EVENT_NAME" == pull_request ]]
+            [[ "$WINDOWS_RESULT" == skipped && "$MACOS_RESULT" == skipped ]]
+          fi
+          printf 'Policy: `%s`; Linux: `%s`; Windows: `%s`; macOS: `%s`.\n' \
+            "$FULL_MATRIX" "$LINUX_RESULT" "$WINDOWS_RESULT" "$MACOS_RESULT" \
+            >> "$GITHUB_STEP_SUMMARY"
+
   manifest-prepare:
     name: Prepare exact release manifest payload
     if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    needs: [quality, trust-roots, windows-x64, linux-x64, macos-arm64]
+    needs: [quality, trust-roots, windows-x64, linux-x64, macos-arm64, verification-policy]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:

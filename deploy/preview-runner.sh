@@ -187,14 +187,56 @@ prepare_repository() {
 }
 
 check_quota() {
+  capacity_error_code=
+  capacity_message=
   max_active=$(config_value PREVIEW_MAX_ACTIVE)
   min_free=$(config_value PREVIEW_MIN_FREE_BYTES)
   printf '%s' "$max_active" | grep -Eq '^[1-9][0-9]*$' || fail 'PREVIEW_MAX_ACTIVE is invalid' 78
   printf '%s' "$min_free" | grep -Eq '^[1-9][0-9]*$' || fail 'PREVIEW_MIN_FREE_BYTES is invalid' 78
   active=$(find "$STATE_ROOT" -mindepth 2 -maxdepth 2 -name runtime.json -type f 2>/dev/null | wc -l | tr -d ' ')
-  [ -f "$runtime_file" ] || [ "$active" -lt "$max_active" ] || fail 'Preview quota is full' 73
+  if [ ! -f "$runtime_file" ] && [ "$active" -ge "$max_active" ]; then
+    capacity_error_code=preview_quota_full
+    capacity_message='Preview capacity is full; production and existing Previews were untouched.'
+    return 1
+  fi
   free=$(df -Pk "$PLATFORM_ROOT" | awk 'NR==2 {print $4 * 1024}')
-  [ "$free" -ge "$min_free" ] || fail 'Preview runner has insufficient free space' 73
+  if [ "$free" -lt "$min_free" ]; then
+    capacity_error_code=preview_storage_low
+    capacity_message='Preview storage reserve is low; production and existing Previews were untouched.'
+    return 1
+  fi
+}
+
+blocked_capacity_record() {
+  status=$1
+  error_code=$2
+  message=$3
+  requested_sha=$4
+  running_sha=
+  if [ -f "$runtime_file" ]; then
+    running_sha=$(jq -er '.runningSha // empty' "$runtime_file" 2>/dev/null || true)
+  fi
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jq -cn \
+    --arg status "$status" --arg errorCode "$error_code" --arg message "$message" \
+    --arg repository "$repository" --argjson pr "$pr" \
+    --arg requestedSha "$requested_sha" --arg runningSha "$running_sha" \
+    --arg updatedAt "$now" \
+    '{state:$status,errorCode:$errorCode,message:$message,
+      repositoryFullName:$repository,pullRequestNumber:$pr,
+      requestedSha:$requestedSha,updatedAt:$updatedAt} |
+      if $runningSha != "" then
+        .runningSha=$runningSha |
+        .liveUrl=("https://pr-" + ($pr|tostring) + ".projects.os-home.net")
+      else . end'
+}
+
+verify_tls_identity() {
+  openssl s_client \
+    -connect "$domain:443" \
+    -servername "$domain" \
+    -verify_hostname "$domain" \
+    -verify_return_error </dev/null >/dev/null 2>&1
 }
 
 verify_runtime() {
@@ -216,6 +258,7 @@ verify_runtime() {
     esac
     [ -z "$expected_image" ] || [ "$(docker inspect --format '{{.Config.Image}}' "$container")" = "$expected_image" ] || return 1
   done
+  verify_tls_identity || return 1
   meta=$(curl --fail --silent --show-error --max-time 20 "https://$domain/api/app/meta") || return 1
   printf '%s' "$meta" | jq -e \
     --arg repository "$repository" \
@@ -255,7 +298,7 @@ verify_runtime() {
 verify_runtime_with_retry() {
   sha=$1
   attempt=1
-  max_attempts=12
+  max_attempts=24
   while ! verify_runtime "$sha"; do
     [ "$attempt" -lt "$max_attempts" ] || return 1
     attempt=$((attempt + 1))
@@ -348,7 +391,13 @@ apply_preview() {
   prepare_directories
   acquire_lock
   revalidate_open_pr "$head_sha"
-  check_quota
+  if ! check_quota; then
+    record=$(blocked_capacity_record blocked_capacity "$capacity_error_code" \
+      "$capacity_message" "$head_sha")
+    atomic_json_write "$state_dir/blocked.json" "$record"
+    emit_receipt "$record"
+    exit 73
+  fi
   previous_record=
   previous_env=
   if [ -f "$runtime_file" ] && [ -f "$env_file" ]; then
@@ -374,7 +423,7 @@ apply_preview() {
     record=$(runtime_record ready "$head_sha" "$head_sha" "$web_image" "$docs_image" \
       "$gateway_image" "$prototype_image")
     atomic_json_write "$runtime_file" "$record"
-    rm -f -- "$tombstone_file" "$previous_env"
+    rm -f -- "$tombstone_file" "$state_dir/blocked.json" "$previous_env"
     rm -rf -- "$runtime_dir/repository.previous"
     emit_receipt "$record"
     return
@@ -411,20 +460,22 @@ destroy_preview() {
   destroy_resources
   assert_removed
   remove_runtime_tree
-  rm -f -- "$runtime_file"
+  rm -f -- "$runtime_file" "$state_dir/blocked.json"
   install -d -m 700 "$state_dir"
   write_tombstone "$reason" "$last_requested" "$last_running"
   cat "$tombstone_file"
 }
 
 status_preview() {
+  if [ -f "$state_dir/blocked.json" ]; then cat "$state_dir/blocked.json"; return; fi
   if [ -f "$runtime_file" ]; then cat "$runtime_file"; return; fi
   if [ -f "$tombstone_file" ]; then cat "$tombstone_file"; return; fi
   jq -n --arg repository "$repository" --argjson pr "$pr" '{repositoryFullName:$repository,pullRequestNumber:$pr,state:"absent"}'
 }
 
 status_all_previews() {
-  files=$(find "$STATE_ROOT" -mindepth 2 -maxdepth 2 -type f \( -name runtime.json -o -name tombstone.json \) 2>/dev/null | sort)
+  files=$(find "$STATE_ROOT" -mindepth 2 -maxdepth 2 -type f \
+    \( -name runtime.json -o -name blocked.json -o -name tombstone.json \) 2>/dev/null | sort)
   if [ -z "$files" ]; then printf '{"records":[]}\n'; return; fi
   # Registry files contain only the bounded public status contract, never runtime.env or controller secrets.
   jq -s '{records: map(select(.repositoryFullName == "DotNaos/project-space"))}' $files

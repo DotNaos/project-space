@@ -8,17 +8,17 @@ describe('production deployment workflow contract', () => {
   test('deploys main through one non-cancelling Production lane', async () => {
     const workflow = await readFile(workflowPath, 'utf8');
 
-    expect(workflow).toContain('push:\n    branches: [main]');
-    expect(workflow).toContain('release:\n    types: [published]');
     expect(workflow).toContain('workflow_dispatch:');
+    expect(workflow).not.toContain('push:\n    branches: [main]');
+    expect(workflow).not.toContain('release:\n    types: [published]');
     expect(workflow).toContain('group: project-space-production');
     expect(workflow).toContain('cancel-in-progress: false');
     expect(workflow).toContain('name: Production');
     expect(workflow).toContain('--commit "$REQUESTED_COMMIT"');
     expect(workflow).toContain('[[ "$GITHUB_REF" == refs/heads/main ]]');
-    expect(workflow).toContain('[[ "$GITHUB_REF" == refs/tags/v* ]]');
+    expect(workflow).not.toContain('[[ "$GITHUB_REF" == refs/tags/v* ]]');
     expect(workflow).toContain('requested_commit: ${{ steps.requested-commit.outputs.commit }}');
-    expect(workflow).toContain('"${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/commits/main"');
+    expect(workflow).not.toContain('"${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/commits/main"');
     expect(workflow).toContain('ref: ${{ steps.requested-commit.outputs.commit }}');
     expect(workflow).toContain('REQUESTED_COMMIT: ${{ needs.validate.outputs.requested_commit }}');
     expect(workflow).toContain('https://projects.os-home.net/api/app/meta');
@@ -85,6 +85,13 @@ describe('production deployment workflow contract', () => {
     expect(workflow).toContain('-o "$RUNNER_TEMP/project"');
     expect(workflow).not.toContain('-o bin/project');
     expect(workflow).toContain("deploy-result.json | tee -a \"$GITHUB_STEP_SUMMARY\"");
+    expect(workflow).toContain('deploy-error.sanitized.log');
+    expect(workflow).toContain('deployment-transition.json');
+    expect(workflow).toContain('production_${status}');
+    expect(workflow).toContain(
+      '[[ "$DEPLOY_EXIT_CODE" == 0 && "$status" == success ]]',
+    );
+    expect(workflow).toContain('Upload sanitized production transition evidence');
     expect(actionReferences.length).toBeGreaterThanOrEqual(7);
     expect(actionReferences.every((reference) => /^[0-9a-f]{40}$/.test(reference))).toBe(true);
     expect(workflow).toContain('StrictHostKeyChecking yes');

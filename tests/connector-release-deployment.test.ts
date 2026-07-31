@@ -7,6 +7,7 @@ import { describe, expect, test } from 'bun:test';
 
 const repositoryRoot = join(import.meta.dir, '..');
 const releaseWorkflowPaths = [
+  '.github/actions/release-quality/action.yml',
   '.github/workflows/release.yml',
   '.github/workflows/release-trust-roots.yml',
   '.github/workflows/release-macos.yml',
@@ -114,7 +115,7 @@ describe('connector release and production deployment contract', () => {
   test('pins every third-party action and permits only immutable reusable calls', async () => {
     for (const path of releaseWorkflowPaths) {
       for (const reference of actionReferences(await source(path))) {
-        const isLocalWorkflow = reference.startsWith('./.github/workflows/');
+        const isLocalWorkflow = reference.startsWith('./.github/');
         const isPinnedAction = /^[^@\s]+@[a-f0-9]{40}$/.test(reference);
         const isPinnedReusable =
           /^DotNaos\/project-space\/.github\/workflows\/[A-Za-z0-9._-]+@[a-f0-9]{40}$/.test(
