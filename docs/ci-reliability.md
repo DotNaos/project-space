@@ -137,9 +137,23 @@ Go race tests and vet. It also removes about 17 seconds of duplicate Linux Go
 checks and about 21 seconds of duplicate Windows TypeScript work. Those
 components support a roughly 1.75–2.25 minute ordinary-patch feedback target
 and a roughly 3.5 minute full-matrix target, but they are forecasts rather than
-post-merge observations. Cache hits and runner use must be measured from live
-runs after merge; splitting lanes adds small checkout/setup overhead even while
-reducing wall-clock feedback.
+post-merge observations.
+
+The first successful live full-matrix PR run after the parallel change
+(`30608644674`, exact head
+`035ec5a3c10d13e1822020779cc01ad5fbdf3cbc`) took 3.27 minutes from the first
+job start through the policy result, compared with 6.38 minutes for the
+immediately preceding successful run (`30605646887`). That is 48.8% less
+feedback time. Summed non-skipped job time was effectively unchanged at 8.67
+minutes versus 8.62 minutes, because the independent lanes add checkout and
+setup time while shortening the critical path.
+
+Using the observed classification, shared-quality, trust-root, Linux,
+aggregation, and policy durations from that same run, an ordinary patch would
+have completed in about 1.92 minutes and used about 4.83 runner minutes. The
+historical patch-path medians were 4.48 and 4.35 minutes respectively. The
+measured result therefore trades about 11% more runner time for about 57% faster
+feedback. Later samples should separate cold and warm exact-cache runs.
 
 The five most recent successful Preview image stages before the Bake change took
 5.32–5.82 minutes because web, docs, prototype, and gateway were built one after
