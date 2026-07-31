@@ -1,0 +1,38 @@
+---
+title: "Activate every trusted Preview asset"
+version: "0.4.54"
+bump: "patch"
+pullRequest: 430
+issues:
+  - 426
+areas:
+  - deploy
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  Production now transfers and verifies every trusted Preview lifecycle asset
+  before activating an exact release.
+</ReleaseSummary>
+
+## Changes
+
+### Fixed
+
+- Production activation now includes the Preview reaper, runtime verification, and storage policy scripts required by the trusted installer.
+- Independent deployment verification compares every installed Preview asset with the exact main revision.
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Confirm a Production rollout activates Preview assets for the exact deployed commit and that Preview registration no longer encounters the old entrypoint contract.
+
+</PreviewOnly>
