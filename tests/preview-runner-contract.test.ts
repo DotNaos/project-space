@@ -153,6 +153,31 @@ printf '%s\\n' '{"state":"open","base":{"ref":"main","repo":{"full_name":"DotNao
     }, 'status', root, bin);
     expect(status.status).toBe(0);
     expect(JSON.parse(status.stdout)).toEqual(receipt);
+
+    await writeFile(
+      join(root, 'config/project-space-preview.env'),
+      'PREVIEW_MAX_ACTIVE=2\nPREVIEW_MIN_FREE_BYTES=1\n',
+    );
+    await writeFile(join(bin, 'git'), '#!/bin/sh\nexit 1\n');
+    await chmod(join(bin, 'git'), 0o755);
+    const retry = runRunner({
+      docsImage: digest('docs', 'b'),
+      gatewayImage: digest('gateway', 'c'),
+      headSha: requestedSha,
+      prNumber: 263,
+      prototypeImage: digest('prototype', 'd'),
+      repository: 'DotNaos/project-space',
+      webImage: digest('web', 'e'),
+    }, 'apply', root, bin);
+    expect(retry.status).toBe(70);
+    const statusAfterRetry = runRunner({
+      repository: 'DotNaos/project-space',
+      prNumber: 263,
+    }, 'status', root, bin);
+    expect(JSON.parse(statusAfterRetry.stdout)).toMatchObject({
+      pullRequestNumber: 263,
+      state: 'absent',
+    });
   });
 
   test('idempotent destroy proves absence and writes a bounded tombstone without inventing a SHA', async () => {

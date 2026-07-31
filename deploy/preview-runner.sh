@@ -399,6 +399,7 @@ apply_preview() {
     emit_receipt "$record"
     exit 73
   fi
+  rm -f -- "$state_dir/blocked.json"
   previous_record=
   previous_env=
   if [ -f "$runtime_file" ] && [ -f "$env_file" ]; then
