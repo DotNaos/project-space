@@ -1,0 +1,47 @@
+---
+title: "Connect through proxied container environments"
+version: "0.4.54"
+bump: "patch"
+pullRequest: 431
+issues:
+  - 429
+areas:
+  - cli
+  - machines
+  - security
+breaking: false
+upgrade: "required"
+---
+
+<ReleaseSummary>
+  Foreground connectors can now reach Project Space from proxied containers
+  and virtual machines without weakening the connector credential boundary.
+</ReleaseSummary>
+
+## Changes
+
+### Fixed
+
+- The Project CLI preserves only the supported HTTP, WebSocket, no-proxy, and CA variables when it starts a foreground connector.
+- The compiled connector routes WebSocket traffic through the configured proxy while honoring standard `NO_PROXY` rules.
+- Connection failures now identify proxy, no-proxy, and CA configuration as actionable checks without logging proxy URLs or credentials.
+
+### Security
+
+- Unrelated environment variables and unsafe Node runtime switches remain excluded from the connector child process.
+- Proxy credentials remain outside command arguments, status output, and connector logs.
+
+## Upgrade notes
+
+<UpgradeNotes type="required">
+  Update the Project CLI and connector together before connecting from a proxied container or virtual machine.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Pair a foreground Linux connector from a proxied container and confirm that Project Space reports the machine online.
+- Confirm direct-network connectors and `NO_PROXY` destinations continue to connect without using the proxy.
+
+</PreviewOnly>
