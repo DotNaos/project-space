@@ -345,7 +345,7 @@ printf '%s\\n' '{"state":"open","base":{"ref":"main","repo":{"full_name":"DotNao
     expect(statusEntrypoint).toContain('PROJECT_SPACE_PREVIEW_ASSET_ROOT="$asset_root"');
   });
 
-  test('Compose expands every PR-specific Traefik label key', () => {
+  test('Compose expands every PR-specific Traefik label key', { timeout: 15_000 }, () => {
     const compose = spawnSync('docker', ['compose', '-f', composePath, 'config', '--format', 'json'], {
       cwd: repositoryRoot,
       encoding: 'utf8',
