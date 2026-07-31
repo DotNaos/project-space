@@ -100,6 +100,7 @@ const lifecycleAliases: Record<string, PullRequestPreviewLifecycle> = {
   building: 'building',
   waitingforprlock: 'waiting-for-lock',
   waitingforlock: 'waiting-for-lock',
+  blockedcapacity: 'blocked-capacity',
   deploying: 'deploying',
   verifying: 'verifying',
   ready: 'ready',

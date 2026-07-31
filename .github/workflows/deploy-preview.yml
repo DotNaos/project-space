@@ -350,7 +350,8 @@ jobs:
           set -euo pipefail
           state=failure
           transition_state=failed
-          error_code=preview_runner_failure
+          failure_class=infrastructure_failure
+          error_code=preview_infrastructure_failure
           description='Preview deployment failed.'
           summary='The trusted Preview runner failed without valid exact-head evidence.'
           if [[ "$RUNNER_EXIT_CODE" == 0 && "$RUNNER_RECEIPT_VALID" == true ]] && jq -e \
@@ -366,6 +367,7 @@ jobs:
             preview-result.json >/dev/null; then
             state=success
             transition_state=ready
+            failure_class=none
             error_code=preview_ready
             description='Exact PR head is live and verified.'
             summary='Exact PR head, public hostname, certificate, and runtime identity are verified.'
@@ -381,18 +383,28 @@ jobs:
             preview-result.json >/dev/null; then
             state=pending
             transition_state=blocked_capacity
+            failure_class=capacity_block
             error_code=$(jq -r '.errorCode' preview-result.json)
             description='Blocked by Preview capacity; no product regression.'
             summary=$(jq -r '.message' preview-result.json)
+          elif [[ "$RUNNER_EXIT_CODE" == 64 || "$RUNNER_EXIT_CODE" == 75 ]]; then
+            failure_class=invalid_change
+            error_code=preview_invalid_change
+          elif [[ "$RUNNER_EXIT_CODE" == 69 || "$RUNNER_EXIT_CODE" == 70 ||
+                  "$RUNNER_EXIT_CODE" == 71 || "$RUNNER_EXIT_CODE" == 73 ||
+                  "$RUNNER_EXIT_CODE" == 78 ]]; then
+            failure_class=infrastructure_failure
+            error_code=preview_infrastructure_failure
           fi
           jq -n \
             --arg errorCode "$error_code" \
+            --arg failureClass "$failure_class" \
             --arg state "$transition_state" \
             --arg summary "$summary" \
             --arg repository "$PREVIEW_REPOSITORY" \
             --argjson pr "$PR_NUMBER" \
             --arg requestedSha "$REQUESTED_SHA" \
-            '{errorCode:$errorCode,state:$state,summary:$summary,
+            '{errorCode:$errorCode,failureClass:$failureClass,state:$state,summary:$summary,
               repositoryFullName:$repository,pullRequestNumber:$pr,
               requestedSha:$requestedSha}' \
             > preview-transition.json

@@ -87,7 +87,18 @@ describe('production deployment workflow contract', () => {
     expect(workflow).toContain("deploy-result.json | tee -a \"$GITHUB_STEP_SUMMARY\"");
     expect(workflow).toContain('deploy-error.sanitized.log');
     expect(workflow).toContain('deployment-transition.json');
+    expect(workflow).toContain('deployment-evidence.json');
+    expect(workflow).not.toContain(
+      'path: |\n            deploy-result.json',
+    );
+    expect(workflow).toContain(
+      '(.rollback | {status, commit, verifiedCommit})',
+    );
     expect(workflow).toContain('production_${status}');
+    expect(workflow).toContain('failure_class=expected_deferred');
+    expect(workflow).toContain('failure_class=invalid_change');
+    expect(workflow).toContain('failure_class=infrastructure_failure');
+    expect(workflow).toContain('failure_class=application_regression');
     expect(workflow).toContain(
       '[[ "$DEPLOY_EXIT_CODE" == 0 && "$status" == success ]]',
     );

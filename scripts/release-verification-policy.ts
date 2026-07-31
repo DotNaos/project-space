@@ -17,7 +17,7 @@ const releaseCriticalPaths = [
   /^server\/connector-/,
   /^tests\/connector-/,
   /^cmd\/project\/connector/,
-  /(?:^|\/)[^/]+_(?:darwin|linux|unix|windows)\.go$/,
+  /(?:^|\/)[^/]+_(?:darwin|linux|unix|windows)(?:_[^/]*)?\.go$/,
   /\.ps1$/,
   /^(?:go\.mod|go\.sum|bun\.lock)$/,
   /^scripts\/release-verification-policy\.ts$/,

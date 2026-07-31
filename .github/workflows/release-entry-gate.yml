@@ -83,7 +83,8 @@ jobs:
               "repos/${GITHUB_REPOSITORY}/commits/${PR_HEAD_SHA}/check-runs?check_name=Versioned%20release%20entry&filter=all&per_page=100" |
               jq -r --arg key "$validation_key" \
                 '[.check_runs[] |
-                  select(.external_id == $key and .status == "completed")] |
+                  select(.external_id == $key and .status == "completed" and
+                    (.conclusion == "success" or .conclusion == "failure"))] |
                  first | .id // empty'
           )
           if [[ -n "$existing_check_id" ]]; then
@@ -149,7 +150,13 @@ jobs:
           PR_NUMBER: ${{ matrix.number }}
           RELEASE_BASE_SHA: ${{ matrix.mainSha }}
           RELEASE_HEAD_SHA: ${{ matrix.headSha }}
-        run: bun scripts/validate-release-pr.ts
+        run: |
+          set +e
+          bun scripts/validate-release-pr.ts
+          exit_code=$?
+          set -e
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+          [[ "$exit_code" == 0 ]]
 
       - name: Publish exact-head required check
         if: ${{ always() && steps.check.outputs.check_id }}
@@ -157,14 +164,18 @@ jobs:
           CHECK_ID: ${{ steps.check.outputs.check_id }}
           EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ github.token }}
+          VALIDATION_EXIT_CODE: ${{ steps.validation.outputs.exit_code }}
           VALIDATION_OUTCOME: ${{ steps.validation.outcome }}
         run: |
           set -euo pipefail
           conclusion=failure
-          summary='The trusted latest-main release entry validation failed.'
+          summary='The exact pull request head has an invalid release entry.'
           if [[ "$VALIDATION_OUTCOME" == success ]]; then
             conclusion=success
             summary='The exact pull request head passed trusted latest-main validation.'
+          elif [[ "$VALIDATION_EXIT_CODE" != 1 ]]; then
+            conclusion=action_required
+            summary='Trusted release-entry validation could not run; retry is required.'
           fi
           jq -n \
             --arg status completed \
@@ -179,6 +190,9 @@ jobs:
           gh api --method PATCH \
             "repos/${GITHUB_REPOSITORY}/check-runs/${CHECK_ID}" \
             --input "$RUNNER_TEMP/result.json" >/dev/null
-          if [[ "$conclusion" != success && "$EVENT_NAME" == pull_request_target ]]; then
+          if [[ "$conclusion" != success ]] && {
+            [[ "$EVENT_NAME" == pull_request_target ]] ||
+            [[ "$VALIDATION_EXIT_CODE" != 1 ]]
+          }; then
             exit 1
           fi

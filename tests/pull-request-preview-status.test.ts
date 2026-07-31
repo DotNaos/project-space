@@ -85,6 +85,21 @@ describe('pull request Preview status adapter', () => {
     }
   });
 
+  test('accepts an exact-head capacity block without exposing a link', () => {
+    expect(sanitizePullRequestPreview({
+      errorCode: 'preview_quota_full',
+      pullRequestNumber: 263,
+      repositoryFullName: 'DotNaos/project-space',
+      requestedSha,
+      state: 'blocked_capacity'
+    }, 'DotNaos/project-space')).toMatchObject({
+      liveUrl: undefined,
+      liveUrlState: 'not-configured',
+      requestedSha,
+      state: 'blocked-capacity'
+    });
+  });
+
   test('rejects active records with missing or malformed identity evidence', () => {
     for (const record of [
       { pullRequestNumber: 263, repositoryFullName: 'DotNaos/project-space', state: 'ready' },

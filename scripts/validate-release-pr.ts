@@ -45,7 +45,7 @@ async function main() {
     'latest main package.json',
   );
   const headPackageVersion = packageVersion(
-    await gitText('show', `${headRef}:package.json`),
+    await gitTextValidation('show', `${headRef}:package.json`),
     'PR package.json',
   );
   const changedReleasePaths = await parseNameStatus(
@@ -238,13 +238,13 @@ async function findGitHubRelease(tag: string) {
   );
   if (response.status === 404) return [];
   if (!response.ok) {
-    fail(
+    failInfrastructure(
       `GitHub Release uniqueness check failed with HTTP ${response.status}; the release gate fails closed.`,
     );
   }
   const body = await response.json();
   if (!isRecord(body) || body.tag_name !== tag) {
-    fail(
+    failInfrastructure(
       `GitHub Release uniqueness response for ${tag} was malformed; the release gate fails closed.`,
     );
   }
@@ -255,7 +255,14 @@ async function gitText(...args: string[]) {
   return (await run(['git', ...args])).trim();
 }
 
-async function run(command: string[]) {
+async function gitTextValidation(...args: string[]) {
+  return (await run(['git', ...args], 'validation')).trim();
+}
+
+async function run(
+  command: string[],
+  failureKind: 'infrastructure' | 'validation' = 'infrastructure',
+) {
   const process = Bun.spawn(command, {
     stderr: 'pipe',
     stdout: 'pipe',
@@ -266,9 +273,10 @@ async function run(command: string[]) {
     process.exited,
   ]);
   if (exitCode !== 0) {
-    fail(
-      `Command ${command.join(' ')} failed: ${stderr.trim() || stdout.trim()}`,
-    );
+    const message =
+      `Command ${command.join(' ')} failed: ${stderr.trim() || stdout.trim()}`;
+    if (failureKind === 'validation') fail(message);
+    failInfrastructure(message);
   }
   return stdout;
 }
@@ -278,6 +286,13 @@ function fail(messages: string | string[]): never {
   console.error('Release documentation gate failed:');
   for (const message of list) console.error(`- ${message}`);
   process.exit(1);
+}
+
+function failInfrastructure(messages: string | string[]): never {
+  const list = Array.isArray(messages) ? messages : [messages];
+  console.error('Release documentation validator could not run:');
+  for (const message of list) console.error(`- ${message}`);
+  process.exit(2);
 }
 
 function isRecord(
@@ -290,4 +305,10 @@ function isRecord(
   );
 }
 
-await main();
+try {
+  await main();
+} catch (error) {
+  failInfrastructure(
+    error instanceof Error ? error.message : 'Unexpected validator failure.',
+  );
+}

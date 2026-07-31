@@ -93,6 +93,9 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain('.errorCode == "preview_storage_low"');
     expect(workflow).toContain('state=pending');
     expect(workflow).toContain('preview-transition.json');
+    expect(workflow).toContain('failure_class=invalid_change');
+    expect(workflow).toContain('failure_class=infrastructure_failure');
+    expect(workflow).toContain('failure_class=capacity_block');
     expect(workflow).toContain('Upload sanitized Preview transition evidence');
   });
 

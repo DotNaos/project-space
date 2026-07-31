@@ -47,10 +47,17 @@ test('runs the release gate from trusted main against the exact PR commit as dat
     'external_id: $external_id',
   );
   expect(workflow).toContain(
-    'select(.external_id == $key and .status == "completed")',
+    '(.conclusion == "success" or .conclusion == "failure")',
   );
+  expect(workflow).toContain('conclusion=action_required');
   expect(workflow).toContain(
     '"$EVENT_NAME" == pull_request_target',
+  );
+  expect(workflow).toContain(
+    '"$VALIDATION_EXIT_CODE" != 1',
+  );
+  expect(workflow).toContain(
+    'echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"',
   );
   expect(workflow).not.toContain(
     '[[ "$conclusion" == success ]]',
@@ -60,7 +67,7 @@ test('runs the release gate from trusted main against the exact PR commit as dat
     'bun install --frozen-lockfile --ignore-scripts',
   );
   expect(validator).toContain(
-    "await gitText('show', `${headRef}:package.json`)",
+    "await gitTextValidation('show', `${headRef}:package.json`)",
   );
   expect(validator).toContain(
     "await gitText('show', `${baseRef}:package.json`)",

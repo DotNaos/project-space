@@ -73,6 +73,9 @@ Failed Preview, Release, and Production transitions publish bounded
 machine-readable evidence. Logs are not copied wholesale. Preview and
 Production evidence redacts credential-shaped values before upload; Release
 evidence records only job names, conclusions, times, identity, and links.
+Stable failure classes distinguish `invalid_change`, `expected_deferred`,
+`capacity_block`, `infrastructure_failure`, `flaky_test_signature`, and
+`application_regression`; successful transitions use `none`.
 
 ## Preview capacity and TLS
 

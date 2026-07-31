@@ -26,6 +26,8 @@ describe('release verification policy', () => {
     ['verification policy', { ...patch, changedPaths: ['scripts/release-verification-policy.ts'] }],
     ['verification policy test', { ...patch, changedPaths: ['tests/release-verification-policy.test.ts'] }],
     ['Windows source', { ...patch, changedPaths: ['cmd/project/example_windows.go'] }],
+    ['Windows test', { ...patch, changedPaths: ['cmd/project/prepare_windows_test.go'] }],
+    ['Darwin architecture source', { ...patch, changedPaths: ['cmd/project/example_darwin_arm64.go'] }],
     ['connector source', { ...patch, changedPaths: ['server/connector-example.ts'] }],
     ['ambiguous paths', { ...patch, changedPaths: [] }],
     ['on-demand verification', { ...patch, eventName: 'workflow_dispatch' }],

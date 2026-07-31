@@ -244,6 +244,9 @@ printf '%s\\n' '{"state":"open","base":{"ref":"main","repo":{"full_name":"DotNao
     expect(runner).toContain('blocked_capacity_record');
     expect(runner).toContain('preview_quota_full');
     expect(runner).toContain('preview_storage_low');
+    expect(runner).toContain(
+      "fail 'could not revalidate PR under lock' 69",
+    );
     expect(runner).toContain('verify_runtime_with_retry "$head_sha"');
     expect(runner).toContain('verify_runtime_with_retry "$old_sha"');
     expect(runner).toContain('compose pull --quiet >&2');

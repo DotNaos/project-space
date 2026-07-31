@@ -305,14 +305,56 @@ jobs:
           elif [[ -s deploy-error.sanitized.log ]]; then
             summary=$(tr '\n' ' ' < deploy-error.sanitized.log | cut -c1-1000)
           fi
+          failure_class=application_regression
+          case "$status" in
+            success) failure_class=none ;;
+            superseded|deferred) failure_class=expected_deferred ;;
+            failed_before_deploy) failure_class=infrastructure_failure ;;
+          esac
+          if grep -Eqi \
+            'invalid|must be|does not match|not an ancestor|not published' \
+            <<<"$summary"; then
+            failure_class=invalid_change
+          elif grep -Eqi \
+            'timeout|timed out|connection|network|dns|unavailable|rate limit|ssh|tailscale' \
+            <<<"$summary"; then
+            failure_class=infrastructure_failure
+          fi
           jq -n \
             --arg code "$error_code" \
+            --arg failureClass "$failure_class" \
             --arg status "$status" \
             --arg summary "$summary" \
             --arg requestedCommit "$REQUESTED_COMMIT" \
-            '{errorCode:$code,status:$status,summary:$summary,
+            '{errorCode:$code,failureClass:$failureClass,status:$status,summary:$summary,
               requestedCommit:$requestedCommit}' \
             > deployment-transition.json
+          if jq -e 'type == "object"' deploy-result.json >/dev/null 2>&1; then
+            jq '{
+              status,
+              buildCommit,
+              buildVersion,
+              phases: [.phases[]? | {name, status}],
+              evidence: (.evidence // {} | {
+                requestedCommit,
+                mainHeadCommit,
+                previousVerifiedCommit,
+                remoteCheckoutCommit,
+                runningBuildCommit,
+                containerImageId,
+                lockOwner,
+                lockAcquiredAt,
+                composeHealthy,
+                httpHealthy,
+                liveOriginHealthy
+              }),
+              rollback: (if .rollback then
+                (.rollback | {status, commit, verifiedCommit})
+              else null end)
+            }' deploy-result.json > deployment-evidence.json
+          else
+            printf '{}\n' > deployment-evidence.json
+          fi
           printf 'Transition code: `%s`\n\nSummary: %s\n' \
             "$error_code" "$summary" >> "$GITHUB_STEP_SUMMARY"
           if [[ ! -s deploy-result.json ]]; then
@@ -342,7 +384,7 @@ jobs:
         with:
           name: production-transition-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            deploy-result.json
+            deployment-evidence.json
             deployment-transition.json
             deploy-error.sanitized.log
           if-no-files-found: error

@@ -105,7 +105,8 @@ github_get() {
 
 revalidate_open_pr() {
   expected_sha=$1
-  pr_json=$(github_get "/repos/$PROJECT_REPOSITORY/pulls/$pr") || fail 'could not revalidate PR under lock' 75
+  pr_json=$(github_get "/repos/$PROJECT_REPOSITORY/pulls/$pr") ||
+    fail 'could not revalidate PR under lock' 69
   printf '%s' "$pr_json" | jq -e \
     --arg repository "$PROJECT_REPOSITORY" \
     --arg sha "$expected_sha" \
