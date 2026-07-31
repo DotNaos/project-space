@@ -89,7 +89,7 @@ describe('trusted Preview runner contract', () => {
     await mkdir(join(root, 'config'), { recursive: true });
     await writeFile(
       join(root, 'config/project-space-preview.env'),
-      'PREVIEW_MAX_ACTIVE=1\nPREVIEW_MIN_FREE_BYTES=1\n',
+      'PREVIEW_MAX_ACTIVE=1\nPREVIEW_MIN_FREE_BYTES=1\nPREVIEW_STORAGE_BUDGET_BYTES=100000000\n',
     );
     await mkdir(
       join(root, 'share/project-space-preview'),
@@ -110,7 +110,7 @@ describe('trusted Preview runner contract', () => {
         repositoryFullName: 'DotNaos/project-space',
         requestedSha,
         runningSha: requestedSha,
-        state: 'ready',
+        state: 'online',
       }),
     );
     await writeFile(
@@ -158,7 +158,7 @@ printf '%s\\n' '{"state":"open","base":{"ref":"main","repo":{"full_name":"DotNao
 
     await writeFile(
       join(root, 'config/project-space-preview.env'),
-      'PREVIEW_MAX_ACTIVE=2\nPREVIEW_MIN_FREE_BYTES=1\n',
+      'PREVIEW_MAX_ACTIVE=2\nPREVIEW_MIN_FREE_BYTES=1\nPREVIEW_STORAGE_BUDGET_BYTES=100000000\n',
     );
     await writeFile(join(bin, 'git'), '#!/bin/sh\nexit 1\n');
     await chmod(join(bin, 'git'), 0o755);
@@ -274,7 +274,7 @@ printf '%s\\n' '{"state":"open","base":{"ref":"main","repo":{"full_name":"DotNao
     expect(runner).toContain('preview_quota_full');
     expect(runner).toContain('preview_storage_low');
     expect(runner).toContain(
-      "fail 'could not revalidate PR under lock' 69",
+      "fail 'could not revalidate PR under lock' 75",
     );
     expect(runner).toContain('acquire_lifecycle_locks');
     expect(runner).toContain('flock -w 900 8');
