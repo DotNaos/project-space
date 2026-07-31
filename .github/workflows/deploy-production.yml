@@ -156,6 +156,30 @@ jobs:
           printf 'Approved connector release `%s` is published from ancestor `%s`.\n' \
             "$release_id" "$release_build_id" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Record expected production deferral
+        if: steps.current-main.outputs.superseded != 'true' && steps.connector-release.outputs.ready == 'false'
+        shell: bash
+        env:
+          REQUESTED_COMMIT: ${{ steps.requested-commit.outputs.commit }}
+        run: |
+          jq -n \
+            --arg requestedCommit "$REQUESTED_COMMIT" \
+            '{errorCode:"production_deferred",
+              failureClass:"expected_deferred",
+              status:"deferred",
+              summary:"The approved connector release is not published; production was untouched.",
+              requestedCommit:$requestedCommit}' \
+            > production-deferred.json
+
+      - name: Upload expected production deferral
+        if: steps.current-main.outputs.superseded != 'true' && steps.connector-release.outputs.ready == 'false'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: production-deferred-${{ github.run_id }}-${{ github.run_attempt }}
+          path: production-deferred.json
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Validate the exact deployment plan
         if: steps.current-main.outputs.superseded != 'true' && steps.connector-release.outputs.ready == 'true'
         run: |

@@ -41,13 +41,15 @@ jobs:
             failure_class=expected_deferred
           elif [[ "$logs_available" == true ]] &&
             unzip -p "$RUNNER_TEMP/delivery-logs.zip" 2>/dev/null |
-              grep -Eqi \
-                'Requested commit must be a full lowercase Git SHA|Production delivery must be dispatched from trusted main|does not match package.json version|not an ancestor of the requested app commit'; then
+              grep -Ei \
+                'Requested commit must be a full lowercase Git SHA|Production delivery must be dispatched from trusted main|does not match package.json version|not an ancestor of the requested app commit' \
+                >/dev/null; then
             failure_class=invalid_change
           elif [[ "$logs_available" == true ]] &&
             unzip -p "$RUNNER_TEMP/delivery-logs.zip" 2>/dev/null |
-              grep -Eq \
-                'TestWSLConnectorQuiescenceWaitsForLinuxProcesses|durable Codex operation snapshots|connector runtime stop signed contract'; then
+              grep -E \
+                'TestWSLConnectorQuiescenceWaitsForLinuxProcesses|durable Codex operation snapshots|connector runtime stop signed contract' \
+                >/dev/null; then
             failure_class=flaky_test_signature
           elif jq -e '
             [.[].jobs[]? |

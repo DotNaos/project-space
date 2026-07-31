@@ -99,6 +99,10 @@ describe('production deployment workflow contract', () => {
     expect(workflow).toContain('failure_class=invalid_change');
     expect(workflow).toContain('failure_class=infrastructure_failure');
     expect(workflow).toContain('failure_class=application_regression');
+    expect(workflow).toContain('Record expected production deferral');
+    expect(workflow).toContain('Upload expected production deferral');
+    expect(workflow).toContain('"production_deferred"');
+    expect(workflow).toContain('"expected_deferred"');
     expect(workflow).toContain(
       '[[ "$DEPLOY_EXIT_CODE" == 0 && "$status" == success ]]',
     );
