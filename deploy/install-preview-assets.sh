@@ -31,6 +31,26 @@ for script in preview-runner.sh preview-reaper.sh preview-runtime-verification.s
     fail "Preview asset has invalid shell syntax: $script" 64
 done
 
+config_dir=$platform_root/config
+config_file=$config_dir/project-space-preview.env
+install -d -m 0755 "$config_dir"
+if [ -e "$config_file" ] || [ -L "$config_file" ]; then
+  [ -f "$config_file" ] && [ ! -L "$config_file" ] ||
+    fail 'Preview runner config must be a regular non-symlink file.' 78
+else
+  install -m 0644 /dev/null "$config_file"
+fi
+for entry in \
+  'PREVIEW_MAX_ACTIVE=3' \
+  'PREVIEW_MIN_FREE_BYTES=21474836480' \
+  'PREVIEW_STORAGE_BUDGET_BYTES=214748364800' \
+  'PREVIEW_IDLE_SECONDS=3600' \
+  'PREVIEW_GATEWAY_ENV_FILE=/opt/platform/secrets/project-space-preview/gateway.env'
+do
+  key=${entry%%=*}
+  grep -q "^${key}=" "$config_file" || printf '%s\n' "$entry" >> "$config_file"
+done
+
 share_root=$platform_root/share
 release_root=$share_root/project-space-preview-releases
 release_dir=$release_root/$commit
