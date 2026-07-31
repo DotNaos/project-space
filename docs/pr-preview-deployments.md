@@ -65,7 +65,9 @@ These changes are external to application implementation and need their own oper
 6. Let the normal Production workflow install each exact-main trusted runner and Compose
    release under `/opt/platform/share/project-space-preview-releases`, atomically activate
    `/opt/platform/share/project-space-preview-current`, and refresh only the two fixed
-   forced-command entrypoints under `/opt/platform/share/project-space-preview`. Keep its
+   forced-command entrypoints under `/opt/platform/share/project-space-preview`. The same
+   trusted step writes the Preview-only Clerk environment as `root:preview-deploy` mode
+   `0640`; it never places the secret in repository files or command arguments. Keep runner
    configuration under `/opt/platform/config/project-space-preview.env`.
 
 The runner configuration contains limits, not application secrets:

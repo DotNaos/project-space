@@ -2,7 +2,7 @@
 set -eu
 
 case "${SSH_ORIGINAL_COMMAND:-}" in
-  apply|register|start|stop|touch|destroy|reap) command_name=$SSH_ORIGINAL_COMMAND;;
+  apply|register|start|stop|touch|destroy|preflight|reap) command_name=$SSH_ORIGINAL_COMMAND;;
   *) printf '%s\n' 'Preview SSH key permits only trusted lifecycle commands.' >&2; exit 77;;
 esac
 

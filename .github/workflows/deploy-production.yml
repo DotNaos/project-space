@@ -417,16 +417,23 @@ jobs:
       - name: Activate exact trusted Preview assets
         if: steps.deployment.outputs.exit_code == '0'
         shell: bash
+        env:
+          PREVIEW_CLERK_SECRET_KEY: ${{ steps.deploy-secrets.outputs.CLERK_SECRET_KEY }}
         run: |
           set -euo pipefail
-          tar -C deploy -czf - \
+          gateway_env="$RUNNER_TEMP/project-space-preview-gateway.env"
+          trap 'rm -f -- "$gateway_env"' EXIT INT TERM HUP
+          umask 077
+          printf 'CLERK_SECRET_KEY=%s\n' "$PREVIEW_CLERK_SECRET_KEY" > "$gateway_env"
+          tar -czf - -C deploy \
             preview-runner.sh \
             preview-reaper.sh \
             preview-runtime-verification.sh \
             preview-storage-policy.sh \
             preview-ssh-entrypoint.sh \
             preview-status-entrypoint.sh \
-            preview.compose.yml |
+            preview.compose.yml \
+            -C "$RUNNER_TEMP" project-space-preview-gateway.env |
             ssh project-space-production "
               set -e
               stage=\$(mktemp -d /tmp/project-space-preview-assets.XXXXXX)
@@ -435,7 +442,8 @@ jobs:
               sudo -n /bin/sh \
                 /opt/platform/apps/project-space/deploy/install-preview-assets.sh \
                 \"\$stage\" \
-                '$REQUESTED_COMMIT'
+                '$REQUESTED_COMMIT' \
+                \"\$stage/project-space-preview-gateway.env\"
             "
 
       - name: Independently confirm exact live commit

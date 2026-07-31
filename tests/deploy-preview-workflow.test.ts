@@ -17,7 +17,7 @@ describe('trusted PR Preview workflow contract', () => {
 
     expect(workflow).toContain('action:');
     expect(workflow).toContain('options: [build, start, stop, touch, deploy, destroy]');
-    expect(workflow).toContain("if: always() && inputs.action == 'deploy'");
+    expect(workflow).toContain("steps.freshness.outputs.disposition == 'current' && inputs.action == 'deploy'");
     expect(workflow).toContain("if: github.event_name == 'workflow_dispatch' && inputs.action == 'destroy'");
     expect(workflow).toContain('pull_request_target:\n    types: [opened, reopened, synchronize, ready_for_review, closed]');
     expect(workflow).toContain('runner_command=register; runner_mode=register');
@@ -31,6 +31,28 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).not.toContain('queue:');
     expect(workflow).toContain('ssh project-space-preview destroy');
     expect(workflow).toContain('"state":"inactive"');
+  });
+
+  test('treats only positively superseded exact heads as neutral', async () => {
+    const workflow = await readFile(deploymentWorkflowPath, 'utf8');
+
+    expect(workflow).toContain(
+      'REQUESTED_HEAD_SHA: ${{ inputs.requested_head_sha || github.event.pull_request.head.sha }}',
+    );
+    expect(workflow).toContain("disposition=superseded");
+    expect(workflow).toContain("needs.resolve.outputs.disposition == 'current'");
+    expect(workflow).toContain(
+      "if: needs.resolve.outputs.disposition == 'current' && github.event_name == 'workflow_dispatch' && contains(fromJSON('[\"start\",\"stop\",\"touch\"]'), inputs.action)",
+    );
+    expect(workflow).toContain('Classify exact-head state after runner handoff');
+    expect(workflow).toContain('elif [[ "$RUNNER_EXIT_CODE" == 75 ]]');
+    expect(workflow).toContain('transition_state=superseded');
+    expect(workflow).toContain('steps.handoff.outcome }}" != success');
+    expect(workflow).toContain('outputs.disposition }}" != current');
+    expect(workflow).toContain('failure_class=none');
+    expect(workflow).toContain('state=inactive');
+    expect(workflow).toContain('preview_supersession_fence_failed');
+    expect(workflow).toContain('Fail closed when the supersession fence is not proven');
   });
 
   test('separates PR source from main-owned build and runtime assets', async () => {
@@ -85,6 +107,19 @@ describe('trusted PR Preview workflow contract', () => {
     expect(build).toContain('for target in web docs prototype gateway; do');
     expect(build).toContain('test("^sha256:[0-9a-f]{64}$")');
     expect(build).toContain('exit 1');
+  });
+
+  test('checks trusted host readiness before building and preserves every runner failure', async () => {
+    const workflow = await readFile(deploymentWorkflowPath, 'utf8');
+    const preflight = workflow.slice(workflow.indexOf('  preflight:'), workflow.indexOf('  build:'));
+
+    expect(preflight).toContain('ssh project-space-preview preflight');
+    expect(preflight).toContain('PROJECT_SPACE_PREVIEW_PREFLIGHT=ready');
+    expect(workflow).toContain('needs: [resolve, validate, preflight]');
+    expect(workflow).toContain("if: always() && steps.apply.outcome != 'skipped'");
+    expect(workflow).not.toContain(
+      "if: always() && steps.freshness.outputs.disposition == 'current' && inputs.action == 'deploy'\n        uses: actions/upload-artifact",
+    );
   });
 
   test('accepts only a complete lowercase sha256 digest for each Bake target', () => {
@@ -159,6 +194,7 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain('failure_class=infrastructure_failure');
     expect(workflow).toContain('failure_class=capacity_block');
     expect(workflow).toContain('Upload sanitized Preview transition evidence');
+    expect(workflow).toContain('The post-run exact-head fence could not be proven; success is forbidden.');
   });
 
   test('extracts exactly one framed receipt from the real Preview update output path', () => {

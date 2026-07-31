@@ -1,6 +1,6 @@
 ---
 title: "Connect proxied environments to typed machines"
-version: "0.4.56"
+version: "0.4.57"
 bump: "patch"
 pullRequest: 431
 issues:
@@ -30,12 +30,14 @@ upgrade: "required"
 - Machines now have their own primary page and can exist before any connector is installed.
 - Connector approval requires selecting an owned machine, or creating a physical or virtual machine first.
 - Physical machines can expose configured JetKVM power-on controls; virtual machines never resolve a physical power provider.
+- Preview builds now verify trusted host readiness first and retain sanitized runner evidence for automatic PR registrations.
 
 ### Security
 
 - Unrelated environment variables and unsafe Node runtime switches remain excluded from the connector child process.
 - Proxy credentials remain outside command arguments, status output, and connector logs.
 - The database backfills legacy connector installations and enforces exactly one machine assignment for every connector identity.
+- Production installs the Preview-only Clerk environment atomically with its required restricted ownership and permissions.
 
 ## Upgrade notes
 

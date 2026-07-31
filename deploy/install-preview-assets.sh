@@ -6,10 +6,12 @@ fail() {
   exit "${2:-1}"
 }
 
-[ "$#" -eq 2 ] || fail 'usage: install-preview-assets.sh SOURCE_DIR FULL_MAIN_SHA' 64
+[ "$#" -eq 2 ] || [ "$#" -eq 3 ] ||
+  fail 'usage: install-preview-assets.sh SOURCE_DIR FULL_MAIN_SHA [GATEWAY_ENV_SOURCE]' 64
 
 source_dir=$1
 commit=$2
+gateway_env_source=${3:-}
 platform_root=${PROJECT_SPACE_PREVIEW_PLATFORM_ROOT:-/opt/platform}
 
 printf '%s' "$commit" | grep -Eq '^[0-9a-f]{40}$' ||
@@ -30,6 +32,15 @@ for script in preview-runner.sh preview-reaper.sh preview-runtime-verification.s
   sh -n "$source_dir/$script" ||
     fail "Preview asset has invalid shell syntax: $script" 64
 done
+if [ -n "$gateway_env_source" ]; then
+  [ "$gateway_env_source" = "$source_dir/project-space-preview-gateway.env" ] ||
+    fail 'Preview gateway environment source must use the fixed staged path.' 64
+  [ -f "$gateway_env_source" ] && [ ! -L "$gateway_env_source" ] ||
+    fail 'Preview gateway environment source must be a regular non-symlink file.' 64
+  [ "$(wc -l < "$gateway_env_source")" -eq 1 ] &&
+    grep -Eq '^CLERK_SECRET_KEY=[^[:space:]]+$' "$gateway_env_source" ||
+    fail 'Preview gateway environment source has an invalid contract.' 64
+fi
 
 config_dir=$platform_root/config
 config_file=$config_dir/project-space-preview.env
@@ -50,6 +61,16 @@ do
   key=${entry%%=*}
   grep -q "^${key}=" "$config_file" || printf '%s\n' "$entry" >> "$config_file"
 done
+
+if [ -n "$gateway_env_source" ]; then
+  gateway_secret_root=$platform_root/secrets/project-space-preview
+  install -d -m 0750 -o root -g preview-deploy "$gateway_secret_root"
+  next_gateway_env=$(mktemp "$gateway_secret_root/.gateway.env.XXXXXX")
+  trap 'rm -f -- "$next_gateway_env"' EXIT INT TERM HUP
+  install -m 0640 -o root -g preview-deploy "$gateway_env_source" "$next_gateway_env"
+  mv -f -- "$next_gateway_env" "$gateway_secret_root/gateway.env"
+  trap - EXIT INT TERM HUP
+fi
 
 share_root=$platform_root/share
 release_root=$share_root/project-space-preview-releases

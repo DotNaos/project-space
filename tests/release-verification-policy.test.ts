@@ -80,6 +80,16 @@ describe('release verification policy', () => {
     expect(workflow).toContain(
       'uses: ./.github/workflows/release-quality.yml',
     );
+    for (const reachableCriticalPath of [
+      "'.github/actions/release-quality/**'",
+      "'internal/approvalsigner/**'",
+      "'scripts/ci-preflight.ts'",
+      "'scripts/prepare-release-pr.ts'",
+      "'scripts/release-identity.ts'",
+      "'scripts/release-verification-policy.ts'",
+    ]) {
+      expect(workflow).toContain(reachableCriticalPath);
+    }
     expect(windowsCall).toContain(
       "if: needs.classify.outputs.full-matrix == 'true'",
     );
