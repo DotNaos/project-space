@@ -19,7 +19,7 @@ on:
         required: true
         type: string
   pull_request_target:
-    types: [closed]
+    types: [opened, reopened, synchronize, closed]
 
 permissions:
   contents: read
@@ -34,7 +34,9 @@ env:
 jobs:
   resolve:
     name: Resolve exact open PR head
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy') ||
+      (github.event_name == 'pull_request_target' && github.event.action != 'closed')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -48,48 +50,65 @@ jobs:
         id: pull-request
         shell: bash
         env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ github.token }}
           OPERATION_ID: ${{ inputs.operation_id }}
-          REQUESTED_PR: ${{ inputs.pr }}
+          REQUESTED_PR: ${{ inputs.pr || github.event.pull_request.number }}
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF" == refs/heads/main ]] || {
-            echo 'Preview workflow must be dispatched from trusted main.' >&2
+            echo 'Preview workflow must run from trusted main.' >&2
             exit 64
           }
           [[ "$REQUESTED_PR" =~ ^[1-9][0-9]*$ ]] || {
             echo 'Pull request number must be a positive integer.' >&2
             exit 64
           }
-          [[ "$OPERATION_ID" =~ ^preview-[0-9a-f]{32}$ ]] || {
-            echo 'Operation ID must match preview-<32 lowercase hex>.' >&2
-            exit 64
-          }
-          permission=$(gh api "repos/$PREVIEW_REPOSITORY/collaborators/$GITHUB_ACTOR/permission" --jq .permission)
-          case "$permission" in admin|maintain|write) ;; *) echo 'Preview dispatch requires repository write permission.' >&2; exit 77;; esac
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            [[ "$OPERATION_ID" =~ ^preview-[0-9a-f]{32}$ ]] || {
+              echo 'Operation ID must match preview-<32 lowercase hex>.' >&2
+              exit 64
+            }
+            permission=$(gh api "repos/$PREVIEW_REPOSITORY/collaborators/$GITHUB_ACTOR/permission" --jq .permission)
+            case "$permission" in admin|maintain|write) ;; *) echo 'Preview dispatch requires repository write permission.' >&2; exit 77;; esac
+          else
+            [[ "$EVENT_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+              echo 'Automatic Preview event must contain a full PR head SHA.' >&2
+              exit 64
+            }
+          fi
           pr_json=$(gh api "repos/$PREVIEW_REPOSITORY/pulls/$REQUESTED_PR")
           head_sha=$(jq -er --arg repository "$PREVIEW_REPOSITORY" '
             select(.state == "open" and .base.ref == "main" and
               .base.repo.full_name == $repository and .head.repo.full_name == $repository) |
             .head.sha | select(test("^[0-9a-f]{40}$"))
           ' <<<"$pr_json")
+          if [[ "$EVENT_NAME" != workflow_dispatch && "$head_sha" != "$EVENT_HEAD_SHA" ]]; then
+            echo 'Automatic Preview event head is stale; a newer lifecycle event must deploy the current head.' >&2
+            exit 75
+          fi
           echo "pr_number=$REQUESTED_PR" >> "$GITHUB_OUTPUT"
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
 
   validate:
     name: Validate untrusted PR code without Preview credentials
     needs: resolve
-    if: inputs.action == 'deploy'
+    if: needs.resolve.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    permissions:
-      contents: read
+    permissions: {}
     steps:
-      - name: Check out exact PR head
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          ref: ${{ needs.resolve.outputs.head_sha }}
-          persist-credentials: false
+      - name: Fetch exact PR head anonymously
+        env:
+          REQUESTED_SHA: ${{ needs.resolve.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin https://github.com/DotNaos/project-space.git
+          git fetch --no-tags --depth=1 origin "$REQUESTED_SHA"
+          git checkout --detach FETCH_HEAD
+          [[ "$(git rev-parse HEAD)" == "$REQUESTED_SHA" ]]
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -130,7 +149,7 @@ jobs:
   build:
     name: Build immutable Preview images with trusted recipes
     needs: [resolve, validate]
-    if: inputs.action == 'deploy'
+    if: needs.resolve.result == 'success' && needs.validate.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
@@ -208,7 +227,7 @@ jobs:
   deploy:
     name: Deploy exact PR head through trusted Preview runner
     needs: [resolve, build]
-    if: inputs.action == 'deploy'
+    if: needs.resolve.result == 'success' && needs.build.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:

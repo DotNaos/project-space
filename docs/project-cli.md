@@ -400,12 +400,18 @@ project deploy --env prod --dry-run --format json
 project deploy status --env prod
 project deploy status --all-envs --format json
 
-# Pull request previews are dispatched only through the trusted main workflow.
+# Same-repository PRs against main deploy automatically; use these for recovery and status.
 project deploy preview --pr 263 --format json
 project deploy preview status --pr 263 --format json
 project deploy preview status --all --format json
 project deploy preview destroy --pr 263 --format json
 ```
+
+Opening, reopening, or updating a same-repository pull request against `main`
+automatically deploys its exact current head to
+`https://pr-<number>.projects.os-home.net` after credential-free validation.
+Fork and non-`main` pull requests fail closed. Manual dispatch remains available
+for recovery.
 
 `project deploy` uses the existing template compose files:
 

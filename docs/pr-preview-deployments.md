@@ -2,9 +2,20 @@
 
 Project Space can build one isolated, temporary Preview for an open pull request. A Preview is never a Production or Beta environment and never contributes deployment truth to the project topology.
 
-## Operator workflow
+## Automatic workflow
 
-Queue the current PR head through the trusted workflow on `main`:
+Opening or reopening a same-repository pull request against `main` automatically
+queues its exact event head through the trusted Preview workflow. Pushing another
+commit updates the same deterministic Preview URL after validation succeeds:
+
+`https://pr-{id}.projects.os-home.net`
+
+Fork pull requests, pull requests targeting another base, and stale lifecycle
+events fail closed before any Preview credential is available.
+
+## Operator recovery
+
+Manually queue the current PR head when lifecycle automation needs recovery:
 
 ```sh
 project deploy preview --pr 263 --format json
@@ -23,11 +34,20 @@ Remove a Preview manually when lifecycle automation needs recovery:
 project deploy preview destroy --pr 263 --format json
 ```
 
-The expected URL is deterministic: `https://pr-{id}.projects.os-home.net`. The CLI may print that expected URL as soon as work is queued, but the web UI exposes it as current only after the runtime, image, full PR head SHA, health checks, and `/api/app/meta` all agree.
+The CLI may print the expected URL as soon as work is queued, but the web UI
+exposes it as current only after the runtime, image, full PR head SHA, health
+checks, and `/api/app/meta` all agree.
 
 ## Trust boundary
 
-The workflow and Preview runner are loaded from trusted `main` assets. The PR supplies application source only. Its workflow, Dockerfiles, Compose files, ignore rules, shell commands, paths, domains, and resource names are never used as deployment control input.
+The workflow and Preview runner are loaded from trusted `main` assets. Automatic
+events resolve only an open, same-repository PR targeting `main`, require the API
+head to match the event's full head SHA, and revalidate that exact SHA immediately
+before VPS handoff. The PR supplies application source only. Validation checks
+out and executes that source in a separate job with no token, environment, or
+Preview credentials. Its workflow, Dockerfiles, Compose files, ignore rules,
+shell commands, paths, domains, and resource names are never used as deployment
+control input.
 
 The public Preview gateway is also built from `main`. It reuses the existing Clerk instance and GitHub OAuth application while keeping their raw credentials outside PR-controlled containers:
 
