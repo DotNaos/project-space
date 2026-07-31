@@ -13,6 +13,7 @@ services:
       - traefik.http.routers.${PROJECT_COMPOSE_NAME}-web.tls.certresolver=letsencrypt-dns
       - traefik.http.routers.${PROJECT_COMPOSE_NAME}-web.middlewares=secure-headers@file,gzip@file
       - traefik.http.routers.${PROJECT_COMPOSE_NAME}-web.priority=10
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-web.service=${PROJECT_COMPOSE_NAME}-web
       - traefik.http.routers.${PROJECT_COMPOSE_NAME}-preview-host.rule=HostRegexp(`^pr-[1-9][0-9]{0,8}\.${PROJECT_PREVIEW_HOST_SUFFIX:-project-space-preview.invalid}$`)
       - traefik.http.routers.${PROJECT_COMPOSE_NAME}-preview-host.entrypoints=websecure
       - traefik.http.routers.${PROJECT_COMPOSE_NAME}-preview-host.tls=true
@@ -21,13 +22,14 @@ services:
       - traefik.http.routers.${PROJECT_COMPOSE_NAME}-preview-host.tls.domains[0].sans=*.${PROJECT_PREVIEW_HOST_TLS_DOMAIN:-project-space-preview.invalid}
       - traefik.http.routers.${PROJECT_COMPOSE_NAME}-preview-host.middlewares=secure-headers@file,gzip@file
       - traefik.http.routers.${PROJECT_COMPOSE_NAME}-preview-host.priority=5
-      - traefik.http.services.${PROJECT_COMPOSE_NAME}-preview-host.loadbalancer.server.port=4173
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-preview-host.service=${PROJECT_COMPOSE_NAME}-web
       - traefik.http.routers.${PROJECT_COMPOSE_NAME}-api.rule=Host(`${PROJECT_API_DOMAIN:?set PROJECT_API_DOMAIN}`)
       - traefik.http.routers.${PROJECT_COMPOSE_NAME}-api.entrypoints=websecure
       - traefik.http.routers.${PROJECT_COMPOSE_NAME}-api.tls=true
       - traefik.http.routers.${PROJECT_COMPOSE_NAME}-api.tls.certresolver=letsencrypt-dns
       - traefik.http.routers.${PROJECT_COMPOSE_NAME}-api.middlewares=secure-headers@file,gzip@file
       - traefik.http.routers.${PROJECT_COMPOSE_NAME}-api.priority=10
+      - traefik.http.routers.${PROJECT_COMPOSE_NAME}-api.service=${PROJECT_COMPOSE_NAME}-web
       - traefik.http.services.${PROJECT_COMPOSE_NAME}-web.loadbalancer.server.port=4173
 
   docs:
