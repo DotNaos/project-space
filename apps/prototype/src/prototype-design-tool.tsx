@@ -279,9 +279,9 @@ export function PrototypeDesignTool({
       setCursor(null);
       setPixelMeasurement(null);
       setLocked(false);
-      setApprovedTargets([]);
-      setApprovedScopePaths([]);
-      setGuides([]);
+      setApprovedTargets((current) => current.length ? [] : current);
+      setApprovedScopePaths((current) => current.length ? [] : current);
+      setGuides((current) => current.length ? [] : current);
       setScope("selection");
       return;
     }

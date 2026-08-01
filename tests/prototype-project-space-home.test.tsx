@@ -70,4 +70,28 @@ describe('project space home prototype', () => {
     expect(html).toContain('os-pc');
     expect(html).not.toContain('Redesign the Project Space frontend');
   });
+
+  test.each([
+    ['overview', 'Current focus', 'Project pulse'],
+    ['issues', 'Search issues', 'In progress'],
+    ['branches', 'Search branches', '1 ahead'],
+    ['machines', 'Available destinations', 'os-pc'],
+    ['workspaces', 'Search workspaces', 'Modified'],
+    ['chats', 'Search chats', 'Frontend redesign'],
+    ['history', 'Repository activity', '72c0f48'],
+    ['codex', 'Project tasks', 'Working'],
+    ['template', 'Template adherence', 'Fullstack template'],
+    ['deployments', 'Pull request previews', 'Production'],
+  ] as const)('gives the %s page its own working surface', (page, first, second) => {
+    const html = renderToStaticMarkup(
+      <ProjectFeaturePage
+        page={page}
+        projectName="project-space"
+        scenario="ready"
+      />
+    );
+
+    expect(html).toContain(first);
+    expect(html).toContain(second);
+  });
 });
