@@ -97,7 +97,7 @@ export function PageFilter({
 }) {
   return (
     <button
-      className={`h-8 rounded-full px-3 text-xs font-medium transition-colors duration-150 active:scale-[.96] ${
+      className={`h-8 shrink-0 whitespace-nowrap rounded-full px-3 text-xs font-medium transition-colors duration-150 active:scale-[.96] ${
         active
           ? "bg-current/[.1] text-current"
           : "text-current/45 hover:bg-current/[.05] hover:text-current/70"

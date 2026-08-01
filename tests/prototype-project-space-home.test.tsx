@@ -6,7 +6,15 @@ import {
   projectFixtures,
   projectSpaceShellBackground
 } from '../apps/prototype/src/project-space-home';
-import { ProjectFeaturePage } from '../apps/prototype/src/project-space-pages';
+import {
+  ProjectFeaturePage,
+  ProjectIssueDetailPage,
+  prototypeIssueByNumber
+} from '../apps/prototype/src/project-space-pages';
+import {
+  ProjectSidebar,
+  projectPageGroups
+} from '../apps/prototype/src/project-space-sidebar';
 
 describe('project space home prototype', () => {
   test('uses one shell surface behind the sidebar and rounded main view', () => {
@@ -25,9 +33,11 @@ describe('project space home prototype', () => {
     expect(html).toContain('data-testid="mobile-main-card"');
     expect(html).toContain('data-testid="project-selector-trigger"');
     expect(html).toContain('data-testid="sidebar-account-podium"');
-    expect(html).toContain('mx-4 mb-4 rounded-full');
+    expect(html).toContain('mx-4 p-2');
+    expect(html).toContain('mb-4 rounded-full bg-current/[.06]');
     expect(html).toContain('aria-label="Project sidebar"');
-    expect(html).toContain('hidden w-72 shrink-0');
+    expect(html).toContain('hidden shrink-0 overflow-hidden');
+    expect(html).toContain('@3xl:block w-72');
     expect(html).toContain('aria-label="Switch project, current project project-space"');
     expect(html).not.toContain('before:absolute');
     expect(html).toContain('rounded-full bg-current/[.06]');
@@ -93,5 +103,89 @@ describe('project space home prototype', () => {
 
     expect(html).toContain(first);
     expect(html).toContain(second);
+  });
+
+  test('offers board and list views that open the same issues', () => {
+    const board = renderToStaticMarkup(
+      <ProjectFeaturePage
+        issueViewMode="board"
+        page="issues"
+        projectName="project-space"
+        scenario="ready"
+      />
+    );
+    const list = renderToStaticMarkup(
+      <ProjectFeaturePage
+        issueViewMode="list"
+        page="issues"
+        projectName="project-space"
+        scenario="ready"
+      />
+    );
+
+    expect(board).toContain('aria-label="Issue board"');
+    expect(board).toContain('Backlog');
+    expect(board).toContain('In progress');
+    expect(list).not.toContain('aria-label="Issue board"');
+    expect(list).toContain('Open issue #437');
+  });
+
+  test('renders an issue as a complete workflow detail view', () => {
+    const issue = prototypeIssueByNumber(437);
+    expect(issue).toBeDefined();
+    const html = renderToStaticMarkup(
+      <ProjectIssueDetailPage
+        issue={issue!}
+        onBack={() => undefined}
+        projectName="project-space"
+      />
+    );
+
+    expect(html).toContain('#437');
+    expect(html).toContain('Description');
+    expect(html).toContain('Development');
+    expect(html).toContain('issue-437-redesign-the-project-space-frontend');
+    expect(html).toContain('Delivery state');
+  });
+
+  test('groups the desktop navigation and supports a compact sidebar', () => {
+    expect(projectPageGroups.map((group) => group.label)).toEqual([
+      'Work',
+      'Collaborate',
+      'Operate'
+    ]);
+    const expanded = renderToStaticMarkup(
+      <ProjectSidebar
+        activePage="issues"
+        currentProject={projectFixtures[0]}
+        onClose={() => undefined}
+        onCollapsedChange={() => undefined}
+        onNewIssue={() => undefined}
+        onPageChange={() => undefined}
+        onProjectSelect={() => undefined}
+        portalContainer={null}
+      />
+    );
+    const collapsed = renderToStaticMarkup(
+      <ProjectSidebar
+        activePage="issues"
+        collapsed
+        currentProject={projectFixtures[0]}
+        onClose={() => undefined}
+        onCollapsedChange={() => undefined}
+        onNewIssue={() => undefined}
+        onPageChange={() => undefined}
+        onProjectSelect={() => undefined}
+        portalContainer={null}
+      />
+    );
+
+    expect(expanded).toContain('Collapse sidebar');
+    expect(expanded).toContain('>Work<');
+    expect(expanded).toContain('>Collaborate<');
+    expect(expanded).toContain('>Operate<');
+    expect(collapsed).toContain('Expand sidebar');
+    expect(collapsed).not.toContain('>Work<');
+    expect(collapsed).toContain('title="Issues"');
   });
 });

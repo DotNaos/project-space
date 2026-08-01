@@ -1,13 +1,8 @@
-import { useMemo, useState } from "react";
-import { ArrowRight, CircleDot, GitPullRequest, Plus, Sparkles } from "lucide-react";
+import { ArrowRight, Plus, Sparkles } from "lucide-react";
 
-import type { PrototypeScenarioKind } from "../../../../src/shared/prototype-canvas";
 import {
-  PageFilter,
   PagePrimaryAction,
   PageScaffold,
-  PageSearch,
-  PageState,
   PageStatus,
   SectionHeading,
 } from "./page-foundation";
@@ -89,98 +84,6 @@ export function ProjectOverviewPage({ projectName }: { projectName: string }) {
           </dl>
         </div>
       </div>
-    </PageScaffold>
-  );
-}
-
-type IssueState = "Done" | "In progress" | "Open";
-
-const issues: Array<{
-  labels: string[];
-  number: number;
-  state: IssueState;
-  title: string;
-  updated: string;
-}> = [
-  { labels: ["frontend", "design"], number: 437, state: "In progress", title: "Redesign the Project Space frontend", updated: "now" },
-  { labels: ["preview", "infrastructure"], number: 426, state: "Open", title: "Add an on-demand PR Preview hub", updated: "2h" },
-  { labels: ["ci", "reliability"], number: 434, state: "Done", title: "Make agent-authored PR revisions green", updated: "4h" },
-  { labels: ["ci", "performance"], number: 419, state: "Done", title: "Improve CI/CD reliability and speed", updated: "yesterday" },
-  { labels: ["git", "history"], number: 408, state: "Open", title: "Show a focused Git graph around the branch head", updated: "yesterday" },
-  { labels: ["prototype", "security"], number: 395, state: "Done", title: "Require verified live iteration for prototypes", updated: "Jul 30" },
-];
-
-const issueTone: Record<IssueState, "info" | "muted" | "success"> = {
-  Done: "success",
-  "In progress": "info",
-  Open: "muted",
-};
-
-export function ProjectIssuesPage({
-  projectName,
-  scenario,
-}: {
-  projectName: string;
-  scenario: PrototypeScenarioKind;
-}) {
-  const [filter, setFilter] = useState<"All" | IssueState>("All");
-  const [query, setQuery] = useState("");
-  const visible = useMemo(() => issues.filter((issue) => {
-    const matchesState = filter === "All" || issue.state === filter;
-    const haystack = `${issue.number} ${issue.title} ${issue.labels.join(" ")}`.toLowerCase();
-    return matchesState && haystack.includes(query.toLowerCase());
-  }), [filter, query]);
-  const unavailable = scenario === "empty" || scenario === "offline";
-
-  return (
-    <PageScaffold
-      action={<PagePrimaryAction icon={<Plus className="size-4" />}>New issue</PagePrimaryAction>}
-      description="Start with the next useful piece of work, then follow it through delivery."
-      projectName={projectName}
-      title="Issues"
-    >
-      <div className="flex flex-col gap-3 border-b border-current/[.08] py-4 @md:flex-row @md:items-center @md:justify-between">
-        <PageSearch onChange={setQuery} placeholder="Search issues" value={query} />
-        <div className="flex items-center gap-1 overflow-x-auto [scrollbar-width:none]">
-          {(["All", "Open", "In progress", "Done"] as const).map((value) => (
-            <PageFilter active={filter === value} key={value} onPress={() => setFilter(value)}>
-              {value}
-            </PageFilter>
-          ))}
-        </div>
-      </div>
-
-      {unavailable ? <PageState emptyCopy="Create the first issue to start this project's workflow." scenario={scenario} /> : (
-        <div className="divide-y divide-current/[.07]">
-          {visible.map((issue) => (
-            <button
-              className="group grid w-full grid-cols-[auto_minmax(0,1fr)] gap-3 py-4 text-left hover:bg-current/[.02] @md:grid-cols-[auto_minmax(0,1fr)_auto] @md:gap-4"
-              key={issue.number}
-              type="button"
-            >
-              <CircleDot aria-hidden className={`mt-0.5 size-4 ${issue.state === "Done" ? "text-emerald-400" : "text-current/40"}`} strokeWidth={1.8} />
-              <span className="min-w-0">
-                <span className="block text-sm font-medium leading-5">
-                  <span className="mr-2 text-current/35">#{issue.number}</span>{issue.title}
-                </span>
-                <span className="mt-2 flex flex-wrap items-center gap-1.5">
-                  {issue.labels.map((label) => (
-                    <span className="rounded-full bg-current/[.05] px-2 py-0.5 text-[10px] text-current/45" key={label}>{label}</span>
-                  ))}
-                  <span className="ml-1 text-[10px] text-current/25">updated {issue.updated}</span>
-                </span>
-              </span>
-              <span className="col-start-2 row-start-2 mt-1 flex items-center gap-2 @md:col-start-3 @md:row-start-1 @md:mt-0">
-                {issue.number === 437 ? <GitPullRequest className="size-3.5 text-current/30" /> : null}
-                <PageStatus tone={issueTone[issue.state]}>{issue.state}</PageStatus>
-              </span>
-            </button>
-          ))}
-          {visible.length === 0 ? (
-            <div className="grid min-h-40 place-items-center text-sm text-current/40">No matching issues</div>
-          ) : null}
-        </div>
-      )}
     </PageScaffold>
   );
 }

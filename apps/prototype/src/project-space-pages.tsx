@@ -13,10 +13,11 @@ import {
 } from "lucide-react";
 
 import type { PrototypeScenarioKind } from "../../../src/shared/prototype-canvas";
+import { ProjectOverviewPage } from "./project-space-pages/overview-and-issues";
 import {
   ProjectIssuesPage,
-  ProjectOverviewPage,
-} from "./project-space-pages/overview-and-issues";
+  type PrototypeIssueViewMode,
+} from "./project-space-pages/issues";
 import {
   ProjectBranchesPage,
   ProjectWorkspacesPage,
@@ -64,10 +65,16 @@ export const projectPageItems: ProjectPageItem[] = [
 ];
 
 export function ProjectFeaturePage({
+  issueViewMode = "board",
+  onIssueOpen = () => undefined,
+  onIssueViewModeChange = () => undefined,
   page,
   projectName,
   scenario,
 }: {
+  issueViewMode?: PrototypeIssueViewMode;
+  onIssueOpen?(number: number): void;
+  onIssueViewModeChange?(viewMode: PrototypeIssueViewMode): void;
   page: ProjectPageId;
   projectName: string;
   scenario: PrototypeScenarioKind;
@@ -77,7 +84,14 @@ export function ProjectFeaturePage({
     case "overview":
       return <ProjectOverviewPage projectName={projectName} />;
     case "issues":
-      return <ProjectIssuesPage {...props} />;
+      return (
+        <ProjectIssuesPage
+          {...props}
+          onOpenIssue={onIssueOpen}
+          onViewModeChange={onIssueViewModeChange}
+          viewMode={issueViewMode}
+        />
+      );
     case "branches":
       return <ProjectBranchesPage {...props} />;
     case "machines":
@@ -98,3 +112,6 @@ export function ProjectFeaturePage({
 }
 
 export { ProjectOverviewPage };
+export { ProjectIssueDetailPage } from "./project-space-pages/issue-detail";
+export { prototypeIssueByNumber } from "./project-space-pages/issue-fixtures";
+export type { PrototypeIssueViewMode } from "./project-space-pages/issues";
