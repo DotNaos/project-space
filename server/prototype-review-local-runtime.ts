@@ -65,11 +65,15 @@ export async function createPrototypeReviewLocalRuntime(options: {
   const transcript = new LocalCodexTranscriptReader({
     codexHome: environment.CODEX_HOME
   });
-  const manager = options.manager ?? new LocalReviewCodexSessionManager({
-    cwd: repositoryRoot,
-    threadId: threadId ?? '__missing_local_thread__',
-    transcript
-  });
+  const localManager = options.manager
+    ? undefined
+    : new LocalReviewCodexSessionManager({
+        cwd: repositoryRoot,
+        threadId: threadId ?? '__missing_local_thread__',
+        threadName: worktreeThreadName(initialClaim),
+        transcript
+      });
+  const manager = options.manager ?? localManager!;
   let claimLoad: Promise<LocalWorktreeClaim | undefined> | undefined;
   let lastVerifiedClaim: LocalWorktreeClaim | undefined = initialClaim;
   let lastVerifiedClaimAt = initialClaim ? Date.now() : 0;
@@ -78,6 +82,8 @@ export async function createPrototypeReviewLocalRuntime(options: {
     claimLoad = (async () => {
       const claim = await readWorktreeClaim(repositoryRoot);
       if (claim) {
+        const threadName = worktreeThreadName(claim);
+        if (threadName) localManager?.setThreadName(threadName);
         lastVerifiedClaim = claim;
         lastVerifiedClaimAt = Date.now();
         return claim;
@@ -322,6 +328,14 @@ interface LocalWorktreeClaim {
   ownerThreadId: string;
   path: string;
   status: string;
+  task?: string;
+}
+
+function worktreeThreadName(claim: LocalWorktreeClaim | undefined) {
+  if (!claim) return undefined;
+  const task = claim.task?.trim();
+  if (!task || task.length > 160 || /[\u0000-\u001f\u007f]/.test(task)) return undefined;
+  return claim.issue ? `#${claim.issue} · ${task}` : task;
 }
 
 async function defaultReadWorktreeClaim(repositoryRoot: string) {
@@ -356,6 +370,7 @@ async function defaultReadWorktreeClaim(repositoryRoot: string) {
       typeof claim.ownerThreadId !== 'string' ||
       typeof claim.path !== 'string' ||
       typeof claim.status !== 'string' ||
+      (claim.task !== undefined && typeof claim.task !== 'string') ||
       (claim.issue !== undefined && (!Number.isSafeInteger(claim.issue) || claim.issue < 1))
     ) return undefined;
     return claim as LocalWorktreeClaim;

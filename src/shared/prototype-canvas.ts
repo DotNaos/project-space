@@ -68,7 +68,7 @@ export const prototypeViewportPresets: Record<
 };
 
 export const prototypeScenarioLabels: Record<PrototypeScenarioKind, string> = {
-  ready: 'Ready',
+  ready: 'Default',
   empty: 'Empty',
   offline: 'Offline',
   'long-content': 'Long content',
@@ -101,6 +101,20 @@ export function prototypeSelectionFromSearch(
     scenario: isPrototypeScenarioKind(scenario) ? scenario : undefined,
     scenarioState,
     viewport: isPrototypeViewportKind(viewport) ? viewport : fallbackViewport
+  };
+}
+
+export function prototypeWorkspaceSelectionFromSearch(
+  search: string,
+  fallbackViewport: PrototypeViewportKind
+): PrototypeSelection {
+  const selection = prototypeSelectionFromSearch(search, fallbackViewport);
+  if (selection.scenarioState !== 'missing') return selection;
+
+  return {
+    ...selection,
+    scenario: prototypeScenarioKinds[0],
+    scenarioState: 'ready'
   };
 }
 

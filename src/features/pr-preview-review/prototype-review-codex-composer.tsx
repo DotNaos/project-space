@@ -1,4 +1,4 @@
-import type { ClipboardEvent, FormEvent } from 'react';
+import type { ClipboardEvent, FormEvent, ReactNode } from "react";
 import {
   ArrowUp,
   CircleAlert,
@@ -7,35 +7,39 @@ import {
   Loader2,
   Plus,
   RefreshCw,
-  Trash2
-} from 'lucide-react';
+  Trash2,
+} from "lucide-react";
 
-import { CodexComposerTextArea } from '@/features/codex-sessions/codex-composer-textarea';
+import { CodexComposerTextArea } from "@/features/codex-sessions/codex-composer-textarea";
 import {
   CodexSessionModelSelect,
-  type CodexSessionModelSelection
-} from '@/features/codex-sessions/codex-session-model-select';
+  type CodexSessionModelSelection,
+} from "@/features/codex-sessions/codex-session-model-select";
 import type {
   CodexSessionPermissionProfile,
   CodexSessionTokenUsage,
-  CodexSessionTurnSettings
-} from '@/shared/codex-sessions-api';
-import { PrototypeReviewCodexContextControl } from './prototype-review-codex-context-control';
-import type { PendingCodexImage } from './prototype-review-codex-images';
-import { PrototypeReviewCodexPermissionControl } from './prototype-review-codex-permission-control';
+  CodexSessionTurnSettings,
+} from "@/shared/codex-sessions-api";
+import { PrototypeReviewCodexContextControl } from "./prototype-review-codex-context-control";
+import type { PendingCodexImage } from "./prototype-review-codex-images";
+import { PrototypeReviewCodexPermissionControl } from "./prototype-review-codex-permission-control";
 
 export function PrototypeReviewCodexComposer({
   annotationCount,
   activeTurn,
   blockReason,
+  compactTrailingContent,
   draft,
   feedbackError,
   hasMessage,
+  headerContent,
   images,
   imageUploadPending,
   isDark,
   isConnecting,
-  layout = 'compact',
+  leadingContent,
+  leadingContentCollapsed = false,
+  layout = "compact",
   modelSelection,
   onAttachFiles,
   onDraftChange,
@@ -50,19 +54,23 @@ export function PrototypeReviewCodexComposer({
   permissionProfileId,
   permissionProfiles = [],
   sending,
-  tokenUsage
+  tokenUsage,
 }: {
   annotationCount: number;
   activeTurn: boolean;
   blockReason?: string;
+  compactTrailingContent?: ReactNode;
   draft: string;
   feedbackError?: string;
   hasMessage: boolean;
+  headerContent?: ReactNode;
   images: readonly PendingCodexImage[];
   imageUploadPending: boolean;
   isDark: boolean;
   isConnecting: boolean;
-  layout?: 'compact' | 'modal';
+  leadingContent?: ReactNode;
+  leadingContentCollapsed?: boolean;
+  layout?: "compact" | "modal";
   modelSelection?: CodexSessionModelSelection;
   onAttachFiles(files: readonly File[]): void;
   onDraftChange(value: string): void;
@@ -79,7 +87,9 @@ export function PrototypeReviewCodexComposer({
   sending: boolean;
   tokenUsage?: CodexSessionTokenUsage;
 }) {
-  const modal = layout === 'modal';
+  const modal = layout === "modal";
+  const integratedShell = !modal && Boolean(headerContent || leadingContent);
+  const integratedLeadingContent = !modal && Boolean(leadingContent);
   const selectedSettings = modelSelection?.override;
   return (
     <div className="pointer-events-auto min-w-0">
@@ -94,7 +104,9 @@ export function PrototypeReviewCodexComposer({
           {queuedMessages.map((message) => (
             <div
               className={`flex h-10 min-w-0 items-center gap-2 rounded-full px-3 text-xs shadow-[0_10px_34px_rgba(0,0,0,0.24)] backdrop-blur-xl ${
-                isDark ? 'bg-neutral-900/95 text-neutral-300' : 'bg-stone-100/95 text-neutral-700'
+                isDark
+                  ? "bg-neutral-900/95 text-neutral-300"
+                  : "bg-stone-100/95 text-neutral-700"
               }`}
               key={message.id}
             >
@@ -125,166 +137,234 @@ export function PrototypeReviewCodexComposer({
           ))}
         </div>
       ) : null}
-      <form
-        className={`w-full min-w-0 shadow-[0_18px_58px_rgba(0,0,0,0.34)] backdrop-blur-xl ${
-          modal
-            ? 'flex min-h-[7rem] flex-col rounded-[1.6rem] px-3 pb-3 pt-4'
-            : 'flex min-h-12 flex-wrap items-end gap-1 rounded-[1.75rem] p-1.5 max-[640px]:min-h-11 max-[640px]:p-1'
-        } ${
-          isDark
-            ? modal
-              ? 'bg-neutral-800/95 text-neutral-100'
-              : 'bg-neutral-900/95 text-neutral-100'
-            : 'bg-stone-100/95 text-neutral-900'
-        }`}
-        data-prototype-codex-composer={layout}
-        onSubmit={(event) => onSubmit(event, selectedSettings)}
-      >
-        {images.length ? (
-          <div className="flex w-full min-w-0 gap-2 overflow-x-auto px-2 pb-1 pt-1">
-            {images.map((image) => (
-              <div className="group relative size-16 shrink-0" key={image.key}>
-                <img
-                  alt={image.name}
-                  className={`size-full rounded-xl object-cover ${
-                    image.status === 'failed' ? 'opacity-40' : ''
-                  }`}
-                  src={image.previewUrl}
-                />
-                {image.status === 'uploading' ? (
-                  <span className="absolute inset-0 grid place-items-center rounded-xl bg-black/45">
-                    <Loader2 className="size-4 animate-spin text-white" />
-                  </span>
-                ) : null}
-                <button
-                  aria-label={`Remove ${image.name}`}
-                  className="absolute -right-1 -top-1 grid size-5 place-items-center rounded-full bg-neutral-950 text-xs text-white shadow"
-                  onClick={() => onRemoveImage(image.key)}
-                  type="button"
-                >
-                  ×
-                </button>
+      <div className={integratedShell ? "relative" : undefined}>
+        {integratedShell ? (
+          <div
+            className={`mx-4 overflow-hidden rounded-[1.55rem] border backdrop-blur-xl ${
+              isDark
+                ? "border-white/10 bg-neutral-950/95 text-neutral-100"
+                : "border-black/10 bg-stone-50/95 text-neutral-900"
+            }`}
+            data-prototype-codex-message-panel="true"
+          >
+            {headerContent ? (
+              <div
+                className={`px-5 pt-4 ${
+                  integratedLeadingContent && !leadingContentCollapsed
+                    ? "pb-1"
+                    : "pb-5"
+                } transition-[padding] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${
+                  isDark ? "text-neutral-400" : "text-neutral-600"
+                }`}
+                data-prototype-codex-header="true"
+              >
+                {headerContent}
               </div>
-            ))}
+            ) : null}
+            {integratedLeadingContent ? (
+              <div
+                className={`grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${
+                  leadingContentCollapsed
+                    ? "grid-rows-[0fr] opacity-0"
+                    : "grid-rows-[1fr] opacity-100"
+                }`}
+                data-prototype-codex-stream-state={
+                  leadingContentCollapsed ? "collapsed" : "expanded"
+                }
+              >
+                <div className="min-h-0 overflow-hidden">
+                  <div
+                    aria-live="polite"
+                    className={`max-h-32 overflow-y-auto overscroll-contain px-5 pb-5 pt-2 ${
+                      isDark ? "text-neutral-200" : "text-neutral-800"
+                    }`}
+                    data-prototype-codex-stream="true"
+                  >
+                    {leadingContent}
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
-        {!modal ? (
-          <AttachImageControl
-            blocked={Boolean(blockReason) || sending || images.length >= 3}
-            isDark={isDark}
-            onAttachFiles={onAttachFiles}
-          />
-        ) : null}
-        <CodexComposerTextArea
-          aria-label="Send feedback to the verified Codex task"
-          className={`max-h-24 min-w-0 flex-1 resize-none border-0 bg-transparent px-3 text-sm leading-6 outline-none ${
-            modal
-              ? '!min-h-10 w-full flex-none px-1 !pb-2 !pt-0 text-[14px] leading-6'
-              : '!min-h-9 !py-1.5'
+        <form
+          className={`min-w-0 ${
+            integratedShell
+              ? "relative z-10 -mt-4 w-full shadow-none"
+              : "w-full shadow-[0_18px_58px_rgba(0,0,0,0.34)] backdrop-blur-xl"
           } ${
-            isDark
-              ? 'text-neutral-100 placeholder:text-neutral-500 disabled:text-neutral-500'
-              : 'text-neutral-900 placeholder:text-neutral-500'
-          } ${modal ? '' : 'max-[640px]:text-xs'}`}
-          disabled={Boolean(blockReason) || sending}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              event.currentTarget.form?.requestSubmit();
-              return;
-            }
-            if (
-              activeTurn &&
-              event.key === 'Tab' &&
-              !event.shiftKey &&
-              hasMessage &&
-              !imageUploadPending
-            ) {
-              event.preventDefault();
-              onQueue(selectedSettings);
-            }
-          }}
-          onPaste={(event) => {
-            const images = pastedImages(event);
-            if (!images.length) return;
-            event.preventDefault();
-            onAttachFiles(images);
-          }}
-          onChange={(event) => onDraftChange(event.target.value)}
-          placeholder={
             modal
-              ? 'Do anything'
-              : blockReason ?? (annotationCount ? 'Send comment…' : 'Message Codex…')
-          }
-          title={modal && blockReason ? blockReason : undefined}
-          value={draft}
-        />
-
-        {modal ? (
-          <div
-            className="mt-auto flex min-w-0 items-center gap-0.5"
-            data-prototype-codex-composer-actions="true"
-          >
+              ? "flex min-h-[7rem] flex-col rounded-[1.6rem] px-3 pb-3 pt-4"
+              : `flex min-h-12 flex-wrap items-end gap-1 p-1.5 max-[640px]:min-h-11 max-[640px]:p-1 ${
+                  integratedShell
+                    ? "rounded-[1.75rem] border"
+                    : "rounded-[1.75rem]"
+                }`
+          } ${
+            integratedShell
+              ? isDark
+                ? "border-white/10 bg-neutral-800/95"
+                : "border-black/10 bg-stone-200/90"
+              : isDark
+                ? modal
+                  ? "bg-neutral-800/95 text-neutral-100"
+                  : "bg-neutral-900/95 text-neutral-100"
+                : "bg-stone-100/95 text-neutral-900"
+          }`}
+          data-prototype-codex-composer={layout}
+          onSubmit={(event) => onSubmit(event, selectedSettings)}
+        >
+          {images.length ? (
+            <div className="flex w-full min-w-0 gap-2 overflow-x-auto px-2 pb-1 pt-1">
+              {images.map((image) => (
+                <div
+                  className="group relative size-16 shrink-0"
+                  key={image.key}
+                >
+                  <img
+                    alt={image.name}
+                    className={`size-full rounded-xl object-cover ${
+                      image.status === "failed" ? "opacity-40" : ""
+                    }`}
+                    src={image.previewUrl}
+                  />
+                  {image.status === "uploading" ? (
+                    <span className="absolute inset-0 grid place-items-center rounded-xl bg-black/45">
+                      <Loader2 className="size-4 animate-spin text-white" />
+                    </span>
+                  ) : null}
+                  <button
+                    aria-label={`Remove ${image.name}`}
+                    className="absolute -right-1 -top-1 grid size-5 place-items-center rounded-full bg-neutral-950 text-xs text-white shadow"
+                    onClick={() => onRemoveImage(image.key)}
+                    type="button"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {!modal ? (
             <AttachImageControl
               blocked={Boolean(blockReason) || sending || images.length >= 3}
               isDark={isDark}
-              modal
               onAttachFiles={onAttachFiles}
             />
-            <PrototypeReviewCodexPermissionControl
-              activeProfileId={permissionProfileId}
-              disabled={isConnecting || !permissionProfiles.length}
-              isDark={isDark}
-              onChange={onPermissionChange}
-              profiles={permissionProfiles}
-            />
-            <div className="min-w-2 flex-1" />
-            <PrototypeReviewCodexContextControl
-              isDark={isDark}
-              tokenUsage={tokenUsage}
-            />
-            {modelSelection ? (
-              <div className="min-w-0 max-w-52">
-                <CodexSessionModelSelect {...modelSelection} />
-              </div>
-            ) : null}
-            {activeTurn ? (
-              <QueueButton
-                disabled={!hasMessage || sending || imageUploadPending}
-                isDark={isDark}
-                onQueue={() => onQueue(selectedSettings)}
-              />
-            ) : null}
-            <SubmitButton
-              blockReason={blockReason}
-              disabled={!hasMessage || sending || imageUploadPending}
-              isConnecting={isConnecting}
-              isDark={isDark}
+          ) : null}
+          <CodexComposerTextArea
+            aria-label="Send feedback to the verified Codex task"
+            className={`max-h-24 min-w-0 flex-1 resize-none border-0 bg-transparent px-3 text-sm leading-6 outline-none ${
               modal
-              onRetry={onRetry}
-              sending={sending}
-            />
-          </div>
-        ) : (
-          <>
-            {activeTurn ? (
-              <QueueButton
-                disabled={!hasMessage || sending || imageUploadPending}
+                ? "!min-h-10 w-full flex-none px-1 !pb-2 !pt-0 text-[14px] leading-6"
+                : "!min-h-9 !py-1.5"
+            } ${
+              isDark
+                ? "text-neutral-100 placeholder:text-neutral-500 disabled:text-neutral-500"
+                : "text-neutral-900 placeholder:text-neutral-500"
+            } ${modal ? "" : "max-[640px]:text-xs"}`}
+            disabled={Boolean(blockReason) || sending}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+                return;
+              }
+              if (
+                activeTurn &&
+                event.key === "Tab" &&
+                !event.shiftKey &&
+                hasMessage &&
+                !imageUploadPending
+              ) {
+                event.preventDefault();
+                onQueue(selectedSettings);
+              }
+            }}
+            onPaste={(event) => {
+              const images = pastedImages(event);
+              if (!images.length) return;
+              event.preventDefault();
+              onAttachFiles(images);
+            }}
+            onChange={(event) => onDraftChange(event.target.value)}
+            placeholder={
+              modal
+                ? "Do anything"
+                : (blockReason ??
+                  (annotationCount ? "Send comment…" : "Do anything"))
+            }
+            title={modal && blockReason ? blockReason : undefined}
+            value={draft}
+          />
+
+          {modal ? (
+            <div
+              className="mt-auto flex min-w-0 items-center gap-0.5"
+              data-prototype-codex-composer-actions="true"
+            >
+              <AttachImageControl
+                blocked={Boolean(blockReason) || sending || images.length >= 3}
                 isDark={isDark}
-                onQueue={() => onQueue(selectedSettings)}
+                modal
+                onAttachFiles={onAttachFiles}
               />
-            ) : null}
-            <SubmitButton
-              blockReason={blockReason}
-              disabled={!hasMessage || sending || imageUploadPending}
-              isConnecting={isConnecting}
-              isDark={isDark}
-              onRetry={onRetry}
-              sending={sending}
-            />
-          </>
-        )}
-      </form>
+              <PrototypeReviewCodexPermissionControl
+                activeProfileId={permissionProfileId}
+                disabled={isConnecting || !permissionProfiles.length}
+                isDark={isDark}
+                onChange={onPermissionChange}
+                profiles={permissionProfiles}
+              />
+              <div className="min-w-2 flex-1" />
+              <PrototypeReviewCodexContextControl
+                isDark={isDark}
+                tokenUsage={tokenUsage}
+              />
+              {modelSelection ? (
+                <div className="min-w-0 max-w-52">
+                  <CodexSessionModelSelect {...modelSelection} />
+                </div>
+              ) : null}
+              {activeTurn ? (
+                <QueueButton
+                  disabled={!hasMessage || sending || imageUploadPending}
+                  isDark={isDark}
+                  onQueue={() => onQueue(selectedSettings)}
+                />
+              ) : null}
+              <SubmitButton
+                blockReason={blockReason}
+                disabled={!hasMessage || sending || imageUploadPending}
+                isConnecting={isConnecting}
+                isDark={isDark}
+                modal
+                onRetry={onRetry}
+                sending={sending}
+              />
+            </div>
+          ) : (
+            <>
+              {compactTrailingContent}
+              {activeTurn ? (
+                <QueueButton
+                  disabled={!hasMessage || sending || imageUploadPending}
+                  isDark={isDark}
+                  onQueue={() => onQueue(selectedSettings)}
+                />
+              ) : null}
+              <SubmitButton
+                blockReason={blockReason}
+                disabled={!hasMessage || sending || imageUploadPending}
+                isConnecting={isConnecting}
+                isDark={isDark}
+                onRetry={onRetry}
+                sending={sending}
+              />
+            </>
+          )}
+        </form>
+      </div>
     </div>
   );
 }
@@ -293,7 +373,7 @@ function AttachImageControl({
   blocked,
   isDark,
   modal = false,
-  onAttachFiles
+  onAttachFiles,
 }: {
   blocked: boolean;
   isDark: boolean;
@@ -305,22 +385,23 @@ function AttachImageControl({
       aria-label="Attach an image"
       className={`grid size-9 shrink-0 cursor-pointer place-items-center rounded-full transition ${
         blocked
-          ? 'pointer-events-none opacity-35'
+          ? "pointer-events-none opacity-35"
           : isDark
-            ? 'text-neutral-400 hover:bg-neutral-700/80 hover:text-neutral-100'
-            : 'text-neutral-500 hover:bg-white hover:text-neutral-900'
+            ? "text-neutral-400 hover:bg-neutral-700/80 hover:text-neutral-100"
+            : "text-neutral-500 hover:bg-white hover:text-neutral-900"
       }`}
       title="Attach PNG or JPEG"
     >
-      <Plus className={modal ? 'size-5' : 'size-4'} />
+      <Plus className={modal ? "size-5" : "size-4"} />
       <input
         accept="image/jpeg,image/png"
         className="sr-only"
         disabled={blocked}
         multiple
         onChange={(event) => {
-          if (event.target.files?.length) onAttachFiles([...event.target.files]);
-          event.target.value = '';
+          if (event.target.files?.length)
+            onAttachFiles([...event.target.files]);
+          event.target.value = "";
         }}
         type="file"
       />
@@ -330,20 +411,22 @@ function AttachImageControl({
 
 function pastedImages(event: ClipboardEvent<HTMLTextAreaElement>) {
   const itemImages = [...event.clipboardData.items]
-    .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
     .flatMap((item) => {
       const file = item.getAsFile();
       return file ? [file] : [];
     });
   return itemImages.length
     ? itemImages
-    : [...event.clipboardData.files].filter((file) => file.type.startsWith('image/'));
+    : [...event.clipboardData.files].filter((file) =>
+        file.type.startsWith("image/"),
+      );
 }
 
 function QueueButton({
   disabled,
   isDark,
-  onQueue
+  onQueue,
 }: {
   disabled: boolean;
   isDark: boolean;
@@ -354,8 +437,8 @@ function QueueButton({
       aria-label="Queue for the next turn"
       className={`grid size-9 shrink-0 cursor-pointer place-items-center rounded-full transition disabled:cursor-default disabled:opacity-30 ${
         isDark
-          ? 'text-neutral-400 hover:bg-neutral-700/80 hover:text-white'
-          : 'text-neutral-500 hover:bg-white hover:text-neutral-900'
+          ? "text-neutral-400 hover:bg-neutral-700/80 hover:text-white"
+          : "text-neutral-500 hover:bg-white hover:text-neutral-900"
       }`}
       disabled={disabled}
       onClick={onQueue}
@@ -374,7 +457,7 @@ function SubmitButton({
   isDark,
   modal = false,
   onRetry,
-  sending
+  sending,
 }: {
   blockReason?: string;
   disabled: boolean;
@@ -385,11 +468,11 @@ function SubmitButton({
   sending: boolean;
 }) {
   const className = `grid shrink-0 cursor-pointer place-items-center rounded-full transition disabled:cursor-default disabled:opacity-30 ${
-    modal ? 'size-10' : 'size-9'
+    modal ? "size-10" : "size-9"
   } ${
     isDark
-      ? 'bg-neutral-100 text-neutral-900 hover:bg-white'
-      : 'bg-neutral-900 text-white hover:bg-black'
+      ? "bg-neutral-100 text-neutral-900 hover:bg-white"
+      : "bg-neutral-900 text-white hover:bg-black"
   }`;
   if (blockReason) {
     return (
