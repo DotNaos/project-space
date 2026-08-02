@@ -455,6 +455,8 @@ describe('project space home prototype', () => {
 
     expect(html).toContain('aria-label="Started"');
     expect(html).toContain('lucide-circle-dot');
+    expect(html).not.toContain('>Started<');
+    expect(html).not.toContain('>Feature<');
     expect(html).toContain('lucide-git-pull-request-draft');
     expect(html).toContain('Draft #427');
     expect(html).toContain('Start development');
@@ -467,7 +469,7 @@ describe('project space home prototype', () => {
     expect(html).not.toContain('project-space · opened by');
     expect(html).toContain('lucide-file-text');
     expect(html).toContain('>Description</h2>');
-    expect(html).toContain('Add an on-demand PR Preview hub</h1><p');
+    expect(html).toContain('Add an on-demand PR Preview hub</span></h1><p');
     expect(html).toContain('>#426</p>');
     expect(html).not.toContain('size-1.5 rounded-full bg-current');
 

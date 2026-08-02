@@ -14,7 +14,6 @@ import {
 import { TaskComments } from "./task-comments";
 import { TaskDeliveryPanel, TaskPrimaryAction } from "./task-lifecycle-panel";
 import type { MockTask, MockTaskAction } from "./task-model";
-import { mockTaskStageLabel } from "./task-model";
 import { TaskPreviewModal } from "./task-preview-modal";
 import { TaskStatusIcon } from "./task-status-icon";
 
@@ -76,14 +75,10 @@ export function ProjectTaskDetailPage({
             )}
           </div>
 
-          <div className="mt-4 flex items-center gap-2 text-xs">
-            <span className="flex items-center gap-1.5 font-medium text-current/60">
-              <TaskStatusIcon task={task} /> {mockTaskStageLabel(task)}
-            </span>
-            <span className="text-current/20">·</span>
-            <span className="text-current/35">{task.type}</span>
-          </div>
-          <h1 className="mt-3 max-w-4xl text-2xl font-semibold leading-tight tracking-[-.03em] @md:text-[30px]">{task.title}</h1>
+          <h1 className="mt-4 flex max-w-4xl items-start gap-2.5 text-2xl font-semibold leading-tight tracking-[-.03em] @md:text-[30px]">
+            <TaskStatusIcon className="mt-1 size-5 @md:mt-1.5 @md:size-6" task={task} />
+            <span>{task.title}</span>
+          </h1>
           <p className="mt-2 text-xs font-medium tabular-nums text-current/30">#{task.number}</p>
         </header>
 
