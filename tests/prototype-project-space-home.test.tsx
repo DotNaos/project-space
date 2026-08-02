@@ -128,7 +128,8 @@ describe('project space home prototype', () => {
     expect(html).toContain('os-yoga-unix');
     expect(html).toContain('aria-label="Open workspace on Local"');
     expect(html).toContain('aria-label="Open changes on Local"');
-    expect(html).toContain('Check out');
+    expect(html).toContain('aria-label="Check out branch on os-yoga-unix"');
+    expect(html).not.toContain('Not checked out');
     expect(html).toContain('No pull request');
     expect(html).not.toContain('Worktree ready');
     expect(html).not.toContain('3 changed files');
@@ -165,6 +166,8 @@ describe('project space home prototype', () => {
     expect(board).toContain('Open issue #437 on GitHub');
     expect(board).toContain('Open branch issue-437-redesign-the-project-space-frontend on GitHub');
     expect(board).toContain('Open pull request #420 on GitHub');
+    expect(board).toContain('>#435<');
+    expect(board).not.toContain('#435 · Merged');
     expect(board).not.toContain('Updated now');
     expect(board).not.toContain('Plan, track, and finish work without losing its delivery context.');
     expect(board).not.toContain('uppercase');

@@ -5,6 +5,7 @@ import {
   CircleDot,
   ExternalLink,
   GitBranch,
+  GitMerge,
   GitPullRequest,
   Monitor,
   MonitorPlay,
@@ -92,7 +93,9 @@ export function IssueWorkflow({ issue }: { issue: PrototypeIssue }) {
         <WorkflowSection complete={Boolean(issue.pullRequest || draftPullRequest)} number={2} title="Pull request">
           {issue.pullRequest ? (
             <DevelopmentLink href={issue.pullRequest.url} tone="violet">
-              <GitPullRequest className="size-3.5 shrink-0" />
+              {issue.pullRequest.state === "Merged"
+                ? <GitMerge className="size-3.5 shrink-0" />
+                : <GitPullRequest className="size-3.5 shrink-0" />}
               {prototypePullRequestLabel(issue.pullRequest)}
             </DevelopmentLink>
           ) : draftPullRequest ? (

@@ -35,6 +35,22 @@ Evidence: the deployed product's 135-row Workspaces table and 63-branch History 
 
 Evidence: 30 current branch names and their head revisions were loaded from GitHub; displayed PR numbers were checked against GitHub. Browser verification covered the compact desktop and phone lists, filters and metadata, the combined branch view, all three workspace tabs, independent scrolling, and creating a checkout on a previously unused machine.
 
+## 4. Compact branch workspace list
+
+- [x] Render every branch and every machine as one compact row.
+- [x] Keep pull-request, checkout, workspace status, and open actions directly reachable without explanatory sub-rows.
+- [x] Keep Compare and Refresh as full-width mobile actions.
+
+Evidence: the phone branch browser now fits substantially more of the 30-branch fixture into one viewport while retaining PR and checkout state. Machine workspaces use one-line rows with icon actions. Branch and workspace navigation were exercised in the live prototype.
+
+## 5. Simplify pull-request markers
+
+- [x] Show only the pull-request number in merged PR markers.
+- [x] Use a distinct purple merged icon instead of the open pull-request icon.
+- [x] Verify the compact branch/workspace rows and PR markers at phone and desktop widths.
+
+Evidence: the live issue board exposes merged links as `#427`, `#435`, `#425`, and `#404`; the rendered marker uses the violet tone and Git-merge icon. Phone and desktop screenshots were inspected after hot reload.
+
 ## Completion rule
 
 The goal is complete only when every checkbox above is checked, the focused prototype tests and TypeScript check pass, the live prototype has been visually dogfooded, and the finished revision is committed and pushed.

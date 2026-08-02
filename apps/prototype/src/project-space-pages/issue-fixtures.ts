@@ -141,7 +141,7 @@ export const prototypeIssueColumns: Array<{
 ];
 
 export function prototypePullRequestLabel(pullRequest: PrototypePullRequest) {
-  return `#${pullRequest.number} · ${pullRequest.state}`;
+  return `#${pullRequest.number}`;
 }
 
 export function prototypeIssueByNumber(number: number) {

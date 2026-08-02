@@ -1,5 +1,5 @@
 import { Chip, Link } from "@heroui/react";
-import { GitBranch, Github, GitPullRequest } from "lucide-react";
+import { GitBranch, Github, GitMerge, GitPullRequest } from "lucide-react";
 
 import {
   prototypePullRequestLabel,
@@ -39,13 +39,10 @@ export function IssueDevelopmentChips({
           rel="noreferrer"
           target="_blank"
         >
-          <Chip
-            className="h-6 px-2"
-            color={issue.pullRequest.state === "Merged" ? "accent" : "success"}
-            size="sm"
-            variant="soft"
-          >
-            <GitPullRequest className="size-3 shrink-0" />
+          <Chip className={`h-6 px-2 ${issue.pullRequest.state === "Merged" ? "bg-violet-500/10 text-violet-300" : "bg-emerald-500/10 text-emerald-300"}`} size="sm" variant="soft">
+            {issue.pullRequest.state === "Merged"
+              ? <GitMerge className="size-3 shrink-0" />
+              : <GitPullRequest className="size-3 shrink-0" />}
             <Chip.Label className="text-[10px]">{prototypePullRequestLabel(issue.pullRequest)}</Chip.Label>
           </Chip>
         </Link>

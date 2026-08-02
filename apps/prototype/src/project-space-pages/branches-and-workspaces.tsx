@@ -3,6 +3,7 @@ import {
   ChevronRight,
   GitBranch,
   GitCommitHorizontal,
+  GitMerge,
   GitPullRequest,
   Laptop,
   Plus,
@@ -20,7 +21,6 @@ import {
   PageScaffold,
   PageSearch,
   PageState,
-  PageStatus,
 } from "./page-foundation";
 
 export type BranchFilter = "All" | "Checked out" | "Needs attention" | "Pull request";
@@ -51,29 +51,26 @@ export function filterPrototypeBranches({
 }
 
 function PullRequestStatus({ branch }: { branch: PrototypeBranch }) {
-  if (!branch.pullRequest) return <span className="text-[11px] text-current/25">No PR</span>;
-  const tone = branch.pullRequest.state === "Open"
-    ? "success"
-    : branch.pullRequest.state === "Draft"
-      ? "warning"
-      : "info";
+  if (!branch.pullRequest) return <span className="text-[10px] text-current/20">No PR</span>;
+  const merged = branch.pullRequest.state === "Merged";
+  const PullRequestIcon = merged ? GitMerge : GitPullRequest;
   return (
-    <PageStatus tone={tone}>
-      <GitPullRequest className="size-3" /> #{branch.pullRequest.number} · {branch.pullRequest.state}
-    </PageStatus>
+    <span className={`inline-flex h-5 shrink-0 items-center gap-1 rounded-full px-1.5 text-[10px] font-medium ${
+      merged ? "bg-violet-500/10 text-violet-300" : branch.pullRequest.state === "Draft" ? "bg-amber-500/10 text-amber-300" : "bg-emerald-500/10 text-emerald-300"
+    }`}>
+      <PullRequestIcon className="size-3" /> #{branch.pullRequest.number}
+    </span>
   );
 }
 
 function CheckoutStatus({ branch }: { branch: PrototypeBranch }) {
-  if (branch.workspaces.length === 0) return <span className="text-[11px] text-current/25">Not checked out</span>;
+  if (branch.workspaces.length === 0) return <span className="text-[10px] text-current/20">Not checked out</span>;
+  const [firstWorkspace, ...additionalWorkspaces] = branch.workspaces;
   return (
-    <span className="flex min-w-0 flex-wrap gap-1">
-      {branch.workspaces.map((workspace) => (
-        <span className="inline-flex h-6 min-w-0 items-center gap-1 rounded-full bg-current/[.055] px-2 text-[11px] text-current/55" key={workspace.machine}>
-          <Laptop className="size-3 shrink-0" />
-          <span className="truncate">{workspace.machine}</span>
-        </span>
-      ))}
+    <span className="inline-flex h-5 min-w-0 items-center gap-1 rounded-full bg-current/[.055] px-1.5 text-[10px] text-current/50">
+      <Laptop className="size-3 shrink-0" />
+      <span className="max-w-20 truncate">{firstWorkspace.machine}</span>
+      {additionalWorkspaces.length > 0 ? <span className="text-current/35">+{additionalWorkspaces.length}</span> : null}
     </span>
   );
 }
@@ -118,34 +115,34 @@ export function ProjectBranchesPage({
 
       {unavailable ? <PageState emptyCopy="Branches will appear when work begins." scenario={scenario} /> : (
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="hidden h-9 shrink-0 grid-cols-[minmax(0,1.5fr)_11rem_13rem_5rem] items-center gap-4 border-b border-current/[.06] px-2 text-[11px] text-current/30 @3xl:grid">
+          <div className="hidden h-8 shrink-0 grid-cols-[minmax(0,1.5fr)_9rem_11rem_4rem] items-center gap-3 border-b border-current/[.06] px-2 text-[10px] text-current/30 @3xl:grid">
             <span>Branch</span><span>Pull request</span><span>Checked out</span><span>Updated</span>
           </div>
           <div className="min-h-0 flex-1 divide-y divide-current/[.065] overflow-y-auto overscroll-y-contain [scrollbar-color:color-mix(in_srgb,currentColor_16%,transparent)_transparent] [scrollbar-width:thin]" data-scroll-region="branch-list">
             {visible.map((branch) => (
               <button
                 aria-label={`Open branch ${branch.name}`}
-                className="group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-2 py-3 text-left transition-[background-color,scale] duration-150 hover:bg-current/[.025] active:scale-[.995] @3xl:grid-cols-[minmax(0,1.5fr)_11rem_13rem_5rem] @3xl:gap-4"
+                className="group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-2 py-2 text-left transition-[background-color,scale] duration-150 hover:bg-current/[.025] active:scale-[.995] @3xl:grid-cols-[minmax(0,1.5fr)_9rem_11rem_4rem] @3xl:gap-3"
                 key={branch.name}
                 onClick={() => setSelectedBranch(branch)}
                 type="button"
               >
-                <span className="flex min-w-0 items-start gap-3">
-                  <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-current/[.045] text-current/35">
-                    <GitBranch className="size-3.5" />
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="grid size-6 shrink-0 place-items-center rounded-full bg-current/[.045] text-current/30">
+                    <GitBranch className="size-3" />
                   </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-current/85">{branch.name}</span>
-                    <span className="mt-1 flex items-center gap-1.5 truncate text-[11px] text-current/35">
-                      <GitCommitHorizontal className="size-3 shrink-0" /> {branch.commit} · {branch.relation}
-                    </span>
-                    <span className="mt-2 flex flex-wrap items-center gap-1.5 @3xl:hidden">
-                      <PullRequestStatus branch={branch} />
-                      <CheckoutStatus branch={branch} />
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-xs font-medium text-current/85">{branch.name}</span>
+                    <span className="hidden shrink-0 items-center gap-1 font-mono text-[10px] text-current/25 @4xl:flex">
+                      <GitCommitHorizontal className="size-3" /> {branch.commit}
                     </span>
                   </span>
                 </span>
-                <ChevronRight className="size-4 text-current/20 transition-transform group-hover:translate-x-0.5 @3xl:hidden" />
+                <span className="flex min-w-0 items-center gap-1 @3xl:hidden">
+                  <PullRequestStatus branch={branch} />
+                  <CheckoutStatus branch={branch} />
+                  <ChevronRight className="size-3.5 shrink-0 text-current/20 transition-transform group-hover:translate-x-0.5" />
+                </span>
                 <span className="hidden @3xl:block"><PullRequestStatus branch={branch} /></span>
                 <span className="hidden min-w-0 @3xl:block"><CheckoutStatus branch={branch} /></span>
                 <span className="hidden items-center justify-between gap-2 text-[11px] text-current/30 @3xl:flex">

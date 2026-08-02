@@ -10,6 +10,7 @@ import {
   FolderOpen,
   GitCommitHorizontal,
   GitCompareArrows,
+  GitMerge,
   GitPullRequest,
   Laptop,
   Monitor,
@@ -44,7 +45,8 @@ function PullRequestSummary({ branch }: { branch: PrototypeBranch }) {
       </div>
     );
   }
-  const tone = branch.pullRequest.state === "Open" ? "success" : branch.pullRequest.state === "Draft" ? "warning" : "info";
+  const merged = branch.pullRequest.state === "Merged";
+  const PullRequestIcon = merged ? GitMerge : GitPullRequest;
   return (
     <a
       className="flex items-center justify-between gap-4 border-y border-current/[.08] py-3 hover:bg-current/[.025]"
@@ -52,8 +54,10 @@ function PullRequestSummary({ branch }: { branch: PrototypeBranch }) {
       rel="noreferrer"
       target="_blank"
     >
-      <span className="flex min-w-0 items-center gap-2 text-xs font-medium"><GitPullRequest className="size-3.5 text-current/40" /> Pull request #{branch.pullRequest.number}</span>
-      <PageStatus tone={tone}>{branch.pullRequest.state}</PageStatus>
+      <span className={`flex min-w-0 items-center gap-2 text-xs font-medium ${merged ? "text-violet-300" : "text-emerald-300"}`}>
+        <PullRequestIcon className="size-3.5" /> #{branch.pullRequest.number}
+      </span>
+      <ExternalLink className="size-3.5 text-current/30" />
     </a>
   );
 }
@@ -145,17 +149,16 @@ export function BranchDetailView({ branch, onBack }: { branch: PrototypeBranch; 
 
         <aside className="min-w-0">
           <SectionHeading meta={`${workspaces.length} checked out`}>Machine workspaces</SectionHeading>
-          <p className="mb-3 text-xs leading-5 text-current/35">A workspace is this branch checked out on a development machine.</p>
           <div className="border-y border-current/[.08]">
             {machines.map(({ detail, icon: Icon, name }) => {
               const workspace = workspaces.find((candidate) => candidate.machine === name);
               return (
-                <section className="border-b border-current/[.07] py-3 last:border-0" key={name}>
-                  <div className="flex items-center gap-3">
-                    <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-current/[.045] text-current/40"><Icon className="size-3.5" /></span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-medium">{name}</span>
-                      <span className="mt-0.5 block text-[11px] text-current/30">{detail}</span>
+                <section className="border-b border-current/[.07] py-2 last:border-0" key={name}>
+                  <div className="flex min-h-8 items-center gap-2">
+                    <span className="grid size-7 shrink-0 place-items-center rounded-full bg-current/[.045] text-current/35"><Icon className="size-3.5" /></span>
+                    <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                      {name}
+                      <span className="ml-2 hidden text-[10px] font-normal text-current/25 @4xl:inline">{detail}</span>
                     </span>
                     {workspace ? (
                       <span className="flex shrink-0 items-center gap-1">
@@ -178,14 +181,19 @@ export function BranchDetailView({ branch, onBack }: { branch: PrototypeBranch; 
                           <FolderOpen className="size-3.5" />
                         </Button>
                       </span>
-                    ) : null}
+                    ) : (
+                      <Button
+                        isIconOnly
+                        aria-label={`Check out branch on ${name}`}
+                        className="size-8 min-w-8 text-current/35"
+                        size="sm"
+                        variant="ghost"
+                        onPress={() => checkout(name)}
+                      >
+                        <Download className="size-3.5" />
+                      </Button>
+                    )}
                   </div>
-                  {!workspace ? (
-                    <div className="mt-3 flex items-center justify-between gap-3 pl-11">
-                      <span className="text-[11px] text-current/30">Not checked out</span>
-                      <Button size="sm" variant="ghost" onPress={() => checkout(name)}><Download className="size-3.5" /> Check out</Button>
-                    </div>
-                  ) : null}
                 </section>
               );
             })}
