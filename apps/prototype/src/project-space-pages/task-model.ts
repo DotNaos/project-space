@@ -14,7 +14,7 @@ export type MockTaskStage =
 export type MockCheckState = "failed" | "not-started" | "passed" | "running";
 export type MockPreviewState = "not-started" | "ready" | "unavailable";
 export type MockReviewState = "approved" | "not-requested" | "pending";
-export type MockTaskWorkflowState = "Backlog" | "Done" | "In progress";
+export type MockTaskWorkflowState = "Backlog" | "Done" | "In progress" | "Started";
 
 export interface MockTaskComment {
   author: string;
@@ -113,15 +113,15 @@ export function mockTaskStageLabel(task: MockTask) {
 }
 
 export function mockTaskWorkflowState(task: MockTask): MockTaskWorkflowState {
-  if (task.stage === "deployed") return "Done";
+  if (["merged", "deploying", "deployed"].includes(task.stage)) return "Done";
   if (!task.pullRequest) return "Backlog";
+  if (task.pullRequest.phase === "draft") return "Started";
   return "In progress";
 }
 
 export function mockTaskNeedsAttention(task: MockTask) {
   return task.pullRequest?.checks === "failed"
-    || task.pullRequest?.preview === "unavailable"
-    || task.pullRequest?.review === "pending";
+    || task.pullRequest?.preview === "unavailable";
 }
 
 export function mockTaskGroup(task: MockTask): "Active" | "Done" | "Needs you" {
@@ -366,16 +366,16 @@ export const initialMockTasks: MockTask[] = [
     author: "Oli",
     body: "Require verified live iteration for prototypes while preserving a trusted, exact-revision review boundary.",
     branch: "issue-395-secure-authenticated-prototype-iteration",
-    branchRelation: "merged into main",
+    branchRelation: "1 ahead · 0 behind main",
     comments: [],
     events: [
       { detail: "Pull request #404 passed its required checks.", id: "395-1", time: "Jul 30", title: "Checks passed" },
-      { detail: "The Preview destination is temporarily unavailable.", id: "395-2", time: "now", title: "Preview unavailable" },
+      { detail: "The exact pull request revision is ready to inspect.", id: "395-2", time: "now", title: "Preview ready" },
     ],
     labels: ["prototype", "security"],
     number: 395,
-    pullRequest: { checks: "passed", number: 404, phase: "ready", preview: "unavailable", review: "not-requested", revision: "31f5a90" },
-    stage: "checks",
+    pullRequest: { checks: "passed", number: 404, phase: "ready", preview: "ready", review: "not-requested", revision: "31f5a90" },
+    stage: "preview",
     title: "Secure authenticated prototype iteration",
     type: "Feature",
     updated: "Jul 30",

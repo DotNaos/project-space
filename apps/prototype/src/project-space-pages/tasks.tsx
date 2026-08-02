@@ -19,7 +19,7 @@ import {
   type MockTask,
 } from "./task-model";
 
-type TaskFilter = "All" | "Backlog" | "In progress";
+type TaskFilter = "All" | "Backlog" | "Done" | "In progress" | "Started";
 
 function TaskSearch({
   className = "",
@@ -54,7 +54,7 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: MockTask }) {
       : state === "Done"
         ? CircleCheck
         : CircleDot;
-  const statusLabel = needsAttention ? "Needs attention" : state;
+  const statusLabel = needsAttention ? "Error" : state;
   const pullRequestState = state === "Done" ? "Merged" : task.pullRequest?.phase === "draft" ? "Draft" : "Open";
   return (
     <button
@@ -65,7 +65,7 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: MockTask }) {
     >
       <StatusIcon
         aria-label={statusLabel}
-        className={`mt-0.5 size-4 shrink-0 ${needsAttention ? "text-red-400" : state === "Backlog" ? "text-current/30" : state === "Done" ? "text-violet-400" : "text-blue-400"}`}
+        className={`mt-0.5 size-4 shrink-0 ${needsAttention ? "text-red-400" : state === "Backlog" ? "text-current/30" : state === "Started" ? "text-blue-400" : state === "In progress" ? "text-emerald-400" : "text-violet-400"}`}
       />
 
       <span className="min-w-0">
@@ -79,7 +79,7 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: MockTask }) {
           {task.pullRequest ? (
             <span
               aria-label={`${pullRequestState} pull request #${task.pullRequest.number}`}
-              className={`flex items-center gap-1 rounded-full px-2 py-1 font-medium ${state === "Done" ? "bg-violet-500/[.12] text-violet-300" : task.pullRequest.phase === "draft" ? "bg-current/[.055] text-current/40" : "bg-blue-500/[.12] text-blue-300"}`}
+              className={`flex items-center gap-1 rounded-full px-2 py-1 font-medium ${state === "Done" ? "bg-violet-500/[.12] text-violet-300" : task.pullRequest.phase === "draft" ? "bg-current/[.055] text-current/40" : "bg-emerald-500/[.12] text-emerald-300"}`}
             >
               <GitPullRequest className="size-3" />#{task.pullRequest.number}
             </span>
@@ -104,12 +104,19 @@ function TaskStatusSection({
   tasks: MockTask[];
 }) {
   if (tasks.length === 0) return null;
-  const StatusIcon = state === "Backlog" ? CircleDashed : CircleDot;
+  const StatusIcon = state === "Backlog" ? CircleDashed : state === "Done" ? CircleCheck : CircleDot;
+  const statusTone = state === "Backlog"
+    ? "text-current/30"
+    : state === "Started"
+      ? "text-blue-400"
+      : state === "In progress"
+        ? "text-emerald-400"
+        : "text-violet-400";
   const headingId = `task-section-${state.toLowerCase().replace(" ", "-")}`;
   return (
     <section aria-labelledby={headingId} className="pt-3 first:pt-1">
       <div className="flex items-center gap-2 px-1 pb-1 text-xs font-medium text-current/45">
-        <StatusIcon className={`size-3.5 ${state === "In progress" ? "text-blue-400" : "text-current/30"}`} />
+        <StatusIcon className={`size-3.5 ${statusTone}`} />
         <h2 id={headingId}>{state}</h2>
         <span className="text-[10px] tabular-nums text-current/25">{tasks.length}</span>
       </div>
@@ -131,13 +138,12 @@ export function ProjectTasksPage({
 }) {
   const [filter, setFilter] = useState<TaskFilter>("All");
   const [query, setQuery] = useState("");
-  const openTasks = useMemo(() => tasks.filter((task) => mockTaskWorkflowState(task) !== "Done"), [tasks]);
-  const visible = useMemo(() => openTasks.filter((task) => {
+  const visible = useMemo(() => tasks.filter((task) => {
     const state = mockTaskWorkflowState(task);
     const matchesFilter = filter === "All" || state === filter;
     const haystack = `${task.number} ${task.title} ${task.type} ${task.labels.join(" ")} ${task.branch ?? ""}`.toLowerCase();
     return matchesFilter && haystack.includes(query.toLowerCase());
-  }), [filter, openTasks, query]);
+  }), [filter, query, tasks]);
 
   return (
     <section className="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col px-5 pb-5 pt-2 @md:px-8 @3xl:px-10 @5xl:px-12 @5xl:pt-7">
@@ -152,7 +158,7 @@ export function ProjectTasksPage({
         <TaskSearch className="hidden @lg:flex @lg:max-w-sm" onChange={setQuery} value={query} />
 
         <div className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] @lg:ml-auto">
-          {(["All", "Backlog", "In progress"] as const).map((value) => (
+          {(["All", "Backlog", "Started", "In progress", "Done"] as const).map((value) => (
             <button
               aria-pressed={filter === value}
               className={`flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs transition-[background-color,color,scale] active:scale-[.96] ${filter === value ? "bg-current/[.1] text-current" : "text-current/40 hover:text-current/70"}`}
@@ -161,7 +167,7 @@ export function ProjectTasksPage({
               type="button"
             >
               {value}
-              <span className="text-[10px] tabular-nums text-current/35">{value === "All" ? openTasks.length : openTasks.filter((task) => mockTaskWorkflowState(task) === value).length}</span>
+              <span className="text-[10px] tabular-nums text-current/35">{value === "All" ? tasks.length : tasks.filter((task) => mockTaskWorkflowState(task) === value).length}</span>
             </button>
           ))}
         </div>
@@ -172,7 +178,9 @@ export function ProjectTasksPage({
         {filter === "All" ? (
           <>
             <TaskStatusSection onOpenTask={onOpenTask} state="Backlog" tasks={visible.filter((task) => mockTaskWorkflowState(task) === "Backlog")} />
+            <TaskStatusSection onOpenTask={onOpenTask} state="Started" tasks={visible.filter((task) => mockTaskWorkflowState(task) === "Started")} />
             <TaskStatusSection onOpenTask={onOpenTask} state="In progress" tasks={visible.filter((task) => mockTaskWorkflowState(task) === "In progress")} />
+            <TaskStatusSection onOpenTask={onOpenTask} state="Done" tasks={visible.filter((task) => mockTaskWorkflowState(task) === "Done")} />
           </>
         ) : visible.map((task) => <TaskRow key={task.number} onOpen={() => onOpenTask(task.number)} task={task} />)}
         {visible.length === 0 ? <div className="grid min-h-40 place-items-center text-sm text-current/35">No matching tasks</div> : null}

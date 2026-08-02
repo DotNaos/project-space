@@ -9,7 +9,7 @@ import {
   type MockTaskType,
 } from "./task-model";
 
-const storageKey = "project-space-prototype-tasks-v1";
+const storageKey = "project-space-prototype-tasks-v2";
 
 function loadTasks() {
   if (typeof window === "undefined") return initialMockTasks;

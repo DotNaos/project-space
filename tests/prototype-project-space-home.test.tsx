@@ -171,7 +171,7 @@ describe('project space home prototype', () => {
     expect(html).not.toContain('Not checked out');
   });
 
-  test('keeps completed Tasks out of the active list and treats attention as a signal', () => {
+  test('renders every task lifecycle state and treats errors as an overlay', () => {
     const html = renderToStaticMarkup(
       <ProjectFeaturePage
         page="issues"
@@ -182,26 +182,38 @@ describe('project space home prototype', () => {
     );
 
     expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 437)!)).toBe('Backlog');
+    expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 426)!)).toBe('Started');
     expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 398)!)).toBe('In progress');
+    expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 395)!)).toBe('In progress');
     expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 434)!)).toBe('Done');
     expect(mockTaskNeedsAttention(initialMockTasks.find((task) => task.number === 398)!)).toBe(true);
+    expect(mockTaskNeedsAttention(initialMockTasks.find((task) => task.number === 395)!)).toBe(false);
     expect(html).toContain('>All<');
     expect(html).toContain('>Backlog<');
+    expect(html).toContain('>Started<');
     expect(html).toContain('>In progress<');
+    expect(html).toContain('>Done<');
     expect(html).toContain('aria-labelledby="task-section-backlog"');
+    expect(html).toContain('aria-labelledby="task-section-started"');
     expect(html).toContain('aria-labelledby="task-section-in-progress"');
+    expect(html).toContain('aria-labelledby="task-section-done"');
     expect(html).toContain('#437');
     expect(html).toContain('#398');
-    expect(html).not.toContain('#434');
+    expect(html).toContain('#434');
     expect(html).toContain('aria-label="Backlog"');
-    expect(html).toContain('aria-label="Needs attention"');
+    expect(html).toContain('aria-label="Started"');
+    expect(html).toContain('aria-label="In progress"');
+    expect(html).toContain('aria-label="Error"');
+    expect(html).toContain('aria-label="Done"');
     expect(html).toContain('aria-label="Open pull request #420"');
-    expect(html).toContain('bg-blue-500/[.12]');
+    expect(html).toContain('aria-label="Draft pull request #427"');
+    expect(html).toContain('aria-label="Merged pull request #435"');
+    expect(html).toContain('bg-emerald-500/[.12]');
+    expect(html).toContain('bg-violet-500/[.12]');
     expect(html).not.toContain('>Bug<');
     expect(html).not.toContain('>Feature<');
     expect(html).not.toContain('aria-label="Task view"');
     expect(html).not.toContain('>History<');
-    expect(html).not.toContain('>Done<');
     expect(html).not.toContain('>Blocked<');
   });
 
