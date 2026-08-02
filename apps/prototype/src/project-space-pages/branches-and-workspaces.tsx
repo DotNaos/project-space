@@ -6,7 +6,9 @@ import {
   GitMerge,
   GitPullRequest,
   Laptop,
+  ListFilter,
   Plus,
+  TriangleAlert,
 } from "lucide-react";
 
 import type { PrototypeScenarioKind } from "../../../../src/shared/prototype-canvas";
@@ -104,11 +106,20 @@ export function ProjectBranchesPage({
       projectName={projectName}
       title="Branches"
     >
-      <div className="flex shrink-0 flex-col gap-3 border-b border-current/[.08] py-4 @3xl:flex-row @3xl:items-center @3xl:justify-between">
-        <PageSearch onChange={setQuery} placeholder="Search branches, PRs, or machines" value={query} />
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-current/[.08] py-3">
+        <div className="hidden min-w-0 flex-1 @3xl:block">
+          <PageSearch onChange={setQuery} placeholder="Search branches, PRs, or machines" value={query} />
+        </div>
         <div className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
-          {(["All", "Pull request", "Checked out", "Needs attention"] as const).map((value) => (
-            <PageFilter active={filter === value} key={value} onPress={() => setFilter(value)}>{value}</PageFilter>
+          {([
+            { icon: ListFilter, value: "All" },
+            { icon: GitPullRequest, value: "Pull request" },
+            { icon: Laptop, value: "Checked out" },
+            { icon: TriangleAlert, value: "Needs attention" },
+          ] as const).map(({ icon: Icon, value }) => (
+            <PageFilter active={filter === value} key={value} onPress={() => setFilter(value)}>
+              <Icon className="size-3.5" strokeWidth={1.75} /> {value}
+            </PageFilter>
           ))}
         </div>
       </div>
@@ -156,7 +167,10 @@ export function ProjectBranchesPage({
               </div>
             ) : null}
           </div>
-          <div className="flex h-9 shrink-0 items-center justify-between border-t border-current/[.06] px-2 text-[11px] text-current/30">
+          <div className="shrink-0 border-t border-current/[.08] py-3 @3xl:hidden">
+            <PageSearch onChange={setQuery} placeholder="Search branches, PRs, or machines" value={query} />
+          </div>
+          <div className="hidden h-9 shrink-0 items-center justify-between border-t border-current/[.06] px-2 text-[11px] text-current/30 @3xl:flex">
             <span>{visible.length} of {prototypeBranches.length} branches</span>
             <span>Live prototype fixtures from GitHub</span>
           </div>

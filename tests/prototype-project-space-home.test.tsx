@@ -109,6 +109,22 @@ describe('project space home prototype', () => {
     expect(html).toContain(second);
   });
 
+  test('keeps branch search thumb-reachable and gives filters icons', () => {
+    const html = renderToStaticMarkup(
+      <ProjectFeaturePage
+        page="branches"
+        projectName="project-space"
+        scenario="ready"
+      />
+    );
+
+    expect(html).toContain('lucide-list-filter');
+    expect(html).toContain('lucide-git-pull-request');
+    expect(html).toContain('lucide-laptop');
+    expect(html).toContain('lucide-triangle-alert');
+    expect(html).toContain('border-t border-current/[.08] py-3 @3xl:hidden');
+  });
+
   test('keeps realistic branch volume searchable and filterable', () => {
     expect(prototypeBranches).toHaveLength(30);
     expect(prototypeBranches.some((branch) => branch.name === 'issue-437-redesign-the-project-space-frontend')).toBe(true);
