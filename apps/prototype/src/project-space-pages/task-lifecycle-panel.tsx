@@ -154,6 +154,15 @@ export function TaskDeliveryPanel({
         </section>
       ) : null}
 
+      {/*
+       * TODO(#437): Completed Tasks need branch and worktree cleanup evidence.
+       * Show whether the merged branch still exists on GitHub and on each local
+       * machine. A merged remote branch may be deleted. A local branch and its
+       * worktree are safe to delete only after the checkout is clean and has no
+       * unpublished work; otherwise escalate it for inspection instead of
+       * offering automatic cleanup. Status filters and navigation to the full
+       * Repository management view are intentionally deferred.
+       */}
       <details className="group mt-4 border-t border-current/[.08] pt-1">
         <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-1 text-xs font-medium text-current/40 transition-colors hover:text-current/70 [&::-webkit-details-marker]:hidden">
           Development details
