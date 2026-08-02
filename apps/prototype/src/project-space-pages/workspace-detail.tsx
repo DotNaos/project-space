@@ -19,6 +19,8 @@ import {
 import type { PrototypeWorkspace } from "./branch-fixtures";
 import { PageFilter, PageStatus, SectionHeading } from "./page-foundation";
 
+export type WorkspaceView = "Changes" | "Files" | "Runtime";
+
 const files = [
   { depth: 0, kind: "folder", name: "apps" },
   { depth: 1, kind: "folder", name: "prototype" },
@@ -35,10 +37,19 @@ const changedFiles = [
   { additions: 93, deletions: 0, name: "issue-comments.tsx", state: "A" },
 ];
 
-export function WorkspaceDetailView({ onBack, workspace }: { onBack(): void; workspace: PrototypeWorkspace }) {
-  const [view, setView] = useState<"Changes" | "Files" | "Runtime">("Files");
+export function WorkspaceDetailView({
+  initialView = "Files",
+  onBack,
+  workspace,
+}: {
+  initialView?: WorkspaceView;
+  onBack(): void;
+  workspace: PrototypeWorkspace;
+}) {
+  const [view, setView] = useState<WorkspaceView>(initialView);
   const [serverRunning, setServerRunning] = useState(true);
   const [selectedFile, setSelectedFile] = useState("project-space-home.tsx");
+  const workspaceChanges = workspace.health === "Modified" ? changedFiles : [];
 
   return (
     <section className="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col px-5 pb-6 pt-3 @md:px-8 @3xl:px-10 @5xl:px-12 @5xl:pt-7">
@@ -109,26 +120,35 @@ export function WorkspaceDetailView({ onBack, workspace }: { onBack(): void; wor
         {view === "Changes" ? (
           <div className="grid gap-8 py-6 @3xl:grid-cols-[18rem_minmax(0,1fr)]">
             <aside>
-              <SectionHeading meta="3 files">Working tree</SectionHeading>
+              <SectionHeading meta={`${workspaceChanges.length} files`}>Working tree</SectionHeading>
               <div className="border-y border-current/[.08]">
-                {changedFiles.map((file) => (
+                {workspaceChanges.map((file) => (
                   <button className="flex w-full items-center gap-2 border-b border-current/[.06] py-3 text-left last:border-0" key={file.name} type="button">
                     <span className="grid size-6 place-items-center rounded-md bg-current/[.05] text-[10px] font-semibold text-current/50">{file.state}</span>
                     <span className="min-w-0 flex-1 truncate text-xs">{file.name}</span>
                     <span className="text-[10px] tabular-nums text-current/35"><span className="text-emerald-400">+{file.additions}</span> <span className="text-red-400">-{file.deletions}</span></span>
                   </button>
                 ))}
+                {workspaceChanges.length === 0 ? (
+                  <p className="py-6 text-center text-xs text-current/35">Working tree clean</p>
+                ) : null}
               </div>
-              <Button className="mt-4 w-full" variant="secondary"><GitCommitHorizontal className="size-4" /> Commit changes</Button>
+              {workspaceChanges.length > 0 ? (
+                <Button className="mt-4 w-full" variant="secondary"><GitCommitHorizontal className="size-4" /> Commit changes</Button>
+              ) : null}
             </aside>
             <main className="min-w-0">
               <SectionHeading>Diff preview</SectionHeading>
-              <div className="overflow-x-auto rounded-xl bg-black/20 p-4 font-mono text-[11px] leading-6 ring-1 ring-inset ring-current/[.06]">
-                <p className="text-current/35">@@ Issue detail workflow</p>
-                <p className="bg-emerald-500/10 text-emerald-300">+ &lt;IssueComments /&gt;</p>
-                <p className="bg-emerald-500/10 text-emerald-300">+ &lt;IssueWorkflow issue={'{issue}'} /&gt;</p>
-                <p className="bg-red-500/10 text-red-300">- &lt;StaticIssueSummary /&gt;</p>
-              </div>
+              {workspaceChanges.length > 0 ? (
+                <div className="overflow-x-auto rounded-xl bg-black/20 p-4 font-mono text-[11px] leading-6 ring-1 ring-inset ring-current/[.06]">
+                  <p className="text-current/35">@@ Issue detail workflow</p>
+                  <p className="bg-emerald-500/10 text-emerald-300">+ &lt;IssueComments /&gt;</p>
+                  <p className="bg-emerald-500/10 text-emerald-300">+ &lt;IssueWorkflow issue={'{issue}'} /&gt;</p>
+                  <p className="bg-red-500/10 text-red-300">- &lt;StaticIssueSummary /&gt;</p>
+                </div>
+              ) : (
+                <div className="grid min-h-40 place-items-center border-y border-current/[.08] text-xs text-current/30">No local changes to compare.</div>
+              )}
             </main>
           </div>
         ) : null}
@@ -160,7 +180,7 @@ export function WorkspaceDetailView({ onBack, workspace }: { onBack(): void; wor
             <aside>
               <SectionHeading>Workspace state</SectionHeading>
               <div className="border-y border-current/[.08] py-2">
-                {[["Machine", workspace.machine], ["Branch", workspace.branch], ["Changes", "3 files"], ["Dev server", serverRunning ? "Running" : "Stopped"]].map(([label, value]) => (
+                {[["Machine", workspace.machine], ["Branch", workspace.branch], ["Changes", workspaceChanges.length > 0 ? `${workspaceChanges.length} files` : "Clean"], ["Dev server", serverRunning ? "Running" : "Stopped"]].map(([label, value]) => (
                   <div className="flex items-center justify-between gap-3 py-2.5" key={label}><span className="text-xs text-current/35">{label}</span><span className="max-w-40 truncate text-xs font-medium text-current/65">{value}</span></div>
                 ))}
               </div>

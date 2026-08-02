@@ -4,11 +4,10 @@ import {
   ArrowDownLeft,
   ArrowLeft,
   ArrowUpRight,
-  Check,
   Download,
   ExternalLink,
   FileDiff,
-  FolderTree,
+  FolderOpen,
   GitCommitHorizontal,
   GitCompareArrows,
   GitPullRequest,
@@ -19,7 +18,7 @@ import {
 
 import type { PrototypeBranch, PrototypeWorkspace } from "./branch-fixtures";
 import { PageStatus, SectionHeading } from "./page-foundation";
-import { WorkspaceDetailView } from "./workspace-detail";
+import { WorkspaceDetailView, type WorkspaceView } from "./workspace-detail";
 
 const machines = [
   { detail: "macOS · local development", icon: Laptop, name: "Local" },
@@ -62,11 +61,20 @@ function PullRequestSummary({ branch }: { branch: PrototypeBranch }) {
 export function BranchDetailView({ branch, onBack }: { branch: PrototypeBranch; onBack(): void }) {
   const branchUrl = `https://github.com/DotNaos/project-space/tree/${branch.name}`;
   const [workspaces, setWorkspaces] = useState(branch.workspaces);
-  const [selectedWorkspace, setSelectedWorkspace] = useState<PrototypeWorkspace | null>(null);
+  const [selectedWorkspace, setSelectedWorkspace] = useState<{
+    initialView: WorkspaceView;
+    workspace: PrototypeWorkspace;
+  } | null>(null);
   const branchCommits = commitsFor(branch);
 
   if (selectedWorkspace) {
-    return <WorkspaceDetailView onBack={() => setSelectedWorkspace(null)} workspace={selectedWorkspace} />;
+    return (
+      <WorkspaceDetailView
+        initialView={selectedWorkspace.initialView}
+        onBack={() => setSelectedWorkspace(null)}
+        workspace={selectedWorkspace.workspace}
+      />
+    );
   }
 
   const checkout = (machine: string) => {
@@ -142,37 +150,49 @@ export function BranchDetailView({ branch, onBack }: { branch: PrototypeBranch; 
             {machines.map(({ detail, icon: Icon, name }) => {
               const workspace = workspaces.find((candidate) => candidate.machine === name);
               return (
-                <section className="border-b border-current/[.07] py-3.5 last:border-0" key={name}>
-                  <div className="flex items-start gap-3">
+                <section className="border-b border-current/[.07] py-3 last:border-0" key={name}>
+                  <div className="flex items-center gap-3">
                     <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-current/[.045] text-current/40"><Icon className="size-3.5" /></span>
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-medium">{name}</span>
                       <span className="mt-0.5 block text-[11px] text-current/30">{detail}</span>
                     </span>
-                    {workspace ? <PageStatus tone={workspace.health === "Modified" ? "warning" : workspace.health === "Clean" ? "success" : "muted"}>{workspace.health}</PageStatus> : null}
+                    {workspace ? (
+                      <span className="flex shrink-0 items-center gap-1">
+                        <button
+                          aria-label={`Open changes on ${name}`}
+                          className="rounded-full transition-[filter,scale] duration-150 hover:brightness-125 active:scale-[.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400"
+                          onClick={() => setSelectedWorkspace({ initialView: "Changes", workspace })}
+                          type="button"
+                        >
+                          <PageStatus tone={workspace.health === "Modified" ? "warning" : workspace.health === "Clean" ? "success" : "muted"}>{workspace.health}</PageStatus>
+                        </button>
+                        <Button
+                          isIconOnly
+                          aria-label={`Open workspace on ${name}`}
+                          className="size-8 min-w-8 text-current/40"
+                          size="sm"
+                          variant="ghost"
+                          onPress={() => setSelectedWorkspace({ initialView: "Files", workspace })}
+                        >
+                          <FolderOpen className="size-3.5" />
+                        </Button>
+                      </span>
+                    ) : null}
                   </div>
-                  {workspace ? (
-                    <div className="mt-3 pl-11">
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-current/40">
-                        <span className="flex items-center gap-1"><FolderTree className="size-3" /> Worktree ready</span>
-                        <span className="flex items-center gap-1"><GitCompareArrows className="size-3" /> {workspace.health === "Modified" ? "3 changed files" : "Working tree clean"}</span>
-                        <span className="flex items-center gap-1"><Check className="size-3" /> Git status available</span>
-                      </div>
-                      <Button className="mt-3" size="sm" variant="secondary" onPress={() => setSelectedWorkspace(workspace)}>Open workspace</Button>
-                    </div>
-                  ) : (
+                  {!workspace ? (
                     <div className="mt-3 flex items-center justify-between gap-3 pl-11">
                       <span className="text-[11px] text-current/30">Not checked out</span>
                       <Button size="sm" variant="ghost" onPress={() => checkout(name)}><Download className="size-3.5" /> Check out</Button>
                     </div>
-                  )}
+                  ) : null}
                 </section>
               );
             })}
           </div>
-          <div className="mt-6 grid grid-cols-2 gap-2">
-            <Button variant="secondary"><GitCompareArrows className="size-4" /> Compare</Button>
-            <Button variant="outline"><RefreshCw className="size-4" /> Refresh</Button>
+          <div className="mt-5 grid w-full grid-cols-2 gap-2">
+            <Button className="w-full" variant="secondary"><GitCompareArrows className="size-4" /> Compare</Button>
+            <Button className="w-full" variant="outline"><RefreshCw className="size-4" /> Refresh</Button>
           </div>
         </aside>
       </div>

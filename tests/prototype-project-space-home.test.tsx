@@ -126,9 +126,14 @@ describe('project space home prototype', () => {
     expect(html).toContain('Local');
     expect(html).toContain('os-pc');
     expect(html).toContain('os-yoga-unix');
-    expect(html).toContain('Open workspace');
+    expect(html).toContain('aria-label="Open workspace on Local"');
+    expect(html).toContain('aria-label="Open changes on Local"');
     expect(html).toContain('Check out');
     expect(html).toContain('No pull request');
+    expect(html).not.toContain('Worktree ready');
+    expect(html).not.toContain('3 changed files');
+    expect(html).not.toContain('Git status available');
+    expect(html).toContain('grid w-full grid-cols-2 gap-2');
   });
 
   test('offers board and list views that open the same issues', () => {
