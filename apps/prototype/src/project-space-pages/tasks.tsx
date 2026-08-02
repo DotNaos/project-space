@@ -31,11 +31,11 @@ function TaskSearch({
   value: string;
 }) {
   return (
-    <label className={`flex h-11 min-w-0 flex-1 items-center gap-2 rounded-xl bg-current/[.045] px-3 py-2.5 @lg:h-9 @lg:py-0 ${className}`}>
+    <label className={`flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full bg-current/[.045] px-3 @lg:h-9 ${className}`}>
       <Search className="size-4 shrink-0 text-current/30" />
       <input
         aria-label="Search tasks"
-        className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-current/30"
+        className="h-full min-w-0 flex-1 bg-transparent py-0 text-sm leading-none outline-none placeholder:text-current/30"
         onChange={(event) => onChange(event.target.value)}
         placeholder="Search tasks"
         value={value}
@@ -148,11 +148,11 @@ export function ProjectTasksPage({
       <div className="flex shrink-0 flex-col gap-3 border-b border-current/[.08] py-3 @lg:flex-row @lg:items-center @lg:py-4">
         <TaskSearch className="hidden @lg:flex @lg:max-w-sm" onChange={setQuery} value={query} />
 
-        <div className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] @lg:ml-auto">
+        <div className="flex w-full min-w-0 items-center gap-0.5 @lg:ml-auto @lg:w-auto @lg:gap-1 @lg:overflow-x-auto @lg:[scrollbar-width:none]">
           {(["All", "Backlog", "Started", "In progress", "Done"] as const).map((value) => (
             <button
               aria-pressed={filter === value}
-              className={`flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs transition-[background-color,color,scale] active:scale-[.96] ${filter === value ? "bg-current/[.1] text-current" : "text-current/40 hover:text-current/70"}`}
+              className={`flex h-8 min-w-0 shrink items-center gap-1 whitespace-nowrap rounded-full px-2 text-[10px] transition-[background-color,color,scale] active:scale-[.96] @lg:h-9 @lg:shrink-0 @lg:gap-1.5 @lg:px-3 @lg:text-xs ${filter === value ? "bg-current/[.1] text-current" : "text-current/40 hover:text-current/70"}`}
               key={value}
               onClick={() => setFilter(value)}
               type="button"
