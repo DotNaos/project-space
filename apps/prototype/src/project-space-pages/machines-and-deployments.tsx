@@ -50,11 +50,11 @@ export function ProjectMachinesPage({
                     <span className="mt-1 block truncate text-xs text-current/40">{machine.role} · {machine.detail}</span>
                   </span>
                   <span className="hidden @md:block">
-                    <span className="block text-[10px] uppercase tracking-wide text-current/25">Current work</span>
+                    <span className="block text-[11px] font-medium text-current/35">Current work</span>
                     <span className="mt-1 block text-xs text-current/55">{machine.tasks}</span>
                   </span>
                   <span className="hidden @md:block">
-                    <span className="block text-[10px] uppercase tracking-wide text-current/25">Load</span>
+                    <span className="block text-[11px] font-medium text-current/35">Load</span>
                     <span className="mt-1 block text-xs text-current/55">{machine.load}</span>
                   </span>
                   <PageStatus tone={machine.status === "Online" ? "success" : "muted"}>{machine.status}</PageStatus>

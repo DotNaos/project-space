@@ -126,6 +126,8 @@ describe('project space home prototype', () => {
     expect(board).toContain('aria-label="Issue board"');
     expect(board).toContain('Backlog');
     expect(board).toContain('In progress');
+    expect(board).toContain('Updated now');
+    expect(board).not.toContain('uppercase');
     expect(list).not.toContain('aria-label="Issue board"');
     expect(list).toContain('Open issue #437');
   });
@@ -184,6 +186,7 @@ describe('project space home prototype', () => {
     expect(expanded).toContain('>Work<');
     expect(expanded).toContain('>Collaborate<');
     expect(expanded).toContain('>Operate<');
+    expect(expanded).not.toContain('uppercase');
     expect(collapsed).toContain('Expand sidebar');
     expect(collapsed).not.toContain('>Work<');
     expect(collapsed).toContain('title="Issues"');

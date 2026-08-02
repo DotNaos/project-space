@@ -113,7 +113,7 @@ function ProjectSelectorModal({
         type="button"
       >
         {collapsed ? (
-          <span className="text-xs font-semibold uppercase tracking-[-.04em]">
+          <span className="text-xs font-semibold tracking-[-.04em]">
             {currentProject.name.slice(0, 2)}
           </span>
         ) : (
@@ -282,7 +282,7 @@ export function ProjectSidebar({
             {collapsed ? (
               groupIndex === 0 ? null : <div aria-hidden className="mx-3 mb-2 h-px bg-current/[.06]" />
             ) : (
-              <p className="px-3 pb-2 text-[10px] font-medium uppercase tracking-[0.14em] text-current/30">
+              <p className="px-3 pb-2 text-[11px] font-medium text-current/35">
                 {group.label}
               </p>
             )}

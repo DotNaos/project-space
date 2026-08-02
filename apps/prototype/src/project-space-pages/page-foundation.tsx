@@ -97,7 +97,7 @@ export function PageFilter({
 }) {
   return (
     <button
-      className={`h-8 shrink-0 whitespace-nowrap rounded-full px-3 text-xs font-medium transition-colors duration-150 active:scale-[.96] ${
+      className={`inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-xs font-medium transition-[background-color,color,scale] duration-150 active:scale-[.96] ${
         active
           ? "bg-current/[.1] text-current"
           : "text-current/45 hover:bg-current/[.05] hover:text-current/70"
@@ -146,7 +146,7 @@ export function PagePrimaryAction({ children, icon }: { children: ReactNode; ico
 export function SectionHeading({ children, meta }: { children: ReactNode; meta?: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-4 pb-2.5">
-      <h2 className="text-[11px] font-semibold uppercase tracking-[.14em] text-current/35">
+      <h2 className="text-xs font-medium text-current/45">
         {children}
       </h2>
       {meta ? <div className="text-[11px] text-current/30">{meta}</div> : null}
