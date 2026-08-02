@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 
 import { TaskComments } from "./task-comments";
-import { TaskDeliveryPanel } from "./task-lifecycle-panel";
+import { TaskDeliveryPanel, TaskPrimaryAction } from "./task-lifecycle-panel";
 import type { MockTask, MockTaskAction } from "./task-model";
 import { mockTaskStageLabel } from "./task-model";
 import { TaskPreviewModal } from "./task-preview-modal";
@@ -56,7 +56,7 @@ export function ProjectTaskDetailPage({
 
   return (
     <>
-      <section className="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col px-5 pb-6 pt-2 @md:px-8 @3xl:px-10 @5xl:px-12 @5xl:pt-7">
+      <section className="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col px-5 pb-0 pt-2 @md:px-8 @3xl:px-10 @3xl:pb-6 @5xl:px-12 @5xl:pt-7">
         <header className="shrink-0 border-b border-current/[.08] pb-5">
           <div className="flex items-center justify-between gap-4">
             <Button size="sm" style={{ color: "inherit" }} variant="ghost" onPress={onBack}>
@@ -110,6 +110,14 @@ export function ProjectTaskDetailPage({
             <TaskDeliveryPanel onAction={onAction} onOpenPreview={() => setPreviewOpen(true)} task={task} />
           </div>
         </div>
+        {task.pullRequest?.phase === "draft" ? (
+          <footer
+            className="-mx-5 shrink-0 border-t border-current/[.08] bg-[var(--prototype-screen-background)] px-5 pb-4 pt-3 @md:-mx-8 @md:px-8 @3xl:hidden"
+            data-testid="task-mobile-primary-action"
+          >
+            <TaskPrimaryAction className="w-full" onAction={onAction} task={task} />
+          </footer>
+        ) : null}
       </section>
       <TaskPreviewModal isOpen={previewOpen} task={task} onOpenChange={setPreviewOpen} />
     </>

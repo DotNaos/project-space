@@ -458,6 +458,9 @@ describe('project space home prototype', () => {
     expect(html).toContain('lucide-git-pull-request-draft');
     expect(html).toContain('Draft #427');
     expect(html).toContain('Start development');
+    expect(html).toContain('data-testid="task-mobile-primary-action"');
+    expect(html).toContain('data-testid="task-panel-primary-action"');
+    expect(html).toContain('hidden @3xl:flex');
     expect(html).not.toContain('Waiting for checks');
     expect(html).not.toContain('>Pipeline<');
     expect(html).not.toContain('Development details');
@@ -476,6 +479,7 @@ describe('project space home prototype', () => {
       />
     );
     expect(mockTaskWorkflowState(inProgressTask)).toBe('In progress');
+    expect(inProgressHtml).not.toContain('data-testid="task-mobile-primary-action"');
     expect(inProgressHtml).toContain('Pipeline');
     expect(inProgressHtml).toContain('Run checks');
   });

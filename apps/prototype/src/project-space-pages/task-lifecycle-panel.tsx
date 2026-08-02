@@ -68,6 +68,33 @@ function nextAction(task: MockTask): { action: MockTaskAction; icon: typeof Spar
   return null;
 }
 
+export function TaskPrimaryAction({
+  className = "",
+  onAction,
+  task,
+}: {
+  className?: string;
+  onAction(action: MockTaskAction): void;
+  task: MockTask;
+}) {
+  const primary = nextAction(task);
+
+  if (!primary) return null;
+
+  const previewReady = task.pullRequest?.preview === "ready";
+
+  return (
+    <Button
+      className={className}
+      size="sm"
+      variant={previewReady ? "secondary" : "primary"}
+      onPress={() => onAction(primary.action)}
+    >
+      <primary.icon className="size-4" /> {primary.label}
+    </Button>
+  );
+}
+
 export function TaskDeliveryPanel({
   onAction,
   onOpenPreview,
@@ -77,7 +104,6 @@ export function TaskDeliveryPanel({
   onOpenPreview(): void;
   task: MockTask;
 }) {
-  const primary = nextAction(task);
   const latestEvent = task.events[task.events.length - 1];
   const attention = task.pullRequest?.checks === "failed" || task.pullRequest?.preview === "unavailable";
   const draftPullRequest = task.pullRequest?.phase === "draft";
@@ -141,12 +167,8 @@ export function TaskDeliveryPanel({
 
       {latestEvent && (attention || !task.pullRequest) ? <p className="mt-4 max-w-xl text-sm leading-6 text-current/55">{latestEvent.detail}</p> : null}
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        {primary ? (
-          <Button className="min-w-0 flex-1 @md:flex-none" size="sm" variant={previewReady ? "secondary" : "primary"} onPress={() => onAction(primary.action)}>
-            <primary.icon className="size-4" /> {primary.label}
-          </Button>
-        ) : null}
+      <div className={`mt-4 flex flex-wrap gap-2 ${draftPullRequest ? "hidden @3xl:flex" : ""}`} data-testid="task-panel-primary-action">
+        <TaskPrimaryAction className="min-w-0 flex-1 @md:flex-none" onAction={onAction} task={task} />
         {task.deployment?.status === "deployed" ? (
           <a className="inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 text-xs font-medium text-emerald-300 transition-[filter,scale] hover:brightness-125 active:scale-[.96] @md:flex-none" href={task.deployment.url} rel="noreferrer" target="_blank">
             Open production <ExternalLink className="size-3.5" />
