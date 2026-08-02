@@ -62,7 +62,6 @@ function nextAction(task: MockTask): { action: MockTaskAction; icon: typeof Spar
   if (task.pullRequest.checks === "failed") return { action: { type: "run-checks" }, icon: RefreshCw, label: "Retry checks" };
   if (task.pullRequest.preview === "not-started") return { action: { type: "start-preview" }, icon: Rocket, label: "Start Preview" };
   if (task.pullRequest.preview === "unavailable") return { action: { type: "retry-preview" }, icon: RefreshCw, label: "Retry Preview" };
-  if (task.pullRequest.review === "not-requested") return { action: { type: "request-review" }, icon: ShieldCheck, label: "Request review" };
   if (task.pullRequest.review === "pending") return { action: { type: "approve-revision" }, icon: Check, label: "Approve revision" };
   if (task.stage === "review") return { action: { type: "merge" }, icon: GitMerge, label: "Merge pull request" };
   if (task.stage === "merged") return { action: { type: "start-deployment" }, icon: Rocket, label: "Start deployment" };

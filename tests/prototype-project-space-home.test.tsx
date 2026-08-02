@@ -506,6 +506,7 @@ describe('project space home prototype', () => {
     expect(html).toContain('> Prototype</button>');
     expect(html).toContain('#404');
     expect(html).toContain('Checks passed');
+    expect(html).not.toContain('Request review');
     expect(html).not.toContain('Working context');
   });
 
