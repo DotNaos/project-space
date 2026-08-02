@@ -27,10 +27,12 @@ export function PageStatus({ children, tone = "muted" }: {
 export function PageScaffold({
   action,
   children,
+  contentClassName,
   title,
 }: {
   action?: ReactNode;
   children: ReactNode;
+  contentClassName?: string;
   description: string;
   projectName: string;
   title: string;
@@ -45,7 +47,7 @@ export function PageScaffold({
         </div>
         {action ? <div className="hidden shrink-0 @md:block">{action}</div> : null}
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className={`min-h-0 flex-1 ${contentClassName ?? "overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"}`}>
         {children}
       </div>
     </section>

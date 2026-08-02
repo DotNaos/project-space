@@ -127,6 +127,8 @@ describe('project space home prototype', () => {
     );
 
     expect(board).toContain('aria-label="Issue board"');
+    expect(board).toContain('data-scroll-region="issue-board-horizontal"');
+    expect(board.match(/data-scroll-region="issue-column"/g)).toHaveLength(3);
     expect(board).toContain('Backlog');
     expect(board).toContain('In progress');
     expect(board).toContain('Done');

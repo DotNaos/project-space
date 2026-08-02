@@ -326,7 +326,8 @@ function IssueBoard({
   return (
     <div
       aria-label="Issue board"
-      className="grid min-h-0 flex-1 auto-cols-[minmax(12.5rem,1fr)] grid-flow-col gap-2.5 overflow-x-auto overscroll-x-contain py-4 [scrollbar-width:none]"
+      className="grid min-h-0 flex-1 auto-cols-[minmax(12.5rem,1fr)] grid-flow-col gap-2.5 overflow-x-auto overflow-y-hidden overscroll-x-contain py-4 [scrollbar-width:none]"
+      data-scroll-region="issue-board-horizontal"
     >
       {prototypeIssueColumns.map((column) => {
         const columnIssues = issues.filter((issue) => issue.column === column.id);
@@ -339,7 +340,10 @@ function IssueBoard({
                 {columnIssues.length}
               </span>
             </header>
-            <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+            <div
+              className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-y-contain pr-1 [scrollbar-color:color-mix(in_srgb,currentColor_18%,transparent)_transparent] [scrollbar-width:thin]"
+              data-scroll-region="issue-column"
+            >
               {columnIssues.map((issue) => (
                 <article className="group rounded-xl bg-current/[.045] p-3 transition-colors hover:bg-current/[.07]" key={issue.number}>
                   <IssueGithubLink issue={issue} />
@@ -406,6 +410,7 @@ export function ProjectIssuesPage({
   return (
     <PageScaffold
       action={<PagePrimaryAction icon={<Plus className="size-4" />} onPress={onNewIssue}>New issue</PagePrimaryAction>}
+      contentClassName="flex flex-col overflow-hidden"
       description="Plan, track, and finish work without losing its delivery context."
       projectName={projectName}
       title="Issues"
@@ -432,21 +437,23 @@ export function ProjectIssuesPage({
       ) : viewMode === "board" ? (
         <IssueBoard issues={visible} onOpenIssue={onOpenIssue} />
       ) : (
-        <IssueTable
-          development={developmentFilter}
-          issues={tableIssues}
-          label={labelFilter}
-          labels={labels}
-          onDevelopmentChange={setDevelopmentFilter}
-          onLabelChange={setLabelFilter}
-          onOpenIssue={onOpenIssue}
-          onResetFilters={() => {
-            setDevelopmentFilter("All");
-            setLabelFilter("All");
-          }}
-          onSortChange={setSortDescriptor}
-          sortDescriptor={sortDescriptor}
-        />
+        <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <IssueTable
+            development={developmentFilter}
+            issues={tableIssues}
+            label={labelFilter}
+            labels={labels}
+            onDevelopmentChange={setDevelopmentFilter}
+            onLabelChange={setLabelFilter}
+            onOpenIssue={onOpenIssue}
+            onResetFilters={() => {
+              setDevelopmentFilter("All");
+              setLabelFilter("All");
+            }}
+            onSortChange={setSortDescriptor}
+            sortDescriptor={sortDescriptor}
+          />
+        </div>
       )}
     </PageScaffold>
   );
