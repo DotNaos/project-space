@@ -53,7 +53,7 @@ export function filterPrototypeBranches({
 }
 
 function PullRequestStatus({ branch }: { branch: PrototypeBranch }) {
-  if (!branch.pullRequest) return <span className="text-[10px] text-current/20">No PR</span>;
+  if (!branch.pullRequest) return null;
   const merged = branch.pullRequest.state === "Merged";
   const PullRequestIcon = merged ? GitMerge : GitPullRequest;
   return (
@@ -66,7 +66,7 @@ function PullRequestStatus({ branch }: { branch: PrototypeBranch }) {
 }
 
 function CheckoutStatus({ branch }: { branch: PrototypeBranch }) {
-  if (branch.workspaces.length === 0) return <span className="text-[10px] text-current/20">Not checked out</span>;
+  if (branch.workspaces.length === 0) return null;
   const [firstWorkspace, ...additionalWorkspaces] = branch.workspaces;
   return (
     <span className="inline-flex h-5 min-w-0 items-center gap-1 rounded-full bg-current/[.055] px-1.5 text-[10px] text-current/50">

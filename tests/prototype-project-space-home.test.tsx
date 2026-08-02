@@ -123,6 +123,8 @@ describe('project space home prototype', () => {
     expect(html).toContain('lucide-laptop');
     expect(html).toContain('lucide-triangle-alert');
     expect(html).toContain('border-t border-current/[.08] py-3 @3xl:hidden');
+    expect(html).not.toContain('No PR');
+    expect(html).not.toContain('Not checked out');
   });
 
   test('keeps realistic branch volume searchable and filterable', () => {
