@@ -186,9 +186,21 @@ describe('project space home prototype', () => {
     );
 
     expect(html).toContain('#437');
-    expect(html).toContain('Description');
-    expect(html).toContain('Development');
+    expect(html).toContain('Open on GitHub');
+    expect(html).toContain('Edit issue');
+    expect(html).toContain('href="https://github.com/DotNaos/project-space/issues/437"');
+    expect(html).toContain('>Issue</h2>');
+    expect(html).toContain('Acceptance criteria');
+    expect(html).toContain('Development workflow');
     expect(html).toContain('issue-437-redesign-the-project-space-frontend');
+    expect(html).toContain('Create pull request');
+    expect(html).toContain('Preview deployment');
+    expect(html).toContain('Start development');
+    expect(html).toContain('Run tests');
+    expect(html).toContain('Details');
+    expect(html).toContain('Comments');
+    expect(html).toContain('Add a comment');
+    expect(html).toContain('Post comment');
     expect(html).toContain('Delivery state');
   });
 
