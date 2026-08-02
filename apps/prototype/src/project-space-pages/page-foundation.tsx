@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { Button, SearchField } from "@heroui/react";
-import { Search } from "lucide-react";
 
 import type { PrototypeScenarioKind } from "../../../../src/shared/prototype-canvas";
 
@@ -71,16 +70,16 @@ export function PageSearch({
   return (
     <SearchField
       aria-label={placeholder}
-      className="w-full @md:max-w-sm"
+      className="w-full @md:max-w-xs"
       fullWidth
       onChange={onChange}
       value={value}
       variant="secondary"
     >
-      <SearchField.Group className="h-9 border-current/[.08] bg-current/[.04]">
-        <Search aria-hidden className="size-3.5 text-current/35" />
-        <SearchField.Input className="text-sm" placeholder={placeholder} />
-        <SearchField.ClearButton />
+      <SearchField.Group className="h-9 rounded-xl border-current/[.08] bg-current/[.04]">
+        <SearchField.SearchIcon className="ml-3 mr-0 size-3.5 text-current/35" />
+        <SearchField.Input className="w-full px-2.5 text-sm" placeholder={placeholder} />
+        <SearchField.ClearButton className="mr-1 text-current/35" />
       </SearchField.Group>
     </SearchField>
   );
