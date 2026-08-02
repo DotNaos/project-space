@@ -23,7 +23,7 @@ export function TaskComments({
   }
 
   return (
-    <section className="mt-10">
+    <section className="mt-8">
       <h2 className="flex items-center gap-2 text-sm font-semibold text-current/75">
         <MessageCircle className="size-4 text-current/40" /> Discussion
         <span className="text-xs font-normal tabular-nums text-current/30">{comments.length}</span>
@@ -51,7 +51,7 @@ export function TaskComments({
           submit();
         }}
       >
-        <div className="flex h-10 items-center border-b border-current/[.07] px-2">
+        <div className="flex items-center gap-1 border-b border-current/[.07] p-1.5">
           <button
             className={`flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs transition-colors ${!preview ? "bg-current/[.08] text-current/75" : "text-current/35"}`}
             onClick={() => setPreview(false)}
