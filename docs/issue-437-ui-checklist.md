@@ -143,8 +143,9 @@ The next focused milestone is UI-only. It must be possible to dogfood the entire
 ### Task overview
 
 - [x] Provide a compact Task list with meaningful lifecycle status instead of exposing raw issue state as the primary status.
-- [x] Support useful grouping or filtering for Needs you, Active, and Done.
-- [x] Keep repository history available as a separate tab within Tasks.
+- [x] Keep the active Task list limited to Backlog and In progress; completed Tasks stay outside this overview.
+- [x] Treat delivery problems as Needs attention within In progress, never as a separate Blocked workflow state.
+- [x] Keep History out of the Task overview; technical history belongs in Repository or the selected Task context.
 - [x] Let every Task open its complete lifecycle detail.
 
 ### Create a Task

@@ -14,6 +14,7 @@ export type MockTaskStage =
 export type MockCheckState = "failed" | "not-started" | "passed" | "running";
 export type MockPreviewState = "not-started" | "ready" | "unavailable";
 export type MockReviewState = "approved" | "not-requested" | "pending";
+export type MockTaskWorkflowState = "Backlog" | "Done" | "In progress";
 
 export interface MockTaskComment {
   author: string;
@@ -111,13 +112,21 @@ export function mockTaskStageLabel(task: MockTask) {
   return stageLabels[task.stage];
 }
 
-export function mockTaskGroup(task: MockTask): "Active" | "Done" | "Needs you" {
+export function mockTaskWorkflowState(task: MockTask): MockTaskWorkflowState {
   if (task.stage === "deployed") return "Done";
-  if (
-    task.pullRequest?.checks === "failed"
+  if (!task.pullRequest) return "Backlog";
+  return "In progress";
+}
+
+export function mockTaskNeedsAttention(task: MockTask) {
+  return task.pullRequest?.checks === "failed"
     || task.pullRequest?.preview === "unavailable"
-    || task.pullRequest?.review === "pending"
-  ) return "Needs you";
+    || task.pullRequest?.review === "pending";
+}
+
+export function mockTaskGroup(task: MockTask): "Active" | "Done" | "Needs you" {
+  if (mockTaskWorkflowState(task) === "Done") return "Done";
+  if (mockTaskNeedsAttention(task)) return "Needs you";
   return "Active";
 }
 
@@ -334,6 +343,24 @@ export const initialMockTasks: MockTask[] = [
     type: "Bug",
     updated: "now",
     workspace: { changedFiles: 3, machine: "os-pc", status: "modified" },
+  },
+  {
+    author: "Mira",
+    body: "Add an on-demand pull request Preview hub while keeping capacity and replacement choices explicit.",
+    branch: "issue-426-fix-preview-asset-activation",
+    branchRelation: "2 ahead · 0 behind main",
+    comments: [],
+    events: [
+      { detail: "Draft pull request #427 keeps the implementation connected while work continues.", id: "426-1", time: "2h", title: "Draft pull request opened" },
+    ],
+    labels: ["preview", "infrastructure"],
+    number: 426,
+    pullRequest: { checks: "not-started", number: 427, phase: "draft", preview: "not-started", review: "not-requested", revision: "8f2d4a1" },
+    stage: "pull-request",
+    title: "Add an on-demand PR Preview hub",
+    type: "Feature",
+    updated: "2h",
+    workspace: { changedFiles: 0, machine: "Local", status: "clean" },
   },
   {
     author: "Oli",

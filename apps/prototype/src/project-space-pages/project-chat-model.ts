@@ -21,6 +21,7 @@ export interface ProjectChatEntry {
 const taskAgents: Record<number, { machine: ProjectChatMachine; name: string }> = {
   395: { machine: "os-yoga-unix", name: "Juno" },
   398: { machine: "os-pc", name: "Calypso" },
+  426: { machine: "Local", name: "Nora" },
   434: { machine: "Local", name: "Mira" },
   437: { machine: "Local", name: "Aurora" },
 };
@@ -58,7 +59,7 @@ export function projectChatAgentEntries(tasks: MockTask[]): ProjectChatEntry[] {
 export function initialProjectChatEntries(tasks: MockTask[]): ProjectChatEntry[] {
   const agents = projectChatAgentEntries(tasks);
   const byTask = new Map(agents.map((entry) => [entry.taskNumber, entry]));
-  const orderedAgents = [437, 398, 395, 434]
+  const orderedAgents = [437, 398, 426, 395, 434]
     .map((taskNumber) => byTask.get(taskNumber))
     .filter((entry): entry is ProjectChatEntry => Boolean(entry));
 

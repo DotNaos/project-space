@@ -11,6 +11,8 @@ import {
   ProjectIssueDetailPage,
   ProjectTaskDetailPage,
   initialMockTasks,
+  mockTaskNeedsAttention,
+  mockTaskWorkflowState,
   prototypeIssueByNumber
 } from '../apps/prototype/src/project-space-pages';
 import {
@@ -100,7 +102,7 @@ describe('project space home prototype', () => {
 
   test.each([
     ['overview', 'Current focus', 'Project pulse'],
-    ['issues', 'Search tasks', 'Needs you'],
+    ['issues', 'Search tasks', 'Backlog'],
     ['branches', 'Search branches, PRs, or machines', '30 of 30 branches'],
     ['machines', 'Available destinations', 'os-pc'],
     ['chats', 'Project manager', 'Agent runs'],
@@ -131,9 +133,9 @@ describe('project space home prototype', () => {
       />
     );
 
-    expect(entries.map((entry) => entry.actor)).toEqual(['Aurora', 'Calypso', 'Juno', 'Mira']);
+    expect(entries.map((entry) => entry.actor)).toEqual(['Aurora', 'Calypso', 'Nora', 'Juno', 'Mira']);
     expect(machineCounts).toEqual([
-      { count: 2, machine: 'Local' },
+      { count: 3, machine: 'Local' },
       { count: 1, machine: 'os-pc' },
       { count: 1, machine: 'os-yoga-unix' },
     ]);
@@ -141,6 +143,7 @@ describe('project space home prototype', () => {
     expect(html).toContain('Persistent project thread · main worktree');
     expect(html).toContain('Aurora');
     expect(html).toContain('Calypso');
+    expect(html).toContain('Nora');
     expect(html).toContain('Juno');
     expect(html).toContain('Mira');
     expect(html).toContain('Task #437');
@@ -166,6 +169,59 @@ describe('project space home prototype', () => {
     expect(html).toContain('border-t border-current/[.08] py-3 @3xl:hidden');
     expect(html).not.toContain('No PR');
     expect(html).not.toContain('Not checked out');
+  });
+
+  test('keeps completed Tasks out of the active list and treats attention as a signal', () => {
+    const html = renderToStaticMarkup(
+      <ProjectFeaturePage
+        page="issues"
+        projectName="project-space"
+        scenario="ready"
+        tasks={initialMockTasks}
+      />
+    );
+
+    expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 437)!)).toBe('Backlog');
+    expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 398)!)).toBe('In progress');
+    expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 434)!)).toBe('Done');
+    expect(mockTaskNeedsAttention(initialMockTasks.find((task) => task.number === 398)!)).toBe(true);
+    expect(html).toContain('>Open<');
+    expect(html).toContain('>Backlog<');
+    expect(html).toContain('>In progress<');
+    expect(html).toContain('#437');
+    expect(html).toContain('#398');
+    expect(html).not.toContain('#434');
+    expect(html).toContain('aria-label="Backlog"');
+    expect(html).toContain('aria-label="Needs attention"');
+    expect(html).toContain('aria-label="Open pull request #420"');
+    expect(html).toContain('bg-blue-500/[.12]');
+    expect(html).not.toContain('>Bug<');
+    expect(html).not.toContain('>Feature<');
+    expect(html).not.toContain('aria-label="Task view"');
+    expect(html).not.toContain('>History<');
+    expect(html).not.toContain('>Done<');
+    expect(html).not.toContain('>Blocked<');
+  });
+
+  test('renders draft pull requests as neutral chips', () => {
+    const draftTask = {
+      ...initialMockTasks.find((task) => task.number === 398)!,
+      pullRequest: {
+        ...initialMockTasks.find((task) => task.number === 398)!.pullRequest!,
+        phase: 'draft' as const,
+      },
+    };
+    const html = renderToStaticMarkup(
+      <ProjectFeaturePage
+        page="issues"
+        projectName="project-space"
+        scenario="ready"
+        tasks={[draftTask]}
+      />
+    );
+
+    expect(html).toContain('aria-label="Draft pull request #420"');
+    expect(html).toContain('bg-current/[.055]');
   });
 
   test('keeps realistic branch volume searchable and filterable', () => {

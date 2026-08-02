@@ -102,7 +102,14 @@ export { ProjectOverviewPage };
 export { ProjectTasksPage } from "./project-space-pages/tasks";
 export { ProjectTaskDetailPage } from "./project-space-pages/task-detail";
 export { NewTaskPage } from "./project-space-pages/new-task";
-export { initialMockTasks, mockTaskGroup, mockTaskStageLabel, updateMockTask } from "./project-space-pages/task-model";
+export {
+  initialMockTasks,
+  mockTaskGroup,
+  mockTaskNeedsAttention,
+  mockTaskStageLabel,
+  mockTaskWorkflowState,
+  updateMockTask,
+} from "./project-space-pages/task-model";
 export type { MockTask, MockTaskAction, MockTaskStage, MockTaskType } from "./project-space-pages/task-model";
 export { ProjectIssuesPage, filterAndSortPrototypeIssues } from "./project-space-pages/issues";
 export { ProjectIssueDetailPage } from "./project-space-pages/issue-detail";
