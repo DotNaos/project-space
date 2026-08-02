@@ -193,14 +193,15 @@ describe('project space home prototype', () => {
     expect(html).toContain('Acceptance criteria');
     expect(html).toContain('Development workflow');
     expect(html).toContain('issue-437-redesign-the-project-space-frontend');
-    expect(html).toContain('Create pull request');
+    expect(html).toContain('Create PR');
+    expect(html).toContain('commented yesterday');
+    expect(html).toContain('Use Markdown to format your comment');
     expect(html).toContain('Preview deployment');
     expect(html).toContain('Start development');
     expect(html).toContain('Run tests');
     expect(html).toContain('Details');
-    expect(html).toContain('Comments');
     expect(html).toContain('Add a comment');
-    expect(html).toContain('Post comment');
+    expect(html).toContain('Comment</button>');
     expect(html).toContain('Delivery state');
   });
 

@@ -3,7 +3,6 @@ import { Button } from "@heroui/react";
 import {
   Check,
   CircleDot,
-  Download,
   ExternalLink,
   GitBranch,
   GitPullRequest,
@@ -37,9 +36,9 @@ function WorkflowSection({ children, complete, number, title }: {
   title: string;
 }) {
   return (
-    <section className="border-b border-current/[.06] py-4 last:border-0">
+    <section className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] items-center gap-3 border-b border-current/[.06] py-3 last:border-0">
       <StepTitle complete={complete} number={number} title={title} />
-      <div className="mt-3 pl-7">{children}</div>
+      <div className="min-w-0 justify-self-end">{children}</div>
     </section>
   );
 }
@@ -51,7 +50,7 @@ function DevelopmentLink({ children, href, tone = "blue" }: {
 }) {
   return (
     <a
-      className={`inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition hover:brightness-125 ${
+      className={`inline-flex h-7 max-w-full items-center gap-1.5 rounded-full px-2.5 text-[11px] font-medium transition-[filter,scale] hover:brightness-125 active:scale-[.96] ${
         tone === "violet"
           ? "bg-violet-500/12 text-violet-300"
           : "bg-blue-500/12 text-blue-300"
@@ -86,7 +85,7 @@ export function IssueWorkflow({ issue }: { issue: PrototypeIssue }) {
               {issue.branch}
             </DevelopmentLink>
           ) : (
-            <Button size="sm" variant="secondary"><GitBranch className="size-3.5" /> Create linked branch</Button>
+            <Button className="h-7 px-2.5 text-xs" size="sm" variant="secondary"><GitBranch className="size-3.5" /> Create branch</Button>
           )}
         </WorkflowSection>
 
@@ -99,65 +98,56 @@ export function IssueWorkflow({ issue }: { issue: PrototypeIssue }) {
           ) : draftPullRequest ? (
             <PageStatus tone="info">Draft prepared</PageStatus>
           ) : (
-            <Button size="sm" variant="secondary" onPress={() => setDraftPullRequest(true)}>
-              <GitPullRequest className="size-3.5" /> Create pull request
+            <Button className="h-7 px-2.5 text-xs" size="sm" variant="secondary" onPress={() => setDraftPullRequest(true)}>
+              <GitPullRequest className="size-3.5" /> Create PR
             </Button>
           )}
         </WorkflowSection>
 
         <WorkflowSection complete={previewRunning} number={3} title="Preview deployment">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center justify-end gap-1.5">
             <PageStatus tone={previewRunning ? "success" : "muted"}>{previewRunning ? "Preview ready" : "Not started"}</PageStatus>
-            <Button size="sm" variant="ghost" onPress={() => setPreviewRunning((value) => !value)}>
-              <Rocket className="size-3.5" /> {previewRunning ? "Stop" : "Start Preview"}
+            <Button isIconOnly aria-label={previewRunning ? "Stop Preview" : "Start Preview"} className="size-7 min-w-7" size="sm" style={{ color: "inherit" }} variant="ghost" onPress={() => setPreviewRunning((value) => !value)}>
+              <Rocket className="size-3.5" />
             </Button>
           </div>
         </WorkflowSection>
 
         <WorkflowSection complete={prototypeRunning} number={4} title="Prototype">
-          <div className="flex flex-wrap items-center gap-2">
-            <PageStatus tone={prototypeRunning ? "success" : "muted"}>{prototypeRunning ? "Running locally" : "Not running"}</PageStatus>
-            <Button size="sm" variant="ghost" onPress={() => setPrototypeRunning((value) => !value)}>
-              <MonitorPlay className="size-3.5" /> {prototypeRunning ? "Stop" : "Start prototype"}
+          <div className="flex items-center justify-end gap-1.5">
+            <PageStatus tone={prototypeRunning ? "success" : "muted"}>{prototypeRunning ? "Running" : "Stopped"}</PageStatus>
+            <Button isIconOnly aria-label={prototypeRunning ? "Stop prototype" : "Start prototype"} className="size-7 min-w-7" size="sm" style={{ color: "inherit" }} variant="ghost" onPress={() => setPrototypeRunning((value) => !value)}>
+              <MonitorPlay className="size-3.5" />
             </Button>
           </div>
         </WorkflowSection>
 
         <WorkflowSection complete={Boolean(destination)} number={5} title="Start development">
-          <div className="space-y-1">
-            {[
-              { action: "open", icon: Monitor, name: "Local workspace", note: "macOS · Ready" },
-              { action: "open", icon: Monitor, name: "os-pc", note: "Windows · Stable" },
-              { action: "clone", icon: Download, name: "os-yoga-unix", note: "Linux · Stable" },
-            ].map(({ action, icon: Icon, name, note }) => (
-              <button
-                className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition ${
-                  destination === name ? "bg-current/[.07]" : "hover:bg-current/[.04]"
-                }`}
-                key={name}
-                onClick={() => setDestination(name)}
-                type="button"
-              >
-                <Icon className="size-3.5 shrink-0 text-current/35" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs font-medium text-current/65">{name}</span>
-                  <span className="block truncate text-[10px] text-current/30">{note}</span>
-                </span>
-                <span className="text-[10px] text-current/40">{destination === name ? "selected" : action}</span>
-              </button>
-            ))}
+          <div className="flex h-8 max-w-40 items-center rounded-lg bg-current/[.05] px-2 ring-1 ring-inset ring-current/[.06]">
+            <Monitor className="size-3.5 shrink-0 text-current/35" />
+            <select
+              aria-label="Development destination"
+              className="min-w-0 flex-1 appearance-none bg-transparent px-2 text-xs text-current/65 outline-none"
+              value={destination ?? ""}
+              onChange={(event) => setDestination(event.target.value || null)}
+            >
+              <option value="">Choose</option>
+              <option value="Local workspace">Local workspace</option>
+              <option value="os-pc">os-pc</option>
+              <option value="os-yoga-unix">os-yoga-unix</option>
+            </select>
           </div>
         </WorkflowSection>
 
         <WorkflowSection complete={testsPassed} number={6} title="Run tests">
-          <Button size="sm" variant={testsPassed ? "secondary" : "ghost"} onPress={() => setTestsPassed(true)}>
+          <Button className="h-7 px-2.5 text-xs" size="sm" variant={testsPassed ? "secondary" : "ghost"} onPress={() => setTestsPassed(true)}>
             {testsPassed ? <Check className="size-3.5 text-emerald-400" /> : <Play className="size-3.5" />}
             {testsPassed ? "Checks passed" : "Run tests"}
           </Button>
         </WorkflowSection>
       </div>
 
-      <div className="mt-8">
+      <div className="mt-6">
         <SectionHeading>Details</SectionHeading>
         <div className="border-y border-current/[.08] py-3">
           <div className="flex items-center justify-between gap-4 py-1.5">
@@ -192,7 +182,7 @@ export function IssueWorkflow({ issue }: { issue: PrototypeIssue }) {
         </div>
       </div>
 
-      <div className="mt-8">
+      <div className="mt-6">
         <SectionHeading>Delivery state</SectionHeading>
         <div className="border-y border-current/[.08] py-2">
           {[
