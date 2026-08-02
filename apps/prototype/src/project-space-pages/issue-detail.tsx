@@ -12,10 +12,13 @@ import {
 } from "lucide-react";
 
 import { PageStatus, SectionHeading } from "./page-foundation";
-import type { PrototypeIssue, PrototypeIssueState } from "./issue-fixtures";
+import {
+  prototypePullRequestLabel,
+  type PrototypeIssue,
+  type PrototypeIssueState,
+} from "./issue-fixtures";
 
-const detailTone: Record<PrototypeIssueState, "danger" | "info" | "muted" | "success"> = {
-  Blocked: "danger",
+const detailTone: Record<PrototypeIssueState, "info" | "muted" | "success"> = {
   Done: "success",
   "In progress": "info",
   Open: "muted",
@@ -122,7 +125,11 @@ export function ProjectIssueDetailPage({
           <SectionHeading>Development</SectionHeading>
           <div className="border-y border-current/[.08]">
             <DevelopmentRow icon={GitBranch} label="Branch" value={issue.branch} />
-            <DevelopmentRow icon={GitPullRequest} label="Pull request" value={issue.pullRequest} />
+            <DevelopmentRow
+              icon={GitPullRequest}
+              label="Pull request"
+              value={issue.pullRequest ? prototypePullRequestLabel(issue.pullRequest) : undefined}
+            />
             <DevelopmentRow icon={Bot} label="Codex task" value={issue.codexTask} />
             <DevelopmentRow icon={MonitorPlay} label="Preview" value={issue.preview} />
           </div>

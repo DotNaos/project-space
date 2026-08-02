@@ -15,7 +15,10 @@ import {
   ProjectSidebar,
   projectPageGroups
 } from '../apps/prototype/src/project-space-sidebar';
-import { prototypeIssues } from '../apps/prototype/src/project-space-pages/issue-fixtures';
+import {
+  prototypeIssueColumns,
+  prototypeIssues,
+} from '../apps/prototype/src/project-space-pages/issue-fixtures';
 import { filterAndSortPrototypeIssues } from '../apps/prototype/src/project-space-pages/issues';
 
 describe('project space home prototype', () => {
@@ -126,6 +129,12 @@ describe('project space home prototype', () => {
     expect(board).toContain('aria-label="Issue board"');
     expect(board).toContain('Backlog');
     expect(board).toContain('In progress');
+    expect(board).toContain('Done');
+    expect(board).not.toContain('>Ready<');
+    expect(board).not.toContain('>Blocked<');
+    expect(board).toContain('Open issue #437 on GitHub');
+    expect(board).toContain('Open branch issue-437-redesign-the-project-space-frontend on GitHub');
+    expect(board).toContain('Open pull request #420 on GitHub');
     expect(board).not.toContain('Updated now');
     expect(board).not.toContain('Plan, track, and finish work without losing its delivery context.');
     expect(board).not.toContain('uppercase');
@@ -151,7 +160,18 @@ describe('project space home prototype', () => {
       issues: prototypeIssues,
       label: 'All',
       sortDescriptor: { column: 'updated', direction: 'descending' },
-    }).map((issue) => issue.number)).toEqual([437, 426, 434, 419, 408, 431, 395]);
+    }).map((issue) => issue.number)).toEqual([437, 426, 434, 419, 408, 398, 395]);
+  });
+
+  test('derives board progression from pull request state', () => {
+    expect(prototypeIssueColumns.map((column) => column.id)).toEqual([
+      'Backlog',
+      'In progress',
+      'Done',
+    ]);
+    expect(prototypeIssues.filter((issue) => issue.column === 'Backlog').every((issue) => !issue.pullRequest)).toBe(true);
+    expect(prototypeIssues.filter((issue) => issue.column === 'In progress').every((issue) => issue.pullRequest?.state === 'Open')).toBe(true);
+    expect(prototypeIssues.filter((issue) => issue.column === 'Done').every((issue) => issue.pullRequest?.state === 'Merged')).toBe(true);
   });
 
   test('renders an issue as a complete workflow detail view', () => {

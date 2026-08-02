@@ -1,6 +1,6 @@
 import type { SortDescriptor } from "@heroui/react";
 import { Label, ListBox, Select, Table } from "@heroui/react";
-import { ArrowDown, ArrowUp, ChevronsUpDown, Columns3, GitBranch, GitPullRequest, List, Plus, RotateCcw } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Columns3, List, Plus, RotateCcw } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { PrototypeScenarioKind } from "../../../../src/shared/prototype-canvas";
@@ -15,9 +15,14 @@ import {
 import {
   prototypeIssueColumns,
   prototypeIssues,
+  prototypePullRequestLabel,
   type PrototypeIssue,
   type PrototypeIssueState,
 } from "./issue-fixtures";
+import {
+  IssueDevelopmentChips,
+  IssueGithubLink,
+} from "./issue-development-links";
 
 export type PrototypeIssueViewMode = "board" | "list";
 export type PrototypeIssueDevelopmentFilter = "All" | "Branch" | "Pull request" | "Unlinked";
@@ -25,7 +30,7 @@ export type PrototypeIssueDevelopmentFilter = "All" | "Branch" | "Pull request" 
 const issueUpdatedOrder = new Map(prototypeIssues.map((issue, index) => [issue.number, index]));
 
 function issueDevelopmentLabel(issue: PrototypeIssue) {
-  return issue.pullRequest ?? issue.branch ?? "Unlinked";
+  return issue.pullRequest ? prototypePullRequestLabel(issue.pullRequest) : issue.branch ?? "Unlinked";
 }
 
 export function filterAndSortPrototypeIssues({
@@ -69,8 +74,7 @@ export function filterAndSortPrototypeIssues({
   });
 }
 
-const issueTone: Record<PrototypeIssueState, "danger" | "info" | "muted" | "success"> = {
-  Blocked: "danger",
+const issueTone: Record<PrototypeIssueState, "info" | "muted" | "success"> = {
   Done: "success",
   "In progress": "info",
   Open: "muted",
@@ -295,10 +299,7 @@ function IssueTable({
                   <Table.Cell><IssueLabels issue={issue} /></Table.Cell>
                   <Table.Cell><span className="whitespace-nowrap text-xs text-current/40">{issue.updated}</span></Table.Cell>
                   <Table.Cell>
-                    <span className="flex max-w-52 items-center gap-1.5 text-xs text-current/40">
-                      {issue.pullRequest ? <GitPullRequest className="size-3.5 shrink-0" /> : issue.branch ? <GitBranch className="size-3.5 shrink-0" /> : null}
-                      <span className="truncate">{issueDevelopmentLabel(issue)}</span>
-                    </span>
+                    <IssueDevelopmentChips issue={issue} />
                   </Table.Cell>
                 </Table.Row>
               ))}
@@ -340,23 +341,19 @@ function IssueBoard({
             </header>
             <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
               {columnIssues.map((issue) => (
-                <button
-                  aria-label={`Open issue #${issue.number}: ${issue.title}`}
-                  className="group rounded-xl bg-current/[.045] p-3 text-left transition-[background-color,scale] hover:bg-current/[.07] active:scale-[.96]"
-                  key={issue.number}
-                  onClick={() => onOpenIssue(issue.number)}
-                  type="button"
-                >
-                  <span className="block text-[11px] text-current/35">#{issue.number}</span>
-                  <span className="mt-2 block text-sm font-medium leading-5 text-wrap-pretty">{issue.title}</span>
-                  <span className="mt-3 block"><IssueLabels issue={issue} /></span>
-                  {issue.branch || issue.pullRequest ? (
-                    <span className="mt-3 flex items-center gap-1.5 border-t border-current/[.06] pt-2.5 text-[10px] text-current/35">
-                      {issue.pullRequest ? <GitPullRequest className="size-3" /> : <GitBranch className="size-3" />}
-                      <span className="truncate">{issue.pullRequest ?? issue.branch}</span>
-                    </span>
-                  ) : null}
-                </button>
+                <article className="group rounded-xl bg-current/[.045] p-3 transition-colors hover:bg-current/[.07]" key={issue.number}>
+                  <IssueGithubLink issue={issue} />
+                  <button
+                    aria-label={`Open issue #${issue.number}: ${issue.title}`}
+                    className="mt-2 block w-full text-left transition-transform active:scale-[.98]"
+                    onClick={() => onOpenIssue(issue.number)}
+                    type="button"
+                  >
+                    <span className="block text-sm font-medium leading-5 text-wrap-pretty">{issue.title}</span>
+                    <span className="mt-3 block"><IssueLabels issue={issue} /></span>
+                  </button>
+                  <IssueDevelopmentChips className="mt-3 border-t border-current/[.06] pt-2.5" issue={issue} />
+                </article>
               ))}
               {columnIssues.length === 0 ? (
                 <div className="grid min-h-24 flex-1 place-items-center px-4 text-center text-xs text-current/25">{column.hint}</div>
@@ -393,7 +390,7 @@ export function ProjectIssuesPage({
   const labels = useMemo(() => Array.from(new Set(prototypeIssues.flatMap((issue) => issue.labels))).sort(), []);
   const visible = useMemo(() => prototypeIssues.filter((issue) => {
     const matchesState = filter === "All" || issue.state === filter;
-    const haystack = `${issue.number} ${issue.title} ${issue.labels.join(" ")}`.toLowerCase();
+    const haystack = `${issue.number} ${issue.title} ${issue.labels.join(" ")} ${issueDevelopmentLabel(issue)}`.toLowerCase();
     return matchesState && haystack.includes(query.toLowerCase());
   }), [filter, query]);
   const tableIssues = useMemo(() => filterAndSortPrototypeIssues({
@@ -414,7 +411,7 @@ export function ProjectIssuesPage({
       <div className="flex flex-col gap-3 border-b border-current/[.08] py-4 @xl:flex-row @xl:items-center">
         <PageSearch onChange={setQuery} placeholder="Search issues" value={query} />
         <div className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] @xl:ml-auto">
-          {(["All", "Open", "In progress", "Blocked", "Done"] as const).map((value) => (
+          {(["All", "Open", "In progress", "Done"] as const).map((value) => (
             <PageFilter active={filter === value} key={value} onPress={() => setFilter(value)}>
               <span>{value}</span>
               <span className="text-[10px] tabular-nums text-current/35">

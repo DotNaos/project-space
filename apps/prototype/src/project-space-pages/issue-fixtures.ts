@@ -1,5 +1,11 @@
-export type PrototypeIssueState = "Blocked" | "Done" | "In progress" | "Open";
-export type PrototypeIssueColumn = "Backlog" | "Blocked" | "Done" | "In progress" | "Ready";
+export type PrototypeIssueState = "Done" | "In progress" | "Open";
+export type PrototypeIssueColumn = "Backlog" | "Done" | "In progress";
+
+export interface PrototypePullRequest {
+  number: number;
+  state: "Merged" | "Open";
+  url: string;
+}
 
 export interface PrototypeIssue {
   author: string;
@@ -10,7 +16,7 @@ export interface PrototypeIssue {
   labels: string[];
   number: number;
   preview?: string;
-  pullRequest?: string;
+  pullRequest?: PrototypePullRequest;
   state: PrototypeIssueState;
   title: string;
   updated: string;
@@ -22,25 +28,29 @@ export const prototypeIssues: PrototypeIssue[] = [
     body: "Rebuild Project Space around one guided workflow: choose the project, start from an issue, and keep branches, Codex tasks, Previews, and delivery evidence connected to that work.",
     branch: "issue-437-redesign-the-project-space-frontend",
     codexTask: "#437 · Frontend redesign",
-    column: "In progress",
+    column: "Backlog",
     labels: ["frontend", "design"],
     number: 437,
     preview: "Local prototype · Running",
-    pullRequest: "Not opened yet",
-    state: "In progress",
+    state: "Open",
     title: "Redesign the Project Space frontend",
     updated: "now",
   },
   {
     author: "Oli",
     body: "Add one trusted place to start, inspect, replace, and stop pull-request Previews without exposing machine controls to PR code.",
-    branch: "issue-426-fix-preview-asset-activation",
+    branch: "issue-426-add-an-on-demand-pr-preview-hub-and-storage-backed-offli",
     codexTask: "#426 · Preview hub",
-    column: "Ready",
+    column: "Done",
     labels: ["preview", "infrastructure"],
     number: 426,
     preview: "Preview #426 · Offline",
-    state: "Open",
+    pullRequest: {
+      number: 427,
+      state: "Merged",
+      url: "https://github.com/DotNaos/project-space/pull/427",
+    },
+    state: "Done",
     title: "Add an on-demand PR Preview hub",
     updated: "2h",
   },
@@ -51,7 +61,11 @@ export const prototypeIssues: PrototypeIssue[] = [
     column: "Done",
     labels: ["ci", "reliability"],
     number: 434,
-    pullRequest: "#435 · Merged",
+    pullRequest: {
+      number: 435,
+      state: "Merged",
+      url: "https://github.com/DotNaos/project-space/pull/435",
+    },
     state: "Done",
     title: "Make agent-authored PR revisions green",
     updated: "4h",
@@ -63,7 +77,11 @@ export const prototypeIssues: PrototypeIssue[] = [
     column: "Done",
     labels: ["ci", "performance"],
     number: 419,
-    pullRequest: "#425 · Merged",
+    pullRequest: {
+      number: 425,
+      state: "Merged",
+      url: "https://github.com/DotNaos/project-space/pull/425",
+    },
     state: "Done",
     title: "Improve CI/CD reliability and speed",
     updated: "yesterday",
@@ -80,15 +98,19 @@ export const prototypeIssues: PrototypeIssue[] = [
     updated: "yesterday",
   },
   {
-    author: "Calypso",
-    body: "Repair the Preview runner configuration so exact pull-request heads can be activated again.",
-    branch: "issue-431-preview-runner-config",
-    column: "Blocked",
-    labels: ["preview", "blocked"],
-    number: 431,
-    preview: "Preview #431 · Failed",
-    state: "Blocked",
-    title: "Fix Preview runner configuration",
+    author: "Oli",
+    body: "Keep the issue board truthful by deriving active work from open pull requests and completed work from merged pull requests.",
+    branch: "issue-398-require-agents-to-keep-issue-board-status-current",
+    column: "In progress",
+    labels: ["enhancement", "workflow"],
+    number: 398,
+    pullRequest: {
+      number: 420,
+      state: "Open",
+      url: "https://github.com/DotNaos/project-space/pull/420",
+    },
+    state: "In progress",
+    title: "Require agents to keep issue board status current",
     updated: "Jul 31",
   },
   {
@@ -97,7 +119,11 @@ export const prototypeIssues: PrototypeIssue[] = [
     column: "Done",
     labels: ["prototype", "security"],
     number: 395,
-    pullRequest: "#404 · Merged",
+    pullRequest: {
+      number: 404,
+      state: "Merged",
+      url: "https://github.com/DotNaos/project-space/pull/404",
+    },
     state: "Done",
     title: "Require verified live iteration for prototypes",
     updated: "Jul 30",
@@ -109,12 +135,14 @@ export const prototypeIssueColumns: Array<{
   id: PrototypeIssueColumn;
   tone: string;
 }> = [
-  { hint: "Not scheduled yet", id: "Backlog", tone: "bg-zinc-500" },
-  { hint: "Cleared to pick up", id: "Ready", tone: "bg-emerald-400" },
-  { hint: "Being worked on", id: "In progress", tone: "bg-blue-400" },
-  { hint: "Waiting on something", id: "Blocked", tone: "bg-red-400" },
-  { hint: "Completed work", id: "Done", tone: "bg-violet-400" },
+  { hint: "No pull request yet", id: "Backlog", tone: "bg-zinc-500" },
+  { hint: "Open pull requests", id: "In progress", tone: "bg-blue-400" },
+  { hint: "Merged pull requests", id: "Done", tone: "bg-violet-400" },
 ];
+
+export function prototypePullRequestLabel(pullRequest: PrototypePullRequest) {
+  return `#${pullRequest.number} · ${pullRequest.state}`;
+}
 
 export function prototypeIssueByNumber(number: number) {
   return prototypeIssues.find((issue) => issue.number === number);
