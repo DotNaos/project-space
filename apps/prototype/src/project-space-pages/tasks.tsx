@@ -21,6 +21,29 @@ import {
 
 type TaskFilter = "Backlog" | "In progress" | "Open";
 
+function TaskSearch({
+  className = "",
+  onChange,
+  value,
+}: {
+  className?: string;
+  onChange(value: string): void;
+  value: string;
+}) {
+  return (
+    <label className={`flex h-11 min-w-0 flex-1 items-center gap-2 rounded-xl bg-current/[.045] px-3 py-2.5 @lg:h-9 @lg:py-0 ${className}`}>
+      <Search className="size-4 shrink-0 text-current/30" />
+      <input
+        aria-label="Search tasks"
+        className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-current/30"
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="Search tasks"
+        value={value}
+      />
+    </label>
+  );
+}
+
 function TaskRow({ onOpen, task }: { onOpen(): void; task: MockTask }) {
   const state = mockTaskWorkflowState(task);
   const needsAttention = mockTaskNeedsAttention(task);
@@ -96,22 +119,13 @@ export function ProjectTasksPage({
     <section className="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col px-5 pb-5 pt-2 @md:px-8 @3xl:px-10 @5xl:px-12 @5xl:pt-7">
       <header className="flex shrink-0 items-center justify-between gap-4 border-b border-current/[.08] pb-4">
         <h1 className="text-2xl font-semibold tracking-[-.03em]">Tasks</h1>
-        <Button size="sm" variant="primary" onPress={onNewTask}>
+        <Button className="hidden @lg:inline-flex" size="sm" variant="primary" onPress={onNewTask}>
           <Plus className="size-4" /> New task
         </Button>
       </header>
 
-      <div className="flex shrink-0 flex-col gap-3 border-b border-current/[.08] py-4 @lg:flex-row @lg:items-center">
-        <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-xl bg-current/[.045] px-3 @lg:max-w-sm">
-          <Search className="size-4 shrink-0 text-current/30" />
-          <input
-            aria-label="Search tasks"
-            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-current/30"
-            placeholder="Search tasks"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </label>
+      <div className="flex shrink-0 flex-col gap-3 border-b border-current/[.08] py-3 @lg:flex-row @lg:items-center @lg:py-4">
+        <TaskSearch className="hidden @lg:flex @lg:max-w-sm" onChange={setQuery} value={query} />
 
         <div className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] @lg:ml-auto">
           {(["Open", "Backlog", "In progress"] as const).map((value) => (
@@ -133,6 +147,13 @@ export function ProjectTasksPage({
       <div aria-label={`Open tasks in ${projectName}`} className="min-h-0 flex-1 overflow-y-auto pt-2 [scrollbar-width:none]">
         {visible.map((task) => <TaskRow key={task.number} onOpen={() => onOpenTask(task.number)} task={task} />)}
         {visible.length === 0 ? <div className="grid min-h-40 place-items-center text-sm text-current/35">No matching tasks</div> : null}
+      </div>
+
+      <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t border-current/[.08] py-3 @lg:hidden">
+        <TaskSearch onChange={setQuery} value={query} />
+        <Button aria-label="New task" className="size-11 rounded-full" isIconOnly onPress={onNewTask} variant="primary">
+          <Plus className="size-5" />
+        </Button>
       </div>
     </section>
   );
