@@ -104,19 +104,10 @@ function TaskStatusSection({
   tasks: MockTask[];
 }) {
   if (tasks.length === 0) return null;
-  const StatusIcon = state === "Backlog" ? CircleDashed : state === "Done" ? CircleCheck : CircleDot;
-  const statusTone = state === "Backlog"
-    ? "text-current/30"
-    : state === "Started"
-      ? "text-blue-400"
-      : state === "In progress"
-        ? "text-emerald-400"
-        : "text-violet-400";
   const headingId = `task-section-${state.toLowerCase().replace(" ", "-")}`;
   return (
     <section aria-labelledby={headingId} className="pt-3 first:pt-1">
       <div className="flex items-center gap-2 px-1 pb-1 text-xs font-medium text-current/45">
-        <StatusIcon className={`size-3.5 ${statusTone}`} />
         <h2 id={headingId}>{state}</h2>
         <span className="text-[10px] tabular-nums text-current/25">{tasks.length}</span>
       </div>
