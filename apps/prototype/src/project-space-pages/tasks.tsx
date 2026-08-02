@@ -143,11 +143,11 @@ export function ProjectTasksPage({
       <div className="flex shrink-0 flex-col gap-3 border-b border-current/[.08] py-3 @lg:flex-row @lg:items-center @lg:py-4">
         <TaskSearch className="hidden @lg:flex @lg:max-w-sm" onChange={setQuery} value={query} />
 
-        <div className="flex w-full min-w-0 items-center gap-0.5 @lg:ml-auto @lg:w-auto @lg:gap-1 @lg:overflow-x-auto @lg:[scrollbar-width:none]">
+        <div className="flex w-full min-w-0 items-center gap-0.5 overflow-x-auto pe-1 [scrollbar-width:none] @lg:ml-auto @lg:w-auto @lg:gap-1">
           {(["All", "Backlog", "Started", "In progress", "Done"] as const).map((value) => (
             <button
               aria-pressed={filter === value}
-              className={`flex h-7 min-w-0 shrink items-center whitespace-nowrap rounded-full px-3.5 text-[9px] transition-[background-color,color,scale] active:scale-[.96] @lg:h-9 @lg:shrink-0 @lg:px-[18px] @lg:text-xs ${filter === value ? "bg-current/[.1] text-current" : "text-current/40 hover:text-current/70"}`}
+              className={`flex h-7 shrink-0 items-center whitespace-nowrap rounded-full px-2.5 text-[8px] transition-[background-color,color,scale] active:scale-[.96] @lg:h-9 @lg:px-[18px] @lg:text-xs ${filter === value ? "bg-current/[.1] text-current" : "text-current/40 hover:text-current/70"}`}
               key={value}
               onClick={() => setFilter(value)}
               type="button"
