@@ -19,7 +19,7 @@ import {
   type MockTask,
 } from "./task-model";
 
-type TaskFilter = "Backlog" | "In progress" | "Open";
+type TaskFilter = "All" | "Backlog" | "In progress";
 
 function TaskSearch({
   className = "",
@@ -94,6 +94,30 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: MockTask }) {
   );
 }
 
+function TaskStatusSection({
+  onOpenTask,
+  state,
+  tasks,
+}: {
+  onOpenTask(number: number): void;
+  state: Exclude<TaskFilter, "All">;
+  tasks: MockTask[];
+}) {
+  if (tasks.length === 0) return null;
+  const StatusIcon = state === "Backlog" ? CircleDashed : CircleDot;
+  const headingId = `task-section-${state.toLowerCase().replace(" ", "-")}`;
+  return (
+    <section aria-labelledby={headingId} className="pt-3 first:pt-1">
+      <div className="flex items-center gap-2 px-1 pb-1 text-xs font-medium text-current/45">
+        <StatusIcon className={`size-3.5 ${state === "In progress" ? "text-blue-400" : "text-current/30"}`} />
+        <h2 id={headingId}>{state}</h2>
+        <span className="text-[10px] tabular-nums text-current/25">{tasks.length}</span>
+      </div>
+      {tasks.map((task) => <TaskRow key={task.number} onOpen={() => onOpenTask(task.number)} task={task} />)}
+    </section>
+  );
+}
+
 export function ProjectTasksPage({
   onNewTask,
   onOpenTask,
@@ -105,12 +129,12 @@ export function ProjectTasksPage({
   projectName: string;
   tasks: MockTask[];
 }) {
-  const [filter, setFilter] = useState<TaskFilter>("Open");
+  const [filter, setFilter] = useState<TaskFilter>("All");
   const [query, setQuery] = useState("");
   const openTasks = useMemo(() => tasks.filter((task) => mockTaskWorkflowState(task) !== "Done"), [tasks]);
   const visible = useMemo(() => openTasks.filter((task) => {
     const state = mockTaskWorkflowState(task);
-    const matchesFilter = filter === "Open" || state === filter;
+    const matchesFilter = filter === "All" || state === filter;
     const haystack = `${task.number} ${task.title} ${task.type} ${task.labels.join(" ")} ${task.branch ?? ""}`.toLowerCase();
     return matchesFilter && haystack.includes(query.toLowerCase());
   }), [filter, openTasks, query]);
@@ -128,7 +152,7 @@ export function ProjectTasksPage({
         <TaskSearch className="hidden @lg:flex @lg:max-w-sm" onChange={setQuery} value={query} />
 
         <div className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] @lg:ml-auto">
-          {(["Open", "Backlog", "In progress"] as const).map((value) => (
+          {(["All", "Backlog", "In progress"] as const).map((value) => (
             <button
               aria-pressed={filter === value}
               className={`flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs transition-[background-color,color,scale] active:scale-[.96] ${filter === value ? "bg-current/[.1] text-current" : "text-current/40 hover:text-current/70"}`}
@@ -137,15 +161,20 @@ export function ProjectTasksPage({
               type="button"
             >
               {value}
-              <span className="text-[10px] tabular-nums text-current/35">{value === "Open" ? openTasks.length : openTasks.filter((task) => mockTaskWorkflowState(task) === value).length}</span>
+              <span className="text-[10px] tabular-nums text-current/35">{value === "All" ? openTasks.length : openTasks.filter((task) => mockTaskWorkflowState(task) === value).length}</span>
             </button>
           ))}
         </div>
 
       </div>
 
-      <div aria-label={`Open tasks in ${projectName}`} className="min-h-0 flex-1 overflow-y-auto pt-2 [scrollbar-width:none]">
-        {visible.map((task) => <TaskRow key={task.number} onOpen={() => onOpenTask(task.number)} task={task} />)}
+      <div aria-label={`Tasks in ${projectName}`} className="min-h-0 flex-1 overflow-y-auto pt-2 [scrollbar-width:none]">
+        {filter === "All" ? (
+          <>
+            <TaskStatusSection onOpenTask={onOpenTask} state="Backlog" tasks={visible.filter((task) => mockTaskWorkflowState(task) === "Backlog")} />
+            <TaskStatusSection onOpenTask={onOpenTask} state="In progress" tasks={visible.filter((task) => mockTaskWorkflowState(task) === "In progress")} />
+          </>
+        ) : visible.map((task) => <TaskRow key={task.number} onOpen={() => onOpenTask(task.number)} task={task} />)}
         {visible.length === 0 ? <div className="grid min-h-40 place-items-center text-sm text-current/35">No matching tasks</div> : null}
       </div>
 

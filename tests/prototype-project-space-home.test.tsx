@@ -185,9 +185,11 @@ describe('project space home prototype', () => {
     expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 398)!)).toBe('In progress');
     expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 434)!)).toBe('Done');
     expect(mockTaskNeedsAttention(initialMockTasks.find((task) => task.number === 398)!)).toBe(true);
-    expect(html).toContain('>Open<');
+    expect(html).toContain('>All<');
     expect(html).toContain('>Backlog<');
     expect(html).toContain('>In progress<');
+    expect(html).toContain('aria-labelledby="task-section-backlog"');
+    expect(html).toContain('aria-labelledby="task-section-in-progress"');
     expect(html).toContain('#437');
     expect(html).toContain('#398');
     expect(html).not.toContain('#434');
