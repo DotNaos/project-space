@@ -6,12 +6,19 @@ import type { MockTask } from "./task-model";
 export function TaskPreviewModal({
   isOpen,
   onOpenChange,
+  surface,
   task,
 }: {
   isOpen: boolean;
   onOpenChange(isOpen: boolean): void;
+  surface: "preview" | "prototype";
   task: MockTask;
 }) {
+  const heading = surface === "preview" ? "Preview deployment" : "Prototype";
+  const description = surface === "preview"
+    ? "This review surface represents the exact pull request revision."
+    : "This prototype is the focused interaction model for the task.";
+
   return (
     <Modal isOpen={isOpen} onOpenChange={onOpenChange}>
       <Modal.Backdrop className="z-[90] bg-black/75" variant="blur">
@@ -21,7 +28,7 @@ export function TaskPreviewModal({
             <Modal.Header className="border-b border-white/10 px-5 pb-4 pr-12 pt-5">
               <Modal.Heading className="flex items-center gap-2 text-base font-semibold">
                 <MonitorPlay className="size-4 text-blue-300" />
-                Task Preview
+                {heading}
               </Modal.Heading>
               <p className="mt-1 text-xs text-neutral-500">#{task.number} · {task.pullRequest?.revision}</p>
             </Modal.Header>
@@ -36,7 +43,7 @@ export function TaskPreviewModal({
                   <div className="max-w-md">
                     <span className="text-xs text-white/30">Task #{task.number}</span>
                     <h2 className="mt-3 text-2xl font-semibold tracking-[-.03em]">{task.title}</h2>
-                    <p className="mt-3 text-sm leading-6 text-white/45">This review surface is pinned to revision {task.pullRequest?.revision}. It is mock UI and does not represent a deployed environment.</p>
+                    <p className="mt-3 text-sm leading-6 text-white/45">{description} It is pinned to revision {task.pullRequest?.revision} and remains mock UI.</p>
                     <div className="mx-auto mt-8 h-1 w-32 overflow-hidden rounded-full bg-white/10">
                       <span className="block h-full w-3/4 rounded-full bg-blue-400" />
                     </div>

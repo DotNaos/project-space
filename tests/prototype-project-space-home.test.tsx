@@ -489,7 +489,7 @@ describe('project space home prototype', () => {
   });
 
   test('keeps a healthy task focused on its Preview and pull request', () => {
-    const task = initialMockTasks.find((candidate) => candidate.number === 434)!;
+    const task = initialMockTasks.find((candidate) => candidate.number === 395)!;
     const html = renderToStaticMarkup(
       <ProjectTaskDetailPage
         onAction={() => undefined}
@@ -501,7 +501,10 @@ describe('project space home prototype', () => {
 
     expect(html).toContain('Ready to view');
     expect(html).toContain('Open Preview');
-    expect(html).toContain('#435');
+    expect(html).toContain('Design Space');
+    expect(html).toContain('href="http://design-space.localhost:1355/"');
+    expect(html).toContain('> Prototype</button>');
+    expect(html).toContain('#404');
     expect(html).toContain('Checks passed');
     expect(html).not.toContain('Working context');
   });

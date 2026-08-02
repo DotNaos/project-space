@@ -14,10 +14,12 @@ import {
   GitPullRequestDraft,
   Laptop,
   MonitorPlay,
+  PanelsTopLeft,
   Play,
   RefreshCw,
   Rocket,
   ShieldCheck,
+  Shapes,
   Sparkles,
 } from "lucide-react";
 
@@ -98,10 +100,12 @@ export function TaskPrimaryAction({
 export function TaskDeliveryPanel({
   onAction,
   onOpenPreview,
+  onOpenPrototype,
   task,
 }: {
   onAction(action: MockTaskAction): void;
   onOpenPreview(): void;
+  onOpenPrototype(): void;
   task: MockTask;
 }) {
   const latestEvent = task.events[task.events.length - 1];
@@ -135,15 +139,26 @@ export function TaskDeliveryPanel({
         </a>
       ) : task.pullRequest ? (
         <>
-          <div className="flex items-start justify-between gap-4 pb-4">
-            <div className="min-w-0">
-              <span className="text-[10px] text-current/30">Preview</span>
-              <p className={`mt-1 text-sm font-medium ${task.pullRequest.preview === "unavailable" ? "text-red-300" : previewReady ? "text-emerald-300" : "text-current/55"}`}>{previewLabel}</p>
-            </div>
+          <div className="pb-4">
+            <span className="text-[10px] text-current/30">Preview</span>
+            <p className={`mt-1 text-sm font-medium ${task.pullRequest.preview === "unavailable" ? "text-red-300" : previewReady ? "text-emerald-300" : "text-current/55"}`}>{previewLabel}</p>
             {previewReady ? (
-              <Button size="sm" variant="primary" onPress={onOpenPreview}>
-                <MonitorPlay className="size-4" /> Open Preview
-              </Button>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <Button className="col-span-2 w-full" size="md" variant="primary" onPress={onOpenPreview}>
+                  <MonitorPlay className="size-4" /> Open Preview
+                </Button>
+                <a
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-current/[.06] px-3 text-xs font-medium text-current/60 transition-[background-color,color,scale] hover:bg-current/[.1] hover:text-current active:scale-[.96]"
+                  href="http://design-space.localhost:1355/"
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  <PanelsTopLeft className="size-4" /> Design Space
+                </a>
+                <Button className="w-full" size="sm" variant="secondary" onPress={onOpenPrototype}>
+                  <Shapes className="size-4" /> Prototype
+                </Button>
+              </div>
             ) : null}
           </div>
 

@@ -50,7 +50,7 @@ export function ProjectTaskDetailPage({
   projectName: string;
   task: MockTask;
 }) {
-  const [previewOpen, setPreviewOpen] = useState(false);
+  const [reviewSurface, setReviewSurface] = useState<"preview" | "prototype" | null>(null);
   const githubUrl = `https://github.com/DotNaos/project-space/issues/${task.number}`;
 
   return (
@@ -101,7 +101,12 @@ export function ProjectTaskDetailPage({
             </details>
           </main>
           <div className="order-first @3xl:order-none">
-            <TaskDeliveryPanel onAction={onAction} onOpenPreview={() => setPreviewOpen(true)} task={task} />
+            <TaskDeliveryPanel
+              onAction={onAction}
+              onOpenPreview={() => setReviewSurface("preview")}
+              onOpenPrototype={() => setReviewSurface("prototype")}
+              task={task}
+            />
           </div>
         </div>
         {task.pullRequest?.phase === "draft" ? (
@@ -113,7 +118,14 @@ export function ProjectTaskDetailPage({
           </footer>
         ) : null}
       </section>
-      <TaskPreviewModal isOpen={previewOpen} task={task} onOpenChange={setPreviewOpen} />
+      <TaskPreviewModal
+        isOpen={reviewSurface !== null}
+        surface={reviewSurface ?? "preview"}
+        task={task}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setReviewSurface(null);
+        }}
+      />
     </>
   );
 }
