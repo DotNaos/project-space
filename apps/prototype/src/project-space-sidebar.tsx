@@ -22,25 +22,27 @@ export interface ProjectFixture {
 }
 
 export const projectFixtures: ProjectFixture[] = [
-  { counts: { branches: 16, chats: 3, issues: 57 }, name: "project-space", owner: "DotNaos" },
-  { counts: { branches: 2, chats: 2, issues: 9 }, name: "ui", owner: "DotNaos" },
-  { counts: { branches: 2, chats: 2, issues: 9 }, name: "design-space", owner: "DotNaos" },
-  { counts: { branches: 5, chats: 1, issues: 18 }, name: "project-cli", owner: "DotNaos" },
-  { counts: { branches: 3, chats: 2, issues: 12 }, name: "app-server", owner: "DotNaos" },
-  { counts: { branches: 4, chats: 1, issues: 21 }, name: "preview-runner", owner: "DotNaos" },
-  { counts: { branches: 2, chats: 1, issues: 14 }, name: "docs", owner: "DotNaos" },
-  { counts: { branches: 1, chats: 2, issues: 7 }, name: "moodle", owner: "oliverschuetz" },
-  { counts: { branches: 2, chats: 1, issues: 11 }, name: "dotfiles", owner: "oliverschuetz" },
-  { counts: { branches: 6, chats: 3, issues: 24 }, name: "prototype-lab", owner: "DotNaos" },
+  { counts: { branches: 16, issues: 57 }, name: "project-space", owner: "DotNaos" },
+  { counts: { branches: 2, issues: 9 }, name: "ui", owner: "DotNaos" },
+  { counts: { branches: 2, issues: 9 }, name: "design-space", owner: "DotNaos" },
+  { counts: { branches: 5, issues: 18 }, name: "project-cli", owner: "DotNaos" },
+  { counts: { branches: 3, issues: 12 }, name: "app-server", owner: "DotNaos" },
+  { counts: { branches: 4, issues: 21 }, name: "preview-runner", owner: "DotNaos" },
+  { counts: { branches: 2, issues: 14 }, name: "docs", owner: "DotNaos" },
+  { counts: { branches: 1, issues: 7 }, name: "moodle", owner: "oliverschuetz" },
+  { counts: { branches: 2, issues: 11 }, name: "dotfiles", owner: "oliverschuetz" },
+  { counts: { branches: 6, issues: 24 }, name: "prototype-lab", owner: "DotNaos" },
 ];
 
 export const projectPageGroups: Array<{
   ids: ProjectPageId[];
   label: string;
 }> = [
-  { ids: ["overview", "issues", "branches", "workspaces"], label: "Work" },
-  { ids: ["chats", "codex", "history"], label: "Collaborate" },
-  { ids: ["machines", "deployments", "template"], label: "Operate" },
+  { ids: ["chats", "machines"], label: "Workspace" },
+  {
+    ids: ["overview", "issues", "branches", "workspaces", "history", "deployments", "template"],
+    label: "Project",
+  },
 ];
 
 function SidebarNavItem({
@@ -219,17 +221,11 @@ export function ProjectSidebar({
   onProjectSelect(project: ProjectFixture): void;
   portalContainer: HTMLElement | null;
 }) {
+  const [workspaceGroup, projectGroup] = projectPageGroups;
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className={`flex items-center gap-2 pb-3 pt-4 ${collapsed ? "flex-col px-2" : "px-4"}`}>
-        <div className={`min-w-0 ${collapsed ? "order-2 w-full" : "flex-1"}`}>
-          <ProjectSelectorModal
-            collapsed={collapsed}
-            currentProject={currentProject}
-            portalContainer={portalContainer}
-            onSelect={onProjectSelect}
-          />
-        </div>
+      <div className={`flex shrink-0 items-center pt-3 ${collapsed ? "justify-center px-2" : "justify-end px-4"}`}>
         <Button
           isIconOnly
           aria-label="Close sidebar"
@@ -245,7 +241,7 @@ export function ProjectSidebar({
           <Button
             isIconOnly
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className={collapsed ? "order-1" : "shrink-0"}
+            className="shrink-0 text-current/45 hover:text-current/75"
             size="sm"
             style={{ color: "inherit" }}
             variant="ghost"
@@ -256,37 +252,60 @@ export function ProjectSidebar({
         ) : null}
       </div>
 
-      <div className={collapsed ? "px-2" : "px-4"}>
-        <button
-          aria-label="New issue"
-          className={`flex h-10 w-full items-center rounded-xl text-sm text-current/75 transition-[background-color,color,scale] hover:bg-current/[.04] hover:text-current active:scale-[.96] ${
-            collapsed ? "justify-center px-0" : "gap-3 px-3"
-          }`}
-          onClick={onNewIssue}
-          title={collapsed ? "New issue" : undefined}
-          type="button"
-        >
-          <PencilLine aria-hidden className="size-4" strokeWidth={1.8} />
-          {collapsed ? null : <span>New issue</span>}
-        </button>
-      </div>
-
       <nav
-        aria-label="Project navigation"
-        className={`mt-3 min-h-0 flex-1 overflow-y-auto pb-4 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+        aria-label="Sidebar navigation"
+        className={`min-h-0 flex-1 overflow-y-auto pb-4 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
           collapsed ? "px-2" : "px-4"
         }`}
       >
-        {projectPageGroups.map((group, groupIndex) => (
-          <div className={groupIndex === 0 ? "" : collapsed ? "mt-2" : "mt-5"} key={group.label}>
-            {collapsed ? (
-              groupIndex === 0 ? null : <div aria-hidden className="mx-3 mb-2 h-px bg-current/[.06]" />
-            ) : (
-              <p className="px-3 pb-2 text-[11px] font-medium text-current/35">
-                {group.label}
-              </p>
-            )}
-            {group.ids.map((id) => {
+        <div>
+          {collapsed ? null : (
+            <p className="px-3 pb-2 text-[11px] font-medium text-current/35">
+              {workspaceGroup.label}
+            </p>
+          )}
+          {workspaceGroup.ids.map((id) => {
+            const item = projectPageItems.find((candidate) => candidate.id === id);
+            if (!item) return null;
+            return (
+              <SidebarNavItem
+                active={activePage === item.id}
+                collapsed={collapsed}
+                icon={item.icon}
+                key={item.id}
+                label={item.label}
+                onPress={() => onPageChange(item.id)}
+              />
+            );
+          })}
+        </div>
+
+        <div className={collapsed ? "mt-3 border-t border-current/[.06] pt-3" : "mt-6"}>
+          {collapsed ? null : (
+            <p className="px-3 pb-2 text-[11px] font-medium text-current/35">
+              {projectGroup.label}
+            </p>
+          )}
+          <ProjectSelectorModal
+            collapsed={collapsed}
+            currentProject={currentProject}
+            portalContainer={portalContainer}
+            onSelect={onProjectSelect}
+          />
+          <button
+            aria-label="New issue"
+            className={`mt-1 flex h-10 w-full items-center rounded-xl text-sm text-current/75 transition-[background-color,color,scale] hover:bg-current/[.04] hover:text-current active:scale-[.96] ${
+              collapsed ? "justify-center px-0" : "gap-3 px-3"
+            }`}
+            onClick={onNewIssue}
+            title={collapsed ? "New issue" : undefined}
+            type="button"
+          >
+            <PencilLine aria-hidden className="size-4" strokeWidth={1.8} />
+            {collapsed ? null : <span>New issue</span>}
+          </button>
+          <div className={collapsed ? "mt-1" : "mt-3"}>
+            {projectGroup.ids.map((id) => {
               const item = projectPageItems.find((candidate) => candidate.id === id);
               if (!item) return null;
               return (
@@ -302,28 +321,25 @@ export function ProjectSidebar({
               );
             })}
           </div>
-        ))}
+        </div>
       </nav>
 
       <div
-        className={`${collapsed ? "mx-2 p-1" : "mx-4 p-2"} mb-4 rounded-full bg-current/[.06]`}
-        data-testid="sidebar-account-podium"
+        className={`${collapsed ? "mx-2" : "mx-4"} mb-3 shrink-0`}
+        data-testid="sidebar-account-bar"
       >
-        <div className={`flex items-center rounded-full ${collapsed ? "justify-center" : "gap-2 px-2 py-1.5"}`}>
-          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-current/[.09] text-xs font-semibold" title={collapsed ? "Oli · Local workspace" : undefined}>
+        <div className={`flex h-9 items-center ${collapsed ? "justify-center" : "gap-2 px-1"}`}>
+          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-current/[.05] text-[10px] font-semibold text-current/55" title={collapsed ? "Oli · Local workspace" : undefined}>
             OS
           </span>
           {collapsed ? null : (
             <>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">Oli</span>
-                <span className="block truncate text-[11px] text-current/40">Local workspace</span>
-              </span>
-              <Button isIconOnly aria-label="Help" size="sm" style={{ color: "inherit" }} variant="ghost">
-                <HelpCircle className="size-4" />
+              <span className="min-w-0 flex-1 truncate text-xs font-medium text-current/70">Oli</span>
+              <Button isIconOnly aria-label="Help" className="size-7 min-w-7 text-current/30 hover:text-current/60" size="sm" variant="ghost">
+                <HelpCircle className="size-3.5" strokeWidth={1.7} />
               </Button>
-              <Button isIconOnly aria-label="Settings" size="sm" style={{ color: "inherit" }} variant="ghost">
-                <Settings className="size-4" />
+              <Button isIconOnly aria-label="Settings" className="size-7 min-w-7 text-current/30 hover:text-current/60" size="sm" variant="ghost">
+                <Settings className="size-3.5" strokeWidth={1.7} />
               </Button>
             </>
           )}

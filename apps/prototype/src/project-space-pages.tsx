@@ -1,6 +1,5 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  Bot,
   CircleDot,
   FileCheck2,
   FolderGit2,
@@ -28,7 +27,6 @@ import {
 } from "./project-space-pages/machines-and-deployments";
 import {
   ProjectChatsPage,
-  ProjectCodexPage,
   ProjectHistoryPage,
 } from "./project-space-pages/collaboration-and-history";
 import { ProjectTemplatePage } from "./project-space-pages/template";
@@ -41,7 +39,6 @@ export type ProjectPageId =
   | "workspaces"
   | "chats"
   | "history"
-  | "codex"
   | "template"
   | "deployments";
 
@@ -57,9 +54,8 @@ export const projectPageItems: ProjectPageItem[] = [
   { icon: GitBranch, id: "branches", label: "Branches" },
   { icon: Monitor, id: "machines", label: "Machines" },
   { icon: FolderGit2, id: "workspaces", label: "Workspaces" },
-  { icon: MessageCircle, id: "chats", label: "Chats" },
+  { icon: MessageCircle, id: "chats", label: "Chat" },
   { icon: GitCommitHorizontal, id: "history", label: "History" },
-  { icon: Bot, id: "codex", label: "Codex" },
   { icon: FileCheck2, id: "template", label: "Template" },
   { icon: Rocket, id: "deployments", label: "Deployments" },
 ];
@@ -102,8 +98,6 @@ export function ProjectFeaturePage({
       return <ProjectChatsPage {...props} />;
     case "history":
       return <ProjectHistoryPage {...props} />;
-    case "codex":
-      return <ProjectCodexPage {...props} />;
     case "template":
       return <ProjectTemplatePage {...props} />;
     case "deployments":

@@ -34,23 +34,22 @@ describe('project space home prototype', () => {
     expect(html).toContain('data-testid="project-space-home"');
     expect(html).toContain('data-testid="mobile-main-card"');
     expect(html).toContain('data-testid="project-selector-trigger"');
-    expect(html).toContain('data-testid="sidebar-account-podium"');
-    expect(html).toContain('mx-4 p-2');
-    expect(html).toContain('mb-4 rounded-full bg-current/[.06]');
+    expect(html).toContain('data-testid="sidebar-account-bar"');
+    expect(html).toContain('mb-3 shrink-0');
+    expect(html).not.toContain('data-testid="sidebar-account-podium"');
     expect(html).toContain('aria-label="Project sidebar"');
     expect(html).toContain('hidden shrink-0 overflow-hidden');
     expect(html).toContain('@3xl:block w-72');
     expect(html).toContain('aria-label="Switch project, current project project-space"');
     expect(html).not.toContain('before:absolute');
-    expect(html).toContain('rounded-full bg-current/[.06]');
     expect(html).toContain('project-space');
     expect(html).toContain('>Issues<');
     expect(html).toContain('>Branches<');
     expect(html).toContain('>Machines<');
     expect(html).toContain('>Workspaces<');
-    expect(html).toContain('>Chats<');
+    expect(html).toContain('>Chat<');
     expect(html).toContain('>History<');
-    expect(html).toContain('>Codex<');
+    expect(html).not.toContain('>Codex<');
     expect(html).toContain('>Template<');
     expect(html).toContain('>Deployments<');
     expect(html).toContain('>Oli<');
@@ -89,9 +88,8 @@ describe('project space home prototype', () => {
     ['branches', 'Search branches', '1 ahead'],
     ['machines', 'Available destinations', 'os-pc'],
     ['workspaces', 'Search workspaces', 'Modified'],
-    ['chats', 'Search chats', 'Frontend redesign'],
+    ['chats', 'Search conversations', 'Tasks'],
     ['history', 'Repository activity', '72c0f48'],
-    ['codex', 'Project tasks', 'Working'],
     ['template', 'Template adherence', 'Fullstack template'],
     ['deployments', 'Pull request previews', 'Production'],
   ] as const)('gives the %s page its own working surface', (page, first, second) => {
@@ -176,9 +174,8 @@ describe('project space home prototype', () => {
 
   test('groups the desktop navigation and supports a compact sidebar', () => {
     expect(projectPageGroups.map((group) => group.label)).toEqual([
-      'Work',
-      'Collaborate',
-      'Operate'
+      'Workspace',
+      'Project'
     ]);
     const expanded = renderToStaticMarkup(
       <ProjectSidebar
@@ -207,12 +204,13 @@ describe('project space home prototype', () => {
     );
 
     expect(expanded).toContain('Collapse sidebar');
-    expect(expanded).toContain('>Work<');
-    expect(expanded).toContain('>Collaborate<');
-    expect(expanded).toContain('>Operate<');
+    expect(expanded).toContain('>Workspace<');
+    expect(expanded).toContain('>Project<');
+    expect(expanded).toContain('>Chat<');
+    expect(expanded).not.toContain('>Codex<');
     expect(expanded).not.toContain('uppercase');
     expect(collapsed).toContain('Expand sidebar');
-    expect(collapsed).not.toContain('>Work<');
+    expect(collapsed).not.toContain('>Workspace<');
     expect(collapsed).toContain('title="Issues"');
   });
 });
