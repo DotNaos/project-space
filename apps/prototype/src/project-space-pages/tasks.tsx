@@ -1,13 +1,12 @@
 import { useMemo, useState } from "react";
 import { Button } from "@heroui/react";
 import {
-  ArrowRight,
-  Bot,
   CircleAlert,
   CircleCheck,
   CircleDashed,
   CircleDot,
   GitBranch,
+  GitMerge,
   GitPullRequest,
   Plus,
   Search,
@@ -56,40 +55,36 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: MockTask }) {
         : CircleDot;
   const statusLabel = needsAttention ? "Error" : state;
   const pullRequestState = state === "Done" ? "Merged" : task.pullRequest?.phase === "draft" ? "Draft" : "Open";
+  const PullRequestIcon = state === "Done" ? GitMerge : GitPullRequest;
   return (
     <button
       aria-label={`Open task #${task.number}: ${task.title}`}
-      className="group grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 border-b border-current/[.07] px-1 py-4 text-left transition-[background-color,scale] hover:bg-current/[.018] active:scale-[.99] @xl:px-3"
+      className="group block w-full border-b border-current/[.07] px-1 py-4 text-left transition-[background-color,scale] hover:bg-current/[.018] active:scale-[.99] @xl:px-3"
       onClick={onOpen}
       type="button"
     >
-      <StatusIcon
-        aria-label={statusLabel}
-        className={`mt-0.5 size-4 shrink-0 ${needsAttention ? "text-red-400" : state === "Backlog" ? "text-current/30" : state === "Started" ? "text-blue-400" : state === "In progress" ? "text-emerald-400" : "text-violet-400"}`}
-      />
-
-      <span className="min-w-0">
-        <span className="flex min-w-0 items-center gap-2">
-          <span className="shrink-0 text-xs tabular-nums text-current/30">#{task.number}</span>
-          <span className="truncate text-sm font-medium text-current/85 group-hover:text-current">{task.title}</span>
-        </span>
-        {task.branch || task.pullRequest || task.agentRun ? (
-          <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-current/35">
-          {task.branch ? <span className="flex min-w-0 items-center gap-1"><GitBranch className="size-3" /><span className="max-w-52 truncate">{task.branch}</span></span> : null}
-          {task.pullRequest ? (
-            <span
-              aria-label={`${pullRequestState} pull request #${task.pullRequest.number}`}
-              className={`flex items-center gap-1 rounded-full px-2 py-1 font-medium ${state === "Done" ? "bg-violet-500/[.12] text-violet-300" : task.pullRequest.phase === "draft" ? "bg-current/[.055] text-current/40" : "bg-emerald-500/[.12] text-emerald-300"}`}
-            >
-              <GitPullRequest className="size-3" />#{task.pullRequest.number}
-            </span>
-          ) : null}
-          {task.agentRun ? <span className="flex items-center gap-1"><Bot className="size-3" />{task.agentRun.machine}</span> : null}
+      <span className="flex min-w-0 items-center gap-2">
+        <StatusIcon
+          aria-label={statusLabel}
+          className={`size-4 shrink-0 ${needsAttention ? "text-red-400" : state === "Backlog" ? "text-current/30" : state === "Started" ? "text-blue-400" : state === "In progress" ? "text-emerald-400" : "text-violet-400"}`}
+        />
+        <span className="shrink-0 text-xs tabular-nums text-current/30">#{task.number}</span>
+        {task.pullRequest ? (
+          <span
+            aria-label={`${pullRequestState} pull request #${task.pullRequest.number}`}
+            className={`ml-auto flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${state === "Done" ? "bg-violet-500/[.12] text-violet-300" : task.pullRequest.phase === "draft" ? "bg-current/[.055] text-current/40" : "bg-emerald-500/[.12] text-emerald-300"}`}
+          >
+            <PullRequestIcon className="size-3" />#{task.pullRequest.number}
           </span>
         ) : null}
       </span>
-
-      <ArrowRight className="mt-0.5 size-4 text-current/25 transition-transform group-hover:translate-x-0.5 group-hover:text-current/55" />
+      <span className="mt-2 block truncate text-sm font-medium text-current/85 group-hover:text-current">{task.title}</span>
+      {task.branch ? (
+        <span className="mt-2 flex min-w-0 items-center gap-1 text-[11px] text-current/35">
+          <GitBranch className="size-3 shrink-0" />
+          <span className="truncate">{task.branch}</span>
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -152,13 +147,12 @@ export function ProjectTasksPage({
           {(["All", "Backlog", "Started", "In progress", "Done"] as const).map((value) => (
             <button
               aria-pressed={filter === value}
-              className={`flex h-8 min-w-0 shrink items-center gap-1 whitespace-nowrap rounded-full px-2 text-[10px] transition-[background-color,color,scale] active:scale-[.96] @lg:h-9 @lg:shrink-0 @lg:gap-1.5 @lg:px-3 @lg:text-xs ${filter === value ? "bg-current/[.1] text-current" : "text-current/40 hover:text-current/70"}`}
+              className={`flex h-7 min-w-0 shrink items-center whitespace-nowrap rounded-full px-3.5 text-[9px] transition-[background-color,color,scale] active:scale-[.96] @lg:h-9 @lg:shrink-0 @lg:px-[18px] @lg:text-xs ${filter === value ? "bg-current/[.1] text-current" : "text-current/40 hover:text-current/70"}`}
               key={value}
               onClick={() => setFilter(value)}
               type="button"
             >
               {value}
-              <span className="text-[10px] tabular-nums text-current/35">{value === "All" ? tasks.length : tasks.filter((task) => mockTaskWorkflowState(task) === value).length}</span>
             </button>
           ))}
         </div>
