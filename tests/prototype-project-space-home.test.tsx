@@ -317,7 +317,7 @@ describe('project space home prototype', () => {
     expect(html).toContain('Delivery state');
   });
 
-  test('renders a task as one complete mocked lifecycle', () => {
+  test('guides a task with one next action and secondary development details', () => {
     const task = initialMockTasks.find((candidate) => candidate.number === 437)!;
     const html = renderToStaticMarkup(
       <ProjectTaskDetailPage
@@ -329,8 +329,11 @@ describe('project space home prototype', () => {
     );
 
     expect(html).toContain('#437');
-    expect(html).toContain('>Lifecycle<');
+    expect(html).not.toContain('aria-label="Task lifecycle"');
+    expect(html).not.toContain('>Lifecycle<');
+    expect(html).toContain('Codex is implementing the selected prototype direction.');
     expect(html).toContain('Open pull request');
+    expect(html).toContain('Development details');
     expect(html).toContain('Agent run · Local');
     expect(html).toContain('GitHub issue');
     expect(html).toContain('Discussion');
