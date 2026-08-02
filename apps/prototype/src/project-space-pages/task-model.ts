@@ -30,6 +30,12 @@ export interface MockTaskEvent {
   title: string;
 }
 
+export interface MockTaskAgentThread {
+  id: string;
+  name: string;
+  status: "idle" | "running";
+}
+
 export interface MockTaskPullRequest {
   checks: MockCheckState;
   number: number;
@@ -45,6 +51,7 @@ export interface MockTask {
     name: string;
     status: "complete" | "idle" | "running";
   };
+  agentThreads?: MockTaskAgentThread[];
   author: string;
   body: string;
   branch?: string;
@@ -66,6 +73,10 @@ export interface MockTask {
   updated: string;
   workspace?: {
     changedFiles: number;
+    devServer?: {
+      status: "running" | "stopped";
+      transport: "Tailscale";
+    };
     machine: string;
     status: "clean" | "modified";
   };
@@ -363,6 +374,10 @@ export const initialMockTasks: MockTask[] = [
     workspace: { changedFiles: 0, machine: "Local", status: "clean" },
   },
   {
+    agentThreads: [
+      { id: "395-build", name: "#395 · Secure prototype", status: "running" },
+      { id: "395-verify", name: "Verify authenticated review", status: "idle" },
+    ],
     author: "Oli",
     body: "Require verified live iteration for prototypes while preserving a trusted, exact-revision review boundary.",
     branch: "issue-395-secure-authenticated-prototype-iteration",
@@ -379,7 +394,12 @@ export const initialMockTasks: MockTask[] = [
     title: "Secure authenticated prototype iteration",
     type: "Feature",
     updated: "Jul 30",
-    workspace: { changedFiles: 0, machine: "os-pc", status: "clean" },
+    workspace: {
+      changedFiles: 0,
+      devServer: { status: "running", transport: "Tailscale" },
+      machine: "os-pc",
+      status: "clean",
+    },
   },
   {
     author: "Aurora",

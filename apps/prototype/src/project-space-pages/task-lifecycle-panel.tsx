@@ -27,6 +27,7 @@ import {
   type MockTask,
   type MockTaskAction,
 } from "./task-model";
+import { TaskDevelopmentContext } from "./task-development-context";
 
 function WorkflowFact({ children, icon: Icon, label }: { children: React.ReactNode; icon: typeof GitBranch; label: string }) {
   return (
@@ -98,11 +99,15 @@ export function TaskPrimaryAction({
 
 export function TaskDeliveryPanel({
   onAction,
+  onContinueDevelopment,
+  onOpenDevServer,
   onOpenPreview,
   onOpenPrototype,
   task,
 }: {
   onAction(action: MockTaskAction): void;
+  onContinueDevelopment(): void;
+  onOpenDevServer(): void;
   onOpenPreview(): void;
   onOpenPrototype(): void;
   task: MockTask;
@@ -182,6 +187,12 @@ export function TaskDeliveryPanel({
           <p className="mt-1 max-w-xl text-sm leading-6 text-current/55">Shape the task and conversation before development starts.</p>
         </div>
       )}
+
+      <TaskDevelopmentContext
+        onContinueDevelopment={onContinueDevelopment}
+        onOpenDevServer={onOpenDevServer}
+        task={task}
+      />
 
       {latestEvent && (attention || !task.pullRequest) ? <p className="mt-4 max-w-xl text-sm leading-6 text-current/55">{latestEvent.detail}</p> : null}
 

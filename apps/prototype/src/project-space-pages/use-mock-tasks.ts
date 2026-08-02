@@ -11,11 +11,29 @@ import {
 
 const storageKey = "project-space-prototype-tasks-v2";
 
+function hydrateFixtureDevelopmentContext(task: MockTask) {
+  const fixture = initialMockTasks.find((candidate) => candidate.number === task.number);
+  if (!fixture) return task;
+
+  return {
+    ...task,
+    agentThreads: task.agentThreads ?? fixture.agentThreads,
+    workspace: task.workspace && fixture.workspace
+      ? {
+          ...task.workspace,
+          devServer: task.workspace.devServer ?? fixture.workspace.devServer,
+        }
+      : task.workspace ?? fixture.workspace,
+  };
+}
+
 function loadTasks() {
   if (typeof window === "undefined") return initialMockTasks;
   try {
     const saved = window.sessionStorage.getItem(storageKey);
-    return saved ? JSON.parse(saved) as MockTask[] : initialMockTasks;
+    return saved
+      ? (JSON.parse(saved) as MockTask[]).map(hydrateFixtureDevelopmentContext)
+      : initialMockTasks;
   } catch {
     return initialMockTasks;
   }

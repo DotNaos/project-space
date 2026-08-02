@@ -506,6 +506,13 @@ describe('project space home prototype', () => {
     expect(html).toContain('> Prototype</button>');
     expect(html).toContain('#404');
     expect(html).toContain('Checks passed');
+    expect(html).toContain('Development');
+    expect(html).toContain('os-pc');
+    expect(html).toContain('Tailscale · Clean');
+    expect(html).toContain('Connected');
+    expect(html).toContain('Dev server');
+    expect(html).toContain('Threads 2');
+    expect(html).toContain('Continue');
     expect(html).not.toContain('Request review');
     expect(html).not.toContain('Working context');
   });

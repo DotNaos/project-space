@@ -50,7 +50,7 @@ export function ProjectTaskDetailPage({
   projectName: string;
   task: MockTask;
 }) {
-  const [reviewSurface, setReviewSurface] = useState<"preview" | "prototype" | null>(null);
+  const [reviewSurface, setReviewSurface] = useState<"development" | "preview" | "prototype" | "thread" | null>(null);
   const githubUrl = `https://github.com/DotNaos/project-space/issues/${task.number}`;
 
   return (
@@ -103,6 +103,8 @@ export function ProjectTaskDetailPage({
           <div className="order-first @3xl:order-none">
             <TaskDeliveryPanel
               onAction={onAction}
+              onContinueDevelopment={() => setReviewSurface("thread")}
+              onOpenDevServer={() => setReviewSurface("development")}
               onOpenPreview={() => setReviewSurface("preview")}
               onOpenPrototype={() => setReviewSurface("prototype")}
               task={task}
