@@ -127,9 +127,9 @@ export function PageState({
   );
 }
 
-export function PagePrimaryAction({ children, icon }: { children: ReactNode; icon?: ReactNode }) {
+export function PagePrimaryAction({ children, icon, onPress }: { children: ReactNode; icon?: ReactNode; onPress?(): void }) {
   return (
-    <Button size="sm" variant="primary">
+    <Button size="sm" variant="primary" onPress={onPress}>
       {icon}
       {children}
     </Button>

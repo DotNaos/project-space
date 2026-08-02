@@ -1,15 +1,19 @@
 import { Cloud, ExternalLink, Monitor, RefreshCw, Server, Smartphone } from "lucide-react";
+import { useMemo, useState } from "react";
 
 import type { PrototypeScenarioKind } from "../../../../src/shared/prototype-canvas";
+import { DeploymentDetailView, type PrototypeDeployment } from "./deployment-detail";
+import { MachineDetailView, type PrototypeMachine } from "./machine-detail";
 import {
   PagePrimaryAction,
   PageScaffold,
+  PageSearch,
   PageState,
   PageStatus,
   SectionHeading,
 } from "./page-foundation";
 
-const machines = [
+const machines: Array<PrototypeMachine & { icon: typeof Monitor }> = [
   { icon: Monitor, detail: "Windows 11 · local network", load: "42%", name: "os-pc", role: "Primary development", status: "Online" as const, tasks: "2 tasks" },
   { icon: Smartphone, detail: "Ubuntu · Tailscale", load: "—", name: "os-yoga-unix", role: "Portable development", status: "Sleeping" as const, tasks: "No active work" },
   { icon: Server, detail: "Ubuntu · VPS", load: "18%", name: "project-space-vps", role: "Production runtime", status: "Online" as const, tasks: "v0.4.56" },
@@ -23,6 +27,12 @@ export function ProjectMachinesPage({
   scenario: PrototypeScenarioKind;
 }) {
   const unavailable = scenario === "empty" || scenario === "offline";
+  const [query, setQuery] = useState("");
+  const [selectedMachine, setSelectedMachine] = useState<PrototypeMachine | null>(null);
+  const visibleMachines = useMemo(() => machines.filter((machine) => `${machine.name} ${machine.role} ${machine.detail}`.toLowerCase().includes(query.toLowerCase())), [query]);
+
+  if (selectedMachine) return <MachineDetailView machine={selectedMachine} onBack={() => setSelectedMachine(null)} />;
+
   return (
     <PageScaffold
       action={<PagePrimaryAction icon={<RefreshCw className="size-4" />}>Refresh</PagePrimaryAction>}
@@ -30,16 +40,18 @@ export function ProjectMachinesPage({
       projectName={projectName}
       title="Machines"
     >
+      <div className="border-b border-current/[.08] py-4"><PageSearch onChange={setQuery} placeholder="Search machines and connectors" value={query} /></div>
       <div className="py-6 @5xl:py-8">
-        <SectionHeading meta="3 known destinations">Available destinations</SectionHeading>
+        <SectionHeading meta={`${visibleMachines.length} known destinations`}>Available destinations</SectionHeading>
         {unavailable ? <PageState emptyCopy="Connect a development destination to make it available here." scenario={scenario} /> : (
           <div className="divide-y divide-current/[.07] border-y border-current/[.08]">
-            {machines.map((machine) => {
+            {visibleMachines.map((machine) => {
               const Icon = machine.icon;
               return (
                 <button
                   className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 py-4 text-left hover:bg-current/[.02] @md:grid-cols-[auto_minmax(0,1fr)_7rem_7rem_auto] @md:items-center @md:gap-4"
                   key={machine.name}
+                  onClick={() => setSelectedMachine(machine)}
                   type="button"
                 >
                   <span className="grid size-9 place-items-center rounded-full bg-current/[.06] text-current/45">
@@ -71,7 +83,7 @@ export function ProjectMachinesPage({
   );
 }
 
-const deploymentGroups = [
+const deploymentGroups: Array<{ rows: PrototypeDeployment[]; title: string }> = [
   {
     title: "Production",
     rows: [
@@ -102,6 +114,10 @@ export function ProjectDeploymentsPage({
   scenario: PrototypeScenarioKind;
 }) {
   const unavailable = scenario === "empty" || scenario === "offline";
+  const [selectedDeployment, setSelectedDeployment] = useState<PrototypeDeployment | null>(null);
+
+  if (selectedDeployment) return <DeploymentDetailView deployment={selectedDeployment} onBack={() => setSelectedDeployment(null)} />;
+
   return (
     <PageScaffold
       action={<PagePrimaryAction icon={<ExternalLink className="size-4" />}>Open production</PagePrimaryAction>}
@@ -119,6 +135,7 @@ export function ProjectDeploymentsPage({
                   <button
                     className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 py-4 text-left hover:bg-current/[.02] @md:grid-cols-[auto_minmax(0,1fr)_8rem_5rem_auto] @md:gap-4"
                     key={`${row.name}-${row.version}`}
+                    onClick={() => setSelectedDeployment(row)}
                     type="button"
                   >
                     <span className="grid size-9 place-items-center rounded-full bg-current/[.06] text-current/45">

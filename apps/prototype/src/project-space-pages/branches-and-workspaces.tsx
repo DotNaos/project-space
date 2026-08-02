@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { GitBranch, GitCommitHorizontal, Laptop, Plus, RotateCcw } from "lucide-react";
 
 import type { PrototypeScenarioKind } from "../../../../src/shared/prototype-canvas";
+import { BranchDetailView, type PrototypeBranch } from "./branch-detail";
 import {
   PageFilter,
   PagePrimaryAction,
@@ -10,17 +11,11 @@ import {
   PageState,
   PageStatus,
 } from "./page-foundation";
+import { WorkspaceDetailView, type PrototypeWorkspace } from "./workspace-detail";
 
 type BranchHealth = "Behind" | "Current" | "Merged" | "Working";
 
-const branches: Array<{
-  commit: string;
-  detail: string;
-  health: BranchHealth;
-  name: string;
-  relation: string;
-  updated: string;
-}> = [
+const branches: PrototypeBranch[] = [
   { commit: "dc6bd8d", detail: "Default branch · protected", health: "Current", name: "main", relation: "baseline", updated: "4h" },
   { commit: "72c0f48", detail: "#437 · Frontend redesign", health: "Working", name: "issue-437-redesign-the-project-space-frontend", relation: "1 ahead", updated: "now" },
   { commit: "2550cd7", detail: "#426 · Preview hub", health: "Behind", name: "issue-426-fix-preview-asset-activation", relation: "3 behind · 4 ahead", updated: "2h" },
@@ -44,12 +39,15 @@ export function ProjectBranchesPage({
 }) {
   const [filter, setFilter] = useState<"Active" | "All" | "Attention">("Active");
   const [query, setQuery] = useState("");
+  const [selectedBranch, setSelectedBranch] = useState<PrototypeBranch | null>(null);
   const visible = useMemo(() => branches.filter((branch) => {
     const matchesFilter = filter === "All"
       || (filter === "Attention" ? branch.health === "Behind" : branch.health !== "Merged");
     return matchesFilter && `${branch.name} ${branch.detail}`.toLowerCase().includes(query.toLowerCase());
   }), [filter, query]);
   const unavailable = scenario === "empty" || scenario === "offline";
+
+  if (selectedBranch) return <BranchDetailView branch={selectedBranch} onBack={() => setSelectedBranch(null)} />;
 
   return (
     <PageScaffold
@@ -72,6 +70,7 @@ export function ProjectBranchesPage({
             <button
               className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] gap-3 py-4 text-left hover:bg-current/[.02] @md:gap-4"
               key={branch.name}
+              onClick={() => setSelectedBranch(branch)}
               type="button"
             >
               <span className="mt-0.5 grid size-8 place-items-center rounded-full bg-current/[.05] text-current/45">
@@ -95,13 +94,7 @@ export function ProjectBranchesPage({
 
 type WorkspaceHealth = "Clean" | "Modified" | "Read only";
 
-const workspaces: Array<{
-  branch: string;
-  health: WorkspaceHealth;
-  machine: string;
-  name: string;
-  updated: string;
-}> = [
+const workspaces: PrototypeWorkspace[] = [
   { branch: "issue-437-redesign-the-project-space-frontend", health: "Modified", machine: "Local", name: "#437 · Frontend redesign", updated: "now" },
   { branch: "main", health: "Read only", machine: "Local", name: "Project Space", updated: "4h" },
   { branch: "issue-426-fix-preview-asset-activation", health: "Clean", machine: "os-pc", name: "#426 · Preview hub", updated: "2h" },
@@ -122,10 +115,13 @@ export function ProjectWorkspacesPage({
   scenario: PrototypeScenarioKind;
 }) {
   const [query, setQuery] = useState("");
+  const [selectedWorkspace, setSelectedWorkspace] = useState<PrototypeWorkspace | null>(null);
   const visible = workspaces.filter((workspace) =>
     `${workspace.name} ${workspace.branch} ${workspace.machine}`.toLowerCase().includes(query.toLowerCase()),
   );
   const unavailable = scenario === "empty" || scenario === "offline";
+
+  if (selectedWorkspace) return <WorkspaceDetailView onBack={() => setSelectedWorkspace(null)} workspace={selectedWorkspace} />;
 
   return (
     <PageScaffold
@@ -143,6 +139,7 @@ export function ProjectWorkspacesPage({
             <button
               className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] gap-3 py-4 text-left hover:bg-current/[.02] @md:gap-4"
               key={workspace.branch}
+              onClick={() => setSelectedWorkspace(workspace)}
               type="button"
             >
               <span className="mt-0.5 grid size-8 place-items-center rounded-full bg-current/[.05] text-current/45">

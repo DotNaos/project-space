@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { Bot, CheckCircle2, GitCommitHorizontal, Plus, Radio, UserRound } from "lucide-react";
+import { Bot, CheckCircle2, Plus, Radio, UserRound } from "lucide-react";
 
 import type { PrototypeScenarioKind } from "../../../../src/shared/prototype-canvas";
+import { ChatDetailView, type PrototypeChat } from "./chat-detail";
+import { ProjectHistoryWorkbench } from "./history-workbench";
 import {
   PagePrimaryAction,
   PageScaffold,
@@ -11,7 +13,7 @@ import {
   SectionHeading,
 } from "./page-foundation";
 
-const chats = [
+const chats: PrototypeChat[] = [
   { avatar: "FE", meta: "Oli · Codex", preview: "The responsive audit is green across all four viewport classes.", title: "Frontend redesign", unread: 2, updated: "now" },
   { avatar: "RL", meta: "Oli · Aurora", preview: "The release identity bundle is ready for the exact PR head.", title: "Release coordination", unread: 0, updated: "4h" },
   { avatar: "PV", meta: "Oli · Juno", preview: "The trusted Preview controls remain outside PR-controlled code.", title: "Prototype review", unread: 0, updated: "yesterday" },
@@ -26,11 +28,16 @@ export function ProjectChatsPage({
   scenario: PrototypeScenarioKind;
 }) {
   const [query, setQuery] = useState("");
-  const visible = chats.filter((chat) => `${chat.title} ${chat.meta} ${chat.preview}`.toLowerCase().includes(query.toLowerCase()));
+  const [conversations, setConversations] = useState(chats);
+  const [creating, setCreating] = useState(false);
+  const [newChatTitle, setNewChatTitle] = useState("");
+  const [selectedChat, setSelectedChat] = useState<PrototypeChat | null>(null);
+  const visible = conversations.filter((chat) => `${chat.title} ${chat.meta} ${chat.preview}`.toLowerCase().includes(query.toLowerCase()));
   const unavailable = scenario === "empty" || scenario === "offline";
+  if (selectedChat) return <ChatDetailView chat={selectedChat} onBack={() => setSelectedChat(null)} />;
   return (
     <PageScaffold
-      action={<PagePrimaryAction icon={<Plus className="size-4" />}>New chat</PagePrimaryAction>}
+      action={<PagePrimaryAction icon={<Plus className="size-4" />} onPress={() => setCreating(true)}>New chat</PagePrimaryAction>}
       description="Conversations and active tasks stay together across your workspace."
       projectName={projectName}
       title="Chat"
@@ -40,11 +47,39 @@ export function ProjectChatsPage({
       </div>
       {unavailable ? <PageState emptyCopy="Start a chat when a project decision needs a shared place." scenario={scenario} /> : (
         <div className="space-y-8 py-6 @5xl:py-8">
+          {creating ? (
+            <form
+              className="flex flex-col gap-3 rounded-2xl bg-current/[.035] p-4 @md:flex-row @md:items-center"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const title = newChatTitle.trim();
+                if (!title) return;
+                const chat: PrototypeChat = { avatar: title.slice(0, 2).toUpperCase(), meta: "Oli · Codex", preview: "New project conversation", title, unread: 0, updated: "now" };
+                setConversations((current) => [chat, ...current]);
+                setNewChatTitle("");
+                setCreating(false);
+                setSelectedChat(chat);
+              }}
+            >
+              <input
+                aria-label="Conversation title"
+                autoFocus
+                className="h-9 min-w-0 flex-1 rounded-xl bg-current/[.045] px-3 text-sm outline-none ring-1 ring-inset ring-current/[.08] placeholder:text-current/30 focus:ring-current/[.16]"
+                placeholder="What should this conversation be about?"
+                value={newChatTitle}
+                onChange={(event) => setNewChatTitle(event.target.value)}
+              />
+              <div className="flex items-center justify-end gap-2">
+                <button className="h-8 rounded-lg px-3 text-xs text-current/45 hover:bg-current/[.05]" onClick={() => setCreating(false)} type="button">Cancel</button>
+                <button className="h-8 rounded-lg bg-blue-500 px-3 text-xs font-medium text-white disabled:opacity-40" disabled={!newChatTitle.trim()} type="submit">Start chat</button>
+              </div>
+            </form>
+          ) : null}
           <section>
             <SectionHeading meta={`${visible.length} conversations`}>Conversations</SectionHeading>
             <div className="divide-y divide-current/[.07] border-y border-current/[.08]">
               {visible.map((chat) => (
-                <button className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] gap-3 py-4 text-left hover:bg-current/[.02] @md:gap-4" key={chat.title} type="button">
+                <button className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] gap-3 py-4 text-left hover:bg-current/[.02] @md:gap-4" key={chat.title} onClick={() => setSelectedChat(chat)} type="button">
                   <span className="grid size-9 place-items-center rounded-full bg-current/[.07] text-[11px] font-semibold text-current/60">{chat.avatar}</span>
                   <span className="min-w-0">
                     <span className="flex items-center gap-2">
@@ -66,14 +101,6 @@ export function ProjectChatsPage({
   );
 }
 
-const history = [
-  { author: "OS", branch: "issue-437", message: "Build Project Space redesign prototype", sha: "72c0f48", time: "now" },
-  { author: "GH", branch: "main", message: "Merge pull request #435", sha: "dc6bd8d", time: "4h" },
-  { author: "AU", branch: "issue-434", message: "Make PR revisions green on first push", sha: "419a88b", time: "6h" },
-  { author: "JU", branch: "issue-419", message: "Improve CI/CD reliability and speed", sha: "d07b6ec", time: "yesterday" },
-  { author: "OS", branch: "main", message: "Release Project Space v0.4.51", sha: "a69a9f5", time: "yesterday" },
-];
-
 export function ProjectHistoryPage({
   projectName,
   scenario,
@@ -81,38 +108,7 @@ export function ProjectHistoryPage({
   projectName: string;
   scenario: PrototypeScenarioKind;
 }) {
-  const unavailable = scenario === "empty" || scenario === "offline";
-  return (
-    <PageScaffold
-      description="A readable sequence of repository changes, with branches kept as context rather than navigation."
-      projectName={projectName}
-      title="History"
-    >
-      <div className="py-6 @5xl:py-8">
-        <SectionHeading meta="Latest first">Repository activity</SectionHeading>
-        {unavailable ? <PageState emptyCopy="Repository changes will appear after the first commit." scenario={scenario} /> : (
-          <div className="border-y border-current/[.08]">
-            {history.map((item, index) => (
-              <button className="group relative grid w-full grid-cols-[2.25rem_minmax(0,1fr)_auto] gap-3 py-4 text-left hover:bg-current/[.02] @md:gap-4" key={item.sha} type="button">
-                {index < history.length - 1 ? <span aria-hidden className="absolute bottom-0 left-[1.08rem] top-8 w-px bg-current/[.08]" /> : null}
-                <span className="relative z-10 grid size-9 place-items-center rounded-full bg-current/[.07] text-[10px] font-semibold text-current/55">{item.author}</span>
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium">{item.message}</span>
-                  <span className="mt-1 flex min-w-0 items-center gap-2 text-xs text-current/35">
-                    <GitCommitHorizontal className="size-3.5 shrink-0" />
-                    <span className="font-mono">{item.sha}</span>
-                    <span>·</span>
-                    <span className="truncate">{item.branch}</span>
-                  </span>
-                </span>
-                <span className="text-xs text-current/30">{item.time}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    </PageScaffold>
-  );
+  return <ProjectHistoryWorkbench projectName={projectName} scenario={scenario} />;
 }
 
 const codexTasks = [

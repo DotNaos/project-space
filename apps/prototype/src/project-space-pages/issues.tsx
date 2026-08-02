@@ -367,12 +367,14 @@ function IssueBoard({
 }
 
 export function ProjectIssuesPage({
+  onNewIssue,
   onOpenIssue,
   onViewModeChange,
   projectName,
   scenario,
   viewMode,
 }: {
+  onNewIssue?(): void;
   onOpenIssue(number: number): void;
   onViewModeChange(viewMode: PrototypeIssueViewMode): void;
   projectName: string;
@@ -403,7 +405,7 @@ export function ProjectIssuesPage({
 
   return (
     <PageScaffold
-      action={<PagePrimaryAction icon={<Plus className="size-4" />}>New issue</PagePrimaryAction>}
+      action={<PagePrimaryAction icon={<Plus className="size-4" />} onPress={onNewIssue}>New issue</PagePrimaryAction>}
       description="Plan, track, and finish work without losing its delivery context."
       projectName={projectName}
       title="Issues"

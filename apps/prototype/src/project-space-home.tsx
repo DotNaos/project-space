@@ -260,7 +260,11 @@ export function ProjectSpaceHome({
           </>
         ) : activePage === "overview" ? (
           <div className="min-h-0 flex-1">
-            <ProjectOverviewPage projectName={project.name} />
+            <ProjectOverviewPage
+              onNavigate={(page) => setActivePage(page)}
+              onNewIssue={focusComposer}
+              projectName={project.name}
+            />
           </div>
         ) : (
           <div className="min-h-0 flex-1">
@@ -268,6 +272,8 @@ export function ProjectSpaceHome({
               issueViewMode={issueViewMode}
               onIssueOpen={(number) => setSelectedIssueNumber(number)}
               onIssueViewModeChange={setIssueViewMode}
+              onNavigate={(page) => setActivePage(page)}
+              onNewIssue={focusComposer}
               page={activePage}
               projectName={project.name}
               scenario={scenario}

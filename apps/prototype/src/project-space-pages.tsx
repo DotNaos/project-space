@@ -64,6 +64,8 @@ export function ProjectFeaturePage({
   issueViewMode = "board",
   onIssueOpen = () => undefined,
   onIssueViewModeChange = () => undefined,
+  onNavigate,
+  onNewIssue,
   page,
   projectName,
   scenario,
@@ -71,6 +73,8 @@ export function ProjectFeaturePage({
   issueViewMode?: PrototypeIssueViewMode;
   onIssueOpen?(number: number): void;
   onIssueViewModeChange?(viewMode: PrototypeIssueViewMode): void;
+  onNavigate?(page: ProjectPageId): void;
+  onNewIssue?(): void;
   page: ProjectPageId;
   projectName: string;
   scenario: PrototypeScenarioKind;
@@ -78,11 +82,12 @@ export function ProjectFeaturePage({
   const props = { projectName, scenario };
   switch (page) {
     case "overview":
-      return <ProjectOverviewPage projectName={projectName} />;
+      return <ProjectOverviewPage onNavigate={onNavigate} onNewIssue={onNewIssue} projectName={projectName} />;
     case "issues":
       return (
         <ProjectIssuesPage
           {...props}
+          onNewIssue={onNewIssue}
           onOpenIssue={onIssueOpen}
           onViewModeChange={onIssueViewModeChange}
           viewMode={issueViewMode}

@@ -92,7 +92,7 @@ describe('project space home prototype', () => {
     ['machines', 'Available destinations', 'os-pc'],
     ['workspaces', 'Search workspaces', 'Modified'],
     ['chats', 'Search conversations', 'Tasks'],
-    ['history', 'Repository activity', '72c0f48'],
+    ['history', 'Branch position', '0248d9d'],
     ['template', 'Template adherence', 'Fullstack template'],
     ['deployments', 'Pull request previews', 'Production'],
   ] as const)('gives the %s page its own working surface', (page, first, second) => {
