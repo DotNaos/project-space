@@ -32,10 +32,11 @@ import {
   type PrototypeViewportKind,
 } from "../../../src/shared/prototype-canvas";
 import { BranchHeadPrototype } from "../../../src/features/pr-preview-review/branch-head-prototype";
+import { ProjectSpaceHome } from "./project-space-home";
 import {
-  ProjectSpaceHome,
-  projectSpaceShellBackground,
-} from "./project-space-home";
+  PrototypeDisplaySettings,
+  prototypeScreenBackgroundColor,
+} from "./prototype-display-settings";
 import { PrototypePreviewCarousel } from "./prototype-preview-carousel";
 import {
   prototypeDesignAddFibonacciStep,
@@ -424,6 +425,11 @@ function PrototypeWorkspace() {
                 <Eye className="size-4" />
               )}
             </Button>
+            <PrototypeDisplaySettings
+              presentation={presentation}
+              viewport={viewport}
+              onChange={updatePresentation}
+            />
             <Button
               isIconOnly
               aria-label={
@@ -621,8 +627,12 @@ function PrototypeWorkspace() {
           isSwitchingViewport={isSwitchingViewport}
           onDesignToolSelectionChange={setDesignToolStatus}
           orientation={presentation.orientation}
-          screenBackground={projectSpaceShellBackground(presentation.theme)}
+          screenBackground={prototypeScreenBackgroundColor(
+            presentation.screenBackground,
+            presentation.theme,
+          )}
           showDeviceFrame={presentation.showDeviceFrame}
+          showSafeArea={presentation.showSafeArea}
           viewport={preset}
         >
           <DesktopTarget scenario="ready" theme={presentation.theme} />

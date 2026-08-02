@@ -29,6 +29,7 @@ export function PrototypePreviewCarousel({
   orientation,
   screenBackground,
   showDeviceFrame,
+  showSafeArea = false,
   viewport,
 }: {
   children: ReactNode;
@@ -47,6 +48,7 @@ export function PrototypePreviewCarousel({
   orientation: PrototypeOrientation;
   screenBackground?: string;
   showDeviceFrame: boolean;
+  showSafeArea?: boolean;
   viewport: PrototypeViewportPreset;
 }) {
   return (
@@ -71,6 +73,7 @@ export function PrototypePreviewCarousel({
         orientation={orientation}
         screenBackground={screenBackground}
         showDeviceFrame={showDeviceFrame}
+        showSafeArea={showSafeArea}
         viewport={viewport}
       >
         {children}

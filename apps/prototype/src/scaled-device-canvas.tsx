@@ -43,6 +43,7 @@ export function ScaledDeviceCanvas({
   orientation,
   screenBackground,
   showDeviceFrame,
+  showSafeArea = false,
   viewport,
 }: {
   children: ReactNode;
@@ -61,6 +62,7 @@ export function ScaledDeviceCanvas({
   orientation: PrototypeOrientation;
   screenBackground?: string;
   showDeviceFrame: boolean;
+  showSafeArea?: boolean;
   viewport: PrototypeViewportPreset;
 }) {
   const host = useRef<HTMLDivElement>(null);
@@ -126,6 +128,7 @@ export function ScaledDeviceCanvas({
             orientation={orientation}
             screenBackground={screenBackground}
             showFrame={renderDeviceFrame}
+            showSafeArea={showSafeArea}
             viewport={viewport}
           >
             {children}

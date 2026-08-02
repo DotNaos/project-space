@@ -149,18 +149,22 @@ describe("standalone prototype canvas", () => {
     ).toEqual({
       fullscreen: true,
       orientation: "landscape",
+      screenBackground: "app",
       showDeviceFrame: false,
+      showSafeArea: false,
       theme: "light",
     });
     expect(
       prototypeSurfaceHref("expo", "tablet", "populated", {
         fullscreen: true,
         orientation: "landscape",
+        screenBackground: "white",
         showDeviceFrame: false,
+        showSafeArea: true,
         theme: "light",
       }),
     ).toBe(
-      "/prototype/mobile/?scenario=populated&viewport=tablet&frame=0&fullscreen=1&orientation=landscape&theme=light",
+      "/prototype/mobile/?scenario=populated&viewport=tablet&frame=0&fullscreen=1&orientation=landscape&safe-area=1&background=white&theme=light",
     );
     const portrait = prototypeDeviceOverlayLayout("phone", 390, 844);
     const landscape = prototypeDeviceOverlayLayout(
@@ -177,15 +181,15 @@ describe("standalone prototype canvas", () => {
 
   test("keeps framed phone controls inside the rounded screen safe area", () => {
     expect(prototypeDeviceSafeAreaInsets("phone", "portrait", true)).toEqual({
-      bottom: 24,
+      bottom: 34,
       left: 0,
       right: 0,
-      top: 24,
+      top: 48,
     });
     expect(prototypeDeviceSafeAreaInsets("phone", "landscape", true)).toEqual({
-      bottom: 20,
-      left: 24,
-      right: 24,
+      bottom: 21,
+      left: 47,
+      right: 47,
       top: 0,
     });
     expect(prototypeDeviceSafeAreaInsets("phone", "landscape", false)).toEqual({
@@ -204,11 +208,39 @@ describe("standalone prototype canvas", () => {
         <div>Safe content</div>
       </DeviceFrame>,
     );
-    expect(landscape).toContain("--device-content-width:796px");
-    expect(landscape).toContain("--device-content-height:370px");
-    expect(landscape).toContain("--device-screen-inset-left:24px");
-    expect(landscape).toContain("--device-screen-inset-bottom:20px");
+    expect(landscape).toContain("--device-content-width:750px");
+    expect(landscape).toContain("--device-content-height:369px");
+    expect(landscape).toContain("--device-screen-inset-left:47px");
+    expect(landscape).toContain("--device-screen-inset-bottom:21px");
     expect(landscape).toContain("--device-screen-radius:48px");
+  });
+
+  test("shows a phone safe-area overlay and shares the configured screen background", () => {
+    const phone = renderToStaticMarkup(
+      <DeviceFrame
+        orientation="portrait"
+        screenBackground="#151515"
+        showFrame
+        showSafeArea
+        viewport={prototypeViewportPresets.phone}
+      >
+        <div>Safe content</div>
+      </DeviceFrame>,
+    );
+    expect(phone).toContain('data-testid="safe-area-overlay"');
+    expect(phone).toContain("--prototype-screen-background:#151515");
+
+    const desktop = renderToStaticMarkup(
+      <DeviceFrame
+        orientation="portrait"
+        showFrame
+        showSafeArea
+        viewport={prototypeViewportPresets.desktop}
+      >
+        <div>Desktop content</div>
+      </DeviceFrame>,
+    );
+    expect(desktop).not.toContain('data-testid="safe-area-overlay"');
   });
 
   test("always fits the complete device inside the available canvas", () => {

@@ -41,8 +41,8 @@ export function prototypeDeviceSafeAreaInsets(
     return { bottom: 0, left: 0, right: 0, top: 0 };
   }
   return orientation === "landscape"
-    ? { bottom: 20, left: 24, right: 24, top: 0 }
-    : { bottom: 24, left: 0, right: 0, top: 24 };
+    ? { bottom: 21, left: 47, right: 47, top: 0 }
+    : { bottom: 34, left: 0, right: 0, top: 48 };
 }
 
 const overlayUrls = {
@@ -84,6 +84,7 @@ export function DeviceFrame({
   orientation,
   screenBackground,
   showFrame = true,
+  showSafeArea = false,
   viewport,
 }: {
   children: ReactNode;
@@ -100,6 +101,7 @@ export function DeviceFrame({
   orientation: PrototypeOrientation;
   screenBackground?: string;
   showFrame?: boolean;
+  showSafeArea?: boolean;
   viewport: PrototypeViewportPreset;
 }) {
   const metrics = deviceFrameMetrics(viewport, orientation);
@@ -135,6 +137,9 @@ export function DeviceFrame({
     "--device-screen-inset-right": `${safeArea.right}px`,
     "--device-screen-inset-top": `${safeArea.top}px`,
     "--device-screen-radius": `${screenRadius}px`,
+    ...(screenBackground
+      ? { "--prototype-screen-background": screenBackground }
+      : {}),
   } as CSSProperties;
 
   return (
@@ -182,6 +187,15 @@ export function DeviceFrame({
               viewportKind={viewport.kind}
             />
           </div>
+          {showSafeArea && viewport.kind === "phone" && showFrame ? (
+            <div
+              aria-hidden="true"
+              className="prototype-device__safe-area"
+              data-testid="safe-area-overlay"
+            >
+              <div className="prototype-device__safe-area-boundary" />
+            </div>
+          ) : null}
         </div>
         <img
           alt=""

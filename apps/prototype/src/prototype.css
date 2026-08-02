@@ -297,6 +297,26 @@ body {
   background: rgb(64 64 64 / 72%);
 }
 
+.prototype-hud__background-swatch {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex: none;
+  border: 1px solid rgb(115 115 115 / 70%);
+  border-radius: 999px;
+}
+
+.prototype-hud__background-swatch[data-background="app"] {
+  background: linear-gradient(135deg, #151515 0 50%, #efeee9 50% 100%);
+}
+
+.prototype-hud__background-swatch[data-background="black"] {
+  background: #000000;
+}
+
+.prototype-hud__background-swatch[data-background="white"] {
+  background: #ffffff;
+}
+
 .prototype-hud__frame {
   min-width: 2.25rem;
   min-height: 2.25rem;
@@ -503,6 +523,26 @@ body {
   opacity: 1;
   background: var(--prototype-screen-background);
   transition: opacity 80ms ease-out;
+}
+
+.prototype-device__safe-area {
+  position: absolute;
+  z-index: 12;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.prototype-device__safe-area-boundary {
+  position: absolute;
+  top: var(--device-screen-inset-top);
+  right: var(--device-screen-inset-right);
+  bottom: var(--device-screen-inset-bottom);
+  left: var(--device-screen-inset-left);
+  border: 2px solid rgb(34 211 238 / 92%);
+  border-radius: 0.75rem;
+  box-shadow: 0 0 0 100vmax rgb(8 145 178 / 18%);
 }
 
 

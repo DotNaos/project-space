@@ -30,6 +30,10 @@ export function projectSpaceShellBackground(theme: PrototypeTheme) {
   return theme === "light" ? "#efeee9" : "#151515";
 }
 
+export function projectSpaceCanvasBackground(theme: PrototypeTheme) {
+  return theme === "light" ? "#f7f5f0" : "#0a0a0a";
+}
+
 export function ProjectSpaceHome({
   scenario,
   theme,

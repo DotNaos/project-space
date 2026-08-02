@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import {
   ProjectSpaceHome,
   projectFixtures,
+  projectSpaceCanvasBackground,
   projectSpaceShellBackground
 } from '../apps/prototype/src/project-space-home';
 import {
@@ -38,6 +39,8 @@ describe('project space home prototype', () => {
   test('uses one shell surface behind the sidebar and rounded main view', () => {
     expect(projectSpaceShellBackground('dark')).toBe('#151515');
     expect(projectSpaceShellBackground('light')).toBe('#efeee9');
+    expect(projectSpaceCanvasBackground('dark')).toBe('#0a0a0a');
+    expect(projectSpaceCanvasBackground('light')).toBe('#f7f5f0');
     expect(projectFixtures).toHaveLength(10);
     expect(projectFixtures.some((project) => project.name === 'prototype-lab')).toBe(true);
   });
