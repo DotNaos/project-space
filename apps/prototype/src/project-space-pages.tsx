@@ -81,7 +81,16 @@ export function ProjectFeaturePage({
     case "machines":
       return <ProjectMachinesPage {...props} />;
     case "chats":
-      return <ProjectChatsPage {...props} />;
+      return (
+        <ProjectChatsPage
+          {...props}
+          onTaskOpen={(number) => {
+            onTaskOpen(number);
+            onNavigate?.("issues");
+          }}
+          tasks={tasks}
+        />
+      );
     case "template":
       return <ProjectTemplatePage {...props} />;
     case "deployments":

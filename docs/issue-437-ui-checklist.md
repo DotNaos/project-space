@@ -125,8 +125,8 @@ Evidence: the live issue board exposes merged links as `#427`, `#435`, `#425`, a
 - [x] Replace issue-first product wording with Task wording in the primary prototype navigation.
 - [x] Keep New task as the primary creation action.
 - [x] Keep Chat as a first-class project destination.
-- [ ] Model Chat as a persistent project-manager thread in a selected machine's main worktree.
-- [ ] Show active Tasks, Agent runs, and linked issues grouped by machine inside Chat.
+- [x] Model Chat as a persistent project-manager thread in a selected machine's main worktree.
+- [x] Show active Tasks, Agent runs, and linked issues grouped by machine inside Chat.
 - [x] Add Repository as the project-wide technical control surface.
 - [x] Keep branches, history, changes, pull requests, and machine worktrees inside Repository rather than as separate root destinations.
 - [x] Add Templates to the global navigation and open the single Project Template directly.
@@ -134,7 +134,7 @@ Evidence: the live issue board exposes merged links as `#427`, `#435`, `#425`, a
 - [x] Add a project-level Template check under Repository for the selected branch.
 - [x] Verify the navigation and hierarchy at desktop and phone widths.
 
-Evidence: the sidebar now exposes only New task, Chat, Tasks, and Repository in the selected project, with Machines and Templates in a separate Global group. Overview and Deployments are no longer root destinations. Expanded mobile, expanded desktop, collapsed desktop, Templates navigation, and Repository navigation were exercised in the live Portless prototype. The global Project Template now defines 16 requirements across Modules, Libraries, Configuration, and Required pipelines. Repository validates that same contract against a selected branch: `main` reports 16 of 16 valid, while the mocked issue #437 branch reports 15 of 16 and isolates Signed release as the required attention. Both Template surfaces were visually verified at desktop and phone widths with no browser errors.
+Evidence: the sidebar now exposes only New task, Chat, Tasks, and Repository in the selected project, with Machines and Templates in a separate Global group. Overview and Deployments are no longer root destinations. Expanded mobile, expanded desktop, collapsed desktop, Templates navigation, and Repository navigation were exercised in the live Portless prototype. The global Project Template now defines 16 requirements across Modules, Libraries, Configuration, and Required pipelines. Repository validates that same contract against a selected branch: `main` reports 16 of 16 valid, while the mocked issue #437 branch reports 15 of 16 and isolates Signed release as the required attention. Chat is now one persistent project-manager destination in the selected machine's main worktree. Its unified timeline contains Aurora, Calypso, Juno, and Mira across Local, os-pc, and os-yoga-unix, with every Agent event linked to its Task and issue. Machine selection, expandable Agent context, Task navigation, composer use, in-session message persistence, and independent phone scrolling were exercised in the live Portless prototype at desktop and phone widths with no browser errors.
 
 ## 7. Build the complete mocked Task lifecycle
 
@@ -191,7 +191,7 @@ Evidence: created mocked Task #438 from the phone composer, reviewed it, advance
 
 ## Later milestones
 
-- [ ] Build the persistent project Chat experience with machine selection and coordination views.
+- [x] Build the persistent project Chat experience with machine selection and coordination views.
 - [x] Build the Repository control surface across branches and machine worktrees.
 - [x] Build the global Project Template and project-level Template check.
 - [ ] Replace mock transitions with real APIs only after the Task workflow has been dogfooded and accepted.

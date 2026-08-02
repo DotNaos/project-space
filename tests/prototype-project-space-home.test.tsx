@@ -27,6 +27,10 @@ import { prototypeBranches } from '../apps/prototype/src/project-space-pages/bra
 import { filterPrototypeBranches } from '../apps/prototype/src/project-space-pages/branches-and-workspaces';
 import { ProjectTemplateCheck } from '../apps/prototype/src/project-space-pages/template-check';
 import { projectTemplateCheckSummary } from '../apps/prototype/src/project-space-pages/template-contract';
+import {
+  projectChatAgentEntries,
+  projectChatMachineCounts,
+} from '../apps/prototype/src/project-space-pages/project-chat-model';
 
 describe('project space home prototype', () => {
   test('uses one shell surface behind the sidebar and rounded main view', () => {
@@ -99,7 +103,7 @@ describe('project space home prototype', () => {
     ['issues', 'Search tasks', 'Needs you'],
     ['branches', 'Search branches, PRs, or machines', '30 of 30 branches'],
     ['machines', 'Available destinations', 'os-pc'],
-    ['chats', 'Search conversations', 'Tasks'],
+    ['chats', 'Project manager', 'Agent runs'],
     ['template', 'Project Template', 'Required pipelines'],
     ['deployments', 'Pull request previews', 'Production'],
   ] as const)('gives the %s page its own working surface', (page, first, second) => {
@@ -113,6 +117,37 @@ describe('project space home prototype', () => {
 
     expect(html).toContain(first);
     expect(html).toContain(second);
+  });
+
+  test('keeps the project manager and every Agent run in one machine-aware timeline', () => {
+    const entries = projectChatAgentEntries(initialMockTasks);
+    const machineCounts = projectChatMachineCounts(entries);
+    const html = renderToStaticMarkup(
+      <ProjectFeaturePage
+        page="chats"
+        projectName="project-space"
+        scenario="ready"
+        tasks={initialMockTasks}
+      />
+    );
+
+    expect(entries.map((entry) => entry.actor)).toEqual(['Aurora', 'Calypso', 'Juno', 'Mira']);
+    expect(machineCounts).toEqual([
+      { count: 2, machine: 'Local' },
+      { count: 1, machine: 'os-pc' },
+      { count: 1, machine: 'os-yoga-unix' },
+    ]);
+    expect(html).toContain('Select project manager machine');
+    expect(html).toContain('Persistent project thread · main worktree');
+    expect(html).toContain('Aurora');
+    expect(html).toContain('Calypso');
+    expect(html).toContain('Juno');
+    expect(html).toContain('Mira');
+    expect(html).toContain('Task #437');
+    expect(html).toContain('Issue #437');
+    expect(html).toContain('placeholder="Message the project"');
+    expect(html).not.toContain('Search conversations');
+    expect(html).not.toContain('New chat');
   });
 
   test('keeps branch search thumb-reachable and gives filters icons', () => {
