@@ -160,6 +160,10 @@ The next focused milestone is UI-only. It must be possible to dogfood the entire
 - [x] Include a comment timeline and a compact Markdown comment composer.
 - [x] Keep Task metadata secondary and avoid repeating labels already expressed by the lifecycle.
 - [x] Provide a direct GitHub issue link as mocked external context.
+- [x] Prioritize the happy path as Preview, pull request, pipeline, Task description, and issue conversation.
+- [x] Keep event history collapsed below the issue conversation.
+- [x] Reveal machine, Codex thread, and Git status automatically only when delivery needs attention or development has not produced a pull request yet.
+- [x] Treat no pull request as Planning, a draft pull request as Started, and a ready pull request as active implementation.
 
 ### Development lifecycle
 

@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 
 import { TaskComments } from "./task-comments";
-import { TaskLifecyclePanel } from "./task-lifecycle-panel";
+import { TaskDeliveryPanel } from "./task-lifecycle-panel";
 import type { MockTask, MockTaskAction } from "./task-model";
 import { mockTaskGroup, mockTaskStageLabel } from "./task-model";
 import { TaskPreviewModal } from "./task-preview-modal";
@@ -20,26 +20,23 @@ const eventIcons = [MessageCircle, GitBranch, Bot, GitCommitHorizontal, Rocket];
 
 function TaskEventTimeline({ task }: { task: MockTask }) {
   return (
-    <section className="mt-10">
-      <h2 className="text-sm font-semibold text-current/75">Activity</h2>
-      <div className="mt-4 border-l border-current/[.09] pl-5">
-        {[...task.events].reverse().map((event, index) => {
-          const Icon = eventIcons[index % eventIcons.length];
-          return (
-            <article className="relative border-b border-current/[.07] py-3.5 first:pt-0 last:border-0" key={event.id}>
-              <span className="absolute -left-[1.9rem] top-0 grid size-6 place-items-center rounded-full bg-current/[.06] text-current/35 ring-4 ring-[var(--prototype-screen-background)]">
-                <Icon className="size-3" />
-              </span>
-              <header className="flex items-center justify-between gap-3">
-                <h3 className="text-xs font-medium text-current/70">{event.title}</h3>
-                <span className="text-[10px] text-current/25">{event.time}</span>
-              </header>
-              <p className="mt-1 text-xs leading-5 text-current/40">{event.detail}</p>
-            </article>
-          );
-        })}
-      </div>
-    </section>
+    <div className="mt-4 border-l border-current/[.09] pl-5">
+      {[...task.events].reverse().map((event, index) => {
+        const Icon = eventIcons[index % eventIcons.length];
+        return (
+          <article className="relative border-b border-current/[.07] py-3.5 first:pt-0 last:border-0" key={event.id}>
+            <span className="absolute -left-[1.9rem] top-0 grid size-6 place-items-center rounded-full bg-current/[.06] text-current/35 ring-4 ring-[var(--prototype-screen-background)]">
+              <Icon className="size-3" />
+            </span>
+            <header className="flex items-center justify-between gap-3">
+              <h3 className="text-xs font-medium text-current/70">{event.title}</h3>
+              <span className="text-[10px] text-current/25">{event.time}</span>
+            </header>
+            <p className="mt-1 text-xs leading-5 text-current/40">{event.detail}</p>
+          </article>
+        );
+      })}
+    </div>
   );
 }
 
@@ -103,11 +100,17 @@ export function ProjectTaskDetailPage({
                 </div>
               ) : null}
             </section>
-            <TaskEventTimeline task={task} />
             <TaskComments comments={task.comments} onSubmit={(body) => onAction({ body, type: "add-comment" })} />
+            <details className="group mt-10 border-t border-current/[.08] pt-1">
+              <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-1 text-xs font-medium text-current/40 transition-colors hover:text-current/70 [&::-webkit-details-marker]:hidden">
+                Activity history
+                <span className="text-current/25">{task.events.length}</span>
+              </summary>
+              <TaskEventTimeline task={task} />
+            </details>
           </main>
           <div className="order-first @3xl:order-none">
-            <TaskLifecyclePanel onAction={onAction} onOpenPreview={() => setPreviewOpen(true)} task={task} />
+            <TaskDeliveryPanel onAction={onAction} onOpenPreview={() => setPreviewOpen(true)} task={task} />
           </div>
         </div>
       </section>

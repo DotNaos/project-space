@@ -331,13 +331,58 @@ describe('project space home prototype', () => {
     expect(html).toContain('#437');
     expect(html).not.toContain('aria-label="Task lifecycle"');
     expect(html).not.toContain('>Lifecycle<');
+    expect(html).toContain('Planning');
     expect(html).toContain('Codex is implementing the selected prototype direction.');
-    expect(html).toContain('Open pull request');
+    expect(html).toContain('Create draft PR');
+    expect(html).toContain('Working context');
     expect(html).toContain('Development details');
     expect(html).toContain('Agent run · Local');
     expect(html).toContain('GitHub issue');
     expect(html).toContain('Discussion');
+    expect(html).toContain('Activity history');
     expect(html).toContain('Add Task comment');
+  });
+
+  test('shows delivery first and reveals execution context when a task needs attention', () => {
+    const task = initialMockTasks.find((candidate) => candidate.number === 398)!;
+    const html = renderToStaticMarkup(
+      <ProjectTaskDetailPage
+        onAction={() => undefined}
+        onBack={() => undefined}
+        projectName="project-space"
+        task={task}
+      />
+    );
+
+    expect(html).toContain('>Preview<');
+    expect(html).toContain('Waiting for checks');
+    expect(html).toContain('Pull request');
+    expect(html).toContain('href="https://github.com/DotNaos/project-space/pull/420"');
+    expect(html).toContain('Pipeline');
+    expect(html).toContain('Checks failed');
+    expect(html).toContain('Retry checks');
+    expect(html).toContain('Working context');
+    expect(html).toContain('os-pc');
+    expect(html).toContain('#398 · Verify delivery evidence · running');
+    expect(html).toContain('3 files changed');
+  });
+
+  test('keeps a healthy task focused on its Preview and pull request', () => {
+    const task = initialMockTasks.find((candidate) => candidate.number === 434)!;
+    const html = renderToStaticMarkup(
+      <ProjectTaskDetailPage
+        onAction={() => undefined}
+        onBack={() => undefined}
+        projectName="project-space"
+        task={task}
+      />
+    );
+
+    expect(html).toContain('Ready to view');
+    expect(html).toContain('Open Preview');
+    expect(html).toContain('#435');
+    expect(html).toContain('Checks passed');
+    expect(html).not.toContain('Working context');
   });
 
   test('groups the desktop navigation and supports a compact sidebar', () => {

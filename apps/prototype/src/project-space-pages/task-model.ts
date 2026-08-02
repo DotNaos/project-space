@@ -32,6 +32,7 @@ export interface MockTaskEvent {
 export interface MockTaskPullRequest {
   checks: MockCheckState;
   number: number;
+  phase?: "draft" | "ready";
   preview: MockPreviewState;
   review: MockReviewState;
   revision: string;
@@ -62,6 +63,11 @@ export interface MockTask {
   title: string;
   type: MockTaskType;
   updated: string;
+  workspace?: {
+    changedFiles: number;
+    machine: string;
+    status: "clean" | "modified";
+  };
 }
 
 export type MockTaskAction =
@@ -72,6 +78,7 @@ export type MockTaskAction =
   | { type: "create-branch" }
   | { type: "fail-checks" }
   | { type: "merge" }
+  | { type: "mark-pull-request-ready" }
   | { type: "open-pull-request" }
   | { type: "pass-checks" }
   | { type: "request-review" }
@@ -95,9 +102,12 @@ const stageLabels: Record<MockTaskStage, string> = {
 };
 
 export function mockTaskStageLabel(task: MockTask) {
+  if (!task.pullRequest) return "Planning";
+  if (task.pullRequest.phase === "draft") return "Started";
   if (task.pullRequest?.checks === "failed") return "Checks failed";
   if (task.pullRequest?.preview === "unavailable") return "Preview unavailable";
   if (task.pullRequest?.review === "pending") return "Needs review";
+  if (task.pullRequest.phase === "ready" && task.pullRequest.checks === "not-started") return "In progress";
   return stageLabels[task.stage];
 }
 
@@ -164,12 +174,19 @@ export function updateMockTask(task: MockTask, action: MockTaskAction): MockTask
         pullRequest: {
           checks: "not-started",
           number: task.number + 1,
+          phase: "draft",
           preview: "not-started",
           review: "not-requested",
           revision: "dc6bd80",
         },
         stage: "pull-request",
-      }, "Pull request opened", `Pull request #${task.number + 1} was opened for review.`);
+      }, "Draft pull request opened", `Draft pull request #${task.number + 1} keeps the implementation connected while work continues.`);
+    case "mark-pull-request-ready":
+      if (!task.pullRequest) return task;
+      return withEvent(task, {
+        pullRequest: { ...task.pullRequest, phase: "ready" },
+        stage: "pull-request",
+      }, "Pull request ready", `Pull request #${task.pullRequest.number} is ready for its delivery pipeline.`);
     case "run-checks":
       if (!task.pullRequest) return task;
       return withEvent(task, {
@@ -296,8 +313,10 @@ export const initialMockTasks: MockTask[] = [
     title: "Redesign the Project Space frontend",
     type: "Feature",
     updated: "now",
+    workspace: { changedFiles: 12, machine: "Local", status: "modified" },
   },
   {
+    agentRun: { machine: "os-pc", name: "#398 · Verify delivery evidence", status: "running" },
     author: "Oli",
     body: "Require the issue board to derive state from pull-request evidence and recover clearly when a required check fails.",
     branch: "issue-398-require-agents-to-keep-issue-board-status-current",
@@ -309,11 +328,12 @@ export const initialMockTasks: MockTask[] = [
     ],
     labels: ["workflow", "reliability"],
     number: 398,
-    pullRequest: { checks: "failed", number: 420, preview: "not-started", review: "not-requested", revision: "e29c7a1" },
+    pullRequest: { checks: "failed", number: 420, phase: "ready", preview: "not-started", review: "not-requested", revision: "e29c7a1" },
     stage: "checks",
     title: "Keep Task status aligned with delivery evidence",
     type: "Bug",
     updated: "now",
+    workspace: { changedFiles: 3, machine: "os-pc", status: "modified" },
   },
   {
     author: "Oli",
@@ -327,11 +347,12 @@ export const initialMockTasks: MockTask[] = [
     ],
     labels: ["prototype", "security"],
     number: 395,
-    pullRequest: { checks: "passed", number: 404, preview: "unavailable", review: "not-requested", revision: "31f5a90" },
+    pullRequest: { checks: "passed", number: 404, phase: "ready", preview: "unavailable", review: "not-requested", revision: "31f5a90" },
     stage: "checks",
     title: "Secure authenticated prototype iteration",
     type: "Feature",
     updated: "Jul 30",
+    workspace: { changedFiles: 0, machine: "os-pc", status: "clean" },
   },
   {
     author: "Aurora",
@@ -346,7 +367,7 @@ export const initialMockTasks: MockTask[] = [
     ],
     labels: ["ci", "reliability"],
     number: 434,
-    pullRequest: { checks: "passed", number: 435, preview: "ready", review: "approved", revision: "7317597" },
+    pullRequest: { checks: "passed", number: 435, phase: "ready", preview: "ready", review: "approved", revision: "7317597" },
     stage: "deployed",
     title: "Make agent-authored revisions green",
     type: "Feature",
