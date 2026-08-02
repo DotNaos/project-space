@@ -499,7 +499,7 @@ describe('project space home prototype', () => {
       />
     );
 
-    expect(html).toContain('Ready to view');
+    expect(html).not.toContain('Ready to view');
     expect(html).toContain('Open Preview');
     expect(html).toContain('Design Space');
     expect(html).toContain('href="http://design-space.localhost:1355/"');

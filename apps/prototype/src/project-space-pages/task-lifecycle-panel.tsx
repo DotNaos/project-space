@@ -139,10 +139,14 @@ export function TaskDeliveryPanel({
       ) : task.pullRequest ? (
         <>
           <div className="pb-4">
-            <span className="text-[10px] text-current/30">Preview</span>
-            <p className={`mt-1 text-sm font-medium ${task.pullRequest.preview === "unavailable" ? "text-red-300" : previewReady ? "text-emerald-300" : "text-current/55"}`}>{previewLabel}</p>
+            {!previewReady ? (
+              <>
+                <span className="text-[10px] text-current/30">Preview</span>
+                <p className={`mt-1 text-sm font-medium ${task.pullRequest.preview === "unavailable" ? "text-red-300" : "text-current/55"}`}>{previewLabel}</p>
+              </>
+            ) : null}
             {previewReady ? (
-              <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <Button className="col-span-2 w-full" size="md" variant="primary" onPress={onOpenPreview}>
                   <MonitorPlay className="size-4" /> Open Preview
                 </Button>
