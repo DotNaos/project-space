@@ -34,15 +34,19 @@ export const projectFixtures: ProjectFixture[] = [
   { counts: { branches: 6, issues: 24 }, name: "prototype-lab", owner: "DotNaos" },
 ];
 
+function projectInitials(name: string) {
+  const words = name.split(/[-_\s]+/).filter(Boolean);
+  return (words.length > 1 ? words.map((word) => word[0]).join("") : name.slice(0, 2))
+    .slice(0, 2)
+    .toUpperCase();
+}
+
 export const projectPageGroups: Array<{
   ids: ProjectPageId[];
   label: string;
 }> = [
-  { ids: ["chats", "machines"], label: "Workspace" },
-  {
-    ids: ["overview", "issues", "branches", "deployments", "template"],
-    label: "Project",
-  },
+  { ids: ["chats", "issues", "branches"], label: "Project" },
+  { ids: ["machines", "template"], label: "Global" },
 ];
 
 function SidebarNavItem({
@@ -116,7 +120,7 @@ function ProjectSelectorModal({
       >
         {collapsed ? (
           <span className="text-xs font-semibold tracking-[-.04em]">
-            {currentProject.name.slice(0, 2)}
+            {projectInitials(currentProject.name)}
           </span>
         ) : (
           <>
@@ -166,7 +170,7 @@ function ProjectSelectorModal({
                       type="button"
                     >
                       <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-white/[.07] text-[10px] font-semibold text-neutral-300">
-                        {project.name.slice(0, 2).toUpperCase()}
+                        {projectInitials(project.name)}
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-[13px] font-medium leading-4">{project.name}</span>
@@ -221,7 +225,7 @@ export function ProjectSidebar({
   onProjectSelect(project: ProjectFixture): void;
   portalContainer: HTMLElement | null;
 }) {
-  const [workspaceGroup, projectGroup] = projectPageGroups;
+  const [projectGroup, globalGroup] = projectPageGroups;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -259,33 +263,6 @@ export function ProjectSidebar({
         }`}
       >
         <div>
-          {collapsed ? null : (
-            <p className="px-3 pb-2 text-[11px] font-medium text-current/35">
-              {workspaceGroup.label}
-            </p>
-          )}
-          {workspaceGroup.ids.map((id) => {
-            const item = projectPageItems.find((candidate) => candidate.id === id);
-            if (!item) return null;
-            return (
-              <SidebarNavItem
-                active={activePage === item.id}
-                collapsed={collapsed}
-                icon={item.icon}
-                key={item.id}
-                label={item.label}
-                onPress={() => onPageChange(item.id)}
-              />
-            );
-          })}
-        </div>
-
-        <div className={collapsed ? "mt-3 border-t border-current/[.06] pt-3" : "mt-6"}>
-          {collapsed ? null : (
-            <p className="px-3 pb-2 text-[11px] font-medium text-current/35">
-              {projectGroup.label}
-            </p>
-          )}
           <ProjectSelectorModal
             collapsed={collapsed}
             currentProject={currentProject}
@@ -293,18 +270,23 @@ export function ProjectSidebar({
             onSelect={onProjectSelect}
           />
           <button
-            aria-label="New issue"
+            aria-label="New task"
             className={`mt-1 flex h-10 w-full items-center rounded-xl text-sm text-current/75 transition-[background-color,color,scale] hover:bg-current/[.04] hover:text-current active:scale-[.96] ${
               collapsed ? "justify-center px-0" : "gap-3 px-3"
             }`}
             onClick={onNewIssue}
-            title={collapsed ? "New issue" : undefined}
+            title={collapsed ? "New task" : undefined}
             type="button"
           >
             <PencilLine aria-hidden className="size-4" strokeWidth={1.8} />
-            {collapsed ? null : <span>New issue</span>}
+            {collapsed ? null : <span>New task</span>}
           </button>
-          <div className={collapsed ? "mt-1" : "mt-3"}>
+          <div className={collapsed ? "mt-1" : "mt-5"}>
+            {collapsed ? null : (
+              <p className="px-3 pb-2 text-[11px] font-medium text-current/35">
+                {projectGroup.label}
+              </p>
+            )}
             {projectGroup.ids.map((id) => {
               const item = projectPageItems.find((candidate) => candidate.id === id);
               if (!item) return null;
@@ -321,6 +303,28 @@ export function ProjectSidebar({
               );
             })}
           </div>
+        </div>
+
+        <div className={collapsed ? "mt-3 border-t border-current/[.06] pt-3" : "mt-6"}>
+          {collapsed ? null : (
+            <p className="px-3 pb-2 text-[11px] font-medium text-current/35">
+              {globalGroup.label}
+            </p>
+          )}
+          {globalGroup.ids.map((id) => {
+            const item = projectPageItems.find((candidate) => candidate.id === id);
+            if (!item) return null;
+            return (
+              <SidebarNavItem
+                active={activePage === item.id}
+                collapsed={collapsed}
+                icon={item.icon}
+                key={item.id}
+                label={item.label}
+                onPress={() => onPageChange(item.id)}
+              />
+            );
+          })}
         </div>
       </nav>
 

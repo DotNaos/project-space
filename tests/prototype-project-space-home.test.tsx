@@ -49,15 +49,16 @@ describe('project space home prototype', () => {
     expect(html).toContain('aria-label="Switch project, current project project-space"');
     expect(html).not.toContain('before:absolute');
     expect(html).toContain('project-space');
-    expect(html).toContain('>Issues<');
-    expect(html).toContain('>Branches<');
+    expect(html).toContain('>Tasks<');
+    expect(html).toContain('>Repository<');
     expect(html).toContain('>Machines<');
     expect(html).toContain('>Chat<');
     expect(html).not.toContain('>Workspaces<');
     expect(html).not.toContain('>History<');
     expect(html).not.toContain('>Codex<');
-    expect(html).toContain('>Template<');
-    expect(html).toContain('>Deployments<');
+    expect(html).toContain('>Templates<');
+    expect(html).not.toContain('>Overview<');
+    expect(html).not.toContain('>Deployments<');
     expect(html).toContain('>Oli<');
     expect(html).toContain('placeholder="Describe a feature or idea"');
     expect(html).not.toContain('#437 · Redesign the Project Space frontend');
@@ -68,8 +69,8 @@ describe('project space home prototype', () => {
       <ProjectSpaceHome scenario="empty" theme="light" />
     );
 
-    expect(html).toContain('>Overview<');
-    expect(html).toContain('>Deployments<');
+    expect(html).toContain('>Tasks<');
+    expect(html).toContain('>Templates<');
     expect(html).toContain('bg-[#f8f7f3]');
   });
 
@@ -258,8 +259,8 @@ describe('project space home prototype', () => {
 
   test('groups the desktop navigation and supports a compact sidebar', () => {
     expect(projectPageGroups.map((group) => group.label)).toEqual([
-      'Workspace',
-      'Project'
+      'Project',
+      'Global'
     ]);
     const expanded = renderToStaticMarkup(
       <ProjectSidebar
@@ -288,13 +289,14 @@ describe('project space home prototype', () => {
     );
 
     expect(expanded).toContain('Collapse sidebar');
-    expect(expanded).toContain('>Workspace<');
     expect(expanded).toContain('>Project<');
+    expect(expanded).toContain('>Global<');
+    expect(expanded).toContain('>New task<');
     expect(expanded).toContain('>Chat<');
     expect(expanded).not.toContain('>Codex<');
     expect(expanded).not.toContain('uppercase');
     expect(collapsed).toContain('Expand sidebar');
-    expect(collapsed).not.toContain('>Workspace<');
-    expect(collapsed).toContain('title="Issues"');
+    expect(collapsed).not.toContain('>Project<');
+    expect(collapsed).toContain('title="Tasks"');
   });
 });

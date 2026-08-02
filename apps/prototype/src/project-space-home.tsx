@@ -177,7 +177,7 @@ export function ProjectSpaceHome({
           </button>
           <Button
             isIconOnly
-            aria-label="New issue"
+            aria-label="New task"
             size="sm"
             style={{ color: "inherit" }}
             variant="ghost"

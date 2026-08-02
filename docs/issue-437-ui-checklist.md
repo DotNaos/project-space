@@ -1,6 +1,75 @@
-# Issue #437 UI follow-up checklist
+# Issue #437 product UI roadmap
 
 This document is the working contract for the current prototype iteration. Work through it from top to bottom and keep the checkboxes truthful.
+
+## Product model
+
+Project Space is the workflow and attention layer for building software. GitHub issues, branches, worktrees, pull requests, previews, and deployments remain visible where they provide control or explain a blocker, but they are not separate starting points for ordinary work.
+
+```text
+Project Space
+├── Global
+│   ├── Projects
+│   ├── Machines
+│   ├── Templates
+│   │   └── Project Template
+│   │       ├── Modules
+│   │       ├── Libraries
+│   │       ├── Configuration
+│   │       └── Required pipelines
+│   ├── Profile
+│   └── Settings
+│
+└── Selected project
+    ├── New task
+    ├── Chat
+    │   ├── Machine selector
+    │   ├── Project manager thread in the main worktree
+    │   └── Running work grouped by machine
+    │       ├── Tasks
+    │       ├── Agent runs
+    │       └── Linked issues
+    ├── Tasks
+    │   ├── Task overview
+    │   ├── Repository history
+    │   └── Task detail
+    │       ├── Issue and discussion
+    │       ├── Branch and history
+    │       ├── Agent runs
+    │       ├── Pull request and review
+    │       ├── Checks and Preview
+    │       ├── Merge
+    │       └── Deployment
+    └── Repository
+        ├── Branches
+        │   └── Selected branch
+        │       ├── History
+        │       ├── Changes
+        │       ├── Pull request
+        │       └── Worktrees grouped by machine
+        └── Template check
+            ├── Modules
+            ├── Libraries
+            ├── Configuration
+            └── Pipelines
+```
+
+### Naming contract
+
+- **Task** is the project-level unit of intent: a feature, bug, idea, or other requested outcome.
+- **Agent run** is one concrete Codex execution attached to a Task. It must not be called a Codex task in this UI.
+- **Chat** is the persistent project-manager conversation in the selected machine's main worktree. It is not tied to one Task.
+- **Repository** is the technical control surface across all Tasks and branches.
+- **Workspace** or **worktree** is a machine-specific checkout of one branch and belongs in branch detail.
+- **Template** is the global desired project contract. **Template check** validates a project's selected branch against that contract.
+
+### Visibility rules
+
+- Start normal work from **New task**, **Chat**, or **Tasks**.
+- Show technical objects inside the Task lifecycle when they need a decision, explain a blocker, or are explicitly opened.
+- Keep repository-wide history and branch control available through **Repository**.
+- Never claim a lifecycle stage is ready, merged, deployed, or valid without matching evidence in the eventual real implementation.
+- During this prototype phase, every state is explicitly labelled and backed by deterministic mock data; no mock action may imply that GitHub, a machine, CI, or production was actually changed.
 
 ## 1. Independent issue-board scrolling
 
@@ -51,6 +120,80 @@ Evidence: the phone branch browser now fits substantially more of the 30-branch 
 
 Evidence: the live issue board exposes merged links as `#427`, `#435`, `#425`, and `#404`; the rendered marker uses the violet tone and Git-merge icon. Phone and desktop screenshots were inspected after hot reload.
 
-## Completion rule
+## 6. Establish the new navigation model
 
-The goal is complete only when every checkbox above is checked, the focused prototype tests and TypeScript check pass, the live prototype has been visually dogfooded, and the finished revision is committed and pushed.
+- [x] Replace issue-first product wording with Task wording in the primary prototype navigation.
+- [x] Keep New task as the primary creation action.
+- [x] Keep Chat as a first-class project destination.
+- [ ] Model Chat as a persistent project-manager thread in a selected machine's main worktree.
+- [ ] Show active Tasks, Agent runs, and linked issues grouped by machine inside Chat.
+- [x] Add Repository as the project-wide technical control surface.
+- [x] Keep branches, history, changes, pull requests, and machine worktrees inside Repository rather than as separate root destinations.
+- [x] Add Templates to the global navigation and open the single Project Template directly.
+- [ ] Show modules, libraries, configuration, and required pipelines in the Project Template.
+- [ ] Add a project-level Template check under Repository for the selected branch.
+- [x] Verify the navigation and hierarchy at desktop and phone widths.
+
+Evidence: the sidebar now exposes only New task, Chat, Tasks, and Repository in the selected project, with Machines and Templates in a separate Global group. Overview and Deployments are no longer root destinations. Expanded mobile, expanded desktop, collapsed desktop, Templates navigation, and Repository navigation were exercised in the live Portless prototype.
+
+## 7. Build the complete mocked Task lifecycle
+
+The next focused milestone is UI-only. It must be possible to dogfood the entire flow without GitHub, Codex, machine, CI, Preview, or deployment infrastructure. Mock state must survive navigation during the browser session.
+
+### Task overview
+
+- [ ] Provide a compact Task list with meaningful lifecycle status instead of exposing raw issue state as the primary status.
+- [ ] Support useful grouping or filtering for Needs you, Active, and Done.
+- [ ] Keep repository history available as a separate tab within Tasks.
+- [ ] Let every Task open its complete lifecycle detail.
+
+### Create a Task
+
+- [ ] Start from New task with a calm idea composer.
+- [ ] Allow a title, description, type, and optional labels to be entered with mocked data.
+- [ ] Show a clear review step before the mock Task is created.
+- [ ] Add the new Task to the overview and open its detail after creation.
+
+### Task detail and discussion
+
+- [ ] Show the Task description as the primary content.
+- [ ] Include a comment timeline and a compact Markdown comment composer.
+- [ ] Keep Task metadata secondary and avoid repeating labels already expressed by the lifecycle.
+- [ ] Provide a direct GitHub issue link as mocked external context.
+
+### Development lifecycle
+
+- [ ] Show the assigned branch and its current relationship to main.
+- [ ] Show Agent runs attached to the Task without calling them Tasks.
+- [ ] Allow the prototype to advance through explicit mocked stages: issue created, branch ready, development running, pull request open, checks running, Preview ready, review approved, merged, deploying, deployed.
+- [ ] Make the next meaningful action obvious and keep unavailable later actions gated.
+- [ ] Show a concise event timeline so the user can understand how the Task reached its current state.
+
+### Pull request, Preview, and delivery
+
+- [ ] Show pull-request identity, current revision, review state, and checks when the mock pull request exists.
+- [ ] Let the user open a realistic mock Preview from the Task.
+- [ ] Let the user approve the exact mocked revision and visibly invalidate approval when the mocked revision changes.
+- [ ] Show merge only after the mocked required checks and review are complete.
+- [ ] Show deployment progress after merge and a final deployed state with mocked evidence.
+
+### Dogfood matrix
+
+- [ ] Complete the happy path from New task through deployed.
+- [ ] Exercise a Task that needs user input.
+- [ ] Exercise a failed check and recovery.
+- [ ] Exercise a changed revision after approval.
+- [ ] Exercise a Preview that is unavailable and later becomes ready.
+- [ ] Navigate away and back without losing the in-session mock state.
+- [ ] Repeat the primary flow at desktop and phone widths through the live Portless prototype.
+
+## Later milestones
+
+- [ ] Build the persistent project Chat experience with machine selection and coordination views.
+- [ ] Build the Repository control surface across branches and machine worktrees.
+- [ ] Build the global Project Template and project-level Template check.
+- [ ] Replace mock transitions with real APIs only after the Task workflow has been dogfooded and accepted.
+
+## Completion rule for the next milestone
+
+The mocked Task milestone is complete only when every item in section 7 is checked, the focused prototype tests and TypeScript check pass, the live prototype has been visually dogfooded at desktop and phone widths, and the complete Task lifecycle can be used without touching real external systems.

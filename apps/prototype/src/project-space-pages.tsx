@@ -2,7 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   CircleDot,
   FileCheck2,
-  GitBranch,
+  FolderGit2,
   LayoutDashboard,
   MessageCircle,
   Monitor,
@@ -40,11 +40,11 @@ export interface ProjectPageItem {
 
 export const projectPageItems: ProjectPageItem[] = [
   { icon: LayoutDashboard, id: "overview", label: "Overview" },
-  { icon: CircleDot, id: "issues", label: "Issues" },
-  { icon: GitBranch, id: "branches", label: "Branches" },
+  { icon: CircleDot, id: "issues", label: "Tasks" },
+  { icon: FolderGit2, id: "branches", label: "Repository" },
   { icon: Monitor, id: "machines", label: "Machines" },
   { icon: MessageCircle, id: "chats", label: "Chat" },
-  { icon: FileCheck2, id: "template", label: "Template" },
+  { icon: FileCheck2, id: "template", label: "Templates" },
   { icon: Rocket, id: "deployments", label: "Deployments" },
 ];
 
