@@ -15,6 +15,8 @@ import {
   ProjectSidebar,
   projectPageGroups
 } from '../apps/prototype/src/project-space-sidebar';
+import { prototypeIssues } from '../apps/prototype/src/project-space-pages/issue-fixtures';
+import { filterAndSortPrototypeIssues } from '../apps/prototype/src/project-space-pages/issues';
 
 describe('project space home prototype', () => {
   test('uses one shell surface behind the sidebar and rounded main view', () => {
@@ -129,7 +131,28 @@ describe('project space home prototype', () => {
     expect(board).toContain('Updated now');
     expect(board).not.toContain('uppercase');
     expect(list).not.toContain('aria-label="Issue board"');
+    expect(list).toContain('aria-label="Issue table"');
+    expect(list).toContain('Filter by label');
+    expect(list).toContain('Filter by development');
+    expect(list).toContain('Development');
     expect(list).toContain('Open issue #437');
+  });
+
+  test('combines issue table filters and sorting', () => {
+    const filtered = filterAndSortPrototypeIssues({
+      development: 'Pull request',
+      issues: prototypeIssues,
+      label: 'ci',
+      sortDescriptor: { column: 'issue', direction: 'ascending' },
+    });
+
+    expect(filtered.map((issue) => issue.number)).toEqual([419, 434]);
+    expect(filterAndSortPrototypeIssues({
+      development: 'All',
+      issues: prototypeIssues,
+      label: 'All',
+      sortDescriptor: { column: 'updated', direction: 'descending' },
+    }).map((issue) => issue.number)).toEqual([437, 426, 434, 419, 408, 431, 395]);
   });
 
   test('renders an issue as a complete workflow detail view', () => {

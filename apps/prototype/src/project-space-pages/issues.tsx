@@ -1,5 +1,7 @@
+import type { SortDescriptor } from "@heroui/react";
+import { Label, ListBox, Select, Table } from "@heroui/react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Columns3, GitBranch, GitPullRequest, List, Plus, RotateCcw } from "lucide-react";
 import { useMemo, useState } from "react";
-import { CircleDot, Columns3, GitBranch, GitPullRequest, List, Plus } from "lucide-react";
 
 import type { PrototypeScenarioKind } from "../../../../src/shared/prototype-canvas";
 import {
@@ -18,6 +20,54 @@ import {
 } from "./issue-fixtures";
 
 export type PrototypeIssueViewMode = "board" | "list";
+export type PrototypeIssueDevelopmentFilter = "All" | "Branch" | "Pull request" | "Unlinked";
+
+const issueUpdatedOrder = new Map(prototypeIssues.map((issue, index) => [issue.number, index]));
+
+function issueDevelopmentLabel(issue: PrototypeIssue) {
+  return issue.pullRequest ?? issue.branch ?? "Unlinked";
+}
+
+export function filterAndSortPrototypeIssues({
+  development,
+  issues,
+  label,
+  sortDescriptor,
+}: {
+  development: PrototypeIssueDevelopmentFilter;
+  issues: PrototypeIssue[];
+  label: "All" | string;
+  sortDescriptor: SortDescriptor;
+}) {
+  const filtered = issues.filter((issue) => {
+    const matchesLabel = label === "All" || issue.labels.includes(label);
+    const matchesDevelopment = development === "All"
+      || (development === "Branch" && Boolean(issue.branch))
+      || (development === "Pull request" && Boolean(issue.pullRequest))
+      || (development === "Unlinked" && !issue.branch && !issue.pullRequest);
+    return matchesLabel && matchesDevelopment;
+  });
+
+  return filtered.sort((first, second) => {
+    let comparison = 0;
+    switch (sortDescriptor.column) {
+      case "issue":
+        comparison = first.number - second.number;
+        break;
+      case "status":
+        comparison = first.state.localeCompare(second.state);
+        break;
+      case "development":
+        comparison = issueDevelopmentLabel(first).localeCompare(issueDevelopmentLabel(second));
+        break;
+      case "updated":
+      default:
+        comparison = (issueUpdatedOrder.get(second.number) ?? 0) - (issueUpdatedOrder.get(first.number) ?? 0);
+        break;
+    }
+    return sortDescriptor.direction === "descending" ? -comparison : comparison;
+  });
+}
 
 const issueTone: Record<PrototypeIssueState, "danger" | "info" | "muted" | "success"> = {
   Blocked: "danger",
@@ -68,43 +118,199 @@ function IssueLabels({ issue }: { issue: PrototypeIssue }) {
   );
 }
 
-function IssueList({
-  issues,
-  onOpenIssue,
+function SortableColumnLabel({
+  children,
+  sortDirection,
 }: {
-  issues: PrototypeIssue[];
-  onOpenIssue(number: number): void;
+  children: string;
+  sortDirection?: "ascending" | "descending";
+}) {
+  const Icon = sortDirection === "ascending"
+    ? ArrowUp
+    : sortDirection === "descending"
+      ? ArrowDown
+      : ChevronsUpDown;
+  return (
+    <span className="flex items-center gap-1.5">
+      {children}
+      <Icon className={`size-3 ${sortDirection ? "text-current/65" : "text-current/25"}`} />
+    </span>
+  );
+}
+
+function IssueTableFilter({
+  ariaLabel,
+  items,
+  onChange,
+  value,
+}: {
+  ariaLabel: string;
+  items: Array<{ id: string; label: string }>;
+  onChange(value: string): void;
+  value: string;
 }) {
   return (
-    <div className="divide-y divide-current/[.07]">
-      {issues.map((issue) => (
-        <button
-          aria-label={`Open issue #${issue.number}: ${issue.title}`}
-          className="group grid w-full grid-cols-[auto_minmax(0,1fr)] gap-3 py-4 text-left transition-[background-color,scale] hover:bg-current/[.02] active:scale-[.99] @md:grid-cols-[auto_minmax(0,1fr)_auto] @md:gap-4"
-          key={issue.number}
-          onClick={() => onOpenIssue(issue.number)}
-          type="button"
-        >
-          <CircleDot
-            aria-hidden
-            className={`mt-0.5 size-4 ${issue.state === "Done" ? "text-emerald-400" : issue.state === "Blocked" ? "text-red-400" : "text-current/40"}`}
-            strokeWidth={1.8}
-          />
-          <span className="min-w-0">
-            <span className="block text-sm font-medium leading-5">
-              <span className="mr-2 text-current/35">#{issue.number}</span>{issue.title}
-            </span>
-            <span className="mt-2 flex flex-wrap items-center gap-2">
-              <IssueLabels issue={issue} />
-              <span className="text-[11px] text-current/30">Updated {issue.updated}</span>
-            </span>
-          </span>
-          <span className="col-start-2 row-start-2 mt-1 flex items-center gap-2 @md:col-start-3 @md:row-start-1 @md:mt-0">
-            {issue.pullRequest ? <GitPullRequest className="size-3.5 text-current/30" /> : issue.branch ? <GitBranch className="size-3.5 text-current/30" /> : null}
-            <PageStatus tone={issueTone[issue.state]}>{issue.state}</PageStatus>
-          </span>
-        </button>
-      ))}
+    <Select
+      className="w-full @md:w-44"
+      fullWidth
+      value={value}
+      variant="secondary"
+      onChange={(next) => next && onChange(String(next))}
+    >
+      <Label className="sr-only">{ariaLabel}</Label>
+      <Select.Trigger
+        aria-label={ariaLabel}
+        className="h-9 rounded-xl border border-current/[.08] bg-current/[.035] px-3 text-xs shadow-none"
+      >
+        <Select.Value>{items.find((item) => item.id === value)?.label}</Select.Value>
+        <Select.Indicator className="size-3.5 text-current/35" />
+      </Select.Trigger>
+      <Select.Popover className="min-w-48 rounded-xl border border-current/[.1] bg-neutral-950 p-1 shadow-xl shadow-black/30">
+        <ListBox>
+          {items.map((item) => (
+            <ListBox.Item
+              className="rounded-lg px-3 py-2 text-xs text-neutral-300 data-[focused=true]:bg-white/[.07] data-[selected=true]:text-white"
+              id={item.id}
+              key={item.id}
+              textValue={item.label}
+            >
+              {item.label}
+              <ListBox.ItemIndicator />
+            </ListBox.Item>
+          ))}
+        </ListBox>
+      </Select.Popover>
+    </Select>
+  );
+}
+
+function IssueTable({
+  development,
+  issues,
+  label,
+  labels,
+  onDevelopmentChange,
+  onLabelChange,
+  onOpenIssue,
+  onResetFilters,
+  onSortChange,
+  sortDescriptor,
+}: {
+  development: PrototypeIssueDevelopmentFilter;
+  issues: PrototypeIssue[];
+  label: string;
+  labels: string[];
+  onDevelopmentChange(value: PrototypeIssueDevelopmentFilter): void;
+  onLabelChange(value: string): void;
+  onOpenIssue(number: number): void;
+  onResetFilters(): void;
+  onSortChange(value: SortDescriptor): void;
+  sortDescriptor: SortDescriptor;
+}) {
+  const hasTableFilters = label !== "All" || development !== "All";
+
+  return (
+    <div className="pb-4 pt-3">
+      <div aria-label="Issue table filters" className="flex flex-col gap-2 @md:flex-row @md:items-end">
+        <IssueTableFilter
+          ariaLabel="Filter by label"
+          items={[{ id: "All", label: "All labels" }, ...labels.map((item) => ({ id: item, label: item }))]}
+          onChange={onLabelChange}
+          value={label}
+        />
+        <IssueTableFilter
+          ariaLabel="Filter by development"
+          items={[
+            { id: "All", label: "Any development" },
+            { id: "Branch", label: "Has branch" },
+            { id: "Pull request", label: "Has pull request" },
+            { id: "Unlinked", label: "Not linked" },
+          ]}
+          onChange={(value) => onDevelopmentChange(value as PrototypeIssueDevelopmentFilter)}
+          value={development}
+        />
+        {hasTableFilters ? (
+          <button
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-medium text-current/45 transition-[background-color,color,scale] hover:bg-current/[.05] hover:text-current/70 active:scale-[.96] @md:ml-1"
+            onClick={onResetFilters}
+            type="button"
+          >
+            <RotateCcw className="size-3.5" />
+            Clear filters
+          </button>
+        ) : null}
+        <span className="text-xs tabular-nums text-current/35 @md:ml-auto @md:pb-2">
+          {issues.length} {issues.length === 1 ? "issue" : "issues"}
+        </span>
+      </div>
+
+      <Table className="mt-3 overflow-hidden rounded-2xl border border-current/[.08]" variant="secondary">
+        <Table.ScrollContainer className="overflow-x-auto [scrollbar-width:thin]">
+          <Table.Content
+            aria-label="Issue table"
+            className="min-w-[760px]"
+            sortDescriptor={sortDescriptor}
+            onSortChange={onSortChange}
+          >
+            <Table.Header className="border-b border-current/[.08] bg-current/[.025]">
+              <Table.Column allowsSorting isRowHeader className="w-[35%]" id="issue">
+                {({ sortDirection }) => (
+                  <SortableColumnLabel sortDirection={sortDirection}>Issue</SortableColumnLabel>
+                )}
+              </Table.Column>
+              <Table.Column allowsSorting id="status">
+                {({ sortDirection }) => (
+                  <SortableColumnLabel sortDirection={sortDirection}>Status</SortableColumnLabel>
+                )}
+              </Table.Column>
+              <Table.Column>Labels</Table.Column>
+              <Table.Column allowsSorting id="updated">
+                {({ sortDirection }) => (
+                  <SortableColumnLabel sortDirection={sortDirection}>Updated</SortableColumnLabel>
+                )}
+              </Table.Column>
+              <Table.Column allowsSorting className="w-[22%]" id="development">
+                {({ sortDirection }) => (
+                  <SortableColumnLabel sortDirection={sortDirection}>Development</SortableColumnLabel>
+                )}
+              </Table.Column>
+            </Table.Header>
+            <Table.Body>
+              {issues.map((issue) => (
+                <Table.Row className="border-b border-current/[.06] last:border-b-0 hover:bg-current/[.025]" id={issue.number} key={issue.number}>
+                  <Table.Cell>
+                    <button
+                      aria-label={`Open issue #${issue.number}: ${issue.title}`}
+                      className="group flex min-w-0 items-start gap-2.5 py-1 text-left active:scale-[.98]"
+                      onClick={() => onOpenIssue(issue.number)}
+                      type="button"
+                    >
+                      <span className="mt-0.5 shrink-0 text-xs tabular-nums text-current/35">#{issue.number}</span>
+                      <span className="min-w-0 text-sm font-medium leading-5 text-current/85 group-hover:text-current">
+                        {issue.title}
+                      </span>
+                    </button>
+                  </Table.Cell>
+                  <Table.Cell><PageStatus tone={issueTone[issue.state]}>{issue.state}</PageStatus></Table.Cell>
+                  <Table.Cell><IssueLabels issue={issue} /></Table.Cell>
+                  <Table.Cell><span className="whitespace-nowrap text-xs text-current/40">{issue.updated}</span></Table.Cell>
+                  <Table.Cell>
+                    <span className="flex max-w-52 items-center gap-1.5 text-xs text-current/40">
+                      {issue.pullRequest ? <GitPullRequest className="size-3.5 shrink-0" /> : issue.branch ? <GitBranch className="size-3.5 shrink-0" /> : null}
+                      <span className="truncate">{issueDevelopmentLabel(issue)}</span>
+                    </span>
+                  </Table.Cell>
+                </Table.Row>
+              ))}
+            </Table.Body>
+          </Table.Content>
+        </Table.ScrollContainer>
+      </Table>
+      {issues.length === 0 ? (
+        <div className="grid min-h-36 place-items-center border-x border-b border-current/[.08] text-sm text-current/40">
+          No issues match these filters
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -180,12 +386,25 @@ export function ProjectIssuesPage({
   viewMode: PrototypeIssueViewMode;
 }) {
   const [filter, setFilter] = useState<"All" | PrototypeIssueState>("All");
+  const [developmentFilter, setDevelopmentFilter] = useState<PrototypeIssueDevelopmentFilter>("All");
+  const [labelFilter, setLabelFilter] = useState("All");
   const [query, setQuery] = useState("");
+  const [sortDescriptor, setSortDescriptor] = useState<SortDescriptor>({
+    column: "updated",
+    direction: "descending",
+  });
+  const labels = useMemo(() => Array.from(new Set(prototypeIssues.flatMap((issue) => issue.labels))).sort(), []);
   const visible = useMemo(() => prototypeIssues.filter((issue) => {
     const matchesState = filter === "All" || issue.state === filter;
     const haystack = `${issue.number} ${issue.title} ${issue.labels.join(" ")}`.toLowerCase();
     return matchesState && haystack.includes(query.toLowerCase());
   }), [filter, query]);
+  const tableIssues = useMemo(() => filterAndSortPrototypeIssues({
+    development: developmentFilter,
+    issues: visible,
+    label: labelFilter,
+    sortDescriptor,
+  }), [developmentFilter, labelFilter, sortDescriptor, visible]);
   const unavailable = scenario === "empty" || scenario === "offline";
 
   return (
@@ -212,12 +431,26 @@ export function ProjectIssuesPage({
 
       {unavailable ? (
         <PageState emptyCopy="Create the first issue to start this project's workflow." scenario={scenario} />
-      ) : visible.length === 0 ? (
+      ) : viewMode === "board" && visible.length === 0 ? (
         <div className="grid min-h-40 place-items-center text-sm text-current/40">No matching issues</div>
       ) : viewMode === "board" ? (
         <IssueBoard issues={visible} onOpenIssue={onOpenIssue} />
       ) : (
-        <IssueList issues={visible} onOpenIssue={onOpenIssue} />
+        <IssueTable
+          development={developmentFilter}
+          issues={tableIssues}
+          label={labelFilter}
+          labels={labels}
+          onDevelopmentChange={setDevelopmentFilter}
+          onLabelChange={setLabelFilter}
+          onOpenIssue={onOpenIssue}
+          onResetFilters={() => {
+            setDevelopmentFilter("All");
+            setLabelFilter("All");
+          }}
+          onSortChange={setSortDescriptor}
+          sortDescriptor={sortDescriptor}
+        />
       )}
     </PageScaffold>
   );
