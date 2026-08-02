@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Bot,
   ExternalLink,
+  FileText,
   GitBranch,
   GitCommitHorizontal,
   MessageCircle,
@@ -89,7 +90,10 @@ export function ProjectTaskDetailPage({
         <div className="grid min-h-0 flex-1 gap-9 overflow-y-auto py-6 [scrollbar-width:none] @3xl:grid-cols-[minmax(0,1.45fr)_minmax(18rem,.55fr)] @5xl:gap-14 @5xl:py-8">
           <main className="min-w-0">
             <section>
-              <h2 className="text-sm font-semibold text-current/75">Task</h2>
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-current/75">
+                <FileText aria-hidden="true" className="size-4 text-current/35" />
+                Description
+              </h2>
               <p className="mt-4 max-w-3xl text-sm leading-6 text-current/60">{task.body}</p>
               {task.labels.length ? (
                 <div className="mt-4 flex flex-wrap gap-1.5">

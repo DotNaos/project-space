@@ -465,6 +465,8 @@ describe('project space home prototype', () => {
     expect(html).not.toContain('>Pipeline<');
     expect(html).not.toContain('Development details');
     expect(html).not.toContain('project-space · opened by');
+    expect(html).toContain('lucide-file-text');
+    expect(html).toContain('>Description</h2>');
     expect(html).toContain('Add an on-demand PR Preview hub</h1><p');
     expect(html).toContain('>#426</p>');
     expect(html).not.toContain('size-1.5 rounded-full bg-current');
