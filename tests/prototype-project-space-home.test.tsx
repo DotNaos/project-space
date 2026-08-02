@@ -14,7 +14,8 @@ import {
   initialMockTasks,
   mockTaskNeedsAttention,
   mockTaskWorkflowState,
-  prototypeIssueByNumber
+  prototypeIssueByNumber,
+  updateMockTask
 } from '../apps/prototype/src/project-space-pages';
 import {
   ProjectSidebar,
@@ -454,7 +455,29 @@ describe('project space home prototype', () => {
 
     expect(html).toContain('aria-label="Started"');
     expect(html).toContain('lucide-circle-dot');
+    expect(html).toContain('lucide-git-pull-request-draft');
+    expect(html).toContain('Draft #427');
+    expect(html).toContain('Start development');
+    expect(html).not.toContain('Waiting for checks');
+    expect(html).not.toContain('>Pipeline<');
+    expect(html).not.toContain('Development details');
+    expect(html).not.toContain('project-space · opened by');
+    expect(html).toContain('Add an on-demand PR Preview hub</h1><p');
+    expect(html).toContain('>#426</p>');
     expect(html).not.toContain('size-1.5 rounded-full bg-current');
+
+    const inProgressTask = updateMockTask(task, { type: 'mark-pull-request-ready' });
+    const inProgressHtml = renderToStaticMarkup(
+      <ProjectTaskDetailPage
+        onAction={() => undefined}
+        onBack={() => undefined}
+        projectName="project-space"
+        task={inProgressTask}
+      />
+    );
+    expect(mockTaskWorkflowState(inProgressTask)).toBe('In progress');
+    expect(inProgressHtml).toContain('Pipeline');
+    expect(inProgressHtml).toContain('Run checks');
   });
 
   test('keeps a healthy task focused on its Preview and pull request', () => {

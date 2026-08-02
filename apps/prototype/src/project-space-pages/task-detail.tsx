@@ -44,7 +44,6 @@ function TaskEventTimeline({ task }: { task: MockTask }) {
 export function ProjectTaskDetailPage({
   onAction,
   onBack,
-  projectName,
   task,
 }: {
   onAction(action: MockTaskAction): void;
@@ -83,10 +82,8 @@ export function ProjectTaskDetailPage({
             <span className="text-current/20">·</span>
             <span className="text-current/35">{task.type}</span>
           </div>
-          <h1 className="mt-3 max-w-4xl text-2xl font-semibold leading-tight tracking-[-.03em] @md:text-[30px]">
-            <span className="mr-2 font-medium text-current/25">#{task.number}</span>{task.title}
-          </h1>
-          <p className="mt-2 text-xs text-current/30">{projectName} · opened by {task.author} · updated {task.updated}</p>
+          <h1 className="mt-3 max-w-4xl text-2xl font-semibold leading-tight tracking-[-.03em] @md:text-[30px]">{task.title}</h1>
+          <p className="mt-2 text-xs font-medium tabular-nums text-current/30">#{task.number}</p>
         </header>
 
         <div className="grid min-h-0 flex-1 gap-9 overflow-y-auto py-6 [scrollbar-width:none] @3xl:grid-cols-[minmax(0,1.45fr)_minmax(18rem,.55fr)] @5xl:gap-14 @5xl:py-8">

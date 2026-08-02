@@ -11,6 +11,7 @@ import {
   GitCommitHorizontal,
   GitMerge,
   GitPullRequest,
+  GitPullRequestDraft,
   Laptop,
   MonitorPlay,
   Play,
@@ -53,7 +54,7 @@ function nextAction(task: MockTask): { action: MockTaskAction; icon: typeof Spar
   if (task.stage === "branch") return { action: { type: "start-development" }, icon: Bot, label: "Start development" };
   if (task.stage === "development") return { action: { type: "open-pull-request" }, icon: GitPullRequest, label: "Create draft PR" };
   if (!task.pullRequest) return null;
-  if (task.pullRequest.phase === "draft") return { action: { type: "mark-pull-request-ready" }, icon: GitPullRequest, label: "Mark ready" };
+  if (task.pullRequest.phase === "draft") return { action: { type: "mark-pull-request-ready" }, icon: Bot, label: "Start development" };
   if (task.pullRequest.checks === "not-started") return { action: { type: "run-checks" }, icon: Play, label: "Run checks" };
   if (task.pullRequest.checks === "running") return { action: { type: "pass-checks" }, icon: Check, label: "Pass checks" };
   if (task.pullRequest.checks === "failed") return { action: { type: "run-checks" }, icon: RefreshCw, label: "Retry checks" };
@@ -79,6 +80,7 @@ export function TaskDeliveryPanel({
   const primary = nextAction(task);
   const latestEvent = task.events[task.events.length - 1];
   const attention = task.pullRequest?.checks === "failed" || task.pullRequest?.preview === "unavailable";
+  const draftPullRequest = task.pullRequest?.phase === "draft";
   const previewReady = task.pullRequest?.preview === "ready";
   const pipelineLabel = task.pullRequest?.checks === "failed"
     ? "Checks failed"
@@ -96,7 +98,16 @@ export function TaskDeliveryPanel({
         : "Waiting for checks";
   return (
     <aside className="min-w-0">
-      {task.pullRequest ? (
+      {draftPullRequest && task.pullRequest ? (
+        <a
+          className="inline-flex h-8 items-center gap-1.5 rounded-full bg-current/[.045] px-3 text-xs font-medium text-current/50 transition-[background-color,color,scale] hover:bg-current/[.075] hover:text-current/75 active:scale-[.96]"
+          href={`https://github.com/DotNaos/project-space/pull/${task.pullRequest.number}`}
+          rel="noreferrer"
+          target="_blank"
+        >
+          <GitPullRequestDraft className="size-3.5" /> Draft #{task.pullRequest.number}
+        </a>
+      ) : task.pullRequest ? (
         <>
           <div className="flex items-start justify-between gap-4 pb-4">
             <div className="min-w-0">
@@ -163,7 +174,7 @@ export function TaskDeliveryPanel({
        * offering automatic cleanup. Status filters and navigation to the full
        * Repository management view are intentionally deferred.
        */}
-      <details className="group mt-4 border-t border-current/[.08] pt-1">
+      {!draftPullRequest ? <details className="group mt-4 border-t border-current/[.08] pt-1">
         <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-1 text-xs font-medium text-current/40 transition-colors hover:text-current/70 [&::-webkit-details-marker]:hidden">
           Development details
           <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
@@ -192,7 +203,7 @@ export function TaskDeliveryPanel({
             <GitCommitHorizontal className="size-3.5" /> Simulate new revision
           </button>
         ) : null}
-      </details>
+      </details> : null}
     </aside>
   );
 }
