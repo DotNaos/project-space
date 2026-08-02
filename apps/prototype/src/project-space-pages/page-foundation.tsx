@@ -27,8 +27,6 @@ export function PageStatus({ children, tone = "muted" }: {
 export function PageScaffold({
   action,
   children,
-  description,
-  projectName,
   title,
 }: {
   action?: ReactNode;
@@ -39,15 +37,11 @@ export function PageScaffold({
 }) {
   return (
     <section className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-5 pb-6 pt-4 @md:px-8 @md:pb-8 @md:pt-7 @3xl:px-10 @5xl:px-12 @5xl:pt-10">
-      <header className="flex shrink-0 items-end justify-between gap-5 border-b border-current/[.08] pb-5 @md:pb-6">
+      <header className="flex shrink-0 items-center justify-between gap-5 border-b border-current/[.08] pb-4 @md:pb-5">
         <div className="min-w-0">
-          <p className="truncate text-[11px] font-medium text-current/35">{projectName}</p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-[-0.03em] @md:text-[28px]">
+          <h1 className="text-2xl font-semibold tracking-[-0.03em] @md:text-[28px]">
             {title}
           </h1>
-          <p className="mt-1.5 max-w-2xl text-sm leading-5 text-current/45">
-            {description}
-          </p>
         </div>
         {action ? <div className="hidden shrink-0 @md:block">{action}</div> : null}
       </header>

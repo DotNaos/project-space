@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 
 import type { PrototypeScenarioKind } from "../../../../src/shared/prototype-canvas";
 import {
+  PageFilter,
   PagePrimaryAction,
   PageScaffold,
   PageSearch,
@@ -174,57 +175,6 @@ function IssueTableFilter({
               textValue={item.label}
             >
               {item.label}
-              <ListBox.ItemIndicator />
-            </ListBox.Item>
-          ))}
-        </ListBox>
-      </Select.Popover>
-    </Select>
-  );
-}
-
-function IssueStatusFilter({
-  onChange,
-  value,
-}: {
-  onChange(value: "All" | PrototypeIssueState): void;
-  value: "All" | PrototypeIssueState;
-}) {
-  const items: Array<{ id: "All" | PrototypeIssueState; label: string }> = [
-    { id: "All", label: "All issues" },
-    { id: "Open", label: "Open" },
-    { id: "In progress", label: "In progress" },
-    { id: "Blocked", label: "Blocked" },
-    { id: "Done", label: "Done" },
-  ];
-  return (
-    <Select
-      className="w-36 shrink-0"
-      value={value}
-      variant="secondary"
-      onChange={(next) => next && onChange(next as "All" | PrototypeIssueState)}
-    >
-      <Label className="sr-only">Filter issues by status</Label>
-      <Select.Trigger
-        aria-label="Filter issues by status"
-        className="h-9 rounded-xl border border-current/[.08] bg-current/[.04] px-3 text-xs shadow-none"
-      >
-        <Select.Value>{items.find((item) => item.id === value)?.label}</Select.Value>
-        <Select.Indicator className="size-3.5 text-current/35" />
-      </Select.Trigger>
-      <Select.Popover className="min-w-44 rounded-xl border border-current/[.1] bg-neutral-950 p-1 shadow-xl shadow-black/30">
-        <ListBox>
-          {items.map((item) => (
-            <ListBox.Item
-              className="rounded-lg px-3 py-2 text-xs text-neutral-300 data-[focused=true]:bg-white/[.07] data-[selected=true]:text-white"
-              id={item.id}
-              key={item.id}
-              textValue={item.label}
-            >
-              <span>{item.label}</span>
-              <span className="ml-auto tabular-nums text-current/30">
-                {item.id === "All" ? prototypeIssues.length : prototypeIssues.filter((issue) => issue.state === item.id).length}
-              </span>
               <ListBox.ItemIndicator />
             </ListBox.Item>
           ))}
@@ -463,10 +413,17 @@ export function ProjectIssuesPage({
     >
       <div className="flex flex-col gap-3 border-b border-current/[.08] py-4 @xl:flex-row @xl:items-center">
         <PageSearch onChange={setQuery} placeholder="Search issues" value={query} />
-        <div className="flex min-w-0 items-center justify-between gap-2 @xl:ml-auto @xl:justify-end">
-          <IssueStatusFilter onChange={setFilter} value={filter} />
-          <IssueViewSwitch onChange={onViewModeChange} value={viewMode} />
+        <div className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] @xl:ml-auto">
+          {(["All", "Open", "In progress", "Blocked", "Done"] as const).map((value) => (
+            <PageFilter active={filter === value} key={value} onPress={() => setFilter(value)}>
+              <span>{value}</span>
+              <span className="text-[10px] tabular-nums text-current/35">
+                {value === "All" ? prototypeIssues.length : prototypeIssues.filter((issue) => issue.state === value).length}
+              </span>
+            </PageFilter>
+          ))}
         </div>
+        <IssueViewSwitch onChange={onViewModeChange} value={viewMode} />
       </div>
 
       {unavailable ? (

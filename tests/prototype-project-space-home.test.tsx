@@ -129,7 +129,7 @@ describe('project space home prototype', () => {
     expect(board).toContain('Backlog');
     expect(board).toContain('In progress');
     expect(board).not.toContain('Updated now');
-    expect(board).toContain('Filter issues by status');
+    expect(board).not.toContain('Plan, track, and finish work without losing its delivery context.');
     expect(board).not.toContain('uppercase');
     expect(list).not.toContain('aria-label="Issue board"');
     expect(list).toContain('aria-label="Issue table"');
