@@ -130,11 +130,11 @@ Evidence: the live issue board exposes merged links as `#427`, `#435`, `#425`, a
 - [x] Add Repository as the project-wide technical control surface.
 - [x] Keep branches, history, changes, pull requests, and machine worktrees inside Repository rather than as separate root destinations.
 - [x] Add Templates to the global navigation and open the single Project Template directly.
-- [ ] Show modules, libraries, configuration, and required pipelines in the Project Template.
-- [ ] Add a project-level Template check under Repository for the selected branch.
+- [x] Show modules, libraries, configuration, and required pipelines in the Project Template.
+- [x] Add a project-level Template check under Repository for the selected branch.
 - [x] Verify the navigation and hierarchy at desktop and phone widths.
 
-Evidence: the sidebar now exposes only New task, Chat, Tasks, and Repository in the selected project, with Machines and Templates in a separate Global group. Overview and Deployments are no longer root destinations. Expanded mobile, expanded desktop, collapsed desktop, Templates navigation, and Repository navigation were exercised in the live Portless prototype.
+Evidence: the sidebar now exposes only New task, Chat, Tasks, and Repository in the selected project, with Machines and Templates in a separate Global group. Overview and Deployments are no longer root destinations. Expanded mobile, expanded desktop, collapsed desktop, Templates navigation, and Repository navigation were exercised in the live Portless prototype. The global Project Template now defines 16 requirements across Modules, Libraries, Configuration, and Required pipelines. Repository validates that same contract against a selected branch: `main` reports 16 of 16 valid, while the mocked issue #437 branch reports 15 of 16 and isolates Signed release as the required attention. Both Template surfaces were visually verified at desktop and phone widths with no browser errors.
 
 ## 7. Build the complete mocked Task lifecycle
 
@@ -192,8 +192,8 @@ Evidence: created mocked Task #438 from the phone composer, reviewed it, advance
 ## Later milestones
 
 - [ ] Build the persistent project Chat experience with machine selection and coordination views.
-- [ ] Build the Repository control surface across branches and machine worktrees.
-- [ ] Build the global Project Template and project-level Template check.
+- [x] Build the Repository control surface across branches and machine worktrees.
+- [x] Build the global Project Template and project-level Template check.
 - [ ] Replace mock transitions with real APIs only after the Task workflow has been dogfooded and accepted.
 
 ## Completion rule for the next milestone

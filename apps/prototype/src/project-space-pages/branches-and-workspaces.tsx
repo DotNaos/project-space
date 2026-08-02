@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import {
   ChevronRight,
+  FileCheck2,
+  FolderGit2,
   GitBranch,
   GitCommitHorizontal,
   GitMerge,
@@ -24,8 +26,10 @@ import {
   PageSearch,
   PageState,
 } from "./page-foundation";
+import { ProjectTemplateCheck } from "./template-check";
 
 export type BranchFilter = "All" | "Checked out" | "Needs attention" | "Pull request";
+type RepositoryView = "Branches" | "Template check";
 
 export function filterPrototypeBranches({
   branches,
@@ -86,7 +90,9 @@ export function ProjectBranchesPage({
 }) {
   const [filter, setFilter] = useState<BranchFilter>("All");
   const [query, setQuery] = useState("");
+  const [repositoryView, setRepositoryView] = useState<RepositoryView>("Branches");
   const [selectedBranch, setSelectedBranch] = useState<PrototypeBranch | null>(null);
+  const [templateBranch, setTemplateBranch] = useState(prototypeBranches[0]?.name ?? "main");
   const visible = useMemo(() => filterPrototypeBranches({
     branches: prototypeBranches,
     filter,
@@ -100,31 +106,49 @@ export function ProjectBranchesPage({
 
   return (
     <PageScaffold
-      action={<PagePrimaryAction icon={<Plus className="size-4" />}>New branch</PagePrimaryAction>}
+      action={repositoryView === "Branches" ? <PagePrimaryAction icon={<Plus className="size-4" />}>New branch</PagePrimaryAction> : undefined}
       contentClassName="flex flex-col overflow-hidden"
       description="Browse repository work and continue into its history and machine checkouts."
       projectName={projectName}
-      title="Branches"
+      title="Repository"
     >
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-current/[.08] py-3">
-        <div className="hidden min-w-0 flex-1 @3xl:block">
-          <PageSearch onChange={setQuery} placeholder="Search branches, PRs, or machines" value={query} />
+      <div className="flex shrink-0 flex-col border-b border-current/[.08]">
+        <div className="flex items-center gap-1 py-3" role="group" aria-label="Repository view">
+          <PageFilter active={repositoryView === "Branches"} onPress={() => setRepositoryView("Branches")}>
+            <FolderGit2 className="size-3.5" /> Branches
+          </PageFilter>
+          <PageFilter active={repositoryView === "Template check"} onPress={() => setRepositoryView("Template check")}>
+            <FileCheck2 className="size-3.5" /> Template check
+          </PageFilter>
         </div>
-        <div className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
-          {([
-            { icon: ListFilter, value: "All" },
-            { icon: GitPullRequest, value: "Pull request" },
-            { icon: Laptop, value: "Checked out" },
-            { icon: TriangleAlert, value: "Needs attention" },
-          ] as const).map(({ icon: Icon, value }) => (
-            <PageFilter active={filter === value} key={value} onPress={() => setFilter(value)}>
-              <Icon className="size-3.5" strokeWidth={1.75} /> {value}
-            </PageFilter>
-          ))}
-        </div>
+        {repositoryView === "Branches" ? (
+          <div className="flex items-center justify-between gap-3 border-t border-current/[.06] py-3">
+            <div className="hidden min-w-0 flex-1 @3xl:block">
+              <PageSearch onChange={setQuery} placeholder="Search branches, PRs, or machines" value={query} />
+            </div>
+            <div className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+              {([
+                { icon: ListFilter, value: "All" },
+                { icon: GitPullRequest, value: "Pull request" },
+                { icon: Laptop, value: "Checked out" },
+                { icon: TriangleAlert, value: "Needs attention" },
+              ] as const).map(({ icon: Icon, value }) => (
+                <PageFilter active={filter === value} key={value} onPress={() => setFilter(value)}>
+                  <Icon className="size-3.5" strokeWidth={1.75} /> {value}
+                </PageFilter>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
 
-      {unavailable ? <PageState emptyCopy="Branches will appear when work begins." scenario={scenario} /> : (
+      {unavailable ? <PageState emptyCopy="Repository information will appear when work begins." scenario={scenario} /> : repositoryView === "Template check" ? (
+        <ProjectTemplateCheck
+          branches={prototypeBranches.map((branch) => branch.name)}
+          selectedBranch={templateBranch}
+          onBranchChange={setTemplateBranch}
+        />
+      ) : (
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="hidden h-8 shrink-0 grid-cols-[minmax(0,1.5fr)_9rem_11rem_4rem] items-center gap-3 border-b border-current/[.06] px-2 text-[10px] text-current/30 @3xl:grid">
             <span>Branch</span><span>Pull request</span><span>Checked out</span><span>Updated</span>

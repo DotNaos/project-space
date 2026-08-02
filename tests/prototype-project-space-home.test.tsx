@@ -25,6 +25,8 @@ import { filterAndSortPrototypeIssues, ProjectIssuesPage } from '../apps/prototy
 import { BranchDetailView } from '../apps/prototype/src/project-space-pages/branch-detail';
 import { prototypeBranches } from '../apps/prototype/src/project-space-pages/branch-fixtures';
 import { filterPrototypeBranches } from '../apps/prototype/src/project-space-pages/branches-and-workspaces';
+import { ProjectTemplateCheck } from '../apps/prototype/src/project-space-pages/template-check';
+import { projectTemplateCheckSummary } from '../apps/prototype/src/project-space-pages/template-contract';
 
 describe('project space home prototype', () => {
   test('uses one shell surface behind the sidebar and rounded main view', () => {
@@ -98,7 +100,7 @@ describe('project space home prototype', () => {
     ['branches', 'Search branches, PRs, or machines', '30 of 30 branches'],
     ['machines', 'Available destinations', 'os-pc'],
     ['chats', 'Search conversations', 'Tasks'],
-    ['template', 'Template adherence', 'Fullstack template'],
+    ['template', 'Project Template', 'Required pipelines'],
     ['deployments', 'Pull request previews', 'Production'],
   ] as const)('gives the %s page its own working surface', (page, first, second) => {
     const html = renderToStaticMarkup(
@@ -137,6 +139,25 @@ describe('project space home prototype', () => {
     expect(filterPrototypeBranches({ branches: prototypeBranches, filter: 'Pull request', query: '' }).every((branch) => branch.pullRequest)).toBe(true);
     expect(filterPrototypeBranches({ branches: prototypeBranches, filter: 'Checked out', query: '' }).every((branch) => branch.workspaces.length > 0)).toBe(true);
     expect(filterPrototypeBranches({ branches: prototypeBranches, filter: 'All', query: 'os-pc' }).every((branch) => branch.workspaces.some((workspace) => workspace.machine === 'os-pc'))).toBe(true);
+  });
+
+  test('checks a selected Repository branch against the Project Template', () => {
+    const mainSummary = projectTemplateCheckSummary('main');
+    const issueSummary = projectTemplateCheckSummary('issue-437-redesign-the-project-space-frontend');
+    const html = renderToStaticMarkup(
+      <ProjectTemplateCheck
+        branches={['main', 'issue-437-redesign-the-project-space-frontend']}
+        selectedBranch="issue-437-redesign-the-project-space-frontend"
+        onBranchChange={() => undefined}
+      />
+    );
+
+    expect(mainSummary).toEqual({ total: 16, valid: 16 });
+    expect(issueSummary).toEqual({ total: 16, valid: 15 });
+    expect(html).toContain('Project Template check');
+    expect(html).toContain('Select branch for Template check');
+    expect(html).toContain('Needs attention');
+    expect(html).toContain('Signed release');
   });
 
   test('combines branch history, pull requests, and machine workspaces in one detail view', () => {
