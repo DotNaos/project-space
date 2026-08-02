@@ -9,6 +9,8 @@ import {
 import {
   ProjectFeaturePage,
   ProjectIssueDetailPage,
+  ProjectTaskDetailPage,
+  initialMockTasks,
   prototypeIssueByNumber
 } from '../apps/prototype/src/project-space-pages';
 import {
@@ -19,7 +21,7 @@ import {
   prototypeIssueColumns,
   prototypeIssues,
 } from '../apps/prototype/src/project-space-pages/issue-fixtures';
-import { filterAndSortPrototypeIssues } from '../apps/prototype/src/project-space-pages/issues';
+import { filterAndSortPrototypeIssues, ProjectIssuesPage } from '../apps/prototype/src/project-space-pages/issues';
 import { BranchDetailView } from '../apps/prototype/src/project-space-pages/branch-detail';
 import { prototypeBranches } from '../apps/prototype/src/project-space-pages/branch-fixtures';
 import { filterPrototypeBranches } from '../apps/prototype/src/project-space-pages/branches-and-workspaces';
@@ -60,7 +62,8 @@ describe('project space home prototype', () => {
     expect(html).not.toContain('>Overview<');
     expect(html).not.toContain('>Deployments<');
     expect(html).toContain('>Oli<');
-    expect(html).toContain('placeholder="Describe a feature or idea"');
+    expect(html).toContain('placeholder="Describe a feature, bug, or idea"');
+    expect(html).toContain('Nothing external will change.');
     expect(html).not.toContain('#437 · Redesign the Project Space frontend');
   });
 
@@ -91,7 +94,7 @@ describe('project space home prototype', () => {
 
   test.each([
     ['overview', 'Current focus', 'Project pulse'],
-    ['issues', 'Search issues', 'In progress'],
+    ['issues', 'Search tasks', 'Needs you'],
     ['branches', 'Search branches, PRs, or machines', '30 of 30 branches'],
     ['machines', 'Available destinations', 'os-pc'],
     ['chats', 'Search conversations', 'Tasks'],
@@ -158,19 +161,21 @@ describe('project space home prototype', () => {
 
   test('offers board and list views that open the same issues', () => {
     const board = renderToStaticMarkup(
-      <ProjectFeaturePage
-        issueViewMode="board"
-        page="issues"
+      <ProjectIssuesPage
+        onOpenIssue={() => undefined}
+        onViewModeChange={() => undefined}
         projectName="project-space"
         scenario="ready"
+        viewMode="board"
       />
     );
     const list = renderToStaticMarkup(
-      <ProjectFeaturePage
-        issueViewMode="list"
-        page="issues"
+      <ProjectIssuesPage
+        onOpenIssue={() => undefined}
+        onViewModeChange={() => undefined}
         projectName="project-space"
         scenario="ready"
+        viewMode="list"
       />
     );
 
@@ -249,12 +254,31 @@ describe('project space home prototype', () => {
     expect(html).toContain('commented yesterday');
     expect(html).toContain('Use Markdown to format your comment');
     expect(html).toContain('Preview deployment');
-    expect(html).toContain('Start development');
     expect(html).toContain('Run tests');
     expect(html).toContain('Details');
     expect(html).toContain('Add a comment');
     expect(html).toContain('Comment</button>');
     expect(html).toContain('Delivery state');
+  });
+
+  test('renders a task as one complete mocked lifecycle', () => {
+    const task = initialMockTasks.find((candidate) => candidate.number === 437)!;
+    const html = renderToStaticMarkup(
+      <ProjectTaskDetailPage
+        onAction={() => undefined}
+        onBack={() => undefined}
+        projectName="project-space"
+        task={task}
+      />
+    );
+
+    expect(html).toContain('#437');
+    expect(html).toContain('>Lifecycle<');
+    expect(html).toContain('Open pull request');
+    expect(html).toContain('Agent run · Local');
+    expect(html).toContain('GitHub issue');
+    expect(html).toContain('Discussion');
+    expect(html).toContain('Add Task comment');
   });
 
   test('groups the desktop navigation and supports a compact sidebar', () => {

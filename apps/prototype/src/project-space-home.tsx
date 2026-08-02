@@ -1,10 +1,8 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { Button } from "@heroui/react";
 import {
-  ArrowUp,
   ChevronDown,
   PanelLeft,
-  Paperclip,
   PencilLine,
 } from "lucide-react";
 import type {
@@ -12,13 +10,13 @@ import type {
   PrototypeTheme,
 } from "../../../src/shared/prototype-canvas";
 import {
+  NewTaskPage,
   ProjectFeaturePage,
-  ProjectIssueDetailPage,
+  ProjectTaskDetailPage,
   ProjectOverviewPage,
-  prototypeIssueByNumber,
   type ProjectPageId,
-  type PrototypeIssueViewMode,
 } from "./project-space-pages";
+import { useMockTasks } from "./project-space-pages/use-mock-tasks";
 import {
   ProjectSidebar,
   projectFixtures,
@@ -39,22 +37,20 @@ export function ProjectSpaceHome({
   scenario: PrototypeScenarioKind;
   theme: PrototypeTheme;
 }) {
-  const composerRef = useRef<HTMLTextAreaElement>(null);
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
     null,
   );
   const [activePage, setActivePage] = useState<ShellPageId>("new");
   const [currentProject, setCurrentProject] = useState(projectFixtures[0]);
   const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(false);
-  const [issueViewMode, setIssueViewMode] = useState<PrototypeIssueViewMode>("board");
-  const [selectedIssueNumber, setSelectedIssueNumber] = useState<number | null>(null);
+  const [selectedTaskNumber, setSelectedTaskNumber] = useState<number | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [idea, setIdea] = useState("");
+  const { createTask, dispatchTask, tasks } = useMockTasks();
   const light = theme === "light";
   const project = currentProject;
-  const selectedIssue = selectedIssueNumber === null
+  const selectedTask = selectedTaskNumber === null
     ? undefined
-    : prototypeIssueByNumber(selectedIssueNumber);
+    : tasks.find((task) => task.number === selectedTaskNumber);
   const shellBackground = projectSpaceShellBackground(theme);
   const capturePortalContainer = useCallback(
     (element: HTMLDivElement | null) => {
@@ -68,9 +64,8 @@ export function ProjectSpaceHome({
 
   const focusComposer = () => {
     setActivePage("new");
-    setSelectedIssueNumber(null);
+    setSelectedTaskNumber(null);
     setSidebarOpen(false);
-    window.setTimeout(() => composerRef.current?.focus(), 0);
   };
   const sidebarProps = {
     activePage,
@@ -79,12 +74,12 @@ export function ProjectSpaceHome({
     onNewIssue: focusComposer,
     onPageChange: (page: ProjectPageId) => {
       setActivePage(page);
-      setSelectedIssueNumber(null);
+      setSelectedTaskNumber(null);
       setSidebarOpen(false);
     },
     onProjectSelect: (nextProject: (typeof projectFixtures)[number]) => {
       setCurrentProject(nextProject);
-      setSelectedIssueNumber(null);
+      setSelectedTaskNumber(null);
     },
     portalContainer,
   };
@@ -187,77 +182,24 @@ export function ProjectSpaceHome({
           </Button>
         </header>
 
-        {activePage === "issues" && selectedIssue ? (
+        {activePage === "issues" && selectedTask ? (
           <div className="min-h-0 flex-1">
-            <ProjectIssueDetailPage
-              issue={selectedIssue}
-              onBack={() => setSelectedIssueNumber(null)}
+            <ProjectTaskDetailPage
+              onAction={(action) => dispatchTask(selectedTask.number, action)}
+              onBack={() => setSelectedTaskNumber(null)}
               projectName={project.name}
+              task={selectedTask}
             />
           </div>
         ) : activePage === "new" ? (
-          <>
-            <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-5">
-              <div className="mb-[42px] grid size-[42px] place-items-center rounded-full border border-current/10 text-current/45 @3xl:size-10 @5xl:mb-10">
-                <span className="text-sm font-semibold">PS</span>
-              </div>
-            </div>
-
-            <div className="shrink-0 px-4 pb-5 @md:px-6 @md:pb-7 @3xl:px-10 @3xl:pb-9">
-              <form
-                className={`mx-auto w-full max-w-3xl rounded-3xl p-2 shadow-[0_16px_44px_rgba(0,0,0,.12)] ring-1 ring-inset ${
-                  light
-                    ? "bg-white ring-black/10"
-                    : "bg-[#1c1c1c] ring-white/10"
-                }`}
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (!idea.trim()) return;
-                  setIdea("");
-                }}
-              >
-                <textarea
-                  ref={composerRef}
-                  aria-label="Describe a feature or idea"
-                  className="block max-h-36 min-h-14 w-full resize-none bg-transparent px-3 py-2 text-[15px] leading-6 outline-none placeholder:text-current/35"
-                  placeholder="Describe a feature or idea"
-                  rows={2}
-                  value={idea}
-                  onChange={(event) => setIdea(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" || event.shiftKey) return;
-                    event.preventDefault();
-                    event.currentTarget.form?.requestSubmit();
-                  }}
-                />
-                <div className="flex items-center justify-between gap-2 px-1 pb-1">
-                  <Button
-                    isIconOnly
-                    aria-label="Attach context"
-                    size="sm"
-                    style={{ color: "inherit" }}
-                    variant="ghost"
-                  >
-                    <Paperclip className="size-4" />
-                  </Button>
-                  <Button
-                    isIconOnly
-                    aria-label="Create issue"
-                    className={idea.trim() ? "" : "opacity-45"}
-                    isDisabled={!idea.trim()}
-                    size="sm"
-                    type="submit"
-                    variant="primary"
-                  >
-                    <ArrowUp className="size-4" />
-                  </Button>
-                </div>
-              </form>
-              <p className="mx-auto mt-2 max-w-3xl px-3 text-center text-[10px] leading-4 text-current/30">
-                Ideas become issues in {project.name}
-              </p>
-            </div>
-          </>
+          <NewTaskPage
+            projectName={project.name}
+            onCreate={(input) => {
+              const task = createTask(input);
+              setActivePage("issues");
+              setSelectedTaskNumber(task.number);
+            }}
+          />
         ) : activePage === "overview" ? (
           <div className="min-h-0 flex-1">
             <ProjectOverviewPage
@@ -269,14 +211,13 @@ export function ProjectSpaceHome({
         ) : (
           <div className="min-h-0 flex-1">
             <ProjectFeaturePage
-              issueViewMode={issueViewMode}
-              onIssueOpen={(number) => setSelectedIssueNumber(number)}
-              onIssueViewModeChange={setIssueViewMode}
               onNavigate={(page) => setActivePage(page)}
-              onNewIssue={focusComposer}
+              onNewTask={focusComposer}
+              onTaskOpen={setSelectedTaskNumber}
               page={activePage}
               projectName={project.name}
               scenario={scenario}
+              tasks={tasks}
             />
           </div>
         )}

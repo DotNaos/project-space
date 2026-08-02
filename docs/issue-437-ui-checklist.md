@@ -142,50 +142,52 @@ The next focused milestone is UI-only. It must be possible to dogfood the entire
 
 ### Task overview
 
-- [ ] Provide a compact Task list with meaningful lifecycle status instead of exposing raw issue state as the primary status.
-- [ ] Support useful grouping or filtering for Needs you, Active, and Done.
-- [ ] Keep repository history available as a separate tab within Tasks.
-- [ ] Let every Task open its complete lifecycle detail.
+- [x] Provide a compact Task list with meaningful lifecycle status instead of exposing raw issue state as the primary status.
+- [x] Support useful grouping or filtering for Needs you, Active, and Done.
+- [x] Keep repository history available as a separate tab within Tasks.
+- [x] Let every Task open its complete lifecycle detail.
 
 ### Create a Task
 
-- [ ] Start from New task with a calm idea composer.
-- [ ] Allow a title, description, type, and optional labels to be entered with mocked data.
-- [ ] Show a clear review step before the mock Task is created.
-- [ ] Add the new Task to the overview and open its detail after creation.
+- [x] Start from New task with a calm idea composer.
+- [x] Allow a title, description, type, and optional labels to be entered with mocked data.
+- [x] Show a clear review step before the mock Task is created.
+- [x] Add the new Task to the overview and open its detail after creation.
 
 ### Task detail and discussion
 
-- [ ] Show the Task description as the primary content.
-- [ ] Include a comment timeline and a compact Markdown comment composer.
-- [ ] Keep Task metadata secondary and avoid repeating labels already expressed by the lifecycle.
-- [ ] Provide a direct GitHub issue link as mocked external context.
+- [x] Show the Task description as the primary content.
+- [x] Include a comment timeline and a compact Markdown comment composer.
+- [x] Keep Task metadata secondary and avoid repeating labels already expressed by the lifecycle.
+- [x] Provide a direct GitHub issue link as mocked external context.
 
 ### Development lifecycle
 
-- [ ] Show the assigned branch and its current relationship to main.
-- [ ] Show Agent runs attached to the Task without calling them Tasks.
-- [ ] Allow the prototype to advance through explicit mocked stages: issue created, branch ready, development running, pull request open, checks running, Preview ready, review approved, merged, deploying, deployed.
-- [ ] Make the next meaningful action obvious and keep unavailable later actions gated.
-- [ ] Show a concise event timeline so the user can understand how the Task reached its current state.
+- [x] Show the assigned branch and its current relationship to main.
+- [x] Show Agent runs attached to the Task without calling them Tasks.
+- [x] Allow the prototype to advance through explicit mocked stages: issue created, branch ready, development running, pull request open, checks running, Preview ready, review approved, merged, deploying, deployed.
+- [x] Make the next meaningful action obvious and keep unavailable later actions gated.
+- [x] Show a concise event timeline so the user can understand how the Task reached its current state.
 
 ### Pull request, Preview, and delivery
 
-- [ ] Show pull-request identity, current revision, review state, and checks when the mock pull request exists.
-- [ ] Let the user open a realistic mock Preview from the Task.
-- [ ] Let the user approve the exact mocked revision and visibly invalidate approval when the mocked revision changes.
-- [ ] Show merge only after the mocked required checks and review are complete.
-- [ ] Show deployment progress after merge and a final deployed state with mocked evidence.
+- [x] Show pull-request identity, current revision, review state, and checks when the mock pull request exists.
+- [x] Let the user open a realistic mock Preview from the Task.
+- [x] Let the user approve the exact mocked revision and visibly invalidate approval when the mocked revision changes.
+- [x] Show merge only after the mocked required checks and review are complete.
+- [x] Show deployment progress after merge and a final deployed state with mocked evidence.
 
 ### Dogfood matrix
 
-- [ ] Complete the happy path from New task through deployed.
-- [ ] Exercise a Task that needs user input.
-- [ ] Exercise a failed check and recovery.
-- [ ] Exercise a changed revision after approval.
-- [ ] Exercise a Preview that is unavailable and later becomes ready.
-- [ ] Navigate away and back without losing the in-session mock state.
-- [ ] Repeat the primary flow at desktop and phone widths through the live Portless prototype.
+- [x] Complete the happy path from New task through deployed.
+- [x] Exercise a Task that needs user input.
+- [x] Exercise a failed check and recovery.
+- [x] Exercise a changed revision after approval.
+- [x] Exercise a Preview that is unavailable and later becomes ready.
+- [x] Navigate away and back without losing the in-session mock state.
+- [x] Repeat the primary flow at desktop and phone widths through the live Portless prototype.
+
+Evidence: created mocked Task #438 from the phone composer, reviewed it, advanced it through branch, local Agent run, pull request #439, checks, Preview, exact-revision approval, merge, deployment, and verified live state. A simulated revision change cleared the previous approval before the flow was completed again. Comment state survived navigation. Tasks #398 and #395 exercised failed-check and unavailable-Preview recovery. The overview, history, detail, and Preview were inspected at phone and desktop widths with no browser errors. Focused tests pass (24 tests), the broader prototype suite passes (117 tests), and the TypeScript project check passes.
 
 ## Later milestones
 

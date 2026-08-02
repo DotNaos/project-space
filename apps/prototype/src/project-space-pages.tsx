@@ -11,10 +11,8 @@ import {
 
 import type { PrototypeScenarioKind } from "../../../src/shared/prototype-canvas";
 import { ProjectOverviewPage } from "./project-space-pages/overview-and-issues";
-import {
-  ProjectIssuesPage,
-  type PrototypeIssueViewMode,
-} from "./project-space-pages/issues";
+import { ProjectTasksPage } from "./project-space-pages/tasks";
+import { initialMockTasks, type MockTask } from "./project-space-pages/task-model";
 import { ProjectBranchesPage } from "./project-space-pages/branches-and-workspaces";
 import {
   ProjectDeploymentsPage,
@@ -49,36 +47,33 @@ export const projectPageItems: ProjectPageItem[] = [
 ];
 
 export function ProjectFeaturePage({
-  issueViewMode = "board",
-  onIssueOpen = () => undefined,
-  onIssueViewModeChange = () => undefined,
   onNavigate,
-  onNewIssue,
+  onNewTask = () => undefined,
+  onTaskOpen = () => undefined,
   page,
   projectName,
   scenario,
+  tasks = initialMockTasks,
 }: {
-  issueViewMode?: PrototypeIssueViewMode;
-  onIssueOpen?(number: number): void;
-  onIssueViewModeChange?(viewMode: PrototypeIssueViewMode): void;
   onNavigate?(page: ProjectPageId): void;
-  onNewIssue?(): void;
+  onNewTask?(): void;
+  onTaskOpen?(number: number): void;
   page: ProjectPageId;
   projectName: string;
   scenario: PrototypeScenarioKind;
+  tasks?: MockTask[];
 }) {
   const props = { projectName, scenario };
   switch (page) {
     case "overview":
-      return <ProjectOverviewPage onNavigate={onNavigate} onNewIssue={onNewIssue} projectName={projectName} />;
+      return <ProjectOverviewPage onNavigate={onNavigate} onNewIssue={onNewTask} projectName={projectName} />;
     case "issues":
       return (
-        <ProjectIssuesPage
-          {...props}
-          onNewIssue={onNewIssue}
-          onOpenIssue={onIssueOpen}
-          onViewModeChange={onIssueViewModeChange}
-          viewMode={issueViewMode}
+        <ProjectTasksPage
+          onNewTask={onNewTask}
+          onOpenTask={onTaskOpen}
+          projectName={projectName}
+          tasks={tasks}
         />
       );
     case "branches":
@@ -95,6 +90,12 @@ export function ProjectFeaturePage({
 }
 
 export { ProjectOverviewPage };
+export { ProjectTasksPage } from "./project-space-pages/tasks";
+export { ProjectTaskDetailPage } from "./project-space-pages/task-detail";
+export { NewTaskPage } from "./project-space-pages/new-task";
+export { initialMockTasks, mockTaskGroup, mockTaskStageLabel, updateMockTask } from "./project-space-pages/task-model";
+export type { MockTask, MockTaskAction, MockTaskStage, MockTaskType } from "./project-space-pages/task-model";
+export { ProjectIssuesPage, filterAndSortPrototypeIssues } from "./project-space-pages/issues";
 export { ProjectIssueDetailPage } from "./project-space-pages/issue-detail";
 export { prototypeIssueByNumber } from "./project-space-pages/issue-fixtures";
 export type { PrototypeIssueViewMode } from "./project-space-pages/issues";
