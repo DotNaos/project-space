@@ -1,8 +1,19 @@
 import { useMemo, useState } from "react";
-import { GitBranch, GitCommitHorizontal, Laptop, Plus, RotateCcw } from "lucide-react";
+import {
+  ChevronRight,
+  GitBranch,
+  GitCommitHorizontal,
+  GitPullRequest,
+  Laptop,
+  Plus,
+} from "lucide-react";
 
 import type { PrototypeScenarioKind } from "../../../../src/shared/prototype-canvas";
-import { BranchDetailView, type PrototypeBranch } from "./branch-detail";
+import { BranchDetailView } from "./branch-detail";
+import {
+  prototypeBranches,
+  type PrototypeBranch,
+} from "./branch-fixtures";
 import {
   PageFilter,
   PagePrimaryAction,
@@ -11,24 +22,61 @@ import {
   PageState,
   PageStatus,
 } from "./page-foundation";
-import { WorkspaceDetailView, type PrototypeWorkspace } from "./workspace-detail";
 
-type BranchHealth = "Behind" | "Current" | "Merged" | "Working";
+export type BranchFilter = "All" | "Checked out" | "Needs attention" | "Pull request";
 
-const branches: PrototypeBranch[] = [
-  { commit: "dc6bd8d", detail: "Default branch · protected", health: "Current", name: "main", relation: "baseline", updated: "4h" },
-  { commit: "72c0f48", detail: "#437 · Frontend redesign", health: "Working", name: "issue-437-redesign-the-project-space-frontend", relation: "1 ahead", updated: "now" },
-  { commit: "2550cd7", detail: "#426 · Preview hub", health: "Behind", name: "issue-426-fix-preview-asset-activation", relation: "3 behind · 4 ahead", updated: "2h" },
-  { commit: "419a88b", detail: "#434 · PR reliability", health: "Merged", name: "issue-434-make-agent-authored-pr-revisions-green-on-first-push", relation: "merged", updated: "6h" },
-  { commit: "a69a9f5", detail: "#419 · CI/CD reliability", health: "Merged", name: "issue-419-improve-ci-cd-reliability-and-speed", relation: "merged", updated: "yesterday" },
-];
+export function filterPrototypeBranches({
+  branches,
+  filter,
+  query,
+}: {
+  branches: PrototypeBranch[];
+  filter: BranchFilter;
+  query: string;
+}) {
+  const normalizedQuery = query.trim().toLowerCase();
+  return branches.filter((branch) => {
+    const matchesFilter = filter === "All"
+      || (filter === "Checked out" && branch.workspaces.length > 0)
+      || (filter === "Pull request" && Boolean(branch.pullRequest))
+      || (filter === "Needs attention" && (branch.health === "Behind" || branch.pullRequest?.state === "Draft"));
+    const searchable = [
+      branch.name,
+      branch.detail,
+      branch.pullRequest ? `#${branch.pullRequest.number} ${branch.pullRequest.state}` : "no pull request",
+      ...branch.workspaces.map((workspace) => workspace.machine),
+    ].join(" ").toLowerCase();
+    return matchesFilter && searchable.includes(normalizedQuery);
+  });
+}
 
-const branchTone: Record<BranchHealth, "danger" | "info" | "muted" | "success"> = {
-  Behind: "danger",
-  Current: "success",
-  Merged: "muted",
-  Working: "info",
-};
+function PullRequestStatus({ branch }: { branch: PrototypeBranch }) {
+  if (!branch.pullRequest) return <span className="text-[11px] text-current/25">No PR</span>;
+  const tone = branch.pullRequest.state === "Open"
+    ? "success"
+    : branch.pullRequest.state === "Draft"
+      ? "warning"
+      : "info";
+  return (
+    <PageStatus tone={tone}>
+      <GitPullRequest className="size-3" /> #{branch.pullRequest.number} · {branch.pullRequest.state}
+    </PageStatus>
+  );
+}
+
+function CheckoutStatus({ branch }: { branch: PrototypeBranch }) {
+  if (branch.workspaces.length === 0) return <span className="text-[11px] text-current/25">Not checked out</span>;
+  return (
+    <span className="flex min-w-0 flex-wrap gap-1">
+      {branch.workspaces.map((workspace) => (
+        <span className="inline-flex h-6 min-w-0 items-center gap-1 rounded-full bg-current/[.055] px-2 text-[11px] text-current/55" key={workspace.machine}>
+          <Laptop className="size-3 shrink-0" />
+          <span className="truncate">{workspace.machine}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
 
 export function ProjectBranchesPage({
   projectName,
@@ -37,122 +85,84 @@ export function ProjectBranchesPage({
   projectName: string;
   scenario: PrototypeScenarioKind;
 }) {
-  const [filter, setFilter] = useState<"Active" | "All" | "Attention">("Active");
+  const [filter, setFilter] = useState<BranchFilter>("All");
   const [query, setQuery] = useState("");
   const [selectedBranch, setSelectedBranch] = useState<PrototypeBranch | null>(null);
-  const visible = useMemo(() => branches.filter((branch) => {
-    const matchesFilter = filter === "All"
-      || (filter === "Attention" ? branch.health === "Behind" : branch.health !== "Merged");
-    return matchesFilter && `${branch.name} ${branch.detail}`.toLowerCase().includes(query.toLowerCase());
+  const visible = useMemo(() => filterPrototypeBranches({
+    branches: prototypeBranches,
+    filter,
+    query,
   }), [filter, query]);
   const unavailable = scenario === "empty" || scenario === "offline";
 
-  if (selectedBranch) return <BranchDetailView branch={selectedBranch} onBack={() => setSelectedBranch(null)} />;
+  if (selectedBranch) {
+    return <BranchDetailView branch={selectedBranch} onBack={() => setSelectedBranch(null)} />;
+  }
 
   return (
     <PageScaffold
       action={<PagePrimaryAction icon={<Plus className="size-4" />}>New branch</PagePrimaryAction>}
-      description="See which lines of work are current, merged, or need to catch up."
+      contentClassName="flex flex-col overflow-hidden"
+      description="Browse repository work and continue into its history and machine checkouts."
       projectName={projectName}
       title="Branches"
     >
-      <div className="flex flex-col gap-3 border-b border-current/[.08] py-4 @md:flex-row @md:items-center @md:justify-between">
-        <PageSearch onChange={setQuery} placeholder="Search branches" value={query} />
-        <div className="flex items-center gap-1">
-          {(["Active", "Attention", "All"] as const).map((value) => (
+      <div className="flex shrink-0 flex-col gap-3 border-b border-current/[.08] py-4 @3xl:flex-row @3xl:items-center @3xl:justify-between">
+        <PageSearch onChange={setQuery} placeholder="Search branches, PRs, or machines" value={query} />
+        <div className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+          {(["All", "Pull request", "Checked out", "Needs attention"] as const).map((value) => (
             <PageFilter active={filter === value} key={value} onPress={() => setFilter(value)}>{value}</PageFilter>
           ))}
         </div>
       </div>
+
       {unavailable ? <PageState emptyCopy="Branches will appear when work begins." scenario={scenario} /> : (
-        <div className="divide-y divide-current/[.07]">
-          {visible.map((branch) => (
-            <button
-              className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] gap-3 py-4 text-left hover:bg-current/[.02] @md:gap-4"
-              key={branch.name}
-              onClick={() => setSelectedBranch(branch)}
-              type="button"
-            >
-              <span className="mt-0.5 grid size-8 place-items-center rounded-full bg-current/[.05] text-current/45">
-                <GitBranch className="size-4" />
-              </span>
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-medium">{branch.name}</span>
-                <span className="mt-1 block truncate text-xs text-current/40">{branch.detail}</span>
-                <span className="mt-2 flex items-center gap-2 text-[11px] text-current/30">
-                  <GitCommitHorizontal className="size-3.5" /> {branch.commit} · {branch.relation} · {branch.updated}
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="hidden h-9 shrink-0 grid-cols-[minmax(0,1.5fr)_11rem_13rem_5rem] items-center gap-4 border-b border-current/[.06] px-2 text-[11px] text-current/30 @3xl:grid">
+            <span>Branch</span><span>Pull request</span><span>Checked out</span><span>Updated</span>
+          </div>
+          <div className="min-h-0 flex-1 divide-y divide-current/[.065] overflow-y-auto overscroll-y-contain [scrollbar-color:color-mix(in_srgb,currentColor_16%,transparent)_transparent] [scrollbar-width:thin]" data-scroll-region="branch-list">
+            {visible.map((branch) => (
+              <button
+                aria-label={`Open branch ${branch.name}`}
+                className="group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-2 py-3 text-left transition-[background-color,scale] duration-150 hover:bg-current/[.025] active:scale-[.995] @3xl:grid-cols-[minmax(0,1.5fr)_11rem_13rem_5rem] @3xl:gap-4"
+                key={branch.name}
+                onClick={() => setSelectedBranch(branch)}
+                type="button"
+              >
+                <span className="flex min-w-0 items-start gap-3">
+                  <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-current/[.045] text-current/35">
+                    <GitBranch className="size-3.5" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium text-current/85">{branch.name}</span>
+                    <span className="mt-1 flex items-center gap-1.5 truncate text-[11px] text-current/35">
+                      <GitCommitHorizontal className="size-3 shrink-0" /> {branch.commit} · {branch.relation}
+                    </span>
+                    <span className="mt-2 flex flex-wrap items-center gap-1.5 @3xl:hidden">
+                      <PullRequestStatus branch={branch} />
+                      <CheckoutStatus branch={branch} />
+                    </span>
+                  </span>
                 </span>
-              </span>
-              <PageStatus tone={branchTone[branch.health]}>{branch.health}</PageStatus>
-            </button>
-          ))}
-        </div>
-      )}
-    </PageScaffold>
-  );
-}
-
-type WorkspaceHealth = "Clean" | "Modified" | "Read only";
-
-const workspaces: PrototypeWorkspace[] = [
-  { branch: "issue-437-redesign-the-project-space-frontend", health: "Modified", machine: "Local", name: "#437 · Frontend redesign", updated: "now" },
-  { branch: "main", health: "Read only", machine: "Local", name: "Project Space", updated: "4h" },
-  { branch: "issue-426-fix-preview-asset-activation", health: "Clean", machine: "os-pc", name: "#426 · Preview hub", updated: "2h" },
-  { branch: "issue-408-release-v0.4.45", health: "Clean", machine: "os-yoga-unix", name: "#408 · Branch head graph", updated: "yesterday" },
-];
-
-const workspaceTone: Record<WorkspaceHealth, "info" | "muted" | "success"> = {
-  Clean: "success",
-  Modified: "info",
-  "Read only": "muted",
-};
-
-export function ProjectWorkspacesPage({
-  projectName,
-  scenario,
-}: {
-  projectName: string;
-  scenario: PrototypeScenarioKind;
-}) {
-  const [query, setQuery] = useState("");
-  const [selectedWorkspace, setSelectedWorkspace] = useState<PrototypeWorkspace | null>(null);
-  const visible = workspaces.filter((workspace) =>
-    `${workspace.name} ${workspace.branch} ${workspace.machine}`.toLowerCase().includes(query.toLowerCase()),
-  );
-  const unavailable = scenario === "empty" || scenario === "offline";
-
-  if (selectedWorkspace) return <WorkspaceDetailView onBack={() => setSelectedWorkspace(null)} workspace={selectedWorkspace} />;
-
-  return (
-    <PageScaffold
-      action={<PagePrimaryAction icon={<RotateCcw className="size-4" />}>Refresh</PagePrimaryAction>}
-      description="The working copies where issues become code, grouped by destination."
-      projectName={projectName}
-      title="Workspaces"
-    >
-      <div className="border-b border-current/[.08] py-4">
-        <PageSearch onChange={setQuery} placeholder="Search workspaces" value={query} />
-      </div>
-      {unavailable ? <PageState emptyCopy="Create an issue worktree to begin working." scenario={scenario} /> : (
-        <div className="divide-y divide-current/[.07]">
-          {visible.map((workspace) => (
-            <button
-              className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] gap-3 py-4 text-left hover:bg-current/[.02] @md:gap-4"
-              key={workspace.branch}
-              onClick={() => setSelectedWorkspace(workspace)}
-              type="button"
-            >
-              <span className="mt-0.5 grid size-8 place-items-center rounded-full bg-current/[.05] text-current/45">
-                <Laptop className="size-4" />
-              </span>
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-medium">{workspace.name}</span>
-                <span className="mt-1 block truncate text-xs text-current/40">{workspace.branch}</span>
-                <span className="mt-2 block text-[11px] text-current/30">{workspace.machine} · updated {workspace.updated}</span>
-              </span>
-              <PageStatus tone={workspaceTone[workspace.health]}>{workspace.health}</PageStatus>
-            </button>
-          ))}
+                <ChevronRight className="size-4 text-current/20 transition-transform group-hover:translate-x-0.5 @3xl:hidden" />
+                <span className="hidden @3xl:block"><PullRequestStatus branch={branch} /></span>
+                <span className="hidden min-w-0 @3xl:block"><CheckoutStatus branch={branch} /></span>
+                <span className="hidden items-center justify-between gap-2 text-[11px] text-current/30 @3xl:flex">
+                  {branch.updated}<ChevronRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+                </span>
+              </button>
+            ))}
+            {visible.length === 0 ? (
+              <div className="grid min-h-44 place-items-center px-6 text-center">
+                <p className="text-sm text-current/40">No branches match this search and filter.</p>
+              </div>
+            ) : null}
+          </div>
+          <div className="flex h-9 shrink-0 items-center justify-between border-t border-current/[.06] px-2 text-[11px] text-current/30">
+            <span>{visible.length} of {prototypeBranches.length} branches</span>
+            <span>Live prototype fixtures from GitHub</span>
+          </div>
         </div>
       )}
     </PageScaffold>

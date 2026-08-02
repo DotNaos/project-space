@@ -2,9 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   CircleDot,
   FileCheck2,
-  FolderGit2,
   GitBranch,
-  GitCommitHorizontal,
   LayoutDashboard,
   MessageCircle,
   Monitor,
@@ -17,18 +15,12 @@ import {
   ProjectIssuesPage,
   type PrototypeIssueViewMode,
 } from "./project-space-pages/issues";
-import {
-  ProjectBranchesPage,
-  ProjectWorkspacesPage,
-} from "./project-space-pages/branches-and-workspaces";
+import { ProjectBranchesPage } from "./project-space-pages/branches-and-workspaces";
 import {
   ProjectDeploymentsPage,
   ProjectMachinesPage,
 } from "./project-space-pages/machines-and-deployments";
-import {
-  ProjectChatsPage,
-  ProjectHistoryPage,
-} from "./project-space-pages/collaboration-and-history";
+import { ProjectChatsPage } from "./project-space-pages/collaboration-and-history";
 import { ProjectTemplatePage } from "./project-space-pages/template";
 
 export type ProjectPageId =
@@ -36,9 +28,7 @@ export type ProjectPageId =
   | "issues"
   | "branches"
   | "machines"
-  | "workspaces"
   | "chats"
-  | "history"
   | "template"
   | "deployments";
 
@@ -53,9 +43,7 @@ export const projectPageItems: ProjectPageItem[] = [
   { icon: CircleDot, id: "issues", label: "Issues" },
   { icon: GitBranch, id: "branches", label: "Branches" },
   { icon: Monitor, id: "machines", label: "Machines" },
-  { icon: FolderGit2, id: "workspaces", label: "Workspaces" },
   { icon: MessageCircle, id: "chats", label: "Chat" },
-  { icon: GitCommitHorizontal, id: "history", label: "History" },
   { icon: FileCheck2, id: "template", label: "Template" },
   { icon: Rocket, id: "deployments", label: "Deployments" },
 ];
@@ -97,12 +85,8 @@ export function ProjectFeaturePage({
       return <ProjectBranchesPage {...props} />;
     case "machines":
       return <ProjectMachinesPage {...props} />;
-    case "workspaces":
-      return <ProjectWorkspacesPage {...props} />;
     case "chats":
       return <ProjectChatsPage {...props} />;
-    case "history":
-      return <ProjectHistoryPage {...props} />;
     case "template":
       return <ProjectTemplatePage {...props} />;
     case "deployments":

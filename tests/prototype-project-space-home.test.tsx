@@ -20,6 +20,9 @@ import {
   prototypeIssues,
 } from '../apps/prototype/src/project-space-pages/issue-fixtures';
 import { filterAndSortPrototypeIssues } from '../apps/prototype/src/project-space-pages/issues';
+import { BranchDetailView } from '../apps/prototype/src/project-space-pages/branch-detail';
+import { prototypeBranches } from '../apps/prototype/src/project-space-pages/branch-fixtures';
+import { filterPrototypeBranches } from '../apps/prototype/src/project-space-pages/branches-and-workspaces';
 
 describe('project space home prototype', () => {
   test('uses one shell surface behind the sidebar and rounded main view', () => {
@@ -49,9 +52,9 @@ describe('project space home prototype', () => {
     expect(html).toContain('>Issues<');
     expect(html).toContain('>Branches<');
     expect(html).toContain('>Machines<');
-    expect(html).toContain('>Workspaces<');
     expect(html).toContain('>Chat<');
-    expect(html).toContain('>History<');
+    expect(html).not.toContain('>Workspaces<');
+    expect(html).not.toContain('>History<');
     expect(html).not.toContain('>Codex<');
     expect(html).toContain('>Template<');
     expect(html).toContain('>Deployments<');
@@ -88,11 +91,9 @@ describe('project space home prototype', () => {
   test.each([
     ['overview', 'Current focus', 'Project pulse'],
     ['issues', 'Search issues', 'In progress'],
-    ['branches', 'Search branches', '1 ahead'],
+    ['branches', 'Search branches, PRs, or machines', '30 of 30 branches'],
     ['machines', 'Available destinations', 'os-pc'],
-    ['workspaces', 'Search workspaces', 'Modified'],
     ['chats', 'Search conversations', 'Tasks'],
-    ['history', 'Branch position', '0248d9d'],
     ['template', 'Template adherence', 'Fullstack template'],
     ['deployments', 'Pull request previews', 'Production'],
   ] as const)('gives the %s page its own working surface', (page, first, second) => {
@@ -106,6 +107,28 @@ describe('project space home prototype', () => {
 
     expect(html).toContain(first);
     expect(html).toContain(second);
+  });
+
+  test('keeps realistic branch volume searchable and filterable', () => {
+    expect(prototypeBranches).toHaveLength(30);
+    expect(prototypeBranches.some((branch) => branch.name === 'issue-437-redesign-the-project-space-frontend')).toBe(true);
+    expect(filterPrototypeBranches({ branches: prototypeBranches, filter: 'Pull request', query: '' }).every((branch) => branch.pullRequest)).toBe(true);
+    expect(filterPrototypeBranches({ branches: prototypeBranches, filter: 'Checked out', query: '' }).every((branch) => branch.workspaces.length > 0)).toBe(true);
+    expect(filterPrototypeBranches({ branches: prototypeBranches, filter: 'All', query: 'os-pc' }).every((branch) => branch.workspaces.some((workspace) => workspace.machine === 'os-pc'))).toBe(true);
+  });
+
+  test('combines branch history, pull requests, and machine workspaces in one detail view', () => {
+    const branch = prototypeBranches.find((candidate) => candidate.name.includes('437'))!;
+    const html = renderToStaticMarkup(<BranchDetailView branch={branch} onBack={() => undefined} />);
+
+    expect(html).toContain('>History<');
+    expect(html).toContain('Machine workspaces');
+    expect(html).toContain('Local');
+    expect(html).toContain('os-pc');
+    expect(html).toContain('os-yoga-unix');
+    expect(html).toContain('Open workspace');
+    expect(html).toContain('Check out');
+    expect(html).toContain('No pull request');
   });
 
   test('offers board and list views that open the same issues', () => {

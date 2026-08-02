@@ -40,7 +40,7 @@ export const projectPageGroups: Array<{
 }> = [
   { ids: ["chats", "machines"], label: "Workspace" },
   {
-    ids: ["overview", "issues", "branches", "workspaces", "history", "deployments", "template"],
+    ids: ["overview", "issues", "branches", "deployments", "template"],
     label: "Project",
   },
 ];

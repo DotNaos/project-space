@@ -124,7 +124,7 @@ export function ProjectOverviewPage({
             <div className="border-y border-current/[.08] py-3">
               {[
                 { icon: Monitor, label: "Destination", value: "Local workspace" },
-                { icon: FolderGit2, label: "Workspace", value: "issue-437-redesign…" },
+                { icon: FolderGit2, label: "Checkout", value: "issue-437-redesign…" },
                 { icon: Bot, label: "Chat", value: "Frontend redesign" },
                 { icon: GitPullRequest, label: "Pull request", value: "Not opened yet" },
               ].map(({ icon: Icon, label, value }) => (
@@ -160,7 +160,7 @@ export function ProjectOverviewPage({
                 ["Open issues", "24", "6 active"],
                 ["Branches", "16", "2 behind main"],
                 ["Chats", "3", "1 working"],
-                ["Workspaces", "3", "2 modified"],
+                ["Checked out branches", "3", "2 modified"],
               ].map(([label, value, detail]) => (
                 <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-current/[.06] py-3 last:border-0" key={label}>
                   <dt className="text-xs text-current/40">{label}</dt>

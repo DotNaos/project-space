@@ -16,15 +16,8 @@ import {
   TerminalSquare,
 } from "lucide-react";
 
+import type { PrototypeWorkspace } from "./branch-fixtures";
 import { PageFilter, PageStatus, SectionHeading } from "./page-foundation";
-
-export interface PrototypeWorkspace {
-  branch: string;
-  health: "Clean" | "Modified" | "Read only";
-  machine: string;
-  name: string;
-  updated: string;
-}
 
 const files = [
   { depth: 0, kind: "folder", name: "apps" },
@@ -51,7 +44,7 @@ export function WorkspaceDetailView({ onBack, workspace }: { onBack(): void; wor
     <section className="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col px-5 pb-6 pt-3 @md:px-8 @3xl:px-10 @5xl:px-12 @5xl:pt-7">
       <header className="shrink-0 border-b border-current/[.08] pb-4">
         <div className="flex items-center justify-between gap-3">
-          <Button size="sm" style={{ color: "inherit" }} variant="ghost" onPress={onBack}><ArrowLeft className="size-4" /> Workspaces</Button>
+          <Button size="sm" style={{ color: "inherit" }} variant="ghost" onPress={onBack}><ArrowLeft className="size-4" /> Branch</Button>
           <div className="flex items-center gap-1">
             <Button size="sm" style={{ color: "inherit" }} variant="ghost"><RefreshCw className="size-3.5" /> Refresh</Button>
             <Button size="sm" variant="secondary"><TerminalSquare className="size-3.5" /> Open</Button>
