@@ -429,6 +429,7 @@ describe('project space home prototype', () => {
 
     expect(html).toContain('>Preview<');
     expect(html).toContain('Waiting for checks');
+    expect(html).toContain('aria-label="Error"');
     expect(html).toContain('Pull request');
     expect(html).toContain('href="https://github.com/DotNaos/project-space/pull/420"');
     expect(html).toContain('Pipeline');
@@ -438,6 +439,22 @@ describe('project space home prototype', () => {
     expect(html).toContain('os-pc');
     expect(html).toContain('#398 · Verify delivery evidence · running');
     expect(html).toContain('3 files changed');
+  });
+
+  test('uses the task status icon in the started task detail header', () => {
+    const task = initialMockTasks.find((candidate) => candidate.number === 426)!;
+    const html = renderToStaticMarkup(
+      <ProjectTaskDetailPage
+        onAction={() => undefined}
+        onBack={() => undefined}
+        projectName="project-space"
+        task={task}
+      />
+    );
+
+    expect(html).toContain('aria-label="Started"');
+    expect(html).toContain('lucide-circle-dot');
+    expect(html).not.toContain('size-1.5 rounded-full bg-current');
   });
 
   test('keeps a healthy task focused on its Preview and pull request', () => {

@@ -13,8 +13,9 @@ import {
 import { TaskComments } from "./task-comments";
 import { TaskDeliveryPanel } from "./task-lifecycle-panel";
 import type { MockTask, MockTaskAction } from "./task-model";
-import { mockTaskGroup, mockTaskStageLabel } from "./task-model";
+import { mockTaskStageLabel } from "./task-model";
 import { TaskPreviewModal } from "./task-preview-modal";
+import { TaskStatusIcon } from "./task-status-icon";
 
 const eventIcons = [MessageCircle, GitBranch, Bot, GitCommitHorizontal, Rocket];
 
@@ -52,7 +53,6 @@ export function ProjectTaskDetailPage({
   task: MockTask;
 }) {
   const [previewOpen, setPreviewOpen] = useState(false);
-  const group = mockTaskGroup(task);
   const githubUrl = `https://github.com/DotNaos/project-space/issues/${task.number}`;
 
   return (
@@ -77,8 +77,8 @@ export function ProjectTaskDetailPage({
           </div>
 
           <div className="mt-4 flex items-center gap-2 text-xs">
-            <span className={`flex items-center gap-1.5 font-medium ${group === "Needs you" ? "text-red-300" : group === "Done" ? "text-emerald-300" : "text-blue-300"}`}>
-              <span className="size-1.5 rounded-full bg-current" /> {mockTaskStageLabel(task)}
+            <span className="flex items-center gap-1.5 font-medium text-current/60">
+              <TaskStatusIcon task={task} /> {mockTaskStageLabel(task)}
             </span>
             <span className="text-current/20">·</span>
             <span className="text-current/35">{task.type}</span>

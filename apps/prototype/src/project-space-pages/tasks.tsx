@@ -1,10 +1,6 @@
 import { useMemo, useState } from "react";
 import { Button } from "@heroui/react";
 import {
-  CircleAlert,
-  CircleCheck,
-  CircleDashed,
-  CircleDot,
   GitBranch,
   GitMerge,
   GitPullRequest,
@@ -13,10 +9,10 @@ import {
 } from "lucide-react";
 
 import {
-  mockTaskNeedsAttention,
   mockTaskWorkflowState,
   type MockTask,
 } from "./task-model";
+import { TaskStatusIcon } from "./task-status-icon";
 
 type TaskFilter = "All" | "Backlog" | "Done" | "In progress" | "Started";
 
@@ -45,15 +41,6 @@ function TaskSearch({
 
 function TaskRow({ onOpen, task }: { onOpen(): void; task: MockTask }) {
   const state = mockTaskWorkflowState(task);
-  const needsAttention = mockTaskNeedsAttention(task);
-  const StatusIcon = needsAttention
-    ? CircleAlert
-    : state === "Backlog"
-      ? CircleDashed
-      : state === "Done"
-        ? CircleCheck
-        : CircleDot;
-  const statusLabel = needsAttention ? "Error" : state;
   const pullRequestState = state === "Done" ? "Merged" : task.pullRequest?.phase === "draft" ? "Draft" : "Open";
   const PullRequestIcon = state === "Done" ? GitMerge : GitPullRequest;
   return (
@@ -64,10 +51,7 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: MockTask }) {
       type="button"
     >
       <span className="flex min-w-0 items-center gap-2">
-        <StatusIcon
-          aria-label={statusLabel}
-          className={`size-4 shrink-0 ${needsAttention ? "text-red-400" : state === "Backlog" ? "text-current/30" : state === "Started" ? "text-blue-400" : state === "In progress" ? "text-emerald-400" : "text-violet-400"}`}
-        />
+        <TaskStatusIcon task={task} />
         <span className="shrink-0 text-xs tabular-nums text-current/30">#{task.number}</span>
         {task.pullRequest ? (
           <span
