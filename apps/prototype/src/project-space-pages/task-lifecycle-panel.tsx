@@ -14,10 +14,12 @@ import {
   GitPullRequestDraft,
   Laptop,
   MonitorPlay,
+  PanelsTopLeft,
   Play,
   RefreshCw,
   Rocket,
   ShieldCheck,
+  Shapes,
   Sparkles,
 } from "lucide-react";
 
@@ -62,8 +64,7 @@ export function nextTaskAction(task: MockTask): { action: MockTaskAction; icon: 
   if (task.pullRequest.checks === "failed") return { action: { type: "run-checks" }, icon: RefreshCw, label: "Retry checks" };
   if (task.pullRequest.preview === "not-started") return { action: { type: "start-preview" }, icon: Rocket, label: "Start Preview" };
   if (task.pullRequest.preview === "unavailable") return { action: { type: "retry-preview" }, icon: RefreshCw, label: "Retry Preview" };
-  if (task.pullRequest.review === "not-requested") return { action: { type: "approve-revision" }, icon: ShieldCheck, label: "Approve revision" };
-  if (task.pullRequest.review === "pending") return { action: { type: "approve-revision" }, icon: Check, label: "Approve revision" };
+  if (task.pullRequest.review !== "approved") return null;
   if (task.stage === "review") return { action: { type: "merge" }, icon: GitMerge, label: "Merge pull request" };
   if (task.stage === "merged") return { action: { type: "start-deployment" }, icon: Rocket, label: "Start deployment" };
   if (task.stage === "deploying") return { action: { type: "complete-deployment" }, icon: Check, label: "Verify deployment" };
@@ -158,10 +159,16 @@ export function TaskDeliveryPanel({
               </>
             ) : null}
             {previewReady ? (
-              <div>
+              <div className="grid grid-cols-2 gap-2 @3xl:grid-cols-3">
                 <Button className="hidden w-full @3xl:flex" size="md" variant="primary" onPress={onOpenPreview}>
-                  <MonitorPlay className="size-4" /> Open Preview
+                  <MonitorPlay className="size-4" /> PR deployment
                 </Button>
+                <Button className="w-full" size="sm" variant="secondary" onPress={onOpenPrototype}>
+                  <Shapes className="size-3.5" /> Prototype
+                </Button>
+                <a className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-current/[.055] px-2 text-xs font-medium text-current/55 transition-[background-color,color,scale] hover:bg-current/[.1] hover:text-current active:scale-[.96]" href="http://design-space.localhost:1355/" rel="noreferrer" target="_blank">
+                  <PanelsTopLeft className="size-3.5" /> Design Space
+                </a>
               </div>
             ) : null}
           </div>

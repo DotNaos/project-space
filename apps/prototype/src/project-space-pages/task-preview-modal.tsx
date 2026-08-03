@@ -1,5 +1,5 @@
-import { Button, Modal } from "@heroui/react";
-import { MonitorPlay, Network, Shapes, ShieldCheck } from "lucide-react";
+import { Modal } from "@heroui/react";
+import { MonitorPlay, Network, Shapes } from "lucide-react";
 
 import type { MockTask, MockTaskAgentThread } from "./task-model";
 import { TaskDevelopmentServerFrame } from "./task-development-server-frame";
@@ -9,7 +9,6 @@ import { taskPreviewDocument } from "./task-preview-document";
 export function TaskPreviewModal({
   isOpen,
   onOpenChange,
-  onApprove,
   portalContainer = null,
   surface,
   task,
@@ -17,7 +16,6 @@ export function TaskPreviewModal({
 }: {
   isOpen: boolean;
   onOpenChange(isOpen: boolean): void;
-  onApprove?(): void;
   portalContainer?: HTMLElement | null;
   surface: "development" | "preview" | "prototype" | "thread";
   task: MockTask;
@@ -80,13 +78,6 @@ export function TaskPreviewModal({
                 />
               )}
             </Modal.Body>
-            {surface === "preview" && task.pullRequest?.review !== "approved" && onApprove ? (
-              <Modal.Footer className="border-t border-white/10 px-5 py-4">
-                <Button className="w-full" variant="primary" onPress={onApprove}>
-                  <ShieldCheck className="size-4" /> Approve revision {task.pullRequest?.revision}
-                </Button>
-              </Modal.Footer>
-            ) : null}
           </Modal.Dialog>
         </Modal.Container>
       </Modal.Backdrop>

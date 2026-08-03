@@ -131,7 +131,7 @@ export function ProjectTaskDetailPage({
           >
             {task.pullRequest.preview === "ready" && task.pullRequest.review !== "approved" ? (
               <Button className="w-full" size="md" variant="primary" onPress={() => setReviewSurface("preview")}>
-                <MonitorPlay className="size-4" /> Open Preview
+                <MonitorPlay className="size-4" /> Open PR deployment
               </Button>
             ) : (
               <TaskPrimaryAction className="w-full" onAction={onAction} task={task} />
@@ -150,10 +150,6 @@ export function ProjectTaskDetailPage({
             setReviewSurface(null);
             setSelectedThread(null);
           }
-        }}
-        onApprove={() => {
-          onAction({ type: "approve-revision" });
-          setReviewSurface(null);
         }}
       />
     </>
