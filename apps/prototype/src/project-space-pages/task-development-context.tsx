@@ -27,7 +27,9 @@ export function TaskDevelopmentContext({
   const [attachedMachines, setAttachedMachines] = useState<string[]>(workspace ? [workspace.machine] : []);
   const threads = task.agentThreads ?? (task.agentRun ? [{ id: `task-${task.number}`, name: task.agentRun.name, status: task.agentRun.status === "running" ? "running" as const : "idle" as const }] : []);
 
-  if (!workspace || task.pullRequest?.phase !== "ready" || ["merged", "deploying", "deployed"].includes(task.stage)) return null;
+  if (!workspace || !task.pullRequest || ["merged", "deploying", "deployed"].includes(task.stage)) return null;
+
+  const reviewSurfacesReady = task.pullRequest.preview === "ready";
 
   return (
     <section className="mt-5 border-t border-current/[.08] pt-4">
@@ -50,6 +52,7 @@ export function TaskDevelopmentContext({
             onOpenPrototype={onOpenPrototype}
             onOpenThread={onOpenThread}
             onThreadsOpenChange={setThreadsOpen}
+            reviewSurfacesReady={reviewSurfacesReady}
             threads={threads}
             threadsOpen={threadsOpen && expandedMachine === machine}
           />
@@ -67,7 +70,7 @@ export function TaskDevelopmentContext({
   );
 }
 
-function MachineCard({ expandedMachine, machine, onContinueDevelopment, onExpandedMachineChange, onOpenDevServer, onOpenPrototype, onOpenThread, onThreadsOpenChange, threads, threadsOpen }: {
+function MachineCard({ expandedMachine, machine, onContinueDevelopment, onExpandedMachineChange, onOpenDevServer, onOpenPrototype, onOpenThread, onThreadsOpenChange, reviewSurfacesReady, threads, threadsOpen }: {
   expandedMachine: string | null;
   machine: string;
   onContinueDevelopment(): void;
@@ -76,6 +79,7 @@ function MachineCard({ expandedMachine, machine, onContinueDevelopment, onExpand
   onOpenPrototype(): void;
   onOpenThread(thread: MockTaskAgentThread): void;
   onThreadsOpenChange(open: boolean): void;
+  reviewSurfacesReady: boolean;
   threads: NonNullable<MockTask["agentThreads"]>;
   threadsOpen: boolean;
 }) {
@@ -97,7 +101,7 @@ function MachineCard({ expandedMachine, machine, onContinueDevelopment, onExpand
           <Disclosure.Body className="px-3 pb-2 pt-0">
             <div className="divide-y divide-current/[.07]">
               <MachineAction icon={Globe} label="Dev server" status="Live" statusTone="success"><Button size="sm" variant="tertiary" onPress={onOpenDevServer}>Connect</Button></MachineAction>
-              <MachineAction icon={Shapes} label="Prototype" status="Running" statusTone="success"><Button size="sm" variant="tertiary" onPress={onOpenPrototype}>Open</Button></MachineAction>
+              {reviewSurfacesReady ? <MachineAction icon={Shapes} label="Prototype" status="Running" statusTone="success"><Button size="sm" variant="tertiary" onPress={onOpenPrototype}>Open</Button></MachineAction> : null}
               <MachineAction icon={PanelsTopLeft} label="Design Space" status="Available" statusTone="success"><a className="inline-flex h-8 items-center rounded-full bg-current/[.055] px-3 text-xs font-medium text-current/60 transition-[background-color,color,scale] hover:bg-current/[.1] hover:text-current active:scale-[.96]" href="http://design-space.localhost:1355/" rel="noreferrer" target="_blank">Open</a></MachineAction>
               <MachineAction icon={Bot} label="Codex threads" status={`${threads.filter((thread) => thread.status === "running").length} active · ${threads.length} total`} statusTone="info"><Button size="sm" variant="tertiary" onPress={() => onThreadsOpenChange(!threadsOpen)}>View<ChevronDown className={`size-3 transition-transform ${threadsOpen ? "rotate-180" : ""}`} /></Button></MachineAction>
               {threadsOpen ? <div className="space-y-1 bg-current/[.018] p-1.5">{threads.map((thread) => <button aria-label={`Open ${thread.name} with dev server`} className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors hover:bg-current/[.045] hover:text-blue-300" key={thread.id} onClick={() => onOpenThread(thread)} type="button"><span className="grid size-7 shrink-0 place-items-center rounded-full bg-current/[.055] text-current/35"><Bot className="size-3.5" /></span><span className="min-w-0 flex-1 truncate text-xs font-medium text-current/60">{thread.name}</span>{thread.status === "running" ? <LoaderCircle aria-label="Running" className="size-3.5 shrink-0 animate-spin text-emerald-300/80" /> : <Circle aria-label="Idle" className="size-2.5 shrink-0 text-current/25" />}</button>)}</div> : null}

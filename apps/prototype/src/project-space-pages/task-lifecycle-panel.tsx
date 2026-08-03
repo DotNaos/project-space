@@ -56,7 +56,7 @@ export function nextTaskAction(task: MockTask): { action: MockTaskAction; icon: 
   if (task.stage === "branch") return { action: { type: "start-development" }, icon: Bot, label: "Start Codex" };
   if (task.stage === "development") return { action: { type: "open-pull-request" }, icon: GitPullRequest, label: "Create draft PR" };
   if (!task.pullRequest) return null;
-  if (task.pullRequest.phase === "draft") return { action: { type: "mark-pull-request-ready" }, icon: GitPullRequest, label: "Mark PR ready" };
+  if (task.pullRequest.phase === "draft") return { action: { type: "mark-pull-request-ready" }, icon: GitPullRequest, label: "First version ready" };
   if (task.pullRequest.checks === "not-started") return { action: { type: "run-checks" }, icon: Play, label: "Run checks" };
   if (task.pullRequest.checks === "running") return { action: { type: "pass-checks" }, icon: Check, label: "Pass checks" };
   if (task.pullRequest.checks === "failed") return { action: { type: "run-checks" }, icon: RefreshCw, label: "Retry checks" };
@@ -135,14 +135,19 @@ export function TaskDeliveryPanel({
   return (
     <aside className="min-w-0">
       {draftPullRequest && task.pullRequest ? (
-        <a
-          className="inline-flex h-8 items-center gap-1.5 rounded-full bg-current/[.045] px-3 text-xs font-medium text-current/50 transition-[background-color,color,scale] hover:bg-current/[.075] hover:text-current/75 active:scale-[.96]"
-          href={`https://github.com/DotNaos/project-space/pull/${task.pullRequest.number}`}
-          rel="noreferrer"
-          target="_blank"
-        >
-          <GitPullRequestDraft className="size-3.5" /> Draft #{task.pullRequest.number}
-        </a>
+        <div className="flex items-center justify-between gap-3">
+          <a
+            className="inline-flex h-8 items-center gap-1.5 rounded-full bg-current/[.045] px-3 text-xs font-medium text-current/50 transition-[background-color,color,scale] hover:bg-current/[.075] hover:text-current/75 active:scale-[.96]"
+            href={`https://github.com/DotNaos/project-space/pull/${task.pullRequest.number}`}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <GitPullRequestDraft className="size-3.5" /> Draft #{task.pullRequest.number}
+          </a>
+          <Button size="sm" variant="secondary" onPress={onContinueDevelopment}>
+            <Bot className="size-3.5" /> Continue development
+          </Button>
+        </div>
       ) : task.pullRequest ? (
         <>
           <div className="pb-4">

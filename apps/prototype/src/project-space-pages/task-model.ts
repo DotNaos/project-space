@@ -209,7 +209,6 @@ export function updateMockTask(task: MockTask, action: MockTaskAction): MockTask
       }, "Development started", "Codex is working in the task branch on Local.");
     case "open-pull-request":
       return withEvent(task, {
-        agentRun: task.agentRun ? { ...task.agentRun, status: "idle" } : undefined,
         pullRequest: {
           checks: "not-started",
           number: task.number + 1,
@@ -221,32 +220,34 @@ export function updateMockTask(task: MockTask, action: MockTaskAction): MockTask
         stage: "pull-request",
       }, "Draft pull request opened", `Draft pull request #${task.number + 1} keeps the implementation connected while work continues.`);
     case "mark-pull-request-ready":
-      if (!task.pullRequest) return task;
+      if (!task.pullRequest || task.pullRequest.phase !== "draft") return task;
       return withEvent(task, {
-        pullRequest: { ...task.pullRequest, phase: "ready" },
-        stage: "pull-request",
-      }, "Pull request ready", `Pull request #${task.pullRequest.number} is ready for its delivery pipeline.`);
+        agentRun: task.agentRun ? { ...task.agentRun, status: "idle" } : undefined,
+        agentThreads: task.agentThreads?.map((thread) => ({ ...thread, status: "idle" })),
+        pullRequest: { ...task.pullRequest, checks: "running", phase: "ready" },
+        stage: "checks",
+      }, "First version ready", `Codex finished the first version of pull request #${task.pullRequest.number}; its delivery pipeline started.`);
     case "run-checks":
-      if (!task.pullRequest) return task;
+      if (!task.pullRequest || task.pullRequest.phase !== "ready") return task;
       return withEvent(task, {
         pullRequest: { ...task.pullRequest, checks: "running" },
         stage: "checks",
       }, "Checks running", `Required checks started for ${task.pullRequest.revision}.`);
     case "fail-checks":
-      if (!task.pullRequest) return task;
+      if (!task.pullRequest || task.pullRequest.phase !== "ready" || task.pullRequest.checks !== "running") return task;
       return withEvent(task, {
         pullRequest: { ...task.pullRequest, checks: "failed" },
         stage: "checks",
       }, "Checks failed", "The frontend verification needs attention before review.");
     case "pass-checks":
-      if (!task.pullRequest) return task;
+      if (!task.pullRequest || task.pullRequest.phase !== "ready" || task.pullRequest.checks !== "running") return task;
       return withEvent(task, {
-        pullRequest: { ...task.pullRequest, checks: "passed" },
-        stage: "checks",
-      }, "Checks passed", `All required checks passed for ${task.pullRequest.revision}.`);
+        pullRequest: { ...task.pullRequest, checks: "passed", preview: "ready" },
+        stage: "preview",
+      }, "Pipeline passed", `All required checks passed for ${task.pullRequest.revision}; Preview and Prototype are ready.`);
     case "start-preview":
     case "retry-preview":
-      if (!task.pullRequest) return task;
+      if (!task.pullRequest || task.pullRequest.phase !== "ready" || task.pullRequest.checks !== "passed") return task;
       return withEvent(task, {
         pullRequest: { ...task.pullRequest, preview: "ready" },
         stage: "preview",
