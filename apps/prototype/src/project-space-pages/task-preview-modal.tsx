@@ -1,19 +1,28 @@
 import { Modal } from "@heroui/react";
-import { Bot, Check, MonitorPlay, Network, Shapes } from "lucide-react";
+import { Check, MonitorPlay, Network, Shapes } from "lucide-react";
 
-import type { MockTask } from "./task-model";
+import type { MockTask, MockTaskAgentThread } from "./task-model";
+import { TaskThreadWorkspace } from "./task-thread-workspace";
 
 export function TaskPreviewModal({
   isOpen,
   onOpenChange,
+  portalContainer = null,
   surface,
   task,
+  thread,
 }: {
   isOpen: boolean;
   onOpenChange(isOpen: boolean): void;
+  portalContainer?: HTMLElement | null;
   surface: "development" | "preview" | "prototype" | "thread";
   task: MockTask;
+  thread?: MockTaskAgentThread;
 }) {
+  if (surface === "thread") {
+    return <TaskThreadWorkspace isOpen={isOpen} onOpenChange={onOpenChange} portalContainer={portalContainer} task={task} thread={thread} />;
+  }
+
   const config = {
     development: {
       description: `This is the private Tailscale development server running on ${task.workspace?.machine ?? "the assigned machine"}.`,
@@ -30,17 +39,22 @@ export function TaskPreviewModal({
       heading: "Prototype",
       icon: Shapes,
     },
-    thread: {
-      description: `Codex continues development in the assigned workspace on ${task.workspace?.machine ?? "the development machine"}.`,
-      heading: "Continue development",
-      icon: Bot,
-    },
   }[surface];
   const Icon = config.icon;
 
   return (
     <Modal isOpen={isOpen} onOpenChange={onOpenChange}>
-      <Modal.Backdrop className="z-[90] bg-black/75" variant="blur">
+      <Modal.Backdrop
+        UNSTABLE_portalContainer={portalContainer ?? undefined}
+        className="z-[90] bg-black/75"
+        style={portalContainer ? {
+          height: "var(--device-content-height)",
+          overflow: "hidden",
+          position: "absolute",
+          width: "var(--device-content-width)",
+        } : undefined}
+        variant="blur"
+      >
         <Modal.Container className="p-3" placement="center" size="lg">
           <Modal.Dialog className="flex max-h-[min(44rem,92dvh)] flex-col overflow-hidden bg-[#111] text-neutral-100 ring-1 ring-inset ring-white/10">
             <Modal.CloseTrigger aria-label={`Close ${config.heading}`} />

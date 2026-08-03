@@ -13,7 +13,7 @@ import {
 
 import { TaskComments } from "./task-comments";
 import { TaskDeliveryPanel, TaskPrimaryAction } from "./task-lifecycle-panel";
-import type { MockTask, MockTaskAction } from "./task-model";
+import type { MockTask, MockTaskAction, MockTaskAgentThread } from "./task-model";
 import { TaskPreviewModal } from "./task-preview-modal";
 import { TaskStatusIcon } from "./task-status-icon";
 
@@ -54,6 +54,7 @@ export function ProjectTaskDetailPage({
   task: MockTask;
 }) {
   const [reviewSurface, setReviewSurface] = useState<"development" | "preview" | "prototype" | "thread" | null>(null);
+  const [selectedThread, setSelectedThread] = useState<MockTaskAgentThread | null>(null);
   const githubUrl = `https://github.com/DotNaos/project-space/issues/${task.number}`;
 
   return (
@@ -108,6 +109,10 @@ export function ProjectTaskDetailPage({
               onOpenDevServer={() => setReviewSurface("development")}
               onOpenPreview={() => setReviewSurface("preview")}
               onOpenPrototype={() => setReviewSurface("prototype")}
+              onOpenThread={(thread) => {
+                setSelectedThread(thread);
+                setReviewSurface("thread");
+              }}
               portalContainer={portalContainer}
               task={task}
             />
@@ -132,8 +137,13 @@ export function ProjectTaskDetailPage({
         isOpen={reviewSurface !== null}
         surface={reviewSurface ?? "preview"}
         task={task}
+        portalContainer={portalContainer}
+        thread={selectedThread ?? task.agentThreads?.find((thread) => thread.status === "running") ?? task.agentThreads?.[0]}
         onOpenChange={(isOpen) => {
-          if (!isOpen) setReviewSurface(null);
+          if (!isOpen) {
+            setReviewSurface(null);
+            setSelectedThread(null);
+          }
         }}
       />
     </>

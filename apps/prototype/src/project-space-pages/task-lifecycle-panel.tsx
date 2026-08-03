@@ -101,6 +101,7 @@ export function TaskDeliveryPanel({
   onOpenDevServer,
   onOpenPreview,
   onOpenPrototype,
+  onOpenThread,
   portalContainer,
   task,
 }: {
@@ -109,6 +110,7 @@ export function TaskDeliveryPanel({
   onOpenDevServer(): void;
   onOpenPreview(): void;
   onOpenPrototype(): void;
+  onOpenThread(thread: NonNullable<MockTask["agentThreads"]>[number]): void;
   portalContainer: HTMLElement | null;
   task: MockTask;
 }) {
@@ -181,6 +183,7 @@ export function TaskDeliveryPanel({
         onContinueDevelopment={onContinueDevelopment}
         onOpenDevServer={onOpenDevServer}
         onOpenPrototype={onOpenPrototype}
+        onOpenThread={onOpenThread}
         portalContainer={portalContainer}
         task={task}
       />
