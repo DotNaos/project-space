@@ -101,6 +101,7 @@ export function TaskDeliveryPanel({
   onOpenDevServer,
   onOpenPreview,
   onOpenPrototype,
+  portalContainer,
   task,
 }: {
   onAction(action: MockTaskAction): void;
@@ -108,6 +109,7 @@ export function TaskDeliveryPanel({
   onOpenDevServer(): void;
   onOpenPreview(): void;
   onOpenPrototype(): void;
+  portalContainer: HTMLElement | null;
   task: MockTask;
 }) {
   const latestEvent = task.events[task.events.length - 1];
@@ -179,6 +181,7 @@ export function TaskDeliveryPanel({
         onContinueDevelopment={onContinueDevelopment}
         onOpenDevServer={onOpenDevServer}
         onOpenPrototype={onOpenPrototype}
+        portalContainer={portalContainer}
         task={task}
       />
 

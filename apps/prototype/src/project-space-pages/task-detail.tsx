@@ -44,10 +44,12 @@ function TaskEventTimeline({ task }: { task: MockTask }) {
 export function ProjectTaskDetailPage({
   onAction,
   onBack,
+  portalContainer = null,
   task,
 }: {
   onAction(action: MockTaskAction): void;
   onBack(): void;
+  portalContainer?: HTMLElement | null;
   projectName: string;
   task: MockTask;
 }) {
@@ -106,6 +108,7 @@ export function ProjectTaskDetailPage({
               onOpenDevServer={() => setReviewSurface("development")}
               onOpenPreview={() => setReviewSurface("preview")}
               onOpenPrototype={() => setReviewSurface("prototype")}
+              portalContainer={portalContainer}
               task={task}
             />
           </div>

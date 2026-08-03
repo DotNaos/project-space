@@ -191,6 +191,7 @@ export function ProjectSpaceHome({
             <ProjectTaskDetailPage
               onAction={(action) => dispatchTask(selectedTask.number, action)}
               onBack={() => setSelectedTaskNumber(null)}
+              portalContainer={portalContainer}
               projectName={project.name}
               task={selectedTask}
             />

@@ -508,6 +508,7 @@ describe('project space home prototype', () => {
     expect(html).toContain('Checks passed');
     expect(html).toContain('Machines');
     expect(html).toContain('os-pc');
+    expect(html).toContain('aria-label="Add machine"');
     expect(html).not.toContain('Tailscale · Clean');
     expect(html).toContain('Connected');
     expect(html).toContain('data-testid="task-mobile-primary-action"');
