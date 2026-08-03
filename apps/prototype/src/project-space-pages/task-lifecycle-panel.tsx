@@ -14,12 +14,10 @@ import {
   GitPullRequestDraft,
   Laptop,
   MonitorPlay,
-  PanelsTopLeft,
   Play,
   RefreshCw,
   Rocket,
   ShieldCheck,
-  Shapes,
   Sparkles,
 } from "lucide-react";
 
@@ -151,20 +149,9 @@ export function TaskDeliveryPanel({
               </>
             ) : null}
             {previewReady ? (
-              <div className="grid grid-cols-2 gap-2">
-                <Button className="col-span-2 w-full" size="md" variant="primary" onPress={onOpenPreview}>
+              <div>
+                <Button className="w-full" size="md" variant="primary" onPress={onOpenPreview}>
                   <MonitorPlay className="size-4" /> Open Preview
-                </Button>
-                <a
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-current/[.06] px-3 text-xs font-medium text-current/60 transition-[background-color,color,scale] hover:bg-current/[.1] hover:text-current active:scale-[.96]"
-                  href="http://design-space.localhost:1355/"
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  <PanelsTopLeft className="size-4" /> Design Space
-                </a>
-                <Button className="w-full" size="sm" variant="secondary" onPress={onOpenPrototype}>
-                  <Shapes className="size-4" /> Prototype
                 </Button>
               </div>
             ) : null}
@@ -191,6 +178,7 @@ export function TaskDeliveryPanel({
       <TaskDevelopmentContext
         onContinueDevelopment={onContinueDevelopment}
         onOpenDevServer={onOpenDevServer}
+        onOpenPrototype={onOpenPrototype}
         task={task}
       />
 

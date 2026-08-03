@@ -1,5 +1,5 @@
-import { Button } from "@heroui/react";
-import { Bot, ChevronDown, Circle, Globe, Laptop, Play } from "lucide-react";
+import { Button, Card } from "@heroui/react";
+import { Bot, ChevronDown, Circle, Globe, Laptop, LoaderCircle, PanelsTopLeft, Play, Shapes } from "lucide-react";
 import { useState } from "react";
 
 import type { MockTask } from "./task-model";
@@ -7,13 +7,15 @@ import type { MockTask } from "./task-model";
 export function TaskDevelopmentContext({
   onContinueDevelopment,
   onOpenDevServer,
+  onOpenPrototype,
   task,
 }: {
   onContinueDevelopment(): void;
   onOpenDevServer(): void;
+  onOpenPrototype(): void;
   task: MockTask;
 }) {
-  const [threadsOpen, setThreadsOpen] = useState(false);
+  const [openMachine, setOpenMachine] = useState<string | null>(null);
   const workspace = task.workspace;
   const threads = task.agentThreads ?? (task.agentRun ? [{ id: `task-${task.number}`, name: task.agentRun.name, status: task.agentRun.status === "running" ? "running" as const : "idle" as const }] : []);
 
@@ -21,47 +23,71 @@ export function TaskDevelopmentContext({
 
   return (
     <section className="mt-5 border-t border-current/[.08] pt-4">
-      <h2 className="text-xs font-semibold text-current/55">Development</h2>
+      <h2 className="text-xs font-semibold text-current/55">Machines</h2>
 
-      <div className="mt-3 flex min-w-0 items-center gap-3">
-        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-current/[.055] text-current/40">
-          <Laptop className="size-3.5" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-current/70">{workspace.machine}</span>
-          <span className="mt-0.5 block truncate text-[11px] text-current/35">
-            {workspace.devServer?.transport ?? "Workspace"} · {workspace.status === "clean" ? "Clean" : `${workspace.changedFiles} files changed`}
+      <Card className="mt-3 gap-0 rounded-2xl bg-current/[.035] p-3 shadow-none ring-1 ring-inset ring-current/[.07]" variant="transparent">
+        <Card.Header className="flex-row items-center gap-3">
+          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-current/[.055] text-current/40">
+            <Laptop className="size-3.5" />
           </span>
-        </span>
-        <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-emerald-300/80">
-          <Circle className="size-2 fill-current" /> Connected
-        </span>
-      </div>
+          <span className="min-w-0 flex-1">
+            <Card.Title className="truncate text-sm font-medium text-current/75">{workspace.machine}</Card.Title>
+            <Card.Description className="mt-0.5 truncate text-[11px] text-current/35">
+              {workspace.devServer?.transport ?? "Workspace"} · {workspace.status === "clean" ? "Clean" : `${workspace.changedFiles} files changed`}
+            </Card.Description>
+          </span>
+          <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-emerald-300/80">
+            <Circle className="size-2 fill-current" /> Connected
+          </span>
+        </Card.Header>
 
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <Button className="min-w-0 px-2" size="sm" variant="secondary" onPress={onOpenDevServer}>
-          <Globe className="size-3.5" /> <span className="truncate">Dev server</span>
-        </Button>
-        <Button className="min-w-0 px-2" size="sm" variant="secondary" onPress={() => setThreadsOpen((value) => !value)}>
-          <Bot className="size-3.5" /> <span className="truncate">Threads {threads.length}</span>
-          <ChevronDown className={`size-3 transition-transform ${threadsOpen ? "rotate-180" : ""}`} />
-        </Button>
-        <Button className="min-w-0 px-2" size="sm" variant="secondary" onPress={onContinueDevelopment}>
-          <Play className="size-3.5" /> <span className="truncate">Continue</span>
-        </Button>
-      </div>
-
-      {threadsOpen ? (
-        <div className="mt-3 divide-y divide-current/[.07] border-y border-current/[.08]">
-          {threads.map((thread) => (
-            <button className="flex min-h-11 w-full items-center gap-2.5 py-2 text-left transition-colors hover:text-blue-300" key={thread.id} onClick={onContinueDevelopment} type="button">
-              <Bot className="size-3.5 shrink-0 text-current/30" />
-              <span className="min-w-0 flex-1 truncate text-xs font-medium text-current/60">{thread.name}</span>
-              <span className={`shrink-0 text-[10px] ${thread.status === "running" ? "text-emerald-300/75" : "text-current/30"}`}>{thread.status}</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
+        <Card.Content className="mt-3">
+          <div className="divide-y divide-current/[.07] border-y border-current/[.07]">
+            <MachineAction icon={Globe} label="Dev server" status="Live" statusTone="success">
+              <Button size="sm" variant="tertiary" onPress={onOpenDevServer}>Connect</Button>
+            </MachineAction>
+            <MachineAction icon={Shapes} label="Prototype" status="Running" statusTone="success">
+              <Button size="sm" variant="tertiary" onPress={onOpenPrototype}>Open</Button>
+            </MachineAction>
+            <MachineAction icon={PanelsTopLeft} label="Design Space" status="Available" statusTone="success">
+              <a className="inline-flex h-8 items-center rounded-full bg-current/[.055] px-3 text-xs font-medium text-current/60 transition-[background-color,color,scale] hover:bg-current/[.1] hover:text-current active:scale-[.96]" href="http://design-space.localhost:1355/" rel="noreferrer" target="_blank">Open</a>
+            </MachineAction>
+            <MachineAction icon={Bot} label="Codex threads" status={`${threads.filter((thread) => thread.status === "running").length} active · ${threads.length} total`} statusTone="info">
+              <Button size="sm" variant="tertiary" onPress={() => setOpenMachine((value) => value === workspace.machine ? null : workspace.machine)}>
+                View
+                <ChevronDown className={`size-3 transition-transform ${openMachine === workspace.machine ? "rotate-180" : ""}`} />
+              </Button>
+            </MachineAction>
+            {openMachine === workspace.machine ? (
+              <div className="space-y-1 bg-current/[.018] p-1.5">
+                {threads.map((thread) => (
+                  <button className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors hover:bg-current/[.045] hover:text-blue-300" key={thread.id} onClick={onContinueDevelopment} type="button">
+                    <span className="grid size-7 shrink-0 place-items-center rounded-full bg-current/[.055] text-current/35"><Bot className="size-3.5" /></span>
+                    <span className="min-w-0 flex-1 truncate text-xs font-medium text-current/60">{thread.name}</span>
+                    {thread.status === "running" ? <LoaderCircle aria-label="Running" className="size-3.5 shrink-0 animate-spin text-emerald-300/80" /> : <Circle aria-label="Idle" className="size-2.5 shrink-0 text-current/25" />}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <MachineAction icon={Play} label="Development" status="Ready" statusTone="info">
+              <Button size="sm" variant="tertiary" onPress={onContinueDevelopment}>Continue</Button>
+            </MachineAction>
+          </div>
+        </Card.Content>
+      </Card>
     </section>
+  );
+}
+
+function MachineAction({ children, icon: Icon, label, status, statusTone = "muted" }: { children: React.ReactNode; icon: typeof Globe; label: string; status: string; statusTone?: "info" | "muted" | "success" }) {
+  return (
+    <div className="flex min-h-11 items-center gap-3 py-1.5">
+      <span className="flex min-w-0 flex-1 items-center gap-2">
+        <Icon className="size-3.5 shrink-0 text-current/30" />
+        <span className="truncate text-xs font-medium text-current/60">{label}</span>
+        <span aria-label={status} className={`size-1.5 shrink-0 rounded-full ${statusTone === "success" ? "bg-emerald-400" : statusTone === "info" ? "bg-blue-400" : "bg-current/30"}`} role="img" title={status} />
+      </span>
+      <span className="shrink-0">{children}</span>
+    </div>
   );
 }
