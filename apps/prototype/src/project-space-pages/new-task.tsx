@@ -17,6 +17,16 @@ const taskTypes: Array<{ icon: typeof Sparkles; label: MockTaskType }> = [
   { icon: Lightbulb, label: "Idea" },
 ];
 
+export function suggestTaskTitle(idea: string) {
+  const sentence = idea.trim().split(/\n|(?<=[.!?])\s/)[0]
+    ?.replace(/^[-*]\s+/, "")
+    .replace(/[.!?]+$/, "")
+    .trim() ?? "";
+  if (sentence.length <= 72) return sentence;
+  const shortened = sentence.slice(0, 72);
+  return shortened.slice(0, shortened.lastIndexOf(" ")).trim() || shortened.trim();
+}
+
 export function NewTaskPage({
   onCreate,
   projectName,
@@ -34,9 +44,8 @@ export function NewTaskPage({
   function reviewIdea() {
     const value = idea.trim();
     if (!value) return;
-    const [firstLine, ...rest] = value.split("\n");
-    setTitle(firstLine.slice(0, 100));
-    setBody(rest.join("\n").trim() || value);
+    setTitle(suggestTaskTitle(value));
+    setBody(value);
     setReviewing(true);
   }
 

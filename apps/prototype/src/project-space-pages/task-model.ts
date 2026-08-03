@@ -45,6 +45,15 @@ export interface MockTaskPullRequest {
   revision: string;
 }
 
+export interface MockTaskCleanup {
+  remoteBranch: "deleted" | "exists";
+  worktrees: Array<{
+    machine: string;
+    safeToDelete: boolean;
+    status: "clean" | "modified";
+  }>;
+}
+
 export interface MockTask {
   agentRun?: {
     machine: string;
@@ -57,6 +66,7 @@ export interface MockTask {
   branch?: string;
   branchRelation?: string;
   comments: MockTaskComment[];
+  cleanup?: MockTaskCleanup;
   deployment?: {
     commit: string;
     status: "deployed" | "deploying";
@@ -88,9 +98,11 @@ export type MockTaskAction =
   | { type: "change-revision" }
   | { type: "complete-deployment" }
   | { type: "create-branch" }
+  | { type: "delete-remote-branch" }
   | { type: "fail-checks" }
   | { type: "merge" }
   | { type: "mark-pull-request-ready" }
+  | { type: "remove-worktree"; machine: string }
   | { type: "open-pull-request" }
   | { type: "pass-checks" }
   | { type: "request-review" }
@@ -186,7 +198,14 @@ export function updateMockTask(task: MockTask, action: MockTaskAction): MockTask
     case "start-development":
       return withEvent(task, {
         agentRun: { machine: "Local", name: `#${task.number} · Build task`, status: "running" },
+        agentThreads: [{ id: `${task.number}-build`, name: `#${task.number} · Build task`, status: "running" }],
         stage: "development",
+        workspace: {
+          changedFiles: 0,
+          devServer: { status: "running", transport: "Tailscale" },
+          machine: "Local",
+          status: "clean",
+        },
       }, "Development started", "Codex is working in the task branch on Local.");
     case "open-pull-request":
       return withEvent(task, {
@@ -258,7 +277,17 @@ export function updateMockTask(task: MockTask, action: MockTaskAction): MockTask
       }, "Revision changed", "Previous approval was cleared because the pull request changed.");
     case "merge":
       if (!task.pullRequest || task.pullRequest.checks !== "passed" || task.pullRequest.review !== "approved") return task;
-      return withEvent(task, { stage: "merged" }, "Pull request merged", `#${task.pullRequest.number} was merged into main.`);
+      return withEvent(task, {
+        cleanup: {
+          remoteBranch: "exists",
+          worktrees: task.workspace ? [{
+            machine: task.workspace.machine,
+            safeToDelete: task.workspace.status === "clean",
+            status: task.workspace.status,
+          }] : [],
+        },
+        stage: "merged",
+      }, "Pull request merged", `#${task.pullRequest.number} was merged into main.`);
     case "start-deployment":
       if (task.stage !== "merged" || !task.pullRequest) return task;
       return withEvent(task, {
@@ -275,6 +304,22 @@ export function updateMockTask(task: MockTask, action: MockTaskAction): MockTask
         deployment: { ...task.deployment, status: "deployed" },
         stage: "deployed",
       }, "Deployment verified", `${task.deployment.commit} is live and healthy in production.`);
+    case "delete-remote-branch":
+      if (!task.cleanup || task.cleanup.remoteBranch === "deleted") return task;
+      return withEvent(task, {
+        cleanup: { ...task.cleanup, remoteBranch: "deleted" },
+      }, "Remote branch deleted", `${task.branch ?? "The merged branch"} was removed from GitHub.`);
+    case "remove-worktree": {
+      if (!task.cleanup) return task;
+      const worktree = task.cleanup.worktrees.find((candidate) => candidate.machine === action.machine);
+      if (!worktree?.safeToDelete) return task;
+      return withEvent(task, {
+        cleanup: {
+          ...task.cleanup,
+          worktrees: task.cleanup.worktrees.filter((candidate) => candidate.machine !== action.machine),
+        },
+      }, "Local worktree removed", `The clean worktree on ${action.machine} was removed.`);
+    }
   }
 }
 
@@ -407,6 +452,13 @@ export const initialMockTasks: MockTask[] = [
     branch: "issue-434-make-agent-authored-pr-revisions-green-on-first-push",
     branchRelation: "merged into main",
     comments: [],
+    cleanup: {
+      remoteBranch: "exists",
+      worktrees: [
+        { machine: "os-pc", safeToDelete: true, status: "clean" },
+        { machine: "os-macbook", safeToDelete: false, status: "modified" },
+      ],
+    },
     deployment: { commit: "7317597", status: "deployed", url: "https://projects.os-home.net" },
     events: [
       { detail: "Pull request #435 was approved and merged.", id: "434-1", time: "4h", title: "Pull request merged" },

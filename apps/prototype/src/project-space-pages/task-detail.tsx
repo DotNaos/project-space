@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@heroui/react";
 import {
   ArrowLeft,
@@ -16,6 +16,7 @@ import { TaskDeliveryPanel, TaskPrimaryAction } from "./task-lifecycle-panel";
 import type { MockTask, MockTaskAction, MockTaskAgentThread } from "./task-model";
 import { TaskPreviewModal } from "./task-preview-modal";
 import { TaskStatusIcon } from "./task-status-icon";
+import { publishMockTaskReviewContext } from "./task-review-context";
 
 const eventIcons = [MessageCircle, GitBranch, Bot, GitCommitHorizontal, Rocket];
 
@@ -56,6 +57,11 @@ export function ProjectTaskDetailPage({
   const [reviewSurface, setReviewSurface] = useState<"development" | "preview" | "prototype" | "thread" | null>(null);
   const [selectedThread, setSelectedThread] = useState<MockTaskAgentThread | null>(null);
   const githubUrl = `https://github.com/DotNaos/project-space/issues/${task.number}`;
+
+  useEffect(() => {
+    publishMockTaskReviewContext(task.isMockOnly ? task : null);
+    return () => publishMockTaskReviewContext(null);
+  }, [task]);
 
   return (
     <>
@@ -123,7 +129,7 @@ export function ProjectTaskDetailPage({
             className="-mx-5 shrink-0 border-t border-current/[.08] bg-[var(--prototype-screen-background)] px-5 pb-4 pt-3 @md:-mx-8 @md:px-8 @3xl:hidden"
             data-testid="task-mobile-primary-action"
           >
-            {task.pullRequest.preview === "ready" ? (
+            {task.pullRequest.preview === "ready" && task.pullRequest.review !== "approved" ? (
               <Button className="w-full" size="md" variant="primary" onPress={() => setReviewSurface("preview")}>
                 <MonitorPlay className="size-4" /> Open Preview
               </Button>
@@ -144,6 +150,10 @@ export function ProjectTaskDetailPage({
             setReviewSurface(null);
             setSelectedThread(null);
           }
+        }}
+        onApprove={() => {
+          onAction({ type: "approve-revision" });
+          setReviewSurface(null);
         }}
       />
     </>

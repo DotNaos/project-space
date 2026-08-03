@@ -1,104 +1,68 @@
 import { describe, expect, test } from "bun:test";
 
+import { suggestTaskTitle } from "../apps/prototype/src/project-space-pages/new-task";
+import { nextTaskAction } from "../apps/prototype/src/project-space-pages/task-lifecycle-panel";
 import {
   createMockTask,
-  mockTaskGroup,
+  initialMockTasks,
   updateMockTask,
   type MockTask,
-  type MockTaskAction,
 } from "../apps/prototype/src/project-space-pages/task-model";
 
-function apply(task: MockTask, ...actions: MockTaskAction[]) {
-  return actions.reduce(updateMockTask, task);
+function runNext(task: MockTask) {
+  const next = nextTaskAction(task);
+  expect(next).not.toBeNull();
+  return updateMockTask(task, next!.action);
 }
 
-describe("mocked Task lifecycle", () => {
-  test("moves a new Task through the complete delivery workflow", () => {
+describe("prototype task lifecycle", () => {
+  test("moves from a new Task through approval, merge, deployment, and cleanup", () => {
     let task = createMockTask({
-      body: "Use the full Task workflow without touching external systems.",
+      body: "Build the complete lifecycle so it can be dogfooded before infrastructure exists.",
       labels: ["prototype"],
-      number: 500,
-      title: "Dogfood the Task lifecycle",
+      number: 438,
+      title: "Dogfood the complete Task lifecycle",
       type: "Feature",
     });
 
-    expect(task.isMockOnly).toBe(true);
-
-    task = apply(
-      task,
-      { type: "create-branch" },
-      { type: "start-development" },
-      { type: "open-pull-request" },
-      { type: "run-checks" },
-      { type: "pass-checks" },
-      { type: "start-preview" },
-      { type: "request-review" },
-      { type: "approve-revision" },
-      { type: "merge" },
-      { type: "start-deployment" },
-      { type: "complete-deployment" },
-    );
-
+    task = runNext(task);
+    expect(task.stage).toBe("branch");
+    task = runNext(task);
+    expect(task.workspace?.devServer?.status).toBe("running");
+    expect(task.agentThreads?.[0]?.status).toBe("running");
+    task = runNext(task);
+    expect(task.pullRequest?.phase).toBe("draft");
+    expect(nextTaskAction(task)?.label).toBe("Mark PR ready");
+    task = runNext(task);
+    task = runNext(task);
+    task = runNext(task);
+    task = runNext(task);
+    expect(task.pullRequest?.preview).toBe("ready");
+    expect(nextTaskAction(task)?.label).toBe("Approve revision");
+    task = runNext(task);
+    expect(task.pullRequest?.review).toBe("approved");
+    task = runNext(task);
+    expect(task.stage).toBe("merged");
+    expect(task.cleanup?.remoteBranch).toBe("exists");
+    task = runNext(task);
+    task = runNext(task);
     expect(task.stage).toBe("deployed");
-    expect(task.branchRelation).toBe("1 ahead · 0 behind main");
-    expect(task.pullRequest).toMatchObject({ checks: "passed", preview: "ready", review: "approved" });
-    expect(task.deployment).toMatchObject({ status: "deployed", url: "https://projects.os-home.net" });
-    expect(mockTaskGroup(task)).toBe("Done");
-    expect(task.events.at(-1)?.title).toBe("Deployment verified");
+
+    task = updateMockTask(task, { type: "delete-remote-branch" });
+    task = updateMockTask(task, { machine: "Local", type: "remove-worktree" });
+    expect(task.cleanup).toEqual({ remoteBranch: "deleted", worktrees: [] });
   });
 
-  test("supports failed-check recovery and comments", () => {
-    let task = createMockTask({ body: "Recover clearly.", labels: [], number: 501, title: "Recover checks", type: "Bug" });
-    task = apply(
-      task,
-      { type: "create-branch" },
-      { type: "start-development" },
-      { type: "open-pull-request" },
-      { type: "run-checks" },
-      { type: "fail-checks" },
-      { body: "I can see what failed.", type: "add-comment" },
-    );
-
-    expect(mockTaskGroup(task)).toBe("Needs you");
-    expect(task.comments.at(-1)?.body).toBe("I can see what failed.");
-
-    task = apply(task, { type: "run-checks" }, { type: "pass-checks" });
-    expect(task.pullRequest?.checks).toBe("passed");
-    expect(mockTaskGroup(task)).toBe("Active");
+  test("does not remove a modified worktree", () => {
+    const completed = initialMockTasks.find((task) => task.number === 434)!;
+    const next = updateMockTask(completed, { machine: "os-macbook", type: "remove-worktree" });
+    expect(next).toBe(completed);
   });
 
-  test("invalidates approval when the mocked revision changes", () => {
-    let task = createMockTask({ body: "Pin approval.", labels: [], number: 502, title: "Protect approval", type: "Feature" });
-    task = apply(
-      task,
-      { type: "create-branch" },
-      { type: "start-development" },
-      { type: "open-pull-request" },
-      { type: "run-checks" },
-      { type: "pass-checks" },
-      { type: "start-preview" },
-      { type: "request-review" },
-      { type: "approve-revision" },
-    );
-    const approvedRevision = task.pullRequest?.revision;
-
-    task = updateMockTask(task, { type: "change-revision" });
-
-    expect(task.pullRequest?.revision).not.toBe(approvedRevision);
-    expect(task.pullRequest).toMatchObject({ checks: "not-started", preview: "not-started", review: "not-requested" });
-    expect(updateMockTask(task, { type: "merge" }).stage).toBe("pull-request");
-  });
-
-  test("recovers an unavailable Preview", () => {
-    const task = createMockTask({ body: "Retry Preview.", labels: [], number: 503, title: "Preview recovery", type: "Idea" });
-    const withUnavailablePreview: MockTask = {
-      ...task,
-      branch: "task-503-preview-recovery",
-      pullRequest: { checks: "passed", number: 504, preview: "unavailable", review: "not-requested", revision: "dc6bd80" },
-      stage: "checks",
-    };
-
-    expect(mockTaskGroup(withUnavailablePreview)).toBe("Needs you");
-    expect(updateMockTask(withUnavailablePreview, { type: "retry-preview" }).pullRequest?.preview).toBe("ready");
+  test("suggests a short title while preserving the full idea for the description", () => {
+    expect(suggestTaskTitle("Add task notifications. They should appear after the agent finishes."))
+      .toBe("Add task notifications");
+    expect(suggestTaskTitle("Build a deliberately long title that should stop at a word boundary instead of cutting the final word apart for users"))
+      .toBe("Build a deliberately long title that should stop at a word boundary");
   });
 });

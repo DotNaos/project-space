@@ -22,13 +22,30 @@ import {
 } from '../../../src/shared/prototype-review-local-changelog-api';
 import { PrototypeReleaseEntryContent } from './prototype-release-entry-content';
 import { PrototypeWipReview } from './prototype-wip-review';
+import type { MockTask } from './project-space-pages/task-model';
 
 const localChangelogPath = '/api/prototype-review/local-changelog';
 
 export function PrototypeChangelogModal({
   isOpen,
+  mockTask,
   onOpenChange,
   theme
+}: {
+  isOpen: boolean;
+  mockTask?: MockTask;
+  onOpenChange(open: boolean): void;
+  theme: PrototypeTheme;
+}) {
+  return mockTask
+    ? <MockTaskChangelogModal isOpen={isOpen} onOpenChange={onOpenChange} task={mockTask} theme={theme} />
+    : <RepositoryChangelogModal isOpen={isOpen} onOpenChange={onOpenChange} theme={theme} />;
+}
+
+function RepositoryChangelogModal({
+  isOpen,
+  onOpenChange,
+  theme,
 }: {
   isOpen: boolean;
   onOpenChange(open: boolean): void;
@@ -111,6 +128,56 @@ export function PrototypeChangelogModal({
                   </Tabs.Panel>
                 ) : null}
               </Tabs>
+            </Modal.Body>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
+  );
+}
+
+function MockTaskChangelogModal({
+  isOpen,
+  onOpenChange,
+  task,
+  theme,
+}: {
+  isOpen: boolean;
+  onOpenChange(open: boolean): void;
+  task: MockTask;
+  theme: PrototypeTheme;
+}) {
+  return (
+    <Modal isOpen={isOpen} onOpenChange={onOpenChange}>
+      <Modal.Backdrop className="z-[90] bg-black/75" variant="blur">
+        <Modal.Container className="p-3" placement="center" scroll="inside" size="lg">
+          <Modal.Dialog className={`flex max-h-[min(42rem,92dvh)] flex-col overflow-hidden ${theme === 'dark' ? 'bg-neutral-950 text-neutral-100' : 'bg-stone-50 text-neutral-900'}`}>
+            <Modal.CloseTrigger aria-label="Close task changelog" />
+            <Modal.Header className={`block border-b px-5 pb-4 pr-12 pt-5 ${theme === 'dark' ? 'border-neutral-800' : 'border-stone-200'}`}>
+              <Modal.Heading className="flex items-center gap-2 text-base font-semibold">
+                <ScrollText aria-hidden className="size-4" /> Task changelog
+              </Modal.Heading>
+              <p className="mt-1.5 flex min-w-0 items-center gap-1.5 text-xs text-neutral-500">
+                {task.pullRequest ? <GitPullRequest className="size-3.5" /> : <GitBranch className="size-3.5" />}
+                <span>Task #{task.number}</span>
+                {task.pullRequest ? <><span>·</span><span>PR #{task.pullRequest.number}</span><span>·</span><span>{task.pullRequest.revision}</span></> : null}
+              </p>
+            </Modal.Header>
+            <Modal.Body className="min-h-0 overflow-y-auto px-5 py-5">
+              <h2 className="text-lg font-semibold tracking-[-.02em]">{task.title}</h2>
+              <p className="mt-2 text-sm leading-6 text-neutral-500">{task.body}</p>
+              <div className="mt-6 divide-y divide-neutral-800 border-y border-neutral-800">
+                {[...task.events].reverse().map((event) => (
+                  <article className="py-4" key={event.id}>
+                    <div className="flex items-center justify-between gap-3">
+                      <h3 className="text-sm font-medium">{event.title}</h3>
+                      <span className="text-[10px] text-neutral-600">{event.time}</span>
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-neutral-500">{event.detail}</p>
+                  </article>
+                ))}
+              </div>
+              <p className="mt-4 text-[10px] leading-4 text-neutral-600">Mock lifecycle data for this Task. No repository file is changed by these actions.</p>
             </Modal.Body>
           </Modal.Dialog>
         </Modal.Container>

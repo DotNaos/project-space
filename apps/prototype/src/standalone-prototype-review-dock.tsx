@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@heroui/react';
 import { ScrollText } from 'lucide-react';
 
@@ -8,6 +8,8 @@ import { usePrototypeReviewLocalContext } from '../../../src/features/pr-preview
 import { type PrototypeTheme } from '../../../src/shared/prototype-canvas';
 import type { PrototypeAnnotation } from '../../../src/shared/prototype-annotation-bridge';
 import { PrototypeChangelogModal } from './prototype-changelog-modal';
+import type { MockTask } from './project-space-pages/task-model';
+import { subscribeMockTaskReviewContext } from './project-space-pages/task-review-context';
 
 const noAnnotations: readonly PrototypeAnnotation[] = [];
 
@@ -29,6 +31,7 @@ export function StandalonePrototypeReviewDock({
   theme: PrototypeTheme;
 }) {
   const [changelogOpen, setChangelogOpen] = useState(false);
+  const [mockTask, setMockTask] = useState<MockTask | null>(null);
   const localContext = usePrototypeReviewLocalContext({ enabled: true });
   const codex = localContext.context?.codex;
   const development = codex?.state === 'available'
@@ -39,6 +42,8 @@ export function StandalonePrototypeReviewDock({
         threadId: codex.threadId
       }
     : undefined;
+
+  useEffect(() => subscribeMockTaskReviewContext(setMockTask), []);
 
   return (
     <>
@@ -79,6 +84,7 @@ export function StandalonePrototypeReviewDock({
 
       <PrototypeChangelogModal
         isOpen={changelogOpen}
+        mockTask={mockTask ?? undefined}
         onOpenChange={setChangelogOpen}
         theme={theme}
       />

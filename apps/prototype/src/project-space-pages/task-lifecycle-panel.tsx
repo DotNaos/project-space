@@ -26,6 +26,7 @@ import {
   type MockTaskAction,
 } from "./task-model";
 import { TaskDevelopmentContext } from "./task-development-context";
+import { TaskCleanup } from "./task-cleanup";
 
 function WorkflowFact({ children, icon: Icon, label }: { children: React.ReactNode; icon: typeof GitBranch; label: string }) {
   return (
@@ -50,17 +51,18 @@ function DeliveryFact({ children, icon: Icon, label }: { children: React.ReactNo
   );
 }
 
-function nextAction(task: MockTask): { action: MockTaskAction; icon: typeof Sparkles; label: string } | null {
+export function nextTaskAction(task: MockTask): { action: MockTaskAction; icon: typeof Sparkles; label: string } | null {
   if (!task.branch) return { action: { type: "create-branch" }, icon: GitBranch, label: "Create branch" };
-  if (task.stage === "branch") return { action: { type: "start-development" }, icon: Bot, label: "Start development" };
+  if (task.stage === "branch") return { action: { type: "start-development" }, icon: Bot, label: "Start Codex" };
   if (task.stage === "development") return { action: { type: "open-pull-request" }, icon: GitPullRequest, label: "Create draft PR" };
   if (!task.pullRequest) return null;
-  if (task.pullRequest.phase === "draft") return { action: { type: "mark-pull-request-ready" }, icon: Bot, label: "Start development" };
+  if (task.pullRequest.phase === "draft") return { action: { type: "mark-pull-request-ready" }, icon: GitPullRequest, label: "Mark PR ready" };
   if (task.pullRequest.checks === "not-started") return { action: { type: "run-checks" }, icon: Play, label: "Run checks" };
   if (task.pullRequest.checks === "running") return { action: { type: "pass-checks" }, icon: Check, label: "Pass checks" };
   if (task.pullRequest.checks === "failed") return { action: { type: "run-checks" }, icon: RefreshCw, label: "Retry checks" };
   if (task.pullRequest.preview === "not-started") return { action: { type: "start-preview" }, icon: Rocket, label: "Start Preview" };
   if (task.pullRequest.preview === "unavailable") return { action: { type: "retry-preview" }, icon: RefreshCw, label: "Retry Preview" };
+  if (task.pullRequest.review === "not-requested") return { action: { type: "approve-revision" }, icon: ShieldCheck, label: "Approve revision" };
   if (task.pullRequest.review === "pending") return { action: { type: "approve-revision" }, icon: Check, label: "Approve revision" };
   if (task.stage === "review") return { action: { type: "merge" }, icon: GitMerge, label: "Merge pull request" };
   if (task.stage === "merged") return { action: { type: "start-deployment" }, icon: Rocket, label: "Start deployment" };
@@ -77,17 +79,15 @@ export function TaskPrimaryAction({
   onAction(action: MockTaskAction): void;
   task: MockTask;
 }) {
-  const primary = nextAction(task);
+  const primary = nextTaskAction(task);
 
   if (!primary) return null;
-
-  const previewReady = task.pullRequest?.preview === "ready";
 
   return (
     <Button
       className={className}
       size="sm"
-      variant={previewReady ? "secondary" : "primary"}
+      variant="primary"
       onPress={() => onAction(primary.action)}
     >
       <primary.icon className="size-4" /> {primary.label}
@@ -188,6 +188,8 @@ export function TaskDeliveryPanel({
         task={task}
       />
 
+      <TaskCleanup onAction={onAction} task={task} />
+
       {latestEvent && (attention || !task.pullRequest) ? <p className="mt-4 max-w-xl text-sm leading-6 text-current/55">{latestEvent.detail}</p> : null}
 
       <div className={`mt-4 flex flex-wrap gap-2 ${draftPullRequest ? "hidden @3xl:flex" : ""}`} data-testid="task-panel-primary-action">
@@ -210,15 +212,6 @@ export function TaskDeliveryPanel({
         </section>
       ) : null}
 
-      {/*
-       * TODO(#437): Completed Tasks need branch and worktree cleanup evidence.
-       * Show whether the merged branch still exists on GitHub and on each local
-       * machine. A merged remote branch may be deleted. A local branch and its
-       * worktree are safe to delete only after the checkout is clean and has no
-       * unpublished work; otherwise escalate it for inspection instead of
-       * offering automatic cleanup. Status filters and navigation to the full
-       * Repository management view are intentionally deferred.
-       */}
       {!draftPullRequest ? <details className="group mt-4 border-t border-current/[.08] pt-1">
         <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-1 text-xs font-medium text-current/40 transition-colors hover:text-current/70 [&::-webkit-details-marker]:hidden">
           Development details

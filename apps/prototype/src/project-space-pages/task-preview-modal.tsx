@@ -1,13 +1,15 @@
-import { Modal } from "@heroui/react";
-import { MonitorPlay, Network, Shapes } from "lucide-react";
+import { Button, Modal } from "@heroui/react";
+import { MonitorPlay, Network, Shapes, ShieldCheck } from "lucide-react";
 
 import type { MockTask, MockTaskAgentThread } from "./task-model";
 import { TaskDevelopmentServerFrame } from "./task-development-server-frame";
 import { TaskThreadWorkspace } from "./task-thread-workspace";
+import { taskPreviewDocument } from "./task-preview-document";
 
 export function TaskPreviewModal({
   isOpen,
   onOpenChange,
+  onApprove,
   portalContainer = null,
   surface,
   task,
@@ -15,6 +17,7 @@ export function TaskPreviewModal({
 }: {
   isOpen: boolean;
   onOpenChange(isOpen: boolean): void;
+  onApprove?(): void;
   portalContainer?: HTMLElement | null;
   surface: "development" | "preview" | "prototype" | "thread";
   task: MockTask;
@@ -70,18 +73,20 @@ export function TaskPreviewModal({
               {surface === "development" ? (
                 <TaskDevelopmentServerFrame className="min-h-[32rem]" task={task} />
               ) : (
-                <div className="grid min-h-[32rem] place-items-center bg-[#090909] px-6 py-12 text-center">
-                  <div className="max-w-md">
-                    <span className="text-xs text-white/30">Task #{task.number}</span>
-                    <h2 className="mt-3 text-2xl font-semibold tracking-[-.03em]">{task.title}</h2>
-                    <p className="mt-3 text-sm leading-6 text-white/45">{config.description} It is pinned to revision {task.pullRequest?.revision} and remains mock UI.</p>
-                    <div className="mx-auto mt-8 h-1 w-32 overflow-hidden rounded-full bg-white/10">
-                      <span className="block h-full w-3/4 rounded-full bg-blue-400" />
-                    </div>
-                  </div>
-                </div>
+                <iframe
+                  className="min-h-[32rem] w-full border-0 bg-[#090909]"
+                  srcDoc={taskPreviewDocument(task, surface)}
+                  title={`${config.heading} for task #${task.number}`}
+                />
               )}
             </Modal.Body>
+            {surface === "preview" && task.pullRequest?.review !== "approved" && onApprove ? (
+              <Modal.Footer className="border-t border-white/10 px-5 py-4">
+                <Button className="w-full" variant="primary" onPress={onApprove}>
+                  <ShieldCheck className="size-4" /> Approve revision {task.pullRequest?.revision}
+                </Button>
+              </Modal.Footer>
+            ) : null}
           </Modal.Dialog>
         </Modal.Container>
       </Modal.Backdrop>

@@ -13,11 +13,29 @@ const storageKey = "project-space-prototype-tasks-v2";
 
 function hydrateFixtureDevelopmentContext(task: MockTask) {
   const fixture = initialMockTasks.find((candidate) => candidate.number === task.number);
-  if (!fixture) return task;
+  const started = !["issue", "branch"].includes(task.stage);
+  const inferredWorkspace = started && task.branch ? {
+    changedFiles: 0,
+    devServer: { status: "running" as const, transport: "Tailscale" as const },
+    machine: task.agentRun?.machine ?? "Local",
+    status: "clean" as const,
+  } : undefined;
+  const inferredThreads = task.agentRun ? [{
+    id: `${task.number}-build`,
+    name: task.agentRun.name,
+    status: task.agentRun.status === "running" ? "running" as const : "idle" as const,
+  }] : undefined;
+
+  if (!fixture) return {
+    ...task,
+    agentThreads: task.agentThreads ?? inferredThreads,
+    workspace: task.workspace ?? inferredWorkspace,
+  };
 
   return {
     ...task,
     agentThreads: task.agentThreads ?? fixture.agentThreads,
+    cleanup: task.cleanup ?? fixture.cleanup,
     workspace: task.workspace && fixture.workspace
       ? {
           ...task.workspace,
