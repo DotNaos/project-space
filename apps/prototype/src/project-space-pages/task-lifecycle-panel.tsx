@@ -64,7 +64,7 @@ export function nextTaskAction(task: MockTask): { action: MockTaskAction; icon: 
   if (task.pullRequest.checks === "failed") return { action: { type: "run-checks" }, icon: RefreshCw, label: "Retry checks" };
   if (task.pullRequest.preview === "not-started") return { action: { type: "start-preview" }, icon: Rocket, label: "Start Preview" };
   if (task.pullRequest.preview === "unavailable") return { action: { type: "retry-preview" }, icon: RefreshCw, label: "Retry Preview" };
-  if (task.pullRequest.review !== "approved") return null;
+  if (task.pullRequest.review !== "approved") return { action: { type: "approve-revision" }, icon: ShieldCheck, label: "Approve PR" };
   if (task.stage === "review") return { action: { type: "merge" }, icon: GitMerge, label: "Merge pull request" };
   if (task.stage === "merged") return { action: { type: "start-deployment" }, icon: Rocket, label: "Start deployment" };
   if (task.stage === "deploying") return { action: { type: "complete-deployment" }, icon: Check, label: "Verify deployment" };

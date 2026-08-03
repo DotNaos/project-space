@@ -46,8 +46,8 @@ describe("prototype task lifecycle", () => {
     task = runNext(task);
     expect(task.pullRequest?.checks).toBe("passed");
     expect(task.pullRequest?.preview).toBe("ready");
-    expect(nextTaskAction(task)).toBeNull();
-    task = updateMockTask(task, { type: "approve-revision" });
+    expect(nextTaskAction(task)?.label).toBe("Approve PR");
+    task = runNext(task);
     expect(task.pullRequest?.review).toBe("approved");
     task = runNext(task);
     expect(task.stage).toBe("merged");
