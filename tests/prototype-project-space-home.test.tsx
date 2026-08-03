@@ -510,6 +510,8 @@ describe('project space home prototype', () => {
     expect(html).toContain('os-pc');
     expect(html).toContain('Tailscale · Clean');
     expect(html).toContain('Connected');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-hidden="true" hidden=""');
     expect(html).toContain('Dev server');
     expect(html).toContain('Live');
     expect(html).toContain('Codex threads');
