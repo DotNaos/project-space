@@ -1,7 +1,8 @@
 import { Modal } from "@heroui/react";
-import { Check, MonitorPlay, Network, Shapes } from "lucide-react";
+import { MonitorPlay, Network, Shapes } from "lucide-react";
 
 import type { MockTask, MockTaskAgentThread } from "./task-model";
+import { TaskDevelopmentServerFrame } from "./task-development-server-frame";
 import { TaskThreadWorkspace } from "./task-thread-workspace";
 
 export function TaskPreviewModal({
@@ -66,13 +67,10 @@ export function TaskPreviewModal({
               <p className="mt-1 text-xs text-neutral-500">#{task.number} · {task.pullRequest?.revision}</p>
             </Modal.Header>
             <Modal.Body className="min-h-0 overflow-y-auto p-0">
-              <div className="flex min-h-[32rem] flex-col bg-[#090909]">
-                <header className="flex h-12 items-center gap-3 border-b border-white/[.07] px-5">
-                  <span className="grid size-6 place-items-center rounded-full border border-white/10 text-[9px] font-semibold text-white/60">PS</span>
-                  <span className="text-sm font-medium">project-space</span>
-                  <span className="ml-auto flex items-center gap-1.5 text-[11px] text-emerald-300"><Check className="size-3.5" /> Verified mock</span>
-                </header>
-                <main className="grid flex-1 place-items-center px-6 py-12 text-center">
+              {surface === "development" ? (
+                <TaskDevelopmentServerFrame className="min-h-[32rem]" task={task} />
+              ) : (
+                <div className="grid min-h-[32rem] place-items-center bg-[#090909] px-6 py-12 text-center">
                   <div className="max-w-md">
                     <span className="text-xs text-white/30">Task #{task.number}</span>
                     <h2 className="mt-3 text-2xl font-semibold tracking-[-.03em]">{task.title}</h2>
@@ -81,8 +79,8 @@ export function TaskPreviewModal({
                       <span className="block h-full w-3/4 rounded-full bg-blue-400" />
                     </div>
                   </div>
-                </main>
-              </div>
+                </div>
+              )}
             </Modal.Body>
           </Modal.Dialog>
         </Modal.Container>

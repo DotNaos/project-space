@@ -1,8 +1,9 @@
 import { Button, Modal, TextArea } from "@heroui/react";
-import { ArrowUp, Bot, Check, Globe, LoaderCircle, PanelLeft, Search } from "lucide-react";
+import { ArrowUp, Bot, Globe, LoaderCircle } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
 import type { MockTask, MockTaskAgentThread } from "./task-model";
+import { TaskDevelopmentServerFrame } from "./task-development-server-frame";
 
 interface ChatMessage {
   body: string;
@@ -90,23 +91,7 @@ function DevServer({ task }: { task: MockTask }) {
         <span className="ml-1 size-1.5 rounded-full bg-emerald-400" aria-label="Live" />
         <span className="ml-auto text-[10px] text-neutral-600">Embedded</span>
       </header>
-      <div className="grid min-h-0 flex-1 grid-cols-[3rem_minmax(0,1fr)] bg-[#0b0b0b]">
-        <nav aria-label="Mock project navigation" className="flex flex-col items-center gap-3 border-r border-white/[.06] py-3 text-neutral-600">
-          <PanelLeft className="size-4" />
-          <Search className="size-4" />
-          <Bot className="size-4" />
-        </nav>
-        <main className="grid min-h-0 place-items-center overflow-hidden px-5 py-4 text-center">
-          <div className="max-w-md">
-            <span className="mx-auto grid size-9 place-items-center rounded-xl bg-blue-500/10 text-xs font-semibold text-blue-300">PS</span>
-            <p className="mt-3 text-[10px] text-neutral-600">Live from {task.workspace?.machine ?? "workspace"}</p>
-            <h2 className="mt-1 text-base font-semibold tracking-[-.02em] text-neutral-200 @3xl:text-xl">{task.title}</h2>
-            <div className="mx-auto mt-4 flex w-fit items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] font-medium text-emerald-300">
-              <Check className="size-3" /> Ready for iteration
-            </div>
-          </div>
-        </main>
-      </div>
+      <TaskDevelopmentServerFrame className="min-h-0 flex-1" task={task} />
     </section>
   );
 }

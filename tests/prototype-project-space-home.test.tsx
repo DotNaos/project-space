@@ -35,8 +35,20 @@ import {
   projectChatAgentEntries,
   projectChatMachineCounts,
 } from '../apps/prototype/src/project-space-pages/project-chat-model';
+import { TaskDevelopmentServerFrame } from '../apps/prototype/src/project-space-pages/task-development-server-frame';
 
 describe('project space home prototype', () => {
+  test('embeds the local development server fixture in a real iframe', () => {
+    const task = initialMockTasks.find((candidate) => candidate.number === 395)!;
+    const html = renderToStaticMarkup(<TaskDevelopmentServerFrame task={task} />);
+
+    expect(html).toContain('<iframe');
+    expect(html).toContain('title="Test development server"');
+    expect(html).toContain('/prototype/desktop/dev-server-mock.html?');
+    expect(html).toContain('issue=395');
+    expect(html).toContain('machine=os-pc');
+  });
+
   test('uses one shell surface behind the sidebar and rounded main view', () => {
     expect(projectSpaceShellBackground('dark')).toBe('#151515');
     expect(projectSpaceShellBackground('light')).toBe('#efeee9');
