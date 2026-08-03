@@ -150,7 +150,7 @@ export function TaskDeliveryPanel({
             ) : null}
             {previewReady ? (
               <div>
-                <Button className="w-full" size="md" variant="primary" onPress={onOpenPreview}>
+                <Button className="hidden w-full @3xl:flex" size="md" variant="primary" onPress={onOpenPreview}>
                   <MonitorPlay className="size-4" /> Open Preview
                 </Button>
               </div>

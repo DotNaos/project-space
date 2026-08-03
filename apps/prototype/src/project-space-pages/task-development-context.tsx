@@ -28,7 +28,7 @@ export function TaskDevelopmentContext({
     <section className="mt-5 border-t border-current/[.08] pt-4">
       <h2 className="text-xs font-semibold text-current/55">Machines</h2>
 
-      <Card className="mt-2 gap-0 overflow-hidden rounded-2xl bg-current/[.035] p-0 shadow-none ring-1 ring-inset ring-current/[.07]" variant="transparent">
+      <Card className="mt-2 gap-0 overflow-hidden rounded-2xl bg-current/[.045] p-0 shadow-none" variant="transparent">
         <Disclosure
           isExpanded={machineExpanded}
           onExpandedChange={(isExpanded) => {
@@ -37,16 +37,11 @@ export function TaskDevelopmentContext({
           }}
         >
           <Disclosure.Heading>
-            <Button className="h-12 w-full justify-start gap-2.5 rounded-2xl px-3 text-left" slot="trigger" variant="ghost">
+            <Button className="h-11 w-full justify-start gap-2.5 rounded-2xl px-3 text-left" slot="trigger" variant="ghost">
               <span className="grid size-7 shrink-0 place-items-center rounded-full bg-current/[.055] text-current/40">
                 <Laptop className="size-3.5" />
               </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs font-semibold text-current/75">{workspace.machine}</span>
-                <span className="mt-0.5 block truncate text-[10px] text-current/35">
-                  {workspace.devServer?.transport ?? "Workspace"} · {workspace.status === "clean" ? "Clean" : `${workspace.changedFiles} files changed`}
-                </span>
-              </span>
+              <span className="min-w-0 flex-1 truncate text-xs font-semibold text-current/75">{workspace.machine}</span>
               <span aria-label="Connected" className="size-2 shrink-0 rounded-full bg-emerald-400" role="img" title="Connected" />
               <Disclosure.Indicator className="text-current/35" />
             </Button>
@@ -54,7 +49,7 @@ export function TaskDevelopmentContext({
 
           <Disclosure.Content>
             <Disclosure.Body className="px-3 pb-2 pt-0">
-              <div className="divide-y divide-current/[.07] border-t border-current/[.07]">
+              <div className="divide-y divide-current/[.07]">
                 <MachineAction icon={Globe} label="Dev server" status="Live" statusTone="success">
                   <Button size="sm" variant="tertiary" onPress={onOpenDevServer}>Connect</Button>
                 </MachineAction>

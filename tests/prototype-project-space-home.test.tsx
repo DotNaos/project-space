@@ -508,8 +508,12 @@ describe('project space home prototype', () => {
     expect(html).toContain('Checks passed');
     expect(html).toContain('Machines');
     expect(html).toContain('os-pc');
-    expect(html).toContain('Tailscale · Clean');
+    expect(html).not.toContain('Tailscale · Clean');
     expect(html).toContain('Connected');
+    expect(html).toContain('data-testid="task-mobile-primary-action"');
+    expect(html).toContain('hidden w-full @3xl:flex');
+    expect(html).toContain('#395</p><p');
+    expect(html).toContain('Require verified live iteration for prototypes');
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('aria-hidden="true" hidden=""');
     expect(html).toContain('Dev server');
