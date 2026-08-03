@@ -81,7 +81,7 @@ export function PrototypeReviewCodexDock({
     controller.getState,
   );
   const [draft, setDraft] = useState("");
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string>();
   const [images, setImages] = useState<PendingCodexImage[]>([]);
@@ -465,12 +465,15 @@ export function PrototypeReviewCodexDock({
             headerContent={
               <div className="flex min-w-0 items-center gap-3">
                 <div className="flex min-w-0 flex-1 items-center gap-2">
+                  {working ? (
+                    <Loader2
+                      aria-label="Codex task running"
+                      className="size-3.5 shrink-0 animate-spin text-emerald-500"
+                    />
+                  ) : null}
                   <span className="min-w-0 truncate text-xs font-medium">
                     {session?.title ?? "Verified Codex task"}
                   </span>
-                  {collapsed && working ? (
-                    <Loader2 className="size-3.5 shrink-0 animate-spin text-emerald-500" />
-                  ) : null}
                 </div>
                 <div className="flex shrink-0 items-center">
                   <button
