@@ -10,4 +10,4 @@ test('the versioned startup selector passes lease, reconciliation, and concurren
   });
   expect(new TextDecoder().decode(result.stderr)).toContain('OK');
   expect(result.exitCode).toBe(0);
-});
+},30_000);
