@@ -123,7 +123,7 @@ export function ProjectTaskDetailPage({
             />
           </div>
         </div>
-        {task.pullRequest?.phase === "draft" || task.pullRequest?.preview === "ready" ? (
+        {task.pullRequest?.phase === "draft" || task.pullRequest?.preview === "ready" || (task.stage === "deployed" && task.cleanup?.remoteBranch === "exists") ? (
           <footer
             className="-mx-5 shrink-0 border-t border-current/[.08] bg-[var(--prototype-screen-background)] px-5 pb-4 pt-3 @md:-mx-8 @md:px-8 @3xl:hidden"
             data-testid="task-mobile-primary-action"

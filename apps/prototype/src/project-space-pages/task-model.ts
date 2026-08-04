@@ -52,6 +52,8 @@ export interface MockTaskCleanup {
     machine: string;
     safeToDelete: boolean;
     status: "clean" | "modified";
+    uncommittedChanges: number;
+    unstagedChanges: number;
   }>;
 }
 
@@ -100,6 +102,7 @@ export type MockTaskAction =
   | { type: "change-revision" }
   | { type: "complete-deployment" }
   | { type: "create-branch" }
+  | { type: "delete-branch" }
   | { type: "delete-remote-branch" }
   | { type: "fail-checks" }
   | { type: "merge" }
@@ -275,6 +278,8 @@ export function updateMockTask(task: MockTask, action: MockTaskAction): MockTask
             machine: task.workspace.machine,
             safeToDelete: task.workspace.status === "clean",
             status: task.workspace.status,
+            uncommittedChanges: task.workspace.changedFiles,
+            unstagedChanges: task.workspace.changedFiles,
           }] : [],
         },
         pullRequest: { ...task.pullRequest, review: "approved" },
@@ -301,6 +306,8 @@ export function updateMockTask(task: MockTask, action: MockTaskAction): MockTask
             machine: task.workspace.machine,
             safeToDelete: task.workspace.status === "clean",
             status: task.workspace.status,
+            uncommittedChanges: task.workspace.changedFiles,
+            unstagedChanges: task.workspace.changedFiles,
           }] : [],
         },
         stage: "merged",
@@ -326,6 +333,17 @@ export function updateMockTask(task: MockTask, action: MockTaskAction): MockTask
       return withEvent(task, {
         cleanup: { ...task.cleanup, remoteBranch: "deleted" },
       }, "Remote branch deleted", `${task.branch ?? "The merged branch"} was removed from GitHub.`);
+    case "delete-branch": {
+      if (!task.cleanup || task.cleanup.remoteBranch === "deleted") return task;
+      const preservedWorktrees = task.cleanup.worktrees.filter((worktree) => !worktree.safeToDelete);
+      const removedWorktreeCount = task.cleanup.worktrees.length - preservedWorktrees.length;
+      return withEvent(task, {
+        cleanup: {
+          remoteBranch: "deleted",
+          worktrees: preservedWorktrees,
+        },
+      }, "Branch deleted", `${task.branch ?? "The merged branch"} was removed from GitHub${removedWorktreeCount ? ` and ${removedWorktreeCount} clean local checkout${removedWorktreeCount === 1 ? "" : "s"} were removed` : ""}. Checkouts with local changes were preserved.`);
+    }
     case "remove-worktree": {
       if (!task.cleanup) return task;
       const worktree = task.cleanup.worktrees.find((candidate) => candidate.machine === action.machine);
@@ -473,8 +491,9 @@ export const initialMockTasks: MockTask[] = [
     cleanup: {
       remoteBranch: "exists",
       worktrees: [
-        { machine: "os-pc", safeToDelete: true, status: "clean" },
-        { machine: "os-macbook", safeToDelete: false, status: "modified" },
+        { machine: "os-pc", safeToDelete: true, status: "clean", uncommittedChanges: 0, unstagedChanges: 0 },
+        { machine: "os-macbook", safeToDelete: false, status: "modified", uncommittedChanges: 3, unstagedChanges: 2 },
+        { machine: "os-yoga-unix", safeToDelete: false, status: "modified", uncommittedChanges: 1, unstagedChanges: 0 },
       ],
     },
     deployment: { commit: "7317597", status: "deployed", url: "https://projects.os-home.net" },

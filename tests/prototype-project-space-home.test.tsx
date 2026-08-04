@@ -544,6 +544,33 @@ describe('project space home prototype', () => {
     expect(html).not.toContain('Working context');
   });
 
+  test('shows branch cleanup and a single delete action for closed tasks', () => {
+    const task = initialMockTasks.find((candidate) => candidate.number === 434)!;
+    const html = renderToStaticMarkup(
+      <ProjectTaskDetailPage
+        onAction={() => undefined}
+        onBack={() => undefined}
+        projectName="project-space"
+        task={task}
+      />
+    );
+
+    expect(html).toContain('data-testid="closed-task-checkouts"');
+    expect(html).toContain('Branch checkouts');
+    expect(html).toContain('Still on GitHub');
+    expect(html).toContain('Merged #435');
+    expect(html).toContain('lucide-git-merge');
+    expect(html).toContain('os-pc');
+    expect(html).toContain('Clean');
+    expect(html).toContain('os-macbook');
+    expect(html).toContain('3 uncommitted · 2 unstaged');
+    expect(html).toContain('os-yoga-unix');
+    expect(html).toContain('1 uncommitted · 0 unstaged');
+    expect(html).toContain('Delete branch');
+    expect(html).toContain('data-testid="task-mobile-primary-action"');
+    expect(html).not.toContain('Start development');
+  });
+
   test('groups the desktop navigation and supports a compact sidebar', () => {
     expect(projectPageGroups.map((group) => group.label)).toEqual([
       'Project',

@@ -1,49 +1,39 @@
-import { Button } from "@heroui/react";
-import { AlertTriangle, Check, GitBranch, Laptop, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, GitBranch, Laptop } from "lucide-react";
 
-import type { MockTask, MockTaskAction } from "./task-model";
+import type { MockTask } from "./task-model";
 
 export function TaskCleanup({
-  onAction,
   task,
 }: {
-  onAction(action: MockTaskAction): void;
   task: MockTask;
 }) {
   const cleanup = task.cleanup;
   if (!cleanup || !["merged", "deploying", "deployed"].includes(task.stage)) return null;
 
   return (
-    <section className="mt-5 border-t border-current/[.08] pt-4">
-      <h2 className="text-xs font-semibold text-current/55">Cleanup</h2>
+    <section className="mt-5 border-t border-current/[.08] pt-4" data-testid="closed-task-checkouts">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-xs font-semibold text-current/55">Branch checkouts</h2>
+        <span className="text-[10px] tabular-nums text-current/30">{cleanup.worktrees.length} machine{cleanup.worktrees.length === 1 ? "" : "s"}</span>
+      </div>
       <div className="mt-2 divide-y divide-current/[.07]">
         <CleanupRow
           detail={cleanup.remoteBranch === "deleted" ? "Deleted on GitHub" : "Still on GitHub"}
           icon={GitBranch}
           label="Remote branch"
           tone={cleanup.remoteBranch === "deleted" ? "success" : "warning"}
-        >
-          {cleanup.remoteBranch === "exists" ? (
-            <Button size="sm" variant="tertiary" onPress={() => onAction({ type: "delete-remote-branch" })}>
-              <Trash2 className="size-3.5" /> Delete
-            </Button>
-          ) : null}
-        </CleanupRow>
+        />
 
         {cleanup.worktrees.map((worktree) => (
           <CleanupRow
-            detail={worktree.safeToDelete ? "Clean · safe to remove" : "Modified · inspect first"}
+            detail={worktree.safeToDelete
+              ? "Clean"
+              : `${worktree.uncommittedChanges} uncommitted · ${worktree.unstagedChanges} unstaged`}
             icon={Laptop}
             key={worktree.machine}
             label={worktree.machine}
             tone={worktree.safeToDelete ? "success" : "danger"}
-          >
-            {worktree.safeToDelete ? (
-              <Button size="sm" variant="tertiary" onPress={() => onAction({ machine: worktree.machine, type: "remove-worktree" })}>
-                <Trash2 className="size-3.5" /> Remove
-              </Button>
-            ) : null}
-          </CleanupRow>
+          />
         ))}
 
         {cleanup.remoteBranch === "deleted" && cleanup.worktrees.length === 0 ? (
@@ -57,13 +47,11 @@ export function TaskCleanup({
 }
 
 function CleanupRow({
-  children,
   detail,
   icon: Icon,
   label,
   tone,
 }: {
-  children?: React.ReactNode;
   detail: string;
   icon: typeof GitBranch;
   label: string;
@@ -85,7 +73,6 @@ function CleanupRow({
           {detail}
         </span>
       </span>
-      {children}
     </div>
   );
 }

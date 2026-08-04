@@ -51,6 +51,9 @@ function DeliveryFact({ children, icon: Icon, label }: { children: React.ReactNo
 }
 
 export function nextTaskAction(task: MockTask): { action: MockTaskAction; icon: typeof Sparkles; label: string } | null {
+  if (task.stage === "deployed" && task.cleanup?.remoteBranch === "exists") {
+    return { action: { type: "delete-branch" }, icon: GitBranch, label: "Delete branch" };
+  }
   if (!task.branch) return { action: { type: "create-branch" }, icon: GitBranch, label: "Create branch" };
   if (task.stage === "branch") return { action: { type: "start-development" }, icon: Bot, label: "Start Codex" };
   if (task.stage === "development") return { action: { type: "open-pull-request" }, icon: GitPullRequest, label: "Create draft PR" };
@@ -83,18 +86,22 @@ export function TaskPrimaryAction({
 
   if (!primary) return null;
 
+  const needsConfirmation = primary.action.type === "approve-and-merge" || primary.action.type === "delete-branch";
   const trigger = (
     <Button
       className={className}
       size="sm"
-      variant="primary"
-      onPress={primary.action.type === "approve-and-merge" ? undefined : () => onAction(primary.action)}
+      variant={primary.action.type === "delete-branch" ? "danger" : "primary"}
+      onPress={needsConfirmation ? undefined : () => onAction(primary.action)}
     >
       <primary.icon className="size-4" /> {primary.label}
     </Button>
   );
 
-  if (primary.action.type !== "approve-and-merge" || !task.pullRequest) return trigger;
+  if (!needsConfirmation) return trigger;
+
+  const deletingBranch = primary.action.type === "delete-branch";
+  const dirtyCheckoutCount = task.cleanup?.worktrees.filter((worktree) => !worktree.safeToDelete).length ?? 0;
 
   return (
     <AlertDialog>
@@ -115,18 +122,21 @@ export function TaskPrimaryAction({
             <AlertDialog.Header className="px-5 pb-2 pt-5">
               <AlertDialog.Icon status="warning" />
               <AlertDialog.Heading className="text-base font-semibold">
-                Approve and merge pull request #{task.pullRequest.number}?
+                {deletingBranch ? "Delete merged branch?" : `Approve and merge pull request #${task.pullRequest?.number}?`}
               </AlertDialog.Heading>
             </AlertDialog.Header>
             <AlertDialog.Body className="px-5 py-2">
               <p className="text-sm leading-6 text-neutral-400">
-                This approves the current revision and merges it into main. The active development phase will end.
+                {deletingBranch
+                  ? `The remote branch and clean local checkouts will be removed.${dirtyCheckoutCount ? ` ${dirtyCheckoutCount} checkout${dirtyCheckoutCount === 1 ? "" : "s"} with local changes will be kept.` : ""}`
+                  : "This approves the current revision and merges it into main. The active development phase will end."}
               </p>
             </AlertDialog.Body>
             <AlertDialog.Footer className="gap-2 px-5 pb-5 pt-3">
               <Button slot="close" variant="tertiary">Cancel</Button>
-              <Button slot="close" variant="primary" onPress={() => onAction(primary.action)}>
-                <GitMerge className="size-4" /> Approve and merge
+              <Button slot="close" variant={deletingBranch ? "danger" : "primary"} onPress={() => onAction(primary.action)}>
+                {deletingBranch ? <GitBranch className="size-4" /> : <GitMerge className="size-4" />}
+                {deletingBranch ? "Delete branch" : "Approve and merge"}
               </Button>
             </AlertDialog.Footer>
           </AlertDialog.Dialog>
@@ -159,6 +169,7 @@ export function TaskDeliveryPanel({
   const attention = task.pullRequest?.checks === "failed" || task.pullRequest?.preview === "unavailable";
   const draftPullRequest = task.pullRequest?.phase === "draft";
   const previewReady = task.pullRequest?.preview === "ready";
+  const mergedPullRequest = ["merged", "deploying", "deployed"].includes(task.stage);
   const pipelineLabel = task.pullRequest?.checks === "failed"
     ? "Checks failed"
     : task.pullRequest?.checks === "running"
@@ -215,8 +226,16 @@ export function TaskDeliveryPanel({
 
           <div className="grid grid-cols-2 gap-x-5 border-y border-current/[.08]">
             <DeliveryFact icon={GitPullRequest} label="Pull request">
-              <a className="inline-flex items-center gap-1 text-current/70 transition-colors hover:text-blue-300" href={`https://github.com/DotNaos/project-space/pull/${task.pullRequest.number}`} rel="noreferrer" target="_blank">
-                {task.pullRequest.phase === "draft" ? "Draft " : ""}#{task.pullRequest.number}<ExternalLink className="size-3" />
+              <a
+                className={mergedPullRequest
+                  ? "inline-flex h-7 items-center gap-1.5 rounded-full bg-violet-500/15 px-2.5 text-xs font-semibold text-violet-300 transition-[filter,scale] hover:brightness-125 active:scale-[.96]"
+                  : "inline-flex items-center gap-1 text-current/70 transition-colors hover:text-blue-300"}
+                href={`https://github.com/DotNaos/project-space/pull/${task.pullRequest.number}`}
+                rel="noreferrer"
+                target="_blank"
+              >
+                {mergedPullRequest ? <GitMerge className="size-3.5" /> : null}
+                {mergedPullRequest ? "Merged " : task.pullRequest.phase === "draft" ? "Draft " : ""}#{task.pullRequest.number}<ExternalLink className="size-3" />
               </a>
             </DeliveryFact>
             <DeliveryFact icon={task.pullRequest.checks === "failed" ? AlertTriangle : task.pullRequest.checks === "passed" ? Check : CircleDot} label="Pipeline">
@@ -239,7 +258,7 @@ export function TaskDeliveryPanel({
         task={task}
       />
 
-      <TaskCleanup onAction={onAction} task={task} />
+      <TaskCleanup task={task} />
 
       {latestEvent && (attention || !task.pullRequest) ? <p className="mt-4 max-w-xl text-sm leading-6 text-current/55">{latestEvent.detail}</p> : null}
 
