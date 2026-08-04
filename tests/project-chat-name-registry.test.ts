@@ -127,6 +127,42 @@ describe('Project Chat role-based name registry',()=>{
     expect(specialist.member).toMatchObject({displayName:'Athena.Picasso',agentName:{name:'Picasso',category:'artist',displayName:'Athena.Picasso',parentThreadId:threadA}});
   });
 
+  test('revalidates and composes a specialist against the parent inside the atomic join',async()=>{
+    let entered!:()=>void;
+    let release!:()=>void;
+    const paused=new Promise<void>(resolve=>{entered=resolve});
+    const resume=new Promise<void>(resolve=>{release=resolve});
+    class PausesSpecialistJoin extends InMemoryProjectChatRepository {
+      override async claimNameAndJoin(...args:Parameters<InMemoryProjectChatRepository['claimNameAndJoin']>) {
+        if(args[0].parentThreadId){entered();await resume}
+        return super.claimNameAndJoin(...args);
+      }
+    }
+    const service=new ProjectChatService({repository:new PausesSpecialistJoin()});
+    await service.claimName(agent(threadA),{name:'Athena',category:'mythology'});
+    const specialist=service.claimName(agent(threadB),{name:'Picasso',category:'artist',parentThreadId:threadA});
+    await paused;
+    await service.claimName(agent(threadA),{name:'Hermes',category:'mythology'});
+    release();
+    await expect(specialist).resolves.toMatchObject({
+      claim:{displayName:'Hermes.Picasso'},
+      member:{displayName:'Hermes.Picasso',agentName:{displayName:'Hermes.Picasso'}}
+    });
+  });
+
+  test('concurrent joins for one actor share the stored member identity and presence',async()=>{
+    const repository=new InMemoryProjectChatRepository();
+    const service=new ProjectChatService({repository});
+    const [first,second]=await Promise.all([
+      service.claimName(agent(threadA),{name:'Athena',category:'mythology'}),
+      service.claimName(agent(threadA),{name:'Athena',category:'mythology'})
+    ]);
+    expect(first.member.memberId).toBe(second.member.memberId);
+    const snapshot=await repository.snapshot();
+    expect(snapshot.members).toHaveLength(1);
+    expect(snapshot.presences).toEqual([expect.objectContaining({memberId:first.member.memberId})]);
+  });
+
   test('lists the reserved Poirot entry and refuses its claim',async()=>{
     const service=new ProjectChatService({repository:new InMemoryProjectChatRepository()});
     await service.claimName(agent(threadA),{name:'Athena',category:'mythology'});
@@ -168,9 +204,9 @@ describe('Project Chat role-based name registry',()=>{
   test('releases a new claim when member refresh fails and permits a clean retry',async()=>{
     class FailsFirstMemberWrite extends InMemoryProjectChatRepository {
       failures=1;
-      override async upsertMember(member: Parameters<InMemoryProjectChatRepository['upsertMember']>[0]) {
+      protected override upsertMemberRecord(member: Parameters<InMemoryProjectChatRepository['upsertMember']>[0]) {
         if (this.failures-- > 0) throw new Error('simulated member write failure');
-        return super.upsertMember(member);
+        return super.upsertMemberRecord(member);
       }
     }
     const repository=new FailsFirstMemberWrite();
@@ -184,9 +220,9 @@ describe('Project Chat role-based name registry',()=>{
   test('restores the previous claim when a rename member refresh fails',async()=>{
     class ToggleMemberFailure extends InMemoryProjectChatRepository {
       fail=false;
-      override async upsertMember(member: Parameters<InMemoryProjectChatRepository['upsertMember']>[0]) {
+      protected override upsertMemberRecord(member: Parameters<InMemoryProjectChatRepository['upsertMember']>[0]) {
         if(this.fail){this.fail=false;throw new Error('simulated rename refresh failure')}
-        return super.upsertMember(member);
+        return super.upsertMemberRecord(member);
       }
     }
     const repository=new ToggleMemberFailure();
@@ -199,5 +235,29 @@ describe('Project Chat role-based name registry',()=>{
     const names=await service.listNames(agent(threadA));
     expect(names.groups.flatMap(group=>group.names).find(entry=>entry.name==='Athena')).toMatchObject({state:'claimed',claimedByCurrentThread:true});
     expect(names.groups.flatMap(group=>group.names).find(entry=>entry.name==='Hermes')).toMatchObject({state:'available'});
+  });
+
+  test('serializes a failed rename with a competing claim of the old name',async()=>{
+    class FailsHermesMemberWrite extends InMemoryProjectChatRepository {
+      protected override upsertMemberRecord(member: Parameters<InMemoryProjectChatRepository['upsertMember']>[0]) {
+        if(member.displayName==='Hermes') throw new Error('simulated rename refresh failure');
+        return super.upsertMemberRecord(member);
+      }
+    }
+    const repository=new FailsHermesMemberWrite();
+    const service=new ProjectChatService({repository});
+    await service.claimName(agent(threadA),{name:'Athena',category:'mythology'});
+    const [rename,competingClaim]=await Promise.allSettled([
+      service.claimName(agent(threadA),{name:'Hermes',category:'mythology'}),
+      service.claimName(agent(threadB),{name:'Athena',category:'mythology'})
+    ]);
+    expect(rename).toMatchObject({status:'rejected'});
+    expect(competingClaim).toMatchObject({status:'rejected',reason:{code:'name_conflict'}});
+    expect(await repository.listNameClaims('space-a')).toEqual([
+      expect.objectContaining({threadId:threadA,nameKey:'athena',displayName:'Athena'})
+    ]);
+    expect(await service.listMembers(agent(threadA))).toEqual([
+      expect.objectContaining({displayName:'Athena',agentName:expect.objectContaining({name:'Athena'})})
+    ]);
   });
 });

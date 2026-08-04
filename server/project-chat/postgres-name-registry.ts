@@ -61,42 +61,55 @@ export async function findPostgresNameClaim(
   return result.rows[0] ? mapNameClaim(result.rows[0]) : null;
 }
 
+export async function findPostgresNameClaimForUpdate(
+  client: DatabaseQueryClient,
+  spaceId: string,
+  accountId: string,
+  threadId: string
+) {
+  const result=await client.query<NameClaimRow>(
+    `${selectNameClaim}
+      where space_id = $1 and account_id = $2 and thread_id = $3
+      for update`,
+    [spaceId,accountId,threadId]
+  );
+  return result.rows[0] ? mapNameClaim(result.rows[0]) : null;
+}
+
 export async function claimPostgresName(
   client: DatabaseQueryClient,
   claim: ProjectChatNameClaimRecord
 ) {
   try {
-    return await runTransaction(client, async (transaction) => {
-      const existingResult = await transaction.query<NameClaimRow>(
-        `${selectNameClaim}
-          where space_id = $1 and account_id = $2 and thread_id = $3
-          for update`,
-        [claim.spaceId, claim.accountId, claim.threadId]
-      );
-      const existing = existingResult.rows[0];
-      if (existing?.name_key === claim.nameKey) {
-        const renewed = await updateNameClaim(transaction, {
-          ...claim,
-          claimedAt: new Date(existing.claimed_at).toISOString()
-        });
-        if (!renewed) throw new Error('Project Chat name lease could not be renewed.');
-        return mapNameClaim(renewed);
-      }
-
-      const stored = existing
-        ? await updateNameClaim(transaction, claim)
-        : await insertNameClaim(transaction, claim);
-      if (!stored) {
-        throw new Error('Project Chat name claim could not be stored.');
-      }
-      return mapNameClaim(stored);
-    });
+    return await runTransaction(client, (transaction) =>
+      claimPostgresNameInTransaction(transaction,claim)
+    );
   } catch (error) {
     if ((error as { code?: unknown })?.code === '23505') {
       throw new ProjectChatNameClaimConflictError('name_claimed');
     }
     throw error;
   }
+}
+
+export async function claimPostgresNameInTransaction(
+  client: DatabaseQueryClient,
+  claim: ProjectChatNameClaimRecord
+) {
+  const existing=await findPostgresNameClaimForUpdate(client,claim.spaceId,claim.accountId,claim.threadId);
+  if (existing?.nameKey === claim.nameKey) {
+    const renewed=await updateNameClaim(client,{
+      ...claim,
+      claimedAt:existing.claimedAt
+    });
+    if (!renewed) throw new Error('Project Chat name lease could not be renewed.');
+    return mapNameClaim(renewed);
+  }
+  const stored=existing
+    ? await updateNameClaim(client,claim)
+    : await insertNameClaim(client,claim);
+  if (!stored) throw new Error('Project Chat name claim could not be stored.');
+  return mapNameClaim(stored);
 }
 
 export async function reapExpiredPostgresNameClaims(
@@ -135,23 +148,6 @@ export async function reapExpiredPostgresNameClaims(
     [spaceId, expiresAtOrBefore]
   );
   return Number(result.rows[0]?.removed ?? 0);
-}
-
-export async function restorePostgresNameClaim(
-  client: DatabaseQueryClient,
-  current: ProjectChatNameClaimRecord,
-  previous: ProjectChatNameClaimRecord | null
-) {
-  await runTransaction(client, async (transaction) => {
-    const deleted = await transaction.query(
-      `delete from project_chat_name_claims
-        where space_id = $1 and account_id = $2 and thread_id = $3
-          and name_key = $4 and updated_at = $5`,
-      [current.spaceId, current.accountId, current.threadId, current.nameKey, current.updatedAt]
-    );
-    if ((deleted.rowCount ?? 0) === 0 || !previous) return;
-    await insertNameClaim(transaction, previous);
-  });
 }
 
 async function updateNameClaim(

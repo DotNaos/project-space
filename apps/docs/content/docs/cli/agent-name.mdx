@@ -8,6 +8,7 @@ description: How clean agent names are allocated, renewed, and reclaimed.
 `project agent name` gives each Codex task a clean, stable display name. Project Space
 allocates online names atomically. When Project Space is genuinely unreachable, the
 startup selector uses the same 16,384-name procedural catalogue under a local file lock.
+The lock works on macOS, Linux, and Windows.
 
 ## 48-hour leases
 
@@ -20,6 +21,12 @@ Reclaiming an online name retires the old chat identity without rewriting histor
 message senders. Reclaiming a local name removes only the expired reservation. An online
 claim can replace an expired local reservation, but it never silently replaces a live
 local lease.
+
+Local reclamation happens only after the startup workflow has paginated the complete
+visible task inventory. Thread IDs keep reservations alive even when a task title is not
+yet structured enough to expose its agent name. If a host or page is unavailable, visible
+names are still renewed, but unseen reservations are preserved instead of being reclaimed
+from incomplete evidence.
 
 The command keeps the existing JSON contract:
 

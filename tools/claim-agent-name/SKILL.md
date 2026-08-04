@@ -7,17 +7,17 @@ description: Claim or preserve a clean, unique Codex agent display name through 
 
 Complete this workflow before planning, repository inspection, implementation, or any other substantive action.
 
-1. Use the Codex task-listing tool to list up to 50 visible tasks across available hosts.
-2. Identify the current task by thread ID. Extract its current display name and the agent names from every other formatted title:
+1. Use the Codex task-listing tool with a page size of 50 across available hosts. Follow every returned next cursor until every host has returned a page without a next cursor. Treat a repeated cursor or an unavailable page as incomplete visibility; never assume the first 50 tasks are the complete active set.
+2. Identify the current task by thread ID. Collect the thread ID of every other visible task, including tasks whose titles are unstructured. Extract the current display name and the agent names from every other formatted title:
    - `#<issue-number>[/<task-number>] · <name> · ...`
    - `<name> · ...`
 3. Accept only names matching `[A-Za-z][A-Za-z0-9-]*`. Ignore unstructured titles and deduplicate case-insensitively.
 4. Run the bundled selector even if the current title already has a name. The selector owns the local lock while it invokes the installed CLI, so live local leases are excluded before the online claim is mutated and the machine-generated fallback code is never printed:
 
-   `python3 <skill-dir>/scripts/select_display_name.py --project-cli project --thread-id <thread-id> --current-name <current-name> --used-name <other-name> ...`
+   `python3 <skill-dir>/scripts/select_display_name.py --project-cli project --thread-id <thread-id> --current-name <current-name> --visible-thread-id <other-thread-id> ... --used-name <other-name> ... --visible-tasks-complete`
 
-   Pass each other visible name separately to `--used-name`. Pass the current display name only to `--current-name`. Never pass full task titles or include the current task's name among exclusions. The selector passes visible names and every other unexpired local lease to the CLI as exclusions under the same lock.
-5. If task listing is unavailable, continue with the names already collected or no exclusions. Do not block name allocation.
+   Pass every other visible task's thread ID separately to `--visible-thread-id`, even when its title is unstructured. Pass each other visible name from every completed page separately to `--used-name`. Pass the current display name only to `--current-name`. Never pass full task titles or include the current task's name among exclusions. Pass `--visible-tasks-complete` only after every available host has been paginated to completion. The selector passes visible names and every other unexpired local lease to the CLI as exclusions under the same lock.
+5. If task listing or any page is unavailable, continue with the names already collected or no exclusions and omit `--visible-tasks-complete`. The selector then renews names it did see but preserves unseen local leases instead of reclaiming them from incomplete evidence. Do not block name allocation.
 6. Parse the selector's stdout as one JSON object. Require:
    - a non-empty `name` matching `[A-Za-z][A-Za-z0-9-]*`
    - `source` equal to `project-space` or `fallback`

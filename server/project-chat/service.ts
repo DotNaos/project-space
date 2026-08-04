@@ -17,6 +17,7 @@ import {
   type ProjectChatMemberRecord,
   type ProjectChatMentionStateInput,
   type ProjectChatNameClaimInput,
+  type ProjectChatNameClaimRecord,
   type ProjectChatMessageRecord,
   type ProjectChatOrigin,
   type ProjectChatPresenceInput,
@@ -54,7 +55,6 @@ import {
   validateProjectChatContext
 } from './validation';
 import { findProjectChatName, projectChatNameCatalog, reservedProjectChatNames, type ProjectChatNameCategory } from './name-registry';
-import { ProjectChatNameClaimConflictError } from './repository';
 import {
   ProjectChatChannelManager,
   type ProjectChatProjectProvider
@@ -175,20 +175,11 @@ export class ProjectChatService {
       if (!parent || parent.category !== 'mythology') throw new ProjectChatError('forbidden','The parent must be a mythology main agent in this account.');
     }
     const now = nowDate.toISOString();
-    const previousClaim = await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, context.actor.threadId);
-    let claim;
-    try { claim = await this.repository.claimName({spaceId:context.spaceId,accountId:context.actor.accountId,threadId:context.actor.threadId,actorKey:projectChatActorKey(context.actor),nameKey:entry[0],displayName:entry[1],category:entry[2],...(parentThreadId?{parentThreadId}:{}),claimedAt:now,updatedAt:now}); }
-    catch (error) { if (error instanceof ProjectChatNameClaimConflictError) throw new ProjectChatError('name_conflict',error.message); throw error; }
+    const claim:ProjectChatNameClaimRecord={spaceId:context.spaceId,accountId:context.actor.accountId,threadId:context.actor.threadId,actorKey:projectChatActorKey(context.actor),nameKey:entry[0],displayName:entry[1],category:entry[2],...(parentThreadId?{parentThreadId}:{}),claimedAt:now,updatedAt:now};
     const parent = claim.parentThreadId ? await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, claim.parentThreadId) : null;
     const displayName = parent ? `${parent.displayName}.${claim.displayName}` : claim.displayName;
-    let joined;
-    try {
-      joined = await this.join(context, {displayName}, {renewNameLease:false});
-    } catch (error) {
-      await this.repository.restoreNameClaim(claim, previousClaim);
-      throw error;
-    }
-    return { claim:{name:claim.displayName,displayName,category:claim.category,threadId:claim.threadId,...(claim.parentThreadId?{parentThreadId:claim.parentThreadId}:{})}, member:joined.member };
+    const joined=await this.join(context,{displayName},{claim});
+    return { claim:{name:claim.displayName,displayName:joined.member.displayName,category:claim.category,threadId:claim.threadId,...(claim.parentThreadId?{parentThreadId:claim.parentThreadId}:{})}, member:joined.member };
   }
 
   async claimAutomaticName(
@@ -206,7 +197,7 @@ export class ProjectChatService {
     });
   }
 
-  async join(context: ProjectChatContext, input: ProjectChatJoinInput = {}, options: {renewNameLease?:boolean} = {}) {
+  async join(context: ProjectChatContext, input: ProjectChatJoinInput = {}, options: {claim?:ProjectChatNameClaimRecord} = {}) {
     validateProjectChatContext(context);
     const now = this.clock.now();
     await this.consumeRateLimit(context, 'join', now);
@@ -216,9 +207,9 @@ export class ProjectChatService {
     const actorKey = projectChatActorKey(context.actor);
     let agentClaim;
     if (context.actor.kind === 'agent') {
-      agentClaim = await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, context.actor.threadId);
+      agentClaim = options.claim ?? await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, context.actor.threadId);
       if (!agentClaim) throw new ProjectChatError('forbidden', 'Claim a Project Chat registry name before joining.');
-      if (options.renewNameLease !== false) {
+      if (!options.claim) {
         agentClaim = await this.repository.claimName({...agentClaim,updatedAt:now.toISOString()});
       }
       const parent = agentClaim.parentThreadId ? await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, agentClaim.parentThreadId) : null;
@@ -250,18 +241,20 @@ export class ProjectChatService {
         context,
         profile.projectId
       );
-      const member = humanProfile
-        ? (await this.repository.ensureHumanProfileAndMember(humanProfile, record, {
+      const presenceRecord=this.presenceRecord(context.spaceId,record.memberId,'working',now);
+      let member;
+      let presence;
+      if (options.claim) {
+        ({member,presence}=await this.repository.claimNameAndJoin(options.claim,record,presenceRecord));
+      } else {
+        member = humanProfile
+          ? (await this.repository.ensureHumanProfileAndMember(humanProfile, record, {
             refreshDefaults: context.actor.kind === 'human'
               && context.actor.profileDefaultsResolved !== false
           })).member
-        : await this.repository.upsertMember(record);
-      const presence = await this.repository.setPresence(this.presenceRecord(
-        context.spaceId,
-        member.memberId,
-        'working',
-        now
-      ));
+          : await this.repository.upsertMember(record);
+        presence=await this.repository.setPresence({...presenceRecord,memberId:member.memberId});
+      }
       return {
         channel: publicProjectChatChannel(channel, project),
         member: publicProjectChatMember(member, presence, now)

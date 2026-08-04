@@ -214,6 +214,47 @@ describe('PostgresProjectChatRepository', () => {
     expect(client.events).toEqual(['begin','select','update','commit']);
   });
 
+  test('commits a name claim, member identity, and presence as one transaction',async()=>{
+    const updatedAt='2026-07-12T10:00:00.000Z';
+    const claim:ProjectChatNameClaimRecord={
+      accountId:'account-a',actorKey:'agent:machine-a:thread-a',category:'mythology',
+      claimedAt:updatedAt,displayName:'Hermes',nameKey:'hermes',spaceId:'space-a',
+      threadId:'thread-a',updatedAt
+    };
+    const member=memberRecord({
+      displayName:'Hermes',handle:'hermes',updatedAt,
+      agentName:{name:'Hermes',category:'mythology',displayName:'Hermes'}
+    });
+    const presence:ProjectChatPresenceRecord={
+      expiresAt, lastSeenAt:updatedAt, memberId:member.memberId,
+      spaceId:member.spaceId, state:'working'
+    };
+    const successfulClient=new RecordingClient([
+      rows([nameClaimRow()]),
+      rows([nameClaimRow({name_key:'hermes',display_name:'Hermes',updated_at:updatedAt})]),
+      rows([memberRow({member_id:'persisted-member',display_name:'Hermes',handle:'hermes',updated_at:updatedAt,agent_name:member.agentName})]),
+      rows([{expires_at:expiresAt,last_seen_at:updatedAt,member_id:'persisted-member',space_id:member.spaceId,state:'working'}])
+    ]);
+    const repository=new PostgresProjectChatRepository(successfulClient);
+    await expect(repository.claimNameAndJoin(claim,member,presence)).resolves.toMatchObject({
+      claim:{nameKey:'hermes'},member:{displayName:'Hermes'},
+      presence:{memberId:'persisted-member',state:'working'}
+    });
+    expect(successfulClient.events).toEqual(['begin','select','update','insert','insert','commit']);
+    expect(successfulClient.calls[3]?.values[1]).toBe('persisted-member');
+
+    const memberFailure=new Error('forced member failure');
+    const failingClient=new RecordingClient([
+      rows([nameClaimRow()]),
+      rows([nameClaimRow({name_key:'hermes',display_name:'Hermes',updated_at:updatedAt})]),
+      memberFailure
+    ]);
+    await expect(
+      new PostgresProjectChatRepository(failingClient).claimNameAndJoin(claim,member,presence)
+    ).rejects.toBe(memberFailure);
+    expect(failingClient.events).toEqual(['begin','select','update','insert','rollback']);
+  });
+
   test('persists provider defaults separately from human profile overrides', async () => {
     const baseRow = humanProfileRow();
     const client = new RecordingClient([

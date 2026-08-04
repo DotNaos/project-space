@@ -8,22 +8,21 @@ import {
   ProjectChatCursorOutOfRangeError,
   ProjectChatHandleConflictError,
   ProjectChatIdempotencyConflictError,
+  ProjectChatNameClaimConflictError,
+  memberForNameClaim,
   memberWithHumanProfile,
   type ProjectChatAppendInput,
   type ProjectChatHumanProfileUpdate,
   type ProjectChatRepository
 } from './repository';
-import {
-  ensurePostgresHumanProfile,
-  findPostgresHumanProfile,
-  updatePostgresHumanProfile
-} from './postgres-human-profile';
+import { ensurePostgresHumanProfile, findPostgresHumanProfile, updatePostgresHumanProfile } from './postgres-human-profile';
 import {
   claimPostgresName,
+  claimPostgresNameInTransaction,
   findPostgresNameClaim,
+  findPostgresNameClaimForUpdate,
   listPostgresNameClaims,
-  reapExpiredPostgresNameClaims,
-  restorePostgresNameClaim
+  reapExpiredPostgresNameClaims
 } from './postgres-name-registry';
 
 interface ChannelRow {
@@ -183,8 +182,21 @@ export class PostgresProjectChatRepository implements ProjectChatRepository {
     return claimPostgresName(this.client, claim);
   }
 
-  async restoreNameClaim(current: ProjectChatNameClaimRecord, previous: ProjectChatNameClaimRecord | null) {
-    return restorePostgresNameClaim(this.client, current, previous);
+  async claimNameAndJoin(claim:ProjectChatNameClaimRecord,member:ProjectChatMemberRecord,presence:ProjectChatPresenceRecord) {
+    try {
+      return await runTransaction(this.client,async(transaction)=>{
+        const repository=new PostgresProjectChatRepository(transaction);
+        const parent=claim.parentThreadId ? await findPostgresNameClaimForUpdate(transaction,claim.spaceId,claim.accountId,claim.parentThreadId) : null;
+        const joinedMember=memberForNameClaim(member,claim,parent);
+        const storedClaim=await claimPostgresNameInTransaction(transaction,claim);
+        const storedMember=await repository.upsertMember(joinedMember);
+        const storedPresence=await repository.setPresence({...presence,memberId:storedMember.memberId});
+        return {claim:storedClaim,member:storedMember,presence:storedPresence};
+      });
+    } catch (error) {
+      if ((error as {code?:unknown})?.code === '23505') throw new ProjectChatNameClaimConflictError('name_claimed');
+      throw error;
+    }
   }
 
   async reapExpiredNameClaims(spaceId: string, expiresAtOrBefore: string) {

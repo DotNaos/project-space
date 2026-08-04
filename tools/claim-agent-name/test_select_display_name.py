@@ -1,4 +1,5 @@
 import importlib.util
+import errno
 import json
 import os
 import subprocess
@@ -8,6 +9,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).with_name("select_display_name.py")
@@ -25,6 +27,8 @@ class SelectorLeaseTests(unittest.TestCase):
             "now": now,
             "current_name": None,
             "used_name": [],
+            "visible_thread_id": [],
+            "visible_tasks_complete": False,
             "project_cli": None,
         }
         values.update(overrides)
@@ -39,6 +43,12 @@ class SelectorLeaseTests(unittest.TestCase):
         self.assertEqual(16_384, len(first))
         self.assertEqual(first, second)
         self.assertEqual(len(first), len(set(first)))
+
+    def test_skill_requires_complete_pagination_before_local_reclamation(self):
+        instructions = SCRIPT.with_name("SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("Follow every returned next cursor", instructions)
+        self.assertIn("--visible-tasks-complete", instructions)
+        self.assertIn("preserves unseen local leases", instructions)
 
     def test_lease_renews_before_expiry_and_reclaims_at_exact_expiry(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -61,6 +71,7 @@ class SelectorLeaseTests(unittest.TestCase):
                 state,
                 "thread-c",
                 "2026-08-04T23:59:59.999Z",
+                visible_tasks_complete=True,
             )
             self.assertEqual("Aebaden", selector.run(exact, self.payload())["name"])
 
@@ -85,11 +96,71 @@ class SelectorLeaseTests(unittest.TestCase):
             fresh = self.args(state, "thread-b", "2026-08-02T00:00:00Z")
             with self.assertRaisesRegex(ValueError, "already leased"):
                 selector.run(fresh, self.payload("Aebaden", "project-space"))
-            expired = self.args(state, "thread-b", "2026-08-03T00:00:00Z")
+            expired = self.args(
+                state,
+                "thread-b",
+                "2026-08-03T00:00:00Z",
+                visible_tasks_complete=True,
+            )
             self.assertEqual(
                 "Aebaden",
                 selector.run(expired, self.payload("Aebaden", "project-space"))["name"],
             )
+
+    def test_incomplete_visibility_never_reclaims_an_unseen_live_task(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "claims.json"
+            selector.run(self.args(state, "thread-a", "2026-08-01T00:00:00Z"), self.payload())
+            incomplete = self.args(state, "thread-b", "2026-08-03T00:00:00Z")
+            self.assertNotEqual("Aebaden", selector.run(incomplete, self.payload())["name"])
+            self.assertIn("thread-a", selector.load_claims(state))
+
+    def test_complete_visibility_preserves_a_visible_task_with_an_unstructured_title(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "claims.json"
+            selector.run(self.args(state, "thread-a", "2026-08-01T00:00:00Z"), self.payload())
+            visible = self.args(
+                state,
+                "thread-b",
+                "2026-08-03T00:00:00Z",
+                visible_thread_id=["thread-a"],
+                visible_tasks_complete=True,
+            )
+            self.assertNotEqual("Aebaden", selector.run(visible, self.payload())["name"])
+            self.assertEqual(
+                "2026-08-03T00:00:00Z",
+                selector.format_time(selector.load_claims(state)["thread-a"].renewed_at),
+            )
+
+    def test_windows_lock_retries_with_msvcrt_without_importing_fcntl(self):
+        calls = []
+
+        def locking(file_descriptor, mode, count):
+            calls.append((file_descriptor, mode, count))
+            if len(calls) == 1:
+                raise OSError(errno.EACCES, "busy")
+
+        fake_msvcrt = SimpleNamespace(LK_NBLCK=2, locking=locking)
+        with tempfile.TemporaryDirectory() as directory:
+            lock_path = Path(directory) / "claims.lock"
+            with lock_path.open("w+") as lock_handle, patch.dict(sys.modules, {"msvcrt": fake_msvcrt}):
+                selector.lock_state_file(lock_handle, platform_name="nt", sleep=lambda _: None)
+            self.assertEqual(2, len(calls))
+            self.assertEqual(1, lock_path.stat().st_size)
+
+    def test_full_selector_saves_state_with_the_windows_lock_path(self):
+        fake_msvcrt = SimpleNamespace(LK_NBLCK=2, locking=lambda *_: None)
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            sys.modules, {"msvcrt": fake_msvcrt}
+        ), patch.object(selector.os, "fchmod", side_effect=AssertionError("Unix-only call")):
+            state = Path(directory) / "claims.json"
+            result = selector.run(
+                self.args(state, "thread-a", "2026-08-01T00:00:00Z"),
+                self.payload(),
+                platform_name="nt",
+            )
+            self.assertEqual("Aebaden", result["name"])
+            self.assertEqual("Aebaden", selector.load_claims(state)["thread-a"].name)
 
     def test_wrapper_excludes_live_local_leases_before_online_claim(self):
         with tempfile.TemporaryDirectory() as directory:

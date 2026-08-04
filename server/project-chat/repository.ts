@@ -50,7 +50,15 @@ export interface ProjectChatRepository {
   listNameClaims(spaceId: string): Promise<ProjectChatNameClaimRecord[]>;
   findNameClaimByThread(spaceId: string, accountId: string, threadId: string): Promise<ProjectChatNameClaimRecord | null>;
   claimName(claim: ProjectChatNameClaimRecord): Promise<ProjectChatNameClaimRecord>;
-  restoreNameClaim(current: ProjectChatNameClaimRecord, previous: ProjectChatNameClaimRecord | null): Promise<void>;
+  claimNameAndJoin(
+    claim: ProjectChatNameClaimRecord,
+    member: ProjectChatMemberRecord,
+    presence: ProjectChatPresenceRecord
+  ): Promise<{
+    claim: ProjectChatNameClaimRecord;
+    member: ProjectChatMemberRecord;
+    presence: ProjectChatPresenceRecord;
+  }>;
   reapExpiredNameClaims(spaceId: string, expiresAtOrBefore: string): Promise<number>;
   ensureHumanProfileAndMember(
     profile: ProjectChatHumanProfileRecord,
@@ -137,6 +145,29 @@ export class ProjectChatNameClaimConflictError extends Error {
     super(reason === 'name_claimed' ? 'The registry name is already claimed.' : 'This thread already has a registry name.');
     this.name = 'ProjectChatNameClaimConflictError';
   }
+}
+
+export class ProjectChatNameParentConflictError extends Error {
+  constructor() {
+    super('The specialist parent is no longer an active mythology claim.');
+    this.name = 'ProjectChatNameParentConflictError';
+  }
+}
+
+export function memberForNameClaim(
+  member: ProjectChatMemberRecord,
+  claim: ProjectChatNameClaimRecord,
+  parent: ProjectChatNameClaimRecord | null
+): ProjectChatMemberRecord {
+  if (claim.parentThreadId && (
+    !parent || parent.spaceId !== claim.spaceId || parent.accountId !== claim.accountId ||
+    parent.threadId !== claim.parentThreadId || parent.category !== 'mythology'
+  )) throw new ProjectChatNameParentConflictError();
+  const displayName=parent ? `${parent.displayName}.${claim.displayName}` : claim.displayName;
+  return {...member,displayName,agentName:{
+    name:claim.displayName,category:claim.category,displayName,
+    ...(claim.parentThreadId?{parentThreadId:claim.parentThreadId}:{})
+  }};
 }
 
 export class ProjectChatIdempotencyConflictError extends Error {

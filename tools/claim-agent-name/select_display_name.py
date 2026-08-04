@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
-import fcntl
+import errno
 import hashlib
 import json
 import os
@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, NamedTuple, Set
@@ -47,6 +48,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--thread-id", required=True)
     parser.add_argument("--current-name")
     parser.add_argument("--used-name", action="append", default=[])
+    parser.add_argument("--visible-thread-id", action="append", default=[])
+    parser.add_argument("--visible-tasks-complete", action="store_true")
     parser.add_argument(
         "--state-file",
         type=Path,
@@ -132,7 +135,9 @@ def load_claims(state_file: Path) -> Dict[str, Claim]:
     return claims
 
 
-def save_claims(state_file: Path, claims: Dict[str, Claim]) -> None:
+def save_claims(
+    state_file: Path, claims: Dict[str, Claim], platform_name: str = None
+) -> None:
     state_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     payload = {
         "version": 2,
@@ -146,7 +151,8 @@ def save_claims(state_file: Path, claims: Dict[str, Claim]) -> None:
         dir=str(state_file.parent), prefix=".agent-name-reservations.", text=True
     )
     try:
-        os.fchmod(file_descriptor, 0o600)
+        if (platform_name or os.name) != "nt":
+            os.fchmod(file_descriptor, 0o600)
         with os.fdopen(file_descriptor, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=True, indent=2, sort_keys=True)
             handle.write("\n")
@@ -158,18 +164,49 @@ def save_claims(state_file: Path, claims: Dict[str, Claim]) -> None:
             os.unlink(temporary_path)
 
 
-def renew_visible_claims(claims: Dict[str, Claim], used: Set[str], now: datetime) -> None:
+def renew_visible_claims(
+    claims: Dict[str, Claim], used: Set[str], visible_thread_ids: Set[str], now: datetime
+) -> None:
     for thread_id, claim in list(claims.items()):
-        if normalized(claim.name) in used:
+        if thread_id in visible_thread_ids or normalized(claim.name) in used:
             claims[thread_id] = Claim(claim.name, now)
 
 
 def prune_expired_claims(
-    claims: Dict[str, Claim], current_thread_id: str, now: datetime
+    claims: Dict[str, Claim], current_thread_id: str, visible_thread_ids: Set[str], now: datetime
 ) -> None:
     for thread_id, claim in list(claims.items()):
-        if thread_id != current_thread_id and claim.renewed_at + LEASE_DURATION <= now:
+        if (
+            thread_id != current_thread_id
+            and thread_id not in visible_thread_ids
+            and claim.renewed_at + LEASE_DURATION <= now
+        ):
             del claims[thread_id]
+
+
+def lock_state_file(lock_handle, platform_name: str = None, sleep=time.sleep) -> None:
+    platform = platform_name or os.name
+    if platform != "nt":
+        import fcntl
+
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        return
+
+    import msvcrt
+
+    lock_handle.seek(0, os.SEEK_END)
+    if lock_handle.tell() == 0:
+        lock_handle.write("\0")
+        lock_handle.flush()
+    lock_handle.seek(0)
+    while True:
+        try:
+            msvcrt.locking(lock_handle.fileno(), msvcrt.LK_NBLCK, 1)
+            return
+        except OSError as error:
+            if error.errno not in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                raise
+            sleep(0.05)
 
 
 def select_name(
@@ -250,6 +287,7 @@ def select_and_save(
     claims: Dict[str, Claim],
     now: datetime,
     cli_payload: dict,
+    platform_name: str = None,
 ) -> dict:
     cli_name = cli_payload.get("name")
     source = cli_payload.get("source")
@@ -267,32 +305,40 @@ def select_and_save(
         claims,
     )
     claims[args.thread_id] = Claim(name, now)
-    save_claims(args.state_file.expanduser().resolve(), claims)
+    save_claims(args.state_file.expanduser().resolve(), claims, platform_name)
     return {"name": name, "source": source, "warning": warning}
 
 
-def run(args: argparse.Namespace, cli_payload: dict = None) -> dict:
+def run(
+    args: argparse.Namespace, cli_payload: dict = None, platform_name: str = None
+) -> dict:
     now = parse_time(args.now, "current time") if args.now else datetime.now(timezone.utc)
     state_file = args.state_file.expanduser().resolve()
     state_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     lock_path = state_file.with_suffix(state_file.suffix + ".lock")
     lock_descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     with os.fdopen(lock_descriptor, "r+") as lock_handle:
-        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        lock_state_file(lock_handle, platform_name)
         claims = load_claims(state_file)
         used = {
             normalized(require_name(name, "used name"))
             for name in args.used_name
             if name.strip()
         }
-        renew_visible_claims(claims, used, now)
-        prune_expired_claims(claims, args.thread_id, now)
+        visible_thread_ids = {
+            thread_id.strip()
+            for thread_id in getattr(args, "visible_thread_id", [])
+            if thread_id.strip()
+        }
+        renew_visible_claims(claims, used, visible_thread_ids, now)
+        if getattr(args, "visible_tasks_complete", False):
+            prune_expired_claims(claims, args.thread_id, visible_thread_ids, now)
         payload = cli_payload
         if args.project_cli:
             payload = cli_payload_under_lock(args, claims)
         if not isinstance(payload, dict):
             raise ValueError("Project CLI returned invalid agent-name JSON")
-        return select_and_save(args, claims, now, payload)
+        return select_and_save(args, claims, now, payload, platform_name)
 
 
 def main() -> int:
