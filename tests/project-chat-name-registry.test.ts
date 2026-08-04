@@ -232,6 +232,25 @@ describe('Project Chat role-based name registry',()=>{
     await expect(service.claimName(context,{name:'Nyx',category:'mythology'})).rejects.toMatchObject({code:'name_conflict'});
   });
 
+  test('refreshes a specialist identity after its parent is renamed',async()=>{
+    const repository=new InMemoryProjectChatRepository();
+    const service=new ProjectChatService({repository});
+    await service.claimName(agent(threadA),{name:'Athena',category:'mythology'});
+    await service.claimName(agent(threadB),{name:'Picasso',category:'artist',parentThreadId:threadA});
+    await service.claimName(agent(threadA),{name:'Hermes',category:'mythology'});
+
+    await expect(service.listMembers(agent(threadB))).resolves.toContainEqual(
+      expect.objectContaining({
+        displayName:'Hermes.Picasso',
+        handle:'hermes-picasso',
+        agentName:expect.objectContaining({displayName:'Hermes.Picasso'})
+      })
+    );
+    await expect(repository.findMemberByActorKey(
+      'space-a',JSON.stringify(['agent','account-a','machine-a',threadB])
+    )).resolves.toMatchObject({displayName:'Hermes.Picasso',handle:'hermes-picasso'});
+  });
+
   test('blocks migrated agent members until their identity is backed by a matching claim',async()=>{
     const repository=new InMemoryProjectChatRepository();
     const context=agent(threadA);

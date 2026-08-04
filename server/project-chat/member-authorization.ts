@@ -4,7 +4,7 @@ import {
   type ProjectChatContext
 } from './contracts';
 import type { ProjectChatRepository } from './repository';
-import { projectChatActorKey } from './validation';
+import { normalizeProjectChatHandle, projectChatActorKey } from './validation';
 
 export async function requireProjectChatMember(
   repository: ProjectChatRepository,
@@ -51,6 +51,21 @@ export async function requireProjectChatMember(
       )
     : null;
   const displayName = parent ? `${parent.displayName}.${claim.displayName}` : claim.displayName;
+  if (
+    claim.parentThreadId && parent &&
+    member.agentName?.name === claim.displayName &&
+    member.agentName.category === claim.category &&
+    member.agentName.parentThreadId === claim.parentThreadId &&
+    (member.displayName !== displayName || member.agentName.displayName !== displayName)
+  ) {
+    member = await repository.upsertMember({
+      ...member,
+      displayName,
+      handle: normalizeProjectChatHandle(displayName),
+      agentName: { ...member.agentName, displayName },
+      updatedAt: clock.now().toISOString()
+    });
+  }
   if (
     member.displayName !== displayName ||
     member.agentName?.name !== claim.displayName ||

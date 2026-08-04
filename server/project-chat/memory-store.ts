@@ -95,18 +95,11 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
         revision: profile.revision ?? 1
       }));
     }
-    for (const member of snapshot.members) {
-      this.restoreMember(copy(member));
-    }
     for (const memberId of snapshot.retiredNameLeaseMemberIds ?? []) {
-      const stored = snapshot.members.find((candidate) => candidate.memberId === memberId);
-      const member = stored
-        ? this.membersById.get(memberKey(stored.spaceId, memberId))
-        : undefined;
-      if (member) {
-        this.retiredNameLeaseMemberIds.add(memberId);
-        this.memberIdByHandle.delete(compoundKey(member.spaceId, member.handle.toLowerCase()));
-      }
+      this.retiredNameLeaseMemberIds.add(memberId);
+    }
+    for (const member of snapshot.members) {
+      this.restoreMember(copy(member), true);
     }
     for (const presence of snapshot.presences) {
       this.presences.set(memberKey(presence.spaceId, presence.memberId), copy(presence));
@@ -628,8 +621,8 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
     return copy(next);
   }
 
-  private restoreMember(member: ProjectChatMemberRecord) {
-    this.retiredNameLeaseMemberIds.delete(member.memberId);
+  private restoreMember(member: ProjectChatMemberRecord, preserveRetired = false) {
+    if (!preserveRetired) this.retiredNameLeaseMemberIds.delete(member.memberId);
     this.membersById.set(memberKey(member.spaceId, member.memberId), member);
     this.memberIdByActor.set(compoundKey(member.spaceId, member.actorKey), member.memberId);
     if (!this.retiredNameLeaseMemberIds.has(member.memberId)) {
