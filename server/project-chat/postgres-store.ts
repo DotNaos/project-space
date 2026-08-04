@@ -21,13 +21,14 @@ import {
   findPostgresNameClaimForUpdate, listPostgresNameClaims, reapExpiredPostgresNameClaims,
   renewPostgresNameClaim
 } from './postgres-name-registry';
+import { isMythologyParentRename } from './dependent-specialist-members';
+import { findDependentSpecialistMembersForUpdate } from './postgres-dependent-specialists';
 
 interface ChannelRow {
   account_id: string | null;
   channel_id: string; created_at: Date | string; last_sequence: number | string;
   kind: ProjectChatChannelRecord['kind']; name: string; project_id: string | null; space_id: string;
 }
-
 interface MemberRow {
   actor_key: string; avatar_url: string | null; display_name: string; handle: string;
   joined_at: Date | string; member_id: string;
@@ -36,39 +37,31 @@ interface MemberRow {
   role: ProjectChatMemberRecord['role']; space_id: string; updated_at: Date | string;
   agent_name: ProjectChatMemberRecord['agentName'] | string | null;
 }
-
 interface PresenceRow {
   expires_at: Date | string; last_seen_at: Date | string;
   member_id: string; space_id: string; state: ProjectChatPresenceRecord['state'];
 }
-
 interface MessageRow {
   body: string; channel_id: string; created_at: Date | string; expires_at: Date | string;
   id: string; mentions: ProjectChatMention[] | string; sender: ProjectChatSender | string;
   sender_member_id: string; sequence: number | string; space_id: string;
 }
-
 interface IdempotencyMessageRow extends MessageRow {
   idempotency_body: string;
 }
-
 interface MentionMessageRow extends MessageRow {
   unread_count: number | string;
 }
-
 interface DatabaseError {
   code?: unknown;
   constraint?: unknown;
 }
-
-
 const handleConstraintName = 'project_chat_members_space_handle_unique';
 const idempotencyConstraintName = 'project_chat_idempotency_identity_unique';
 
 function toIsoString(value: Date | string) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
-
 function jsonValue<Value>(value: Value | string): Value {
   return typeof value === 'string' ? JSON.parse(value) as Value : value;
 }
@@ -187,9 +180,16 @@ export class PostgresProjectChatRepository implements ProjectChatRepository {
       return await runTransaction(this.client,async(transaction)=>{
         const repository=new PostgresProjectChatRepository(transaction);
         const parent=claim.parentThreadId ? await findPostgresNameClaimForUpdate(transaction,claim.spaceId,claim.accountId,claim.parentThreadId) : null;
+        const existing=await findPostgresNameClaimForUpdate(
+          transaction,claim.spaceId,claim.accountId,claim.threadId
+        );
         const joinedMember=memberForNameClaim(member,claim,parent);
-        const storedClaim=await claimPostgresNameInTransaction(transaction,claim);
+        const dependentMembers = isMythologyParentRename(existing,claim)
+          ? await findDependentSpecialistMembersForUpdate(transaction,claim)
+          : [];
+        const storedClaim=await claimPostgresNameInTransaction(transaction,claim,existing);
         const storedMember=await repository.upsertMember(joinedMember);
+        for (const dependent of dependentMembers) await repository.upsertMember(dependent);
         const storedPresence=await repository.setPresence({...presence,memberId:storedMember.memberId});
         return {claim:storedClaim,member:storedMember,presence:storedPresence};
       });

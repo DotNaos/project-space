@@ -255,6 +255,9 @@ describe('Project Chat role-based name registry',()=>{
     await service.claimName(agent(threadB),{name:'Picasso',category:'artist',parentThreadId:threadA});
     await service.claimName(agent(threadA),{name:'Hermes',category:'mythology'});
 
+    await expect(repository.findMemberByActorKey(
+      'space-a',JSON.stringify(['agent','account-a','machine-a',threadB])
+    )).resolves.toMatchObject({displayName:'Hermes.Picasso',handle:'hermes-picasso'});
     await expect(service.listMembers(agent(threadB))).resolves.toContainEqual(
       expect.objectContaining({
         displayName:'Hermes.Picasso',
@@ -262,9 +265,46 @@ describe('Project Chat role-based name registry',()=>{
         agentName:expect.objectContaining({displayName:'Hermes.Picasso'})
       })
     );
+  });
+
+  test('rejects a parent rename atomically when a dependent specialist handle conflicts',async()=>{
+    let pauseRename=false;
+    let entered!:()=>void;
+    let release!:()=>void;
+    const paused=new Promise<void>(resolve=>{entered=resolve});
+    const resume=new Promise<void>(resolve=>{release=resolve});
+    class PausesApolloRename extends InMemoryProjectChatRepository {
+      override async claimNameAndJoin(...args:Parameters<InMemoryProjectChatRepository['claimNameAndJoin']>) {
+        if(pauseRename && args[0].displayName==='Apollo'){entered();await resume}
+        return super.claimNameAndJoin(...args);
+      }
+    }
+    const repository=new PausesApolloRename();
+    const service=new ProjectChatService({repository});
+    await service.claimName(agent(threadA),{name:'Athena',category:'mythology'});
+    await service.claimName(agent(threadB),{name:'Turing',category:'science',parentThreadId:threadA});
+
+    pauseRename=true;
+    const rename=service.claimName(agent(threadA),{name:'Apollo',category:'mythology'});
+    await paused;
+    const now=new Date().toISOString();
+    await repository.upsertMember({
+      actorKey:JSON.stringify(['human','apollo-turing-owner']),
+      displayName:'Apollo Turing',handle:'apollo-turing',joinedAt:now,
+      memberId:'apollo-turing-owner',role:'human',spaceId:'space-a',updatedAt:now
+    });
+    release();
+
+    await expect(rename).rejects.toMatchObject({code:'name_conflict'});
+    expect(await repository.findNameClaimByThread('space-a','account-a',threadA)).toMatchObject({
+      displayName:'Athena',nameKey:'athena'
+    });
     await expect(repository.findMemberByActorKey(
       'space-a',JSON.stringify(['agent','account-a','machine-a',threadB])
-    )).resolves.toMatchObject({displayName:'Hermes.Picasso',handle:'hermes-picasso'});
+    )).resolves.toMatchObject({displayName:'Athena.Turing',handle:'athena-turing'});
+    await expect(service.listMembers(agent(threadB))).resolves.toContainEqual(
+      expect.objectContaining({displayName:'Athena.Turing',handle:'athena-turing'})
+    );
   });
 
   test('blocks migrated agent members until their identity is backed by a matching claim',async()=>{

@@ -111,9 +111,12 @@ export async function renewPostgresNameClaim(
 
 export async function claimPostgresNameInTransaction(
   client: DatabaseQueryClient,
-  claim: ProjectChatNameClaimRecord
+  claim: ProjectChatNameClaimRecord,
+  lockedExisting?: ProjectChatNameClaimRecord | null
 ) {
-  const existing=await findPostgresNameClaimForUpdate(client,claim.spaceId,claim.accountId,claim.threadId);
+  const existing=lockedExisting === undefined
+    ? await findPostgresNameClaimForUpdate(client,claim.spaceId,claim.accountId,claim.threadId)
+    : lockedExisting;
   if (existing?.nameKey === claim.nameKey) {
     const renewed=await updateNameClaim(client,{
       ...claim,

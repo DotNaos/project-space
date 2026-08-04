@@ -17,13 +17,17 @@ import {
   type ProjectChatHumanProfileUpdate,
   type ProjectChatRepository
 } from './repository';
+import {
+  dependentSpecialistMemberUpdates,
+  validateProjectChatMemberHandleUpdates
+} from './dependent-specialist-members';
+import { captureMemoryNameJoinTransaction } from './memory-name-join-transaction';
 
 interface IdempotencyRecord {
   messageId: string;
   body: string;
   expiresAt: string;
 }
-
 export interface ProjectChatMemorySnapshot {
   nameClaims?: ProjectChatNameClaimRecord[];
   channels: ProjectChatChannelRecord[];
@@ -178,24 +182,32 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
         candidate.spaceId === claim.spaceId && candidate.accountId === claim.accountId &&
         candidate.threadId === claim.threadId
       );
-      const affectedKeys = new Set([
-        compoundKey(claim.spaceId,claim.nameKey),
-        ...(existingThread ? [compoundKey(existingThread.spaceId,existingThread.nameKey)] : [])
-      ]);
-      const previousClaims = new Map([...affectedKeys].map((key) =>
-        [key,this.nameClaims.get(key)] as const
-      ));
+      const dependentMembers = dependentSpecialistMemberUpdates({
+        claims:this.nameClaims.values(),existing:existingThread,parent:claim,
+        findMember:(child)=>{
+          const memberId=this.memberIdByActor.get(compoundKey(child.spaceId,child.actorKey));
+          return memberId ? this.membersById.get(memberKey(child.spaceId,memberId)) : undefined;
+        }
+      });
+      validateProjectChatMemberHandleUpdates(
+        [joinedMember,...dependentMembers],
+        (spaceId,handle)=>this.memberIdByHandle.get(compoundKey(spaceId,handle)),
+        (spaceId,actorKey)=>this.memberIdByActor.get(compoundKey(spaceId,actorKey))
+      );
+      const rollback=captureMemoryNameJoinTransaction({claim,existing:existingThread,
+        memberIdByActor:this.memberIdByActor,memberIdByHandle:this.memberIdByHandle,
+        members:[joinedMember,...dependentMembers],membersById:this.membersById,
+        nameClaims:this.nameClaims,presence,presences:this.presences,
+        retiredMemberIds:this.retiredNameLeaseMemberIds});
       try {
         const storedClaim=this.claimNameRecord(claim);
         const storedMember=this.upsertMemberRecord(joinedMember);
+        for (const dependent of dependentMembers) this.upsertMemberRecord(dependent);
         const storedPresence={...presence,memberId:storedMember.memberId};
         this.presences.set(memberKey(storedPresence.spaceId,storedPresence.memberId),copy(storedPresence));
         return {claim:storedClaim,member:storedMember,presence:copy(storedPresence)};
       } catch (error) {
-        for (const [key,previous] of previousClaims) {
-          if (previous) this.nameClaims.set(key,copy(previous));
-          else this.nameClaims.delete(key);
-        }
+        rollback();
         throw error;
       }
     });

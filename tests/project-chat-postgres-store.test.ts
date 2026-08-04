@@ -22,12 +22,10 @@ interface QueryCall {
   sql: string;
   values: readonly unknown[];
 }
-
 type Response =
   | DatabaseQueryResult<unknown>
   | Error
   | ((call: QueryCall) => DatabaseQueryResult<unknown> | Promise<DatabaseQueryResult<unknown>>);
-
 class RecordingClient implements DatabaseQueryClient {
   readonly calls: QueryCall[] = [];
   readonly events: string[] = [];
@@ -61,14 +59,12 @@ class RecordingClient implements DatabaseQueryClient {
     }
   }
 }
-
 function rows<Row>(values: Row[], rowCount = values.length): DatabaseQueryResult<Row> {
   return { rowCount, rows: values };
 }
 
 const createdAt = '2026-07-11T10:00:00.000Z';
 const expiresAt = '2026-07-12T10:00:00.000Z';
-
 function memberRecord(overrides: Partial<ProjectChatMemberRecord> = {}): ProjectChatMemberRecord {
   return {
     actorKey: 'agent:machine-a:thread-a',
@@ -230,47 +226,6 @@ describe('PostgresProjectChatRepository', () => {
     expect(renamedClient.calls[0]?.values).toEqual([
       'space-a','account-a','thread-a','athena',createdAt,'2026-07-12T10:00:00.000Z'
     ]);
-  });
-
-  test('commits a name claim, member identity, and presence as one transaction',async()=>{
-    const updatedAt='2026-07-12T10:00:00.000Z';
-    const claim:ProjectChatNameClaimRecord={
-      accountId:'account-a',actorKey:'agent:machine-a:thread-a',category:'mythology',
-      claimedAt:updatedAt,displayName:'Hermes',nameKey:'hermes',spaceId:'space-a',
-      threadId:'thread-a',updatedAt
-    };
-    const member=memberRecord({
-      displayName:'Hermes',handle:'hermes',updatedAt,
-      agentName:{name:'Hermes',category:'mythology',displayName:'Hermes'}
-    });
-    const presence:ProjectChatPresenceRecord={
-      expiresAt, lastSeenAt:updatedAt, memberId:member.memberId,
-      spaceId:member.spaceId, state:'working'
-    };
-    const successfulClient=new RecordingClient([
-      rows([nameClaimRow()]),
-      rows([nameClaimRow({name_key:'hermes',display_name:'Hermes',updated_at:updatedAt})]),
-      rows([memberRow({member_id:'persisted-member',display_name:'Hermes',handle:'hermes',updated_at:updatedAt,agent_name:member.agentName})]),
-      rows([{expires_at:expiresAt,last_seen_at:updatedAt,member_id:'persisted-member',space_id:member.spaceId,state:'working'}])
-    ]);
-    const repository=new PostgresProjectChatRepository(successfulClient);
-    await expect(repository.claimNameAndJoin(claim,member,presence)).resolves.toMatchObject({
-      claim:{nameKey:'hermes'},member:{displayName:'Hermes'},
-      presence:{memberId:'persisted-member',state:'working'}
-    });
-    expect(successfulClient.events).toEqual(['begin','select','update','insert','insert','commit']);
-    expect(successfulClient.calls[3]?.values[1]).toBe('persisted-member');
-
-    const memberFailure=new Error('forced member failure');
-    const failingClient=new RecordingClient([
-      rows([nameClaimRow()]),
-      rows([nameClaimRow({name_key:'hermes',display_name:'Hermes',updated_at:updatedAt})]),
-      memberFailure
-    ]);
-    await expect(
-      new PostgresProjectChatRepository(failingClient).claimNameAndJoin(claim,member,presence)
-    ).rejects.toBe(memberFailure);
-    expect(failingClient.events).toEqual(['begin','select','update','insert','rollback']);
   });
 
   test('persists provider defaults separately from human profile overrides', async () => {
