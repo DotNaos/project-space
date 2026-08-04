@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +24,26 @@ const defaultAgentNameOnlineTimeout = 4 * time.Second
 var fallbackEntropyCounter atomic.Uint64
 
 var errAgentNameCatalogExhausted = errors.New("Project Space has no available main-agent names")
+var errLocalAgentNamePoolExhausted = errors.New("the local clean agent-name pool is exhausted")
+
+var automaticAgentNamePrefixes = [...]string{
+	"Ae", "Al", "Ar", "Bel", "Bri", "Ca", "Cor", "Da",
+	"El", "Fa", "Fen", "Gal", "Hal", "Is", "Jo", "Ka",
+	"Kel", "La", "Lor", "Ma", "Mer", "Na", "Nor", "Or",
+	"Per", "Quin", "Ra", "Sel", "Tal", "Val", "Wen", "Ze",
+}
+
+var automaticAgentNameMiddles = [...]string{
+	"ba", "ce", "di", "el", "fi", "ga", "ha", "io",
+	"ka", "lu", "mi", "no", "or", "ra", "su", "ve",
+}
+
+var automaticAgentNameSuffixes = [...]string{
+	"den", "dra", "el", "en", "er", "ia", "ian", "il",
+	"in", "io", "is", "on", "or", "os", "ra", "ran",
+	"ren", "ria", "ric", "rin", "ro", "sa", "sel", "sor",
+	"ta", "th", "tor", "va", "ven", "yn", "yor", "zen",
+}
 
 type agentNameDependencies struct {
 	IdentityProvider projectchat.ThreadIdentityProvider
@@ -115,7 +136,10 @@ func allocateAgentName(
 		return agentNameResult{Name: name, Source: "project-space"}, nil
 	}
 	if isAgentNameOutage(err) {
-		name = storedOrGeneratedFallbackAgentName(ctx, dependencies, threadID, excluded)
+		name, fallbackErr := storedOrGeneratedFallbackAgentName(ctx, dependencies, threadID, excluded)
+		if fallbackErr != nil {
+			return agentNameResult{}, agentNameCapabilityError(fallbackErr)
+		}
 		return agentNameResult{
 			Name:    name,
 			Source:  "fallback",
@@ -132,6 +156,8 @@ func isAgentNameOutage(err error) bool {
 
 func agentNameCapabilityError(err error) error {
 	switch {
+	case errors.Is(err, errLocalAgentNamePoolExhausted):
+		return fmt.Errorf("%w; expired 48-hour local leases must be reclaimed before another clean name can be selected", err)
 	case errors.Is(err, errAgentNameCatalogExhausted):
 		return fmt.Errorf("%w; existing reservations were preserved, so release a stale claim or expand the Project Space name catalog", err)
 	case errors.Is(err, projectchat.ErrMissingCredential),
@@ -160,20 +186,23 @@ func storedOrGeneratedFallbackAgentName(
 	dependencies agentNameDependencies,
 	threadID string,
 	excluded map[string]struct{},
-) string {
+) (string, error) {
 	if dependencies.ProfileStore != nil {
 		profile, err := dependencies.ProfileStore.Load(threadID)
 		if err == nil && strings.TrimSpace(profile.DisplayName) != "" {
 			if _, found := excluded[normalizeAgentName(profile.DisplayName)]; !found {
-				return profile.DisplayName
+				return profile.DisplayName, nil
 			}
 		}
 	}
-	name := uniqueFallbackAgentName(threadID, excluded, dependencies.FallbackName)
+	name, err := uniqueFallbackAgentName(threadID, excluded, dependencies.FallbackName)
+	if err != nil {
+		return "", err
+	}
 	if dependencies.ProfileStore != nil {
 		_ = dependencies.ProfileStore.Save(threadID, projectchat.AgentProfile{DisplayName: name})
 	}
-	return name
+	return name, nil
 }
 
 func claimProjectSpaceAgentName(
@@ -191,6 +220,36 @@ func claimProjectSpaceAgentName(
 		index := dependencies.RandomIndex(len(candidates))
 		candidate := candidates[index]
 		candidates = append(candidates[:index], candidates[index+1:]...)
+		claim, claimErr := dependencies.Registry.ClaimName(
+			ctx,
+			threadID,
+			candidate,
+			projectchat.NameCategoryMythology,
+			"",
+		)
+		if errors.Is(claimErr, projectchat.ErrNameConflict) {
+			continue
+		}
+		if claimErr != nil {
+			return "", claimErr
+		}
+		if strings.TrimSpace(claim.Name) == "" {
+			return "", projectchat.ErrInvalidResponse
+		}
+		if dependencies.ProfileStore != nil {
+			_ = dependencies.ProfileStore.Save(threadID, projectchat.AgentProfile{
+				DisplayName:   claim.DisplayName,
+				Category:      claim.Category,
+				RegistryClaim: true,
+			})
+		}
+		return claim.Name, nil
+	}
+	for attempt := range automaticAgentNamePoolSize() {
+		candidate := automaticAgentNameForThread(threadID, attempt)
+		if _, found := excluded[normalizeAgentName(candidate)]; found {
+			continue
+		}
 		claim, claimErr := dependencies.Registry.ClaimName(
 			ctx,
 			threadID,
@@ -264,22 +323,17 @@ func uniqueFallbackAgentName(
 	threadID string,
 	excluded map[string]struct{},
 	generate func(string, int) string,
-) string {
-	for attempt := range 256 {
+) (string, error) {
+	for attempt := range automaticAgentNamePoolSize() {
 		candidate := strings.TrimSpace(generate(threadID, attempt))
 		if candidate == "" {
 			continue
 		}
 		if _, found := excluded[normalizeAgentName(candidate)]; !found {
-			return candidate
+			return candidate, nil
 		}
 	}
-	for attempt := uint64(0); ; attempt++ {
-		candidate := fmt.Sprintf("Agent-%X-%X", uint64(time.Now().UnixNano()), fallbackEntropyCounter.Add(1)+attempt+uint64(os.Getpid()))
-		if _, found := excluded[normalizeAgentName(candidate)]; !found {
-			return candidate
-		}
-	}
+	return "", errLocalAgentNamePoolExhausted
 }
 
 func deterministicFallbackAgentName(threadID string, attempt int) string {
@@ -296,25 +350,35 @@ func generateFallbackAgentName(randomIndex func(int) int) string {
 }
 
 func fallbackAgentNameFromIndexes(index func(int, int) int) string {
-	prefixes := [...]string{
-		"Ae", "Al", "Ar", "Bel", "Bri", "Ca", "Cor", "Da",
-		"El", "Fa", "Fen", "Gal", "Hal", "Is", "Jo", "Ka",
-		"Kel", "La", "Lor", "Ma", "Mer", "Na", "Nor", "Or",
-		"Per", "Quin", "Ra", "Sel", "Tal", "Val", "Wen", "Ze",
-	}
-	suffixes := [...]string{
-		"den", "dra", "el", "en", "er", "ia", "ian", "il",
-		"in", "io", "is", "on", "or", "os", "ra", "ran",
-		"ren", "ria", "ric", "rin", "ro", "sa", "sel", "sor",
-		"ta", "th", "tor", "va", "ven", "yn", "yor", "zen",
-	}
 	const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 	var code strings.Builder
 	code.Grow(6)
 	for position := range 6 {
-		code.WriteByte(alphabet[index(position+2, len(alphabet))])
+		code.WriteByte(alphabet[index(position+3, len(alphabet))])
 	}
-	return prefixes[index(0, len(prefixes))] + suffixes[index(1, len(suffixes))] + "-" + code.String()
+	return automaticAgentNamePrefixes[index(0, len(automaticAgentNamePrefixes))] +
+		automaticAgentNameMiddles[index(1, len(automaticAgentNameMiddles))] +
+		automaticAgentNameSuffixes[index(2, len(automaticAgentNameSuffixes))] +
+		"-" + code.String()
+}
+
+func automaticAgentNamePoolSize() int {
+	return len(automaticAgentNamePrefixes) * len(automaticAgentNameMiddles) * len(automaticAgentNameSuffixes)
+}
+
+func automaticAgentNameForThread(threadID string, attempt int) string {
+	poolSize := automaticAgentNamePoolSize()
+	digest := sha256.Sum256([]byte(threadID))
+	start := int(binary.BigEndian.Uint64(digest[:8]) % uint64(poolSize))
+	step := int(binary.BigEndian.Uint64(digest[8:16])%uint64(poolSize/2))*2 + 1
+	index := (start + attempt*step) % poolSize
+	suffixIndex := index % len(automaticAgentNameSuffixes)
+	middlePosition := index / len(automaticAgentNameSuffixes)
+	middleIndex := middlePosition % len(automaticAgentNameMiddles)
+	prefixIndex := middlePosition / len(automaticAgentNameMiddles)
+	return automaticAgentNamePrefixes[prefixIndex] +
+		automaticAgentNameMiddles[middleIndex] +
+		automaticAgentNameSuffixes[suffixIndex]
 }
 
 func secureAgentNameIndex(maximum int) int {

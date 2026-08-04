@@ -51,6 +51,7 @@ export interface ProjectChatRepository {
   findNameClaimByThread(spaceId: string, accountId: string, threadId: string): Promise<ProjectChatNameClaimRecord | null>;
   claimName(claim: ProjectChatNameClaimRecord): Promise<ProjectChatNameClaimRecord>;
   restoreNameClaim(current: ProjectChatNameClaimRecord, previous: ProjectChatNameClaimRecord | null): Promise<void>;
+  reapExpiredNameClaims(spaceId: string, expiresAtOrBefore: string): Promise<number>;
   ensureHumanProfileAndMember(
     profile: ProjectChatHumanProfileRecord,
     member: ProjectChatMemberRecord,

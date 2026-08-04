@@ -33,6 +33,7 @@ export interface ProjectChatMemorySnapshot {
   channelSequences: Array<[string, number]>;
   cursors: Array<[string, number]>;
   idempotency: Array<[string, IdempotencyRecord]>;
+  retiredNameLeaseMemberIds?: string[];
 }
 
 function compoundKey(...parts: string[]) {
@@ -63,6 +64,7 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
   private readonly membersById = new Map<string, ProjectChatMemberRecord>();
   private readonly memberIdByActor = new Map<string, string>();
   private readonly memberIdByHandle = new Map<string, string>();
+  private readonly retiredNameLeaseMemberIds = new Set<string>();
   private readonly presences = new Map<string, ProjectChatPresenceRecord>();
   private readonly messagesByChannel = new Map<string, ProjectChatMessageRecord[]>();
   private readonly messagesById = new Map<string, ProjectChatMessageRecord>();
@@ -94,6 +96,16 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
     }
     for (const member of snapshot.members) {
       this.restoreMember(copy(member));
+    }
+    for (const memberId of snapshot.retiredNameLeaseMemberIds ?? []) {
+      const stored = snapshot.members.find((candidate) => candidate.memberId === memberId);
+      const member = stored
+        ? this.membersById.get(memberKey(stored.spaceId, memberId))
+        : undefined;
+      if (member) {
+        this.retiredNameLeaseMemberIds.add(memberId);
+        this.memberIdByHandle.delete(compoundKey(member.spaceId, member.handle.toLowerCase()));
+      }
     }
     for (const presence of snapshot.presences) {
       this.presences.set(memberKey(presence.spaceId, presence.memberId), copy(presence));
@@ -127,7 +139,8 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
       messages: [...this.messagesById.values()].sort((a, b) => a.sequence - b.sequence).map(copy),
       channelSequences: [...this.channelSequences.entries()],
       cursors: [...this.cursors.entries()],
-      idempotency: [...this.idempotency.entries()].map(([key, value]) => [key, copy(value)])
+      idempotency: [...this.idempotency.entries()].map(([key, value]) => [key, copy(value)]),
+      retiredNameLeaseMemberIds: [...this.retiredNameLeaseMemberIds]
     }));
   }
 
@@ -143,7 +156,11 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
     return this.exclusive(() => {
       const existingThread = [...this.nameClaims.values()].find((c) => c.spaceId === claim.spaceId && c.accountId === claim.accountId && c.threadId === claim.threadId);
       if (existingThread) {
-        if (existingThread.nameKey === claim.nameKey) return copy(existingThread);
+        if (existingThread.nameKey === claim.nameKey) {
+          const renewed = { ...claim, claimedAt: existingThread.claimedAt };
+          this.nameClaims.set(compoundKey(renewed.spaceId, renewed.nameKey), copy(renewed));
+          return copy(renewed);
+        }
         const targetKey = compoundKey(claim.spaceId, claim.nameKey);
         if (this.nameClaims.has(targetKey)) throw new ProjectChatNameClaimConflictError('name_claimed');
         this.nameClaims.delete(compoundKey(existingThread.spaceId, existingThread.nameKey));
@@ -165,6 +182,35 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
       if (!stored || stored.accountId!==current.accountId || stored.threadId!==current.threadId || stored.updatedAt!==current.updatedAt) return;
       this.nameClaims.delete(key);
       if (previous) this.nameClaims.set(compoundKey(previous.spaceId,previous.nameKey),copy(previous));
+    });
+  }
+
+  async reapExpiredNameClaims(spaceId: string, expiresAtOrBefore: string) {
+    return this.exclusive(() => {
+      const claims = [...this.nameClaims.values()].filter((claim) => claim.spaceId === spaceId);
+      const expired = claims.filter((claim) =>
+        claim.updatedAt <= expiresAtOrBefore &&
+        (claim.category !== 'mythology' || !claims.some((child) =>
+          child.parentThreadId === claim.threadId && child.updatedAt > expiresAtOrBefore
+        ))
+      );
+      for (const claim of expired) {
+        this.nameClaims.delete(compoundKey(claim.spaceId, claim.nameKey));
+        const memberId = this.memberIdByActor.get(compoundKey(claim.spaceId, claim.actorKey));
+        const member = memberId
+          ? this.membersById.get(memberKey(claim.spaceId, memberId))
+          : undefined;
+        if (member) {
+          this.memberIdByHandle.delete(compoundKey(member.spaceId, member.handle.toLowerCase()));
+          this.retiredNameLeaseMemberIds.add(member.memberId);
+          this.membersById.set(memberKey(member.spaceId, member.memberId), {
+            ...member,
+            agentName: undefined,
+            updatedAt: expiresAtOrBefore
+          });
+        }
+      }
+      return expired.length;
     });
   }
 
@@ -558,9 +604,12 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
   }
 
   private restoreMember(member: ProjectChatMemberRecord) {
+    this.retiredNameLeaseMemberIds.delete(member.memberId);
     this.membersById.set(memberKey(member.spaceId, member.memberId), member);
     this.memberIdByActor.set(compoundKey(member.spaceId, member.actorKey), member.memberId);
-    this.memberIdByHandle.set(compoundKey(member.spaceId, member.handle.toLowerCase()), member.memberId);
+    if (!this.retiredNameLeaseMemberIds.has(member.memberId)) {
+      this.memberIdByHandle.set(compoundKey(member.spaceId, member.handle.toLowerCase()), member.memberId);
+    }
   }
 
   private async exclusive<T>(operation: () => T | Promise<T>) {

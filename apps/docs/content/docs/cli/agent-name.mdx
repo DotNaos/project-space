@@ -1,0 +1,45 @@
+---
+title: Codex agent names
+description: How clean agent names are allocated, renewed, and reclaimed.
+---
+
+# Codex agent names
+
+`project agent name` gives each Codex task a clean, stable display name. Project Space
+allocates online names atomically. When Project Space is genuinely unreachable, the
+startup selector uses the same 16,384-name procedural catalogue under a local file lock.
+
+## 48-hour leases
+
+Online and local reservations are leases, not permanent ownership. A successful name
+claim, a resumed task claiming its existing name, or a visible local task renews its lease
+for 48 hours. Before expiry, another task cannot take the name. At the exact 48-hour
+boundary, an unrenewed lease may be reclaimed.
+
+Reclaiming an online name retires the old chat identity without rewriting historical
+message senders. Reclaiming a local name removes only the expired reservation. An online
+claim can replace an expired local reservation, but it never silently replaces a live
+local lease.
+
+The command keeps the existing JSON contract:
+
+```json
+{"name":"Aebaden","source":"project-space","warning":""}
+```
+
+Connectivity fallback, incompatible server responses, authentication failures, rate
+limits, and genuine catalogue exhaustion remain distinct outcomes. If no clean name can
+be selected, task startup leaves the title unchanged and the user's actual work continues.
+
+## Install the startup skill
+
+Project Space versions the matching global startup skill in `tools/claim-agent-name`.
+Install or refresh it from a Project Space checkout with:
+
+```sh
+python3 tools/claim-agent-name/install.py
+```
+
+Use `--check` to verify that the installed skill matches the versioned source without
+changing it. The selector holds its local lock across the Project CLI request and passes
+every live local lease as an exclusion before an online claim is made.

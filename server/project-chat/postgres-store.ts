@@ -18,7 +18,13 @@ import {
   findPostgresHumanProfile,
   updatePostgresHumanProfile
 } from './postgres-human-profile';
-import { claimPostgresName, findPostgresNameClaim, listPostgresNameClaims, restorePostgresNameClaim } from './postgres-name-registry';
+import {
+  claimPostgresName,
+  findPostgresNameClaim,
+  listPostgresNameClaims,
+  reapExpiredPostgresNameClaims,
+  restorePostgresNameClaim
+} from './postgres-name-registry';
 
 interface ChannelRow {
   account_id: string | null;
@@ -179,6 +185,10 @@ export class PostgresProjectChatRepository implements ProjectChatRepository {
 
   async restoreNameClaim(current: ProjectChatNameClaimRecord, previous: ProjectChatNameClaimRecord | null) {
     return restorePostgresNameClaim(this.client, current, previous);
+  }
+
+  async reapExpiredNameClaims(spaceId: string, expiresAtOrBefore: string) {
+    return reapExpiredPostgresNameClaims(this.client, spaceId, expiresAtOrBefore);
   }
 
   async ensureHumanProfile(
@@ -343,8 +353,9 @@ export class PostgresProjectChatRepository implements ProjectChatRepository {
            role = excluded.role,
            origin = excluded.origin,
            profile_revision = excluded.profile_revision,
-           updated_at = excluded.updated_at
-          ,agent_name = excluded.agent_name
+           updated_at = excluded.updated_at,
+           agent_name = excluded.agent_name,
+           name_lease_retired_at = null
          where excluded.role <> 'human'
             or project_chat_members.profile_revision is null
             or excluded.profile_revision >= project_chat_members.profile_revision

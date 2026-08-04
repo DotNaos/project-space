@@ -7,6 +7,7 @@ import type {
 import type {
   ProjectChatMemberRecord,
   ProjectChatMessageRecord,
+  ProjectChatNameClaimRecord,
   ProjectChatPresenceRecord
 } from '../server/project-chat/contracts';
 import { updatePostgresHumanProfile } from '../server/project-chat/postgres-human-profile';
@@ -175,7 +176,44 @@ function databaseConflict(constraint: string) {
   return Object.assign(new Error('unique violation'), { code: '23505', constraint });
 }
 
+function nameClaimRow(overrides:Record<string,unknown>={}) {
+  return {
+    account_id:'account-a',
+    actor_key:'agent:machine-a:thread-a',
+    category:'mythology',
+    claimed_at:'2026-07-11T10:00:00.000Z',
+    display_name:'Athena',
+    name_key:'athena',
+    parent_thread_id:null,
+    space_id:'space-a',
+    thread_id:'thread-a',
+    updated_at:'2026-07-11T10:00:00.000Z',
+    ...overrides
+  };
+}
+
 describe('PostgresProjectChatRepository', () => {
+  test('renews an idempotent name lease without changing its original claim time',async()=>{
+    const renewedAt='2026-07-12T10:00:00.000Z';
+    const client=new RecordingClient([
+      rows([nameClaimRow()]),
+      rows([nameClaimRow({updated_at:renewedAt})])
+    ]);
+    const repository=new PostgresProjectChatRepository(client);
+    const claim:ProjectChatNameClaimRecord={
+      accountId:'account-a',actorKey:'agent:machine-a:thread-a',category:'mythology',
+      claimedAt:renewedAt,displayName:'Athena',nameKey:'athena',spaceId:'space-a',
+      threadId:'thread-a',updatedAt:renewedAt
+    };
+
+    await expect(repository.claimName(claim)).resolves.toMatchObject({
+      claimedAt:'2026-07-11T10:00:00.000Z',updatedAt:renewedAt
+    });
+    expect(client.calls[1]?.sql).toContain('updated_at = $9');
+    expect(client.calls[1]?.values[8]).toBe(renewedAt);
+    expect(client.events).toEqual(['begin','select','update','commit']);
+  });
+
   test('persists provider defaults separately from human profile overrides', async () => {
     const baseRow = humanProfileRow();
     const client = new RecordingClient([
@@ -624,5 +662,17 @@ describe('PostgresProjectChatRepository', () => {
     expect(client.calls[0]?.sql).toContain('delete from project_chat_messages');
     expect(client.calls[0]?.sql).not.toContain('project_chat_channels');
     expect(client.calls[0]?.values).toEqual([createdAt]);
+  });
+
+  test('reaps expired name leases while retiring members and protecting fresh specialists',async()=>{
+    const client=new RecordingClient([rows([{removed:'2'}])]);
+    const repository=new PostgresProjectChatRepository(client);
+    const boundary='2026-07-13T10:00:00.000Z';
+
+    await expect(repository.reapExpiredNameClaims('space-a',boundary)).resolves.toBe(2);
+    expect(client.calls[0]?.sql).toContain('claim.updated_at <= $2::timestamptz');
+    expect(client.calls[0]?.sql).toContain('child.updated_at > $2::timestamptz');
+    expect(client.calls[0]?.sql).toContain('name_lease_retired_at = $2::timestamptz');
+    expect(client.calls[0]?.values).toEqual(['space-a',boundary]);
   });
 });

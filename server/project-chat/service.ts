@@ -70,7 +70,10 @@ export interface ProjectChatServiceOptions {
   retentionMs?: number;
   presenceTtlMs?: number;
   listProjects?: ProjectChatProjectProvider;
+  nameLeaseMs?: number;
 }
+
+export const PROJECT_CHAT_NAME_LEASE_MS = 48 * 60 * 60 * 1_000;
 
 export class ProjectChatService {
   private readonly repository: ProjectChatRepository;
@@ -80,6 +83,7 @@ export class ProjectChatService {
   private readonly rateLimits: Record<ProjectChatRateLimitAction, ProjectChatRateLimitRule>;
   private readonly retentionMs: number;
   private readonly presenceTtlMs: number;
+  private readonly nameLeaseMs: number;
   private readonly channels: ProjectChatChannelManager;
 
   constructor(options: ProjectChatServiceOptions) {
@@ -109,6 +113,10 @@ export class ProjectChatService {
       options.presenceTtlMs ?? PROJECT_CHAT_DEFAULT_PRESENCE_TTL_MS,
       'presenceTtlMs'
     );
+    this.nameLeaseMs = positiveDuration(
+      options.nameLeaseMs ?? PROJECT_CHAT_NAME_LEASE_MS,
+      'nameLeaseMs'
+    );
     this.channels = new ProjectChatChannelManager(
       this.repository,
       this.clock,
@@ -127,14 +135,21 @@ export class ProjectChatService {
     validateProjectChatContext(context);
     if (context.actor.kind === 'system') throw new ProjectChatError('forbidden', 'System actors cannot use the name registry.');
     if (context.actor.kind === 'human') await this.requireMember(context);
+    await this.reapExpiredNameClaims(context.spaceId, this.clock.now());
     const claims = await this.repository.listNameClaims(context.spaceId);
+    const claimsByName = new Map(claims.map((claim) => [claim.nameKey, claim]));
     const currentAccountId = context.actor.accountId;
     const currentThreadId = context.actor.kind === 'agent' ? context.actor.threadId : undefined;
     const current = currentThreadId ? claims.find((claim) => claim.accountId === currentAccountId && claim.threadId === currentThreadId) : undefined;
     const groups = (['mythology','artist','science','detective'] as ProjectChatNameCategory[]).map((category) => ({
       category,
-      names: projectChatNameCatalog.filter((entry) => entry[2] === category).map(([key,name]) => {
-        const claim = claims.find((candidate) => candidate.nameKey === key);
+      names: [
+        ...projectChatNameCatalog.filter((entry) => entry[2] === category),
+        ...(current?.category === category && !projectChatNameCatalog.some(([key]) => key === current.nameKey)
+          ? [[current.nameKey,current.displayName,current.category] as const]
+          : [])
+      ].map(([key,name]) => {
+        const claim = claimsByName.get(key);
         return { name, category, state: reservedProjectChatNames.has(key) ? 'reserved' as const : claim ? 'claimed' as const : 'available' as const, ...(current?.nameKey === key ? {claimedByCurrentThread:true}: {}), ...(claim ? {claimedByThreadId:claim.threadId,displayName:claim.displayName}: {}) };
       })
     }));
@@ -145,6 +160,8 @@ export class ProjectChatService {
     validateProjectChatContext(context);
     if (context.actor.kind !== 'agent') throw new ProjectChatError('forbidden', 'Only agents can claim registry names.');
     if (!input || typeof input.name !== 'string' || typeof input.category !== 'string') throw new ProjectChatError('invalid_request','A registry name and category are required.');
+    const nowDate = this.clock.now();
+    await this.reapExpiredNameClaims(context.spaceId, nowDate);
     const entry = findProjectChatName(input.name);
     if (!entry || entry[2] !== input.category || reservedProjectChatNames.has(entry[0])) throw new ProjectChatError('invalid_request','This registry name is unavailable.');
     const parentThreadId = typeof input.parentThreadId === 'string' ? input.parentThreadId : undefined;
@@ -156,7 +173,7 @@ export class ProjectChatService {
       const parent = await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, parentThreadId);
       if (!parent || parent.category !== 'mythology') throw new ProjectChatError('forbidden','The parent must be a mythology main agent in this account.');
     }
-    const now = this.clock.now().toISOString();
+    const now = nowDate.toISOString();
     const previousClaim = await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, context.actor.threadId);
     let claim;
     try { claim = await this.repository.claimName({spaceId:context.spaceId,accountId:context.actor.accountId,threadId:context.actor.threadId,actorKey:projectChatActorKey(context.actor),nameKey:entry[0],displayName:entry[1],category:entry[2],...(parentThreadId?{parentThreadId}:{}),claimedAt:now,updatedAt:now}); }
@@ -479,6 +496,13 @@ export class ProjectChatService {
 
   async purgeExpired() {
     return this.repository.purgeExpired(this.clock.now().toISOString());
+  }
+
+  private reapExpiredNameClaims(spaceId: string, now: Date) {
+    return this.repository.reapExpiredNameClaims(
+      spaceId,
+      new Date(now.getTime() - this.nameLeaseMs).toISOString()
+    );
   }
 
   private async requireMember(context: ProjectChatContext) {

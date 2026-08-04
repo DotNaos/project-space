@@ -75,7 +75,12 @@ export async function claimPostgresName(
       );
       const existing = existingResult.rows[0];
       if (existing?.name_key === claim.nameKey) {
-        return mapNameClaim(existing);
+        const renewed = await updateNameClaim(transaction, {
+          ...claim,
+          claimedAt: new Date(existing.claimed_at).toISOString()
+        });
+        if (!renewed) throw new Error('Project Chat name lease could not be renewed.');
+        return mapNameClaim(renewed);
       }
 
       const stored = existing
@@ -92,6 +97,44 @@ export async function claimPostgresName(
     }
     throw error;
   }
+}
+
+export async function reapExpiredPostgresNameClaims(
+  client: DatabaseQueryClient,
+  spaceId: string,
+  expiresAtOrBefore: string
+) {
+  const result = await client.query<{ removed: number | string }>(
+    `with expired as (
+       delete from project_chat_name_claims claim
+        where claim.space_id = $1
+          and claim.updated_at <= $2::timestamptz
+          and (
+            claim.category <> 'mythology'
+            or not exists (
+              select 1
+                from project_chat_name_claims child
+               where child.space_id = claim.space_id
+                 and child.account_id = claim.account_id
+                 and child.parent_thread_id = claim.thread_id
+                 and child.updated_at > $2::timestamptz
+            )
+          )
+       returning space_id, actor_key
+     ), retired_members as (
+       update project_chat_members member
+          set agent_name = null,
+              name_lease_retired_at = $2::timestamptz,
+              updated_at = greatest(member.updated_at, $2::timestamptz)
+         from expired
+        where member.space_id = expired.space_id
+          and member.actor_key = expired.actor_key
+       returning member.member_id
+     )
+     select count(*)::bigint as removed from expired`,
+    [spaceId, expiresAtOrBefore]
+  );
+  return Number(result.rows[0]?.removed ?? 0);
 }
 
 export async function restorePostgresNameClaim(

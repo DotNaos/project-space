@@ -2,12 +2,30 @@ import { describe, expect, test } from 'bun:test';
 import { InMemoryProjectChatRepository } from '../server/project-chat/memory-store';
 import { ProjectChatService } from '../server/project-chat/service';
 import type { ProjectChatContext } from '../server/project-chat/contracts';
+import {
+  automaticProjectChatName,
+  automaticProjectChatNameCount,
+  findProjectChatName
+} from '../server/project-chat/name-registry';
 
 const threadA='019f4f2b-e97e-7180-9122-4187159dbe51';
 const threadB='019f4b93-5703-7692-ad6e-101e32fc4be0';
 const agent=(threadId:string,accountId='account-a'):ProjectChatContext=>({spaceId:'space-a',actor:{kind:'agent',accountId,machineId:'machine-a',hostId:'host-a',threadId}});
+const leaseMs=48*60*60*1_000;
 
 describe('Project Chat role-based name registry',()=>{
+  test('procedurally exposes far more than the previous 1,024 clean names',()=>{
+    expect(automaticProjectChatNameCount).toBe(16_384);
+    const names=Array.from(
+      {length:automaticProjectChatNameCount},
+      (_,index)=>automaticProjectChatName(index)[0]
+    );
+    expect(new Set(names).size).toBe(names.length);
+    for(const index of [0,1_024,names.length-1]) {
+      expect(findProjectChatName(names[index]??'')).toEqual(automaticProjectChatName(index));
+    }
+  });
+
   test('keeps existing claims stable while exposing enough main-agent names for startup',async()=>{
     const service=new ProjectChatService({repository:new InMemoryProjectChatRepository()});
     await service.claimName(agent(threadA),{name:'Athena',category:'mythology'});
@@ -31,6 +49,55 @@ describe('Project Chat role-based name registry',()=>{
     const occupied=await service.listNames(agent(threadB,'account-b'));
     expect(occupied.groups.flatMap(group=>group.names).find(entry=>entry.name==='Athena')).toMatchObject({state:'claimed',claimedByThreadId:threadA});
     await expect(service.claimName({...agent(threadA,'account-b'),spaceId:'space-b'},{name:'Athena',category:'mythology'})).resolves.toBeDefined();
+  });
+
+  test('renews a 48-hour lease and reclaims it at the exact expiry boundary',async()=>{
+    let now=new Date('2026-08-01T00:00:00.000Z');
+    const repository=new InMemoryProjectChatRepository();
+    const service=new ProjectChatService({repository,clock:{now:()=>new Date(now)},nameLeaseMs:leaseMs});
+    await service.claimName(agent(threadA),{name:'Athena',category:'mythology'});
+
+    now=new Date(now.getTime()+leaseMs-1);
+    expect((await service.listNames(agent(threadB))).groups[0]?.names.find(name=>name.name==='Athena')).toMatchObject({state:'claimed'});
+    await service.claimName(agent(threadA),{name:'Athena',category:'mythology'});
+
+    now=new Date(now.getTime()+leaseMs-1);
+    await expect(service.claimName(agent(threadB),{name:'Athena',category:'mythology'})).rejects.toMatchObject({code:'name_conflict'});
+    now=new Date(now.getTime()+1);
+    await expect(service.claimName(agent(threadB),{name:'Athena',category:'mythology'})).resolves.toMatchObject({claim:{name:'Athena',threadId:threadB}});
+
+    const snapshot=await repository.snapshot();
+    expect(snapshot.nameClaims).toHaveLength(1);
+    expect(snapshot.members.filter(member=>member.displayName==='Athena')).toHaveLength(2);
+    expect(snapshot.members.filter(member=>member.agentName?.name==='Athena')).toHaveLength(1);
+  });
+
+  test('serializes concurrent claims so only one active lease owns a name',async()=>{
+    const service=new ProjectChatService({repository:new InMemoryProjectChatRepository()});
+    const attempts=await Promise.allSettled(Array.from({length:64},(_,index)=>
+      service.claimName(agent(`019f4f2b-e97e-7180-9122-${String(index).padStart(12,'0')}`),{name:'Aebaden',category:'mythology'})
+    ));
+    expect(attempts.filter(result=>result.status==='fulfilled')).toHaveLength(1);
+    expect(attempts.filter(result=>result.status==='rejected')).toHaveLength(63);
+  });
+
+  test('allocates well beyond the old limit without duplicate active leases',async()=>{
+    const repository=new InMemoryProjectChatRepository();
+    const allocationCount=2_048;
+    const service=new ProjectChatService({
+      repository,
+      rateLimits:{join:{limit:allocationCount,windowMs:60_000}}
+    });
+    for(let index=0;index<allocationCount;index+=1) {
+      const [,name]=automaticProjectChatName(index);
+      await service.claimName(
+        agent(`019f4f2b-e97e-7180-8122-${String(index).padStart(12,'0')}`),
+        {name,category:'mythology'}
+      );
+    }
+    const claims=(await repository.snapshot()).nameClaims??[];
+    expect(claims).toHaveLength(allocationCount);
+    expect(new Set(claims.map(claim=>claim.nameKey)).size).toBe(allocationCount);
   });
 
   test('requires a same-account mythology parent and composes specialist display names',async()=>{

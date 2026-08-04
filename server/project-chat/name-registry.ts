@@ -1,3 +1,9 @@
+export type ProjectChatNameEntry = readonly [
+  key: string,
+  displayName: string,
+  category: 'mythology' | 'artist' | 'science' | 'detective'
+];
+
 export const projectChatNameCatalog = [
   ['athena', 'Athena', 'mythology'],
   ['hermes', 'Hermes', 'mythology'],
@@ -61,7 +67,50 @@ export const projectChatNameCatalog = [
 export type ProjectChatNameCategory = typeof projectChatNameCatalog[number][2];
 export const reservedProjectChatNames = new Set(['poirot']);
 
-export function findProjectChatName(value: string) {
+const automaticNamePrefixes = [
+  'ae', 'al', 'ar', 'bel', 'bri', 'ca', 'cor', 'da',
+  'el', 'fa', 'fen', 'gal', 'hal', 'is', 'jo', 'ka',
+  'kel', 'la', 'lor', 'ma', 'mer', 'na', 'nor', 'or',
+  'per', 'quin', 'ra', 'sel', 'tal', 'val', 'wen', 'ze'
+] as const;
+
+const automaticNameMiddles = [
+  'ba', 'ce', 'di', 'el', 'fi', 'ga', 'ha', 'io',
+  'ka', 'lu', 'mi', 'no', 'or', 'ra', 'su', 've'
+] as const;
+
+const automaticNameSuffixes = [
+  'den', 'dra', 'el', 'en', 'er', 'ia', 'ian', 'il',
+  'in', 'io', 'is', 'on', 'or', 'os', 'ra', 'ran',
+  'ren', 'ria', 'ric', 'rin', 'ro', 'sa', 'sel', 'sor',
+  'ta', 'th', 'tor', 'va', 'ven', 'yn', 'yor', 'zen'
+] as const;
+
+export const automaticProjectChatNameCount =
+  automaticNamePrefixes.length * automaticNameMiddles.length * automaticNameSuffixes.length;
+
+export function automaticProjectChatName(index: number): ProjectChatNameEntry {
+  if (!Number.isSafeInteger(index) || index < 0 || index >= automaticProjectChatNameCount) {
+    throw new RangeError('Automatic Project Chat name index is outside the catalogue.');
+  }
+  const suffixIndex = index % automaticNameSuffixes.length;
+  const middlePosition = Math.floor(index / automaticNameSuffixes.length);
+  const middleIndex = middlePosition % automaticNameMiddles.length;
+  const prefixIndex = Math.floor(middlePosition / automaticNameMiddles.length);
+  const key = `${automaticNamePrefixes[prefixIndex]}${automaticNameMiddles[middleIndex]}${automaticNameSuffixes[suffixIndex]}`;
+  return [key, `${key.charAt(0).toLocaleUpperCase('en-US')}${key.slice(1)}`, 'mythology'];
+}
+
+const automaticNamesByKey = new Map(
+  Array.from(
+    { length: automaticProjectChatNameCount },
+    (_, index) => automaticProjectChatName(index)
+  ).map((entry) => [entry[0], entry] as const)
+);
+
+export function findProjectChatName(value: string): ProjectChatNameEntry | undefined {
   const key = value.normalize('NFKC').trim().toLocaleLowerCase('en-US');
-  return projectChatNameCatalog.find(([candidate]) => candidate === key);
+  const curated = projectChatNameCatalog.find(([candidate]) => candidate === key);
+  if (curated) return curated;
+  return automaticNamesByKey.get(key);
 }
