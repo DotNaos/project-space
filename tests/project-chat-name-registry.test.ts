@@ -190,7 +190,8 @@ describe('Project Chat role-based name registry',()=>{
       }
     }
     const repository=new ToggleMemberFailure();
-    const service=new ProjectChatService({repository});
+    let now=Date.parse('2026-08-01T00:00:00.000Z');
+    const service=new ProjectChatService({repository,clock:{now:()=>new Date(now++)}});
     await service.claimName(agent(threadA),{name:'Athena',category:'mythology'});
     repository.fail=true;
     await expect(service.claimName(agent(threadA),{name:'Hermes',category:'mythology'})).rejects.toThrow('simulated rename refresh failure');

@@ -183,7 +183,7 @@ export class ProjectChatService {
     const displayName = parent ? `${parent.displayName}.${claim.displayName}` : claim.displayName;
     let joined;
     try {
-      joined = await this.join(context, {displayName});
+      joined = await this.join(context, {displayName}, {renewNameLease:false});
     } catch (error) {
       await this.repository.restoreNameClaim(claim, previousClaim);
       throw error;
@@ -206,7 +206,7 @@ export class ProjectChatService {
     });
   }
 
-  async join(context: ProjectChatContext, input: ProjectChatJoinInput = {}) {
+  async join(context: ProjectChatContext, input: ProjectChatJoinInput = {}, options: {renewNameLease?:boolean} = {}) {
     validateProjectChatContext(context);
     const now = this.clock.now();
     await this.consumeRateLimit(context, 'join', now);
@@ -218,10 +218,9 @@ export class ProjectChatService {
     if (context.actor.kind === 'agent') {
       agentClaim = await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, context.actor.threadId);
       if (!agentClaim) throw new ProjectChatError('forbidden', 'Claim a Project Chat registry name before joining.');
-      agentClaim = await this.repository.claimName({
-        ...agentClaim,
-        updatedAt: now.toISOString()
-      });
+      if (options.renewNameLease !== false) {
+        agentClaim = await this.repository.claimName({...agentClaim,updatedAt:now.toISOString()});
+      }
       const parent = agentClaim.parentThreadId ? await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, agentClaim.parentThreadId) : null;
       const claimedDisplayName = parent ? `${parent.displayName}.${agentClaim.displayName}` : agentClaim.displayName;
       if (profile.displayName !== claimedDisplayName) throw new ProjectChatError('forbidden', 'The joined name must match the registry claim.');
