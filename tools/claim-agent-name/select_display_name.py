@@ -12,7 +12,7 @@ import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, NamedTuple, Set
+from typing import Dict, Iterable, List, NamedTuple, Optional, Set
 
 
 VALID_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9-]*$")
@@ -83,12 +83,17 @@ def require_name(value: str, label: str) -> str:
     return candidate
 
 
+def bounded_name(value: str, label: str) -> Optional[str]:
+    candidate = require_name(value, label)
+    return candidate if len(candidate) <= MAX_PROJECT_CHAT_NAME_CHARS else None
+
+
 def bounded_used_names(values: Iterable[str]) -> Iterable[str]:
     for value in values:
         if not value.strip():
             continue
-        candidate = require_name(value, "used name")
-        if len(candidate) <= MAX_PROJECT_CHAT_NAME_CHARS:
+        candidate = bounded_name(value, "used name")
+        if candidate:
             yield candidate
 
 
@@ -245,9 +250,13 @@ def select_name(
 
     preferred: List[str] = []
     if current_name:
-        preferred.append(require_name(current_name, "current name"))
+        current = bounded_name(current_name, "current name")
+        if current:
+            preferred.append(current)
     if thread_id in claims:
-        preferred.append(claims[thread_id].name)
+        stored = bounded_name(claims[thread_id].name, "stored name")
+        if stored:
+            preferred.append(stored)
     preferred.append(require_name(cli_name, "fallback name"))
 
     seen: Set[str] = set()
@@ -297,10 +306,16 @@ def cli_payload_under_lock(
                 os.fsync(handle.fileno())
             command.extend(["--exclude-file",exclusion_path])
         environment=os.environ.copy()
-        if args.current_name:
-            environment[PREFERRED_NAME_ENVIRONMENT]=require_name(args.current_name,"current name")
-        elif args.thread_id in claims:
-            environment[PREFERRED_NAME_ENVIRONMENT]=claims[args.thread_id].name
+        environment.pop(PREFERRED_NAME_ENVIRONMENT, None)
+        preferred_name = (
+            bounded_name(args.current_name, "current name")
+            if args.current_name
+            else None
+        )
+        if not preferred_name and args.thread_id in claims:
+            preferred_name = bounded_name(claims[args.thread_id].name, "stored name")
+        if preferred_name:
+            environment[PREFERRED_NAME_ENVIRONMENT] = preferred_name
         completed=subprocess.run(
             command,text=True,capture_output=True,check=False,env=environment
         )

@@ -242,6 +242,45 @@ class SelectorLeaseTests(unittest.TestCase):
             self.assertEqual("Aebaden",result["name"])
             self.assertEqual("Aebaden",invocation.read_text(encoding="utf-8"))
 
+    def test_wrapper_ignores_overlong_current_and_saved_preferred_names(self):
+        for source in ("current", "stored"):
+            with self.subTest(source=source), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                state = root / "claims.json"
+                invocation = root / "preferred.txt"
+                overlong = "A" * 129
+                if source == "stored":
+                    selector.save_claims(state, {
+                        "thread-a": selector.Claim(
+                            overlong,
+                            selector.parse_time("2026-08-01T00:00:00Z", "time"),
+                        )
+                    })
+                fake_cli = root / "project"
+                fake_cli.write_text(
+                    "#!/usr/bin/env python3\n"
+                    "import json, os\n"
+                    f"preferred=os.environ.get({selector.PREFERRED_NAME_ENVIRONMENT!r},'')\n"
+                    f"open({str(invocation)!r},'w').write(preferred)\n"
+                    "print(json.dumps({'name':'Athena','source':'project-space','warning':''}))\n",
+                    encoding="utf-8",
+                )
+                os.chmod(fake_cli, 0o700)
+
+                with patch.dict(os.environ, {
+                    selector.PREFERRED_NAME_ENVIRONMENT: "Hermes"
+                }):
+                    result = selector.run(self.args(
+                        state,
+                        "thread-a",
+                        "2026-08-01T01:00:00Z",
+                        project_cli=str(fake_cli),
+                        current_name=overlong if source == "current" else None,
+                    ))
+
+                self.assertEqual("Athena", result["name"])
+                self.assertEqual("", invocation.read_text(encoding="utf-8"))
+
     def test_large_lease_sets_use_a_bounded_exclusion_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
