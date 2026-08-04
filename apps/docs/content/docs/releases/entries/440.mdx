@@ -35,6 +35,7 @@ upgrade: "none"
 - Concurrent activity renews only the exact claim version it authorized, so it cannot undo a newer rename.
 - A clean offline name is preferred when connectivity returns, preserving the same task identity unless that name is already claimed.
 - Specialists refresh their qualified identity after a parent rename, and restored snapshots keep an active member's handle reserved.
+- Existing claims receive a full first lease window during upgrade, and automatic allocation skips names whose mention handle is already active.
 - Expired claims can be reused without rewriting historical Project Chat senders.
 - Genuine name exhaustion remains distinct from connectivity and contract failures.
 

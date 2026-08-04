@@ -10,6 +10,9 @@ export const projectChatNameLeasesMigrationSql = `
     on project_chat_members (space_id, lower(handle))
     where name_lease_retired_at is null;
 
+  update project_chat_name_claims
+    set updated_at = now();
+
   create index project_chat_name_claims_lease_expiry_idx
     on project_chat_name_claims (space_id, updated_at, name_key);
 `;

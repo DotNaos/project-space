@@ -90,6 +90,7 @@ describe('database migrations', () => {
     expect(sql).toContain('create table if not exists machine_memberships');
     expect(sql).toContain('create table project_chat_name_claims');
     expect(sql).toContain('name_lease_retired_at timestamptz');
+    expect(sql).toContain('update project_chat_name_claims\n    set updated_at = now()');
     expect(sql).toContain('project_chat_name_claims_lease_expiry_idx');
     expect(sql).toContain('create table if not exists user_project_run_settings');
     expect(sql).toContain('allowed_hosts text[]');

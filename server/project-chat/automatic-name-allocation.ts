@@ -30,6 +30,7 @@ export async function claimAutomaticProjectChatName<Result>(
   const actor = context.actor;
   const excluded = automaticNameExclusions(input);
   const preferred = automaticNamePreference(input,excluded);
+  const conflicted = new Set<string>();
 
   for (let round = 0; round < 8; round += 1) {
     const now = options.now();
@@ -45,7 +46,9 @@ export async function claimAutomaticProjectChatName<Result>(
         ...(current.parentThreadId ? { parentThreadId: current.parentThreadId } : {})
       });
     }
-    const unavailable = new Set([...claims.map((claim) => claim.nameKey), ...excluded]);
+    const unavailable = new Set([
+      ...claims.map((claim) => claim.nameKey), ...excluded, ...conflicted
+    ]);
     let candidate=preferred && !unavailable.has(preferred[0]) ? preferred : undefined;
     for (let attempt = 0; !candidate && attempt < automaticProjectChatNameCount; attempt += 1) {
       const entry = automaticProjectChatNameForThread(actor.threadId, attempt);
@@ -64,6 +67,7 @@ export async function claimAutomaticProjectChatName<Result>(
       return await options.claimName({ name: candidate[1], category: candidate[2] });
     } catch (error) {
       if (!(error instanceof ProjectChatError) || error.code !== 'name_conflict') throw error;
+      conflicted.add(candidate[0]);
     }
   }
   throw new ProjectChatError(

@@ -8,6 +8,7 @@ import {
   automaticProjectChatNameForThread,
   findProjectChatName
 } from '../server/project-chat/name-registry';
+import { normalizeProjectChatHandle } from '../server/project-chat/validation';
 
 const threadA='019f4f2b-e97e-7180-9122-4187159dbe51';
 const threadB='019f4b93-5703-7692-ad6e-101e32fc4be0';
@@ -157,6 +158,21 @@ describe('Project Chat role-based name registry',()=>{
       preferredName:'Aebaden'
     })).resolves.not.toMatchObject({claim:{name:'Aebaden'}});
     expect(new Set((await repository.listNameClaims('space-a')).map(claim=>claim.nameKey)).size).toBe(2);
+  });
+
+  test('advances when a non-agent member owns the first candidate handle',async()=>{
+    const repository=new InMemoryProjectChatRepository();
+    const [firstName]=automaticProjectChatNameForThread(threadA,0);
+    const [,secondName]=automaticProjectChatNameForThread(threadA,1);
+    await repository.upsertMember({
+      spaceId:'space-a',actorKey:'human-owner',memberId:'human-owner',displayName:firstName,
+      handle:normalizeProjectChatHandle(firstName),role:'human',joinedAt:new Date().toISOString(),
+      updatedAt:new Date().toISOString()
+    });
+    const service=new ProjectChatService({repository});
+    await expect(service.claimAutomaticName(agent(threadA))).resolves.toMatchObject({
+      claim:{name:secondName}
+    });
   });
 
   test('requires a same-account mythology parent and composes specialist display names',async()=>{
