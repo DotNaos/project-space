@@ -13,13 +13,10 @@ import {
   GitPullRequest,
   GitPullRequestDraft,
   Laptop,
-  MonitorPlay,
-  PanelsTopLeft,
   Play,
   RefreshCw,
   Rocket,
   ShieldCheck,
-  Shapes,
   Sparkles,
 } from "lucide-react";
 
@@ -126,13 +123,11 @@ export function TaskDeliveryPanel({
       : task.pullRequest?.checks === "passed"
         ? "Checks passed"
         : "Not started";
-  const previewLabel = previewReady
-    ? "Ready to view"
+  const previewStatus = previewReady
+    ? { color: "bg-emerald-400", label: "Online" }
     : task.pullRequest?.preview === "unavailable"
-      ? "Unavailable"
-      : task.pullRequest?.checks === "passed"
-        ? "Ready to start"
-        : "Waiting for checks";
+      ? { color: "bg-red-400", label: "Offline" }
+      : { color: "bg-current/20", label: "Not ready" };
   return (
     <aside className="min-w-0">
       {draftPullRequest && task.pullRequest ? (
@@ -152,25 +147,41 @@ export function TaskDeliveryPanel({
       ) : task.pullRequest ? (
         <>
           <div className="pb-4">
-            {!previewReady ? (
-              <>
-                <span className="text-[10px] text-current/30">Preview</span>
-                <p className={`mt-1 text-sm font-medium ${task.pullRequest.preview === "unavailable" ? "text-red-300" : "text-current/55"}`}>{previewLabel}</p>
-              </>
-            ) : null}
-            {previewReady ? (
-              <div className="grid grid-cols-2 gap-2 @3xl:grid-cols-3">
-                <Button className="hidden w-full bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15 @3xl:flex" size="sm" variant="secondary" onPress={onOpenPreview}>
-                  <MonitorPlay className="size-4" /> PR deployment
-                </Button>
-                <Button className="w-full" size="sm" variant="secondary" onPress={onOpenPrototype}>
-                  <Shapes className="size-3.5" /> Prototype
-                </Button>
-                <a className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-current/[.055] px-2 text-xs font-medium text-current/55 transition-[background-color,color,scale] hover:bg-current/[.1] hover:text-current active:scale-[.96]" href="http://design-space.localhost:1355/" rel="noreferrer" target="_blank">
-                  <PanelsTopLeft className="size-3.5" /> Design Space
-                </a>
-              </div>
-            ) : null}
+            <div className="grid gap-1 rounded-xl bg-current/[.025] p-1">
+              <Button
+                aria-label={`PR deployment · ${previewStatus.label}`}
+                className="w-full justify-between rounded-lg bg-current/[.035] px-3 text-current/55"
+                isDisabled={!previewReady}
+                size="sm"
+                style={{ fontSize: 11 }}
+                variant="ghost"
+                onPress={onOpenPreview}
+              >
+                <span>PR deployment</span>
+                <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${previewStatus.color}`} />
+              </Button>
+              <Button
+                aria-label="Prototype · Online"
+                className="w-full justify-between rounded-lg bg-current/[.035] px-3 text-current/55"
+                size="sm"
+                style={{ fontSize: 11 }}
+                variant="ghost"
+                onPress={onOpenPrototype}
+              >
+                <span>Prototype</span>
+                <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-emerald-400" />
+              </Button>
+              <a
+                aria-label="Design Space · Online"
+                className="flex h-8 w-full items-center justify-between rounded-lg bg-current/[.035] px-3 text-[11px] font-medium text-current/55 transition-[background-color,color,scale] hover:bg-current/[.06] hover:text-current active:scale-[.96]"
+                href="http://design-space.localhost:1355/"
+                rel="noreferrer"
+                target="_blank"
+              >
+                <span>Design Space</span>
+                <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-emerald-400" />
+              </a>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-x-5 border-y border-current/[.08]">
@@ -199,17 +210,6 @@ export function TaskDeliveryPanel({
         portalContainer={portalContainer}
         task={task}
       />
-
-      {previewReady ? (
-        <Button
-          className="mt-4 w-full bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15 @3xl:hidden"
-          size="sm"
-          variant="secondary"
-          onPress={onOpenPreview}
-        >
-          <MonitorPlay className="size-4" /> Open PR deployment
-        </Button>
-      ) : null}
 
       <TaskCleanup onAction={onAction} task={task} />
 
