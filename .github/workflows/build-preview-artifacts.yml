@@ -1,0 +1,90 @@
+name: Build PR preview artifacts
+run-name: Build Preview artifacts for PR #${{ github.event.pull_request.number }} · ${{ github.event.pull_request.head.sha }}
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: project-space-preview-artifact-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and attest exact PR image artifacts
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out exact PR head
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build image archives with the exact PR recipes
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/preview-artifact
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SOURCE_CONTEXT: ${{ github.workspace }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$ARTIFACT_DIR/images"
+          docker buildx bake \
+            --allow "fs.write=$ARTIFACT_DIR/images" \
+            --file deploy/preview-artifact-bake.hcl \
+            preview-artifacts
+      - name: Create canonical exact-head manifest
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/preview-artifact
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          python3 scripts/preview-artifact-contract.py create \
+            --root "$GITHUB_WORKSPACE" \
+            --output "$ARTIFACT_DIR/manifest.json" \
+            --repository "$GITHUB_REPOSITORY" \
+            --repository-id "$GITHUB_REPOSITORY_ID" \
+            --pr "$PR_NUMBER" \
+            --head-sha "$PR_HEAD_SHA" \
+            --workflow-ref "$GITHUB_WORKFLOW_REF" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT"
+      - name: Attest manifest and image archives
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            ${{ runner.temp }}/preview-artifact/manifest.json
+            ${{ runner.temp }}/preview-artifact/images/web.tar
+            ${{ runner.temp }}/preview-artifact/images/docs.tar
+            ${{ runner.temp }}/preview-artifact/images/prototype.tar
+      - name: Upload immutable Preview artifact
+        id: artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: preview-images-pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/preview-artifact
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+      - name: Record immutable artifact identity
+        env:
+          ARTIFACT_DIGEST: ${{ steps.artifact.outputs.artifact-digest }}
+          ARTIFACT_ID: ${{ steps.artifact.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'Artifact ID: `%s`\n\nArtifact digest: `%s`\n' \
+            "$ARTIFACT_ID" "$ARTIFACT_DIGEST" >> "$GITHUB_STEP_SUMMARY"
