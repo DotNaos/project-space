@@ -33,7 +33,7 @@ export function useProjectTasks(repository?: GitHubCatalogRepository) {
     setError('');
     Promise.allSettled([
       projectSpaceClient.getGitHubRepositoryDetails(repositoryFullName),
-      projectSpaceClient.getGitHubPipelineStatus(repositoryFullName, { perPage: 100 })
+      projectSpaceClient.getGitHubPipelineStatus(repositoryFullName, { perPage: 50 })
     ])
       .then(([detailsResult, pipelineResult]) => {
         if (canceled) return;
