@@ -18,6 +18,7 @@ from typing import Dict, Iterable, List, NamedTuple, Set
 VALID_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9-]*$")
 FALLBACK_CODE = re.compile(r"^([A-Za-z]+)-[A-Z0-9]{6}$")
 LEASE_DURATION = timedelta(hours=48)
+MAX_INLINE_COMMAND_CHARS = 16_000
 PREFIXES = (
     "Ae", "Al", "Ar", "Bel", "Bri", "Ca", "Cor", "Da",
     "El", "Fa", "Fen", "Gal", "Hal", "Is", "Jo", "Ka",
@@ -253,7 +254,7 @@ def select_name(
 
 
 def cli_payload_under_lock(
-    args: argparse.Namespace, claims: Dict[str, Claim]
+    args: argparse.Namespace, claims: Dict[str, Claim], platform_name: str = None
 ) -> dict:
     excluded = {
         normalized(claim.name): claim.name
@@ -264,10 +265,31 @@ def cli_payload_under_lock(
         if name.strip():
             candidate = require_name(name, "used name")
             excluded[normalized(candidate)] = candidate
-    command = [args.project_cli, "agent", "name", "--format", "json"]
-    for name in sorted(excluded.values(), key=normalized):
-        command.extend(["--exclude", name])
-    completed = subprocess.run(command, text=True, capture_output=True, check=False)
+    names=sorted(excluded.values(),key=normalized)
+    command=[args.project_cli,"agent","name","--format","json"]
+    inline_command=command.copy()
+    for name in names:
+        inline_command.extend(["--exclude",name])
+    exclusion_path=None
+    try:
+        if sum(len(part)+3 for part in inline_command) <= MAX_INLINE_COMMAND_CHARS:
+            command=inline_command
+        else:
+            descriptor,exclusion_path=tempfile.mkstemp(
+                dir=str(args.state_file.expanduser().resolve().parent),
+                prefix=".agent-name-exclusions.",text=True
+            )
+            if (platform_name or os.name) != "nt":
+                os.fchmod(descriptor,0o600)
+            with os.fdopen(descriptor,"w",encoding="utf-8") as handle:
+                handle.write("\n".join(names)+"\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            command.extend(["--exclude-file",exclusion_path])
+        completed=subprocess.run(command,text=True,capture_output=True,check=False)
+    finally:
+        if exclusion_path and os.path.exists(exclusion_path):
+            os.unlink(exclusion_path)
     if completed.returncode != 0:
         diagnostic = completed.stderr.strip() or completed.stdout.strip()
         raise ValueError(
@@ -335,7 +357,7 @@ def run(
             prune_expired_claims(claims, args.thread_id, visible_thread_ids, now)
         payload = cli_payload
         if args.project_cli:
-            payload = cli_payload_under_lock(args, claims)
+            payload = cli_payload_under_lock(args, claims, platform_name)
         if not isinstance(payload, dict):
             raise ValueError("Project CLI returned invalid agent-name JSON")
         return select_and_save(args, claims, now, payload, platform_name)

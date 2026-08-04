@@ -29,7 +29,8 @@ upgrade: "none"
 ### Fixed
 
 - Live local reservations are excluded before an online name claim is made.
-- Local locks work on macOS, Linux, and Windows, and incomplete or unstructured task listings never reclaim active leases.
+- Local installation and locks work on macOS, Linux, and Windows; large reservation sets use a bounded exclusion file instead of overflowing process arguments.
+- Incomplete or unstructured task listings never reclaim active leases.
 - Name changes and specialist joins update the claim, current member identity, and presence atomically against the current parent.
 - Concurrent activity renews only the exact claim version it authorized, so it cannot undo a newer rename.
 - Expired claims can be reused without rewriting historical Project Chat senders.

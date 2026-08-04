@@ -7,6 +7,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -158,6 +160,28 @@ func TestAgentNameAvoidsVisibleNamesAndRetriesClaimConflict(t *testing.T) {
 	}
 	if strings.Join(registry.claimed, ",") != "Hermes,Nyx" {
 		t.Fatalf("claim attempts = %#v", registry.claimed)
+	}
+}
+
+func TestAgentNameReadsExclusionsFromBoundedFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "excluded.txt")
+	if err := os.WriteFile(path, []byte("Athena\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	registry := &automaticNameRegistry{catalog: automaticNameCatalog("Athena", "Hermes")}
+	command := newAgentCommand(agentNameDependencies{
+		IdentityProvider: fixedThreadIdentityProvider(chatTestThreadID),
+		Registry:         registry, RandomIndex: func(int) int { return 0 },
+	})
+	command.SetArgs([]string{"name", "--exclude-file", path, "--format", "json"})
+	stdout := &bytes.Buffer{}
+	command.SetOut(stdout)
+	command.SetErr(&bytes.Buffer{})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if result := decodeAgentNameResult(t, stdout); result.Name != "Hermes" {
+		t.Fatalf("result = %#v", result)
 	}
 }
 

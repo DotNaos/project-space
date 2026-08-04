@@ -48,6 +48,8 @@ python3 tools/claim-agent-name/install.py
 ```
 
 Use `--check` to verify that the installed skill matches the versioned source without
-changing it. The selector holds its local lock across the Project CLI request and passes
-every live local lease as an exclusion before one bounded server-side online allocation
-is made. Ordinary authenticated Project Chat activity renews an active agent's lease.
+changing it. Installation is supported on Windows as well as macOS and Linux. The selector
+holds its local lock across the Project CLI request and passes every live local lease as
+an exclusion before one bounded server-side online allocation is made. Large exclusion
+sets travel through a short-lived local file instead of the platform command line.
+Ordinary authenticated Project Chat activity renews an active agent's lease.

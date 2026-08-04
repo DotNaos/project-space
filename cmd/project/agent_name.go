@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"os"
 	"strings"
@@ -20,6 +21,7 @@ import (
 
 const agentNameFallbackWarning = "Project Space is not reachable. Wir haben jetzt einfach einen zufälligen Namen generiert, den du jetzt verwendest."
 const defaultAgentNameOnlineTimeout = 4 * time.Second
+const maxAgentNameExclusionFileBytes = 1 << 20
 
 var fallbackEntropyCounter atomic.Uint64
 
@@ -85,6 +87,7 @@ func newAgentNameCommand(dependencies agentNameDependencies) *cobra.Command {
 	}
 
 	var excludedNames []string
+	var excludedNamesFile string
 	var format string
 	cmd := &cobra.Command{
 		Use:   "name",
@@ -94,7 +97,11 @@ func newAgentNameCommand(dependencies agentNameDependencies) *cobra.Command {
 			if format != "text" && format != "json" {
 				return errors.New("--format must be text or json")
 			}
-			result, err := allocateAgentName(cmd.Context(), dependencies, excludedNames)
+			fileExclusions, err := readAgentNameExclusions(excludedNamesFile)
+			if err != nil {
+				return err
+			}
+			result, err := allocateAgentName(cmd.Context(), dependencies, append(excludedNames, fileExclusions...))
 			if err != nil {
 				return err
 			}
@@ -102,9 +109,35 @@ func newAgentNameCommand(dependencies agentNameDependencies) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringArrayVar(&excludedNames, "exclude", nil, "agent name already used by a visible Codex task (repeatable)")
+	cmd.Flags().StringVar(&excludedNamesFile, "exclude-file", "", "read agent-name exclusions from a line-delimited file")
+	must(cmd.Flags().MarkHidden("exclude-file"))
 	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
 	must(cmd.RegisterFlagCompletionFunc("format", fixedValuesCompletion("text", "json")))
 	return cmd
+}
+
+func readAgentNameExclusions(path string) ([]string, error) {
+	if path == "" {
+		return nil, nil
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("read agent-name exclusions: %w", err)
+	}
+	defer file.Close()
+	limited := io.LimitReader(file, maxAgentNameExclusionFileBytes+1)
+	payload, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, fmt.Errorf("read agent-name exclusions: %w", err)
+	}
+	if len(payload) > maxAgentNameExclusionFileBytes {
+		return nil, errors.New("agent-name exclusion file is too large")
+	}
+	values := strings.Split(strings.ReplaceAll(string(payload), "\r\n", "\n"), "\n")
+	if len(values) > automaticAgentNamePoolSize()+1 {
+		return nil, errors.New("agent-name exclusion file has too many entries")
+	}
+	return values, nil
 }
 
 func allocateAgentName(

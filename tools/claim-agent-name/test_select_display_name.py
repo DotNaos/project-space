@@ -192,6 +192,39 @@ class SelectorLeaseTests(unittest.TestCase):
             self.assertEqual(["agent", "name", "--format", "json"], arguments[:4])
             self.assertIn(["--exclude", "Aebaden"], [arguments[index:index + 2] for index in range(len(arguments) - 1)])
 
+    def test_large_lease_sets_use_a_bounded_exclusion_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            state=root / "claims.json"
+            invocation=root / "invocation.json"
+            names=list(selector.candidate_pool("pool"))[:3_000]
+            selector.save_claims(state,{
+                f"thread-{index}":selector.Claim(name,selector.parse_time("2026-08-01T00:00:00Z","time"))
+                for index,name in enumerate(names)
+            })
+            fake_cli=root / "project"
+            fake_cli.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, pathlib, sys\n"
+                "args=sys.argv[1:]\n"
+                "index=args.index('--exclude-file')\n"
+                "path=pathlib.Path(args[index+1])\n"
+                f"json.dump({{'args':args,'names':path.read_text().splitlines()}},open({str(invocation)!r},'w'))\n"
+                "print(json.dumps({'name':'Athena','source':'project-space','warning':''}))\n",
+                encoding="utf-8",
+            )
+            os.chmod(fake_cli,0o700)
+            result=selector.run(self.args(
+                state,"current-thread","2026-08-01T01:00:00Z",project_cli=str(fake_cli)
+            ))
+            self.assertEqual("Athena",result["name"])
+            recorded=json.loads(invocation.read_text(encoding="utf-8"))
+            self.assertNotIn("--exclude",recorded["args"])
+            self.assertEqual(sorted(names,key=str.casefold),recorded["names"])
+            exclusion_path=recorded["args"][recorded["args"].index("--exclude-file")+1]
+            self.assertFalse(Path(exclusion_path).exists())
+            self.assertLess(sum(len(part)+3 for part in recorded["args"]),1_000)
+
     def test_concurrent_processes_share_one_lock_without_duplicate_names(self):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory) / "claims.json"

@@ -33,11 +33,12 @@ def matches(source: Path, target: Path) -> bool:
     return target.is_file() and source.read_bytes() == target.read_bytes()
 
 
-def install_file(source: Path, target: Path) -> None:
+def install_file(source: Path, target: Path, platform_name: str = None) -> None:
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.")
     try:
-        os.fchmod(descriptor, source.stat().st_mode & 0o777)
+        if (platform_name or os.name) != "nt":
+            os.fchmod(descriptor, source.stat().st_mode & 0o777)
         with os.fdopen(descriptor, "wb") as output, source.open("rb") as input_file:
             shutil.copyfileobj(input_file, output)
             output.flush()
