@@ -1,26 +1,23 @@
-import { Button, Card, Disclosure } from "@heroui/react";
-import { Bot, Circle, ExternalLink, Globe, Laptop, LoaderCircle, PanelsTopLeft, Play, Plus, Shapes } from "lucide-react";
+import { Button } from "@heroui/react";
+import { Bot, Circle, ExternalLink, Globe, Laptop, LoaderCircle, PanelsTopLeft, Plus, Shapes } from "lucide-react";
 import { useState } from "react";
 
 import type { MockTask, MockTaskAgentThread } from "./task-model";
 import { TaskMachinePicker } from "./task-machine-picker";
 
 export function TaskDevelopmentContext({
-  onContinueDevelopment,
   onOpenDevServer,
   onOpenPrototype,
   onOpenThread,
   portalContainer,
   task,
 }: {
-  onContinueDevelopment(): void;
   onOpenDevServer(): void;
   onOpenPrototype(): void;
   onOpenThread(thread: MockTaskAgentThread): void;
   portalContainer: HTMLElement | null;
   task: MockTask;
 }) {
-  const [expandedMachine, setExpandedMachine] = useState<string | null>(null);
   const [machinePickerOpen, setMachinePickerOpen] = useState(false);
   const workspace = task.workspace;
   const [attachedMachines, setAttachedMachines] = useState<string[]>(workspace ? [workspace.machine] : []);
@@ -31,26 +28,25 @@ export function TaskDevelopmentContext({
 
   return (
     <section className="mt-5 space-y-5 border-t border-current/[.08] pt-4">
-      <div className="flex h-8 items-center justify-between">
-        <h2 className="text-xs font-semibold text-current/55">Active development</h2>
-        <Button aria-label="Add machine" className="size-8 min-w-8 rounded-full text-current/45" isIconOnly size="sm" variant="ghost" onPress={() => setMachinePickerOpen(true)}>
-          <Plus className="size-4" />
-        </Button>
-      </div>
+      <section aria-labelledby="active-development-heading">
+        <div className="flex h-8 items-center justify-between">
+          <h2 className="text-xs font-semibold text-current/55" id="active-development-heading">Active development</h2>
+          <Button aria-label="Add machine" className="size-8 min-w-8 rounded-full text-current/45" isIconOnly size="sm" variant="ghost" onPress={() => setMachinePickerOpen(true)}>
+            <Plus className="size-4" />
+          </Button>
+        </div>
 
-      <div className="space-y-1.5">
-        {attachedMachines.map((machine) => (
-          <DevelopmentMachine
-            expandedMachine={expandedMachine}
-            key={machine}
-            machine={machine}
-            onContinueDevelopment={onContinueDevelopment}
-            onExpandedMachineChange={setExpandedMachine}
-            onOpenDevServer={onOpenDevServer}
-            onOpenPrototype={onOpenPrototype}
-          />
-        ))}
-      </div>
+        <div className="mt-2 space-y-1.5">
+          {attachedMachines.map((machine) => (
+            <DevelopmentMachine
+              key={machine}
+              machine={machine}
+              onOpenDevServer={onOpenDevServer}
+              onOpenPrototype={onOpenPrototype}
+            />
+          ))}
+        </div>
+      </section>
 
       {threadsByMachine.length > 0 ? (
         <section aria-labelledby="codex-threads-heading">
@@ -74,40 +70,20 @@ export function TaskDevelopmentContext({
   );
 }
 
-function DevelopmentMachine({ expandedMachine, machine, onContinueDevelopment, onExpandedMachineChange, onOpenDevServer, onOpenPrototype }: {
-  expandedMachine: string | null;
+function DevelopmentMachine({ machine, onOpenDevServer, onOpenPrototype }: {
   machine: string;
-  onContinueDevelopment(): void;
-  onExpandedMachineChange(machine: string | null): void;
   onOpenDevServer(): void;
   onOpenPrototype(): void;
 }) {
   return (
-    <Card className="gap-0 overflow-hidden rounded-2xl bg-current/[.045] p-0 shadow-none" variant="transparent">
-      <Disclosure isExpanded={expandedMachine === machine} onExpandedChange={(isExpanded) => {
-        onExpandedMachineChange(isExpanded ? machine : null);
-      }}>
-        <Disclosure.Heading>
-          <Button className="h-11 w-full justify-start gap-2.5 rounded-2xl px-3 text-left" slot="trigger" variant="ghost">
-            <span className="grid size-7 shrink-0 place-items-center rounded-full bg-current/[.055] text-current/40"><Laptop className="size-3.5" /></span>
-            <span className="min-w-0 flex-1 truncate text-xs font-semibold text-current/75">{machine}</span>
-            <span aria-label="Connected" className="size-2 shrink-0 rounded-full bg-emerald-400" role="img" title="Connected" />
-            <Disclosure.Indicator className="text-current/35" />
-          </Button>
-        </Disclosure.Heading>
-        <Disclosure.Content>
-          <Disclosure.Body className="px-3 pb-2 pt-0">
-            <div className="divide-y divide-current/[.07]">
-              <DevServerBundle
-                onOpenDevServer={onOpenDevServer}
-                onOpenPrototype={onOpenPrototype}
-              />
-              <MachineAction icon={Play} label="Development" status="Ready" statusTone="info"><Button size="sm" variant="tertiary" onPress={onContinueDevelopment}>Continue</Button></MachineAction>
-            </div>
-          </Disclosure.Body>
-        </Disclosure.Content>
-      </Disclosure>
-    </Card>
+    <section aria-label={`${machine} active development`} className="overflow-hidden rounded-2xl bg-current/[.04] px-3 pb-2">
+      <header className="flex h-10 items-center gap-2.5">
+        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-current/[.055] text-current/40"><Laptop className="size-3.5" /></span>
+        <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-current/75">{machine}</h3>
+        <span aria-label="Connected" className="size-2 shrink-0 rounded-full bg-emerald-400" role="img" title="Connected" />
+      </header>
+      <DevServerBundle onOpenDevServer={onOpenDevServer} onOpenPrototype={onOpenPrototype} />
+    </section>
   );
 }
 
@@ -186,19 +162,6 @@ function DevServerBundle({ onOpenDevServer, onOpenPrototype }: {
           <ExternalLink aria-hidden="true" className="size-3" />
         </a>
       </div>
-    </div>
-  );
-}
-
-function MachineAction({ children, icon: Icon, label, status, statusTone = "muted" }: { children: React.ReactNode; icon: typeof Globe; label: string; status: string; statusTone?: "info" | "muted" | "success" }) {
-  return (
-    <div className="flex min-h-11 items-center gap-3 py-1.5">
-      <span className="flex min-w-0 flex-1 items-center gap-2">
-        <Icon className="size-3.5 shrink-0 text-current/30" />
-        <span className="truncate text-xs font-medium text-current/60">{label}</span>
-        <span aria-label={status} className={`size-1.5 shrink-0 rounded-full ${statusTone === "success" ? "bg-emerald-400" : statusTone === "info" ? "bg-blue-400" : "bg-current/30"}`} role="img" title={status} />
-      </span>
-      <span className="shrink-0">{children}</span>
     </div>
   );
 }

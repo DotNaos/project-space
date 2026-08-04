@@ -232,7 +232,6 @@ export function TaskDeliveryPanel({
       )}
 
       <TaskDevelopmentContext
-        onContinueDevelopment={onContinueDevelopment}
         onOpenDevServer={onOpenDevServer}
         onOpenPrototype={onOpenPrototype}
         onOpenThread={onOpenThread}

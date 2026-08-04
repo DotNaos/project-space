@@ -532,14 +532,14 @@ describe('project space home prototype', () => {
     expect(html).toContain('hidden flex-wrap gap-2 @3xl:flex');
     expect(html).toContain('#395</p><p');
     expect(html).toContain('Require verified live iteration for prototypes');
-    expect(html).toContain('aria-expanded="false"');
-    expect(html).toContain('aria-hidden="true" hidden=""');
+    expect(html).toContain('aria-label="os-pc active development"');
     expect(html).toContain('Dev server');
     expect(html).toContain('Live');
     expect(html).toContain('Codex threads');
     expect(html).toContain('Open #395 · Secure prototype on os-pc');
     expect(html).toContain('Open Verify mobile Preview on os-macbook');
-    expect(html).toContain('Continue');
+    expect(html).not.toContain('>Development<');
+    expect(html).not.toContain('>Continue<');
     expect(html).not.toContain('Request review');
     expect(html).not.toContain('Working context');
   });
