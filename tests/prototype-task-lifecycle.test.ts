@@ -46,11 +46,10 @@ describe("prototype task lifecycle", () => {
     task = runNext(task);
     expect(task.pullRequest?.checks).toBe("passed");
     expect(task.pullRequest?.preview).toBe("ready");
-    expect(nextTaskAction(task)?.label).toBe("Approve PR");
-    task = runNext(task);
-    expect(task.pullRequest?.review).toBe("approved");
+    expect(nextTaskAction(task)?.label).toBe("Approve and merge");
     task = runNext(task);
     expect(task.stage).toBe("merged");
+    expect(task.pullRequest?.review).toBe("approved");
     expect(task.cleanup?.remoteBranch).toBe("exists");
     task = runNext(task);
     task = runNext(task);

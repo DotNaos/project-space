@@ -1,4 +1,4 @@
-import { Button } from "@heroui/react";
+import { AlertDialog, Button } from "@heroui/react";
 import {
   AlertTriangle,
   Bot,
@@ -61,7 +61,7 @@ export function nextTaskAction(task: MockTask): { action: MockTaskAction; icon: 
   if (task.pullRequest.checks === "failed") return { action: { type: "run-checks" }, icon: RefreshCw, label: "Retry checks" };
   if (task.pullRequest.preview === "not-started") return { action: { type: "start-preview" }, icon: Rocket, label: "Start Preview" };
   if (task.pullRequest.preview === "unavailable") return { action: { type: "retry-preview" }, icon: RefreshCw, label: "Retry Preview" };
-  if (task.pullRequest.review !== "approved") return { action: { type: "approve-revision" }, icon: ShieldCheck, label: "Approve PR" };
+  if (task.pullRequest.review !== "approved") return { action: { type: "approve-and-merge" }, icon: GitMerge, label: "Approve and merge" };
   if (task.stage === "review") return { action: { type: "merge" }, icon: GitMerge, label: "Merge pull request" };
   if (task.stage === "merged") return { action: { type: "start-deployment" }, icon: Rocket, label: "Start deployment" };
   if (task.stage === "deploying") return { action: { type: "complete-deployment" }, icon: Check, label: "Verify deployment" };
@@ -71,25 +71,68 @@ export function nextTaskAction(task: MockTask): { action: MockTaskAction; icon: 
 export function TaskPrimaryAction({
   className = "",
   onAction,
+  portalContainer = null,
   task,
 }: {
   className?: string;
   onAction(action: MockTaskAction): void;
+  portalContainer?: HTMLElement | null;
   task: MockTask;
 }) {
   const primary = nextTaskAction(task);
 
   if (!primary) return null;
 
-  return (
+  const trigger = (
     <Button
       className={className}
       size="sm"
       variant="primary"
-      onPress={() => onAction(primary.action)}
+      onPress={primary.action.type === "approve-and-merge" ? undefined : () => onAction(primary.action)}
     >
       <primary.icon className="size-4" /> {primary.label}
     </Button>
+  );
+
+  if (primary.action.type !== "approve-and-merge" || !task.pullRequest) return trigger;
+
+  return (
+    <AlertDialog>
+      {trigger}
+      <AlertDialog.Backdrop
+        UNSTABLE_portalContainer={portalContainer ?? undefined}
+        className="z-[96] bg-black/75"
+        style={portalContainer ? {
+          height: "var(--device-content-height)",
+          overflow: "hidden",
+          position: "absolute",
+          width: "var(--device-content-width)",
+        } : undefined}
+        variant="blur"
+      >
+        <AlertDialog.Container className="p-4" placement="center" size="sm">
+          <AlertDialog.Dialog className="bg-[#111] text-neutral-100 ring-1 ring-inset ring-white/10">
+            <AlertDialog.Header className="px-5 pb-2 pt-5">
+              <AlertDialog.Icon status="warning" />
+              <AlertDialog.Heading className="text-base font-semibold">
+                Approve and merge pull request #{task.pullRequest.number}?
+              </AlertDialog.Heading>
+            </AlertDialog.Header>
+            <AlertDialog.Body className="px-5 py-2">
+              <p className="text-sm leading-6 text-neutral-400">
+                This approves the current revision and merges it into main. The active development phase will end.
+              </p>
+            </AlertDialog.Body>
+            <AlertDialog.Footer className="gap-2 px-5 pb-5 pt-3">
+              <Button slot="close" variant="tertiary">Cancel</Button>
+              <Button slot="close" variant="primary" onPress={() => onAction(primary.action)}>
+                <GitMerge className="size-4" /> Approve and merge
+              </Button>
+            </AlertDialog.Footer>
+          </AlertDialog.Dialog>
+        </AlertDialog.Container>
+      </AlertDialog.Backdrop>
+    </AlertDialog>
   );
 }
 
@@ -202,7 +245,7 @@ export function TaskDeliveryPanel({
       {latestEvent && (attention || !task.pullRequest) ? <p className="mt-4 max-w-xl text-sm leading-6 text-current/55">{latestEvent.detail}</p> : null}
 
       <div className="mt-4 hidden flex-wrap gap-2 @3xl:flex" data-testid="task-panel-primary-action">
-        <TaskPrimaryAction className="min-w-0 flex-1 @md:flex-none" onAction={onAction} task={task} />
+        <TaskPrimaryAction className="min-w-0 flex-1 @md:flex-none" onAction={onAction} portalContainer={portalContainer} task={task} />
         {task.deployment?.status === "deployed" ? (
           <a className="inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 text-xs font-medium text-emerald-300 transition-[filter,scale] hover:brightness-125 active:scale-[.96] @md:flex-none" href={task.deployment.url} rel="noreferrer" target="_blank">
             Open production <ExternalLink className="size-3.5" />

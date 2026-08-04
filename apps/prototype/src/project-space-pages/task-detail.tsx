@@ -128,7 +128,7 @@ export function ProjectTaskDetailPage({
             className="-mx-5 shrink-0 border-t border-current/[.08] bg-[var(--prototype-screen-background)] px-5 pb-4 pt-3 @md:-mx-8 @md:px-8 @3xl:hidden"
             data-testid="task-mobile-primary-action"
           >
-            <TaskPrimaryAction className="w-full" onAction={onAction} task={task} />
+            <TaskPrimaryAction className="w-full" onAction={onAction} portalContainer={portalContainer} task={task} />
           </footer>
         ) : null}
       </section>

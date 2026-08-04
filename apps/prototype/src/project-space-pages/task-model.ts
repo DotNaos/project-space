@@ -94,6 +94,7 @@ export interface MockTask {
 
 export type MockTaskAction =
   | { type: "add-comment"; body: string }
+  | { type: "approve-and-merge" }
   | { type: "approve-revision" }
   | { type: "change-revision" }
   | { type: "complete-deployment" }
@@ -264,6 +265,20 @@ export function updateMockTask(task: MockTask, action: MockTaskAction): MockTask
         pullRequest: { ...task.pullRequest, review: "approved" },
         stage: "review",
       }, "Revision approved", `${task.pullRequest.revision} was approved for merge.`);
+    case "approve-and-merge":
+      if (!task.pullRequest || task.pullRequest.checks !== "passed") return task;
+      return withEvent(task, {
+        cleanup: {
+          remoteBranch: "exists",
+          worktrees: task.workspace ? [{
+            machine: task.workspace.machine,
+            safeToDelete: task.workspace.status === "clean",
+            status: task.workspace.status,
+          }] : [],
+        },
+        pullRequest: { ...task.pullRequest, review: "approved" },
+        stage: "merged",
+      }, "Pull request approved and merged", `#${task.pullRequest.number} was approved and merged into main.`);
     case "change-revision":
       if (!task.pullRequest) return task;
       return withEvent(task, {
