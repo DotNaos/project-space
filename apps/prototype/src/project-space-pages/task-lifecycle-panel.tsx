@@ -160,7 +160,7 @@ export function TaskDeliveryPanel({
             ) : null}
             {previewReady ? (
               <div className="grid grid-cols-2 gap-2 @3xl:grid-cols-3">
-                <Button className="hidden w-full @3xl:flex" size="md" variant="primary" onPress={onOpenPreview}>
+                <Button className="hidden w-full bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15 @3xl:flex" size="sm" variant="secondary" onPress={onOpenPreview}>
                   <MonitorPlay className="size-4" /> PR deployment
                 </Button>
                 <Button className="w-full" size="sm" variant="secondary" onPress={onOpenPrototype}>
@@ -200,11 +200,22 @@ export function TaskDeliveryPanel({
         task={task}
       />
 
+      {previewReady ? (
+        <Button
+          className="mt-4 w-full bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15 @3xl:hidden"
+          size="sm"
+          variant="secondary"
+          onPress={onOpenPreview}
+        >
+          <MonitorPlay className="size-4" /> Open PR deployment
+        </Button>
+      ) : null}
+
       <TaskCleanup onAction={onAction} task={task} />
 
       {latestEvent && (attention || !task.pullRequest) ? <p className="mt-4 max-w-xl text-sm leading-6 text-current/55">{latestEvent.detail}</p> : null}
 
-      <div className={`mt-4 flex flex-wrap gap-2 ${draftPullRequest ? "hidden @3xl:flex" : ""}`} data-testid="task-panel-primary-action">
+      <div className="mt-4 hidden flex-wrap gap-2 @3xl:flex" data-testid="task-panel-primary-action">
         <TaskPrimaryAction className="min-w-0 flex-1 @md:flex-none" onAction={onAction} task={task} />
         {task.deployment?.status === "deployed" ? (
           <a className="inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 text-xs font-medium text-emerald-300 transition-[filter,scale] hover:brightness-125 active:scale-[.96] @md:flex-none" href={task.deployment.url} rel="noreferrer" target="_blank">

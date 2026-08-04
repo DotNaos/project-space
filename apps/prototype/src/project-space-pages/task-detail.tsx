@@ -7,7 +7,6 @@ import {
   GitBranch,
   GitCommitHorizontal,
   MessageCircle,
-  MonitorPlay,
   Rocket,
 } from "lucide-react";
 
@@ -129,13 +128,7 @@ export function ProjectTaskDetailPage({
             className="-mx-5 shrink-0 border-t border-current/[.08] bg-[var(--prototype-screen-background)] px-5 pb-4 pt-3 @md:-mx-8 @md:px-8 @3xl:hidden"
             data-testid="task-mobile-primary-action"
           >
-            {task.pullRequest.preview === "ready" && task.pullRequest.review !== "approved" ? (
-              <Button className="w-full" size="md" variant="primary" onPress={() => setReviewSurface("preview")}>
-                <MonitorPlay className="size-4" /> Open PR deployment
-              </Button>
-            ) : (
-              <TaskPrimaryAction className="w-full" onAction={onAction} task={task} />
-            )}
+            <TaskPrimaryAction className="w-full" onAction={onAction} task={task} />
           </footer>
         ) : null}
       </section>
