@@ -391,7 +391,9 @@ export class PostgresProjectChatRepository implements ProjectChatRepository {
 
   async listMembers(spaceId: string) {
     const result = await this.client.query<MemberRow>(
-      `${memberSelect} where space_id = $1 order by joined_at, member_id`,
+      `${memberSelect}
+        where space_id = $1 and name_lease_retired_at is null
+        order by joined_at, member_id`,
       [spaceId]
     );
     return result.rows.map(mapMember);

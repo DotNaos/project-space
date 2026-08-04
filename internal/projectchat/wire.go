@@ -50,6 +50,10 @@ type nameClaimRequest struct {
 	ParentThreadID string       `json:"parentThreadId,omitempty"`
 }
 
+type automaticNameClaimRequest struct {
+	ExcludedNames []string `json:"excludedNames,omitempty"`
+}
+
 type nameClaimResponse struct {
 	Claim NameClaim `json:"claim"`
 }

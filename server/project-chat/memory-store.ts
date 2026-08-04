@@ -365,7 +365,9 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
 
   async listMembers(spaceId: string) {
     return this.exclusive(() => [...this.membersById.values()]
-      .filter((member) => member.spaceId === spaceId)
+      .filter((member) =>
+        member.spaceId === spaceId && !this.retiredNameLeaseMemberIds.has(member.memberId)
+      )
       .sort((a, b) => a.joinedAt.localeCompare(b.joinedAt) || a.memberId.localeCompare(b.memberId))
       .map(copy));
   }

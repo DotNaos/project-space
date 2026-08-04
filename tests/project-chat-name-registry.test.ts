@@ -5,6 +5,7 @@ import type { ProjectChatContext } from '../server/project-chat/contracts';
 import {
   automaticProjectChatName,
   automaticProjectChatNameCount,
+  automaticProjectChatNameForThread,
   findProjectChatName
 } from '../server/project-chat/name-registry';
 
@@ -21,6 +22,11 @@ describe('Project Chat role-based name registry',()=>{
       (_,index)=>automaticProjectChatName(index)[0]
     );
     expect(new Set(names).size).toBe(names.length);
+    const threadNames=Array.from(
+      {length:automaticProjectChatNameCount},
+      (_,index)=>automaticProjectChatNameForThread(threadA,index)[0]
+    );
+    expect(new Set(threadNames).size).toBe(threadNames.length);
     for(const index of [0,1_024,names.length-1]) {
       expect(findProjectChatName(names[index]??'')).toEqual(automaticProjectChatName(index));
     }
@@ -70,6 +76,19 @@ describe('Project Chat role-based name registry',()=>{
     expect(snapshot.nameClaims).toHaveLength(1);
     expect(snapshot.members.filter(member=>member.displayName==='Athena')).toHaveLength(2);
     expect(snapshot.members.filter(member=>member.agentName?.name==='Athena')).toHaveLength(1);
+    await expect(service.listMembers(agent(threadB))).resolves.toHaveLength(1);
+  });
+
+  test('renews the lease through ordinary authenticated agent activity',async()=>{
+    let now=new Date('2026-08-01T00:00:00.000Z');
+    const repository=new InMemoryProjectChatRepository();
+    const service=new ProjectChatService({repository,clock:{now:()=>new Date(now)},nameLeaseMs:leaseMs});
+    await service.claimName(agent(threadA),{name:'Athena',category:'mythology'});
+
+    now=new Date(now.getTime()+leaseMs-1);
+    await service.listMembers(agent(threadA));
+    now=new Date('2026-08-03T00:00:00.000Z');
+    expect((await service.listNames(agent(threadB))).groups[0]?.names.find(name=>name.name==='Athena')).toMatchObject({state:'claimed'});
   });
 
   test('serializes concurrent claims so only one active lease owns a name',async()=>{
@@ -89,10 +108,9 @@ describe('Project Chat role-based name registry',()=>{
       rateLimits:{join:{limit:allocationCount,windowMs:60_000}}
     });
     for(let index=0;index<allocationCount;index+=1) {
-      const [,name]=automaticProjectChatName(index);
-      await service.claimName(
+      await service.claimAutomaticName(
         agent(`019f4f2b-e97e-7180-8122-${String(index).padStart(12,'0')}`),
-        {name,category:'mythology'}
+        {}
       );
     }
     const claims=(await repository.snapshot()).nameClaims??[];

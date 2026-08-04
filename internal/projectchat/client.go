@@ -13,18 +13,19 @@ import (
 )
 
 const (
-	requestTimeout       = 10 * time.Second
-	maxCredentialBytes   = 16 * 1024
-	maxIdempotencyBytes  = 128
-	threadIDHeader       = "X-Codex-Thread-ID"
-	machineIDHeader      = "X-Project-Machine-ID"
-	idempotencyKeyHeader = "Idempotency-Key"
-	joinPath             = "/api/project-chat/join"
-	presencePath         = "/api/project-chat/presence"
-	messagesPath         = "/api/project-chat/messages"
-	acknowledgementPath  = "/api/project-chat/ack"
-	namesPath            = "/api/project-chat/names"
-	nameClaimsPath       = "/api/project-chat/name-claims"
+	requestTimeout          = 10 * time.Second
+	maxCredentialBytes      = 16 * 1024
+	maxIdempotencyBytes     = 128
+	threadIDHeader          = "X-Codex-Thread-ID"
+	machineIDHeader         = "X-Project-Machine-ID"
+	idempotencyKeyHeader    = "Idempotency-Key"
+	joinPath                = "/api/project-chat/join"
+	presencePath            = "/api/project-chat/presence"
+	messagesPath            = "/api/project-chat/messages"
+	acknowledgementPath     = "/api/project-chat/ack"
+	namesPath               = "/api/project-chat/names"
+	nameClaimsPath          = "/api/project-chat/name-claims"
+	automaticNameClaimsPath = "/api/project-chat/automatic-name-claims"
 )
 
 type Config struct {
@@ -58,6 +59,25 @@ func (client *Client) ClaimName(ctx context.Context, threadID, name string, cate
 	response := nameClaimResponse{}
 	request := nameClaimRequest{Name: name, Category: category, ParentThreadID: parentThreadID}
 	if err := client.doJSON(ctx, http.MethodPost, nameClaimsPath, nil, threadID, "", request, &response); err != nil {
+		return NameClaim{}, err
+	}
+	if response.Claim.ThreadID != threadID || response.Claim.Name == "" || response.Claim.DisplayName == "" || !validNameCategory(response.Claim.Category) {
+		return NameClaim{}, ErrInvalidResponse
+	}
+	return response.Claim, nil
+}
+
+func (client *Client) ClaimAutomaticName(
+	ctx context.Context,
+	threadID string,
+	excludedNames []string,
+) (NameClaim, error) {
+	if validateThreadID(threadID) != nil {
+		return NameClaim{}, ErrInvalidRequest
+	}
+	response := nameClaimResponse{}
+	request := automaticNameClaimRequest{ExcludedNames: excludedNames}
+	if err := client.doJSON(ctx, http.MethodPost, automaticNameClaimsPath, nil, threadID, "", request, &response); err != nil {
 		return NameClaim{}, err
 	}
 	if response.Claim.ThreadID != threadID || response.Claim.Name == "" || response.Claim.DisplayName == "" || !validNameCategory(response.Claim.Category) {

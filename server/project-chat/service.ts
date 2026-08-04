@@ -6,6 +6,7 @@ import {
   randomProjectChatIdGenerator,
   systemProjectChatClock,
   type ProjectChatAcknowledgeInput,
+  type ProjectChatAutomaticNameClaimInput,
   type ProjectChatActor,
   type ProjectChatClock,
   type ProjectChatContext,
@@ -24,9 +25,7 @@ import {
   type ProjectChatReadInput,
   type ProjectChatSendInput
 } from './contracts';
-import {
-  type ProjectChatRepository
-} from './repository';
+import { type ProjectChatRepository } from './repository';
 import {
   mapProjectChatRepositoryError,
   publicProjectChatChannel,
@@ -60,6 +59,8 @@ import {
   ProjectChatChannelManager,
   type ProjectChatProjectProvider
 } from './channel-manager';
+import { claimAutomaticProjectChatName } from './automatic-name-allocation';
+import { requireProjectChatMember } from './member-authorization';
 
 export interface ProjectChatServiceOptions {
   repository: ProjectChatRepository;
@@ -190,6 +191,21 @@ export class ProjectChatService {
     return { claim:{name:claim.displayName,displayName,category:claim.category,threadId:claim.threadId,...(claim.parentThreadId?{parentThreadId:claim.parentThreadId}:{})}, member:joined.member };
   }
 
+  async claimAutomaticName(
+    context: ProjectChatContext,
+    input: ProjectChatAutomaticNameClaimInput = {}
+  ) {
+    validateProjectChatContext(context);
+    return claimAutomaticProjectChatName({
+      claimName: (claimInput) => this.claimName(context, claimInput),
+      context,
+      input,
+      now: () => this.clock.now(),
+      reapExpired: (spaceId, now) => this.reapExpiredNameClaims(spaceId, now),
+      repository: this.repository
+    });
+  }
+
   async join(context: ProjectChatContext, input: ProjectChatJoinInput = {}) {
     validateProjectChatContext(context);
     const now = this.clock.now();
@@ -202,6 +218,10 @@ export class ProjectChatService {
     if (context.actor.kind === 'agent') {
       agentClaim = await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, context.actor.threadId);
       if (!agentClaim) throw new ProjectChatError('forbidden', 'Claim a Project Chat registry name before joining.');
+      agentClaim = await this.repository.claimName({
+        ...agentClaim,
+        updatedAt: now.toISOString()
+      });
       const parent = agentClaim.parentThreadId ? await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, agentClaim.parentThreadId) : null;
       const claimedDisplayName = parent ? `${parent.displayName}.${agentClaim.displayName}` : agentClaim.displayName;
       if (profile.displayName !== claimedDisplayName) throw new ProjectChatError('forbidden', 'The joined name must match the registry claim.');
@@ -506,37 +526,7 @@ export class ProjectChatService {
   }
 
   private async requireMember(context: ProjectChatContext) {
-    const member = await this.repository.findMemberByActorKey(
-      context.spaceId,
-      projectChatActorKey(context.actor)
-    );
-    if (!member) {
-      throw new ProjectChatError('not_member', 'Project Chat membership is required.');
-    }
-    if (context.actor.kind === 'agent') {
-      const claim = await this.repository.findNameClaimByThread(
-        context.spaceId,
-        context.actor.accountId,
-        context.actor.threadId
-      );
-      if (!claim) {
-        throw new ProjectChatError('forbidden', 'A current Project Chat registry claim is required.');
-      }
-      const parent = claim.parentThreadId
-        ? await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, claim.parentThreadId)
-        : null;
-      const displayName = parent ? `${parent.displayName}.${claim.displayName}` : claim.displayName;
-      if (
-        member.displayName !== displayName ||
-        member.agentName?.name !== claim.displayName ||
-        member.agentName.category !== claim.category ||
-        member.agentName.displayName !== displayName ||
-        member.agentName.parentThreadId !== claim.parentThreadId
-      ) {
-        throw new ProjectChatError('forbidden', 'Project Chat membership does not match its registry claim.');
-      }
-    }
-    return member;
+    return requireProjectChatMember(this.repository, this.clock, context);
   }
 
   private humanProfileRecord(context: ProjectChatContext, now: Date) {

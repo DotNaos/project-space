@@ -245,37 +245,32 @@ func claimProjectSpaceAgentName(
 		}
 		return claim.Name, nil
 	}
-	for attempt := range automaticAgentNamePoolSize() {
-		candidate := automaticAgentNameForThread(threadID, attempt)
-		if _, found := excluded[normalizeAgentName(candidate)]; found {
-			continue
-		}
-		claim, claimErr := dependencies.Registry.ClaimName(
-			ctx,
-			threadID,
-			candidate,
-			projectchat.NameCategoryMythology,
-			"",
-		)
-		if errors.Is(claimErr, projectchat.ErrNameConflict) {
-			continue
-		}
-		if claimErr != nil {
-			return "", claimErr
-		}
-		if strings.TrimSpace(claim.Name) == "" {
-			return "", projectchat.ErrInvalidResponse
-		}
-		if dependencies.ProfileStore != nil {
-			_ = dependencies.ProfileStore.Save(threadID, projectchat.AgentProfile{
-				DisplayName:   claim.DisplayName,
-				Category:      claim.Category,
-				RegistryClaim: true,
-			})
-		}
-		return claim.Name, nil
+	automaticRegistry, ok := dependencies.Registry.(projectchat.AutomaticNameRegistryClient)
+	if !ok {
+		return "", errAgentNameCatalogExhausted
 	}
-	return "", errAgentNameCatalogExhausted
+	excludedNames := make([]string, 0, len(excluded))
+	for name := range excluded {
+		excludedNames = append(excludedNames, name)
+	}
+	claim, claimErr := automaticRegistry.ClaimAutomaticName(ctx, threadID, excludedNames)
+	if errors.Is(claimErr, projectchat.ErrNameConflict) {
+		return "", errAgentNameCatalogExhausted
+	}
+	if claimErr != nil {
+		return "", claimErr
+	}
+	if strings.TrimSpace(claim.Name) == "" {
+		return "", projectchat.ErrInvalidResponse
+	}
+	if dependencies.ProfileStore != nil {
+		_ = dependencies.ProfileStore.Save(threadID, projectchat.AgentProfile{
+			DisplayName:   claim.DisplayName,
+			Category:      claim.Category,
+			RegistryClaim: true,
+		})
+	}
+	return claim.Name, nil
 }
 
 func availableMainAgentNames(

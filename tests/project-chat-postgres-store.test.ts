@@ -675,4 +675,12 @@ describe('PostgresProjectChatRepository', () => {
     expect(client.calls[0]?.sql).toContain('name_lease_retired_at = $2::timestamptz');
     expect(client.calls[0]?.values).toEqual(['space-a',boundary]);
   });
+
+  test('excludes retired lease identities from active member lists',async()=>{
+    const client=new RecordingClient([rows([])]);
+    const repository=new PostgresProjectChatRepository(client);
+
+    await expect(repository.listMembers('space-a')).resolves.toEqual([]);
+    expect(client.calls[0]?.sql).toContain('name_lease_retired_at is null');
+  });
 });

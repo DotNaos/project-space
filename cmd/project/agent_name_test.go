@@ -161,6 +161,32 @@ func TestAgentNameAvoidsVisibleNamesAndRetriesClaimConflict(t *testing.T) {
 	}
 }
 
+func TestAgentNameUsesOneServerSideAutomaticAllocation(t *testing.T) {
+	registry := &automaticNameRegistry{catalog: automaticNameCatalog()}
+	command := newAgentCommand(agentNameDependencies{
+		IdentityProvider: fixedThreadIdentityProvider(chatTestThreadID),
+		Registry:         registry,
+	})
+	command.SetArgs([]string{"name", "--exclude", "Aebaden", "--format", "json"})
+	stdout := &bytes.Buffer{}
+	command.SetOut(stdout)
+	command.SetErr(&bytes.Buffer{})
+
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	result := decodeAgentNameResult(t, stdout)
+	if result.Source != "project-space" || result.Name == "" {
+		t.Fatalf("result = %#v", result)
+	}
+	if registry.automaticClaimCalls != 1 || len(registry.claimed) != 0 {
+		t.Fatalf("automatic calls = %d, ordinary claims = %#v", registry.automaticClaimCalls, registry.claimed)
+	}
+	if len(registry.automaticExcluded) != 1 || registry.automaticExcluded[0] != "aebaden" {
+		t.Fatalf("automatic exclusions = %#v", registry.automaticExcluded)
+	}
+}
+
 func TestAgentNameFallsBackOnlyWhenProjectSpaceIsUnreachable(t *testing.T) {
 	registry := &automaticNameRegistry{listErr: projectchat.ErrUnavailable}
 	command := newAgentCommand(agentNameDependencies{
@@ -411,6 +437,28 @@ type automaticNameRegistry struct {
 	claimed             []string
 	waitForCancellation bool
 	emptyClaimResponse  bool
+	automaticClaimCalls int
+	automaticExcluded   []string
+}
+
+func (registry *automaticNameRegistry) ClaimAutomaticName(
+	_ context.Context,
+	threadID string,
+	excludedNames []string,
+) (projectchat.NameClaim, error) {
+	registry.automaticClaimCalls++
+	registry.automaticExcluded = append([]string(nil), excludedNames...)
+	if registry.claimErr != nil {
+		return projectchat.NameClaim{}, registry.claimErr
+	}
+	if registry.emptyClaimResponse {
+		return projectchat.NameClaim{}, nil
+	}
+	name := automaticAgentNameForThread(threadID, 0)
+	return projectchat.NameClaim{
+		Name: name, DisplayName: name, Category: projectchat.NameCategoryMythology,
+		ThreadID: threadID,
+	}, nil
 }
 
 func (registry *automaticNameRegistry) ListNames(

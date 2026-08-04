@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   ProjectChatError,
   type ProjectChatAcknowledgeInput,
+  type ProjectChatAutomaticNameClaimInput,
   type ProjectChatContext,
   type ProjectChatErrorCode,
   type ProjectChatJoinInput,
@@ -33,6 +34,7 @@ type ProjectChatRoute =
   | 'mentions'
   | 'names'
   | 'name-claim'
+  | 'automatic-name-claim'
   | 'presence'
   | 'profile-get'
   | 'profile-update'
@@ -144,6 +146,13 @@ async function handleRoute(
       );
     case 'names': return service.listNames(context);
     case 'name-claim': return service.claimName(context, await readJsonObject<ProjectChatNameClaimInput>(request));
+    case 'automatic-name-claim': return service.claimAutomaticName(
+      context,
+      await readJsonObject<ProjectChatAutomaticNameClaimInput>(
+        request,
+        PROJECT_CHAT_MAX_PROFILE_HTTP_BODY_BYTES
+      )
+    );
     case 'presence':
       return service.updatePresence(
         context,
@@ -188,6 +197,7 @@ function projectChatRoute(method: string | undefined, pathname: string): Project
       return 'mentions';
     case 'GET /api/project-chat/names': return 'names';
     case 'POST /api/project-chat/name-claims': return 'name-claim';
+    case 'POST /api/project-chat/automatic-name-claims': return 'automatic-name-claim';
     case 'POST /api/project-chat/presence':
       return 'presence';
     case 'GET /api/project-chat/profile':

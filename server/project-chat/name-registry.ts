@@ -101,6 +101,27 @@ export function automaticProjectChatName(index: number): ProjectChatNameEntry {
   return [key, `${key.charAt(0).toLocaleUpperCase('en-US')}${key.slice(1)}`, 'mythology'];
 }
 
+export function automaticProjectChatNameForThread(
+  threadId: string,
+  attempt: number
+): ProjectChatNameEntry {
+  if (!Number.isSafeInteger(attempt) || attempt < 0 || attempt >= automaticProjectChatNameCount) {
+    throw new RangeError('Automatic Project Chat name attempt is outside the catalogue.');
+  }
+  const start = stableNameHash(threadId) % automaticProjectChatNameCount;
+  const step = (stableNameHash(`step:${threadId}`) % (automaticProjectChatNameCount / 2)) * 2 + 1;
+  return automaticProjectChatName((start + attempt * step) % automaticProjectChatNameCount);
+}
+
+function stableNameHash(value: string) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
 const automaticNamesByKey = new Map(
   Array.from(
     { length: automaticProjectChatNameCount },
