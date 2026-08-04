@@ -1,0 +1,50 @@
+---
+title: "Keep Codex agent names available"
+version: "0.4.57"
+bump: "patch"
+pullRequest: 440
+issues:
+  - 405
+areas:
+  - cli
+  - api
+  - docs
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  Codex tasks now draw from a much larger clean-name pool and safely recycle
+  inactive online and local reservations through renewable leases.
+</ReleaseSummary>
+
+## Changes
+
+### Added
+
+- Added 16,384 deterministic clean names for automatic Codex task allocation.
+- Added renewable 48-hour leases for online and locally locked reservations.
+- Added a versioned installer and integrity check for the global startup skill.
+
+### Fixed
+
+- Live local reservations are excluded before an online name claim is made.
+- Expired claims can be reused without rewriting historical Project Chat senders.
+- Genuine name exhaustion remains distinct from connectivity and contract failures.
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Allocate more than 1,024 concurrent task names and confirm every name remains clean and unique.
+- Resume a task before lease expiry and confirm its name remains stable.
+- Reclaim a name at the exact 48-hour boundary and confirm the earlier chat sender remains unchanged.
+- Run concurrent local selectors and confirm they serialize without duplicate names.
+
+</PreviewOnly>
