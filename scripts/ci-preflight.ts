@@ -36,6 +36,7 @@ export function preflightPlan(input: {
 }) {
   const lanes: PreflightLane[] = [
     { id: 'diff-hygiene', command: ['git', 'diff', '--check'] },
+    { id: 'package-manager-policy', command: ['bun', 'run', 'check:package-manager'] },
     { id: 'locked-root-dependencies', command: ['bun', 'install', '--frozen-lockfile'] },
     {
       id: 'release-entry',
@@ -82,13 +83,7 @@ export function preflightPlan(input: {
     { id: 'web-build', command: ['bun', 'run', 'build:web'] },
     {
       id: 'mobile-dependencies',
-      command: [
-        'bunx',
-        'pnpm@11.10.0',
-        '--ignore-workspace',
-        'install',
-        '--frozen-lockfile',
-      ],
+      command: ['bun', 'install', '--frozen-lockfile'],
       reason: 'working-directory=apps/mobile',
     },
     {

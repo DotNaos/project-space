@@ -111,7 +111,7 @@ if (!(await waitForVerifiedContext(reviewOrigin, claim.issue))) {
   );
 }
 const child = spawn(
-  process.platform === 'win32' ? 'npx.cmd' : 'npx',
+  process.platform === 'win32' ? 'bunx.exe' : 'bunx',
   ['expo', 'start', '--host', 'lan', ...process.argv.slice(2)],
   {
     cwd: mobileRoot,

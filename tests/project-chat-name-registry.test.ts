@@ -135,18 +135,18 @@ describe('Project Chat role-based name registry',()=>{
     const allocationCount=2_048;
     const service=new ProjectChatService({
       repository,
-      rateLimits:{join:{limit:allocationCount,windowMs:60_000}}
+      rateLimits:{join:{limit:allocationCount*8,windowMs:60_000}}
     });
-    for(let index=0;index<allocationCount;index+=1) {
-      await service.claimAutomaticName(
+    await Promise.all(Array.from({length:allocationCount},(_,index)=>
+      service.claimAutomaticName(
         agent(`019f4f2b-e97e-7180-8122-${String(index).padStart(12,'0')}`),
         {}
-      );
-    }
+      )
+    ));
     const claims=(await repository.snapshot()).nameClaims??[];
     expect(claims).toHaveLength(allocationCount);
     expect(new Set(claims.map(claim=>claim.nameKey)).size).toBe(allocationCount);
-  },15_000);
+  });
 
   test('preserves a clean offline name when the same thread reconnects online',async()=>{
     const repository=new InMemoryProjectChatRepository();

@@ -15,13 +15,13 @@ describe('trusted PR prototype deployment', () => {
     expect(dockerfile).toContain('--base /prototype/desktop/');
     expect(dockerfile).toContain('/workspace/apps/prototype/dist');
     expect(dockerfile).toContain(
-      'FROM ghcr.io/pnpm/pnpm:11.10.0 AS mobile-build'
+      'FROM node:24.11.1-bookworm-slim AS mobile-build'
     );
-    expect(dockerfile).toContain('pnpm runtime set node 24 -g');
+    expect(dockerfile).toContain('COPY --from=bun-runtime /usr/local/bin/bun');
     expect(dockerfile).toContain(
-      'pnpm --dir apps/mobile run build:prototype'
+      'cd apps/mobile && bun run build:prototype'
     );
-    expect(dockerfile).not.toContain('bunx pnpm');
+    expect(dockerfile).toContain('apps/mobile/package.json apps/mobile/bun.lock');
     expect(dockerfile).toContain('/workspace/apps/mobile/dist-prototype');
     expect(dockerfile).toContain(
       '"surfaces":["mobile-prototype","desktop-prototype"]'
@@ -35,18 +35,18 @@ describe('trusted PR prototype deployment', () => {
     expect(runtime).not.toContain('PROJECT_SPACE_PREVIEW_GATEWAY_SECRET');
   });
 
-  test('builds the mobile export with pinned pnpm and a real Node runtime', async () => {
+  test('builds the mobile export with the pinned Bun runtime', async () => {
     for (const path of [dockerfilePath, productionDockerfilePath]) {
       const dockerfile = await readFile(path, 'utf8');
 
       expect(dockerfile).toContain(
-        'FROM ghcr.io/pnpm/pnpm:11.10.0 AS mobile-build'
+        'FROM node:24.11.1-bookworm-slim AS mobile-build'
       );
-      expect(dockerfile).toContain('pnpm runtime set node 24 -g');
+      expect(dockerfile).toContain('COPY --from=bun-runtime /usr/local/bin/bun');
       expect(dockerfile).toContain(
-        'pnpm --dir apps/mobile run build:prototype'
+        'cd apps/mobile && bun run build:prototype'
       );
-      expect(dockerfile).not.toContain('bunx pnpm');
+      expect(dockerfile).toContain('apps/mobile/package.json apps/mobile/bun.lock');
       expect(dockerfile).toContain('COPY src ./src');
       expect(dockerfile).toContain('COPY config ./config');
       expect(dockerfile).toContain(

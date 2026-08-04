@@ -303,7 +303,7 @@ scripts:
 `{host}` and `{port}` are replaced before the process starts. The same values
 are also available as `PROJECT_HOST` and `PROJECT_PORT`.
 
-Run a script in the foreground, like `npm run`:
+Run a script in the foreground, like `bun run`:
 
 ```sh
 project run dev

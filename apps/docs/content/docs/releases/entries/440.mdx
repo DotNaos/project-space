@@ -25,6 +25,7 @@ upgrade: "none"
 - Added 16,384 deterministic clean names for automatic Codex task allocation.
 - Added renewable 48-hour leases for online and locally locked reservations.
 - Added a versioned installer and integrity check for the global startup skill.
+- Added a repository check that keeps installs, builds, and automation on the pinned Bun version.
 
 ### Fixed
 
@@ -38,6 +39,8 @@ upgrade: "none"
 - Existing claims receive a full first lease window during upgrade, and automatic allocation skips names whose mention handle is already active.
 - Expired claims can be reused without rewriting historical Project Chat senders.
 - Genuine name exhaustion remains distinct from connectivity and contract failures.
+- Mobile prototype builds now use a frozen Bun lockfile in local, CI, preview, and release paths, avoiding the separate runtime download that made preview builds unreliable.
+- The large name-allocation regression check now exercises allocations concurrently, preserving the stress coverage without depending on machine speed.
 
 ## Upgrade notes
 

@@ -33,13 +33,7 @@ if (import.meta.main) {
   }
 
   run(
-    [
-      'bunx',
-      'pnpm@11.10.0',
-      '--ignore-workspace',
-      'install',
-      '--frozen-lockfile'
-    ],
+    ['bun', 'install', '--frozen-lockfile'],
     mobileRoot
   );
   run(['bun', 'run', 'build:prototype'], mobileRoot);

@@ -31,7 +31,7 @@ export function useNativeReviewContext(config?: NativeReviewConfig) {
   useEffect(() => {
     if (!config) {
       setResult({
-        error: 'Start this prototype with npm run native:review.',
+        error: 'Start this prototype with bun run native:review.',
         state: 'unavailable',
       });
       return;

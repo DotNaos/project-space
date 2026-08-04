@@ -68,6 +68,7 @@ describe('canonical local CI preflight', () => {
 
     expect(ids).toEqual(expect.arrayContaining([
       'release-entry',
+      'package-manager-policy',
       'generated-cli-docs',
       'cli-docs-contract',
       'docs-typecheck',

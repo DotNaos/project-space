@@ -84,7 +84,7 @@ features:
   connectorBackedDevelopment:
     status: configured
     path: package.json
-    command: pnpm dev
+    command: bun run dev
     notes:
       - Local development uses the os-connector API at 127.0.0.1:45873.
   localFilesystem:

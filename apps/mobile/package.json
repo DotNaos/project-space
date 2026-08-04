@@ -10,7 +10,7 @@
     "native:dev": "node scripts/generate-project-inventory.mjs && expo start --host lan",
     "native:review": "node scripts/start-native-review.mjs",
     "native:ios": "node scripts/generate-project-inventory.mjs && expo start --ios",
-    "dev": "concurrently -k -n auth,web \"pnpm run auth\" \"pnpm run web -- --port 8082\"",
+    "dev": "concurrently -k -n auth,web \"bun run auth\" \"bun run web -- --port 8082\"",
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
@@ -51,5 +51,6 @@
     "tailwindcss": "^4.1.16",
     "typescript": "~5.9.2"
   },
-  "private": true
+  "private": true,
+  "packageManager": "bun@1.3.14"
 }

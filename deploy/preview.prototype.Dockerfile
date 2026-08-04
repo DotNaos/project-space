@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
-FROM oven/bun:1 AS deps
+FROM oven/bun:1.3.14 AS bun-runtime
+
+FROM bun-runtime AS deps
 
 WORKDIR /workspace
 RUN apt-get update \
@@ -9,21 +11,21 @@ RUN apt-get update \
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
-FROM ghcr.io/pnpm/pnpm:11.10.0 AS mobile-build
+FROM node:24.11.1-bookworm-slim AS mobile-build
 
 WORKDIR /workspace
-RUN pnpm runtime set node 24 -g
+COPY --from=bun-runtime /usr/local/bin/bun /usr/local/bin/bun
 COPY package.json ./
-COPY apps/mobile/package.json apps/mobile/pnpm-lock.yaml ./apps/mobile/
-RUN pnpm --dir apps/mobile --ignore-workspace install --frozen-lockfile --ignore-scripts
+COPY apps/mobile/package.json apps/mobile/bun.lock ./apps/mobile/
+RUN cd apps/mobile && bun install --frozen-lockfile --ignore-scripts
 COPY apps/mobile ./apps/mobile
 COPY src ./src
 COPY config ./config
 COPY apps/docs/content/docs/changelog/entries.json \
   ./apps/docs/content/docs/changelog/entries.json
-RUN pnpm --dir apps/mobile run build:prototype
+RUN cd apps/mobile && bun run build:prototype
 
-FROM oven/bun:1 AS build
+FROM oven/bun:1.3.14 AS build
 
 WORKDIR /workspace
 ARG PROJECT_SPACE_BUILD_COMMIT
