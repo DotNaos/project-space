@@ -18,20 +18,22 @@ export function TaskCleanup({
       </div>
       <div className="mt-2 divide-y divide-current/[.07]">
         <CleanupRow
-          detail={cleanup.remoteBranch === "deleted" ? "Deleted on GitHub" : "Still on GitHub"}
+          detail={cleanup.remoteBranch === "deleted" ? "Deleted from GitHub" : "On GitHub · Safe to delete"}
           icon={GitBranch}
           label="Remote branch"
+          secondary={task.branch ?? "Branch unavailable"}
           tone={cleanup.remoteBranch === "deleted" ? "success" : "warning"}
         />
 
         {cleanup.worktrees.map((worktree) => (
           <CleanupRow
             detail={worktree.safeToDelete
-              ? "Clean"
-              : `${worktree.uncommittedChanges} uncommitted · ${worktree.unstagedChanges} unstaged`}
+              ? "Local checkout · Clean · Safe to delete"
+              : `Local checkout · ${worktree.uncommittedChanges} uncommitted · ${worktree.unstagedChanges} unstaged`}
             icon={Laptop}
             key={worktree.machine}
             label={worktree.machine}
+            secondary={worktree.safeToDelete ? "No local changes" : "Review required before deleting"}
             tone={worktree.safeToDelete ? "success" : "danger"}
           />
         ))}
@@ -50,11 +52,13 @@ function CleanupRow({
   detail,
   icon: Icon,
   label,
+  secondary,
   tone,
 }: {
   detail: string;
   icon: typeof GitBranch;
   label: string;
+  secondary: string;
   tone: "danger" | "success" | "warning";
 }) {
   const toneClass = tone === "success"
@@ -67,8 +71,11 @@ function CleanupRow({
     <div className="flex min-h-12 items-center gap-3 py-1.5">
       <Icon className="size-3.5 shrink-0 text-current/30" />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-xs font-medium text-current/65">{label}</span>
-        <span className={`mt-0.5 flex items-center gap-1 text-[10px] ${toneClass}`}>
+        <span className="flex min-w-0 items-baseline justify-between gap-3">
+          <span className="truncate text-xs font-medium text-current/70">{label}</span>
+          <span className="truncate text-[10px] text-current/35">{secondary}</span>
+        </span>
+        <span className={`mt-0.5 flex items-center gap-1 text-[10px] leading-4 ${toneClass}`}>
           {tone === "danger" ? <AlertTriangle className="size-3" /> : null}
           {detail}
         </span>

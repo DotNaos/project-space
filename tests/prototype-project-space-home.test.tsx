@@ -557,13 +557,16 @@ describe('project space home prototype', () => {
 
     expect(html).toContain('data-testid="closed-task-checkouts"');
     expect(html).toContain('Branch checkouts');
-    expect(html).toContain('Still on GitHub');
+    expect(html).toContain('On GitHub · Safe to delete');
+    expect(html).toContain('issue-434-make-agent-authored-pr-revisions-green-on-first-push');
     expect(html).toContain('Merged #435');
     expect(html).toContain('lucide-git-merge');
     expect(html).toContain('os-pc');
-    expect(html).toContain('Clean');
+    expect(html).toContain('Local checkout · Clean · Safe to delete');
+    expect(html).toContain('No local changes');
     expect(html).toContain('os-macbook');
-    expect(html).toContain('3 uncommitted · 2 unstaged');
+    expect(html).toContain('Local checkout · 3 uncommitted · 2 unstaged');
+    expect(html).toContain('Review required before deleting');
     expect(html).toContain('os-yoga-unix');
     expect(html).toContain('1 uncommitted · 0 unstaged');
     expect(html).toContain('Delete branch');

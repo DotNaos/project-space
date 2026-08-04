@@ -87,11 +87,12 @@ export function TaskPrimaryAction({
   if (!primary) return null;
 
   const needsConfirmation = primary.action.type === "approve-and-merge" || primary.action.type === "delete-branch";
+  const deletingBranch = primary.action.type === "delete-branch";
   const trigger = (
     <Button
-      className={className}
+      className={`${className} ${deletingBranch ? "bg-violet-400 text-neutral-950 hover:bg-violet-300" : ""}`}
       size="sm"
-      variant={primary.action.type === "delete-branch" ? "danger" : "primary"}
+      variant={deletingBranch ? "secondary" : "primary"}
       onPress={needsConfirmation ? undefined : () => onAction(primary.action)}
     >
       <primary.icon className="size-4" /> {primary.label}
@@ -100,7 +101,6 @@ export function TaskPrimaryAction({
 
   if (!needsConfirmation) return trigger;
 
-  const deletingBranch = primary.action.type === "delete-branch";
   const dirtyCheckoutCount = task.cleanup?.worktrees.filter((worktree) => !worktree.safeToDelete).length ?? 0;
 
   return (
