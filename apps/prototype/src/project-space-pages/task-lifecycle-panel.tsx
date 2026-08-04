@@ -147,39 +147,57 @@ export function TaskDeliveryPanel({
       ) : task.pullRequest ? (
         <>
           <div className="pb-4">
-            <div className="grid gap-1 rounded-xl bg-current/[.025] p-1">
+            <div className="grid gap-1">
               <Button
                 aria-label={`PR deployment · ${previewStatus.label}`}
-                className="w-full justify-between rounded-lg bg-current/[.035] px-3 text-current/55"
+                className="w-full justify-between rounded-lg px-3 text-current/55 hover:bg-current/[.025]"
                 isDisabled={!previewReady}
                 size="sm"
                 style={{ fontSize: 11 }}
                 variant="ghost"
                 onPress={onOpenPreview}
               >
-                <span>PR deployment</span>
-                <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${previewStatus.color}`} />
+                <span className="flex items-center gap-2">
+                  <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${previewStatus.color}`} />
+                  <span>PR deployment</span>
+                </span>
+                <span className="flex items-center gap-1 text-blue-300">
+                  <span>{previewReady ? "Open" : previewStatus.label}</span>
+                  {previewReady ? <ExternalLink aria-hidden="true" className="size-3" /> : null}
+                </span>
               </Button>
               <Button
                 aria-label="Prototype · Online"
-                className="w-full justify-between rounded-lg bg-current/[.035] px-3 text-current/55"
+                className="w-full justify-between rounded-lg px-3 text-current/55 hover:bg-current/[.025]"
                 size="sm"
                 style={{ fontSize: 11 }}
                 variant="ghost"
                 onPress={onOpenPrototype}
               >
-                <span>Prototype</span>
-                <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-emerald-400" />
+                <span className="flex items-center gap-2">
+                  <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-emerald-400" />
+                  <span>Prototype</span>
+                </span>
+                <span className="flex items-center gap-1 text-blue-300">
+                  <span>Open</span>
+                  <ExternalLink aria-hidden="true" className="size-3" />
+                </span>
               </Button>
               <a
                 aria-label="Design Space · Online"
-                className="flex h-8 w-full items-center justify-between rounded-lg bg-current/[.035] px-3 text-[11px] font-medium text-current/55 transition-[background-color,color,scale] hover:bg-current/[.06] hover:text-current active:scale-[.96]"
+                className="flex h-8 w-full items-center justify-between rounded-lg px-3 text-[11px] font-medium text-current/55 transition-[background-color,color,scale] hover:bg-current/[.025] hover:text-current active:scale-[.96]"
                 href="http://design-space.localhost:1355/"
                 rel="noreferrer"
                 target="_blank"
               >
-                <span>Design Space</span>
-                <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-emerald-400" />
+                <span className="flex items-center gap-2">
+                  <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-emerald-400" />
+                  <span>Design Space</span>
+                </span>
+                <span className="flex items-center gap-1 text-blue-300">
+                  <span>Open</span>
+                  <ExternalLink aria-hidden="true" className="size-3" />
+                </span>
               </a>
             </div>
           </div>
