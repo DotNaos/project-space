@@ -210,7 +210,9 @@ export class ProjectChatService {
       agentClaim = options.claim ?? await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, context.actor.threadId);
       if (!agentClaim) throw new ProjectChatError('forbidden', 'Claim a Project Chat registry name before joining.');
       if (!options.claim) {
-        agentClaim = await this.repository.claimName({...agentClaim,updatedAt:now.toISOString()});
+        agentClaim = await this.repository.renewNameClaim(agentClaim,now.toISOString()) ??
+          await this.repository.findNameClaimByThread(context.spaceId,context.actor.accountId,context.actor.threadId);
+        if (!agentClaim) throw new ProjectChatError('forbidden','Claim a Project Chat registry name before joining.');
       }
       const parent = agentClaim.parentThreadId ? await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, agentClaim.parentThreadId) : null;
       const claimedDisplayName = parent ? `${parent.displayName}.${agentClaim.displayName}` : agentClaim.displayName;

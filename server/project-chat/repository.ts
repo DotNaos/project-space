@@ -50,6 +50,7 @@ export interface ProjectChatRepository {
   listNameClaims(spaceId: string): Promise<ProjectChatNameClaimRecord[]>;
   findNameClaimByThread(spaceId: string, accountId: string, threadId: string): Promise<ProjectChatNameClaimRecord | null>;
   claimName(claim: ProjectChatNameClaimRecord): Promise<ProjectChatNameClaimRecord>;
+  renewNameClaim(claim: ProjectChatNameClaimRecord, updatedAt: string): Promise<ProjectChatNameClaimRecord | null>;
   claimNameAndJoin(
     claim: ProjectChatNameClaimRecord,
     member: ProjectChatMemberRecord,

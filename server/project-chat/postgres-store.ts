@@ -17,12 +17,9 @@ import {
 } from './repository';
 import { ensurePostgresHumanProfile, findPostgresHumanProfile, updatePostgresHumanProfile } from './postgres-human-profile';
 import {
-  claimPostgresName,
-  claimPostgresNameInTransaction,
-  findPostgresNameClaim,
-  findPostgresNameClaimForUpdate,
-  listPostgresNameClaims,
-  reapExpiredPostgresNameClaims
+  claimPostgresName, claimPostgresNameInTransaction, findPostgresNameClaim,
+  findPostgresNameClaimForUpdate, listPostgresNameClaims, reapExpiredPostgresNameClaims,
+  renewPostgresNameClaim
 } from './postgres-name-registry';
 
 interface ChannelRow {
@@ -180,6 +177,9 @@ export class PostgresProjectChatRepository implements ProjectChatRepository {
 
   async claimName(claim: ProjectChatNameClaimRecord) {
     return claimPostgresName(this.client, claim);
+  }
+  async renewNameClaim(claim:ProjectChatNameClaimRecord,updatedAt:string) {
+    return renewPostgresNameClaim(this.client,claim,updatedAt);
   }
 
   async claimNameAndJoin(claim:ProjectChatNameClaimRecord,member:ProjectChatMemberRecord,presence:ProjectChatPresenceRecord) {

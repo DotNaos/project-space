@@ -157,6 +157,19 @@ export class InMemoryProjectChatRepository implements ProjectChatRepository {
     return this.exclusive(() => this.claimNameRecord(claim));
   }
 
+  async renewNameClaim(claim:ProjectChatNameClaimRecord,updatedAt:string) {
+    return this.exclusive(()=>{
+      const existing=[...this.nameClaims.values()].find((candidate)=>
+        candidate.spaceId===claim.spaceId && candidate.accountId===claim.accountId &&
+        candidate.threadId===claim.threadId
+      );
+      if(!existing || existing.nameKey!==claim.nameKey || existing.updatedAt!==claim.updatedAt) return null;
+      const renewed={...existing,updatedAt};
+      this.nameClaims.set(compoundKey(renewed.spaceId,renewed.nameKey),copy(renewed));
+      return copy(renewed);
+    });
+  }
+
   async claimNameAndJoin(
     claim: ProjectChatNameClaimRecord,
     member: ProjectChatMemberRecord,

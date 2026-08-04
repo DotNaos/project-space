@@ -214,6 +214,24 @@ describe('PostgresProjectChatRepository', () => {
     expect(client.events).toEqual(['begin','select','update','commit']);
   });
 
+  test('renews activity only while the exact name-claim version is still current',async()=>{
+    const claim:ProjectChatNameClaimRecord={
+      accountId:'account-a',actorKey:'agent:machine-a:thread-a',category:'mythology',
+      claimedAt:createdAt,displayName:'Athena',nameKey:'athena',spaceId:'space-a',
+      threadId:'thread-a',updatedAt:createdAt
+    };
+    const renamedClient=new RecordingClient([rows([])]);
+    await expect(
+      new PostgresProjectChatRepository(renamedClient).renewNameClaim(
+        claim,'2026-07-12T10:00:00.000Z'
+      )
+    ).resolves.toBeNull();
+    expect(renamedClient.calls[0]?.sql).toContain('name_key = $4 and updated_at = $5::timestamptz');
+    expect(renamedClient.calls[0]?.values).toEqual([
+      'space-a','account-a','thread-a','athena',createdAt,'2026-07-12T10:00:00.000Z'
+    ]);
+  });
+
   test('commits a name claim, member identity, and presence as one transaction',async()=>{
     const updatedAt='2026-07-12T10:00:00.000Z';
     const claim:ProjectChatNameClaimRecord={

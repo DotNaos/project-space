@@ -92,6 +92,23 @@ export async function claimPostgresName(
   }
 }
 
+export async function renewPostgresNameClaim(
+  client:DatabaseQueryClient,
+  claim:ProjectChatNameClaimRecord,
+  updatedAt:string
+) {
+  const result=await client.query<NameClaimRow>(
+    `update project_chat_name_claims
+        set updated_at = $6
+      where space_id = $1 and account_id = $2 and thread_id = $3
+        and name_key = $4 and updated_at = $5::timestamptz
+      returning space_id, account_id, thread_id, actor_key, name_key,
+                display_name, category, parent_thread_id, claimed_at, updated_at`,
+    [claim.spaceId,claim.accountId,claim.threadId,claim.nameKey,claim.updatedAt,updatedAt]
+  );
+  return result.rows[0] ? mapNameClaim(result.rows[0]) : null;
+}
+
 export async function claimPostgresNameInTransaction(
   client: DatabaseQueryClient,
   claim: ProjectChatNameClaimRecord

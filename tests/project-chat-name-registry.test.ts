@@ -91,6 +91,35 @@ describe('Project Chat role-based name registry',()=>{
     expect((await service.listNames(agent(threadB))).groups[0]?.names.find(name=>name.name==='Athena')).toMatchObject({state:'claimed'});
   });
 
+  test('never lets a stale activity renewal undo a concurrent rename',async()=>{
+    let pause=false;
+    let entered!:()=>void;
+    let release!:()=>void;
+    const paused=new Promise<void>(resolve=>{entered=resolve});
+    const resume=new Promise<void>(resolve=>{release=resolve});
+    class PausesRenewal extends InMemoryProjectChatRepository {
+      override async renewNameClaim(...args:Parameters<InMemoryProjectChatRepository['renewNameClaim']>) {
+        if(pause){entered();await resume}
+        return super.renewNameClaim(...args);
+      }
+    }
+    const repository=new PausesRenewal();
+    const service=new ProjectChatService({repository});
+    const context=agent(threadA);
+    await service.claimName(context,{name:'Athena',category:'mythology'});
+    pause=true;
+    const activity=service.listMembers(context);
+    await paused;
+    await service.claimName(context,{name:'Hermes',category:'mythology'});
+    release();
+    await expect(activity).resolves.toEqual([
+      expect.objectContaining({displayName:'Hermes',agentName:expect.objectContaining({name:'Hermes'})})
+    ]);
+    expect(await repository.listNameClaims('space-a')).toEqual([
+      expect.objectContaining({nameKey:'hermes',displayName:'Hermes'})
+    ]);
+  });
+
   test('serializes concurrent claims so only one active lease owns a name',async()=>{
     const service=new ProjectChatService({repository:new InMemoryProjectChatRepository()});
     const attempts=await Promise.allSettled(Array.from({length:64},(_,index)=>

@@ -11,7 +11,7 @@ export async function requireProjectChatMember(
   clock: ProjectChatClock,
   context: ProjectChatContext
 ) {
-  const member = await repository.findMemberByActorKey(
+  let member = await repository.findMemberByActorKey(
     context.spaceId,
     projectChatActorKey(context.actor)
   );
@@ -31,7 +31,18 @@ export async function requireProjectChatMember(
       'A current Project Chat registry claim is required.'
     );
   }
-  claim = await repository.claimName({ ...claim, updatedAt: clock.now().toISOString() });
+  const renewed=await repository.renewNameClaim(claim,clock.now().toISOString());
+  if (renewed) claim=renewed;
+  else {
+    claim=await repository.findNameClaimByThread(
+      context.spaceId,context.actor.accountId,context.actor.threadId
+    );
+    member=await repository.findMemberByActorKey(context.spaceId,projectChatActorKey(context.actor));
+  }
+  if (!claim) {
+    throw new ProjectChatError('forbidden','A current Project Chat registry claim is required.');
+  }
+  if (!member) throw new ProjectChatError('not_member','Project Chat membership is required.');
   const parent = claim.parentThreadId
     ? await repository.findNameClaimByThread(
         context.spaceId,
