@@ -29,6 +29,9 @@ FROM oven/bun:1.3.14 AS build
 
 WORKDIR /workspace
 ARG PROJECT_SPACE_BUILD_COMMIT
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git \
+  && rm -rf /var/lib/apt/lists/*
 COPY --from=deps /workspace/node_modules /workspace/node_modules
 COPY . .
 RUN test -n "$PROJECT_SPACE_BUILD_COMMIT" \

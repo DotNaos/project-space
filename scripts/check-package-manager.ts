@@ -15,7 +15,7 @@ const forbiddenFileNames = new Set([
   'pnpm-lock.yaml',
   'pnpm-workspace.yaml'
 ]);
-const managerCommand = /(^|[\s"'`();&|])(?:npm|npx|pnpm)(?:@[^\s"'`]+)?(?=\s)/m;
+const managerCommand = /(^|[\s"'`();&|])(?:npm|npx|pnpm)(?:@[^\s"'`();&|]+)?(?=$|[\s();&|])/m;
 
 export function packageManagerPolicyViolations(
   paths: string[],
@@ -64,6 +64,9 @@ export function currentPackageManagerPolicyViolations() {
     if (packageManager(path) !== `bun@${expectedBunVersion}`) {
       violations.push(`${path}: packageManager must be bun@${expectedBunVersion}`);
     }
+  }
+  if (Bun.version !== expectedBunVersion) {
+    violations.push(`runtime: Bun must be ${expectedBunVersion}, received ${Bun.version}`);
   }
   return violations;
 }
