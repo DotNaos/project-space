@@ -69,6 +69,7 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain('ref: ${{ github.event.pull_request.head.sha }}');
     expect(workflow).toContain('--file deploy/preview-artifact-bake.hcl');
     expect(workflow).toContain('--allow "fs.write=$ARTIFACT_DIR/images"');
+    expect(workflow).toContain('for target in docs web prototype; do');
     expect(workflow).toContain('attestations: write');
     expect(workflow).toContain('id-token: write');
     expect(workflow).not.toContain('packages: write');

@@ -40,10 +40,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$ARTIFACT_DIR/images"
-          docker buildx bake \
-            --allow "fs.write=$ARTIFACT_DIR/images" \
-            --file deploy/preview-artifact-bake.hcl \
-            preview-artifacts
+          for target in docs web prototype; do
+            docker buildx bake \
+              --allow "fs.write=$ARTIFACT_DIR/images" \
+              --file deploy/preview-artifact-bake.hcl \
+              "$target"
+          done
       - name: Create canonical exact-head manifest
         env:
           ARTIFACT_DIR: ${{ runner.temp }}/preview-artifact
