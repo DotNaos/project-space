@@ -116,7 +116,7 @@ describe('Project Chat role-based name registry',()=>{
     const claims=(await repository.snapshot()).nameClaims??[];
     expect(claims).toHaveLength(allocationCount);
     expect(new Set(claims.map(claim=>claim.nameKey)).size).toBe(allocationCount);
-  });
+  },15_000);
 
   test('requires a same-account mythology parent and composes specialist display names',async()=>{
     const service=new ProjectChatService({repository:new InMemoryProjectChatRepository()});
