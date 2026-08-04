@@ -70,9 +70,10 @@ export function projectTaskPipeline(
   runs: GitHubWorkflowRunSummary[]
 ) {
   if (!pullRequest) return undefined;
+  if (pullRequest.headSha) {
+    return runs.find((run) => run.headSha === pullRequest.headSha);
+  }
   return runs.find((run) => (
-    Boolean(pullRequest.headSha) && run.headSha === pullRequest.headSha
-  )) ?? runs.find((run) => (
     Boolean(pullRequest.headBranch) && run.branch === pullRequest.headBranch
   ));
 }

@@ -56,6 +56,30 @@ describe('project task view model', () => {
     expect(task.state).toBe('in-progress');
   });
 
+  test('does not reuse a successful run from an older revision of the same branch', () => {
+    const tasks = createProjectTaskViewModels({
+      branches: [],
+      issues: [issue],
+      pullRequests: [pullRequest({
+        headBranch: 'issue-437-redesign',
+        headSha: 'current-head',
+        isDraft: true,
+        linkedIssueNumbers: [437]
+      })],
+      runs: [{
+        branch: 'issue-437-redesign',
+        conclusion: 'success',
+        headSha: 'previous-head',
+        id: 2,
+        kind: 'ci',
+        status: 'completed'
+      }]
+    });
+
+    expect(tasks[0]?.pipeline).toBeUndefined();
+    expect(tasks[0]?.health).toBe('unknown');
+  });
+
   test('prefers the open linked pull request when history contains merged work', () => {
     const [task] = createProjectTaskViewModels({
       branches: [],
