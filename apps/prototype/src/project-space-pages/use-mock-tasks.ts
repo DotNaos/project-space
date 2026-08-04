@@ -22,6 +22,7 @@ function hydrateFixtureDevelopmentContext(task: MockTask) {
   } : undefined;
   const inferredThreads = task.agentRun ? [{
     id: `${task.number}-build`,
+    machine: task.agentRun.machine,
     name: task.agentRun.name,
     status: task.agentRun.status === "running" ? "running" as const : "idle" as const,
   }] : undefined;
@@ -34,7 +35,9 @@ function hydrateFixtureDevelopmentContext(task: MockTask) {
 
   return {
     ...task,
-    agentThreads: task.agentThreads ?? fixture.agentThreads,
+    agentThreads: task.agentThreads && fixture.agentThreads
+      ? [...task.agentThreads, ...fixture.agentThreads.filter((thread) => !task.agentThreads?.some((saved) => saved.id === thread.id))]
+      : task.agentThreads ?? fixture.agentThreads,
     cleanup: task.cleanup ?? fixture.cleanup,
     workspace: task.workspace && fixture.workspace
       ? {

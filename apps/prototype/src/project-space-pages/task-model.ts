@@ -32,6 +32,7 @@ export interface MockTaskEvent {
 
 export interface MockTaskAgentThread {
   id: string;
+  machine?: string;
   name: string;
   status: "idle" | "running";
 }
@@ -436,8 +437,9 @@ export const initialMockTasks: MockTask[] = [
   },
   {
     agentThreads: [
-      { id: "395-build", name: "#395 · Secure prototype", status: "running" },
-      { id: "395-verify", name: "Verify authenticated review", status: "idle" },
+      { id: "395-build", machine: "os-pc", name: "#395 · Secure prototype", status: "running" },
+      { id: "395-verify", machine: "os-pc", name: "Verify authenticated review", status: "idle" },
+      { id: "395-mobile", machine: "os-macbook", name: "Verify mobile Preview", status: "idle" },
     ],
     author: "Oli",
     body: "Require verified live iteration for prototypes while preserving a trusted, exact-revision review boundary.",

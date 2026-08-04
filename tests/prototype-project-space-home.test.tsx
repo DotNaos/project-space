@@ -523,7 +523,7 @@ describe('project space home prototype', () => {
     expect(html).not.toContain('aria-label="Design Space · Online"');
     expect(html).toContain('#404');
     expect(html).toContain('Checks passed');
-    expect(html).toContain('Machines');
+    expect(html).toContain('Active development');
     expect(html).toContain('os-pc');
     expect(html).toContain('aria-label="Add machine"');
     expect(html).not.toContain('Tailscale · Clean');
@@ -537,7 +537,8 @@ describe('project space home prototype', () => {
     expect(html).toContain('Dev server');
     expect(html).toContain('Live');
     expect(html).toContain('Codex threads');
-    expect(html).toContain('1 active · 2 total');
+    expect(html).toContain('Open #395 · Secure prototype on os-pc');
+    expect(html).toContain('Open Verify mobile Preview on os-macbook');
     expect(html).toContain('Continue');
     expect(html).not.toContain('Request review');
     expect(html).not.toContain('Working context');
