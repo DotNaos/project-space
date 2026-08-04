@@ -36,6 +36,8 @@ COPY --from=deps /workspace/node_modules /workspace/node_modules
 COPY . .
 RUN test -n "$PROJECT_SPACE_BUILD_COMMIT" \
   && printf '%s' "$PROJECT_SPACE_BUILD_COMMIT" | grep -Eq '^[0-9a-f]{40}$' \
+  && git init --quiet \
+  && git add --all \
   && bun run check \
   && bun ./node_modules/vite/bin/vite.js build \
     --config apps/prototype/vite.config.ts \

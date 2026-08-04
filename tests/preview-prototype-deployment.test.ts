@@ -10,8 +10,12 @@ describe('trusted PR prototype deployment', () => {
   test('builds exact PR source but runs only static output with trusted configuration', async () => {
     const dockerfile = await readFile(dockerfilePath, 'utf8');
     const runtime = dockerfile.slice(dockerfile.indexOf('FROM nginxinc/nginx-unprivileged'));
+    const packagePolicy = dockerfile.indexOf('bun run check');
 
     expect(dockerfile).toContain("grep -Eq '^[0-9a-f]{40}$'");
+    expect(dockerfile).toContain('apt-get install -y --no-install-recommends git');
+    expect(dockerfile.indexOf('git init --quiet')).toBeLessThan(packagePolicy);
+    expect(dockerfile.indexOf('git add --all')).toBeLessThan(packagePolicy);
     expect(dockerfile).toContain('--base /prototype/desktop/');
     expect(dockerfile).toContain('/workspace/apps/prototype/dist');
     expect(dockerfile).toContain(
