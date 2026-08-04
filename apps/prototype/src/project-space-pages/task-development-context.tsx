@@ -1,5 +1,5 @@
 import { Button, Card, Disclosure } from "@heroui/react";
-import { Bot, ChevronDown, Circle, Globe, Laptop, LoaderCircle, PanelsTopLeft, Play, Plus, Shapes } from "lucide-react";
+import { Bot, ChevronDown, Circle, ExternalLink, Globe, Laptop, LoaderCircle, PanelsTopLeft, Play, Plus, Shapes } from "lucide-react";
 import { useState } from "react";
 
 import type { MockTask, MockTaskAgentThread } from "./task-model";
@@ -29,8 +29,6 @@ export function TaskDevelopmentContext({
 
   if (!workspace || !task.pullRequest || ["merged", "deploying", "deployed"].includes(task.stage)) return null;
 
-  const reviewSurfacesReady = task.pullRequest.preview === "ready";
-
   return (
     <section className="mt-5 border-t border-current/[.08] pt-4">
       <div className="flex h-8 items-center justify-between">
@@ -52,7 +50,6 @@ export function TaskDevelopmentContext({
             onOpenPrototype={onOpenPrototype}
             onOpenThread={onOpenThread}
             onThreadsOpenChange={setThreadsOpen}
-            reviewSurfacesReady={reviewSurfacesReady}
             threads={threads}
             threadsOpen={threadsOpen && expandedMachine === machine}
           />
@@ -70,7 +67,7 @@ export function TaskDevelopmentContext({
   );
 }
 
-function MachineCard({ expandedMachine, machine, onContinueDevelopment, onExpandedMachineChange, onOpenDevServer, onOpenPrototype, onOpenThread, onThreadsOpenChange, reviewSurfacesReady, threads, threadsOpen }: {
+function MachineCard({ expandedMachine, machine, onContinueDevelopment, onExpandedMachineChange, onOpenDevServer, onOpenPrototype, onOpenThread, onThreadsOpenChange, threads, threadsOpen }: {
   expandedMachine: string | null;
   machine: string;
   onContinueDevelopment(): void;
@@ -79,7 +76,6 @@ function MachineCard({ expandedMachine, machine, onContinueDevelopment, onExpand
   onOpenPrototype(): void;
   onOpenThread(thread: MockTaskAgentThread): void;
   onThreadsOpenChange(open: boolean): void;
-  reviewSurfacesReady: boolean;
   threads: NonNullable<MockTask["agentThreads"]>;
   threadsOpen: boolean;
 }) {
@@ -100,9 +96,10 @@ function MachineCard({ expandedMachine, machine, onContinueDevelopment, onExpand
         <Disclosure.Content>
           <Disclosure.Body className="px-3 pb-2 pt-0">
             <div className="divide-y divide-current/[.07]">
-              <MachineAction icon={Globe} label="Dev server" status="Live" statusTone="success"><Button size="sm" variant="tertiary" onPress={onOpenDevServer}>Connect</Button></MachineAction>
-              {reviewSurfacesReady ? <MachineAction icon={Shapes} label="Prototype" status="Running" statusTone="success"><Button size="sm" variant="tertiary" onPress={onOpenPrototype}>Open</Button></MachineAction> : null}
-              <MachineAction icon={PanelsTopLeft} label="Design Space" status="Available" statusTone="success"><a className="inline-flex h-8 items-center rounded-full bg-current/[.055] px-3 text-xs font-medium text-current/60 transition-[background-color,color,scale] hover:bg-current/[.1] hover:text-current active:scale-[.96]" href="http://design-space.localhost:1355/" rel="noreferrer" target="_blank">Open</a></MachineAction>
+              <DevServerBundle
+                onOpenDevServer={onOpenDevServer}
+                onOpenPrototype={onOpenPrototype}
+              />
               <MachineAction icon={Bot} label="Codex threads" status={`${threads.filter((thread) => thread.status === "running").length} active · ${threads.length} total`} statusTone="info"><Button size="sm" variant="tertiary" onPress={() => onThreadsOpenChange(!threadsOpen)}>View<ChevronDown className={`size-3 transition-transform ${threadsOpen ? "rotate-180" : ""}`} /></Button></MachineAction>
               {threadsOpen ? <div className="space-y-1 bg-current/[.018] p-1.5">{threads.map((thread) => <button aria-label={`Open ${thread.name} with dev server`} className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors hover:bg-current/[.045] hover:text-blue-300" key={thread.id} onClick={() => onOpenThread(thread)} type="button"><span className="grid size-7 shrink-0 place-items-center rounded-full bg-current/[.055] text-current/35"><Bot className="size-3.5" /></span><span className="min-w-0 flex-1 truncate text-xs font-medium text-current/60">{thread.name}</span>{thread.status === "running" ? <LoaderCircle aria-label="Running" className="size-3.5 shrink-0 animate-spin text-emerald-300/80" /> : <Circle aria-label="Idle" className="size-2.5 shrink-0 text-current/25" />}</button>)}</div> : null}
               <MachineAction icon={Play} label="Development" status="Ready" statusTone="info"><Button size="sm" variant="tertiary" onPress={onContinueDevelopment}>Continue</Button></MachineAction>
@@ -111,6 +108,46 @@ function MachineCard({ expandedMachine, machine, onContinueDevelopment, onExpand
         </Disclosure.Content>
       </Disclosure>
     </Card>
+  );
+}
+
+function DevServerBundle({ onOpenDevServer, onOpenPrototype }: {
+  onOpenDevServer(): void;
+  onOpenPrototype(): void;
+}) {
+  return (
+    <div className="py-1.5" data-testid="dev-server-bundle">
+      <div className="flex min-h-10 items-center gap-3">
+        <span className="flex min-w-0 flex-1 items-center gap-2">
+          <Globe className="size-3.5 shrink-0 text-current/30" />
+          <span className="truncate text-xs font-medium text-current/60">Dev server</span>
+          <span aria-label="Live" className="size-1.5 shrink-0 rounded-full bg-emerald-400" role="img" title="Live" />
+        </span>
+        <Button size="sm" variant="tertiary" onPress={onOpenDevServer}>Connect</Button>
+      </div>
+      <div className="ml-5 grid gap-0.5 border-l border-current/[.08] pl-3">
+        <Button
+          aria-label="Open Prototype from Dev server"
+          className="h-8 w-full justify-between rounded-lg px-2.5 text-current/45 hover:bg-current/[.03] hover:text-current/70"
+          size="sm"
+          variant="ghost"
+          onPress={onOpenPrototype}
+        >
+          <span className="flex items-center gap-2 text-[11px]"><Shapes className="size-3.5" /> Prototype</span>
+          <ExternalLink aria-hidden="true" className="size-3" />
+        </Button>
+        <a
+          aria-label="Open Design Space from Dev server"
+          className="flex h-8 w-full items-center justify-between rounded-lg px-2.5 text-[11px] font-medium text-current/45 transition-[background-color,color,scale] hover:bg-current/[.03] hover:text-current/70 active:scale-[.98]"
+          href="http://design-space.localhost:1355/"
+          rel="noreferrer"
+          target="_blank"
+        >
+          <span className="flex items-center gap-2"><PanelsTopLeft className="size-3.5" /> Design Space</span>
+          <ExternalLink aria-hidden="true" className="size-3" />
+        </a>
+      </div>
+    </div>
   );
 }
 

@@ -440,8 +440,8 @@ describe('project space home prototype', () => {
       />
     );
 
-    expect(html).toContain('>Preview<');
-    expect(html).toContain('Waiting for checks');
+    expect(html).toContain('PR deployment');
+    expect(html).toContain('Not ready');
     expect(html).toContain('aria-label="Error"');
     expect(html).toContain('Pull request');
     expect(html).toContain('href="https://github.com/DotNaos/project-space/pull/420"');
@@ -471,10 +471,10 @@ describe('project space home prototype', () => {
     expect(html).not.toContain('>Feature<');
     expect(html).toContain('lucide-git-pull-request-draft');
     expect(html).toContain('Draft #427');
-    expect(html).toContain('Start development');
+    expect(html).toContain('First version ready');
     expect(html).toContain('data-testid="task-mobile-primary-action"');
     expect(html).toContain('data-testid="task-panel-primary-action"');
-    expect(html).toContain('hidden @3xl:flex');
+    expect(html).toContain('hidden flex-wrap gap-2 @3xl:flex');
     expect(html).not.toContain('Waiting for checks');
     expect(html).not.toContain('>Pipeline<');
     expect(html).not.toContain('Development details');
@@ -497,7 +497,7 @@ describe('project space home prototype', () => {
     expect(mockTaskWorkflowState(inProgressTask)).toBe('In progress');
     expect(inProgressHtml).not.toContain('data-testid="task-mobile-primary-action"');
     expect(inProgressHtml).toContain('Pipeline');
-    expect(inProgressHtml).toContain('Run checks');
+    expect(inProgressHtml).toContain('Pass checks');
   });
 
   test('keeps a healthy task focused on its Preview and pull request', () => {
@@ -512,10 +512,15 @@ describe('project space home prototype', () => {
     );
 
     expect(html).not.toContain('Ready to view');
-    expect(html).toContain('Open Preview');
+    expect(html).toContain('PR deployment');
+    expect(html).toContain('data-testid="pr-deployment-surface"');
+    expect(html).toContain('data-testid="dev-server-bundle"');
     expect(html).toContain('Design Space');
     expect(html).toContain('href="http://design-space.localhost:1355/"');
-    expect(html).toContain('>Prototype</span>');
+    expect(html).toContain('Open Prototype from Dev server');
+    expect(html).toContain('Open Design Space from Dev server');
+    expect(html).not.toContain('aria-label="Prototype · Online"');
+    expect(html).not.toContain('aria-label="Design Space · Online"');
     expect(html).toContain('#404');
     expect(html).toContain('Checks passed');
     expect(html).toContain('Machines');
@@ -524,7 +529,7 @@ describe('project space home prototype', () => {
     expect(html).not.toContain('Tailscale · Clean');
     expect(html).toContain('Connected');
     expect(html).toContain('data-testid="task-mobile-primary-action"');
-    expect(html).toContain('hidden w-full @3xl:flex');
+    expect(html).toContain('hidden flex-wrap gap-2 @3xl:flex');
     expect(html).toContain('#395</p><p');
     expect(html).toContain('Require verified live iteration for prototypes');
     expect(html).toContain('aria-expanded="false"');
