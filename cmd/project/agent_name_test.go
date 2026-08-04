@@ -7,6 +7,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -161,6 +163,75 @@ func TestAgentNameAvoidsVisibleNamesAndRetriesClaimConflict(t *testing.T) {
 	}
 }
 
+func TestAgentNameReadsExclusionsFromBoundedFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "excluded.txt")
+	if err := os.WriteFile(path, []byte("Athena\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	registry := &automaticNameRegistry{catalog: automaticNameCatalog("Athena", "Hermes")}
+	command := newAgentCommand(agentNameDependencies{
+		IdentityProvider: fixedThreadIdentityProvider(chatTestThreadID),
+		Registry:         registry, RandomIndex: func(int) int { return 0 },
+	})
+	command.SetArgs([]string{"name", "--exclude-file", path, "--format", "json"})
+	stdout := &bytes.Buffer{}
+	command.SetOut(stdout)
+	command.SetErr(&bytes.Buffer{})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if result := decodeAgentNameResult(t, stdout); result.Name != "Hermes" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestAgentNameUsesOneServerSideAutomaticAllocation(t *testing.T) {
+	registry := &automaticNameRegistry{catalog: automaticNameCatalog()}
+	command := newAgentCommand(agentNameDependencies{
+		IdentityProvider: fixedThreadIdentityProvider(chatTestThreadID),
+		Registry:         registry,
+	})
+	command.SetArgs([]string{"name", "--exclude", "Aebaden", "--format", "json"})
+	stdout := &bytes.Buffer{}
+	command.SetOut(stdout)
+	command.SetErr(&bytes.Buffer{})
+
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	result := decodeAgentNameResult(t, stdout)
+	if result.Source != "project-space" || result.Name == "" {
+		t.Fatalf("result = %#v", result)
+	}
+	if registry.automaticClaimCalls != 1 || len(registry.claimed) != 0 {
+		t.Fatalf("automatic calls = %d, ordinary claims = %#v", registry.automaticClaimCalls, registry.claimed)
+	}
+	if len(registry.automaticExcluded) != 1 || registry.automaticExcluded[0] != "aebaden" {
+		t.Fatalf("automatic exclusions = %#v", registry.automaticExcluded)
+	}
+}
+
+func TestAgentNamePrefersTheExistingOfflineNameWhenConnectivityReturns(t *testing.T) {
+	t.Setenv(preferredAgentNameEnvironment, "Aebaden")
+	registry := &automaticNameRegistry{catalog: automaticNameCatalog("Athena")}
+	command := newAgentCommand(agentNameDependencies{
+		IdentityProvider: fixedThreadIdentityProvider(chatTestThreadID), Registry: registry,
+	})
+	command.SetArgs([]string{"name", "--format", "json"})
+	stdout := &bytes.Buffer{}
+	command.SetOut(stdout)
+	command.SetErr(&bytes.Buffer{})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if result := decodeAgentNameResult(t, stdout); result.Name != "Aebaden" {
+		t.Fatalf("result = %#v", result)
+	}
+	if registry.automaticPreferred != "Aebaden" || registry.automaticClaimCalls != 1 || len(registry.claimed) != 0 {
+		t.Fatalf("preferred = %q, automatic calls = %d, ordinary claims = %#v", registry.automaticPreferred, registry.automaticClaimCalls, registry.claimed)
+	}
+}
+
 func TestAgentNameFallsBackOnlyWhenProjectSpaceIsUnreachable(t *testing.T) {
 	registry := &automaticNameRegistry{listErr: projectchat.ErrUnavailable}
 	command := newAgentCommand(agentNameDependencies{
@@ -209,10 +280,11 @@ func TestAgentNameFallsBackAfterOnlineDeadline(t *testing.T) {
 
 func TestAgentNameDoesNotMisreportCapabilityFailuresAsOutages(t *testing.T) {
 	tests := []struct {
-		name    string
-		listErr error
-		catalog projectchat.NameCatalog
-		want    string
+		name     string
+		listErr  error
+		claimErr error
+		catalog  projectchat.NameCatalog
+		want     string
 	}{
 		{name: "authentication", listErr: projectchat.ErrUnauthorized, want: "reconnect"},
 		{name: "missing credential", listErr: projectchat.ErrMissingCredential, want: "project connect"},
@@ -220,15 +292,16 @@ func TestAgentNameDoesNotMisreportCapabilityFailuresAsOutages(t *testing.T) {
 		{name: "malformed response", listErr: projectchat.ErrInvalidResponse, want: "incompatible"},
 		{name: "rate limited", listErr: projectchat.ErrRateLimited, want: "rate-limited"},
 		{name: "caller cancelled", listErr: context.Canceled, want: "context canceled"},
-		{name: "exhausted reservations", catalog: automaticNameCatalog(), want: "no available main-agent names"},
+		{name: "exhausted reservations", catalog: automaticNameCatalog(), claimErr: projectchat.ErrNameConflict, want: "no available main-agent names"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			command := newAgentCommand(agentNameDependencies{
 				IdentityProvider: fixedThreadIdentityProvider(chatTestThreadID),
 				Registry: &automaticNameRegistry{
-					catalog: test.catalog,
-					listErr: test.listErr,
+					catalog:  test.catalog,
+					listErr:  test.listErr,
+					claimErr: test.claimErr,
 				},
 			})
 			command.SetArgs([]string{"name", "--format", "json"})
@@ -348,8 +421,33 @@ func TestDefaultAgentNameRuntimeReportsMissingMachineCredential(t *testing.T) {
 }
 
 func TestGeneratedFallbackNameIsCompactAndStableShape(t *testing.T) {
-	if name := generateFallbackAgentName(func(int) int { return 0 }); name != "Aeden-222222" {
+	if name := generateFallbackAgentName(func(int) int { return 0 }); name != "Aebaden-222222" {
 		t.Fatalf("name = %q", name)
+	}
+}
+
+func TestAutomaticAgentNameSpaceExceedsPreviousFallbackLimitWithoutDuplicates(t *testing.T) {
+	if automaticAgentNamePoolSize() <= 1024 {
+		t.Fatalf("automatic name pool = %d", automaticAgentNamePoolSize())
+	}
+	names := make(map[string]struct{}, automaticAgentNamePoolSize())
+	for attempt := range automaticAgentNamePoolSize() {
+		name := automaticAgentNameForThread(chatTestThreadID, attempt)
+		if _, found := names[name]; found {
+			t.Fatalf("duplicate automatic name %q at attempt %d", name, attempt)
+		}
+		names[name] = struct{}{}
+	}
+}
+
+func TestLocalAgentNameExhaustionReturnsAPreciseErrorWithoutMachineCode(t *testing.T) {
+	name, err := uniqueFallbackAgentName(
+		chatTestThreadID,
+		normalizedAgentNames([]string{"Aebaden"}),
+		func(string, int) string { return "Aebaden" },
+	)
+	if name != "" || !errors.Is(err, errLocalAgentNamePoolExhausted) {
+		t.Fatalf("name = %q, error = %v", name, err)
 	}
 }
 
@@ -379,10 +477,39 @@ func fixedThreadIdentityProvider(threadID string) projectchat.ThreadIdentityProv
 type automaticNameRegistry struct {
 	catalog             projectchat.NameCatalog
 	listErr             error
+	claimErr            error
 	claimErrs           map[string]error
 	claimed             []string
 	waitForCancellation bool
 	emptyClaimResponse  bool
+	automaticClaimCalls int
+	automaticExcluded   []string
+	automaticPreferred  string
+}
+
+func (registry *automaticNameRegistry) ClaimAutomaticName(
+	_ context.Context,
+	threadID string,
+	excludedNames []string,
+	preferredName string,
+) (projectchat.NameClaim, error) {
+	registry.automaticClaimCalls++
+	registry.automaticExcluded = append([]string(nil), excludedNames...)
+	registry.automaticPreferred = preferredName
+	if registry.claimErr != nil {
+		return projectchat.NameClaim{}, registry.claimErr
+	}
+	if registry.emptyClaimResponse {
+		return projectchat.NameClaim{}, nil
+	}
+	name := preferredName
+	if name == "" {
+		name = automaticAgentNameForThread(threadID, 0)
+	}
+	return projectchat.NameClaim{
+		Name: name, DisplayName: name, Category: projectchat.NameCategoryMythology,
+		ThreadID: threadID,
+	}, nil
 }
 
 func (registry *automaticNameRegistry) ListNames(
@@ -406,6 +533,9 @@ func (registry *automaticNameRegistry) ClaimName(
 	registry.claimed = append(registry.claimed, name)
 	if err := registry.claimErrs[name]; err != nil {
 		return projectchat.NameClaim{}, err
+	}
+	if registry.claimErr != nil {
+		return projectchat.NameClaim{}, registry.claimErr
 	}
 	if registry.emptyClaimResponse {
 		return projectchat.NameClaim{}, nil

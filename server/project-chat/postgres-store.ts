@@ -8,24 +8,27 @@ import {
   ProjectChatCursorOutOfRangeError,
   ProjectChatHandleConflictError,
   ProjectChatIdempotencyConflictError,
+  ProjectChatNameClaimConflictError,
+  memberForNameClaim,
   memberWithHumanProfile,
   type ProjectChatAppendInput,
   type ProjectChatHumanProfileUpdate,
   type ProjectChatRepository
 } from './repository';
+import { ensurePostgresHumanProfile, findPostgresHumanProfile, updatePostgresHumanProfile } from './postgres-human-profile';
 import {
-  ensurePostgresHumanProfile,
-  findPostgresHumanProfile,
-  updatePostgresHumanProfile
-} from './postgres-human-profile';
-import { claimPostgresName, findPostgresNameClaim, listPostgresNameClaims, restorePostgresNameClaim } from './postgres-name-registry';
+  claimPostgresName, claimPostgresNameInTransaction, findPostgresNameClaim,
+  findPostgresNameClaimForUpdate, listPostgresNameClaims, reapExpiredPostgresNameClaims,
+  renewPostgresNameClaim
+} from './postgres-name-registry';
+import { isMythologyParentRename } from './dependent-specialist-members';
+import { findDependentSpecialistMembersForUpdate } from './postgres-dependent-specialists';
 
 interface ChannelRow {
   account_id: string | null;
   channel_id: string; created_at: Date | string; last_sequence: number | string;
   kind: ProjectChatChannelRecord['kind']; name: string; project_id: string | null; space_id: string;
 }
-
 interface MemberRow {
   actor_key: string; avatar_url: string | null; display_name: string; handle: string;
   joined_at: Date | string; member_id: string;
@@ -34,39 +37,31 @@ interface MemberRow {
   role: ProjectChatMemberRecord['role']; space_id: string; updated_at: Date | string;
   agent_name: ProjectChatMemberRecord['agentName'] | string | null;
 }
-
 interface PresenceRow {
   expires_at: Date | string; last_seen_at: Date | string;
   member_id: string; space_id: string; state: ProjectChatPresenceRecord['state'];
 }
-
 interface MessageRow {
   body: string; channel_id: string; created_at: Date | string; expires_at: Date | string;
   id: string; mentions: ProjectChatMention[] | string; sender: ProjectChatSender | string;
   sender_member_id: string; sequence: number | string; space_id: string;
 }
-
 interface IdempotencyMessageRow extends MessageRow {
   idempotency_body: string;
 }
-
 interface MentionMessageRow extends MessageRow {
   unread_count: number | string;
 }
-
 interface DatabaseError {
   code?: unknown;
   constraint?: unknown;
 }
-
-
 const handleConstraintName = 'project_chat_members_space_handle_unique';
 const idempotencyConstraintName = 'project_chat_idempotency_identity_unique';
 
 function toIsoString(value: Date | string) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
-
 function jsonValue<Value>(value: Value | string): Value {
   return typeof value === 'string' ? JSON.parse(value) as Value : value;
 }
@@ -176,9 +171,36 @@ export class PostgresProjectChatRepository implements ProjectChatRepository {
   async claimName(claim: ProjectChatNameClaimRecord) {
     return claimPostgresName(this.client, claim);
   }
+  async renewNameClaim(claim:ProjectChatNameClaimRecord,updatedAt:string) {
+    return renewPostgresNameClaim(this.client,claim,updatedAt);
+  }
 
-  async restoreNameClaim(current: ProjectChatNameClaimRecord, previous: ProjectChatNameClaimRecord | null) {
-    return restorePostgresNameClaim(this.client, current, previous);
+  async claimNameAndJoin(claim:ProjectChatNameClaimRecord,member:ProjectChatMemberRecord,presence:ProjectChatPresenceRecord) {
+    try {
+      return await runTransaction(this.client,async(transaction)=>{
+        const repository=new PostgresProjectChatRepository(transaction);
+        const parent=claim.parentThreadId ? await findPostgresNameClaimForUpdate(transaction,claim.spaceId,claim.accountId,claim.parentThreadId) : null;
+        const existing=await findPostgresNameClaimForUpdate(
+          transaction,claim.spaceId,claim.accountId,claim.threadId
+        );
+        const joinedMember=memberForNameClaim(member,claim,parent);
+        const dependentMembers = isMythologyParentRename(existing,claim)
+          ? await findDependentSpecialistMembersForUpdate(transaction,claim)
+          : [];
+        const storedClaim=await claimPostgresNameInTransaction(transaction,claim,existing);
+        const storedMember=await repository.upsertMember(joinedMember);
+        for (const dependent of dependentMembers) await repository.upsertMember(dependent);
+        const storedPresence=await repository.setPresence({...presence,memberId:storedMember.memberId});
+        return {claim:storedClaim,member:storedMember,presence:storedPresence};
+      });
+    } catch (error) {
+      if ((error as {code?:unknown})?.code === '23505') throw new ProjectChatNameClaimConflictError('name_claimed');
+      throw error;
+    }
+  }
+
+  async reapExpiredNameClaims(spaceId: string, expiresAtOrBefore: string) {
+    return reapExpiredPostgresNameClaims(this.client, spaceId, expiresAtOrBefore);
   }
 
   async ensureHumanProfile(
@@ -343,8 +365,9 @@ export class PostgresProjectChatRepository implements ProjectChatRepository {
            role = excluded.role,
            origin = excluded.origin,
            profile_revision = excluded.profile_revision,
-           updated_at = excluded.updated_at
-          ,agent_name = excluded.agent_name
+           updated_at = excluded.updated_at,
+           agent_name = excluded.agent_name,
+           name_lease_retired_at = null
          where excluded.role <> 'human'
             or project_chat_members.profile_revision is null
             or excluded.profile_revision >= project_chat_members.profile_revision
@@ -380,7 +403,9 @@ export class PostgresProjectChatRepository implements ProjectChatRepository {
 
   async listMembers(spaceId: string) {
     const result = await this.client.query<MemberRow>(
-      `${memberSelect} where space_id = $1 order by joined_at, member_id`,
+      `${memberSelect}
+        where space_id = $1 and name_lease_retired_at is null
+        order by joined_at, member_id`,
       [spaceId]
     );
     return result.rows.map(mapMember);

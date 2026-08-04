@@ -27,18 +27,18 @@ The repository currently targets a web-first fullstack MVP:
 
 ## Scripts
 
-- `pnpm install`
-- `pnpm dev`
+- `bun install`
+- `bun run dev`
   Run the web app in fullstack development mode.
-- `pnpm build`
+- `bun run build`
   Build the deployable web frontend.
-- `pnpm start`
+- `bun run start`
   Serve the built frontend plus backend from one local HTTP server.
-- `pnpm dev:electron`
+- `bun run dev:electron`
   Run the Electron shell against the HTTP backend.
-- `pnpm build:electron`
+- `bun run build:electron`
   Build the web frontend and Electron main process.
-- `pnpm check`
+- `bun run check`
   Type-check the app.
 
 ## Structure

@@ -38,6 +38,15 @@ func TestClientListsAndClaimsRegistryNamesWithTrustedHeaders(t *testing.T) {
 				t.Fatalf("claim body = %#v", body)
 			}
 			writeJSON(t, writer, http.StatusCreated, nameClaimResponse{Claim: NameClaim{Name: "Turing", DisplayName: "Athena.Turing", Category: NameCategoryScience, ThreadID: testThreadID, ParentThreadID: parentThreadID}})
+		case "POST " + automaticNameClaimsPath:
+			body := automaticNameClaimRequest{}
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Join(body.ExcludedNames, ",") != "Aebaden,Albaden" || body.PreferredName != "Arbaden" {
+				t.Fatalf("automatic claim body = %#v", body)
+			}
+			writeJSON(t, writer, http.StatusCreated, nameClaimResponse{Claim: NameClaim{Name: "Arbaden", DisplayName: "Arbaden", Category: NameCategoryMythology, ThreadID: testThreadID}})
 		default:
 			t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
 		}
@@ -51,6 +60,12 @@ func TestClientListsAndClaimsRegistryNamesWithTrustedHeaders(t *testing.T) {
 	claim, err := client.ClaimName(context.Background(), testThreadID, "Turing", NameCategoryScience, parentThreadID)
 	if err != nil || claim.ParentThreadID != parentThreadID {
 		t.Fatalf("ClaimName() = %#v, %v", claim, err)
+	}
+	automaticClaim, err := client.ClaimAutomaticName(
+		context.Background(), testThreadID, []string{"Aebaden", "Albaden"}, "Arbaden",
+	)
+	if err != nil || automaticClaim.Name != "Arbaden" {
+		t.Fatalf("ClaimAutomaticName() = %#v, %v", automaticClaim, err)
 	}
 }
 

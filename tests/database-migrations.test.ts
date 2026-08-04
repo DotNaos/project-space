@@ -80,7 +80,8 @@ describe('database migrations', () => {
       '0023_codex_machine_task_start_payload',
       '0024_roadmap_plans',
       '0025_pr_dev_server_leases',
-      '0026_machine_power_operations'
+      '0026_machine_power_operations',
+      '0027_project_chat_name_leases'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -88,6 +89,11 @@ describe('database migrations', () => {
     expect(sql).toContain('create table if not exists github_oauth_tokens');
     expect(sql).toContain('create table if not exists machine_memberships');
     expect(sql).toContain('create table project_chat_name_claims');
+    expect(sql).toContain('name_lease_retired_at timestamptz');
+    expect(sql).toContain(
+      "update project_chat_name_claims\n    set updated_at = date_trunc('milliseconds', now())"
+    );
+    expect(sql).toContain('project_chat_name_claims_lease_expiry_idx');
     expect(sql).toContain('create table if not exists user_project_run_settings');
     expect(sql).toContain('allowed_hosts text[]');
     expect(sql).toContain('foreign key (machine_id, user_id)');

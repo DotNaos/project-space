@@ -61,31 +61,29 @@ export async function findPostgresNameClaim(
   return result.rows[0] ? mapNameClaim(result.rows[0]) : null;
 }
 
+export async function findPostgresNameClaimForUpdate(
+  client: DatabaseQueryClient,
+  spaceId: string,
+  accountId: string,
+  threadId: string
+) {
+  const result=await client.query<NameClaimRow>(
+    `${selectNameClaim}
+      where space_id = $1 and account_id = $2 and thread_id = $3
+      for update`,
+    [spaceId,accountId,threadId]
+  );
+  return result.rows[0] ? mapNameClaim(result.rows[0]) : null;
+}
+
 export async function claimPostgresName(
   client: DatabaseQueryClient,
   claim: ProjectChatNameClaimRecord
 ) {
   try {
-    return await runTransaction(client, async (transaction) => {
-      const existingResult = await transaction.query<NameClaimRow>(
-        `${selectNameClaim}
-          where space_id = $1 and account_id = $2 and thread_id = $3
-          for update`,
-        [claim.spaceId, claim.accountId, claim.threadId]
-      );
-      const existing = existingResult.rows[0];
-      if (existing?.name_key === claim.nameKey) {
-        return mapNameClaim(existing);
-      }
-
-      const stored = existing
-        ? await updateNameClaim(transaction, claim)
-        : await insertNameClaim(transaction, claim);
-      if (!stored) {
-        throw new Error('Project Chat name claim could not be stored.');
-      }
-      return mapNameClaim(stored);
-    });
+    return await runTransaction(client, (transaction) =>
+      claimPostgresNameInTransaction(transaction,claim)
+    );
   } catch (error) {
     if ((error as { code?: unknown })?.code === '23505') {
       throw new ProjectChatNameClaimConflictError('name_claimed');
@@ -94,21 +92,82 @@ export async function claimPostgresName(
   }
 }
 
-export async function restorePostgresNameClaim(
-  client: DatabaseQueryClient,
-  current: ProjectChatNameClaimRecord,
-  previous: ProjectChatNameClaimRecord | null
+export async function renewPostgresNameClaim(
+  client:DatabaseQueryClient,
+  claim:ProjectChatNameClaimRecord,
+  updatedAt:string
 ) {
-  await runTransaction(client, async (transaction) => {
-    const deleted = await transaction.query(
-      `delete from project_chat_name_claims
-        where space_id = $1 and account_id = $2 and thread_id = $3
-          and name_key = $4 and updated_at = $5`,
-      [current.spaceId, current.accountId, current.threadId, current.nameKey, current.updatedAt]
-    );
-    if ((deleted.rowCount ?? 0) === 0 || !previous) return;
-    await insertNameClaim(transaction, previous);
-  });
+  const result=await client.query<NameClaimRow>(
+    `update project_chat_name_claims
+        set updated_at = $6
+      where space_id = $1 and account_id = $2 and thread_id = $3
+        and name_key = $4 and updated_at = $5::timestamptz
+      returning space_id, account_id, thread_id, actor_key, name_key,
+                display_name, category, parent_thread_id, claimed_at, updated_at`,
+    [claim.spaceId,claim.accountId,claim.threadId,claim.nameKey,claim.updatedAt,updatedAt]
+  );
+  return result.rows[0] ? mapNameClaim(result.rows[0]) : null;
+}
+
+export async function claimPostgresNameInTransaction(
+  client: DatabaseQueryClient,
+  claim: ProjectChatNameClaimRecord,
+  lockedExisting?: ProjectChatNameClaimRecord | null
+) {
+  const existing=lockedExisting === undefined
+    ? await findPostgresNameClaimForUpdate(client,claim.spaceId,claim.accountId,claim.threadId)
+    : lockedExisting;
+  if (existing?.nameKey === claim.nameKey) {
+    const renewed=await updateNameClaim(client,{
+      ...claim,
+      claimedAt:existing.claimedAt
+    });
+    if (!renewed) throw new Error('Project Chat name lease could not be renewed.');
+    return mapNameClaim(renewed);
+  }
+  const stored=existing
+    ? await updateNameClaim(client,claim)
+    : await insertNameClaim(client,claim);
+  if (!stored) throw new Error('Project Chat name claim could not be stored.');
+  return mapNameClaim(stored);
+}
+
+export async function reapExpiredPostgresNameClaims(
+  client: DatabaseQueryClient,
+  spaceId: string,
+  expiresAtOrBefore: string
+) {
+  const result = await client.query<{ removed: number | string }>(
+    `with expired as (
+       delete from project_chat_name_claims claim
+        where claim.space_id = $1
+          and claim.updated_at <= $2::timestamptz
+          and (
+            claim.category <> 'mythology'
+            or not exists (
+              select 1
+                from project_chat_name_claims child
+               where child.space_id = claim.space_id
+                 and child.account_id = claim.account_id
+                 and child.parent_thread_id = claim.thread_id
+                 and child.updated_at > $2::timestamptz
+            )
+          )
+       returning space_id, actor_key
+     ), retired_members as (
+       update project_chat_members member
+          set agent_name = null,
+              name_lease_retired_at = $2::timestamptz,
+              updated_at = greatest(member.updated_at, $2::timestamptz)
+         from expired
+        where member.space_id = expired.space_id
+          and member.actor_key = expired.actor_key
+       returning member.member_id
+     )
+     select count(*)::bigint as removed from expired`,
+    [spaceId, expiresAtOrBefore]
+  );
+  return Number(result.rows[0]?.removed ?? 0);
 }
 
 async function updateNameClaim(

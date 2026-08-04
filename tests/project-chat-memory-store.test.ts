@@ -225,6 +225,21 @@ describe('in-memory Project Chat repository', () => {
     }))).rejects.toBeInstanceOf(ProjectChatHandleConflictError);
   });
 
+  test('keeps the active handle owner when restoring a retired member', async () => {
+    for (const members of [
+      [member({ actorKey: 'active', memberId: 'active' }), member({ actorKey: 'retired', memberId: 'retired' })],
+      [member({ actorKey: 'retired', memberId: 'retired' }), member({ actorKey: 'active', memberId: 'active' })]
+    ]) {
+      const store = new InMemoryProjectChatRepository({
+        channels: [], members, presences: [], messages: [], channelSequences: [], cursors: [],
+        idempotency: [], retiredNameLeaseMemberIds: ['retired']
+      });
+      await expect(store.upsertMember(member({
+        actorKey: 'replacement', memberId: 'replacement'
+      }))).rejects.toBeInstanceOf(ProjectChatHandleConflictError);
+    }
+  });
+
   test('keeps the stored human handle during a profile-only update', async () => {
     const store = await readyStore();
     await store.ensureHumanProfile({

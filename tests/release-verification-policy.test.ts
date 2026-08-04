@@ -133,8 +133,9 @@ describe('release verification policy', () => {
     expect(typescript).toContain('bun test --isolate');
     expect(typescript).toContain('bun run build:web');
     expect(mobile).toContain(
-      'bunx pnpm@11.10.0 --ignore-workspace install --frozen-lockfile',
+      'bun install --frozen-lockfile',
     );
+    expect(mobile).toContain("hashFiles('apps/mobile/bun.lock')");
     expect(mobile).toContain('bun run build:prototype');
     expect(go).toContain('go test -race ./...');
     expect(go).toContain('go vet ./...');

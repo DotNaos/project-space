@@ -11,7 +11,9 @@ import {
 import {
   ProjectChatCursorOutOfRangeError,
   ProjectChatHandleConflictError,
-  ProjectChatIdempotencyConflictError
+  ProjectChatIdempotencyConflictError,
+  ProjectChatNameClaimConflictError,
+  ProjectChatNameParentConflictError
 } from './repository';
 
 export function resolveProjectChatMentions(
@@ -100,7 +102,10 @@ export function publicProjectChatMember(
 }
 
 export function mapProjectChatRepositoryError(error: unknown): unknown {
-  if (error instanceof ProjectChatHandleConflictError) {
+  if (error instanceof ProjectChatNameParentConflictError) {
+    return new ProjectChatError('forbidden', 'The specialist parent is no longer available.');
+  }
+  if (error instanceof ProjectChatHandleConflictError || error instanceof ProjectChatNameClaimConflictError) {
     return new ProjectChatError('name_conflict', 'This Project Chat name is already in use.');
   }
   if (error instanceof ProjectChatIdempotencyConflictError) {

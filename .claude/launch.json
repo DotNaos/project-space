@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "frontend",
-      "runtimeExecutable": "pnpm",
+      "runtimeExecutable": "bun",
       "runtimeArgs": [
         "run",
         "dev"
@@ -16,7 +16,7 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "VITE_PROJECT_SPACE_API_BASE_URL=http://127.0.0.1:4173 pnpm exec vite --host 127.0.0.1 --port 5174"
+        "VITE_PROJECT_SPACE_API_BASE_URL=http://127.0.0.1:4173 bunx vite --host 127.0.0.1 --port 5174"
       ],
       "port": 5174
     },
@@ -25,7 +25,7 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "PROJECT_SPACE_AUTH_DISABLED=1 VITE_PROJECT_SPACE_AUTH_DISABLED=1 pnpm exec vite --host 127.0.0.1 --port ${PORT:-5176}"
+        "PROJECT_SPACE_AUTH_DISABLED=1 VITE_PROJECT_SPACE_AUTH_DISABLED=1 bunx vite --host 127.0.0.1 --port ${PORT:-5176}"
       ],
       "port": 5176,
       "autoPort": true
@@ -35,7 +35,7 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "VITE_PROJECT_SPACE_AUTH_DISABLED=1 VITE_PROJECT_SPACE_API_BASE_URL=http://127.0.0.1:4174 pnpm exec vite --host 127.0.0.1 --port ${PORT:-5175}"
+        "VITE_PROJECT_SPACE_AUTH_DISABLED=1 VITE_PROJECT_SPACE_API_BASE_URL=http://127.0.0.1:4174 bunx vite --host 127.0.0.1 --port ${PORT:-5175}"
       ],
       "port": 5175,
       "autoPort": true

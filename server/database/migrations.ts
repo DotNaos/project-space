@@ -35,6 +35,10 @@ import {
   machinePowerMigrationId,
   machinePowerMigrationSql
 } from './machine-power-migration';
+import {
+  projectChatNameLeasesMigrationId,
+  projectChatNameLeasesMigrationSql
+} from './project-chat-name-leases-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -651,6 +655,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: machinePowerMigrationId,
     sql: machinePowerMigrationSql
+  },
+  {
+    id: projectChatNameLeasesMigrationId,
+    sql: projectChatNameLeasesMigrationSql
   }
 ];
 

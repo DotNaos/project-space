@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"os"
 	"strings"
@@ -19,10 +21,32 @@ import (
 
 const agentNameFallbackWarning = "Project Space is not reachable. Wir haben jetzt einfach einen zufälligen Namen generiert, den du jetzt verwendest."
 const defaultAgentNameOnlineTimeout = 4 * time.Second
+const maxAgentNameExclusionFileBytes = 1 << 20
+const preferredAgentNameEnvironment = "PROJECT_AGENT_NAME_PREFERRED"
 
 var fallbackEntropyCounter atomic.Uint64
 
 var errAgentNameCatalogExhausted = errors.New("Project Space has no available main-agent names")
+var errLocalAgentNamePoolExhausted = errors.New("the local clean agent-name pool is exhausted")
+
+var automaticAgentNamePrefixes = [...]string{
+	"Ae", "Al", "Ar", "Bel", "Bri", "Ca", "Cor", "Da",
+	"El", "Fa", "Fen", "Gal", "Hal", "Is", "Jo", "Ka",
+	"Kel", "La", "Lor", "Ma", "Mer", "Na", "Nor", "Or",
+	"Per", "Quin", "Ra", "Sel", "Tal", "Val", "Wen", "Ze",
+}
+
+var automaticAgentNameMiddles = [...]string{
+	"ba", "ce", "di", "el", "fi", "ga", "ha", "io",
+	"ka", "lu", "mi", "no", "or", "ra", "su", "ve",
+}
+
+var automaticAgentNameSuffixes = [...]string{
+	"den", "dra", "el", "en", "er", "ia", "ian", "il",
+	"in", "io", "is", "on", "or", "os", "ra", "ran",
+	"ren", "ria", "ric", "rin", "ro", "sa", "sel", "sor",
+	"ta", "th", "tor", "va", "ven", "yn", "yor", "zen",
+}
 
 type agentNameDependencies struct {
 	IdentityProvider projectchat.ThreadIdentityProvider
@@ -64,6 +88,7 @@ func newAgentNameCommand(dependencies agentNameDependencies) *cobra.Command {
 	}
 
 	var excludedNames []string
+	var excludedNamesFile string
 	var format string
 	cmd := &cobra.Command{
 		Use:   "name",
@@ -73,7 +98,14 @@ func newAgentNameCommand(dependencies agentNameDependencies) *cobra.Command {
 			if format != "text" && format != "json" {
 				return errors.New("--format must be text or json")
 			}
-			result, err := allocateAgentName(cmd.Context(), dependencies, excludedNames)
+			fileExclusions, err := readAgentNameExclusions(excludedNamesFile)
+			if err != nil {
+				return err
+			}
+			result, err := allocateAgentName(
+				cmd.Context(), dependencies, append(excludedNames, fileExclusions...),
+				strings.TrimSpace(os.Getenv(preferredAgentNameEnvironment)),
+			)
 			if err != nil {
 				return err
 			}
@@ -81,15 +113,42 @@ func newAgentNameCommand(dependencies agentNameDependencies) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringArrayVar(&excludedNames, "exclude", nil, "agent name already used by a visible Codex task (repeatable)")
+	cmd.Flags().StringVar(&excludedNamesFile, "exclude-file", "", "read agent-name exclusions from a line-delimited file")
+	must(cmd.Flags().MarkHidden("exclude-file"))
 	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
 	must(cmd.RegisterFlagCompletionFunc("format", fixedValuesCompletion("text", "json")))
 	return cmd
+}
+
+func readAgentNameExclusions(path string) ([]string, error) {
+	if path == "" {
+		return nil, nil
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("read agent-name exclusions: %w", err)
+	}
+	defer file.Close()
+	limited := io.LimitReader(file, maxAgentNameExclusionFileBytes+1)
+	payload, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, fmt.Errorf("read agent-name exclusions: %w", err)
+	}
+	if len(payload) > maxAgentNameExclusionFileBytes {
+		return nil, errors.New("agent-name exclusion file is too large")
+	}
+	values := strings.Split(strings.ReplaceAll(string(payload), "\r\n", "\n"), "\n")
+	if len(values) > automaticAgentNamePoolSize()+1 {
+		return nil, errors.New("agent-name exclusion file has too many entries")
+	}
+	return values, nil
 }
 
 func allocateAgentName(
 	ctx context.Context,
 	dependencies agentNameDependencies,
 	excludedNames []string,
+	preferredName string,
 ) (agentNameResult, error) {
 	if dependencies.IdentityProvider == nil {
 		return agentNameResult{}, projectchat.ErrMissingThreadID
@@ -110,12 +169,15 @@ func allocateAgentName(
 	onlineContext, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	name, err := claimProjectSpaceAgentName(onlineContext, dependencies, threadID, excluded)
+	name, err := claimProjectSpaceAgentName(onlineContext, dependencies, threadID, excluded, preferredName)
 	if err == nil {
 		return agentNameResult{Name: name, Source: "project-space"}, nil
 	}
 	if isAgentNameOutage(err) {
-		name = storedOrGeneratedFallbackAgentName(ctx, dependencies, threadID, excluded)
+		name, fallbackErr := storedOrGeneratedFallbackAgentName(ctx, dependencies, threadID, excluded)
+		if fallbackErr != nil {
+			return agentNameResult{}, agentNameCapabilityError(fallbackErr)
+		}
 		return agentNameResult{
 			Name:    name,
 			Source:  "fallback",
@@ -132,6 +194,8 @@ func isAgentNameOutage(err error) bool {
 
 func agentNameCapabilityError(err error) error {
 	switch {
+	case errors.Is(err, errLocalAgentNamePoolExhausted):
+		return fmt.Errorf("%w; expired 48-hour local leases must be reclaimed before another clean name can be selected", err)
 	case errors.Is(err, errAgentNameCatalogExhausted):
 		return fmt.Errorf("%w; existing reservations were preserved, so release a stale claim or expand the Project Space name catalog", err)
 	case errors.Is(err, projectchat.ErrMissingCredential),
@@ -160,20 +224,23 @@ func storedOrGeneratedFallbackAgentName(
 	dependencies agentNameDependencies,
 	threadID string,
 	excluded map[string]struct{},
-) string {
+) (string, error) {
 	if dependencies.ProfileStore != nil {
 		profile, err := dependencies.ProfileStore.Load(threadID)
 		if err == nil && strings.TrimSpace(profile.DisplayName) != "" {
 			if _, found := excluded[normalizeAgentName(profile.DisplayName)]; !found {
-				return profile.DisplayName
+				return profile.DisplayName, nil
 			}
 		}
 	}
-	name := uniqueFallbackAgentName(threadID, excluded, dependencies.FallbackName)
+	name, err := uniqueFallbackAgentName(threadID, excluded, dependencies.FallbackName)
+	if err != nil {
+		return "", err
+	}
 	if dependencies.ProfileStore != nil {
 		_ = dependencies.ProfileStore.Save(threadID, projectchat.AgentProfile{DisplayName: name})
 	}
-	return name
+	return name, nil
 }
 
 func claimProjectSpaceAgentName(
@@ -181,7 +248,15 @@ func claimProjectSpaceAgentName(
 	dependencies agentNameDependencies,
 	threadID string,
 	excluded map[string]struct{},
+	preferredName string,
 ) (string, error) {
+	if preferredName != "" {
+		if _, blocked := excluded[normalizeAgentName(preferredName)]; !blocked {
+			if automaticRegistry, ok := dependencies.Registry.(projectchat.AutomaticNameRegistryClient); ok {
+				return claimAutomaticProjectSpaceAgentName(ctx, dependencies, automaticRegistry, threadID, excluded, preferredName)
+			}
+		}
+	}
 	catalog, err := dependencies.Registry.ListNames(ctx, threadID)
 	if err != nil {
 		return "", err
@@ -216,7 +291,43 @@ func claimProjectSpaceAgentName(
 		}
 		return claim.Name, nil
 	}
-	return "", errAgentNameCatalogExhausted
+	automaticRegistry, ok := dependencies.Registry.(projectchat.AutomaticNameRegistryClient)
+	if !ok {
+		return "", errAgentNameCatalogExhausted
+	}
+	return claimAutomaticProjectSpaceAgentName(ctx, dependencies, automaticRegistry, threadID, excluded, "")
+}
+
+func claimAutomaticProjectSpaceAgentName(
+	ctx context.Context,
+	dependencies agentNameDependencies,
+	registry projectchat.AutomaticNameRegistryClient,
+	threadID string,
+	excluded map[string]struct{},
+	preferredName string,
+) (string, error) {
+	excludedNames := make([]string, 0, len(excluded))
+	for name := range excluded {
+		excludedNames = append(excludedNames, name)
+	}
+	claim, claimErr := registry.ClaimAutomaticName(ctx, threadID, excludedNames, preferredName)
+	if errors.Is(claimErr, projectchat.ErrNameConflict) {
+		return "", errAgentNameCatalogExhausted
+	}
+	if claimErr != nil {
+		return "", claimErr
+	}
+	if strings.TrimSpace(claim.Name) == "" {
+		return "", projectchat.ErrInvalidResponse
+	}
+	if dependencies.ProfileStore != nil {
+		_ = dependencies.ProfileStore.Save(threadID, projectchat.AgentProfile{
+			DisplayName:   claim.DisplayName,
+			Category:      claim.Category,
+			RegistryClaim: true,
+		})
+	}
+	return claim.Name, nil
 }
 
 func availableMainAgentNames(
@@ -264,22 +375,17 @@ func uniqueFallbackAgentName(
 	threadID string,
 	excluded map[string]struct{},
 	generate func(string, int) string,
-) string {
-	for attempt := range 256 {
+) (string, error) {
+	for attempt := range automaticAgentNamePoolSize() {
 		candidate := strings.TrimSpace(generate(threadID, attempt))
 		if candidate == "" {
 			continue
 		}
 		if _, found := excluded[normalizeAgentName(candidate)]; !found {
-			return candidate
+			return candidate, nil
 		}
 	}
-	for attempt := uint64(0); ; attempt++ {
-		candidate := fmt.Sprintf("Agent-%X-%X", uint64(time.Now().UnixNano()), fallbackEntropyCounter.Add(1)+attempt+uint64(os.Getpid()))
-		if _, found := excluded[normalizeAgentName(candidate)]; !found {
-			return candidate
-		}
-	}
+	return "", errLocalAgentNamePoolExhausted
 }
 
 func deterministicFallbackAgentName(threadID string, attempt int) string {
@@ -296,25 +402,35 @@ func generateFallbackAgentName(randomIndex func(int) int) string {
 }
 
 func fallbackAgentNameFromIndexes(index func(int, int) int) string {
-	prefixes := [...]string{
-		"Ae", "Al", "Ar", "Bel", "Bri", "Ca", "Cor", "Da",
-		"El", "Fa", "Fen", "Gal", "Hal", "Is", "Jo", "Ka",
-		"Kel", "La", "Lor", "Ma", "Mer", "Na", "Nor", "Or",
-		"Per", "Quin", "Ra", "Sel", "Tal", "Val", "Wen", "Ze",
-	}
-	suffixes := [...]string{
-		"den", "dra", "el", "en", "er", "ia", "ian", "il",
-		"in", "io", "is", "on", "or", "os", "ra", "ran",
-		"ren", "ria", "ric", "rin", "ro", "sa", "sel", "sor",
-		"ta", "th", "tor", "va", "ven", "yn", "yor", "zen",
-	}
 	const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 	var code strings.Builder
 	code.Grow(6)
 	for position := range 6 {
-		code.WriteByte(alphabet[index(position+2, len(alphabet))])
+		code.WriteByte(alphabet[index(position+3, len(alphabet))])
 	}
-	return prefixes[index(0, len(prefixes))] + suffixes[index(1, len(suffixes))] + "-" + code.String()
+	return automaticAgentNamePrefixes[index(0, len(automaticAgentNamePrefixes))] +
+		automaticAgentNameMiddles[index(1, len(automaticAgentNameMiddles))] +
+		automaticAgentNameSuffixes[index(2, len(automaticAgentNameSuffixes))] +
+		"-" + code.String()
+}
+
+func automaticAgentNamePoolSize() int {
+	return len(automaticAgentNamePrefixes) * len(automaticAgentNameMiddles) * len(automaticAgentNameSuffixes)
+}
+
+func automaticAgentNameForThread(threadID string, attempt int) string {
+	poolSize := automaticAgentNamePoolSize()
+	digest := sha256.Sum256([]byte(threadID))
+	start := int(binary.BigEndian.Uint64(digest[:8]) % uint64(poolSize))
+	step := int(binary.BigEndian.Uint64(digest[8:16])%uint64(poolSize/2))*2 + 1
+	index := (start + attempt*step) % poolSize
+	suffixIndex := index % len(automaticAgentNameSuffixes)
+	middlePosition := index / len(automaticAgentNameSuffixes)
+	middleIndex := middlePosition % len(automaticAgentNameMiddles)
+	prefixIndex := middlePosition / len(automaticAgentNameMiddles)
+	return automaticAgentNamePrefixes[prefixIndex] +
+		automaticAgentNameMiddles[middleIndex] +
+		automaticAgentNameSuffixes[suffixIndex]
 }
 
 func secureAgentNameIndex(maximum int) int {

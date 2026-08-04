@@ -193,6 +193,28 @@ function postJson(body: unknown, headers: Record<string, string> = {}): RequestI
 }
 
 describe('Project Chat HTTP endpoint contract', () => {
+  test('routes bounded automatic name allocation with local exclusions', async () => {
+    const received: unknown[] = [];
+    const { service: baseService } = stubService();
+    const service = {
+      ...baseService,
+      async claimAutomaticName(callContext: ProjectChatContext, input: unknown) {
+        received.push(callContext, input);
+        return { claim: { name: 'Aebaden', displayName: 'Aebaden', category: 'mythology' } };
+      }
+    } as unknown as ProjectChatService;
+    const origin = await startApi(service);
+
+    const response = await fetch(
+      `${origin}/api/project-chat/automatic-name-claims`,
+      postJson({ excludedNames: ['Albaden'], preferredName:'Aebaden' })
+    );
+
+    expect(response.status).toBe(200);
+    expect(await responseJson(response)).toMatchObject({ claim: { name: 'Aebaden' } });
+    expect(received).toEqual([context, { excludedNames: ['Albaden'], preferredName:'Aebaden' }]);
+  });
+
   test('streams durable backfill and newly sent messages without polling', async () => {
     const stored = [{ ...message, id: 'message-7', sequence: 7 }];
     const { service: baseService } = stubService();

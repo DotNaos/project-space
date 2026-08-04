@@ -73,6 +73,23 @@ func (client *lazyProjectChatClient) ClaimName(ctx context.Context, threadID, na
 	return registry.ClaimName(ctx, threadID, name, category, parentThreadID)
 }
 
+func (client *lazyProjectChatClient) ClaimAutomaticName(
+	ctx context.Context,
+	threadID string,
+	excludedNames []string,
+	preferredName string,
+) (projectchat.NameClaim, error) {
+	loaded, err := client.projectChatClient()
+	if err != nil {
+		return projectchat.NameClaim{}, err
+	}
+	registry, ok := loaded.(projectchat.AutomaticNameRegistryClient)
+	if !ok {
+		return projectchat.NameClaim{}, projectchat.ErrNotRegistered
+	}
+	return registry.ClaimAutomaticName(ctx, threadID, excludedNames, preferredName)
+}
+
 func normalizeChatRuntimeDependencies(dependencies chatRuntimeDependencies) chatRuntimeDependencies {
 	if dependencies.LookupEnv == nil {
 		dependencies.LookupEnv = os.LookupEnv

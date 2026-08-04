@@ -73,6 +73,7 @@ export interface ProjectChatProject {
 }
 
 export interface ProjectChatNameClaimInput { name: string; category: import('./name-registry').ProjectChatNameCategory; parentThreadId?: string; }
+export interface ProjectChatAutomaticNameClaimInput { excludedNames?: string[]; preferredName?: string; }
 export interface ProjectChatNameClaimRecord {
   spaceId: string; accountId: string; threadId: string; actorKey: string;
   nameKey: string; displayName: string; category: import('./name-registry').ProjectChatNameCategory;

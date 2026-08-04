@@ -6,6 +6,7 @@ import {
   randomProjectChatIdGenerator,
   systemProjectChatClock,
   type ProjectChatAcknowledgeInput,
+  type ProjectChatAutomaticNameClaimInput,
   type ProjectChatActor,
   type ProjectChatClock,
   type ProjectChatContext,
@@ -16,6 +17,7 @@ import {
   type ProjectChatMemberRecord,
   type ProjectChatMentionStateInput,
   type ProjectChatNameClaimInput,
+  type ProjectChatNameClaimRecord,
   type ProjectChatMessageRecord,
   type ProjectChatOrigin,
   type ProjectChatPresenceInput,
@@ -24,9 +26,7 @@ import {
   type ProjectChatReadInput,
   type ProjectChatSendInput
 } from './contracts';
-import {
-  type ProjectChatRepository
-} from './repository';
+import { type ProjectChatRepository } from './repository';
 import {
   mapProjectChatRepositoryError,
   publicProjectChatChannel,
@@ -55,11 +55,12 @@ import {
   validateProjectChatContext
 } from './validation';
 import { findProjectChatName, projectChatNameCatalog, reservedProjectChatNames, type ProjectChatNameCategory } from './name-registry';
-import { ProjectChatNameClaimConflictError } from './repository';
 import {
   ProjectChatChannelManager,
   type ProjectChatProjectProvider
 } from './channel-manager';
+import { claimAutomaticProjectChatName } from './automatic-name-allocation';
+import { requireProjectChatMember } from './member-authorization';
 
 export interface ProjectChatServiceOptions {
   repository: ProjectChatRepository;
@@ -70,7 +71,10 @@ export interface ProjectChatServiceOptions {
   retentionMs?: number;
   presenceTtlMs?: number;
   listProjects?: ProjectChatProjectProvider;
+  nameLeaseMs?: number;
 }
+
+export const PROJECT_CHAT_NAME_LEASE_MS = 48 * 60 * 60 * 1_000;
 
 export class ProjectChatService {
   private readonly repository: ProjectChatRepository;
@@ -80,6 +84,7 @@ export class ProjectChatService {
   private readonly rateLimits: Record<ProjectChatRateLimitAction, ProjectChatRateLimitRule>;
   private readonly retentionMs: number;
   private readonly presenceTtlMs: number;
+  private readonly nameLeaseMs: number;
   private readonly channels: ProjectChatChannelManager;
 
   constructor(options: ProjectChatServiceOptions) {
@@ -109,6 +114,10 @@ export class ProjectChatService {
       options.presenceTtlMs ?? PROJECT_CHAT_DEFAULT_PRESENCE_TTL_MS,
       'presenceTtlMs'
     );
+    this.nameLeaseMs = positiveDuration(
+      options.nameLeaseMs ?? PROJECT_CHAT_NAME_LEASE_MS,
+      'nameLeaseMs'
+    );
     this.channels = new ProjectChatChannelManager(
       this.repository,
       this.clock,
@@ -127,14 +136,21 @@ export class ProjectChatService {
     validateProjectChatContext(context);
     if (context.actor.kind === 'system') throw new ProjectChatError('forbidden', 'System actors cannot use the name registry.');
     if (context.actor.kind === 'human') await this.requireMember(context);
+    await this.reapExpiredNameClaims(context.spaceId, this.clock.now());
     const claims = await this.repository.listNameClaims(context.spaceId);
+    const claimsByName = new Map(claims.map((claim) => [claim.nameKey, claim]));
     const currentAccountId = context.actor.accountId;
     const currentThreadId = context.actor.kind === 'agent' ? context.actor.threadId : undefined;
     const current = currentThreadId ? claims.find((claim) => claim.accountId === currentAccountId && claim.threadId === currentThreadId) : undefined;
     const groups = (['mythology','artist','science','detective'] as ProjectChatNameCategory[]).map((category) => ({
       category,
-      names: projectChatNameCatalog.filter((entry) => entry[2] === category).map(([key,name]) => {
-        const claim = claims.find((candidate) => candidate.nameKey === key);
+      names: [
+        ...projectChatNameCatalog.filter((entry) => entry[2] === category),
+        ...(current?.category === category && !projectChatNameCatalog.some(([key]) => key === current.nameKey)
+          ? [[current.nameKey,current.displayName,current.category] as const]
+          : [])
+      ].map(([key,name]) => {
+        const claim = claimsByName.get(key);
         return { name, category, state: reservedProjectChatNames.has(key) ? 'reserved' as const : claim ? 'claimed' as const : 'available' as const, ...(current?.nameKey === key ? {claimedByCurrentThread:true}: {}), ...(claim ? {claimedByThreadId:claim.threadId,displayName:claim.displayName}: {}) };
       })
     }));
@@ -145,6 +161,8 @@ export class ProjectChatService {
     validateProjectChatContext(context);
     if (context.actor.kind !== 'agent') throw new ProjectChatError('forbidden', 'Only agents can claim registry names.');
     if (!input || typeof input.name !== 'string' || typeof input.category !== 'string') throw new ProjectChatError('invalid_request','A registry name and category are required.');
+    const nowDate = this.clock.now();
+    await this.reapExpiredNameClaims(context.spaceId, nowDate);
     const entry = findProjectChatName(input.name);
     if (!entry || entry[2] !== input.category || reservedProjectChatNames.has(entry[0])) throw new ProjectChatError('invalid_request','This registry name is unavailable.');
     const parentThreadId = typeof input.parentThreadId === 'string' ? input.parentThreadId : undefined;
@@ -156,24 +174,30 @@ export class ProjectChatService {
       const parent = await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, parentThreadId);
       if (!parent || parent.category !== 'mythology') throw new ProjectChatError('forbidden','The parent must be a mythology main agent in this account.');
     }
-    const now = this.clock.now().toISOString();
-    const previousClaim = await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, context.actor.threadId);
-    let claim;
-    try { claim = await this.repository.claimName({spaceId:context.spaceId,accountId:context.actor.accountId,threadId:context.actor.threadId,actorKey:projectChatActorKey(context.actor),nameKey:entry[0],displayName:entry[1],category:entry[2],...(parentThreadId?{parentThreadId}:{}),claimedAt:now,updatedAt:now}); }
-    catch (error) { if (error instanceof ProjectChatNameClaimConflictError) throw new ProjectChatError('name_conflict',error.message); throw error; }
+    const now = nowDate.toISOString();
+    const claim:ProjectChatNameClaimRecord={spaceId:context.spaceId,accountId:context.actor.accountId,threadId:context.actor.threadId,actorKey:projectChatActorKey(context.actor),nameKey:entry[0],displayName:entry[1],category:entry[2],...(parentThreadId?{parentThreadId}:{}),claimedAt:now,updatedAt:now};
     const parent = claim.parentThreadId ? await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, claim.parentThreadId) : null;
     const displayName = parent ? `${parent.displayName}.${claim.displayName}` : claim.displayName;
-    let joined;
-    try {
-      joined = await this.join(context, {displayName});
-    } catch (error) {
-      await this.repository.restoreNameClaim(claim, previousClaim);
-      throw error;
-    }
-    return { claim:{name:claim.displayName,displayName,category:claim.category,threadId:claim.threadId,...(claim.parentThreadId?{parentThreadId:claim.parentThreadId}:{})}, member:joined.member };
+    const joined=await this.join(context,{displayName},{claim});
+    return { claim:{name:claim.displayName,displayName:joined.member.displayName,category:claim.category,threadId:claim.threadId,...(claim.parentThreadId?{parentThreadId:claim.parentThreadId}:{})}, member:joined.member };
   }
 
-  async join(context: ProjectChatContext, input: ProjectChatJoinInput = {}) {
+  async claimAutomaticName(
+    context: ProjectChatContext,
+    input: ProjectChatAutomaticNameClaimInput = {}
+  ) {
+    validateProjectChatContext(context);
+    return claimAutomaticProjectChatName({
+      claimName: (claimInput) => this.claimName(context, claimInput),
+      context,
+      input,
+      now: () => this.clock.now(),
+      reapExpired: (spaceId, now) => this.reapExpiredNameClaims(spaceId, now),
+      repository: this.repository
+    });
+  }
+
+  async join(context: ProjectChatContext, input: ProjectChatJoinInput = {}, options: {claim?:ProjectChatNameClaimRecord} = {}) {
     validateProjectChatContext(context);
     const now = this.clock.now();
     await this.consumeRateLimit(context, 'join', now);
@@ -183,8 +207,13 @@ export class ProjectChatService {
     const actorKey = projectChatActorKey(context.actor);
     let agentClaim;
     if (context.actor.kind === 'agent') {
-      agentClaim = await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, context.actor.threadId);
+      agentClaim = options.claim ?? await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, context.actor.threadId);
       if (!agentClaim) throw new ProjectChatError('forbidden', 'Claim a Project Chat registry name before joining.');
+      if (!options.claim) {
+        agentClaim = await this.repository.renewNameClaim(agentClaim,now.toISOString()) ??
+          await this.repository.findNameClaimByThread(context.spaceId,context.actor.accountId,context.actor.threadId);
+        if (!agentClaim) throw new ProjectChatError('forbidden','Claim a Project Chat registry name before joining.');
+      }
       const parent = agentClaim.parentThreadId ? await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, agentClaim.parentThreadId) : null;
       const claimedDisplayName = parent ? `${parent.displayName}.${agentClaim.displayName}` : agentClaim.displayName;
       if (profile.displayName !== claimedDisplayName) throw new ProjectChatError('forbidden', 'The joined name must match the registry claim.');
@@ -214,18 +243,20 @@ export class ProjectChatService {
         context,
         profile.projectId
       );
-      const member = humanProfile
-        ? (await this.repository.ensureHumanProfileAndMember(humanProfile, record, {
+      const presenceRecord=this.presenceRecord(context.spaceId,record.memberId,'working',now);
+      let member;
+      let presence;
+      if (options.claim) {
+        ({member,presence}=await this.repository.claimNameAndJoin(options.claim,record,presenceRecord));
+      } else {
+        member = humanProfile
+          ? (await this.repository.ensureHumanProfileAndMember(humanProfile, record, {
             refreshDefaults: context.actor.kind === 'human'
               && context.actor.profileDefaultsResolved !== false
           })).member
-        : await this.repository.upsertMember(record);
-      const presence = await this.repository.setPresence(this.presenceRecord(
-        context.spaceId,
-        member.memberId,
-        'working',
-        now
-      ));
+          : await this.repository.upsertMember(record);
+        presence=await this.repository.setPresence({...presenceRecord,memberId:member.memberId});
+      }
       return {
         channel: publicProjectChatChannel(channel, project),
         member: publicProjectChatMember(member, presence, now)
@@ -481,38 +512,15 @@ export class ProjectChatService {
     return this.repository.purgeExpired(this.clock.now().toISOString());
   }
 
-  private async requireMember(context: ProjectChatContext) {
-    const member = await this.repository.findMemberByActorKey(
-      context.spaceId,
-      projectChatActorKey(context.actor)
+  private reapExpiredNameClaims(spaceId: string, now: Date) {
+    return this.repository.reapExpiredNameClaims(
+      spaceId,
+      new Date(now.getTime() - this.nameLeaseMs).toISOString()
     );
-    if (!member) {
-      throw new ProjectChatError('not_member', 'Project Chat membership is required.');
-    }
-    if (context.actor.kind === 'agent') {
-      const claim = await this.repository.findNameClaimByThread(
-        context.spaceId,
-        context.actor.accountId,
-        context.actor.threadId
-      );
-      if (!claim) {
-        throw new ProjectChatError('forbidden', 'A current Project Chat registry claim is required.');
-      }
-      const parent = claim.parentThreadId
-        ? await this.repository.findNameClaimByThread(context.spaceId, context.actor.accountId, claim.parentThreadId)
-        : null;
-      const displayName = parent ? `${parent.displayName}.${claim.displayName}` : claim.displayName;
-      if (
-        member.displayName !== displayName ||
-        member.agentName?.name !== claim.displayName ||
-        member.agentName.category !== claim.category ||
-        member.agentName.displayName !== displayName ||
-        member.agentName.parentThreadId !== claim.parentThreadId
-      ) {
-        throw new ProjectChatError('forbidden', 'Project Chat membership does not match its registry claim.');
-      }
-    }
-    return member;
+  }
+
+  private async requireMember(context: ProjectChatContext) {
+    return requireProjectChatMember(this.repository, this.clock, context);
   }
 
   private humanProfileRecord(context: ProjectChatContext, now: Date) {
