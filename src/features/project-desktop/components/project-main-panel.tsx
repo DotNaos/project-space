@@ -232,6 +232,7 @@ export interface ProjectMainPanelProps {
   selectedMachineId: string;
   selectedTargetPath: string;
   structureViolations: ProjectStructureViolationRecord[];
+  useWorkspaceChrome?: boolean;
   worktreeDiscovery: ProjectWorktreeDiscoveryState;
   worktrees: ProjectWorktreeRecord[];
 }
@@ -289,6 +290,7 @@ export function ProjectMainPanel({
   selectedMachineId,
   selectedTargetPath,
   structureViolations,
+  useWorkspaceChrome = false,
   worktreeDiscovery,
   worktrees
 }: ProjectMainPanelProps) {
@@ -552,18 +554,19 @@ export function ProjectMainPanel({
 
   return (
     <Surface variant="transparent" className="flex min-h-0 flex-col rounded-none bg-app-panel">
-      <div className="relative flex h-14 shrink-0 items-center justify-between gap-3 pr-4 pl-4 sm:pr-6 sm:pl-6">
+      {useWorkspaceChrome ? null : <div className="relative flex h-14 shrink-0 items-center justify-between gap-3 pr-4 pl-4 sm:pr-6 sm:pl-6">
         <div className="app-drag absolute inset-0" />
 
         <HeaderBreadcrumbs onBack={onBack} segments={segments} switcher={switcher} />
 
         <div className="app-no-drag relative shrink-0" />
-      </div>
+      </div>}
 
       <div
         data-testid="project-main-content"
         className={cn(
-          'min-h-0 flex-1 overflow-x-hidden px-4 pt-2 sm:px-8',
+          'min-h-0 flex-1 overflow-x-hidden px-4 sm:px-8',
+          useWorkspaceChrome ? 'pt-4 sm:pt-6' : 'pt-2',
           containsOwnScroll ? 'overflow-hidden' : 'overflow-y-auto'
         )}
         style={{
@@ -656,6 +659,7 @@ export function ProjectMainPanel({
             selectedRepository={selectedRepository}
             selectedTargetPath={selectedTargetPath}
             selectedMachineId={selectedMachineId}
+            showNavigationTabs={!useWorkspaceChrome}
             tab={projectTab}
             worktreeDiscovery={worktreeDiscovery}
             worktrees={worktrees}

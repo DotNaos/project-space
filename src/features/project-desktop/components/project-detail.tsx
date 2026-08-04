@@ -24,7 +24,7 @@ import type {
 import type { MachineDetailTab, ProjectDetailTab } from '../hooks/use-project-desktop';
 import { GitWorkbenchPanel } from './git-workbench-panel';
 import { ProjectCliCommandPanel } from './project-cli-command-panel';
-import { ProjectIssueDetailPanel } from './project-issue-detail-panel';
+import { ProjectTasksExperience } from '@/features/project-tasks/project-tasks-experience';
 import { ProjectMachinesPanel } from './project-machines-panel';
 import { ProjectDeploymentsPanel } from './project-deployments-panel';
 import { ProjectOverviewWorkbench } from './project-overview-workbench';
@@ -280,6 +280,7 @@ export interface ProjectDetailProps {
   selectedRepository?: ProjectSpaceRecord['github'];
   selectedTargetPath: string;
   selectedMachineId: string;
+  showNavigationTabs?: boolean;
   tab: ProjectDetailTab;
   worktreeDiscovery: ProjectWorktreeDiscoveryState;
   worktrees: ProjectWorktreeRecord[];
@@ -309,6 +310,7 @@ export function ProjectDetail({
   selectedRepository,
   selectedTargetPath,
   selectedMachineId,
+  showNavigationTabs = true,
   tab,
   worktreeDiscovery,
   worktrees
@@ -330,7 +332,7 @@ export function ProjectDetail({
         containsOwnScroll || tab === 'roadmap' ? 'h-full min-h-0 overflow-hidden' : 'min-h-full'
       )}
     >
-      <div className="-mx-1 shrink-0 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {showNavigationTabs ? <div className="-mx-1 shrink-0 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <Tabs
           selectedKey={tab === 'roadmap' ? 'issues' : projectTabItems.some((item) => item.id === tab) ? tab : 'overview'}
           onSelectionChange={(key) => {
@@ -354,7 +356,7 @@ export function ProjectDetail({
             })}
           </TabList>
         </Tabs>
-      </div>
+      </div> : null}
 
       <div className="min-h-0 flex-1">
         {tab === 'overview' ? (
@@ -427,15 +429,15 @@ export function ProjectDetail({
         ) : null}
 
         {tab === 'issues' || tab === 'roadmap' ? (
-          <ProjectIssueDetailPanel
+          <ProjectTasksExperience
             connectorOverview={connectorOverview}
-            issueNumber={selectedIssueNumber}
-            onBack={() => onSelectTab('issues')}
             onOpenHistory={onOpenHistory}
-            onOpenIssue={onOpenIssue}
+            onOpenTask={onOpenIssue}
+            onShowTasks={() => onSelectTab('issues')}
             project={project}
             projects={projects}
             repository={selectedRepository}
+            selectedIssueNumber={selectedIssueNumber}
             targetPath={selectedTargetPath}
           />
         ) : null}

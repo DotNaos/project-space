@@ -37,6 +37,7 @@ interface GitHubGraphQLDevelopmentLinks {
           nameWithOwner?: string | null;
         } | null;
         isCrossRepository?: boolean | null;
+        isDraft?: boolean | null;
         mergeCommit?: {
           oid?: string | null;
         } | null;
@@ -115,6 +116,7 @@ export async function loadRepositoryDevelopmentLinks(
                 nameWithOwner
               }
               isCrossRepository
+              isDraft
               mergeCommit {
                 oid
               }
@@ -168,6 +170,7 @@ export async function loadRepositoryDevelopmentLinks(
         headRepositoryFullName: pullRequest.headRepository?.nameWithOwner ?? undefined,
         headSha: pullRequest.headRefOid ?? undefined,
         isCrossRepository: pullRequest.isCrossRepository ?? undefined,
+        isDraft: pullRequest.isDraft ?? undefined,
         linkedIssueNumbers:
           pullRequest.closingIssuesReferences?.nodes
             ?.map((issue) => issue?.number)

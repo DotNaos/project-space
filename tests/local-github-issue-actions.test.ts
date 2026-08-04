@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   createGitHubBranchWithDependencies,
+  createGitHubPullRequestWithDependencies,
   mapGitHubPullRequest,
   updateGitHubIssueWithDependencies
 } from '../server/local-github-issue-actions';
@@ -37,6 +38,7 @@ describe('local GitHub issue actions', () => {
         sha: headSha
       },
       html_url: 'https://github.com/DotNaos/project-space/pull/263',
+      draft: true,
       number: 263,
       state: 'open',
       title: 'Preview deployments'
@@ -45,6 +47,7 @@ describe('local GitHub issue actions', () => {
       headRefPresent: true,
       headRepositoryFullName: 'DotNaos/project-space',
       headSha,
+      isDraft: true,
       isCrossRepository: false,
       linkedIssueNumbers: [263]
     });
@@ -96,6 +99,52 @@ describe('local GitHub issue actions', () => {
         url: 'https://github.com/DotNaos/project-space/tree/issue-266-dogfood'
       },
       status: 'connected'
+    });
+  });
+
+  test('creates development pull requests as drafts by default', async () => {
+    const calls: Array<{ body?: string; method?: string; path: string }> = [];
+    const request = (async <Result>(path: string, _token: string, init?: RequestInit) => {
+      calls.push({ body: String(init?.body ?? ''), method: init?.method, path });
+      return {
+        base: { repo: { full_name: 'DotNaos/project-space' } },
+        draft: true,
+        head: {
+          ref: 'issue-437-redesign',
+          repo: { full_name: 'DotNaos/project-space' },
+          sha: 'c'.repeat(40)
+        },
+        html_url: 'https://github.com/DotNaos/project-space/pull/438',
+        number: 438,
+        state: 'open',
+        title: 'Redesign the frontend'
+      } as Result;
+    }) as typeof requestGitHub;
+
+    await expect(createGitHubPullRequestWithDependencies({
+      baseBranch: 'main',
+      fullName: 'DotNaos/project-space',
+      headBranch: 'issue-437-redesign',
+      issueNumber: 437,
+      title: 'Redesign the frontend'
+    }, {
+      requestGitHub: request,
+      resolveOAuthToken: async () => ({ source: 'stored-oauth', token: 'secret-token' })
+    })).resolves.toMatchObject({
+      pullRequest: { isDraft: true, linkedIssueNumbers: [437] },
+      status: 'connected'
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      method: 'POST',
+      path: '/repos/DotNaos/project-space/pulls'
+    });
+    expect(JSON.parse(calls[0].body ?? '{}')).toMatchObject({
+      base: 'main',
+      body: 'Closes #437',
+      draft: true,
+      head: 'issue-437-redesign'
     });
   });
 

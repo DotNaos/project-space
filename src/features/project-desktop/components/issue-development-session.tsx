@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  CheckCircle2,
+  Circle,
+  CircleDot,
   Download,
+  ExternalLink,
   GitBranch,
   GitBranchPlus,
+  GitPullRequestDraft,
   Monitor,
-  Play,
-  Rocket
+  Plus
 } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
-import { Button, Surface, Text } from '@/app/dotnaos-ui';
+import { Button } from '@/app/dotnaos-ui';
 import type {
   ConnectorOverviewResult,
   GitHubBranchRecord,
@@ -25,7 +27,6 @@ import {
   cloneUrl,
   createStartDevelopmentCommand,
   getIssueMachineRows,
-  machineStatusClass,
   relativeClonePath,
   repositoryNameFromProject,
   type IssueMachineProjectRow
@@ -51,22 +52,6 @@ interface IssueDevelopmentSessionProps {
   repoUrl?: string;
   targetPath: string;
   onOpenHistory(input: { defaultBranch: string; headBranch: string }): void;
-}
-
-function StepHeading({ complete = false, number, title }: {
-  complete?: boolean;
-  number: number;
-  title: string;
-}) {
-  return (
-    <div className="flex min-w-0 items-center gap-2">
-      <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-neutral-700 text-[11px] text-neutral-400">
-        {number}
-      </span>
-      <Text className="min-w-0 flex-1 text-xs font-medium text-neutral-300">{title}</Text>
-      {complete ? <CheckCircle2 className="size-3.5 text-emerald-300" /> : null}
-    </div>
-  );
 }
 
 export function IssueDevelopmentSession({
@@ -123,9 +108,7 @@ export function IssueDevelopmentSession({
   const selectedPullRequest =
     developmentHead.state === 'verified' && developmentHead.pullRequest
       ? developmentHead.pullRequest
-      : developmentHead.state === 'verified'
-        ? fallbackPullRequest
-        : undefined;
+      : fallbackPullRequest;
   const visibleBranches = useMemo(
     () => branches
       .filter((branch) => !branch.isDefault)
@@ -228,6 +211,7 @@ export function IssueDevelopmentSession({
       const result = await projectSpaceClient.createGitHubPullRequest({
         baseBranch: defaultBranch,
         body: issue.body,
+        draft: true,
         fullName: repoFullName,
         headBranch: selectedBranch.name,
         issueNumber: issue.number,
@@ -279,140 +263,144 @@ export function IssueDevelopmentSession({
     }
   }
 
+  const isMerged = selectedPullRequest?.state === 'merged';
+  const isReadyPullRequest = selectedPullRequest?.state === 'open' && !selectedPullRequest.isDraft;
+
   return (
-    <Surface variant="tertiary" className="rounded-xl border border-neutral-800/70 bg-neutral-950/40 p-3.5">
-      <div className="mb-3 flex items-center gap-2">
-        <Play className="size-4 text-neutral-400" />
-        <Text className="text-sm font-semibold text-neutral-100">Development session</Text>
-      </div>
-      <Text className="mb-3 block text-sm text-neutral-500">
-        Start work from issue <span className="font-mono text-neutral-300">#{issue.number}</span>.
-      </Text>
-      <div className="grid gap-2">
-        <div className="grid gap-2 rounded-lg border border-neutral-800 bg-black/20 p-2">
-          <StepHeading complete={Boolean(selectedBranch)} number={1} title="Branch" />
-          {selectedBranch ? (
-            <div className="flex min-w-0 items-center gap-2 rounded-md bg-neutral-900/70 px-2 py-1.5">
-              <GitBranch className="size-3.5 shrink-0 text-neutral-500" />
-              <Text className="min-w-0 flex-1 truncate font-mono text-xs text-neutral-200">{selectedBranch.name}</Text>
-            </div>
-          ) : developmentHead.state === 'none' ? (
-            <Text className="text-xs text-neutral-500">No branch linked yet.</Text>
-          ) : (
-            <Text className="text-xs text-amber-200">
-              {'message' in developmentHead ? developmentHead.message : 'Branch position is unavailable.'}
-            </Text>
-          )}
-          {selectedBranch ? (
-            <BranchHeadGraphPreview
-              comparison={branchComparison}
-              onOpenHistory={onOpenHistory}
-            />
-          ) : null}
-          {developmentHead.state === 'none' ? (
-            <Button size="sm" variant="ghost" className="justify-start" onPress={() => setShowBranchPicker((value) => !value)}>
-              <GitBranchPlus className="size-4" />Create linked branch
-            </Button>
-          ) : null}
-          {showBranchPicker ? (
-            <div className="issue-rise-in grid gap-2 border-t border-neutral-800 pt-2">
-              {visibleBranches.length ? <div className="grid gap-1">
-                <Text className="text-xs text-neutral-500">Existing branches</Text>
-                {visibleBranches.map((branch) => <button key={branch.name} type="button" onClick={() => { setBranchName(branch.name); void createBranch(branch.name); }} className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-neutral-300 transition hover:bg-neutral-900 hover:text-neutral-50">
-                  <GitBranch className="size-3 shrink-0 text-neutral-500" /><span className="min-w-0 truncate font-mono">{branch.name}</span>
-                </button>)}
-              </div> : null}
-              <label className="grid gap-1">
-                <Text className="text-xs text-neutral-500">Branch name</Text>
-                <input value={branchName} onChange={(event) => setBranchName(event.currentTarget.value)} className="h-8 rounded-md border border-neutral-800 bg-neutral-950 px-2 font-mono text-xs text-neutral-100 outline-none transition focus:border-neutral-600" />
-              </label>
-              <Button size="sm" isDisabled={isCreatingBranch || !repoFullName || !branchName.trim() || !defaultBranch} onPress={() => void createBranch()}>
-                <GitBranchPlus className="size-4" />{isCreatingBranch ? 'Creating…' : 'Create linked branch'}
-              </Button>
-            </div>
-          ) : null}
-          {branchMessage ? <Text className="text-xs text-emerald-300">{branchMessage}</Text> : null}
-          {branchError ? <Text className="text-xs text-red-300">{branchError}</Text> : null}
-        </div>
+    <div className="grid gap-5">
+      {!selectedBranch && !isMerged ? (
+        <section className="grid gap-3">
+          <p className="text-sm leading-6 text-current/45">
+            Development has not started. Create the task branch when the plan is ready.
+          </p>
+          <Button className="w-full" onPress={() => setShowBranchPicker(true)}>
+            <GitBranchPlus className="size-4" /> Start development
+          </Button>
+        </section>
+      ) : null}
 
-        <div className="grid gap-2 rounded-lg border border-neutral-800 bg-black/20 p-2">
-          <StepHeading complete={Boolean(selectedPullRequest)} number={2} title="Pull request" />
-          {selectedPullRequest ? (
-            <IssuePullRequestChip className="max-w-full justify-self-start" pullRequest={selectedPullRequest} />
-          ) : developmentHead.state === 'ambiguous' ? (
-            <Text className="text-xs text-amber-200">Resolve the conflicting development links before creating another pull request.</Text>
-          ) : (
-            <Button variant="secondary" isDisabled={!selectedBranch || !repoFullName || !defaultBranch || isCreatingPullRequest} onPress={() => void createPullRequest()}>
-              <Rocket className="size-4" />{isCreatingPullRequest ? 'Creating PR…' : 'Create PR'}
-            </Button>
-          )}
-          {pullRequestMessage ? <Text className="text-xs text-emerald-300">{pullRequestMessage}</Text> : null}
-          {pullRequestError ? <Text className="text-xs text-red-300">{pullRequestError}</Text> : null}
-        </div>
-
-        <div className="grid gap-2 rounded-lg border border-neutral-800 bg-black/20 p-2">
-          <StepHeading number={3} title="Preview deployment" />
-          <PullRequestPreviewStatusView inventory={preview.inventory} pullRequest={selectedPullRequest} repositoryFullName={repoFullName} />
-        </div>
-
-        <div className="grid gap-2 rounded-lg border border-neutral-800 bg-black/20 p-2">
-          <StepHeading
-            complete={preview.inventory.state === 'ready'}
-            number={4}
-            title="Prototype"
-          />
-          {prototypeMachineRows.length > 1 ? (
-            <div className="flex min-w-0 flex-wrap gap-1">
-              {prototypeMachineRows.map((row) => (
-                <Button
-                  key={row.machineId}
-                  size="sm"
-                  variant={prototypeMachine?.machineId === row.machineId
-                    ? 'secondary'
-                    : 'ghost'}
-                  onPress={() => setPrototypeMachineId(row.machineId)}
-                >
-                  <Monitor className="size-3.5" />
-                  {row.machine?.name ?? row.machineId}
-                </Button>
+      {showBranchPicker ? (
+        <section className="issue-rise-in grid gap-3 rounded-2xl bg-current/[.04] p-3">
+          {visibleBranches.length ? (
+            <div className="grid gap-1">
+              <p className="px-1 text-[11px] font-medium text-current/35">Use an existing branch</p>
+              {visibleBranches.map((branch) => (
+                <button className="flex min-w-0 items-center gap-2 rounded-xl px-2 py-2 text-left text-xs text-current/60 hover:bg-current/[.05] hover:text-current" key={branch.name} onClick={() => void createBranch(branch.name)} type="button">
+                  <GitBranch className="size-3.5 shrink-0" />
+                  <span className="truncate font-mono">{branch.name}</span>
+                </button>
               ))}
             </div>
           ) : null}
-          {selectedPullRequest && repoFullName ? (
-            <PullRequestPrototypeAction
-              connectorId={prototypeMachine?.machineId}
-              issueNumber={issue.number}
-              projectId={project.id}
-              pullRequest={selectedPullRequest}
-              repositoryFullName={repoFullName}
-            />
-          ) : (
-            <Text className="text-xs text-neutral-500">
-              Link a pull request before starting its prototype.
-            </Text>
-          )}
-        </div>
+          <label className="grid gap-1.5">
+            <span className="px-1 text-[11px] font-medium text-current/35">New branch</span>
+            <input className="h-10 rounded-xl bg-current/[.055] px-3 font-mono text-xs text-current outline-none ring-1 ring-inset ring-current/[.07] focus:ring-blue-400/60" onChange={(event) => setBranchName(event.currentTarget.value)} value={branchName} />
+          </label>
+          <div className="flex gap-2">
+            <Button className="flex-1" size="sm" variant="ghost" onPress={() => setShowBranchPicker(false)}>Cancel</Button>
+            <Button className="flex-1" isDisabled={isCreatingBranch || !repoFullName || !branchName.trim() || !defaultBranch} size="sm" onPress={() => void createBranch()}>
+              <Plus className="size-4" /> {isCreatingBranch ? 'Creating…' : 'Create'}
+            </Button>
+          </div>
+        </section>
+      ) : null}
 
-        <div className="grid gap-2 rounded-lg border border-neutral-800 bg-black/20 p-2">
-          <StepHeading number={5} title="Start development" />
-          {machineRows.length ? <div className="grid gap-1">{machineRows.map((row) => {
-            const hasCheckout = Boolean(row.project);
-            const location = row.machine ? connectorLocationPresentation({ connector: row.machine, physicalMachines: connectorOverview.physicalMachines ?? [] }) : undefined;
-            const canStart = Boolean(selectedBranch) && canRunMachineCommand(row.machine) && (hasCheckout || Boolean(repositoryCloneUrl));
-            return <button key={row.machineId} type="button" disabled={!canStart || busyMachineId === row.machineId} onClick={() => void startDevelopment(row)} className="flex min-h-10 min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-neutral-300 transition hover:bg-neutral-900 hover:text-neutral-50 disabled:pointer-events-none disabled:opacity-45">
-              {hasCheckout ? <Monitor className="size-3.5 shrink-0 text-neutral-500" /> : <Download className="size-3.5 shrink-0 text-neutral-500" />}
-              <span className="min-w-0 flex-1"><span className="block truncate">{busyMachineId === row.machineId ? 'Starting…' : location?.machineName ?? row.machineId}</span>{location && busyMachineId !== row.machineId ? <span className="block truncate text-[11px] text-neutral-500">{location.connectorLabel}</span> : null}</span>
-              <span className={machineStatusClass(row.machine?.connector.status)}>{hasCheckout ? 'open' : 'clone'}</span>
-            </button>;
-          })}</div> : <Text className="text-xs text-neutral-500">No connector installations registered.</Text>}
-          {machineMessage ? <Text className="text-xs text-neutral-500">{machineMessage}</Text> : null}
-        </div>
+      {selectedBranch && !selectedPullRequest ? (
+        <section className="grid gap-3">
+          <div className="flex min-w-0 items-center gap-2 rounded-full bg-current/[.04] px-3 py-2 text-xs text-current/55">
+            <GitBranch className="size-3.5 shrink-0" />
+            <span className="truncate font-mono">{selectedBranch.name}</span>
+          </div>
+          <Button className="w-full" isDisabled={!repoFullName || !defaultBranch || isCreatingPullRequest} onPress={() => void createPullRequest()}>
+            <GitPullRequestDraft className="size-4" /> {isCreatingPullRequest ? 'Creating…' : 'Create draft PR'}
+          </Button>
+        </section>
+      ) : null}
 
-        <div className="grid gap-2 rounded-lg border border-neutral-800 bg-black/20 p-2">
-          <StepHeading number={6} title="Run tests" />
-          <Button variant="ghost" isDisabled><Play className="size-4" />Run tests</Button>
+      {selectedPullRequest?.isDraft ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <a className="inline-flex h-8 items-center gap-1.5 rounded-full bg-current/[.045] px-3 text-xs font-medium text-current/55 hover:bg-current/[.075] hover:text-current" href={selectedPullRequest.url} rel="noreferrer" target="_blank">
+            <GitPullRequestDraft className="size-3.5" /> Draft #{selectedPullRequest.number}
+            <ExternalLink className="size-3" />
+          </a>
+          <span className="text-xs text-current/35">Continue development below</span>
         </div>
-      </div>
-    </Surface>
+      ) : null}
+
+      {isReadyPullRequest ? (
+        <section className="grid gap-3 border-b border-current/[.08] pb-5">
+          <PullRequestPreviewStatusView inventory={preview.inventory} pullRequest={selectedPullRequest} repositoryFullName={repoFullName} />
+          {repoFullName ? (
+            <PullRequestPrototypeAction connectorId={prototypeMachine?.machineId} issueNumber={issue.number} projectId={project.id} pullRequest={selectedPullRequest} repositoryFullName={repoFullName} />
+          ) : null}
+        </section>
+      ) : null}
+
+      {isMerged ? (
+        <section className="grid gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-xs font-semibold text-current/55">Branch cleanup</h3>
+            <span className="text-[10px] text-current/30">Merged task</span>
+          </div>
+          <div className="flex min-h-11 items-center gap-2 px-1 text-xs">
+            <GitBranch className="size-3.5 text-current/30" />
+            <span className="min-w-0 flex-1 truncate text-current/55">Remote branch</span>
+            <span className={selectedPullRequest.headRefPresent === false ? 'text-emerald-300' : 'text-amber-300'}>
+              {selectedPullRequest.headRefPresent === false ? 'Deleted on GitHub' : 'Still on GitHub'}
+            </span>
+          </div>
+          <p className="text-[11px] leading-5 text-current/35">
+            Local worktrees are only removable after their Git status has been verified as clean in Repository.
+          </p>
+        </section>
+      ) : null}
+
+      {selectedBranch && !isMerged ? (
+        <section>
+          <div className="mb-2 flex h-8 items-center justify-between">
+            <h3 className="text-xs font-semibold text-current/55">Active development</h3>
+            <span className="text-[10px] tabular-nums text-current/30">{machineRows.length} machines</span>
+          </div>
+          <div className="grid gap-1.5">
+            {machineRows.map((row) => {
+              const hasCheckout = Boolean(row.project);
+              const location = row.machine ? connectorLocationPresentation({ connector: row.machine, physicalMachines: connectorOverview.physicalMachines ?? [] }) : undefined;
+              const canStart = canRunMachineCommand(row.machine) && (hasCheckout || Boolean(repositoryCloneUrl));
+              const online = canRunMachineCommand(row.machine);
+              return (
+                <div className="flex min-h-11 min-w-0 items-center gap-2 rounded-2xl bg-current/[.04] px-3" key={row.machineId}>
+                  {hasCheckout ? <Monitor className="size-3.5 shrink-0 text-current/30" /> : <Download className="size-3.5 shrink-0 text-current/30" />}
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-current/65">{location?.machineName ?? row.machine?.name ?? row.machineId}</span>
+                  <Circle aria-label={online ? 'Online' : 'Offline'} className={`size-2.5 shrink-0 fill-current ${online ? 'text-emerald-400' : 'text-current/20'}`} />
+                  <Button isDisabled={!canStart || busyMachineId === row.machineId} size="sm" variant="ghost" onPress={() => void startDevelopment(row)}>
+                    {busyMachineId === row.machineId ? 'Starting…' : hasCheckout ? 'Continue' : 'Add'}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
+      {selectedBranch ? (
+        <details className="group border-t border-current/[.08] pt-1">
+          <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between text-xs font-medium text-current/35 hover:text-current/65 [&::-webkit-details-marker]:hidden">
+            Repository details
+            <CircleDot className="size-3.5" />
+          </summary>
+          <div className="grid gap-3 pb-2">
+            <BranchHeadGraphPreview comparison={branchComparison} onOpenHistory={onOpenHistory} />
+            <div className="flex items-center gap-2 text-xs text-current/45">
+              <GitBranch className="size-3.5" />
+              <span className="truncate font-mono">{selectedBranch.name}</span>
+            </div>
+            {selectedPullRequest ? <IssuePullRequestChip className="max-w-full justify-self-start" pullRequest={selectedPullRequest} /> : null}
+          </div>
+        </details>
+      ) : null}
+
+      {branchMessage || pullRequestMessage || machineMessage ? <p className="text-xs text-emerald-300">{branchMessage || pullRequestMessage || machineMessage}</p> : null}
+      {branchError || pullRequestError ? <p className="text-xs text-red-300">{branchError || pullRequestError}</p> : null}
+    </div>
   );
 }
