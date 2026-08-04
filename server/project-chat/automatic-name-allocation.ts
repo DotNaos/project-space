@@ -39,7 +39,7 @@ export async function claimAutomaticProjectChatName<Result>(
     const current = claims.find((claim) =>
       claim.accountId === actor.accountId && claim.threadId === actor.threadId
     );
-    if (current && !excluded.has(current.nameKey)) {
+    if (current?.category === 'mythology' && !excluded.has(current.nameKey)) {
       return options.claimName({
         name: current.displayName,
         category: current.category,

@@ -192,6 +192,32 @@ class SelectorLeaseTests(unittest.TestCase):
             self.assertEqual(["agent", "name", "--format", "json"], arguments[:4])
             self.assertIn(["--exclude", "Aebaden"], [arguments[index:index + 2] for index in range(len(arguments) - 1)])
 
+    def test_wrapper_ignores_visible_names_longer_than_the_server_accepts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / "claims.json"
+            invocation = root / "invocation.json"
+            fake_cli = root / "project"
+            fake_cli.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, sys\n"
+                f"json.dump(sys.argv[1:], open({str(invocation)!r}, 'w'))\n"
+                "print(json.dumps({'name':'Athena','source':'project-space','warning':''}))\n",
+                encoding="utf-8",
+            )
+            os.chmod(fake_cli, 0o700)
+
+            result = selector.run(self.args(
+                state,
+                "thread-a",
+                "2026-08-01T00:00:00Z",
+                project_cli=str(fake_cli),
+                used_name=["A" * 129],
+            ))
+
+            self.assertEqual("Athena", result["name"])
+            self.assertNotIn("--exclude", json.loads(invocation.read_text(encoding="utf-8")))
+
     def test_online_restart_prefers_the_same_threads_offline_name(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)

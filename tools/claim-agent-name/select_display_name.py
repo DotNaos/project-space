@@ -19,6 +19,7 @@ VALID_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9-]*$")
 FALLBACK_CODE = re.compile(r"^([A-Za-z]+)-[A-Z0-9]{6}$")
 LEASE_DURATION = timedelta(hours=48)
 MAX_INLINE_COMMAND_CHARS = 16_000
+MAX_PROJECT_CHAT_NAME_CHARS = 128
 PREFERRED_NAME_ENVIRONMENT = "PROJECT_AGENT_NAME_PREFERRED"
 PREFIXES = (
     "Ae", "Al", "Ar", "Bel", "Bri", "Ca", "Cor", "Da",
@@ -80,6 +81,15 @@ def require_name(value: str, label: str) -> str:
     if not VALID_NAME.fullmatch(candidate):
         raise ValueError(f"{label} is not a valid agent name")
     return candidate
+
+
+def bounded_used_names(values: Iterable[str]) -> Iterable[str]:
+    for value in values:
+        if not value.strip():
+            continue
+        candidate = require_name(value, "used name")
+        if len(candidate) <= MAX_PROJECT_CHAT_NAME_CHARS:
+            yield candidate
 
 
 def parse_time(value: str, label: str) -> datetime:
@@ -219,9 +229,7 @@ def select_name(
     used_names: List[str],
     claims: Dict[str, Claim],
 ) -> str:
-    used: Set[str] = {
-        normalized(require_name(name, "used name")) for name in used_names if name.strip()
-    }
+    used: Set[str] = {normalized(name) for name in bounded_used_names(used_names)}
     reserved = {
         normalized(claim.name)
         for claim_thread_id, claim in claims.items()
@@ -258,14 +266,15 @@ def cli_payload_under_lock(
     args: argparse.Namespace, claims: Dict[str, Claim], platform_name: str = None
 ) -> dict:
     excluded = {
-        normalized(claim.name): claim.name
-        for claim_thread_id, claim in claims.items()
-        if claim_thread_id != args.thread_id
+        normalized(name): name
+        for name in bounded_used_names(
+            claim.name
+            for claim_thread_id, claim in claims.items()
+            if claim_thread_id != args.thread_id
+        )
     }
-    for name in args.used_name:
-        if name.strip():
-            candidate = require_name(name, "used name")
-            excluded[normalized(candidate)] = candidate
+    for candidate in bounded_used_names(args.used_name):
+        excluded[normalized(candidate)] = candidate
     names=sorted(excluded.values(),key=normalized)
     command=[args.project_cli,"agent","name","--format","json"]
     inline_command=command.copy()
@@ -350,11 +359,7 @@ def run(
     with os.fdopen(lock_descriptor, "r+") as lock_handle:
         lock_state_file(lock_handle, platform_name)
         claims = load_claims(state_file)
-        used = {
-            normalized(require_name(name, "used name"))
-            for name in args.used_name
-            if name.strip()
-        }
+        used = {normalized(name) for name in bounded_used_names(args.used_name)}
         visible_thread_ids = {
             thread_id.strip()
             for thread_id in getattr(args, "visible_thread_id", [])

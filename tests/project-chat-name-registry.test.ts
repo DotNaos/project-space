@@ -160,6 +160,22 @@ describe('Project Chat role-based name registry',()=>{
     expect(new Set((await repository.listNameClaims('space-a')).map(claim=>claim.nameKey)).size).toBe(2);
   });
 
+  test('replaces a specialist claim with a mythology name during automatic startup',async()=>{
+    const repository=new InMemoryProjectChatRepository();
+    const service=new ProjectChatService({repository});
+    await service.claimName(agent(threadA),{name:'Athena',category:'mythology'});
+    await service.claimName(agent(threadB),{
+      name:'Turing',category:'science',parentThreadId:threadA
+    });
+
+    const result=await service.claimAutomaticName(agent(threadB));
+
+    expect(result.claim).toMatchObject({category:'mythology',threadId:threadB});
+    expect(result.claim).not.toMatchObject({name:'Turing',parentThreadId:threadA});
+    await expect(repository.findNameClaimByThread('space-a','account-a',threadB)).resolves
+      .toMatchObject({category:'mythology',threadId:threadB});
+  });
+
   test('advances when a non-agent member owns the first candidate handle',async()=>{
     const repository=new InMemoryProjectChatRepository();
     const [firstName]=automaticProjectChatNameForThread(threadA,0);
