@@ -207,12 +207,12 @@ describe('Project Chat HTTP endpoint contract', () => {
 
     const response = await fetch(
       `${origin}/api/project-chat/automatic-name-claims`,
-      postJson({ excludedNames: ['Albaden'] })
+      postJson({ excludedNames: ['Albaden'], preferredName:'Aebaden' })
     );
 
     expect(response.status).toBe(200);
     expect(await responseJson(response)).toMatchObject({ claim: { name: 'Aebaden' } });
-    expect(received).toEqual([context, { excludedNames: ['Albaden'] }]);
+    expect(received).toEqual([context, { excludedNames: ['Albaden'], preferredName:'Aebaden' }]);
   });
 
   test('streams durable backfill and newly sent messages without polling', async () => {

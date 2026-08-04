@@ -68,7 +68,7 @@ type NameRegistryClient interface {
 }
 
 type AutomaticNameRegistryClient interface {
-	ClaimAutomaticName(context.Context, string, []string) (NameClaim, error)
+	ClaimAutomaticName(context.Context, string, []string, string) (NameClaim, error)
 }
 
 type AgentProfileProvider interface {

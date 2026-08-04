@@ -6,7 +6,8 @@ import {
 } from './contracts';
 import {
   automaticProjectChatNameCount,
-  automaticProjectChatNameForThread
+  automaticProjectChatNameForThread,
+  findProjectChatName
 } from './name-registry';
 import type { ProjectChatRepository } from './repository';
 
@@ -28,6 +29,7 @@ export async function claimAutomaticProjectChatName<Result>(
   }
   const actor = context.actor;
   const excluded = automaticNameExclusions(input);
+  const preferred = automaticNamePreference(input,excluded);
 
   for (let round = 0; round < 8; round += 1) {
     const now = options.now();
@@ -44,8 +46,8 @@ export async function claimAutomaticProjectChatName<Result>(
       });
     }
     const unavailable = new Set([...claims.map((claim) => claim.nameKey), ...excluded]);
-    let candidate;
-    for (let attempt = 0; attempt < automaticProjectChatNameCount; attempt += 1) {
+    let candidate=preferred && !unavailable.has(preferred[0]) ? preferred : undefined;
+    for (let attempt = 0; !candidate && attempt < automaticProjectChatNameCount; attempt += 1) {
       const entry = automaticProjectChatNameForThread(actor.threadId, attempt);
       if (!unavailable.has(entry[0])) {
         candidate = entry;
@@ -68,6 +70,19 @@ export async function claimAutomaticProjectChatName<Result>(
     'name_conflict',
     'Automatic Project Chat allocation remained contended.'
   );
+}
+
+function automaticNamePreference(
+  input:ProjectChatAutomaticNameClaimInput,
+  excluded:Set<string>
+) {
+  if(input.preferredName===undefined) return undefined;
+  if(typeof input.preferredName!=='string' || input.preferredName.length>128) {
+    throw new ProjectChatError('invalid_request','The preferred automatic name is invalid.');
+  }
+  const entry=findProjectChatName(input.preferredName);
+  if(!entry || entry[2]!=='mythology' || excluded.has(entry[0])) return undefined;
+  return entry;
 }
 
 function automaticNameExclusions(input: ProjectChatAutomaticNameClaimInput) {

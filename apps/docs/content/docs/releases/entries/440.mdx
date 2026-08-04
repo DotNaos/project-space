@@ -33,6 +33,7 @@ upgrade: "none"
 - Incomplete or unstructured task listings never reclaim active leases.
 - Name changes and specialist joins update the claim, current member identity, and presence atomically against the current parent.
 - Concurrent activity renews only the exact claim version it authorized, so it cannot undo a newer rename.
+- A clean offline name is preferred when connectivity returns, preserving the same task identity unless that name is already claimed.
 - Expired claims can be reused without rewriting historical Project Chat senders.
 - Genuine name exhaustion remains distinct from connectivity and contract failures.
 

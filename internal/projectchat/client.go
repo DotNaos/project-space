@@ -71,12 +71,13 @@ func (client *Client) ClaimAutomaticName(
 	ctx context.Context,
 	threadID string,
 	excludedNames []string,
+	preferredName string,
 ) (NameClaim, error) {
 	if validateThreadID(threadID) != nil {
 		return NameClaim{}, ErrInvalidRequest
 	}
 	response := nameClaimResponse{}
-	request := automaticNameClaimRequest{ExcludedNames: excludedNames}
+	request := automaticNameClaimRequest{ExcludedNames: excludedNames, PreferredName: preferredName}
 	if err := client.doJSON(ctx, http.MethodPost, automaticNameClaimsPath, nil, threadID, "", request, &response); err != nil {
 		return NameClaim{}, err
 	}

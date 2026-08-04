@@ -147,6 +147,18 @@ describe('Project Chat role-based name registry',()=>{
     expect(new Set(claims.map(claim=>claim.nameKey)).size).toBe(allocationCount);
   },15_000);
 
+  test('preserves a clean offline name when the same thread reconnects online',async()=>{
+    const repository=new InMemoryProjectChatRepository();
+    const service=new ProjectChatService({repository});
+    await expect(service.claimAutomaticName(agent(threadA),{
+      preferredName:'Aebaden'
+    })).resolves.toMatchObject({claim:{name:'Aebaden'},member:{displayName:'Aebaden'}});
+    await expect(service.claimAutomaticName(agent(threadB),{
+      preferredName:'Aebaden'
+    })).resolves.not.toMatchObject({claim:{name:'Aebaden'}});
+    expect(new Set((await repository.listNameClaims('space-a')).map(claim=>claim.nameKey)).size).toBe(2);
+  });
+
   test('requires a same-account mythology parent and composes specialist display names',async()=>{
     const service=new ProjectChatService({repository:new InMemoryProjectChatRepository()});
     await service.claimName(agent(threadA),{name:'Athena',category:'mythology'});

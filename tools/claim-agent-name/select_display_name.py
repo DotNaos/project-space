@@ -19,6 +19,7 @@ VALID_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9-]*$")
 FALLBACK_CODE = re.compile(r"^([A-Za-z]+)-[A-Z0-9]{6}$")
 LEASE_DURATION = timedelta(hours=48)
 MAX_INLINE_COMMAND_CHARS = 16_000
+PREFERRED_NAME_ENVIRONMENT = "PROJECT_AGENT_NAME_PREFERRED"
 PREFIXES = (
     "Ae", "Al", "Ar", "Bel", "Bri", "Ca", "Cor", "Da",
     "El", "Fa", "Fen", "Gal", "Hal", "Is", "Jo", "Ka",
@@ -286,7 +287,14 @@ def cli_payload_under_lock(
                 handle.flush()
                 os.fsync(handle.fileno())
             command.extend(["--exclude-file",exclusion_path])
-        completed=subprocess.run(command,text=True,capture_output=True,check=False)
+        environment=os.environ.copy()
+        if args.current_name:
+            environment[PREFERRED_NAME_ENVIRONMENT]=require_name(args.current_name,"current name")
+        elif args.thread_id in claims:
+            environment[PREFERRED_NAME_ENVIRONMENT]=claims[args.thread_id].name
+        completed=subprocess.run(
+            command,text=True,capture_output=True,check=False,env=environment
+        )
     finally:
         if exclusion_path and os.path.exists(exclusion_path):
             os.unlink(exclusion_path)

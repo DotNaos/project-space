@@ -22,6 +22,7 @@ import (
 const agentNameFallbackWarning = "Project Space is not reachable. Wir haben jetzt einfach einen zufälligen Namen generiert, den du jetzt verwendest."
 const defaultAgentNameOnlineTimeout = 4 * time.Second
 const maxAgentNameExclusionFileBytes = 1 << 20
+const preferredAgentNameEnvironment = "PROJECT_AGENT_NAME_PREFERRED"
 
 var fallbackEntropyCounter atomic.Uint64
 
@@ -101,7 +102,10 @@ func newAgentNameCommand(dependencies agentNameDependencies) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			result, err := allocateAgentName(cmd.Context(), dependencies, append(excludedNames, fileExclusions...))
+			result, err := allocateAgentName(
+				cmd.Context(), dependencies, append(excludedNames, fileExclusions...),
+				strings.TrimSpace(os.Getenv(preferredAgentNameEnvironment)),
+			)
 			if err != nil {
 				return err
 			}
@@ -144,6 +148,7 @@ func allocateAgentName(
 	ctx context.Context,
 	dependencies agentNameDependencies,
 	excludedNames []string,
+	preferredName string,
 ) (agentNameResult, error) {
 	if dependencies.IdentityProvider == nil {
 		return agentNameResult{}, projectchat.ErrMissingThreadID
@@ -164,7 +169,7 @@ func allocateAgentName(
 	onlineContext, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	name, err := claimProjectSpaceAgentName(onlineContext, dependencies, threadID, excluded)
+	name, err := claimProjectSpaceAgentName(onlineContext, dependencies, threadID, excluded, preferredName)
 	if err == nil {
 		return agentNameResult{Name: name, Source: "project-space"}, nil
 	}
@@ -243,7 +248,15 @@ func claimProjectSpaceAgentName(
 	dependencies agentNameDependencies,
 	threadID string,
 	excluded map[string]struct{},
+	preferredName string,
 ) (string, error) {
+	if preferredName != "" {
+		if _, blocked := excluded[normalizeAgentName(preferredName)]; !blocked {
+			if automaticRegistry, ok := dependencies.Registry.(projectchat.AutomaticNameRegistryClient); ok {
+				return claimAutomaticProjectSpaceAgentName(ctx, dependencies, automaticRegistry, threadID, excluded, preferredName)
+			}
+		}
+	}
 	catalog, err := dependencies.Registry.ListNames(ctx, threadID)
 	if err != nil {
 		return "", err
@@ -282,11 +295,22 @@ func claimProjectSpaceAgentName(
 	if !ok {
 		return "", errAgentNameCatalogExhausted
 	}
+	return claimAutomaticProjectSpaceAgentName(ctx, dependencies, automaticRegistry, threadID, excluded, "")
+}
+
+func claimAutomaticProjectSpaceAgentName(
+	ctx context.Context,
+	dependencies agentNameDependencies,
+	registry projectchat.AutomaticNameRegistryClient,
+	threadID string,
+	excluded map[string]struct{},
+	preferredName string,
+) (string, error) {
 	excludedNames := make([]string, 0, len(excluded))
 	for name := range excluded {
 		excludedNames = append(excludedNames, name)
 	}
-	claim, claimErr := automaticRegistry.ClaimAutomaticName(ctx, threadID, excludedNames)
+	claim, claimErr := registry.ClaimAutomaticName(ctx, threadID, excludedNames, preferredName)
 	if errors.Is(claimErr, projectchat.ErrNameConflict) {
 		return "", errAgentNameCatalogExhausted
 	}

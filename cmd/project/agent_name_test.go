@@ -211,6 +211,27 @@ func TestAgentNameUsesOneServerSideAutomaticAllocation(t *testing.T) {
 	}
 }
 
+func TestAgentNamePrefersTheExistingOfflineNameWhenConnectivityReturns(t *testing.T) {
+	t.Setenv(preferredAgentNameEnvironment, "Aebaden")
+	registry := &automaticNameRegistry{catalog: automaticNameCatalog("Athena")}
+	command := newAgentCommand(agentNameDependencies{
+		IdentityProvider: fixedThreadIdentityProvider(chatTestThreadID), Registry: registry,
+	})
+	command.SetArgs([]string{"name", "--format", "json"})
+	stdout := &bytes.Buffer{}
+	command.SetOut(stdout)
+	command.SetErr(&bytes.Buffer{})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if result := decodeAgentNameResult(t, stdout); result.Name != "Aebaden" {
+		t.Fatalf("result = %#v", result)
+	}
+	if registry.automaticPreferred != "Aebaden" || registry.automaticClaimCalls != 1 || len(registry.claimed) != 0 {
+		t.Fatalf("preferred = %q, automatic calls = %d, ordinary claims = %#v", registry.automaticPreferred, registry.automaticClaimCalls, registry.claimed)
+	}
+}
+
 func TestAgentNameFallsBackOnlyWhenProjectSpaceIsUnreachable(t *testing.T) {
 	registry := &automaticNameRegistry{listErr: projectchat.ErrUnavailable}
 	command := newAgentCommand(agentNameDependencies{
@@ -463,22 +484,28 @@ type automaticNameRegistry struct {
 	emptyClaimResponse  bool
 	automaticClaimCalls int
 	automaticExcluded   []string
+	automaticPreferred  string
 }
 
 func (registry *automaticNameRegistry) ClaimAutomaticName(
 	_ context.Context,
 	threadID string,
 	excludedNames []string,
+	preferredName string,
 ) (projectchat.NameClaim, error) {
 	registry.automaticClaimCalls++
 	registry.automaticExcluded = append([]string(nil), excludedNames...)
+	registry.automaticPreferred = preferredName
 	if registry.claimErr != nil {
 		return projectchat.NameClaim{}, registry.claimErr
 	}
 	if registry.emptyClaimResponse {
 		return projectchat.NameClaim{}, nil
 	}
-	name := automaticAgentNameForThread(threadID, 0)
+	name := preferredName
+	if name == "" {
+		name = automaticAgentNameForThread(threadID, 0)
+	}
 	return projectchat.NameClaim{
 		Name: name, DisplayName: name, Category: projectchat.NameCategoryMythology,
 		ThreadID: threadID,

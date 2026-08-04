@@ -17,6 +17,10 @@ claim, a resumed task claiming its existing name, or a visible local task renews
 for 48 hours. Before expiry, another task cannot take the name. At the exact 48-hour
 boundary, an unrenewed lease may be reclaimed.
 
+If a task first receives its clean name while Project Space is offline, the first online
+restart asks Project Space to claim that same name. Automatic allocation chooses another
+name only when the preferred name is genuinely unavailable.
+
 Reclaiming an online name retires the old chat identity without rewriting historical
 message senders. Reclaiming a local name removes only the expired reservation. An online
 claim can replace an expired local reservation, but it never silently replaces a live

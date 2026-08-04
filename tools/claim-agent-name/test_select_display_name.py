@@ -192,6 +192,30 @@ class SelectorLeaseTests(unittest.TestCase):
             self.assertEqual(["agent", "name", "--format", "json"], arguments[:4])
             self.assertIn(["--exclude", "Aebaden"], [arguments[index:index + 2] for index in range(len(arguments) - 1)])
 
+    def test_online_restart_prefers_the_same_threads_offline_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            state=root / "claims.json"
+            invocation=root / "preferred.txt"
+            selector.run(
+                self.args(state,"thread-a","2026-08-01T00:00:00Z"),self.payload()
+            )
+            fake_cli=root / "project"
+            fake_cli.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, os\n"
+                f"preferred=os.environ[{selector.PREFERRED_NAME_ENVIRONMENT!r}]\n"
+                f"open({str(invocation)!r},'w').write(preferred)\n"
+                "print(json.dumps({'name':preferred,'source':'project-space','warning':''}))\n",
+                encoding="utf-8",
+            )
+            os.chmod(fake_cli,0o700)
+            result=selector.run(self.args(
+                state,"thread-a","2026-08-02T00:00:00Z",project_cli=str(fake_cli)
+            ))
+            self.assertEqual("Aebaden",result["name"])
+            self.assertEqual("Aebaden",invocation.read_text(encoding="utf-8"))
+
     def test_large_lease_sets_use_a_bounded_exclusion_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)

@@ -52,6 +52,7 @@ type nameClaimRequest struct {
 
 type automaticNameClaimRequest struct {
 	ExcludedNames []string `json:"excludedNames,omitempty"`
+	PreferredName string   `json:"preferredName,omitempty"`
 }
 
 type nameClaimResponse struct {
