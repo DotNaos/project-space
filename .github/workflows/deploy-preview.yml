@@ -1,6 +1,5 @@
 name: Deploy PR preview
-run-name: Preview ${{ inputs.action || github.event.action }} PR #${{ inputs.pr || github.event.pull_request.number }} · ${{ inputs.operation_id || github.event.action }}
-
+run-name: Preview ${{ inputs.action || 'build' }} PR #${{ inputs.pr || github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number }} · ${{ inputs.operation_id || github.event.workflow_run.id || github.event.action }}
 on:
   workflow_dispatch:
     inputs:
@@ -38,32 +37,37 @@ on:
         description: Unique CLI operation identifier
         required: true
         type: string
-  pull_request_target:
-    types: [opened, reopened, synchronize, ready_for_review, closed]
-
+  workflow_run:
+    workflows: [Build PR preview artifacts]
+    types: [completed]
 permissions:
   contents: read
-
 concurrency:
-  group: project-space-preview-pr-${{ inputs.pr || github.event.pull_request.number }}
+  group: project-space-preview-pr-${{ inputs.pr || github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number }}
   cancel-in-progress: false
-
 env:
   PREVIEW_REPOSITORY: DotNaos/project-space
-
 jobs:
   resolve:
-    name: Resolve exact open PR head
-    if: (github.event_name == 'workflow_dispatch' && contains(fromJSON('["build","start","stop","touch","deploy"]'), inputs.action)) || (github.event_name == 'pull_request_target' && github.event.action != 'closed')
+    name: Resolve exact open PR head and immutable build artifact
+    if: (github.event_name == 'workflow_dispatch' && contains(fromJSON('["build","start","stop","touch","deploy"]'), inputs.action)) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     outputs:
       disposition: ${{ steps.pull-request.outputs.disposition }}
       head_sha: ${{ steps.pull-request.outputs.head_sha }}
       pr_number: ${{ steps.pull-request.outputs.pr_number }}
+      artifact_digest: ${{ steps.pull-request.outputs.artifact_digest }}
+      artifact_id: ${{ steps.pull-request.outputs.artifact_id }}
+      artifact_name: ${{ steps.pull-request.outputs.artifact_name }}
+      artifact_size: ${{ steps.pull-request.outputs.artifact_size }}
+      source_run_attempt: ${{ steps.pull-request.outputs.source_run_attempt }}
+      source_run_id: ${{ steps.pull-request.outputs.source_run_id }}
+      source_workflow_ref: ${{ steps.pull-request.outputs.source_workflow_ref }}
     steps:
       - name: Validate caller and current PR
         id: pull-request
@@ -71,8 +75,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           OPERATION_ID: ${{ inputs.operation_id }}
-          REQUESTED_PR: ${{ inputs.pr || github.event.pull_request.number }}
-          REQUESTED_HEAD_SHA: ${{ inputs.requested_head_sha || github.event.pull_request.head.sha }}
+          REQUESTED_PR: ${{ inputs.pr || github.event.workflow_run.pull_requests[0].number }}
+          REQUESTED_HEAD_SHA: ${{ inputs.requested_head_sha || github.event.workflow_run.head_sha }}
+          TRIGGER_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF" == refs/heads/main ]] || {
@@ -83,12 +88,14 @@ jobs:
             echo 'Pull request number must be a positive integer.' >&2
             exit 64
           }
-          [[ "$GITHUB_EVENT_NAME" == pull_request_target || "$OPERATION_ID" =~ ^preview-[0-9a-f]{32}$ ]] || {
+          [[ "$GITHUB_EVENT_NAME" == workflow_run || "$OPERATION_ID" =~ ^preview-[0-9a-f]{32}$ ]] || {
             echo 'Operation ID must match preview-<32 lowercase hex>.' >&2
             exit 64
           }
-          permission=$(gh api "repos/$PREVIEW_REPOSITORY/collaborators/$GITHUB_ACTOR/permission" --jq .permission)
-          case "$permission" in admin|maintain|write) ;; *) echo 'Preview dispatch requires repository write permission.' >&2; exit 77;; esac
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            permission=$(gh api "repos/$PREVIEW_REPOSITORY/collaborators/$GITHUB_ACTOR/permission" --jq .permission)
+            case "$permission" in admin|maintain|write) ;; *) echo 'Preview dispatch requires repository write permission.' >&2; exit 77;; esac
+          fi
           pr_json=$(gh api "repos/$PREVIEW_REPOSITORY/pulls/$REQUESTED_PR")
           jq -e --arg repository "$PREVIEW_REPOSITORY" '
             .base.ref == "main" and .base.repo.full_name == $repository and
@@ -120,135 +127,75 @@ jobs:
           echo 'disposition=current' >> "$GITHUB_OUTPUT"
           echo "pr_number=$REQUESTED_PR" >> "$GITHUB_OUTPUT"
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
-
-  validate:
-    name: Validate untrusted PR code without Preview credentials
+          if [[ "$GITHUB_EVENT_NAME" == workflow_run ]]; then
+            source_run_id="$TRIGGER_RUN_ID"
+          elif [[ "${{ inputs.action }}" == build || "${{ inputs.action }}" == deploy ]]; then
+            source_run_id=$(gh api \
+              "repos/$PREVIEW_REPOSITORY/actions/workflows/build-preview-artifacts.yml/runs?event=pull_request&head_sha=$head_sha&status=completed&per_page=100" |
+              jq -r --argjson pr "$REQUESTED_PR" \
+                '[.workflow_runs[] | select(.conclusion == "success" and any(.pull_requests[]?; .number == $pr)) | .id] | first // empty')
+          else
+            exit 0
+          fi
+          [[ "$source_run_id" =~ ^[1-9][0-9]*$ ]] || {
+            echo 'No successful exact-head Preview artifact build exists yet.' >&2
+            exit 69
+          }
+          run_json=$(gh api "repos/$PREVIEW_REPOSITORY/actions/runs/$source_run_id")
+          jq -e \
+            --arg repository "$PREVIEW_REPOSITORY" \
+            --arg sha "$head_sha" \
+            --argjson pr "$REQUESTED_PR" \
+            --argjson repository_id "$GITHUB_REPOSITORY_ID" '
+              .event == "pull_request" and .conclusion == "success" and
+              .head_sha == $sha and .repository.full_name == $repository and
+              .repository.id == $repository_id and
+              .path == ".github/workflows/build-preview-artifacts.yml" and
+              any(.pull_requests[]?; .number == $pr and .head.sha == $sha and
+                .head.repo.id == $repository_id)
+            ' <<<"$run_json" >/dev/null
+          source_run_attempt=$(jq -er '.run_attempt | select(type == "number" and . > 0)' <<<"$run_json")
+          artifact_name="preview-images-pr-$REQUESTED_PR-$head_sha-$source_run_id-$source_run_attempt"
+          artifacts=$(gh api "repos/$PREVIEW_REPOSITORY/actions/runs/$source_run_id/artifacts?per_page=100")
+          artifact=$(jq -ec --arg name "$artifact_name" '
+            [.artifacts[] | select(.name == $name and .expired == false)]
+            | select(length == 1) | .[0]
+          ' <<<"$artifacts")
+          artifact_id=$(jq -er '.id | select(type == "number" and . > 0)' <<<"$artifact")
+          artifact_size=$(jq -er '.size_in_bytes | select(type == "number" and . > 0)' <<<"$artifact")
+          artifact_digest=$(jq -er '.digest | select(test("^sha256:[0-9a-f]{64}$"))' <<<"$artifact")
+          source_workflow_ref="$PREVIEW_REPOSITORY/.github/workflows/build-preview-artifacts.yml@refs/pull/$REQUESTED_PR/merge"
+          echo "artifact_digest=$artifact_digest" >> "$GITHUB_OUTPUT"
+          echo "artifact_id=$artifact_id" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+          echo "artifact_size=$artifact_size" >> "$GITHUB_OUTPUT"
+          echo "source_run_attempt=$source_run_attempt" >> "$GITHUB_OUTPUT"
+          echo "source_run_id=$source_run_id" >> "$GITHUB_OUTPUT"
+          echo "source_workflow_ref=$source_workflow_ref" >> "$GITHUB_OUTPUT"
+  promote:
     needs: resolve
-    if: needs.resolve.outputs.disposition == 'current' && ((github.event_name == 'workflow_dispatch' && contains(fromJSON('["build","deploy"]'), inputs.action)) || (github.event_name == 'pull_request_target' && github.event.action != 'closed'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
+    if: needs.resolve.outputs.disposition == 'current' && ((github.event_name == 'workflow_dispatch' && contains(fromJSON('["build","deploy"]'), inputs.action)) || github.event_name == 'workflow_run')
     permissions:
-      contents: read
-    steps:
-      - name: Check out exact PR head
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          ref: ${{ needs.resolve.outputs.head_sha }}
-          persist-credentials: false
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.3.14
-      - name: Validate exact PR source
-        run: |
-          bun install --frozen-lockfile
-          mapfile -t validation_tests < <(
-            git ls-files '*.test.ts' '*.test.tsx' '*.test.js' '*.test.jsx' |
-              grep -Fvx \
-                -e tests/codex-desktop-shell.test.tsx \
-                -e tests/codex-inventory-truth-ui.test.tsx \
-                -e tests/codex-operation-snapshot-store.test.ts \
-                -e tests/codex-sessions-ui.test.tsx \
-                -e tests/codex-task-workspace.test.tsx \
-                -e tests/preview-runner-contract.test.ts \
-                -e tests/project-codex-tasks-truth-ui.test.tsx \
-                -e tests/pull-request-preview-status-ui.test.tsx \
-                -e tests/roadmap-graph-node.test.tsx
-          )
-          bun test --isolate "${validation_tests[@]}"
-          for test_file in \
-            tests/codex-desktop-shell.test.tsx \
-            tests/codex-inventory-truth-ui.test.tsx \
-            tests/codex-sessions-ui.test.tsx \
-            tests/codex-task-workspace.test.tsx \
-            tests/project-codex-tasks-truth-ui.test.tsx \
-            tests/pull-request-preview-status-ui.test.tsx \
-            tests/roadmap-graph-node.test.tsx
-          do
-            bun test "$test_file"
-          done
-          bun test --timeout 10000 tests/codex-operation-snapshot-store.test.ts
-          bun test --timeout 10000 tests/preview-runner-contract.test.ts
-          bun run check
-          bun run build
-
-  build:
-    name: Build immutable Preview images with trusted recipes
-    needs: [resolve, validate]
-    if: needs.resolve.outputs.disposition == 'current' && ((github.event_name == 'workflow_dispatch' && contains(fromJSON('["build","deploy"]'), inputs.action)) || (github.event_name == 'pull_request_target' && github.event.action != 'closed'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    environment:
-      name: Preview
-    permissions:
+      actions: read
+      attestations: read
       contents: read
       packages: write
-    outputs:
-      docs_digest: ${{ steps.digests.outputs.docs_digest }}
-      gateway_digest: ${{ steps.digests.outputs.gateway_digest }}
-      prototype_digest: ${{ steps.digests.outputs.prototype_digest }}
-      web_digest: ${{ steps.digests.outputs.web_digest }}
-    steps:
-      - name: Check out trusted workflow assets
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          path: trusted
-          ref: ${{ github.workflow_sha }}
-          persist-credentials: false
-      - name: Check out exact untrusted PR source separately
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          path: source
-          ref: ${{ needs.resolve.outputs.head_sha }}
-          persist-credentials: false
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - name: Sign in to GHCR
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-      - name: Build and publish Preview images concurrently from trusted recipes
-        env:
-          PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
-          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
-          SOURCE_CONTEXT: ${{ github.workspace }}/source
-          TRUSTED_CONTEXT: ${{ github.workspace }}/trusted
-          TRUSTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
-          VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
-        run: |
-          set -euo pipefail
-          metadata_file="$RUNNER_TEMP/preview-bake-metadata.json"
-          docker buildx bake \
-            --file trusted/deploy/preview-bake.hcl \
-            --metadata-file "$metadata_file" \
-            --push \
-            preview-images
-      - name: Validate and expose immutable Preview image digests
-        id: digests
-        env:
-          METADATA_FILE: ${{ runner.temp }}/preview-bake-metadata.json
-        run: |
-          set -euo pipefail
-          for target in web docs prototype gateway; do
-            if ! digest="$(
-              jq -er \
-                --arg target "$target" \
-                '.[$target]["containerimage.digest"]
-                  | select(type == "string" and test("^sha256:[0-9a-f]{64}$"))' \
-                "$METADATA_FILE"
-            )"; then
-              echo "::error::Bake did not return a valid immutable digest for $target"
-              exit 1
-            fi
-            printf '%s_digest=%s\n' "$target" "$digest" >> "$GITHUB_OUTPUT"
-          done
-
+    uses: ./.github/workflows/promote-preview-artifacts.yml
+    with:
+      artifact_digest: ${{ needs.resolve.outputs.artifact_digest }}
+      artifact_id: ${{ needs.resolve.outputs.artifact_id }}
+      artifact_name: ${{ needs.resolve.outputs.artifact_name }}
+      artifact_size: ${{ needs.resolve.outputs.artifact_size }}
+      head_sha: ${{ needs.resolve.outputs.head_sha }}
+      pr_number: ${{ needs.resolve.outputs.pr_number }}
+      source_run_attempt: ${{ needs.resolve.outputs.source_run_attempt }}
+      source_run_id: ${{ needs.resolve.outputs.source_run_id }}
+      source_workflow_ref: ${{ needs.resolve.outputs.source_workflow_ref }}
+      trusted_sha: ${{ github.workflow_sha }}
   deploy:
     name: Deploy exact PR head through trusted Preview runner
-    needs: [resolve, build]
-    if: needs.resolve.outputs.disposition == 'current' && ((github.event_name == 'workflow_dispatch' && contains(fromJSON('["build","deploy"]'), inputs.action)) || (github.event_name == 'pull_request_target' && github.event.action != 'closed'))
+    needs: [resolve, promote]
+    if: needs.resolve.outputs.disposition == 'current' && ((github.event_name == 'workflow_dispatch' && contains(fromJSON('["build","deploy"]'), inputs.action)) || github.event_name == 'workflow_run')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
@@ -353,17 +300,17 @@ jobs:
         if: steps.freshness.outputs.disposition == 'current'
         shell: bash
         env:
-          DOCS_DIGEST: ${{ needs.build.outputs.docs_digest }}
-          GATEWAY_DIGEST: ${{ needs.build.outputs.gateway_digest }}
+          DOCS_DIGEST: ${{ needs.promote.outputs.docs_digest }}
+          GATEWAY_DIGEST: ${{ needs.promote.outputs.gateway_digest }}
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
-          PROTOTYPE_DIGEST: ${{ needs.build.outputs.prototype_digest }}
+          PROTOTYPE_DIGEST: ${{ needs.promote.outputs.prototype_digest }}
           REQUESTED_SHA: ${{ needs.resolve.outputs.head_sha }}
-          WEB_DIGEST: ${{ needs.build.outputs.web_digest }}
+          WEB_DIGEST: ${{ needs.promote.outputs.web_digest }}
         run: |
           set +e
           runner_command=apply
           runner_mode=online
-          if [[ "${{ inputs.action }}" == build || "${{ github.event_name }}" == pull_request_target ]]; then runner_command=register; runner_mode=register; fi
+          if [[ "${{ inputs.action }}" == build || "${{ github.event_name }}" == workflow_run ]]; then runner_command=register; runner_mode=register; fi
           jq -n \
             --arg repository "$PREVIEW_REPOSITORY" --argjson pr "$PR_NUMBER" --arg sha "$REQUESTED_SHA" \
             --arg mode "$runner_mode" \
@@ -518,9 +465,8 @@ jobs:
            "log_url":"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID","description":"$description"}
           JSON
           [[ "$state" == success || "$state" == pending || "$state" == inactive ]]
-
       - name: Verify offline Preview registration
-        if: steps.handoff.outputs.disposition == 'current' && (inputs.action == 'build' || github.event_name == 'pull_request_target')
+        if: steps.handoff.outputs.disposition == 'current' && (inputs.action == 'build' || github.event_name == 'workflow_run')
         shell: bash
         env:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
@@ -543,17 +489,14 @@ jobs:
              .requestedSha == $sha and
              (.runningSha == null or .runningSha == "") and
              .prototypeHealthy == false' preview-result.json >/dev/null
-
       - name: Record neutral superseded registration
-        if: steps.handoff.outputs.disposition == 'superseded' && (inputs.action == 'build' || github.event_name == 'pull_request_target')
+        if: steps.handoff.outputs.disposition == 'superseded' && (inputs.action == 'build' || github.event_name == 'workflow_run')
         run: echo 'Superseded exact head was positively refused; no outdated Preview was registered.' >> "$GITHUB_STEP_SUMMARY"
-
       - name: Fail closed when the supersession fence is not proven
         if: steps.handoff.outputs.disposition == 'unsafe-supersession'
         run: |
           echo 'The Preview supersession fence was not positively proven.' >&2
           exit 1
-
       - name: Upload sanitized Preview transition evidence
         if: always() && steps.freshness.outputs.disposition == 'current' && inputs.action == 'deploy'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -565,7 +508,6 @@ jobs:
             preview-error.sanitized.log
           if-no-files-found: error
           retention-days: 14
-
   lifecycle:
     name: Explicitly start or stop a registered Preview
     needs: resolve
@@ -664,87 +606,8 @@ jobs:
                .state == "ready" and .runningSha == null and .prototypeHealthy == false
              elif $action == "touch" then
                .state == "online" and .runningSha == $sha and
-               (.activityLeaseExpiresAt | type == "string" and length > 0)
+             (.activityLeaseExpiresAt | type == "string" and length > 0)
              else false end' lifecycle-result.json >/dev/null
-
-  cleanup:
-    name: Remove closed or merged PR preview
-    if: github.event_name == 'pull_request_target' && github.event.action == 'closed'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    environment:
-      name: Preview
-    permissions:
-      contents: read
-      deployments: write
-      pull-requests: read
-    steps:
-      - name: Load Preview-only controller credentials
-        id: preview-secrets
-        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
-        env:
-          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          SSH_PRIVATE_KEY: op://projects/Project Space Preview Deploy SSH/private_key
-          TS_OAUTH_CLIENT_ID: op://projects/Project Space Preview Tailscale CI Client ID/credential
-          TS_OAUTH_SECRET: op://projects/Project Space Preview Tailscale CI Secret/credential
-      - name: Configure forced-command Preview SSH identity
-        shell: bash
-        env:
-          SSH_PRIVATE_KEY: ${{ steps.preview-secrets.outputs.SSH_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          install -d -m 700 "$HOME/.ssh"
-          umask 077
-          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/project-space-preview"
-          printf '%s\n' '${{ vars.PROJECT_SPACE_PREVIEW_SSH_KNOWN_HOSTS }}' > "$HOME/.ssh/known_hosts"
-          cat > "$HOME/.ssh/config" <<SSH_CONFIG
-          Host project-space-preview
-            HostName ${{ vars.PROJECT_SPACE_PREVIEW_DEPLOY_IP }}
-            User preview-deploy
-            IdentityFile ~/.ssh/project-space-preview
-            IdentitiesOnly yes
-            StrictHostKeyChecking yes
-            UserKnownHostsFile ~/.ssh/known_hosts
-            ForwardAgent no
-            ForwardX11 no
-            BatchMode yes
-            PasswordAuthentication no
-            KbdInteractiveAuthentication no
-          SSH_CONFIG
-          chmod 600 "$HOME/.ssh/config" "$HOME/.ssh/known_hosts" "$HOME/.ssh/project-space-preview"
-      - name: Connect ephemeral Preview CI identity to Tailscale
-        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
-        with:
-          oauth-client-id: ${{ steps.preview-secrets.outputs.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ steps.preview-secrets.outputs.TS_OAUTH_SECRET }}
-          tags: tag:ci-project-space-preview
-          ping: ${{ vars.PROJECT_SPACE_PREVIEW_DEPLOY_IP }}
-      - name: Remove only the exact PR resources and persist tombstone
-        shell: bash
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          jq -n --arg repository "$PREVIEW_REPOSITORY" --argjson pr "$PR_NUMBER" \
-            --arg reason "pull_request_closed" '{repository:$repository,prNumber:$pr,reason:$reason}' |
-            ssh project-space-preview destroy > cleanup-result.json
-          jq -e '.state == "removed" and .cleanup.containersAbsent and .cleanup.networksAbsent and
-            .cleanup.volumesAbsent and .cleanup.runtimePathAbsent and .cleanup.routeAbsent' cleanup-result.json >/dev/null
-      - name: Mark latest GitHub Preview deployment inactive
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          deployment_id=$(gh api "repos/$PREVIEW_REPOSITORY/deployments?environment=preview/pr-$PR_NUMBER&per_page=1" --jq '.[0].id // empty')
-          [[ -z "$deployment_id" ]] || gh api --method POST \
-            "repos/$PREVIEW_REPOSITORY/deployments/$deployment_id/statuses" --input - <<JSON
-          {"state":"inactive","environment":"preview/pr-$PR_NUMBER","auto_inactive":false,
-           "log_url":"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID",
-           "description":"PR closed; Preview resources were positively removed."}
-          JSON
-
   manual-destroy:
     name: Manually remove exact PR preview
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'destroy'

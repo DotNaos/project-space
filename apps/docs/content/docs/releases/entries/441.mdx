@@ -1,0 +1,46 @@
+---
+title: "Promote exact-head Preview artifacts"
+version: "0.4.57"
+bump: "patch"
+pullRequest: 441
+issues:
+  - 405
+areas:
+  - deploy
+  - security
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  Pull request Previews now build with the exact revision's own recipes before a
+  trusted workflow verifies and promotes immutable image artifacts.
+</ReleaseSummary>
+
+## Changes
+
+### Added
+
+- Exact-head Preview builds publish a canonical manifest and GitHub-attested image archives without Preview credentials or registry write access.
+- Trusted promotion verifies repository, pull request, revision, workflow run, artifact identity, bounded file inventory, and every archive checksum before import.
+
+### Fixed
+
+- Preview validation no longer combines an older `main` Docker recipe with a newer pull request source tree.
+- The trusted deployment workflow never checks out or executes pull request source and passes only immutable registry digests to the existing runner.
+- Closed-pull-request cleanup remains a separate trusted workflow with the same exact-resource tombstone checks.
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Push a pull request that changes a Preview Docker recipe and removes an input used only by the previous `main` recipe; confirm its exact-head artifact build and offline Preview registration both complete.
+- Tamper with the manifest identity, archive checksum, or artifact metadata in a representative contract test and confirm trusted promotion fails before registry or Preview credentials are used.
+
+</PreviewOnly>
