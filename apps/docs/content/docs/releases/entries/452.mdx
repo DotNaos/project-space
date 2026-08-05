@@ -1,0 +1,43 @@
+---
+title: "Deploy pull request previews automatically"
+version: "0.4.59"
+bump: "patch"
+pullRequest: 452
+issues:
+  - 437
+areas:
+  - deploy
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  Project Space now deploys an isolated Preview automatically after the exact
+  pull request revision finishes building successfully.
+</ReleaseSummary>
+
+## Changes
+
+### Added
+
+- Successful pull request artifact builds now start their trusted Preview deployment automatically.
+- Preview deployments report their exact GitHub deployment result and sanitized transition evidence.
+
+### Fixed
+
+- Trusted Preview gateways receive the verification state required to serve the deployed revision.
+- A ready Preview can transition directly online when the trusted workflow applies its exact artifacts.
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Push a pull request revision and confirm its Preview becomes reachable after the artifact workflow succeeds.
+
+</PreviewOnly>
