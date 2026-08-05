@@ -1,17 +1,21 @@
 {
   "name": "Project Space",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "remoteUser": "vscode",
   "features": {
     "ghcr.io/devcontainers/features/go:1": {
       "version": "1.26"
     },
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
+  "remoteEnv": {
+    "PATH": "/home/vscode/.bun/bin:${containerEnv:PATH}"
+  },
   "postCreateCommand": "bash .devcontainer/bootstrap.sh && bash .devcontainer/bootstrap.sh",
+  "postStartCommand": "bash .devcontainer/verify.sh",
   "forwardPorts": [
     4173,
     45873,
     5180
-  ],
-  "postStartCommand": "bash .devcontainer/verify.sh"
+  ]
 }
