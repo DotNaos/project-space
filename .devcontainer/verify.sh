@@ -5,7 +5,6 @@ readonly expected_bun_version="1.3.14"
 readonly expected_go_prefix="go1.26."
 readonly expected_codex_version="0.146.1"
 
-export PATH="${HOME}/.bun/bin:${PATH}"
 
 actual_bun_version="$(bun --version)"
 if [[ "${actual_bun_version}" != "${expected_bun_version}" ]]; then
