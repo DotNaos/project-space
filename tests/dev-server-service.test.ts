@@ -512,6 +512,131 @@ describe('development-server service trusted execution inputs', () => {
     expect(maximumActive).toBe(2);
   });
 
+  test('limits focused inspection to the requested worktree', async () => {
+    const otherWorktree = {
+      ...worktree,
+      branchName: 'issue-999-unrelated',
+      headSha: 'b'.repeat(40),
+      id: 'worktree-other',
+      path: '/srv/projects/project-a-other'
+    } satisfies ProjectWorktreeRecord;
+    const harness = createHarness({
+      memberships: [membership('user-a')],
+      worktrees: [worktree, otherWorktree]
+    });
+
+    const overview = await harness.service.inspect({
+      machineId,
+      projectId,
+      worktreeIds: [worktree.id]
+    });
+
+    expect(overview.servers).toHaveLength(1);
+    expect(overview.servers[0]?.worktreeId).toBe(worktree.id);
+    expect(harness.connectorCalls.every((call) => call.request.worktreeId === worktree.id)).toBe(
+      true
+    );
+  });
+
+  test('rejects an unavailable focused worktree instead of widening inspection', async () => {
+    const harness = createHarness({ memberships: [membership('user-a')] });
+
+    await expect(
+      harness.service.inspect({
+        machineId,
+        projectId,
+        worktreeIds: ['worktree-not-on-this-machine']
+      })
+    ).rejects.toThrow('not available');
+    expect(harness.connectorCalls).toEqual([]);
+  });
+
+  test('selects a focused worktree by exact branch name', async () => {
+    const otherWorktree = {
+      ...worktree,
+      branchName: 'issue-999-unrelated',
+      headSha: 'b'.repeat(40),
+      id: 'worktree-other',
+      path: '/srv/projects/project-a-other'
+    } satisfies ProjectWorktreeRecord;
+    const harness = createHarness({
+      memberships: [membership('user-a')],
+      worktrees: [worktree, otherWorktree]
+    });
+
+    const overview = await harness.service.inspect({
+      branchName: worktree.branchName,
+      machineId,
+      projectId
+    });
+
+    expect(overview.servers).toHaveLength(1);
+    expect(overview.servers[0]?.worktreeId).toBe(worktree.id);
+  });
+
+  test('keeps a mutation response focused on the selected task branch', async () => {
+    const otherWorktree = {
+      ...worktree,
+      branchName: 'issue-999-unrelated',
+      headSha: 'b'.repeat(40),
+      id: 'worktree-other',
+      path: '/srv/projects/project-a-other'
+    } satisfies ProjectWorktreeRecord;
+    const harness = createHarness({
+      memberships: [membership('user-a')],
+      worktrees: [worktree, otherWorktree]
+    });
+
+    const overview = await harness.service.start({
+      branchName: worktree.branchName,
+      machineId,
+      projectId,
+      serverId: 'dev',
+      worktreeId: worktree.id
+    });
+
+    expect(overview.servers).toHaveLength(1);
+    expect(overview.servers[0]?.worktreeId).toBe(worktree.id);
+  });
+
+  test('selects only the base worktree when requested', async () => {
+    const baseWorktree = {
+      ...worktree,
+      branchName: 'main',
+      headSha: 'c'.repeat(40),
+      id: 'worktree-base',
+      isBase: true,
+      path: '/srv/projects/project-a'
+    } satisfies ProjectWorktreeRecord;
+    const harness = createHarness({
+      memberships: [membership('user-a')],
+      worktrees: [baseWorktree, worktree]
+    });
+
+    const overview = await harness.service.inspect({
+      machineId,
+      preferBase: true,
+      projectId
+    });
+
+    expect(overview.servers).toHaveLength(1);
+    expect(overview.servers[0]?.worktreeId).toBe(baseWorktree.id);
+  });
+
+  test('rejects mixed focused worktree selectors', async () => {
+    const harness = createHarness({ memberships: [membership('user-a')] });
+
+    await expect(
+      harness.service.inspect({
+        branchName: worktree.branchName,
+        machineId,
+        preferBase: true,
+        projectId
+      })
+    ).rejects.toThrow('only one');
+    expect(harness.connectorCalls).toEqual([]);
+  });
+
   test('discovers and manages two declared servers independently in one worktree', async () => {
     const harness = createHarness({
       configuredServers: [

@@ -8,6 +8,12 @@ export type MachineMembershipAccess =
 export interface DevServerInspectRequest {
   machineId: string;
   projectId: string;
+  /** Optional exact branch selector for task-scoped server inspection. */
+  branchName?: string;
+  /** Select only the project's base worktree. */
+  preferBase?: boolean;
+  /** Optional trusted worktree identities used to keep focused views bounded. */
+  worktreeIds?: string[];
 }
 
 /** Browser-safe identity for a known worktree. Paths are resolved by the server. */

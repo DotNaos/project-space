@@ -12,6 +12,7 @@ import type {
   TailscaleStatusResult
 } from '../src/shared/project-space-api';
 import { loadConnectorTopologyMetadata } from './connector-topology-metadata';
+import { localMachineName } from './local-machine-identity';
 
 const execFileAsync = promisify(execFile);
 const machinesRepoPath = join(homedir(), 'projects', 'machines');
@@ -159,7 +160,7 @@ function parseHostFile(path: string): MachineRecord {
     }
   }
 
-  const currentHost = hostname().split('.')[0];
+  const currentHost = localMachineName();
   const hostNames = new Set([network.localName, name].filter(Boolean));
   const isLocal = hostNames.has(currentHost) || hostNames.has(hostname());
 
@@ -245,7 +246,7 @@ export async function getConnectorOverview(): Promise<ConnectorOverviewResult> {
     loadBatteryStatus()
   ]);
 
-  const currentHost = hostname().split('.')[0];
+  const currentHost = localMachineName();
   const topology = loadConnectorTopologyMetadata();
   const machinesWithTailscale = machines.map((machine) => {
     const isLocal =

@@ -45,6 +45,7 @@ import {
   type CodexTaskStartAttempt
 } from './codex-task-start-attempt';
 import { CodexTaskStartRecoveryDialog } from './codex-task-start-recovery-dialog';
+import { IssueDevelopmentServers } from './issue-development-servers';
 
 interface IssueDevelopmentSessionProps {
   branches: GitHubBranchRecord[];
@@ -133,6 +134,10 @@ export function IssueDevelopmentSession({
     () => getIssueMachineRows({ connectorOverview, project, projects, repoFullName }),
     [connectorOverview, project, projects, repoFullName]
   );
+  const localMachineId =
+    connectorOverview.machines.find((machine) => machine.connector.status === 'local')?.id ??
+    connectorOverview.machines[0]?.id ??
+    'local';
   const prototypeMachineRows = useMemo(
     () => machineRows.filter((row) => canRunMachineCommand(row.machine)),
     [machineRows]
@@ -446,9 +451,18 @@ export function IssueDevelopmentSession({
       ) : null}
 
       {selectedBranch && !isMerged ? (
+        <IssueDevelopmentServers
+          branchName={selectedBranch.name}
+          localMachineId={localMachineId}
+          machineRows={machineRows}
+          projects={projects}
+        />
+      ) : null}
+
+      {selectedBranch && !isMerged ? (
         <section>
           <div className="mb-2 flex h-8 items-center justify-between">
-            <h3 className="text-xs font-semibold text-current/55">Active development</h3>
+            <h3 className="text-xs font-semibold text-current/55">Codex</h3>
             <span className="text-[10px] tabular-nums text-current/30">
               {machineRows.length} {machineRows.length === 1 ? 'machine' : 'machines'}
             </span>

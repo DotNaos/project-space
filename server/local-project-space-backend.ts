@@ -1,5 +1,3 @@
-import { hostname } from 'node:os';
-
 import { getCodexStatus, openCodexTarget } from './local-codex-client';
 import {
   registerLocalConnectorDevServerExecutor,
@@ -45,6 +43,7 @@ import {
   openPathInApp
 } from './local-launcher-apps';
 import { getConnectorOverview } from './local-machine-registry';
+import { localMachineName } from './local-machine-identity';
 import {
   discoverLocalProjects,
   localProjectsDiscoveryRoot,
@@ -116,7 +115,7 @@ async function localConnectorIdentity(connectorMachineId?: string) {
   const localMachine =
     connector.machines.find((machine) => machine.connector.status === 'local') ??
     connector.machines[0];
-  const machineName = localMachine?.name ?? hostname().split('.')[0];
+  const machineName = localMachine?.name ?? localMachineName();
   return {
     connector,
     localMachine,
@@ -236,7 +235,7 @@ export function createLocalProjectSpaceBackend(
   }
 
   registerLocalDevServer(
-    options.connectorMachineId ?? configuredConnectorMachineId() ?? hostname().split('.')[0]
+    options.connectorMachineId ?? configuredConnectorMachineId() ?? localMachineName()
   );
   return {
     ...createLocalProjectMachineBackend(loadConnectorOverview),

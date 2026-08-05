@@ -2,20 +2,68 @@
 set -euo pipefail
 
 PROJECT_SPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROJECT_SPACE_DIR="${TMPDIR:-/tmp}/project-space-project-cli.bundle"
+PROJECT_SPACE_ROOT_KEY="$(printf '%s' "$PROJECT_SPACE_ROOT" | shasum -a 256 | cut -c1-16)"
+PROJECT_SPACE_DIR="${TMPDIR:-/tmp}/project-space-project-cli.bundle/$PROJECT_SPACE_ROOT_KEY"
 mkdir -p "$PROJECT_SPACE_DIR"
 PROJECT_SPACE_BIN="$PROJECT_SPACE_DIR/project"
-if [ "$(uname -s)" = "Darwin" ]; then
-  (cd "$PROJECT_SPACE_ROOT" && swiftc -parse-as-library internal/approvalsigner/native/ProjectApprovalSigner.swift -o "$PROJECT_SPACE_DIR/project-approval-signer")
-  if identity=$(security find-identity -p codesigning -v | sed -n 's/.*"\(Apple Development:[^"]*\)".*/\1/p' | head -1) && [ -n "$identity" ]; then
-    codesign --force --sign "$identity" -i com.dotnaos.project.approval-signer --options runtime --timestamp=none "$PROJECT_SPACE_DIR/project-approval-signer" >/dev/null
+PROJECT_SPACE_BUILD_LOCK="$PROJECT_SPACE_DIR.build-lock"
+
+project_space_binary_is_current() {
+  [ -x "$PROJECT_SPACE_BIN" ] || return 1
+  [ ! "$PROJECT_SPACE_ROOT/go.mod" -nt "$PROJECT_SPACE_BIN" ] || return 1
+  [ ! "$PROJECT_SPACE_ROOT/go.sum" -nt "$PROJECT_SPACE_BIN" ] || return 1
+  if [ "$(uname -s)" = "Darwin" ]; then
+    [ -x "$PROJECT_SPACE_DIR/project-approval-signer" ] || return 1
+    [ ! "$PROJECT_SPACE_ROOT/internal/approvalsigner/native/ProjectApprovalSigner.swift" -nt "$PROJECT_SPACE_DIR/project-approval-signer" ] || return 1
   fi
+  [ -z "$(find "$PROJECT_SPACE_ROOT/cmd" "$PROJECT_SPACE_ROOT/internal" -type f -newer "$PROJECT_SPACE_BIN" -print -quit)" ]
+}
+
+if ! project_space_binary_is_current; then
+  lock_acquired=false
+  for _ in $(seq 1 600); do
+    if mkdir "$PROJECT_SPACE_BUILD_LOCK" 2>/dev/null; then
+      lock_acquired=true
+      break
+    fi
+    sleep 0.1
+  done
+  if [ "$lock_acquired" != true ]; then
+    echo "Timed out waiting for the Project CLI build lock." >&2
+    exit 1
+  fi
+
+  project_space_build_temp="$PROJECT_SPACE_BIN.$$"
+  cleanup_project_space_build() {
+    rm -f "$project_space_build_temp"
+    rmdir "$PROJECT_SPACE_BUILD_LOCK" 2>/dev/null || true
+  }
+  trap cleanup_project_space_build EXIT INT TERM HUP
+
+  # A second invocation may have completed the build while this process waited.
+  if ! project_space_binary_is_current; then
+    if [ "$(uname -s)" = "Darwin" ]; then
+      signer_source="$PROJECT_SPACE_ROOT/internal/approvalsigner/native/ProjectApprovalSigner.swift"
+      signer_binary="$PROJECT_SPACE_DIR/project-approval-signer"
+      if [ ! -x "$signer_binary" ] || [ "$signer_source" -nt "$signer_binary" ]; then
+        (cd "$PROJECT_SPACE_ROOT" && swiftc -parse-as-library "$signer_source" -o "$signer_binary")
+        if identity=$(security find-identity -p codesigning -v | sed -n 's/.*"\(Apple Development:[^"]*\)".*/\1/p' | head -1) && [ -n "$identity" ]; then
+          codesign --force --sign "$identity" -i com.dotnaos.project.approval-signer --options runtime --timestamp=none "$signer_binary" >/dev/null
+        fi
+      fi
+    fi
+    signer_sha=""
+    if [ -f "$PROJECT_SPACE_DIR/project-approval-signer" ]; then
+      signer_sha="$(shasum -a 256 "$PROJECT_SPACE_DIR/project-approval-signer" | awk '{print $1}')"
+    fi
+    (cd "$PROJECT_SPACE_ROOT" && go build -ldflags="-X github.com/DotNaos/project-space/internal/approvalsigner.expectedHelperSHA256=$signer_sha" -o "$project_space_build_temp" ./cmd/project)
+    chmod +x "$project_space_build_temp"
+    mv "$project_space_build_temp" "$PROJECT_SPACE_BIN"
+  fi
+
+  cleanup_project_space_build
+  trap - EXIT INT TERM HUP
 fi
-signer_sha=""
-if [ -f "$PROJECT_SPACE_DIR/project-approval-signer" ]; then
-  signer_sha="$(shasum -a 256 "$PROJECT_SPACE_DIR/project-approval-signer" | awk '{print $1}')"
-fi
-(cd "$PROJECT_SPACE_ROOT" && go build -ldflags="-X github.com/DotNaos/project-space/internal/approvalsigner.expectedHelperSHA256=$signer_sha" -o "$PROJECT_SPACE_BIN" ./cmd/project)
 if [ -z "${PROJECT_SPACE_TEMPLATE_ROOT:-}" ] && [ -f "/Users/oli/projects/project-template/template/manifest.yaml" ]; then
   export PROJECT_SPACE_TEMPLATE_ROOT="/Users/oli/projects/project-template"
 fi

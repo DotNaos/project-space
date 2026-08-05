@@ -70,7 +70,7 @@ function projectSpaceApiPlugin(): Plugin {
           process.env.PROJECT_SPACE_PUBLIC_ORIGIN ?? process.env.PORTLESS_URL,
         PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET:
           process.env.PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET ??
-          (process.env.PROJECT_SPACE_AUTH_DISABLED === '1'
+          (process.env.PORTLESS_URL || process.env.PROJECT_SPACE_AUTH_DISABLED === '1'
             ? randomBytes(32).toString('hex')
             : undefined)
       });
