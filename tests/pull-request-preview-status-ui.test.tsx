@@ -64,6 +64,25 @@ describe('pull request Preview status UI', () => {
     expect(html).not.toContain('<a');
   });
 
+  test('renders the automatic deployment wait state without a link', () => {
+    const html = renderToStaticMarkup(<PullRequestPreviewStatusView
+      inventory={{
+        result: {
+          checkedAt: '2026-07-22T10:00:00.000Z',
+          previews: [],
+          repositoryFullName,
+          status: 'available'
+        },
+        state: 'ready'
+      }}
+      pullRequest={{ ...pullRequest, isDraft: true }}
+      repositoryFullName={repositoryFullName}
+    />);
+    expect(html).toContain('Waiting for automatic deployment');
+    expect(html).toContain('automatic Preview deployment');
+    expect(html).not.toContain('<a');
+  });
+
   test('renders a capacity block as pending rather than failed', () => {
     const html = renderToStaticMarkup(<PullRequestPreviewStatusView
       inventory={{

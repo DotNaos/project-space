@@ -33,7 +33,10 @@ import { branchNameForIssue } from './issue-branch-model';
 import { resolveIssueDevelopmentHead } from './issue-development-head';
 import { IssuePullRequestChip } from './issue-branch-menu';
 import { connectorLocationPresentation } from './machine-connector-topology-model';
-import { issueDevelopmentPullRequest } from './pull-request-preview-model';
+import {
+  issueDevelopmentPullRequest,
+  shouldShowPullRequestPreview
+} from './pull-request-preview-model';
 import { PullRequestPreviewStatusView } from './pull-request-preview-status';
 import { PullRequestPrototypeAction } from './pull-request-prototype-action';
 import {
@@ -347,6 +350,7 @@ export function IssueDevelopmentSession({
 
   const isMerged = selectedPullRequest?.state === 'merged';
   const isReadyPullRequest = selectedPullRequest?.state === 'open' && !selectedPullRequest.isDraft;
+  const showsPullRequestPreview = shouldShowPullRequestPreview(selectedPullRequest);
 
   return (
     <>
@@ -413,10 +417,10 @@ export function IssueDevelopmentSession({
         </div>
       ) : null}
 
-      {isReadyPullRequest ? (
+      {showsPullRequestPreview ? (
         <section className="grid gap-3 border-b border-current/[.08] pb-5">
           <PullRequestPreviewStatusView inventory={preview.inventory} pullRequest={selectedPullRequest} repositoryFullName={repoFullName} />
-          {repoFullName ? (
+          {isReadyPullRequest && repoFullName ? (
             <PullRequestPrototypeAction connectorId={prototypeMachine?.machineId} issueNumber={issue.number} projectId={project.id} pullRequest={selectedPullRequest} repositoryFullName={repoFullName} />
           ) : null}
         </section>

@@ -294,8 +294,8 @@ export function pullRequestPreviewPresentation({
   }
   if (!preview) {
     return pullRequest.state === 'open' ? {
-      detail: 'A successful registry check found no Preview for this pull request.',
-      label: 'Not deployed',
+      detail: 'The exact pull request head has not been registered yet. It will appear here after automatic Preview deployment.',
+      label: 'Waiting for automatic deployment',
       state: 'not-deployed',
       tone: 'muted'
     } : {
@@ -306,6 +306,10 @@ export function pullRequestPreviewPresentation({
     };
   }
   return presentationForPreview(preview, pullRequest);
+}
+
+export function shouldShowPullRequestPreview(pullRequest?: GitHubPullRequestRecord) {
+  return pullRequest?.state === 'open';
 }
 
 export function previewSortPriority(preview: PullRequestPreviewStatus) {

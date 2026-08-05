@@ -7,7 +7,8 @@ import type {
 } from '../src/shared/project-space-api';
 import {
   issueDevelopmentPullRequest,
-  pullRequestPreviewPresentation
+  pullRequestPreviewPresentation,
+  shouldShowPullRequestPreview
 } from '../src/features/project-desktop/components/pull-request-preview-model';
 
 const repositoryFullName = 'DotNaos/project-space';
@@ -94,7 +95,11 @@ describe('pull request Preview presentation', () => {
     const empty = pullRequestPreviewPresentation({
       inventory: readyInventory(), pullRequest: pullRequest(), repositoryFullName
     });
-    expect(empty).toMatchObject({ label: 'Not deployed', state: 'not-deployed' });
+    expect(empty).toMatchObject({
+      label: 'Waiting for automatic deployment',
+      state: 'not-deployed'
+    });
+    expect(empty.detail).toContain('automatic Preview deployment');
     expect(empty.href).toBeUndefined();
 
     const blocked = pullRequestPreviewPresentation({
@@ -115,6 +120,13 @@ describe('pull request Preview presentation', () => {
       pullRequest: pullRequest(),
       repositoryFullName
     })).toMatchObject({ href: 'https://pr-263.projects.os-home.net/', label: 'Last verified preview', state: 'stale' });
+  });
+
+  test('shows Preview status for every open pull request, including drafts', () => {
+    expect(shouldShowPullRequestPreview(pullRequest({ isDraft: true }))).toBe(true);
+    expect(shouldShowPullRequestPreview(pullRequest({ isDraft: false }))).toBe(true);
+    expect(shouldShowPullRequestPreview(pullRequest({ state: 'merged' }))).toBe(false);
+    expect(shouldShowPullRequestPreview()).toBe(false);
   });
 
   test('never exposes a Preview link for a closed PR or a SHA-less tombstone', () => {
