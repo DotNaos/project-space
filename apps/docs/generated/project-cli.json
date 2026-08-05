@@ -3401,6 +3401,36 @@
               }
             ],
             "commands": []
+          },
+          {
+            "path": "project worktree recover",
+            "name": "recover",
+            "usage": "recover",
+            "short": "Replace a confirmed orphaned Codex owner on a pristine managed worktree",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "expected-owner",
+                "type": "string",
+                "description": "exact orphaned Codex thread id",
+                "inherited": false
+              },
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for recover",
+                "inherited": false
+              }
+            ],
+            "commands": []
           }
         ]
       }

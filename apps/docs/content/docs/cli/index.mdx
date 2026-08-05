@@ -1412,6 +1412,20 @@ project worktree prepare [task-name]
 | `-h`, `--help` | `bool` | local | help for prepare |
 | `--issue` | `int` | local | prepare a worktree for an existing open GitHub issue |
 
+<h3 id="project-worktree-recover" className="scroll-m-28"><code>project worktree recover</code></h3>
+
+Replace a confirmed orphaned Codex owner on a pristine managed worktree
+
+```sh
+project worktree recover
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--expected-owner` | `string` | local | exact orphaned Codex thread id |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for recover |
+
 ## Guides
 
 - [Project Doctor](/docs/cli/doctor)
