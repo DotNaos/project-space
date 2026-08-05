@@ -364,10 +364,14 @@ printf '%s\n' "{\"state\":\"open\",\"base\":{\"ref\":\"main\",\"repo\":{\"full_n
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_MODE: "1"');
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_BROKER_ORIGIN: https://pr.projects.os-home.net');
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_GATEWAY_SECRET');
+    expect(compose).toContain('PROJECT_SPACE_PREVIEW_OFFLINE: ${PROJECT_SPACE_PREVIEW_OFFLINE:-1}');
+    expect(compose).toContain('PROJECT_SPACE_PREVIEW_VERIFICATION_SECRET');
+    expect(compose).toContain('PROJECT_SPACE_PREVIEW_VERIFIED: ${PROJECT_SPACE_PREVIEW_VERIFIED:-0}');
     expect(compose).toContain('PROJECT_SPACE_PROTOTYPE_ACCESS_SECRET');
     const webService = compose.slice(compose.indexOf('  web:'), compose.indexOf('\n  docs:'));
     expect(webService).not.toContain('PROJECT_SPACE_PROTOTYPE_ACCESS_SECRET');
     expect(runner).toContain('PREVIEW_PROTOTYPE_ACCESS_SECRET=');
+    expect(runner).toContain('ready:online');
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_UPSTREAM_ORIGIN: http://preview-web:4173');
     expect(compose).toContain('aliases: [preview-web]');
     expect(compose).toContain('PROJECT_SPACE_PREVIEW_REPOSITORY');
@@ -414,6 +418,9 @@ printf '%s\n' "{\"state\":\"open\",\"base\":{\"ref\":\"main\",\"repo\":{\"full_n
         PREVIEW_GATEWAY_IMAGE: `ghcr.io/dotnaos/project-space-preview-gateway@sha256:${'a'.repeat(64)}`,
         PREVIEW_GATEWAY_SECRET: 'preview-test-gateway-secret-that-is-long-enough',
         PREVIEW_HEAD_SHA: 'd'.repeat(40),
+        PROJECT_SPACE_PREVIEW_OFFLINE: '1',
+        PROJECT_SPACE_PREVIEW_VERIFICATION_SECRET: 'preview-test-verification-secret-that-is-long-enough',
+        PROJECT_SPACE_PREVIEW_VERIFIED: '0',
         PREVIEW_POSTGRES_PASSWORD: 'preview-test-postgres-password',
         PREVIEW_PR_NUMBER: '263',
         PREVIEW_PROTOTYPE_IMAGE: `ghcr.io/dotnaos/project-space-preview-prototype@sha256:${'e'.repeat(64)}`,
@@ -429,6 +436,10 @@ printf '%s\n' "{\"state\":\"open\",\"base\":{\"ref\":\"main\",\"repo\":{\"full_n
     const labels = parsed.services.gateway.labels as Record<string, string>;
     expect(parsed.services.gateway.environment.PROJECT_SPACE_PREVIEW_UPSTREAM_ORIGIN)
       .toBe('http://preview-web:4173');
+    expect(parsed.services.gateway.environment.PROJECT_SPACE_PREVIEW_OFFLINE).toBe('1');
+    expect(parsed.services.gateway.environment.PROJECT_SPACE_PREVIEW_VERIFICATION_SECRET)
+      .toBe('preview-test-verification-secret-that-is-long-enough');
+    expect(parsed.services.gateway.environment.PROJECT_SPACE_PREVIEW_VERIFIED).toBe('0');
     expect(parsed.services.web.networks['preview-internal'].aliases).toEqual(['preview-web']);
     expect(parsed.services.prototype.networks['preview-internal'].aliases)
       .toEqual(['preview-prototype']);

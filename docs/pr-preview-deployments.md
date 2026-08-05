@@ -1,6 +1,6 @@
 # Pull request previews
 
-Project Space can build one isolated, temporary Preview for an open pull request. A Preview is never a Production or Beta environment and never contributes deployment truth to the project topology.
+Project Space automatically builds and deploys one isolated, temporary Preview for an open pull request after its exact-revision artifact workflow succeeds. A Preview is never a Production or Beta environment and never contributes deployment truth to the project topology.
 
 ## Operator workflow
 
