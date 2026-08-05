@@ -4,7 +4,7 @@ export const machineConnectionPublicOriginEnvironment =
   'PROJECT_SPACE_PUBLIC_ORIGIN';
 
 function isLoopbackHostname(hostname: string) {
-  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname.endsWith('.localhost');
 }
 
 export function readMachineConnectionPublicOrigin(

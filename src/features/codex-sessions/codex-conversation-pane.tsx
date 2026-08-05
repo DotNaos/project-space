@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowUp,
   Brain,
+  ChevronRight,
   CircleAlert,
   CircleDot,
   Clock3,
@@ -21,6 +22,7 @@ import type { CodexSessionTurnSettings } from '@/shared/codex-sessions-api';
 import { codexContinueBlockReason, codexThreadOrigin } from './codex-sessions-model';
 import { CodexComposerTextArea } from './codex-composer-textarea';
 import { CodexMarkdownMessage } from './codex-markdown-message';
+import { CodexSessionPermissionControl } from './codex-session-permission-control';
 import {
   CodexSessionModelSelect,
   type CodexSessionModelSelection
@@ -54,16 +56,55 @@ const completedActivityIcon = {
   status: CircleDot
 };
 
-function ActivityRow({ item }: { item: Extract<CodexConversationItem, { kind: 'activity' }> }) {
-  const Icon = item.state === 'completed'
+type ActivityItem = Extract<CodexConversationItem, { kind: 'activity' }>;
+type MessageConversationItem = Extract<CodexConversationItem, { kind: 'message' }>;
+
+type ConversationSegment =
+  | { item: MessageConversationItem; kind: 'message' }
+  | { items: ActivityItem[]; kind: 'activity-run' };
+
+function groupConversationItems(items: CodexConversationItem[]): ConversationSegment[] {
+  const segments: ConversationSegment[] = [];
+  let activityRun: ActivityItem[] = [];
+
+  function flushActivityRun() {
+    if (!activityRun.length) return;
+    segments.push({ items: activityRun, kind: 'activity-run' });
+    activityRun = [];
+  }
+
+  for (const item of items) {
+    if (item.kind === 'activity') {
+      activityRun.push(item);
+      continue;
+    }
+    flushActivityRun();
+    segments.push({ item, kind: 'message' });
+  }
+  flushActivityRun();
+  return segments;
+}
+
+function activityIcon(item: ActivityItem) {
+  return item.state === 'completed'
     ? completedActivityIcon[item.activityKind ?? 'status']
     : activityStateIcon[item.state];
+}
+
+function activityDisplayText(item: ActivityItem) {
+  return item.detail ?? item.label;
+}
+
+function completedActivityRunLabel(items: ActivityItem[]) {
+  const actions = [...new Set(items.map(activityDisplayText))];
+  const visibleActions = actions.slice(0, 2).join(', ');
+  return actions.length > 2 ? `${visibleActions}, +${actions.length - 2}` : visibleActions;
+}
+
+function ActivityRowContent({ item }: { item: ActivityItem }) {
+  const Icon = activityIcon(item);
   return (
-    <div
-      className="my-1.5 flex min-w-0 items-start gap-3 py-1.5 text-[0.9375rem] leading-7 text-neutral-500"
-      data-codex-activity-kind={item.activityKind ?? 'unknown'}
-      data-codex-activity-row="true"
-    >
+    <>
       <Icon className={cn(
         'mt-[0.3rem] size-[1.125rem] shrink-0 stroke-[1.75] text-neutral-500',
         item.state === 'running' && 'animate-spin text-neutral-300',
@@ -74,10 +115,62 @@ function ActivityRow({ item }: { item: Extract<CodexConversationItem, { kind: 'a
           <span className="sr-only">{activityStateLabel[item.state]}: </span>
         )}
         <Text className="text-neutral-400">
-          {item.label}{item.detail ? ` ${item.detail}` : ''}
+          {activityDisplayText(item)}
         </Text>
       </span>
+    </>
+  );
+}
+
+function ActivityRow({ item }: { item: ActivityItem }) {
+  return (
+    <div
+      className="my-1.5 flex min-w-0 items-start gap-3 py-1.5 text-[0.9375rem] leading-7 text-neutral-500"
+      data-codex-activity-kind={item.activityKind ?? 'unknown'}
+      data-codex-activity-row="true"
+    >
+      <ActivityRowContent item={item} />
     </div>
+  );
+}
+
+function ActivityRun({ items }: { items: ActivityItem[] }) {
+  if (items.length === 1) return <ActivityRow item={items[0]} />;
+
+  const activeItem = [...items].reverse().find((item) => item.state !== 'completed');
+  const visibleItem = activeItem ?? items[items.length - 1];
+  const hiddenItems = items.filter((item) => item.id !== visibleItem.id);
+  const SummaryIcon = activeItem ? activityIcon(activeItem) : ListChecks;
+  const summaryLabel = activeItem
+    ? activityDisplayText(activeItem)
+    : completedActivityRunLabel(items);
+
+  return (
+    <details
+      className="group/activity-run my-1.5 min-w-0 text-[0.9375rem] leading-7 text-neutral-500"
+      data-codex-activity-run="true"
+      data-codex-activity-run-count={items.length}
+      data-codex-activity-run-state={activeItem?.state ?? 'completed'}
+    >
+      <summary
+        className="flex min-w-0 cursor-pointer list-none items-start gap-3 py-1.5 outline-none transition-colors hover:text-neutral-300 focus-visible:text-neutral-200 [&::-webkit-details-marker]:hidden"
+        data-codex-activity-run-summary="true"
+      >
+        <SummaryIcon className={cn(
+          'mt-[0.3rem] size-[1.125rem] shrink-0 stroke-[1.75] text-neutral-500',
+          activeItem?.state === 'running' && 'animate-spin text-neutral-300',
+          activeItem?.state === 'failed' && 'text-red-400'
+        )} />
+        <Text className="min-w-0 flex-1 truncate text-neutral-400">{summaryLabel}</Text>
+        <span className="mt-[0.2rem] shrink-0 text-[10px] tabular-nums text-neutral-600">
+          +{hiddenItems.length}
+        </span>
+        <ChevronRight className="mt-[0.35rem] size-3.5 shrink-0 text-neutral-600 transition-transform duration-150 group-open/activity-run:rotate-90" />
+      </summary>
+      <div className="pl-7" data-codex-activity-run-items="true">
+        {hiddenItems.map((item) => <ActivityRow item={item} key={item.id} />)}
+      </div>
+    </details>
   );
 }
 
@@ -120,6 +213,7 @@ export function CodexConversationPane({
   modelSelection,
   onBack,
   onContinue,
+  onPermissionChange,
   onOpenDetails,
   session,
   showHeader = true,
@@ -136,6 +230,10 @@ export function CodexConversationPane({
     message: string,
     settings?: CodexSessionTurnSettings
   ): Promise<void> | void;
+  onPermissionChange?(
+    origin: CodexThreadOrigin,
+    permissionProfileId: string
+  ): Promise<void>;
   onOpenDetails?(): void;
   session?: CodexSession;
   showHeader?: boolean;
@@ -210,10 +308,10 @@ export function CodexConversationPane({
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-8">
         {conversation?.items.length ? (
           <div className="mx-auto w-full max-w-[84ch]" data-codex-transcript="article">
-            {conversation.items.map((item) => (
-              item.kind === 'message'
-                ? <MessageItem item={item} key={item.id} />
-                : <ActivityRow item={item} key={item.id} />
+            {groupConversationItems(conversation.items).map((segment) => (
+              segment.kind === 'message'
+                ? <MessageItem item={segment.item} key={segment.item.id} />
+                : <ActivityRun items={segment.items} key={`activity-run-${segment.items[0].id}`} />
             ))}
           </div>
         ) : historyState === 'loading' ? (
@@ -268,14 +366,24 @@ export function CodexConversationPane({
           />
           <div className="mt-auto flex min-w-0 items-center justify-between gap-3" data-codex-composer-actions="true">
             <div className="flex min-w-0 items-center gap-0.5">
-              <span
-                aria-label="Exact machine and task authorization"
-                className="grid size-9 shrink-0 place-items-center text-neutral-500"
-                role="img"
-                title="Exact machine and task authorization"
-              >
-                <ShieldCheck className="size-4" />
-              </span>
+              {session.permissionProfiles?.length && onPermissionChange ? (
+                <CodexSessionPermissionControl
+                  activeProfileId={session.permissionProfileId}
+                  disabled={Boolean(blockReason) || sending}
+                  isDark
+                  onChange={(profileId) => onPermissionChange(codexThreadOrigin(session), profileId)}
+                  profiles={session.permissionProfiles}
+                />
+              ) : (
+                <span
+                  aria-label="Exact machine and task authorization"
+                  className="grid size-9 shrink-0 place-items-center text-neutral-500"
+                  role="img"
+                  title="Exact machine and task authorization"
+                >
+                  <ShieldCheck className="size-4" />
+                </span>
+              )}
               <CodexSessionModelSelect
                 disabled={Boolean(blockReason) || sending || (modelSelection?.disabled ?? true)}
                 effort={modelSelection?.effort}

@@ -3,16 +3,10 @@ import type {
   GitHubIssueRecord,
   GitHubPullRequestRecord
 } from '@/shared/project-space-api';
+import { issueBranchName } from '../../../shared/issue-branch-name';
 
 export function branchNameForIssue(issue: GitHubIssueRecord) {
-  const slug = issue.title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48)
-    .replace(/-+$/g, '');
-
-  return `issue-${issue.number}${slug ? `-${slug}` : ''}`;
+  return issueBranchName(issue.number, issue.title);
 }
 
 export function issueBranchesForIssue({

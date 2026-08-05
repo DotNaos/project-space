@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { constants, realpathSync } from 'node:fs';
-import { access, chmod, copyFile, lstat, mkdir, rename, rm } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { access, chmod, copyFile, lstat, mkdir, realpath, rename, rm } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 
 import type {
   CodexDaemonConnectorResult,
@@ -27,7 +27,6 @@ export interface CodexDaemonManagerOptions {
   manager: Pick<CodexSessionManager, 'executeManagedOperation'>;
   now?(): number;
   platform?: NodeJS.Platform;
-  remoteStatusTimeoutMs?: number;
   resolveBinary?(): string | undefined;
   rpcTimeoutMs?: number;
   run?(binaryPath: string, args: string[], environment: NodeJS.ProcessEnv): Promise<CommandResult>;
@@ -142,17 +141,12 @@ export class CodexDaemonManager {
     }
     let transport: CodexWebSocketTransport | undefined;
     let remoteStatus: ReturnType<typeof readRemoteControl> | undefined;
-    let resolveRemoteStatus: (() => void) | undefined;
-    const remoteStatusArrived = new Promise<void>((resolve) => {
-      resolveRemoteStatus = resolve;
-    });
     try {
       transport = await CodexWebSocketTransport.connect({
         connectTimeoutMs: this.options.connectTimeoutMs,
         onMessage: (message) => {
           if (message.method !== 'remoteControl/status/changed') return;
           remoteStatus = readRemoteControl(message.params);
-          resolveRemoteStatus?.();
         },
         rpcTimeoutMs: this.options.rpcTimeoutMs,
         socketPath
@@ -162,18 +156,6 @@ export class CodexDaemonManager {
         'account/read',
         { refreshToken: false }
       );
-      if (!remoteStatus) {
-        await Promise.race([
-          remoteStatusArrived,
-          new Promise<void>((resolve) => {
-            const timeout = setTimeout(
-              resolve,
-              boundedTimeout(this.options.remoteStatusTimeoutMs, 1_000)
-            );
-            timeout.unref?.();
-          })
-        ]);
-      }
       const authenticated = readAuthenticated(account);
       const remote = remoteStatus ?? { state: 'unknown' as const };
       const enabled = lifecycle.remoteControlEnabled === true ||
@@ -183,15 +165,7 @@ export class CodexDaemonManager {
         ? 'incompatible'
         : !authenticated
           ? 'authorization-required'
-          : !enabled
-            ? 'remote-control-disabled'
-            : remote.state === 'connected' && !paired
-              ? 'pairing-required'
-              : remote.state === 'connecting'
-                ? 'connecting'
-                : remote.state === 'connected'
-                  ? 'ready'
-                  : 'uncertain';
+          : 'ready';
       return {
         appServerVersion: lifecycle.appServerVersion,
         authenticated,
@@ -226,7 +200,6 @@ export class CodexDaemonManager {
     this.requireSupported();
     const binaryPath = this.requireBinary();
     await this.provisionManagedBinary(binaryPath);
-    await this.requireLifecycle(binaryPath, 'enable-remote-control');
     await this.requireLifecycle(binaryPath, 'start');
     const evidence = await this.inspect();
     if (evidence.state !== 'incompatible') return evidence;
@@ -238,12 +211,17 @@ export class CodexDaemonManager {
     this.requireSupported();
     const binaryPath = this.requireBinary();
     await this.provisionManagedBinary(binaryPath);
-    await this.requireLifecycle(binaryPath, 'enable-remote-control');
     await this.requireLifecycle(binaryPath, 'restart');
     return this.inspect();
   }
 
   private async provisionManagedBinary(binaryPath: string) {
+    if (this.environment.PROJECT_SPACE_INSTALL_SOURCE !== 'managed') {
+      throw new Error(
+        'Doctor will not create a managed Codex installation from an unpinned runtime.'
+      );
+    }
+    if (await this.managedBinaryInstalled()) return;
     const codexHome = resolveCodexHome(this.environment);
     const managedPath = join(codexHome, 'packages', 'standalone', 'current', 'codex');
     const managedDirectory = dirname(managedPath);
@@ -254,11 +232,6 @@ export class CodexDaemonManager {
     });
     if (existing && (!existing.isFile() || existing.isSymbolicLink())) {
       throw new Error('The managed Codex binary path is not a regular file.');
-    }
-    if (this.environment.PROJECT_SPACE_INSTALL_SOURCE !== 'managed') {
-      throw new Error(
-        'Doctor will not create a managed Codex installation from an unpinned runtime.'
-      );
     }
     const temporaryPath = join(
       managedDirectory,
@@ -276,9 +249,17 @@ export class CodexDaemonManager {
 
   private async managedBinaryInstalled() {
     const codexHome = resolveCodexHome(this.environment);
-    const path = join(codexHome, 'packages', 'standalone', 'current', 'codex');
+    const standaloneRoot = join(codexHome, 'packages', 'standalone');
+    const path = join(standaloneRoot, 'current', 'codex');
     try {
-      const status = await lstat(path);
+      const [resolvedRoot, resolvedPath] = await Promise.all([
+        realpath(standaloneRoot),
+        realpath(path)
+      ]);
+      const relativePath = relative(resolvedRoot, resolvedPath);
+      if (isAbsolute(relativePath) || relativePath === '..' ||
+          relativePath.startsWith(`..${sep}`)) return false;
+      const status = await lstat(resolvedPath);
       return status.isFile() && !status.isSymbolicLink() &&
         (status.mode & 0o111) !== 0 && (status.mode & 0o022) === 0;
     } catch {

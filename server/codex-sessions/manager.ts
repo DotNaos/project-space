@@ -264,6 +264,9 @@ export class CodexSessionManager {
     const model = input.model === undefined
       ? undefined
       : validateIdentifier(input.model, 'model');
+    const permissionProfileId = input.permissionProfileId === undefined
+      ? undefined
+      : validatePermissionProfileId(input.permissionProfileId);
     const serviceTier = input.serviceTier === null
       ? null
       : input.serviceTier === undefined
@@ -272,6 +275,7 @@ export class CodexSessionManager {
     const settings = {
       ...(effort ? { effort } : {}),
       ...(model ? { model } : {}),
+      ...(permissionProfileId ? { permissions: permissionProfileId } : {}),
       ...(serviceTier !== undefined ? { serviceTier } : {})
     };
     return this.ledger.execute(

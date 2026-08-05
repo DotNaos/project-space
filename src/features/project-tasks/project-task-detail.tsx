@@ -116,8 +116,8 @@ export function ProjectTaskDetail({
   }
 
   return (
-    <section className="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col px-5 pb-5 pt-2 @md:px-8 @3xl:px-10">
-      <header className="shrink-0 border-b border-current/[.08] pb-5">
+    <section className="mx-auto h-full min-h-0 w-full max-w-5xl overflow-y-auto px-5 pb-5 pt-2 [scrollbar-width:none] @md:px-8 @3xl:px-10">
+      <header className="border-b border-current/[.08] pb-5">
         <div className="flex items-center justify-between gap-3">
           <button className="inline-flex items-center gap-2 rounded-full px-2 py-1.5 text-sm text-current/70 hover:bg-current/[.06] hover:text-current" onClick={onBack} type="button">
             <ArrowLeft className="size-4" /> Tasks
@@ -151,7 +151,7 @@ export function ProjectTaskDetail({
         ) : null}
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none]">
+      <div>
         <section className="grid gap-px border-b border-current/[.08] py-4 @lg:grid-cols-2">
           <a className="flex min-h-12 items-center gap-3 rounded-xl px-2 text-sm hover:bg-current/[.045]" href={pullRequest?.url ?? task.issue.url} rel="noreferrer" target="_blank">
             {pullRequest?.state === 'merged' ? <GitMerge className="size-4 text-violet-400" /> : <GitPullRequest className="size-4 text-current/35" />}

@@ -38,6 +38,10 @@ export interface CodexSessionsPageProps {
   onInterruptThread?(origin: CodexThreadOrigin, turnId: string): Promise<void> | void;
   onOpenProjectChatThread?(origin: CodexThreadOrigin): void;
   onManageConnector?(machineId: string): void;
+  onPermissionProfileChange?(
+    origin: CodexThreadOrigin,
+    permissionProfileId: string
+  ): Promise<void>;
   onResolveApproval?(decision: CodexApprovalDecision): Promise<void> | void;
   onResolveUserInput?(decision: CodexUserInputDecision): Promise<void> | void;
   onSelectThread?(origin: CodexThreadOrigin): void;
@@ -65,6 +69,7 @@ export function CodexSessionsPage({
   onBackFromThread,
   onInterruptThread,
   onManageConnector,
+  onPermissionProfileChange,
   onResolveApproval,
   onResolveUserInput,
   onSelectThread,
@@ -139,6 +144,7 @@ export function CodexSessionsPage({
           onBack={onBackFromThread}
           onContinue={onContinueThread}
           onInterrupt={onInterruptThread}
+          onPermissionChange={onPermissionProfileChange}
           onResolveApproval={onResolveApproval}
           onResolveUserInput={onResolveUserInput}
           session={selectedSession}

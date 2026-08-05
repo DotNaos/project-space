@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { createServer } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
 import { generateKeyPairSync } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -11,7 +11,10 @@ import { WebSocketServer } from 'ws';
 import { CodexDaemonManager } from '../server/codex-daemon/manager';
 import { CodexSessionManager } from '../server/codex-sessions/manager';
 import { CodexOperationLedger } from '../server/codex-sessions/operation-ledger';
-import type { CodexAppServerTransport } from '../server/codex-sessions/stdio-transport';
+import {
+  CodexThreadUnmaterializedError,
+  type CodexAppServerTransport
+} from '../server/codex-sessions/stdio-transport';
 import {
   CodexWebSocketTransport,
   codexAppServerSocketPath
@@ -23,6 +26,7 @@ import {
 } from '../server/codex-sessions-connector-contract';
 
 const cleanupPaths: string[] = [];
+const unixSocketFixtureRoot = process.platform === 'darwin' ? '/tmp' : tmpdir();
 
 afterEach(async () => {
   await Promise.all(cleanupPaths.splice(0).map((path) => rm(path, {
@@ -59,6 +63,24 @@ describe('managed shared Codex daemon', () => {
     await fixture.close();
   });
 
+  test('recognizes an unmaterialized shared-daemon thread before its first user message', async () => {
+    const fixture = await daemonFixture({ unmaterializedRead: true });
+    const manager = new CodexSessionManager({
+      daemonSocketPath: fixture.socketPath,
+      sharedDaemon: true
+    });
+
+    const started = await manager.startThread({
+      cwd: '/mnt/c/Users/schue',
+      operationId: 'unmaterialized-thread-start'
+    });
+
+    await expect(manager.readThread(started.thread.id, true))
+      .rejects.toBeInstanceOf(CodexThreadUnmaterializedError);
+    await manager.close();
+    await fixture.close();
+  });
+
   test('does not revive a shared transport after its manager closes during connection', async () => {
     let closeCount = 0;
     let resolveTransport!: (transport: CodexAppServerTransport) => void;
@@ -87,7 +109,7 @@ describe('managed shared Codex daemon', () => {
   });
 
   test('bounds a stalled Unix-socket WebSocket handshake', async () => {
-    const fixtureRoot = await mkdtemp(join(tmpdir(), 'project-space-stalled-socket-'));
+    const fixtureRoot = await mkdtemp(join(unixSocketFixtureRoot, 'ps-stalled-'));
     cleanupPaths.push(fixtureRoot);
     const socketPath = join(fixtureRoot, 'app-server.sock');
     const sockets = new Set<import('node:net').Socket>();
@@ -112,7 +134,7 @@ describe('managed shared Codex daemon', () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  test('reports complete daemon, authentication, Remote Control, and pairing evidence', async () => {
+  test('reports a compatible authenticated local daemon ready without Remote Control', async () => {
     const fixture = await daemonFixture();
     const ledger = new CodexOperationLedger();
     const manager = new CodexDaemonManager({
@@ -164,7 +186,8 @@ describe('managed shared Codex daemon', () => {
 
     expect(ensured[0]).toEqual(ensured[1]);
     expect(restarted[0]).toEqual(restarted[1]);
-    expect(fixture.commands.filter((command) => command === 'enable-remote-control')).toHaveLength(2);
+    expect(fixture.commands).not.toContain('disable-remote-control');
+    expect(fixture.commands).not.toContain('enable-remote-control');
     expect(fixture.commands.filter((command) => command === 'start')).toHaveLength(1);
     expect(fixture.commands.filter((command) => command === 'restart')).toHaveLength(1);
     await fixture.close();
@@ -240,6 +263,44 @@ describe('managed shared Codex daemon', () => {
     await fixture.close();
   });
 
+  test('accepts the version-pinned symlink layout installed by Codex', async () => {
+    const fixture = await daemonFixture({ managedBinaryLayout: 'packaged-symlink' });
+    const manager = new CodexDaemonManager({
+      environment: fixture.environment,
+      manager: {
+        executeManagedOperation: async (_operationId, _fingerprint, action) => action()
+      },
+      resolveBinary: () => fixture.binaryPath,
+      run: fixture.run
+    });
+
+    await expect(manager.inspect()).resolves.toMatchObject({
+      compatible: true,
+      installed: true,
+      state: 'ready'
+    });
+    await fixture.close();
+  });
+
+  test('rejects a managed binary symlink that escapes the Codex package tree', async () => {
+    const fixture = await daemonFixture({ managedBinaryLayout: 'external-symlink' });
+    const manager = new CodexDaemonManager({
+      environment: fixture.environment,
+      manager: {
+        executeManagedOperation: async (_operationId, _fingerprint, action) => action()
+      },
+      resolveBinary: () => fixture.binaryPath,
+      run: fixture.run
+    });
+
+    await expect(manager.inspect()).resolves.toMatchObject({
+      compatible: false,
+      installed: false,
+      state: 'missing'
+    });
+    await fixture.close();
+  });
+
   test('rejects insecure managed binary replacements while a daemon is running', async () => {
     for (const managedBinaryMode of [0o644, 0o777]) {
       const fixture = await daemonFixture({ managedBinaryMode });
@@ -279,7 +340,7 @@ describe('managed shared Codex daemon', () => {
     await fixture.close();
   });
 
-  test('preserves explicit Remote Control disabled evidence without a notification', async () => {
+  test('keeps the connector-backed daemon ready when Remote Control is disabled', async () => {
     const fixture = await daemonFixture({
       emitRemoteStatus: false,
       remoteControlEnabled: false
@@ -289,7 +350,6 @@ describe('managed shared Codex daemon', () => {
       manager: {
         executeManagedOperation: async (_operationId, _fingerprint, action) => action()
       },
-      remoteStatusTimeoutMs: 20,
       resolveBinary: () => fixture.binaryPath,
       run: fixture.run
     });
@@ -298,7 +358,7 @@ describe('managed shared Codex daemon', () => {
       authenticated: true,
       remoteControlEnabled: false,
       remoteControlState: 'unknown',
-      state: 'remote-control-disabled'
+      state: 'ready'
     });
     await fixture.close();
   });
@@ -365,10 +425,12 @@ async function daemonFixture(options: {
   initialAppServerVersion?: string;
   installSource?: string;
   managedBinary?: boolean;
+  managedBinaryLayout?: 'direct' | 'external-symlink' | 'packaged-symlink';
   managedBinaryMode?: number;
   remoteControlEnabled?: boolean;
+  unmaterializedRead?: boolean;
 } = {}) {
-  const fixtureRoot = await mkdtemp(join(tmpdir(), 'project-space-daemon-'));
+  const fixtureRoot = await mkdtemp(join(unixSocketFixtureRoot, 'ps-daemon-'));
   cleanupPaths.push(fixtureRoot);
   const codexHome = join(fixtureRoot, 'codex-home');
   const binaryPath = join(fixtureRoot, 'signed-codex');
@@ -381,10 +443,29 @@ async function daemonFixture(options: {
   await writeFile(binaryPath, '#!/bin/sh\nexit 0\n');
   await chmod(binaryPath, 0o755);
   if (options.managedBinary !== false) {
-    const managed = join(codexHome, 'packages', 'standalone', 'current', 'codex');
-    await mkdir(join(codexHome, 'packages', 'standalone', 'current'), { recursive: true });
-    await writeFile(managed, '#!/bin/sh\nexit 0\n');
-    await chmod(managed, options.managedBinaryMode ?? 0o755);
+    const standalone = join(codexHome, 'packages', 'standalone');
+    const current = join(standalone, 'current');
+    const layout = options.managedBinaryLayout ?? 'direct';
+    if (layout === 'packaged-symlink') {
+      const release = join(standalone, 'releases', '0.146.0-test');
+      const managed = join(release, 'bin', 'codex');
+      await mkdir(join(release, 'bin'), { recursive: true });
+      await writeFile(managed, '#!/bin/sh\nexit 0\n');
+      await chmod(managed, options.managedBinaryMode ?? 0o755);
+      await symlink(release, current);
+      await symlink('bin/codex', join(release, 'codex'));
+    } else if (layout === 'external-symlink') {
+      const external = join(fixtureRoot, 'external-codex');
+      await writeFile(external, '#!/bin/sh\nexit 0\n');
+      await chmod(external, options.managedBinaryMode ?? 0o755);
+      await mkdir(current, { recursive: true });
+      await symlink(external, join(current, 'codex'));
+    } else {
+      const managed = join(current, 'codex');
+      await mkdir(current, { recursive: true });
+      await writeFile(managed, '#!/bin/sh\nexit 0\n');
+      await chmod(managed, options.managedBinaryMode ?? 0o755);
+    }
   }
 
   const threads = new Map<string, Record<string, unknown>>();
@@ -439,6 +520,15 @@ async function daemonFixture(options: {
         result = { thread };
       } else if (request.method === 'thread/list') {
         result = { data: [...threads.values()], nextCursor: null };
+      } else if (request.method === 'thread/read' && options.unmaterializedRead) {
+        client.send(JSON.stringify({
+          error: {
+            code: -32600,
+            message: `thread ${String(request.params?.threadId)} is not materialized yet; includeTurns is unavailable before first user message`
+          },
+          id: request.id
+        }));
+        return;
       } else if (request.method === 'thread/read') {
         result = { thread: threads.get(String(request.params?.threadId)) };
       }

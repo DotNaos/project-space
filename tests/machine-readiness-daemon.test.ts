@@ -24,11 +24,10 @@ const ready: CodexDaemonEvidence = {
   appServerVersion: '0.146.0',
   authenticated: true,
   compatible: true,
-  environmentId: 'env_os_pc',
-  paired: true,
+  paired: false,
   reachable: true,
-  remoteControlEnabled: true,
-  remoteControlState: 'connected',
+  remoteControlEnabled: false,
+  remoteControlState: 'unknown',
   running: true,
   state: 'ready'
 };
@@ -151,7 +150,11 @@ describe('Project Doctor managed Codex daemon contract', () => {
     }]);
     expect(fixed.state).toBe('repaired');
     expect(fixed.diagnosis.state).toBe('ready');
-    expect(fixed.daemonOperation?.evidence.environmentId).toBe('env_os_pc');
+    expect(fixed.daemonOperation?.evidence).toMatchObject({
+      authenticated: true,
+      remoteControlEnabled: false,
+      state: 'ready'
+    });
   });
 
   test('does not report repaired from replayed daemon evidence older than diagnosis', async () => {

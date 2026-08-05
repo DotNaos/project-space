@@ -72,7 +72,7 @@ export function PrototypeReviewCodexDock({
   theme,
 }: PrototypeReviewCodexDockProps) {
   const controller = useMemo(
-    () => new CodexSessionsController(createCodexSessionsClient()),
+    () => new CodexSessionsController(createCodexSessionsClient({ surface: 'prototype-review' })),
     [],
   );
   const state = useSyncExternalStore(

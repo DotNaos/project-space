@@ -358,6 +358,19 @@ func TestReadConnectorRuntimeCredentialRejectsUnsafeOrMultiplePayloads(t *testin
 	}
 }
 
+func TestConnectorRuntimeCredentialAllowsPortlessLocalhostBackend(t *testing.T) {
+	credential := ConnectorRuntimeCredential{
+		Version:    ConnectorRuntimeCredentialVersion,
+		BackendURL: "http://project-space.localhost:1355",
+		MachineID:  "machine-123",
+		Token:      supervisorTestToken,
+	}
+
+	if err := validateConnectorRuntimeCredential(credential); err != nil {
+		t.Fatalf("expected Portless localhost runtime credential to be valid, got %v", err)
+	}
+}
+
 func TestConnectorRuntimeCredentialFormattingRedactsToken(t *testing.T) {
 	credential := ConnectorRuntimeCredential{Token: supervisorTestToken}
 	for _, formatted := range []string{credential.String(), credential.GoString(), fmt.Sprintf("%v", credential), fmt.Sprintf("%#v", credential)} {

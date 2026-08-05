@@ -109,6 +109,7 @@ export function CodexTaskWorkspace({
   onBack,
   onContinue,
   onInterrupt,
+  onPermissionChange,
   onResolveApproval,
   onResolveUserInput,
   session
@@ -126,6 +127,7 @@ export function CodexTaskWorkspace({
     settings?: CodexSessionTurnSettings
   ): Promise<void> | void;
   onInterrupt?(origin: CodexThreadOrigin, turnId: string): Promise<void> | void;
+  onPermissionChange?(origin: CodexThreadOrigin, permissionProfileId: string): Promise<void>;
   onResolveApproval?(decision: CodexApprovalDecision): Promise<void> | void;
   onResolveUserInput?(decision: CodexUserInputDecision): Promise<void> | void;
   session: CodexSession;
@@ -205,6 +207,7 @@ export function CodexTaskWorkspace({
       machine={machine}
       modelSelection={modelSelection}
       onContinue={onContinue}
+      onPermissionChange={onPermissionChange}
       session={session}
       showHeader={false}
       supplemental={decisions}

@@ -105,6 +105,7 @@ export interface CodexStartTurnInput extends CodexMutationInput {
   effort?: string;
   localImagePaths?: string[];
   model?: string;
+  permissionProfileId?: string;
   prompt: string;
   serviceTier?: string | null;
   threadId: string;

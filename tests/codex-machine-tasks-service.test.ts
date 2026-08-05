@@ -119,7 +119,7 @@ describe('Codex machine-task service', () => {
       ...request,
       operationId: 'start-262-local-new-operation'
     })).toEqual(expect.objectContaining({ reconcile: 'required', state: 'uncertain' }));
-    expect(starts).toBe(2);
+    expect(starts).toBe(3);
   });
 
   test('does not relabel a reserved start when the physical connector changes', async () => {
@@ -210,7 +210,39 @@ describe('Codex machine-task service', () => {
     expect(attempts).toBe(2);
   });
 
-  test('reconciles an uncertain start only with the original operation id', async () => {
+  test('releases only the exact uncertain start after explicit recovery confirmation', async () => {
+    const store = memoryStore();
+    let attempts = 0;
+    const tasks = service({
+      start: async () => {
+        attempts += 1;
+        return attempts === 1
+          ? { state: 'uncertain' }
+          : { state: 'confirmed', threadId, worktreeId: 'wt_recovered' };
+      },
+      store
+    });
+
+    expect(await tasks.start({ userId: 'user-owner' }, request)).toEqual(
+      expect.objectContaining({ state: 'uncertain' })
+    );
+    await expect(tasks.recoverStart({ userId: 'user-owner' }, {
+      ...request,
+      issue: 263
+    })).rejects.toBeInstanceOf(CodexMachineTasksConflictError);
+    expect(await tasks.recoverStart({ userId: 'user-owner' }, request)).toEqual({
+      apiVersion: 1,
+      operationId: request.operationId,
+      state: 'released'
+    });
+    expect(await tasks.start({ userId: 'user-owner' }, {
+      ...request,
+      operationId: 'start-after-confirmed-recovery'
+    })).toEqual(expect.objectContaining({ state: 'confirmed' }));
+    expect(attempts).toBe(2);
+  });
+
+  test('recovers an identical uncertain start after the client loses its operation id', async () => {
     const store = memoryStore();
     let attempts = 0;
     const tasks = service({
@@ -229,12 +261,42 @@ describe('Codex machine-task service', () => {
     expect(await tasks.start({ userId: 'user-owner' }, {
       ...request,
       operationId: 'different-start-operation'
-    })).toEqual(expect.objectContaining({ state: 'uncertain' }));
-    expect(attempts).toBe(1);
+    })).toEqual(expect.objectContaining({
+      operationId: 'different-start-operation',
+      state: 'confirmed'
+    }));
     expect(await tasks.start({ userId: 'user-owner' }, request)).toEqual(
       expect.objectContaining({ state: 'confirmed' })
     );
     expect(attempts).toBe(2);
+  });
+
+  test('does not recover an uncertain start after its immutable revision changes', async () => {
+    const store = memoryStore();
+    await service({
+      start: async () => ({ state: 'uncertain' }),
+      store
+    }).start({ userId: 'user-owner' }, request);
+    let dispatched = false;
+    const result = await service({
+      issue: async () => ({
+        branch: 'issue-262-build-codex-machine-task-core-and-cli',
+        commit: 'b'.repeat(40),
+        issue: { number: 262, url: 'https://github.com/DotNaos/project-space/issues/262' },
+        repository: { id: 'R_test', nameWithOwner: 'DotNaos/project-space' }
+      }),
+      start: async () => {
+        dispatched = true;
+        return { state: 'confirmed', threadId, worktreeId: 'wrong-revision' };
+      },
+      store
+    }).start({ userId: 'user-owner' }, {
+      ...request,
+      operationId: 'different-revision-operation'
+    });
+
+    expect(dispatched).toBeFalse();
+    expect(result).toEqual(expect.objectContaining({ state: 'uncertain' }));
   });
 
   test('re-dispatches the original idempotent start after an orphaned pending reservation', async () => {
@@ -293,7 +355,7 @@ describe('Codex machine-task service', () => {
     }));
   });
 
-  test('reports another operation against the generation where the unresolved start ran', async () => {
+  test('recovers another identical operation on the generation where the unresolved start ran', async () => {
     const store = memoryStore();
     await service({
       start: async () => ({ state: 'uncertain' }),
@@ -312,11 +374,11 @@ describe('Codex machine-task service', () => {
       operationId: 'different-start-operation'
     });
 
-    expect(dispatched).toBeFalse();
+    expect(dispatched).toBeTrue();
     expect(result).toEqual(expect.objectContaining({
       operationId: 'different-start-operation',
-      state: 'uncertain',
-      target: expect.objectContaining({ connector: expect.objectContaining({ generation: 7 }) })
+      state: 'confirmed',
+      task: expect.objectContaining({ connector: expect.objectContaining({ generation: 7 }) })
     }));
   });
 

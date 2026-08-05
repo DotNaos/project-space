@@ -234,7 +234,7 @@ func validateConnectorRuntimeCredential(credential ConnectorRuntimeCredential) e
 		backendURL.RawQuery != "" || backendURL.Fragment != "" {
 		return errors.New("connector runtime credential backend URL is invalid")
 	}
-	if backendURL.Scheme != "https" && backendURL.Hostname() != "127.0.0.1" && backendURL.Hostname() != "localhost" {
+	if backendURL.Scheme != "https" && !isLoopbackHTTPHostname(backendURL.Hostname()) {
 		return errors.New("connector runtime credential backend URL must use HTTPS")
 	}
 	if !validIdentifier(credential.MachineID) {

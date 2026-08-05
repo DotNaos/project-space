@@ -207,6 +207,12 @@ func TestHTTPBackendRejectsRemotePlainHTTP(t *testing.T) {
 	}
 }
 
+func TestHTTPBackendAllowsPortlessLocalhostOrigin(t *testing.T) {
+	if _, err := NewHTTPBackend("http://project-space.localhost:1355", nil); err != nil {
+		t.Fatalf("expected Portless localhost backend to be accepted, got %v", err)
+	}
+}
+
 func TestHTTPBackendRejectsCrossOriginApprovalURL(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/api/machine-connections" {

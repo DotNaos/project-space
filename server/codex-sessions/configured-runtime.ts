@@ -233,7 +233,9 @@ async function request(
             ? { timeoutMs: 8_000 }
           : operation === 'list'
             ? { timeoutMs: CODEX_SESSION_LIST_DEADLINE_MS }
-            : {}),
+            : operation === 'read'
+              ? { timeoutMs: 15_000 }
+              : {}),
         generation,
         userId
       }

@@ -103,6 +103,7 @@ export interface CodexSessionsConnectorExecutorOptions {
   ): Promise<CodexMachineTaskConnectorStartResult>;
   startTurn?(input: CodexStartTurnInput): Promise<{ turn: { id: string } }>;
   steerTurn?(input: CodexSteerTurnInput): Promise<{ turnId: string }>;
+  transcript?: LocalCodexTranscriptSource;
   verificationKey: KeyLike;
 }
 
@@ -267,7 +268,7 @@ export class CodexSessionsConnectorExecutor {
         }
       },
       threadId,
-      transcript
+      transcript: transcript ?? this.options.transcript
     });
   }
 
@@ -364,8 +365,14 @@ export class CodexSessionsConnectorExecutor {
   }
 
   private async read(request: CodexSessionReadRequest, signal?: AbortSignal) {
+    const history = await this.options.transcript?.read(request.threadId)
+      .catch(() => undefined);
     const [result, loaded] = await Promise.all([
-      this.options.manager.readThread(request.threadId, true, signal),
+      this.options.manager.readThread(
+        request.threadId,
+        history === undefined,
+        signal
+      ),
       this.options.manager.listLoadedThreads(signal)
     ]);
     const session = presentCodexSession(result.thread, {
@@ -387,7 +394,7 @@ export class CodexSessionsConnectorExecutor {
       ...(profiles ? { permissionProfiles: profiles.data } : {}),
       session,
       ...(tokenUsage ? { tokenUsage } : {}),
-      turns: presentCodexTurns(result.thread)
+      turns: history?.turns ?? presentCodexTurns(result.thread)
     };
   }
 
@@ -468,6 +475,7 @@ export class CodexSessionsConnectorExecutor {
           !request.expectedTurnId ||
           request.effort !== undefined ||
           request.model !== undefined ||
+          request.permissionProfileId !== undefined ||
           request.serviceTier !== undefined
         ) {
           throw new CodexSessionsExecutorError();
@@ -504,6 +512,7 @@ export class CodexSessionsConnectorExecutor {
         ...(localImagePaths?.length ? { localImagePaths } : {}),
         model: request.model,
         operationId: derivedOperationId(request.operationId, 'turn'),
+        permissionProfileId: request.permissionProfileId,
         prompt: request.message,
         serviceTier: request.serviceTier,
         threadId: request.threadId

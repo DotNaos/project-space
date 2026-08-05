@@ -76,6 +76,45 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
       : { kind: 'conflict' } as const;
   }
 
+  async releaseUncertainStart(input: {
+    fingerprint: string;
+    operationId: string;
+    userId: string;
+  }) {
+    const run = async (client: DatabaseQueryClient) => {
+      const current = await client.query<{
+        association_key: string;
+        fingerprint_sha256: string;
+        state: string | null;
+      }>(
+        `select o.association_key, o.fingerprint_sha256, s.state
+           from codex_machine_task_start_operations o
+           join codex_machine_task_starts s
+             on s.owner_user_id = o.owner_user_id and s.association_key = o.association_key
+          where o.owner_user_id = $1 and o.operation_id = $2
+          for update of o, s`,
+        [input.userId, input.operationId]
+      );
+      const row = current.rows[0];
+      if (!row) return 'missing' as const;
+      if (row.fingerprint_sha256 !== input.fingerprint) return 'conflict' as const;
+      if (row.state !== 'uncertain') return 'not_uncertain' as const;
+      await client.query(
+        `delete from codex_machine_task_start_operations
+          where owner_user_id = $1 and association_key = $2`,
+        [input.userId, row.association_key]
+      );
+      const deleted = await client.query<{ association_key: string }>(
+        `delete from codex_machine_task_starts
+          where owner_user_id = $1 and association_key = $2 and state = 'uncertain'
+        returning association_key`,
+        [input.userId, row.association_key]
+      );
+      return deleted.rows.length === 1 ? 'released' as const : 'not_uncertain' as const;
+    };
+    return this.client.transaction ? this.client.transaction(run) : run(this.client);
+  }
+
   async reserveStart(operation: CodexMachineTaskStartOperation) {
     const run = async (client: DatabaseQueryClient) => {
       const insertedAssociation = await client.query<{ association_key: string }>(
@@ -118,17 +157,15 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
         return { kind: 'conflict' } as const;
       }
       const existing = await client.query<StartRow>(
-        `select dispatch_operation_id, connector_generation, durable_operations, state, result
+        `select dispatch_operation_id, connector_generation, durable_operations,
+                start_payload, state, result
            from codex_machine_task_starts
           where owner_user_id = $1 and association_key = $2
           for update`,
         [operation.userId, operation.associationKey]
       );
       const row = existing.rows[0];
-      if (!row) return {
-        durableOperations: operation.durableOperations,
-        generation: operation.generation, kind: 'pending', sameOperation: false
-      } as const;
+      if (!row || !isStartPayload(row.start_payload)) return { kind: 'conflict' } as const;
       if (insertedAssociation.rows.length > 0 && insertedOperation.rows.length > 0) {
         return { kind: 'new' } as const;
       }
@@ -137,23 +174,22 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
       }
       const generation = Number(row.connector_generation);
       if (!Number.isSafeInteger(generation) || generation < 1) {
-        return {
-          durableOperations: operation.durableOperations,
-          generation: operation.generation,
-          kind: 'pending',
-          sameOperation: false
-        } as const;
+        return { kind: 'conflict' } as const;
       }
       return row.state === 'uncertain'
         ? {
+            dispatchOperationId: row.dispatch_operation_id,
             durableOperations: row.durable_operations,
             generation, kind: 'uncertain',
-            sameOperation: row.dispatch_operation_id === operation.operationId
+            sameOperation: row.dispatch_operation_id === operation.operationId,
+            startPayload: row.start_payload
           } as const
         : {
+            dispatchOperationId: row.dispatch_operation_id,
             durableOperations: row.durable_operations,
             generation, kind: 'pending',
-            sameOperation: row.dispatch_operation_id === operation.operationId
+            sameOperation: row.dispatch_operation_id === operation.operationId,
+            startPayload: row.start_payload
           } as const;
     };
     return this.client.transaction ? this.client.transaction(run) : run(this.client);

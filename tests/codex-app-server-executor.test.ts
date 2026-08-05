@@ -26,6 +26,7 @@ import {
   CodexThreadActiveError,
   type CodexSessionManager
 } from '../server/codex-sessions';
+import type { LocalCodexTranscriptSource } from '../server/codex-sessions/transcript-reader';
 import type {
   CodexSessionApprovalRequest,
   CodexSessionBrowserResult,
@@ -155,7 +156,8 @@ function createExecutor(
   manager = new FakeSessionManager(),
   generation: number | (() => number) = 4,
   readBrowserSnapshot?: (machineId: string, threadId: string) => Promise<CodexSessionBrowserResult>,
-  resolveImageAttachments?: (attachmentIds: readonly string[]) => Promise<string[]>
+  resolveImageAttachments?: (attachmentIds: readonly string[]) => Promise<string[]>,
+  transcript?: LocalCodexTranscriptSource
 ) {
   return {
     executor: new CodexSessionsConnectorExecutor({
@@ -166,6 +168,7 @@ function createExecutor(
       now: manager.clock,
       ...(readBrowserSnapshot ? { readBrowserSnapshot } : {}),
       ...(resolveImageAttachments ? { resolveImageAttachments } : {}),
+      ...(transcript ? { transcript } : {}),
       verificationKey: keys.publicKey
     }),
     manager
@@ -319,6 +322,71 @@ describe('Codex connector executor', () => {
     executor.close();
   });
 
+  test('reads stored connector history without requesting App Server turns', async () => {
+    const transcript: LocalCodexTranscriptSource = {
+      async read() {
+        return {
+          active: false,
+          turns: [{
+            id: 'turn-stored',
+            items: [{
+              id: 'agent-stored',
+              kind: 'agent-message',
+              status: 'completed',
+              text: 'Stored connector response'
+            }],
+            status: 'interrupted'
+          }]
+        };
+      },
+      async watch() {}
+    };
+    const { executor, manager } = createExecutor(
+      new FakeSessionManager(),
+      4,
+      undefined,
+      undefined,
+      transcript
+    );
+    const request: CodexSessionReadRequest = { machineId, threadId };
+    const result = await executor.execute('read', signed('read', request));
+    if (result.operation !== 'read') throw new Error('unexpected result');
+    expect(result.result.turns).toEqual([expect.objectContaining({
+      id: 'turn-stored',
+      status: 'interrupted'
+    })]);
+    expect(manager.calls).toContainEqual({
+      input: { id: threadId, includeTurns: false },
+      method: 'readThread'
+    });
+    executor.close();
+  });
+
+  test('falls back to App Server turns before connector history exists', async () => {
+    const transcript: LocalCodexTranscriptSource = {
+      async read() {
+        throw new Error('The Codex task history is unavailable.');
+      },
+      async watch() {}
+    };
+    const { executor, manager } = createExecutor(
+      new FakeSessionManager(),
+      4,
+      undefined,
+      undefined,
+      transcript
+    );
+    const request: CodexSessionReadRequest = { machineId, threadId };
+    const result = await executor.execute('read', signed('read', request));
+    if (result.operation !== 'read') throw new Error('unexpected result');
+    expect(result.result.turns).toHaveLength(1);
+    expect(manager.calls).toContainEqual({
+      input: { id: threadId, includeTurns: true },
+      method: 'readThread'
+    });
+    executor.close();
+  });
+
   test('reads browser snapshots through a dedicated operation without loading history', async () => {
     const calls: Array<{ machineId: string; threadId: string }> = [];
     const readBrowserSnapshot = async (
@@ -355,6 +423,7 @@ describe('Codex connector executor', () => {
       message: 'Continue this exact session',
       model: 'gpt-5-mini',
       operationId: 'operation-continue-one',
+      permissionProfileId: ':danger-full-access',
       serviceTier: 'fast',
       threadId
     };
@@ -367,6 +436,7 @@ describe('Codex connector executor', () => {
     expect(start.threadId).toBe(threadId);
     expect(start.model).toBe('gpt-5-mini');
     expect(start.effort).toBe('high');
+    expect(start.permissionProfileId).toBe(':danger-full-access');
     expect(start.serviceTier).toBe('fast');
     expect(resume.operationId).toMatch(/^codex:resume:/);
     expect(start.operationId).toMatch(/^codex:turn:/);

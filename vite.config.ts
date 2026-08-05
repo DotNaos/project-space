@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import react from '@vitejs/plugin-react';
@@ -7,12 +8,15 @@ import { defineConfig } from 'vite';
 import type { Plugin, ViteDevServer } from 'vite';
 import electron from 'vite-plugin-electron/simple';
 
-import { createLocalProjectSpaceBackend } from './server/local-project-space-backend';
+import {
+  createLocalProjectSpaceBackend,
+  type LocalProjectSpaceBackend
+} from './server/local-project-space-backend';
 import { reconcileProjectServeSessions } from './server/local-project-cli-client';
 import { resolveProjectConnectorTargets } from './server/project-connector-config';
 import { createAuthorizedProjectSpaceBackend } from './server/authorized-project-space-backend';
 import { createConnectorCommandUpgradeHandler } from './server/connector-command-hub';
-import { authenticateConnectorMachineToken } from './server/connector-registration-auth';
+import { resolveConnectorMachineTokenIdentity } from './server/connector-registration-auth';
 import {
   createMachineTerminalUpgradeHandler,
   createProjectTerminalUpgradeHandler
@@ -21,6 +25,7 @@ import { startProjectConnectorWebSocket } from './server/project-connector-webso
 import { createProjectSpaceRequestHandler } from './server/project-space-http';
 import { writeJson } from './server/project-space-http-response';
 import { createPrototypeReviewLocalRuntime } from './server/prototype-review-local-runtime';
+import { createConfiguredMachineConnectionRuntime } from './server/machine-connection-runtime';
 import { readReleaseCatalog } from './apps/docs/lib/releases/catalog';
 import { generatedReleaseChangelogSource } from './apps/docs/lib/releases/changelog-source';
 
@@ -59,22 +64,49 @@ function projectSpaceApiPlugin(): Plugin {
         backend,
         repositoryRoot: __dirname
       });
-      const handler = createProjectSpaceRequestHandler({
-        backend,
-        codexSessions: async (request, response, url) => (
-          (await localReviewRuntime).codexSessions(request, response, url)
-        )
+      const machineConnectionRuntime = createConfiguredMachineConnectionRuntime({
+        ...process.env,
+        PROJECT_SPACE_PUBLIC_ORIGIN:
+          process.env.PROJECT_SPACE_PUBLIC_ORIGIN ?? process.env.PORTLESS_URL,
+        PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET:
+          process.env.PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET ??
+          (process.env.PROJECT_SPACE_AUTH_DISABLED === '1'
+            ? randomBytes(32).toString('hex')
+            : undefined)
+      });
+      const handler = machineConnectionRuntime.then((runtime) => {
+        runtime?.start();
+        return createProjectSpaceRequestHandler({
+          backend,
+          machineConnectionRuntime: runtime ?? undefined
+        });
       });
       const handleMachineTerminalUpgrade = createMachineTerminalUpgradeHandler(authorizedBackend);
       const handleProjectTerminalUpgrade = createProjectTerminalUpgradeHandler();
       const connectorCommands = createConnectorCommandUpgradeHandler({
-        authenticateConnectorCredential: authenticateConnectorMachineToken
+        async authenticateConnectorCredential(token, machineId) {
+          const runtime = await machineConnectionRuntime;
+          const identity = runtime
+            ? typeof runtime.resolveMachineCredentialIdentity === 'function'
+              ? await runtime.resolveMachineCredentialIdentity(token, machineId)
+              : await runtime.authenticateConnectorCredential(token, machineId)
+                ? { machineId }
+                : null
+            : null;
+          return identity ?? resolveConnectorMachineTokenIdentity(token, machineId);
+        },
+        async decideConnectorRuntimeMaintenance({ machine }) {
+          const decideReconnect = (backend as Partial<LocalProjectSpaceBackend>).decideReconnect;
+          if (!decideReconnect) return undefined;
+          return decideReconnect(machine);
+        }
       });
 
       server.httpServer?.once('close', () => {
         bridge?.close();
         void connectorCommands.close();
         void localReviewRuntime.then((runtime) => runtime.close());
+        void machineConnectionRuntime.then((runtime) => runtime?.stop());
       });
 
       server.httpServer?.on('upgrade', (request, socket, head) => {
@@ -137,7 +169,10 @@ function projectSpaceApiPlugin(): Plugin {
             }));
           return;
         }
-        if (url.pathname.startsWith('/api/codex/sessions')) {
+        if (
+          url.pathname.startsWith('/api/codex/sessions') &&
+          request.headers['x-project-space-codex-surface'] === 'prototype-review'
+        ) {
           void localReviewRuntime
             .then((runtime) => runtime.codexSessions(request, response, url))
             .then((handled) => {
@@ -149,7 +184,7 @@ function projectSpaceApiPlugin(): Plugin {
           return;
         }
 
-        void handler(request, response);
+        void handler.then((handleRequest) => handleRequest(request, response));
       });
     }
   };

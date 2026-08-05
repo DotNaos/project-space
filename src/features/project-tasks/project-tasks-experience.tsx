@@ -1,10 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ConnectorOverviewResult,
   GitHubCatalogRepository,
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
 import { IssueCreationOverlay } from '@/features/project-desktop/components/issue-creation-overlay';
+import {
+  browserIssueCreationHistory,
+  IssueCreationHistoryController
+} from '@/features/project-desktop/components/issue-creation-history';
+import { isIssueCreationPath } from '@/features/project-desktop/components/issue-creation-route';
 import { ProjectTaskDetail } from './project-task-detail';
 import { ProjectTasksPage } from './project-tasks-page';
 import { useProjectTasks } from './use-project-tasks';
@@ -30,8 +35,15 @@ export function ProjectTasksExperience({
   selectedIssueNumber?: number;
   targetPath: string;
 }) {
-  const [creationOpen, setCreationOpen] = useState(false);
+  const [creationOpen, setCreationOpen] = useState(() =>
+    typeof window !== 'undefined' && isIssueCreationPath(window.location.pathname, project.id)
+  );
+  const [creationCloseRequest, setCreationCloseRequest] = useState(0);
   const [commentsLoadingFor, setCommentsLoadingFor] = useState<number>();
+  const creationHistoryRef = useRef<IssueCreationHistoryController | null>(null);
+  const pendingCreatedIssueRef = useRef<number | undefined>(undefined);
+  const onOpenTaskRef = useRef(onOpenTask);
+  onOpenTaskRef.current = onOpenTask;
   const {
     addComment,
     details,
@@ -48,6 +60,41 @@ export function ProjectTasksExperience({
     () => tasks.find((task) => task.issue.number === selectedIssueNumber),
     [selectedIssueNumber, tasks]
   );
+
+  useEffect(() => {
+    const controller = new IssueCreationHistoryController(
+      project.id,
+      browserIssueCreationHistory(),
+      {
+        onCloseRequest: () => setCreationCloseRequest((request) => request + 1),
+        onClosed: () => {
+          setCreationOpen(false);
+          const issueNumber = pendingCreatedIssueRef.current;
+          pendingCreatedIssueRef.current = undefined;
+          if (issueNumber) onOpenTaskRef.current(issueNumber);
+        },
+        onOpen: () => setCreationOpen(true)
+      }
+    );
+    creationHistoryRef.current = controller;
+    setCreationOpen(controller.isOpen());
+
+    const handlePopState = () => controller.handlePopState();
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      if (creationHistoryRef.current === controller) creationHistoryRef.current = null;
+    };
+  }, [project.id]);
+
+  const openCreation = useCallback(() => {
+    if (!repository) return;
+    creationHistoryRef.current?.openFromControl();
+  }, [repository]);
+
+  const closeCreation = useCallback(() => {
+    creationHistoryRef.current?.finishClose();
+  }, []);
 
   useEffect(() => {
     if (!selectedIssueNumber || selectedTask?.comments.length) return;
@@ -85,7 +132,7 @@ export function ProjectTasksExperience({
         <ProjectTasksPage
           error={error}
           isLoading={isLoading}
-          onNewTask={() => setCreationOpen(true)}
+          onNewTask={openCreation}
           onOpenTask={onOpenTask}
           onRetry={refresh}
           projectName={project.name}
@@ -93,11 +140,15 @@ export function ProjectTasksExperience({
         />
       )}
       <IssueCreationOverlay
-        onClose={() => setCreationOpen(false)}
+        closeRequest={creationCloseRequest}
+        onClose={closeCreation}
         onIssueCreated={(issue) => {
           upsertIssue(issue);
-          setCreationOpen(false);
-          onOpenTask(issue.number);
+          if (creationHistoryRef.current?.isOpen()) {
+            pendingCreatedIssueRef.current = issue.number;
+          } else {
+            onOpenTask(issue.number);
+          }
         }}
         open={creationOpen}
         repository={repository}

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Bot,
   Circle,
   CircleDot,
-  Download,
   ExternalLink,
   GitBranch,
   GitBranchPlus,
   GitPullRequestDraft,
+  LoaderCircle,
   Monitor,
   Plus
 } from 'lucide-react';
@@ -21,14 +22,11 @@ import type {
 } from '@/shared/project-space-api';
 import { usePullRequestPreviewStatus } from '../hooks/use-pull-request-preview-status';
 import { useBranchHeadComparison } from '../hooks/use-branch-head-comparison';
+import { codexSessionRoute } from '../../codex-sessions/codex-session-route';
 import { BranchHeadGraphPreview } from './branch-head-graph-preview';
 import {
   canRunMachineCommand,
-  cloneUrl,
-  createStartDevelopmentCommand,
   getIssueMachineRows,
-  relativeClonePath,
-  repositoryNameFromProject,
   type IssueMachineProjectRow
 } from './issue-development-machine-actions';
 import { branchNameForIssue } from './issue-branch-model';
@@ -38,6 +36,12 @@ import { connectorLocationPresentation } from './machine-connector-topology-mode
 import { issueDevelopmentPullRequest } from './pull-request-preview-model';
 import { PullRequestPreviewStatusView } from './pull-request-preview-status';
 import { PullRequestPrototypeAction } from './pull-request-prototype-action';
+import {
+  clearCodexTaskStartAttempt,
+  readOrCreateCodexTaskStartAttempt,
+  type CodexTaskStartAttempt
+} from './codex-task-start-attempt';
+import { CodexTaskStartRecoveryDialog } from './codex-task-start-recovery-dialog';
 
 interface IssueDevelopmentSessionProps {
   branches: GitHubBranchRecord[];
@@ -64,8 +68,6 @@ export function IssueDevelopmentSession({
   projects,
   pullRequests,
   repoFullName,
-  repoUrl,
-  targetPath,
   onOpenHistory
 }: IssueDevelopmentSessionProps) {
   const defaultBranch = branches.find((branch) => branch.isDefault)?.name ?? '';
@@ -81,6 +83,12 @@ export function IssueDevelopmentSession({
   const [busyMachineId, setBusyMachineId] = useState('');
   const [machineMessage, setMachineMessage] = useState('');
   const [prototypeMachineId, setPrototypeMachineId] = useState('');
+  const [uncertainStart, setUncertainStart] = useState<{
+    attempt: CodexTaskStartAttempt;
+    machineName: string;
+    row: IssueMachineProjectRow;
+  }>();
+  const [isRecoveringStart, setIsRecoveringStart] = useState(false);
 
   useEffect(() => {
     setBranchName(suggestedBranch);
@@ -88,6 +96,7 @@ export function IssueDevelopmentSession({
     setBranchMessage('');
     setPullRequestError('');
     setPullRequestMessage('');
+    setUncertainStart(undefined);
   }, [issue.number, suggestedBranch]);
 
   const developmentHead = useMemo(
@@ -140,10 +149,6 @@ export function IssueDevelopmentSession({
     headBranch: selectedBranch?.name,
     repositoryFullName: repoFullName
   });
-  const repositoryCloneUrl = cloneUrl(repoFullName, repoUrl);
-  const repositoryName = repositoryNameFromProject(project, repoFullName);
-  const fallbackRelativePath = relativeClonePath(targetPath || project.rootPath, repositoryName);
-
   useEffect(() => {
     if (
       prototypeMachineId &&
@@ -186,6 +191,10 @@ export function IssueDevelopmentSession({
       onBranchCreated(result.branch);
       setShowBranchPicker(false);
       setBranchMessage('Linked branch created.');
+    } catch (error) {
+      setBranchError(
+        error instanceof Error ? error.message : 'Could not create branch.'
+      );
     } finally {
       setIsCreatingBranch(false);
     }
@@ -208,6 +217,27 @@ export function IssueDevelopmentSession({
     setPullRequestError('');
     setPullRequestMessage('');
     try {
+      const comparison = await projectSpaceClient.getGitHubBranchComparison({
+        fullName: repoFullName,
+        headBranch: selectedBranch.name,
+        limit: 1
+      });
+      if (
+        comparison.status !== 'connected' ||
+        comparison.freshness !== 'current' ||
+        typeof comparison.aheadBy !== 'number'
+      ) {
+        setPullRequestError(
+          comparison.message ?? 'The branch could not be checked before creating the pull request.'
+        );
+        return;
+      }
+      if (comparison.aheadBy < 1) {
+        setPullRequestError(
+          'The branch has no commits yet. Start or continue development first.'
+        );
+        return;
+      }
       const result = await projectSpaceClient.createGitHubPullRequest({
         baseBranch: defaultBranch,
         body: issue.body,
@@ -223,12 +253,19 @@ export function IssueDevelopmentSession({
       }
       onPullRequestCreated(result.pullRequest);
       setPullRequestMessage(`Pull request #${result.pullRequest.number} created.`);
+    } catch (error) {
+      setPullRequestError(
+        error instanceof Error ? error.message : 'Could not create pull request.'
+      );
     } finally {
       setIsCreatingPullRequest(false);
     }
   }
 
-  async function startDevelopment(row: IssueMachineProjectRow) {
+  async function startDevelopment(
+    row: IssueMachineProjectRow,
+    recoveredAttempt?: CodexTaskStartAttempt
+  ) {
     if (!selectedBranch) {
       setMachineMessage('Link a branch first.');
       return;
@@ -237,29 +274,74 @@ export function IssueDevelopmentSession({
       setMachineMessage(`${row.machine?.name ?? row.machineId} is not online.`);
       return;
     }
-    if (!row.project && !repositoryCloneUrl) {
-      setMachineMessage('No clone URL is available for this repository.');
+    if (!repoFullName) {
+      setMachineMessage('No GitHub repository is linked.');
+      return;
+    }
+    if (!selectedBranch.commitSha) {
+      setMachineMessage('The exact branch revision is unavailable. Refresh the task and try again.');
       return;
     }
     setBusyMachineId(row.machineId);
     setMachineMessage('');
+    const attempt = recoveredAttempt ?? readOrCreateCodexTaskStartAttempt({
+      connectorId: row.machineId,
+      expectedBranch: selectedBranch.name,
+      expectedCommit: selectedBranch.commitSha,
+      issue: issue.number,
+      physicalMachineId: row.physicalMachineId,
+      physicalMachineName: row.physicalMachineId ? undefined : row.physicalMachineName,
+      repositoryId: repoFullName
+    });
     try {
-      const result = await projectSpaceClient.runMachineTerminalCommand({
-        command: createStartDevelopmentCommand({
-          branchName: selectedBranch.name,
-          projectPath: row.project?.rootPath,
-          relativePath: fallbackRelativePath,
-          repository: repositoryCloneUrl
-        }),
-        machineId: row.machineId
-      });
+      const result = await projectSpaceClient.startCodexMachineTask(attempt);
+      if (result.state === 'confirmed') {
+        clearCodexTaskStartAttempt(attempt);
+        window.location.assign(codexSessionRoute({
+          machineId: result.task.connector.id,
+          threadId: result.task.threadId
+        }));
+        return;
+      }
+      if (result.state === 'ready') {
+        clearCodexTaskStartAttempt(attempt);
+        setMachineMessage(`Ready to start on ${result.target.physicalMachine.name}.`);
+        return;
+      }
+      if (result.state === 'blocked') clearCodexTaskStartAttempt(attempt);
+      if (result.state === 'uncertain') {
+        setUncertainStart({
+          attempt,
+          machineName: row.physicalMachineName ?? row.machine?.name ?? row.machineId,
+          row
+        });
+        return;
+      }
+      setMachineMessage(result.message);
+    } catch (error) {
       setMachineMessage(
-        result.exitCode === 0
-          ? result.stdout.trim() || `Started ${selectedBranch.name} on ${row.machine?.name ?? row.machineId}.`
-          : result.stderr || result.stdout || `Could not start development on ${row.machine?.name ?? row.machineId}.`
+        error instanceof Error ? error.message : 'The Codex development task could not be started.'
       );
     } finally {
       setBusyMachineId('');
+    }
+  }
+
+  async function recoverDevelopmentStart() {
+    if (!uncertainStart) return;
+    const pending = uncertainStart;
+    setIsRecoveringStart(true);
+    setMachineMessage('');
+    try {
+      await projectSpaceClient.recoverCodexMachineTaskStart(pending.attempt);
+      setUncertainStart(undefined);
+      await startDevelopment(pending.row, pending.attempt);
+    } catch (error) {
+      setMachineMessage(
+        error instanceof Error ? error.message : 'The unresolved start could not be recovered.'
+      );
+    } finally {
+      setIsRecoveringStart(false);
     }
   }
 
@@ -267,7 +349,8 @@ export function IssueDevelopmentSession({
   const isReadyPullRequest = selectedPullRequest?.state === 'open' && !selectedPullRequest.isDraft;
 
   return (
-    <div className="grid gap-5">
+    <>
+      <div className="grid gap-5">
       {!selectedBranch && !isMerged ? (
         <section className="grid gap-3">
           <p className="text-sm leading-6 text-current/45">
@@ -311,7 +394,10 @@ export function IssueDevelopmentSession({
             <GitBranch className="size-3.5 shrink-0" />
             <span className="truncate font-mono">{selectedBranch.name}</span>
           </div>
-          <Button className="w-full" isDisabled={!repoFullName || !defaultBranch || isCreatingPullRequest} onPress={() => void createPullRequest()}>
+          <p className="text-xs leading-5 text-current/40">
+            Start Codex on a machine below. Create the draft pull request after the first commit.
+          </p>
+          <Button className="w-full" isDisabled={!repoFullName || !defaultBranch || isCreatingPullRequest} variant="secondary" onPress={() => void createPullRequest()}>
             <GitPullRequestDraft className="size-4" /> {isCreatingPullRequest ? 'Creating…' : 'Create draft PR'}
           </Button>
         </section>
@@ -359,21 +445,24 @@ export function IssueDevelopmentSession({
         <section>
           <div className="mb-2 flex h-8 items-center justify-between">
             <h3 className="text-xs font-semibold text-current/55">Active development</h3>
-            <span className="text-[10px] tabular-nums text-current/30">{machineRows.length} machines</span>
+            <span className="text-[10px] tabular-nums text-current/30">
+              {machineRows.length} {machineRows.length === 1 ? 'machine' : 'machines'}
+            </span>
           </div>
           <div className="grid gap-1.5">
             {machineRows.map((row) => {
               const hasCheckout = Boolean(row.project);
               const location = row.machine ? connectorLocationPresentation({ connector: row.machine, physicalMachines: connectorOverview.physicalMachines ?? [] }) : undefined;
-              const canStart = canRunMachineCommand(row.machine) && (hasCheckout || Boolean(repositoryCloneUrl));
+              const canStart = canRunMachineCommand(row.machine) && Boolean(repoFullName && selectedBranch.commitSha);
               const online = canRunMachineCommand(row.machine);
               return (
                 <div className="flex min-h-11 min-w-0 items-center gap-2 rounded-2xl bg-current/[.04] px-3" key={row.machineId}>
-                  {hasCheckout ? <Monitor className="size-3.5 shrink-0 text-current/30" /> : <Download className="size-3.5 shrink-0 text-current/30" />}
-                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-current/65">{location?.machineName ?? row.machine?.name ?? row.machineId}</span>
+                  {hasCheckout ? <Monitor className="size-3.5 shrink-0 text-current/30" /> : <Bot className="size-3.5 shrink-0 text-current/30" />}
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-current/65">{row.physicalMachineName ?? location?.machineName ?? row.machine?.name ?? row.machineId}</span>
                   <Circle aria-label={online ? 'Online' : 'Offline'} className={`size-2.5 shrink-0 fill-current ${online ? 'text-emerald-400' : 'text-current/20'}`} />
                   <Button isDisabled={!canStart || busyMachineId === row.machineId} size="sm" variant="ghost" onPress={() => void startDevelopment(row)}>
-                    {busyMachineId === row.machineId ? 'Starting…' : hasCheckout ? 'Continue' : 'Add'}
+                    {busyMachineId === row.machineId ? <LoaderCircle className="size-3.5 animate-spin" /> : <Bot className="size-3.5" />}
+                    {busyMachineId === row.machineId ? 'Starting…' : 'Start Codex'}
                   </Button>
                 </div>
               );
@@ -401,6 +490,14 @@ export function IssueDevelopmentSession({
 
       {branchMessage || pullRequestMessage || machineMessage ? <p className="text-xs text-emerald-300">{branchMessage || pullRequestMessage || machineMessage}</p> : null}
       {branchError || pullRequestError ? <p className="text-xs text-red-300">{branchError || pullRequestError}</p> : null}
-    </div>
+      </div>
+      <CodexTaskStartRecoveryDialog
+        isBusy={isRecoveringStart}
+        isOpen={Boolean(uncertainStart)}
+        machineName={uncertainStart?.machineName ?? 'this machine'}
+        onCancel={() => setUncertainStart(undefined)}
+        onRetry={() => void recoverDevelopmentStart()}
+      />
+    </>
   );
 }

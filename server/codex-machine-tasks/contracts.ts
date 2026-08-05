@@ -34,8 +34,22 @@ export interface CodexMachineTaskStartOperation {
 export type CodexMachineTaskStartReservation =
   | { kind: 'new' }
   | { kind: 'conflict' }
-  | { durableOperations: boolean; generation: number; kind: 'pending'; sameOperation: boolean }
-  | { durableOperations: boolean; generation: number; kind: 'uncertain'; sameOperation: boolean }
+  | {
+      dispatchOperationId: string;
+      durableOperations: boolean;
+      generation: number;
+      kind: 'pending';
+      sameOperation: boolean;
+      startPayload: CodexMachineTaskStartPayload;
+    }
+  | {
+      dispatchOperationId: string;
+      durableOperations: boolean;
+      generation: number;
+      kind: 'uncertain';
+      sameOperation: boolean;
+      startPayload: CodexMachineTaskStartPayload;
+    }
   | { kind: 'replayed'; result: CodexMachineTaskStartResult };
 
 export type CodexMachineTaskStartLookup =
@@ -86,6 +100,11 @@ export interface CodexMachineTasksStore {
     operationId: string;
     userId: string;
   }): Promise<CodexMachineTaskStartLookup>;
+  releaseUncertainStart(input: {
+    fingerprint: string;
+    operationId: string;
+    userId: string;
+  }): Promise<'conflict' | 'missing' | 'not_uncertain' | 'released'>;
   releaseSend(operation: CodexMachineTaskSendOperation): Promise<void>;
   releaseStart(operation: CodexMachineTaskStartOperation): Promise<void>;
   reserveStart(operation: CodexMachineTaskStartOperation): Promise<CodexMachineTaskStartReservation>;
@@ -184,6 +203,7 @@ export interface CodexMachineTasksServiceOptions {
     generation: number;
     result:
       | { state: 'confirmed'; threadId: string; worktreeId: string }
+      | { message: string; state: 'codex_failure' }
       | { state: 'offline' }
       | { message: string; state: 'worktree_failure' }
       | { state: 'uncertain' };

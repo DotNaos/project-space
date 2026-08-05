@@ -267,6 +267,25 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
     window.location.assign('/docs');
   };
 
+  const isResolvingProject =
+    desktop.mainView === 'project' &&
+    !desktop.project &&
+    (!desktop.githubCatalog.checkedAt || desktop.isGitHubRefreshing);
+
+  if (!desktop.hasLoaded || isResolvingProject) {
+    return (
+      <div className="flex h-full items-center justify-center bg-app-panel text-neutral-100">
+        <div className="flex items-center gap-3 text-sm text-neutral-400">
+          <span
+            aria-hidden="true"
+            className="size-4 animate-spin rounded-full border-2 border-neutral-700 border-t-neutral-200"
+          />
+          Opening Project Space…
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative h-full overflow-hidden bg-app-canvas text-neutral-100">
       <div

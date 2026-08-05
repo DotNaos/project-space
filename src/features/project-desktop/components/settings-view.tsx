@@ -170,11 +170,6 @@ export function SettingsView({
     await refreshPhysicalMachines();
   }
 
-  async function deletePhysicalMachine(machineId: string) {
-    await projectSpaceClient.deletePhysicalMachine(machineId);
-    await refreshPhysicalMachines();
-  }
-
   async function connectGitHub() {
     setIsConnectingGitHub(true);
     try {
@@ -337,13 +332,12 @@ export function SettingsView({
       <SettingsSection
         icon={MonitorCog}
         title="Machines & connectors"
-        description="One physical machine can contain multiple independently managed connector installations."
+        description="Each connector belongs to one machine. A machine can host multiple connector installations."
       >
           <SettingsMachineGroups
           connectors={connectorOverview.machines}
           credentials={credentials}
           loadError={physicalMachinesError}
-          onDeleteMachine={deletePhysicalMachine}
           onRefresh={refreshMachineAdministration}
           onSaveMachine={savePhysicalMachine}
           physicalMachines={physicalMachines}

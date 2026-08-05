@@ -18,6 +18,11 @@ describe('machine connection environment', () => {
         PROJECT_SPACE_PUBLIC_ORIGIN: 'http://127.0.0.1:4173'
       })
     ).toBe('http://127.0.0.1:4173');
+    expect(
+      readMachineConnectionPublicOrigin({
+        PROJECT_SPACE_PUBLIC_ORIGIN: 'http://project-space.localhost:1355'
+      })
+    ).toBe('http://project-space.localhost:1355');
     expect(readMachineConnectionPublicOrigin({})).toBeNull();
 
     for (const value of [

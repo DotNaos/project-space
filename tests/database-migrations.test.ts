@@ -81,7 +81,8 @@ describe('database migrations', () => {
       '0024_roadmap_plans',
       '0025_pr_dev_server_leases',
       '0026_machine_power_operations',
-      '0027_project_chat_name_leases'
+      '0027_project_chat_name_leases',
+      '0028_codex_session_settings_operations'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');

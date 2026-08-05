@@ -1,10 +1,12 @@
 import { spawn } from 'node:child_process';
 
-import { WebSocket, type RawData } from 'ws';
-
 import type { CodexChildProcess, CodexProcessFactory } from '../codex-sessions/contracts';
 import { resolveCodexBinary } from '../codex-sessions/binary-resolver';
 import { CODEX_ATTACH_MAXIMUM_MESSAGE_BYTES } from '../codex-sessions/connector-channel';
+import {
+  UnixWebSocket,
+  type UnixWebSocketData
+} from '../codex-sessions/unix-websocket';
 import { codexAppServerSocketPath } from '../codex-sessions/websocket-transport';
 
 export type ConnectorCodexAttachRelayCloseCode =
@@ -73,7 +75,7 @@ class WebSocketCodexAttachRelay implements ConnectorCodexAttachRelay {
   private writeQueue = Promise.resolve();
 
   private constructor(
-    private readonly socket: WebSocket,
+    private readonly socket: UnixWebSocket,
     private readonly options: ConnectorCodexAttachRelayOptions
   ) {
     socket.on('message', (data, isBinary) => this.handleOutput(data, isBinary));
@@ -90,11 +92,7 @@ class WebSocketCodexAttachRelay implements ConnectorCodexAttachRelay {
   static connect(options: ConnectorCodexAttachRelayOptions) {
     const socketPath = options.daemonSocketPath ?? codexAppServerSocketPath();
     const connectTimeoutMs = boundedDuration(options.connectTimeoutMs, 5_000);
-    const socket = new WebSocket(`ws+unix://${socketPath}:/`, {
-      handshakeTimeout: connectTimeoutMs,
-      maxPayload: CODEX_ATTACH_MAXIMUM_MESSAGE_BYTES,
-      perMessageDeflate: false
-    });
+    const socket = new UnixWebSocket(socketPath, CODEX_ATTACH_MAXIMUM_MESSAGE_BYTES);
     return new Promise<ConnectorCodexAttachRelay>((resolve, reject) => {
       socket.on('error', () => {
         // Suppress private socket diagnostics; the relay reports only a bounded state.
@@ -142,7 +140,7 @@ class WebSocketCodexAttachRelay implements ConnectorCodexAttachRelay {
     this.socket.close();
   }
 
-  private handleOutput(data: RawData, isBinary: boolean) {
+  private handleOutput(data: UnixWebSocketData, isBinary: boolean) {
     if (this.closed || isBinary) {
       if (isBinary) this.close('protocol_error');
       return;

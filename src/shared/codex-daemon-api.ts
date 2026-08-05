@@ -49,12 +49,8 @@ export function codexDaemonEvidenceIsConsistent(evidence: CodexDaemonEvidence) {
   return Boolean(
     evidence.authenticated &&
     evidence.compatible &&
-    evidence.environmentId &&
     evidence.installed &&
-    evidence.paired &&
     evidence.reachable &&
-    evidence.remoteControlEnabled &&
-    evidence.remoteControlState === 'connected' &&
     evidence.running
   );
 }

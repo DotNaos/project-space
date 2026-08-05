@@ -25,12 +25,16 @@ type HTTPBackend struct {
 	client  *http.Client
 }
 
+func isLoopbackHTTPHostname(hostname string) bool {
+	return hostname == "127.0.0.1" || hostname == "localhost" || strings.HasSuffix(hostname, ".localhost")
+}
+
 func NewHTTPBackend(baseURL string, client *http.Client) (*HTTPBackend, error) {
 	parsed, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return nil, errors.New("backend URL must be an absolute HTTP or HTTPS URL")
 	}
-	if parsed.Scheme != "https" && parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "localhost" {
+	if parsed.Scheme != "https" && !isLoopbackHTTPHostname(parsed.Hostname()) {
 		return nil, errors.New("backend URL must use HTTPS")
 	}
 	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
@@ -307,7 +311,7 @@ func validateApprovalURL(value string, backendURL *url.URL) error {
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
 		return errors.New("backend returned an invalid approval URL")
 	}
-	if parsed.User != nil || parsed.Scheme == "http" && parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "localhost" {
+	if parsed.User != nil || parsed.Scheme == "http" && !isLoopbackHTTPHostname(parsed.Hostname()) {
 		return errors.New("backend returned an insecure approval URL")
 	}
 	if backendURL == nil || parsed.Scheme != backendURL.Scheme || parsed.Host != backendURL.Host {

@@ -27,6 +27,10 @@ export interface CodexMachineTasksHttpService {
   }): Promise<unknown>;
   read(actor: { userId: string }, request: CodexMachineTaskReadRequest): Promise<unknown>;
   send(actor: { userId: string }, request: CodexMachineTaskSendRequest): Promise<unknown>;
+  recoverStart(
+    actor: { callerMachineId?: string; userId: string },
+    request: CodexMachineTaskStartRequest
+  ): Promise<unknown>;
   start(actor: { callerMachineId?: string; userId: string }, request: CodexMachineTaskStartRequest): Promise<unknown>;
   stream(
     actor: { userId: string },
@@ -63,6 +67,29 @@ export function createCodexMachineTasksHttpApi(
         const issue = Number(body.issue);
         if (!Number.isSafeInteger(issue) || issue < 1) throw invalid('Issue must be positive.');
         writeJson(response, 200, await service.start(actor, {
+          connectorId: optionalSelector(body.connectorId),
+          dryRun: body.dryRun === true,
+          expectedBranch: optionalSelector(body.expectedBranch),
+          expectedCommit: optionalCommit(body.expectedCommit),
+          expectedPullRequestNumber: optionalPositiveInteger(
+            body.expectedPullRequestNumber,
+            'Pull request must be positive.'
+          ),
+          issue,
+          operationId,
+          physicalMachineId: optionalSelector(body.physicalMachineId),
+          physicalMachineName: optionalPhysicalMachineName(body.physicalMachineName),
+          repositoryId: optionalSelector(body.repositoryId)
+        }));
+        return true;
+      }
+      if (route.kind === 'recover-start') {
+        const body = await readBody(request);
+        const operationId = operation(body.operationId);
+        requireIdempotency(request, operationId);
+        const issue = Number(body.issue);
+        if (!Number.isSafeInteger(issue) || issue < 1) throw invalid('Issue must be positive.');
+        writeJson(response, 200, await service.recoverStart(actor, {
           connectorId: optionalSelector(body.connectorId),
           dryRun: body.dryRun === true,
           expectedBranch: optionalSelector(body.expectedBranch),
@@ -157,10 +184,14 @@ export function createCodexMachineTasksHttpApi(
 
 type Route =
   | { kind: 'start' }
+  | { kind: 'recover-start' }
   | { kind: 'attach' | 'read' | 'send' | 'stream'; threadId: string };
 
 function routeFor(method: string | undefined, path: string): Route | undefined {
   if (method === 'POST' && path === '/api/codex/tasks/start') return { kind: 'start' };
+  if (method === 'POST' && path === '/api/codex/tasks/start/recover') {
+    return { kind: 'recover-start' };
+  }
   const match = path.match(/^\/api\/codex\/tasks\/([^/]+)(?:\/(attach|send|stream))?$/);
   if (!match) return undefined;
   let threadId: string;

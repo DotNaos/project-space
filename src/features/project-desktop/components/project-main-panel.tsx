@@ -22,8 +22,6 @@ import type { CodexSessionsController } from '@/features/codex-sessions/codex-se
 import type { CodexSessionTarget } from '@/features/codex-sessions/codex-session-route';
 import { ProjectCodexTasks } from '@/features/codex-sessions/project-codex-tasks';
 import { useProjectCodexTaskTitles } from '@/features/codex-sessions/use-project-codex-task-titles';
-import { ProjectTopologyProductionRoute } from '@/features/project-topology/project-topology-production-route';
-import { ProjectHomeCommandCenter } from '@/features/project-topology/project-home-command-center';
 import { projectChatProjectId } from '@/shared/project-chat-project';
 import type {
   MachineDetailTab,
@@ -36,7 +34,6 @@ import type { RailAccount } from './app-rail';
 import { EntitySwitcher, type SwitcherEntry } from './entity-switcher';
 import { ProjectDetail } from './project-detail';
 import { ProjectHomeOverview } from './project-home-overview';
-import { ProjectRootSummary } from './project-root-summary';
 import { SettingsView } from './settings-view';
 import { projectRecordsForCodex, resolveProjectRepository } from './project-main-model';
 import { cn } from '@/lib/utils';
@@ -395,24 +392,6 @@ export function ProjectMainPanel({
     });
   }, [connectorOverview.machines, connectorOverview.physicalMachines]);
 
-  const topologyNavigation = useMemo(() => ({
-    openCoordinator(target: { kind: 'lead' } | {
-      chatProjectId: string;
-      kind: 'project-lead';
-      projectId: string;
-    }) {
-      if (target.kind === 'project-lead') {
-        onOpenProjectChat(target.chatProjectId);
-        return;
-      }
-      onOpenChat();
-    },
-    openIssue(projectId: string, issueNumber: number) {
-      onOpenProjectIssue(issueNumber, projectId);
-    },
-    resetFocus() {}
-  }), [onOpenChat, onOpenProjectChat, onOpenProjectIssue]);
-
   const handleBack = useCallback(() => {
     if (mainView === 'project') {
       onOpenProjects();
@@ -467,33 +446,6 @@ export function ProjectMainPanel({
     project.kind !== 'github' &&
     (projectTab === 'history' || projectTab === 'issues' || projectTab === 'chat');
 
-  const rootSummary = (
-    <ProjectRootSummary
-      connector={
-        isConnectorRefreshing
-          ? { state: 'loading' }
-          : connectorOverview.connectorOrigin ||
-              connectorOverview.machinesRepo.path ||
-              connectorOverview.machines.length > 0 ||
-              connectorOverview.tailscale.installed
-            ? {
-                checkedAt: new Date().toISOString(),
-                state: 'ready',
-                value: connectorOverview
-              }
-            : {
-                message: 'Machine information is not available yet.',
-                state: 'blocked'
-              }
-      }
-      onRetry={() => {
-        void onRefreshConnectorOverview();
-      }}
-      projects={projects.filter(isVisibleProject)}
-      recentProjectIds={recentProjectIds}
-    />
-  );
-
   if (mainView === 'chat') {
     return (
       <Surface
@@ -533,22 +485,6 @@ export function ProjectMainPanel({
           selectedOrigin={selectedCodexOrigin}
         />
       </Surface>
-    );
-  }
-
-  if (mainView === 'root' || mainView === 'topology') {
-    return (
-      <ProjectHomeCommandCenter
-        hasBottomTabBar={hasBottomTabBar}
-        map={(
-          <ProjectTopologyProductionRoute
-            hasBottomTabBar={hasBottomTabBar}
-            hasHomeViewSwitcher
-            navigation={topologyNavigation}
-          />
-        )}
-        summary={rootSummary}
-      />
     );
   }
 

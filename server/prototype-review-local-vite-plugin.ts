@@ -86,7 +86,10 @@ export function prototypeReviewLocalApiPlugin(repositoryRoot: string): Plugin {
             }));
           return;
         }
-        if (url.pathname.startsWith('/api/codex/sessions')) {
+        if (
+          url.pathname.startsWith('/api/codex/sessions') &&
+          request.headers['x-project-space-codex-surface'] === 'prototype-review'
+        ) {
           void runtime
             .then((value) => value.codexSessions(request, response, url))
             .then((handled) => {

@@ -11,6 +11,10 @@ import {
   codexSessionsMigrationSql
 } from './codex-sessions-migration';
 import {
+  codexSessionSettingsMigrationId,
+  codexSessionSettingsMigrationSql
+} from './codex-session-settings-migration';
+import {
   githubIssueCreationMigrationId,
   githubIssueCreationMigrationSql
 } from './github-issue-creation-migration';
@@ -659,6 +663,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: projectChatNameLeasesMigrationId,
     sql: projectChatNameLeasesMigrationSql
+  },
+  {
+    id: codexSessionSettingsMigrationId,
+    sql: codexSessionSettingsMigrationSql
   }
 ];
 

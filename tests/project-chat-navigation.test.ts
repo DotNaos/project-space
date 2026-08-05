@@ -81,7 +81,10 @@ describe('Project Chat navigation', () => {
 
   test('shows a direct chat route before slower project discovery finishes', () => {
     expect(initialProjectMainView('/chat')).toBe('chat');
-    expect(initialProjectMainView('/projects')).toBe('root');
+    expect(initialProjectMainView('/projects')).toBe('projects');
+    expect(
+      initialProjectMainView('/projects/github%3ADotNaos%2Fproject-space/issues/437')
+    ).toBe('project');
   });
 
   test('does not mistake unrelated nested paths for Project Chat', () => {

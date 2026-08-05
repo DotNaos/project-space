@@ -239,8 +239,8 @@ async function createHandler(options: ConfiguredCodexMachineTasksOptions) {
             result: error.code === 'unavailable'
               ? { state: 'uncertain' as const }
               : {
-                  message: 'The target could not prepare the worktree.',
-                  state: 'worktree_failure' as const
+                  message: 'The connector could not start Codex on the prepared worktree.',
+                  state: 'codex_failure' as const
                 }
           };
         }

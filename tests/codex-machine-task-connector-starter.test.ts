@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 
 import { createLocalCodexMachineTaskStarter } from '../server/codex-machine-tasks/connector-starter';
+import { CodexAppServerRequestError } from '../server/codex-sessions/stdio-transport';
 import { CodexThreadUnmaterializedError } from '../server/codex-sessions/stdio-transport';
 
 const threadId = '019f6d33-6aad-7302-a45e-bb7a33fc399c';
+const replacementThreadId = '019f6d4a-e84f-79aa-a290-a686d024426b';
 const request = {
   branch: 'issue-262-machine-tasks',
   commit: 'a'.repeat(40),
@@ -16,6 +18,23 @@ const request = {
   projectId: 'github:R_repo',
   repositoryId: 'R_repo',
   repositoryNameWithOwner: 'DotNaos/project-space'
+};
+const verifiedWorktree = {
+  branchName: request.branch,
+  detached: false,
+  headSha: request.commit,
+  id: 'wt_abcdef0123456789abcdef01',
+  isBase: false,
+  kind: 'project-managed' as const,
+  locked: false,
+  name: request.branch,
+  path: '/projects/.worktrees/project-space/issue-262-machine-tasks',
+  prunable: false,
+  status: 'ready' as const
+};
+const verifiedDependencies = {
+  loadWorktrees: async () => [verifiedWorktree],
+  readWorktreeOwner: async () => undefined
 };
 
 describe('Codex machine-task connector starter', () => {
@@ -38,6 +57,7 @@ describe('Codex machine-task connector starter', () => {
         return { turn: { id: 'turn-one' } };
       }
     } as never, {
+      readWorktreeOwner: async () => undefined,
       loadWorktrees: async () => [{
         branchName: request.branch,
         detached: false,
@@ -100,6 +120,230 @@ describe('Codex machine-task connector starter', () => {
     ]));
   });
 
+  test('returns the existing task when the owned worktree already contains its prompt', async () => {
+    const calls: string[] = [];
+    const starter = createLocalCodexMachineTaskStarter({
+      async readThread() {
+        calls.push('read');
+        return {
+          thread: {
+            cwd: verifiedWorktree.path,
+            id: threadId,
+            status: { type: 'active' },
+            turns: [{
+              id: 'turn-existing',
+              items: [{
+                content: [{ text: request.initialPrompt, type: 'text' }],
+                type: 'userMessage'
+              }]
+            }]
+          }
+        };
+      },
+      async startThread() { calls.push('start-thread'); },
+      async startTurn() { calls.push('start-turn'); }
+    } as never, {
+      ...verifiedDependencies,
+      readWorktreeOwner: async () => threadId,
+      worktreeAdapter: materializedWorktreeAdapter()
+    });
+
+    await expect(starter(request, { generation: 7, userId: 'user-owner' })).resolves.toEqual({
+      state: 'confirmed',
+      threadId,
+      worktreeId: verifiedWorktree.id
+    });
+    expect(calls).toEqual(['read']);
+  });
+
+  test('begins the issue turn on an unmaterialized thread that already owns the worktree', async () => {
+    const calls: string[] = [];
+    const starter = createLocalCodexMachineTaskStarter({
+      operationSnapshot() { return []; },
+      async readThread() {
+        calls.push('read');
+        throw new CodexThreadUnmaterializedError();
+      },
+      async startThread() { calls.push('start-thread'); },
+      async startTurn() {
+        calls.push('start-turn');
+        return { turn: { id: 'turn-existing-owner' } };
+      }
+    } as never, {
+      ...verifiedDependencies,
+      readWorktreeOwner: async () => threadId,
+      worktreeAdapter: materializedWorktreeAdapter()
+    });
+
+    await expect(starter(request, { generation: 7, userId: 'user-owner' })).resolves.toEqual({
+      state: 'confirmed',
+      threadId,
+      worktreeId: verifiedWorktree.id
+    });
+    expect(calls).toEqual(['read', 'read', 'start-turn']);
+  });
+
+  test('safely replaces an orphaned owner before beginning the issue turn', async () => {
+    const calls: unknown[] = [];
+    const starter = createLocalCodexMachineTaskStarter({
+      operationSnapshot() { return []; },
+      async readThread(candidateThreadId: string) {
+        calls.push({ candidateThreadId, kind: 'read' });
+        if (candidateThreadId === threadId) throw new CodexAppServerRequestError(-32600);
+        throw new CodexThreadUnmaterializedError();
+      },
+      async startThread(input: unknown) {
+        calls.push({ input, kind: 'start-thread' });
+        return { thread: { id: replacementThreadId } };
+      },
+      async startTurn(input: unknown) {
+        calls.push({ input, kind: 'start-turn' });
+        return { turn: { id: 'turn-recovered-owner' } };
+      }
+    } as never, {
+      ...verifiedDependencies,
+      readWorktreeOwner: async () => threadId,
+      runProject: async (args, cwd, options) => {
+        calls.push({ args, cwd, environment: options.environment, kind: 'recover' });
+        return {
+          durationMs: 1,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            branch: request.branch,
+            ownerThreadId: replacementThreadId,
+            path: verifiedWorktree.path,
+            status: 'recovered'
+          })
+        };
+      },
+      worktreeAdapter: materializedWorktreeAdapter()
+    });
+
+    await expect(starter(request, { generation: 7, userId: 'user-owner' })).resolves.toEqual({
+      state: 'confirmed',
+      threadId: replacementThreadId,
+      worktreeId: verifiedWorktree.id
+    });
+    expect(calls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ candidateThreadId: threadId, kind: 'read' }),
+      expect.objectContaining({ kind: 'start-thread' }),
+      expect.objectContaining({
+        args: [
+          'worktree',
+          'recover',
+          '--expected-owner',
+          threadId,
+          '--format',
+          'json'
+        ],
+        environment: { CODEX_THREAD_ID: replacementThreadId },
+        kind: 'recover'
+      }),
+      expect.objectContaining({ kind: 'start-turn' })
+    ]));
+  });
+
+  test('fails closed when an orphaned owner cannot be recovered safely', async () => {
+    const calls: string[] = [];
+    const starter = createLocalCodexMachineTaskStarter({
+      async readThread() {
+        calls.push('read');
+        throw new CodexAppServerRequestError(-32600);
+      },
+      async startThread() {
+        calls.push('start-thread');
+        return { thread: { id: replacementThreadId } };
+      },
+      async startTurn() { calls.push('start-turn'); }
+    } as never, {
+      ...verifiedDependencies,
+      readWorktreeOwner: async () => threadId,
+      runProject: async () => {
+        calls.push('recover');
+        return {
+          durationMs: 1,
+          exitCode: 1,
+          stderr: 'recover owned worktree: unowned worktree contains changes',
+          stdout: ''
+        };
+      },
+      worktreeAdapter: materializedWorktreeAdapter()
+    });
+
+    await expect(starter(request, { generation: 7, userId: 'user-owner' })).resolves.toEqual({
+      message: 'The owned Project-managed worktree contains changes and was not recovered.',
+      state: 'worktree_failure'
+    });
+    expect(calls).toEqual(['read', 'start-thread', 'recover']);
+  });
+
+  test('reports a rejected first turn after orphan recovery as a Codex failure', async () => {
+    const starter = createLocalCodexMachineTaskStarter({
+      operationSnapshot() { return []; },
+      async readThread(candidateThreadId: string) {
+        if (candidateThreadId === threadId) throw new CodexAppServerRequestError(-32600);
+        throw new CodexThreadUnmaterializedError();
+      },
+      async startThread() {
+        return { thread: { id: replacementThreadId } };
+      },
+      async startTurn() {
+        throw new CodexAppServerRequestError(-32600);
+      }
+    } as never, {
+      ...verifiedDependencies,
+      readWorktreeOwner: async () => threadId,
+      runProject: async () => ({
+        durationMs: 1,
+        exitCode: 0,
+        stderr: '',
+        stdout: JSON.stringify({
+          branch: request.branch,
+          ownerThreadId: replacementThreadId,
+          path: verifiedWorktree.path,
+          status: 'recovered'
+        })
+      }),
+      worktreeAdapter: materializedWorktreeAdapter()
+    });
+
+    await expect(starter(request, { generation: 7, userId: 'user-owner' })).resolves.toEqual({
+      message: 'Codex could not start on the selected connector. You can retry safely.',
+      state: 'codex_failure'
+    });
+  });
+
+  test('does not attach an owned worktree to a different existing Codex task', async () => {
+    const starter = createLocalCodexMachineTaskStarter({
+      async readThread() {
+        return {
+          thread: {
+            cwd: verifiedWorktree.path,
+            id: threadId,
+            status: { type: 'idle' },
+            turns: [{
+              id: 'turn-unrelated',
+              items: [{
+                content: [{ text: 'A different task.', type: 'text' }],
+                type: 'userMessage'
+              }]
+            }]
+          }
+        };
+      }
+    } as never, {
+      ...verifiedDependencies,
+      readWorktreeOwner: async () => threadId,
+      worktreeAdapter: materializedWorktreeAdapter()
+    });
+
+    await expect(starter(request, { generation: 7, userId: 'user-owner' })).resolves.toEqual({
+      message: 'The Project-managed worktree belongs to a different Codex task.',
+      state: 'worktree_failure'
+    });
+  });
+
   test('returns a structured worktree failure before starting Codex', async () => {
     const starter = createLocalCodexMachineTaskStarter({} as never, {
       worktreeAdapter: {
@@ -123,10 +367,57 @@ describe('Codex machine-task connector starter', () => {
     });
   });
 
+  test('returns a structured worktree failure when materialization throws', async () => {
+    const starter = createLocalCodexMachineTaskStarter({} as never, {
+      worktreeAdapter: {
+        async runWorktreeAction() {
+          throw new Error('private materialization detail');
+        }
+      }
+    });
+
+    const result = await starter(request, { generation: 7, userId: 'user-owner' });
+    expect(result).toEqual({
+      message: 'Worktree materialization failed on the selected connector.',
+      state: 'worktree_failure'
+    });
+    expect(JSON.stringify(result)).not.toContain('private');
+  });
+
+  test('reports a definite Codex rejection as retryable instead of uncertain', async () => {
+    const starter = createLocalCodexMachineTaskStarter({
+      async startThread() { throw new CodexAppServerRequestError(-32600); }
+    } as never, {
+      ...verifiedDependencies,
+      worktreeAdapter: {
+        async runWorktreeAction() {
+          return {
+            branchName: request.branch,
+            checkedAt: '2026-07-17T00:00:00.000Z',
+            commitSha: request.commit,
+            generation: 7,
+            machineId: request.machineId,
+            operation: 'materialize' as const,
+            projectId: request.projectId,
+            projectPath: '/projects/project-space',
+            state: 'created' as const,
+            worktreePath: '/projects/.worktrees/project-space/issue-262-machine-tasks'
+          };
+        }
+      }
+    });
+
+    await expect(starter(request, { generation: 7, userId: 'user-owner' })).resolves.toEqual({
+      message: 'Codex could not start on the selected connector. You can retry safely.',
+      state: 'codex_failure'
+    });
+  });
+
   test('reports an unverifiable isolated worktree as a deterministic failure', async () => {
     const starter = createLocalCodexMachineTaskStarter({
       async startThread() { return { thread: { id: threadId } }; }
     } as never, {
+      readWorktreeOwner: async () => undefined,
       loadWorktrees: async () => [{
         branchName: request.branch,
         detached: false,
@@ -179,6 +470,7 @@ describe('Codex machine-task connector starter', () => {
     const starter = createLocalCodexMachineTaskStarter({
       async startThread() { return { thread: { id: threadId } }; }
     } as never, {
+      ...verifiedDependencies,
       runProject: async () => ({
         durationMs: 1,
         exitCode: 1,
@@ -254,6 +546,7 @@ describe('Codex machine-task connector starter', () => {
     const starter = createLocalCodexMachineTaskStarter({
       async startThread() { return { thread: { id: threadId } }; }
     } as never, {
+      ...verifiedDependencies,
       runProject: async () => ({
         durationMs: 1,
         exitCode: 1,
@@ -287,6 +580,7 @@ describe('Codex machine-task connector starter', () => {
     const starter = createLocalCodexMachineTaskStarter({
       async startThread() { return { thread: { id: threadId } }; }
     } as never, {
+      ...verifiedDependencies,
       runProject: async () => ({
         durationMs: 1,
         exitCode: 0,
@@ -322,3 +616,22 @@ describe('Codex machine-task connector starter', () => {
     });
   });
 });
+
+function materializedWorktreeAdapter() {
+  return {
+    async runWorktreeAction() {
+      return {
+        branchName: request.branch,
+        checkedAt: '2026-07-17T00:00:00.000Z',
+        commitSha: request.commit,
+        generation: 7,
+        machineId: request.machineId,
+        operation: 'materialize' as const,
+        projectId: request.projectId,
+        projectPath: '/projects/project-space',
+        state: 'created' as const,
+        worktreePath: verifiedWorktree.path
+      };
+    }
+  };
+}

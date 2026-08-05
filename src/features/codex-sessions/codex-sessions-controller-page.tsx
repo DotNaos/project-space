@@ -92,6 +92,9 @@ export function CodexSessionsControllerPage({
       }}
       onOpenProjectChatThread={onOpenProjectChatThread}
       onManageConnector={onManageConnector}
+      onPermissionProfileChange={async (origin, permissionProfileId) => {
+        await controller.updatePermissionProfile(origin, permissionProfileId);
+      }}
       onResolveApproval={async (decision) => {
         try { await controller.resolveApproval(decision); } catch { /* Keep the decision visible for retry. */ }
       }}

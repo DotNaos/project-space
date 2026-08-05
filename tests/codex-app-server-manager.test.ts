@@ -768,6 +768,12 @@ describe('Codex app-server session manager', () => {
         permissionProfileId: ':read-only',
         threadId: 'thread-1'
       });
+      await manager.startTurn({
+        operationId: 'turn-with-full-access',
+        permissionProfileId: ':danger-full-access',
+        prompt: 'Finish the draft PR',
+        threadId: 'thread-1'
+      });
       process.send({
         method: 'thread/tokenUsage/updated',
         params: {
@@ -797,6 +803,13 @@ describe('Codex app-server session manager', () => {
       expect(process.requests.find((request) => request.method === 'thread/settings/update'))
         .toMatchObject({
           params: { permissions: ':read-only', threadId: 'thread-1' }
+        });
+      expect(process.requests.find((request) => request.method === 'turn/start'))
+        .toMatchObject({
+          params: {
+            permissions: ':danger-full-access',
+            threadId: 'thread-1'
+          }
         });
       expect(manager.threadSettings('thread-1')).toEqual({
         permissionProfileId: ':read-only'

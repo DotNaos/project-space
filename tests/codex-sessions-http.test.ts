@@ -259,6 +259,7 @@ describe('Codex sessions authenticated HTTP boundary', () => {
       effort: 'high',
       model: 'gpt-5-mini',
       operationId: 'operation-model-1',
+      permissionProfileId: ':danger-full-access',
       serviceTier: 'fast'
     }));
     const invalid = await fetch(path, mutation({
@@ -278,6 +279,7 @@ describe('Codex sessions authenticated HTTP boundary', () => {
         effort: 'high',
         model: 'gpt-5-mini',
         operationId: 'operation-model-1',
+        permissionProfileId: ':danger-full-access',
         serviceTier: 'fast',
         threadId
       },
@@ -461,6 +463,29 @@ describe('Codex sessions browser client', () => {
       },
       header: 'operation-client-1'
     }]);
+  });
+
+  test('marks only prototype-review Codex traffic for the local review runtime', async () => {
+    const surfaces: Array<string | null> = [];
+    const response = JSON.stringify({
+      checkedAt: '2026-08-05T00:00:00.000Z',
+      inventoryState: 'live',
+      machine: { id: 'machine-one', name: 'Local', online: true },
+      publishedAt: '2026-08-05T00:00:00.000Z',
+      sessions: []
+    });
+    const fetchImplementation: typeof fetch = async (_input, init) => {
+      surfaces.push(new Headers(init?.headers).get('X-Project-Space-Codex-Surface'));
+      return new Response(response, { headers: { 'Content-Type': 'application/json' } });
+    };
+
+    await createCodexSessionsClient({ fetchImplementation }).list({ machineId: 'machine-one' });
+    await createCodexSessionsClient({
+      fetchImplementation,
+      surface: 'prototype-review'
+    }).list({ machineId: 'machine-one' });
+
+    expect(surfaces).toEqual([null, 'prototype-review']);
   });
 
   test('cancels a Codex inventory request that exceeds its deadline', async () => {

@@ -361,7 +361,7 @@ function boundedPayload(operation: CodexSessionsConnectorOperation, payload: Rec
     case 'continue':
       return hasOnlyKeys(payload, [
         'delivery', 'effort', 'expectedTurnId', 'imageAttachmentIds', 'machineId',
-        'message', 'model', 'operationId', 'serviceTier', 'threadId'
+        'message', 'model', 'operationId', 'permissionProfileId', 'serviceTier', 'threadId'
       ]) &&
         boundedIdentifier(payload.threadId, 128) && boundedIdentifier(payload.operationId, 128) &&
         (payload.delivery === undefined || payload.delivery === 'new-turn' || payload.delivery === 'steer') &&
@@ -370,6 +370,7 @@ function boundedPayload(operation: CodexSessionsConnectorOperation, payload: Rec
           ? boundedIdentifier(payload.expectedTurnId, 128) &&
             payload.effort === undefined &&
             payload.model === undefined &&
+            payload.permissionProfileId === undefined &&
             payload.serviceTier === undefined
           : payload.expectedTurnId === undefined) &&
         (payload.imageAttachmentIds === undefined || (
@@ -385,6 +386,8 @@ function boundedPayload(operation: CodexSessionsConnectorOperation, payload: Rec
         )) &&
         (payload.effort === undefined || boundedIdentifier(payload.effort, 128)) &&
         (payload.model === undefined || boundedIdentifier(payload.model, 128)) &&
+        (payload.permissionProfileId === undefined ||
+          boundedPermissionProfileId(payload.permissionProfileId)) &&
         (payload.serviceTier === undefined || payload.serviceTier === null ||
           boundedIdentifier(payload.serviceTier, 128)) &&
         typeof payload.message === 'string' && payload.message.length > 0 && payload.message.length <= 16_000;

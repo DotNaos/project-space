@@ -88,8 +88,16 @@ export function createProjectDesktopTopologyNavigation({
       writeRoute('project', targetProjectId, false, 'issues', String(issueNumber));
     },
     openTopology() {
-      setMainView('root');
-      writeRoute('root');
+      if (selectedProjectId) {
+        setProjectTab('issues');
+        setSelectedIssueNumber(undefined);
+        setMainView('project');
+        writeRoute('project', selectedProjectId, false, 'issues');
+        return;
+      }
+
+      setMainView('projects');
+      writeRoute('projects');
     },
     selectProject(projectId: string, groupId?: string) {
       selectProjectContext(projectId, groupId);

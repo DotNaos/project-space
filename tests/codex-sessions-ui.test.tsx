@@ -360,7 +360,7 @@ describe('Canonical Codex task page', () => {
     expect(html).not.toContain('lucide-square-terminal');
   });
 
-  test('presents tool activity as a quiet icon row without a timeline rule', () => {
+  test('collapses consecutive tool activity into one summary that keeps the active call visible', () => {
     const html = renderToStaticMarkup(
       <CodexConversationPane
         conversation={{
@@ -392,13 +392,64 @@ describe('Canonical Codex task page', () => {
     );
 
     expect(html).toContain('data-codex-activity-row="true"');
+    expect(html).toContain('data-codex-activity-run="true"');
+    expect(html).toContain('data-codex-activity-run-count="3"');
+    expect(html).toContain('data-codex-activity-run-state="running"');
+    expect(html).toContain('data-codex-activity-run-summary="true"');
+    expect(html).toContain('x'.repeat(512));
+    expect(html).toContain('+2');
     expect(html).toContain('data-codex-activity-kind="mcp-tool"');
     expect(html).toContain('data-codex-activity-kind="unknown"');
     expect(html).toContain('lucide-circle-dot');
     expect(html).toContain('lucide-wrench');
-    expect(html).toContain('Running:');
     expect(html).toContain('break-words');
     expect(html).not.toContain('border-l');
+    expect(html).toContain('<details');
+    expect(html).not.toContain('<details open=""');
+  });
+
+  test('summarizes a completed tool run and starts a new run after a message', () => {
+    const html = renderToStaticMarkup(
+      <CodexConversationPane
+        conversation={{
+          items: [{
+            activityKind: 'mcp-tool',
+            detail: 'Read files',
+            id: 'read-files',
+            kind: 'activity',
+            label: 'Tool call',
+            state: 'completed'
+          }, {
+            activityKind: 'command',
+            detail: 'Ran a command',
+            id: 'ran-command',
+            kind: 'activity',
+            label: 'Command',
+            state: 'completed'
+          }, {
+            id: 'assistant-between-runs',
+            kind: 'message',
+            role: 'assistant',
+            text: 'The next action is separate.'
+          }, {
+            activityKind: 'status',
+            detail: 'Waited for a task',
+            id: 'single-status',
+            kind: 'activity',
+            label: 'Status',
+            state: 'completed'
+          }],
+          machineId: machine.id,
+          threadId: activeSession.threadId
+        }}
+        machine={machine}
+        session={activeSession}
+      />
+    );
+
+    expect(html).toContain('Read files, Ran a command');
+    expect(html.match(/data-codex-activity-run="true"/g)).toHaveLength(1);
+    expect(html).toContain('Waited for a task');
   });
 
   test('uses the compact Moodle-inspired composer surface', () => {
@@ -480,6 +531,33 @@ describe('Canonical Codex task page', () => {
     expect(html).toContain('aria-label="Continue this Codex session"');
     expect(html).toContain('aria-label="Send to this Codex session"');
     expect(html).toContain('rounded-full bg-neutral-100');
+  });
+
+  test('exposes advertised permission profiles in the full task composer', () => {
+    const html = renderToStaticMarkup(
+      <CodexConversationPane
+        conversation={conversation}
+        machine={machine}
+        onPermissionChange={async () => {}}
+        session={{
+          ...activeSession,
+          permissionProfileId: ':workspace',
+          permissionProfiles: [{
+            allowed: true,
+            description: 'Work inside the current workspace.',
+            id: ':workspace'
+          }, {
+            allowed: true,
+            description: 'Work without the normal workspace boundary.',
+            id: ':danger-full-access'
+          }]
+        }}
+      />
+    );
+
+    expect(html).toContain('Change permissions, currently Workspace');
+    expect(html).toContain('Full access');
+    expect(html).not.toContain('aria-label="Exact machine and task authorization"');
   });
 
   test('reserves narrow task-header space for the compact shell controls', () => {
