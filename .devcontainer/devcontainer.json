@@ -1,0 +1,19 @@
+{
+  "name": "Project Space",
+  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  "features": {
+    "ghcr.io/devcontainers/features/go:1": {
+      "version": "1.26"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "postCreateCommand": "curl -fsSL https://bun.sh/install | bash -s \"bun-v1.3.14\" && \"$HOME/.bun/bin/bun\" install --frozen-lockfile && curl -fsSL https://chatgpt.com/codex/install.sh | sh",
+  "remoteEnv": {
+    "PATH": "${containerEnv:PATH}:${containerEnv:HOME}/.bun/bin:${containerEnv:HOME}/.local/bin"
+  },
+  "forwardPorts": [
+    4173,
+    45873,
+    5180
+  ]
+}
