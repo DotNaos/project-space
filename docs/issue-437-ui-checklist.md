@@ -194,13 +194,24 @@ The next focused milestone is UI-only. It must be possible to dogfood the entire
 
 Evidence: created mocked Task #438 from the phone composer, reviewed it, advanced it through branch, local Agent run, pull request #439, checks, Preview, exact-revision approval, merge, deployment, and verified live state. A simulated revision change cleared the previous approval before the flow was completed again. Comment state survived navigation. Tasks #398 and #395 exercised failed-check and unavailable-Preview recovery. The overview, history, detail, and Preview were inspected at phone and desktop widths with no browser errors. Focused tests pass (24 tests), the broader prototype suite passes (117 tests), and the TypeScript project check passes.
 
-## Later milestones
+## 8. Production integration
 
+- [x] Replace the old issue-first project route in place with the redesigned Task experience.
+- [x] Load Task state from real GitHub issues, branches, pull requests, comments, and exact-head workflow runs.
+- [x] Create a real GitHub issue from New task and open its Task detail immediately.
+- [x] Create or link the Task branch, start Codex on an eligible selected machine, and recover an uncertain start without duplicating the operation.
+- [x] Create the draft pull request only after the branch has a commit and preserve the exact branch/head relationship.
+- [x] Show the trusted PR Preview and prototype actions only from real exact-head Preview evidence.
+- [x] Add and load the real GitHub issue conversation from Task detail.
+- [x] Show merged-branch cleanup truth across the remote branch and machine worktrees without claiming that a dirty checkout is safe to delete.
 - [x] Build the persistent project Chat experience with machine selection and coordination views.
-- [x] Build the Repository control surface across branches and machine worktrees.
+- [x] Build the Repository control surface across real branches and machine worktrees.
 - [x] Build the global Project Template and project-level Template check.
-- [ ] Replace mock transitions with real APIs only after the Task workflow has been dogfooded and accepted.
+- [ ] Activate the default-branch `workflow_run` bootstrap from PR #452 so every successful exact PR artifact is deployed and registered automatically.
+- [ ] Verify PR #439 at its public PR Preview URL after that exact bootstrap revision is approved and merged.
 
-## Completion rule for the next milestone
+Evidence: the production Task workflow created real issue #447, started development on a configured physical machine through connector/App Server fallback, opened Codex thread `019fd143-bfa8-7e73-85b0-35ffbe6f2574`, and created draft PR #448 from the redesigned frontend. Repository and Template routes were verified against live GitHub and machine data at desktop and phone widths. PR #439 exact head `047cfac029f0754a33692f537151907f8729129c` passed the complete local preflight and every current build lane, including its immutable exact-head Preview artifact. The public Preview still intentionally falls back to the trusted hub until the clean, green bootstrap PR #452 at `3febd0f72082d851a17856151f35376f817dd946` receives exact-head approval and lands on the default branch.
 
-The mocked Task milestone is complete only when every item in section 7 is checked, the focused prototype tests and TypeScript check pass, the live prototype has been visually dogfooded at desktop and phone widths, and the complete Task lifecycle can be used without touching real external systems.
+## Completion rule
+
+Issue #437 is ready for final review only when every production item above is checked, the canonical exact-head preflight is green, the public PR Preview is automatically deployed from the successful artifact workflow, and the redesigned Task, Chat, Repository, Template, machine, and Codex paths have been dogfooded against real data at desktop and phone widths. Merge, release, and production deployment remain behind exact-head approval.
