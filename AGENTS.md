@@ -1,3 +1,10 @@
+## Repository scope
+
+- Treat this repository as the source of truth for Project Space work. Start with its code, tests, documentation, lockfile, generated documentation, and installed dependencies.
+- Do not clone sibling or upstream repositories merely to inspect implementation details or documentation. Use the GitHub connector for read-only cross-repository context when local information is insufficient.
+- Clone or create a worktree for another repository only when the task explicitly requires changing that repository. If a Project Space task unexpectedly requires a cross-repository change, stop and ask to expand the task scope.
+- A task scoped to Project Space must remain buildable and testable from this checkout without sibling repositories.
+
 ## Parallel Codex Work
 
 - Before changing the repository, list the active Codex tasks and inspect every active task working in this repository. Identify its branch, worktree, owner thread, and likely file ownership before choosing where to work. The agent must perform this check itself instead of waiting for the user to mention parallel work.
