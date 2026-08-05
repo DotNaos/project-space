@@ -7,13 +7,11 @@
     },
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
-  "postCreateCommand": "curl -fsSL https://bun.sh/install | bash -s \"bun-v1.3.14\" && \"$HOME/.bun/bin/bun\" install --frozen-lockfile && \"$HOME/.bun/bin/bun\" add --global @openai/codex",
-  "remoteEnv": {
-    "PATH": "${containerEnv:PATH}:${containerEnv:HOME}/.bun/bin:${containerEnv:HOME}/.local/bin"
-  },
+  "postCreateCommand": "bash .devcontainer/bootstrap.sh",
   "forwardPorts": [
     4173,
     45873,
     5180
-  ]
+  ],
+  "postStartCommand": "bash .devcontainer/verify.sh"
 }
