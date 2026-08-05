@@ -28,8 +28,9 @@ import { ProjectTasksExperience } from '@/features/project-tasks/project-tasks-e
 import { ProjectMachinesPanel } from './project-machines-panel';
 import { ProjectDeploymentsPanel } from './project-deployments-panel';
 import { ProjectOverviewWorkbench } from './project-overview-workbench';
-import { ProjectWorkspacesPanel } from './project-workspaces-panel';
+import { ProjectRepositoryPanel } from './project-repository-panel';
 import { ProjectTemplateAdherencePanel } from './project-template-adherence-panel';
+import { ProjectTemplateContractPanel } from './project-template-contract-panel';
 import { ProjectTemplateSetupPanel } from './project-template-setup-panel';
 import { ProjectctlManifestPanel } from './projectctl-manifest-panel';
 import { RepositoryActivityPanel } from './repository-activity-panel';
@@ -269,6 +270,7 @@ export interface ProjectDetailProps {
   onOpenWorkflowRun(runId: number): void;
   onCloseWorkflowRun(): void;
   onRefreshWorktrees(): Promise<ProjectWorktreeRecord[]>;
+  onSelectMachine(machineId: string): void;
   onSelectTab(tab: ProjectDetailTab): void;
   onSelectWorkspace(): void;
   onSelectWorktree(worktreeId: string): void;
@@ -299,6 +301,7 @@ export function ProjectDetail({
   onOpenWorkflowRun,
   onCloseWorkflowRun,
   onRefreshWorktrees,
+  onSelectMachine,
   onSelectTab,
   onSelectWorkspace,
   onSelectWorktree,
@@ -317,7 +320,12 @@ export function ProjectDetail({
 }: ProjectDetailProps) {
   const [templateRefreshKey, setTemplateRefreshKey] = useState(0);
   const [templateRelativePath, setTemplateRelativePath] = useState('');
-  const containsOwnScroll = tab === 'history' || tab === 'issues' || tab === 'chat' || tab === 'codex';
+  const containsOwnScroll =
+    tab === 'history' ||
+    tab === 'issues' ||
+    tab === 'chat' ||
+    tab === 'codex' ||
+    tab === 'workspaces';
   const templateTargetPath = joinTargetPath(selectedTargetPath, templateRelativePath);
 
   useEffect(() => {
@@ -395,9 +403,11 @@ export function ProjectDetail({
         ) : null}
 
         {tab === 'workspaces' ? (
-          <ProjectWorkspacesPanel
+          <ProjectRepositoryPanel
             connectorOverview={connectorOverview}
+            onOpenHistory={onOpenHistory}
             onRefreshWorktrees={onRefreshWorktrees}
+            onSelectMachine={onSelectMachine}
             onSelectWorkspace={onSelectWorkspace}
             onSelectWorktree={onSelectWorktree}
             project={project}
@@ -444,6 +454,13 @@ export function ProjectDetail({
 
         {tab === 'template' ? (
           <div className="flex flex-col gap-4">
+            <ProjectTemplateContractPanel project={project} />
+            <div className="pt-2">
+              <Text className="text-lg font-semibold text-neutral-100">Project check</Text>
+              <Text className="mt-1 block text-sm text-neutral-500">
+                Validate this project against the template and repair missing setup.
+              </Text>
+            </div>
             <ProjectTemplateSetupPanel
               connectorOverview={connectorOverview}
               onSelectWorkspace={onSelectWorkspace}

@@ -22,6 +22,7 @@ import {
   unmaterializedBranchesFor
 } from './worktree-runtime-model';
 import { projectWorktreeDiscoverySummary } from './project-worktree-discovery-model';
+import { ProjectWorkspaceMachineSelect } from './project-workspace-machine-select';
 import {
   selectedProjectWorktree,
   selectedWorktreeExplorerPath
@@ -66,6 +67,7 @@ function branchSort(defaultBranch: string) {
 export function ProjectWorkspacesPanel({
   connectorOverview,
   onRefreshWorktrees,
+  onSelectMachine,
   onSelectWorkspace,
   onSelectWorktree,
   project,
@@ -77,6 +79,7 @@ export function ProjectWorkspacesPanel({
 }: {
   connectorOverview: ConnectorOverviewResult;
   onRefreshWorktrees(): Promise<ProjectWorktreeRecord[]>;
+  onSelectMachine?(machineId: string): void;
   onSelectWorkspace(): void;
   onSelectWorktree(worktreeId: string): void;
   project: ProjectSpaceRecord;
@@ -94,9 +97,8 @@ export function ProjectWorkspacesPanel({
   const [showCreate, setShowCreate] = useState(false);
   const [selectedCreateBranch, setSelectedCreateBranch] = useState('');
   const selectedMachine =
-    connectorOverview.machines.find(
-      (machine) => machine.id === (project.machineId ?? selectedMachineId)
-    ) ??
+    connectorOverview.machines.find((machine) => machine.id === selectedMachineId) ??
+    connectorOverview.machines.find((machine) => machine.id === project.machineId) ??
     connectorOverview.machines.find((machine) => machine.connector.status === 'local') ??
     connectorOverview.machines[0];
   const selectedConnectorLocation = selectedMachine
@@ -294,6 +296,11 @@ export function ProjectWorkspacesPanel({
             </Text>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
+            <ProjectWorkspaceMachineSelect
+              connectorOverview={connectorOverview}
+              onSelectMachine={onSelectMachine}
+              selectedMachineId={selectedMachine?.id}
+            />
             <Button
               size="sm"
               variant="secondary"

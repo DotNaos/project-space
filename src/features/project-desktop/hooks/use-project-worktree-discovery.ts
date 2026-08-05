@@ -26,8 +26,9 @@ export function useProjectWorktreeDiscovery({
   selectedTarget: ExplorerTarget;
   setSelectedTarget(target: ExplorerTarget): void;
 }) {
+  const discoveryMachineId = machineId || project?.machineId || '';
   const scope = project
-    ? `${project.id}:${project.machineId ?? machineId}`
+    ? `${project.id}:${discoveryMachineId}`
     : '';
   const [discoveries, setDiscoveries] = useState<
     Record<string, ProjectWorktreeDiscoveryState>
@@ -37,14 +38,14 @@ export function useProjectWorktreeDiscovery({
 
   const load = useCallback(async () => {
     if (!project) return undefined;
-    const requestScope = `${project.id}:${project.machineId ?? machineId}`;
+    const requestScope = `${project.id}:${discoveryMachineId}`;
     const generation = (requestGenerations.current[requestScope] ?? 0) + 1;
     requestGenerations.current[requestScope] = generation;
 
     try {
       const next = await projectSpaceClient.discoverProjectWorktrees(
         project.id,
-        project.machineId ?? (machineId || undefined)
+        discoveryMachineId || undefined
       );
       if (requestGenerations.current[requestScope] === generation) {
         setDiscoveries((current) => ({ ...current, [requestScope]: next }));
@@ -57,7 +58,7 @@ export function useProjectWorktreeDiscovery({
       }
       return blocked;
     }
-  }, [machineId, project]);
+  }, [discoveryMachineId, project]);
 
   useEffect(() => {
     if (project) void load();

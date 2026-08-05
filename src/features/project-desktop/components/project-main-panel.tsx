@@ -585,6 +585,7 @@ export function ProjectMainPanel({
             onCloseWorkflowRun={onCloseProjectWorkflowRun}
             onRefreshWorktrees={onRefreshProjectWorktrees}
             onSelectTab={onSelectProjectTab}
+            onSelectMachine={onSelectMachineContext}
             onSelectWorkspace={onSelectWorkspace}
             onSelectWorktree={onSelectWorktree}
             project={project}

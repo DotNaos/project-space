@@ -211,13 +211,6 @@ export function useProjectDesktop() {
       return;
     }
 
-    if (project?.machineId) {
-      if (selectedMachineId !== project.machineId) {
-        setSelectedMachineId(project.machineId);
-      }
-      return;
-    }
-
     if (selectedMachine) {
       return;
     }
@@ -228,7 +221,10 @@ export function useProjectDesktop() {
     const onlineMachine = connectorOverview.machines.find(
       (machine) => machine.connector.status === 'online'
     );
-    const nextMachine = localMachine ?? onlineMachine ?? connectorOverview.machines[0];
+    const projectMachine = project?.machineId
+      ? connectorOverview.machines.find((machine) => machine.id === project.machineId)
+      : undefined;
+    const nextMachine = projectMachine ?? localMachine ?? onlineMachine ?? connectorOverview.machines[0];
 
     setSelectedMachineId(nextMachine.id);
   }, [
