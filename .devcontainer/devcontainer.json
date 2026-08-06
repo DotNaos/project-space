@@ -15,7 +15,10 @@
     "ghcr.io/devcontainers/features/go:1": {
       "version": "1.26"
     },
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {
+      "version": "2.97.0"
+    }
   },
   "overrideFeatureInstallOrder": [
     "ghcr.io/devcontainers/features/python",

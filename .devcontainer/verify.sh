@@ -5,6 +5,7 @@ readonly expected_bun_version="1.3.14"
 readonly expected_node_version="v24.15.0"
 readonly expected_node_gyp_version="v13.0.1"
 readonly expected_go_prefix="go1.26."
+readonly expected_gh_version="2.97.0"
 readonly expected_codex_version="0.146.1"
 readonly expected_project_version="0.4.61"
 readonly expected_managed_codex_version="0.145.0"
@@ -35,6 +36,12 @@ fi
 actual_go_version="$(go version)"
 if [[ "${actual_go_version}" != *"${expected_go_prefix}"* ]]; then
   echo "Expected Go ${expected_go_prefix}x, found ${actual_go_version}." >&2
+  exit 1
+fi
+
+actual_gh_version="$(gh --version | awk 'NR == 1 {print $3}')"
+if [[ "${actual_gh_version}" != "${expected_gh_version}" ]]; then
+  echo "Expected GitHub CLI ${expected_gh_version}, found ${actual_gh_version}." >&2
   exit 1
 fi
 
@@ -80,8 +87,9 @@ fi
 
 bun run check:package-manager
 
-printf 'Codespace readiness passed: Bun %s, %s, Codex %s, Project %s, Docker ready.\n' \
+printf 'Codespace readiness passed: Bun %s, %s, GitHub CLI %s, Codex %s, Project %s, Docker ready.\n' \
   "${actual_bun_version}" \
   "${actual_go_version}" \
+  "${actual_gh_version}" \
   "${actual_codex_version}" \
   "${actual_project_version}"
