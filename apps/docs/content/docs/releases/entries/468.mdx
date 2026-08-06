@@ -1,0 +1,55 @@
+---
+title: "Make pull requests faster and releases explicit"
+version: "0.4.65"
+bump: "patch"
+pullRequest: 468
+issues:
+  - 466
+areas:
+  - cli
+  - docs
+  - deploy
+  - security
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  Pull requests now use one fast, path-aware CI result, keep their exact-head
+  Preview, and only build development CLI and connector bundles when requested.
+  Production deploys and versioned tool releases now have separate, explicit
+  paths without adding a permanent staging or release branch.
+</ReleaseSummary>
+
+## Changes
+
+### Added
+
+- Added manual, short-lived, unsigned PR development bundles for the Project CLI and connector.
+
+### Changed
+
+- Consolidated ordinary pull-request validation into one path-aware Fast CI result.
+- Consolidated Preview lifecycle, cleanup, and reaping while retaining the trusted deployment boundary.
+- Separated ordinary Production deployments from explicit versioned tool-release pull requests.
+- Documented the one-time branch-protection switch to Fast CI and Release decision after rollout.
+
+### Removed
+
+- Removed obsolete Preview wrapper, release handoff, and signing-probe workflows.
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Confirm this pull request exposes Fast CI without release-only platform jobs.
+- Open the exact pull-request Preview and verify it reports the current commit.
+- Confirm `project dev-build create --help` lists only explicit PR build options.
+
+</PreviewOnly>
