@@ -1,0 +1,38 @@
+---
+title: "Recover automatic pull request previews"
+version: "0.4.60"
+bump: "patch"
+pullRequest: 459
+issues:
+  - 437
+areas:
+  - deploy
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  Automatic pull request Previews can now retry cleanly after an earlier
+  deployment attempt failed.
+</ReleaseSummary>
+
+## Changes
+
+### Fixed
+
+- A failed Preview deployment can re-enter the verified apply path and become online after a successful retry.
+- Failed retries keep their failed state when repository preparation still cannot complete.
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Retry a previously failed pull request Preview and confirm the exact revision becomes reachable automatically.
+
+</PreviewOnly>
