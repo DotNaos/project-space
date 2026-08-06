@@ -125,7 +125,8 @@ describe('Codespace agent command and result contract', () => {
       '456',
       '--repository',
       'DotNaos/project-space',
-      '--here',
+      '--machine',
+      'codespace-friendly-space',
       '--operation-id',
       expected.operationId,
       '--format',
@@ -140,6 +141,7 @@ describe('Codespace agent command and result contract', () => {
       repository: expected.repository
     });
     expect(commands.sessionName).toBe('issue-456');
+    expect(commands.logPath).toBe('/workspaces/project-space/.project-space/runner/issue-456.log');
     expect(commands.exists).toEqual([
       'tmux',
       '-L',
@@ -158,7 +160,7 @@ describe('Codespace agent command and result contract', () => {
       'issue-456',
       '-c',
       '/workspaces/project-space',
-      'bun scripts/codespace-agent.ts --issue 456 --repository DotNaos/project-space'
+      'umask 077; set -o pipefail; bun scripts/codespace-agent.ts --issue 456 --repository DotNaos/project-space 2>&1 | tee -a /workspaces/project-space/.project-space/runner/issue-456.log'
     ]);
     expect(commands.attach).toEqual([
       'tmux',

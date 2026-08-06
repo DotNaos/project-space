@@ -77,7 +77,8 @@ The runner performs these steps as one supervised operation:
 2. starts `project connect --connector-mode foreground`;
 3. prints a Project Space machine-approval URL on the first run and waits for
    that machine to become online;
-4. calls `project codex start --issue 454 --here` with an operation ID derived
+4. calls `project codex start --issue 454 --machine <exact-codespace-name>` with
+   an operation ID derived
    from repository, issue, and `CODESPACE_NAME`;
 5. saves only the confirmed task identity under
    `~/.local/state/project-space/codespace-agent`; and
@@ -98,7 +99,9 @@ tmux -L project-space-agent attach-session -t =issue-454
 ```
 
 Detach without stopping the runner with **Ctrl+B**, then **D**. Use another
-terminal for development servers or inspection.
+terminal for development servers or inspection. tmux output is also appended to
+`.project-space/runner/issue-454.log`, which survives terminal disconnects and
+is excluded from Git.
 
 ## Inspect, stop, and resume
 

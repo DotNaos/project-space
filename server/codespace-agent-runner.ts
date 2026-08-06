@@ -207,7 +207,8 @@ export function codespaceAgentCommands(input: {
       String(input.issue),
       '--repository',
       input.repository,
-      '--here',
+      '--machine',
+      input.machineName,
       '--operation-id',
       input.operationId,
       '--format',
@@ -225,10 +226,13 @@ export function codespaceAgentTmuxCommands(input: {
   const sessionName = `issue-${input.issue}`;
   const runner = ['bun', 'scripts/codespace-agent.ts', '--issue', String(input.issue)];
   if (input.repository) runner.push('--repository', input.repository);
+  const logPath = join(input.cwd, '.project-space', 'runner', `${sessionName}.log`);
+  const loggedRunner = `umask 077; set -o pipefail; ${shellCommand(runner)} 2>&1 | tee -a ${shellCommand([logPath])}`;
   const tmux = ['tmux', '-L', socketName];
   return {
     attach: [...tmux, 'attach-session', '-t', `=${sessionName}`],
     exists: [...tmux, 'has-session', '-t', `=${sessionName}`],
+    logPath,
     sessionName,
     start: [
       ...tmux,
@@ -238,7 +242,7 @@ export function codespaceAgentTmuxCommands(input: {
       sessionName,
       '-c',
       input.cwd,
-      shellCommand(runner)
+      loggedRunner
     ]
   };
 }
@@ -409,6 +413,7 @@ export async function runCodespaceAgent(
       issue: options.issue,
       repository: options.repository
     });
+    await mkdir(dirname(commands.logPath), { mode: 0o700, recursive: true });
     const existing = await runCapturedCommand(commands.exists, cwd, environment, 30_000);
     if (existing.exitCode === 0) {
       output.write(`tmux session ${commands.sessionName} is already running.\n`);
@@ -416,7 +421,7 @@ export async function runCodespaceAgent(
       await requireCommand(commands.start, cwd, environment);
       output.write(`Started tmux session ${commands.sessionName}.\n`);
     }
-    output.write(`Attach: ${shellCommand(commands.attach)}\n`);
+    output.write(`Attach: ${shellCommand(commands.attach)}\nLog: ${commands.logPath}\n`);
     return 0;
   }
   const sandbox = codespaceIdentity(sourceEnvironment);
