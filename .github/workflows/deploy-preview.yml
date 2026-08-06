@@ -1,5 +1,5 @@
 name: Deploy PR preview
-run-name: Preview ${{ inputs.action || 'build' }} PR #${{ inputs.pr || github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number }} · ${{ inputs.operation_id || github.event.workflow_run.id || github.event.action }}
+run-name: Preview ${{ inputs.action || 'deploy' }} PR #${{ inputs.pr || github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number }} · ${{ inputs.operation_id || github.event.workflow_run.id || github.event.action }}
 on:
   workflow_dispatch:
     inputs:
@@ -231,7 +231,7 @@ jobs:
             echo 'The pull request closed or advanced before credential handoff; no outdated Preview transaction will run.' >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Create transient GitHub deployment
-        if: steps.freshness.outputs.disposition == 'current' && inputs.action == 'deploy'
+        if: steps.freshness.outputs.disposition == 'current' && (github.event_name == 'workflow_run' || inputs.action == 'deploy')
         id: github-deployment
         shell: bash
         env:
@@ -310,7 +310,7 @@ jobs:
           set +e
           runner_command=apply
           runner_mode=online
-          if [[ "${{ inputs.action }}" == build || "${{ github.event_name }}" == workflow_run ]]; then runner_command=register; runner_mode=register; fi
+          if [[ "${{ github.event_name }}" == workflow_dispatch && "${{ inputs.action }}" == build ]]; then runner_command=register; runner_mode=register; fi
           jq -n \
             --arg repository "$PREVIEW_REPOSITORY" --argjson pr "$PR_NUMBER" --arg sha "$REQUESTED_SHA" \
             --arg mode "$runner_mode" \
@@ -371,7 +371,7 @@ jobs:
             echo 'disposition=unsafe-supersession' >> "$GITHUB_OUTPUT"
           fi
       - name: Publish GitHub deployment result
-        if: always() && steps.freshness.outputs.disposition == 'current' && inputs.action == 'deploy'
+        if: always() && steps.freshness.outputs.disposition == 'current' && (github.event_name == 'workflow_run' || inputs.action == 'deploy')
         shell: bash
         env:
           DEPLOYMENT_ID: ${{ steps.github-deployment.outputs.deployment_id }}
@@ -466,7 +466,7 @@ jobs:
           JSON
           [[ "$state" == success || "$state" == pending || "$state" == inactive ]]
       - name: Verify offline Preview registration
-        if: steps.handoff.outputs.disposition == 'current' && (inputs.action == 'build' || github.event_name == 'workflow_run')
+        if: steps.handoff.outputs.disposition == 'current' && github.event_name == 'workflow_dispatch' && inputs.action == 'build'
         shell: bash
         env:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
@@ -498,7 +498,7 @@ jobs:
           echo 'The Preview supersession fence was not positively proven.' >&2
           exit 1
       - name: Upload sanitized Preview transition evidence
-        if: always() && steps.freshness.outputs.disposition == 'current' && inputs.action == 'deploy'
+        if: always() && steps.freshness.outputs.disposition == 'current' && (github.event_name == 'workflow_run' || inputs.action == 'deploy')
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: preview-transition-${{ needs.resolve.outputs.pr_number }}-${{ github.run_id }}-${{ github.run_attempt }}

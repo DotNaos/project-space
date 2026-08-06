@@ -21,14 +21,24 @@ describe('trusted PR Preview workflow contract', () => {
 
     expect(workflow).toContain('action:');
     expect(workflow).toContain('options: [build, start, stop, touch, deploy, destroy]');
-    expect(workflow).toContain("steps.freshness.outputs.disposition == 'current' && inputs.action == 'deploy'");
+    expect(workflow).toContain(
+      "steps.freshness.outputs.disposition == 'current' && (github.event_name == 'workflow_run' || inputs.action == 'deploy')",
+    );
     expect(workflow).toContain("if: github.event_name == 'workflow_dispatch' && inputs.action == 'destroy'");
     expect(workflow).toContain('workflow_run:\n    workflows: [Build PR preview artifacts]\n    types: [completed]');
     expect(cleanup).toContain('pull_request_target:\n    types: [closed]');
-    expect(workflow).toContain('runner_command=register; runner_mode=register');
+    expect(workflow).toContain(
+      'if [[ "${{ github.event_name }}" == workflow_dispatch && "${{ inputs.action }}" == build ]]; then runner_command=register; runner_mode=register; fi',
+    );
+    expect(workflow).toContain('runner_command=apply');
+    expect(workflow).toContain('runner_mode=online');
+    expect(workflow).toContain("github.event_name == 'workflow_run'");
     expect(workflow).toContain('requested_head_sha');
     expect(workflow).toContain('replacement_head_sha');
     expect(workflow).toContain('Verify offline Preview registration');
+    expect(workflow).toContain(
+      "if: steps.handoff.outputs.disposition == 'current' && github.event_name == 'workflow_dispatch' && inputs.action == 'build'",
+    );
     expect(workflow).toContain('[[ "$GITHUB_REF" == refs/heads/main ]]');
     expect(workflow).toContain('^preview-[0-9a-f]{32}$');
     expect(workflow).toContain('github.event.workflow_run.pull_requests[0].number');

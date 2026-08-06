@@ -155,7 +155,7 @@ assert_state_transition() {
   [ -f "$target" ] || return 0
   current_state=$(jq -er '.state' "$target") || fail 'Preview registry record has no lifecycle state' 75
   case "$current_state:$next_state" in
-    building:ready|building:failed|ready:ready|ready:starting|ready:failed|starting:starting|starting:online|starting:failed|online:online|online:stopping|online:failed|update_failed:stopping|stopping:stopping|stopping:ready|stopping:online|stopping:failed|failed:failed|failed:ready|failed:starting|expired:ready|removed:building|removed:ready) ;;
+    building:ready|building:failed|ready:ready|ready:starting|ready:online|ready:failed|starting:starting|starting:online|starting:failed|online:online|online:stopping|online:failed|update_failed:stopping|stopping:stopping|stopping:ready|stopping:online|stopping:failed|failed:failed|failed:ready|failed:starting|expired:ready|removed:building|removed:ready) ;;
     *) fail "Invalid Preview lifecycle transition $current_state -> $next_state" 75;;
   esac
 }
