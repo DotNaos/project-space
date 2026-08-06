@@ -49,6 +49,7 @@ esac`
     executable(join(fakeBin, 'node-gyp'), 'test "${1:-}" = --version && echo "v13.0.1"'),
     executable(join(fakeBin, 'go'), 'echo "go version go1.26.5 linux/amd64"'),
     executable(join(fakeBin, 'gh'), 'test "${1:-}" = --version && echo "gh version 2.97.0 (2026-07-31)"'),
+    executable(join(fakeBin, 'tmux'), 'test "${1:-}" = -V && echo "tmux 3.4"'),
     executable(join(fakeBin, 'docker'), 'test "${1:-}" = info'),
     executable(join(fakeBin, 'curl'), `echo called >> "${join(root, 'curl-called')}"; exit 97`)
   ]);
@@ -85,6 +86,7 @@ esac`
   expect(devcontainer.features['ghcr.io/devcontainers/features/github-cli:1']).toEqual({
     version: '2.97.0'
   });
+  expect(devcontainer.features['ghcr.io/devcontainers-extra/features/tmux-apt-get:1.0.17']).toEqual({});
   expect(devcontainer.overrideFeatureInstallOrder).toEqual([
     'ghcr.io/devcontainers/features/python',
     'ghcr.io/devcontainers/features/node'

@@ -39,6 +39,12 @@ if [[ "${actual_go_version}" != *"${expected_go_prefix}"* ]]; then
   exit 1
 fi
 
+actual_tmux_version="$(tmux -V)"
+if [[ -z "${actual_tmux_version}" ]]; then
+  echo "Expected tmux to be installed." >&2
+  exit 1
+fi
+
 actual_gh_version="$(gh --version | awk 'NR == 1 {print $3}')"
 if [[ "${actual_gh_version}" != "${expected_gh_version}" ]]; then
   echo "Expected GitHub CLI ${expected_gh_version}, found ${actual_gh_version}." >&2
@@ -87,9 +93,10 @@ fi
 
 bun run check:package-manager
 
-printf 'Codespace readiness passed: Bun %s, %s, GitHub CLI %s, Codex %s, Project %s, Docker ready.\n' \
+printf 'Codespace readiness passed: Bun %s, %s, %s, GitHub CLI %s, Codex %s, Project %s, Docker ready.\n' \
   "${actual_bun_version}" \
   "${actual_go_version}" \
+  "${actual_tmux_version}" \
   "${actual_gh_version}" \
   "${actual_codex_version}" \
   "${actual_project_version}"

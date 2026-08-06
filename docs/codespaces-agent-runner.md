@@ -5,8 +5,8 @@ environment with Bun, Go, Docker, the interactive Codex CLI, and a matching
 released `project`/`project-space-connector` pair. It can then start one
 issue-bound Codex task without a second prompt.
 
-This is the manual first vertical slice. It deliberately keeps the connector in
-the foreground and allows one active task per Codespace. Run separate
+This is the manual first vertical slice. It keeps the foreground connector in
+a detached tmux session and allows one active task per Codespace. Run separate
 Codespaces for parallel features.
 
 ## Create the Codespace
@@ -68,7 +68,7 @@ connected GitHub integration to resolve the issue and create its issue branch.
 From the Project Space source checkout, run:
 
 ```sh
-bun scripts/codespace-agent.ts --issue 454
+bun scripts/codespace-agent.ts --issue 454 --detach
 ```
 
 The runner performs these steps as one supervised operation:
@@ -81,7 +81,7 @@ The runner performs these steps as one supervised operation:
    from repository, issue, and `CODESPACE_NAME`;
 5. saves only the confirmed task identity under
    `~/.local/state/project-space/codespace-agent`; and
-6. keeps the connector alive in the foreground.
+6. keeps the connector alive inside a detached tmux session.
 
 Once confirmed, the Codex turn is already running with the issue URL and the
 repository's `AGENTS.md` rules. The issue defines the requested result; the
@@ -90,8 +90,15 @@ the task prompt explicitly withholds merge, release, and deploy authority. For
 the first slice in #456, the expected handoff is a linked **draft** pull
 request.
 
-Keep the runner terminal open. Use another terminal for development servers or
-inspection.
+The runner survives a closed VS Code terminal. Attach to its tmux session to
+watch output or interact with it:
+
+```sh
+tmux -L project-space-agent attach-session -t =issue-454
+```
+
+Detach without stopping the runner with **Ctrl+B**, then **D**. Use another
+terminal for development servers or inspection.
 
 ## Inspect, stop, and resume
 
@@ -101,14 +108,14 @@ Print the saved task identity and an exact `project codex read` command:
 bun scripts/codespace-agent.ts --issue 454 --status
 ```
 
-Press **Ctrl+C** in the runner terminal to stop the foreground connector. This
+Attach to the tmux session and press **Ctrl+C** to stop the foreground connector. This
 takes the machine offline but preserves its approved machine identity, Codex
 login, stable operation ID, and non-secret task state.
 
 Resume with the exact same start command:
 
 ```sh
-bun scripts/codespace-agent.ts --issue 454
+bun scripts/codespace-agent.ts --issue 454 --detach
 ```
 
 The runner recovers a stale local lock, reconnects the same Codespace, and

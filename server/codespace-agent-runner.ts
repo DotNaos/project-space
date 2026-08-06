@@ -52,6 +52,7 @@ export type ParsedStartResult =
   | { kind: 'uncertain'; message: string };
 
 type RunnerOptions = {
+  detach: boolean;
   help: boolean;
   issue?: number;
   repository?: string;
@@ -211,6 +212,33 @@ export function codespaceAgentCommands(input: {
       input.operationId,
       '--format',
       'json'
+    ]
+  };
+}
+
+export function codespaceAgentTmuxCommands(input: {
+  cwd: string;
+  issue: number;
+  repository?: string;
+}) {
+  const socketName = 'project-space-agent';
+  const sessionName = `issue-${input.issue}`;
+  const runner = ['bun', 'scripts/codespace-agent.ts', '--issue', String(input.issue)];
+  if (input.repository) runner.push('--repository', input.repository);
+  const tmux = ['tmux', '-L', socketName];
+  return {
+    attach: [...tmux, 'attach-session', '-t', `=${sessionName}`],
+    exists: [...tmux, 'has-session', '-t', `=${sessionName}`],
+    sessionName,
+    start: [
+      ...tmux,
+      'new-session',
+      '-d',
+      '-s',
+      sessionName,
+      '-c',
+      input.cwd,
+      shellCommand(runner)
     ]
   };
 }
@@ -375,6 +403,22 @@ export async function runCodespaceAgent(
   const cwd = runtime.cwd ?? process.cwd();
   const sourceEnvironment = runtime.env ?? process.env;
   const environment = sanitizeCodespaceAgentEnvironment(sourceEnvironment);
+  if (options.detach) {
+    const commands = codespaceAgentTmuxCommands({
+      cwd,
+      issue: options.issue,
+      repository: options.repository
+    });
+    const existing = await runCapturedCommand(commands.exists, cwd, environment, 30_000);
+    if (existing.exitCode === 0) {
+      output.write(`tmux session ${commands.sessionName} is already running.\n`);
+    } else {
+      await requireCommand(commands.start, cwd, environment);
+      output.write(`Started tmux session ${commands.sessionName}.\n`);
+    }
+    output.write(`Attach: ${shellCommand(commands.attach)}\n`);
+    return 0;
+  }
   const sandbox = codespaceIdentity(sourceEnvironment);
   await assertCommand(['gh', 'auth', 'status', '--hostname', 'github.com'], cwd, environment);
   const repository = options.repository
@@ -462,6 +506,7 @@ export async function runCodespaceAgent(
     connector.stderr?.pipe(errorOutput);
     const connectorExit = childExit(connector);
     await waitForMachineOnline(cwd, environment, connectorExit);
+    output.write('Connector online; requesting the Codex task start. This can take several minutes.\n');
     if (interrupted) return interrupted === 'SIGINT' ? 130 : 143;
 
     const confirmed = await startIssueWithReplay({
@@ -486,10 +531,12 @@ export async function runCodespaceAgent(
 }
 
 function parseOptions(argv: string[]): RunnerOptions {
-  const options: RunnerOptions = { help: false, status: false };
+  const options: RunnerOptions = { detach: false, help: false, status: false };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
-    if (argument === '--help' || argument === '-h') {
+    if (argument === '--detach') {
+      options.detach = true;
+    } else if (argument === '--help' || argument === '-h') {
       options.help = true;
     } else if (argument === '--status') {
       options.status = true;
@@ -516,6 +563,7 @@ function usage() {
     `Starts or resumes one issue-bound Codex task while keeping the Project connector in the foreground.\n\n` +
     `Options:\n` +
     `  --issue <number>          GitHub issue to implement (required)\n` +
+      `  --detach                  Run the foreground connector inside a detached tmux session\n` +
     `  --repository <owner/name> Override the repository resolved by gh\n` +
     `  --status                  Print the saved task identity and inspection command\n` +
     `  --help                    Show this help\n`;

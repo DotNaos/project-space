@@ -9,6 +9,7 @@ import {
   codespaceAgentLockPath,
   codespaceAgentOperationId,
   codespaceAgentStatePath,
+  codespaceAgentTmuxCommands,
   codespaceMachineName,
   parseCodespaceAgentStartResult,
   readCodespaceAgentState,
@@ -129,6 +130,43 @@ describe('Codespace agent command and result contract', () => {
       expected.operationId,
       '--format',
       'json'
+    ]);
+  });
+
+  test('starts the runner in a stable detached tmux session', () => {
+    const commands = codespaceAgentTmuxCommands({
+      cwd: '/workspaces/project-space',
+      issue: expected.issue,
+      repository: expected.repository
+    });
+    expect(commands.sessionName).toBe('issue-456');
+    expect(commands.exists).toEqual([
+      'tmux',
+      '-L',
+      'project-space-agent',
+      'has-session',
+      '-t',
+      '=issue-456'
+    ]);
+    expect(commands.start).toEqual([
+      'tmux',
+      '-L',
+      'project-space-agent',
+      'new-session',
+      '-d',
+      '-s',
+      'issue-456',
+      '-c',
+      '/workspaces/project-space',
+      'bun scripts/codespace-agent.ts --issue 456 --repository DotNaos/project-space'
+    ]);
+    expect(commands.attach).toEqual([
+      'tmux',
+      '-L',
+      'project-space-agent',
+      'attach-session',
+      '-t',
+      '=issue-456'
     ]);
   });
 
