@@ -28,6 +28,20 @@
   "remoteEnv": {
     "PATH": "/home/vscode/.local/bin:/home/vscode/.bun/bin:${containerEnv:PATH}"
   },
+  "customizations": {
+    "codespaces": {
+      "repositories": {
+        "DotNaos/project-template": {
+          "permissions": {
+            "contents": "write",
+            "issues": "write",
+            "pull_requests": "write",
+            "workflows": "write"
+          }
+        }
+      }
+    }
+  },
   "postCreateCommand": "bash .devcontainer/bootstrap.sh && bash .devcontainer/bootstrap.sh",
   "postStartCommand": "bash .devcontainer/start-services.sh",
   "forwardPorts": [
