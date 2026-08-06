@@ -88,6 +88,9 @@ func newCreateCommand() *cobra.Command {
 					fmt.Fprintln(cmd.OutOrStdout(), "GitHub secret: OP_SERVICE_ACCOUNT_TOKEN set")
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), "Pushed initial commit: main")
+				if result.RulesetsApplied > 0 {
+					fmt.Fprintf(cmd.OutOrStdout(), "GitHub rulesets applied: %d\n", result.RulesetsApplied)
+				}
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "cd %s\n", shellQuote(resolved))
 			return nil
