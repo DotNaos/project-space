@@ -48,13 +48,19 @@ func sendCodexAndWait(command *cobra.Command, client codexTaskAPI, request codex
 		}
 	}()
 
+	var firstUpdate *codexStreamUpdate
 	select {
 	case <-ready:
 	case update := <-updates:
-		if update.err == nil {
-			return &codexOutcomeError{message: "Codex progress stream ended before it opened"}
+		select {
+		case <-ready:
+			firstUpdate = &update
+		default:
+			if update.err == nil {
+				return &codexOutcomeError{message: "Codex progress stream ended before it opened"}
+			}
+			return update.err
 		}
-		return update.err
 	case <-command.Context().Done():
 		return command.Context().Err()
 	}
@@ -78,38 +84,44 @@ func sendCodexAndWait(command *cobra.Command, client codexTaskAPI, request codex
 	}
 
 	for {
-		select {
-		case update := <-updates:
-			if update.err != nil {
-				return writeCodexUncertainAfterSend(command, request.OperationID, update.err, format)
+		var update codexStreamUpdate
+		if firstUpdate != nil {
+			update = *firstUpdate
+			firstUpdate = nil
+		} else {
+			select {
+			case update = <-updates:
+			case <-command.Context().Done():
+				return writeCodexUncertainAfterSend(command, request.OperationID, command.Context().Err(), format)
 			}
-			if format == "ndjson" {
-				if err := writeCodexJSON(command.OutOrStdout(), update.event); err != nil {
-					return err
-				}
-			}
-			if update.event.Event == nil {
-				continue
-			}
-			terminal, complete := terminalCodexSendResult(accepted, *update.event.Event)
-			if !complete {
-				continue
-			}
-			cancelStream()
-			if terminal.State == codextask.StateCompleted {
-				finalRead, readErr := client.Read(command.Context(), request.ReadRequest)
-				if readErr != nil || finalRead.State != codextask.StateConfirmed || finalRead.Result == nil {
-					if readErr == nil {
-						readErr = errors.New("final Codex thread history is unavailable")
-					}
-					return writeCodexUncertainAfterSend(command, request.OperationID, readErr, format)
-				}
-				terminal.Result = finalRead.Result
-			}
-			return writeCodexSendResult(command, terminal, format)
-		case <-command.Context().Done():
-			return writeCodexUncertainAfterSend(command, request.OperationID, command.Context().Err(), format)
 		}
+		if update.err != nil {
+			return writeCodexUncertainAfterSend(command, request.OperationID, update.err, format)
+		}
+		if format == "ndjson" {
+			if err := writeCodexJSON(command.OutOrStdout(), update.event); err != nil {
+				return err
+			}
+		}
+		if update.event.Event == nil {
+			continue
+		}
+		terminal, complete := terminalCodexSendResult(accepted, *update.event.Event)
+		if !complete {
+			continue
+		}
+		cancelStream()
+		if terminal.State == codextask.StateCompleted {
+			finalRead, readErr := client.Read(command.Context(), request.ReadRequest)
+			if readErr != nil || finalRead.State != codextask.StateConfirmed || finalRead.Result == nil {
+				if readErr == nil {
+					readErr = errors.New("final Codex thread history is unavailable")
+				}
+				return writeCodexUncertainAfterSend(command, request.OperationID, readErr, format)
+			}
+			terminal.Result = finalRead.Result
+		}
+		return writeCodexSendResult(command, terminal, format)
 	}
 }
 
