@@ -11,13 +11,27 @@ servers:
     command:
       - bun
       - run
-      - dev
+      - dev:direct
       - --
       - --host
       - "{host}"
       - --port
       - "{port}"
       - --strictPort
+    healthCheck:
+      path: /
+      timeoutSeconds: 45
+  docs:
+    label: Project Space docs
+    command:
+      - bun
+      - run
+      - docs:dev
+      - --
+      - --hostname
+      - "{host}"
+      - --port
+      - "{port}"
     healthCheck:
       path: /
       timeoutSeconds: 45

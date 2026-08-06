@@ -4,6 +4,8 @@ import {
   FolderKanban,
   House,
   MessageSquare,
+  PanelLeft,
+  PencilLine,
   TriangleAlert
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -20,7 +22,7 @@ import {
 } from '@/features/project-topology/project-space-information-architecture';
 import { PullRequestChangelogDialog } from '@/features/pr-preview-changelog/pull-request-changelog-dialog';
 import { useProjectDesktop } from '../hooks/use-project-desktop';
-import type { ProjectMainView } from '../hooks/use-project-desktop';
+import { routeForView, type ProjectMainView } from '../hooks/use-project-desktop';
 import { useResizableSidebar } from '../hooks/use-resizable-sidebar';
 import {
   AppRail,
@@ -30,6 +32,7 @@ import {
 } from './app-rail';
 import { ContextPanel } from './context-panel';
 import { ProjectMainPanel } from './project-main-panel';
+import { ProjectWorkspaceSidebar } from './project-workspace-sidebar';
 import { shouldShowProjectSpaceSessionGate } from './project-desktop-session-gate';
 import { shouldDefaultContextPanelOpen } from './project-desktop-viewport';
 
@@ -210,6 +213,8 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
   const [changelogOpenRequestId, setChangelogOpenRequestId] = useState(0);
   const [isCompact, setIsCompact] = useState(isCompactViewport);
   const [isPanelOpen, setIsPanelOpen] = useState(defaultContextPanelOpen);
+  const [isProjectSidebarCollapsed, setIsProjectSidebarCollapsed] = useState(false);
+  const [isProjectSidebarOpen, setIsProjectSidebarOpen] = useState(false);
   const defaultPanelModeRef = useRef(defaultContextPanelOpen());
   const { isResizingSidebar, sidebarWidth, startSidebarResize } = useResizableSidebar({
     initialWidth: PANEL_DEFAULT_WIDTH,
@@ -237,14 +242,22 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
   }, []);
 
   const activeSection = sectionForView(desktop.mainView);
-  const hasContextPanel = !isCompact && activeSection === 'projects';
+  const hasWorkspaceChrome = Boolean(desktop.project) && (
+    desktop.mainView === 'project' ||
+    desktop.mainView === 'settings' ||
+    desktop.mainView === 'machines' ||
+    desktop.mainView === 'machine'
+  );
+  const hasContextPanel = !hasWorkspaceChrome && !isCompact && activeSection === 'projects';
   const showContextPanel = hasContextPanel && isPanelOpen;
 
-  const gridTemplateColumns = isCompact
-    ? 'minmax(0,1fr)'
-    : showContextPanel
-      ? `${RAIL_WIDTH}px ${sidebarWidth}px minmax(0,1fr)`
-      : `${RAIL_WIDTH}px minmax(0,1fr)`;
+  const gridTemplateColumns = hasWorkspaceChrome && !isCompact
+    ? `${isProjectSidebarCollapsed ? 64 : 288}px minmax(0,1fr)`
+    : isCompact
+      ? 'minmax(0,1fr)'
+      : showContextPanel
+        ? `${RAIL_WIDTH}px ${sidebarWidth}px minmax(0,1fr)`
+        : `${RAIL_WIDTH}px minmax(0,1fr)`;
   const openChangelog = desktop.appMeta.preview
     ? () => {
         setChangelogOpenRequestId((current) => current + 1);
@@ -253,6 +266,25 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
   const openDocumentation = () => {
     window.location.assign('/docs');
   };
+
+  const isResolvingProject =
+    desktop.mainView === 'project' &&
+    !desktop.project &&
+    (!desktop.githubCatalog.checkedAt || desktop.isGitHubRefreshing);
+
+  if (!desktop.hasLoaded || isResolvingProject) {
+    return (
+      <div className="flex h-full items-center justify-center bg-app-panel text-neutral-100">
+        <div className="flex items-center gap-3 text-sm text-neutral-400">
+          <span
+            aria-hidden="true"
+            className="size-4 animate-spin rounded-full border-2 border-neutral-700 border-t-neutral-200"
+          />
+          Opening Project Space…
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative h-full overflow-hidden bg-app-canvas text-neutral-100">
@@ -263,7 +295,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           transition: isResizingSidebar ? 'none' : 'grid-template-columns 200ms ease-out'
         }}
       >
-        {!isCompact ? (
+        {!hasWorkspaceChrome && !isCompact ? (
           <AppRail
             account={account}
             activeSection={activeSection}
@@ -302,6 +334,79 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           />
         ) : null}
 
+        {hasWorkspaceChrome && desktop.project ? (
+          <aside
+            className={cn(
+              'min-h-0 overflow-hidden bg-[#151515]',
+              isCompact && 'absolute inset-y-0 left-0 z-0 w-[calc(100%-2rem)] max-w-[20rem]'
+            )}
+          >
+            <ProjectWorkspaceSidebar
+              account={account}
+              collapsed={!isCompact && isProjectSidebarCollapsed}
+              currentProject={desktop.project}
+              mainView={desktop.mainView}
+              onClose={() => setIsProjectSidebarOpen(false)}
+              onCollapsedChange={setIsProjectSidebarCollapsed}
+              onNewTask={() => {
+                window.location.assign(`${routeForView('project', desktop.project!.id, 'issues')}/new`);
+              }}
+              onOpenMachines={desktop.openMachines}
+              onOpenSettings={desktop.openSettings}
+              onSelectProject={desktop.selectProject}
+              onSelectTab={(tab) => {
+                if (desktop.mainView === 'project') {
+                  desktop.selectProjectTab(tab);
+                  return;
+                }
+                window.location.assign(routeForView('project', desktop.project!.id, tab));
+              }}
+              projectTab={desktop.projectTab}
+              projects={desktop.projects}
+            />
+          </aside>
+        ) : null}
+
+        <div
+          className={cn(
+            'relative z-10 flex min-h-0 min-w-0 flex-col overflow-hidden bg-app-panel transition-[transform,border-radius] duration-300 ease-out',
+            hasWorkspaceChrome && isCompact && 'border-l border-white/[.08]',
+            hasWorkspaceChrome && isCompact && isProjectSidebarOpen && 'translate-x-[calc(100%-2rem)] rounded-l-[2rem]'
+          )}
+        >
+        {hasWorkspaceChrome && isCompact && desktop.project ? (
+          <div className="relative flex h-14 shrink-0 items-center justify-between px-4">
+            <Button
+              aria-label="Open sidebar"
+              isIconOnly
+              size="sm"
+              variant="ghost"
+              className="size-9 min-w-9 rounded-xl text-neutral-300"
+              onPress={() => setIsProjectSidebarOpen(true)}
+            >
+              <PanelLeft className="size-4" />
+            </Button>
+            <button
+              type="button"
+              onClick={() => setIsProjectSidebarOpen(true)}
+              className="max-w-[60%] truncate text-sm font-medium text-neutral-200"
+            >
+              {desktop.project.github?.name ?? desktop.project.name}
+            </button>
+            <Button
+              aria-label="New task"
+              isIconOnly
+              size="sm"
+              variant="ghost"
+              className="size-9 min-w-9 rounded-xl text-neutral-300"
+              onPress={() => {
+                window.location.assign(`${routeForView('project', desktop.project!.id, 'issues')}/new`);
+              }}
+            >
+              <PencilLine className="size-4" />
+            </Button>
+          </div>
+        ) : null}
         <ProjectMainPanel
           account={account}
           appMeta={desktop.appMeta}
@@ -309,7 +414,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           codexController={desktop.codexController}
           codexMachineIds={desktop.codexMachineIds}
           githubCatalog={desktop.githubCatalog}
-          hasBottomTabBar={isCompact}
+          hasBottomTabBar={isCompact && !hasWorkspaceChrome}
           isConnectorRefreshing={desktop.isConnectorRefreshing}
           isGitHubRefreshing={desktop.isGitHubRefreshing}
           launcherApps={desktop.launcherApps}
@@ -355,12 +460,14 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           selectedMachineId={desktop.selectedMachineId}
           selectedTargetPath={desktop.selectedTargetPath}
           structureViolations={desktop.structureViolations}
+          useWorkspaceChrome={hasWorkspaceChrome}
           worktreeDiscovery={desktop.worktreeDiscovery}
           worktrees={desktop.worktrees}
         />
+        </div>
       </div>
 
-      {isCompact ? (
+      {isCompact && !hasWorkspaceChrome ? (
         <CompactUtilityBar
           isSettingsActive={activeSection === 'settings'}
           onOpenChangelog={openChangelog}
@@ -369,7 +476,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
         />
       ) : null}
 
-      {isCompact ? (
+      {isCompact && !hasWorkspaceChrome ? (
         <MobileTabBar
           activeSection={activeSection}
           onOpenChat={desktop.openChat}

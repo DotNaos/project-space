@@ -16,8 +16,10 @@ import {
   parseProjectNavigationRoute,
   parseProjectRoute,
   replaceLegacyMachinesRoute,
+  resolveDefaultProjectId,
   resolveRouteProject,
   sanitizeDiscovery,
+  shouldLoadGitHubCatalog,
   shouldPreserveProjectRoute,
   writeRoute,
   type MachineDetailTab,
@@ -107,11 +109,44 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
   } = options;
 
     useEffect(() => {
-      if (!hasLoaded || mainView !== 'projects' || githubCatalog.checkedAt || isGitHubRefreshing)
+      if (!hasLoaded || !shouldLoadGitHubCatalog(mainView) || githubCatalog.checkedAt || isGitHubRefreshing)
         return;
       void refreshGitHubCatalog();
     }, [githubCatalog.checkedAt, hasLoaded, isGitHubRefreshing, mainView, refreshGitHubCatalog]);
-  
+
+    useEffect(() => {
+      if (!hasLoaded || mainView !== 'projects') {
+        return;
+      }
+
+      const defaultProjectId = resolveDefaultProjectId({
+        pinnedProjectIds,
+        projects,
+        recentProjectIds,
+        selectedProjectId
+      });
+
+      if (!defaultProjectId || !resolveRouteProject(projects, defaultProjectId)) {
+        return;
+      }
+
+      const nextProject = resolveRouteProject(projects, defaultProjectId);
+      setSelectedProjectId(defaultProjectId);
+      setSelectedMachineId(nextProject?.machineId ?? '');
+      setSelectedIssueNumber(undefined);
+      setSelectedWorkflowRunId(undefined);
+      setProjectTab('issues');
+      setMainView('project');
+      writeRoute('project', defaultProjectId, true, 'issues');
+    }, [
+      hasLoaded,
+      mainView,
+      pinnedProjectIds,
+      projects,
+      recentProjectIds,
+      selectedProjectId
+    ]);
+
     useEffect(() => {
       if (githubCatalog.cache?.state !== 'refreshing') return;
       let canceled = false;
@@ -133,7 +168,7 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
         window.clearTimeout(timer);
       };
     }, [githubCatalog.cache?.state, refreshGitHubCatalog]);
-  
+
     useEffect(() => {
       const initialRoute = parseProjectRoute(window.location.pathname);
       replaceLegacyMachinesRoute(window.location.pathname);
@@ -143,6 +178,7 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
       ])
         .then(([state, nextDiscovery]) => {
           const sanitizedDiscovery = sanitizeDiscovery(nextDiscovery);
+          const isDefaultEntry = initialRoute.view === 'root' || initialRoute.view === 'projects';
           const routeProject =
             initialRoute.view === 'project' && initialRoute.projectId
               ? resolveRouteProject(sanitizedDiscovery.projects, initialRoute.projectId)
@@ -150,14 +186,28 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
           const shouldWaitForGitHubProject =
             initialRoute.view === 'project' &&
             shouldPreserveProjectRoute(initialRoute.projectId, routeProject);
-          const selectedProjectFromRoute =
-            initialRoute.view === 'project'
-              ? (routeProject?.id ??
-                (shouldWaitForGitHubProject ? (initialRoute.projectId ?? '') : ''))
+          const selectedProjectFromRoute = initialRoute.view === 'project'
+            ? (routeProject?.id ??
+              (shouldWaitForGitHubProject ? (initialRoute.projectId ?? '') : ''))
+            : isDefaultEntry
+              ? resolveDefaultProjectId({
+                  pinnedProjectIds: state.pinnedProjectIds,
+                  projects: sanitizedDiscovery.projects,
+                  recentProjectIds: state.recentProjectIds,
+                  selectedProjectId: state.selectedProjectId
+                })
               : state.selectedProjectId;
           const selectedProjectRecord = selectedProjectFromRoute
             ? resolveRouteProject(sanitizedDiscovery.projects, selectedProjectFromRoute)
             : undefined;
+          const initialMainView = isDefaultEntry
+            ? selectedProjectFromRoute
+              ? 'project'
+              : 'projects'
+            : initialRoute.view;
+          const initialProjectTab = isDefaultEntry
+            ? 'issues'
+            : (initialRoute.projectTab ?? 'overview');
   
           setDiscovery(sanitizedDiscovery);
           setPinnedProjectIds(state.pinnedProjectIds ?? []);
@@ -172,11 +222,13 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
           setSelectedProjectId(selectedProjectFromRoute);
           setSelectedIssueNumber(initialRoute.issueNumber);
           setSelectedWorkflowRunId(initialRoute.workflowRunId);
-          setProjectTab(initialRoute.projectTab ?? 'overview');
+          setProjectTab(initialProjectTab);
           setMachineTab(initialRoute.machineTab ?? 'overview');
-          setMainView(initialRoute.view);
-  
-          if (initialRoute.view === 'project' && routeProject) {
+          setMainView(initialMainView);
+
+          if (isDefaultEntry && selectedProjectFromRoute) {
+            writeRoute('project', selectedProjectFromRoute, true, 'issues');
+          } else if (initialRoute.view === 'project' && routeProject) {
             writeRoute(
               'project',
               routeProject.id,
@@ -194,12 +246,15 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
         })
         .catch(() => {
           setDiscovery(emptyDiscovery);
+          setSelectedProjectId('');
+          setMainView('projects');
+          writeRoute('projects', '', true);
         })
         .finally(() => {
           setHasLoaded(true);
         });
     }, []);
-  
+
     useEffect(() => {
       void refreshConnectorOverview();
     }, [refreshConnectorOverview]);
@@ -246,6 +301,32 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
     useEffect(() => {
       function handlePopState() {
         const nextRoute = parseProjectNavigationRoute(window.location.pathname);
+
+        if (nextRoute.view === 'root' || nextRoute.view === 'projects') {
+          const defaultProjectId = resolveDefaultProjectId({
+            pinnedProjectIds,
+            projects,
+            recentProjectIds,
+            selectedProjectId
+          });
+
+          if (defaultProjectId) {
+            const nextProject = resolveRouteProject(projects, defaultProjectId);
+            setSelectedProjectId(defaultProjectId);
+            setSelectedMachineId(nextProject?.machineId ?? '');
+            setSelectedIssueNumber(undefined);
+            setSelectedWorkflowRunId(undefined);
+            setProjectTab('issues');
+            setMainView('project');
+            writeRoute('project', defaultProjectId, true, 'issues');
+            return;
+          }
+
+          setSelectedProjectId('');
+          setMainView('projects');
+          writeRoute('projects', '', true);
+          return;
+        }
   
         if (nextRoute.view === 'project') {
           const nextProject = nextRoute.projectId
@@ -291,7 +372,7 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
       return () => {
         window.removeEventListener('popstate', handlePopState);
       };
-    }, [projects]);
+    }, [pinnedProjectIds, projects, recentProjectIds, selectedProjectId]);
   
     useEffect(() => {
       let canceled = false;

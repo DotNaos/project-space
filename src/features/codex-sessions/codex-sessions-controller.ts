@@ -1,6 +1,5 @@
 import type {
   CodexSessionsClient,
-  CodexSessionSettingsRequest,
   CodexSessionTurnSettings
 } from '../../shared/codex-sessions-api';
 import type { MachineRuntimeStatusResult } from '../../shared/project-space-api';
@@ -103,7 +102,11 @@ export class CodexSessionsController {
         const selected = this.state.selectedOrigin?.machineId === machineId
           ? this.state.sessions.find((session) => sameCodexOrigin(session, this.state.selectedOrigin!))
           : undefined;
-        const nextSessions = result.sessions.map(toCodexSession);
+        const nextSessions = result.sessions.map((record) => {
+          const session = toCodexSession(record);
+          const existing = this.state.sessions.find((candidate) => sameCodexOrigin(candidate, session));
+          return existing ? { ...existing, ...session } : session;
+        });
         if (selected && !nextSessions.some((session) => sameCodexOrigin(session, selected))) {
           nextSessions.push({ ...selected, status: 'missing' });
         }
@@ -228,6 +231,7 @@ export class CodexSessionsController {
     const key = `continue:${JSON.stringify([
       origin.machineId,
       origin.threadId,
+      session.permissionProfileId ?? null,
       selectedSettings ?? null,
       imageAttachmentIds,
       cleanMessage
@@ -236,6 +240,9 @@ export class CodexSessionsController {
       ...origin,
       ...(imageAttachmentIds.length ? { imageAttachmentIds: [...imageAttachmentIds] } : {}),
       message: cleanMessage,
+      ...(session.permissionProfileId
+        ? { permissionProfileId: session.permissionProfileId }
+        : {}),
       ...selectedSettings,
       operationId
     }));
@@ -314,21 +321,18 @@ export class CodexSessionsController {
         'Choose a permission profile first.'
       );
     }
-    const key = `settings:${origin.machineId}:${origin.threadId}:${profileId}`;
-    const result = await this.runOperation(key, (operationId) => this.client.settings({
-      ...origin,
-      operationId,
-      permissionProfileId: profileId
-    } satisfies CodexSessionSettingsRequest));
-    if (result.status === 'accepted' || result.status === 'completed') {
-      this.update({
-        ...this.state,
-        sessions: this.state.sessions.map((session) => sameCodexOrigin(session, origin)
-          ? { ...session, permissionProfileId: profileId }
-          : session)
-      });
-    }
-    return result;
+    this.update({
+      ...this.state,
+      sessions: this.state.sessions.map((session) => sameCodexOrigin(session, origin)
+        ? { ...session, permissionProfileId: profileId }
+        : session)
+    });
+    return {
+      operationId: `local:${origin.threadId}:permission`,
+      replayed: false,
+      status: 'completed',
+      threadId: origin.threadId
+    } as const;
   }
 
   async resolveApproval(decision: CodexApprovalDecision) {

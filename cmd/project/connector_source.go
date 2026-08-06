@@ -15,6 +15,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const developmentConnectorConfigRootEnvironment = "PROJECT_SPACE_SOURCE_CONNECTOR_CONFIG_ROOT"
+
 type connectorSourceDependencies struct {
 	NewProfile    func() (machineconnect.ConnectorProfile, error)
 	NewStore      func(machineconnect.ConnectorProfile) (machineconnect.CredentialStore, error)
@@ -258,7 +260,9 @@ func defaultConnectorSourceDependencies() connectorSourceDependencies {
 	companionDependencies := defaultConnectorSourceCompanionDependencies()
 	return connectorSourceDependencies{
 		NewProfile: func() (machineconnect.ConnectorProfile, error) {
-			return machineconnect.NewDevelopmentConnectorProfile("")
+			return machineconnect.NewDevelopmentConnectorProfile(
+				strings.TrimSpace(os.Getenv(developmentConnectorConfigRootEnvironment)),
+			)
 		},
 		NewStore: func(profile machineconnect.ConnectorProfile) (machineconnect.CredentialStore, error) {
 			return profile.NewCredentialStore()

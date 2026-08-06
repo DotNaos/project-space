@@ -13,6 +13,8 @@ import {
 } from '../server/codex-machine-tasks/connector-attach-relay';
 import type { CodexChildProcess } from '../server/codex-sessions/contracts';
 
+const unixSocketFixtureRoot = process.platform === 'darwin' ? '/tmp' : tmpdir();
+
 class FakeAttachProcess extends EventEmitter implements CodexChildProcess {
   exitCode: number | null = null;
   readonly pid = 123;
@@ -32,7 +34,7 @@ class FakeAttachProcess extends EventEmitter implements CodexChildProcess {
 
 describe('Codex connector attach stdio relay', () => {
   test('bounds a stalled shared-daemon handshake', async () => {
-    const fixtureRoot = await mkdtemp(join(tmpdir(), 'project-space-attach-stalled-'));
+    const fixtureRoot = await mkdtemp(join(unixSocketFixtureRoot, 'ps-attach-stalled-'));
     const socketPath = join(fixtureRoot, 'app-server.sock');
     const sockets = new Set<import('node:net').Socket>();
     const server = createNetServer((socket) => {

@@ -48,6 +48,9 @@ function matchesSelectedProject(
 export interface IssueMachineProjectRow {
   machine?: MachineRecord;
   machineId: string;
+  connectorIds?: string[];
+  physicalMachineId?: string;
+  physicalMachineName?: string;
   project?: ProjectSpaceRecord;
 }
 
@@ -114,23 +117,32 @@ export function getIssueMachineRows({
       project: candidate
     }));
   const matchesByMachineId = new Map(matches.map((match) => [match.machineId, match.project]));
-  const knownMachineIds = new Set(connectorOverview.machines.map((machine) => machine.id));
-  const orphanMatches = matches
-    .filter((match) => !knownMachineIds.has(match.machineId))
-    .map((match) => ({
-      machine: undefined,
-      machineId: match.machineId,
-      project: match.project
-    }));
+  return (connectorOverview.physicalMachines ?? []).flatMap((physicalMachine) => {
+    const connectors = physicalMachine.connectorIds
+      .map((connectorId) => connectorOverview.machines.find((machine) => machine.id === connectorId))
+      .filter((machine): machine is MachineRecord => Boolean(machine));
+    if (connectors.length === 0) return [];
 
-  return [
-    ...connectorOverview.machines.map((machine) => ({
-      machine,
-      machineId: machine.id,
-      project: matchesByMachineId.get(machine.id)
-    })),
-    ...orphanMatches
-  ];
+    const preferredConnector = [...connectors].sort((left, right) => {
+      const leftScore = (matchesByMachineId.has(left.id) ? 4 : 0) +
+        (canRunMachineCommand(left) ? 2 : 0) +
+        (left.connector.status === 'local' ? 1 : 0);
+      const rightScore = (matchesByMachineId.has(right.id) ? 4 : 0) +
+        (canRunMachineCommand(right) ? 2 : 0) +
+        (right.connector.status === 'local' ? 1 : 0);
+      return rightScore - leftScore || left.id.localeCompare(right.id);
+    })[0];
+    if (!preferredConnector) return [];
+
+    return [{
+      connectorIds: connectors.map((connector) => connector.id),
+      machine: preferredConnector,
+      machineId: preferredConnector.id,
+      physicalMachineId: physicalMachine.id,
+      physicalMachineName: physicalMachine.name,
+      project: matchesByMachineId.get(preferredConnector.id)
+    }];
+  });
 }
 
 export function createStartDevelopmentCommand({

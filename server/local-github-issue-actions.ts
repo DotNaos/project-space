@@ -92,6 +92,7 @@ interface GitHubApiPullRequest {
     sha?: string | null;
   } | null;
   html_url: string;
+  draft?: boolean | null;
   number: number;
   state: 'open' | 'closed';
   title: string;
@@ -127,6 +128,7 @@ export function mapGitHubPullRequest(
       ? pullRequest.head.repo.full_name.toLowerCase() !==
         pullRequest.base.repo.full_name.toLowerCase()
       : undefined,
+    isDraft: pullRequest.draft ?? undefined,
     linkedIssueNumbers: linkedIssueNumber ? [linkedIssueNumber] : [],
     number: pullRequest.number,
     state: pullRequest.state,
@@ -399,12 +401,41 @@ export async function createGitHubIssue({
 export async function createGitHubPullRequest({
   baseBranch,
   body,
+  draft = true,
   fullName,
   headBranch,
   issueNumber,
   title
 }: GitHubPullRequestCreateRequest): Promise<GitHubPullRequestMutationResult> {
-  const auth = await resolveOAuthToken();
+  return createGitHubPullRequestWithDependencies({
+    baseBranch,
+    body,
+    draft,
+    fullName,
+    headBranch,
+    issueNumber,
+    title
+  }, {
+    requestGitHub,
+    resolveOAuthToken
+  });
+}
+
+interface CreateGitHubPullRequestDependencies {
+  requestGitHub: typeof requestGitHub;
+  resolveOAuthToken: typeof resolveOAuthToken;
+}
+
+export async function createGitHubPullRequestWithDependencies({
+  baseBranch,
+  body,
+  draft = true,
+  fullName,
+  headBranch,
+  issueNumber,
+  title
+}: GitHubPullRequestCreateRequest, dependencies: CreateGitHubPullRequestDependencies): Promise<GitHubPullRequestMutationResult> {
+  const auth = await dependencies.resolveOAuthToken();
 
   if (!auth) {
     return pullRequestMutationError(
@@ -428,13 +459,14 @@ export async function createGitHubPullRequest({
       body?.trim(),
       issueNumber ? `Closes #${issueNumber}` : ''
     ].filter(Boolean).join('\n\n');
-    const pullRequest = await requestGitHub<GitHubApiPullRequest>(
+    const pullRequest = await dependencies.requestGitHub<GitHubApiPullRequest>(
       `/repos/${repoApiPath(fullName)}/pulls`,
       auth.token,
       {
         body: JSON.stringify({
           base: trimmedBaseBranch,
           body: linkedBody || undefined,
+          draft,
           head: trimmedHeadBranch,
           title: trimmedTitle
         }),

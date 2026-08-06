@@ -35,7 +35,9 @@ function isSecureBackendUrl(value: unknown) {
   }
   try {
     const parsed = new URL(value);
-    const loopback = ['127.0.0.1', 'localhost'].includes(parsed.hostname);
+    const loopback =
+      ['127.0.0.1', 'localhost'].includes(parsed.hostname) ||
+      parsed.hostname.endsWith('.localhost');
     return (
       !parsed.username &&
       !parsed.password &&

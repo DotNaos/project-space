@@ -85,6 +85,9 @@ export function PullRequestPreviewsSection({
                 inventory={inventory}
                 pullRequest={pullRequest}
                 repositoryFullName={repositoryFullName}
+                returnPath={pullRequest.linkedIssueNumbers?.[0]
+                  ? `/projects/${encodeURIComponent(projectId)}/issues/${pullRequest.linkedIssueNumbers[0]}`
+                  : `/projects/${encodeURIComponent(projectId)}/issues`}
               />
               <PullRequestPrototypeAction
                 issueNumber={pullRequest.linkedIssueNumbers?.[0]}

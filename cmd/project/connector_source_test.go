@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -30,6 +31,19 @@ func TestConnectorCommandRegistersSourceRuntime(t *testing.T) {
 	}
 	if command.CommandPath() != "connector source run" {
 		t.Fatalf("source connector command path = %q", command.CommandPath())
+	}
+}
+
+func TestDefaultSourceConnectorProfileSupportsAnIsolatedConfigRoot(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(developmentConnectorConfigRootEnvironment, root)
+
+	profile, err := defaultConnectorSourceDependencies().NewProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.StateRoot != filepath.Join(root, "project-space", "profiles", "dev") {
+		t.Fatalf("source connector state root = %q", profile.StateRoot)
 	}
 }
 

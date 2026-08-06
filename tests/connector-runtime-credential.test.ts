@@ -29,6 +29,17 @@ describe('connector runtime credential stdin contract', () => {
     ).resolves.toEqual(runtimeCredential);
   });
 
+  test('accepts a Portless localhost backend in local development', async () => {
+    const credential = {
+      ...runtimeCredential,
+      backendUrl: 'http://project-space.localhost:1355'
+    };
+
+    await expect(
+      readConnectorRuntimeCredential(input(JSON.stringify(credential)), enabled)
+    ).resolves.toEqual(credential);
+  });
+
   test('does not consume stdin outside supervisor mode', async () => {
     await expect(
       readConnectorRuntimeCredential(input('not-json'), {})

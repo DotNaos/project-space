@@ -50,9 +50,51 @@ export class CodexAppServerProtocolError extends Error {
 export class CodexAppServerRequestError extends Error {
   readonly code: string = 'codex_app_server_request_failed';
 
-  constructor(readonly rpcCode?: number) {
+  constructor(
+    readonly rpcCode?: number,
+    readonly rpcReason = classifyCodexAppServerRequestError(),
+    readonly rpcTags: readonly string[] = []
+  ) {
     super('Codex app-server rejected the request.');
   }
+}
+
+export function classifyCodexAppServerRequestError(message?: string) {
+  const normalized = typeof message === 'string' ? message.toLowerCase() : '';
+  if (!normalized) return 'unspecified' as const;
+  if (normalized.includes('not materialized') || normalized.includes('before first user message')) {
+    return 'thread_unmaterialized' as const;
+  }
+  if (normalized.includes('not loaded')) return 'thread_not_loaded' as const;
+  if (normalized.includes('clientusermessageid') || normalized.includes('client user message')) {
+    return 'client_message_id' as const;
+  }
+  if (normalized.includes('text_elements') || normalized.includes('text elements')) {
+    return 'text_elements' as const;
+  }
+  if (normalized.includes('thread') && (
+    normalized.includes('not found') || normalized.includes('missing') ||
+    normalized.includes('unknown') || normalized.includes('not loaded')
+  )) return 'thread_missing' as const;
+  if (normalized.includes('active turn') || normalized.includes('turn is active')) {
+    return 'turn_active' as const;
+  }
+  if (normalized.includes('input')) return 'input' as const;
+  if (normalized.includes('cwd') || normalized.includes('working directory')) return 'cwd' as const;
+  if (normalized.includes('sandbox') || normalized.includes('permission')) return 'permissions' as const;
+  if (normalized.includes('invalid request')) return 'invalid_request' as const;
+  return 'other' as const;
+}
+
+export function tagCodexAppServerRequestError(message?: string) {
+  const normalized = typeof message === 'string' ? message.toLowerCase() : '';
+  const safeTerms = [
+    'approval', 'capability', 'collaboration', 'deserialize', 'experimental', 'field',
+    'active', 'already', 'first user message', 'input', 'invalid', 'loaded', 'materialized',
+    'message', 'method', 'missing', 'model', 'parameter', 'permission', 'request', 'sandbox',
+    'thread', 'turn', 'unknown', 'unsupported', 'user message', 'workspace'
+  ];
+  return safeTerms.filter((term) => normalized.includes(term));
 }
 
 export class CodexThreadUnmaterializedError extends CodexAppServerRequestError {
@@ -238,7 +280,11 @@ export class CodexStdioTransport {
       if (message.error) {
         pending.reject(isUnmaterializedThreadRead(pending.method, message.error)
           ? new CodexThreadUnmaterializedError()
-          : new CodexAppServerRequestError(message.error.code));
+          : new CodexAppServerRequestError(
+              message.error.code,
+              classifyCodexAppServerRequestError(message.error.message),
+              tagCodexAppServerRequestError(message.error.message)
+            ));
       } else if ('result' in message) {
         pending.resolve(message.result);
       } else {
@@ -306,7 +352,7 @@ export class CodexStdioTransport {
   }
 }
 
-function isUnmaterializedThreadRead(
+export function isUnmaterializedThreadRead(
   method: string,
   error: { code?: number; message?: string }
 ) {

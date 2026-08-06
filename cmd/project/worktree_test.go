@@ -16,7 +16,7 @@ import (
 
 const worktreeCommandThread = "019f49e1-cc3d-7243-bc12-75c74c786457"
 
-func TestWorktreeCommandExposesPrepareAndCheck(t *testing.T) {
+func TestWorktreeCommandExposesOwnershipCommands(t *testing.T) {
 	command := newWorktreeCommand()
 	if _, _, err := command.Find([]string{"prepare"}); err != nil {
 		t.Fatalf("prepare command missing: %v", err)
@@ -26,6 +26,9 @@ func TestWorktreeCommandExposesPrepareAndCheck(t *testing.T) {
 	}
 	if _, _, err := command.Find([]string{"materialize"}); err != nil {
 		t.Fatalf("materialize command missing: %v", err)
+	}
+	if _, _, err := command.Find([]string{"recover"}); err != nil {
+		t.Fatalf("recover command missing: %v", err)
 	}
 }
 

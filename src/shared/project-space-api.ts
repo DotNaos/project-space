@@ -526,6 +526,7 @@ export interface GitHubPullRequestRecord {
   headRepositoryFullName?: string;
   headSha?: string;
   isCrossRepository?: boolean;
+  isDraft?: boolean;
   linkedIssueNumbers?: number[];
   mergeCommitHash?: string;
   number: number;
@@ -625,6 +626,7 @@ export interface GitHubBranchMutationResult {
 export interface GitHubPullRequestCreateRequest {
   baseBranch: string;
   body?: string;
+  draft?: boolean;
   fullName: string;
   headBranch: string;
   issueNumber?: number;

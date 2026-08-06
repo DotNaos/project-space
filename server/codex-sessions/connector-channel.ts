@@ -13,6 +13,7 @@ import type {
 } from '../../src/shared/codex-sessions-api';
 import {
   CODEX_BROWSER_MAXIMUM_IMAGE_BYTES,
+  CODEX_PERMISSION_PROFILE_ID_PATTERN,
   CODEX_THREAD_ID_PATTERN
 } from '../../src/shared/codex-sessions-api';
 import type { CodexMachineTaskConnectorStartResult } from '../../src/shared/codex-machine-tasks-api';
@@ -358,7 +359,7 @@ function isListResult(value: Record<string, unknown>) {
 
 function isStartResult(value: Record<string, unknown>) {
   if (value.state === 'uncertain') return hasOnlyKeys(value, ['state']);
-  if (value.state === 'worktree_failure') {
+  if (value.state === 'codex_failure' || value.state === 'worktree_failure') {
     return hasOnlyKeys(value, ['message', 'state']) &&
       typeof value.message === 'string' && value.message.length <= 512;
   }
@@ -369,10 +370,52 @@ function isStartResult(value: Record<string, unknown>) {
 }
 
 function isReadResult(value: Record<string, unknown>) {
-  return hasOnlyKeys(value, ['openedReadOnly', 'session', 'streamCursor', 'turns']) &&
+  return hasOnlyKeys(value, [
+    'openedReadOnly', 'permissionProfileId', 'permissionProfiles', 'session', 'streamCursor',
+    'tokenUsage', 'turns'
+  ]) &&
     value.openedReadOnly === true && smallRecord(value.session) &&
     identifier(value.session.id, 128) && identifier(value.session.machineId, 256) &&
+    (value.permissionProfileId === undefined || permissionProfileId(value.permissionProfileId)) &&
+    (value.permissionProfiles === undefined || permissionProfiles(value.permissionProfiles)) &&
+    (value.streamCursor === undefined || nonNegativeSafeInteger(value.streamCursor)) &&
+    (value.tokenUsage === undefined || tokenUsage(value.tokenUsage)) &&
     Array.isArray(value.turns) && value.turns.length <= 10_000;
+}
+
+function permissionProfileId(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 128 &&
+    CODEX_PERMISSION_PROFILE_ID_PATTERN.test(value);
+}
+
+function permissionProfiles(value: unknown) {
+  return Array.isArray(value) && value.length <= 1_000 && value.every((entry) =>
+    smallRecord(entry) && hasOnlyKeys(entry, ['allowed', 'description', 'id']) &&
+    typeof entry.allowed === 'boolean' && permissionProfileId(entry.id) &&
+    (entry.description === undefined || (
+      typeof entry.description === 'string' && entry.description.length <= 512
+    )));
+}
+
+function tokenUsage(value: unknown) {
+  return smallRecord(value) && hasOnlyKeys(value, ['last', 'modelContextWindow', 'total']) &&
+    tokenUsageBreakdown(value.last) && tokenUsageBreakdown(value.total) &&
+    (value.modelContextWindow === undefined || (
+      nonNegativeSafeInteger(value.modelContextWindow) && Number(value.modelContextWindow) > 0
+    ));
+}
+
+function tokenUsageBreakdown(value: unknown) {
+  return smallRecord(value) && hasOnlyKeys(value, [
+    'cachedInputTokens', 'inputTokens', 'outputTokens', 'reasoningOutputTokens', 'totalTokens'
+  ]) && [
+    value.cachedInputTokens, value.inputTokens, value.outputTokens,
+    value.reasoningOutputTokens, value.totalTokens
+  ].every(nonNegativeSafeInteger);
+}
+
+function nonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
 function isBrowserResult(value: Record<string, unknown>) {

@@ -342,7 +342,7 @@ func validateCredential(credential Credential) error {
 		(backendURL.Scheme != "https" && backendURL.Scheme != "http") {
 		return errors.New("backend URL is missing")
 	}
-	if backendURL.Scheme != "https" && backendURL.Hostname() != "127.0.0.1" && backendURL.Hostname() != "localhost" {
+	if backendURL.Scheme != "https" && !isLoopbackHTTPHostname(backendURL.Hostname()) {
 		return errors.New("backend URL must use HTTPS")
 	}
 	if backendURL.RawQuery != "" || backendURL.Fragment != "" {

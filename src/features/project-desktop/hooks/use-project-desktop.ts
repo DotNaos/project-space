@@ -6,6 +6,7 @@ import { useProjectWorktreeDiscovery } from './use-project-worktree-discovery';
 import { useProjectDesktopLifecycle } from './use-project-desktop-lifecycle';
 import { useCodexDesktop } from './use-codex-desktop';
 import { createProjectDesktopTopologyNavigation } from './project-desktop-topology-navigation';
+import { dedupeProjectCatalog } from './project-catalog-model';
 import {
   connectorOverviewRefreshIntervalMs,
   createGitHubProjectRecord,
@@ -161,10 +162,13 @@ export function useProjectDesktop() {
 
   const projects = useMemo(
     () =>
-      [...discovery.projects, ...githubProjects].sort((left, right) =>
+      dedupeProjectCatalog(
+        [...discovery.projects, ...githubProjects],
+        selectedProjectId
+      ).sort((left, right) =>
         left.name.localeCompare(right.name)
       ),
-    [discovery.projects, githubProjects]
+    [discovery.projects, githubProjects, selectedProjectId]
   );
 
   const groupsById = useMemo(() => {
@@ -207,13 +211,6 @@ export function useProjectDesktop() {
       return;
     }
 
-    if (project?.machineId) {
-      if (selectedMachineId !== project.machineId) {
-        setSelectedMachineId(project.machineId);
-      }
-      return;
-    }
-
     if (selectedMachine) {
       return;
     }
@@ -224,7 +221,10 @@ export function useProjectDesktop() {
     const onlineMachine = connectorOverview.machines.find(
       (machine) => machine.connector.status === 'online'
     );
-    const nextMachine = localMachine ?? onlineMachine ?? connectorOverview.machines[0];
+    const projectMachine = project?.machineId
+      ? connectorOverview.machines.find((machine) => machine.id === project.machineId)
+      : undefined;
+    const nextMachine = projectMachine ?? localMachine ?? onlineMachine ?? connectorOverview.machines[0];
 
     setSelectedMachineId(nextMachine.id);
   }, [
@@ -490,6 +490,7 @@ export function useProjectDesktop() {
     discoveryRoot: discovery.rootPath,
     githubCatalog,
     groups: discovery.groups,
+    hasLoaded,
     historyFocus,
     launcherApps,
     launcherError,
@@ -524,8 +525,16 @@ export function useProjectDesktop() {
     worktreeDiscovery,
     worktrees,
     openRoot() {
-      setMainView('root');
-      writeRoute('root');
+      if (selectedProjectId) {
+        setMainView('project');
+        setProjectTab('issues');
+        setSelectedIssueNumber(undefined);
+        writeRoute('project', selectedProjectId, false, 'issues');
+        return;
+      }
+
+      setMainView('projects');
+      writeRoute('projects');
     },
     openChat() {
       setMainView('chat');

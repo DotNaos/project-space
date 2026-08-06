@@ -66,6 +66,60 @@ function row(overrides: Record<string, unknown> = {}) {
 }
 
 describe('Codex machine-task durable start store', () => {
+  test('releases an exact uncertain start and all of its operation aliases', async () => {
+    const database = new FakeDatabase();
+    database.responses.push(
+      { rows: [{
+        association_key: operation.associationKey,
+        fingerprint_sha256: operation.fingerprint,
+        state: 'uncertain'
+      }] },
+      { rows: [] },
+      { rows: [{ association_key: operation.associationKey }] }
+    );
+
+    expect(await new PostgresCodexMachineTasksStore(database).releaseUncertainStart({
+      fingerprint: operation.fingerprint,
+      operationId: operation.operationId,
+      userId: operation.userId
+    })).toBe('released');
+    expect(database.calls[1]?.sql).toContain('delete from codex_machine_task_start_operations');
+    expect(database.calls[2]?.sql).toContain("and state = 'uncertain'");
+    expect(database.calls[1]?.values).toEqual([operation.userId, operation.associationKey]);
+  });
+
+  test('does not release an uncertain start for changed input', async () => {
+    const database = new FakeDatabase();
+    database.responses.push({ rows: [{
+      association_key: operation.associationKey,
+      fingerprint_sha256: operation.fingerprint,
+      state: 'uncertain'
+    }] });
+
+    expect(await new PostgresCodexMachineTasksStore(database).releaseUncertainStart({
+      fingerprint: 'f'.repeat(64),
+      operationId: operation.operationId,
+      userId: operation.userId
+    })).toBe('conflict');
+    expect(database.calls).toHaveLength(1);
+  });
+
+  test('does not release a start that is still pending', async () => {
+    const database = new FakeDatabase();
+    database.responses.push({ rows: [{
+      association_key: operation.associationKey,
+      fingerprint_sha256: operation.fingerprint,
+      state: 'pending'
+    }] });
+
+    expect(await new PostgresCodexMachineTasksStore(database).releaseUncertainStart({
+      fingerprint: operation.fingerprint,
+      operationId: operation.operationId,
+      userId: operation.userId
+    })).toBe('not_uncertain');
+    expect(database.calls).toHaveLength(1);
+  });
+
   test('persists the immutable resolved start payload with a new reservation', async () => {
     const database = new FakeDatabase();
     database.responses.push(
@@ -170,10 +224,12 @@ describe('Codex machine-task durable start store', () => {
       fingerprint: 'd'.repeat(64),
       operationId: 'start-operation-two'
     })).toEqual({
+      dispatchOperationId: operation.operationId,
       durableOperations: true,
       generation: 4,
       kind: 'uncertain',
-      sameOperation: false
+      sameOperation: false,
+      startPayload: operation.startPayload
     });
   });
 
@@ -187,10 +243,12 @@ describe('Codex machine-task durable start store', () => {
     );
 
     expect(await new PostgresCodexMachineTasksStore(database).reserveStart(operation)).toEqual({
+      dispatchOperationId: operation.operationId,
       generation: 4,
       durableOperations: true,
       kind: 'uncertain',
-      sameOperation: true
+      sameOperation: true,
+      startPayload: operation.startPayload
     });
   });
 

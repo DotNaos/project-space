@@ -9,7 +9,10 @@ deploy/mqtt/config/password_file
 tmp/
 temp/
 .DS_Store
+__pycache__/
+*.pyc
 # heroui-agents-md
 .heroui-docs/
 .vercel
 .project/template/
+.project-space/prototype-review/

@@ -1,16 +1,13 @@
 import { useMemo, useState } from 'react';
 import {
-  AlertTriangle,
   Archive,
   ChevronRight,
   ExternalLink,
   MonitorCog,
   Pencil,
-  Plus,
-  RefreshCw,
-  Trash2
+  RefreshCw
 } from 'lucide-react';
-import { AlertDialog, Disclosure } from '@heroui/react';
+import { Disclosure } from '@heroui/react';
 import { Button, Chip, Text } from '@/app/dotnaos-ui';
 import type {
   ConnectorCredentialRecord,
@@ -28,7 +25,7 @@ import {
   type SettingsMachineGroup
 } from './settings-machine-group-model';
 import { SettingsMachineRuntimeStop } from './settings-machine-runtime-stop';
-import { SettingsMachineScopeEditor } from './settings-machine-scope-editor';
+import { SettingsConnectorMachineEditor } from './settings-connector-machine-editor';
 import {
   settingsMachineGroupsPresentation,
   type SettingsMachineGroupsStatus
@@ -38,15 +35,15 @@ interface SettingsMachineGroupsProps {
   connectors: readonly ConnectorInstallationRecord[];
   credentials: readonly ConnectorCredentialRecord[];
   loadError: string;
-  onDeleteMachine(machineId: string): Promise<void>;
   onRefresh(): Promise<unknown>;
   onSaveMachine(request: PhysicalMachineSaveRequest): Promise<void>;
   physicalMachines: readonly PhysicalMachineRecord[];
   status: SettingsMachineGroupsStatus;
 }
 
-function ConnectorInstanceRow({ instance, onRefresh }: {
+function ConnectorInstanceRow({ instance, onEdit, onRefresh }: {
   instance: SettingsConnectorInstance;
+  onEdit(): void;
   onRefresh(): Promise<unknown>;
 }) {
   const origin = instance.machine.connector.origin;
@@ -88,6 +85,16 @@ function ConnectorInstanceRow({ instance, onRefresh }: {
         </div>
       </div>
       <div className="flex items-center justify-end gap-2">
+        <Button
+          aria-label={`Edit connector ${instance.machine.name}`}
+          isIconOnly
+          size="sm"
+          variant="ghost"
+          className="h-8 w-8 min-w-0 px-0"
+          onPress={onEdit}
+        >
+          <Pencil className="size-3.5" />
+        </Button>
         <SettingsMachineRuntimeStop machine={instance.machine} onStopped={onRefresh} />
         <MachineConnectorActionsMenu
           machine={instance.machine}
@@ -98,10 +105,9 @@ function ConnectorInstanceRow({ instance, onRefresh }: {
   );
 }
 
-function MachineGroupRow({ group, onDelete, onEdit, onRefresh }: {
+function MachineGroupRow({ group, onEditConnector, onRefresh }: {
   group: SettingsMachineGroup;
-  onDelete(): void;
-  onEdit(): void;
+  onEditConnector(instance: SettingsConnectorInstance): void;
   onRefresh(): Promise<unknown>;
 }) {
   return (
@@ -120,19 +126,16 @@ function MachineGroupRow({ group, onDelete, onEdit, onRefresh }: {
             </Text>
           </span>
         </Disclosure.Trigger>
-        <span className="flex shrink-0 items-center gap-1 pr-3 sm:pr-4">
-          <Button aria-label={`Edit ${group.name}`} isIconOnly size="sm" variant="ghost" className="h-8 w-8 min-w-0 px-0" onPress={onEdit}>
-            <Pencil className="size-3.5" />
-          </Button>
-          <Button aria-label={`Ungroup ${group.name}`} isIconOnly size="sm" variant="ghost" className="h-8 w-8 min-w-0 px-0 text-neutral-500 hover:text-red-300" onPress={onDelete}>
-            <Trash2 className="size-3.5" />
-          </Button>
-        </span>
       </Disclosure.Heading>
       <Disclosure.Content>
         <Disclosure.Body className="bg-neutral-950/40 pl-5 sm:pl-8">
           {group.instances.map((instance) => (
-            <ConnectorInstanceRow key={instance.id} instance={instance} onRefresh={onRefresh} />
+            <ConnectorInstanceRow
+              key={instance.id}
+              instance={instance}
+              onEdit={() => onEditConnector(instance)}
+              onRefresh={onRefresh}
+            />
           ))}
         </Disclosure.Body>
       </Disclosure.Content>
@@ -144,22 +147,17 @@ export function SettingsMachineGroups({
   connectors,
   credentials,
   loadError,
-  onDeleteMachine,
   onRefresh,
   onSaveMachine,
   physicalMachines,
   status
 }: SettingsMachineGroupsProps) {
-  const [editorScopeId, setEditorScopeId] = useState<string | null>();
-  const [deletingGroup, setDeletingGroup] = useState<SettingsMachineGroup>();
-  const [deleteError, setDeleteError] = useState('');
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [editingConnector, setEditingConnector] = useState<SettingsConnectorInstance>();
   const presentation = settingsMachineGroupsPresentation(status);
   const grouping = useMemo(
     () => groupSettingsMachines({ connectors, credentials, physicalMachines }),
     [connectors, credentials, physicalMachines]
   );
-  const editing = physicalMachines.find((machine) => machine.id === editorScopeId);
   const archivedCount = grouping.groups.reduce(
     (count, group) => count + group.archivedConnectorCount,
     grouping.archivedUnscopedInstances.length + grouping.unmatchedCredentials.filter(
@@ -167,29 +165,8 @@ export function SettingsMachineGroups({
     ).length
   );
 
-  async function deleteScope() {
-    if (!deletingGroup) return;
-    setIsDeleting(true);
-    setDeleteError('');
-    try {
-      await onDeleteMachine(deletingGroup.id);
-      setDeletingGroup(undefined);
-    } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : 'Could not ungroup the machine.');
-    } finally {
-      setIsDeleting(false);
-    }
-  }
-
   return (
     <div>
-      <div className="mb-3 flex min-w-0 flex-wrap items-center justify-end gap-3">
-        <Button size="sm" variant="outline" isDisabled={status !== 'ready'} onPress={() => setEditorScopeId(null)}>
-          <Plus className="size-3.5" />
-          Add machine
-        </Button>
-      </div>
-
       {presentation.showBlockingLoading ? (
         <div className="rounded-lg border border-neutral-800 px-4 py-8 text-center">
           <Text className="block text-sm text-neutral-500">Loading machine groups…</Text>
@@ -214,7 +191,12 @@ export function SettingsMachineGroups({
           ) : null}
           <div className="overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950/35">
             {grouping.groups.map((group) => (
-              <MachineGroupRow key={group.id} group={group} onDelete={() => setDeletingGroup(group)} onEdit={() => setEditorScopeId(group.id)} onRefresh={onRefresh} />
+              <MachineGroupRow
+                key={group.id}
+                group={group}
+                onEditConnector={setEditingConnector}
+                onRefresh={onRefresh}
+              />
             ))}
             {grouping.unscopedInstances.length > 0 ? (
               <div className="border-t border-neutral-800 first:border-t-0">
@@ -222,7 +204,12 @@ export function SettingsMachineGroups({
                   Ungrouped connector installations
                 </Text>
                 {grouping.unscopedInstances.map((instance) => (
-                  <ConnectorInstanceRow key={instance.id} instance={instance} onRefresh={onRefresh} />
+                  <ConnectorInstanceRow
+                    key={instance.id}
+                    instance={instance}
+                    onEdit={() => setEditingConnector(instance)}
+                    onRefresh={onRefresh}
+                  />
                 ))}
               </div>
             ) : null}
@@ -235,8 +222,6 @@ export function SettingsMachineGroups({
           </div>
         </>
       )}
-      {deleteError ? <Text className="mt-2 block text-xs text-red-300">{deleteError}</Text> : null}
-
       {presentation.showContent && archivedCount > 0 ? (
         <Disclosure className="mt-3 border-t border-neutral-900 pt-2">
           <Disclosure.Heading>
@@ -267,40 +252,15 @@ export function SettingsMachineGroups({
         </Disclosure>
       ) : null}
 
-      {editorScopeId !== undefined ? (
-        <SettingsMachineScopeEditor
-          key={editing?.id ?? 'new'}
-          connectors={connectors}
-          editing={editing}
-          onClose={() => setEditorScopeId(undefined)}
+      {editingConnector ? (
+        <SettingsConnectorMachineEditor
+          key={editingConnector.id}
+          connector={editingConnector.machine}
+          onClose={() => setEditingConnector(undefined)}
           onSave={onSaveMachine}
           physicalMachines={physicalMachines}
         />
       ) : null}
-
-      <AlertDialog isOpen={Boolean(deletingGroup)} onOpenChange={(open) => { if (!open && !isDeleting) setDeletingGroup(undefined); }}>
-        <AlertDialog.Backdrop isDismissable={false} variant="blur" className="z-[90] bg-black/75">
-          <AlertDialog.Container placement="auto" size="md" className="px-3 py-3 sm:px-5 sm:py-6">
-            <AlertDialog.Dialog className="border border-neutral-800 bg-neutral-950 text-neutral-100">
-              <AlertDialog.Header>
-                <AlertDialog.Icon status="warning"><AlertTriangle className="size-5" /></AlertDialog.Icon>
-                <AlertDialog.Heading>Ungroup {deletingGroup?.name}?</AlertDialog.Heading>
-              </AlertDialog.Header>
-              <AlertDialog.Body>
-                <Text className="block text-sm leading-6 text-neutral-300">
-                  The machine group will be removed. Its connector installations stay registered and will appear as ungrouped.
-                </Text>
-              </AlertDialog.Body>
-              <AlertDialog.Footer className="gap-2">
-                <Button variant="ghost" isDisabled={isDeleting} onPress={() => setDeletingGroup(undefined)}>Cancel</Button>
-                <Button variant="danger" isDisabled={isDeleting} onPress={() => void deleteScope()}>
-                  {isDeleting ? 'Ungrouping…' : 'Ungroup'}
-                </Button>
-              </AlertDialog.Footer>
-            </AlertDialog.Dialog>
-          </AlertDialog.Container>
-        </AlertDialog.Backdrop>
-      </AlertDialog>
     </div>
   );
 }

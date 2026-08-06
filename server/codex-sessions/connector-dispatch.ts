@@ -30,6 +30,10 @@ import {
   type ConnectorCodexAttachRelay,
   type ConnectorCodexAttachRelayCloseCode
 } from '../codex-machine-tasks/connector-attach-relay';
+import {
+  LocalCodexTranscriptReader,
+  type LocalCodexTranscriptSource
+} from './transcript-reader';
 
 type AttachRelayFactory = typeof createConnectorCodexAttachRelay;
 
@@ -75,6 +79,7 @@ export class CodexSessionsConnectorDispatcher {
     expectedMachineId?: string;
     manager: CodexSessionManager;
     onDaemonChanged?(): Promise<void> | void;
+    transcript?: LocalCodexTranscriptSource;
     verificationKey: KeyLike;
   }) {
     this.authorization = options.authorization ?? new CodexDeviceAuthorizationManager({
@@ -126,6 +131,7 @@ export class CodexSessionsConnectorDispatcher {
       machineName: expectedMachineId,
       manager: this.options.manager,
       startTask: createLocalCodexMachineTaskStarter(this.options.manager),
+      transcript: this.options.transcript ?? new LocalCodexTranscriptReader(),
       verificationKey: this.options.verificationKey
     });
     if (operation === 'stream') {

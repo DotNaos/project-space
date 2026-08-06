@@ -416,7 +416,39 @@ export function createDevServerService(options: DevServerServiceOptions) {
       settingsFor(userId, scope),
       resolveWorktrees(scope)
     ]);
-    const readyWorktrees = worktrees.filter((worktree) => worktree.status === 'ready');
+    const branchName = request.branchName === undefined
+      ? undefined
+      : requireIdentifier(request.branchName, 'branchName', 2_048);
+    const preferBase = request.preferBase === true;
+    const requestedWorktreeIds = request.worktreeIds?.map((worktreeId) =>
+      requireIdentifier(worktreeId, 'worktreeId', 2_048)
+    );
+    const selectorCount = Number(Boolean(requestedWorktreeIds)) + Number(Boolean(branchName)) + Number(preferBase);
+    if (selectorCount > 1) {
+      throw new Error('Choose only one development-server worktree selector.');
+    }
+    if (requestedWorktreeIds && requestedWorktreeIds.length > 32) {
+      throw new Error('Development-server inspection supports at most 32 worktrees.');
+    }
+    const requestedWorktreeIdSet = requestedWorktreeIds
+      ? new Set(requestedWorktreeIds)
+      : undefined;
+    if (requestedWorktreeIdSet && requestedWorktreeIdSet.size !== requestedWorktreeIds!.length) {
+      throw new Error('Development-server worktree identities must be unique.');
+    }
+    const readyWorktrees = worktrees.filter(
+      (worktree) =>
+        worktree.status === 'ready' &&
+        (!requestedWorktreeIdSet || requestedWorktreeIdSet.has(worktree.id)) &&
+        (!branchName || worktree.branchName === branchName) &&
+        (!preferBase || worktree.isBase)
+    );
+    if (requestedWorktreeIdSet && readyWorktrees.length !== requestedWorktreeIdSet.size) {
+      throw new Error('A requested worktree is not available on this machine.');
+    }
+    if ((branchName || preferBase) && readyWorktrees.length !== 1) {
+      throw new Error('The selected development-server worktree is not available on this machine.');
+    }
     const inventories = await Promise.allSettled(
       readyWorktrees.map(async (worktree) => {
         const target = { ...scope, worktree };

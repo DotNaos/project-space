@@ -159,6 +159,13 @@ function setPrototypeAccessCors(response: ServerResponse, brokerOrigin: string) 
   response.setHeader('Vary', 'Origin');
 }
 
+function setExactChangelogCors(response: ServerResponse, brokerOrigin: string) {
+  response.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  response.setHeader('Access-Control-Allow-Origin', brokerOrigin);
+  response.setHeader('Cache-Control', 'no-store');
+  response.setHeader('Vary', 'Origin');
+}
+
 async function readBody(request: IncomingMessage) {
   if (request.method === 'GET' || request.method === 'HEAD') return undefined;
   const chunks: Buffer[] = [];
@@ -355,8 +362,25 @@ export function createPreviewGatewayRequestHandler(
         }).end();
         return;
       }
+      if (requestUrl.pathname === '/api/app/changelog') {
+        if (request.headers.origin && request.headers.origin !== brokerOrigin) {
+          response.writeHead(403).end('Trusted Project Space origin required.');
+          return;
+        }
+        setExactChangelogCors(response, brokerOrigin);
+        if (request.method === 'OPTIONS') {
+          response.writeHead(204).end();
+          return;
+        }
+        if (request.method !== 'GET') {
+          response.writeHead(405, { Allow: 'GET, OPTIONS' }).end();
+          return;
+        }
+      }
       const isPublicUpstreamPath =
-        requestUrl.pathname === '/api/health' || requestUrl.pathname === '/api/app/meta';
+        requestUrl.pathname === '/api/health' ||
+        requestUrl.pathname === '/api/app/meta' ||
+        requestUrl.pathname === '/api/app/changelog';
       const verificationSecret = environment.PROJECT_SPACE_PREVIEW_VERIFICATION_SECRET ?? '';
       const trustedVerificationRequest =
         request.headers[previewVerificationHeader] === verificationSecret && verificationSecret.length >= 32;

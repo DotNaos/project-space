@@ -17,6 +17,7 @@ describe('GitHub development links', () => {
             headRefName: 'issue-263-preview',
             headRefOid: headSha,
             headRepository: { nameWithOwner: 'DotNaos/project-space' },
+            isDraft: true,
             isCrossRepository: false,
             number: 263,
             state: 'OPEN',
@@ -38,6 +39,7 @@ describe('GitHub development links', () => {
       headRefPresent: true,
       headRepositoryFullName: 'DotNaos/project-space',
       headSha,
+      isDraft: true,
       isCrossRepository: false,
       number: 263
     });

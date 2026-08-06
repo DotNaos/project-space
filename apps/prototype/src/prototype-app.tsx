@@ -1,22 +1,25 @@
-import { useEffect, useMemo, useRef, useState, type Key } from 'react';
-import { Button, Tabs } from '@heroui/react';
+import { useEffect, useRef, useState } from "react";
+import { Button, Dropdown, Header, Separator, Tooltip } from "@heroui/react";
 import {
   AppWindow,
+  Check,
+  ChevronDown,
   Eye,
   EyeOff,
   Globe2,
-  Laptop,
   Maximize2,
   Minimize2,
   Moon,
   Monitor,
   RotateCw,
+  Ruler,
+  ScanSearch,
   Smartphone,
   Sun,
-  Tablet as TabletIcon
-} from 'lucide-react';
+  Tablet as TabletIcon,
+  TriangleAlert,
+} from "lucide-react";
 
-import { ProjectRootSummary } from '../../../src/features/project-desktop/components/project-root-summary';
 import {
   prototypeSelectionFromSearch,
   prototypePresentationFromSearch,
@@ -26,170 +29,189 @@ import {
   type PrototypePresentation,
   type PrototypeScenarioKind,
   type PrototypeTheme,
-  type PrototypeViewportKind
-} from '../../../src/shared/prototype-canvas';
-import { desktopPrototypeScenario } from './desktop-prototype-scenarios';
-import { BranchHeadPrototype } from '../../../src/features/pr-preview-review/branch-head-prototype';
-import { ScaledDeviceCanvas } from './scaled-device-canvas';
-import './prototype.css';
+  type PrototypeViewportKind,
+} from "../../../src/shared/prototype-canvas";
+import { BranchHeadPrototype } from "../../../src/features/pr-preview-review/branch-head-prototype";
+import { ProjectSpaceHome } from "./project-space-home";
+import {
+  PrototypeDisplaySettings,
+  prototypeScreenBackgroundColor,
+} from "./prototype-display-settings";
+import { PrototypePreviewCarousel } from "./prototype-preview-carousel";
+import {
+  prototypeDesignAddFibonacciStep,
+  prototypeDesignShowHighestFibonacciSteps,
+  prototypeDesignToggleFibonacciStep,
+} from "./prototype-design-grid-analysis";
+import {
+  PROTOTYPE_DESIGN_GRID_CONTRAST_MAX,
+  PROTOTYPE_DESIGN_GRID_CONTRAST_MIN,
+} from "./prototype-design-grid-controls";
+import {
+  isPrototypeDesignToggleShortcut,
+  PROTOTYPE_DESIGN_GRID_MAX,
+  PROTOTYPE_DESIGN_GRID_MIN,
+  PrototypeDesignActions,
+  PrototypeDesignSettings,
+  PrototypeDesignStatus,
+  type PrototypeDesignStatusSnapshot,
+} from "./prototype-design-settings";
+import { StandalonePrototypeReviewDock } from "./standalone-prototype-review-dock";
+import { usePrototypeDesignPreferences } from "./use-prototype-design-preferences";
+import "./prototype.css";
+import "./prototype-design-tool.css";
 
 const ROTATION_DURATION_MS = 360;
 const ROTATION_CONTENT_HIDE_MS = 100;
 const VIEWPORT_HIDE_MS = 120;
 const VIEWPORT_SWAP_MS = 16;
-
 function replaceSelection(
   viewport: PrototypeViewportKind,
   scenario: PrototypeScenarioKind,
-  presentation: PrototypePresentation
+  presentation: PrototypePresentation,
 ) {
   window.history.replaceState(
     {},
-    '',
-    prototypeSurfaceHref('web', viewport, scenario, presentation)
+    "",
+    prototypeSurfaceHref("web", viewport, scenario, presentation),
   );
 }
 
-function mobileScenarioFor(scenario: PrototypeScenarioKind) {
-  if (scenario === 'empty') return 'empty';
-  if (scenario === 'offline') return 'error';
-  if (scenario === 'long-content') return 'long-content';
-  return 'populated';
-}
-
-function SurfaceTabs({
-  onChange
+function PrototypeTargetPicker({
+  onSurfaceChange,
+  onViewportChange,
+  viewport,
 }: {
-  onChange(value: 'web' | 'expo'): void;
-}) {
-  return (
-    <Tabs
-      aria-label="Prototype app"
-      selectedKey="web"
-      variant="primary"
-      onSelectionChange={(key: Key) => {
-        if (key === 'web' || key === 'expo') onChange(key);
-      }}
-    >
-      <Tabs.ListContainer>
-        <Tabs.List aria-label="Prototype app">
-          <Tabs.Tab id="web">
-            <span className="inline-flex items-center gap-2">
-              <Globe2 aria-hidden className="size-3.5 shrink-0" />
-              Web
-            </span>
-          </Tabs.Tab>
-          <Tabs.Tab id="expo">
-            <span className="inline-flex items-center gap-2">
-              <AppWindow aria-hidden className="size-3.5 shrink-0" />
-              Native
-            </span>
-          </Tabs.Tab>
-        </Tabs.List>
-      </Tabs.ListContainer>
-    </Tabs>
-  );
-}
-
-function ViewportTabs({
-  onChange,
-  viewport
-}: {
-  onChange(value: PrototypeViewportKind): void;
+  onSurfaceChange(value: "web" | "expo"): void;
+  onViewportChange(value: PrototypeViewportKind): void;
   viewport: PrototypeViewportKind;
 }) {
   const icons = {
     desktop: Monitor,
     phone: Smartphone,
-    tablet: TabletIcon
+    tablet: TabletIcon,
   };
+  const ActiveIcon = icons[viewport];
 
   return (
-    <Tabs
-      aria-label="Prototype device"
-      selectedKey={viewport}
-      variant="primary"
-      onSelectionChange={(key: Key) => {
-        if (typeof key === 'string' && prototypeViewportKinds.includes(key as PrototypeViewportKind)) {
-          onChange(key as PrototypeViewportKind);
-        }
-      }}
-    >
-      <Tabs.ListContainer>
-        <Tabs.List aria-label="Prototype device">
-          {prototypeViewportKinds.map((kind) => {
-            const Icon = icons[kind];
-            return (
-              <Tabs.Tab key={kind} id={kind}>
-                <span className="inline-flex items-center gap-2">
+    <Dropdown>
+      <Dropdown.Trigger
+        aria-label={`Prototype target: Web, ${prototypeViewportPresets[viewport].label}`}
+        className="prototype-hud__picker"
+      >
+        <Globe2 aria-hidden className="size-3.5 shrink-0" />
+        <span className="prototype-hud__picker-label">Web</span>
+        <span aria-hidden className="prototype-hud__picker-separator">
+          ·
+        </span>
+        <ActiveIcon aria-hidden className="size-3.5 shrink-0" />
+        <span className="prototype-hud__picker-label">
+          {prototypeViewportPresets[viewport].label}
+        </span>
+        <ChevronDown aria-hidden className="size-3 shrink-0" />
+      </Dropdown.Trigger>
+      <Dropdown.Popover
+        className="prototype-hud__popover"
+        offset={6}
+        placement="bottom left"
+      >
+        <Dropdown.Menu
+          aria-label="Choose prototype target"
+          onAction={(key) => {
+            const next = String(key);
+            if (next === "surface:web") onSurfaceChange("web");
+            else if (next === "surface:expo") onSurfaceChange("expo");
+            else if (next.startsWith("viewport:")) {
+              const kind = next.slice("viewport:".length);
+              if (
+                prototypeViewportKinds.includes(kind as PrototypeViewportKind)
+              ) {
+                onViewportChange(kind as PrototypeViewportKind);
+              }
+            }
+          }}
+        >
+          <Dropdown.Section>
+            <Header className="prototype-hud__menu-header">Surface</Header>
+            <Dropdown.Item
+              className="prototype-hud__menu-item"
+              id="surface:web"
+              textValue="Web"
+            >
+              <Globe2 aria-hidden className="size-3.5 shrink-0" />
+              <span className="flex-1">Web</span>
+              <Check aria-hidden className="size-3.5 shrink-0" />
+            </Dropdown.Item>
+            <Dropdown.Item
+              className="prototype-hud__menu-item"
+              id="surface:expo"
+              textValue="Native"
+            >
+              <AppWindow aria-hidden className="size-3.5 shrink-0" />
+              <span className="flex-1">Native</span>
+            </Dropdown.Item>
+          </Dropdown.Section>
+          <Separator className="prototype-hud__menu-separator" />
+          <Dropdown.Section>
+            <Header className="prototype-hud__menu-header">Viewport</Header>
+            {prototypeViewportKinds.map((kind) => {
+              const Icon = icons[kind];
+              return (
+                <Dropdown.Item
+                  className="prototype-hud__menu-item"
+                  id={`viewport:${kind}`}
+                  key={kind}
+                  textValue={prototypeViewportPresets[kind].label}
+                >
                   <Icon aria-hidden className="size-3.5 shrink-0" />
-                  {prototypeViewportPresets[kind].label}
-                </span>
-              </Tabs.Tab>
-            );
-          })}
-        </Tabs.List>
-      </Tabs.ListContainer>
-    </Tabs>
+                  <span className="flex-1">
+                    {prototypeViewportPresets[kind].label}
+                  </span>
+                  {kind === viewport ? (
+                    <Check aria-hidden className="size-3.5 shrink-0" />
+                  ) : null}
+                </Dropdown.Item>
+              );
+            })}
+          </Dropdown.Section>
+        </Dropdown.Menu>
+      </Dropdown.Popover>
+    </Dropdown>
   );
 }
 
 function DesktopTarget({
   scenario,
-  theme
+  theme,
 }: {
   scenario: PrototypeScenarioKind;
   theme: PrototypeTheme;
 }) {
-  const fixture = useMemo(() => desktopPrototypeScenario(scenario), [scenario]);
-  if (scenario === 'branch-head-preview') {
+  if (scenario === "branch-head-preview") {
     return <BranchHeadPrototype theme={theme} />;
   }
-  return (
-    <div
-      className={`prototype-target min-h-full px-5 py-7 @md:px-8 @md:py-9 ${
-        theme === 'light' ? 'prototype-target--light' : 'prototype-target--dark'
-      }`}
-    >
-      <header className="mx-auto mb-8 flex w-full max-w-5xl items-center justify-between gap-4">
-        <div className="min-w-0">
-          <p className="truncate text-base font-semibold text-neutral-100">project-space</p>
-          <p className="mt-1 text-xs text-neutral-500">DotNaos</p>
-        </div>
-        <span className="inline-flex items-center gap-2 text-xs text-neutral-500">
-          <Laptop className="size-3.5" />
-          Prototype
-        </span>
-      </header>
-      <ProjectRootSummary
-        connector={fixture.connector}
-        dataSource={fixture.dataSource}
-        projects={fixture.projects}
-        recentProjectIds={fixture.recentProjectIds}
-      />
-    </div>
-  );
+  return <ProjectSpaceHome scenario={scenario} theme={theme} />;
 }
 
 function EmbeddedDesktopPrototype() {
-  const initial = prototypeSelectionFromSearch(window.location.search, 'desktop');
+  const initial = prototypeSelectionFromSearch(
+    window.location.search,
+    "desktop",
+  );
   const presentation = prototypePresentationFromSearch(window.location.search);
   return (
     <main
       data-theme={presentation.theme}
       className={`prototype-embedded size-full min-h-0 overflow-auto ${
-        initial.viewport === 'phone' && presentation.orientation === 'portrait'
-          ? 'pt-6'
-          : initial.viewport === 'phone'
-            ? 'pr-6'
-            : ''
+        initial.viewport === "phone" && presentation.orientation === "portrait"
+          ? "pt-6"
+          : initial.viewport === "phone"
+            ? "pr-6"
+            : ""
       }`}
     >
       {initial.scenario ? (
-        <DesktopTarget
-          scenario={initial.scenario}
-          theme={presentation.theme}
-        />
+        <DesktopTarget scenario={initial.scenario} theme={presentation.theme} />
       ) : (
         <PrototypeSelectionUnavailable
           reason={initial.scenarioState}
@@ -201,16 +223,48 @@ function EmbeddedDesktopPrototype() {
 }
 
 function PrototypeWorkspace() {
-  const initial = prototypeSelectionFromSearch(window.location.search, 'desktop');
+  const initial = prototypeSelectionFromSearch(
+    window.location.search,
+    "desktop",
+  );
   const initialPresentation = prototypePresentationFromSearch(
-    window.location.search
+    window.location.search,
   );
-  const [scenario] = useState<PrototypeScenarioKind | undefined>(
-    initial.scenario
+  const [viewport, setViewport] = useState<PrototypeViewportKind>(
+    initial.viewport,
   );
-  const [viewport, setViewport] = useState<PrototypeViewportKind>(initial.viewport);
   const [presentation, setPresentation] = useState(initialPresentation);
   const [hudVisible, setHudVisible] = useState(!initialPresentation.fullscreen);
+  const {
+    designToolEnabled,
+    designToolFibonacciSteps,
+    designToolGridContrast,
+    designToolGridMode,
+    designToolGridSize,
+    designToolGridViolationsVisible,
+    designToolUnit,
+    setDesignToolEnabled,
+    setDesignToolFibonacciSteps,
+    setDesignToolGridContrast,
+    setDesignToolGridMode,
+    setDesignToolGridSize,
+    setDesignToolGridViolationsVisible,
+    setDesignToolUnit,
+  } = usePrototypeDesignPreferences();
+  const [designToolStatus, setDesignToolStatus] =
+    useState<PrototypeDesignStatusSnapshot>({
+      approvedAncestors: 0,
+      canEnterLayer: false,
+      currentScopeApproved: false,
+      gridViolationEdges: 0,
+      gridViolations: 0,
+      guideViolations: 0,
+      nextFix: null,
+      remainingFixes: 0,
+      scope: "selection",
+      selected: false,
+    });
+  const [designToolAuditRequest, setDesignToolAuditRequest] = useState(0);
   const [isRotating, setIsRotating] = useState(false);
   const [isSwitchingViewport, setIsSwitchingViewport] = useState(false);
   const hideHudTimer = useRef<number | undefined>(undefined);
@@ -236,7 +290,7 @@ function PrototypeWorkspace() {
   };
   const updatePresentation = (next: PrototypePresentation) => {
     setPresentation(next);
-    if (scenario) replaceSelection(viewport, scenario, next);
+    replaceSelection(viewport, "ready", next);
     if (next.fullscreen) {
       setHudVisible(false);
     } else {
@@ -250,32 +304,27 @@ function PrototypeWorkspace() {
     setIsSwitchingViewport(true);
     viewportSwitchTimer.current = window.setTimeout(() => {
       setViewport(next);
-      if (scenario) replaceSelection(next, scenario, presentation);
+      replaceSelection(next, "ready", presentation);
       viewportSwitchTimer.current = window.setTimeout(() => {
         setIsSwitchingViewport(false);
         viewportSwitchTimer.current = undefined;
       }, VIEWPORT_SWAP_MS);
     }, VIEWPORT_HIDE_MS);
   };
-  const chooseSurface = (next: 'web' | 'expo') => {
-    if (next === 'web' || !scenario) return;
+  const chooseSurface = (next: "web" | "expo") => {
+    if (next === "web") return;
     window.location.assign(
-      prototypeSurfaceHref(
-        'expo',
-        viewport,
-        mobileScenarioFor(scenario),
-        presentation
-      )
+      prototypeSurfaceHref("expo", viewport, "populated", presentation),
     );
   };
   const rotateDevice = () => {
-    if (viewport === 'desktop' || isRotating || isSwitchingViewport) return;
+    if (viewport === "desktop" || isRotating || isSwitchingViewport) return;
     setIsRotating(true);
     rotationTimer.current = window.setTimeout(() => {
       updatePresentation({
         ...presentation,
         orientation:
-          presentation.orientation === 'portrait' ? 'landscape' : 'portrait'
+          presentation.orientation === "portrait" ? "landscape" : "portrait",
       });
       rotationTimer.current = window.setTimeout(() => {
         setIsRotating(false);
@@ -285,12 +334,29 @@ function PrototypeWorkspace() {
   };
 
   useEffect(() => {
+    const toggleDesignTool = (event: KeyboardEvent) => {
+      if (!isPrototypeDesignToggleShortcut(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setDesignToolEnabled((enabled) => !enabled);
+    };
+    window.addEventListener("keydown", toggleDesignTool, true);
+    return () => window.removeEventListener("keydown", toggleDesignTool, true);
+  }, []);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("scenario") !== "ready") {
+      replaceSelection(viewport, "ready", presentation);
+    }
+  }, []);
+
+  useEffect(() => {
     const exitFullscreen = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || !presentation.fullscreen) return;
+      if (event.key !== "Escape" || !presentation.fullscreen) return;
       updatePresentation({ ...presentation, fullscreen: false });
     };
-    window.addEventListener('keydown', exitFullscreen);
-    return () => window.removeEventListener('keydown', exitFullscreen);
+    window.addEventListener("keydown", exitFullscreen);
+    return () => window.removeEventListener("keydown", exitFullscreen);
   });
 
   useEffect(() => {
@@ -323,22 +389,25 @@ function PrototypeWorkspace() {
         ) : null}
         <div
           className="prototype-hud-shell"
+          data-design-active={designToolEnabled}
+          data-react-aria-top-layer="true"
           data-visible={!presentation.fullscreen || hudVisible}
           data-testid="viewport-controls"
           onMouseEnter={cancelHudHide}
           onMouseLeave={presentation.fullscreen ? scheduleHudHide : undefined}
         >
           <div className="prototype-hud__surface">
-            <SurfaceTabs onChange={chooseSurface} />
-          </div>
-          <div className="prototype-hud__devices">
-            <ViewportTabs viewport={viewport} onChange={chooseViewport} />
+            <PrototypeTargetPicker
+              viewport={viewport}
+              onSurfaceChange={chooseSurface}
+              onViewportChange={chooseViewport}
+            />
             <Button
               isIconOnly
               aria-label={
                 presentation.showDeviceFrame
-                  ? 'Hide device frame'
-                  : 'Show device frame'
+                  ? "Hide device frame"
+                  : "Show device frame"
               }
               className="prototype-hud__frame"
               size="sm"
@@ -346,7 +415,7 @@ function PrototypeWorkspace() {
               onPress={() => {
                 updatePresentation({
                   ...presentation,
-                  showDeviceFrame: !presentation.showDeviceFrame
+                  showDeviceFrame: !presentation.showDeviceFrame,
                 });
               }}
             >
@@ -356,25 +425,155 @@ function PrototypeWorkspace() {
                 <Eye className="size-4" />
               )}
             </Button>
+            <PrototypeDisplaySettings
+              presentation={presentation}
+              viewport={viewport}
+              onChange={updatePresentation}
+            />
+            <Button
+              isIconOnly
+              aria-label={
+                designToolEnabled ? "Hide design grid" : "Show design grid"
+              }
+              aria-pressed={designToolEnabled}
+              className="prototype-hud__frame"
+              data-active={designToolEnabled}
+              size="sm"
+              variant="ghost"
+              onPress={() => setDesignToolEnabled((enabled) => !enabled)}
+            >
+              <Ruler className="size-4" />
+            </Button>
+            {designToolEnabled ? (
+              <Tooltip closeDelay={0} delay={350}>
+                <Button
+                  isIconOnly
+                  aria-label="Audit whole app"
+                  aria-pressed={
+                    designToolStatus.selected &&
+                    designToolStatus.scope === "global"
+                  }
+                  className="prototype-hud__frame"
+                  data-active={
+                    designToolStatus.selected &&
+                    designToolStatus.scope === "global"
+                  }
+                  size="sm"
+                  variant="ghost"
+                  onPress={() =>
+                    setDesignToolAuditRequest((request) => request + 1)
+                  }
+                >
+                  <ScanSearch className="size-4" />
+                </Button>
+                <Tooltip.Content placement="bottom">
+                  Audit whole app
+                </Tooltip.Content>
+              </Tooltip>
+            ) : null}
+            {designToolEnabled ? (
+              <Tooltip closeDelay={0} delay={350}>
+                <Button
+                  isIconOnly
+                  aria-label={
+                    designToolGridViolationsVisible
+                      ? "Hide grid violations"
+                      : "Show grid violations"
+                  }
+                  aria-pressed={designToolGridViolationsVisible}
+                  className="prototype-hud__frame"
+                  data-active={designToolGridViolationsVisible}
+                  data-violation-toggle="true"
+                  size="sm"
+                  variant="ghost"
+                  onPress={() =>
+                    setDesignToolGridViolationsVisible((visible) => !visible)
+                  }
+                >
+                  <TriangleAlert className="size-4" />
+                </Button>
+                <Tooltip.Content placement="bottom">
+                  {designToolGridViolationsVisible
+                    ? "Hide grid violations"
+                    : "Show grid violations"}
+                </Tooltip.Content>
+              </Tooltip>
+            ) : null}
+            <PrototypeDesignSettings
+              fibonacciSteps={designToolFibonacciSteps}
+              gridContrast={designToolGridContrast}
+              gridMode={designToolGridMode}
+              gridSize={designToolGridSize}
+              unit={designToolUnit}
+              onGridModeChange={setDesignToolGridMode}
+              onFibonacciStepAdd={() =>
+                setDesignToolFibonacciSteps((steps) =>
+                  prototypeDesignAddFibonacciStep(steps),
+                )
+              }
+              onFibonacciStepDepthChange={(count) =>
+                setDesignToolFibonacciSteps((steps) =>
+                  prototypeDesignShowHighestFibonacciSteps(steps, count),
+                )
+              }
+              onFibonacciStepToggle={(multiplier) =>
+                setDesignToolFibonacciSteps((steps) =>
+                  prototypeDesignToggleFibonacciStep(steps, multiplier),
+                )
+              }
+              onGridContrastChange={(value) => {
+                if (!Number.isFinite(value)) return;
+                setDesignToolGridContrast(
+                  Math.min(
+                    PROTOTYPE_DESIGN_GRID_CONTRAST_MAX,
+                    Math.max(PROTOTYPE_DESIGN_GRID_CONTRAST_MIN, value),
+                  ),
+                );
+              }}
+              onGridSizeChange={(value) => {
+                if (!Number.isFinite(value)) return;
+                setDesignToolGridSize(
+                  Math.min(
+                    PROTOTYPE_DESIGN_GRID_MAX,
+                    Math.max(PROTOTYPE_DESIGN_GRID_MIN, value),
+                  ),
+                );
+              }}
+              onUnitChange={setDesignToolUnit}
+            />
+            {designToolEnabled ? (
+              <div className="prototype-hud__design-row">
+                <PrototypeDesignStatus
+                  {...designToolStatus}
+                  gridViolationsVisible={designToolGridViolationsVisible}
+                />
+                {designToolStatus.selected ? (
+                  <PrototypeDesignActions
+                    automatic={designToolStatus.scope === "global"}
+                    canEnterLayer={designToolStatus.canEnterLayer}
+                  />
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <div className="prototype-hud__actions">
             <Button
               isIconOnly
               aria-label={
-                presentation.theme === 'dark'
-                  ? 'Use light mode'
-                  : 'Use dark mode'
+                presentation.theme === "dark"
+                  ? "Use light mode"
+                  : "Use dark mode"
               }
               size="sm"
               variant="ghost"
               onPress={() => {
                 updatePresentation({
                   ...presentation,
-                  theme: presentation.theme === 'dark' ? 'light' : 'dark'
+                  theme: presentation.theme === "dark" ? "light" : "dark",
                 });
               }}
             >
-              {presentation.theme === 'dark' ? (
+              {presentation.theme === "dark" ? (
                 <Sun className="size-4" />
               ) : (
                 <Moon className="size-4" />
@@ -382,9 +581,7 @@ function PrototypeWorkspace() {
             </Button>
             <Button
               isDisabled={
-                viewport === 'desktop' ||
-                isRotating ||
-                isSwitchingViewport
+                viewport === "desktop" || isRotating || isSwitchingViewport
               }
               isIconOnly
               aria-label="Rotate device"
@@ -397,16 +594,14 @@ function PrototypeWorkspace() {
             <Button
               isIconOnly
               aria-label={
-                presentation.fullscreen
-                  ? 'Exit fullscreen'
-                  : 'Enter fullscreen'
+                presentation.fullscreen ? "Exit fullscreen" : "Enter fullscreen"
               }
               size="sm"
               variant="ghost"
               onPress={() => {
                 updatePresentation({
                   ...presentation,
-                  fullscreen: !presentation.fullscreen
+                  fullscreen: !presentation.fullscreen,
                 });
               }}
             >
@@ -418,26 +613,31 @@ function PrototypeWorkspace() {
             </Button>
           </div>
         </div>
-        <ScaledDeviceCanvas
+        <PrototypePreviewCarousel
+          designToolAuditRequest={designToolAuditRequest}
+          designToolEnabled={designToolEnabled}
+          designToolFibonacciSteps={designToolFibonacciSteps}
+          designToolGridContrast={designToolGridContrast}
+          designToolGridMode={designToolGridMode}
+          designToolGridSize={designToolGridSize}
+          designToolGridViolationsVisible={designToolGridViolationsVisible}
+          designToolUnit={designToolUnit}
           fullscreen={presentation.fullscreen}
           isRotating={isRotating}
           isSwitchingViewport={isSwitchingViewport}
+          onDesignToolSelectionChange={setDesignToolStatus}
           orientation={presentation.orientation}
+          screenBackground={prototypeScreenBackgroundColor(
+            presentation.screenBackground,
+            presentation.theme,
+          )}
           showDeviceFrame={presentation.showDeviceFrame}
+          showSafeArea={presentation.showSafeArea}
           viewport={preset}
         >
-          {scenario ? (
-            <DesktopTarget
-              scenario={scenario}
-              theme={presentation.theme}
-            />
-          ) : (
-            <PrototypeSelectionUnavailable
-              reason={initial.scenarioState}
-              theme={presentation.theme}
-            />
-          )}
-        </ScaledDeviceCanvas>
+          <DesktopTarget scenario="ready" theme={presentation.theme} />
+        </PrototypePreviewCarousel>
+        <StandalonePrototypeReviewDock theme={presentation.theme} />
       </section>
     </main>
   );
@@ -445,32 +645,29 @@ function PrototypeWorkspace() {
 
 function PrototypeSelectionUnavailable({
   reason,
-  theme
+  theme,
 }: {
-  reason: 'missing' | 'ready' | 'unknown';
+  reason: "missing" | "ready" | "unknown";
   theme: PrototypeTheme;
 }) {
   return (
     <section
       className={`grid size-full min-h-72 place-items-center px-8 text-center ${
-        theme === 'light'
-          ? 'bg-stone-50 text-neutral-900'
-          : 'bg-neutral-950 text-neutral-100'
+        theme === "light"
+          ? "bg-stone-50 text-neutral-900"
+          : "bg-neutral-950 text-neutral-100"
       }`}
       role="alert"
     >
       <div className="max-w-sm">
-        <Monitor
-          aria-hidden
-          className="mx-auto size-6 text-neutral-500"
-        />
+        <Monitor aria-hidden className="mx-auto size-6 text-neutral-500" />
         <h1 className="mt-4 text-sm font-semibold">
-          Prototype Change unavailable
+          Prototype preview unavailable
         </h1>
         <p className="mt-2 text-xs leading-5 text-neutral-500">
-          {reason === 'unknown'
-            ? 'This prototype does not recognize the requested Change.'
-            : 'Choose a Change from the pull request changelog.'}
+          {reason === "unknown"
+            ? "This prototype does not recognize the requested preview."
+            : "Choose a preview from the prototype controls."}
         </p>
       </div>
     </section>
@@ -478,6 +675,7 @@ function PrototypeSelectionUnavailable({
 }
 
 export function PrototypeApp() {
-  const embedded = new URLSearchParams(window.location.search).get('embedded') === '1';
+  const embedded =
+    new URLSearchParams(window.location.search).get("embedded") === "1";
   return embedded ? <EmbeddedDesktopPrototype /> : <PrototypeWorkspace />;
 }

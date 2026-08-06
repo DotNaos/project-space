@@ -336,13 +336,22 @@ describe('Codex sessions UI controller', () => {
       turnId: 'turn-1',
       type: 'token-usage'
     });
+    await controller.loadMachines([origin.machineId]);
+    await controller.continue(origin, 'Finish the draft PR', { model: 'gpt-5' });
 
-    expect(fake.calls.settings[0]).toMatchObject({
+    expect(fake.calls.settings).toHaveLength(0);
+    expect(fake.calls.continues[0]).toMatchObject({
       ...origin,
+      message: 'Finish the draft PR',
+      model: 'gpt-5',
       permissionProfileId: ':read-only'
     });
     expect(controller.getState().sessions[0]).toMatchObject({
       permissionProfileId: ':read-only',
+      permissionProfiles: [
+        { allowed: true, id: ':read-only' },
+        { allowed: true, id: ':workspace' }
+      ],
       tokenUsage: {
         modelContextWindow: 10_000,
         last: { inputTokens: 1_000 }

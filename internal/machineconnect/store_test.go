@@ -27,6 +27,15 @@ func TestDefaultCodexOperationSnapshotPathIsBesideMachineCredential(t *testing.T
 	}
 }
 
+func TestCredentialValidationAllowsPortlessLocalhostBackend(t *testing.T) {
+	credential := testCredential(time.Now().UTC())
+	credential.BackendURL = "http://project-space.localhost:1355"
+
+	if err := validateCredential(credential); err != nil {
+		t.Fatalf("expected Portless localhost credential to be valid, got %v", err)
+	}
+}
+
 func TestFileStorePersistsCredentialWithPrivatePermissions(t *testing.T) {
 	requirePrivateFileCredentialStore(t)
 	directory := filepath.Join(t.TempDir(), "nested", "project-space")

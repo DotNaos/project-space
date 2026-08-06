@@ -28,6 +28,10 @@ function service() {
       calls.push({ kind: 'read', request });
       return { apiVersion: 1, state: 'confirmed' };
     },
+    async recoverStart(_actor, request) {
+      calls.push({ kind: 'recover-start', request });
+      return { apiVersion: 1, operationId: request.operationId, state: 'released' };
+    },
     async send(_actor, request) {
       calls.push({ kind: 'send', request });
       return { apiVersion: 1, operationId: request.operationId, state: 'accepted' };
@@ -118,6 +122,36 @@ describe('Codex machine-task HTTP boundary', () => {
         operationId: 'start-by-name',
         physicalMachineId: undefined,
         physicalMachineName: 'Remote PC',
+        repositoryId: 'R_repo'
+      }
+    }]);
+  });
+
+  test('passes the exact original start request to explicit recovery', async () => {
+    const { calls, stub } = service();
+    const origin = await startApi(stub);
+    const response = await fetch(`${origin}/api/codex/tasks/start/recover`, mutation('recover-262', {
+      connectorId: 'connector-wsl',
+      expectedBranch: 'issue-262-machine-task-core',
+      expectedCommit: 'a'.repeat(40),
+      issue: 262,
+      physicalMachineId: 'physical-pc',
+      repositoryId: 'R_repo'
+    }));
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([{
+      kind: 'recover-start',
+      request: {
+        connectorId: 'connector-wsl',
+        dryRun: false,
+        expectedBranch: 'issue-262-machine-task-core',
+        expectedCommit: 'a'.repeat(40),
+        expectedPullRequestNumber: undefined,
+        issue: 262,
+        operationId: 'recover-262',
+        physicalMachineId: 'physical-pc',
+        physicalMachineName: undefined,
         repositoryId: 'R_repo'
       }
     }]);

@@ -34,6 +34,7 @@ export interface CodexSessionsClientOptions {
   fetchImplementation?: typeof fetch;
   getAuthToken?: () => Promise<string | null> | string | null;
   listTimeoutMs?: number;
+  surface?: 'prototype-review';
   streamReconnectDelayMs?: number;
 }
 
@@ -49,7 +50,10 @@ export function createCodexSessionsClient(
     );
     return {
       Accept: accept,
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.surface === 'prototype-review'
+        ? { 'X-Project-Space-Codex-Surface': 'prototype-review' }
+        : {})
     };
   }
 

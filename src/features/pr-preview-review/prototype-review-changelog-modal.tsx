@@ -3,8 +3,11 @@ import { FileClock } from 'lucide-react';
 
 import { Text } from '@/app/dotnaos-ui';
 import { PullRequestChangelogSummary } from '@/features/pr-preview-changelog/pull-request-changelog-summary';
-import { pullRequestChangelogSnapshotFor } from '@/features/pr-preview-changelog/pull-request-changelog-snapshot';
-import type { PullRequestChangelogIdentity } from '@/shared/pr-preview-changelog-api';
+import type {
+  PullRequestChangelogIdentity,
+  PullRequestChangelogSnapshot
+} from '@/shared/pr-preview-changelog-api';
+import { pullRequestChangelogSchema } from '@/shared/pr-preview-changelog-api';
 import type { PullRequestTestSurfacesResult } from '@/shared/pr-preview-test-surfaces-api';
 import type { PrototypeTheme } from '@/shared/prototype-canvas';
 import type { PrototypeReviewLocalContext } from '@/shared/prototype-review-local-api';
@@ -21,6 +24,7 @@ interface PrototypeReviewChangelogModalProps {
   repositoryFullName?: string;
   result?: PullRequestTestSurfacesResult;
   selectedChangeId?: string;
+  snapshot?: PullRequestChangelogSnapshot;
   theme: PrototypeTheme;
 }
 
@@ -35,6 +39,7 @@ export function PrototypeReviewChangelogModal({
   repositoryFullName,
   result,
   selectedChangeId,
+  snapshot,
   theme
 }: PrototypeReviewChangelogModalProps) {
   return (
@@ -64,6 +69,7 @@ export function PrototypeReviewChangelogModal({
                 repositoryFullName={repositoryFullName}
                 result={result}
                 selectedChangeId={selectedChangeId}
+                snapshot={snapshot}
               />
             </Modal.Body>
           </Modal.Dialog>
@@ -81,7 +87,8 @@ function ChangelogContent({
   pullRequestNumber,
   repositoryFullName,
   result,
-  selectedChangeId
+  selectedChangeId,
+  snapshot
 }: {
   expectedIdentity?: PullRequestChangelogIdentity;
   localContext?: PrototypeReviewLocalContext;
@@ -91,6 +98,7 @@ function ChangelogContent({
   repositoryFullName?: string;
   result?: PullRequestTestSurfacesResult;
   selectedChangeId?: string;
+  snapshot?: PullRequestChangelogSnapshot;
 }) {
   const identity = prototypeReviewChangelogIdentity({
     expectedIdentity,
@@ -122,7 +130,13 @@ function ChangelogContent({
         expectedIdentity={identity}
         prototypeTarget={prototypeTarget}
         selectedChangeId={selectedChangeId}
-        snapshot={pullRequestChangelogSnapshotFor(identity)}
+        snapshot={snapshot ?? {
+          ...identity,
+          entries: [],
+          reasonCode: 'source-unavailable',
+          schema: pullRequestChangelogSchema,
+          state: 'invalid'
+        }}
       />
     </section>
   );

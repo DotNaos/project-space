@@ -29,6 +29,14 @@ const machineNamePattern = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/;
 const hostnamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const versionPattern = /^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$/;
 
+function isLocalDevelopmentHostname(hostname: string) {
+  return (
+    hostname === "127.0.0.1" ||
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost")
+  );
+}
+
 interface MachineConnectionServiceOptions {
   isMachineOnline?: (
     machineId: string,
@@ -121,7 +129,7 @@ export class MachineConnectionService {
       origin.protocol !== "https:" &&
       !(
         origin.protocol === "http:" &&
-        ["127.0.0.1", "localhost"].includes(origin.hostname)
+        isLocalDevelopmentHostname(origin.hostname)
       )
     ) {
       throw new Error("Machine connection public origin must use HTTPS.");

@@ -82,12 +82,16 @@ function shouldUseCentralPreviewHub() {
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
   const payload = (await response.json().catch(() => undefined)) as
-    { error?: string } | T | undefined;
+    { error?: string | { message?: unknown } } | T | undefined;
 
   if (!response.ok) {
-    const message =
-      payload && typeof payload === 'object' && 'error' in payload && payload.error
-        ? payload.error
+    const error = payload && typeof payload === 'object' && 'error' in payload
+      ? payload.error
+      : undefined;
+    const message = typeof error === 'string'
+      ? error
+      : error && typeof error === 'object' && typeof error.message === 'string'
+        ? error.message
         : `Request failed with ${response.status}.`;
 
     throw new Error(message);

@@ -4,8 +4,25 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 
+import { readReleaseCatalog } from '../docs/lib/releases/catalog';
+import { generatedReleaseChangelogSource } from '../docs/lib/releases/changelog-source';
+import { prototypeReviewLocalApiPlugin } from '../../server/prototype-review-local-vite-plugin';
+
 const prototypeRoot = resolve(import.meta.dirname);
 const repositoryRoot = resolve(prototypeRoot, '../..');
+
+function releaseChangelogSourceForBuild() {
+  const catalog = readReleaseCatalog(resolve(
+    repositoryRoot,
+    'apps/docs/content/docs/releases/entries'
+  ));
+  if (!catalog.ok) {
+    throw new Error(
+      `Release changelog source is invalid:\n${catalog.errors.join('\n')}`
+    );
+  }
+  return generatedReleaseChangelogSource(catalog.catalog.entries);
+}
 
 export default defineConfig(({ command }) => {
   if (
@@ -30,7 +47,12 @@ export default defineConfig(({ command }) => {
 
   return {
     base: '/prototype/desktop/',
-    plugins: [react(), tailwindcss()],
+    define: {
+      __PROJECT_RELEASE_CHANGELOG_SOURCE__: JSON.stringify(
+        releaseChangelogSourceForBuild()
+      )
+    },
+    plugins: [react(), tailwindcss(), prototypeReviewLocalApiPlugin(repositoryRoot)],
     resolve: {
       alias: {
         '@': resolve(repositoryRoot, 'src')

@@ -52,6 +52,16 @@ export function memoryStore(): CodexMachineTasksStore & {
         state: current.state === 'uncertain' ? 'uncertain' : 'pending'
       };
     },
+    async releaseUncertainStart(input) {
+      const current = operations.get(input.operationId);
+      if (!current) return 'missing';
+      if (current.fingerprint !== input.fingerprint) return 'conflict';
+      if (current.state !== 'uncertain') return 'not_uncertain';
+      for (const [operationId, candidate] of operations) {
+        if (candidate.associationKey === current.associationKey) operations.delete(operationId);
+      }
+      return 'released';
+    },
     async reserveSend(operation) {
       const current = sends.get(operation.operationId);
       if (current) {
@@ -98,16 +108,20 @@ export function memoryStore(): CodexMachineTasksStore & {
             ? { kind: 'replayed', result: current.result }
             : current.state === 'uncertain'
               ? {
+                  dispatchOperationId: current.operationId,
                   durableOperations: current.durableOperations,
                   generation: current.generation,
                   kind: 'uncertain',
-                  sameOperation: true
+                  sameOperation: true,
+                  startPayload: current.startPayload
                 }
               : {
+                  dispatchOperationId: current.operationId,
                   durableOperations: current.durableOperations,
                   generation: current.generation,
                   kind: 'pending',
-                  sameOperation: true
+                  sameOperation: true,
+                  startPayload: current.startPayload
                 }
           : { kind: 'conflict' };
       }
@@ -117,28 +131,43 @@ export function memoryStore(): CodexMachineTasksStore & {
       if (associated?.result) return { kind: 'replayed', result: associated.result };
       if (associated?.state === 'uncertain') {
         return {
+          dispatchOperationId: associated.operationId,
           durableOperations: associated.durableOperations,
           generation: associated.generation,
           kind: 'uncertain',
-          sameOperation: false
+          sameOperation: false,
+          startPayload: associated.startPayload
         };
       }
       if (associated) {
         return {
+          dispatchOperationId: associated.operationId,
           durableOperations: associated.durableOperations,
           generation: associated.generation,
           kind: 'pending',
-          sameOperation: false
+          sameOperation: false,
+          startPayload: associated.startPayload
         };
       }
       operations.set(operation.operationId, operation);
       return { kind: 'new' };
     },
     async completeStart(operation, result) {
-      operations.set(operation.operationId, { ...operation, result, state: 'completed' });
+      const current = operations.get(operation.operationId);
+      operations.set(operation.operationId, {
+        ...operation,
+        ...(current ? { fingerprint: current.fingerprint } : {}),
+        result,
+        state: 'completed'
+      });
     },
     async markStartUncertain(operation) {
-      operations.set(operation.operationId, { ...operation, state: 'uncertain' });
+      const current = operations.get(operation.operationId);
+      operations.set(operation.operationId, {
+        ...operation,
+        ...(current ? { fingerprint: current.fingerprint } : {}),
+        state: 'uncertain'
+      });
     },
     async releaseStart(operation) {
       operations.delete(operation.operationId);
@@ -182,11 +211,13 @@ export function service(options: {
     commit: string;
     generation: number;
     issue: { number: number; url: string };
+    operationId: string;
+    reconcile: boolean;
     repository: { id: string; nameWithOwner: string };
   }) => Promise<
     | { state: 'confirmed'; threadId: string; worktreeId: string }
     | { state: 'offline' }
-    | { message: string; state: 'worktree_failure' }
+    | { message: string; state: 'codex_failure' | 'worktree_failure' }
     | { state: 'uncertain' }
   >;
   startedGeneration?: (input: { generation: number }) => number;

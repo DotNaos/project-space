@@ -88,6 +88,7 @@ import {
   setProjectSpaceAuthToken
 } from './project-space-client-auth';
 import type {
+  CodexMachineTaskStartRecoveryResult,
   CodexMachineTaskStartRequest,
   CodexMachineTaskStartResult
 } from '@/shared/codex-machine-tasks-api';
@@ -216,6 +217,16 @@ class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements Project
     request: CodexMachineTaskStartRequest
   ): Promise<CodexMachineTaskStartResult> {
     return this.request('/api/codex/tasks/start', {
+      body: JSON.stringify(request),
+      headers: { 'Idempotency-Key': request.operationId },
+      method: 'POST'
+    });
+  }
+
+  recoverCodexMachineTaskStart(
+    request: CodexMachineTaskStartRequest
+  ): Promise<CodexMachineTaskStartRecoveryResult> {
+    return this.request('/api/codex/tasks/start/recover', {
       body: JSON.stringify(request),
       headers: { 'Idempotency-Key': request.operationId },
       method: 'POST'

@@ -102,15 +102,15 @@ describe('pull request changelog snapshot', () => {
   test('exposes every release Change with its exact Preview tests', () => {
     const parsed = parseReleaseEntryMdx(
       readFileSync(
-        'apps/docs/content/docs/releases/entries/409.mdx',
+        'apps/docs/content/docs/releases/entries/439.mdx',
         'utf8'
       ),
-      '409.mdx'
+      '439.mdx'
     );
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     const snapshot = pullRequestChangelogSnapshotFromSource(
-      { ...identity, pullRequestNumber: 409 },
+      { ...identity, pullRequestNumber: 439 },
       generatedReleaseChangelogSource([parsed.entry])
     );
 
@@ -119,13 +119,16 @@ describe('pull request changelog snapshot', () => {
     expect(
       snapshot.entries.every(
         (entry) =>
-          entry.pullRequestNumber === 409 &&
-          entry.testing.length === 7
+          entry.pullRequestNumber === 439 &&
+          entry.testing.length === 4 &&
+          entry.prototype?.scenarioId === 'ready' &&
+          entry.prototype.surface === 'desktop-prototype' &&
+          entry.prototype.viewport === 'phone'
       )
     ).toBe(true);
     expect(
       snapshot.entries.some(
-        (entry) => entry.id === 'release-0-4-47-added-1'
+        (entry) => entry.id === 'release-0-4-63-added-1'
       )
     ).toBe(true);
   });

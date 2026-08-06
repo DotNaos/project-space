@@ -4,6 +4,10 @@ import {
   codexSessionsMigrationId,
   codexSessionsMigrationSql
 } from '../server/database/codex-sessions-migration';
+import {
+  codexSessionSettingsMigrationId,
+  codexSessionSettingsMigrationSql
+} from '../server/database/codex-session-settings-migration';
 import { databaseMigrations } from '../server/database/migrations';
 import {
   CodexSessionsStore,
@@ -203,6 +207,18 @@ describe('Codex session migration contract', () => {
     expect(databaseMigrations.find(({ id }) => id === codexSessionsMigrationId)).toEqual({
       id: codexSessionsMigrationId,
       sql: codexSessionsMigrationSql
+    });
+  });
+
+  test('extends durable operations with permission settings', () => {
+    expect(codexSessionSettingsMigrationId).toBe('0028_codex_session_settings_operations');
+    expect(codexSessionSettingsMigrationSql).toContain("'settings'");
+    expect(codexSessionSettingsMigrationSql).toContain(
+      'drop constraint if exists codex_session_operations_operation_check'
+    );
+    expect(databaseMigrations.find(({ id }) => id === codexSessionSettingsMigrationId)).toEqual({
+      id: codexSessionSettingsMigrationId,
+      sql: codexSessionSettingsMigrationSql
     });
   });
 });

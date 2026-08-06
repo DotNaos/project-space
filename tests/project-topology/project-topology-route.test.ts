@@ -6,7 +6,7 @@ import {
 } from '../../src/features/project-desktop/hooks/project-desktop-routing';
 
 describe('project topology route', () => {
-  test('folds the old topology destination into the default Home summary', () => {
+  test('folds the retired topology destination into the replacement entry route', () => {
     expect(routeForView('topology')).toBe('/');
     expect(parseProjectRoute('/topology')).toEqual({ view: 'root' });
     expect(parseProjectRoute('/topology/')).toEqual({ view: 'root' });

@@ -157,6 +157,37 @@ describe('Preview gateway', () => {
     });
   });
 
+  test('serves the exact changelog only to the trusted review hub', async () => {
+    const fixture = await gatewayFixture();
+    const response = await fixture.request(
+      '/api/app/changelog',
+      'must-not-reach-upstream',
+      { Origin: fixture.brokerOrigin }
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get('access-control-allow-origin')).toBe(fixture.brokerOrigin);
+    expect(fixture.upstreamRequests[0]).toMatchObject({
+      authorization: undefined,
+      pathname: '/api/app/changelog'
+    });
+
+    const preflight = await fixture.request(
+      '/api/app/changelog',
+      undefined,
+      { Origin: fixture.brokerOrigin },
+      'OPTIONS'
+    );
+    expect(preflight.status).toBe(204);
+    expect(fixture.upstreamRequests).toHaveLength(1);
+
+    expect((await fixture.request(
+      '/api/app/changelog',
+      undefined,
+      { Origin: 'https://attacker.example' }
+    )).status).toBe(403);
+    expect(fixture.upstreamRequests).toHaveLength(1);
+  });
+
   test('adds a short-lived identity assertion only for allowed Preview API calls', async () => {
     const fixture = await gatewayFixture();
     expect(await (await fixture.request('/api/projects', 'valid-clerk-token')).json())

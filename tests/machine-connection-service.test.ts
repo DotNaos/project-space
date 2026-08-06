@@ -104,6 +104,20 @@ async function connectWithKey(
 }
 
 describe("machine connection state machine", () => {
+  test("accepts a Portless localhost public origin for local development", async () => {
+    const service = new MachineConnectionService({
+      publicOrigin: "http://project-space.localhost:1355",
+      store: new MemoryMachineConnectionStore(),
+    });
+    const keys = keyPair();
+
+    const created = await service.createRequest(metadata(keys.publicKey));
+
+    expect(created.approvalUrl).toStartWith(
+      "http://project-space.localhost:1355/connector/connect?request=",
+    );
+  });
+
   test("requires backend approval and machine-key proof before issuing a credential", async () => {
     const { service, created, signature } = await approvedConnection();
     const exchanged = await service.exchangeApproval(

@@ -35,11 +35,17 @@ function withOptimisticState(
 }
 
 export function useWorktreeDevServers({
+  branchName,
   machineId,
-  projectId
+  preferBase,
+  projectId,
+  worktreeIds
 }: {
+  branchName?: string;
   machineId?: string;
+  preferBase?: boolean;
   projectId: string;
+  worktreeIds?: string[];
 }) {
   const [overview, setOverview] = useState<DevServerOverviewResult>();
   const [error, setError] = useState('');
@@ -51,13 +57,14 @@ export function useWorktreeDevServers({
   const [stateTargetKey, setStateTargetKey] = useState('');
   const requestSequence = useRef(0);
   const startingAllKeyRef = useRef('');
-  const targetKey = `${machineId ?? ''}\u0000${projectId}`;
+  const worktreeKey = worktreeIds?.join('\u0001') ?? branchName ?? (preferBase ? 'base' : '*');
+  const targetKey = `${machineId ?? ''}\u0000${projectId}\u0000${worktreeKey}`;
   const targetKeyRef = useRef(targetKey);
   targetKeyRef.current = targetKey;
   const scopedOverview = stateTargetKey === targetKey ? overview : undefined;
 
   const refresh = useCallback(async () => {
-    if (!machineId || !projectId) {
+    if (!machineId || !projectId || worktreeIds?.length === 0) {
       setStateTargetKey(targetKey);
       setOverview(undefined);
       return undefined;
@@ -68,7 +75,13 @@ export function useWorktreeDevServers({
     setStateTargetKey(requestKey);
     setIsChecking(true);
     try {
-      const result = await projectSpaceClient.inspectDevServers({ machineId, projectId });
+      const result = await projectSpaceClient.inspectDevServers({
+        ...(branchName ? { branchName } : {}),
+        machineId,
+        ...(preferBase ? { preferBase: true } : {}),
+        projectId,
+        ...(worktreeIds ? { worktreeIds } : {})
+      });
       if (
         targetKeyRef.current !== requestKey ||
         result.machineId !== machineId ||
@@ -85,7 +98,6 @@ export function useWorktreeDevServers({
       }
       const message =
         nextError instanceof Error ? nextError.message : 'Could not inspect development servers.';
-      setOverview(undefined);
       setError(message);
       return undefined;
     } finally {
@@ -93,7 +105,7 @@ export function useWorktreeDevServers({
         setIsChecking(false);
       }
     }
-  }, [machineId, projectId, targetKey]);
+  }, [branchName, machineId, preferBase, projectId, targetKey, worktreeIds]);
 
   useEffect(() => {
     let canceled = false;
@@ -162,10 +174,13 @@ export function useWorktreeDevServers({
       setOverview((current) => withOptimisticState(current, worktreeId, serverId, 'starting'));
       try {
         const result = await projectSpaceClient.startDevServer({
+          ...(branchName ? { branchName } : {}),
           machineId,
+          ...(preferBase ? { preferBase: true } : {}),
           projectId,
           serverId,
-          worktreeId
+          worktreeId,
+          ...(worktreeIds ? { worktreeIds } : {})
         });
         if (
           targetKeyRef.current === requestKey &&
@@ -191,7 +206,7 @@ export function useWorktreeDevServers({
         }
       }
     },
-    [machineId, projectId, refresh, serversByWorktreeId, targetKey]
+    [branchName, machineId, preferBase, projectId, refresh, serversByWorktreeId, targetKey, worktreeIds]
   );
 
   const start = useCallback(
@@ -268,10 +283,13 @@ export function useWorktreeDevServers({
       setOverview((current) => withOptimisticState(current, worktreeId, serverId, 'stopping'));
       try {
         const result = await projectSpaceClient.stopDevServer({
+          ...(branchName ? { branchName } : {}),
           machineId,
+          ...(preferBase ? { preferBase: true } : {}),
           projectId,
           serverId,
-          worktreeId
+          worktreeId,
+          ...(worktreeIds ? { worktreeIds } : {})
         });
         if (
           targetKeyRef.current === requestKey &&
@@ -294,7 +312,7 @@ export function useWorktreeDevServers({
         }
       }
     },
-    [machineId, projectId, refresh, serversByWorktreeId, targetKey]
+    [branchName, machineId, preferBase, projectId, refresh, serversByWorktreeId, targetKey, worktreeIds]
   );
 
   const updateSettings = useCallback(

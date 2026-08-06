@@ -7,6 +7,9 @@ export type PrototypeOrientation = (typeof prototypeOrientations)[number];
 export const prototypeThemes = ['dark', 'light'] as const;
 export type PrototypeTheme = (typeof prototypeThemes)[number];
 
+export const prototypeScreenBackgrounds = ['app', 'black', 'white'] as const;
+export type PrototypeScreenBackground = (typeof prototypeScreenBackgrounds)[number];
+
 export const prototypeSurfaceKinds = ['web', 'expo'] as const;
 export type PrototypeSurfaceKind = (typeof prototypeSurfaceKinds)[number];
 
@@ -30,7 +33,9 @@ export interface PrototypeViewportPreset {
 export interface PrototypePresentation {
   fullscreen: boolean;
   orientation: PrototypeOrientation;
+  screenBackground: PrototypeScreenBackground;
   showDeviceFrame: boolean;
+  showSafeArea: boolean;
   theme: PrototypeTheme;
 }
 
@@ -68,7 +73,7 @@ export const prototypeViewportPresets: Record<
 };
 
 export const prototypeScenarioLabels: Record<PrototypeScenarioKind, string> = {
-  ready: 'Ready',
+  ready: 'Default',
   empty: 'Empty',
   offline: 'Offline',
   'long-content': 'Long content',
@@ -104,6 +109,20 @@ export function prototypeSelectionFromSearch(
   };
 }
 
+export function prototypeWorkspaceSelectionFromSearch(
+  search: string,
+  fallbackViewport: PrototypeViewportKind
+): PrototypeSelection {
+  const selection = prototypeSelectionFromSearch(search, fallbackViewport);
+  if (selection.scenarioState !== 'missing') return selection;
+
+  return {
+    ...selection,
+    scenario: prototypeScenarioKinds[0],
+    scenarioState: 'ready'
+  };
+}
+
 export function prototypePresentationFromSearch(
   search: string
 ): PrototypePresentation {
@@ -113,7 +132,13 @@ export function prototypePresentationFromSearch(
     orientation: params.get('orientation') === 'landscape'
       ? 'landscape'
       : 'portrait',
+    screenBackground: prototypeScreenBackgrounds.includes(
+      params.get('background') as PrototypeScreenBackground
+    )
+      ? params.get('background') as PrototypeScreenBackground
+      : 'app',
     showDeviceFrame: params.get('frame') !== '0',
+    showSafeArea: params.get('safe-area') === '1',
     theme: params.get('theme') === 'light' ? 'light' : 'dark'
   };
 }
@@ -125,7 +150,9 @@ export function prototypeSurfaceHref(
   presentation: PrototypePresentation = {
     fullscreen: false,
     orientation: 'portrait',
+    screenBackground: 'app',
     showDeviceFrame: true,
+    showSafeArea: false,
     theme: 'dark'
   }
 ) {
@@ -135,6 +162,10 @@ export function prototypeSurfaceHref(
   if (presentation.fullscreen) query.set('fullscreen', '1');
   if (presentation.orientation === 'landscape') {
     query.set('orientation', 'landscape');
+  }
+  if (presentation.showSafeArea) query.set('safe-area', '1');
+  if (presentation.screenBackground !== 'app') {
+    query.set('background', presentation.screenBackground);
   }
   query.set('theme', presentation.theme);
   return `${base}?${query.toString()}`;

@@ -27,7 +27,9 @@ import {
   removeConnectorSession
 } from '../server/connector-command-session-registry';
 import {
-  bindingForCodexSessionsRequest
+  bindingForCodexSessionsRequest,
+  boundCodexSessionsResultMatchesRequest,
+  isBoundCodexSessionsResult
 } from '../server/codex-sessions/connector-channel';
 import { CodexSessionsConnectorDispatcher } from '../server/codex-sessions/connector-dispatch';
 import {
@@ -99,6 +101,64 @@ function inspectionResult(overrides: {
 }
 
 describe('Codex sessions connector channel', () => {
+  test('accepts read results with permission settings and token usage', () => {
+    const request = createCodexSessionsWireRequest({
+      generation: 3,
+      operation: 'read',
+      operationId: 'operation-read-metadata',
+      payload: { machineId, threadId },
+      userId: 'user-owner'
+    }, keys.privateKey, { nonce: 'nonce-read-metadata', now });
+    const result = {
+      binding: bindingForCodexSessionsRequest(request),
+      result: {
+        operation: 'read' as const,
+        result: {
+          openedReadOnly: true as const,
+          permissionProfileId: ':default',
+          permissionProfiles: [
+            { allowed: true, description: 'Default permissions', id: ':default' }
+          ],
+          session: {
+            archived: false,
+            id: threadId,
+            lastActivityAt: new Date(now).toISOString(),
+            loadedByProjectSpace: true,
+            machineId,
+            machineName: 'Test machine',
+            status: 'idle' as const,
+            title: 'Implement topology command center'
+          },
+          tokenUsage: {
+            last: {
+              cachedInputTokens: 2,
+              inputTokens: 3,
+              outputTokens: 5,
+              reasoningOutputTokens: 1,
+              totalTokens: 9
+            },
+            modelContextWindow: 200_000,
+            total: {
+              cachedInputTokens: 20,
+              inputTokens: 30,
+              outputTokens: 50,
+              reasoningOutputTokens: 10,
+              totalTokens: 90
+            }
+          },
+          turns: []
+        }
+      }
+    };
+
+    expect(isBoundCodexSessionsResult(result)).toBe(true);
+    expect(boundCodexSessionsResultMatchesRequest(result, request)).toBe(true);
+
+    const invalid = structuredClone(result);
+    invalid.result.result.tokenUsage.total.totalTokens = -1;
+    expect(isBoundCodexSessionsResult(invalid)).toBe(false);
+  });
+
   test('round-trips a near-limit browser frame inside the 2 MiB connector envelope', () => {
     const request = createCodexSessionsWireRequest({
       generation: 3,
@@ -766,6 +826,12 @@ describe('Codex sessions connector dispatch', () => {
     const dispatcher = new CodexSessionsConnectorDispatcher({
       expectedMachineId: machineId,
       manager: manager as unknown as CodexSessionManager,
+      transcript: {
+        async read() {
+          throw new Error('missing transcript');
+        },
+        async watch() {}
+      },
       verificationKey: keys.publicKey
     });
     dispatcher.setExpectedGeneration(3);
@@ -799,9 +865,11 @@ describe('Codex sessions connector dispatch', () => {
     dispatcher.dispatch('command-read', read, (message) => messages.push(message), () => {
       rejected = true;
     });
-    await Bun.sleep(0);
+    for (let attempt = 0; attempt < 50 && !messages.some((message) => message.id === 'command-read'); attempt += 1) {
+      await Bun.sleep(1);
+    }
     expect(rejected).toBe(false);
-    expect(messages.at(-1)).toMatchObject({
+    expect(messages.find((message) => message.id === 'command-read')).toMatchObject({
       id: 'command-read',
       payload: { error: { code: 'rejected' } },
       type: 'codex.sessions.error'

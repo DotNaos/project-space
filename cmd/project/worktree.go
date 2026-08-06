@@ -30,6 +30,38 @@ func newWorktreeCommand() *cobra.Command {
 	cmd.AddCommand(newWorktreePrepareCommand())
 	cmd.AddCommand(newWorktreeCheckCommand())
 	cmd.AddCommand(newWorktreeMaterializeCommand())
+	cmd.AddCommand(newWorktreeRecoverCommand())
+	return cmd
+}
+
+func newWorktreeRecoverCommand() *cobra.Command {
+	var expectedOwner, format string
+	cmd := &cobra.Command{
+		Use:   "recover",
+		Short: "Replace a confirmed orphaned Codex owner on a pristine managed worktree",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := validateWorktreeFormat(format); err != nil {
+				return err
+			}
+			cwd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			result, err := worktreeownership.Recover(worktreeownership.RecoverOptions{
+				ExpectedOwnerThreadID: expectedOwner,
+				ReplacementThreadID:   strings.TrimSpace(os.Getenv("CODEX_THREAD_ID")),
+				StartPath:             cwd,
+			})
+			if err != nil {
+				return err
+			}
+			return printWorktreeResult(cmd, result, "", format)
+		},
+	}
+	cmd.Flags().StringVar(&expectedOwner, "expected-owner", "", "exact orphaned Codex thread id")
+	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
+	_ = cmd.MarkFlagRequired("expected-owner")
 	return cmd
 }
 

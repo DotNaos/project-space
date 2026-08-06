@@ -223,6 +223,7 @@ export interface CodexSessionContinueRequest {
   message: string;
   model?: string;
   operationId: string;
+  permissionProfileId?: string;
   serviceTier?: string | null;
   threadId: string;
 }

@@ -237,6 +237,7 @@ async function executeRoute(
       'message',
       'model',
       'operationId',
+      'permissionProfileId',
       'serviceTier'
     ]);
     const message = requiredString(body, 'message');
@@ -249,11 +250,19 @@ async function executeRoute(
     const imageAttachmentIds = optionalAttachmentIds(body.imageAttachmentIds);
     const effort = optionalIdentifier(body, 'effort');
     const model = optionalIdentifier(body, 'model');
+    const permissionProfileId = body.permissionProfileId === undefined
+      ? undefined
+      : requiredString(
+        body,
+        'permissionProfileId',
+        CODEX_PERMISSION_PROFILE_ID_PATTERN
+      );
     const serviceTier = optionalNullableIdentifier(body, 'serviceTier');
     if (message.length > 16_000) throw invalidRequest('The message is too long.');
     if (
       delivery === 'steer'
-        ? !expectedTurnId || effort !== undefined || model !== undefined || serviceTier !== undefined
+        ? !expectedTurnId || effort !== undefined || model !== undefined ||
+          permissionProfileId !== undefined || serviceTier !== undefined
         : expectedTurnId !== undefined
     ) {
       throw invalidRequest('The delivery mode fields are inconsistent.');
@@ -266,6 +275,7 @@ async function executeRoute(
       ...(imageAttachmentIds.length ? { imageAttachmentIds } : {}),
       message,
       ...(model ? { model } : {}),
+      ...(permissionProfileId ? { permissionProfileId } : {}),
       ...(serviceTier !== undefined ? { serviceTier } : {})
     });
   }

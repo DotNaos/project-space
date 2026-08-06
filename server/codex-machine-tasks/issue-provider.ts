@@ -1,4 +1,5 @@
 import type { ProjectSpaceBackend } from '../../src/shared/project-space-api';
+import { issueBranchName } from '../../src/shared/issue-branch-name';
 import { runWithAuthSession } from '../local-auth-store';
 import type { CodexMachineTaskBlockedReason } from '../../src/shared/codex-machine-tasks-api';
 
@@ -70,7 +71,7 @@ export function createCodexMachineTaskIssueProvider(
         );
       }
       const branchName = expectedPullRequest?.headBranch ??
-        `issue-${issue.number}-${slug(issue.title)}`;
+        issueBranchName(issue.number, issue.title);
       let branch = details.branches.find((candidate) => candidate.name === branchName);
       if (!branch) {
         if (expectedPullRequest) {
@@ -127,9 +128,4 @@ export function createCodexMachineTaskIssueProvider(
 
 function machineSession(userId: string) {
   return { login: 'project-cli', role: 'user' as const, userId };
-}
-
-function slug(value: string) {
-  const normalized = value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  return (normalized || 'work').slice(0, 56).replace(/-+$/g, '');
 }

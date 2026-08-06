@@ -8,6 +8,7 @@ import type {
   CodexMachineTaskReadResult,
   CodexMachineTaskSendRequest,
   CodexMachineTaskSendResult,
+  CodexMachineTaskStartRecoveryResult,
   CodexMachineTaskStartRequest,
   CodexMachineTaskStartResult,
   CodexMachineTaskTarget
@@ -99,6 +100,25 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
   }
 
   return {
+    async recoverStart(
+      actor: { callerMachineId?: string; userId: string },
+      request: CodexMachineTaskStartRequest
+    ): Promise<CodexMachineTaskStartRecoveryResult> {
+      const released = await options.store.releaseUncertainStart({
+        fingerprint: fingerprint({ request, userId: actor.userId }),
+        operationId: request.operationId,
+        userId: actor.userId
+      });
+      if (released === 'conflict' || released === 'not_uncertain') {
+        throw new CodexMachineTasksConflictError();
+      }
+      return {
+        apiVersion: CODEX_MACHINE_TASKS_API_VERSION,
+        operationId: request.operationId,
+        state: 'released'
+      };
+    },
+
     async start(
       actor: { callerMachineId?: string; userId: string },
       request: CodexMachineTaskStartRequest
@@ -194,10 +214,13 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         (reservation.kind === 'pending' && !reservation.sameOperation) ||
         (reservation.kind === 'uncertain' && !reservation.sameOperation)
       ) {
-        return uncertain(
-          request.operationId,
-          targetAtGeneration(selected, reservation.generation)
-        );
+        if (!sameStartPayload(issue, reservation.startPayload)) {
+          return uncertain(
+            request.operationId,
+            targetAtGeneration(selected, reservation.generation)
+          );
+        }
+        operation.operationId = reservation.dispatchOperationId;
       }
       const executionGeneration = reservation.kind === 'new'
         ? operation.generation
@@ -213,7 +236,7 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         generation: executionGeneration,
         durableOperations,
         issue: issue.issue,
-        operationId: request.operationId,
+        operationId: operation.operationId,
         physicalMachineId: selected.physicalMachine.id,
         reconcile: reservation.kind !== 'new',
         repository: issue.repository,
@@ -248,6 +271,16 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         await options.store.releaseStart(operation);
         return result;
       }
+      if (started.state === 'codex_failure') {
+        const result = blocked(
+          request.operationId,
+          'codex_start_failed',
+          started.message,
+          executionTarget
+        );
+        await options.store.releaseStart(operation);
+        return result;
+      }
       const task: CodexMachineTaskIdentity = {
         ...executionTarget,
         canonicalTaskUrl: options.taskUrl(executionTarget.connector.id, started.threadId),
@@ -256,14 +289,14 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         threadId: started.threadId,
         worktree: { branch: issue.branch, id: started.worktreeId }
       };
-      const result: CodexMachineTaskStartResult = {
+      const storedResult: CodexMachineTaskStartResult = {
         apiVersion: CODEX_MACHINE_TASKS_API_VERSION,
-        operationId: request.operationId,
+        operationId: operation.operationId,
         state: 'confirmed',
         task
       };
-      await options.store.completeStart(operation, result);
-      return result;
+      await options.store.completeStart(operation, storedResult);
+      return { ...storedResult, operationId: request.operationId };
     },
 
     async read(
@@ -562,4 +595,11 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
 
 function fingerprint(value: unknown) {
   return createHash('sha256').update(canonicalJson(value)).digest('hex');
+}
+
+function sameStartPayload(
+  left: CodexMachineTaskStartPayload,
+  right: CodexMachineTaskStartPayload
+) {
+  return canonicalJson(left) === canonicalJson(right);
 }

@@ -29,6 +29,15 @@ export function generatedReleaseChangelogSource(
             : {}),
           pullRequestNumber: entry.pullRequest,
           testing: entry.previewTests,
+          ...(entry.areas.includes('web')
+            ? {
+                prototype: {
+                  scenarioId: 'ready',
+                  surface: 'desktop-prototype' as const,
+                  viewport: 'phone' as const,
+                },
+              }
+            : {}),
         })),
       ),
     ),

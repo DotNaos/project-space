@@ -23,6 +23,10 @@ export type ProjectMainView =
   | 'project'
   | 'settings';
 
+export function shouldLoadGitHubCatalog(mainView: ProjectMainView) {
+  return mainView === 'projects' || mainView === 'settings';
+}
+
 export const projectDetailTabs = [
   'overview',
   'issues',
@@ -225,8 +229,7 @@ export function parseProjectRoute(pathname: string): ParsedProjectRoute {
 }
 
 export function initialProjectMainView(pathname: string): ProjectMainView {
-  const view = parseProjectRoute(pathname).view;
-  return view === 'chat' || view === 'codex' || view === 'settings' ? view : 'root';
+  return parseProjectRoute(pathname).view;
 }
 
 export function resolveRouteProject(
@@ -241,6 +244,47 @@ export function resolveRouteProject(
       entry.github ? routeProjectIdMatchesRepository(projectId, entry.github) : false
     )
   );
+}
+
+interface DefaultProjectSelectionOptions {
+  pinnedProjectIds?: string[];
+  projects: ProjectSpaceRecord[];
+  recentProjectIds?: string[];
+  selectedProjectId?: string;
+}
+
+function isDefaultProjectCandidate(project: ProjectSpaceRecord): boolean {
+  if (project.kind === 'github') {
+    return true;
+  }
+
+  const folder = basename(project.rootPath);
+  return !folder.startsWith('.') && !folder.endsWith('.worktrees');
+}
+
+export function resolveDefaultProjectId({
+  pinnedProjectIds = [],
+  projects,
+  recentProjectIds = [],
+  selectedProjectId = ''
+}: DefaultProjectSelectionOptions): string {
+  const candidateProjects = projects.filter(isDefaultProjectCandidate);
+  const preferredIds = [selectedProjectId, ...recentProjectIds, ...pinnedProjectIds].filter(
+    (projectId, index, entries) => projectId && entries.indexOf(projectId) === index
+  );
+
+  for (const projectId of preferredIds) {
+    const project = resolveRouteProject(candidateProjects, projectId);
+    if (project) {
+      return project.id;
+    }
+  }
+
+  if (selectedProjectId && !resolveRouteProject(projects, selectedProjectId)) {
+    return selectedProjectId;
+  }
+
+  return candidateProjects[0]?.id ?? '';
 }
 
 export function shouldPreserveProjectRoute(

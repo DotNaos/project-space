@@ -55,6 +55,14 @@ describe('machine checkout truth', () => {
     const connectorOverview: ConnectorOverviewResult = {
       machines: [machine('os-macbook')],
       machinesRepo: { exists: false, path: '' },
+      physicalMachines: [
+        {
+          connectorIds: ['os-macbook'],
+          id: 'physical-os-macbook',
+          kind: 'physical',
+          name: 'os-macbook'
+        }
+      ],
       tailscale: { connected: false, installed: false, ips: [], peersOnline: 0, serveOrigins: [] }
     };
     const rows = getIssueMachineRows({
@@ -67,6 +75,42 @@ describe('machine checkout truth', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.machineId).toBe('os-macbook');
     expect(rows[0]?.project?.rootPath).toBe('/Users/oli/projects/project-space');
+  });
+
+  test('shows one physical machine when it has multiple connector installations', () => {
+    const localConnector = machine('local-app-server');
+    localConnector.connector.status = 'local';
+    const remoteConnector = machine('remote-connector');
+    const checkout = project({ machineId: remoteConnector.id });
+    const connectorOverview: ConnectorOverviewResult = {
+      machines: [localConnector, remoteConnector],
+      machinesRepo: { exists: false, path: '' },
+      physicalMachines: [
+        {
+          connectorIds: [localConnector.id, remoteConnector.id],
+          id: 'physical-os-macbook',
+          kind: 'physical',
+          name: 'os-macbook'
+        }
+      ],
+      tailscale: { connected: false, installed: false, ips: [], peersOnline: 0, serveOrigins: [] }
+    };
+
+    const rows = getIssueMachineRows({
+      connectorOverview,
+      project: project(),
+      projects: [checkout],
+      repoFullName: 'DotNaos/project-space'
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      connectorIds: [localConnector.id, remoteConnector.id],
+      machineId: remoteConnector.id,
+      physicalMachineId: 'physical-os-macbook',
+      physicalMachineName: 'os-macbook',
+      project: checkout
+    });
   });
 
   test('discovers main and preserves actual branch truth when the folder name differs', () => {

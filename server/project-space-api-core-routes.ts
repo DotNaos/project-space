@@ -12,6 +12,7 @@ import { createDevServerService } from './dev-server-service';
 import { createWorktreeActionService } from './worktree-action-service';
 import {
   createDevServerSession,
+  claimMachineMembership,
   deletePhysicalMachine,
   isDatabaseConfigured,
   isMachineClaimed,
@@ -295,6 +296,20 @@ export function createProjectSpaceCoreApiRoutes(
       if (!payload) {
         writeJson(response, 400, { error: 'Invalid physical machine request.' });
         return true;
+      }
+      if (isDatabaseConfigured() && !isProjectSpaceAuthRequired()) {
+        const visibleConnectorIds = new Set(
+          (await backend.getConnectorOverview()).machines.map((entry) => entry.id)
+        );
+        if (payload.connectorIds.some((connectorId) => !visibleConnectorIds.has(connectorId))) {
+          writeJson(response, 400, {
+            error: 'Only connector installations visible in this local workspace can be grouped.'
+          });
+          return true;
+        }
+        await Promise.all(payload.connectorIds.map((machineId) => (
+          claimMachineMembership({ machineId, userId })
+        )));
       }
       response.setHeader('Cache-Control', 'private, no-store');
       const machine = isDatabaseConfigured()

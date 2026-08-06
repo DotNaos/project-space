@@ -1,17 +1,20 @@
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 
-import { WebSocket, type RawData } from 'ws';
-
 import type { CodexRpcId } from './contracts';
 import { CodexOperationUncertainError } from './operation-ledger';
 import {
   CodexAppServerProtocolError,
   CodexAppServerRequestCancelledError,
   CodexAppServerRequestError,
+  CodexThreadUnmaterializedError,
+  classifyCodexAppServerRequestError,
+  isUnmaterializedThreadRead,
+  tagCodexAppServerRequestError,
   type CodexAppServerTransport,
   type RpcMessage
 } from './stdio-transport';
+import { UnixWebSocket, type UnixWebSocketData } from './unix-websocket';
 
 type PendingCall = {
   method: string;
@@ -55,7 +58,7 @@ export class CodexWebSocketTransport implements CodexAppServerTransport {
   private readonly pending = new Map<number, PendingCall>();
 
   private constructor(
-    private readonly socket: WebSocket,
+    private readonly socket: UnixWebSocket,
     private readonly onMessage: (message: RpcMessage) => void,
     private readonly onTransportClose: () => void,
     private readonly rpcTimeoutMs: number
@@ -71,15 +74,12 @@ export class CodexWebSocketTransport implements CodexAppServerTransport {
     connectTimeoutMs?: number;
     rpcTimeoutMs?: number;
     socketPath?: string;
-    websocketFactory?: (socketPath: string) => WebSocket;
+    websocketFactory?: (socketPath: string) => UnixWebSocket;
   }) {
     const socketPath = options.socketPath ?? codexAppServerSocketPath();
     const connectTimeoutMs = boundedTimeout(options.connectTimeoutMs, defaultConnectTimeoutMs);
-    const socket = options.websocketFactory?.(socketPath) ?? new WebSocket(unixWebSocketUrl(socketPath), {
-      handshakeTimeout: connectTimeoutMs,
-      maxPayload: maximumMessageBytes,
-      perMessageDeflate: false
-    });
+    const socket = options.websocketFactory?.(socketPath) ??
+      new UnixWebSocket(socketPath, maximumMessageBytes);
     return new Promise<CodexWebSocketTransport>((resolve, reject) => {
       socket.on('error', () => {
         // Connection details may contain private local paths; callers receive a bounded error.
@@ -110,7 +110,7 @@ export class CodexWebSocketTransport implements CodexAppServerTransport {
   }
 
   get isOpen() {
-    return this.open && this.socket.readyState === WebSocket.OPEN;
+    return this.open && this.socket.readyState === UnixWebSocket.OPEN;
   }
 
   async initialize(options: { signal?: AbortSignal } = {}) {
@@ -166,13 +166,13 @@ export class CodexWebSocketTransport implements CodexAppServerTransport {
     if (!this.open) return;
     this.open = false;
     this.rejectPending('Codex app-server closed during the request.');
-    if (this.socket.readyState === WebSocket.OPEN ||
-      this.socket.readyState === WebSocket.CONNECTING) {
+    if (this.socket.readyState === UnixWebSocket.OPEN ||
+      this.socket.readyState === UnixWebSocket.CONNECTING) {
       this.socket.close();
     }
   }
 
-  private handleMessage(data: RawData, isBinary: boolean) {
+  private handleMessage(data: UnixWebSocketData, isBinary: boolean) {
     if (!this.open || isBinary) {
       if (isBinary) this.failProtocol();
       return;
@@ -196,7 +196,15 @@ export class CodexWebSocketTransport implements CodexAppServerTransport {
     if (typeof message.id === 'number' && !message.method) {
       const pending = this.takePending(message.id);
       if (!pending) return;
-      if (message.error) pending.reject(new CodexAppServerRequestError(message.error.code));
+      if (message.error) {
+        pending.reject(isUnmaterializedThreadRead(pending.method, message.error)
+          ? new CodexThreadUnmaterializedError()
+          : new CodexAppServerRequestError(
+              message.error.code,
+              classifyCodexAppServerRequestError(message.error.message),
+              tagCodexAppServerRequestError(message.error.message)
+            ));
+      }
       else if ('result' in message) pending.resolve(message.result);
       else pending.reject(new CodexAppServerProtocolError('Codex app-server returned invalid data.'));
       return;
@@ -283,8 +291,4 @@ function boundedTimeout(value: number | undefined, fallback: number) {
   return Number.isSafeInteger(value) && Number(value) >= 10 && Number(value) <= 120_000
     ? Number(value)
     : fallback;
-}
-
-function unixWebSocketUrl(socketPath: string) {
-  return `ws+unix://${socketPath}:/`;
 }

@@ -13,6 +13,7 @@ export const CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY =
 
 export type CodexMachineTaskBlockedReason =
   | 'approval_required'
+  | 'codex_start_failed'
   | 'connector_required'
   | 'input_required'
   | 'machine_not_ready'
@@ -65,6 +66,12 @@ export interface CodexMachineTaskStartRequest {
   repositoryId?: string;
 }
 
+export interface CodexMachineTaskStartRecoveryResult {
+  apiVersion: typeof CODEX_MACHINE_TASKS_API_VERSION;
+  operationId: string;
+  state: 'released';
+}
+
 export interface CodexMachineTaskConnectorStartRequest {
   branch: string;
   commit: string;
@@ -84,6 +91,10 @@ export type CodexMachineTaskConnectorStartResult =
       state: 'confirmed';
       threadId: string;
       worktreeId: string;
+    }
+  | {
+      message: string;
+      state: 'codex_failure';
     }
   | {
       message: string;
