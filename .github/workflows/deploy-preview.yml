@@ -47,7 +47,7 @@ on:
         default: '168'
         type: string
   workflow_run:
-    workflows: [Build PR preview artifacts]
+    workflows: [CI]
     types: [completed]
 permissions:
   contents: read
@@ -140,7 +140,7 @@ jobs:
             source_run_id="$TRIGGER_RUN_ID"
           elif [[ "${{ inputs.action }}" == build || "${{ inputs.action }}" == deploy ]]; then
             source_run_id=$(gh api \
-              "repos/$PREVIEW_REPOSITORY/actions/workflows/build-preview-artifacts.yml/runs?event=pull_request&head_sha=$head_sha&status=completed&per_page=100" |
+              "repos/$PREVIEW_REPOSITORY/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$head_sha&status=completed&per_page=100" |
               jq -r --argjson pr "$REQUESTED_PR" \
                 '[.workflow_runs[] | select(.conclusion == "success" and any(.pull_requests[]?; .number == $pr)) | .id] | first // empty')
           else
@@ -159,7 +159,7 @@ jobs:
               .event == "pull_request" and .conclusion == "success" and
               .head_sha == $sha and .repository.full_name == $repository and
               .repository.id == $repository_id and
-              .path == ".github/workflows/build-preview-artifacts.yml" and
+              .path == ".github/workflows/ci.yml" and
               any(.pull_requests[]?; .number == $pr and .head.sha == $sha and
                 .head.repo.id == $repository_id)
             ' <<<"$run_json" >/dev/null
@@ -173,7 +173,7 @@ jobs:
           artifact_id=$(jq -er '.id | select(type == "number" and . > 0)' <<<"$artifact")
           artifact_size=$(jq -er '.size_in_bytes | select(type == "number" and . > 0)' <<<"$artifact")
           artifact_digest=$(jq -er '.digest | select(test("^sha256:[0-9a-f]{64}$"))' <<<"$artifact")
-          source_workflow_ref="$PREVIEW_REPOSITORY/.github/workflows/build-preview-artifacts.yml@refs/pull/$REQUESTED_PR/merge"
+          source_workflow_ref="$PREVIEW_REPOSITORY/.github/workflows/ci.yml@refs/pull/$REQUESTED_PR/merge"
           echo "artifact_digest=$artifact_digest" >> "$GITHUB_OUTPUT"
           echo "artifact_id=$artifact_id" >> "$GITHUB_OUTPUT"
           echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"

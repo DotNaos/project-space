@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 
 const deploymentWorkflowPath = new URL('../.github/workflows/deploy-preview.yml', import.meta.url);
-const artifactWorkflowPath = new URL('../.github/workflows/build-preview-artifacts.yml', import.meta.url);
+const artifactWorkflowPath = new URL('../.github/workflows/ci.yml', import.meta.url);
 const promotionWorkflowPath = new URL('../.github/workflows/promote-preview-artifacts.yml', import.meta.url);
 const previewArtifactBakePath = new URL('../deploy/preview-artifact-bake.hcl', import.meta.url);
 const previewDocsDockerfilePath = new URL('../deploy/preview.docs.Dockerfile', import.meta.url);
@@ -22,7 +22,7 @@ describe('trusted PR Preview workflow contract', () => {
       "steps.freshness.outputs.disposition == 'current' && (github.event_name == 'workflow_run' || inputs.action == 'deploy')",
     );
     expect(workflow).toContain("contains(fromJSON('[\"destroy\",\"reap\"]'), inputs.action)");
-    expect(workflow).toContain('workflow_run:\n    workflows: [Build PR preview artifacts]\n    types: [completed]');
+    expect(workflow).toContain('workflow_run:\n    workflows: [CI]\n    types: [completed]');
     expect(workflow).toContain('pull_request_target:\n    types: [closed]');
     expect(workflow).toContain(
       'if [[ "${{ github.event_name }}" == workflow_dispatch && "${{ inputs.action }}" == build ]]; then runner_command=register; runner_mode=register; fi',

@@ -74,6 +74,11 @@ control workflow owns deploy, start, stop, touch, destroy, closed-PR cleanup,
 and scheduled or manual reaping. It revalidates the repository, pull-request
 number, current head, artifact IDs, and digests before credential handoff.
 
+The untrusted Preview artifact job is ordered after `Fast CI` in the same
+pull-request workflow. On repositories with a small runner allowance, Preview
+work therefore cannot take the first available runner away from required merge
+feedback.
+
 A superseded or closed pull request cannot publish itself as the current
 Preview. Capacity limits are reported distinctly from product failures. Ready
 still requires the expected images, runtime metadata, TLS hostname, health,

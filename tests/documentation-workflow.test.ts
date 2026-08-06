@@ -7,7 +7,12 @@ test('folds path-selected documentation checks into one clear PR job', () => {
   expect(workflow).toContain(
     'types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]',
   );
-  expect(workflow.match(/^  [a-z][a-z-]+:$/gm)).toEqual(['  fast-ci:']);
+  expect(workflow.match(/^  [a-z][a-z-]+:$/gm)).toEqual([
+    '  fast-ci:',
+    '  preview-artifacts:',
+  ]);
+  expect(workflow).toContain('needs: fast-ci');
+  expect(workflow).toContain('name: Build exact-head Preview artifacts');
   expect(workflow).toContain('name: Fast CI');
   expect(workflow).toContain("if: steps.select.outputs.cliDocs == 'true'");
   expect(workflow).toContain("if: steps.select.outputs.docs == 'true'");

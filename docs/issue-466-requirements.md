@@ -18,6 +18,7 @@ Make normal pull requests easy to understand and ready to merge in roughly two t
 
 - Every internal pull request keeps one isolated Preview deployment at its exact current head.
 - Preview build and deployment remain separate trust boundaries: pull-request code never receives Preview credentials.
+- The non-blocking Preview artifact job starts only after `Fast CI`, so it cannot take the first available runner away from merge feedback.
 - Preview work does not block merging unless a required Preview contract itself is changed.
 - Start, stop, touch, deploy, destroy, closed-PR cleanup, and scheduled reaping share one trusted Preview-control workflow.
 - A superseded head must never replace or report itself as the current Preview.
