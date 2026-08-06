@@ -1,35 +1,11 @@
 name: Release
 on:
-  pull_request:
-    paths:
-      - '.github/actions/release-quality/**'
-      - '.github/workflows/release*.yml'
-      - 'cmd/project/**'
-      - 'go.mod'
-      - 'go.sum'
-      - 'internal/approvalsigner/**'
-      - 'internal/machineconnect/**'
-      - 'internal/projectrun/**'
-      - 'internal/selfupdate/**'
-      - 'package.json'
-      - 'bun.lock'
-      - 'packaging/**'
-      - 'server/**'
-      - 'scripts/ci-preflight.ts'
-      - 'scripts/prepare-release-pr.ts'
-      - 'scripts/release-identity.ts'
-      - 'scripts/release-verification-policy.ts'
-      - 'tests/**'
-  push:
-    tags:
-      - 'v*'
-      - '!v*-signing-probe'
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: release-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   classify:
     name: Classify exact release source
@@ -161,7 +137,7 @@ jobs:
 
   manifest-prepare:
     name: Prepare exact release manifest payload
-    if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: github.ref_type == 'tag' && github.event_name == 'workflow_dispatch'
     needs: [classify, trust-roots, windows-x64, linux-x64, macos-arm64, verification-policy]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -302,7 +278,7 @@ jobs:
 
   manifest-sign:
     name: Sign release manifest in isolation
-    if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: github.ref_type == 'tag' && github.event_name == 'workflow_dispatch'
     needs: [manifest-prepare, trust-roots]
     permissions:
       actions: read
@@ -323,7 +299,7 @@ jobs:
 
   release-finalize:
     name: Assemble and verify release handoff
-    if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: github.ref_type == 'tag' && github.event_name == 'workflow_dispatch'
     needs: [classify, trust-roots, windows-x64, linux-x64, macos-arm64, manifest-prepare, manifest-sign]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -480,7 +456,7 @@ jobs:
 
   publish:
     name: Publish GitHub release
-    if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: github.ref_type == 'tag' && github.event_name == 'workflow_dispatch'
     needs: release-finalize
     permissions:
       actions: read
@@ -495,9 +471,21 @@ jobs:
       version: ${{ needs.release-finalize.outputs.version }}
 
   deploy-production:
-    if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    name: Dispatch exact published revision to Production
+    if: github.ref_type == 'tag' && github.event_name == 'workflow_dispatch'
     needs: publish
-    permissions: { actions: write, contents: read }
-    uses: ./.github/workflows/release-deploy.yml
-    with:
-      source-sha: ${{ github.sha }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Start existing production workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          gh workflow run deploy-production.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            -f commit="$RELEASE_COMMIT"

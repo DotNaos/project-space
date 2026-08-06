@@ -140,7 +140,7 @@ jobs:
           for file in manifest.json images/web.tar images/docs.tar images/prototype.tar; do
             gh attestation verify "$RUNNER_TEMP/preview-artifact/$file" \
               --repo "$PREVIEW_REPOSITORY" \
-              --signer-workflow "$PREVIEW_REPOSITORY/.github/workflows/build-preview-artifacts.yml" \
+              --signer-workflow "$PREVIEW_REPOSITORY/.github/workflows/ci.yml" \
               --source-ref "refs/pull/$PR_NUMBER/merge" \
               --deny-self-hosted-runners >/dev/null
           done

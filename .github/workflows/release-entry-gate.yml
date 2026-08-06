@@ -1,4 +1,4 @@
-name: Trusted release entry gate
+name: Trusted release decision
 
 on:
   pull_request_target:
@@ -56,7 +56,7 @@ jobs:
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   revalidate:
-    name: Revalidate trusted release entry
+    name: Revalidate trusted release decision
     needs: discover
     if: ${{ needs.discover.outputs.matrix != '{"include":[]}' }}
     strategy:
@@ -80,7 +80,7 @@ jobs:
           validation_key="release-entry:${PR_HEAD_SHA}:${MAIN_SHA}"
           existing_check_id=$(
             gh api \
-              "repos/${GITHUB_REPOSITORY}/commits/${PR_HEAD_SHA}/check-runs?check_name=Versioned%20release%20entry&filter=all&per_page=100" |
+              "repos/${GITHUB_REPOSITORY}/commits/${PR_HEAD_SHA}/check-runs?check_name=Release%20decision&filter=all&per_page=100" |
               jq -r --arg key "$validation_key" \
                 '[.check_runs[] |
                   select(.external_id == $key and .status == "completed" and
@@ -94,7 +94,7 @@ jobs:
             exit 0
           fi
           jq -n \
-            --arg name 'Versioned release entry' \
+            --arg name 'Release decision' \
             --arg head_sha "$PR_HEAD_SHA" \
             --arg external_id "$validation_key" \
             --arg status in_progress \
@@ -141,7 +141,7 @@ jobs:
         if: steps.check.outputs.skip != 'true'
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Enforce one exact versioned release entry
+      - name: Decide ordinary or versioned release mode
         if: steps.check.outputs.skip != 'true'
         id: validation
         continue-on-error: true
@@ -169,7 +169,7 @@ jobs:
         run: |
           set -euo pipefail
           conclusion=failure
-          summary='The exact pull request head has an invalid release entry.'
+          summary='The exact pull request head has an invalid release decision.'
           if [[ "$VALIDATION_OUTCOME" == success ]]; then
             conclusion=success
             summary='The exact pull request head passed trusted latest-main validation.'
@@ -181,7 +181,7 @@ jobs:
             --arg status completed \
             --arg conclusion "$conclusion" \
             --arg completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --arg title 'Versioned release entry' \
+            --arg title 'Release decision' \
             --arg summary "$summary" \
             '{status: $status, conclusion: $conclusion,
               completed_at: $completed_at,

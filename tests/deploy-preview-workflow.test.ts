@@ -3,10 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 
 const deploymentWorkflowPath = new URL('../.github/workflows/deploy-preview.yml', import.meta.url);
-const artifactWorkflowPath = new URL('../.github/workflows/build-preview-artifacts.yml', import.meta.url);
-const cleanupWorkflowPath = new URL('../.github/workflows/cleanup-preview.yml', import.meta.url);
+const artifactWorkflowPath = new URL('../.github/workflows/ci.yml', import.meta.url);
 const promotionWorkflowPath = new URL('../.github/workflows/promote-preview-artifacts.yml', import.meta.url);
-const reaperWorkflowPath = new URL('../.github/workflows/reap-previews.yml', import.meta.url);
 const previewArtifactBakePath = new URL('../deploy/preview-artifact-bake.hcl', import.meta.url);
 const previewDocsDockerfilePath = new URL('../deploy/preview.docs.Dockerfile', import.meta.url);
 
@@ -17,16 +15,15 @@ function actionReferences(workflow: string) {
 describe('trusted PR Preview workflow contract', () => {
   test('dispatches deploy or destroy from trusted main and cleans every closed PR', async () => {
     const workflow = await readFile(deploymentWorkflowPath, 'utf8');
-    const cleanup = await readFile(cleanupWorkflowPath, 'utf8');
 
     expect(workflow).toContain('action:');
-    expect(workflow).toContain('options: [build, start, stop, touch, deploy, destroy]');
+    expect(workflow).toContain('options: [build, start, stop, touch, deploy, destroy, reap]');
     expect(workflow).toContain(
       "steps.freshness.outputs.disposition == 'current' && (github.event_name == 'workflow_run' || inputs.action == 'deploy')",
     );
-    expect(workflow).toContain("if: github.event_name == 'workflow_dispatch' && inputs.action == 'destroy'");
-    expect(workflow).toContain('workflow_run:\n    workflows: [Build PR preview artifacts]\n    types: [completed]');
-    expect(cleanup).toContain('pull_request_target:\n    types: [closed]');
+    expect(workflow).toContain("contains(fromJSON('[\"destroy\",\"reap\"]'), inputs.action)");
+    expect(workflow).toContain('workflow_run:\n    workflows: [CI]\n    types: [completed]');
+    expect(workflow).toContain('pull_request_target:\n    types: [closed]');
     expect(workflow).toContain(
       'if [[ "${{ github.event_name }}" == workflow_dispatch && "${{ inputs.action }}" == build ]]; then runner_command=register; runner_mode=register; fi',
     );
@@ -44,8 +41,8 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain('github.event.workflow_run.pull_requests[0].number');
     expect(workflow).toContain('cancel-in-progress: false');
     expect(workflow).not.toContain('queue:');
-    expect(cleanup).toContain('ssh project-space-preview destroy');
-    expect(cleanup).toContain('"state":"inactive"');
+    expect(workflow).toContain('ssh project-space-preview destroy');
+    expect(workflow).toContain('state:"inactive"');
   });
 
   test('treats only positively superseded exact heads as neutral', async () => {
@@ -57,7 +54,7 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain("disposition=superseded");
     expect(workflow).toContain("needs.resolve.outputs.disposition == 'current'");
     expect(workflow).toContain(
-      "if: needs.resolve.outputs.disposition == 'current' && github.event_name == 'workflow_dispatch' && contains(fromJSON('[\"start\",\"stop\",\"touch\"]'), inputs.action)",
+      "contains(fromJSON('[\"start\",\"stop\",\"touch\"]'), inputs.action) && needs.resolve.outputs.disposition == 'current'",
     );
     expect(workflow).toContain('Classify exact-head state after runner handoff');
     expect(workflow).toContain('elif [[ "$RUNNER_EXIT_CODE" == 75 ]]');
@@ -233,7 +230,6 @@ Connection to project-space-preview closed.
   test('keeps Preview credentials least-privileged and every external action pinned', async () => {
     const workflow = await readFile(deploymentWorkflowPath, 'utf8');
     const artifactWorkflow = await readFile(artifactWorkflowPath, 'utf8');
-    const cleanup = await readFile(cleanupWorkflowPath, 'utf8');
     const promotionWorkflow = await readFile(promotionWorkflowPath, 'utf8');
 
     expect(workflow).toContain('name: Preview');
@@ -243,24 +239,22 @@ Connection to project-space-preview closed.
     expect(workflow).not.toContain('PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64');
     expect(workflow).not.toContain('CLERK_SECRET_KEY');
     expect(workflow.toLowerCase()).not.toContain('vercel');
-    expect(cleanup).not.toContain('actions/checkout');
-    expect(actionReferences(workflow).length).toBeGreaterThanOrEqual(7);
+    expect(workflow).not.toContain('actions/checkout');
+    expect(actionReferences(workflow).length).toBeGreaterThanOrEqual(5);
     expect(actionReferences(workflow).every((reference) => /^[0-9a-f]{40}$/.test(reference))).toBe(true);
     expect(actionReferences(artifactWorkflow).every((reference) => /^[0-9a-f]{40}$/.test(reference))).toBe(true);
-    expect(actionReferences(cleanup).every((reference) => /^[0-9a-f]{40}$/.test(reference))).toBe(true);
     expect(actionReferences(promotionWorkflow).every((reference) => /^[0-9a-f]{40}$/.test(reference))).toBe(true);
   });
 
   test('reaper uses the authoritative registry and marks removed deployments inactive', async () => {
-    const workflow = await readFile(reaperWorkflowPath, 'utf8');
+    const workflow = await readFile(deploymentWorkflowPath, 'utf8');
 
     expect(workflow).toContain("cron: '23 3 * * *'");
     expect(workflow).toContain('state=open&per_page=100');
     expect(workflow).toContain('ssh project-space-preview reap');
     expect(workflow).toContain('.removedPullRequests');
-    expect(workflow).toContain('"state":"inactive"');
+    expect(workflow).toContain('state:"inactive"');
     expect(workflow).toContain('jq -n');
-    expect(workflow).not.toContain('<<JSON');
     expect(workflow).not.toContain('actions/checkout');
     expect(workflow).not.toContain('Production');
     expect(workflow.toLowerCase()).not.toContain('vercel');

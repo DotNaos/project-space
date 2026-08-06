@@ -12,7 +12,7 @@ const repositoryId = '1184611708';
 const pr = '405';
 const runId = '123456';
 const runAttempt = '2';
-const workflowRef = `${repository}/.github/workflows/build-preview-artifacts.yml@refs/pull/${pr}/merge`;
+const workflowRef = `${repository}/.github/workflows/ci.yml@refs/pull/${pr}/merge`;
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {

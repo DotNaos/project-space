@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { preflightPlan } from '../scripts/ci-preflight';
 import {
+  fastCiSelection,
   releaseVerificationPolicy,
   releaseWorkflowTriggered,
 } from '../scripts/release-verification-policy';
@@ -11,7 +12,7 @@ import {
 const fixture = {
   baseVersion: '0.4.55',
   eventName: 'pull_request',
-  headVersion: '0.4.56',
+  headVersion: '0.4.55',
 };
 const temporaryRoots: string[] = [];
 
@@ -23,7 +24,7 @@ afterEach(() => {
 
 describe('canonical local CI preflight', () => {
   test.each([
-    ['patch', ['src/features/project-desktop/example.tsx'], false],
+    ['ordinary web change', ['src/features/project-desktop/example.tsx'], false],
     ['release-critical', ['packaging/release/example.ts'], true],
     ['platform workflow', ['.github/workflows/release.yml'], true],
     ['docs', ['apps/docs/content/docs/index.mdx'], false],
@@ -37,13 +38,13 @@ describe('canonical local CI preflight', () => {
   });
 
   test.each([
-    ['patch', ['src/features/project-desktop/example.tsx'], ['cli-docs-contract'], ['go-race', 'actionlint']],
+    ['ordinary web change', ['src/features/project-desktop/example.tsx'], ['web-build'], ['cli-docs-contract', 'docs-build', 'mobile-build', 'go-race', 'actionlint']],
     ['release-critical', ['packaging/release/example.ts'], ['go-race', 'actionlint'], []],
     ['platform workflow', ['.github/workflows/release.yml'], ['go-race', 'actionlint'], []],
-    ['docs', ['apps/docs/content/docs/index.mdx'], ['cli-docs-contract', 'docs-build'], ['go-race']],
+    ['docs', ['apps/docs/content/docs/index.mdx'], ['docs-build'], ['cli-docs-contract', 'go-race']],
     ['Go', ['cmd/project/main.go'], ['cli-docs-contract', 'go-race'], ['actionlint']],
-    ['web', ['src/main.tsx'], ['web-build', 'cli-docs-contract'], ['go-race']],
-    ['mobile', ['apps/mobile/App.tsx'], ['mobile-build', 'cli-docs-contract'], ['go-race']],
+    ['web', ['src/main.tsx'], ['web-build'], ['cli-docs-contract', 'go-race']],
+    ['mobile', ['apps/mobile/App.tsx'], ['mobile-build'], ['cli-docs-contract', 'go-race']],
   ])('selects the required local lanes for representative %s changes', (_name, changedPaths, present, absent) => {
     const policy = releaseVerificationPolicy({ ...fixture, changedPaths });
     const ids = preflightPlan({
@@ -54,6 +55,23 @@ describe('canonical local CI preflight', () => {
     }).map(({ id }) => id);
     for (const id of present) expect(ids).toContain(id);
     for (const id of absent) expect(ids).not.toContain(id);
+  });
+
+  test('uses one shared fail-closed path selection policy', () => {
+    expect(fastCiSelection(['src/main.tsx'], false)).toEqual({
+      cliDocs: false,
+      docs: false,
+      go: false,
+      mobile: false,
+      workflow: false,
+    });
+    expect(fastCiSelection([], false)).toEqual({
+      cliDocs: true,
+      docs: true,
+      go: true,
+      mobile: true,
+      workflow: true,
+    });
   });
 
   test('selects all locally required unconditional PR lanes and records remote gates', () => {
@@ -73,7 +91,6 @@ describe('canonical local CI preflight', () => {
       'cli-docs-contract',
       'docs-typecheck',
       'docs-build',
-      'typescript',
       'tests',
       'web-build',
       'mobile-build',
@@ -84,6 +101,9 @@ describe('canonical local CI preflight', () => {
       'macos-packaging',
       'post-run-cleanliness',
     ]));
+    expect(plan.find(({ id }) => id === 'actionlint')?.command).toContain(
+      'shellcheck -S error',
+    );
     expect(plan.filter(({ remoteOnly }) => remoteOnly).map(({ id }) => id)).toEqual([
       'linux-release-artifact',
       'windows-release-artifact',

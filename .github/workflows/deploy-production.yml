@@ -482,4 +482,4 @@ jobs:
 
       - name: Fail the GitHub deployment when rollout failed
         if: steps.deployment.outputs.exit_code != '0'
-        run: exit "${{ steps.deployment.outputs.exit_code }}"
+        run: exit 1

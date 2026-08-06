@@ -40,6 +40,7 @@ func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 		"connector",
 		"create",
 		"deploy",
+		"dev-build",
 		"disconnect",
 		"doctor",
 		"init",

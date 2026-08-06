@@ -7,6 +7,14 @@ export type ReleaseVerificationInput = {
   headVersion: string;
 };
 
+export type FastCiSelection = {
+  cliDocs: boolean;
+  docs: boolean;
+  go: boolean;
+  mobile: boolean;
+  workflow: boolean;
+};
+
 const releaseCriticalPaths = [
   /^\.github\/actions\/release-quality\//,
   /^\.github\/workflows\/release(?:-|\.yml)/,
@@ -43,6 +51,36 @@ export function releaseWorkflowTriggered(changedPaths: string[]) {
   );
 }
 
+export function fastCiSelection(
+  changedPaths: string[],
+  fullMatrix: boolean,
+): FastCiSelection {
+  if (fullMatrix || changedPaths.length === 0) {
+    return {
+      cliDocs: true,
+      docs: true,
+      go: true,
+      mobile: true,
+      workflow: true,
+    };
+  }
+  return {
+    cliDocs: changedPaths.some((path) =>
+      /^(?:cmd\/project\/|scripts\/generate-cli-docs\.ts$|docs\/project-cli\.md$|apps\/docs\/(?:generated\/project-cli\.json$|content\/docs\/cli\/))/.test(
+        path,
+      ),
+    ),
+    docs: changedPaths.some((path) => /^apps\/docs\//.test(path)),
+    go: changedPaths.some((path) =>
+      /^(?:cmd\/|internal\/|go\.mod$|go\.sum$)|\.go$/.test(path),
+    ),
+    mobile: changedPaths.some((path) => /^apps\/mobile\//.test(path)),
+    workflow: changedPaths.some((path) =>
+      /^(?:\.github\/|deploy\/|packaging\/|scripts\/.*\.(?:sh|ts)$)/.test(path),
+    ),
+  };
+}
+
 export function releaseVerificationPolicy(input: ReleaseVerificationInput) {
   if (input.eventName !== 'pull_request') {
     return {
@@ -50,11 +88,11 @@ export function releaseVerificationPolicy(input: ReleaseVerificationInput) {
       reason: 'tags, release candidates, and on-demand runs require every platform',
     };
   }
-  const bump = semverBump(input.baseVersion, input.headVersion);
-  if (bump !== 'patch') {
+  if (input.baseVersion !== input.headVersion) {
+    const bump = semverBump(input.baseVersion, input.headVersion);
     return {
       fullMatrix: true,
-      reason: `${bump ?? 'ambiguous'} version change requires every platform`,
+      reason: `${bump ?? 'ambiguous'} version change requires every local extra and the release platform gates`,
     };
   }
   if (input.changedPaths.length === 0) {
@@ -74,7 +112,7 @@ export function releaseVerificationPolicy(input: ReleaseVerificationInput) {
   }
   return {
     fullMatrix: false,
-    reason: 'ordinary patch uses Linux proof plus all shared quality gates',
+    reason: 'ordinary pull request keeps the current version and uses changed-path extras',
   };
 }
 
@@ -138,6 +176,7 @@ async function main() {
     values.set(name, value);
   }
   const eventName = values.get('--event') ?? '';
+  let changedPaths: string[] = [];
   let policy;
   if (eventName !== 'pull_request') {
     policy = releaseVerificationPolicy({
@@ -154,15 +193,17 @@ async function main() {
       gitText('show', `${head}:package.json`),
       gitText('diff', '--no-renames', '--name-only', base, head),
     ]);
+    changedPaths = changed.split('\n').filter(Boolean);
     policy = releaseVerificationPolicy({
       baseVersion: packageVersion(basePackage, 'base'),
-      changedPaths: changed.split('\n').filter(Boolean),
+      changedPaths,
       eventName,
       headVersion: packageVersion(headPackage, 'head'),
     });
   }
   console.log(JSON.stringify({
     fullMatrix: policy.fullMatrix,
+    fastCi: fastCiSelection(changedPaths, policy.fullMatrix),
     mode: policy.fullMatrix ? 'full' : 'patch-fast',
     reason: policy.reason,
   }));

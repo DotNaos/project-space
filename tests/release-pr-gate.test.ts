@@ -35,13 +35,35 @@ describe('pull request release gate', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.mode).toBe('release');
+    if (result.mode !== 'release') return;
     expect(result.entry.version).toBe('0.4.44');
+  });
+
+  test('accepts an ordinary PR without a version or release-catalog change', () => {
+    expect(validateReleasePullRequest(gateInput({
+      changedReleaseFiles: [],
+      headEntries: new Map<string, string>(),
+      headPackageVersion: '0.4.43',
+    }))).toEqual({ mode: 'ordinary', ok: true });
+  });
+
+  test('requires a release entry when package.json changes', () => {
+    const result = validateReleasePullRequest(gateInput({
+      changedReleaseFiles: [],
+      headEntries: new Map<string, string>(),
+    }));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.join('\n')).toContain(
+      'changes package.json from 0.4.43 to 0.4.44 without one release MDX file',
+    );
   });
 
   test('rejects missing, multiple, modified, or mismatched entries', () => {
     const source = releaseEntryFixture();
     const cases = [
-      gateInput({ changedReleaseFiles: [] }),
       gateInput({
         changedReleaseFiles: [
           {

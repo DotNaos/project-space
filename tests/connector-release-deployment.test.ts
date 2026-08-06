@@ -93,11 +93,11 @@ describe('connector release and production deployment contract', () => {
     const windowsPackaging = await source('packaging/windows/test-release-packaging.ps1');
     const windowsDocumentation = await source('docs/windows-installation.md');
 
-    expect(packageJson.version).toBe('0.4.64');
-    expect(buildInfo).toContain("const developmentVersion = '0.4.64';");
-    expect(windowsPackaging).toContain("$version = '0.4.64'");
-    expect(windowsPackaging).toContain('/releases/download/v0.4.64/');
-    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.64');
+    expect(packageJson.version).toBe('0.4.65');
+    expect(buildInfo).toContain("const developmentVersion = '0.4.65';");
+    expect(windowsPackaging).toContain("$version = '0.4.65'");
+    expect(windowsPackaging).toContain('/releases/download/v0.4.65/');
+    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.65');
     expect(linuxCodexPreparation).toContain('codex_version=0.145.0');
     expect(linuxCodexPreparation).not.toMatch(/releases\/latest|\/latest\//);
     expect(linuxCodexSmoke).toContain("import { CodexStdioTransport }");
@@ -205,6 +205,7 @@ describe('connector release and production deployment contract', () => {
     );
     expect(sign).toContain('certificate leaf[subject.OU] = "R72P4M9WMS"');
     expect(sign).toContain('identifier "com.dotnaos.project.approval-signer"');
+    expect(sign).toContain('identity_count == 1');
     expect(sign).toContain('project-space-release-import.p12');
     expect(sign).toContain('-passin env:CERTIFICATE_PASSWORD');
     expect(sign).toContain('-passout "pass:$import_password"');
@@ -263,7 +264,7 @@ describe('connector release and production deployment contract', () => {
     expect(deleteKeychain).toBeGreaterThan(-1);
     expect(restoreDefault).toBeLessThan(deleteKeychain);
     expect(upload).toContain(
-      "if: success() && github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')",
+      "if: success() && github.ref_type == 'tag' && github.event_name == 'workflow_dispatch'",
     );
 
     const packageScript = await source(

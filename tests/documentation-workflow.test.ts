@@ -1,20 +1,25 @@
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 
-test('skips only the numbered release entry for drafts and rechecks when ready', () => {
-  const workflow = readFileSync('.github/workflows/docs.yml', 'utf8');
-  const releaseStep = workflow.slice(
-    workflow.indexOf('      - name: Enforce one versioned release entry'),
-    workflow.indexOf('      - name: Set up Go'),
-  );
-  const nonReleaseSteps = workflow.slice(workflow.indexOf('      - name: Set up Go'));
+test('folds path-selected documentation checks into one clear PR job', () => {
+  const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
 
   expect(workflow).toContain(
     'types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]',
   );
-  expect(releaseStep).toContain("github.event.pull_request.draft == false");
-  expect(nonReleaseSteps).not.toContain('github.event.pull_request.draft');
-  expect(nonReleaseSteps).toContain('bun run docs:cli:check');
-  expect(nonReleaseSteps).toContain('bun run docs:typecheck');
-  expect(nonReleaseSteps).toContain('bun run docs:build');
+  expect(workflow.match(/^  [a-z][a-z-]+:$/gm)).toEqual([
+    '  fast-ci:',
+    '  preview-artifacts:',
+  ]);
+  expect(workflow).toContain('needs: fast-ci');
+  expect(workflow).toContain('name: Build exact-head Preview artifacts');
+  expect(workflow).toContain('name: Fast CI');
+  expect(workflow).toContain("if: steps.select.outputs.cliDocs == 'true'");
+  expect(workflow).toContain("if: steps.select.outputs.docs == 'true'");
+  expect(workflow).toContain('bun run docs:cli:check');
+  expect(workflow).toContain('bun run typecheck');
+  expect(workflow).toContain('bun run build');
+  expect(workflow.match(/run: bun install --frozen-lockfile/g)).toHaveLength(1);
+  expect(workflow).not.toContain('docs:release:pr');
+  expect(workflow).not.toContain('release-entry');
 });

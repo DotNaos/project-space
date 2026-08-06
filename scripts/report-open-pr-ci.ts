@@ -32,9 +32,9 @@ export function classifyPullRequest(
 ) {
   const entryPath = `apps/docs/content/docs/releases/entries/${pr.number}.mdx`;
   const ownsReleaseEntry = pr.files.some(({ path }) => path === entryPath);
-  const releaseCheck = [...pr.statusCheckRollup]
-    .reverse()
-    .find(({ name }) => name === 'Versioned release entry');
+  const releaseChecks = [...pr.statusCheckRollup].reverse();
+  const releaseCheck = releaseChecks.find(({ name }) => name === 'Release decision') ??
+    releaseChecks.find(({ name }) => name === 'Versioned release entry');
   const previewFailures = pr.statusCheckRollup
     .filter(
       (check) =>
@@ -50,16 +50,18 @@ export function classifyPullRequest(
       previewFailures,
       releaseCheck: releaseCheck?.conclusion ?? 'NOT_PRESENT',
       recommendedAction:
-        'Keep neutral until ready; prepare one coherent release revision before ready_for_review.',
+        'Keep neutral until ready; the exact head will declare whether it requests a versioned release.',
     };
   }
-  if (ownsReleaseEntry && releaseCheck?.conclusion === 'SUCCESS') {
+  if (releaseCheck?.conclusion === 'SUCCESS') {
     return {
       classification: 'ready_valid' as const,
       ownsReleaseEntry,
       previewFailures,
       releaseCheck: releaseCheck.conclusion,
-      recommendedAction: 'No release-entry migration is required for this exact head.',
+      recommendedAction: ownsReleaseEntry
+        ? 'The requested versioned release is valid for this exact head.'
+        : 'This exact head is valid as an ordinary non-release pull request.',
     };
   }
   const ageDays = Math.floor(
@@ -81,7 +83,7 @@ export function classifyPullRequest(
     previewFailures,
     releaseCheck: releaseCheck?.conclusion ?? 'NOT_PRESENT',
     recommendedAction:
-      'The owning task must reconcile with current main and prepare a numbered release revision; do not edit or close it from this report.',
+      'The owning task must reconcile with current main and rerun the trusted release decision for its exact head.',
   };
 }
 
@@ -163,12 +165,12 @@ function markdown(report: {
     '',
     `Summary: ${report.counts.open} open; ${report.counts.readyValid} ready-valid; ${report.counts.readyNeedsMigration} active ready needing migration; ${report.counts.readyNeedsOwnerDecision} inactive ready needing an owner decision; ${report.counts.neutralDraft} neutral drafts; ${report.counts.previewFailures} current Preview problems.`,
     '',
-    '| PR | State | Release entry | Exact-head check | Preview failures | Owner action |',
+    '| PR | State | Release request | Exact-head check | Preview failures | Owner action |',
     '| --- | --- | --- | --- | --- | --- |',
   ];
   for (const pr of report.pullRequests) {
     lines.push(
-      `| [#${pr.number}](${pr.url}) | ${pr.classification} | ${pr.ownsReleaseEntry ? 'present' : 'missing'} | ${pr.releaseCheck} | ${pr.previewFailures.length ? escapeCell(pr.previewFailures.join(', ')) : 'none'} | ${escapeCell(pr.recommendedAction)} |`,
+      `| [#${pr.number}](${pr.url}) | ${pr.classification} | ${pr.ownsReleaseEntry ? 'versioned' : 'ordinary'} | ${pr.releaseCheck} | ${pr.previewFailures.length ? escapeCell(pr.previewFailures.join(', ')) : 'none'} | ${escapeCell(pr.recommendedAction)} |`,
     );
   }
   return lines.join('\n');

@@ -21,7 +21,8 @@ export interface ReleasePullRequestGateInput {
 }
 
 export type ReleasePullRequestGateResult =
-  | { entry: ReleaseEntry; ok: true }
+  | { mode: 'ordinary'; ok: true }
+  | { entry: ReleaseEntry; mode: 'release'; ok: true }
   | { errors: string[]; ok: false };
 
 const releaseDirectory =
@@ -37,10 +38,17 @@ export function validateReleasePullRequest(
       file.path.endsWith('.mdx'),
   );
 
+  if (
+    changed.length === 0 &&
+    input.headPackageVersion === input.currentMainVersion
+  ) {
+    return { mode: 'ordinary', ok: true };
+  }
+
   if (changed.length !== 1) {
-    errors.push(
-      `Pull request #${input.pullRequestNumber} must add exactly one release MDX file under ${releaseDirectory}; found ${changed.length}.`,
-    );
+    errors.push(changed.length === 0
+      ? `Pull request #${input.pullRequestNumber} changes package.json from ${input.currentMainVersion} to ${input.headPackageVersion} without one release MDX file under ${releaseDirectory}.`
+      : `Pull request #${input.pullRequestNumber} must add exactly one release MDX file under ${releaseDirectory}; found ${changed.length}.`);
     return { errors, ok: false };
   }
 
@@ -142,7 +150,7 @@ export function validateReleasePullRequest(
 
   return errors.length > 0
     ? { errors: unique(errors), ok: false }
-    : { entry, ok: true };
+    : { entry, mode: 'release', ok: true };
 }
 
 function unique(values: string[]) {
