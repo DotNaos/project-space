@@ -19,6 +19,7 @@ interface CapturedRequest {
 }
 
 const servers: Array<ReturnType<typeof createServer>> = [];
+const previewVerificationSecret = 'preview-verification-secret-that-is-long-enough';
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => {
@@ -79,6 +80,7 @@ async function gatewayFixture(options: {
     PROJECT_SPACE_PREVIEW_GATEWAY_SECRET: 'preview-only-secret-that-is-long-enough-for-hmac',
     PROJECT_SPACE_PREVIEW_HEAD_SHA: 'a'.repeat(40),
     PROJECT_SPACE_PREVIEW_PR_NUMBER: '263',
+    PROJECT_SPACE_PREVIEW_VERIFICATION_SECRET: previewVerificationSecret,
     ...(options.prototypeConfigured === false
       ? {}
       : { PROJECT_SPACE_PREVIEW_PROTOTYPE_UPSTREAM_ORIGIN: prototypeOrigin }),
@@ -128,6 +130,20 @@ describe('Preview gateway', () => {
     );
     expect(fixture.upstreamRequests).toHaveLength(0);
     expect(fixture.prototypeRequests).toHaveLength(0);
+    expect(fixture.brokerRequests).toHaveLength(0);
+  });
+
+  test('lets the trusted runner verify an offline Preview before activation', async () => {
+    const fixture = await gatewayFixture({ offline: true });
+    const verificationHeaders = {
+      'x-project-space-preview-verification': previewVerificationSecret
+    };
+
+    expect((await fixture.request('/api/auth/session', undefined, verificationHeaders)).status)
+      .toBe(401);
+    expect((await fixture.request('/', undefined, verificationHeaders)).status).toBe(200);
+    expect(fixture.upstreamRequests).toHaveLength(1);
+    expect(fixture.upstreamRequests[0]?.pathname).toBe('/');
     expect(fixture.brokerRequests).toHaveLength(0);
   });
 

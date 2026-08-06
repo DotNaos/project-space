@@ -355,18 +355,22 @@ export function createPreviewGatewayRequestHandler(
         }).end();
         return;
       }
-      if (environment.PROJECT_SPACE_PREVIEW_OFFLINE === '1' && requestUrl.pathname !== '/api/health' && requestUrl.pathname !== '/api/app/meta') {
+      const isPublicUpstreamPath =
+        requestUrl.pathname === '/api/health' || requestUrl.pathname === '/api/app/meta';
+      const verificationSecret = environment.PROJECT_SPACE_PREVIEW_VERIFICATION_SECRET ?? '';
+      const trustedVerificationRequest =
+        request.headers[previewVerificationHeader] === verificationSecret && verificationSecret.length >= 32;
+      if (
+        environment.PROJECT_SPACE_PREVIEW_OFFLINE === '1' &&
+        !isPublicUpstreamPath &&
+        !trustedVerificationRequest
+      ) {
         response.writeHead(302, {
           'Cache-Control': 'no-store',
           Location: offlineHubRedirect(binding, brokerOrigin, requestUrl)
         }).end();
         return;
       }
-      const isPublicUpstreamPath =
-        requestUrl.pathname === '/api/health' || requestUrl.pathname === '/api/app/meta';
-      const verificationSecret = environment.PROJECT_SPACE_PREVIEW_VERIFICATION_SECRET ?? '';
-      const trustedVerificationRequest =
-        request.headers[previewVerificationHeader] === verificationSecret && verificationSecret.length >= 32;
       if (!isPublicUpstreamPath && environment.PROJECT_SPACE_PREVIEW_VERIFIED !== '1' && !trustedVerificationRequest) {
         response.writeHead(503, { 'Cache-Control': 'no-store' }).end('Preview is not positively verified yet.');
         return;
