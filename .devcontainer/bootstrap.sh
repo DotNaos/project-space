@@ -3,6 +3,8 @@ set -euo pipefail
 
 readonly repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 readonly expected_bun_version="1.3.14"
+readonly expected_node_version="v24.15.0"
+readonly expected_node_gyp_version="v13.0.1"
 readonly expected_codex_version="0.146.1"
 readonly expected_project_version="0.4.61"
 readonly expected_managed_codex_version="0.145.0"
@@ -24,6 +26,22 @@ current_bun_version="$(bun --version 2>/dev/null || true)"
 if [[ "${current_bun_version}" != "${expected_bun_version}" ]]; then
   curl --fail --location --proto '=https' --tlsv1.2 https://bun.sh/install |
     bash -s "bun-v${expected_bun_version}"
+fi
+
+actual_node_version="$(node --version 2>/dev/null || true)"
+if [[ "${actual_node_version}" != "${expected_node_version}" ]]; then
+  echo "Expected Node ${expected_node_version}, found ${actual_node_version:-missing}." >&2
+  exit 1
+fi
+
+actual_node_gyp_version="$(node-gyp --version 2>/dev/null | tr -d '\r\n' || true)"
+if [[ "${actual_node_gyp_version}" != "${expected_node_gyp_version}" ]]; then
+  bun add --global "node-gyp@${expected_node_gyp_version#v}"
+  actual_node_gyp_version="$(node-gyp --version 2>/dev/null | tr -d '\r\n' || true)"
+fi
+if [[ "${actual_node_gyp_version}" != "${expected_node_gyp_version}" ]]; then
+  echo "Expected node-gyp ${expected_node_gyp_version}, found ${actual_node_gyp_version:-missing}." >&2
+  exit 1
 fi
 
 bun install --frozen-lockfile

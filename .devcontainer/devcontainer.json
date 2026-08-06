@@ -3,6 +3,11 @@
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
   "remoteUser": "vscode",
   "features": {
+    "ghcr.io/devcontainers/features/node:2": {
+      "version": "24.15.0",
+      "nodeGypDependencies": true,
+      "pnpmVersion": "none"
+    },
     "ghcr.io/devcontainers/features/go:1": {
       "version": "1.26"
     },

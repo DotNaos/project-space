@@ -2,6 +2,8 @@
 set -euo pipefail
 
 readonly expected_bun_version="1.3.14"
+readonly expected_node_version="v24.15.0"
+readonly expected_node_gyp_version="v13.0.1"
 readonly expected_go_prefix="go1.26."
 readonly expected_codex_version="0.146.1"
 readonly expected_project_version="0.4.61"
@@ -10,6 +12,18 @@ readonly expected_managed_codex_version="0.145.0"
 actual_bun_version="$(bun --version)"
 if [[ "${actual_bun_version}" != "${expected_bun_version}" ]]; then
   echo "Expected Bun ${expected_bun_version}, found ${actual_bun_version}." >&2
+  exit 1
+fi
+
+actual_node_version="$(node --version)"
+if [[ "${actual_node_version}" != "${expected_node_version}" ]]; then
+  echo "Expected Node ${expected_node_version}, found ${actual_node_version}." >&2
+  exit 1
+fi
+
+actual_node_gyp_version="$(node-gyp --version | tr -d '\r\n')"
+if [[ "${actual_node_gyp_version}" != "${expected_node_gyp_version}" ]]; then
+  echo "Expected node-gyp ${expected_node_gyp_version}, found ${actual_node_gyp_version}." >&2
   exit 1
 fi
 
