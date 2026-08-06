@@ -211,7 +211,16 @@ export function projectMachineRuntimeStatus(input: {
   const online = machine.connector.status === 'online' || machine.connector.status === 'local';
   const runtime = machine.connector.runtime;
   const operation = input.operation ?? undefined;
-  const completedRollback = operation?.state === 'rolled-back';
+  const recoveredRollback = operation?.state === 'rolled-back' &&
+    operation.operation === 'update' && runtime &&
+    runtimeMatchesExpectedFingerprint(
+      runtime,
+      capabilities,
+      operation.expectedFingerprint,
+      operation.previousInstanceId,
+      operation.previousFingerprint
+    );
+  const completedRollback = operation?.state === 'rolled-back' && !recoveredRollback;
   const retryableFailure = failedUpdateCanRetry(
     operation,
     runtime,
