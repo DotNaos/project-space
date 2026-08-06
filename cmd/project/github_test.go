@@ -178,3 +178,37 @@ func TestApplyGitHubRulesetsDoesNothingWithoutPolicyFiles(t *testing.T) {
 		t.Fatalf("applyGitHubRulesets count = %d, want 0", count)
 	}
 }
+
+func TestDefaultBranchRulesetRequiresFastCI(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", ".github", "rulesets", "default-branch.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var policy struct {
+		Rules []struct {
+			Type       string `json:"type"`
+			Parameters struct {
+				RequiredStatusChecks []struct {
+					Context string `json:"context"`
+				} `json:"required_status_checks"`
+			} `json:"parameters"`
+		} `json:"rules"`
+	}
+	if err := json.Unmarshal(body, &policy); err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range policy.Rules {
+		if rule.Type != "required_status_checks" {
+			continue
+		}
+		contexts := make([]string, 0, len(rule.Parameters.RequiredStatusChecks))
+		for _, check := range rule.Parameters.RequiredStatusChecks {
+			contexts = append(contexts, check.Context)
+		}
+		if !reflect.DeepEqual(contexts, []string{"Fast CI"}) {
+			t.Fatalf("required status checks = %q, want Fast CI", contexts)
+		}
+		return
+	}
+	t.Fatal("default-branch ruleset has no required_status_checks rule")
+}
