@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -145,5 +146,50 @@ func TestCreateRejectsInvalidGitHubVisibility(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--github-visibility must be private or public") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCreateGitHubMaterializesDefaultModulesBeforeRepositoryCreation(t *testing.T) {
+	templateRoot := filepath.Join(t.TempDir(), "template")
+	writeCreateCommandTestFile(t, filepath.Join(templateRoot, ".templateignore"), ".templateignore\ntemplate/**\n")
+	writeCreateCommandTestFile(t, filepath.Join(templateRoot, "template", "manifest.yaml"), "name: project-template\nversion: 0.1.0\nmodules:\n  - modules/core.yaml\n")
+	writeCreateCommandTestFile(t, filepath.Join(templateRoot, "template", "modules", "core.yaml"), "name: core.fullstack\ndescription: Core test module.\ndefault: true\nowns:\n  - .github/rulesets/default-branch.json\n")
+	writeCreateCommandTestFile(t, filepath.Join(templateRoot, ".github.template", "rulesets", "default-branch.json"), "{\"name\":\"Protect default branch\"}\n")
+
+	original := createGitHubRepositoryForCommand
+	t.Cleanup(func() { createGitHubRepositoryForCommand = original })
+	called := false
+	createGitHubRepositoryForCommand = func(projectRoot string, _ createGitHubRepositoryOptions) (createGitHubRepositoryResult, error) {
+		called = true
+		body, err := os.ReadFile(filepath.Join(projectRoot, ".github", "rulesets", "default-branch.json"))
+		if err != nil {
+			t.Fatalf("ruleset was not materialized before GitHub creation: %v", err)
+		}
+		if string(body) != "{\"name\":\"Protect default branch\"}\n" {
+			t.Fatalf("materialized ruleset = %q", string(body))
+		}
+		return createGitHubRepositoryResult{URL: "https://github.com/DotNaos/generated-app"}, nil
+	}
+
+	target := filepath.Join(t.TempDir(), "generated-app")
+	cmd := newRootCommand()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"create", target, "--template-path", templateRoot, "--github"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute GitHub create: %v", err)
+	}
+	if !called {
+		t.Fatal("GitHub repository creation was not invoked")
+	}
+}
+
+func writeCreateCommandTestFile(t *testing.T, path string, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
