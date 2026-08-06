@@ -52,7 +52,6 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: ProjectTaskViewModel 
       type="button"
     >
       <span className="flex min-w-0 items-center gap-2">
-        <StatusIcon task={task} />
         <span className="shrink-0 text-xs tabular-nums text-current/30">#{task.issue.number}</span>
         {pullRequest ? (
           <span className={`ml-auto flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${merged ? 'bg-violet-500/[.12] text-violet-300' : pullRequest.isDraft ? 'bg-current/[.055] text-current/40' : 'bg-emerald-500/[.12] text-emerald-300'}`}>
@@ -60,8 +59,9 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: ProjectTaskViewModel 
           </span>
         ) : null}
       </span>
-      <span className="mt-2 block truncate text-sm font-medium text-current/85 group-hover:text-current">
-        {task.issue.title}
+      <span className="mt-2 flex min-w-0 items-center gap-2 text-sm font-medium text-current/85 group-hover:text-current">
+        <StatusIcon task={task} />
+        <span className="truncate">{task.issue.title}</span>
       </span>
       {task.branch?.name ?? pullRequest?.headBranch ? (
         <span className="mt-2 flex min-w-0 items-center gap-1 text-[11px] text-current/35">
