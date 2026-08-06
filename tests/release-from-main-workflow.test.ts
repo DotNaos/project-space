@@ -14,10 +14,6 @@ test('publishes a merged release only through the validated exact tag', () => {
     '.github/workflows/release.yml',
     'utf8',
   );
-  const releaseDeployWorkflow = readFileSync(
-    '.github/workflows/release-deploy.yml',
-    'utf8',
-  );
   const releaseWorkflowFiles = [
     '.github/workflows/release.yml',
     '.github/workflows/release-manifest-sign.yml',
@@ -38,31 +34,38 @@ test('publishes a merged release only through the validated exact tag', () => {
   expect(workflow).toContain(
     'gh workflow run release.yml --ref "$RELEASE_TAG"',
   );
+  expect(workflow).toContain(
+    "if: steps.release.outputs.release_required == 'true' && steps.release.outputs.release_exists != 'true'",
+  );
+  expect(workflow).toContain(
+    "if: steps.release.outputs.release_required != 'true'",
+  );
+  expect(workflow).toContain(
+    'gh workflow run deploy-production.yml --ref main -f commit="$MERGED_COMMIT"',
+  );
   expect(releaseWorkflow.match(
-    /github\.ref_type == 'tag' && \(github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch'\)/g,
+    /github\.ref_type == 'tag' && github\.event_name == 'workflow_dispatch'/g,
   )).toHaveLength(5);
   expect(releaseWorkflow).toContain(
-    'uses: ./.github/workflows/release-deploy.yml',
-  );
-  expect(releaseDeployWorkflow).toContain(
-    'name: Start exact production delivery',
-  );
-  expect(releaseDeployWorkflow).toContain(
     'gh workflow run deploy-production.yml',
   );
-  expect(releaseDeployWorkflow).toContain(
+  expect(releaseWorkflow).toContain(
     '--repo "$GITHUB_REPOSITORY"',
   );
-  expect(releaseDeployWorkflow).toContain(
+  expect(releaseWorkflow).toContain(
     '-f commit="$RELEASE_COMMIT"',
   );
-  expect(releaseDeployWorkflow).not.toContain('actions/checkout@');
+  expect(releaseWorkflow).not.toContain('push:');
+  expect(releaseWorkflow).not.toContain('pull_request:');
+  expect(releaseWorkflow).toContain('cancel-in-progress: false');
   for (const source of releaseWorkflowFiles) {
     expect(source).not.toContain(
       "github.event_name == 'push' && github.ref_type == 'tag'",
     );
   }
   expect(publisher).toContain('validateReleasePullRequest');
+  expect(publisher).toContain("writeOutput('release_required', 'false')");
+  expect(publisher).toContain("writeOutput('release_required', 'true')");
   expect(publisher).toContain(
     'must belong to exactly one pull request targeting main',
   );

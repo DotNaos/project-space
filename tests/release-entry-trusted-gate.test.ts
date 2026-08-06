@@ -30,7 +30,7 @@ test('runs the release gate from trusted main against the exact PR commit as dat
   );
   expect(workflow).toContain('checks: write');
   expect(workflow).toContain(
-    "name 'Versioned release entry'",
+    "name 'Release decision'",
   );
   expect(workflow).toContain(
     '"repos/${GITHUB_REPOSITORY}/check-runs"',
@@ -75,4 +75,6 @@ test('runs the release gate from trusted main against the exact PR commit as dat
   expect(validator).not.toContain(
     'release-entries.generated.json',
   );
+  expect(validator).toContain('validateReleaseIdentityBundle');
+  expect(validator).toContain('releaseIdentityPaths.map');
 });

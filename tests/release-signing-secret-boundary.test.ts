@@ -111,4 +111,20 @@ describe('release signing service-account secret boundary', () => {
       expect(hasPinnedOnePasswordCliVersion(action)).toBe(false);
     }
   });
+
+  test('keeps former probe guarantees on the real signers instead of diagnostic workflows', async () => {
+    for (const path of [
+      '.github/workflows/macos-signing-identity-probe.yml',
+      '.github/workflows/signing-secret-boundary-probe.yml',
+      '.github/workflows/signing-secret-boundary-probe-reusable.yml'
+    ]) {
+      expect(await Bun.file(join(repositoryRoot, path)).exists()).toBe(false);
+    }
+
+    const macos = await source('.github/workflows/release-macos.yml');
+    expect(macos).toContain('identity_count == 1');
+    expect(macos).toContain('[[ $leaf_fingerprint == "$identity" ]]');
+    expect(macos).toContain('environment: release-signing');
+    expect(macos).toContain('security delete-keychain');
+  });
 });

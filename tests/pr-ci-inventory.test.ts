@@ -31,18 +31,27 @@ describe('read-only open PR inventory', () => {
     ).toBe('neutral_draft');
   });
 
-  test('accepts only a ready exact head with its entry and successful check', () => {
+  test('accepts ready ordinary and release exact heads with a successful trusted check', () => {
     expect(
       classifyPullRequest(
         pullRequest({
           files: [{ path: 'apps/docs/content/docs/releases/entries/435.mdx' }],
-          statusCheckRollup: [{ name: 'Versioned release entry', conclusion: 'SUCCESS' }],
+          statusCheckRollup: [{ name: 'Release decision', conclusion: 'SUCCESS' }],
         }), new Date('2026-07-31T12:00:00Z'),
       ).classification,
     ).toBe('ready_valid');
-    expect(classifyPullRequest(pullRequest(), new Date('2026-07-31T12:00:00Z')).classification).toBe(
-      'ready_needs_migration',
-    );
+    expect(
+      classifyPullRequest(
+        pullRequest({
+          statusCheckRollup: [{ name: 'Versioned release entry', conclusion: 'SUCCESS' }],
+        }),
+        new Date('2026-07-31T12:00:00Z'),
+      ),
+    ).toMatchObject({
+      classification: 'ready_valid',
+      ownsReleaseEntry: false,
+    });
+    expect(classifyPullRequest(pullRequest(), new Date('2026-07-31T12:00:00Z')).classification).toBe('ready_needs_migration');
   });
 
   test('keeps every current Preview terminal problem visible', () => {

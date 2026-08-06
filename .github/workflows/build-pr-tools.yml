@@ -1,0 +1,325 @@
+name: Build PR development tools
+
+on:
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Open same-repository pull request number.
+        required: true
+        type: string
+      requested_head_sha:
+        description: Optional exact current PR head; the Project CLI supplies this automatically.
+        required: false
+        type: string
+      linux_x64:
+        description: Build unsigned Linux x64 CLI and connector.
+        required: true
+        default: true
+        type: boolean
+      macos_arm64:
+        description: Build unsigned macOS arm64 CLI and connector.
+        required: true
+        default: false
+        type: boolean
+      windows_x64:
+        description: Build unsigned Windows x64 CLI and connector.
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  resolve:
+    name: Resolve exact open PR head
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      has_builds: ${{ steps.resolve.outputs.has_builds }}
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      pull_request: ${{ steps.resolve.outputs.pull_request }}
+      reused: ${{ steps.resolve.outputs.reused }}
+      source_sha: ${{ steps.resolve.outputs.source_sha }}
+    steps:
+      - name: Resolve exact same-repository PR and reusable artifacts
+        id: resolve
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_LINUX_X64: ${{ inputs.linux_x64 }}
+          INPUT_MACOS_ARM64: ${{ inputs.macos_arm64 }}
+          INPUT_PULL_REQUEST: ${{ inputs.pull_request }}
+          INPUT_REQUESTED_HEAD_SHA: ${{ inputs.requested_head_sha }}
+          INPUT_WINDOWS_X64: ${{ inputs.windows_x64 }}
+        run: |
+          set -euo pipefail
+          [[ "$INPUT_PULL_REQUEST" =~ ^[1-9][0-9]*$ ]]
+          if [[ "$INPUT_LINUX_X64" != true && "$INPUT_MACOS_ARM64" != true && "$INPUT_WINDOWS_X64" != true ]]; then
+            echo 'Select at least one development-build platform.' >&2
+            exit 64
+          fi
+
+          pr_json="$RUNNER_TEMP/pr.json"
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$INPUT_PULL_REQUEST" > "$pr_json"
+          jq -e --arg repository "$GITHUB_REPOSITORY" '
+            .state == "open" and
+            .base.ref == "main" and
+            .base.repo.full_name == $repository and
+            .head.repo.full_name == $repository and
+            (.head.sha | test("^[0-9a-f]{40}$"))
+          ' "$pr_json" >/dev/null
+          source_sha=$(jq -r '.head.sha' "$pr_json")
+          if [[ -n "$INPUT_REQUESTED_HEAD_SHA" ]]; then
+            [[ "$INPUT_REQUESTED_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+            [[ "$source_sha" == "$INPUT_REQUESTED_HEAD_SHA" ]]
+          fi
+          workflow_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build-pr-tools.yml" --jq '.id')
+          [[ "$workflow_id" =~ ^[1-9][0-9]*$ ]]
+
+          matrix='[]'
+          reused='[]'
+          select_platform() {
+            local selected=$1 platform=$2 bun_target=$3 goos=$4 goarch=$5 project_name=$6 connector_name=$7
+            [[ "$selected" == true ]] || return 0
+            local artifact_name="project-space-dev-tools-pr-${INPUT_PULL_REQUEST}-${source_sha}-${platform}"
+            local artifacts_json="$RUNNER_TEMP/artifacts-${platform}.json"
+            gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts" \
+              -f name="$artifact_name" -f per_page=100 > "$artifacts_json"
+
+            local reusable_id='' reusable_run=''
+            while IFS=$'\t' read -r artifact_id run_id; do
+              [[ -n "$artifact_id" && -n "$run_id" ]] || continue
+              if gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" \
+                --jq "select(.workflow_id == $workflow_id and .event == \"workflow_dispatch\" and .conclusion == \"success\") | .id" \
+                | grep -qx "$run_id"; then
+                reusable_id=$artifact_id
+                reusable_run=$run_id
+                break
+              fi
+            done < <(jq -r '.artifacts[] | select(.expired == false) | [.id, .workflow_run.id] | @tsv' "$artifacts_json")
+
+            if [[ -n "$reusable_id" ]]; then
+              reused=$(jq -c \
+                --arg artifact "$artifact_name" \
+                --arg platform "$platform" \
+                --arg url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$reusable_run/artifacts/$reusable_id" \
+                '. + [{artifact: $artifact, platform: $platform, url: $url}]' <<< "$reused")
+              return 0
+            fi
+            matrix=$(jq -c \
+              --arg artifact "$artifact_name" \
+              --arg bun_target "$bun_target" \
+              --arg connector_name "$connector_name" \
+              --arg goarch "$goarch" \
+              --arg goos "$goos" \
+              --arg platform "$platform" \
+              --arg project_name "$project_name" \
+              '. + [{artifact: $artifact, bun_target: $bun_target, connector_name: $connector_name, goarch: $goarch, goos: $goos, platform: $platform, project_name: $project_name}]' \
+              <<< "$matrix")
+          }
+
+          select_platform "$INPUT_LINUX_X64" linux-x64 bun-linux-x64 linux amd64 project-dev project-space-connector-dev
+          select_platform "$INPUT_MACOS_ARM64" macos-arm64 bun-darwin-arm64 darwin arm64 project-dev project-space-connector-dev
+          select_platform "$INPUT_WINDOWS_X64" windows-x64 bun-windows-x64 windows amd64 project-dev.exe project-space-connector-dev.exe
+
+          has_builds=$(jq -r 'length > 0' <<< "$matrix")
+          {
+            echo "has_builds=$has_builds"
+            echo "matrix=$(jq -c '{include: .}' <<< "$matrix")"
+            echo "pull_request=$INPUT_PULL_REQUEST"
+            echo "reused=$reused"
+            echo "source_sha=$source_sha"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Summarize reused exact artifacts
+        env:
+          REUSED: ${{ steps.resolve.outputs.reused }}
+        run: |
+          set -euo pipefail
+          if [[ $(jq 'length' <<< "$REUSED") -eq 0 ]]; then
+            exit 0
+          fi
+          {
+            echo '### Reused development builds'
+            echo
+            jq -r '.[] | "- [\(.platform): \(.artifact)](\(.url))"' <<< "$REUSED"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build ${{ matrix.platform }} development tools
+    if: needs.resolve.outputs.has_builds == 'true'
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    steps:
+      - name: Revalidate exact PR head before checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pull_request }}
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          pr_json="$RUNNER_TEMP/pr-before-build.json"
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$pr_json"
+          jq -e --arg repository "$GITHUB_REPOSITORY" --arg sha "$SOURCE_SHA" '
+            .state == "open" and
+            .base.ref == "main" and
+            .base.repo.full_name == $repository and
+            .head.repo.full_name == $repository and
+            .head.sha == $sha
+          ' "$pr_json" >/dev/null
+
+      - name: Check out exact PR head without credentials
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify checked-out identity
+        env:
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ $(git rev-parse HEAD) == "$SOURCE_SHA" ]]
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Restore exact Bun package downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-1.3.14-${{ hashFiles('bun.lock') }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build unsigned CLI and connector for the PR Preview
+        shell: bash
+        env:
+          BUN_TARGET: ${{ matrix.bun_target }}
+          CONNECTOR_NAME: ${{ matrix.connector_name }}
+          GOARCH: ${{ matrix.goarch }}
+          GOOS: ${{ matrix.goos }}
+          PLATFORM: ${{ matrix.platform }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pull_request }}
+          PROJECT_NAME: ${{ matrix.project_name }}
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          short_sha=${SOURCE_SHA:0:12}
+          base_version=$(jq -er '.version | select(test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"))' package.json)
+          dev_version="${base_version}-dev.pr${PR_NUMBER}+${short_sha}"
+          dev_release_id="dev-pr-${PR_NUMBER}-${short_sha}"
+          preview_url="https://pr-${PR_NUMBER}.projects.os-home.net"
+          bundle="$RUNNER_TEMP/${{ matrix.artifact }}"
+          mkdir -p "$bundle"
+
+          bun build --compile --target="$BUN_TARGET" --no-compile-autoload-dotenv \
+            server/web-server.ts --outfile "$bundle/$CONNECTOR_NAME" \
+            --define "__PROJECT_SPACE_VERSION__=\"$dev_version\"" \
+            --define "__PROJECT_SPACE_RELEASE_ID__=\"$dev_release_id\"" \
+            --define "__PROJECT_SPACE_BUILD_ID__=\"$SOURCE_SHA\""
+          CGO_ENABLED=0 go build -trimpath \
+            -ldflags "-s -w -X main.projectMachineClientVersion=$dev_version -X main.projectMachineClientReleaseID=dev -X main.projectMachineClientBuildID=unknown -X main.projectSpaceMachineBackendURL=$preview_url" \
+            -o "$bundle/$PROJECT_NAME" ./cmd/project
+
+          generated_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          expires_at=$(date -u -d '+7 days' +'%Y-%m-%dT%H:%M:%SZ')
+          jq -n \
+            --arg architecture "$GOARCH" \
+            --arg channel pr \
+            --arg generatedAt "$generated_at" \
+            --arg expiresAt "$expires_at" \
+            --arg platform "$PLATFORM" \
+            --arg previewUrl "$preview_url" \
+            --argjson pullRequestNumber "$PR_NUMBER" \
+            --arg releaseId "$dev_release_id" \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg sourceSha "$SOURCE_SHA" \
+            --arg version "$dev_version" \
+            '{
+              schema: "project-space.pr-dev-build/v1",
+              repository: $repository,
+              pullRequestNumber: $pullRequestNumber,
+              sourceSha: $sourceSha,
+              channel: $channel,
+              previewUrl: $previewUrl,
+              platform: $platform,
+              architecture: $architecture,
+              version: $version,
+              releaseId: $releaseId,
+              generatedAt: $generatedAt,
+              expiresAt: $expiresAt,
+              productionSigned: false,
+              productionTrustRootsIncluded: false
+            }' > "$bundle/BUILD-INFO.json"
+          cat > "$bundle/README.txt" <<EOF
+          Project Space development tools for PR #${PR_NUMBER}, commit ${SOURCE_SHA}.
+          Preview: ${preview_url}
+
+          The executables use development-only names. This bundle is unsigned,
+          contains no production trust roots, is not an installer,
+          and must not replace a stable installation. It is intended only for explicit PR testing.
+          Start tools with PROJECT_SPACE_RELEASE_CHANNEL=dev and PROJECT_SPACE_INSTALL_SOURCE=source.
+          The macOS bundle intentionally omits the production-signed Secure Enclave approval helper.
+          EOF
+          (
+            cd "$bundle"
+            sha256sum "$PROJECT_NAME" "$CONNECTOR_NAME" BUILD-INFO.json README.txt > SHA256SUMS.txt
+          )
+          if [[ "$GOOS" == windows ]]; then
+            (cd "$RUNNER_TEMP" && zip -q -r "${{ matrix.artifact }}.zip" "${{ matrix.artifact }}")
+            sha256sum "$RUNNER_TEMP/${{ matrix.artifact }}.zip" > "$RUNNER_TEMP/${{ matrix.artifact }}.zip.sha256"
+          else
+            tar -C "$RUNNER_TEMP" -czf "$RUNNER_TEMP/${{ matrix.artifact }}.tar.gz" "${{ matrix.artifact }}"
+            sha256sum "$RUNNER_TEMP/${{ matrix.artifact }}.tar.gz" > "$RUNNER_TEMP/${{ matrix.artifact }}.tar.gz.sha256"
+          fi
+
+      - name: Revalidate exact PR head before upload
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pull_request }}
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          pr_json="$RUNNER_TEMP/pr-before-upload.json"
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$pr_json"
+          jq -e --arg repository "$GITHUB_REPOSITORY" --arg sha "$SOURCE_SHA" '
+            .state == "open" and
+            .base.ref == "main" and
+            .base.repo.full_name == $repository and
+            .head.repo.full_name == $repository and
+            .head.sha == $sha
+          ' "$pr_json" >/dev/null
+
+      - name: Upload short-lived development artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ matrix.artifact }}
+          if-no-files-found: error
+          overwrite: false
+          path: |
+            ${{ runner.temp }}/${{ matrix.artifact }}.tar.gz
+            ${{ runner.temp }}/${{ matrix.artifact }}.tar.gz.sha256
+            ${{ runner.temp }}/${{ matrix.artifact }}.zip
+            ${{ runner.temp }}/${{ matrix.artifact }}.zip.sha256
+          retention-days: 7

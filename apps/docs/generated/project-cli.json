@@ -1851,6 +1851,61 @@
         ]
       },
       {
+        "path": "project dev-build",
+        "name": "dev-build",
+        "usage": "dev-build",
+        "short": "Build short-lived development tools for an exact pull request head",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for dev-build",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project dev-build create",
+            "name": "create",
+            "usage": "create [directory]",
+            "short": "Request unsigned PR development tools",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: pretty or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for create",
+                "inherited": false
+              },
+              {
+                "name": "platform",
+                "type": "stringSlice",
+                "description": "development platform: linux-x64, macos-arm64, or windows-x64",
+                "inherited": false
+              },
+              {
+                "name": "pr",
+                "type": "int",
+                "description": "GitHub pull request number",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      },
+      {
         "path": "project disconnect",
         "name": "disconnect",
         "usage": "disconnect",

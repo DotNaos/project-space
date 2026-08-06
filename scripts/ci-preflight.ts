@@ -3,8 +3,8 @@
 import { readdirSync } from 'node:fs';
 import { platform } from 'node:os';
 import {
+  fastCiSelection,
   releaseVerificationPolicy,
-  releaseWorkflowTriggered,
 } from './release-verification-policy';
 
 export type PreflightLane = {
@@ -34,6 +34,7 @@ export function preflightPlan(input: {
   pullRequest?: number;
   version: string;
 }) {
+  const selection = fastCiSelection(input.changedPaths, input.fullMatrix);
   const lanes: PreflightLane[] = [
     { id: 'diff-hygiene', command: ['git', 'diff', '--check'] },
     { id: 'package-manager-policy', command: ['bun', 'run', 'check:package-manager'] },
@@ -49,57 +50,65 @@ export function preflightPlan(input: {
           ]
         : ['bun', 'run', 'docs:release:check'],
     },
-    {
-      id: 'generated-cli-docs',
-      command: ['bun', 'run', 'docs:cli:check'],
-    },
-    {
-      id: 'cli-docs-contract',
-      command: [
-        'go',
-        'test',
-        './cmd/project',
-        '-run',
-        'CLIDocs|RootCommandIncludesExpectedCommands',
-      ],
-    },
-    {
-      id: 'docs-dependencies',
-      command: ['bun', 'install', '--frozen-lockfile'],
-      reason: 'working-directory=apps/docs',
-    },
-    {
-      id: 'docs-typecheck',
-      command: ['bun', 'run', 'typecheck'],
-      reason: 'working-directory=apps/docs',
-    },
-    {
-      id: 'docs-build',
-      command: ['bun', 'run', 'build'],
-      reason: 'working-directory=apps/docs',
-    },
-    { id: 'typescript', command: ['bun', 'run', 'check'] },
     { id: 'tests', command: ['bun', 'test', '--isolate'] },
     { id: 'web-build', command: ['bun', 'run', 'build:web'] },
-    {
-      id: 'mobile-dependencies',
-      command: ['bun', 'install', '--frozen-lockfile'],
-      reason: 'working-directory=apps/mobile',
-    },
-    {
-      id: 'mobile-build',
-      command: ['bun', 'run', 'build:prototype'],
-      reason: 'working-directory=apps/mobile',
-    },
   ];
 
-  if (releaseWorkflowTriggered(input.changedPaths)) {
+  if (selection.cliDocs) {
+    lanes.push(
+      { id: 'generated-cli-docs', command: ['bun', 'run', 'docs:cli:check'] },
+      {
+        id: 'cli-docs-contract',
+        command: [
+          'go',
+          'test',
+          './cmd/project',
+          '-run',
+          'CLIDocs|RootCommandIncludesExpectedCommands',
+        ],
+      },
+    );
+  }
+  if (selection.docs) {
+    lanes.push(
+      {
+        id: 'docs-dependencies',
+        command: ['bun', 'install', '--frozen-lockfile'],
+        reason: 'working-directory=apps/docs',
+      },
+      {
+        id: 'docs-typecheck',
+        command: ['bun', 'run', 'typecheck'],
+        reason: 'working-directory=apps/docs',
+      },
+      {
+        id: 'docs-build',
+        command: ['bun', 'run', 'build'],
+        reason: 'working-directory=apps/docs',
+      },
+    );
+  }
+  if (selection.mobile) {
+    lanes.push(
+      {
+        id: 'mobile-dependencies',
+        command: ['bun', 'install', '--frozen-lockfile'],
+        reason: 'working-directory=apps/mobile',
+      },
+      {
+        id: 'mobile-build',
+        command: ['bun', 'run', 'build:prototype'],
+        reason: 'working-directory=apps/mobile',
+      },
+    );
+  }
+  if (selection.go) {
     lanes.push(
       { id: 'go-race', command: ['go', 'test', '-race', './...'] },
       { id: 'go-vet', command: ['go', 'vet', './...'] },
     );
   }
-  if (requiresWorkflowLint(input.changedPaths)) {
+  if (selection.workflow) {
     lanes.push({
       id: 'actionlint',
       command: [
@@ -134,12 +143,6 @@ export function preflightPlan(input: {
 
 function remote(id: string, reason: string): PreflightLane {
   return { id, reason, remoteOnly: true };
-}
-
-function requiresWorkflowLint(paths: string[]) {
-  return paths.some((path) =>
-    /^(?:\.github\/|deploy\/|packaging\/|scripts\/.*\.(?:sh|ts)$)/.test(path),
-  );
 }
 
 function trackedShellScripts() {
@@ -223,6 +226,7 @@ async function main() {
     headSha,
     changedPaths,
     classification: {
+      fastCi: fastCiSelection(changedPaths, classification.fullMatrix),
       fullMatrix: classification.fullMatrix,
       mode: classification.fullMatrix ? 'full' : 'patch-fast',
       reason: classification.reason,

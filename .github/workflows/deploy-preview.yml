@@ -1,6 +1,10 @@
 name: Deploy PR preview
-run-name: Preview ${{ inputs.action || 'deploy' }} PR #${{ inputs.pr || github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number }} · ${{ inputs.operation_id || github.event.workflow_run.id || github.event.action }}
+run-name: Preview control · ${{ inputs.action || github.event.action || 'reap' }} ${{ inputs.pr || github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number || '' }}
 on:
+  pull_request_target:
+    types: [closed]
+  schedule:
+    - cron: '23 3 * * *'
   workflow_dispatch:
     inputs:
       action:
@@ -8,10 +12,10 @@ on:
         required: true
         default: deploy
         type: choice
-        options: [build, start, stop, touch, deploy, destroy]
+        options: [build, start, stop, touch, deploy, destroy, reap]
       pr:
         description: Pull request number
-        required: true
+        required: false
         type: string
       requested_head_sha:
         description: Exact PR head captured by the trusted CLI
@@ -35,7 +39,12 @@ on:
         type: string
       operation_id:
         description: Unique CLI operation identifier
-        required: true
+        required: false
+        type: string
+      ttl_hours:
+        description: Maximum Preview lifetime in hours when reaping
+        required: false
+        default: '168'
         type: string
   workflow_run:
     workflows: [Build PR preview artifacts]
@@ -43,7 +52,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: project-space-preview-pr-${{ inputs.pr || github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number }}
+  group: project-space-preview-${{ (github.event_name == 'schedule' || inputs.action == 'reap') && 'reaper' || format('pr-{0}', inputs.pr || github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number) }}
   cancel-in-progress: false
 env:
   PREVIEW_REPOSITORY: DotNaos/project-space
@@ -508,18 +517,47 @@ jobs:
             preview-error.sanitized.log
           if-no-files-found: error
           retention-days: 14
-  lifecycle:
-    name: Explicitly start or stop a registered Preview
+  control:
+    name: Control or reap registered Previews
     needs: resolve
-    if: needs.resolve.outputs.disposition == 'current' && github.event_name == 'workflow_dispatch' && contains(fromJSON('["start","stop","touch"]'), inputs.action)
+    if: >-
+      always() && (
+        (github.event_name == 'workflow_dispatch' && contains(fromJSON('["start","stop","touch"]'), inputs.action) && needs.resolve.outputs.disposition == 'current') ||
+        (github.event_name == 'workflow_dispatch' && contains(fromJSON('["destroy","reap"]'), inputs.action)) ||
+        github.event_name == 'pull_request_target' || github.event_name == 'schedule'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
       name: Preview
     permissions:
       contents: read
+      deployments: write
       pull-requests: read
     steps:
+      - name: Validate explicit controller request
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'destroy'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPERATION_ID: ${{ inputs.operation_id }}
+          PR_NUMBER: ${{ inputs.pr }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main && "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$OPERATION_ID" =~ ^preview-[0-9a-f]{32}$ ]]
+          permission=$(gh api "repos/$PREVIEW_REPOSITORY/collaborators/$GITHUB_ACTOR/permission" --jq .permission)
+          case "$permission" in admin|maintain|write) ;; *) exit 77;; esac
+      - name: Resolve the complete open PR set
+        if: github.event_name == 'schedule' || inputs.action == 'reap'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$PREVIEW_REPOSITORY/pulls?state=open&per_page=100" --jq '.[].number' |
+            jq -s 'map(select(type == "number" and . > 0)) | unique' > open-prs.json
+          jq -e 'type == "array"' open-prs.json >/dev/null
       - name: Load Preview-only controller credentials
         id: preview-secrets
         uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
@@ -561,6 +599,7 @@ jobs:
           tags: tag:ci-project-space-preview
           ping: ${{ vars.PROJECT_SPACE_PREVIEW_DEPLOY_IP }}
       - name: Apply explicit lifecycle transition
+        if: contains(fromJSON('["start","stop","touch"]'), inputs.action)
         shell: bash
         env:
           ACTION: ${{ inputs.action }}
@@ -577,124 +616,76 @@ jobs:
             --arg replacementHeadSha "$REPLACEMENT_HEAD_SHA" --arg replacementRepository "$REPLACEMENT_REPOSITORY" \
             --argjson replacementPr "${REPLACEMENT_PR:-null}" \
             '{repository:$repository,prNumber:$pr,headSha:$headSha,requestedHeadSha:$headSha,
-              inventoryRevision:($inventoryRevision // null),
-              selectedReplacementPullRequestNumber:$replacementPr,
+              inventoryRevision:($inventoryRevision // null),selectedReplacementPullRequestNumber:$replacementPr,
               selectedReplacementRepositoryFullName:($replacementRepository // null),
               selectedReplacementHeadSha:($replacementHeadSha // null)}' |
-          ssh project-space-preview "$ACTION" | tee lifecycle-output.log
+            ssh project-space-preview "$ACTION" | tee lifecycle-output.log
           jq -Rsce --arg prefix 'PROJECT_SPACE_PREVIEW_RECEIPT=' '
-            split("\n")
-            | map(select(startswith($prefix)) | ltrimstr($prefix))
-            | select(length == 1)
-            | .[0]
-            | fromjson
-            | select(type == "object")
+            split("\n") | map(select(startswith($prefix)) | ltrimstr($prefix)) |
+            select(length == 1) | .[0] | fromjson | select(type == "object")
           ' lifecycle-output.log > lifecycle-result.json
-          jq -e \
-            --arg action "$ACTION" \
-            --arg repository "$PREVIEW_REPOSITORY" \
-            --argjson pr "$PR_NUMBER" \
-            --arg sha "$REQUESTED_HEAD_SHA" \
-            '.repositoryFullName == $repository and
-             .pullRequestNumber == $pr and
-             .requestedSha == $sha and
-             if $action == "start" then
-               .state == "online" and .runningSha == $sha and
-               .prototypeHealthy == true and .composeHealthy == true and
-               .httpHealthy == true and .liveOriginHealthy == true
-             elif $action == "stop" then
-               .state == "ready" and .runningSha == null and .prototypeHealthy == false
-             elif $action == "touch" then
-               .state == "online" and .runningSha == $sha and
-             (.activityLeaseExpiresAt | type == "string" and length > 0)
-             else false end' lifecycle-result.json >/dev/null
-  manual-destroy:
-    name: Manually remove exact PR preview
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'destroy'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    environment:
-      name: Preview
-    permissions:
-      contents: read
-      deployments: write
-      pull-requests: read
-    steps:
-      - name: Validate destroy request and caller
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          OPERATION_ID: ${{ inputs.operation_id }}
-          PR_NUMBER: ${{ inputs.pr }}
-        run: |
-          set -euo pipefail
-          [[ "$GITHUB_REF" == refs/heads/main ]] || exit 64
-          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || exit 64
-          [[ "$OPERATION_ID" =~ ^preview-[0-9a-f]{32}$ ]] || exit 64
-          permission=$(gh api "repos/$PREVIEW_REPOSITORY/collaborators/$GITHUB_ACTOR/permission" --jq .permission)
-          case "$permission" in admin|maintain|write) ;; *) exit 77;; esac
-      - name: Load Preview-only controller credentials
-        id: preview-secrets
-        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
-        env:
-          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          SSH_PRIVATE_KEY: op://projects/Project Space Preview Deploy SSH/private_key
-          TS_OAUTH_CLIENT_ID: op://projects/Project Space Preview Tailscale CI Client ID/credential
-          TS_OAUTH_SECRET: op://projects/Project Space Preview Tailscale CI Secret/credential
-      - name: Configure forced-command Preview SSH identity
-        shell: bash
-        env:
-          SSH_PRIVATE_KEY: ${{ steps.preview-secrets.outputs.SSH_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          install -d -m 700 "$HOME/.ssh"
-          umask 077
-          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/project-space-preview"
-          printf '%s\n' '${{ vars.PROJECT_SPACE_PREVIEW_SSH_KNOWN_HOSTS }}' > "$HOME/.ssh/known_hosts"
-          cat > "$HOME/.ssh/config" <<SSH_CONFIG
-          Host project-space-preview
-            HostName ${{ vars.PROJECT_SPACE_PREVIEW_DEPLOY_IP }}
-            User preview-deploy
-            IdentityFile ~/.ssh/project-space-preview
-            IdentitiesOnly yes
-            StrictHostKeyChecking yes
-            UserKnownHostsFile ~/.ssh/known_hosts
-            ForwardAgent no
-            ForwardX11 no
-            BatchMode yes
-            PasswordAuthentication no
-            KbdInteractiveAuthentication no
-          SSH_CONFIG
-          chmod 600 "$HOME/.ssh/config" "$HOME/.ssh/known_hosts" "$HOME/.ssh/project-space-preview"
-      - name: Connect ephemeral Preview CI identity to Tailscale
-        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
-        with:
-          oauth-client-id: ${{ steps.preview-secrets.outputs.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ steps.preview-secrets.outputs.TS_OAUTH_SECRET }}
-          tags: tag:ci-project-space-preview
-          ping: ${{ vars.PROJECT_SPACE_PREVIEW_DEPLOY_IP }}
+          jq -e --arg action "$ACTION" --arg repository "$PREVIEW_REPOSITORY" \
+            --argjson pr "$PR_NUMBER" --arg sha "$REQUESTED_HEAD_SHA" '
+            .repositoryFullName == $repository and .pullRequestNumber == $pr and .requestedSha == $sha and
+            if $action == "start" then .state == "online" and .runningSha == $sha and
+              .prototypeHealthy == true and .composeHealthy == true and .httpHealthy == true and .liveOriginHealthy == true
+            elif $action == "stop" then .state == "ready" and .runningSha == null and .prototypeHealthy == false
+            elif $action == "touch" then .state == "online" and .runningSha == $sha and
+              (.activityLeaseExpiresAt | type == "string" and length > 0)
+            else false end' lifecycle-result.json >/dev/null
       - name: Remove only the requested PR resources and persist tombstone
+        if: inputs.action == 'destroy' || github.event_name == 'pull_request_target'
         shell: bash
         env:
-          PR_NUMBER: ${{ inputs.pr }}
+          PR_NUMBER: ${{ inputs.pr || github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          jq -n --arg repository "$PREVIEW_REPOSITORY" --argjson pr "$PR_NUMBER" \
-            --arg reason "manual_destroy" '{repository:$repository,prNumber:$pr,reason:$reason}' |
+          reason=manual_destroy
+          [[ "$GITHUB_EVENT_NAME" != pull_request_target ]] || reason=pull_request_closed
+          jq -n --arg repository "$PREVIEW_REPOSITORY" --argjson pr "$PR_NUMBER" --arg reason "$reason" \
+            '{repository:$repository,prNumber:$pr,reason:$reason}' |
             ssh project-space-preview destroy > cleanup-result.json
           jq -e '.state == "removed" and .cleanup.containersAbsent and .cleanup.networksAbsent and
             .cleanup.volumesAbsent and .cleanup.runtimePathAbsent and .cleanup.routeAbsent' cleanup-result.json >/dev/null
       - name: Mark latest GitHub Preview deployment inactive
+        if: inputs.action == 'destroy' || github.event_name == 'pull_request_target'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ inputs.pr }}
+          PR_NUMBER: ${{ inputs.pr || github.event.pull_request.number }}
         run: |
           set -euo pipefail
           deployment_id=$(gh api "repos/$PREVIEW_REPOSITORY/deployments?environment=preview/pr-$PR_NUMBER&per_page=1" --jq '.[0].id // empty')
-          [[ -z "$deployment_id" ]] || gh api --method POST \
-            "repos/$PREVIEW_REPOSITORY/deployments/$deployment_id/statuses" --input - <<JSON
-          {"state":"inactive","environment":"preview/pr-$PR_NUMBER","auto_inactive":false,
-           "log_url":"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID",
-           "description":"Manual destroy positively removed Preview resources."}
-          JSON
+          [[ -z "$deployment_id" ]] || jq -n --arg environment "preview/pr-$PR_NUMBER" \
+            --arg logUrl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{state:"inactive",environment:$environment,auto_inactive:false,log_url:$logUrl,
+              description:"Preview resources were positively removed."}' |
+            gh api --method POST "repos/$PREVIEW_REPOSITORY/deployments/$deployment_id/statuses" --input -
+      - name: Reap from authoritative VPS registry
+        if: github.event_name == 'schedule' || inputs.action == 'reap'
+        shell: bash
+        env:
+          REQUESTED_TTL: ${{ inputs.ttl_hours || '168' }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUESTED_TTL" =~ ^[1-9][0-9]*$ ]] && (( REQUESTED_TTL <= 720 )) || exit 64
+          jq -n --argjson open "$(cat open-prs.json)" --argjson ttl "$REQUESTED_TTL" \
+            '{openPullRequests:$open,ttlHours:$ttl}' |
+            ssh project-space-preview reap > reaper-result.json
+          jq -e '.status == "complete" and (.removedPullRequests | type == "array")' reaper-result.json >/dev/null
+      - name: Mark reaped GitHub deployments inactive
+        if: github.event_name == 'schedule' || inputs.action == 'reap'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          jq -r '.removedPullRequests[]' reaper-result.json | while read -r pr_number; do
+            [[ "$pr_number" =~ ^[1-9][0-9]*$ ]] || exit 64
+            deployment_id=$(gh api "repos/$PREVIEW_REPOSITORY/deployments?environment=preview/pr-$pr_number&per_page=1" --jq '.[0].id // empty')
+            [[ -z "$deployment_id" ]] || jq -n --arg environment "preview/pr-$pr_number" \
+              --arg logUrl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              '{state:"inactive",environment:$environment,auto_inactive:false,log_url:$logUrl,
+                description:"Preview reaper positively removed runtime resources."}' |
+              gh api --method POST "repos/$PREVIEW_REPOSITORY/deployments/$deployment_id/statuses" --input -
+          done

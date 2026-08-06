@@ -13,6 +13,10 @@ import {
   validateReleasePullRequest,
   type ChangedReleaseFile,
 } from '../apps/docs/lib/releases/pull-request-gate';
+import {
+  readReleaseIdentitySources,
+  validateReleaseIdentityBundle,
+} from './release-identity';
 
 const repositoryRoot = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -55,6 +59,19 @@ try {
     pullRequestNumber,
   });
   if (!result.ok) fail(result.errors);
+  const identityErrors = validateReleaseIdentityBundle(
+    readReleaseIdentitySources(),
+    headPackageVersion,
+  );
+  if (identityErrors.length > 0) fail(identityErrors);
+  if (result.mode === 'ordinary') {
+    console.log(
+      `Merged pull request #${pullRequestNumber} keeps version ${currentMainVersion}; no versioned release is required.`,
+    );
+    writeOutput('release_required', 'false');
+    writeOutput('release_exists', 'false');
+    process.exit(0);
+  }
 
   const tag = `v${result.entry.version}`;
   const existingTagCommit = await githubTagCommit(tag);
@@ -69,6 +86,7 @@ try {
       `GitHub Release ${tag} already exists at ${after}; publication is complete.`,
     );
     writeOutput('tag', tag);
+    writeOutput('release_required', 'true');
     writeOutput('release_exists', 'true');
     process.exit(0);
   }
@@ -90,6 +108,7 @@ try {
     console.log(`Reusing ${tag} at merged commit ${after}.`);
   }
   writeOutput('tag', tag);
+  writeOutput('release_required', 'true');
   writeOutput('release_exists', 'false');
 } catch (error) {
   console.error(

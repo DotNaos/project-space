@@ -1,23 +1,34 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { releaseVerificationPolicy } from '../scripts/release-verification-policy';
+import {
+  fastCiSelection,
+  releaseVerificationPolicy,
+} from '../scripts/release-verification-policy';
 
 const patch = {
   baseVersion: '0.4.49',
   changedPaths: ['src/features/project-desktop/example.tsx'],
   eventName: 'pull_request',
-  headVersion: '0.4.50',
+  headVersion: '0.4.49',
 };
 
 describe('release verification policy', () => {
-  test('uses the measured Linux fast path for an ordinary patch', () => {
+  test('uses changed-path extras for an ordinary unversioned pull request', () => {
     expect(releaseVerificationPolicy(patch)).toEqual({
       fullMatrix: false,
-      reason: 'ordinary patch uses Linux proof plus all shared quality gates',
+      reason: 'ordinary pull request keeps the current version and uses changed-path extras',
+    });
+    expect(fastCiSelection(patch.changedPaths, false)).toEqual({
+      cliDocs: false,
+      docs: false,
+      go: false,
+      mobile: false,
+      workflow: false,
     });
   });
 
   test.each([
+    ['patch release', { ...patch, headVersion: '0.4.50' }],
     ['minor release', { ...patch, headVersion: '0.5.0' }],
     ['major release', { ...patch, headVersion: '1.0.0' }],
     ['non-sequential version', { ...patch, headVersion: '0.4.51' }],
@@ -55,6 +66,7 @@ describe('release verification policy', () => {
       'utf8',
     );
     const docs = readFileSync('docs/ci-reliability.md', 'utf8');
+    const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
     const windowsCall = workflow.slice(
       workflow.indexOf('  windows-x64:'),
       workflow.indexOf('  linux-x64:'),
@@ -68,28 +80,19 @@ describe('release verification policy', () => {
       workflow.indexOf('  verification-policy:'),
     );
 
-    expect(workflow).toContain(
-      'group: release-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}',
-    );
-    expect(workflow).toContain(
-      "cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
-    );
+    expect(workflow).toContain('on:\n  workflow_dispatch:');
+    expect(workflow).not.toContain('pull_request:');
+    expect(workflow).toContain('group: release-${{ github.ref }}');
+    expect(workflow).toContain('cancel-in-progress: false');
     expect(workflow).toContain(
       'full-matrix: ${{ steps.classify.outputs.full-matrix }}',
     );
     expect(workflow).toContain(
       'uses: ./.github/workflows/release-quality.yml',
     );
-    for (const reachableCriticalPath of [
-      "'.github/actions/release-quality/**'",
-      "'internal/approvalsigner/**'",
-      "'scripts/ci-preflight.ts'",
-      "'scripts/prepare-release-pr.ts'",
-      "'scripts/release-identity.ts'",
-      "'scripts/release-verification-policy.ts'",
-    ]) {
-      expect(workflow).toContain(reachableCriticalPath);
-    }
+    expect(ci).toContain('bun scripts/release-verification-policy.ts');
+    expect(ci).toContain('BASE_SHA: ${{ github.event.pull_request.base.sha }}');
+    expect(ci).toContain('HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}');
     expect(windowsCall).toContain(
       "if: needs.classify.outputs.full-matrix == 'true'",
     );
@@ -157,11 +160,8 @@ describe('release verification policy', () => {
     expect(windows).toContain('packaging\\windows\\test-release-packaging.ps1');
     expect(windows).toContain('winget validate --ignore-warnings');
 
-    expect(docs).toContain(
-      '| Ordinary sequential patch | required | required | required | required | required | skipped | skipped |',
-    );
-    expect(docs).toContain(
-      '| Median runner use | 8.65 min | 4.35 min | -49.7% |',
-    );
+    expect(docs).toContain('An ordinary pull request has two merge-relevant results:');
+    expect(docs).toContain('The expected feedback target under normal runner availability is two to five');
+    expect(docs).toContain('`release.yml` is manual tag-dispatch');
   });
 });

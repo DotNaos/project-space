@@ -549,7 +549,7 @@ jobs:
             && ! -e $RUNNER_TEMP/project-space-release-codesign.log ]] || cleanup_status=1
           exit "$cleanup_status"
       - name: Upload signed helper after cleanup
-        if: success() && github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        if: success() && github.ref_type == 'tag' && github.event_name == 'workflow_dispatch'
         id: upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

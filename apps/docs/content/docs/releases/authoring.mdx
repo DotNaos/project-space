@@ -1,23 +1,28 @@
 ---
 title: Release authoring
-description: Add the one versioned release entry required for every pull request.
+description: Prepare a short-lived pull request for a versioned tools release.
 ---
 
-Every pull request targeting `main` owns exactly one file at
+Ordinary pull requests keep the current package version and add no versioned
+release entry. Their trusted exact-head check proves that the release identity
+remained unchanged.
+
+A pull request that intentionally publishes new Project CLI, connector,
+installer, or machine-tool artifacts owns exactly one file at
 `apps/docs/content/docs/releases/entries/<PR>.mdx`. Its filename,
-`pullRequest`, expected Semantic Version, and the pull request must agree.
+`pullRequest`, expected Semantic Version, and release pull request must agree.
 
 Copy `apps/docs/content/docs/releases/entry-template.mdx.template`, replace
 every example value with real release information, and save it under the
-public pull request number. The required Docs check validates the file again
-against the latest `main` before merge.
+public release pull request number. The trusted release check validates the
+file again against the latest `main` before merge.
 
 ## Authoring rules
 
 - Use `patch` for the normal compatible correction or small improvement.
 - Use `minor` for a compatible new capability.
 - Use `major` only for an intentionally incompatible release.
-- Keep all user-visible changes from the pull request in this one release.
+- Summarize all user-visible changes included since the preceding release.
 - Put exact Preview checks inside `PreviewOnly`; they are not published.
 - Never add imports, exports, executable expressions, raw HTML, images,
   credentials, placeholder text, or unsafe links.

@@ -36,6 +36,7 @@ project
 | [`connector`](#project-connector) | - | Set up Project Space machine connector links |
 | [`create`](#project-create) | `new` | Create and initialize a new project |
 | [`deploy`](#project-deploy) | - | Deploy this project to the VPS |
+| [`dev-build`](#project-dev-build) | - | Build short-lived development tools for an exact pull request head |
 | [`disconnect`](#project-disconnect) | - | Disconnect this machine from Project Space |
 | [`doctor`](#project-doctor) | - | Diagnose local or managed-machine Project Space readiness |
 | [`help`](#project-help) | - | Help about any command |
@@ -757,6 +758,33 @@ project deploy status [directory]
 | `--host` | `string` | local | SSH host |
 | `--lock-timeout` | `duration` | local | maximum time to wait for the remote deployment lock |
 | `--path` | `string` | local | remote project directory |
+
+<h3 id="project-dev-build" className="scroll-m-28"><code>project dev-build</code></h3>
+
+Build short-lived development tools for an exact pull request head
+
+```sh
+project dev-build
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for dev-build |
+
+<h3 id="project-dev-build-create" className="scroll-m-28"><code>project dev-build create</code></h3>
+
+Request unsigned PR development tools
+
+```sh
+project dev-build create [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for create |
+| `--platform` | `stringSlice` | local | development platform: linux-x64, macos-arm64, or windows-x64 |
+| `--pr` | `int` | local | GitHub pull request number |
 
 <h3 id="project-disconnect" className="scroll-m-28"><code>project disconnect</code></h3>
 

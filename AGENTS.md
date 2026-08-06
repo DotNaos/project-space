@@ -13,11 +13,12 @@
 
 - Treat every push that creates or updates a pull request as a handoff to CI. Commit the exact revision locally, then run `bun run ci:preflight --base origin/main --head HEAD --pull-request <number> --format json` before pushing it.
 - The preflight report records the exact base and head commits, changed paths, selected release matrix, every local result, and every protected remote-only gate. A green local report is not signing, release, Preview, deployment, rollback, or health proof.
-- When a draft pull request is needed only to obtain its number, finish and verify one coherent implementation revision before that first push. Keep the pull request draft while preparing its numbered release entry.
-- Author `apps/docs/content/docs/releases/entries/<PR>.mdx` completely with `__VERSION__` and `__PR_NUMBER__` only in the two identity fields. From an otherwise clean worktree, run `bun run release:prepare --pull-request <PR> --version <next-version> --format json` once. It updates the complete package, connector, Windows, documentation, fixture, and release-entry identity bundle together.
+- Ordinary pull requests keep the current package version and do not add a versioned release entry. The trusted exact-head release decision must still pass and prove that neither half of the release identity changed.
+- Use a short-lived release pull request only when a new versioned CLI, connector, installer, or machine-tool release is intended. When a draft release pull request is needed only to obtain its number, finish and verify one coherent implementation revision before that first push, then keep it draft while preparing its numbered release entry.
+- For a release pull request, author `apps/docs/content/docs/releases/entries/<PR>.mdx` completely with `__VERSION__` and `__PR_NUMBER__` only in the two identity fields. From an otherwise clean worktree, run `bun run release:prepare --pull-request <PR> --version <next-version> --format json` once. It updates the complete package, connector, Windows, documentation, fixture, and release-entry identity bundle together.
 - Never edit or push coupled release identity files one at a time. The release helper refuses staged, unrelated, stale, duplicate, partial, or ambiguous input and is safe to rerun only when the exact prepared bundle is already present.
 - If CI fails, inspect all failures, reproduce the shared cause locally where possible, repair the complete revision, rerun the canonical preflight, and push once. Do not blind-retry deterministic failures.
-- Drafts keep all non-release documentation checks. The numbered release-entry requirement begins at `ready_for_review`; an invalid ready exact head remains unmergeable.
+- Drafts keep all non-release checks. A ready exact head remains unmergeable when its trusted release decision is invalid, whether it is an ordinary pull request or an explicit release pull request.
 - Use `bun run ci:inventory:open-prs --format markdown` for a read-only legacy report. It never edits, readies, closes, or replaces checks on another pull request.
 
 ## Project Space Deployments

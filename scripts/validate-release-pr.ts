@@ -8,6 +8,10 @@ import {
   validateReleasePullRequest,
   type ChangedReleaseFile,
 } from '../apps/docs/lib/releases/pull-request-gate';
+import {
+  releaseIdentityPaths,
+  validateReleaseIdentityBundle,
+} from './release-identity';
 
 const entryDirectory =
   'apps/docs/content/docs/releases/entries';
@@ -92,6 +96,26 @@ async function main() {
   });
   if (!result.ok) {
     fail(result.errors);
+  }
+  const identitySources = new Map(
+    await Promise.all(
+      releaseIdentityPaths.map(async (path) => [
+        path,
+        await gitTextValidation('show', `${headRef}:${path}`),
+      ] as const),
+    ),
+  );
+  const identityErrors = validateReleaseIdentityBundle(
+    identitySources,
+    headPackageVersion,
+  );
+  if (identityErrors.length > 0) fail(identityErrors);
+
+  if (result.mode === 'ordinary') {
+    console.log(
+      `Release gate passed: PR #${pullRequest} keeps published version ${currentMainVersion}; no versioned release is requested.`,
+    );
+    return;
   }
 
   console.log(
