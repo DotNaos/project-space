@@ -1,5 +1,18 @@
 #!/bin/sh
 
+ensure_postgres_volume() {
+  volume="${compose_project}_postgres-data"
+  if ! docker volume inspect "$volume" >/dev/null 2>&1; then
+    docker volume create \
+      --label com.dotnaos.project-space.preview=true \
+      --label "com.dotnaos.project-space.repository=$repository" \
+      --label "com.dotnaos.project-space.pr=$pr" \
+      "$volume" >/dev/null || fail 'could not create the Preview database volume' 70
+  fi
+  docker volume inspect "$volume" >/dev/null 2>&1 ||
+    fail 'Preview database volume is unavailable' 70
+}
+
 cleanup_reproducible_storage() {
   docker image prune -af --filter 'label=com.dotnaos.project-space.preview=true' >/dev/null 2>&1 || true
   docker builder prune -af --filter 'label=com.dotnaos.project-space.preview=true' >/dev/null 2>&1 || true

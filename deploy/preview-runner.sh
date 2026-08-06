@@ -161,6 +161,7 @@ assert_state_transition() {
 }
 
 compose() {
+  if [ "${1:-}" = up ]; then ensure_postgres_volume; fi
   docker compose --env-file "$env_file" -p "$compose_project" -f "$COMPOSE_FILE" "$@"
 }
 

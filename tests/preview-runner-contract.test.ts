@@ -406,6 +406,13 @@ printf '%s\n' "{\"state\":\"open\",\"base\":{\"ref\":\"main\",\"repo\":{\"full_n
     expect(runner).toContain('verify_runtime_with_retry "$old_sha"');
     expect(runner).toContain('compose pull --quiet >&2');
     expect(runner).toContain('compose up -d --wait --wait-timeout 240 >&2');
+    expect(runner).toContain('ensure_postgres_volume');
+    expect(storagePolicy).toContain('docker volume create');
+    expect(compose).toContain('external: true');
+    expect(compose).toContain(
+      'name: ${PREVIEW_COMPOSE_PROJECT:?set PREVIEW_COMPOSE_PROJECT}_postgres-data',
+    );
+    expect(compose).not.toContain('postgres-data:\n    labels: *preview-labels');
     expect(runner).toContain('PREVIEW_RECEIPT_PREFIX=PROJECT_SPACE_PREVIEW_RECEIPT=');
     expect(runner).toContain('jq -cn');
     expect(runner).toContain("jq -ce 'select(type == \"object\")'");
