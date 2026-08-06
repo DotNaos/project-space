@@ -7,6 +7,7 @@ const previewWebDockerfile = new URL(
   '../deploy/preview.web.Dockerfile',
   import.meta.url
 );
+const productionWebDockerfile = new URL('../deploy/Dockerfile', import.meta.url);
 
 describe('Project build routing', () => {
   test('keeps the aggregate build complete outside a trusted web image', () => {
@@ -42,6 +43,17 @@ describe('Project build routing', () => {
 
   test('keeps server-side changelog modules in the Preview web runtime', async () => {
     const dockerfile = await readFile(previewWebDockerfile, 'utf8');
+
+    expect(dockerfile).toContain(
+      'COPY --from=build /workspace/apps/docs/lib/releases /workspace/apps/docs/lib/releases'
+    );
+    expect(dockerfile).toContain(
+      'RUN bun -e "await import(\'./server/project-space-api-public-routes.ts\')"'
+    );
+  });
+
+  test('keeps server-side changelog modules in the production web runtime', async () => {
+    const dockerfile = await readFile(productionWebDockerfile, 'utf8');
 
     expect(dockerfile).toContain(
       'COPY --from=build /workspace/apps/docs/lib/releases /workspace/apps/docs/lib/releases'
