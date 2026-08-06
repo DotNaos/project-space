@@ -115,6 +115,8 @@ export function preflightPlan(input: {
         'go',
         'run',
         'github.com/rhysd/actionlint/cmd/actionlint@v1.7.7',
+        '-shellcheck',
+        'shellcheck -S error',
         ...workflowFiles(),
       ],
     });

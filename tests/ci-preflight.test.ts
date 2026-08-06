@@ -101,6 +101,9 @@ describe('canonical local CI preflight', () => {
       'macos-packaging',
       'post-run-cleanliness',
     ]));
+    expect(plan.find(({ id }) => id === 'actionlint')?.command).toContain(
+      'shellcheck -S error',
+    );
     expect(plan.filter(({ remoteOnly }) => remoteOnly).map(({ id }) => id)).toEqual([
       'linux-release-artifact',
       'windows-release-artifact',
