@@ -44,7 +44,7 @@ esac`
       join(managedBin, 'codex'),
       `case "\${1:-}" in
   --version) echo "codex-cli 0.145.0" ;;
-  app-server) echo "\$*" >> "\${join(root, 'daemon-called')}" ;;
+  app-server) echo "\$*" >> "${join(root, 'daemon-called')}" ;;
   *) exit 90 ;;
 esac`
     ),
