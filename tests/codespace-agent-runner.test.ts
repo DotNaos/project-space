@@ -206,6 +206,14 @@ describe('Codespace agent command and result contract', () => {
     ]);
   });
 
+  test('parses pretty-printed multiline JSON output', () => {
+    const outcome = parseCodespaceAgentStartResult(
+      JSON.stringify(confirmedResult(expected.operationId), null, 2),
+      expected
+    );
+    expect(outcome.kind).toBe('confirmed');
+  });
+
   test('preserves blocked and uncertain outcomes for safe replay', () => {
     expect(
       parseCodespaceAgentStartResult(

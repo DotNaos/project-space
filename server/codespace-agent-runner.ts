@@ -827,6 +827,15 @@ function shellCommand(command: string[]) {
 }
 
 function parseLastJSONObject(output: string): Record<string, unknown> {
+  const completeOutput = output.trim();
+  if (completeOutput) {
+    try {
+      const parsed: unknown = JSON.parse(completeOutput);
+      if (isRecord(parsed)) return parsed;
+    } catch {
+      // Fall back to a single JSON line after human-readable output.
+    }
+  }
   const lines = output
     .split(/\r?\n/)
     .map((line) => line.trim())
