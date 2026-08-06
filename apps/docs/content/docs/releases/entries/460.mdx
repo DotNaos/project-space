@@ -1,0 +1,39 @@
+---
+title: "Activate verified pull request previews"
+version: "0.4.61"
+bump: "patch"
+pullRequest: 460
+issues:
+  - 437
+areas:
+  - deploy
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  Trusted Preview checks can now finish while public traffic remains safely
+  offline, so automatic pull request deployments can activate successfully.
+</ReleaseSummary>
+
+## Changes
+
+### Fixed
+
+- The trusted Preview runner can verify protected routes before the Preview becomes public.
+- Ordinary browser traffic remains redirected to the trusted Preview hub until verification succeeds.
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Open a pull request Preview and confirm its exact revision activates automatically after all checks pass.
+- Confirm an unverified Preview still redirects ordinary visitors to the trusted hub.
+
+</PreviewOnly>
