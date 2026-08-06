@@ -227,7 +227,8 @@ export function projectMachineRuntimeStatus(input: {
     capabilities,
     approved
   );
-  const activeState = operation && !completedRollback && !retryableFailure
+  const activeState = operation && !completedRollback && !recoveredRollback &&
+    !retryableFailure
     ? progressState(operation)
     : undefined;
   const base = {
