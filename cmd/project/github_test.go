@@ -56,7 +56,6 @@ func TestGitHubRepositoryVisibilityFlag(t *testing.T) {
 	}
 }
 
-
 func TestApplyGitHubRulesetsCreatesOrUpdatesByName(t *testing.T) {
 	tests := []struct {
 		name         string
