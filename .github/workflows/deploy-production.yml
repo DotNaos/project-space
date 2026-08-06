@@ -1,4 +1,5 @@
 name: Deploy production
+run-name: Production · ${{ inputs.commit || github.sha }}
 
 on:
   workflow_dispatch:

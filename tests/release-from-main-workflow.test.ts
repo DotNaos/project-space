@@ -23,22 +23,20 @@ test('publishes a merged release only through the validated exact tag', () => {
   ].map((path) => readFileSync(path, 'utf8'));
 
   expect(workflow).toContain('branches: [main]');
+  expect(workflow).toContain("cron: '17 * * * *'");
+  expect(workflow).toContain('workflow_dispatch:');
   expect(workflow).toContain('cancel-in-progress: false');
-  expect(workflow).toContain('RELEASE_AFTER_SHA: ${{ github.sha }}');
   expect(workflow).toContain(
-    'RELEASE_BEFORE_SHA: ${{ github.event.before }}',
+    'group: publish-merged-release-${{ github.sha }}',
   );
+  expect(workflow).toContain('RELEASE_AFTER_SHA: ${{ github.sha }}');
+  expect(workflow).toContain('RELEASE_EVENT_NAME: ${{ github.event_name }}');
+  expect(workflow).not.toContain('github.event.before');
   expect(workflow).toContain(
     'bun scripts/publish-merged-release.ts',
   );
   expect(workflow).toContain(
-    'gh workflow run release.yml --ref "$RELEASE_TAG"',
-  );
-  expect(workflow).toContain(
-    "if: steps.release.outputs.release_required == 'true' && steps.release.outputs.release_exists != 'true'",
-  );
-  expect(workflow).toContain(
-    "if: steps.release.outputs.release_required != 'true'",
+    "if: steps.release.outputs.ordinary_deploy_required == 'true'",
   );
   expect(workflow).toContain(
     'gh workflow run deploy-production.yml --ref main -f commit="$MERGED_COMMIT"',
@@ -64,20 +62,28 @@ test('publishes a merged release only through the validated exact tag', () => {
     );
   }
   expect(publisher).toContain('validateReleasePullRequest');
-  expect(publisher).toContain("writeOutput('release_required', 'false')");
-  expect(publisher).toContain("writeOutput('release_required', 'true')");
+  expect(publisher).toContain("'log', '--first-parent', '--diff-filter=A'");
+  expect(publisher).toContain('Ignoring superseded unpublished');
+  expect(publisher).toContain('const oldestPending = pending.at(0)');
+  expect(publisher).toContain("eventName !== 'push' || candidate.commit !== head");
+  expect(publisher).toContain('Production waits for the oldest pending release');
+  expect(publisher).toContain('Draft GitHub Release ${candidate.tag} exists');
+  expect(publisher).toContain("workflowRuns('release.yml'");
+  expect(publisher).toContain('/rerun`');
+  expect(publisher).toContain('/actions/workflows/release.yml/dispatches');
+  expect(publisher).toContain("'deploy-production.yml',");
+  expect(publisher).toContain('already used its automatic recovery attempt');
+  expect(publisher).toContain("writeOutput('ordinary_deploy_required', 'true')");
   expect(publisher).toContain(
     'must belong to exactly one pull request targeting main',
   );
   expect(publisher).toContain('refs/tags/${tag}');
   expect(publisher).toContain(
-    'Draft GitHub Release ${tag} exists and is not published',
-  );
-  expect(publisher).toContain(
     '/releases/tags/${encodeURIComponent(tag)}',
   );
   expect(publisher).not.toContain('releases?per_page=100');
   expect(publisher).not.toContain('git push');
+  expect(publisher).not.toContain('RELEASE_BEFORE_SHA');
   const gitEntriesReader = publisher.slice(
     publisher.indexOf('function readGitEntries'),
     publisher.indexOf('function packageVersion'),

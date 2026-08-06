@@ -9,6 +9,9 @@ describe('production deployment workflow contract', () => {
     const workflow = await readFile(workflowPath, 'utf8');
 
     expect(workflow).toContain('workflow_dispatch:');
+    expect(workflow).toContain(
+      'run-name: Production · ${{ inputs.commit || github.sha }}',
+    );
     expect(workflow).not.toContain('push:\n    branches: [main]');
     expect(workflow).not.toContain('release:\n    types: [published]');
     expect(workflow).toContain('group: project-space-production');

@@ -86,6 +86,8 @@ jobs:
           OPERATION_ID: ${{ inputs.operation_id }}
           REQUESTED_PR: ${{ inputs.pr || github.event.workflow_run.pull_requests[0].number }}
           REQUESTED_HEAD_SHA: ${{ inputs.requested_head_sha || github.event.workflow_run.head_sha }}
+          TRIGGER_EVENT: ${{ github.event.workflow_run.event }}
+          TRIGGER_PULL_REQUESTS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
           TRIGGER_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
@@ -93,6 +95,14 @@ jobs:
             echo 'Preview workflow must be dispatched from trusted main.' >&2
             exit 64
           }
+          if [[ "$GITHUB_EVENT_NAME" == workflow_run ]]; then
+            trigger_pr_count=$(jq -er 'length' <<<"$TRIGGER_PULL_REQUESTS")
+            if [[ "$TRIGGER_EVENT" != pull_request || "$trigger_pr_count" != 1 || ! "$REQUESTED_PR" =~ ^[1-9][0-9]*$ ]]; then
+              echo 'disposition=not-applicable' >> "$GITHUB_OUTPUT"
+              echo 'This CI run is not an exact single-pull-request run; Preview deployment was intentionally skipped.' >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
           [[ "$REQUESTED_PR" =~ ^[1-9][0-9]*$ ]] || {
             echo 'Pull request number must be a positive integer.' >&2
             exit 64
@@ -108,9 +118,18 @@ jobs:
           pr_json=$(gh api "repos/$PREVIEW_REPOSITORY/pulls/$REQUESTED_PR")
           jq -e --arg repository "$PREVIEW_REPOSITORY" '
             .base.ref == "main" and .base.repo.full_name == $repository and
-            .head.repo.full_name == $repository and
             (.state == "open" or .state == "closed")
           ' <<<"$pr_json" >/dev/null
+          if ! jq -e --arg repository "$PREVIEW_REPOSITORY" '.head.repo.full_name == $repository' <<<"$pr_json" >/dev/null; then
+            if [[ "$GITHUB_EVENT_NAME" == workflow_run ]]; then
+              echo 'disposition=not-applicable' >> "$GITHUB_OUTPUT"
+              echo "pr_number=$REQUESTED_PR" >> "$GITHUB_OUTPUT"
+              echo 'Fork pull requests do not cross the trusted Preview deployment boundary; this run is neutral.' >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo 'Preview operations require a same-repository pull request.' >&2
+            exit 77
+          fi
           head_sha=$(jq -er '.head.sha | select(test("^[0-9a-f]{40}$"))' <<<"$pr_json")
           state=$(jq -er '.state' <<<"$pr_json")
           if [[ -n "$REQUESTED_HEAD_SHA" ]]; then
@@ -166,10 +185,21 @@ jobs:
           source_run_attempt=$(jq -er '.run_attempt | select(type == "number" and . > 0)' <<<"$run_json")
           artifact_name="preview-images-pr-$REQUESTED_PR-$head_sha-$source_run_id-$source_run_attempt"
           artifacts=$(gh api "repos/$PREVIEW_REPOSITORY/actions/runs/$source_run_id/artifacts?per_page=100")
-          artifact=$(jq -ec --arg name "$artifact_name" '
-            [.artifacts[] | select(.name == $name and .expired == false)]
-            | select(length == 1) | .[0]
-          ' <<<"$artifacts")
+          artifact_count=$(jq -er --arg name "$artifact_name" \
+            '[.artifacts[] | select(.name == $name and .expired == false)] | length' <<<"$artifacts")
+          if [[ "$artifact_count" == 0 && "$GITHUB_EVENT_NAME" == workflow_run ]]; then
+            echo 'disposition=no-preview-artifact' >> "$GITHUB_OUTPUT"
+            echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+            echo "pr_number=$REQUESTED_PR" >> "$GITHUB_OUTPUT"
+            echo 'CI succeeded without a Preview artifact; deployment was intentionally skipped.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          [[ "$artifact_count" == 1 ]] || {
+            echo 'Expected exactly one unexpired exact-head Preview artifact.' >&2
+            exit 69
+          }
+          artifact=$(jq -ec --arg name "$artifact_name" \
+            '[.artifacts[] | select(.name == $name and .expired == false)] | .[0]' <<<"$artifacts")
           artifact_id=$(jq -er '.id | select(type == "number" and . > 0)' <<<"$artifact")
           artifact_size=$(jq -er '.size_in_bytes | select(type == "number" and . > 0)' <<<"$artifact")
           artifact_digest=$(jq -er '.digest | select(test("^sha256:[0-9a-f]{64}$"))' <<<"$artifact")
@@ -645,7 +675,7 @@ jobs:
           jq -n --arg repository "$PREVIEW_REPOSITORY" --argjson pr "$PR_NUMBER" --arg reason "$reason" \
             '{repository:$repository,prNumber:$pr,reason:$reason}' |
             ssh project-space-preview destroy > cleanup-result.json
-          jq -e '.state == "removed" and .cleanup.containersAbsent and .cleanup.networksAbsent and
+          jq -e '.state == "removed" and .cleanup.registryAbsent and .cleanup.containersAbsent and .cleanup.networksAbsent and
             .cleanup.volumesAbsent and .cleanup.runtimePathAbsent and .cleanup.routeAbsent' cleanup-result.json >/dev/null
       - name: Mark latest GitHub Preview deployment inactive
         if: inputs.action == 'destroy' || github.event_name == 'pull_request_target'

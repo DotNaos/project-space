@@ -357,13 +357,28 @@ refuse_superseded_activation() {
   atomic_json_write "$runtime_file" "$record"
 }
 
-assert_removed() {
+assert_local_resources_removed() {
   containers=$(docker ps -aq --filter "label=com.dotnaos.project-space.repository=$repository" --filter "label=com.dotnaos.project-space.pr=$pr")
   [ -z "$containers" ] || fail 'Preview containers remain after cleanup' 71
   ! docker network inspect "${compose_project}_preview-internal" >/dev/null 2>&1 || fail 'Preview network remains after cleanup' 71
   ! docker volume inspect "${compose_project}_postgres-data" >/dev/null 2>&1 || fail 'Preview volume remains after cleanup' 71
-  route_status=$(curl --silent --output /dev/null --max-time 10 --write-out '%{http_code}' "https://$domain/" || true)
-  case "$route_status" in 000|404|410) ;; *) fail "Preview route still responds with HTTP $route_status" 71;; esac
+  [ ! -e "$runtime_dir" ] || fail 'Preview runtime path remains after cleanup' 71
+  [ ! -e "$runtime_file" ] && [ ! -e "$state_dir/blocked.json" ] ||
+    fail 'Preview registry record remains after cleanup' 71
+}
+
+assert_route_removed() {
+  route_result=$(curl --silent --output /dev/null --max-time 10 \
+    --write-out '%{http_code}\n%{redirect_url}' "https://$domain/" || true)
+  route_status=$(printf '%s\n' "$route_result" | sed -n '1p')
+  redirect_url=$(printf '%s\n' "$route_result" | sed -n '2p')
+  expected_redirect="https://pr.projects.os-home.net/?pr=$pr&return=%2F"
+  case "$route_status" in
+    000|404|410) ;;
+    302) [ "$redirect_url" = "$expected_redirect" ] ||
+      fail "Preview route returned an unsafe or unexpected redirect" 71 ;;
+    *) fail "Preview route still responds with HTTP $route_status" 71 ;;
+  esac
 }
 
 assert_runtime_resources_absent_for() {
@@ -388,7 +403,7 @@ write_tombstone() {
   body=$(jq -n --arg repository "$repository" --argjson pr "$pr" --arg reason "$reason" --arg removedAt "$now" \
     --arg requestedSha "$requested_sha" --arg runningSha "$running_sha" \
     '{repositoryFullName:$repository,pullRequestNumber:$pr,state:"removed",message:$reason,updatedAt:$removedAt,
-      cleanup:{containersAbsent:true,networksAbsent:true,volumesAbsent:true,runtimePathAbsent:true,routeAbsent:true}} |
+      cleanup:{registryAbsent:true,containersAbsent:true,networksAbsent:true,volumesAbsent:true,runtimePathAbsent:true,routeAbsent:true}} |
       if $requestedSha != "" then .requestedSha=$requestedSha else . end |
       if $runningSha != "" then .runningSha=$runningSha else . end')
   atomic_json_write "$tombstone_file" "$body"
@@ -504,9 +519,10 @@ destroy_preview() {
     last_running=$(jq -er '.runningSha // empty' "$runtime_file" 2>/dev/null || true)
   fi
   destroy_resources
-  assert_removed
   remove_runtime_tree
   rm -f -- "$runtime_file" "$state_dir/blocked.json"
+  assert_local_resources_removed
+  assert_route_removed
   install -d -m 700 "$state_dir"
   write_tombstone "$reason" "$last_requested" "$last_running"
   cat "$tombstone_file"

@@ -1,15 +1,29 @@
 name: CI
+run-name: 'CI · PR #${{ github.event.pull_request.number || inputs.pr || ''manual'' }}'
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
+    types: [opened, reopened, synchronize]
   workflow_dispatch:
+    inputs:
+      pr:
+        description: Open same-repository pull request number to repair
+        required: true
+        type: string
+      requested_head_sha:
+        description: Exact current pull request head SHA
+        required: true
+        type: string
+      base_sha:
+        description: Exact current pull request base SHA
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: fast-ci-${{ github.event.pull_request.number || github.ref }}
+  group: fast-ci-${{ github.event.pull_request.number || inputs.pr || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -19,11 +33,37 @@ jobs:
     timeout-minutes: 20
 
     steps:
+      - name: Fence an exact manual repair request
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr }}
+          REQUESTED_BASE_SHA: ${{ inputs.base_sha }}
+          REQUESTED_HEAD_SHA: ${{ inputs.requested_head_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$REQUESTED_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$REQUESTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_SHA" == "$REQUESTED_HEAD_SHA" ]] || {
+            echo "Select the pull request head branch when dispatching Fast CI." >&2
+            exit 64
+          }
+          pr=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")
+          jq -e \
+            --arg base "$REQUESTED_BASE_SHA" \
+            --arg head "$REQUESTED_HEAD_SHA" \
+            --arg repository "$GITHUB_REPOSITORY" \
+            '.state == "open" and .head.repo.full_name == $repository and
+             .head.sha == $head and .base.sha == $base' \
+            <<<"$pr" >/dev/null
+
       - name: Check out source
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || inputs.requested_head_sha || github.sha }}
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -33,9 +73,9 @@ jobs:
       - name: Select changed-path extras
         id: select
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          EVENT_NAME: ${{ github.event_name }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha }}
+          EVENT_NAME: pull_request
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || inputs.requested_head_sha }}
         run: |
           set -euo pipefail
           policy=$(bun scripts/release-verification-policy.ts \
@@ -56,11 +96,14 @@ jobs:
       - name: Install root dependencies once
         run: bun install --frozen-lockfile
 
-      - name: Check package policy, test, and build web surfaces
-        run: |
-          bun run check:package-manager
-          bun test --isolate
-          bun run build:web
+      - name: Check package-manager policy
+        run: bun run check:package-manager
+
+      - name: Run TypeScript tests
+        run: bun test --isolate
+
+      - name: Build web surfaces
+        run: bun run build:web
 
       - name: Set up Go for selected extras
         if: steps.select.outputs.go == 'true' || steps.select.outputs.cliDocs == 'true' || steps.select.outputs.workflow == 'true'

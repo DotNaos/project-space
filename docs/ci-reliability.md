@@ -102,6 +102,14 @@ merged on `main`; `release-from-main.yml` creates its exact version tag and
 explicitly dispatches `release.yml` once. `release.yml` is manual tag-dispatch
 only, so a tag push cannot start a duplicate release.
 
+Each `main` push keeps its own non-cancelling handoff. An hourly or manual
+reconciliation pass also walks the release entries on `main`, validates their
+exact addition commits, and resumes the oldest missing or failed exact-tag
+Release run before moving to the next version.
+Older unpublished entries below an already published version stay superseded.
+This makes runner or webhook outages recoverable without duplicating a Release
+or Production dispatch.
+
 The immutable Release run retains full platform builds, isolated no-checkout
 signing jobs, artifact provenance, digest and manifest verification, GitHub
 publication, and the protected Production handoff where required. The previous
