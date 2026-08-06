@@ -39,7 +39,7 @@
       "parameters": {
         "required_status_checks": [
           {
-            "context": "CLI documentation / Generated docs are current"
+            "context": "Fast CI"
           }
         ],
         "strict_required_status_checks_policy": false
