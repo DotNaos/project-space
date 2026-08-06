@@ -18,6 +18,7 @@ func newCreateCommand() *cobra.Command {
 	globalTmp := false
 	github := false
 	githubVisibility := "private"
+	targets := []string{}
 	cmd := &cobra.Command{
 		Use:               "create [directory]",
 		Aliases:           []string{"new"},
@@ -25,6 +26,11 @@ func newCreateCommand() *cobra.Command {
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: directoryCompletion,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			selections, err := parseAppTargetSelections(targets)
+			if err != nil {
+				return err
+			}
+			options.Targets = selections
 			if cmd.Flags().Changed("github-visibility") && !github {
 				return fmt.Errorf("--github-visibility requires --github")
 			}
@@ -99,6 +105,7 @@ func newCreateCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&localTmp, "tmp", false, "create a local tmp project in ./tmp and install default modules")
 	cmd.Flags().BoolVar(&localTmp, "local-tmp", false, "create a local tmp project in ./tmp and install default modules")
 	cmd.Flags().BoolVar(&globalTmp, "global-tmp", false, "create a global tmp project in /tmp and install default modules")
+	cmd.Flags().StringArrayVar(&targets, "target", nil, "app target and devices (<target>:<device>[,<device>...]); repeat for multiple targets")
 	must(cmd.RegisterFlagCompletionFunc("github-visibility", fixedValuesCompletion("private", "public")))
 	return cmd
 }

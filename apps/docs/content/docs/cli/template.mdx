@@ -124,6 +124,7 @@ project template smoke [flags]
 | `--commit` | - | <span className="doc-type doc-type-string">string</span> | <span className="doc-default-empty">none</span> | Template commit or label. |
 | `--name` | - | <span className="doc-type doc-type-string">string</span> | `generated-app` | Tmp project name prefix. |
 | `--global-tmp` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Create the generated project under `/tmp`. |
+| `--target` | - | <span className="doc-type doc-type-string">string array</span> | <span className="doc-default-empty">none</span> | Select one target and its exact devices, for example `web:desktop,mobile`. Repeat for multiple targets. |
 | `--skip-checks` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Skip dependency, secrets, check, and build commands. |
 | `--skip-secrets-doctor` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Skip `bun run secrets:doctor`. |
 | `--container` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Build generated project containers. |
@@ -132,7 +133,7 @@ project template smoke [flags]
 ### Examples
 
 ```sh
-project template smoke --template-path ../project-template --version local --commit local
-project template smoke --template-path ../project-template --version local --commit local --skip-checks
-project template smoke --template-path ../project-template --version local --commit local --skip-checks --container
+project template smoke --template-path ../project-template --version local --commit local --target web:desktop,mobile
+project template smoke --template-path ../project-template --version local --commit local --target native:mobile --skip-checks
+project template smoke --template-path ../project-template --version local --commit local --target web:desktop --skip-checks --container
 ```

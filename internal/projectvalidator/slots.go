@@ -99,3 +99,16 @@ func (slot SlotRule) Match(path string) bool {
 	}
 	return false
 }
+
+func templateSlotsForModules(template TemplateSpec, modules []string) []SlotRule {
+	installed := installedModuleSet(modules)
+	active := make([]SlotRule, 0, len(template.Slots))
+	for _, slot := range template.Slots {
+		probe := filepath.ToSlash(filepath.Join(slot.BaseDir, ".slot.yaml"))
+		module := moduleForPath(template, probe)
+		if module == "" || installed[module] {
+			active = append(active, slot)
+		}
+	}
+	return active
+}

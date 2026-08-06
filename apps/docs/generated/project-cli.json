@@ -1324,6 +1324,12 @@
             "inherited": false
           },
           {
+            "name": "target",
+            "type": "stringArray",
+            "description": "app target and devices (<target>:<device>[,<device>...]); repeat for multiple targets",
+            "inherited": false
+          },
+          {
             "name": "template",
             "type": "string",
             "description": "template repository",
@@ -3117,6 +3123,12 @@
                 "name": "skip-secrets-doctor",
                 "type": "bool",
                 "description": "skip bun run secrets:doctor",
+                "inherited": false
+              },
+              {
+                "name": "target",
+                "type": "stringArray",
+                "description": "app target and devices (<target>:<device>[,<device>...]); repeat for multiple targets",
                 "inherited": false
               },
               {

@@ -38,6 +38,20 @@ type TemplateModuleSpec struct {
 	Rules       map[string]TemplateFileRules `yaml:"rules"`
 	Blockers    []TemplateBlockerRule        `yaml:"blockers"`
 	Owns        []string                     `yaml:"owns"`
+	AppTarget   *TemplateAppTargetSpec       `yaml:"appTarget"`
+}
+
+type TemplateAppTargetSpec struct {
+	ID            string            `yaml:"id"`
+	Devices       []string          `yaml:"devices"`
+	SharedModule  string            `yaml:"sharedModule"`
+	SharedDevices []string          `yaml:"sharedDevices"`
+	DeviceModules map[string]string `yaml:"deviceModules"`
+}
+
+type AppTargetSelection struct {
+	Target  string
+	Devices []string
 }
 
 type TemplateValueSpec struct {

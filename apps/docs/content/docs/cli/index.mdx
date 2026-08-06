@@ -599,6 +599,7 @@ Aliases: `new`
 | `--global-tmp` | `bool` | local | create a global tmp project in /tmp and install default modules |
 | `-h`, `--help` | `bool` | local | help for create |
 | `--local-tmp` | `bool` | local | create a local tmp project in ./tmp and install default modules |
+| `--target` | `stringArray` | local | app target and devices (<target>:<device>[,<device>...]); repeat for multiple targets |
 | `--template` | `string` | local | template repository |
 | `--template-path` | `string` | local | template path |
 | `--tmp` | `bool` | local | create a local tmp project in ./tmp and install default modules |
@@ -1303,6 +1304,7 @@ project template smoke
 | `--name` | `string` | local | tmp project name prefix |
 | `--skip-checks` | `bool` | local | skip dependency, secrets, check, and build commands |
 | `--skip-secrets-doctor` | `bool` | local | skip bun run secrets:doctor |
+| `--target` | `stringArray` | local | app target and devices (<target>:<device>[,<device>...]); repeat for multiple targets |
 | `--template` | `string` | local | template repository |
 | `--template-path` | `string` | local | template path |
 | `--version` | `string` | local | template version |

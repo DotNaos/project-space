@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/DotNaos/project-space/internal/placeholder"
@@ -75,8 +76,8 @@ func mergeTemplateValuesForModules(projectRoot string, template TemplateSpec, mo
 		if _, ok := lookupTemplateValue(merged, key); ok {
 			continue
 		}
-		if value, ok := lookupTemplateValue(defaults, key); ok {
-			setTemplateValue(merged, key, value)
+		if value, ok := lookupTemplateAny(defaults, key); ok {
+			setTemplateAny(merged, key, cloneTemplateValue(value))
 			continue
 		}
 		if specs[key].Required {
@@ -211,7 +212,15 @@ func resolveDefaultValue(key string, specs map[string]TemplateValueSpec, values 
 	if err != nil {
 		return "", false, fmt.Errorf("template value %s: %w", key, err)
 	}
-	setTemplateValue(values, key, transformed)
+	if spec.Type == "boolean" {
+		boolean, err := strconv.ParseBool(transformed)
+		if err != nil {
+			return "", false, fmt.Errorf("template value %s must resolve to a boolean: %w", key, err)
+		}
+		setTemplateBool(values, key, boolean)
+	} else {
+		setTemplateValue(values, key, transformed)
+	}
 	return transformed, true, nil
 }
 
@@ -229,6 +238,14 @@ func transformTemplateValue(value string, transform string) (string, error) {
 }
 
 func setTemplateValue(values TemplateValues, name string, value string) {
+	setTemplateAny(values, name, value)
+}
+
+func setTemplateBool(values TemplateValues, name string, value bool) {
+	setTemplateAny(values, name, value)
+}
+
+func setTemplateAny(values TemplateValues, name string, value any) {
 	parts := strings.Split(name, ".")
 	var current map[string]any = values
 	for index, part := range parts {
@@ -246,7 +263,11 @@ func setTemplateValue(values TemplateValues, name string, value string) {
 }
 
 func renderTemplateBody(body []byte, values TemplateValues) ([]byte, error) {
-	template, err := placeholder.Parse(body)
+	conditioned, err := renderConditionalTemplateBody(body, values)
+	if err != nil {
+		return nil, err
+	}
+	template, err := placeholder.Parse(conditioned)
 	if err != nil {
 		return nil, err
 	}
@@ -287,6 +308,21 @@ func placeholderValue(value any) any {
 }
 
 func lookupTemplateValue(values TemplateValues, name string) (string, bool) {
+	current, ok := lookupTemplateAny(values, name)
+	if !ok {
+		return "", false
+	}
+	switch value := current.(type) {
+	case string:
+		return value, true
+	case int, int64, float64, bool:
+		return fmt.Sprint(value), true
+	default:
+		return "", false
+	}
+}
+
+func lookupTemplateAny(values TemplateValues, name string) (any, bool) {
 	parts := strings.Split(name, ".")
 	var current any = map[string]any(values)
 	for _, part := range parts {
@@ -299,14 +335,7 @@ func lookupTemplateValue(values TemplateValues, name string) (string, bool) {
 			return "", false
 		}
 	}
-	switch value := current.(type) {
-	case string:
-		return value, true
-	case int, int64, float64, bool:
-		return fmt.Sprint(value), true
-	default:
-		return "", false
-	}
+	return current, true
 }
 
 func stringMap(value any) (map[string]any, bool) {

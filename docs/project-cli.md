@@ -79,6 +79,7 @@ Useful flags:
 --tmp
 --local-tmp
 --global-tmp
+--target <target>:<device>[,<device>...]
 ```
 
 `--tmp` creates `./tmp/generated-app-<suffix>`, writes tmp template values, and installs the template's default modules.
@@ -86,6 +87,17 @@ Useful flags:
 `--local-tmp` is the explicit form of `--tmp`.
 
 `--global-tmp` creates the generated project under `/tmp` with a random suffix.
+
+Templates that declare selectable app targets require one `--target` value per
+target. Each value names the target and its exact device set. Omitted targets
+and devices are not generated, and no fallback device is inferred. A valid
+selection installs the shared default modules plus only the selected targets.
+
+```sh
+project new my-app --target web:desktop,mobile
+project new my-app --target native:mobile
+project new my-app --target web:desktop,tablet --target native:mobile
+```
 
 `--github` initializes Git, creates a private GitHub repository by default with the implicit `gh` owner, commits the project, and pushes `main`.
 
@@ -632,6 +644,15 @@ Fetched templates are cached under the user cache directory at
 
 Template files use `{{ ns.key }}` placeholders, such as `{{ project.slug }}`.
 
+Boolean template values can also guard complete lines or blocks. Directives
+must appear on their own line and may be nested:
+
+```text
+{{#if app.targets.web}}
+web target content
+{{/if}}
+```
+
 A `$` immediately before `{{` escapes the placeholder and keeps it as literal text. Use this for GitHub Actions expressions such as `${{ github.ref }}`.
 
 ## Lint A Template
@@ -669,8 +690,9 @@ For changed template-owned files, the update uses a three-way merge:
 ## Smoke Test A Template
 
 ```sh
-project template smoke --template-path <template-directory> --version local --commit local
-project template smoke --template-path <template-directory> --version local --commit local --skip-checks --container
+project template smoke --template-path <template-directory> --version local --commit local --target web:desktop,mobile
+project template smoke --template-path <template-directory> --version local --commit local --target native:mobile --skip-checks
+project template smoke --template-path <template-directory> --version local --commit local --target web:desktop --skip-checks --container
 ```
 
 This creates a generated tmp project, installs default modules, validates it, and runs the generated project's normal checks.

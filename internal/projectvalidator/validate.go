@@ -24,8 +24,16 @@ func ValidateProject(projectRoot string) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
+	expectedFiles := template.TemplateFiles
+	if len(lock.Modules) > 0 {
+		expectedFiles, err = templateFilesForModules(template, lock.Modules)
+		if err != nil {
+			return Report{}, err
+		}
+		template.Slots = templateSlotsForModules(template, lock.Modules)
+	}
 	actualFiles := listProjectFiles(root)
-	allPaths := uniqueSortedPaths(sortedFilePaths(actualFiles), templateFilePaths(template))
+	allPaths := uniqueSortedPaths(sortedFilePaths(actualFiles), templateFilePaths(expectedFiles))
 	blockers, err := adoptionBlockersForFiles(template, sortedFilePaths(actualFiles))
 	if err != nil {
 		return Report{}, err
@@ -35,7 +43,8 @@ func ValidateProject(projectRoot string) (Report, error) {
 		return Report{}, err
 	}
 	files := []FileValidation{}
-	for _, fileSpec := range template.Files {
+	for _, path := range templateFilePaths(expectedFiles) {
+		fileSpec := template.Files[path]
 		if blocker, ok := blockers[fileSpec.Path]; ok {
 			files = append(files, validationFromAdoptionFile(blocker, StatusViolation, "blocker"))
 			continue
@@ -48,7 +57,7 @@ func ValidateProject(projectRoot string) (Report, error) {
 		file.Module = moduleForPath(template, file.Path)
 		files = append(files, file)
 	}
-	structure := validateStructure(root, template, files, blockers, waivers)
+	structure := validateStructure(root, template, expectedFiles, files, blockers, waivers)
 	files = mergeStructureOnlyFiles(files, structure)
 	ok := true
 	for _, file := range files {
@@ -93,6 +102,14 @@ func ValidateProjectFile(projectRoot string, filePath string) (FileValidation, e
 	if err != nil {
 		return FileValidation{}, err
 	}
+	expectedFiles := template.TemplateFiles
+	if len(lock.Modules) > 0 {
+		expectedFiles, err = templateFilesForModules(template, lock.Modules)
+		if err != nil {
+			return FileValidation{}, err
+		}
+		template.Slots = templateSlotsForModules(template, lock.Modules)
+	}
 	actualFiles := map[string]bool{}
 	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(normalized))); err == nil {
 		actualFiles[normalized] = true
@@ -112,6 +129,9 @@ func ValidateProjectFile(projectRoot string, filePath string) (FileValidation, e
 		return validationFromAdoptionFile(waiver, StatusWaived, "waived"), nil
 	}
 	fileSpec, ok := template.Files[normalized]
+	if !expectedFiles[normalized] {
+		ok = false
+	}
 	if !ok {
 		if readTemplateIgnore(template.Root).Match(normalized) {
 			return FileValidation{Path: normalized, Status: StatusOK, Code: "ignored", Note: "ignored"}, nil
@@ -126,9 +146,9 @@ func ValidateProjectFile(projectRoot string, filePath string) (FileValidation, e
 	return file, nil
 }
 
-func templateFilePaths(template TemplateSpec) []string {
-	paths := make([]string, 0, len(template.TemplateFiles))
-	for path := range template.TemplateFiles {
+func templateFilePaths(files map[string]bool) []string {
+	paths := make([]string, 0, len(files))
+	for path := range files {
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)

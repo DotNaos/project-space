@@ -32,6 +32,7 @@ Synonym: `project new [directory] [flags]`
 | `--github-visibility` | - | <span className="doc-type doc-type-string">string</span> | `private` | GitHub repository visibility. Valid values: `private`, `public`. Requires `--github` when changed. |
 | `--tmp` | `--local-tmp` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Create a local tmp project in `./tmp` and install default modules. |
 | `--global-tmp` | - | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Create a generated project under `/tmp`. |
+| `--target` | - | <span className="doc-type doc-type-string">string array</span> | <span className="doc-default-empty">none</span> | Select one target and its exact devices, for example `web:desktop,mobile`. Repeat for multiple targets. |
 | `--help` | `-h` | <span className="doc-type doc-type-boolean">boolean</span> | `false` | Print help. |
 
 ### Behavior
@@ -44,6 +45,8 @@ Synonym: `project new [directory] [flags]`
 - With `--github`, initializes Git, creates a private GitHub repository by default, commits, and pushes `main`.
 - GitHub repositories are private by default. Use `--github-visibility public` to create a public repository.
 - With `--github`, stores `OP_SERVICE_ACCOUNT_TOKEN` on the new GitHub repository before the first push.
+- App templates with selectable targets require an explicit `--target`; omitted targets and devices are not generated and never fall back.
+- A valid target selection installs the template's shared defaults and only the selected target modules.
 
 ### Examples
 
@@ -54,6 +57,8 @@ project new --tmp
 project new my-project --global-tmp
 project new my-project --github
 project new my-project --github --github-visibility public
+project new my-project --target web:desktop,mobile
+project new my-project --target native:mobile
 ```
 
 ## `project init`
