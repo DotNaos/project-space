@@ -1,0 +1,41 @@
+---
+title: "Preserve pull request Preview data"
+version: "0.4.62"
+bump: "patch"
+pullRequest: 462
+issues:
+  - 437
+areas:
+  - deploy
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  Pull request Previews can update to a new exact revision without treating
+  their existing database volume as incompatible.
+</ReleaseSummary>
+
+## Changes
+
+### Fixed
+
+- Preview database volumes keep stable trusted labels across exact-head updates.
+- The trusted runner creates and verifies the persistent volume before starting or rolling back a Preview.
+- Explicit Preview removal still cleans up the persistent volume.
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Update an existing pull request Preview and confirm the new exact revision becomes reachable automatically.
+- Confirm the Preview database volume is reused without an interactive recreation prompt.
+- Remove the Preview and confirm its persistent volume is deleted.
+
+</PreviewOnly>
