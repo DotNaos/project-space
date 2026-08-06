@@ -25,6 +25,7 @@
     "apps/docs/lib/releases/semver.ts",
     "apps/docs/lib/releases/types.ts",
     "electron",
+    "scripts/codespace-agent.ts",
     "scripts/dev-prototype.ts",
     "server",
     "src/shared"

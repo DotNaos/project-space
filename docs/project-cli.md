@@ -597,6 +597,10 @@ container without one, run `project connect --connector-mode foreground` under
 the container supervisor and use `project disconnect --connector-mode
 foreground` when revoking that identity.
 
+For the repository's complete GitHub Codespaces bootstrap, ChatGPT-only Codex
+guardrails, idempotent issue start, and foreground lifecycle, follow the
+[GitHub Codespaces issue-agent guide](codespaces-agent-runner.md).
+
 ## Sync Template Snapshot
 
 Project template commands expect local template state in the project:
