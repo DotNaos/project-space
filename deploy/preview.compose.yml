@@ -189,4 +189,5 @@ networks:
 
 volumes:
   postgres-data:
-    labels: *preview-labels
+    external: true
+    name: ${PREVIEW_COMPOSE_PROJECT:?set PREVIEW_COMPOSE_PROJECT}_postgres-data
