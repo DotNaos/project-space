@@ -77,7 +77,8 @@ The runner performs these steps as one supervised operation:
 2. starts `project connect --connector-mode foreground`;
 3. prints a Project Space machine-approval URL on the first run and waits for
    that machine to become online;
-4. calls `project codex start --issue 454 --machine <exact-codespace-name>` with
+4. reads the exact online machine ID and calls
+   `project codex start --issue 454 --machine-id <exact-id>` with
    an operation ID derived
    from repository, issue, and `CODESPACE_NAME`;
 5. saves only the confirmed task identity under

@@ -166,6 +166,7 @@ export function codespaceAgentLockPath(input: {
 
 export function codespaceAgentCommands(input: {
   issue: number;
+  machineId?: string;
   machineName: string;
   operationId: string;
   repository: string;
@@ -207,8 +208,9 @@ export function codespaceAgentCommands(input: {
       String(input.issue),
       '--repository',
       input.repository,
-      '--machine',
-      input.machineName,
+      ...(input.machineId
+        ? ['--machine-id', input.machineId]
+        : ['--machine', input.machineName]),
       '--operation-id',
       input.operationId,
       '--format',
@@ -510,12 +512,18 @@ export async function runCodespaceAgent(
     connector.stdout?.pipe(output);
     connector.stderr?.pipe(errorOutput);
     const connectorExit = childExit(connector);
-    await waitForMachineOnline(cwd, environment, connectorExit);
+    const onlineMachine = await waitForMachineOnline(cwd, environment, connectorExit);
     output.write('Connector online; requesting the Codex task start. This can take several minutes.\n');
     if (interrupted) return interrupted === 'SIGINT' ? 130 : 143;
 
     const confirmed = await startIssueWithReplay({
-      command: commands.start,
+      command: codespaceAgentCommands({
+        issue: options.issue,
+        machineId: onlineMachine.machineId,
+        machineName,
+        operationId,
+        repository
+      }).start,
       cwd,
       environment,
       expected: { issue: options.issue, operationId, repository, sandbox }
@@ -693,7 +701,10 @@ async function waitForMachineOnline(
     if (status.result.exitCode === 0) {
       try {
         const parsed = parseLastJSONObject(status.result.stdout);
-        if (parsed.status === 'online' && parsed.configured === true) return;
+        if (parsed.status === 'online' && parsed.configured === true) {
+          const machineId = stringValue(parsed.machineId);
+          if (machineId) return { machineId };
+        }
       } catch {
         // The connector remains the source of truth while registration is pending.
       }
