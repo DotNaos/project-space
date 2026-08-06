@@ -220,6 +220,25 @@ describe('canonical machine readiness model', () => {
     }
   });
 
+  test('is ready when the exact rolled-back target is now healthy', () => {
+    const result = diagnose({
+      connector: connector({
+        capabilities: ['codex.machine-tasks.v1', 'runtime.update']
+      }),
+      generation: 4,
+      runtimeStatus: {
+        ...status('up-to-date', operation('rolled-back')),
+        capabilities: ['codex.machine-tasks.v1', 'runtime.update']
+      }
+    });
+
+    expect(result).toMatchObject({
+      operation: { id: 'repair-one', state: 'rolled-back' },
+      ready: true,
+      state: 'ready'
+    });
+  });
+
   test('offers a new constrained update after a completed rollback', () => {
     const priorOperation = {
       ...operation('rolled-back'),
