@@ -57,10 +57,12 @@ ENV PROJECT_SPACE_PORT=4173
 COPY --from=build /workspace/bin /workspace/bin
 COPY --from=cli-build /project /workspace/bin/project
 COPY --from=build /workspace/dist/renderer /workspace/dist/renderer
+COPY --from=build /workspace/apps/docs/lib/releases /workspace/apps/docs/lib/releases
 COPY --from=build /workspace/package.json /workspace/package.json
 COPY --from=build /workspace/node_modules /workspace/node_modules
 COPY --from=build /workspace/server /workspace/server
 COPY --from=build /workspace/src /workspace/src
+RUN bun -e "await import('./server/project-space-api-public-routes.ts')"
 
 EXPOSE 4173
 CMD ["bun", "server/web-server.ts"]

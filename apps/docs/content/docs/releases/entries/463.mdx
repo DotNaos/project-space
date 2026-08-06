@@ -1,0 +1,42 @@
+---
+title: "Restore the production web runtime"
+version: "0.4.64"
+bump: "patch"
+pullRequest: 463
+issues:
+  - 437
+areas:
+  - web
+  - deploy
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  The production image now includes the server-side changelog modules required
+  by the public Project Space API and verifies them while the image is built.
+</ReleaseSummary>
+
+## Changes
+
+### Fixed
+
+- Included the release and changelog runtime modules in the production web image.
+- Added a build-time import check so an incomplete production runtime fails before deployment.
+- Added regression coverage for the production image contract.
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Open the exact pull-request Preview and confirm the Project Space task UI loads.
+- Confirm the public app metadata and health endpoints report the exact deployed revision.
+- Confirm the pull-request changelog opens without a missing-module error.
+
+</PreviewOnly>
