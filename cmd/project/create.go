@@ -12,6 +12,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var createGitHubRepositoryForCommand = createGitHubRepository
+
 func newCreateCommand() *cobra.Command {
 	options := projectvalidator.InitOptions{}
 	localTmp := false
@@ -62,12 +64,14 @@ func newCreateCommand() *cobra.Command {
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Created project: %s\n", resolved)
 			fmt.Fprintf(cmd.OutOrStdout(), "Initialized project template lock: %s\n", lockPath)
-			if useTmp {
+			if useTmp || github {
 				valuesPath, err := projectvalidator.WriteTmpTemplateValues(resolved)
 				if err != nil {
 					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Wrote tmp template values: %s\n", valuesPath)
+				if useTmp {
+					fmt.Fprintf(cmd.OutOrStdout(), "Wrote tmp template values: %s\n", valuesPath)
+				}
 				plans, err := projectvalidator.InstallDefaultModules(resolved)
 				if err != nil {
 					return err
@@ -77,7 +81,7 @@ func newCreateCommand() *cobra.Command {
 				}
 			}
 			if github {
-				result, err := createGitHubRepository(resolved, createGitHubRepositoryOptions{
+				result, err := createGitHubRepositoryForCommand(resolved, createGitHubRepositoryOptions{
 					Visibility: githubVisibility,
 				})
 				if err != nil {
@@ -88,6 +92,9 @@ func newCreateCommand() *cobra.Command {
 					fmt.Fprintln(cmd.OutOrStdout(), "GitHub secret: OP_SERVICE_ACCOUNT_TOKEN set")
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), "Pushed initial commit: main")
+				if result.RulesetsApplied > 0 {
+					fmt.Fprintf(cmd.OutOrStdout(), "GitHub rulesets applied: %d\n", result.RulesetsApplied)
+				}
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "cd %s\n", shellQuote(resolved))
 			return nil

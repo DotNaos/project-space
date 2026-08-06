@@ -44,6 +44,8 @@ Synonym: `project new [directory] [flags]`
 - With `--github`, initializes Git, creates a private GitHub repository by default, commits, and pushes `main`.
 - GitHub repositories are private by default. Use `--github-visibility public` to create a public repository.
 - With `--github`, stores `OP_SERVICE_ACCOUNT_TOKEN` on the new GitHub repository before the first push.
+- After the first push, applies every generated `.github/rulesets/*.json` policy by name. Existing rulesets are updated idempotently.
+- Adds the authenticated GitHub user as a pull-request-only bypass actor, so `gh` needs repository Administration write permission.
 
 ### Examples
 

@@ -93,6 +93,8 @@ GitHub repositories are private by default. Use `--github-visibility public` to 
 
 `--github` also sets `OP_SERVICE_ACCOUNT_TOKEN` on the new GitHub repository from the project 1Password vault before the first push.
 
+After the initial push, `--github` applies every `.github/rulesets/*.json` policy to the repository. Rulesets are matched by name, so replay updates the existing policy instead of creating a duplicate. The authenticated GitHub user is added as a pull-request-only bypass actor; this preserves an audited emergency merge path without permitting direct protected-branch pushes. The `gh` authentication therefore needs repository Administration write permission.
+
 When `--template-path` and `PROJECT_SPACE_TEMPLATE_ROOT` are omitted, `project new`
 fetches the GitHub template named by `--template`. If `--template` is omitted,
 it uses `DotNaos/project-template`.
