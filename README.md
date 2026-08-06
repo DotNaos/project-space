@@ -69,6 +69,7 @@ The repository currently targets a web-first fullstack MVP:
 - [CLI self-update guide](apps/docs/content/docs/cli/self-update.mdx)
 - [Connector install and usage guide](docs/connector.md)
 - [Linux and WSL installation guide](docs/linux-installation.md)
+- [GitHub Codespaces issue-agent guide](docs/codespaces-agent-runner.md)
 - [Windows installation guide](docs/windows-installation.md)
 - `.dev/product.md`
 - `.dev/vision.md`
