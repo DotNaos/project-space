@@ -41,6 +41,10 @@ esac`
     executable(join(localBin, 'project'), 'test "${1:-}" = --version && echo "project version 0.4.61"'),
     executable(join(localBin, 'project-space-connector'), 'test "${1:-}" = --version && echo "0.4.61"'),
     executable(join(managedBin, 'codex'), 'test "${1:-}" = --version && echo "codex-cli 0.145.0"'),
+    executable(
+      join(fakeBin, 'python3'),
+      'test "${1:-}" = -c && test "${2:-}" = "import shlex"'
+    ),
     executable(join(fakeBin, 'node'), 'test "${1:-}" = --version && echo "v24.15.0"'),
     executable(join(fakeBin, 'node-gyp'), 'test "${1:-}" = --version && echo "v13.0.1"'),
     executable(join(fakeBin, 'go'), 'echo "go version go1.26.5 linux/amd64"'),
@@ -67,15 +71,20 @@ esac`
 
   expect({ status: first.status, stderr: first.stderr }).toEqual({ status: 0, stderr: '' });
   expect({ status: second.status, stderr: second.stderr }).toEqual({ status: 0, stderr: '' });
-  expect(
-    (await Bun.file(join(process.cwd(), '.devcontainer', 'devcontainer.json')).json()).features[
-      'ghcr.io/devcontainers/features/node:2'
-    ]
-  ).toEqual({
+  const devcontainer = await Bun.file(join(process.cwd(), '.devcontainer', 'devcontainer.json')).json();
+  expect(devcontainer.features['ghcr.io/devcontainers/features/python:1']).toEqual({
+    installTools: false,
+    version: 'os-provided'
+  });
+  expect(devcontainer.features['ghcr.io/devcontainers/features/node:2']).toEqual({
     nodeGypDependencies: true,
     pnpmVersion: 'none',
     version: '24.15.0'
   });
+  expect(devcontainer.overrideFeatureInstallOrder).toEqual([
+    'ghcr.io/devcontainers/features/python',
+    'ghcr.io/devcontainers/features/node'
+  ]);
   expect(first.stdout).toContain('Codespace readiness passed');
   expect(second.stdout).toContain('Codespace readiness passed');
   expect(await readFile(join(userHome, '.codex', 'config.toml'), 'utf8')).toBe(

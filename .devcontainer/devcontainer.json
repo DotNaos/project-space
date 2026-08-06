@@ -3,6 +3,10 @@
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
   "remoteUser": "vscode",
   "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "os-provided",
+      "installTools": false
+    },
     "ghcr.io/devcontainers/features/node:2": {
       "version": "24.15.0",
       "nodeGypDependencies": true,
@@ -13,6 +17,10 @@
     },
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
+  "overrideFeatureInstallOrder": [
+    "ghcr.io/devcontainers/features/python",
+    "ghcr.io/devcontainers/features/node"
+  ],
   "remoteEnv": {
     "PATH": "/home/vscode/.local/bin:/home/vscode/.bun/bin:${containerEnv:PATH}"
   },

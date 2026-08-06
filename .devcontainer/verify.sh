@@ -21,6 +21,11 @@ if [[ "${actual_node_version}" != "${expected_node_version}" ]]; then
   exit 1
 fi
 
+if ! python3 -c 'import shlex' >/dev/null 2>&1; then
+  echo "Expected a complete Python 3 standard library with shlex." >&2
+  exit 1
+fi
+
 actual_node_gyp_version="$(node-gyp --version | tr -d '\r\n')"
 if [[ "${actual_node_gyp_version}" != "${expected_node_gyp_version}" ]]; then
   echo "Expected node-gyp ${expected_node_gyp_version}, found ${actual_node_gyp_version}." >&2

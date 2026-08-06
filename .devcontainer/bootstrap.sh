@@ -34,6 +34,11 @@ if [[ "${actual_node_version}" != "${expected_node_version}" ]]; then
   exit 1
 fi
 
+if ! python3 -c 'import shlex' >/dev/null 2>&1; then
+  echo "Expected a complete Python 3 standard library with shlex." >&2
+  exit 1
+fi
+
 actual_node_gyp_version="$(node-gyp --version 2>/dev/null | tr -d '\r\n' || true)"
 if [[ "${actual_node_gyp_version}" != "${expected_node_gyp_version}" ]]; then
   bun add --global "node-gyp@${expected_node_gyp_version#v}"
