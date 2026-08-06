@@ -2,12 +2,14 @@
 
 The repository dev container bootstraps one reproducible Linux development
 environment with Bun, Go, Docker, the interactive Codex CLI, and a matching
-released `project`/`project-space-connector` pair. It can then start one
+released `project`/`project-space-connector` pair. The bootstrap installs
+the pinned baseline when needed and preserves a matching newer signed pair. It can then start one
 issue-bound Codex task without a second prompt.
 
-This is the manual first vertical slice. It keeps the foreground connector in
-a detached tmux session and allows one active task per Codespace. Run separate
-Codespaces for parallel features.
+This is the first vertical slice. Sandbox startup keeps the managed Codex
+daemon and an already configured connector supervised in tmux. The detached
+issue runner preserves one active task per Codespace. Run separate Codespaces
+for parallel features.
 
 ## Create the Codespace
 
@@ -18,7 +20,9 @@ Docker tests materially faster.
 
 Creation runs `.devcontainer/bootstrap.sh` twice. The second run is an
 idempotency check rather than a second installation. Every later container
-start runs `.devcontainer/verify.sh`.
+start runs `.devcontainer/start-services.sh`, which verifies the toolchain,
+idempotently provisions and starts the pinned managed Codex daemon, and resumes
+an already configured connector through `project connector run` in tmux.
 
 If GitHub opens recovery mode, inspect **Codespaces: View Creation Log**, fix
 the reported error, and run **Codespaces: Rebuild Container**. From a recovery
@@ -74,9 +78,9 @@ bun scripts/codespace-agent.ts --issue 454 --detach
 The runner performs these steps as one supervised operation:
 
 1. verifies GitHub, ChatGPT Codex, Docker, Project CLI, and connector readiness;
-2. starts `project connect --connector-mode foreground`;
-3. prints a Project Space connector-approval URL on the first run and waits for
-   that connector to become online;
+2. reuses the supervised connector started by the sandbox when it is online;
+3. otherwise starts `project connect --connector-mode foreground`, prints the
+   one-time Project Space approval URL, and waits for that connector to become online;
 4. targets the physical machine containing that authenticated connector with
    `project codex start --issue 454 --here` and an operation ID derived from
    repository, issue, and `CODESPACE_NAME`;
@@ -118,9 +122,10 @@ Print the saved task identity and an exact `project codex read` command:
 bun scripts/codespace-agent.ts --issue 454 --status
 ```
 
-Attach to the tmux session and press **Ctrl+C** to stop the foreground connector. This
-takes the machine offline but preserves its approved machine identity, Codex
-login, stable operation ID, and non-secret task state.
+Attach to the issue tmux session and press **Ctrl+C** to release its capacity
+lock. The sandbox connector has its own `connector` tmux session and resumes
+automatically on later container starts. The approved machine identity, Codex
+login, stable operation ID, and non-secret task state remain durable.
 
 Resume with the exact same start command:
 

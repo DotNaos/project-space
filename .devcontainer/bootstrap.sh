@@ -89,9 +89,14 @@ current_managed_codex_version="$(
   "${HOME}/.local/bin/.project-space-machine-tools/current/codex" --version 2>/dev/null |
     awk '{print $NF}' || true
 )"
-if [[ "${current_project_version}" != "${expected_project_version}" ||
-  "${current_connector_version}" != "${expected_project_version}" ||
-  "${current_managed_codex_version}" != "${expected_managed_codex_version}" ]]; then
+project_pair_is_usable=false
+if [[ "${current_project_version}" == "${current_connector_version}" &&
+  "${current_project_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ &&
+  "$(printf '%s\n' "${expected_project_version}" "${current_project_version}" | sort -V | head -n 1)" == "${expected_project_version}" &&
+  "${current_managed_codex_version}" == "${expected_managed_codex_version}" ]]; then
+  project_pair_is_usable=true
+fi
+if [[ "${project_pair_is_usable}" != "true" ]]; then
   temporary_root="$(mktemp -d)"
   archive_path="${temporary_root}/${project_archive}"
   release_url="https://github.com/DotNaos/project-space/releases/download/v${expected_project_version}/${project_archive}"
@@ -104,4 +109,4 @@ if [[ "${current_project_version}" != "${expected_project_version}" ||
   "${temporary_root}/project-space-machine-tools-linux-x64-v${expected_project_version}/install.sh"
 fi
 
-bash .devcontainer/verify.sh
+bash .devcontainer/start-services.sh

@@ -29,7 +29,7 @@
     "PATH": "/home/vscode/.local/bin:/home/vscode/.bun/bin:${containerEnv:PATH}"
   },
   "postCreateCommand": "bash .devcontainer/bootstrap.sh && bash .devcontainer/bootstrap.sh",
-  "postStartCommand": "bash .devcontainer/verify.sh",
+  "postStartCommand": "bash .devcontainer/start-services.sh",
   "forwardPorts": [
     4173,
     45873,

@@ -71,14 +71,11 @@ if [[ "${actual_codex_version}" != "${expected_codex_version}" ]]; then
 fi
 
 actual_project_version="$(project --version | awk '{print $NF}')"
-if [[ "${actual_project_version}" != "${expected_project_version}" ]]; then
-  echo "Expected Project ${expected_project_version}, found ${actual_project_version}." >&2
-  exit 1
-fi
-
 actual_connector_version="$(project-space-connector --version | awk '{print $NF}')"
-if [[ "${actual_connector_version}" != "${expected_project_version}" ]]; then
-  echo "Expected Project Space connector ${expected_project_version}, found ${actual_connector_version}." >&2
+if [[ "${actual_project_version}" != "${actual_connector_version}" ||
+  ! "${actual_project_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ||
+  "$(printf '%s\n' "${expected_project_version}" "${actual_project_version}" | sort -V | head -n 1)" != "${expected_project_version}" ]]; then
+  echo "Expected a matching Project and connector pair at or above ${expected_project_version}; found Project ${actual_project_version} and connector ${actual_connector_version}." >&2
   exit 1
 fi
 

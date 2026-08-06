@@ -105,6 +105,15 @@ export function sanitizeCodespaceAgentEnvironment(
   return result;
 }
 
+export function codespaceConnectorStatusIsOnline(output: string) {
+  try {
+    const status = parseLastJSONObject(output);
+    return status.configured === true && status.status === 'online';
+  } catch {
+    return false;
+  }
+}
+
 export function codespaceAgentOperationId(input: {
   issue: number;
   repository: string;
@@ -478,10 +487,24 @@ export async function runCodespaceAgent(
   );
   let connector: ChildProcess | undefined;
   let interrupted: NodeJS.Signals | undefined;
+  let connectorHoldReleased = false;
+  let releaseConnectorHold!: (
+    outcome: { code: number | null; error?: Error; signal: NodeJS.Signals | null }
+  ) => void;
+  const connectorHold = new Promise<{
+    code: number | null;
+    error?: Error;
+    signal: NodeJS.Signals | null;
+  }>((resolve) => {
+    releaseConnectorHold = resolve;
+  });
   const stopConnector = (signal: NodeJS.Signals) => {
     interrupted = signal;
     if (connector && connector.exitCode === null && connector.signalCode === null) {
       connector.kill('SIGTERM');
+    } else if (!connectorHoldReleased) {
+      connectorHoldReleased = true;
+      releaseConnectorHold({ code: null, signal });
     }
   };
   const onInterrupt = () => stopConnector('SIGINT');
@@ -497,19 +520,24 @@ export async function runCodespaceAgent(
       operationId,
       repository
     });
-    output.write(
-      `Starting the foreground Project connector for ${repository}#${options.issue}.\n` +
-        'On the first run, open the Project Space approval URL printed below.\n'
-    );
-    connector = spawn(commands.connect[0]!, commands.connect.slice(1), {
-      cwd,
-      env: environment,
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-    connector.stdout?.pipe(output);
-    connector.stderr?.pipe(errorOutput);
-    const connectorExit = childExit(connector);
-    await waitForMachineOnline(cwd, environment, connectorExit);
+    let connectorExit = connectorHold;
+    if (await codespaceConnectorIsOnline(cwd, environment)) {
+      output.write(`Using the supervised Project connector for ${repository}#${options.issue}.\n`);
+    } else {
+      output.write(
+        `Starting the foreground Project connector for ${repository}#${options.issue}.\n` +
+          'On the first run, open the Project Space approval URL printed below.\n'
+      );
+      connector = spawn(commands.connect[0]!, commands.connect.slice(1), {
+        cwd,
+        env: environment,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+      connector.stdout?.pipe(output);
+      connector.stderr?.pipe(errorOutput);
+      connectorExit = childExit(connector);
+      await waitForMachineOnline(cwd, environment, connectorExit);
+    }
     output.write('Connector online; requesting the Codex task start. This can take several minutes.\n');
     if (interrupted) return interrupted === 'SIGINT' ? 130 : 143;
 
@@ -569,7 +597,7 @@ function parseOptions(argv: string[]): RunnerOptions {
 
 function usage() {
   return `Usage: bun scripts/codespace-agent.ts --issue <number> [--repository <owner/name>]\n\n` +
-    `Starts or resumes one issue-bound Codex task while keeping the Project connector in the foreground.\n\n` +
+    `Starts or resumes one issue-bound Codex task with the supervised Project connector.\n\n` +
     `Options:\n` +
     `  --issue <number>          GitHub issue to implement (required)\n` +
       `  --detach                  Run the foreground connector inside a detached tmux session\n` +
@@ -679,6 +707,19 @@ function childExit(child: ChildProcess) {
   });
 }
 
+async function codespaceConnectorIsOnline(
+  cwd: string,
+  environment: NodeJS.ProcessEnv
+) {
+  const result = await runCapturedCommand(
+    ['project', 'status', '--json'],
+    cwd,
+    environment,
+    20_000
+  );
+  return result.exitCode === 0 && codespaceConnectorStatusIsOnline(result.stdout);
+}
+
 async function waitForMachineOnline(
   cwd: string,
   environment: NodeJS.ProcessEnv,
@@ -694,14 +735,10 @@ async function waitForMachineOnline(
       connectorExit.then((outcome) => ({ kind: 'exit' as const, outcome }))
     ]);
     if (status.kind === 'exit') throw new Error(connectorExitMessage(status.outcome));
-    if (status.result.exitCode === 0) {
-      try {
-        const parsed = parseLastJSONObject(status.result.stdout);
-        if (parsed.status === 'online' && parsed.configured === true) return;
-      } catch {
-        // The connector remains the source of truth while registration is pending.
-      }
-    }
+    if (
+      status.result.exitCode === 0 &&
+      codespaceConnectorStatusIsOnline(status.result.stdout)
+    ) return;
     await Promise.race([
       delay(2_000),
       connectorExit.then((outcome) => {
@@ -832,7 +869,7 @@ function printConfirmed(
       `Connector: ${state.task.connectorName} / ${state.task.connectorId}\n` +
       `Inspect from another terminal: ${shellCommand(inspect)}\n` +
       `Saved non-secret state: ${statePath}\n` +
-      'Keep this command running to keep the connector online; press Ctrl+C to stop it.\n'
+      'Keep this command running to preserve the one-agent capacity lock; press Ctrl+C to stop it.\n'
   );
 }
 

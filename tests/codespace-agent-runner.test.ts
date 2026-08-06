@@ -10,6 +10,7 @@ import {
   codespaceAgentOperationId,
   codespaceAgentStatePath,
   codespaceAgentTmuxCommands,
+  codespaceConnectorStatusIsOnline,
   codespaceMachineName,
   formatCodespaceAgentBlockedStart,
   parseCodespaceAgentStartResult,
@@ -67,6 +68,14 @@ describe('Codespace agent identity', () => {
     expect(codespaceAgentLockPath({ sandbox: 'space-one', stateHome: '/state' })).toMatch(
       /^\/state\/project-space\/codespace-agent\/runner-[a-f0-9]{12}\.lock$/
     );
+  });
+});
+
+describe('Codespace connector supervision', () => {
+  test('recognizes only a configured online connector', () => {
+    expect(codespaceConnectorStatusIsOnline('{"configured":true,"status":"online"}')).toBe(true);
+    expect(codespaceConnectorStatusIsOnline('{"configured":true,"status":"offline"}')).toBe(false);
+    expect(codespaceConnectorStatusIsOnline('not json')).toBe(false);
   });
 });
 

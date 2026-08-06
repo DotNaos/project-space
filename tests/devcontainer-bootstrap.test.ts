@@ -40,7 +40,14 @@ esac`
     executable(join(bunBin, 'codex'), 'test "${1:-}" = --version && echo "codex-cli 0.146.1"'),
     executable(join(localBin, 'project'), 'test "${1:-}" = --version && echo "project version 0.4.61"'),
     executable(join(localBin, 'project-space-connector'), 'test "${1:-}" = --version && echo "0.4.61"'),
-    executable(join(managedBin, 'codex'), 'test "${1:-}" = --version && echo "codex-cli 0.145.0"'),
+    executable(
+      join(managedBin, 'codex'),
+      `case "\${1:-}" in
+  --version) echo "codex-cli 0.145.0" ;;
+  app-server) echo "\$*" >> "\${join(root, 'daemon-called')}" ;;
+  *) exit 90 ;;
+esac`
+    ),
     executable(
       join(fakeBin, 'python3'),
       'test "${1:-}" = -c && test "${2:-}" = "import shlex"'
@@ -87,6 +94,7 @@ esac`
     version: '2.97.0'
   });
   expect(devcontainer.features['ghcr.io/devcontainers-extra/features/tmux-apt-get:1.0.17']).toEqual({});
+  expect(devcontainer.postStartCommand).toBe('bash .devcontainer/start-services.sh');
   expect(devcontainer.overrideFeatureInstallOrder).toEqual([
     'ghcr.io/devcontainers/features/python',
     'ghcr.io/devcontainers/features/node'
@@ -99,6 +107,10 @@ esac`
   expect(await readFile(join(userHome, '.codex', '.project-space-config.sha256'), 'utf8')).toMatch(
     /^[a-f0-9]{64}\n$/
   );
+  expect(await readFile(join(userHome, '.codex', 'packages', 'standalone', 'current', 'codex'), 'utf8')).toBe(
+    await readFile(join(managedBin, 'codex'), 'utf8')
+  );
+  expect((await readFile(join(root, 'daemon-called'), 'utf8')).trim().split('\n')).toHaveLength(4);
   expect(Bun.file(join(root, 'curl-called')).size).toBe(0);
 });
 
