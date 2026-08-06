@@ -182,6 +182,60 @@ printf '%s\\n' '{"state":"open","base":{"ref":"main","repo":{"full_name":"DotNao
     });
   });
 
+  test('retries a failed Preview through the verified apply path', async () => {
+    const { bin, root } = await testRoot();
+    const requestedSha = 'a'.repeat(40);
+    const digest = (kind: string, character: string) =>
+      `ghcr.io/dotnaos/project-space-preview-${kind}@sha256:${character.repeat(64)}`;
+    await mkdir(join(root, 'config'), { recursive: true });
+    await writeFile(
+      join(root, 'config/project-space-preview.env'),
+      'PREVIEW_MAX_ACTIVE=2\nPREVIEW_MIN_FREE_BYTES=1\nPREVIEW_STORAGE_BUDGET_BYTES=100000000\n',
+    );
+    await mkdir(join(root, 'share/project-space-preview'), { recursive: true });
+    await writeFile(join(root, 'share/project-space-preview/preview.compose.yml'), 'services: {}\n');
+    await mkdir(join(root, 'state/project-space-preview/pr-263'), { recursive: true });
+    await writeFile(
+      join(root, 'state/project-space-preview/pr-263/runtime.json'),
+      JSON.stringify({
+        capacityBlocked: false,
+        pullRequestNumber: 263,
+        repositoryFullName: 'DotNaos/project-space',
+        requestedSha,
+        runningSha: null,
+        state: 'failed',
+      }),
+    );
+    await writeFile(
+      join(bin, 'curl'),
+      `#!/bin/sh
+printf '%s\\n' '{"state":"open","base":{"ref":"main","repo":{"full_name":"DotNaos/project-space"}},"head":{"sha":"${requestedSha}","repo":{"full_name":"DotNaos/project-space"}}}'
+`,
+    );
+    await writeFile(join(bin, 'git'), '#!/bin/sh\nexit 1\n');
+    await chmod(join(bin, 'curl'), 0o755);
+    await chmod(join(bin, 'git'), 0o755);
+
+    const retry = runRunner({
+      docsImage: digest('docs', 'b'),
+      gatewayImage: digest('gateway', 'c'),
+      headSha: requestedSha,
+      prNumber: 263,
+      prototypeImage: digest('prototype', 'd'),
+      repository: 'DotNaos/project-space',
+      webImage: digest('web', 'e'),
+    }, 'apply', root, bin);
+
+    expect(retry.status).toBe(70);
+    expect(retry.stderr).toContain('could not clone the approved repository');
+    expect(retry.stderr).not.toContain('Invalid Preview lifecycle transition');
+    const persisted = JSON.parse(await readFile(
+      join(root, 'state/project-space-preview/pr-263/runtime.json'),
+      'utf8',
+    ));
+    expect(persisted.state).toBe('failed');
+  });
+
   test('refuses a registration superseded under the runner lock without recording it', async () => {
     const { bin, root } = await testRoot();
     const requestedSha = 'a'.repeat(40);
