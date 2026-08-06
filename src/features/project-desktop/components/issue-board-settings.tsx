@@ -28,19 +28,19 @@ export function IssueBoardSettings({
   return (
     <Dropdown>
       <DropdownTrigger
-        aria-label="Show, hide, or reorder local board columns"
+        aria-label="Show, hide, or reorder board columns"
         className="flex size-9 shrink-0 items-center justify-center rounded-lg border-neutral-800 bg-neutral-900/50 text-neutral-400 hover:text-neutral-200"
       >
         <SlidersHorizontal className="size-4" />
       </DropdownTrigger>
       <DropdownPopover className="w-64">
-        <DropdownMenu aria-label="Configure local board columns">
+        <DropdownMenu aria-label="Configure board columns">
           <div className="px-3 pb-1 pt-2">
             <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
-              Local board columns
+              Board columns
             </div>
             <div className="mt-1 text-xs leading-5 text-neutral-400">
-              Placement here does not change GitHub Project fields.
+              Placement is derived from GitHub issue state and linked pull requests.
             </div>
           </div>
           {orderedColumns.map((column, index) => {

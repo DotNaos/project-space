@@ -1,19 +1,5 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent
-} from 'react';
-import { createPortal } from 'react-dom';
-import { ArrowRightLeft } from 'lucide-react';
-import {
-  Dropdown,
-  DropdownItem,
-  DropdownMenu,
-  DropdownPopover,
-  DropdownTrigger,
-  Text
-} from '@/app/dotnaos-ui';
+import { useState, type CSSProperties } from 'react';
+import { Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type {
   GitHubBranchRecord,
@@ -26,206 +12,43 @@ import { issuePullRequestsForIssue } from './issue-branch-model';
 import { resolveIssueDevelopmentHead } from './issue-development-head';
 import {
   groupIssuesByColumn,
-  type IssueColumnDefinition,
-  type IssueColumnId,
-  type IssueColumnOverrides
+  type IssueColumnDefinition
 } from './issue-board-model';
 import { IssueAuthorLine, IssueLabelChip } from './issue-visuals';
-
-const dragActivationDistance = 5;
-
-interface BoardDragState {
-  active: boolean;
-  fromColumn: IssueColumnId;
-  issue: GitHubIssueRecord;
-  offsetX: number;
-  offsetY: number;
-  originX: number;
-  originY: number;
-  width: number;
-  x: number;
-  y: number;
-}
 
 export function IssueKanbanBoard({
   branches,
   defaultBranch,
   issues,
-  movingIssueNumbers,
   onBranchCreated,
-  onMoveIssue,
   onOpenIssue,
-  placementIssues,
   pullRequests,
   repoFullName,
-  overrides,
   visibleColumns
 }: {
   branches: GitHubBranchRecord[];
   defaultBranch: string;
   issues: GitHubIssueRecord[];
-  movingIssueNumbers: ReadonlySet<number>;
   onBranchCreated(branch: GitHubBranchRecord): void;
-  onMoveIssue(issueNumber: number, columnId: IssueColumnId): void;
   onOpenIssue(issueNumber: number): void;
-  placementIssues: GitHubIssueRecord[];
   pullRequests: GitHubPullRequestRecord[];
   repoFullName?: string;
-  overrides: IssueColumnOverrides;
   visibleColumns: IssueColumnDefinition[];
 }) {
-  const [drag, setDrag] = useState<BoardDragState | null>(null);
-  const [dropTarget, setDropTarget] = useState<IssueColumnId | null>(null);
-  const dragRef = useRef<BoardDragState | null>(null);
-  const suppressClickRef = useRef(false);
-  const columnRefs = useRef(new Map<IssueColumnId, HTMLElement>());
-  const scrollerRef = useRef<HTMLDivElement>(null);
   const [activeColumnIndex, setActiveColumnIndex] = useState(0);
-
-  const groups = groupIssuesByColumn(issues, overrides, placementIssues);
-
-  const updateDrag = (next: BoardDragState | null) => {
-    dragRef.current = next;
-    setDrag(next);
-  };
-
-  const moveIssueRef = useRef(onMoveIssue);
-
-  moveIssueRef.current = onMoveIssue;
-
-  const beginDrag = (
-    event: ReactPointerEvent<HTMLElement>,
-    issue: GitHubIssueRecord,
-    fromColumn: IssueColumnId
-  ) => {
-    if (
-      event.pointerType !== 'mouse' ||
-      event.button !== 0 ||
-      (event.target as HTMLElement).closest('[data-no-drag]')
-    ) {
-      return;
-    }
-
-    const rect = event.currentTarget.getBoundingClientRect();
-
-    updateDrag({
-      active: false,
-      fromColumn,
-      issue,
-      offsetX: event.clientX - rect.left,
-      offsetY: event.clientY - rect.top,
-      originX: event.clientX,
-      originY: event.clientY,
-      width: rect.width,
-      x: event.clientX,
-      y: event.clientY
-    });
-  };
-
-  const isDragPending = drag !== null;
-
-  useEffect(() => {
-    if (!isDragPending) {
-      return;
-    }
-
-    const hitTestColumn = (x: number, y: number): IssueColumnId | null => {
-      for (const [columnId, element] of columnRefs.current) {
-        const rect = element.getBoundingClientRect();
-
-        if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
-          return columnId;
-        }
-      }
-
-      return null;
-    };
-
-    const handleMove = (event: PointerEvent) => {
-      const current = dragRef.current;
-
-      if (!current) {
-        return;
-      }
-
-      const active =
-        current.active ||
-        Math.hypot(event.clientX - current.originX, event.clientY - current.originY) >
-          dragActivationDistance;
-
-      updateDrag({ ...current, active, x: event.clientX, y: event.clientY });
-      setDropTarget(active ? hitTestColumn(event.clientX, event.clientY) : null);
-    };
-
-    const endDrag = (commit: boolean, x?: number, y?: number) => {
-      const current = dragRef.current;
-
-      if (!current) {
-        return;
-      }
-
-      if (current.active) {
-        // The click that follows pointerup on the dragged card must not open the issue.
-        suppressClickRef.current = true;
-        window.setTimeout(() => {
-          suppressClickRef.current = false;
-        }, 0);
-
-        if (commit && x !== undefined && y !== undefined) {
-          const target = hitTestColumn(x, y);
-
-          if (target && target !== current.fromColumn) {
-            moveIssueRef.current(current.issue.number, target);
-          }
-        }
-      }
-
-      updateDrag(null);
-      setDropTarget(null);
-    };
-
-    const handleUp = (event: PointerEvent) => endDrag(true, event.clientX, event.clientY);
-    const handleCancel = () => endDrag(false);
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        endDrag(false);
-      }
-    };
-
-    window.addEventListener('pointermove', handleMove);
-    window.addEventListener('pointerup', handleUp);
-    window.addEventListener('pointercancel', handleCancel);
-    window.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      window.removeEventListener('pointermove', handleMove);
-      window.removeEventListener('pointerup', handleUp);
-      window.removeEventListener('pointercancel', handleCancel);
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isDragPending]);
-
-  const isDragActive = drag?.active ?? false;
-
-  useEffect(() => {
-    if (!isDragActive) {
-      return;
-    }
-
-    document.body.classList.add('issue-dragging');
-
-    return () => {
-      document.body.classList.remove('issue-dragging');
-    };
-  }, [isDragActive]);
+  const groups = groupIssuesByColumn(issues, pullRequests);
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col" aria-label="Issue board with local derived columns">
+    <div
+      className="flex h-full min-h-0 flex-1 flex-col"
+      aria-label="Issue board derived from GitHub"
+    >
       <div
-        ref={scrollerRef}
         onScroll={(event) => {
           const scroller = event.currentTarget;
-          const columns = Array.from(scroller.querySelectorAll<HTMLElement>('[data-board-column]'));
+          const columns = Array.from(
+            scroller.querySelectorAll<HTMLElement>('[data-board-column]')
+          );
           if (columns.length === 0) return;
           const center = scroller.scrollLeft + scroller.clientWidth / 2;
           let nearestIndex = 0;
@@ -242,67 +65,37 @@ export function IssueKanbanBoard({
         className="flex h-full min-h-0 flex-1 snap-x snap-mandatory gap-3 overflow-x-auto overflow-y-hidden overscroll-x-contain pb-2 sm:snap-proximity lg:snap-none"
       >
         {visibleColumns.map((column) => (
-        <BoardColumn
-          key={column.id}
-          branches={branches}
-          column={column}
-          moveTargets={visibleColumns.filter((target) => target.id !== column.id)}
-          columnRef={(element) => {
-            if (element) {
-              columnRefs.current.set(column.id, element);
-            } else {
-              columnRefs.current.delete(column.id);
-            }
-          }}
-          defaultBranch={defaultBranch}
-          draggedIssueNumber={isDragActive ? (drag?.issue.number ?? null) : null}
-          isDragActive={isDragActive}
-          isDropTarget={isDragActive && dropTarget === column.id}
-          issues={groups[column.id]}
-          movingIssueNumbers={movingIssueNumbers}
-          onBranchCreated={onBranchCreated}
-          onCardPointerDown={beginDrag}
-          onMoveIssue={onMoveIssue}
-          onOpenIssue={onOpenIssue}
-          pullRequests={pullRequests}
-          repoFullName={repoFullName}
-          suppressClickRef={suppressClickRef}
+          <BoardColumn
+            key={column.id}
+            branches={branches}
+            column={column}
+            defaultBranch={defaultBranch}
+            issues={groups[column.id]}
+            onBranchCreated={onBranchCreated}
+            onOpenIssue={onOpenIssue}
+            pullRequests={pullRequests}
+            repoFullName={repoFullName}
           />
         ))}
       </div>
       {visibleColumns.length > 1 ? (
-        <div className="flex h-5 shrink-0 items-center justify-center gap-1.5 sm:hidden" aria-hidden="true">
+        <div
+          className="flex h-5 shrink-0 items-center justify-center gap-1.5 sm:hidden"
+          aria-hidden="true"
+        >
           {visibleColumns.map((column, index) => (
             <span
               key={column.id}
               className={cn(
                 'h-1.5 rounded-full transition-all',
-                index === activeColumnIndex ? 'w-5 bg-neutral-300' : 'w-1.5 bg-neutral-700'
+                index === activeColumnIndex
+                  ? 'w-5 bg-neutral-300'
+                  : 'w-1.5 bg-neutral-700'
               )}
             />
           ))}
         </div>
       ) : null}
-      {drag?.active
-        ? createPortal(
-            <div
-              className="pointer-events-none fixed left-0 top-0 z-[100]"
-              style={{
-                transform: `translate(${drag.x - drag.offsetX}px, ${drag.y - drag.offsetY}px)`,
-                width: drag.width
-              }}
-            >
-              <div className="issue-drag-preview rounded-lg border border-neutral-600/80 bg-neutral-900 shadow-2xl shadow-black/60 ring-1 ring-white/10">
-                <BoardCardContent
-                  issue={drag.issue}
-                  pullRequests={pullRequests}
-                  className="p-3"
-                />
-              </div>
-            </div>,
-            document.body
-          )
-        : null}
     </div>
   );
 }
@@ -310,53 +103,27 @@ export function IssueKanbanBoard({
 function BoardColumn({
   branches,
   column,
-  columnRef,
   defaultBranch,
-  draggedIssueNumber,
-  isDragActive,
-  isDropTarget,
   issues,
-  movingIssueNumbers,
-  moveTargets,
   onBranchCreated,
-  onCardPointerDown,
-  onMoveIssue,
   onOpenIssue,
   pullRequests,
-  repoFullName,
-  suppressClickRef
+  repoFullName
 }: {
   branches: GitHubBranchRecord[];
   column: IssueColumnDefinition;
-  columnRef(element: HTMLElement | null): void;
   defaultBranch: string;
-  draggedIssueNumber: number | null;
-  isDragActive: boolean;
-  isDropTarget: boolean;
   issues: GitHubIssueRecord[];
-  movingIssueNumbers: ReadonlySet<number>;
-  moveTargets: IssueColumnDefinition[];
   onBranchCreated(branch: GitHubBranchRecord): void;
-  onCardPointerDown(
-    event: ReactPointerEvent<HTMLElement>,
-    issue: GitHubIssueRecord,
-    fromColumn: IssueColumnId
-  ): void;
-  onMoveIssue(issueNumber: number, columnId: IssueColumnId): void;
   onOpenIssue(issueNumber: number): void;
   pullRequests: GitHubPullRequestRecord[];
   repoFullName?: string;
-  suppressClickRef: { current: boolean };
 }) {
   return (
     <section
-      ref={columnRef}
       data-board-column
       aria-label={`${column.label} column`}
-      className={cn(
-        'flex h-full min-h-0 w-[calc(100vw-3.5rem)] max-w-[22rem] shrink-0 snap-center flex-col overflow-hidden rounded-xl border border-neutral-800/70 bg-neutral-950/40 transition-colors sm:w-[20rem] sm:snap-start md:w-[21rem] lg:w-80',
-        isDropTarget && column.dropClass
-      )}
+      className="flex h-full min-h-0 w-[calc(100vw-3.5rem)] max-w-[22rem] shrink-0 snap-center flex-col overflow-hidden rounded-xl border border-neutral-800/70 bg-neutral-950/40 sm:w-[20rem] sm:snap-start md:w-[21rem] lg:w-80"
     >
       <header className="flex shrink-0 items-center gap-2 border-b border-neutral-800/60 px-3 py-2.5">
         <span className={cn('size-1.5 rounded-full', column.dotClass)} />
@@ -372,30 +139,18 @@ function BoardColumn({
           <BoardCard
             key={issue.number}
             branches={branches}
-            column={column}
             defaultBranch={defaultBranch}
-            isDragSource={draggedIssueNumber === issue.number}
-            isMoving={movingIssueNumbers.has(issue.number)}
             issue={issue}
-            moveTargets={moveTargets}
             onBranchCreated={onBranchCreated}
-            onMoveIssue={onMoveIssue}
             onOpenIssue={onOpenIssue}
-            onPointerDown={onCardPointerDown}
             pullRequests={pullRequests}
             repoFullName={repoFullName}
             style={{ animationDelay: `${Math.min(index, 8) * 35}ms` }}
-            suppressClickRef={suppressClickRef}
           />
         ))}
         {issues.length === 0 ? (
-          <div
-            className={cn(
-              'flex min-h-24 flex-1 items-center justify-center rounded-lg border border-dashed border-neutral-800/80 px-3 text-center text-xs transition-colors',
-              isDragActive ? 'text-neutral-300' : 'text-neutral-600'
-            )}
-          >
-            {isDragActive ? 'Drop here' : column.hint}
+          <div className="flex min-h-24 flex-1 items-center justify-center rounded-lg border border-dashed border-neutral-800/80 px-3 text-center text-xs text-neutral-600">
+            {column.hint}
           </div>
         ) : null}
       </div>
@@ -405,40 +160,22 @@ function BoardColumn({
 
 function BoardCard({
   branches,
-  column,
   defaultBranch,
-  isDragSource,
-  isMoving,
   issue,
-  moveTargets,
   onBranchCreated,
-  onMoveIssue,
   onOpenIssue,
-  onPointerDown,
   pullRequests,
   repoFullName,
-  style,
-  suppressClickRef
+  style
 }: {
   branches: GitHubBranchRecord[];
-  column: IssueColumnDefinition;
   defaultBranch: string;
-  isDragSource: boolean;
-  isMoving: boolean;
   issue: GitHubIssueRecord;
-  moveTargets: IssueColumnDefinition[];
   onBranchCreated(branch: GitHubBranchRecord): void;
-  onMoveIssue(issueNumber: number, columnId: IssueColumnId): void;
   onOpenIssue(issueNumber: number): void;
   pullRequests: GitHubPullRequestRecord[];
-  onPointerDown(
-    event: ReactPointerEvent<HTMLElement>,
-    issue: GitHubIssueRecord,
-    fromColumn: IssueColumnId
-  ): void;
   repoFullName?: string;
-  style?: React.CSSProperties;
-  suppressClickRef: { current: boolean };
+  style?: CSSProperties;
 }) {
   const developmentHead = resolveIssueDevelopmentHead({
     branches,
@@ -450,37 +187,19 @@ function BoardCard({
 
   return (
     <article
-      aria-busy={isMoving}
-      onPointerDown={(event) => {
-        if (!isMoving) onPointerDown(event, issue, column.id);
-      }}
-      onClickCapture={(event) => {
-        if (suppressClickRef.current) {
-          event.preventDefault();
-          event.stopPropagation();
-        }
-      }}
       style={style}
-      className={cn(
-        'issue-rise-in group relative shrink-0 touch-auto rounded-lg border border-neutral-800/80 bg-neutral-900/50 transition hover:-translate-y-px hover:border-neutral-700 hover:bg-neutral-900 hover:shadow-lg hover:shadow-black/30 [@media(pointer:fine)]:cursor-grab [@media(pointer:fine)]:touch-none [@media(pointer:fine)]:select-none',
-        isDragSource && 'opacity-30 saturate-50',
-        isMoving && 'opacity-70'
-      )}
+      className="issue-rise-in group relative shrink-0 rounded-lg border border-neutral-800/80 bg-neutral-900/50 transition hover:-translate-y-px hover:border-neutral-700 hover:bg-neutral-900 hover:shadow-lg hover:shadow-black/30"
     >
       <button
         type="button"
         onClick={() => onOpenIssue(issue.number)}
-        className="block w-full min-w-0 cursor-[inherit] p-3 pb-14 pr-12 text-left [@media(pointer:fine)]:pb-3 [@media(pointer:fine)]:pr-3"
+        className="block w-full min-w-0 p-3 pb-14 pr-12 text-left [@media(pointer:fine)]:pb-3 [@media(pointer:fine)]:pr-3"
       >
-        <BoardCardContent
-          issue={issue}
-          pullRequests={pullRequests}
-        />
+        <BoardCardContent issue={issue} pullRequests={pullRequests} />
       </button>
       <div
-        data-no-drag
         className={cn(
-          'absolute bottom-1.5 left-3 right-28 top-auto transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(pointer:fine)]:bottom-auto [@media(pointer:fine)]:left-auto [@media(pointer:fine)]:right-8 [@media(pointer:fine)]:top-1.5',
+          'absolute bottom-1.5 left-3 right-14 top-auto transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(pointer:fine)]:bottom-auto [@media(pointer:fine)]:left-auto [@media(pointer:fine)]:right-8 [@media(pointer:fine)]:top-1.5',
           hasDevelopmentHead
             ? 'opacity-100'
             : 'opacity-100 [@media(pointer:fine)]:opacity-0'
@@ -498,63 +217,24 @@ function BoardCard({
       </div>
       {issue.url ? (
         <a
-          data-no-drag
           href={issue.url}
           target="_blank"
           rel="noreferrer"
           aria-label={`Open issue #${issue.number} on GitHub`}
           title="Open on GitHub"
-          className="absolute bottom-1.5 right-14 flex size-11 items-center justify-center rounded-xl text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100 [@media(pointer:fine)]:bottom-2 [@media(pointer:fine)]:right-2 [@media(pointer:fine)]:size-6 [@media(pointer:fine)]:rounded-md [@media(pointer:fine)]:text-neutral-500"
+          className="absolute bottom-1.5 right-1.5 flex size-11 items-center justify-center rounded-xl text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100 [@media(pointer:fine)]:bottom-2 [@media(pointer:fine)]:right-2 [@media(pointer:fine)]:size-6 [@media(pointer:fine)]:rounded-md [@media(pointer:fine)]:text-neutral-500"
         >
           <GitHubMark className="size-3.5" />
         </a>
-      ) : null}
-      {moveTargets.length > 0 ? (
-        <div
-          data-no-drag
-          className="absolute bottom-1.5 right-1.5 opacity-100 transition-opacity focus-within:opacity-100 [@media(pointer:fine)]:bottom-auto [@media(pointer:fine)]:top-1.5 [@media(pointer:fine)]:opacity-0 [@media(pointer:fine)]:group-hover:opacity-100"
-        >
-          <Dropdown>
-            <DropdownTrigger
-              aria-label={
-                isMoving
-                  ? `Moving issue #${issue.number}`
-                  : `Move issue #${issue.number} to another column`
-              }
-              isDisabled={isMoving}
-              className="size-11 rounded-xl border-transparent bg-neutral-900/80 text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100 [@media(pointer:fine)]:size-6 [@media(pointer:fine)]:rounded-md [@media(pointer:fine)]:text-neutral-500"
-            >
-              <ArrowRightLeft className="size-4 [@media(pointer:fine)]:size-3" />
-            </DropdownTrigger>
-            <DropdownPopover className="w-48 [@media(pointer:fine)]:w-40">
-              <DropdownMenu aria-label="Move issue to column">
-                {moveTargets.map((target) => (
-                  <DropdownItem
-                    key={target.id}
-                    onPress={() => {
-                      if (!isMoving) onMoveIssue(issue.number, target.id);
-                    }}
-                    className="flex min-h-11 items-center gap-2 text-sm [@media(pointer:fine)]:min-h-0 [@media(pointer:fine)]:text-xs"
-                  >
-                    <span className={cn('size-1.5 rounded-full', target.dotClass)} />
-                    {target.label}
-                  </DropdownItem>
-                ))}
-              </DropdownMenu>
-            </DropdownPopover>
-          </Dropdown>
-        </div>
       ) : null}
     </article>
   );
 }
 
 function BoardCardContent({
-  className,
   issue,
   pullRequests
 }: {
-  className?: string;
   issue: GitHubIssueRecord;
   pullRequests: GitHubPullRequestRecord[];
 }) {
@@ -564,9 +244,11 @@ function BoardCardContent({
   });
 
   return (
-    <div className={cn('min-w-0', className)}>
+    <div className="min-w-0">
       <div className="flex h-5 min-w-0 items-center gap-1.5 overflow-hidden">
-        <Text className="shrink-0 font-mono text-[11px] text-neutral-500">#{issue.number}</Text>
+        <Text className="shrink-0 font-mono text-[11px] text-neutral-500">
+          #{issue.number}
+        </Text>
         {issue.labels.slice(0, 2).map((label) => (
           <IssueLabelChip key={label} label={label} />
         ))}

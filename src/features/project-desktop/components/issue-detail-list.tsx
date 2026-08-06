@@ -1,19 +1,17 @@
-import { useEffect, useState } from 'react';
 import { Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
-import type { GitHubIssueRecord } from '@/shared/project-space-api';
-import {
-  loadIssueColumnOverrides,
-  resolveIssueColumn,
-  type IssueColumnOverrides
-} from './issue-board-model';
+import type {
+  GitHubIssueRecord,
+  GitHubPullRequestRecord
+} from '@/shared/project-space-api';
+import { resolveIssueColumn } from './issue-board-model';
 import { IssueStatusDot } from './issue-visuals';
 
 interface IssueDetailListProps {
   className?: string;
   issues: GitHubIssueRecord[];
   onOpenIssue(issueNumber: number): void;
-  repoFullName?: string;
+  pullRequests: GitHubPullRequestRecord[];
   selectedIssueNumber: number;
 }
 
@@ -21,17 +19,9 @@ export function IssueDetailList({
   className,
   issues,
   onOpenIssue,
-  repoFullName,
+  pullRequests,
   selectedIssueNumber
 }: IssueDetailListProps) {
-  const [overrides, setOverrides] = useState<IssueColumnOverrides>(() =>
-    loadIssueColumnOverrides(repoFullName)
-  );
-
-  useEffect(() => {
-    setOverrides(loadIssueColumnOverrides(repoFullName));
-  }, [repoFullName]);
-
   return (
     <aside className={cn('min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-neutral-800/70 bg-neutral-950/40', className ?? 'flex')}>
       <div className="flex shrink-0 items-center gap-2 border-b border-neutral-800/60 px-3 py-2.5">
@@ -43,7 +33,7 @@ export function IssueDetailList({
         </Text>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-1.5">
-        {issues.map((entry, index) => {
+        {issues.map((entry) => {
           const isSelected = entry.number === selectedIssueNumber;
 
           return (
@@ -61,7 +51,7 @@ export function IssueDetailList({
                 <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-neutral-100" />
               ) : null}
               <span className="flex items-center gap-1.5">
-                <IssueStatusDot columnId={resolveIssueColumn(entry, index, overrides)} />
+                <IssueStatusDot columnId={resolveIssueColumn(entry, pullRequests)} />
                 <Text className="font-mono text-[11px] tabular-nums text-neutral-500">
                   #{entry.number}
                 </Text>

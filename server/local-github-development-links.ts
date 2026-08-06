@@ -4,51 +4,94 @@ import type {
 } from '../src/shared/project-space-api';
 import { requestGitHubGraphQL } from './github-graphql-client';
 
+interface GitHubGraphQLPageInfo {
+  endCursor?: string | null;
+  hasNextPage?: boolean;
+}
+
+interface GitHubGraphQLPullRequest {
+  headRefName?: string | null;
+  headRefOid?: string | null;
+  headRef?: {
+    id?: string | null;
+  } | null;
+  headRepository?: {
+    nameWithOwner?: string | null;
+  } | null;
+  isCrossRepository?: boolean | null;
+  mergeCommit?: {
+    oid?: string | null;
+  } | null;
+  number: number;
+  state: 'OPEN' | 'CLOSED' | 'MERGED';
+  title: string;
+  updatedAt?: string | null;
+  url: string;
+}
+
+interface GitHubGraphQLPullRequestConnection {
+  nodes?: Array<GitHubGraphQLPullRequest | null>;
+  pageInfo?: GitHubGraphQLPageInfo | null;
+}
+
+interface GitHubGraphQLIssue {
+  closedByPullRequestsReferences?: GitHubGraphQLPullRequestConnection | null;
+  linkedBranches?: {
+    nodes?: Array<{
+      ref?: {
+        name?: string;
+        target?: {
+          oid?: string | null;
+        } | null;
+      } | null;
+    } | null>;
+  } | null;
+  number: number;
+}
+
 interface GitHubGraphQLDevelopmentLinks {
   repository?: {
     issues?: {
-      nodes?: Array<{
-        linkedBranches?: {
-          nodes?: Array<{
-            ref?: {
-              name?: string;
-              target?: {
-                oid?: string | null;
-              } | null;
-            } | null;
-          } | null>;
-        } | null;
-        number: number;
-      } | null>;
+      nodes?: Array<GitHubGraphQLIssue | null>;
     } | null;
-    pullRequests?: {
-      nodes?: Array<{
-        closingIssuesReferences?: {
-          nodes?: Array<{
-            number: number;
-          } | null>;
-        } | null;
-        headRefName?: string | null;
-        headRefOid?: string | null;
-        headRef?: {
-          id?: string | null;
-        } | null;
-        headRepository?: {
-          nameWithOwner?: string | null;
-        } | null;
-        isCrossRepository?: boolean | null;
-        mergeCommit?: {
-          oid?: string | null;
-        } | null;
-        number: number;
-        state: 'OPEN' | 'CLOSED' | 'MERGED';
-        title: string;
-        updatedAt?: string | null;
-        url: string;
-      } | null>;
+    pullRequests?: GitHubGraphQLPullRequestConnection | null;
+  } | null;
+}
+
+interface GitHubGraphQLIssuePullRequests {
+  repository?: {
+    issue?: {
+      closedByPullRequestsReferences?: GitHubGraphQLPullRequestConnection | null;
     } | null;
   } | null;
 }
+
+interface LinkedPullRequest {
+  issueNumbers: Set<number>;
+  pullRequest: GitHubGraphQLPullRequest;
+}
+
+const pullRequestFragment = `
+  fragment DevelopmentPullRequestFields on PullRequest {
+    number
+    title
+    url
+    state
+    headRefName
+    headRefOid
+    headRef {
+      id
+    }
+    headRepository {
+      nameWithOwner
+    }
+    isCrossRepository
+    mergeCommit {
+      oid
+    }
+    updatedAt
+  }
+`;
 
 function addLinkedIssue(
   linkedIssueNumbersByBranch: Map<string, Set<number>>,
@@ -59,6 +102,40 @@ function addLinkedIssue(
 
   current.add(issueNumber);
   linkedIssueNumbersByBranch.set(branchName, current);
+}
+
+function addPullRequest(
+  pullRequests: Map<number, LinkedPullRequest>,
+  pullRequest: GitHubGraphQLPullRequest,
+  issueNumber?: number
+) {
+  const current = pullRequests.get(pullRequest.number) ?? {
+    issueNumbers: new Set<number>(),
+    pullRequest
+  };
+
+  if (issueNumber !== undefined) {
+    current.issueNumbers.add(issueNumber);
+  }
+
+  pullRequests.set(pullRequest.number, current);
+}
+
+function requireNextCursor(
+  pageInfo: GitHubGraphQLPageInfo | null | undefined,
+  issueNumber: number
+) {
+  if (!pageInfo?.hasNextPage) {
+    return null;
+  }
+
+  if (!pageInfo.endCursor) {
+    throw new Error(
+      `GitHub pull request pagination for issue #${issueNumber} did not include a cursor.`
+    );
+  }
+
+  return pageInfo.endCursor;
 }
 
 export async function loadRepositoryDevelopmentLinks(
@@ -98,41 +175,41 @@ export async function loadRepositoryDevelopmentLinks(
                   }
                 }
               }
-            }
-          }
-          pullRequests(first: 100, states: [OPEN, CLOSED, MERGED], orderBy: {field: UPDATED_AT, direction: DESC}) {
-            nodes {
-              number
-              title
-              url
-              state
-              headRefName
-              headRefOid
-              headRef {
-                id
-              }
-              headRepository {
-                nameWithOwner
-              }
-              isCrossRepository
-              mergeCommit {
-                oid
-              }
-              updatedAt
-              closingIssuesReferences(first: 20) {
+              closedByPullRequestsReferences(first: 100, includeClosedPrs: true) {
                 nodes {
-                  number
+                  ...DevelopmentPullRequestFields
+                }
+                pageInfo {
+                  hasNextPage
+                  endCursor
                 }
               }
             }
           }
+          pullRequests(
+            first: 100
+            states: [OPEN, CLOSED, MERGED]
+            orderBy: {field: UPDATED_AT, direction: DESC}
+          ) {
+            nodes {
+              ...DevelopmentPullRequestFields
+            }
+          }
         }
       }
+      ${pullRequestFragment}
     `,
     { name, owner }
   );
   const linkedIssueNumbersByBranch = new Map<string, Set<number>>();
   const linkedBranchShaByName = new Map<string, string | undefined>();
+  const pullRequestsByNumber = new Map<number, LinkedPullRequest>();
+
+  for (const pullRequest of data.repository?.pullRequests?.nodes ?? []) {
+    if (pullRequest) {
+      addPullRequest(pullRequestsByNumber, pullRequest);
+    }
+  }
 
   for (const issue of data.repository?.issues?.nodes ?? []) {
     if (!issue) {
@@ -150,7 +227,88 @@ export async function loadRepositoryDevelopmentLinks(
         );
       }
     }
+
+    const initialConnection = issue.closedByPullRequestsReferences;
+
+    for (const pullRequest of initialConnection?.nodes ?? []) {
+      if (pullRequest) {
+        addPullRequest(pullRequestsByNumber, pullRequest, issue.number);
+      }
+    }
+
+    let cursor = requireNextCursor(initialConnection?.pageInfo, issue.number);
+
+    while (cursor) {
+      const page = await request<GitHubGraphQLIssuePullRequests>(
+        token,
+        `
+          query IssuePullRequestLinks(
+            $owner: String!
+            $name: String!
+            $issueNumber: Int!
+            $cursor: String
+          ) {
+            repository(owner: $owner, name: $name) {
+              issue(number: $issueNumber) {
+                closedByPullRequestsReferences(
+                  first: 100
+                  after: $cursor
+                  includeClosedPrs: true
+                ) {
+                  nodes {
+                    ...DevelopmentPullRequestFields
+                  }
+                  pageInfo {
+                    hasNextPage
+                    endCursor
+                  }
+                }
+              }
+            }
+          }
+          ${pullRequestFragment}
+        `,
+        { cursor, issueNumber: issue.number, name, owner }
+      );
+      const connection =
+        page.repository?.issue?.closedByPullRequestsReferences;
+
+      if (!connection) {
+        throw new Error(
+          `GitHub pull request pagination for issue #${issue.number} did not return a page.`
+        );
+      }
+
+      for (const pullRequest of connection.nodes ?? []) {
+        if (pullRequest) {
+          addPullRequest(pullRequestsByNumber, pullRequest, issue.number);
+        }
+      }
+
+      cursor = requireNextCursor(connection.pageInfo, issue.number);
+    }
   }
+
+  const pullRequests = Array.from(pullRequestsByNumber.values())
+    .map(({ issueNumbers, pullRequest }) => ({
+      headBranch: pullRequest.headRefName ?? undefined,
+      headRefPresent: Boolean(pullRequest.headRef),
+      headRepositoryFullName: pullRequest.headRepository?.nameWithOwner ?? undefined,
+      headSha: pullRequest.headRefOid ?? undefined,
+      isCrossRepository: pullRequest.isCrossRepository ?? undefined,
+      linkedIssueNumbers: Array.from(issueNumbers).sort((left, right) => left - right),
+      mergeCommitHash: pullRequest.mergeCommit?.oid ?? undefined,
+      number: pullRequest.number,
+      state: pullRequest.state.toLowerCase() as GitHubPullRequestRecord['state'],
+      title: pullRequest.title,
+      updatedAt: pullRequest.updatedAt ?? undefined,
+      url: pullRequest.url
+    }))
+    .sort(
+      (left, right) =>
+        (right.updatedAt ?? '').localeCompare(left.updatedAt ?? '') ||
+        right.number - left.number
+    );
 
   return {
     linkedBranches: Array.from(linkedIssueNumbersByBranch, ([name, issueNumbers]) => ({
@@ -160,24 +318,6 @@ export async function loadRepositoryDevelopmentLinks(
       name
     })),
     linkedIssueNumbersByBranch,
-    pullRequests: (data.repository?.pullRequests?.nodes ?? [])
-      .filter((pullRequest): pullRequest is NonNullable<typeof pullRequest> => Boolean(pullRequest))
-      .map((pullRequest) => ({
-        headBranch: pullRequest.headRefName ?? undefined,
-        headRefPresent: Boolean(pullRequest.headRef),
-        headRepositoryFullName: pullRequest.headRepository?.nameWithOwner ?? undefined,
-        headSha: pullRequest.headRefOid ?? undefined,
-        isCrossRepository: pullRequest.isCrossRepository ?? undefined,
-        linkedIssueNumbers:
-          pullRequest.closingIssuesReferences?.nodes
-            ?.map((issue) => issue?.number)
-            .filter((number): number is number => typeof number === 'number') ?? [],
-        mergeCommitHash: pullRequest.mergeCommit?.oid ?? undefined,
-        number: pullRequest.number,
-        state: pullRequest.state.toLowerCase() as GitHubPullRequestRecord['state'],
-        title: pullRequest.title,
-        updatedAt: pullRequest.updatedAt ?? undefined,
-        url: pullRequest.url
-      }))
+    pullRequests
   };
 }
