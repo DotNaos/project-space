@@ -185,7 +185,9 @@ function evaluateConnector(
     return { check: { ...common, state: 'repairing',
       summary: 'A managed connector repair is in progress.' }, operation };
   }
-  if (operation?.state === 'rolled-back' &&
+  const recoveredRollback = operation?.state === 'rolled-back' &&
+    update?.state === 'up-to-date';
+  if (operation?.state === 'rolled-back' && !recoveredRollback &&
       (action?.kind !== 'update-connector' ||
         !connectorRuntimeRollbackAllowsRelease(operation, action.releaseId))) {
     return { check: { ...common, state: 'rolled-back',

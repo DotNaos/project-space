@@ -222,6 +222,41 @@ describe('connector runtime status', () => {
     });
   });
 
+  test('accepts an exact signed target that becomes healthy after rollback', () => {
+    const recoveredRuntime = {
+      ...runtime,
+      buildId: approved.manifest.buildId,
+      bundleVersions: { ...approved.artifact.bundleVersions },
+      releaseId: approved.manifest.releaseId,
+      version: approved.manifest.version
+    };
+    const recoveredOperation = {
+      ...operation('rolled-back'),
+      expectedBuildId: approved.manifest.buildId,
+      expectedFingerprint: connectorRuntimeFingerprint(
+        recoveredRuntime,
+        approved.artifact.capabilities
+      ),
+      expectedReleaseId: approved.manifest.releaseId,
+      previousFingerprint: connectorRuntimeFingerprint(runtime, capabilities),
+      previousInstanceId: runtime.instanceId
+    };
+
+    expect(projectMachineRuntimeStatus({
+      approved,
+      machine: machine({ connector: {
+        capabilities,
+        installCommand: 'connector',
+        runtime: recoveredRuntime,
+        status: 'online'
+      } }),
+      operation: recoveredOperation
+    }).update).toMatchObject({
+      operation: { id: 'operation-1', state: 'rolled-back' },
+      state: 'up-to-date'
+    });
+  });
+
   test('retries only an unchanged exact target after a pre-install download failure', () => {
     const expected = connectorRuntimeFingerprint({
       ...runtime,
