@@ -11,6 +11,7 @@ import {
   codespaceAgentStatePath,
   codespaceAgentTmuxCommands,
   codespaceMachineName,
+  formatCodespaceAgentBlockedStart,
   parseCodespaceAgentStartResult,
   readCodespaceAgentState,
   sanitizeCodespaceAgentEnvironment,
@@ -103,7 +104,6 @@ describe('Codespace agent command and result contract', () => {
   test('uses a foreground connector and replays the stable operation ID', () => {
     const commands = codespaceAgentCommands({
       issue: expected.issue,
-      machineId: 'machine-1',
       machineName: 'codespace-friendly-space',
       operationId: expected.operationId,
       repository: expected.repository
@@ -126,13 +126,18 @@ describe('Codespace agent command and result contract', () => {
       '456',
       '--repository',
       'DotNaos/project-space',
-      '--machine-id',
-      'machine-1',
+      '--here',
       '--operation-id',
       expected.operationId,
       '--format',
       'json'
     ]);
+  });
+
+  test('explains an unassigned connector instead of conflating connector and machine IDs', () => {
+    expect(
+      formatCodespaceAgentBlockedStart('unauthorized', 'Select one exact physical machine.')
+    ).toContain('Settings → Machines, choose Add machine, select this Codespace connector, and save.');
   });
 
   test('starts the runner in a stable detached tmux session', () => {

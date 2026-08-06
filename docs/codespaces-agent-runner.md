@@ -75,15 +75,21 @@ The runner performs these steps as one supervised operation:
 
 1. verifies GitHub, ChatGPT Codex, Docker, Project CLI, and connector readiness;
 2. starts `project connect --connector-mode foreground`;
-3. prints a Project Space machine-approval URL on the first run and waits for
-   that machine to become online;
-4. reads the exact online machine ID and calls
-   `project codex start --issue 454 --machine-id <exact-id>` with
-   an operation ID derived
-   from repository, issue, and `CODESPACE_NAME`;
+3. prints a Project Space connector-approval URL on the first run and waits for
+   that connector to become online;
+4. targets the physical machine containing that authenticated connector with
+   `project codex start --issue 454 --here` and an operation ID derived from
+   repository, issue, and `CODESPACE_NAME`;
 5. saves only the confirmed task identity under
    `~/.local/state/project-space/codespace-agent`; and
 6. keeps the connector alive inside a detached tmux session.
+
+The approved connector must belong to a physical machine. If Project Space
+reports that it cannot select one exact physical machine, open **Settings →
+Machines**, choose **Add machine**, select the Codespace connector, and save.
+Then replay the same command. Connector IDs and physical-machine IDs are
+separate identities; the runner deliberately uses `--here` so Project Space
+resolves the authenticated connector's membership.
 
 Once confirmed, the Codex turn is already running with the issue URL and the
 repository's `AGENTS.md` rules. The issue defines the requested result; the

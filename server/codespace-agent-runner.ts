@@ -166,7 +166,6 @@ export function codespaceAgentLockPath(input: {
 
 export function codespaceAgentCommands(input: {
   issue: number;
-  machineId?: string;
   machineName: string;
   operationId: string;
   repository: string;
@@ -208,9 +207,7 @@ export function codespaceAgentCommands(input: {
       String(input.issue),
       '--repository',
       input.repository,
-      ...(input.machineId
-        ? ['--machine-id', input.machineId]
-        : ['--machine', input.machineName]),
+      '--here',
       '--operation-id',
       input.operationId,
       '--format',
@@ -512,14 +509,13 @@ export async function runCodespaceAgent(
     connector.stdout?.pipe(output);
     connector.stderr?.pipe(errorOutput);
     const connectorExit = childExit(connector);
-    const onlineMachine = await waitForMachineOnline(cwd, environment, connectorExit);
+    await waitForMachineOnline(cwd, environment, connectorExit);
     output.write('Connector online; requesting the Codex task start. This can take several minutes.\n');
     if (interrupted) return interrupted === 'SIGINT' ? 130 : 143;
 
     const confirmed = await startIssueWithReplay({
       command: codespaceAgentCommands({
         issue: options.issue,
-        machineId: onlineMachine.machineId,
         machineName,
         operationId,
         repository
@@ -701,10 +697,7 @@ async function waitForMachineOnline(
     if (status.result.exitCode === 0) {
       try {
         const parsed = parseLastJSONObject(status.result.stdout);
-        if (parsed.status === 'online' && parsed.configured === true) {
-          const machineId = stringValue(parsed.machineId);
-          if (machineId) return { machineId };
-        }
+        if (parsed.status === 'online' && parsed.configured === true) return;
       } catch {
         // The connector remains the source of truth while registration is pending.
       }
@@ -719,6 +712,13 @@ async function waitForMachineOnline(
   throw new Error(
     'The Project connector did not become online within ten minutes. Complete the printed approval URL, then rerun the same command.'
   );
+}
+
+export function formatCodespaceAgentBlockedStart(reason: string, message: string) {
+  const resolution = message === 'Select one exact physical machine.'
+    ? 'This connector is online but is not assigned to a physical machine. In Project Space, open Settings → Machines, choose Add machine, select this Codespace connector, and save.'
+    : message;
+  return `Codex task start is blocked (${reason}): ${resolution} Rerun this exact command after resolving the blocker; the operation ID is stable.`;
 }
 
 async function startIssueWithReplay(input: {
@@ -747,9 +747,7 @@ async function startIssueWithReplay(input: {
     }
     if (parsed?.kind === 'confirmed') return parsed.state;
     if (parsed?.kind === 'blocked') {
-      throw new Error(
-        `Codex task start is blocked (${parsed.reason}): ${parsed.message} Rerun this exact command after resolving the blocker; the operation ID is stable.`
-      );
+      throw new Error(formatCodespaceAgentBlockedStart(parsed.reason, parsed.message));
     }
     if (parsed?.kind === 'uncertain') lastMessage = parsed.message;
     if (attempt < 3) await delay(2_000);
