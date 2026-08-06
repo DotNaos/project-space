@@ -31,13 +31,6 @@ export function pullRequestChangelogPrototypeSelection(
   expectedIdentity: PullRequestChangelogIdentity,
   changeId: string | undefined
 ): PullRequestChangelogPrototypeSelection {
-  if (!changeId) {
-    return {
-      message: 'Choose a Change from the pull request changelog.',
-      state: 'missing'
-    };
-  }
-
   const presentation = pullRequestChangelogPresentation(
     snapshot,
     expectedIdentity
@@ -51,14 +44,16 @@ export function pullRequestChangelogPrototypeSelection(
     };
   }
 
-  const entry = presentation.entries.find(
-    (candidate) => candidate.id === changeId
-  );
+  const entry = changeId
+    ? presentation.entries.find((candidate) => candidate.id === changeId)
+    : presentation.entries.find((candidate) => candidate.prototype);
   if (!entry?.prototype) {
     return {
       message:
-        'This Change does not identify a testable prototype in the exact pull request revision.',
-      state: 'unknown'
+        changeId
+          ? 'This Change does not identify a testable prototype in the exact pull request revision.'
+          : 'No testable prototype is documented for this pull request revision.',
+      state: changeId ? 'unknown' : 'missing'
     };
   }
 

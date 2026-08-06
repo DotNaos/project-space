@@ -49,9 +49,13 @@ describe('pull request Preview status UI', () => {
       }}
       pullRequest={pullRequest}
       repositoryFullName={repositoryFullName}
+      returnPath="/projects/project-space/issues/263"
     />);
-    expect(html).toContain('Open preview');
-    expect(html).toContain('https://pr-263.projects.os-home.net/');
+    expect(html).toContain('Open app Preview');
+    expect(html).toContain(
+      'https://pr.projects.os-home.net/?pr=263&amp;return=%2Fprojects%2Fproject-space%2Fissues%2F263'
+    );
+    expect(html).toContain('pr-263.projects.os-home.net');
   });
 
   test('renders blocked evidence without a link', () => {

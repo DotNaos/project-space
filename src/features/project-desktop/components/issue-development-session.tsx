@@ -424,7 +424,12 @@ export function IssueDevelopmentSession({
 
       {showsPullRequestPreview ? (
         <section className="grid gap-3 border-b border-current/[.08] pb-5">
-          <PullRequestPreviewStatusView inventory={preview.inventory} pullRequest={selectedPullRequest} repositoryFullName={repoFullName} />
+          <PullRequestPreviewStatusView
+            inventory={preview.inventory}
+            pullRequest={selectedPullRequest}
+            repositoryFullName={repoFullName}
+            returnPath={`/projects/${encodeURIComponent(project.id)}/issues/${issue.number}`}
+          />
           {isReadyPullRequest && repoFullName ? (
             <PullRequestPrototypeAction connectorId={prototypeMachine?.machineId} issueNumber={issue.number} projectId={project.id} pullRequest={selectedPullRequest} repositoryFullName={repoFullName} />
           ) : null}

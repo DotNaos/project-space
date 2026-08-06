@@ -26,13 +26,11 @@ import {
 
 import { projectSpaceClient } from '@/api/project-space-client';
 import { Text } from '@/app/dotnaos-ui';
-import { pullRequestChangelogSnapshotFor } from '@/features/pr-preview-changelog/pull-request-changelog-snapshot';
 import {
   isPullRequestChangelogIdentity,
   type PullRequestChangelogIdentity
 } from '@/shared/pr-preview-changelog-api';
 import {
-  pullRequestChangelogPrototypeSelection,
   pullRequestPrototypeIdentityMatches
 } from '@/shared/pr-preview-changelog-prototypes';
 import type { PullRequestTestSurfacesResult } from '@/shared/pr-preview-test-surfaces-api';
@@ -57,6 +55,7 @@ import {
   type PrototypeReviewLocalContextResult
 } from './use-prototype-review-local-context';
 import { usePrototypeReviewBuildIdentity } from './use-prototype-review-build-identity';
+import { usePullRequestReviewChangelog } from './use-exact-pull-request-changelog';
 import {
   developmentPrototypeTarget,
   embeddedPrototypeUrl,
@@ -211,24 +210,14 @@ export function PrototypeReviewPage() {
     },
     [initial.headSha, initial.pullRequestNumber, initial.repositoryFullName]
   );
-  const initialSelection = useMemo(
-    () =>
-      requestedIdentity
-        ? pullRequestChangelogPrototypeSelection(
-            pullRequestChangelogSnapshotFor(requestedIdentity),
-            requestedIdentity,
-            initial.changeId
-          )
-        : {
-            message:
-              'A verified repository, pull request, and full head revision are required.',
-            state: 'unavailable' as const
-          },
-    [initial.changeId, requestedIdentity]
-  );
+  const {
+    exactSnapshot,
+    selection,
+    snapshot: changelogSnapshot
+  } = usePullRequestReviewChangelog(requestedIdentity, initial.changeId);
   const selectedSurface =
-    initialSelection.state === 'ready'
-      ? initialSelection.entry.prototype!.surface ===
+    selection.state === 'ready'
+      ? selection.entry.prototype!.surface ===
         'mobile-prototype'
         ? 'native'
         : 'web'
@@ -244,7 +233,7 @@ export function PrototypeReviewPage() {
   const [loadedTargetUrl, setLoadedTargetUrl] = useState<string>();
   const [openedLiveUrl, setOpenedLiveUrl] = useState<string>();
   const [panel, setPanel] = useState<ReviewPanel | undefined>(
-    initialSelection.state === 'ready' ? undefined : 'changelog'
+    selection.state === 'ready' ? undefined : 'changelog'
   );
   const [result, setResult] = useState<PullRequestTestSurfacesResult>();
   const [surfaceError, setSurfaceError] = useState<string>();
@@ -252,6 +241,18 @@ export function PrototypeReviewPage() {
   const frameRevealTimer = useRef<number | undefined>(undefined);
   const hideHudTimer = useRef<number | undefined>(undefined);
   const rotationTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (exactSnapshot && selection.state === 'ready') {
+      setPanel(undefined);
+      setSurface(
+        selection.entry.prototype!.surface === 'mobile-prototype'
+          ? 'native'
+          : 'web'
+      );
+      setViewport(selection.entry.prototype!.viewport);
+    }
+  }, [exactSnapshot, selection]);
 
   useEffect(() => {
     if (!initial.repositoryFullName || !initial.pullRequestNumber) return;
@@ -358,10 +359,10 @@ export function PrototypeReviewPage() {
       )
     : undefined;
   const candidateTarget =
-    initialSelection.state === 'ready'
+    selection.state === 'ready'
       ? development ??
         verified ??
-        (initialSelection.entry.prototype?.scenarioId === 'branch-head-preview'
+        (selection.entry.prototype?.scenarioId === 'branch-head-preview'
           ? verifiedBuild
           : undefined)
       : undefined;
@@ -376,8 +377,8 @@ export function PrototypeReviewPage() {
   const targetUrl = target && prototypeAccess.targetUrl
     ? embeddedPrototypeUrl(
         { ...target, url: prototypeAccess.targetUrl },
-        initialSelection.state === 'ready'
-          ? initialSelection.entry.prototype!.scenarioId
+        selection.state === 'ready'
+          ? selection.entry.prototype!.scenarioId
           : '',
         viewport,
         orientation,
@@ -387,8 +388,8 @@ export function PrototypeReviewPage() {
     : undefined;
   const rendersVerifiedBuildInline = rendersPreviewBuildInline(
     target,
-    initialSelection.state === 'ready'
-      ? initialSelection.entry.prototype?.scenarioId
+    selection.state === 'ready'
+      ? selection.entry.prototype?.scenarioId
       : undefined
   );
   const localContextResult = usePrototypeReviewLocalContext({
@@ -606,8 +607,8 @@ export function PrototypeReviewPage() {
                 </Text>
                 <Text className="mt-2 block text-xs leading-5 text-neutral-500">
                   {surfaceError ??
-                    (initialSelection.state !== 'ready'
-                      ? initialSelection.message
+                    (selection.state !== 'ready'
+                      ? selection.message
                       : prototypeAccess.error ??
                         (!exactResult && !development
                           ? 'The available prototype does not match the requested repository, PR, and head commit.'
@@ -681,6 +682,7 @@ export function PrototypeReviewPage() {
       ) : null}
 
       <PrototypeReviewChangelogModal
+        snapshot={changelogSnapshot}
         isOpen={!fullscreen && panel === 'changelog'}
         pullRequestNumber={initial.pullRequestNumber}
         repositoryFullName={initial.repositoryFullName}

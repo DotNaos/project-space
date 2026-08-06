@@ -106,10 +106,9 @@ describe('pull request changelog prototype discovery', () => {
     );
   });
 
-  test('fails closed for a missing or unknown Change', () => {
-    const source = snapshot([
-      change('known-change', 'ready', 'desktop-prototype')
-    ]);
+  test('opens the first testable Change by default and rejects an unknown Change', () => {
+    const known = change('known-change', 'ready', 'desktop-prototype');
+    const source = snapshot([known]);
 
     expect(
       pullRequestChangelogPrototypeSelection(
@@ -117,7 +116,7 @@ describe('pull request changelog prototype discovery', () => {
         identity,
         undefined
       )
-    ).toMatchObject({ state: 'missing' });
+    ).toEqual({ entry: known, state: 'ready' });
     expect(
       pullRequestChangelogPrototypeSelection(
         source,
