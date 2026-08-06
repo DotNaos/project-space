@@ -1,0 +1,39 @@
+---
+title: "Show project names in Tasks tab titles"
+version: "0.4.59"
+bump: "patch"
+pullRequest: 448
+issues:
+  - 445
+areas:
+  - web
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  Browser tabs now identify both the selected project and its Tasks page, making
+  open Project Space tabs easier to distinguish.
+</ReleaseSummary>
+
+## Changes
+
+### Fixed
+
+- Tasks pages now show the selected project name in the browser tab title.
+- Changing projects updates the title, while leaving Tasks restores the default Project Space title.
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Open Tasks for two different projects and confirm each browser tab title shows the matching project name.
+- Navigate away from Tasks and confirm the browser tab title returns to Project Space.
+
+</PreviewOnly>

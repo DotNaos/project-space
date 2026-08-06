@@ -30,6 +30,10 @@ import {
 } from './app-rail';
 import { ContextPanel } from './context-panel';
 import { ProjectMainPanel } from './project-main-panel';
+import {
+  projectDesktopPageTitle,
+  projectSpaceDefaultPageTitle
+} from './project-desktop-page-title';
 import { shouldShowProjectSpaceSessionGate } from './project-desktop-session-gate';
 import { shouldDefaultContextPanelOpen } from './project-desktop-viewport';
 
@@ -217,6 +221,19 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
     minWidth: PANEL_MIN_WIDTH,
     offsetLeft: RAIL_WIDTH
   });
+  const pageTitle = projectDesktopPageTitle({
+    mainView: desktop.mainView,
+    project: desktop.project,
+    projectTab: desktop.projectTab
+  });
+
+  useEffect(() => {
+    document.title = pageTitle;
+
+    return () => {
+      document.title = projectSpaceDefaultPageTitle;
+    };
+  }, [pageTitle]);
 
   useEffect(() => {
     function updateViewportMode() {
