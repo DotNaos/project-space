@@ -43,6 +43,10 @@ import {
   projectChatNameLeasesMigrationId,
   projectChatNameLeasesMigrationSql
 } from './project-chat-name-leases-migration';
+import {
+  projectSpaceMcpOAuthMigrationId,
+  projectSpaceMcpOAuthMigrationSql
+} from './project-space-mcp-oauth-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -667,6 +671,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: codexSessionSettingsMigrationId,
     sql: codexSessionSettingsMigrationSql
+  },
+  {
+    id: projectSpaceMcpOAuthMigrationId,
+    sql: projectSpaceMcpOAuthMigrationSql
   }
 ];
 
