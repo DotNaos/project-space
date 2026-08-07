@@ -225,7 +225,7 @@ version_count=0
 command_key_count=0
 install_script_count=0
 project_count=0
-approval_signer_count=0
+legacy_approval_marker_count=0
 connector_count=0
 release_key_count=0
 
@@ -259,7 +259,7 @@ while IFS= read -r member || [ -n "$member" ]; do
     "$candidate_root/install.sh") install_script_count=$((install_script_count + 1)) ;;
     "$candidate_root/project") project_count=$((project_count + 1)) ;;
     "$candidate_root/project-approval-signer")
-      approval_signer_count=$((approval_signer_count + 1))
+      legacy_approval_marker_count=$((legacy_approval_marker_count + 1))
       ;;
     "$candidate_root/project-space-connector") connector_count=$((connector_count + 1)) ;;
     "$candidate_root/release-manifest-signing-public-key.pem")
@@ -276,7 +276,7 @@ if [ "$bundle_root_name" != "$expected_bundle_root" ] ||
    [ "$command_key_count" -ne 1 ] ||
    [ "$install_script_count" -ne 1 ] ||
    [ "$project_count" -ne 1 ] ||
-   [ "$approval_signer_count" -ne 1 ] ||
+   [ "$legacy_approval_marker_count" -gt 1 ] ||
    [ "$connector_count" -ne 1 ] ||
    [ "$release_key_count" -ne 1 ]; then
   reject_bundle
@@ -301,7 +301,14 @@ extract_bundle_member VERSION 0644
 extract_bundle_member connector-command-signing-public-key.pem 0644
 extract_bundle_member install.sh 0755
 extract_bundle_member project 0755
-extract_bundle_member project-approval-signer 0755
+if [ "$legacy_approval_marker_count" -eq 1 ]; then
+  legacy_approval_marker="$bundle_root/project-approval-signer"
+  if ! tar -xOzf "$archive" "$bundle_root_name/project-approval-signer" > "$legacy_approval_marker" ||
+     [ -s "$legacy_approval_marker" ]; then
+    reject_bundle
+  fi
+  chmod 0755 "$legacy_approval_marker"
+fi
 extract_bundle_member project-space-connector 0755
 extract_bundle_member release-manifest-signing-public-key.pem 0644
 

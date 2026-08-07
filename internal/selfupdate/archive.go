@@ -333,7 +333,6 @@ func archiveBundleMembers(target string) (map[string]fs.FileMode, bool) {
 	}
 	switch target {
 	case "darwin-arm64":
-		members["project-approval-signer"] = 0o700
 	case "linux-x64":
 	default:
 		return nil, false

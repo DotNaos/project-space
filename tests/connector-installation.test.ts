@@ -112,11 +112,6 @@ function completeBundleEntries(bundleRoot: string): TarEntry[] {
     },
     { name: `${bundleRoot}/project`, contents: 'fixture project\n', mode: 0o755 },
     {
-      name: `${bundleRoot}/project-approval-signer`,
-      contents: 'fixture signer\n',
-      mode: 0o755
-    },
-    {
       name: `${bundleRoot}/project-space-connector`,
       contents: 'fixture connector\n',
       mode: 0o755
@@ -404,6 +399,27 @@ describe('connector installation origin', () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(readFileSync(marker, 'utf8')).toContain('--install-dir');
+  });
+
+  test('accepts only an empty legacy approval marker during the removal transition', () => {
+    const bundleRoot = 'project-space-machine-tools-darwin-arm64-v0.3.0';
+    const compatible = runGeneratedInstaller([
+      ...completeBundleEntries(bundleRoot),
+      { name: `${bundleRoot}/project-approval-signer`, contents: '', mode: 0o755 }
+    ]);
+    const executableReplacement = runGeneratedInstaller([
+      ...completeBundleEntries(bundleRoot),
+      {
+        name: `${bundleRoot}/project-approval-signer`,
+        contents: '#!/bin/sh\nexit 0\n',
+        mode: 0o755
+      }
+    ]);
+
+    expect(compatible.result.status, compatible.result.stderr).toBe(0);
+    expect(readFileSync(compatible.marker, 'utf8')).toContain('--install-dir');
+    expect(executableReplacement.result.status).not.toBe(0);
+    expect(existsSync(executableReplacement.marker)).toBe(false);
   });
 
   test('rejects an archive that does not match the pinned checksum', () => {

@@ -394,9 +394,6 @@ func maintenanceTestArchiveWithKeysAndCodex(
 		connectorSupervisorCommandKeyFileName: maintenanceTestPublicKeyPEM(t, commandPublic),
 		connectorSupervisorReleaseKeyFileName: maintenanceTestPublicKeyPEM(t, releasePublic),
 	}
-	if target == "darwin-arm64" {
-		members["project-approval-signer"] = []byte("signer-binary")
-	}
 	if target == "linux-x64" && includeCodex {
 		members["codex"] = []byte("codex-binary")
 		members["CODEX-LICENSE"] = []byte("codex-license")
@@ -430,7 +427,7 @@ func maintenanceTestArchiveWithKeysAndCodex(
 		body := members[name]
 		mode := int64(0o644)
 		if name == "project" || name == "project-space-connector" || name == "codex" ||
-			name == "project-approval-signer" || name == "install.sh" {
+			name == "install.sh" {
 			mode = 0o755
 		}
 		if err := tarWriter.WriteHeader(&tar.Header{

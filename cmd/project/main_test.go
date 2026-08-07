@@ -33,7 +33,6 @@ func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 		"__runtime-supervisor",
 		"adopt",
 		"agent",
-		"approval",
 		"chat",
 		"codex",
 		"connect",
