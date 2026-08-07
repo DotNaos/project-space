@@ -1417,11 +1417,13 @@ export type GitHubBranchComparisonReason =
   | 'history-unavailable'
   | 'stale-head';
 
+export type GitHubBranchComparisonLimit = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+
 export interface GitHubBranchComparisonRequest {
   expectedHeadSha?: string;
   fullName: string;
   headBranch: string;
-  limit?: number;
+  limit?: GitHubBranchComparisonLimit;
 }
 
 export interface GitHubBranchComparisonResult {
