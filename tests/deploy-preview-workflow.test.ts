@@ -7,6 +7,7 @@ const artifactWorkflowPath = new URL('../.github/workflows/ci.yml', import.meta.
 const promotionWorkflowPath = new URL('../.github/workflows/promote-preview-artifacts.yml', import.meta.url);
 const previewArtifactBakePath = new URL('../deploy/preview-artifact-bake.hcl', import.meta.url);
 const previewDocsDockerfilePath = new URL('../deploy/preview.docs.Dockerfile', import.meta.url);
+const productionDocsDockerfilePath = new URL('../apps/docs/Dockerfile', import.meta.url);
 
 function actionReferences(workflow: string) {
   return [...workflow.matchAll(/uses: [^@\n]+@([^\s#]+)/g)].map((match) => match[1]);
@@ -143,6 +144,15 @@ describe('trusted PR Preview workflow contract', () => {
       'COPY packaging/release/connector-release-paths.ts /workspace/packaging/release/connector-release-paths.ts',
     );
     expect(runner).toContain('COPY --from=build /workspace/package.json /workspace/package.json');
+  });
+
+  test('copies shared release-gate dependencies into every Docs image build', async () => {
+    for (const path of [previewDocsDockerfilePath, productionDocsDockerfilePath]) {
+      const dockerfile = await readFile(path, 'utf8');
+      expect(dockerfile).toContain(
+        'COPY packaging/release/connector-release-paths.ts /workspace/packaging/release/connector-release-paths.ts',
+      );
+    }
   });
 
   test('revalidates exact same-repository head and passes only immutable digests to the runner', async () => {
