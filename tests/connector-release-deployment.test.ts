@@ -93,11 +93,11 @@ describe('connector release and production deployment contract', () => {
     const windowsPackaging = await source('packaging/windows/test-release-packaging.ps1');
     const windowsDocumentation = await source('docs/windows-installation.md');
 
-    expect(packageJson.version).toBe('0.4.65');
-    expect(buildInfo).toContain("const developmentVersion = '0.4.65';");
-    expect(windowsPackaging).toContain("$version = '0.4.65'");
-    expect(windowsPackaging).toContain('/releases/download/v0.4.65/');
-    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.65');
+    expect(packageJson.version).toBe('0.4.66');
+    expect(buildInfo).toContain("const developmentVersion = '0.4.66';");
+    expect(windowsPackaging).toContain("$version = '0.4.66'");
+    expect(windowsPackaging).toContain('/releases/download/v0.4.66/');
+    expect(windowsDocumentation).toContain('DotNaos\\Project\\0.4.66');
     expect(linuxCodexPreparation).toContain('codex_version=0.145.0');
     expect(linuxCodexPreparation).not.toMatch(/releases\/latest|\/latest\//);
     expect(linuxCodexSmoke).toContain("import { CodexStdioTransport }");
@@ -132,6 +132,10 @@ describe('connector release and production deployment contract', () => {
 
   test('orchestrates isolated signers and grants their caller permissions explicitly', async () => {
     const workflow = await source('.github/workflows/release.yml');
+    const classifier = await source('.github/actions/release-quality/action.yml');
+    const linux = await source('.github/workflows/release-linux.yml');
+    const macosWorkflow = await source('.github/workflows/release-macos.yml');
+    const windows = await source('.github/workflows/release-windows.yml');
     const macos = jobBlock(workflow, 'macos-arm64');
     const manifestSign = jobBlock(workflow, 'manifest-sign');
     const publish = jobBlock(workflow, 'publish');
@@ -145,6 +149,19 @@ describe('connector release and production deployment contract', () => {
     expect(publish).toContain('release-publish.yml');
     expect(publish).toContain('contents: write');
     expect(publish).toContain('needs: release-finalize');
+    expect(workflow).toContain('group: project-space-release-publication');
+    expect(workflow).toContain('Continue the serial release queue');
+    expect(workflow).toContain(
+      'gh workflow run release-from-main.yml --repo "$GITHUB_REPOSITORY" --ref main'
+    );
+    expect(classifier).toContain('version=${REF_NAME#v}');
+    expect(classifier).not.toContain('does not match package.json version');
+    expect(linux).not.toContain('package_version == "$RELEASE_VERSION"');
+    expect(macosWorkflow).not.toContain('package_version == "$RELEASE_VERSION"');
+    expect(macosWorkflow).toContain('RELEASE_ID: v${{ inputs.version }}');
+    expect(macosWorkflow).toContain('VERSION: ${{ inputs.version }}');
+    expect(windows).not.toContain('$packageVersion -ne');
+    expect(windows).toContain("$releaseVersion = '${{ inputs.version }}'");
     expect(workflow).not.toContain('derive-trust-roots.ts derive');
     expect(workflow).not.toContain('release-manifest-cli.ts create');
     expect(workflow).not.toContain('PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64');

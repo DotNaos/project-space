@@ -1,398 +1,391 @@
 #!/usr/bin/env bun
 
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import {
-  validateReleasePullRequest,
-  type ChangedReleaseFile,
-} from '../apps/docs/lib/releases/pull-request-gate';
-import { parseReleaseEntryMdx } from '../apps/docs/lib/releases/mdx';
-import { compareStableSemver } from '../apps/docs/lib/releases/semver';
+  parseReleaseIntent,
+  releaseIntentDirectory,
+  releaseIntentEnforcementPath,
+  releaseIntentEnforcementSource,
+  type ReleaseIntent,
+} from '../apps/docs/lib/releases/release-intent';
 import {
-  releaseIdentityPaths,
-  validateReleaseIdentityBundle,
-} from './release-identity';
+  compareStableSemver,
+  parseStableSemver,
+} from '../apps/docs/lib/releases/semver';
+import { connectorReleaseSensitivePaths } from
+  '../packaging/release/connector-release-paths';
+import { verifyConnectorRuntimeReleaseManifest } from
+  '../server/connector-runtime-release-manifest';
 import {
   exactProductionRuns,
-  historicalReleaseTarget,
   releaseRecoveryDecision,
-  releaseTagFenceDecision,
   workflowRecoveryDecision,
   type HandoffRun,
 } from './release-handoff-state';
-import { verifyConnectorRuntimeReleaseManifest } from
-  '../server/connector-runtime-release-manifest';
+import {
+  enforcedQueueCommits,
+  releaseQueueDecision,
+  type PublishedRelease,
+  type QueuedMerge,
+  type ReservedTag,
+} from './release-queue-state';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const entriesPath = 'apps/docs/content/docs/releases/entries';
-const repository = process.env.GITHUB_REPOSITORY?.trim() || 'DotNaos/project-space';
+const releaseEntryDirectory = 'apps/docs/content/docs/releases/entries';
+const repository = process.env.GITHUB_REPOSITORY?.trim() ||
+  'DotNaos/project-space';
 const head = requiredCommit(process.env.RELEASE_AFTER_SHA, 'RELEASE_AFTER_SHA');
-const eventName = requiredEventName(process.env.RELEASE_EVENT_NAME);
+requiredEventName(process.env.RELEASE_EVENT_NAME);
 const dryRun = process.env.RELEASE_DRY_RUN === 'true';
-
-interface ReleaseCandidate {
-  commit: string;
-  path: string;
-  pullRequest: number;
-  tag: string;
-  version: string;
-}
 
 try {
   process.chdir(repositoryRoot);
-  const exactResult = await validateMergedCommit(head);
-  const candidates = releaseCandidates(head);
-  const exactCandidates = candidates.filter(
-    (candidate) => candidate.commit === head,
-  );
-  if (
-    eventName === 'push' && exactResult.mode === 'release' &&
-    exactCandidates.length !== 1
-  ) {
+  const currentMain = await githubBranchCommit('main');
+  if (currentMain !== head) {
     throw new Error(
-      `Release merge ${head} must own exactly one durable release entry.`,
+      `Queue worker expected current main ${head}, but GitHub reports ${currentMain}.`,
     );
   }
-  const inspected = await Promise.all(candidates.map(inspectCandidate));
-  const latestPublished = inspected
-    .filter((item) => item.releaseState === 'published')
-    .map((item) => item.candidate.version)
-    .sort(compareStableSemver)
-    .at(-1);
-  const pending = inspected.filter((item) => {
-    if (item.releaseState === 'published') return false;
-    if (
-      latestPublished &&
-      compareStableSemver(item.candidate.version, latestPublished) <= 0
-    ) {
-      console.log(
-        `Ignoring superseded unpublished ${item.candidate.tag}; ${latestPublished} is already published.`,
-      );
-      return false;
-    }
-    return true;
+  const published = await latestPublishedRelease();
+  if (!isFirstParentAncestor(published.commit, head)) {
+    throw new Error(
+      `Latest signed release ${published.tag} at ${published.commit} is not on current main ${head}.`,
+    );
+  }
+  const merges = await queuedMerges(published.commit, head);
+  const reservations = tagReservations(published.version, head);
+  const decision = releaseQueueDecision({
+    currentMain: head,
+    merges,
+    published,
+    reservations,
   });
 
-  const oldestPending = pending.at(0);
-  if (oldestPending) {
-    await validateCandidate(oldestPending.candidate);
-    await reconcileCandidate(oldestPending);
-  }
-
-  writeOutput('ordinary_deploy_required', 'false');
-  if (pending.length > 0) {
-    console.log(
-      `Production waits for the oldest pending release ${oldestPending?.candidate.tag}.`,
+  writeOutput('deploy_required', 'false');
+  writeOutput('deploy_commit', head);
+  writeOutput('deploy_version', published.version);
+  writeOutput('deploy_release', published.tag);
+  if (decision.kind === 'release') {
+    await reconcileRelease(decision);
+  } else {
+    writeOutput('deploy_version', decision.release.version);
+    writeOutput('deploy_release', decision.release.tag);
+    await reconcileProductionDeploy(
+      decision.commit,
+      decision.release.version,
     );
-  } else if (exactResult.mode === 'ordinary') {
-    await reconcileProductionDeploy();
-  } else if (eventName !== 'push') {
-    const tag = `v${exactResult.entry.version}`;
-    const release = await githubRelease(tag);
-    const releaseRuns = await workflowRuns('release.yml', head, tag);
-    const releaseActive = releaseRuns.some((run) => run.status !== 'completed');
-    if (release?.state === 'published' && !releaseActive) {
-      await reconcileProductionDeploy();
-    }
   }
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 }
 
-function releaseCandidates(ref: string): ReleaseCandidate[] {
-  const paths = gitOutput([
-    'ls-tree', '-r', '--name-only', ref, '--', entriesPath,
-  ]).split('\n').filter((path) => path.endsWith('.mdx'));
-  const candidates = paths.map((path) => {
-    const parsed = parseReleaseEntryMdx(
-      gitOutput(['show', `${ref}:${path}`], false),
-      basename(path),
-    );
-    if (!parsed.ok) fail(parsed.errors);
-    const commits = gitOutput([
-      'log', '--first-parent', '--diff-filter=A', '--format=%H', ref, '--', path,
-    ]).split('\n').filter(Boolean);
-    if (commits.length !== 1) {
-      throw new Error(
-        `${path} must have exactly one addition commit on main; found ${commits.length}.`,
-      );
-    }
-    return {
-      commit: requiredCommit(commits[0], `${path} addition commit`),
-      path,
-      pullRequest: parsed.entry.pullRequest,
-      tag: `v${parsed.entry.version}`,
-      version: parsed.entry.version,
-    };
-  });
-  return candidates.sort((left, right) =>
-    compareStableSemver(left.version, right.version));
-}
-
-async function inspectCandidate(candidate: ReleaseCandidate) {
-  const [tagCommit, release] = await Promise.all([
-    githubTagCommit(candidate.tag),
-    githubRelease(candidate.tag),
-  ]);
-  const releaseState = release?.state ?? 'missing';
-  let firstParentHistory = false;
-  let identityUnchanged = false;
-  let signedManifestMatches = false;
+async function latestPublishedRelease(): Promise<PublishedRelease> {
+  const response = await githubFetch(`/repos/${repository}/releases/latest`);
+  if (!response.ok) {
+    throw new Error('A latest published GitHub Release is required to seed the queue.');
+  }
+  const body: unknown = await response.json();
   if (
-    tagCommit && tagCommit !== candidate.commit &&
-    candidate.tag === historicalReleaseTarget.tag &&
-    candidate.commit === historicalReleaseTarget.additionCommit &&
-    tagCommit === historicalReleaseTarget.publishedCommit &&
-    release?.state === 'published'
+    !isRecord(body) || body.draft !== false || body.prerelease !== false ||
+    typeof body.tag_name !== 'string' ||
+    typeof body.published_at !== 'string' || !Array.isArray(body.assets)
   ) {
-    firstParentHistory = isFirstParentAncestor(candidate.commit, tagCommit) &&
-      isFirstParentAncestor(tagCommit, head);
-    identityUnchanged = releaseIdentityUnchanged(candidate, tagCommit);
-    signedManifestMatches = await historicalManifestMatches(
-      candidate,
-      tagCommit,
-      release.manifestUrl,
-    );
+    throw new Error('GitHub returned invalid latest release metadata.');
   }
-  const fence = releaseTagFenceDecision({
-    additionCommit: candidate.commit,
-    firstParentHistory,
-    identityUnchanged,
-    releaseState,
-    signedManifestMatches,
-    tag: candidate.tag,
-    tagCommit,
-  });
-  if (fence === 'historical') {
-    console.log(
-      `Accepted immutable historical ${candidate.tag} at ${tagCommit}; its signed manifest and unchanged release identity match the approved published target.`,
-    );
+  const version = body.tag_name.startsWith('v')
+    ? body.tag_name.slice(1)
+    : '';
+  if (!parseStableSemver(version)) {
+    throw new Error(`Latest release tag ${body.tag_name} is not stable SemVer.`);
   }
-  return {
-    candidate,
-    releaseState,
-    tagCommit,
-  };
-}
-
-function isFirstParentAncestor(ancestor: string, descendant: string) {
-  return gitOutput(['rev-list', '--first-parent', descendant])
-    .split('\n')
-    .includes(ancestor);
-}
-
-function releaseIdentityUnchanged(
-  candidate: ReleaseCandidate,
-  tagCommit: string,
-) {
-  const result = spawnSync('git', [
-    'diff', '--quiet', candidate.commit, tagCommit, '--',
-    ...releaseIdentityPaths, candidate.path,
-  ], { cwd: repositoryRoot, encoding: 'utf8' });
-  if (result.status === 0) return true;
-  if (result.status === 1) return false;
-  throw new Error(
-    `Could not compare release identity for ${candidate.tag}: ${result.stderr.trim()}`,
+  const tag = `v${version}`;
+  const commit = await githubTagCommit(tag);
+  if (!commit) throw new Error(`Published release ${tag} has no Git tag.`);
+  const manifestUrls = body.assets.flatMap((asset) =>
+    isRecord(asset) && asset.name === 'project-space-release-manifest.json' &&
+      typeof asset.browser_download_url === 'string'
+      ? [asset.browser_download_url]
+      : []
   );
-}
-
-async function historicalManifestMatches(
-  candidate: ReleaseCandidate,
-  tagCommit: string,
-  manifestUrl: string | undefined,
-) {
-  if (!manifestUrl) return false;
-  const response = await fetch(manifestUrl, {
+  const expectedUrl =
+    `https://github.com/${repository}/releases/download/${tag}/project-space-release-manifest.json`;
+  if (manifestUrls.length !== 1 || manifestUrls[0] !== expectedUrl) {
+    throw new Error(`Published release ${tag} has no unique canonical manifest.`);
+  }
+  const manifestResponse = await fetch(expectedUrl, {
     headers: {
       authorization: `Bearer ${requiredGithubToken()}`,
-      'user-agent': 'project-space-release-publisher',
+      'user-agent': 'project-space-release-queue',
     },
   });
-  if (!response.ok) return false;
-  const source = await response.text();
-  if (source.length > 1024 * 1024) return false;
+  if (!manifestResponse.ok) {
+    throw new Error(`Could not load signed manifest for ${tag}.`);
+  }
+  const source = await manifestResponse.text();
+  if (!source || source.length > 2 * 1024 * 1024) {
+    throw new Error(`Signed manifest for ${tag} has an invalid size.`);
+  }
   let envelope: unknown;
   try {
     envelope = JSON.parse(source);
   } catch {
-    return false;
+    throw new Error(`Signed manifest for ${tag} is invalid JSON.`);
   }
-  const issuedAt = historicalManifestIssuedAt(envelope);
-  if (issuedAt === undefined) return false;
-  try {
-    const manifest = verifyConnectorRuntimeReleaseManifest(
-      envelope,
-      readFileSync(
-        resolve(
-          repositoryRoot,
-          'packaging/release/trust-roots/release-manifest-signing-public-key.pem',
-        ),
-      ),
-      { now: issuedAt },
-    );
-    return manifest.releaseId === candidate.tag &&
-      manifest.version === candidate.version && manifest.buildId === tagCommit;
-  } catch {
-    return false;
-  }
-}
-
-function historicalManifestIssuedAt(value: unknown) {
+  const issuedAt = manifestIssuedAt(envelope);
+  const manifest = verifyConnectorRuntimeReleaseManifest(
+    envelope,
+    Buffer.from(
+      gitOutput([
+        'show',
+        `${commit}:packaging/release/trust-roots/release-manifest-signing-public-key.pem`,
+      ], false),
+    ),
+    { now: issuedAt },
+  );
   if (
-    !isRecord(value) || !isRecord(value.manifest) ||
-    typeof value.manifest.issuedAt !== 'string'
-  ) return undefined;
-  const issuedAt = Date.parse(value.manifest.issuedAt);
-  return Number.isFinite(issuedAt) ? issuedAt : undefined;
-}
-
-async function validateCandidate(candidate: ReleaseCandidate) {
-  const result = await validateMergedCommit(candidate.commit);
-  if (
-    result.mode !== 'release' ||
-    result.entry.version !== candidate.version ||
-    result.entry.pullRequest !== candidate.pullRequest
+    manifest.releaseId !== tag || manifest.version !== version ||
+    manifest.buildId !== commit
   ) {
-    throw new Error(
-      `${candidate.path} does not prove ${candidate.tag} at ${candidate.commit}.`,
-    );
+    throw new Error(`Signed manifest for ${tag} does not match its exact tag.`);
   }
+  return { commit, tag, version };
 }
 
-async function validateMergedCommit(commit: string) {
+async function queuedMerges(
+  publishedCommit: string,
+  currentMain: string,
+): Promise<QueuedMerge[]> {
+  const commits = gitOutput([
+    'rev-list', '--first-parent', '--reverse',
+    `${publishedCommit}..${currentMain}`,
+  ]).split('\n').filter(Boolean);
+  const enforcementIndex = commits.findIndex((commit) =>
+    addedPaths(commit, releaseIntentDirectory).includes(
+      releaseIntentEnforcementPath,
+    )
+  );
+  const alreadyEnforced = pathExistsAt(
+    publishedCommit,
+    releaseIntentEnforcementPath,
+  ) && markerMatchesAt(publishedCommit);
+  const enforcedCommits = enforcedQueueCommits({
+    alreadyEnforced,
+    commits,
+    enforcementIndex,
+  });
+
+  const queued: QueuedMerge[] = [];
+  for (const commit of enforcedCommits) {
+    const parent = requiredCommit(
+      gitOutput(['rev-parse', `${commit}^1`]),
+      `${commit} first parent`,
+    );
+    const changedPaths = gitOutput([
+      'diff', '--no-renames', '--name-only', parent, commit,
+    ]).split('\n').filter(Boolean);
+    if (changedPaths.includes(releaseIntentEnforcementPath)) {
+      const isAdoptionCommit = !alreadyEnforced &&
+        commit === commits[enforcementIndex] &&
+        addedPaths(commit, releaseIntentDirectory).includes(
+          releaseIntentEnforcementPath,
+        ) && markerMatchesAt(commit);
+      if (!isAdoptionCommit) {
+        throw new Error(
+          `Merged commit ${commit} changes the immutable release-intent enforcement marker.`,
+        );
+      }
+    }
+    const intentPaths = addedPaths(commit, releaseIntentDirectory)
+      .filter((path) => path.endsWith('.json'));
+    if (intentPaths.length !== 1) {
+      throw new Error(
+        `Merged commit ${commit} must add exactly one immutable release intent; found ${intentPaths.length}.`,
+      );
+    }
+    const allIntentChanges = changedPaths.filter((path) =>
+      path.startsWith(`${releaseIntentDirectory}/`) && path.endsWith('.json')
+    );
+    if (allIntentChanges.length !== 1) {
+      throw new Error(
+        `Merged commit ${commit} modifies release-intent history instead of adding one queue item.`,
+      );
+    }
+    if (
+      changedPaths.some((path) =>
+        path.startsWith(`${releaseEntryDirectory}/`) && path.endsWith('.mdx')
+      )
+    ) {
+      throw new Error(
+        `Merged commit ${commit} changes legacy concrete release entries.`,
+      );
+    }
+    const parentVersion = packageVersionAt(parent);
+    if (packageVersionAt(commit) !== parentVersion) {
+      throw new Error(
+        `Merged commit ${commit} changes package version before queue assignment.`,
+      );
+    }
+    const intent = readIntent(commit, intentPaths[0]);
+    const productPaths = changedPaths.filter((path) =>
+      path !== intentPaths[0] && path !== releaseIntentEnforcementPath
+    );
+    const sensitive = connectorReleaseSensitivePaths(productPaths);
+    if (intent === 'none' && sensitive.length > 0) {
+      throw new Error(
+        `Merged commit ${commit} declares none but changes release-sensitive paths: ${sensitive.join(', ')}.`,
+      );
+    }
+    queued.push({
+      commit,
+      intent,
+      pullRequest: await mergedPullRequestNumber(commit),
+    });
+  }
+  return queued;
+}
+
+function addedPaths(commit: string, directory: string) {
   const parent = requiredCommit(
     gitOutput(['rev-parse', `${commit}^1`]),
     `${commit} first parent`,
   );
-  const pullRequestNumber = await mergedPullRequestNumber(commit);
-  const headPackageVersion = packageVersion(
-    gitOutput(['show', `${commit}:package.json`], false),
-    `${commit}:package.json`,
-  );
-  const result = validateReleasePullRequest({
-    changedReleaseFiles: readChangedFiles(parent, commit),
-    currentMainVersion: packageVersion(
-      gitOutput(['show', `${parent}:package.json`], false),
-      `${parent}:package.json`,
-    ),
-    existingGithubReleaseTags: new Set(),
-    existingGitTags: new Set(),
-    headEntries: readGitEntries(commit),
-    headPackageVersion,
-    mainEntries: readGitEntries(parent),
-    pullRequestNumber,
+  const output = gitOutput([
+    'diff', '--name-status', '--no-renames', parent, commit, '--', directory,
+  ]);
+  if (!output) return [];
+  return output.split('\n').flatMap((line) => {
+    const [status, path] = line.split('\t');
+    return status === 'A' && path ? [path] : [];
   });
-  if (!result.ok) fail(result.errors);
-  const identityErrors = validateReleaseIdentityBundle(
-    new Map(releaseIdentityPaths.map((path) => [
-      path,
-      gitOutput(['show', `${commit}:${path}`], false),
-    ])),
-    headPackageVersion,
-  );
-  if (identityErrors.length > 0) fail(identityErrors);
-  return result;
 }
 
-async function reconcileCandidate(
-  item: Awaited<ReturnType<typeof inspectCandidate>>,
-) {
-  const { candidate } = item;
-  if (item.releaseState === 'draft') {
+function readIntent(commit: string, path: string): ReleaseIntent {
+  const parsed = parseReleaseIntent(
+    gitOutput(['show', `${commit}:${path}`], false),
+    basename(path),
+  );
+  if (!parsed.ok) throw new Error(parsed.errors.join('\n'));
+  return parsed.intent.intent;
+}
+
+function tagReservations(
+  publishedVersion: string,
+  currentMain: string,
+): ReservedTag[] {
+  return gitOutput(['tag', '--merged', currentMain, '--list', 'v*'])
+    .split('\n')
+    .filter(Boolean)
+    .flatMap((tag) => {
+      const version = tag.startsWith('v') ? tag.slice(1) : '';
+      if (
+        !parseStableSemver(version) ||
+        compareStableSemver(version, publishedVersion) <= 0
+      ) return [];
+      return [{
+        commit: requiredCommit(
+          gitOutput(['rev-list', '-n', '1', tag]),
+          `${tag} target`,
+        ),
+        tag,
+      }];
+    })
+    .sort((left, right) =>
+      compareStableSemver(left.tag.slice(1), right.tag.slice(1))
+    );
+}
+
+async function reconcileRelease(decision: Extract<
+  ReturnType<typeof releaseQueueDecision>,
+  { kind: 'release' }
+>) {
+  const existingTag = await githubTagCommit(decision.tag);
+  if (existingTag && existingTag !== decision.item.commit) {
     throw new Error(
-      `Draft GitHub Release ${candidate.tag} exists. Recover or remove that exact draft before retrying the handoff.`,
+      `Tag ${decision.tag} points at ${existingTag}, not queued merge ${decision.item.commit}.`,
     );
   }
-  if (eventName !== 'push' || candidate.commit !== head) {
-    const publishers = await workflowRuns(
-      'release-from-main.yml', candidate.commit, 'main', undefined, 'push',
-    );
-    const activePublisher = publishers.find((run) => run.status !== 'completed');
-    if (activePublisher) {
-      console.log(
-        `Release handoff ${activePublisher.id} still owns ${candidate.tag}; recovery will wait.`,
-      );
-      return;
+  if (!existingTag) {
+    await createTag(decision.tag, decision.item.commit);
+    const confirmed = dryRun
+      ? decision.item.commit
+      : await githubTagCommit(decision.tag);
+    if (confirmed !== decision.item.commit) {
+      throw new Error(`Tag ${decision.tag} was not atomically reserved at the queued merge.`);
     }
-  }
-  if (!item.tagCommit) {
-    await createTag(candidate.tag, candidate.commit);
     console.log(
-      `${dryRun ? 'Would create' : 'Created'} ${candidate.tag} at ${candidate.commit}.`,
+      `${dryRun ? 'Would reserve' : 'Reserved'} ${decision.tag} for PR #${decision.item.pullRequest} at ${decision.item.commit}.`,
     );
   } else {
-    console.log(`Reusing ${candidate.tag} at ${candidate.commit}.`);
+    console.log(`Reusing ${decision.tag} at ${decision.item.commit}.`);
   }
 
-  const decision = releaseRecoveryDecision(
-    'missing',
-    await workflowRuns('release.yml', candidate.commit, candidate.tag),
+  const release = await githubRelease(decision.tag);
+  if (release === 'published') {
+    console.log(`${decision.tag} is already published; the next queue wake-up may continue.`);
+    return;
+  }
+  const recovery = releaseRecoveryDecision(
+    release ?? 'missing',
+    await workflowRuns(
+      'release.yml', decision.item.commit, decision.tag,
+    ),
   );
-  if (decision.kind === 'wait') {
+  if (recovery.kind === 'wait') {
     console.log(
-      `Release ${candidate.tag} is already ${decision.run.status} in run ${decision.run.id}.`,
+      `Release ${decision.tag} is already ${recovery.run.status} in run ${recovery.run.id}.`,
     );
     return;
   }
-  if (decision.kind === 'error' && decision.reason === 'success-without-result') {
+  if (recovery.kind === 'error' && recovery.reason === 'success-without-result') {
     throw new Error(
-      `A Release run succeeded for ${candidate.tag}, but no published release exists. Refusing a duplicate start.`,
+      `A Release run succeeded for ${decision.tag}, but no published release exists. Refusing a duplicate start.`,
     );
   }
-  if (decision.kind === 'error') {
+  if (recovery.kind === 'error') {
     throw new Error(
-      `Release for ${candidate.tag} already used its automatic recovery attempt.`,
+      `Release ${decision.tag} already used its automatic recovery attempt.`,
     );
   }
-  if (decision.kind === 'rerun') {
+  if (recovery.kind === 'rerun') {
     await mutateGithub(
-      `/repos/${repository}/actions/runs/${decision.run.id}/rerun`,
+      `/repos/${repository}/actions/runs/${recovery.run.id}/rerun`,
       {},
     );
     console.log(
-      `${dryRun ? 'Would rerun' : 'Rerunning'} failed release run ${decision.run.id} attempt ${decision.run.runAttempt} for ${candidate.tag}.`,
+      `${dryRun ? 'Would rerun' : 'Rerunning'} release run ${recovery.run.id} for ${decision.tag}.`,
     );
     return;
   }
   await mutateGithub(
     `/repos/${repository}/actions/workflows/release.yml/dispatches`,
-    { ref: candidate.tag },
+    { ref: decision.tag },
   );
   console.log(
-    `${dryRun ? 'Would dispatch' : 'Dispatched'} Release for ${candidate.tag}.`,
+    `${dryRun ? 'Would dispatch' : 'Dispatched'} signed release ${decision.tag}.`,
   );
 }
 
-async function reconcileProductionDeploy() {
-  const currentMain = await githubBranchCommit('main');
-  if (currentMain !== head) {
-    console.log(
-      `Ordinary merge ${head} is superseded by main ${currentMain}; Production stays untouched.`,
-    );
-    return;
-  }
+async function reconcileProductionDeploy(commit: string, version: string) {
   const runs = exactProductionRuns(
-    await workflowRuns('deploy-production.yml', head, 'main'),
-    head,
+    await workflowRuns('deploy-production.yml', commit, 'main'),
+    commit,
+    version,
   );
   const decision = workflowRecoveryDecision(runs);
   if (decision.kind === 'wait') {
-    console.log(
-      `Production already has exact-commit run ${decision.run.id} ${decision.run.status} for ${head}.`,
-    );
+    console.log(`Production run ${decision.run.id} is already ${decision.run.status}.`);
     return;
   }
   if (decision.kind === 'complete') {
-    console.log(`Production run ${decision.run.id} already succeeded for ${head}.`);
+    console.log(`Production run ${decision.run.id} already succeeded for ${commit}.`);
     return;
   }
   if (decision.kind === 'error') {
-    throw new Error(
-      `Production for ${head} already used its automatic recovery attempt.`,
-    );
+    throw new Error(`Production for ${commit} used its automatic recovery attempt.`);
   }
   if (decision.kind === 'rerun') {
     await mutateGithub(
@@ -400,14 +393,12 @@ async function reconcileProductionDeploy() {
       {},
     );
     console.log(
-      `${dryRun ? 'Would rerun' : 'Rerunning'} failed Production run ${decision.run.id} attempt ${decision.run.runAttempt} for ${head}.`,
+      `${dryRun ? 'Would rerun' : 'Rerunning'} Production run ${decision.run.id} for ${commit}.`,
     );
     return;
   }
-  writeOutput('ordinary_deploy_required', 'true');
-  console.log(
-    `Ordinary merge ${head} is current main and requires one exact Production dispatch.`,
-  );
+  writeOutput('deploy_required', 'true');
+  console.log(`Current main ${commit} requires one exact Production dispatch.`);
 }
 
 async function mergedPullRequestNumber(commit: string) {
@@ -416,9 +407,7 @@ async function mergedPullRequestNumber(commit: string) {
     throw new Error(`Could not identify the pull request merged as ${commit}.`);
   }
   const body: unknown = await response.json();
-  if (!Array.isArray(body)) {
-    throw new Error('GitHub returned invalid merged pull request data.');
-  }
+  if (!Array.isArray(body)) throw new Error('GitHub returned invalid pull request data.');
   const matches = body.filter(
     (value): value is Record<string, unknown> =>
       isRecord(value) && value.merged_at !== null &&
@@ -441,41 +430,22 @@ async function githubRelease(tag: string) {
     `/repos/${repository}/releases/tags/${encodeURIComponent(tag)}`,
   );
   if (response.status === 404) return undefined;
-  if (!response.ok) throw new Error(`Could not revalidate GitHub Release ${tag}.`);
+  if (!response.ok) throw new Error(`Could not inspect GitHub Release ${tag}.`);
   const body: unknown = await response.json();
   if (!isRecord(body) || body.tag_name !== tag || typeof body.draft !== 'boolean') {
     throw new Error(`GitHub returned invalid publication data for ${tag}.`);
   }
-  if (body.draft) return { state: 'draft' as const };
-  if (typeof body.published_at !== 'string' || body.published_at.trim() === '') {
-    throw new Error(
-      `GitHub Release ${tag} is not a verifiably published release.`,
-    );
+  if (body.draft) return 'draft' as const;
+  if (typeof body.published_at !== 'string' || !body.published_at.trim()) {
+    throw new Error(`GitHub Release ${tag} has no publication proof.`);
   }
-  if (!Array.isArray(body.assets)) {
-    throw new Error(`GitHub returned invalid release assets for ${tag}.`);
-  }
-  const manifestUrls = body.assets.flatMap((asset) =>
-    isRecord(asset) && asset.name === 'project-space-release-manifest.json' &&
-      typeof asset.browser_download_url === 'string'
-      ? [asset.browser_download_url]
-      : []
-  );
-  if (manifestUrls.length > 1) {
-    throw new Error(`GitHub Release ${tag} has duplicate release manifests.`);
-  }
-  const expectedManifestUrl =
-    `https://github.com/${repository}/releases/download/${tag}/project-space-release-manifest.json`;
-  const manifestUrl = manifestUrls[0] === expectedManifestUrl
-    ? manifestUrls[0]
-    : undefined;
-  return { manifestUrl, state: 'published' as const };
+  return 'published' as const;
 }
 
 async function githubTagCommit(tag: string) {
   const response = await githubFetch(`/repos/${repository}/git/ref/tags/${tag}`);
   if (response.status === 404) return undefined;
-  if (!response.ok) throw new Error(`Could not verify existing tag ${tag}.`);
+  if (!response.ok) throw new Error(`Could not verify tag ${tag}.`);
   const body: unknown = await response.json();
   if (!isRecord(body) || !isRecord(body.object) || typeof body.object.sha !== 'string') {
     throw new Error(`GitHub returned an invalid target for ${tag}.`);
@@ -483,9 +453,7 @@ async function githubTagCommit(tag: string) {
   if (body.object.type === 'commit') {
     return requiredCommit(body.object.sha, `${tag} target`);
   }
-  if (body.object.type !== 'tag') {
-    throw new Error(`${tag} does not resolve to a Git commit.`);
-  }
+  if (body.object.type !== 'tag') throw new Error(`${tag} is not a Git commit tag.`);
   const annotated = await githubFetch(
     `/repos/${repository}/git/tags/${body.object.sha}`,
   );
@@ -494,9 +462,7 @@ async function githubTagCommit(tag: string) {
   if (
     !isRecord(tagBody) || !isRecord(tagBody.object) ||
     tagBody.object.type !== 'commit' || typeof tagBody.object.sha !== 'string'
-  ) {
-    throw new Error(`${tag} does not resolve directly to a Git commit.`);
-  }
+  ) throw new Error(`${tag} does not resolve directly to a Git commit.`);
   return requiredCommit(tagBody.object.sha, `${tag} target`);
 }
 
@@ -507,11 +473,7 @@ async function githubBranchCommit(branch: string) {
   if (
     !isRecord(body) || !isRecord(body.object) || body.object.type !== 'commit' ||
     typeof body.object.sha !== 'string'
-  ) {
-    throw new Error(
-      `GitHub returned an invalid target for protected branch ${branch}.`,
-    );
-  }
+  ) throw new Error(`GitHub returned an invalid protected branch target.`);
   return requiredCommit(body.object.sha, `${branch} target`);
 }
 
@@ -519,28 +481,22 @@ async function workflowRuns(
   workflow: string,
   commit: string,
   branch: string,
-  displayTitle?: string,
-  event = 'workflow_dispatch',
 ) {
   const query = new URLSearchParams({
-    event,
+    event: 'workflow_dispatch',
     head_sha: commit,
     per_page: '100',
   });
   const response = await githubFetch(
     `/repos/${repository}/actions/workflows/${workflow}/runs?${query}`,
   );
-  if (!response.ok) {
-    throw new Error(`Could not inspect ${workflow} runs for ${commit}.`);
-  }
+  if (!response.ok) throw new Error(`Could not inspect ${workflow} runs.`);
   const body: unknown = await response.json();
   if (!isRecord(body) || !Array.isArray(body.workflow_runs)) {
     throw new Error(`GitHub returned invalid ${workflow} run data.`);
   }
   return body.workflow_runs.map(parseWorkflowRun).filter(
-    (run) =>
-      run.headSha === commit && run.headBranch === branch &&
-      (!displayTitle || run.displayTitle === displayTitle),
+    (run) => run.headSha === commit && run.headBranch === branch,
   ).sort((left, right) => right.id - left.id);
 }
 
@@ -548,12 +504,10 @@ function parseWorkflowRun(value: unknown): HandoffRun {
   if (
     !isRecord(value) || typeof value.id !== 'number' ||
     typeof value.head_sha !== 'string' || typeof value.head_branch !== 'string' ||
-    typeof value.display_title !== 'string' ||
-    typeof value.status !== 'string' || typeof value.run_attempt !== 'number' ||
+    typeof value.display_title !== 'string' || typeof value.status !== 'string' ||
+    typeof value.run_attempt !== 'number' ||
     !(typeof value.conclusion === 'string' || value.conclusion === null)
-  ) {
-    throw new Error('GitHub returned an invalid workflow run.');
-  }
+  ) throw new Error('GitHub returned an invalid workflow run.');
   return {
     conclusion: value.conclusion,
     displayTitle: value.display_title,
@@ -566,10 +520,14 @@ function parseWorkflowRun(value: unknown): HandoffRun {
 }
 
 async function createTag(tag: string, commit: string) {
-  await mutateGithub(`/repos/${repository}/git/refs`, {
-    ref: `refs/tags/${tag}`,
-    sha: commit,
+  if (dryRun) return;
+  const response = await githubFetch(`/repos/${repository}/git/refs`, {
+    body: JSON.stringify({ ref: `refs/tags/${tag}`, sha: commit }),
+    method: 'POST',
   });
+  if (response.ok) return;
+  if (response.status === 422 && await githubTagCommit(tag) === commit) return;
+  throw new Error(`Could not reserve ${tag} at ${commit} (${response.status}).`);
 }
 
 async function mutateGithub(path: string, body: Record<string, unknown>) {
@@ -582,61 +540,66 @@ async function mutateGithub(path: string, body: Record<string, unknown>) {
     const detail = await response.text();
     throw new Error(
       `GitHub mutation ${path} failed (${response.status})${
-        detail ? `: ${detail.slice(0, 300)}` : '.'
+        detail ? `: ${detail.slice(0, 300)}` : ''
       }`,
     );
   }
 }
 
-function readChangedFiles(parent: string, commit: string): ChangedReleaseFile[] {
-  const output = gitOutput([
-    'diff', '--name-status', '--find-renames', parent, commit, '--', entriesPath,
-  ]);
-  if (!output) return [];
-  return output.split('\n').map((line) => {
-    const [rawStatus, firstPath, renamedPath] = line.split('\t');
-    const path = renamedPath ?? firstPath;
-    const status = rawStatus.startsWith('A') ? 'added'
-      : rawStatus.startsWith('D') ? 'deleted'
-        : rawStatus.startsWith('R') ? 'renamed' : 'modified';
-    return {
-      path,
-      source: status === 'deleted'
-        ? undefined
-        : gitOutput(['show', `${commit}:${path}`], false),
-      status,
-    };
-  });
-}
-
-function readGitEntries(ref: string) {
-  const files = new Map<string, string>();
-  const output = gitOutput([
-    'ls-tree', '-r', '--name-only', ref, '--', entriesPath,
-  ]);
-  for (const path of output.split('\n').filter((path) => path.endsWith('.mdx'))) {
-    files.set(basename(path), gitOutput(['show', `${ref}:${path}`], false));
+function manifestIssuedAt(value: unknown) {
+  if (
+    !isRecord(value) || !isRecord(value.manifest) ||
+    typeof value.manifest.issuedAt !== 'string'
+  ) throw new Error('Signed release manifest has no issuance time.');
+  const issuedAt = Date.parse(value.manifest.issuedAt);
+  if (!Number.isFinite(issuedAt)) {
+    throw new Error('Signed release manifest has an invalid issuance time.');
   }
-  return files;
+  return issuedAt;
 }
 
-function packageVersion(source: string, label: string) {
-  const parsed: unknown = JSON.parse(source);
+function isFirstParentAncestor(ancestor: string, descendant: string) {
+  return gitOutput(['rev-list', '--first-parent', descendant])
+    .split('\n')
+    .includes(ancestor);
+}
+
+function packageVersionAt(commit: string) {
+  const parsed: unknown = JSON.parse(
+    gitOutput(['show', `${commit}:package.json`], false),
+  );
   if (!isRecord(parsed) || typeof parsed.version !== 'string') {
-    throw new Error(`${label} must declare a string version.`);
+    throw new Error(`${commit}:package.json has no string version.`);
   }
   return parsed.version;
 }
 
+function pathExistsAt(commit: string, path: string) {
+  const result = spawnSync('git', ['cat-file', '-e', `${commit}:${path}`], {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+  });
+  if (result.status === 0) return true;
+  if (result.status === 128) return false;
+  throw new Error(
+    `Could not inspect ${path} at ${commit}: ${result.stderr.trim()}`,
+  );
+}
+
+function markerMatchesAt(commit: string) {
+  return gitOutput([
+    'show', `${commit}:${releaseIntentEnforcementPath}`,
+  ], false) === releaseIntentEnforcementSource;
+}
+
 function githubFetch(path: string, init: RequestInit = {}) {
-  const token = requiredGithubToken();
   return fetch(`https://api.github.com${path}`, {
     ...init,
     headers: {
       accept: 'application/vnd.github+json',
-      authorization: `Bearer ${token}`,
+      authorization: `Bearer ${requiredGithubToken()}`,
       'content-type': 'application/json',
-      'user-agent': 'project-space-release-publisher',
+      'user-agent': 'project-space-release-queue',
       'x-github-api-version': '2022-11-28',
       ...init.headers,
     },
@@ -645,9 +608,7 @@ function githubFetch(path: string, init: RequestInit = {}) {
 
 function requiredGithubToken() {
   const token = process.env.GH_TOKEN?.trim();
-  if (!token) {
-    throw new Error('GH_TOKEN is required for trusted release publication.');
-  }
+  if (!token) throw new Error('GH_TOKEN is required for the trusted release queue.');
   return token;
 }
 
@@ -682,13 +643,6 @@ function requiredEventName(value: string | undefined) {
 function writeOutput(key: string, value: string) {
   const output = process.env.GITHUB_OUTPUT;
   if (output) appendFileSync(output, `${key}=${value}\n`, 'utf8');
-}
-
-function fail(errors: string[]): never {
-  for (const error of errors) console.error(`- ${error}`);
-  throw new Error(
-    'Merged release validation failed closed; no tag or workflow was started.',
-  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

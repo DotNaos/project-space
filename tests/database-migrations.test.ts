@@ -82,7 +82,8 @@ describe('database migrations', () => {
       '0025_pr_dev_server_leases',
       '0026_machine_power_operations',
       '0027_project_chat_name_leases',
-      '0028_codex_session_settings_operations'
+      '0028_codex_session_settings_operations',
+      '0029_project_space_mcp_oauth'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -148,6 +149,10 @@ describe('database migrations', () => {
     expect(sql).toContain('machine_id is null or machine_id = expected_machine_id');
     expect(sql).toContain('create table if not exists user_project_states');
     expect(sql).toContain('user_id text primary key');
+    expect(sql).toContain('create table if not exists project_space_mcp_oauth_clients');
+    expect(sql).toContain('create table if not exists project_space_mcp_oauth_authorizations');
+    expect(sql).toContain('create table if not exists project_space_mcp_oauth_credentials');
+    expect(sql).toContain("kind in ('authorization_code', 'access_token', 'refresh_token')");
     expect(sql).toContain('state jsonb not null');
     expect(sql).toContain('dev_server_sessions_one_active_per_worktree');
     expect(sql).toContain("where state in ('starting', 'running', 'stopping')");

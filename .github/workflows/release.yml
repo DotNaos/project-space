@@ -4,7 +4,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: release-${{ github.ref }}
+  group: project-space-release-publication
   cancel-in-progress: false
 jobs:
   classify:
@@ -470,8 +470,8 @@ jobs:
       source-sha: ${{ github.sha }}
       version: ${{ needs.release-finalize.outputs.version }}
 
-  deploy-production:
-    name: Dispatch exact published revision to Production
+  continue-release-queue:
+    name: Continue serial release queue
     if: github.ref_type == 'tag' && github.event_name == 'workflow_dispatch'
     needs: publish
     runs-on: ubuntu-24.04
@@ -480,12 +480,9 @@ jobs:
       actions: write
       contents: read
     steps:
-      - name: Start existing production workflow
+      - name: Continue the serial release queue
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
-          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
-          gh workflow run deploy-production.yml --repo "$GITHUB_REPOSITORY" --ref main \
-            -f commit="$RELEASE_COMMIT"
+          gh workflow run release-from-main.yml --repo "$GITHUB_REPOSITORY" --ref main

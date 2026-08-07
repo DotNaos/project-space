@@ -55,7 +55,7 @@ function readStringClaim(
   return undefined;
 }
 
-function authorizeEmail(email?: string) {
+export function isProjectSpaceEmailAllowed(email?: string) {
   const allowedEmails = readAllowedEmails();
 
   if (allowedEmails.size === 0) {
@@ -130,7 +130,7 @@ export async function readProjectSpaceAuthSession(
       readStringClaim(claimRecord, ['email', 'email_address', 'primary_email_address']) ??
       (await readUserEmail(secretKey, userId));
 
-    if (!authorizeEmail(email)) {
+    if (!isProjectSpaceEmailAllowed(email)) {
       return null;
     }
 

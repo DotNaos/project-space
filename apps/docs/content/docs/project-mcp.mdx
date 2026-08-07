@@ -1,0 +1,39 @@
+---
+title: ChatGPT Work MCP
+description: Connect ChatGPT Work to Project Space through the authenticated remote MCP server.
+---
+
+Project Space exposes a Streamable HTTP MCP endpoint at:
+
+```text
+https://projects.os-home.net/mcp
+```
+
+Project Space provides the OAuth 2.1 authorization server itself. ChatGPT Work dynamically registers as a public client, uses PKCE `S256`, and receives rotating refresh tokens. There is no OAuth client secret to configure. Clerk only authenticates the user in the browser before Project Space shows the consent page. The same user and machine membership checks as the web application apply to every tool call.
+
+## Connect ChatGPT Work
+
+1. In ChatGPT Work, add a custom MCP server.
+2. Enter `https://projects.os-home.net/mcp` as the server URL.
+3. Sign in to Project Space and approve the requested read/write access.
+4. Use `list_projects`, `list_machines`, or `list_codex_tasks` before selecting a target.
+
+The server also exposes `read_codex_task`, `start_codex_task`, and `send_codex_message`. Starting a task creates a Project-managed worktree from a GitHub issue. Sending a message continues an existing Codex task. Both actions are marked as consequential tool calls so ChatGPT can request confirmation before invoking them.
+
+## Authentication configuration
+
+No Clerk OAuth Application, Client ID Metadata Document (CIMD), Clerk Dynamic Client Registration, or client secret is needed. Project Space owns the OAuth endpoints and stores only hashed authorization codes and tokens in its database. Access tokens expire after one hour and refresh tokens rotate whenever they are used.
+
+The deployed backend still consumes `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` for the existing Project Space browser login. Set `PROJECT_SPACE_PUBLIC_ORIGIN` to the public HTTPS origin when it cannot be derived from the reverse-proxy headers. The MCP OAuth server publishes:
+
+- `/.well-known/oauth-protected-resource/mcp`
+- `/.well-known/oauth-authorization-server`
+- `/authorize`
+- `/token`
+- `/register`
+- `/revoke`
+- `/mcp`
+
+The read-only tools require `project-space:read`. Starting a task or sending a message additionally requires `project-space:write`. If `PROJECT_SPACE_ALLOWED_EMAILS` is configured, MCP users must remain present in that allowlist for token refresh and access.
+
+Do not expose a Preview deployment as a trusted MCP server. Preview containers intentionally do not receive the Clerk secret or production database access.

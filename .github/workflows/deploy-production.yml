@@ -1,12 +1,16 @@
 name: Deploy production
-run-name: Production · ${{ inputs.commit || github.sha }}
+run-name: Production · ${{ inputs.commit || github.sha }} · v${{ inputs.release_version }}
 
 on:
   workflow_dispatch:
     inputs:
       commit:
         description: Full current main SHA to recover or redeploy
-        required: false
+        required: true
+        type: string
+      release_version:
+        description: Published signed release version compatible with this commit
+        required: true
         type: string
 
 permissions:
@@ -18,6 +22,7 @@ concurrency:
 
 env:
   REQUESTED_COMMIT: ${{ inputs.commit || github.sha }}
+  REQUESTED_RELEASE_VERSION: ${{ inputs.release_version }}
 
 jobs:
   validate:
@@ -26,6 +31,7 @@ jobs:
     timeout-minutes: 35
     outputs:
       release_ready: ${{ steps.connector-release.outputs.ready }}
+      release_version: ${{ steps.connector-release.outputs.version }}
       requested_commit: ${{ steps.requested-commit.outputs.commit }}
       superseded: ${{ steps.current-main.outputs.superseded }}
 
@@ -44,6 +50,10 @@ jobs:
           }
           if [[ ! "$requested_commit" =~ ^[0-9a-f]{40}$ ]]; then
             echo 'Requested commit must be a full lowercase Git SHA.' >&2
+            exit 64
+          fi
+          if [[ ! "$REQUESTED_RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo 'Requested release version must be stable Semantic Versioning.' >&2
             exit 64
           fi
           echo "commit=$requested_commit" >> "$GITHUB_OUTPUT"
@@ -113,7 +123,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          build_version=$(jq -er '.version | select(test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"))' package.json)
+          build_version="$REQUESTED_RELEASE_VERSION"
           release_id="v${build_version}"
           manifest="$RUNNER_TEMP/project-space-release-manifest.json"
           http_status=$(curl --silent --show-error --location \
@@ -154,6 +164,7 @@ jobs:
           git diff --no-renames --name-only -z "$release_build_id" "$REQUESTED_COMMIT" \
             | bun packaging/release/connector-release-drift.ts
           echo 'ready=true' >> "$GITHUB_OUTPUT"
+          echo "version=$build_version" >> "$GITHUB_OUTPUT"
           printf 'Approved connector release `%s` is published from ancestor `%s`.\n' \
             "$release_id" "$release_build_id" >> "$GITHUB_STEP_SUMMARY"
 
@@ -184,9 +195,10 @@ jobs:
       - name: Validate the exact deployment plan
         if: steps.current-main.outputs.superseded != 'true' && steps.connector-release.outputs.ready == 'true'
         run: |
-          "$RUNNER_TEMP/project" deploy --env prod --commit "$REQUESTED_COMMIT" --dry-run --format json > deploy-plan.json
-          jq -e --arg sha "$REQUESTED_COMMIT" \
-            '.status == "validated" and .buildCommit == $sha and .evidence.mainHeadCommit == $sha' \
+          "$RUNNER_TEMP/project" deploy --env prod --commit "$REQUESTED_COMMIT" \
+            --release-version "$REQUESTED_RELEASE_VERSION" --dry-run --format json > deploy-plan.json
+          jq -e --arg sha "$REQUESTED_COMMIT" --arg version "$REQUESTED_RELEASE_VERSION" \
+            '.status == "validated" and .buildCommit == $sha and .buildVersion == $version and .evidence.mainHeadCommit == $sha' \
             deploy-plan.json >/dev/null
           printf 'Validated exact commit `%s`; production remains untouched.\n' "$REQUESTED_COMMIT" >> "$GITHUB_STEP_SUMMARY"
 
@@ -198,6 +210,7 @@ jobs:
     timeout-minutes: 35
     env:
       REQUESTED_COMMIT: ${{ needs.validate.outputs.requested_commit }}
+      REQUESTED_RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
     environment:
       name: Production
       url: https://projects.os-home.net
@@ -294,6 +307,7 @@ jobs:
             --env prod \
             --host project-space-production \
             --commit "$REQUESTED_COMMIT" \
+            --release-version "$REQUESTED_RELEASE_VERSION" \
             --format json > deploy-result.json 2> deploy-error.log
           exit_code=$?
           set -e

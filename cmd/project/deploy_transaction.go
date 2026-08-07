@@ -13,6 +13,7 @@ import (
 const deployEventPrefix = "PROJECT_DEPLOY_EVENT|"
 
 var fullCommitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+var stableReleaseVersionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
 
 type deployPhase struct {
 	Name   string `json:"name"`
@@ -86,7 +87,12 @@ func deployProjectToVPS(cmd *cobra.Command, projectRoot string, options deployOp
 	if err := ensureDeployCommitAvailable(projectRoot, project.Branch, requested); err != nil {
 		return failDeployProject(project, "failed_before_deploy", err)
 	}
-	version, err := packageVersionAtCommit(projectRoot, requested)
+	version, err := resolveDeployReleaseVersion(
+		projectRoot,
+		project.Environment,
+		requested,
+		options.ReleaseVersion,
+	)
 	if err != nil {
 		return failDeployProject(project, "failed_before_deploy", err)
 	}
@@ -133,6 +139,29 @@ func deployProjectToVPS(cmd *cobra.Command, projectRoot string, options deployOp
 		return failDeployProject(runtimeProject, "failed", fmt.Errorf("remote deployment ended without success evidence"))
 	}
 	return runtimeProject, nil
+}
+
+func resolveDeployReleaseVersion(
+	projectRoot string,
+	environment string,
+	commit string,
+	configured string,
+) (string, error) {
+	version := strings.TrimSpace(configured)
+	if version == "" {
+		if environment == deployProdEnvironment {
+			return "", fmt.Errorf("production deploys require --release-version from the published signed release")
+		}
+		var err error
+		version, err = packageVersionAtCommit(projectRoot, commit)
+		if err != nil {
+			return "", err
+		}
+	}
+	if !stableReleaseVersionPattern.MatchString(version) {
+		return "", fmt.Errorf("release version must be stable Semantic Versioning")
+	}
+	return version, nil
 }
 
 func ensureDeployCommitAvailable(projectRoot string, branch string, commit string) error {

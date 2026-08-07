@@ -175,6 +175,7 @@ event() { printf 'PROJECT_DEPLOY_EVENT|%%s|%%s|%%s\n' "$1" "$2" "${3:-}"; }
 fail_state() { event state "$1" "${2:-}"; [ -z "${2:-}" ] || printf '%%s\n' "$2" >&2; exit "${3:-1}"; }
 
 requested=%s
+requested_version=%s
 branch=%s
 remote_url=%s
 remote_path=%s
@@ -182,6 +183,7 @@ compose_project=%s
 lock_path=%s
 state_dir=%s
 verified_file="$state_dir/verified.sha"
+verified_release_file="$state_dir/verified.release"
 compatibility_dir="$state_dir/compat"
 web_url=%s
 
@@ -221,12 +223,17 @@ compose() { docker compose --env-file .env -p "$compose_project" -f deploy/compo
 
 persist_verified() {
   verified_commit="$1"
-  verified_strict="$2"
+  verified_version="$2"
+  verified_strict="$3"
   if [ "$verified_strict" = false ]; then
     mkdir -p "$compatibility_dir" || return 1
     compatibility_tmp="$(mktemp "$compatibility_dir/$verified_commit.tmp.XXXXXX")" || return 1
     printf 'compat\n' > "$compatibility_tmp" && chmod 600 "$compatibility_tmp" && mv -f "$compatibility_tmp" "$compatibility_dir/$verified_commit" || return 1
   fi
+  verified_release_tmp="$(mktemp "$state_dir/verified.release.tmp.XXXXXX")" || return 1
+  printf '%%s %%s\n' "$verified_commit" "$verified_version" > "$verified_release_tmp" &&
+    chmod 600 "$verified_release_tmp" &&
+    mv -f "$verified_release_tmp" "$verified_release_file" || return 1
   verified_tmp="$(mktemp "$state_dir/verified.sha.tmp.XXXXXX")" || return 1
   printf '%%s\n' "$verified_commit" > "$verified_tmp" && chmod 600 "$verified_tmp" && mv -f "$verified_tmp" "$verified_file" || return 1
 }
@@ -245,9 +252,20 @@ retry_public_get() {
   return 1
 }
 
+release_version() {
+  deploy_commit="$1"
+  if [ "$deploy_commit" = "$requested" ]; then
+    printf '%%s' "$requested_version"
+  elif [ "$deploy_commit" = "$previous" ] && [ -n "$previous_version" ]; then
+    printf '%%s' "$previous_version"
+  else
+    git show "$deploy_commit:package.json" | jq -er '.version'
+  fi
+}
+
 write_env() {
   deploy_commit="$1"
-  deploy_version="$(git show "$deploy_commit:package.json" | jq -er '.version')" || return 1
+  deploy_version="$(release_version "$deploy_commit")" || return 1
   project_env_tmp="$(mktemp .env.tmp.XXXXXX)" || return 1
   umask 077
   cat > "$project_env_tmp" <<'PROJECT_SPACE_ENV'
@@ -266,6 +284,7 @@ verify_release() {
   verify_commit="$1"
   require_checkout="$2"
   strict_health="$3"
+  expected_version="$(release_version "$verify_commit")" || return 1
   if [ "$require_checkout" = true ]; then
     checkout_commit="$(git rev-parse HEAD)" || return 1
     [ "$checkout_commit" = "$verify_commit" ] || return 1
@@ -286,6 +305,8 @@ verify_release() {
   web_container="$(compose ps -q web)" || return 1
   running_commit="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$web_container" | sed -n 's/^PROJECT_SPACE_BUILD_COMMIT=//p' | tail -n 1)"
   [ "$running_commit" = "$verify_commit" ] || return 1
+  running_version="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$web_container" | sed -n 's/^PROJECT_SPACE_BUILD_VERSION=//p' | tail -n 1)"
+  [ "$running_version" = "$expected_version" ] || return 1
   image_id="$(docker inspect --format '{{.Image}}' "$web_container")" || return 1
   image_commit="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image_id")" || return 1
   if [ "$strict_health" = true ]; then [ "$image_commit" = "$verify_commit" ] || return 1; fi
@@ -293,6 +314,8 @@ verify_release() {
   meta="$(retry_public_get "$web_url/api/app/meta")" || return 1
   meta_commit="$(printf '%%s' "$meta" | jq -er '.commit')" || return 1
   [ "$meta_commit" = "$verify_commit" ] || return 1
+  meta_version="$(printf '%%s' "$meta" | jq -er '.version')" || return 1
+  [ "$meta_version" = "$expected_version" ] || return 1
   health="$(retry_public_get "$web_url/api/health")" || return 1
   printf '%%s' "$health" | jq -e '.ok == true' >/dev/null || return 1
   retry_public_get "$web_url/" >/dev/null || return 1
@@ -325,18 +348,37 @@ restore_release() {
 }
 
 previous=""
+previous_version=""
 previous_strict=true
-if [ -f "$verified_file" ]; then previous="$(tr -d '\r\n' < "$verified_file")"; fi
+if [ -f "$verified_release_file" ]; then
+  read -r previous previous_version extra < "$verified_release_file" || true
+  if [ -n "${extra:-}" ] || ! printf '%%s' "$previous_version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+    previous=""
+    previous_version=""
+  fi
+elif [ -f "$verified_file" ]; then
+  previous="$(tr -d '\r\n' < "$verified_file")"
+fi
 if ! printf '%%s' "$previous" | grep -Eq '^[0-9a-f]{40}$'; then
   live_meta="$(curl --fail --silent --show-error --max-time 20 "$web_url/api/app/meta")" || fail_state failed_before_deploy 'cannot establish previous verified release' 70
   previous="$(printf '%%s' "$live_meta" | jq -er '.commit')" || fail_state failed_before_deploy 'running release has no commit metadata' 70
+  previous_version="$(printf '%%s' "$live_meta" | jq -er '.version')" || fail_state failed_before_deploy 'running release has no version metadata' 70
   printf '%%s' "$previous" | grep -Eq '^[0-9a-f]{40}$' || fail_state failed_before_deploy 'running release commit is invalid' 70
   git cat-file -e "$previous^{commit}" || fail_state failed_before_deploy 'running release commit cannot be fetched' 70
   git merge-base --is-ancestor "$previous" "refs/remotes/origin/$branch" || fail_state failed_before_deploy 'running release is not on production branch' 70
   verify_release "$previous" false false || fail_state failed_before_deploy 'running release is not fully verifiable' 70
   previous_strict=false
-  persist_verified "$previous" false || fail_state failed_before_deploy 'cannot persist verified state' 70
+  persist_verified "$previous" "$previous_version" false || fail_state failed_before_deploy 'cannot persist verified state' 70
 else
+  if [ -z "$previous_version" ]; then
+    live_meta="$(curl --fail --silent --show-error --max-time 20 "$web_url/api/app/meta" 2>/dev/null || true)"
+    live_commit="$(printf '%%s' "$live_meta" | jq -er '.commit' 2>/dev/null || true)"
+    if [ "$live_commit" = "$previous" ]; then
+      previous_version="$(printf '%%s' "$live_meta" | jq -er '.version')" || fail_state failed_before_deploy 'running release has no version metadata' 70
+    else
+      previous_version="$(git show "$previous:package.json" | jq -er '.version')" || fail_state failed_before_deploy 'recorded release has no recoverable version' 70
+    fi
+  fi
   if [ -f "$compatibility_dir/$previous" ]; then previous_strict=false; fi
   git cat-file -e "$previous^{commit}" || fail_state failed_before_deploy 'recorded verified commit is unavailable' 70
   git merge-base --is-ancestor "$previous" "refs/remotes/origin/$branch" || fail_state failed_before_deploy 'recorded verified commit is not on production branch' 70
@@ -360,7 +402,7 @@ rollback_interrupted() {
     event evidence reset true
     event rollback status running
     event rollback commit "$previous"
-    if restore_release "$previous" "$previous_strict" && persist_verified "$previous" "$previous_strict"; then
+    if restore_release "$previous" "$previous_strict" && persist_verified "$previous" "$previous_version" "$previous_strict"; then
       event rollback status rollback_succeeded
       event rollback verifiedCommit "$previous"
     else
@@ -375,7 +417,7 @@ trap rollback_interrupted 0 1 2 15
 event evidence reset true
 event phase deploy running
 mutation_started=true
-if deploy_release "$requested" && persist_verified "$requested" true; then
+if deploy_release "$requested" && persist_verified "$requested" "$requested_version" true; then
   transaction_complete=true
   trap - 0 1 2 15
   event phase deploy success
@@ -390,7 +432,7 @@ event rollback status running
 event rollback commit "$previous"
 git cat-file -e "$previous^{commit}" || { event rollback status rollback_failed; fail_state rollback_failed 'cannot find rollback commit' 71; }
 git merge-base --is-ancestor "$previous" "refs/remotes/origin/$branch" || { event rollback status rollback_failed; fail_state rollback_failed 'rollback commit is not on production branch' 71; }
-if restore_release "$previous" "$previous_strict" && persist_verified "$previous" "$previous_strict"; then
+if restore_release "$previous" "$previous_strict" && persist_verified "$previous" "$previous_version" "$previous_strict"; then
   transaction_complete=true
   trap - 0 1 2 15
   event rollback status rollback_succeeded
@@ -404,6 +446,7 @@ event rollback error 'rollback verification failed'
 fail_state rollback_failed 'deployment and rollback verification failed' 71
 `,
 		shellQuote(project.BuildCommit),
+		shellQuote(project.BuildVersion),
 		shellQuote(project.Branch),
 		shellQuote(project.RemoteURL),
 		shellQuote(project.RemotePath),
