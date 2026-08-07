@@ -236,6 +236,8 @@ func renderAliases(aliases []string) string {
 
 func escapeMarkdownTable(value string) string {
 	value = strings.ReplaceAll(value, "|", "\\|")
+	value = strings.ReplaceAll(value, "<", "&lt;")
+	value = strings.ReplaceAll(value, ">", "&gt;")
 	value = strings.ReplaceAll(value, "\n", " ")
 	return value
 }
