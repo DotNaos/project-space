@@ -1,0 +1,4 @@
+{
+  "intent": "patch",
+  "schema": "project-space.release-intent/v1"
+}
