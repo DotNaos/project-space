@@ -33,8 +33,10 @@ transactions, release publication, signing, and Production deployment are not
 cancelled mid-operation.
 
 The trusted release-entry workflow stays separate because pull-request code
-must not be able to alter the validator that writes its own required result. A
-ready pull request is checked immediately and later head changes are rechecked.
+must not be able to alter the validator behind its normal `Release decision`
+Actions job. A ready pull request is checked immediately and later head changes
+are rechecked. If infrastructure interrupts that job, rerun the original
+pull-request job; a manual run on `main` cannot prove an arbitrary PR head.
 
 ## Canonical local preflight
 

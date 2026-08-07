@@ -13,14 +13,13 @@ test('validates one exact current PR head from trusted latest main', () => {
 
   expect(workflow).toContain('pull_request_target:');
   expect(workflow).not.toContain('push:\n    branches: [main]');
-  expect(workflow).toContain('workflow_dispatch:');
-  expect(workflow).toContain('requested_head_sha:');
-  expect(workflow).toContain('pr:');
+  expect(workflow).not.toContain('workflow_dispatch:');
   expect(workflow).toContain(
-    "group: release-decision-${{ github.event.pull_request.number || inputs.pr }}",
+    'group: release-decision-${{ github.event.pull_request.number }}',
   );
   expect(workflow).toContain('cancel-in-progress: true');
   expect(workflow.match(/^  [a-z][a-z-]+:$/gm)).toEqual(['  validate:']);
+  expect(workflow).toContain('name: Release decision');
   expect(workflow).toContain(
     'ref: ${{ steps.target.outputs.main_sha }}',
   );
@@ -36,16 +35,9 @@ test('validates one exact current PR head from trusted latest main', () => {
   expect(workflow).not.toContain(
     'ref: ${{ github.event.pull_request.head.sha }}',
   );
-  expect(workflow).toContain('checks: write');
-  expect(workflow).toContain(
-    "name 'Release decision'",
-  );
-  expect(workflow).toContain(
-    '"repos/${GITHUB_REPOSITORY}/check-runs"',
-  );
-  expect(workflow).toContain(
-    '"repos/${GITHUB_REPOSITORY}/check-runs/${CHECK_ID}"',
-  );
+  expect(workflow).not.toContain('checks: write');
+  expect(workflow).not.toContain('check-runs');
+  expect(workflow).not.toContain('external_id');
   expect(workflow).not.toContain('pulls?state=open&base=main&per_page=100');
   expect(workflow).not.toContain('strategy:');
   expect(workflow).not.toContain('matrix:');
@@ -55,30 +47,16 @@ test('validates one exact current PR head from trusted latest main', () => {
   expect(workflow).toContain(
     '"repos/${GITHUB_REPOSITORY}/git/ref/heads/main"',
   );
-  expect(workflow).toContain('[[ "$GITHUB_REF" == refs/heads/main ]]');
-  expect(workflow).toContain('[[ "$current_head" == "$requested_head" ]]');
+  expect(workflow).toContain('[[ "$current_head" != "$requested_head" ]]');
+  expect(workflow).not.toContain('continue-on-error: true');
+  expect(workflow).not.toContain('action_required');
+  expect(workflow).toContain('run: bun scripts/validate-release-pr.ts');
+  expect(workflow).toContain('Revalidate exact pull request head and main');
   expect(workflow).toContain(
-    'external_id: $external_id',
+    '[[ "$(jq -er \'\.head.sha\' <<<"$pr")" == "$EXPECTED_HEAD_SHA" ]]',
   );
   expect(workflow).toContain(
-    '(.conclusion == "success" or .conclusion == "failure")',
-  );
-  expect(workflow).toContain('conclusion=action_required');
-  expect(workflow).toContain(
-    '"$VALIDATION_EXIT_CODE" != 1',
-  );
-  expect(workflow).toContain(
-    'echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"',
-  );
-  expect(workflow).not.toContain(
-    '[[ "$conclusion" == success ]]',
-  );
-  expect(workflow.match(/continue-on-error: true/g)?.length).toBe(5);
-  expect(workflow).not.toContain('internal_failure');
-  expect(workflow).toContain('conclusion=cancelled');
-  expect(workflow).toContain('Validation was superseded before publication');
-  expect(workflow).toContain(
-    '(.status == "queued" or .status == "in_progress")',
+    '[[ "$current_main" == "$EXPECTED_MAIN_SHA" ]]',
   );
   expect(workflow).not.toContain('persist-credentials: true');
   expect(workflow).toContain(

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -16,10 +16,14 @@ import {
 } from './release-identity';
 import {
   exactProductionRuns,
+  historicalReleaseTarget,
   releaseRecoveryDecision,
+  releaseTagFenceDecision,
   workflowRecoveryDecision,
   type HandoffRun,
 } from './release-handoff-state';
+import { verifyConnectorRuntimeReleaseManifest } from
+  '../server/connector-runtime-release-manifest';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const entriesPath = 'apps/docs/content/docs/releases/entries';
@@ -133,21 +137,116 @@ async function inspectCandidate(candidate: ReleaseCandidate) {
     githubTagCommit(candidate.tag),
     githubRelease(candidate.tag),
   ]);
-  if (tagCommit && tagCommit !== candidate.commit) {
-    throw new Error(
-      `Tag ${candidate.tag} identifies ${tagCommit}, not its main addition commit ${candidate.commit}.`,
+  const releaseState = release?.state ?? 'missing';
+  let firstParentHistory = false;
+  let identityUnchanged = false;
+  let signedManifestMatches = false;
+  if (
+    tagCommit && tagCommit !== candidate.commit &&
+    candidate.tag === historicalReleaseTarget.tag &&
+    candidate.commit === historicalReleaseTarget.additionCommit &&
+    tagCommit === historicalReleaseTarget.publishedCommit &&
+    release?.state === 'published'
+  ) {
+    firstParentHistory = isFirstParentAncestor(candidate.commit, tagCommit) &&
+      isFirstParentAncestor(tagCommit, head);
+    identityUnchanged = releaseIdentityUnchanged(candidate, tagCommit);
+    signedManifestMatches = await historicalManifestMatches(
+      candidate,
+      tagCommit,
+      release.manifestUrl,
     );
   }
-  if (release?.state === 'published' && tagCommit !== candidate.commit) {
-    throw new Error(
-      `Published GitHub Release ${candidate.tag} is not fenced to ${candidate.commit}.`,
+  const fence = releaseTagFenceDecision({
+    additionCommit: candidate.commit,
+    firstParentHistory,
+    identityUnchanged,
+    releaseState,
+    signedManifestMatches,
+    tag: candidate.tag,
+    tagCommit,
+  });
+  if (fence === 'historical') {
+    console.log(
+      `Accepted immutable historical ${candidate.tag} at ${tagCommit}; its signed manifest and unchanged release identity match the approved published target.`,
     );
   }
   return {
     candidate,
-    releaseState: release?.state ?? 'missing' as 'draft' | 'missing' | 'published',
+    releaseState,
     tagCommit,
   };
+}
+
+function isFirstParentAncestor(ancestor: string, descendant: string) {
+  return gitOutput(['rev-list', '--first-parent', descendant])
+    .split('\n')
+    .includes(ancestor);
+}
+
+function releaseIdentityUnchanged(
+  candidate: ReleaseCandidate,
+  tagCommit: string,
+) {
+  const result = spawnSync('git', [
+    'diff', '--quiet', candidate.commit, tagCommit, '--',
+    ...releaseIdentityPaths, candidate.path,
+  ], { cwd: repositoryRoot, encoding: 'utf8' });
+  if (result.status === 0) return true;
+  if (result.status === 1) return false;
+  throw new Error(
+    `Could not compare release identity for ${candidate.tag}: ${result.stderr.trim()}`,
+  );
+}
+
+async function historicalManifestMatches(
+  candidate: ReleaseCandidate,
+  tagCommit: string,
+  manifestUrl: string | undefined,
+) {
+  if (!manifestUrl) return false;
+  const response = await fetch(manifestUrl, {
+    headers: {
+      authorization: `Bearer ${requiredGithubToken()}`,
+      'user-agent': 'project-space-release-publisher',
+    },
+  });
+  if (!response.ok) return false;
+  const source = await response.text();
+  if (source.length > 1024 * 1024) return false;
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(source);
+  } catch {
+    return false;
+  }
+  const issuedAt = historicalManifestIssuedAt(envelope);
+  if (issuedAt === undefined) return false;
+  try {
+    const manifest = verifyConnectorRuntimeReleaseManifest(
+      envelope,
+      readFileSync(
+        resolve(
+          repositoryRoot,
+          'packaging/release/trust-roots/release-manifest-signing-public-key.pem',
+        ),
+      ),
+      { now: issuedAt },
+    );
+    return manifest.releaseId === candidate.tag &&
+      manifest.version === candidate.version && manifest.buildId === tagCommit;
+  } catch {
+    return false;
+  }
+}
+
+function historicalManifestIssuedAt(value: unknown) {
+  if (
+    !isRecord(value) || !isRecord(value.manifest) ||
+    typeof value.manifest.issuedAt !== 'string'
+  ) return undefined;
+  const issuedAt = Date.parse(value.manifest.issuedAt);
+  return Number.isFinite(issuedAt) ? issuedAt : undefined;
 }
 
 async function validateCandidate(candidate: ReleaseCandidate) {
@@ -353,7 +452,24 @@ async function githubRelease(tag: string) {
       `GitHub Release ${tag} is not a verifiably published release.`,
     );
   }
-  return { state: 'published' as const };
+  if (!Array.isArray(body.assets)) {
+    throw new Error(`GitHub returned invalid release assets for ${tag}.`);
+  }
+  const manifestUrls = body.assets.flatMap((asset) =>
+    isRecord(asset) && asset.name === 'project-space-release-manifest.json' &&
+      typeof asset.browser_download_url === 'string'
+      ? [asset.browser_download_url]
+      : []
+  );
+  if (manifestUrls.length > 1) {
+    throw new Error(`GitHub Release ${tag} has duplicate release manifests.`);
+  }
+  const expectedManifestUrl =
+    `https://github.com/${repository}/releases/download/${tag}/project-space-release-manifest.json`;
+  const manifestUrl = manifestUrls[0] === expectedManifestUrl
+    ? manifestUrls[0]
+    : undefined;
+  return { manifestUrl, state: 'published' as const };
 }
 
 async function githubTagCommit(tag: string) {
@@ -513,10 +629,7 @@ function packageVersion(source: string, label: string) {
 }
 
 function githubFetch(path: string, init: RequestInit = {}) {
-  const token = process.env.GH_TOKEN?.trim();
-  if (!token) {
-    throw new Error('GH_TOKEN is required for trusted release publication.');
-  }
+  const token = requiredGithubToken();
   return fetch(`https://api.github.com${path}`, {
     ...init,
     headers: {
@@ -528,6 +641,14 @@ function githubFetch(path: string, init: RequestInit = {}) {
       ...init.headers,
     },
   });
+}
+
+function requiredGithubToken() {
+  const token = process.env.GH_TOKEN?.trim();
+  if (!token) {
+    throw new Error('GH_TOKEN is required for trusted release publication.');
+  }
+  return token;
 }
 
 function gitOutput(args: string[], trim = true) {

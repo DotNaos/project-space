@@ -62,6 +62,11 @@ test('publishes a merged release only through the validated exact tag', () => {
     );
   }
   expect(publisher).toContain('validateReleasePullRequest');
+  expect(publisher).toContain('releaseTagFenceDecision');
+  expect(publisher).toContain('historicalReleaseTarget');
+  expect(publisher).toContain('verifyConnectorRuntimeReleaseManifest');
+  expect(publisher).toContain('releaseIdentityUnchanged');
+  expect(publisher).toContain('isFirstParentAncestor');
   expect(publisher).toContain("'log', '--first-parent', '--diff-filter=A'");
   expect(publisher).toContain('Ignoring superseded unpublished');
   expect(publisher).toContain('const oldestPending = pending.at(0)');
@@ -84,6 +89,7 @@ test('publishes a merged release only through the validated exact tag', () => {
   expect(publisher).not.toContain('releases?per_page=100');
   expect(publisher).not.toContain('git push');
   expect(publisher).not.toContain('RELEASE_BEFORE_SHA');
+  expect(publisher).toContain('await createTag(candidate.tag, candidate.commit)');
   const gitEntriesReader = publisher.slice(
     publisher.indexOf('function readGitEntries'),
     publisher.indexOf('function packageVersion'),

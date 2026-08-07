@@ -15,6 +15,46 @@ export type RecoveryDecision =
   | { kind: 'rerun'; run: HandoffRun }
   | { kind: 'wait'; run: HandoffRun };
 
+export interface ReleaseTagFenceInput {
+  additionCommit: string;
+  firstParentHistory: boolean;
+  identityUnchanged: boolean;
+  releaseState: 'draft' | 'missing' | 'published';
+  signedManifestMatches: boolean;
+  tag: string;
+  tagCommit?: string;
+}
+
+export const historicalReleaseTarget = {
+  additionCommit: '14b272577786d585256109fe8acc2b3b43cf43da',
+  publishedCommit: '3624efc2b6e2be9754026a9142050392ce057b0c',
+  tag: 'v0.4.65',
+} as const;
+
+export function releaseTagFenceDecision(input: ReleaseTagFenceInput) {
+  if (!input.tagCommit) {
+    if (input.releaseState === 'published') {
+      throw new Error(`Published GitHub Release ${input.tag} has no Git tag.`);
+    }
+    return 'missing' as const;
+  }
+  if (input.tagCommit === input.additionCommit) return 'exact' as const;
+  const approvedHistoricalTarget =
+    input.tag === historicalReleaseTarget.tag &&
+    input.additionCommit === historicalReleaseTarget.additionCommit &&
+    input.tagCommit === historicalReleaseTarget.publishedCommit;
+  if (
+    approvedHistoricalTarget && input.releaseState === 'published' &&
+    input.firstParentHistory && input.identityUnchanged &&
+    input.signedManifestMatches
+  ) {
+    return 'historical' as const;
+  }
+  throw new Error(
+    `Tag ${input.tag} identifies ${input.tagCommit}, not its main addition commit ${input.additionCommit}.`,
+  );
+}
+
 export function releaseRecoveryDecision(
   releaseState: 'draft' | 'missing',
   runs: HandoffRun[],
