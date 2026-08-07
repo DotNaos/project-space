@@ -309,10 +309,7 @@ async function reconcileRelease(decision: Extract<
     );
   }
   if (!existingTag) {
-    await createTag(decision.tag, decision.item.commit);
-    const confirmed = dryRun
-      ? decision.item.commit
-      : await githubTagCommit(decision.tag);
+    const confirmed = await createTag(decision.tag, decision.item.commit);
     if (confirmed !== decision.item.commit) {
       throw new Error(`Tag ${decision.tag} was not atomically reserved at the queued merge.`);
     }
@@ -520,13 +517,25 @@ function parseWorkflowRun(value: unknown): HandoffRun {
 }
 
 async function createTag(tag: string, commit: string) {
-  if (dryRun) return;
+  if (dryRun) return commit;
   const response = await githubFetch(`/repos/${repository}/git/refs`, {
     body: JSON.stringify({ ref: `refs/tags/${tag}`, sha: commit }),
     method: 'POST',
   });
-  if (response.ok) return;
-  if (response.status === 422 && await githubTagCommit(tag) === commit) return;
+  if (response.ok) {
+    const body: unknown = await response.json();
+    if (
+      !isRecord(body) || body.ref !== `refs/tags/${tag}` ||
+      !isRecord(body.object) || typeof body.object.sha !== 'string'
+    ) {
+      throw new Error(`GitHub returned an invalid reservation for ${tag}.`);
+    }
+    return requiredCommit(body.object.sha, `${tag} reservation target`);
+  }
+  if (response.status === 422) {
+    const existing = await githubTagCommit(tag);
+    if (existing === commit) return existing;
+  }
   throw new Error(`Could not reserve ${tag} at ${commit} (${response.status}).`);
 }
 
