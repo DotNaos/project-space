@@ -28,7 +28,6 @@ project
 | --- | --- | --- |
 | [`adopt`](#project-adopt) | - | Plan adoption of an existing project |
 | [`agent`](#project-agent) | - | Manage the current Codex agent identity |
-| [`approval`](#project-approval) | - | Manage cryptographic human approvals |
 | [`chat`](#project-chat) | - | Coordinate with people and agents through Project Chat |
 | [`codex`](#project-codex) | - | Start, inspect, continue, or attach to persistent Codex tasks |
 | [`completion`](#project-completion) | - | Generate the autocompletion script for the specified shell |
@@ -102,83 +101,6 @@ project agent name
 | `--exclude` | `stringArray` | local | agent name already used by a visible Codex task (repeatable) |
 | `--format` | `string` | local | output format: text or json |
 | `-h`, `--help` | `bool` | local | help for name |
-
-<h3 id="project-approval" className="scroll-m-28"><code>project approval</code></h3>
-
-Manage cryptographic human approvals
-
-```sh
-project approval
-```
-
-| Flag | Type | Scope | Description |
-| --- | --- | --- | --- |
-| `-h`, `--help` | `bool` | local | help for approval |
-
-<h3 id="project-approval-enroll" className="scroll-m-28"><code>project approval enroll</code></h3>
-
-Create an external trusted signer configuration with macOS authentication
-
-```sh
-project approval enroll
-```
-
-| Flag | Type | Scope | Description |
-| --- | --- | --- | --- |
-| `--format` | `string` | local | output format: pretty or json |
-| `-h`, `--help` | `bool` | local | help for enroll |
-| `--policy` | `string` | local | repository approval policy |
-| `--root` | `string` | local | repository root |
-| `--trust-root` | `string` | local | external trusted signer configuration |
-
-<h3 id="project-approval-sign" className="scroll-m-28"><code>project approval sign</code></h3>
-
-Approve one scope using Secure Enclave authentication
-
-```sh
-project approval sign
-```
-
-| Flag | Type | Scope | Description |
-| --- | --- | --- | --- |
-| `--format` | `string` | local | output format: pretty or json |
-| `-h`, `--help` | `bool` | local | help for sign |
-| `--policy` | `string` | local | repository approval policy |
-| `--root` | `string` | local | repository root |
-| `--scope` | `string` | local | scope identifier to approve |
-| `--trust-root` | `string` | local | external trusted signer configuration |
-
-<h3 id="project-approval-status" className="scroll-m-28"><code>project approval status</code></h3>
-
-Show approval state
-
-```sh
-project approval status
-```
-
-| Flag | Type | Scope | Description |
-| --- | --- | --- | --- |
-| `--format` | `string` | local | output format: pretty or json |
-| `-h`, `--help` | `bool` | local | help for status |
-| `--policy` | `string` | local | repository approval policy |
-| `--root` | `string` | local | repository root |
-| `--trust-root` | `string` | local | external trusted signer configuration |
-
-<h3 id="project-approval-verify" className="scroll-m-28"><code>project approval verify</code></h3>
-
-Verify every required human approval
-
-```sh
-project approval verify
-```
-
-| Flag | Type | Scope | Description |
-| --- | --- | --- | --- |
-| `--format` | `string` | local | output format: pretty or json |
-| `-h`, `--help` | `bool` | local | help for verify |
-| `--policy` | `string` | local | repository approval policy |
-| `--root` | `string` | local | repository root |
-| `--trust-root` | `string` | local | external trusted signer configuration |
 
 <h3 id="project-chat" className="scroll-m-28"><code>project chat</code></h3>
 

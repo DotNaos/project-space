@@ -1,9 +1,0 @@
-version: 1
-repository: github.com/DotNaos/project-template
-policyId: template-review
-scopes:
-  - id: web-shell
-    label: Generated web application shell
-    paths:
-      - clients/web/src/app.tsx
-    attestation: .project/approvals/web-shell.json

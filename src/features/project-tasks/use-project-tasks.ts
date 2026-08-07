@@ -69,8 +69,9 @@ export function useProjectTasks(repository?: GitHubCatalogRepository) {
     commentsByIssue,
     issues: details?.issues ?? [],
     pullRequests: details?.pullRequests ?? [],
+    repositoryFullName,
     runs
-  }), [commentsByIssue, details, runs]);
+  }), [commentsByIssue, details, repositoryFullName, runs]);
 
   const loadComments = useCallback(async (issueNumber: number) => {
     if (!repositoryFullName) return [];

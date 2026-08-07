@@ -43,7 +43,7 @@ fi
 
 bundle_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 for required in \
-  SHA256SUMS.txt VERSION project project-space-connector project-approval-signer \
+  SHA256SUMS.txt VERSION project project-space-connector \
   connector-command-signing-public-key.pem release-manifest-signing-public-key.pem; do
   if [[ ! -f ${bundle_root}/${required} ]]; then
     echo "The release bundle is incomplete: $required is missing." >&2
@@ -227,7 +227,7 @@ trap cleanup EXIT
 
 staged_release="${transaction_root}/${release_id}"
 mkdir -m 0700 -- "$staged_release"
-for name in project project-space-connector project-approval-signer; do
+for name in project project-space-connector; do
   install -m 0755 -- "${bundle_root}/${name}" "${staged_release}/${name}"
 done
 for name in connector-command-signing-public-key.pem release-manifest-signing-public-key.pem; do
@@ -236,7 +236,7 @@ done
 install -m 0600 -- "${bundle_root}/VERSION" "${staged_release}/VERSION"
 if [[ -d $release_directory ]]; then
   for member in \
-    project project-space-connector project-approval-signer \
+    project project-space-connector \
     connector-command-signing-public-key.pem release-manifest-signing-public-key.pem \
     VERSION; do
     if ! cmp -s -- "${staged_release}/${member}" "${release_directory}/${member}"; then
@@ -248,7 +248,7 @@ else
   mv -- "$staged_release" "$release_directory"
 fi
 
-for name in project project-space-connector project-approval-signer; do
+for name in project project-space-connector; do
   destination="${install_directory}/${name}"
   if [[ -d $destination && ! -L $destination ]]; then
     echo "Refusing to replace a directory: $destination" >&2
@@ -271,7 +271,7 @@ fi
 assert_connector_maintenance_idle
 [[ ! -L $current_link ]] || previous_current_target=$(readlink "$current_link")
 
-for name in project project-space-connector project-approval-signer; do
+for name in project project-space-connector; do
   destination="${install_directory}/${name}"
   expected_target=".project-space-machine-tools/current/${name}"
   if [[ -L $destination && $(readlink "$destination") == "$expected_target" ]]; then
@@ -285,6 +285,11 @@ for name in project project-space-connector project-approval-signer; do
   mv -h -f -- "$link_temp" "$destination"
   changed_entries+=("$name")
 done
+obsolete_signer="${install_directory}/project-approval-signer"
+if [[ -L $obsolete_signer && $(readlink "$obsolete_signer") == ".project-space-machine-tools/current/project-approval-signer" ]]; then
+  mv -h -f -- "$obsolete_signer" "${backup_root}/project-approval-signer"
+  changed_entries+=("project-approval-signer")
+fi
 next_current="${transaction_root}/current.next"
 ln -s -- "versions/${release_id}" "$next_current"
 mv -h -f -- "$next_current" "$current_link"

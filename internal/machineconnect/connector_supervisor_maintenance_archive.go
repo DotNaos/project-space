@@ -224,9 +224,6 @@ func connectorSupervisorBundleMembers(target string) map[string]fs.FileMode {
 		connectorSupervisorCommandKeyFileName: 0o600,
 		connectorSupervisorReleaseKeyFileName: 0o600,
 	}
-	if target == "darwin-arm64" {
-		members["project-approval-signer"] = 0o700
-	}
 	if target == "linux-x64" {
 		members["codex"] = 0o700
 		members["CODEX-LICENSE"] = 0o600

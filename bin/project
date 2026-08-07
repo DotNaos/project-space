@@ -12,10 +12,6 @@ project_space_binary_is_current() {
   [ -x "$PROJECT_SPACE_BIN" ] || return 1
   [ ! "$PROJECT_SPACE_ROOT/go.mod" -nt "$PROJECT_SPACE_BIN" ] || return 1
   [ ! "$PROJECT_SPACE_ROOT/go.sum" -nt "$PROJECT_SPACE_BIN" ] || return 1
-  if [ "$(uname -s)" = "Darwin" ]; then
-    [ -x "$PROJECT_SPACE_DIR/project-approval-signer" ] || return 1
-    [ ! "$PROJECT_SPACE_ROOT/internal/approvalsigner/native/ProjectApprovalSigner.swift" -nt "$PROJECT_SPACE_DIR/project-approval-signer" ] || return 1
-  fi
   [ -z "$(find "$PROJECT_SPACE_ROOT/cmd" "$PROJECT_SPACE_ROOT/internal" -type f -newer "$PROJECT_SPACE_BIN" -print -quit)" ]
 }
 
@@ -42,21 +38,7 @@ if ! project_space_binary_is_current; then
 
   # A second invocation may have completed the build while this process waited.
   if ! project_space_binary_is_current; then
-    if [ "$(uname -s)" = "Darwin" ]; then
-      signer_source="$PROJECT_SPACE_ROOT/internal/approvalsigner/native/ProjectApprovalSigner.swift"
-      signer_binary="$PROJECT_SPACE_DIR/project-approval-signer"
-      if [ ! -x "$signer_binary" ] || [ "$signer_source" -nt "$signer_binary" ]; then
-        (cd "$PROJECT_SPACE_ROOT" && swiftc -parse-as-library "$signer_source" -o "$signer_binary")
-        if identity=$(security find-identity -p codesigning -v | sed -n 's/.*"\(Apple Development:[^"]*\)".*/\1/p' | head -1) && [ -n "$identity" ]; then
-          codesign --force --sign "$identity" -i com.dotnaos.project.approval-signer --options runtime --timestamp=none "$signer_binary" >/dev/null
-        fi
-      fi
-    fi
-    signer_sha=""
-    if [ -f "$PROJECT_SPACE_DIR/project-approval-signer" ]; then
-      signer_sha="$(shasum -a 256 "$PROJECT_SPACE_DIR/project-approval-signer" | awk '{print $1}')"
-    fi
-    (cd "$PROJECT_SPACE_ROOT" && go build -ldflags="-X github.com/DotNaos/project-space/internal/approvalsigner.expectedHelperSHA256=$signer_sha" -o "$project_space_build_temp" ./cmd/project)
+    (cd "$PROJECT_SPACE_ROOT" && go build -o "$project_space_build_temp" ./cmd/project)
     chmod +x "$project_space_build_temp"
     mv "$project_space_build_temp" "$PROJECT_SPACE_BIN"
   fi

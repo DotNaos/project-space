@@ -14,7 +14,7 @@ export type MockTaskStage =
 export type MockCheckState = "failed" | "not-started" | "passed" | "running";
 export type MockPreviewState = "not-started" | "ready" | "unavailable";
 export type MockReviewState = "approved" | "not-requested" | "pending";
-export type MockTaskWorkflowState = "Backlog" | "Done" | "In progress" | "Started";
+export type MockTaskWorkflowState = "Active" | "Backlog" | "Completed" | "Review";
 
 export interface MockTaskComment {
   author: string;
@@ -141,10 +141,10 @@ export function mockTaskStageLabel(task: MockTask) {
 }
 
 export function mockTaskWorkflowState(task: MockTask): MockTaskWorkflowState {
-  if (["merged", "deploying", "deployed"].includes(task.stage)) return "Done";
+  if (["merged", "deploying", "deployed"].includes(task.stage)) return "Completed";
   if (!task.pullRequest) return "Backlog";
-  if (task.pullRequest.phase === "draft") return "Started";
-  return "In progress";
+  if (task.pullRequest.phase === "draft") return "Active";
+  return "Review";
 }
 
 export function mockTaskNeedsAttention(task: MockTask) {
@@ -153,7 +153,7 @@ export function mockTaskNeedsAttention(task: MockTask) {
 }
 
 export function mockTaskGroup(task: MockTask): "Active" | "Done" | "Needs you" {
-  if (mockTaskWorkflowState(task) === "Done") return "Done";
+  if (mockTaskWorkflowState(task) === "Completed") return "Done";
   if (mockTaskNeedsAttention(task)) return "Needs you";
   return "Active";
 }
@@ -198,7 +198,19 @@ export function updateMockTask(task: MockTask, action: MockTaskAction): MockTask
     }
     case "create-branch": {
       const branch = `task-${task.number}-${task.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 42)}`;
-      return withEvent(task, { branch, branchRelation: "1 ahead · 0 behind main", stage: "branch" }, "Branch ready", `${branch} was prepared from main.`);
+      return withEvent(task, {
+        branch,
+        branchRelation: "1 ahead · 0 behind main",
+        pullRequest: {
+          checks: "not-started",
+          number: task.number + 1,
+          phase: "draft",
+          preview: "not-started",
+          review: "not-requested",
+          revision: "dc6bd80",
+        },
+        stage: "branch",
+      }, "Development setup ready", `${branch} and draft pull request #${task.number + 1} were prepared from main.`);
     }
     case "start-development":
       return withEvent(task, {
@@ -222,7 +234,7 @@ export function updateMockTask(task: MockTask, action: MockTaskAction): MockTask
           review: "not-requested",
           revision: "dc6bd80",
         },
-        stage: "pull-request",
+        stage: task.agentRun ? "development" : "branch",
       }, "Draft pull request opened", `Draft pull request #${task.number + 1} keeps the implementation connected while work continues.`);
     case "mark-pull-request-ready":
       if (!task.pullRequest || task.pullRequest.phase !== "draft") return task;

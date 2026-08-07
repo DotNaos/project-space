@@ -5,11 +5,9 @@ import {
   CircleDot,
   ExternalLink,
   GitBranch,
-  GitBranchPlus,
   GitPullRequestDraft,
   LoaderCircle,
-  Monitor,
-  Plus
+  Monitor
 } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { Button } from '@/app/dotnaos-ui';
@@ -29,8 +27,10 @@ import {
   getIssueMachineRows,
   type IssueMachineProjectRow
 } from './issue-development-machine-actions';
-import { branchNameForIssue } from './issue-branch-model';
-import { resolveIssueDevelopmentHead } from './issue-development-head';
+import {
+  canChooseIssueCodingDestination,
+  resolveIssueDevelopmentHead
+} from './issue-development-head';
 import { IssuePullRequestChip } from './issue-branch-menu';
 import { connectorLocationPresentation } from './machine-connector-topology-model';
 import {
@@ -46,6 +46,7 @@ import {
 } from './codex-task-start-attempt';
 import { CodexTaskStartRecoveryDialog } from './codex-task-start-recovery-dialog';
 import { IssueDevelopmentServers } from './issue-development-servers';
+import { IssueDevelopmentStart } from './issue-development-start';
 
 interface IssueDevelopmentSessionProps {
   branches: GitHubBranchRecord[];
@@ -74,18 +75,9 @@ export function IssueDevelopmentSession({
   repoFullName,
   onOpenHistory
 }: IssueDevelopmentSessionProps) {
-  const defaultBranch = branches.find((branch) => branch.isDefault)?.name ?? '';
-  const suggestedBranch = branchNameForIssue(issue);
-  const [branchName, setBranchName] = useState(suggestedBranch);
-  const [showBranchPicker, setShowBranchPicker] = useState(false);
-  const [branchError, setBranchError] = useState('');
-  const [branchMessage, setBranchMessage] = useState('');
-  const [isCreatingBranch, setIsCreatingBranch] = useState(false);
-  const [isCreatingPullRequest, setIsCreatingPullRequest] = useState(false);
-  const [pullRequestMessage, setPullRequestMessage] = useState('');
-  const [pullRequestError, setPullRequestError] = useState('');
   const [busyMachineId, setBusyMachineId] = useState('');
   const [machineMessage, setMachineMessage] = useState('');
+  const [machineError, setMachineError] = useState('');
   const [prototypeMachineId, setPrototypeMachineId] = useState('');
   const [uncertainStart, setUncertainStart] = useState<{
     attempt: CodexTaskStartAttempt;
@@ -95,13 +87,10 @@ export function IssueDevelopmentSession({
   const [isRecoveringStart, setIsRecoveringStart] = useState(false);
 
   useEffect(() => {
-    setBranchName(suggestedBranch);
-    setBranchError('');
-    setBranchMessage('');
-    setPullRequestError('');
-    setPullRequestMessage('');
+    setMachineError('');
+    setMachineMessage('');
     setUncertainStart(undefined);
-  }, [issue.number, suggestedBranch]);
+  }, [issue.number]);
 
   const developmentHead = useMemo(
     () => resolveIssueDevelopmentHead({
@@ -121,15 +110,10 @@ export function IssueDevelopmentSession({
   const selectedPullRequest =
     developmentHead.state === 'verified' && developmentHead.pullRequest
       ? developmentHead.pullRequest
-      : fallbackPullRequest;
-  const visibleBranches = useMemo(
-    () => branches
-      .filter((branch) => !branch.isDefault)
-      .filter((branch) => !branch.linkedIssueNumbers?.includes(issue.number))
-      .sort((left, right) => left.name.localeCompare(right.name))
-      .slice(0, 6),
-    [branches, issue.number]
-  );
+      : fallbackPullRequest?.state !== 'open'
+        ? fallbackPullRequest
+        : undefined;
+  const canChooseDestination = canChooseIssueCodingDestination(developmentHead);
   const machineRows = useMemo<IssueMachineProjectRow[]>(
     () => getIssueMachineRows({ connectorOverview, project, projects, repoFullName }),
     [connectorOverview, project, projects, repoFullName]
@@ -167,130 +151,28 @@ export function IssueDevelopmentSession({
     setPrototypeMachineId(prototypeMachineRows[0]?.machineId ?? '');
   }, [prototypeMachineId, prototypeMachineRows]);
 
-  async function createBranch(branchNameOverride?: string) {
-    if (!repoFullName) {
-      setBranchError('No GitHub repository is linked.');
-      return;
-    }
-    const trimmedBranchName = (branchNameOverride ?? branchName).trim();
-    if (!trimmedBranchName) {
-      setBranchError('Branch name is required.');
-      return;
-    }
-    const existingBranch = branches.find((branch) => branch.name === trimmedBranchName);
-    if (!existingBranch && !defaultBranch) {
-      setBranchError('The repository default branch is unavailable.');
-      return;
-    }
-    setIsCreatingBranch(true);
-    setBranchError('');
-    setBranchMessage('');
-    try {
-      const result = await projectSpaceClient.createGitHubBranch({
-        fullName: repoFullName,
-        issueNumber: issue.number,
-        name: trimmedBranchName,
-        sourceBranch: existingBranch?.name ?? defaultBranch
-      });
-      if (result.status !== 'connected' || !result.branch) {
-        setBranchError(result.message ?? 'Could not create branch.');
-        return;
-      }
-      onBranchCreated(result.branch);
-      setShowBranchPicker(false);
-      setBranchMessage('Linked branch created.');
-    } catch (error) {
-      setBranchError(
-        error instanceof Error ? error.message : 'Could not create branch.'
-      );
-    } finally {
-      setIsCreatingBranch(false);
-    }
-  }
-
-  async function createPullRequest() {
-    if (selectedPullRequest) {
-      setPullRequestError('A pull request is already linked.');
-      return;
-    }
-    if (!defaultBranch) {
-      setPullRequestError('The repository default branch is unavailable.');
-      return;
-    }
-    if (!repoFullName || !selectedBranch) {
-      setPullRequestError('Link a branch first.');
-      return;
-    }
-    setIsCreatingPullRequest(true);
-    setPullRequestError('');
-    setPullRequestMessage('');
-    try {
-      const comparison = await projectSpaceClient.getGitHubBranchComparison({
-        fullName: repoFullName,
-        headBranch: selectedBranch.name,
-        limit: 1
-      });
-      if (
-        comparison.status !== 'connected' ||
-        comparison.freshness !== 'current' ||
-        typeof comparison.aheadBy !== 'number'
-      ) {
-        setPullRequestError(
-          comparison.message ?? 'The branch could not be checked before creating the pull request.'
-        );
-        return;
-      }
-      if (comparison.aheadBy < 1) {
-        setPullRequestError(
-          'The branch has no commits yet. Start or continue development first.'
-        );
-        return;
-      }
-      const result = await projectSpaceClient.createGitHubPullRequest({
-        baseBranch: defaultBranch,
-        body: issue.body,
-        draft: true,
-        fullName: repoFullName,
-        headBranch: selectedBranch.name,
-        issueNumber: issue.number,
-        title: issue.title
-      });
-      if (result.status !== 'connected' || !result.pullRequest) {
-        setPullRequestError(result.message ?? 'Could not create pull request.');
-        return;
-      }
-      onPullRequestCreated(result.pullRequest);
-      setPullRequestMessage(`Pull request #${result.pullRequest.number} created.`);
-    } catch (error) {
-      setPullRequestError(
-        error instanceof Error ? error.message : 'Could not create pull request.'
-      );
-    } finally {
-      setIsCreatingPullRequest(false);
-    }
-  }
-
   async function startDevelopment(
     row: IssueMachineProjectRow,
     recoveredAttempt?: CodexTaskStartAttempt
   ) {
-    if (!selectedBranch) {
-      setMachineMessage('Link a branch first.');
+    if (!selectedBranch || !canChooseDestination) {
+      setMachineError('Create or recover the draft pull request first.');
       return;
     }
     if (!canRunMachineCommand(row.machine)) {
-      setMachineMessage(`${row.machine?.name ?? row.machineId} is not online.`);
+      setMachineError(`${row.machine?.name ?? row.machineId} is not online.`);
       return;
     }
     if (!repoFullName) {
-      setMachineMessage('No GitHub repository is linked.');
+      setMachineError('No GitHub repository is linked.');
       return;
     }
     if (!selectedBranch.commitSha) {
-      setMachineMessage('The exact branch revision is unavailable. Refresh the task and try again.');
+      setMachineError('The exact branch revision is unavailable. Refresh the task and try again.');
       return;
     }
     setBusyMachineId(row.machineId);
+    setMachineError('');
     setMachineMessage('');
     const attempt = recoveredAttempt ?? readOrCreateCodexTaskStartAttempt({
       connectorId: row.machineId,
@@ -325,9 +207,9 @@ export function IssueDevelopmentSession({
         });
         return;
       }
-      setMachineMessage(result.message);
+      setMachineError(result.message);
     } catch (error) {
-      setMachineMessage(
+      setMachineError(
         error instanceof Error ? error.message : 'The Codex development task could not be started.'
       );
     } finally {
@@ -339,13 +221,14 @@ export function IssueDevelopmentSession({
     if (!uncertainStart) return;
     const pending = uncertainStart;
     setIsRecoveringStart(true);
+    setMachineError('');
     setMachineMessage('');
     try {
       await projectSpaceClient.recoverCodexMachineTaskStart(pending.attempt);
       setUncertainStart(undefined);
       await startDevelopment(pending.row, pending.attempt);
     } catch (error) {
-      setMachineMessage(
+      setMachineError(
         error instanceof Error ? error.message : 'The unresolved start could not be recovered.'
       );
     } finally {
@@ -360,56 +243,25 @@ export function IssueDevelopmentSession({
   return (
     <>
       <div className="grid gap-5">
-      {!selectedBranch && !isMerged ? (
-        <section className="grid gap-3">
-          <p className="text-sm leading-6 text-current/45">
-            Development has not started. Create the task branch when the plan is ready.
-          </p>
-          <Button className="w-full" onPress={() => setShowBranchPicker(true)}>
-            <GitBranchPlus className="size-4" /> Start development
-          </Button>
-        </section>
+      {!canChooseDestination && !isMerged && issue.state === 'open' ? (
+        <IssueDevelopmentStart
+          issue={issue}
+          linkedBranch={selectedBranch}
+          onBranchReady={onBranchCreated}
+          onPullRequestReady={onPullRequestCreated}
+          recoveryMessage={developmentHead.state === 'verified'
+            ? undefined
+            : developmentHead.state === 'none'
+              ? undefined
+              : developmentHead.message}
+          repoFullName={repoFullName}
+        />
       ) : null}
 
-      {showBranchPicker ? (
-        <section className="issue-rise-in grid gap-3 rounded-2xl bg-current/[.04] p-3">
-          {visibleBranches.length ? (
-            <div className="grid gap-1">
-              <p className="px-1 text-[11px] font-medium text-current/35">Use an existing branch</p>
-              {visibleBranches.map((branch) => (
-                <button className="flex min-w-0 items-center gap-2 rounded-xl px-2 py-2 text-left text-xs text-current/60 hover:bg-current/[.05] hover:text-current" key={branch.name} onClick={() => void createBranch(branch.name)} type="button">
-                  <GitBranch className="size-3.5 shrink-0" />
-                  <span className="truncate font-mono">{branch.name}</span>
-                </button>
-              ))}
-            </div>
-          ) : null}
-          <label className="grid gap-1.5">
-            <span className="px-1 text-[11px] font-medium text-current/35">New branch</span>
-            <input className="h-10 rounded-xl bg-current/[.055] px-3 font-mono text-xs text-current outline-none ring-1 ring-inset ring-current/[.07] focus:ring-blue-400/60" onChange={(event) => setBranchName(event.currentTarget.value)} value={branchName} />
-          </label>
-          <div className="flex gap-2">
-            <Button className="flex-1" size="sm" variant="ghost" onPress={() => setShowBranchPicker(false)}>Cancel</Button>
-            <Button className="flex-1" isDisabled={isCreatingBranch || !repoFullName || !branchName.trim() || !defaultBranch} size="sm" onPress={() => void createBranch()}>
-              <Plus className="size-4" /> {isCreatingBranch ? 'Creating…' : 'Create'}
-            </Button>
-          </div>
-        </section>
-      ) : null}
-
-      {selectedBranch && !selectedPullRequest ? (
-        <section className="grid gap-3">
-          <div className="flex min-w-0 items-center gap-2 rounded-full bg-current/[.04] px-3 py-2 text-xs text-current/55">
-            <GitBranch className="size-3.5 shrink-0" />
-            <span className="truncate font-mono">{selectedBranch.name}</span>
-          </div>
-          <p className="text-xs leading-5 text-current/40">
-            Start Codex on a machine below. Create the draft pull request after the first commit.
-          </p>
-          <Button className="w-full" isDisabled={!repoFullName || !defaultBranch || isCreatingPullRequest} variant="secondary" onPress={() => void createPullRequest()}>
-            <GitPullRequestDraft className="size-4" /> {isCreatingPullRequest ? 'Creating…' : 'Create draft PR'}
-          </Button>
-        </section>
+      {issue.state === 'closed' && !isMerged ? (
+        <p className="text-sm leading-6 text-amber-300">
+          This issue is closed without a verified merged pull request. Reopen or reconcile it on GitHub before starting development.
+        </p>
       ) : null}
 
       {selectedPullRequest?.isDraft ? (
@@ -431,7 +283,17 @@ export function IssueDevelopmentSession({
             returnPath={`/projects/${encodeURIComponent(project.id)}/issues/${issue.number}`}
           />
           {isReadyPullRequest && repoFullName ? (
-            <PullRequestPrototypeAction connectorId={prototypeMachine?.machineId} issueNumber={issue.number} projectId={project.id} pullRequest={selectedPullRequest} repositoryFullName={repoFullName} />
+            <div className="grid gap-2">
+              <a
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-current/[.08] px-3 text-sm font-medium text-current/75 hover:bg-current/[.12] hover:text-current"
+                href={selectedPullRequest.url}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Approve PR <ExternalLink className="size-3.5" />
+              </a>
+              <PullRequestPrototypeAction connectorId={prototypeMachine?.machineId} issueNumber={issue.number} projectId={project.id} pullRequest={selectedPullRequest} repositoryFullName={repoFullName} />
+            </div>
           ) : null}
         </section>
       ) : null}
@@ -455,17 +317,21 @@ export function IssueDevelopmentSession({
         </section>
       ) : null}
 
-      {selectedBranch && !isMerged ? (
-        <IssueDevelopmentServers
-          branchName={selectedBranch.name}
-          localMachineId={localMachineId}
-          machineRows={machineRows}
-          projects={projects}
-        />
-      ) : null}
-
-      {selectedBranch && !isMerged ? (
-        <section>
+      {canChooseDestination && selectedBranch && !isMerged ? (
+        <section className="grid gap-5">
+          <div>
+            <h3 className="text-sm font-semibold text-current/70">Choose coding destination</h3>
+            <p className="mt-1 text-xs leading-5 text-current/35">
+              The linked branch and pull request are ready. Choose where to continue.
+            </p>
+          </div>
+          <IssueDevelopmentServers
+            branchName={selectedBranch.name}
+            localMachineId={localMachineId}
+            machineRows={machineRows}
+            projects={projects}
+          />
+          <div>
           <div className="mb-2 flex h-8 items-center justify-between">
             <h3 className="text-xs font-semibold text-current/55">Codex</h3>
             <span className="text-[10px] tabular-nums text-current/30">
@@ -491,6 +357,7 @@ export function IssueDevelopmentSession({
               );
             })}
           </div>
+          </div>
         </section>
       ) : null}
 
@@ -511,8 +378,8 @@ export function IssueDevelopmentSession({
         </details>
       ) : null}
 
-      {branchMessage || pullRequestMessage || machineMessage ? <p className="text-xs text-emerald-300">{branchMessage || pullRequestMessage || machineMessage}</p> : null}
-      {branchError || pullRequestError ? <p className="text-xs text-red-300">{branchError || pullRequestError}</p> : null}
+      {machineMessage ? <p className="text-xs text-emerald-300">{machineMessage}</p> : null}
+      {machineError ? <p className="text-xs text-red-300">{machineError}</p> : null}
       </div>
       <CodexTaskStartRecoveryDialog
         isBusy={isRecoveringStart}

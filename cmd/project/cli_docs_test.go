@@ -42,16 +42,11 @@ func TestCLIDocsModelMatchesVisibleCommandTree(t *testing.T) {
 	}
 }
 
-func TestCLIDocsModelIsDeterministicAndEnvironmentIndependent(t *testing.T) {
-	t.Setenv("PROJECT_APPROVAL_TRUST_ROOT", "first-sensitive-local-value")
+func TestCLIDocsModelIsDeterministic(t *testing.T) {
 	first := encodedCLIDocsModel(t, buildCLIDocsModel(newRootCommand()))
-	t.Setenv("PROJECT_APPROVAL_TRUST_ROOT", "second-sensitive-local-value")
 	second := encodedCLIDocsModel(t, buildCLIDocsModel(newRootCommand()))
 	if !bytes.Equal(first, second) {
-		t.Fatal("generated CLI docs changed with the local environment")
-	}
-	if bytes.Contains(first, []byte("sensitive-local-value")) {
-		t.Fatal("generated CLI docs exposed an environment-derived flag default")
+		t.Fatal("generated CLI docs changed between identical command trees")
 	}
 }
 

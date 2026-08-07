@@ -47,6 +47,7 @@ type GitHubRequester = typeof requestGitHub;
 
 const fullSha = /^[0-9a-f]{40}$/i;
 const defaultComparisonLimit = 8;
+const minimumComparisonLimit = 1;
 const maximumComparisonLimit = 8;
 
 export function isGitHubBranchComparisonRequest(
@@ -69,7 +70,7 @@ export function isGitHubBranchComparisonRequest(
     request.limit === undefined ||
     (
       Number.isSafeInteger(request.limit) &&
-      request.limit >= 3 &&
+      request.limit >= minimumComparisonLimit &&
       request.limit <= maximumComparisonLimit
     );
 
@@ -81,7 +82,10 @@ function normalizeLimit(limit?: number) {
     return defaultComparisonLimit;
   }
 
-  return Math.max(3, Math.min(maximumComparisonLimit, Math.floor(limit ?? defaultComparisonLimit)));
+  return Math.max(
+    minimumComparisonLimit,
+    Math.min(maximumComparisonLimit, Math.floor(limit ?? defaultComparisonLimit))
+  );
 }
 
 function repositoryPath(fullName: string) {

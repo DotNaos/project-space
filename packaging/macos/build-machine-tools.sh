@@ -32,7 +32,7 @@ trap 'rm -rf -- "$staging_root"' EXIT
 bundle_root="${staging_root}/${bundle_name}"
 mkdir -p -- "$bundle_root"
 
-for binary in project project-space-connector project-approval-signer; do
+for binary in project project-space-connector; do
   source_path="${source_directory}/${binary}"
   if [[ ! -f $source_path || ! -x $source_path ]]; then
     echo "Required executable is missing: $source_path" >&2
@@ -40,6 +40,14 @@ for binary in project project-space-connector project-approval-signer; do
   fi
   install -m 0755 -- "$source_path" "${bundle_root}/${binary}"
 done
+legacy_approval_marker="${source_directory}/project-approval-signer"
+if [[ -e $legacy_approval_marker || -L $legacy_approval_marker ]]; then
+  if [[ ! -f $legacy_approval_marker || -L $legacy_approval_marker || -s $legacy_approval_marker ]]; then
+    echo "The legacy approval compatibility marker must be an empty regular file: $legacy_approval_marker" >&2
+    exit 66
+  fi
+  install -m 0755 -- "$legacy_approval_marker" "${bundle_root}/project-approval-signer"
+fi
 for trust_root in connector-command-signing-public-key.pem release-manifest-signing-public-key.pem; do
   source_path="${source_directory}/${trust_root}"
   if [[ ! -f $source_path || -L $source_path ]]; then
@@ -50,13 +58,18 @@ for trust_root in connector-command-signing-public-key.pem release-manifest-sign
 done
 install -m 0755 -- "${script_directory}/install-machine-tools.sh" "${bundle_root}/install.sh"
 printf '%s\n' "$version" > "${bundle_root}/VERSION"
+checksum_members=(
+  project project-space-connector
+  connector-command-signing-public-key.pem
+  release-manifest-signing-public-key.pem
+  install.sh VERSION
+)
+if [[ -f ${bundle_root}/project-approval-signer ]]; then
+  checksum_members+=(project-approval-signer)
+fi
 (
   cd -- "$bundle_root"
-  shasum -a 256 \
-    project project-space-connector project-approval-signer \
-    connector-command-signing-public-key.pem \
-    release-manifest-signing-public-key.pem \
-    install.sh VERSION > SHA256SUMS.txt
+  shasum -a 256 "${checksum_members[@]}" > SHA256SUMS.txt
 )
 
 archive_epoch=${SOURCE_DATE_EPOCH:-0}

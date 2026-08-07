@@ -4,7 +4,10 @@ import type {
   GitHubIssueRecord,
   GitHubPullRequestRecord
 } from '../src/shared/project-space-api';
-import { resolveIssueDevelopmentHead } from '../src/features/project-desktop/components/issue-development-head';
+import {
+  canChooseIssueCodingDestination,
+  resolveIssueDevelopmentHead
+} from '../src/features/project-desktop/components/issue-development-head';
 
 const issue: GitHubIssueRecord = {
   labels: [],
@@ -25,16 +28,22 @@ function branch(name = 'issue-408-graph', sha = headSha): GitHubBranchRecord {
   };
 }
 
+function branches(...values: GitHubBranchRecord[]) {
+  return [{ commitSha: 'f'.repeat(40), isDefault: true, name: 'main' }, ...values];
+}
+
 function pullRequest(
   number = 500,
   overrides: Partial<GitHubPullRequestRecord> = {}
 ): GitHubPullRequestRecord {
   return {
+    baseBranch: 'main',
     headBranch: 'issue-408-graph',
     headRefPresent: true,
     headRepositoryFullName: repositoryFullName,
     headSha,
     isCrossRepository: false,
+    isDraft: true,
     linkedIssueNumbers: [408],
     number,
     state: 'open',
@@ -47,7 +56,7 @@ function pullRequest(
 describe('issue development head resolution', () => {
   test('uses the verified open pull request head as the single identity', () => {
     const result = resolveIssueDevelopmentHead({
-      branches: [],
+      branches: branches(),
       issue,
       pullRequests: [pullRequest()],
       repositoryFullName
@@ -62,15 +71,26 @@ describe('issue development head resolution', () => {
   });
 
   test('falls back to one verified linked branch when no open PR exists', () => {
+    const issue473 = { ...issue, number: 473 };
+    const issue473Head = 'e'.repeat(40);
     const result = resolveIssueDevelopmentHead({
-      branches: [branch()],
-      issue,
-      pullRequests: [pullRequest(499, { state: 'closed' })],
+      branches: branches({
+        commitSha: issue473Head,
+        isDefault: false,
+        linkedIssueNumbers: [473],
+        name: 'issue-473-release-tag-queue-no-conflicts'
+      }),
+      issue: issue473,
+      pullRequests: [],
       repositoryFullName
     });
 
     expect(result).toMatchObject({
-      branch: { commitSha: headSha, name: 'issue-408-graph' },
+      branch: {
+        commitSha: issue473Head,
+        name: 'issue-473-release-tag-queue-no-conflicts'
+      },
+      expectedHeadSha: issue473Head,
       source: 'linked-branch',
       state: 'verified'
     });
@@ -78,28 +98,28 @@ describe('issue development head resolution', () => {
 
   test('blocks ambiguous branch and pull request linkage', () => {
     expect(resolveIssueDevelopmentHead({
-      branches: [],
+      branches: branches(),
       issue,
       pullRequests: [pullRequest(500), pullRequest(501)],
       repositoryFullName
     }).state).toBe('ambiguous');
 
     expect(resolveIssueDevelopmentHead({
-      branches: [branch(), branch('another-408-branch', 'b'.repeat(40))],
+      branches: branches(branch(), branch('another-408-branch', 'b'.repeat(40))),
       issue,
       pullRequests: [],
       repositoryFullName
     }).state).toBe('ambiguous');
 
     expect(resolveIssueDevelopmentHead({
-      branches: [branch('conflicting-branch')],
+      branches: branches(branch('conflicting-branch')),
       issue,
       pullRequests: [pullRequest()],
       repositoryFullName
     }).state).toBe('ambiguous');
 
     expect(resolveIssueDevelopmentHead({
-      branches: [branch('Issue-408-Graph')],
+      branches: branches(branch('Issue-408-Graph')),
       issue,
       pullRequests: [pullRequest()],
       repositoryFullName
@@ -108,7 +128,7 @@ describe('issue development head resolution', () => {
 
   test('prefers the verified PR snapshot when the same branch SHA is briefly skewed', () => {
     const result = resolveIssueDevelopmentHead({
-      branches: [branch('issue-408-graph', 'b'.repeat(40))],
+      branches: branches(branch('issue-408-graph', 'b'.repeat(40))),
       issue,
       pullRequests: [pullRequest()],
       repositoryFullName
@@ -123,14 +143,14 @@ describe('issue development head resolution', () => {
 
   test('reports deleted and forked PR heads without guessing', () => {
     expect(resolveIssueDevelopmentHead({
-      branches: [],
+      branches: branches(),
       issue,
       pullRequests: [pullRequest(500, { headRefPresent: false })],
       repositoryFullName
     }).state).toBe('deleted');
 
     expect(resolveIssueDevelopmentHead({
-      branches: [],
+      branches: branches(),
       issue,
       pullRequests: [pullRequest(500, {
         headRepositoryFullName: 'someone/project-space',
@@ -142,7 +162,7 @@ describe('issue development head resolution', () => {
 
   test('requires an exact SHA for a branch-only resolution', () => {
     expect(resolveIssueDevelopmentHead({
-      branches: [branch('issue-408-graph', '')],
+      branches: branches(branch('issue-408-graph', '')),
       issue,
       pullRequests: [],
       repositoryFullName
@@ -151,7 +171,7 @@ describe('issue development head resolution', () => {
 
   test('fails closed when PR provenance metadata is incomplete', () => {
     expect(resolveIssueDevelopmentHead({
-      branches: [],
+      branches: branches(),
       issue,
       pullRequests: [pullRequest(500, {
         headRefPresent: undefined,
@@ -160,5 +180,24 @@ describe('issue development head resolution', () => {
       })],
       repositoryFullName
     }).state).toBe('unavailable');
+  });
+
+  test('unlocks coding destinations only for a fully verified open pull request', () => {
+    const ready = resolveIssueDevelopmentHead({
+      branches: branches(),
+      issue,
+      pullRequests: [pullRequest()],
+      repositoryFullName
+    });
+    const unknownDraft = resolveIssueDevelopmentHead({
+      branches: branches(),
+      issue,
+      pullRequests: [pullRequest(500, { isDraft: undefined })],
+      repositoryFullName
+    });
+
+    expect(canChooseIssueCodingDestination(ready)).toBe(true);
+    expect(canChooseIssueCodingDestination(unknownDraft)).toBe(false);
+    expect(canChooseIssueCodingDestination({ state: 'none' })).toBe(false);
   });
 });

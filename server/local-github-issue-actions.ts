@@ -79,6 +79,7 @@ interface GitHubApiIssueComment {
 
 interface GitHubApiPullRequest {
   base?: {
+    ref?: string | null;
     repo?: {
       full_name?: string | null;
     } | null;
@@ -119,6 +120,7 @@ export function mapGitHubPullRequest(
   linkedIssueNumber?: number
 ): GitHubPullRequestRecord {
   return {
+    baseBranch: pullRequest.base?.ref ?? undefined,
     headBranch: pullRequest.head?.ref ?? undefined,
     headRefPresent: Boolean(pullRequest.head?.ref && pullRequest.head?.sha),
     headRepositoryFullName: pullRequest.head?.repo?.full_name ?? undefined,

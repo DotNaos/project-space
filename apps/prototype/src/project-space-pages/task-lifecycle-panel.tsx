@@ -54,17 +54,16 @@ export function nextTaskAction(task: MockTask): { action: MockTaskAction; icon: 
   if (task.stage === "deployed" && task.cleanup?.remoteBranch === "exists") {
     return { action: { type: "delete-branch" }, icon: GitBranch, label: "Delete branch" };
   }
-  if (!task.branch) return { action: { type: "create-branch" }, icon: GitBranch, label: "Create branch" };
+  if (!task.branch) return { action: { type: "create-branch" }, icon: GitBranch, label: "Start development" };
+  if (!task.pullRequest) return { action: { type: "open-pull-request" }, icon: GitPullRequestDraft, label: "Finish setup" };
   if (task.stage === "branch") return { action: { type: "start-development" }, icon: Bot, label: "Start Codex" };
-  if (task.stage === "development") return { action: { type: "open-pull-request" }, icon: GitPullRequest, label: "Create draft PR" };
-  if (!task.pullRequest) return null;
   if (task.pullRequest.phase === "draft") return { action: { type: "mark-pull-request-ready" }, icon: GitPullRequest, label: "First version ready" };
   if (task.pullRequest.checks === "not-started") return { action: { type: "run-checks" }, icon: Play, label: "Run checks" };
   if (task.pullRequest.checks === "running") return { action: { type: "pass-checks" }, icon: Check, label: "Pass checks" };
   if (task.pullRequest.checks === "failed") return { action: { type: "run-checks" }, icon: RefreshCw, label: "Retry checks" };
   if (task.pullRequest.preview === "not-started") return { action: { type: "start-preview" }, icon: Rocket, label: "Start Preview" };
   if (task.pullRequest.preview === "unavailable") return { action: { type: "retry-preview" }, icon: RefreshCw, label: "Retry Preview" };
-  if (task.pullRequest.review !== "approved") return { action: { type: "approve-and-merge" }, icon: GitMerge, label: "Approve and merge" };
+  if (task.pullRequest.review !== "approved") return { action: { type: "approve-revision" }, icon: ShieldCheck, label: "Approve PR" };
   if (task.stage === "review") return { action: { type: "merge" }, icon: GitMerge, label: "Merge pull request" };
   if (task.stage === "merged") return { action: { type: "start-deployment" }, icon: Rocket, label: "Start deployment" };
   if (task.stage === "deploying") return { action: { type: "complete-deployment" }, icon: Check, label: "Verify deployment" };
@@ -86,7 +85,7 @@ export function TaskPrimaryAction({
 
   if (!primary) return null;
 
-  const needsConfirmation = primary.action.type === "approve-and-merge" || primary.action.type === "delete-branch";
+  const needsConfirmation = primary.action.type === "delete-branch";
   const deletingBranch = primary.action.type === "delete-branch";
   const trigger = (
     <Button
@@ -122,21 +121,18 @@ export function TaskPrimaryAction({
             <AlertDialog.Header className="px-5 pb-2 pt-5">
               <AlertDialog.Icon status="warning" />
               <AlertDialog.Heading className="text-base font-semibold">
-                {deletingBranch ? "Delete merged branch?" : `Approve and merge pull request #${task.pullRequest?.number}?`}
+                Delete merged branch?
               </AlertDialog.Heading>
             </AlertDialog.Header>
             <AlertDialog.Body className="px-5 py-2">
               <p className="text-sm leading-6 text-neutral-400">
-                {deletingBranch
-                  ? `The remote branch and clean local checkouts will be removed.${dirtyCheckoutCount ? ` ${dirtyCheckoutCount} checkout${dirtyCheckoutCount === 1 ? "" : "s"} with local changes will be kept.` : ""}`
-                  : "This approves the current revision and merges it into main. The active development phase will end."}
+                {`The remote branch and clean local checkouts will be removed.${dirtyCheckoutCount ? ` ${dirtyCheckoutCount} checkout${dirtyCheckoutCount === 1 ? "" : "s"} with local changes will be kept.` : ""}`}
               </p>
             </AlertDialog.Body>
             <AlertDialog.Footer className="gap-2 px-5 pb-5 pt-3">
               <Button slot="close" variant="tertiary">Cancel</Button>
-              <Button slot="close" variant={deletingBranch ? "danger" : "primary"} onPress={() => onAction(primary.action)}>
-                {deletingBranch ? <GitBranch className="size-4" /> : <GitMerge className="size-4" />}
-                {deletingBranch ? "Delete branch" : "Approve and merge"}
+              <Button slot="close" variant="danger" onPress={() => onAction(primary.action)}>
+                <GitBranch className="size-4" /> Delete branch
               </Button>
             </AlertDialog.Footer>
           </AlertDialog.Dialog>

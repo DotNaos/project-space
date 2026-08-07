@@ -279,7 +279,6 @@ jobs:
           contains no production trust roots, is not an installer,
           and must not replace a stable installation. It is intended only for explicit PR testing.
           Start tools with PROJECT_SPACE_RELEASE_CHANNEL=dev and PROJECT_SPACE_INSTALL_SOURCE=source.
-          The macOS bundle intentionally omits the production-signed Secure Enclave approval helper.
           EOF
           (
             cd "$bundle"

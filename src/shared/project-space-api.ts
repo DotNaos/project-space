@@ -522,6 +522,7 @@ export interface GitHubBranchRecord {
 }
 
 export interface GitHubPullRequestRecord {
+  baseBranch?: string;
   headBranch?: string;
   headRefPresent?: boolean;
   headRepositoryFullName?: string;
@@ -639,6 +640,37 @@ export interface GitHubPullRequestMutationResult {
   pullRequest?: GitHubPullRequestRecord;
   status: GitHubCatalogStatus;
 }
+
+export interface GitHubIssueDevelopmentStartRequest {
+  branchName: string;
+  fullName: string;
+  issueNumber: number;
+}
+
+export type GitHubIssueDevelopmentStartState = 'blocked' | 'partial' | 'ready';
+
+export type GitHubIssueDevelopmentStartResult =
+  | {
+      branch: GitHubBranchRecord;
+      branchDisposition: 'created' | 'reused';
+      message?: string;
+      pullRequest: GitHubPullRequestRecord;
+      pullRequestDisposition: 'created' | 'reused';
+      state: 'ready';
+      status: 'connected';
+    }
+  | {
+      branch: GitHubBranchRecord;
+      branchDisposition: 'created' | 'reused';
+      message: string;
+      state: 'partial';
+      status: GitHubCatalogStatus;
+    }
+  | {
+      message?: string;
+      state: 'blocked';
+      status: GitHubCatalogStatus;
+    };
 
 export interface GitHubRepositoryDetailsResult {
   branches: GitHubBranchRecord[];
@@ -1417,11 +1449,13 @@ export type GitHubBranchComparisonReason =
   | 'history-unavailable'
   | 'stale-head';
 
+export type GitHubBranchComparisonLimit = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+
 export interface GitHubBranchComparisonRequest {
   expectedHeadSha?: string;
   fullName: string;
   headBranch: string;
-  limit?: number;
+  limit?: GitHubBranchComparisonLimit;
 }
 
 export interface GitHubBranchComparisonResult {
@@ -1549,6 +1583,9 @@ export interface ProjectSpaceBackend {
   createGitHubPullRequest(
     request: GitHubPullRequestCreateRequest
   ): Promise<GitHubPullRequestMutationResult>;
+  startGitHubIssueDevelopment(
+    request: GitHubIssueDevelopmentStartRequest
+  ): Promise<GitHubIssueDevelopmentStartResult>;
   createGitHubIssue(request: GitHubIssueCreateRequest): Promise<GitHubIssueCreationResult>;
   createGitHubIssueComment(
     request: GitHubIssueCommentCreateRequest
