@@ -1,8 +1,15 @@
 # Project Space Connector
 
-The Project Space Connector runs on trusted machines and gives the hosted Project Space UI a safe
+The Project Space Connector runs inside trusted compute Environments and gives the hosted Project Space UI a safe
 way to work with local projects, Git repositories, terminal commands, Codex, Tailscale, deployments,
 and backups.
+
+Project Space distinguishes Platforms, optional Hosts, Environments, and
+Connector installations. The Connector is one authenticated installation inside
+exactly one Environment; it is not a physical machine or an Environment by
+itself. See [Compute Platforms, Hosts, and Environments](./compute-environments.md)
+for the canonical hierarchy, identity rules, resource ownership, and staged
+migration from the historical machine-shaped API.
 
 The web UI is deployed at:
 
@@ -18,7 +25,10 @@ talks to the connector endpoint that you explicitly run on a trusted machine.
 Open Machines in the hosted app and explicitly generate a managed installer.
 The command pins one exact release archive and checksum. After installing the
 Project CLI and connector together, it runs `project connect`, which creates the
-machine key locally and opens the short-lived signed-in approval page.
+historical connector key locally and opens the short-lived signed-in approval
+page. Until transactional Environment enrollment lands, that key is exposed as
+`machineId` for API compatibility; it must not be interpreted as a Host or
+Environment identity.
 
 The installer downloads one pinned, checksum-verified macOS arm64 bundle. It
 installs both `project-space-connector` and the `project` CLI under
@@ -131,6 +141,14 @@ Machine kind, host names, SSH users, and network data reported by a connector
 are display metadata, not trust signals. A connector registry can never select
 execution on the hosted server or make that server initiate SSH. Supported
 operations are routed back through the authenticated connector channel.
+
+Future enrollment resolves a versioned, privacy-preserving Environment identity
+before creating the Connector installation. Raw hardware, operating-system, and
+provider identifiers never leave their trust boundary. Native hosts use
+provider/TPM/SMBIOS evidence where available; WSL, Docker, and managed devboxes
+require a trusted parent or provisioner claim; Codespaces, cloud sandboxes, and
+Kubernetes use provider-derived identity. An unresolved enrollment request is
+not an unassigned Connector installation.
 
 ## Worktree Development Servers
 
