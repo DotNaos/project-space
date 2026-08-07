@@ -4,6 +4,7 @@ export type * from './connector-runtime-api';
 export type * from './roadmap-api';
 export type * from './project-catalog-api';
 export type * from './pull-request-preview-hub-api';
+export type * from './compute-environment-api';
 
 import type { PullRequestChangelogIdentity } from './pr-preview-changelog-api';
 import type {
