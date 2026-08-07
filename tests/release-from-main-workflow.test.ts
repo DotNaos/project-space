@@ -96,12 +96,18 @@ test('processes merged intents through one exact-tag release queue', () => {
   );
   expect(publisher).toContain('refs/tags/${tag}');
   expect(publisher).toContain(
+    'const confirmed = await createTag(decision.tag, decision.item.commit)',
+  );
+  expect(publisher).toContain(
+    'return requiredCommit(body.object.sha, `${tag} reservation target`)',
+  );
+  expect(publisher).toContain(
     '/releases/tags/${encodeURIComponent(tag)}',
   );
   expect(publisher).not.toContain('releases?per_page=100');
   expect(publisher).not.toContain('git push');
   expect(publisher).not.toContain('RELEASE_BEFORE_SHA');
-  expect(publisher).toContain(
-    'await createTag(decision.tag, decision.item.commit)',
+  expect(publisher).not.toContain(
+    ': await githubTagCommit(decision.tag)',
   );
 });
