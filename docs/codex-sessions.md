@@ -13,7 +13,10 @@ thread IDs and live state.
 
 ## Product decisions
 
-- The project Codex tab groups project-scoped tasks by physical machine. Project Chat shows only a
+- The project Codex tab currently groups project-scoped tasks by the legacy physical-machine
+  compatibility record. The canonical compute model targets an Environment and then resolves an
+  eligible Connector installation; see
+  [Compute Platforms, Hosts, and Environments](./compute-environments.md). Project Chat shows only a
   compact active-task count; opening it reveals the same grouped tasks in a temporary drawer.
 - Both project entry points open one canonical task workspace at
   `/codex/machines/:machineId/threads/:threadId`. Task titles are descriptive and never route keys.
