@@ -139,6 +139,9 @@ describe('trusted PR Preview workflow contract', () => {
     const runner = dockerfile.slice(dockerfile.indexOf('FROM oven/bun:1 AS runner'));
 
     expect(build).toContain('COPY package.json /workspace/package.json');
+    expect(build).toContain(
+      'COPY packaging/release/connector-release-paths.ts /workspace/packaging/release/connector-release-paths.ts',
+    );
     expect(runner).toContain('COPY --from=build /workspace/package.json /workspace/package.json');
   });
 
