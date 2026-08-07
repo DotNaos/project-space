@@ -4,6 +4,7 @@ import { connect } from 'node:net';
 import { gzipSync } from 'node:zlib';
 
 import { createPreviewGatewayRequestHandler } from '../server/preview-gateway';
+import { createProjectSpaceLogger } from '../server/observability';
 import {
   previewIdentityHeader,
   previewSignatureHeader
@@ -73,6 +74,10 @@ async function gatewayFixture(options: {
       })
     : await captureServer(prototypeRequests, 'prototype');
   const publicOrigin = 'https://pr-263.projects.os-home.net';
+  const logger = createProjectSpaceLogger({
+    environment: { NODE_ENV: 'test' },
+    sink: { write() {} }
+  });
   const handler = createPreviewGatewayRequestHandler({
     PROJECT_SPACE_PREVIEW_BROKER_ORIGIN: brokerOrigin,
     PROJECT_SPACE_PREVIEW_OFFLINE: options.offline ? '1' : '0',
@@ -92,7 +97,8 @@ async function gatewayFixture(options: {
     authenticate: async (token, options) => token === 'valid-clerk-token' &&
       [publicOrigin, brokerOrigin].includes(options.authorizedParties?.[0] ?? '')
       ? { login: 'operator', role: 'user', userId: 'user_123' }
-      : null
+      : null,
+    logger
   });
   const gatewayOrigin = await listen(handler);
   const request = (

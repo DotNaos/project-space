@@ -9,6 +9,7 @@ import type {
   ProjectCliCommandRequest,
   ProjectCliCommandResult
 } from '../src/shared/project-space-api';
+import { projectSpaceLogger, recordObservedError } from './observability';
 
 const outputLimit = 80_000;
 const commandTimeoutMs = 60_000;
@@ -157,9 +158,11 @@ export async function reconcileProjectServeSessions() {
   );
 
   if (result.exitCode !== 0) {
-    console.warn(
-      `Could not reconcile Project dev-server sessions: ${trimOutput(result.stderr).trim()}`
-    );
+    recordObservedError('project_cli', 'serve_reconciliation_failed');
+    projectSpaceLogger.warn('project_cli.serve_reconciliation.failed', {
+      component: 'project-cli',
+      exitCode: result.exitCode
+    });
   }
 
   return result;

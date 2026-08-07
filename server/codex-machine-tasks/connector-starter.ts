@@ -17,6 +17,7 @@ import { startTurnWithReadReconciliation } from '../codex-sessions/reconciled-tu
 import { createLocalWorktreeActionAdapter } from '../local-worktree-action-adapter';
 import { loadLocalProjectWorktrees } from '../local-project-worktrees';
 import { runProjectBinary } from '../local-project-cli-client';
+import { projectSpaceLogger, recordObservedError } from '../observability';
 
 const execFileAsync = promisify(execFile);
 
@@ -50,13 +51,12 @@ export function createLocalCodexMachineTaskStarter(
         repositoryFullName: request.repositoryNameWithOwner
       });
     } catch (error) {
-      console.error(JSON.stringify({
-        error: error instanceof Error ? error.message : String(error),
-        errorName: error instanceof Error ? error.name : typeof error,
-        event: 'codex_machine_task_materialization_failed',
+      recordObservedError('codex_machine_task', 'materialization_failed');
+      projectSpaceLogger.error('codex_machine_task.materialization.failed', {
+        component: 'codex-machine-task',
         issueNumber: request.issueNumber,
         operationId: request.operationId
-      }));
+      }, error);
       return {
         message: 'Worktree materialization failed on the selected connector.',
         state: 'worktree_failure'
@@ -158,16 +158,15 @@ export function createLocalCodexMachineTaskStarter(
       return { state: 'confirmed', threadId, worktreeId: worktree.id };
     } catch (error) {
       if (error instanceof CodexOperationUncertainError) return { state: 'uncertain' };
-      console.error(JSON.stringify({
-        error: error instanceof Error ? error.message : String(error),
-        errorName: error instanceof Error ? error.name : typeof error,
+      recordObservedError('codex_machine_task', 'start_failed');
+      projectSpaceLogger.error('codex_machine_task.start.failed', {
+        component: 'codex-machine-task',
         rpcCode: error instanceof CodexAppServerRequestError ? error.rpcCode : undefined,
         rpcReason: error instanceof CodexAppServerRequestError ? error.rpcReason : undefined,
         rpcTags: error instanceof CodexAppServerRequestError ? error.rpcTags : undefined,
-        event: 'codex_machine_task_start_failed',
         issueNumber: request.issueNumber,
         operationId: request.operationId
-      }));
+      }, error);
       return {
         message: 'Codex could not start on the selected connector. You can retry safely.',
         state: 'codex_failure'

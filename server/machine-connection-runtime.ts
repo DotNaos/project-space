@@ -19,6 +19,7 @@ import {
 } from './local-auth-store';
 import { getMachineConnectionDatabaseClient } from './local-database-store';
 import type { TrustedMachineCredentialIdentity } from './machine-connection-contract';
+import { projectSpaceLogger, recordObservedError } from './observability';
 
 const defaultCleanupIntervalMs = 60 * 60 * 1_000;
 
@@ -81,13 +82,17 @@ export function createMachineConnectionRuntime(
   let maintenance: Promise<void> | null = null;
   let started = false;
 
-  function reportMaintenanceError() {
+  function reportMaintenanceError(errors: unknown[]) {
     const message = 'Machine connection maintenance failed.';
     if (options.onMaintenanceError) {
       options.onMaintenanceError(message);
       return;
     }
-    console.error(message);
+    recordObservedError('machine_connection', 'maintenance_failed');
+    projectSpaceLogger.error('machine_connection.maintenance.failed', {
+      component: 'machine-connection',
+      failureCount: errors.length
+    }, errors[0]);
   }
 
   function runMaintenance() {
@@ -100,8 +105,11 @@ export function createMachineConnectionRuntime(
       backend.cleanupRateLimitEvents()
     ])
       .then((results) => {
-        if (results.some((result) => result.status === 'rejected')) {
-          reportMaintenanceError();
+        const errors = results
+          .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+          .map((result) => result.reason);
+        if (errors.length > 0) {
+          reportMaintenanceError(errors);
         }
       })
       .finally(() => {

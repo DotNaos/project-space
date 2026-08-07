@@ -2,6 +2,8 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
+import { projectSpaceLogger, recordObservedError } from './observability';
+
 export interface ProjectConnectorHubTarget {
   commandGrantPublicKeyEnv?: string;
   commandGrantPublicKeyFile?: string;
@@ -132,11 +134,11 @@ function readConfiguredConnectorTargets() {
         }))
       : [];
   } catch (error) {
-    console.warn(
-      `Could not read connector config ${path}: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
+    recordObservedError('connector', 'config_read_failed');
+    projectSpaceLogger.warn('connector.config.read_failed', {
+      component: 'connector',
+      path
+    }, error);
     return [];
   }
 }
@@ -152,11 +154,10 @@ function readEnvConnectorTargets() {
       const parsed = JSON.parse(raw) as ProjectConnectorHubTarget[];
       return Array.isArray(parsed) ? parsed : [];
     } catch (error) {
-      console.warn(
-        `Could not parse PROJECT_CONNECTOR_HUBS: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
+      recordObservedError('connector', 'environment_config_parse_failed');
+      projectSpaceLogger.warn('connector.config.environment_parse_failed', {
+        component: 'connector'
+      }, error);
       return [];
     }
   }

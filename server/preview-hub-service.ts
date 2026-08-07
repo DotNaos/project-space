@@ -12,6 +12,7 @@ import { previewHubRecordFromLegacyStatus } from '../src/shared/pull-request-pre
 import { runProjectBinary } from './local-project-cli-client';
 import { getPullRequestPreviewStatus, correlatePullRequestPreviews } from './pull-request-preview-status';
 import { sanitizePreviewReturnTarget } from './preview-return-target';
+import { projectSpaceLogger } from './observability';
 
 const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const defaultRepository = 'DotNaos/project-space';
@@ -37,7 +38,12 @@ export function createPreviewHubService(
     ? Math.min(configuredMaxOnline, 3)
     : 0;
   const now = dependencies.now ?? (() => new Date().toISOString());
-  const auditMutation = dependencies.auditMutation ?? ((entry) => console.info(JSON.stringify({ previewAudit: entry })));
+  const auditMutation = dependencies.auditMutation ?? ((entry) => {
+    projectSpaceLogger.info('preview.mutation.audited', {
+      component: 'preview-hub',
+      ...entry
+    });
+  });
   const mutationTimes = new Map<string, number[]>();
 
   function allowMutation(userId: string, action: 'start' | 'stop' | 'touch') {
