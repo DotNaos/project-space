@@ -654,8 +654,8 @@ export type GitHubIssueDevelopmentStartResult =
       branch: GitHubBranchRecord;
       branchDisposition: 'created' | 'reused';
       message?: string;
-      pullRequest: GitHubPullRequestRecord;
-      pullRequestDisposition: 'created' | 'reused';
+      pullRequest?: GitHubPullRequestRecord;
+      pullRequestDisposition?: 'created' | 'reused';
       state: 'ready';
       status: 'connected';
     }

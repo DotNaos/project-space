@@ -164,6 +164,7 @@ describe('GitHub catalog HTTP contract', () => {
     for (const malformed of [
       { ...payload, branchName: 42 },
       { ...payload, branchName: 'bad branch' },
+      { ...payload, branchName: 'bad\u0000branch' },
       { ...payload, fullName: '../private' }
     ]) {
       const rejected = responseRecorder();

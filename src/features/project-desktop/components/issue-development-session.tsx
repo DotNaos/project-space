@@ -156,7 +156,7 @@ export function IssueDevelopmentSession({
     recoveredAttempt?: CodexTaskStartAttempt
   ) {
     if (!selectedBranch || !canChooseDestination) {
-      setMachineError('Create or recover the draft pull request first.');
+      setMachineError('Create or recover a verified linked branch first.');
       return;
     }
     if (!canRunMachineCommand(row.machine)) {
@@ -239,12 +239,18 @@ export function IssueDevelopmentSession({
   const isMerged = selectedPullRequest?.state === 'merged';
   const isReadyPullRequest = selectedPullRequest?.state === 'open' && !selectedPullRequest.isDraft;
   const showsPullRequestPreview = shouldShowPullRequestPreview(selectedPullRequest);
+  const canCreatePullRequest = branchComparison.state === 'ready'
+    && branchComparison.result.status === 'connected'
+    && branchComparison.result.freshness === 'current'
+    && (branchComparison.result.aheadBy ?? 0) > 0;
+  const hasBranchOnlyDevelopment = Boolean(selectedBranch && !selectedPullRequest);
 
   return (
     <>
       <div className="grid gap-5">
-      {!canChooseDestination && !isMerged && issue.state === 'open' ? (
+      {(!canChooseDestination || hasBranchOnlyDevelopment) && !isMerged && issue.state === 'open' ? (
         <IssueDevelopmentStart
+          canCreatePullRequest={canCreatePullRequest}
           issue={issue}
           linkedBranch={selectedBranch}
           onBranchReady={onBranchCreated}
@@ -270,7 +276,7 @@ export function IssueDevelopmentSession({
             <GitPullRequestDraft className="size-3.5" /> Draft #{selectedPullRequest.number}
             <ExternalLink className="size-3" />
           </a>
-          <span className="text-xs text-current/35">Continue development below</span>
+          <span className="text-xs text-current/35">Active · Draft PR</span>
         </div>
       ) : null}
 
@@ -322,7 +328,7 @@ export function IssueDevelopmentSession({
           <div>
             <h3 className="text-sm font-semibold text-current/70">Choose coding destination</h3>
             <p className="mt-1 text-xs leading-5 text-current/35">
-              The linked branch and pull request are ready. Choose where to continue.
+              The linked branch is ready. Choose where to continue; a Draft PR can follow after the first real commit.
             </p>
           </div>
           <IssueDevelopmentServers

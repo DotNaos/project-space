@@ -55,8 +55,8 @@ export function nextTaskAction(task: MockTask): { action: MockTaskAction; icon: 
     return { action: { type: "delete-branch" }, icon: GitBranch, label: "Delete branch" };
   }
   if (!task.branch) return { action: { type: "create-branch" }, icon: GitBranch, label: "Start development" };
-  if (!task.pullRequest) return { action: { type: "open-pull-request" }, icon: GitPullRequestDraft, label: "Finish setup" };
   if (task.stage === "branch") return { action: { type: "start-development" }, icon: Bot, label: "Start Codex" };
+  if (!task.pullRequest) return { action: { type: "open-pull-request" }, icon: GitPullRequestDraft, label: "Open Draft PR" };
   if (task.pullRequest.phase === "draft") return { action: { type: "mark-pull-request-ready" }, icon: GitPullRequest, label: "First version ready" };
   if (task.pullRequest.checks === "not-started") return { action: { type: "run-checks" }, icon: Play, label: "Run checks" };
   if (task.pullRequest.checks === "running") return { action: { type: "pass-checks" }, icon: Check, label: "Pass checks" };
@@ -190,6 +190,7 @@ export function TaskDeliveryPanel({
           >
             <GitPullRequestDraft className="size-3.5" /> Draft #{task.pullRequest.number}
           </a>
+          <span className="ml-auto text-xs text-current/35">Active · Draft PR</span>
           <Button size="sm" variant="secondary" onPress={onContinueDevelopment}>
             <Bot className="size-3.5" /> Continue development
           </Button>
@@ -241,8 +242,12 @@ export function TaskDeliveryPanel({
         </>
       ) : (
         <div className="border-b border-current/[.08] pb-5">
-          <span className="text-[10px] text-current/30">Planning</span>
-          <p className="mt-1 max-w-xl text-sm leading-6 text-current/55">Shape the task and conversation before development starts.</p>
+          <span className="text-[10px] text-blue-300/70">{task.branch ? "Active · Branch" : "Planning"}</span>
+          <p className="mt-1 max-w-xl text-sm leading-6 text-current/55">
+            {task.branch
+              ? "The linked branch is ready for coding. Open a Draft PR after the first real commit."
+              : "Shape the task and conversation before development starts."}
+          </p>
         </div>
       )}
 

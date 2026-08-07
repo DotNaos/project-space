@@ -27,11 +27,14 @@ describe("prototype task lifecycle", () => {
 
     task = runNext(task);
     expect(task.stage).toBe("branch");
-    expect(task.pullRequest?.phase).toBe("draft");
+    expect(task.pullRequest).toBeUndefined();
     expect(nextTaskAction(task)?.label).toBe("Start Codex");
     task = runNext(task);
     expect(task.workspace?.devServer?.status).toBe("running");
     expect(task.agentThreads?.[0]?.status).toBe("running");
+    expect(task.pullRequest).toBeUndefined();
+    expect(nextTaskAction(task)?.label).toBe("Open Draft PR");
+    task = runNext(task);
     expect(task.pullRequest?.phase).toBe("draft");
     expect(task.agentRun?.status).toBe("running");
     expect(task.agentThreads?.[0]?.status).toBe("running");
@@ -71,7 +74,7 @@ describe("prototype task lifecycle", () => {
     expect(next).toBe(completed);
   });
 
-  test("returns a branch-only recovery to coding-destination selection", () => {
+  test("keeps branch-only development active before opening a draft pull request", () => {
     const partial = {
       ...createMockTask({
         body: "Recover the missing draft pull request.",
@@ -84,10 +87,13 @@ describe("prototype task lifecycle", () => {
       stage: "branch" as const,
     };
 
-    expect(nextTaskAction(partial)?.label).toBe("Finish setup");
-    const recovered = runNext(partial);
-    expect(recovered.pullRequest?.phase).toBe("draft");
-    expect(nextTaskAction(recovered)?.label).toBe("Start Codex");
+    expect(nextTaskAction(partial)?.label).toBe("Start Codex");
+    const active = runNext(partial);
+    expect(active.pullRequest).toBeUndefined();
+    expect(nextTaskAction(active)?.label).toBe("Open Draft PR");
+    const drafted = runNext(active);
+    expect(drafted.pullRequest?.phase).toBe("draft");
+    expect(nextTaskAction(drafted)?.label).toBe("First version ready");
   });
 
   test("suggests a short title while preserving the full idea for the description", () => {

@@ -51,13 +51,15 @@ function linkedBranch(
 
 export function projectTaskState(
   issue: GitHubIssueRecord,
-  pullRequest?: GitHubPullRequestRecord
+  pullRequest?: GitHubPullRequestRecord,
+  branch?: GitHubBranchRecord
 ): ProjectTaskState {
   if (pullRequest?.state === 'merged') {
     return issue.state === 'closed' ? 'completed' : 'review';
   }
   if (pullRequest?.state === 'open' && pullRequest.isDraft === true) return 'active';
   if (pullRequest?.state === 'open' && pullRequest.isDraft === false) return 'review';
+  if (issue.state === 'open' && branch) return 'active';
   return 'backlog';
 }
 
@@ -74,9 +76,6 @@ export function projectTaskWorkflowMessage(
   }
   if (pullRequest?.state === 'open' && pullRequest.isDraft === undefined) {
     return 'The pull request draft state could not be verified.';
-  }
-  if (branch && !pullRequest) {
-    return 'The linked branch is waiting for its draft pull request.';
   }
   return undefined;
 }
@@ -128,22 +127,25 @@ export function createProjectTaskViewModels({
     const branch = developmentHead.state === 'verified'
       ? developmentHead.branch
       : linkedBranch(issue, pullRequest, branches);
-    const pipeline = projectTaskPipeline(pullRequest, runs);
-    const state = pullRequest?.state === 'merged'
-      ? projectTaskState(issue, pullRequest)
-      : developmentHead.state === 'verified' && developmentHead.pullRequest
-        ? projectTaskState(issue, developmentHead.pullRequest)
+    const resolvedPullRequest = developmentHead.state === 'verified' && developmentHead.pullRequest
+      ? developmentHead.pullRequest
+      : pullRequest;
+    const pipeline = projectTaskPipeline(resolvedPullRequest, runs);
+    const state = resolvedPullRequest?.state === 'merged'
+      ? projectTaskState(issue, resolvedPullRequest)
+      : developmentHead.state === 'verified'
+        ? projectTaskState(issue, developmentHead.pullRequest, developmentHead.branch)
         : 'backlog';
     const workflowMessage = developmentHead.state !== 'verified' && developmentHead.state !== 'none'
       ? developmentHead.message
-      : projectTaskWorkflowMessage(issue, branch, pullRequest);
+      : projectTaskWorkflowMessage(issue, branch, resolvedPullRequest);
     return {
       branch,
       comments: commentsByIssue.get(issue.number) ?? [],
       health: projectTaskHealth(pipeline),
       issue,
       pipeline,
-      pullRequest,
+      pullRequest: resolvedPullRequest,
       state,
       workflowMessage
     };

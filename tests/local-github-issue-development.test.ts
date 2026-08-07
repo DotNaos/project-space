@@ -10,7 +10,6 @@ import type {
 } from '../src/shared/project-space-api';
 
 const baseSha = 'a'.repeat(40);
-const treeSha = 'b'.repeat(40);
 const setupSha = 'c'.repeat(40);
 const branchName = 'issue-494-starting-development';
 
@@ -74,14 +73,9 @@ function dependencies(
     createBranch: async () => ({ branch: branch(), status: 'connected' }),
     createPullRequest: async () => ({ pullRequest: pullRequest(), status: 'connected' }),
     loadRepositoryDetails: async () => details(),
-    requestGitHub: (async <Result>(path: string, _token: string, init?: RequestInit) => {
+    requestGitHub: (async <Result>(path: string) => {
       if (path.includes('/compare/')) return { ahead_by: 0 } as Result;
       if (path.includes('/git/ref/heads/')) return { object: { sha: baseSha } } as Result;
-      if (path.endsWith(`/git/commits/${baseSha}`)) return { sha: baseSha, tree: { sha: treeSha } } as Result;
-      if (path.endsWith('/git/commits') && init?.method === 'POST') return { sha: setupSha } as Result;
-      if (path.includes('/git/refs/heads/') && init?.method === 'PATCH') {
-        return { object: { sha: setupSha } } as Result;
-      }
       throw new Error(`Unexpected GitHub request: ${path}`);
     }) as GitHubIssueDevelopmentDependencies['requestGitHub'],
     resolveOAuthToken: async () => ({ source: 'stored-oauth', token: 'secret-token' }),
@@ -96,7 +90,7 @@ const request = {
 };
 
 describe('GitHub issue development start', () => {
-  test('creates a bootstrap commit and draft pull request before returning ready', async () => {
+  test('creates a linked branch without a bootstrap commit or draft pull request', async () => {
     const calls: Array<{ body?: unknown; method?: string; path: string }> = [];
     let pullRequestInput: unknown;
     const result = await startGitHubIssueDevelopmentWithDependencies(request, dependencies({
@@ -112,40 +106,24 @@ describe('GitHub issue development start', () => {
         });
         if (path.includes('/compare/')) return { ahead_by: 0 } as Result;
         if (path.includes('/git/ref/heads/')) return { object: { sha: baseSha } } as Result;
-        if (path.endsWith(`/git/commits/${baseSha}`)) return { tree: { sha: treeSha } } as Result;
-        if (path.endsWith('/git/commits')) return { sha: setupSha } as Result;
-        return { object: { sha: setupSha } } as Result;
+        throw new Error(`Unexpected GitHub request: ${path}`);
       }) as GitHubIssueDevelopmentDependencies['requestGitHub']
     }));
 
     expect(result).toMatchObject({
-      branch: { commitSha: setupSha, name: branchName },
+      branch: { commitSha: baseSha, name: branchName },
       branchDisposition: 'created',
-      pullRequest: { isDraft: true, number: 495 },
-      pullRequestDisposition: 'created',
+      message: expect.stringContaining('after the first real commit'),
       state: 'ready',
       status: 'connected'
     });
     expect(calls.map((call) => [call.method, call.path])).toEqual([
       [undefined, `/repos/DotNaos/project-space/git/ref/heads/${branchName}`],
-      [undefined, `/repos/DotNaos/project-space/compare/main...${branchName}`],
-      [undefined, `/repos/DotNaos/project-space/git/commits/${baseSha}`],
-      ['POST', '/repos/DotNaos/project-space/git/commits'],
-      ['PATCH', `/repos/DotNaos/project-space/git/refs/heads/${branchName}`]
+      [undefined, `/repos/DotNaos/project-space/compare/main...${branchName}`]
     ]);
-    expect(calls[3]?.body).toEqual({
-      message: 'Start development for #494',
-      parents: [baseSha],
-      tree: treeSha
-    });
-    expect(pullRequestInput).toMatchObject({
-      baseBranch: 'main',
-      body: issue.body,
-      draft: true,
-      headBranch: branchName,
-      issueNumber: 494,
-      title: issue.title
-    });
+    expect(calls.every((call) => call.method === undefined)).toBe(true);
+    expect(pullRequestInput).toBeUndefined();
+    expect(result).not.toHaveProperty('pullRequest');
   });
 
   test('reuses an existing verified pull request without writing to GitHub', async () => {
@@ -345,23 +323,29 @@ describe('GitHub issue development start', () => {
     });
   });
 
-  test('does not trust a missing branch-ref update acknowledgement', async () => {
+  test('keeps an unchanged existing branch active without opening a pull request', async () => {
+    let pullRequestWrites = 0;
     const result = await startGitHubIssueDevelopmentWithDependencies(request, dependencies({
+      createPullRequest: async () => {
+        pullRequestWrites += 1;
+        return { status: 'error' };
+      },
       loadRepositoryDetails: async () => details({ branches: [branch()] }),
-      requestGitHub: (async <Result>(path: string, _token: string, init?: RequestInit) => {
+      requestGitHub: (async <Result>(path: string) => {
         if (path.includes('/compare/')) return { ahead_by: 0 } as Result;
         if (path.includes('/git/ref/heads/')) return { object: { sha: baseSha } } as Result;
-        if (path.endsWith(`/git/commits/${baseSha}`)) return { tree: { sha: treeSha } } as Result;
-        if (path.endsWith('/git/commits')) return { sha: setupSha } as Result;
-        if (init?.method === 'PATCH') return {} as Result;
         throw new Error(`Unexpected GitHub request: ${path}`);
       }) as GitHubIssueDevelopmentDependencies['requestGitHub']
     }));
 
     expect(result).toMatchObject({
-      message: 'The linked branch update could not be verified.',
-      state: 'partial'
+      branchDisposition: 'reused',
+      message: expect.stringContaining('after the first real commit'),
+      state: 'ready',
+      status: 'connected'
     });
+    expect(pullRequestWrites).toBe(0);
+    expect(result).not.toHaveProperty('pullRequest');
   });
 
   test('blocks an open issue that already has a merged linked pull request', async () => {

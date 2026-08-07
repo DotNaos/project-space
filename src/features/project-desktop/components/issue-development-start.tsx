@@ -17,6 +17,7 @@ import type {
 import { branchNameForIssue } from './issue-branch-model';
 
 interface IssueDevelopmentStartProps {
+  canCreatePullRequest?: boolean;
   issue: GitHubIssueRecord;
   linkedBranch?: GitHubBranchRecord;
   onBranchReady(branch: GitHubBranchRecord): void;
@@ -26,6 +27,7 @@ interface IssueDevelopmentStartProps {
 }
 
 export function IssueDevelopmentStart({
+  canCreatePullRequest = false,
   issue,
   linkedBranch,
   onBranchReady,
@@ -37,6 +39,7 @@ export function IssueDevelopmentStart({
   const [branchName, setBranchName] = useState(suggestedBranch);
   const [showSetup, setShowSetup] = useState(Boolean(linkedBranch || recoveryMessage));
   const [isStarting, setIsStarting] = useState(false);
+  const [hasReadyPullRequest, setHasReadyPullRequest] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const isBlockedRecovery = Boolean(recoveryMessage && !linkedBranch);
@@ -49,6 +52,7 @@ export function IssueDevelopmentStart({
   useEffect(() => {
     setMessage('');
     setError('');
+    setHasReadyPullRequest(false);
   }, [issue.number]);
 
   async function startDevelopment() {
@@ -72,9 +76,16 @@ export function IssueDevelopmentStart({
         issueNumber: issue.number
       });
       if (result.state !== 'blocked') onBranchReady(result.branch);
-      if (result.state === 'ready') onPullRequestReady(result.pullRequest);
       if (result.state === 'ready') {
-        setMessage(result.message ?? `Draft pull request #${result.pullRequest.number} is ready.`);
+        if (result.pullRequest) {
+          setHasReadyPullRequest(true);
+          onPullRequestReady(result.pullRequest);
+        }
+        setMessage(result.message ?? (
+          result.pullRequest
+            ? `Draft pull request #${result.pullRequest.number} is ready.`
+            : `Branch ${result.branch.name} is active.`
+        ));
         return;
       }
       setError(result.message ?? (
@@ -95,7 +106,7 @@ export function IssueDevelopmentStart({
         <div>
           <p className="text-xs font-medium text-current/55">Backlog</p>
           <p className="mt-1 text-sm leading-6 text-current/45">
-            Creates a linked branch and draft pull request before coding starts.
+            Create a linked branch and start coding. Open a Draft PR after the first real commit.
           </p>
         </div>
         <Button className="w-full" onPress={() => setShowSetup(true)}>
@@ -111,17 +122,17 @@ export function IssueDevelopmentStart({
         <div>
           <p className="text-xs font-medium text-current/60">
             {linkedBranch
-              ? 'Finish development setup'
+              ? 'Active · Branch'
               : isBlockedRecovery
                 ? 'Resolve development setup'
                 : 'Start development'}
           </p>
           <p className="mt-1 text-xs leading-5 text-current/40">
             {linkedBranch
-              ? 'The linked branch will be reused. Coding destinations unlock when its draft PR is ready.'
+              ? 'The linked branch is ready for coding. A Draft PR is the next Active step once it has a real commit.'
               : isBlockedRecovery
                 ? 'Project Space found GitHub state that must be verified or resolved before coding can start.'
-              : 'Create both GitHub resources, then choose where to code.'}
+              : 'Create the GitHub branch, then choose where to code.'}
           </p>
         </div>
       </div>
@@ -145,12 +156,14 @@ export function IssueDevelopmentStart({
         <div className="flex min-h-7 items-center gap-2">
           {isStarting ? <LoaderCircle className="size-3.5 animate-spin text-blue-300" /> : <GitBranch className="size-3.5 text-current/35" />}
           <span className="text-current/55">Branch</span>
-          <span className="ml-auto text-current/30">{linkedBranch ? 'Reuse' : 'Create'}</span>
+          <span className="ml-auto text-current/30">{linkedBranch ? 'Active' : 'Create'}</span>
         </div>
         <div className="flex min-h-7 items-center gap-2">
-          {message ? <Check className="size-3.5 text-emerald-300" /> : isStarting ? <LoaderCircle className="size-3.5 animate-spin text-blue-300" /> : <GitPullRequestDraft className="size-3.5 text-current/35" />}
+          {hasReadyPullRequest ? <Check className="size-3.5 text-emerald-300" /> : isStarting ? <LoaderCircle className="size-3.5 animate-spin text-blue-300" /> : <GitPullRequestDraft className="size-3.5 text-current/35" />}
           <span className="text-current/55">Draft PR</span>
-          <span className="ml-auto text-current/30">{message ? 'Ready' : 'Create'}</span>
+          <span className="ml-auto text-current/30">
+            {hasReadyPullRequest ? 'Ready' : linkedBranch && !canCreatePullRequest ? 'After first commit' : 'Next'}
+          </span>
         </div>
       </div>
 
@@ -166,18 +179,18 @@ export function IssueDevelopmentStart({
         ) : null}
         <Button
           className="flex-1"
-          isDisabled={isStarting || !repoFullName || !(linkedBranch?.name ?? branchName).trim()}
+          isDisabled={isStarting || !repoFullName || !(linkedBranch?.name ?? branchName).trim() || Boolean(linkedBranch && !canCreatePullRequest)}
           size="sm"
           onPress={() => void startDevelopment()}
         >
-          {!isStarting ? <Plus className="size-4" /> : null}
+          {!isStarting ? linkedBranch ? <GitPullRequestDraft className="size-4" /> : <Plus className="size-4" /> : null}
           {isStarting
-            ? 'Creating branch and draft PR…'
+            ? linkedBranch ? 'Creating Draft PR…' : 'Creating branch…'
             : linkedBranch
-              ? 'Finish setup'
+              ? 'Create Draft PR'
               : isBlockedRecovery
                 ? 'Retry verification'
-                : 'Create branch & draft PR'}
+                : 'Create branch'}
         </Button>
       </div>
     </section>
