@@ -264,9 +264,13 @@ migration_home="$temporary_root/homebrew-migration-home"
 migration_install_root="$migration_home/.local/bin"
 migration_service_log="$temporary_root/homebrew-migration-service.log"
 migration_launchctl_log="$temporary_root/homebrew-migration-launchctl.log"
-migration_homebrew_project="$temporary_root/homebrew-project"
-mkdir -p "$migration_home/Library/LaunchAgents"
+migration_homebrew_project="$temporary_root/Homebrew/Cellar/project/$version/bin/project"
+mkdir -p "$migration_home/Library/LaunchAgents" "$(dirname -- "$migration_homebrew_project")"
 write_project_fixture "$migration_homebrew_project" homebrew
+cp -- "$temporary_root/source-v1/project-space-connector" \
+  "$(dirname -- "$migration_homebrew_project")/project-space-connector"
+homebrew_service_plist="$migration_home/Library/LaunchAgents/homebrew.mxcl.project-space-connector.plist"
+printf 'homebrew service remains owned by Homebrew\n' > "$homebrew_service_plist"
 cat > "$migration_home/Library/LaunchAgents/net.os-home.project-space.machine-connector-supervisor.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -286,7 +290,10 @@ EOF
 if HOME="$migration_home" \
   PROJECT_FIXTURE_SERVICE_LOG="$migration_service_log" \
   PROJECT_FIXTURE_LAUNCHCTL_LOG="$migration_launchctl_log" \
-  "$bundle_v3/install.sh" --install-dir "$migration_install_root" >/dev/null 2>&1; then
+  "$bundle_v3/install.sh" \
+    --install-dir "$migration_install_root" \
+    --migrate-from-homebrew "$migration_homebrew_project" \
+    >/dev/null 2>&1; then
   echo 'Installer accepted a failed Homebrew-to-managed migration.' >&2
   exit 1
 fi
@@ -296,6 +303,29 @@ grep -Fx 'v3:connector service stop' "$migration_service_log"
 grep -Fx 'homebrew:connector service start-if-connected' "$migration_service_log"
 [[ $(grep -Fxc 'v3:connector service stop' "$migration_service_log") == 2 ]]
 [[ $(sed -n '1p' "$migration_service_log") == 'v3:connector service stop' ]]
+[[ $($migration_homebrew_project) == homebrew ]]
+grep -Fx "disable gui/$(id -u)/homebrew.mxcl.project-space-connector" "$migration_launchctl_log"
+grep -Fx "bootout gui/$(id -u)/homebrew.mxcl.project-space-connector" "$migration_launchctl_log"
+grep -Fx "enable gui/$(id -u)/homebrew.mxcl.project-space-connector" "$migration_launchctl_log"
+grep -Fx "bootstrap gui/$(id -u) $homebrew_service_plist" "$migration_launchctl_log"
+grep -Fx "kickstart -k gui/$(id -u)/homebrew.mxcl.project-space-connector" "$migration_launchctl_log"
+grep -Fx 'homebrew service remains owned by Homebrew' "$homebrew_service_plist"
+
+HOME="$migration_home" \
+  PROJECT_FIXTURE_SERVICE_LOG="$migration_service_log" \
+  PROJECT_FIXTURE_LAUNCHCTL_LOG="$migration_launchctl_log" \
+  "$bundle_v2/install.sh" \
+    --install-dir "$migration_install_root" \
+    --migrate-from-homebrew "$migration_homebrew_project" \
+    >/dev/null
+[[ $($migration_install_root/project) == v2 ]]
+[[ $($migration_homebrew_project) == homebrew ]]
+grep -Fx 'v2:connector service stop' "$migration_service_log"
+grep -Fx 'v2:connector service start-if-connected' "$migration_service_log"
+[[ $(grep -Fxc "disable gui/$(id -u)/homebrew.mxcl.project-space-connector" "$migration_launchctl_log") == 2 ]]
+[[ $(grep -Fxc "bootout gui/$(id -u)/homebrew.mxcl.project-space-connector" "$migration_launchctl_log") == 2 ]]
+[[ $(grep -Fxc "enable gui/$(id -u)/homebrew.mxcl.project-space-connector" "$migration_launchctl_log") == 1 ]]
+grep -Fx 'homebrew service remains owned by Homebrew' "$homebrew_service_plist"
 
 rm -f "$modern_plist"
 legacy_plist="$home/Library/LaunchAgents/net.os-home.project-space-connector.plist"

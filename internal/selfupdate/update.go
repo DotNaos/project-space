@@ -26,7 +26,7 @@ func NewService(
 	return &Service{detector: detector, releases: releases, installer: installer}, nil
 }
 
-func (service *Service) Plan(ctx context.Context) (Plan, error) {
+func (service *Service) Plan(ctx context.Context, options PlanOptions) (Plan, error) {
 	installation, err := service.detector.Detect()
 	if err != nil {
 		result := Result{
@@ -42,12 +42,29 @@ func (service *Service) Plan(ctx context.Context) (Plan, error) {
 		InstallSource:  installation.Source,
 		State:          StateVerificationFailed,
 	}
+	if options.MigrateManaged {
+		result = managedMigrationResult(installation, result)
+		if result.State == StateUnsupportedSource {
+			return Plan{
+				Installation:   installation,
+				MigrateManaged: true,
+				Result:         result,
+			}, nil
+		}
+	}
 	release, err := service.releases.Resolve(ctx, installation.Target)
 	if err != nil {
 		result.ActionableBlocker = "The approved Project release could not be verified. Try again later; no files were changed."
-		return Plan{Installation: installation, Result: result}, fmt.Errorf("verify approved Project release: %w", err)
+		return Plan{
+			Installation:   installation,
+			MigrateManaged: options.MigrateManaged,
+			Result:         result,
+		}, fmt.Errorf("verify approved Project release: %w", err)
 	}
 	result.TargetVersion = release.Manifest.Version
+	if options.MigrateManaged {
+		return service.planManagedMigration(installation, release, result)
+	}
 	comparison, err := compareVersions(installation.CurrentVersion, release.Manifest.Version)
 	if err != nil {
 		if installation.Source == InstallSourceManaged {
@@ -62,13 +79,13 @@ func (service *Service) Plan(ctx context.Context) (Plan, error) {
 		result.ActionableBlocker = "The approved release is older than this Project CLI. Downgrades are refused."
 		return Plan{Installation: installation, Release: release, Result: result}, errors.New("approved Project release would downgrade this installation")
 	}
-	if comparison == 0 {
-		result.State = StateCurrent
-		return Plan{Installation: installation, Release: release, Result: result}, nil
-	}
 	if installation.Source != InstallSourceManaged {
 		result.State = StateUnsupportedSource
 		result.ActionableBlocker = unsupportedSourceGuidance(installation.Source, release.Artifact.DownloadURL)
+		return Plan{Installation: installation, Release: release, Result: result}, nil
+	}
+	if comparison == 0 {
+		result.State = StateCurrent
 		return Plan{Installation: installation, Release: release, Result: result}, nil
 	}
 	result.State = StateUpdateAvailable
@@ -82,7 +99,12 @@ func (service *Service) Apply(
 	stderr io.Writer,
 ) (Result, error) {
 	result := plan.Result
-	if result.State != StateUpdateAvailable || plan.Installation.Source != InstallSourceManaged {
+	applicableManagedUpdate := plan.Installation.Source == InstallSourceManaged &&
+		!plan.MigrateManaged
+	applicableMigration := plan.Installation.Source == InstallSourceHomebrew &&
+		plan.MigrateManaged
+	if result.State != StateUpdateAvailable ||
+		(!applicableManagedUpdate && !applicableMigration) {
 		return result, errors.New("self-update plan is not applicable")
 	}
 	outcome, err := service.installer.Apply(
@@ -111,7 +133,8 @@ func (service *Service) Apply(
 		return result, err
 	case ApplyOutcomeRecoveryRequired:
 		result.State = StateUpdateFailed
-		result.ActionableBlocker = "Rollback could not restore the previous connector service. Manual recovery is required."
+		result.ActionableBlocker = "Rollback could not restore the previous connector service. Machine identity and credentials were retained; run the recovery command locally."
+		result.RecoveryCommand = recoveryCommand(plan.Installation.ExecutablePath)
 		if err == nil {
 			err = errors.New("self-update requires manual recovery")
 		}
@@ -129,7 +152,7 @@ func (service *Service) Apply(
 func unsupportedSourceGuidance(source InstallSource, installerURL string) string {
 	switch source {
 	case InstallSourceHomebrew:
-		return "Homebrew owns this installation. Run `brew update && brew upgrade --fetch-HEAD project`; self-update will not overwrite Homebrew files."
+		return "Homebrew owns this Project CLI and connector. Continue updating them with Homebrew, or run `project self-update --migrate-managed` to plan an optional signed managed migration; Project will not overwrite Homebrew files."
 	case InstallSourceWindows:
 		return "Native Windows cannot safely replace the running project.exe in place. Download and run the verified per-user installer: " + installerURL
 	case InstallSourceSourceCheckout:

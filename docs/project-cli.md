@@ -232,6 +232,9 @@ project self-update
 project self-update --yes
 project self-update --format json
 project self-update --format json --yes
+project self-update --migrate-managed --check
+project self-update --migrate-managed
+project self-update --migrate-managed --yes
 ```
 
 `self-update` checks the signed stable release manifest and keeps the Project
@@ -247,10 +250,20 @@ installer. That installer stops and restarts the connector and restores the
 previous matching pair if the new connector cannot start. Machine identity and
 credentials remain outside the release directory.
 
-Homebrew, native Windows, source-checkout, and unrecognized installations are
-reported without being overwritten. The result includes the appropriate
-package-manager, installer, or rebuild guidance. This is a user-invoked command;
-Project does not perform silent or background updates.
+A supported Homebrew-owned CLI and connector continue to install and update
+through Homebrew by default. The explicit `--migrate-managed` flag is an
+optional escape hatch on macOS arm64 or Linux x64/WSL; migration never happens
+automatically. The signed pair is installed under `~/.local/bin`; Homebrew files
+are not modified or removed. Same-version migration remains actionable because
+ownership and the connector service move to Project's signed managed delivery.
+The known Homebrew or Project service is quiesced so it cannot compete with the
+managed service. Success waits for the exact connector build to authenticate
+and reconnect. Failure restores the previous service when possible and
+otherwise reports the exact local recovery command.
+
+Native Windows, source-checkout, and unrecognized installations are reported
+without being overwritten. This is a user-invoked command; Project does not
+perform silent or background updates.
 
 ## Read And Update The Issue Roadmap
 

@@ -3,13 +3,14 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-Usage: ./install.sh [--install-dir <absolute-path>]
+Usage: ./install.sh [--install-dir <absolute-path>] [--migrate-from-homebrew <absolute-project-path>]
 
 Installs the Project CLI and its bundled connector for the current user.
 EOF
 }
 
 install_directory="${HOME}/.local/bin"
+migrate_from_homebrew=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --install-dir)
@@ -18,6 +19,14 @@ while [[ $# -gt 0 ]]; do
         exit 64
       fi
       install_directory=$2
+      shift 2
+      ;;
+    --migrate-from-homebrew)
+      if [[ $# -lt 2 ]]; then
+        usage
+        exit 64
+      fi
+      migrate_from_homebrew=$2
       shift 2
       ;;
     -h|--help)
@@ -46,6 +55,24 @@ fi
 if [[ -L $install_directory ]]; then
   echo "Refusing to install through a symbolic-link directory: $install_directory" >&2
   exit 73
+fi
+if [[ -n $migrate_from_homebrew ]]; then
+  homebrew_connector="$(dirname -- "$migrate_from_homebrew")/project-space-connector"
+  if [[ $install_directory != "${HOME}/.local/bin" ||
+    $migrate_from_homebrew != /* ||
+    $migrate_from_homebrew == *$'\n'* ||
+    $migrate_from_homebrew == *$'\r'* ||
+    $(basename -- "$migrate_from_homebrew") != project ||
+    $migrate_from_homebrew != */Cellar/project/* ||
+    ! -f $migrate_from_homebrew ||
+    ! -x $migrate_from_homebrew ||
+    -L $migrate_from_homebrew ||
+    ! -f $homebrew_connector ||
+    ! -x $homebrew_connector ||
+    -L $homebrew_connector ]]; then
+    echo "The Homebrew migration source or managed destination is invalid." >&2
+    exit 73
+  fi
 fi
 
 bundle_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
@@ -228,7 +255,9 @@ done
 existing_project="${install_directory}/project"
 managed_current_project="${current_link}/project"
 previous_service_project=""
-if [[ -x $managed_current_project ]]; then
+if [[ -n $migrate_from_homebrew ]]; then
+  previous_service_project=$migrate_from_homebrew
+elif [[ -x $managed_current_project ]]; then
   previous_service_project=$managed_current_project
 elif [[ -x $existing_project ]]; then
   previous_service_project=$existing_project

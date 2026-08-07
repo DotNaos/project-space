@@ -59,6 +59,23 @@ download URL: it verifies the exact signed manifest, pinned archive size, and
 SHA-256 checksum before the existing installer can switch the CLI and connector
 together. There is no background updater.
 
+Homebrew remains a supported Linux/WSL installation and update path. If the
+current Project CLI and connector came from Homebrew and you want to leave that
+update path, opt in to the signed managed delivery path:
+
+```sh
+project self-update --migrate-managed --check
+project self-update --migrate-managed
+```
+
+Migration never happens automatically. It leaves Homebrew-owned files in place,
+installs the verified pair under `~/.local/bin`, preserves compatible machine
+identity and credential state, replaces the known per-user systemd or WSL
+Scheduled Task service, and waits for the exact new connector build to
+authenticate and reconnect. A failed reconnect restores the previous service
+when possible; incomplete restoration returns a local recovery command. No
+remote shell or package-manager command is executed by the migration.
+
 ## Connect the machine
 
 After installation, sign in through the normal browser approval flow:

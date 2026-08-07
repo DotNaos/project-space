@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "json"
+
 # Installs the Project CLI from the Project Space source tree.
 class Project < Formula
   desc "Template-aware Project CLI"
@@ -10,7 +12,8 @@ class Project < Formula
   depends_on "go" => :build
 
   def install
-    ldflags = "-X main.projectMachineClientVersion=#{version}"
+    project_version = JSON.parse((buildpath/"package.json").read).fetch("version")
+    ldflags = "-X main.projectMachineClientVersion=#{project_version}"
     system "bun", "install", "--frozen-lockfile"
     system "bun", "run", "build:connector:native"
     system "go", "build", "-trimpath", "-ldflags=#{ldflags}", "-o", bin/"project", "./cmd/project"
