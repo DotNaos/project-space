@@ -26,7 +26,8 @@ import { projectChatProjectId } from '@/shared/project-chat-project';
 import type {
   MachineDetailTab,
   ProjectDetailTab,
-  ProjectMainView
+  ProjectMainView,
+  SettingsSection
 } from '../hooks/use-project-desktop';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { Button, Card, Surface, Text } from '@/app/dotnaos-ui';
@@ -228,6 +229,7 @@ export interface ProjectMainPanelProps {
   selectedMachine?: MachineRecord;
   selectedMachineId: string;
   selectedTargetPath: string;
+  settingsSection: SettingsSection;
   structureViolations: ProjectStructureViolationRecord[];
   useWorkspaceChrome?: boolean;
   worktreeDiscovery: ProjectWorktreeDiscoveryState;
@@ -286,6 +288,7 @@ export function ProjectMainPanel({
   selectedMachine,
   selectedMachineId,
   selectedTargetPath,
+  settingsSection,
   structureViolations,
   useWorkspaceChrome = false,
   worktreeDiscovery,
@@ -538,6 +541,7 @@ export function ProjectMainPanel({
             isGitHubRefreshing={isGitHubRefreshing}
             onRefreshConnectorOverview={onRefreshConnectorOverview}
             onRefreshGitHubCatalog={onRefreshGitHubCatalog}
+            section={settingsSection}
           />
         ) : project ? (
           <ProjectDetail

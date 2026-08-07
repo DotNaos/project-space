@@ -44,6 +44,14 @@ export type ProjectDetailTab = (typeof projectDetailTabs)[number];
 export const machineDetailTabs = ['overview', 'projects', 'explorer', 'terminal'] as const;
 export type MachineDetailTab = (typeof machineDetailTabs)[number];
 
+/**
+ * `/settings` stays the single canonical route for machine and instance
+ * administration. The section only decides which page the route renders, so the
+ * Machines sidebar entry and the Settings action can share one destination.
+ */
+export const settingsSections = ['machines', 'settings'] as const;
+export type SettingsSection = (typeof settingsSections)[number];
+
 function parseProjectDetailTab(segment: string | undefined): ProjectDetailTab {
   return projectDetailTabs.includes(segment as ProjectDetailTab)
     ? (segment as ProjectDetailTab)
