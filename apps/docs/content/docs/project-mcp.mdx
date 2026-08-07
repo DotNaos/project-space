@@ -1,0 +1,35 @@
+---
+title: ChatGPT Work MCP
+description: Connect ChatGPT Work to Project Space through the authenticated remote MCP server.
+---
+
+Project Space exposes a Streamable HTTP MCP endpoint at:
+
+```text
+https://projects.os-home.net/mcp
+```
+
+The server uses the existing Clerk account through OAuth 2.1 with PKCE. ChatGPT Work discovers the authorization server from Project Space's protected-resource metadata and then opens the normal Clerk sign-in. Project Space applies the same user and machine membership checks as the web application.
+
+## Connect ChatGPT Work
+
+1. In ChatGPT Work, add a custom MCP server.
+2. Enter `https://projects.os-home.net/mcp` as the server URL.
+3. Complete the Clerk sign-in and approve the connection.
+4. Use `list_projects`, `list_machines`, or `list_codex_tasks` before selecting a target.
+
+The server also exposes `read_codex_task`, `start_codex_task`, and `send_codex_message`. Starting a task creates a Project-managed worktree from a GitHub issue. Sending a message continues an existing Codex task. Both actions are marked as consequential tool calls so ChatGPT can request confirmation before invoking them.
+
+## Clerk configuration
+
+An administrator must enable OAuth applications for the existing Clerk instance. Prefer Clerk's Client ID Metadata Document (CIMD) support and pre-register ChatGPT's client; enable Dynamic Client Registration only if the client cannot use CIMD. Keep PKCE `S256` enabled and make the `openid`, `profile`, and `email` scopes available.
+
+The deployed backend already consumes `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`. Set `PROJECT_SPACE_PUBLIC_ORIGIN` to the public HTTPS origin when it cannot be derived from the reverse-proxy headers. The MCP server publishes:
+
+- `/.well-known/oauth-protected-resource/mcp`
+- `/.well-known/oauth-authorization-server`
+- `/mcp`
+
+If `PROJECT_SPACE_ALLOWED_EMAILS` is configured, MCP OAuth users must also be present in that allowlist.
+
+Do not expose a Preview deployment as a trusted MCP server. Preview containers intentionally do not receive the Clerk secret or production database access.

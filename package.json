@@ -55,10 +55,12 @@
   },
   "dependencies": {
     "@clerk/backend": "^3.9.0",
+    "@clerk/mcp-tools": "^0.6.0",
     "@clerk/react": "^6.11.3",
     "@dotnaos/react-ui": "^0.0.2",
     "@heroui/react": "3.0.4",
     "@heroui/styles": "3.0.4",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@wterm/dom": "^0.3.0",
     "@xyflow/react": "^12.11.2",
     "highlight.js": "^11.11.1",
@@ -71,6 +73,7 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "ws": "^8.21.0",
+    "zod": "^4.0.0",
     "zustand": "^5.0.12"
   },
   "devDependencies": {

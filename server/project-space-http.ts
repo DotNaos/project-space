@@ -27,7 +27,10 @@ import type { CodexSessionsHttpHandler } from './codex-sessions-http';
 import { createConfiguredCodexSessionsHandler } from './codex-sessions/configured-runtime';
 import { createProjectTopologyInventoryService } from './project-topology/project-inventory-service';
 import { createProjectTopologyInventoryHttpHandler } from './project-topology/project-inventory-http';
-import { createConfiguredCodexMachineTasksHandler } from './codex-machine-tasks/configured-runtime';
+import {
+  createConfiguredCodexMachineTasksHandler,
+  createConfiguredCodexMachineTasksRuntime
+} from './codex-machine-tasks/configured-runtime';
 import { CodexAttachLeaseStore } from './codex-machine-tasks/attach-lease-store';
 import { createCodexAttachUpgradeHandler } from './codex-machine-tasks/attach-websocket';
 import {
@@ -47,6 +50,7 @@ import {
   createPreviewDocsProxy,
   type PreviewDocsProxyDependencies
 } from './preview-docs-proxy';
+import { createProjectSpaceMcpHandler } from './project-space-mcp';
 
 export interface ProjectSpaceHttpOptions {
   backend?: ProjectSpaceBackend;
@@ -101,6 +105,14 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     attachLeases: codexAttachLeases,
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
+  });
+  const projectSpaceMcp = createProjectSpaceMcpHandler({
+    backend,
+    createRuntime: () => createConfiguredCodexMachineTasksRuntime({
+      attachLeases: codexAttachLeases,
+      backend: rawBackend,
+      machineConnection: options.machineConnectionRuntime
+    })
   });
   const codexAuthorization = createConfiguredCodexAuthorizationHandler({
     backend: rawBackend,
@@ -163,6 +175,10 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
         connectorInstallScript(requestPublicOrigin(request)),
         'text/x-shellscript; charset=utf-8'
       );
+      return;
+    }
+
+    if (await projectSpaceMcp(request, response, url)) {
       return;
     }
 
