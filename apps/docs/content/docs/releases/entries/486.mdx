@@ -1,0 +1,45 @@
+---
+title: "Run MCP OAuth in Project Space"
+version: "0.4.66"
+bump: "patch"
+pullRequest: 486
+issues: []
+areas:
+  - web
+  - security
+breaking: false
+upgrade: "none"
+---
+
+<ReleaseSummary>
+  ChatGPT can now authorize the Project Space MCP server without a Clerk OAuth
+  application or client secret.
+</ReleaseSummary>
+
+## Changes
+
+### Added
+
+- Added a Project Space OAuth 2.1 authorization server with dynamic client registration and PKCE.
+- Added rotating refresh tokens, hashed persistent credentials, and separate read and write scopes.
+- Added a browser consent page that uses the existing Clerk login only to identify the user.
+
+### Removed
+
+- Removed the Clerk OAuth Applications dependency from the MCP server.
+
+## Upgrade notes
+
+<UpgradeNotes type="none">
+  No manual action is required.
+</UpgradeNotes>
+
+<PreviewOnly>
+
+## What to test
+
+- Open the protected-resource and authorization-server metadata endpoints on the exact pull-request Preview.
+- Confirm a public PKCE client can register while an untrusted redirect URI is rejected.
+- Confirm the consent page requires the existing Project Space browser login.
+
+</PreviewOnly>
