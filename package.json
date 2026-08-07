@@ -1,6 +1,6 @@
 {
   "name": "project-space",
-  "version": "0.4.65",
+  "version": "0.4.66",
   "private": true,
   "description": "Desktop-first workspace management foundation for project-centered workflows.",
   "type": "module",
@@ -55,7 +55,6 @@
   },
   "dependencies": {
     "@clerk/backend": "^3.9.0",
-    "@clerk/mcp-tools": "^0.6.0",
     "@clerk/react": "^6.11.3",
     "@dotnaos/react-ui": "^0.0.2",
     "@heroui/react": "3.0.4",
@@ -63,6 +62,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@wterm/dom": "^0.3.0",
     "@xyflow/react": "^12.11.2",
+    "express": "^5.2.1",
     "highlight.js": "^11.11.1",
     "lucide-react": "^0.577.0",
     "mqtt": "5.14.1",
@@ -78,6 +78,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.11",
+    "@types/express": "^5.0.6",
     "@types/node": "^24.3.0",
     "@types/pg": "^8.20.0",
     "@types/react": "^19.1.10",

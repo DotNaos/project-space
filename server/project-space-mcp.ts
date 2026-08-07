@@ -1,13 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { createClerkClient } from '@clerk/backend';
-import {
-  corsHeaders,
-  fetchClerkAuthorizationServerMetadata,
-  generateClerkProtectedResourceMetadata,
-  verifyClerkToken
-} from '@clerk/mcp-tools/server';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -24,14 +17,21 @@ import { requestPublicOrigin } from './connector-installation';
 import type { ConfiguredCodexMachineTasksRuntime } from './codex-machine-tasks/configured-runtime';
 import {
   isProjectSpaceAuthRequired,
-  isProjectSpaceEmailAllowed,
   runWithAuthSession
 } from './local-auth-store';
+import {
+  createProjectSpaceMcpOAuth,
+  type ProjectSpaceMcpOAuthOptions
+} from './project-space-mcp-oauth';
+import {
+  projectSpaceMcpReadScope,
+  projectSpaceMcpScopes,
+  projectSpaceMcpWriteScope
+} from './project-space-mcp-oauth-store';
 
 const mcpPath = '/mcp';
 const protectedResourcePath = '/.well-known/oauth-protected-resource/mcp';
-const authorizationServerPath = '/.well-known/oauth-authorization-server';
-const requiredScopes = ['openid', 'profile', 'email'] as const;
+const requiredScopes = projectSpaceMcpScopes;
 const sessionHeader = 'mcp-session-id';
 const sessionLifetimeMs = 60 * 60_000;
 const maximumSessions = 100;
@@ -44,6 +44,7 @@ type McpBackend = Pick<
 export interface ProjectSpaceMcpOptions {
   backend: McpBackend;
   createRuntime(): Promise<ConfiguredCodexMachineTasksRuntime>;
+  oauth?: ProjectSpaceMcpOAuthOptions;
 }
 
 interface McpSession {
@@ -60,8 +61,6 @@ type OAuthTool = Tool & {
     type: 'oauth2';
   }>;
 };
-
-const oauthSecuritySchemes = [{ type: 'oauth2' as const, scopes: [...requiredScopes] }];
 
 const selectorSchema = z.object({
   connectorId: z.string().trim().min(1).optional(),
@@ -132,14 +131,15 @@ const tools: OAuthTool[] = [
 
 export function createProjectSpaceMcpHandler(options: ProjectSpaceMcpOptions) {
   const sessions = new Map<string, McpSession>();
+  const oauth = createProjectSpaceMcpOAuth(options.oauth);
   let runtime: Promise<ConfiguredCodexMachineTasksRuntime> | undefined;
-  let authorizationServerMetadata: Promise<unknown> | undefined;
   const getRuntime = () => (runtime ??= options.createRuntime().catch((error) => {
     runtime = undefined;
     throw error;
   }));
 
   return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
+    if (await oauth.handle(request, response, url)) return true;
     if (!isMcpPath(url.pathname)) return false;
     applyCors(response, url.pathname === mcpPath);
     if (request.method === 'OPTIONS') {
@@ -147,42 +147,12 @@ export function createProjectSpaceMcpHandler(options: ProjectSpaceMcpOptions) {
       return true;
     }
 
-    const origin = requestPublicOrigin(request);
-    if (url.pathname === protectedResourcePath) {
-      if (request.method !== 'GET') return methodNotAllowed(response, 'GET, OPTIONS');
-      const publishableKey = process.env.CLERK_PUBLISHABLE_KEY?.trim();
-      if (!publishableKey) return unavailable(response, 'CLERK_PUBLISHABLE_KEY is required for MCP OAuth discovery.');
-      writeJson(response, 200, generateClerkProtectedResourceMetadata({
-        publishableKey,
-        resourceUrl: new URL(mcpPath, origin).toString(),
-        properties: {
-          scopes_supported: [...requiredScopes],
-          service_documentation: new URL('/docs/project-mcp', origin).toString()
-        }
-      }));
-      return true;
-    }
-
-    if (url.pathname === authorizationServerPath) {
-      if (request.method !== 'GET') return methodNotAllowed(response, 'GET, OPTIONS');
-      const publishableKey = process.env.CLERK_PUBLISHABLE_KEY?.trim();
-      if (!publishableKey) return unavailable(response, 'CLERK_PUBLISHABLE_KEY is required for MCP OAuth discovery.');
-      try {
-        authorizationServerMetadata ??= fetchClerkAuthorizationServerMetadata({ publishableKey });
-        writeJson(response, 200, await authorizationServerMetadata);
-      } catch {
-        authorizationServerMetadata = undefined;
-        writeJson(response, 502, { error: 'OAuth authorization server metadata is unavailable.' });
-      }
-      return true;
-    }
-
     if (!['GET', 'POST', 'DELETE'].includes(request.method ?? '')) {
       return methodNotAllowed(response, 'GET, POST, DELETE, OPTIONS');
     }
 
-    const challenge = authChallenge(origin);
-    const authInfo = await authenticateMcpRequest(request).catch(() => undefined);
+    const challenge = authChallenge(requestPublicOrigin(request));
+    const authInfo = await authenticateMcpRequest(request, oauth.verifyAccessToken).catch(() => undefined);
     if (!authInfo) {
       response.setHeader('WWW-Authenticate', challenge);
       writeJson(response, 401, { error: 'Unauthorized' });
@@ -262,6 +232,10 @@ function createMcpServer(
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const userId = extra.authInfo?.extra?.userId;
     if (typeof userId !== 'string' || !userId) return authenticationError(challenge);
+    const requiredToolScopes = scopesForTool(request.params.name);
+    if (!requiredToolScopes.every((scope) => extra.authInfo?.scopes.includes(scope))) {
+      return authenticationError(challenge);
+    }
     try {
       return await runWithAuthSession(
         { login: 'project-space-mcp', role: 'user', userId },
@@ -375,7 +349,10 @@ async function callTool(
   }
 }
 
-async function authenticateMcpRequest(request: IncomingMessage): Promise<AuthInfo | undefined> {
+async function authenticateMcpRequest(
+  request: IncomingMessage,
+  verifyAccessToken: (request: IncomingMessage, token: string) => Promise<AuthInfo>
+): Promise<AuthInfo | undefined> {
   if (!isProjectSpaceAuthRequired()) {
     return {
       clientId: 'project-space-local-development',
@@ -385,19 +362,9 @@ async function authenticateMcpRequest(request: IncomingMessage): Promise<AuthInf
     };
   }
   const token = bearerToken(request);
-  const publishableKey = process.env.CLERK_PUBLISHABLE_KEY?.trim();
-  const secretKey = process.env.CLERK_SECRET_KEY?.trim();
-  if (!token || !publishableKey || !secretKey) return undefined;
-  const clerk = createClerkClient({ publishableKey, secretKey });
-  const state = await clerk.authenticateRequest(new Request(requestPublicOrigin(request), {
-    headers: { Authorization: `Bearer ${token}` }
-  }), { acceptsToken: 'oauth_token' });
-  const auth = state.toAuth();
-  const authInfo = verifyClerkToken(auth, token);
-  if (!authInfo || !requiredScopes.every((scope) => authInfo.scopes.includes(scope))) return undefined;
-  const user = await clerk.users.getUser(requiredUserId(authInfo));
-  const email = user.primaryEmailAddress?.emailAddress ?? user.emailAddresses[0]?.emailAddress;
-  return isProjectSpaceEmailAllowed(email) ? authInfo : undefined;
+  if (!token) return undefined;
+  const authInfo = await verifyAccessToken(request, token);
+  return authInfo.scopes.includes(projectSpaceMcpReadScope) ? authInfo : undefined;
 }
 
 function tool(
@@ -407,6 +374,10 @@ function tool(
   inputSchema: Tool['inputSchema'],
   annotations: NonNullable<Tool['annotations']>
 ): OAuthTool {
+  const scopes = annotations.readOnlyHint
+    ? [projectSpaceMcpReadScope]
+    : [projectSpaceMcpReadScope, projectSpaceMcpWriteScope];
+  const oauthSecuritySchemes = [{ type: 'oauth2' as const, scopes }];
   return {
     name,
     title,
@@ -494,8 +465,14 @@ function sanitizeTaskRead<Result>(result: Result): Result {
   return copy;
 }
 
-function authChallenge(origin: string) {
-  return `Bearer resource_metadata="${new URL(protectedResourcePath, origin)}", scope="${requiredScopes.join(' ')}"`;
+function authChallenge(origin: string, scopes: readonly string[] = requiredScopes) {
+  return `Bearer resource_metadata="${new URL(protectedResourcePath, origin)}", scope="${scopes.join(' ')}"`;
+}
+
+function scopesForTool(name: string) {
+  return name === 'start_codex_task' || name === 'send_codex_message'
+    ? [projectSpaceMcpReadScope, projectSpaceMcpWriteScope]
+    : [projectSpaceMcpReadScope];
 }
 
 function bearerToken(request: IncomingMessage) {
@@ -514,11 +491,11 @@ function headerValue(value: string | string[] | undefined) {
 }
 
 function isMcpPath(pathname: string) {
-  return pathname === mcpPath || pathname === protectedResourcePath || pathname === authorizationServerPath;
+  return pathname === mcpPath;
 }
 
 function applyCors(response: ServerResponse, mcp: boolean) {
-  for (const [name, value] of Object.entries(corsHeaders)) response.setHeader(name, value);
+  response.setHeader('Access-Control-Allow-Origin', '*');
   if (mcp) {
     response.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     response.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Last-Event-ID, MCP-Protocol-Version, MCP-Session-Id');
@@ -538,11 +515,6 @@ function pruneSessions(sessions: Map<string, McpSession>) {
 
 function writeJson(response: ServerResponse, status: number, value: unknown) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify(value));
-}
-
-function unavailable(response: ServerResponse, message: string) {
-  writeJson(response, 503, { error: message });
-  return true;
 }
 
 function methodNotAllowed(response: ServerResponse, allow: string) {

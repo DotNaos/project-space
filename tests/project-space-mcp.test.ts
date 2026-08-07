@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createServer, type Server as HttpServer } from 'node:http';
 
 import { afterEach, describe, expect, test } from 'bun:test';
@@ -6,6 +7,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 
 import type { ConfiguredCodexMachineTasksRuntime } from '../server/codex-machine-tasks/configured-runtime';
 import { createProjectSpaceMcpHandler } from '../server/project-space-mcp';
+import { MemoryProjectSpaceMcpOAuthStore } from '../server/project-space-mcp-oauth-store';
 
 const originalAuthDisabled = process.env.PROJECT_SPACE_AUTH_DISABLED;
 const originalPublishableKey = process.env.CLERK_PUBLISHABLE_KEY;
@@ -125,10 +127,14 @@ function runtime(calls: Array<{ kind: string; request: unknown; userId: string }
   } as unknown as ConfiguredCodexMachineTasksRuntime;
 }
 
-async function startMcp(calls: Array<{ kind: string; request: unknown; userId: string }>) {
+async function startMcp(
+  calls: Array<{ kind: string; request: unknown; userId: string }>,
+  options: Parameters<typeof createProjectSpaceMcpHandler>[0]['oauth'] = {}
+) {
   const handler = createProjectSpaceMcpHandler({
     backend: backend(),
-    createRuntime: async () => runtime(calls)
+    createRuntime: async () => runtime(calls),
+    oauth: options
   });
   const server = createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
@@ -142,18 +148,25 @@ async function startMcp(calls: Array<{ kind: string; request: unknown; userId: s
 }
 
 describe('Project Space remote MCP server', () => {
-  test('publishes Clerk protected-resource metadata and a Bearer challenge', async () => {
+  test('publishes Project Space OAuth metadata and a Bearer challenge', async () => {
     delete process.env.PROJECT_SPACE_AUTH_DISABLED;
-    process.env.CLERK_PUBLISHABLE_KEY = `pk_test_${Buffer.from('clerk.example$').toString('base64url')}`;
-    delete process.env.CLERK_SECRET_KEY;
     const origin = await startMcp([]);
 
     const metadataResponse = await fetch(`${origin}/.well-known/oauth-protected-resource/mcp`);
     expect(metadataResponse.status).toBe(200);
     expect(await metadataResponse.json()).toMatchObject({
-      authorization_servers: ['https://clerk.example'],
+      authorization_servers: [`${origin}/`],
       resource: `${origin}/mcp`,
-      scopes_supported: ['openid', 'profile', 'email']
+      scopes_supported: ['project-space:read', 'project-space:write']
+    });
+
+    const authorizationMetadata = await fetch(`${origin}/.well-known/oauth-authorization-server`);
+    expect(await authorizationMetadata.json()).toMatchObject({
+      authorization_endpoint: `${origin}/authorize`,
+      code_challenge_methods_supported: ['S256'],
+      grant_types_supported: ['authorization_code', 'refresh_token'],
+      registration_endpoint: `${origin}/register`,
+      token_endpoint: `${origin}/token`
     });
 
     const mcpResponse = await fetch(`${origin}/mcp`);
@@ -182,7 +195,7 @@ describe('Project Space remote MCP server', () => {
     ]);
     expect(listed.tools[0]).toMatchObject({
       _meta: {
-        securitySchemes: [{ scopes: ['openid', 'profile', 'email'], type: 'oauth2' }]
+        securitySchemes: [{ scopes: ['project-space:read'], type: 'oauth2' }]
       },
       annotations: { readOnlyHint: true },
     });
@@ -208,6 +221,141 @@ describe('Project Space remote MCP server', () => {
       }
     ]);
     expect((calls[1]?.request as { operationId?: string }).operationId).toMatch(/^mcp:start:/);
+  });
+
+  test('registers a public ChatGPT client and completes PKCE with rotating refresh tokens', async () => {
+    delete process.env.PROJECT_SPACE_AUTH_DISABLED;
+    const store = new MemoryProjectSpaceMcpOAuthStore();
+    const calls: Array<{ kind: string; request: unknown; userId: string }> = [];
+    const origin = await startMcp(calls, {
+      getStore: async () => store,
+      readSession: async (request) => request.headers.authorization === 'Bearer browser-session'
+        ? { email: 'user@example.com', login: 'user@example.com', role: 'user', userId: 'user-1' }
+        : null
+    });
+    const redirectUri = 'https://chatgpt.com/connector/oauth/test-callback';
+    const registration = await fetch(`${origin}/register`, {
+      body: JSON.stringify({
+        client_name: 'ChatGPT',
+        grant_types: ['authorization_code', 'refresh_token'],
+        redirect_uris: [redirectUri],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none'
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST'
+    });
+    expect(registration.status).toBe(201);
+    const client = await registration.json() as { client_id: string; client_secret?: string };
+    expect(client.client_id).toBeTruthy();
+    expect(client.client_secret).toBeUndefined();
+
+    const readOnlyToken = await store.createCredential({
+      clientId: client.client_id,
+      kind: 'access_token',
+      resource: `${origin}/mcp`,
+      scopes: ['project-space:read'],
+      userEmail: 'user@example.com',
+      userId: 'user-1'
+    });
+    const readOnlyClient = new Client({ name: 'read-only-test', version: '1.0.0' });
+    clients.push(readOnlyClient);
+    await readOnlyClient.connect(new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), {
+      requestInit: { headers: { Authorization: `Bearer ${readOnlyToken}` } }
+    }));
+    const rejectedWrite = await readOnlyClient.callTool({
+      arguments: { dryRun: true, issue: 480, repositoryId: '480' },
+      name: 'start_codex_task'
+    });
+    expect(rejectedWrite.isError).toBe(true);
+    expect(rejectedWrite._meta).toMatchObject({ 'mcp/www_authenticate': [expect.stringContaining('project-space:write')] });
+
+    const unsafeRegistration = await fetch(`${origin}/register`, {
+      body: JSON.stringify({
+        redirect_uris: ['https://attacker.example/callback'],
+        token_endpoint_auth_method: 'none'
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST'
+    });
+    expect(unsafeRegistration.status).toBe(400);
+
+    const verifier = 'project-space-pkce-verifier-0123456789-abcdefghijklmnopqrstuvwxyz';
+    const challenge = createHash('sha256').update(verifier).digest('base64url');
+    const authorize = new URL('/authorize', origin);
+    authorize.search = new URLSearchParams({
+      client_id: client.client_id,
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+      redirect_uri: redirectUri,
+      resource: `${origin}/mcp`,
+      response_type: 'code',
+      scope: 'project-space:read project-space:write',
+      state: 'test-state'
+    }).toString();
+    const authorizationResponse = await fetch(authorize, { redirect: 'manual' });
+    expect(authorizationResponse.status).toBe(302);
+    const approvalUrl = new URL(authorizationResponse.headers.get('location')!);
+    const requestId = approvalUrl.searchParams.get('request')!;
+
+    const approvalDetails = await fetch(`${origin}/api/mcp/oauth/authorization?request=${requestId}`, {
+      headers: { Authorization: 'Bearer browser-session' }
+    });
+    expect(await approvalDetails.json()).toMatchObject({
+      clientName: 'ChatGPT',
+      scopes: ['project-space:read', 'project-space:write']
+    });
+    const approval = await fetch(`${origin}/api/mcp/oauth/authorization`, {
+      body: JSON.stringify({ decision: 'approve', requestId }),
+      headers: { Authorization: 'Bearer browser-session', 'Content-Type': 'application/json' },
+      method: 'POST'
+    });
+    const approvalResult = await approval.json() as { redirectUrl: string };
+    const authorizationCode = new URL(approvalResult.redirectUrl).searchParams.get('code')!;
+
+    const token = await fetch(`${origin}/token`, {
+      body: new URLSearchParams({
+        client_id: client.client_id,
+        code: authorizationCode,
+        code_verifier: verifier,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri,
+        resource: `${origin}/mcp`
+      }),
+      method: 'POST'
+    });
+    expect(token.status).toBe(200);
+    const tokens = await token.json() as { access_token: string; refresh_token: string };
+
+    const refresh = await fetch(`${origin}/token`, {
+      body: new URLSearchParams({
+        client_id: client.client_id,
+        grant_type: 'refresh_token',
+        refresh_token: tokens.refresh_token,
+        resource: `${origin}/mcp`
+      }),
+      method: 'POST'
+    });
+    expect(refresh.status).toBe(200);
+    const refreshed = await refresh.json() as { access_token: string; refresh_token: string };
+    expect(refreshed.refresh_token).not.toBe(tokens.refresh_token);
+    const replay = await fetch(`${origin}/token`, {
+      body: new URLSearchParams({
+        client_id: client.client_id,
+        grant_type: 'refresh_token',
+        refresh_token: tokens.refresh_token
+      }),
+      method: 'POST'
+    });
+    expect(replay.status).toBe(400);
+
+    const mcpClient = new Client({ name: 'oauth-test', version: '1.0.0' });
+    clients.push(mcpClient);
+    await mcpClient.connect(new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), {
+      requestInit: { headers: { Authorization: `Bearer ${refreshed.access_token}` } }
+    }));
+    const projects = await mcpClient.callTool({ name: 'list_projects', arguments: {} });
+    expect(projects.isError).not.toBe(true);
   });
 });
 
