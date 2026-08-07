@@ -332,9 +332,10 @@ export function SettingsView({
       <SettingsSection
         icon={MonitorCog}
         title="Machines & connectors"
-        description="Each connector belongs to one machine. A machine can host multiple connector installations."
+        description="Platforms contain optional physical hosts, isolated environments, and their connector installations."
       >
           <SettingsMachineGroups
+          computeInventory={connectorOverview.computeInventory}
           connectors={connectorOverview.machines}
           credentials={credentials}
           loadError={physicalMachinesError}

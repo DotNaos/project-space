@@ -193,21 +193,22 @@ Enrollment requests are not Connector installations:
 1. a client creates an enrollment request and public key;
 2. a provider, host broker, deterministic resolver, or explicit user action
    resolves or creates the exact Environment;
-3. one transaction persists both the connector credential and its immutable
-   Environment association;
+3. one transaction persists both the connector credential and a mandatory
+   Environment association; a legacy bootstrap association can be replaced
+   exactly once by the connector's first trusted topology report;
 4. only then can the Connector become active.
 
-The persistence slice must enforce `connector.environment_id NOT NULL`, unique
-versioned Host and Environment identities within account/Platform scope, and an
-immutable Connector-to-Environment association. The shared Slice 1 contract
-already makes `environmentId` required and validates that it references an
-existing Environment. It also rejects duplicate connector IDs, duplicate
-derived identities, missing Platforms/Hosts/parents, and cross-Platform or
-cross-Host nesting.
+Migration `0030_compute_inventory` enforces a mandatory row in
+`connector_compute_environments`, unique versioned Host and Environment
+identities within account/Platform scope, and immutable post-reconciliation
+Connector-to-Environment associations. Enrollment creates a conservative
+`legacy` Environment in the same transaction as membership. The first valid
+connector report may atomically replace that bootstrap association and marks it
+`connector`; later identity changes are rejected and require revoke/re-enroll.
 
-An unmanaged nested container with no trusted claim remains an enrollment
-request. It must not become an unassigned connector or create duplicate
-inventory.
+This means an old or evidence-poor connector is still never unassigned. It is
+shown as **Needs assignment** in an explicit Environment. Project Space does
+not guess that it shares another Environment merely because names match.
 
 ## Resources and aggregation
 
@@ -240,26 +241,51 @@ Environment, then resolves one currently eligible Connector installation under
 it. Connector selection can consider channel, capabilities, version, health,
 and current leases without changing Environment identity.
 
-During staged migration, machine-task API v1 continues targeting its historical
-connector `machineId`. A future versioned Environment target is additive; the
-meaning of an existing ID must never change in place.
+Machine-task API v1 continues accepting its historical physical-machine and
+connector selectors. The additive `environmentId` selector resolves an exact
+Environment and then one eligible Connector beneath it. The compatibility
+`physicalMachine` result remains populated for old clients, but its existing ID
+meaning is never changed in place.
 
 ## Compatibility and migration
 
 This model is not a rename of `physical_machines`:
 
-- `MachineRecord` and `PhysicalMachineRecord` stay available for existing
-  storage, UI, connector, and machine-task v1 consumers.
+- `MachineRecord` and `PhysicalMachineRecord` stay available for compatibility
+  consumers while the Settings inventory uses `computeInventory`.
 - Legacy physical-machine groups become reconciliation input, not trusted Host
   or Environment evidence.
 - Existing connector names and memberships cannot determine whether two
   installations share an Environment or whether Linux represents WSL, native
   Linux, Docker, or a cloud sandbox.
-- A reconciliation flow must show the proposed Platform/Host/Environment tree
-  and require confirmation wherever deterministic evidence is absent.
+- Manual physical-machine grouping is reconciliation input. It produces a
+  visible **Manually assigned** Host association; deterministic connector
+  evidence produces **Verified**, missing evidence produces **Needs
+  assignment**, and provider-managed sandboxes produce **Provider managed**.
 - Compatibility tables, routes, and aliases can be removed only after every
   consumer uses the new model and every persisted connector has an Environment.
 
-Delivery is staged: shared contracts and rules first, then transactional
-persistence/enrollment, connector identity adapters, inventory/reconciliation
-UI, and finally Environment-targeted scheduling.
+The migration is additive and rollback-safe: legacy tables and routes are not
+dropped. Every existing membership is backfilled to one conservative
+Environment; new runtimes progressively enrich identity, platform kind, and
+resources as they reconnect after the signed connector release is installed.
+
+## Runtime detection and rollout
+
+The connector reports an application-specific derivative, never the raw input:
+
+- GitHub Codespaces: `CODESPACES` plus a locally hashed Codespace identity;
+- Kubernetes: cluster/runtime presence plus a locally hashed workload identity;
+- WSL: typed distro Environment plus best-effort SMBIOS Host evidence;
+- Docker: typed container Environment with no invented Host;
+- native macOS, Windows, and Linux: native Environment plus best-effort Host
+  evidence.
+
+The server derives the persisted identity again with the account ID, so the
+stored key is account-scoped. CPU, memory, filesystem, architecture, source,
+and report time are included in `ResourceProfile`. Host-backed profiles are
+stored once at Host level; provider-managed capacity stays on the Environment.
+
+Old connector releases remain visible through conservative fallback
+Environments. A signed connector update adds richer detection; it does not
+gate the database migration or make old connectors disappear.

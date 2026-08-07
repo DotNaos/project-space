@@ -52,9 +52,15 @@ describe('connector topology metadata', () => {
       readMachineId: () => machineId
     });
 
-    expect(stable).toEqual(dev);
+    expect({ ...stable, compute: stable.compute && { ...stable.compute, resources: undefined } })
+      .toEqual({ ...dev, compute: dev.compute && { ...dev.compute, resources: undefined } });
     expect(stable.environment).toEqual({ kind: 'wsl', label: 'Ubuntu-24.04' });
     expect(stable.executionScopeId).toMatch(/^scope-[a-f0-9]{40}$/);
+    expect(stable.compute).toMatchObject({
+      environmentKind: 'wsl',
+      hostResolution: expect.stringMatching(/^(unresolved|verified)$/),
+      platformKind: 'local'
+    });
   });
 
   test('keeps native Linux and WSL as separate typed scopes', () => {
@@ -171,5 +177,21 @@ describe('connector topology metadata', () => {
 
     expect(local?.environment?.kind).toMatch(/^(linux|macos|windows|wsl)$/);
     expect(local?.executionScopeId).toBe('scope-local-overview');
+    expect(local?.compute?.resources?.cpu.cores).toBeGreaterThan(0);
+  });
+
+  test('classifies GitHub Codespaces as provider-managed environments', () => {
+    const metadata = loadConnectorTopologyMetadata({
+      environment: { CODESPACES: 'true', CODESPACE_NAME: 'example-space' },
+      platform: 'linux',
+      readMachineId: () => '0123456789abcdef0123456789abcdef'
+    });
+    expect(metadata.compute).toMatchObject({
+      environmentKind: 'github_codespace',
+      environmentName: 'GitHub Codespace',
+      hostResolution: 'not_applicable',
+      platformKind: 'github_codespaces',
+      platformName: 'GitHub Codespaces'
+    });
   });
 });

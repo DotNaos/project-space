@@ -83,7 +83,8 @@ describe('database migrations', () => {
       '0026_machine_power_operations',
       '0027_project_chat_name_leases',
       '0028_codex_session_settings_operations',
-      '0029_project_space_mcp_oauth'
+      '0029_project_space_mcp_oauth',
+      '0030_compute_inventory'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -128,6 +129,14 @@ describe('database migrations', () => {
     expect(sql).toContain('create table machine_execution_scope_members');
     expect(sql).toContain('create table physical_machines');
     expect(sql).toContain('create table physical_machine_connectors');
+    expect(sql).toContain('create table compute_platforms');
+    expect(sql).toContain('create table compute_hosts');
+    expect(sql).toContain('create table compute_environments');
+    expect(sql).toContain('create table connector_compute_environments');
+    expect(sql).toContain('machine_memberships_compute_environment');
+    expect(sql).toContain('association_source');
+    expect(sql).toContain('host_resolution');
+    expect(sql).toContain('identity_resolution');
     expect(sql).toContain('primary key (owner_user_id, connector_id)');
     expect(sql).toContain('insert into physical_machines');
     expect(sql).toContain('from machine_execution_scopes');

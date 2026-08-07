@@ -433,6 +433,17 @@ export async function revokeConnectorCredential(input: RevokeConnectorCredential
   return (await getDatabaseRepository()).revokeConnectorCredential(input);
 }
 
+export async function listComputeInventory(userId: string) {
+  return (await getDatabaseRepository()).listComputeInventory(userId);
+}
+
+export async function reconcileConnectorComputeInventory(
+  userId: string,
+  machines: readonly import('../src/shared/project-space-api').MachineRecord[]
+) {
+  return (await getDatabaseRepository()).reconcileConnectorComputeInventory(userId, machines);
+}
+
 export async function listPhysicalMachines(userId: string) {
   return (await getDatabaseRepository()).listPhysicalMachines(userId);
 }

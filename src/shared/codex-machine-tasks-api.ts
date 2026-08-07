@@ -30,6 +30,11 @@ export interface CodexMachineTaskTarget {
     id: string;
     name: string;
   };
+  environment?: {
+    id: string;
+    name: string;
+  };
+  /** @deprecated Compatibility projection for v1 clients. */
   physicalMachine: {
     id: string;
     name: string;
@@ -55,6 +60,7 @@ export interface CodexMachineTaskIdentity extends CodexMachineTaskTarget {
 
 export interface CodexMachineTaskStartRequest {
   connectorId?: string;
+  environmentId?: string;
   dryRun?: boolean;
   expectedBranch?: string;
   expectedCommit?: string;
@@ -138,6 +144,7 @@ export interface CodexMachineTaskUncertainResult {
 
 export interface CodexMachineTaskReadRequest {
   connectorId?: string;
+  environmentId?: string;
   last?: number;
   physicalMachineId?: string;
   physicalMachineName?: string;

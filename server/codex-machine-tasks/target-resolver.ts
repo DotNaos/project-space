@@ -7,6 +7,7 @@ import type {
   PhysicalMachineRecord
 } from '../../src/shared/project-space-api';
 import type { MachineRuntimeStatusResult } from '../../src/shared/connector-runtime-api';
+import type { ComputeInventorySnapshot } from '../../src/shared/compute-environment-api';
 import { evaluateMachineReadiness } from '../machine-readiness/model';
 
 export class CodexMachineTaskTargetError extends Error {
@@ -24,7 +25,9 @@ export class CodexMachineTaskTargetError extends Error {
 
 export function resolveCodexMachineTaskTarget(input: {
   connectorId?: string;
+  computeInventory?: ComputeInventorySnapshot;
   connectors: readonly MachineRecord[];
+  environmentId?: string;
   generationFor(connectorId: string): number | undefined;
   physicalMachineId?: string;
   physicalMachineName?: string;
@@ -32,10 +35,22 @@ export function resolveCodexMachineTaskTarget(input: {
   runtimeStatuses?: ReadonlyMap<string, MachineRuntimeStatusResult>;
   userCanUseConnector?(connectorId: string): boolean;
 }): CodexMachineTaskTarget {
-  const physicalMachine = selectPhysicalMachine(input);
+  const environment = selectEnvironment(input);
+  const physicalMachine = environment
+    ? {
+        connectorIds: input.computeInventory!.connectors
+          .filter(({ environmentId }) => environmentId === environment.id)
+          .map(({ connectorId }) => connectorId),
+        id: environment.id,
+        name: environment.name
+      }
+    : selectPhysicalMachine(input);
   const readiness = evaluateMachineReadiness({
     ...input,
-    checkedAt: new Date(0).toISOString()
+    checkedAt: new Date(0).toISOString(),
+    physicalMachineId: physicalMachine.id,
+    physicalMachineName: undefined,
+    physicalMachines: environment ? [physicalMachine] : input.physicalMachines
   });
   if (readiness.state === 'ambiguous') {
     throw new CodexMachineTaskTargetError(
@@ -89,8 +104,36 @@ export function resolveCodexMachineTaskTarget(input: {
       id: selected.id,
       name: selected.name
     },
+    ...(environment ? { environment: { id: environment.id, name: environment.name } } : {}),
     physicalMachine: { id: physicalMachine.id, name: physicalMachine.name }
   };
+}
+
+function selectEnvironment(input: {
+  computeInventory?: ComputeInventorySnapshot;
+  connectorId?: string;
+  environmentId?: string;
+}) {
+  if (!input.environmentId) return undefined;
+  const environment = input.computeInventory?.environments.find(
+    ({ id }) => id === input.environmentId
+  );
+  if (!environment) {
+    throw new CodexMachineTaskTargetError('unauthorized', 'Select one exact environment.');
+  }
+  const connectorIds = input.computeInventory!.connectors
+    .filter(({ environmentId }) => environmentId === environment.id)
+    .map(({ connectorId }) => connectorId);
+  if (input.connectorId && !connectorIds.includes(input.connectorId)) {
+    throw new CodexMachineTaskTargetError(
+      'unauthorized',
+      'The selected connector does not belong to the selected environment.'
+    );
+  }
+  if (connectorIds.length === 0) {
+    throw new CodexMachineTaskTargetError('offline', 'The selected environment has no connector.');
+  }
+  return environment;
 }
 
 function doctorCommand(machine: PhysicalMachineRecord) {

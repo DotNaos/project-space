@@ -20,6 +20,7 @@ const safeSelector = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
 export interface CodexMachineTasksHttpService {
   attach(actor: { callerMachineId?: string; userId: string }, request: {
     connectorId?: string;
+    environmentId?: string;
     operationId: string;
     physicalMachineId?: string;
     physicalMachineName?: string;
@@ -68,6 +69,7 @@ export function createCodexMachineTasksHttpApi(
         if (!Number.isSafeInteger(issue) || issue < 1) throw invalid('Issue must be positive.');
         writeJson(response, 200, await service.start(actor, {
           connectorId: optionalSelector(body.connectorId),
+          environmentId: optionalSelector(body.environmentId),
           dryRun: body.dryRun === true,
           expectedBranch: optionalSelector(body.expectedBranch),
           expectedCommit: optionalCommit(body.expectedCommit),
@@ -91,6 +93,7 @@ export function createCodexMachineTasksHttpApi(
         if (!Number.isSafeInteger(issue) || issue < 1) throw invalid('Issue must be positive.');
         writeJson(response, 200, await service.recoverStart(actor, {
           connectorId: optionalSelector(body.connectorId),
+          environmentId: optionalSelector(body.environmentId),
           dryRun: body.dryRun === true,
           expectedBranch: optionalSelector(body.expectedBranch),
           expectedCommit: optionalCommit(body.expectedCommit),
@@ -238,6 +241,7 @@ async function stream(
 function selectorFromUrl(url: URL, threadId: string): CodexMachineTaskReadRequest {
   return {
     connectorId: optionalSelector(url.searchParams.get('connectorId') ?? undefined),
+    environmentId: optionalSelector(url.searchParams.get('environmentId') ?? undefined),
     physicalMachineId: optionalSelector(url.searchParams.get('physicalMachineId') ?? undefined),
     physicalMachineName: optionalPhysicalMachineName(
       url.searchParams.get('physicalMachineName') ?? undefined
@@ -249,6 +253,7 @@ function selectorFromUrl(url: URL, threadId: string): CodexMachineTaskReadReques
 function selectorFromBody(body: Record<string, unknown>, threadId: string) {
   return {
     connectorId: optionalSelector(body.connectorId),
+    environmentId: optionalSelector(body.environmentId),
     physicalMachineId: optionalSelector(body.physicalMachineId),
     physicalMachineName: optionalPhysicalMachineName(body.physicalMachineName),
     threadId

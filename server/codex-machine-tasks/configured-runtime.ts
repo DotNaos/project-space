@@ -23,6 +23,7 @@ import {
 import {
   getCodexSessionsDatabaseClient,
   isDatabaseConfigured,
+  listComputeInventory,
   listPhysicalMachines,
   readMachineMembership
 } from '../local-database-store';
@@ -131,6 +132,7 @@ export async function createConfiguredCodexMachineTasksRuntime(
           }
         }));
         return {
+          computeInventory: await listComputeInventory(userId),
           connectors: overview.machines,
           physicalMachines: await listPhysicalMachines(userId),
           runtimeStatuses: new Map(runtimeEntries.filter(

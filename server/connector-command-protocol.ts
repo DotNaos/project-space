@@ -25,6 +25,7 @@ import {
   codexDaemonEvidenceIsConsistent,
   type CodexDaemonEvidence
 } from '../src/shared/codex-daemon-api';
+import { isConnectorComputeMetadata } from './connector-topology-metadata';
 import {
   isConnectorDevServerResult,
   isConnectorDevServerListResult,
@@ -319,6 +320,7 @@ function hasConnectorMetadata(connector: Record<string, unknown>) {
     hasOnlyKeys(connector, [
       'battery',
       'capabilities',
+      'compute',
       'daemon',
       'environment',
       'executionScopeId',
@@ -334,6 +336,7 @@ function hasConnectorMetadata(connector: Record<string, unknown>) {
     isCanonicalMachineId(connector.machineId) &&
     isBoundedMetadata(connector.machineName) &&
     hasBatteryMetadata(connector.battery) &&
+    (connector.compute === undefined || isConnectorComputeMetadata(connector.compute)) &&
     hasCodexDaemonEvidence(connector.daemon) &&
     (connector.environment === undefined ||
       isConnectorEnvironmentRecord(connector.environment)) &&
