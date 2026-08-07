@@ -4,30 +4,19 @@ on:
   pull_request_target:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review]
-  workflow_dispatch:
-    inputs:
-      pr:
-        description: Open, ready pull request number to repair.
-        required: true
-        type: string
-      requested_head_sha:
-        description: Exact current pull request head to repair.
-        required: true
-        type: string
 
 permissions:
-  checks: write
   contents: read
   pull-requests: read
 
 concurrency:
-  group: release-decision-${{ github.event.pull_request.number || inputs.pr }}
+  group: release-decision-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   validate:
-    name: Validate exact trusted release decision
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false }}
+    name: Release decision
+    if: ${{ github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -37,18 +26,10 @@ jobs:
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_PR: ${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ github.token }}
-          REQUESTED_HEAD_SHA: ${{ inputs.requested_head_sha }}
-          REQUESTED_PR: ${{ inputs.pr }}
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
-            [[ "$GITHUB_REF" == refs/heads/main ]]
-            pr_number=$REQUESTED_PR
-            requested_head=$REQUESTED_HEAD_SHA
-          else
-            pr_number=$EVENT_PR
-            requested_head=$EVENT_HEAD_SHA
-          fi
+          pr_number=$EVENT_PR
+          requested_head=$EVENT_HEAD_SHA
           [[ "$pr_number" =~ ^[1-9][0-9]*$ ]]
           [[ "$requested_head" =~ ^[0-9a-f]{40}$ ]]
 
@@ -61,87 +42,20 @@ jobs:
           base=$(jq -er '.base.ref' <<<"$pr")
           [[ "$current_main" =~ ^[0-9a-f]{40}$ ]]
 
-          if [[ "$GITHUB_EVENT_NAME" == pull_request_target ]] && {
-            [[ "$state" != open ]] || [[ "$draft" == true ]] ||
-            [[ "$base" != main ]] || [[ "$current_head" != "$requested_head" ]]
-          }; then
+          if [[ "$state" != open ]] || [[ "$draft" == true ]] ||
+            [[ "$base" != main ]] || [[ "$current_head" != "$requested_head" ]]; then
             echo 'skip=true' >> "$GITHUB_OUTPUT"
             printf 'Skipped stale or no-longer-ready PR #%s event for `%s`; current head is `%s`.\n' \
               "$pr_number" "$requested_head" "$current_head" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
-          [[ "$state" == open ]]
-          [[ "$draft" == false ]]
-          [[ "$base" == main ]]
-          [[ "$current_head" == "$requested_head" ]]
           echo "pr=$pr_number" >> "$GITHUB_OUTPUT"
           echo "head_sha=$current_head" >> "$GITHUB_OUTPUT"
           echo "main_sha=$current_main" >> "$GITHUB_OUTPUT"
 
-      - name: Start or reuse required check on exact PR head
-        id: check
-        if: steps.target.outputs.skip != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          MAIN_SHA: ${{ steps.target.outputs.main_sha }}
-          PR_HEAD_SHA: ${{ steps.target.outputs.head_sha }}
-          PR_NUMBER: ${{ steps.target.outputs.pr }}
-        run: |
-          set -euo pipefail
-          pr=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")
-          current_main=$(gh api \
-            "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)
-          [[ "$(jq -er '.state' <<<"$pr")" == open ]]
-          [[ "$(jq -r '.draft' <<<"$pr")" == false ]]
-          [[ "$(jq -er '.base.ref' <<<"$pr")" == main ]]
-          [[ "$(jq -er '.head.sha' <<<"$pr")" == "$PR_HEAD_SHA" ]]
-          [[ "$current_main" == "$MAIN_SHA" ]]
-
-          validation_key="release-entry:${PR_HEAD_SHA}:${MAIN_SHA}"
-          checks=$(gh api \
-            "repos/${GITHUB_REPOSITORY}/commits/${PR_HEAD_SHA}/check-runs?check_name=Release%20decision&filter=all&per_page=100")
-          completed_check_id=$(jq -r --arg key "$validation_key" \
-            '[.check_runs[] |
-              select(.external_id == $key and .status == "completed" and
-                (.conclusion == "success" or .conclusion == "failure"))] |
-             first | .id // empty' <<<"$checks")
-          if [[ -n "$completed_check_id" ]]; then
-            echo 'skip=true' >> "$GITHUB_OUTPUT"
-            printf 'Reused completed exact-input check `%s` for PR #%s.\n' \
-              "$completed_check_id" "$PR_NUMBER" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          check_id=$(jq -r --arg key "$validation_key" \
-            '[.check_runs[] |
-              select(.external_id == $key and
-                (.status == "queued" or .status == "in_progress"))] |
-             first | .id // empty' <<<"$checks")
-          if [[ -z "$check_id" ]]; then
-            jq -n \
-              --arg name 'Release decision' \
-              --arg head_sha "$PR_HEAD_SHA" \
-              --arg external_id "$validation_key" \
-              --arg status in_progress \
-              --arg started_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-              --arg title "Validating PR #${PR_NUMBER} against latest main" \
-              '{name: $name, head_sha: $head_sha, external_id: $external_id,
-                status: $status, started_at: $started_at,
-                output: {title: $title,
-                summary: "Trusted validation is running."}}' \
-              > "$RUNNER_TEMP/check.json"
-            check_id=$(gh api --method POST \
-              "repos/${GITHUB_REPOSITORY}/check-runs" \
-              --input "$RUNNER_TEMP/check.json" --jq .id)
-          fi
-          [[ "$check_id" =~ ^[1-9][0-9]*$ ]]
-          echo "check_id=$check_id" >> "$GITHUB_OUTPUT"
-
       - name: Check out trusted latest main validator
-        id: checkout
-        if: steps.target.outputs.skip != 'true' && steps.check.outputs.skip != 'true'
-        continue-on-error: true
+        if: steps.target.outputs.skip != 'true'
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
@@ -149,9 +63,7 @@ jobs:
           ref: ${{ steps.target.outputs.main_sha }}
 
       - name: Fetch exact pull request revision as data
-        id: fetch
-        if: steps.target.outputs.skip != 'true' && steps.check.outputs.skip != 'true'
-        continue-on-error: true
+        if: steps.target.outputs.skip != 'true'
         env:
           PR_HEAD_SHA: ${{ steps.target.outputs.head_sha }}
           PR_NUMBER: ${{ steps.target.outputs.pr }}
@@ -163,86 +75,38 @@ jobs:
           [[ "$(git rev-parse "$target_ref")" == "$PR_HEAD_SHA" ]]
 
       - name: Set up Bun
-        id: bun
-        if: steps.target.outputs.skip != 'true' && steps.check.outputs.skip != 'true'
-        continue-on-error: true
+        if: steps.target.outputs.skip != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.14
 
       - name: Install trusted validator dependencies
-        id: install
-        if: steps.target.outputs.skip != 'true' && steps.check.outputs.skip != 'true'
-        continue-on-error: true
+        if: steps.target.outputs.skip != 'true'
         run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Decide ordinary or versioned release mode
-        if: >-
-          steps.target.outputs.skip != 'true' &&
-          steps.check.outputs.skip != 'true' &&
-          steps.checkout.outcome == 'success' &&
-          steps.fetch.outcome == 'success' &&
-          steps.bun.outcome == 'success' &&
-          steps.install.outcome == 'success'
-        id: validation
-        continue-on-error: true
+        if: steps.target.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.target.outputs.pr }}
           RELEASE_BASE_SHA: ${{ steps.target.outputs.main_sha }}
           RELEASE_HEAD_SHA: ${{ steps.target.outputs.head_sha }}
-        run: |
-          set +e
-          bun scripts/validate-release-pr.ts
-          exit_code=$?
-          set -e
-          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
-          [[ "$exit_code" == 0 ]]
+        run: bun scripts/validate-release-pr.ts
 
-      - name: Publish exact-head required check
-        if: ${{ always() && steps.check.outputs.check_id }}
+      - name: Revalidate exact pull request head and main
+        if: steps.target.outputs.skip != 'true'
         env:
-          CHECK_ID: ${{ steps.check.outputs.check_id }}
           EXPECTED_HEAD_SHA: ${{ steps.target.outputs.head_sha }}
           EXPECTED_MAIN_SHA: ${{ steps.target.outputs.main_sha }}
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.target.outputs.pr }}
-          VALIDATION_EXIT_CODE: ${{ steps.validation.outputs.exit_code }}
-          VALIDATION_OUTCOME: ${{ steps.validation.outcome }}
         run: |
           set -euo pipefail
           pr=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")
           current_main=$(gh api \
             "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)
-          current_head=$(jq -er '.head.sha' <<<"$pr")
-
-          conclusion=failure
-          summary='The exact pull request head has an invalid release decision.'
-          if [[ "$(jq -er '.state' <<<"$pr")" != open ]] ||
-            [[ "$(jq -r '.draft' <<<"$pr")" == true ]] ||
-            [[ "$(jq -er '.base.ref' <<<"$pr")" != main ]] ||
-            [[ "$current_head" != "$EXPECTED_HEAD_SHA" ]] ||
-            [[ "$current_main" != "$EXPECTED_MAIN_SHA" ]]; then
-            conclusion=cancelled
-            summary='Validation was superseded before publication; the current PR head must be checked.'
-          elif [[ "$VALIDATION_OUTCOME" == success ]]; then
-            conclusion=success
-            summary='The exact pull request head passed trusted latest-main validation.'
-          elif [[ "$VALIDATION_EXIT_CODE" != 1 ]]; then
-            conclusion=action_required
-            summary='Trusted release-decision validation could not run; exact repair is required.'
-          fi
-
-          jq -n \
-            --arg status completed \
-            --arg conclusion "$conclusion" \
-            --arg completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --arg title 'Release decision' \
-            --arg summary "$summary" \
-            '{status: $status, conclusion: $conclusion,
-              completed_at: $completed_at,
-              output: {title: $title, summary: $summary}}' \
-            > "$RUNNER_TEMP/result.json"
-          gh api --method PATCH \
-            "repos/${GITHUB_REPOSITORY}/check-runs/${CHECK_ID}" \
-            --input "$RUNNER_TEMP/result.json" >/dev/null
+          [[ "$(jq -er '.state' <<<"$pr")" == open ]]
+          [[ "$(jq -r '.draft' <<<"$pr")" == false ]]
+          [[ "$(jq -er '.base.ref' <<<"$pr")" == main ]]
+          [[ "$(jq -er '.head.sha' <<<"$pr")" == "$EXPECTED_HEAD_SHA" ]]
+          [[ "$current_main" == "$EXPECTED_MAIN_SHA" ]]
