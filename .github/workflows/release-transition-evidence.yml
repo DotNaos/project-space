@@ -1,4 +1,5 @@
 name: Delivery transition evidence
+run-name: Delivery evidence · ${{ github.event.workflow_run.name }} · ${{ github.event.workflow_run.conclusion }}
 
 on:
   workflow_run:
@@ -12,7 +13,7 @@ permissions:
 jobs:
   evidence:
     name: Publish failed delivery evidence
-    if: github.event.workflow_run.conclusion != 'success'
+    if: contains(fromJSON('["failure","cancelled","timed_out","action_required","startup_failure"]'), github.event.workflow_run.conclusion)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -22,6 +23,7 @@ jobs:
           SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           SOURCE_EVENT: ${{ github.event.workflow_run.event }}
           SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
           SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
           SOURCE_RUN_URL: ${{ github.event.workflow_run.html_url }}
           SOURCE_WORKFLOW: ${{ github.event.workflow_run.name }}
@@ -60,9 +62,9 @@ jobs:
             failure_class=application_regression
           fi
           case "$SOURCE_WORKFLOW" in
-            Release) transition=release ;;
-            'Deploy PR preview') transition=preview ;;
-            'Deploy production') transition=production ;;
+            Release*) transition=release ;;
+            Deploy\ PR\ preview*|Preview\ control*) transition=preview ;;
+            Deploy\ production*|Production*) transition=production ;;
             *) transition=delivery ;;
           esac
           if [[ "$superseded" == true ]]; then
@@ -78,13 +80,14 @@ jobs:
             --arg event "$SOURCE_EVENT" \
             --arg failureClass "$failure_class" \
             --arg headSha "$SOURCE_HEAD_SHA" \
+            --argjson runAttempt "$SOURCE_RUN_ATTEMPT" \
             --argjson runId "$SOURCE_RUN_ID" \
             --arg runUrl "$SOURCE_RUN_URL" \
             --arg workflow "$SOURCE_WORKFLOW" \
             --slurpfile pages "$RUNNER_TEMP/jobs-pages.json" \
             '{errorCode:$errorCode,
               conclusion:$conclusion,event:$event,failureClass:$failureClass,headSha:$headSha,
-              runId:$runId,runUrl:$runUrl,
+              runAttempt:$runAttempt,runId:$runId,runUrl:$runUrl,
               workflow:$workflow,
               failedJobs:[$pages[][]?.jobs[] |
                 select(.conclusion == "failure" or .conclusion == "cancelled") |
@@ -103,7 +106,7 @@ jobs:
       - name: Upload delivery transition evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: delivery-transition-${{ github.event.workflow_run.id }}
+          name: delivery-transition-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
           path: delivery-transition.json
           if-no-files-found: error
           retention-days: 14

@@ -12,8 +12,13 @@ test('publishes sanitized evidence for every failed delivery workflow', () => {
     'workflows: [Release, Deploy PR preview, Deploy production]',
   );
   expect(workflow).toContain(
-    "github.event.workflow_run.conclusion != 'success'",
+    'contains(fromJSON(\'["failure","cancelled","timed_out","action_required","startup_failure"]\')',
   );
+  expect(workflow).toContain('Preview\\ control*');
+  expect(workflow).toContain('Production*');
+  expect(workflow).toContain('SOURCE_RUN_ATTEMPT:');
+  expect(workflow).toContain('runAttempt:$runAttempt');
+  expect(workflow).toContain('github.event.workflow_run.run_attempt');
   expect(workflow).toContain('actions: read');
   expect(workflow).toContain('error_code="${transition}_transition_failed"');
   expect(workflow).toContain('error_code="${transition}_superseded"');

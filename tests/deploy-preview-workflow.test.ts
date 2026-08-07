@@ -42,7 +42,23 @@ describe('trusted PR Preview workflow contract', () => {
     expect(workflow).toContain('cancel-in-progress: false');
     expect(workflow).not.toContain('queue:');
     expect(workflow).toContain('ssh project-space-preview destroy');
+    expect(workflow).toContain('.cleanup.registryAbsent');
     expect(workflow).toContain('state:"inactive"');
+  });
+
+  test('keeps CI runs without an eligible Preview neutral while ambiguous artifacts fail closed', async () => {
+    const workflow = await readFile(deploymentWorkflowPath, 'utf8');
+
+    expect(workflow).toContain('disposition=not-applicable');
+    expect(workflow).toContain('TRIGGER_EVENT: ${{ github.event.workflow_run.event }}');
+    expect(workflow).toContain('trigger_pr_count=$(jq');
+    expect(workflow).toContain('"$TRIGGER_EVENT" != pull_request || "$trigger_pr_count" != 1');
+    expect(workflow).toContain('Fork pull requests do not cross the trusted Preview deployment boundary');
+    expect(workflow).toContain('disposition=no-preview-artifact');
+    expect(workflow).toContain('CI succeeded without a Preview artifact; deployment was intentionally skipped.');
+    expect(workflow).toContain('[[ "$artifact_count" == 1 ]]');
+    expect(workflow).toContain('Expected exactly one unexpired exact-head Preview artifact.');
+    expect(workflow).toContain("needs.resolve.outputs.disposition == 'current'");
   });
 
   test('treats only positively superseded exact heads as neutral', async () => {

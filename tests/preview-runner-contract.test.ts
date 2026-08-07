@@ -301,6 +301,7 @@ printf '%s\n' "{\"state\":\"open\",\"base\":{\"ref\":\"main\",\"repo\":{\"full_n
       cleanup: {
         containersAbsent: true,
         networksAbsent: true,
+        registryAbsent: true,
         routeAbsent: true,
         runtimePathAbsent: true,
         volumesAbsent: true
@@ -318,6 +319,49 @@ printf '%s\n' "{\"state\":\"open\",\"base\":{\"ref\":\"main\",\"repo\":{\"full_n
       'utf8'
     ));
     expect(persisted).toEqual(tombstone);
+  });
+
+  test('destroy accepts only the canonical central Preview fallback after local resources are absent', async () => {
+    const { bin, root } = await testRoot();
+    await writeFile(join(bin, 'curl'), `#!/bin/sh
+printf '302\\nhttps://pr.projects.os-home.net/?pr=263&return=%%2F'
+`);
+    await chmod(join(bin, 'curl'), 0o755);
+
+    const removed = runRunner({
+      reason: 'pull_request_closed',
+      repository: 'DotNaos/project-space',
+      prNumber: 263
+    }, 'destroy', root, bin);
+    expect(removed.status).toBe(0);
+    expect(JSON.parse(removed.stdout).cleanup).toMatchObject({
+      registryAbsent: true,
+      routeAbsent: true
+    });
+
+    await writeFile(join(bin, 'curl'), `#!/bin/sh
+printf '302\\nhttps://attacker.example/?pr=263'
+`);
+    await chmod(join(bin, 'curl'), 0o755);
+    const unsafeRedirect = runRunner({
+      reason: 'pull_request_closed',
+      repository: 'DotNaos/project-space',
+      prNumber: 263
+    }, 'destroy', root, bin);
+    expect(unsafeRedirect.status).toBe(71);
+    expect(unsafeRedirect.stderr).toContain('unsafe or unexpected redirect');
+
+    await writeFile(join(bin, 'curl'), `#!/bin/sh
+printf '200\\n'
+`);
+    await chmod(join(bin, 'curl'), 0o755);
+    const liveRoute = runRunner({
+      reason: 'pull_request_closed',
+      repository: 'DotNaos/project-space',
+      prNumber: 263
+    }, 'destroy', root, bin);
+    expect(liveRoute.status).toBe(71);
+    expect(liveRoute.stderr).toContain('still responds with HTTP 200');
   });
 
   test('destroy preserves the last requested and running SHAs in its tombstone', async () => {

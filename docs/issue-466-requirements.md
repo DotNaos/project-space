@@ -55,6 +55,15 @@ Make normal pull requests easy to understand and ready to merge in roughly two t
 - Remove the completed macOS signing and signing-secret probe workflows after their security assertions are covered against the real signer workflows.
 - Disable retained GitHub workflow records for deleted legacy workflows such as `CI` and `PR Canary` after the replacement reaches `main`.
 
+## Reliability and recovery
+
+- A pull-request revision should need one coherent push and one successful run, not repeated pushes to obtain a runner or repair stale orchestration.
+- Advancing `main` must not fan out trusted validation across every old ready pull request. Strict up-to-date protection makes each pull request revalidate when its owner reconciles it with `main`.
+- Superseded revisions, drafts, forks, missing optional Preview artifacts, and intentionally skipped delivery work are neutral outcomes rather than additional failures.
+- Missing required checks can be repaired only for an exact open same-repository pull-request head and its exact current base.
+- A runner outage must not permanently skip an intermediate versioned release or production commit. Existing workflows reconcile missing exact releases and deliveries idempotently after service recovers.
+- One source failure produces one actionable required failure. Supporting evidence records the transition without duplicating or misclassifying it.
+
 ## Required safety properties
 
 - Exact commit, artifact ID, digest, source repository, and current-head checks remain fail closed.
@@ -73,3 +82,5 @@ Make normal pull requests easy to understand and ready to merge in roughly two t
 - Dev builds run only after an explicit request and are clearly isolated from stable tools and Production.
 - One release pull request produces one tag, one release run, verified published artifacts, and any required exact production deployment.
 - The active workflow inventory no longer contains deleted legacy or diagnostic workflows.
+- A deterministic pull-request defect is visible as one actionable required failure, while superseded or optional work remains neutral.
+- A missed exact release or production handoff can recover without manufacturing a duplicate tag, release, artifact, or deployment.

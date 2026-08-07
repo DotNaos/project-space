@@ -38,12 +38,12 @@ export function isHubLocalMachine(machine: Pick<MachineRecord, 'connector' | 'so
   return !isConnectorHubMachine(machine) && machine.connector.status === 'local';
 }
 
-function nowIso() {
-  return new Date().toISOString();
+function nowIso(now = Date.now()) {
+  return new Date(now).toISOString();
 }
 
-function isFresh(entry: RegisteredConnector) {
-  return Date.now() - Date.parse(entry.receivedAt) <= registryTtlMs;
+function isFresh(entry: RegisteredConnector, now = Date.now()) {
+  return now - Date.parse(entry.receivedAt) <= registryTtlMs;
 }
 
 function connectorScopedId(
@@ -112,7 +112,8 @@ function assertConnectorProfile(
 
 export async function registerConnectorProjectRegistry(
   registry: ConnectorProjectRegistryResult,
-  connectorProfile?: MachineConnectorProfile
+  connectorProfile?: MachineConnectorProfile,
+  now = Date.now()
 ) {
   if (!isConnectorProjectRegistryPayload(registry)) {
     throw new Error('Connector registry payload is invalid.');
@@ -124,7 +125,7 @@ export async function registerConnectorProjectRegistry(
   }
   assertConnectorProfile(registry, connectorProfile);
 
-  const receivedAt = nowIso();
+  const receivedAt = nowIso(now);
   const existing = registries.get(machineId);
   const entry = {
     connectorProfile,
@@ -168,8 +169,8 @@ function registeredConnectorMachine({
   connectorProfile,
   receivedAt,
   registry
-}: RegisteredConnector): MachineRecord {
-  const online = isFresh({ firstSeenAt: receivedAt, receivedAt, registry });
+}: RegisteredConnector, now = Date.now()): MachineRecord {
+  const online = isFresh({ firstSeenAt: receivedAt, receivedAt, registry }, now);
   const capabilities = registry.connector.capabilities ?? [];
   const supportsRuntimeMaintenance = Boolean(registry.connector.runtime) &&
     capabilities.includes('runtime.restart') &&
@@ -221,8 +222,12 @@ export function connectorMachineForRegistry(
   });
 }
 
-export async function getRegisteredConnectorMachines(): Promise<MachineRecord[]> {
-  return (await getRegisteredConnectorRegistries()).map(registeredConnectorMachine);
+export async function getRegisteredConnectorMachines(
+  now = Date.now()
+): Promise<MachineRecord[]> {
+  return (await getRegisteredConnectorRegistries()).map((entry) =>
+    registeredConnectorMachine(entry, now)
+  );
 }
 
 export async function getRegisteredConnectorDiscovery(): Promise<ProjectDiscoveryResult> {

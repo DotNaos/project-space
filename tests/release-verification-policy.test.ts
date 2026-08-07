@@ -91,8 +91,13 @@ describe('release verification policy', () => {
       'uses: ./.github/workflows/release-quality.yml',
     );
     expect(ci).toContain('bun scripts/release-verification-policy.ts');
-    expect(ci).toContain('BASE_SHA: ${{ github.event.pull_request.base.sha }}');
-    expect(ci).toContain('HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}');
+    expect(ci).toContain(
+      'BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha }}',
+    );
+    expect(ci).toContain(
+      'HEAD_SHA: ${{ github.event.pull_request.head.sha || inputs.requested_head_sha }}',
+    );
+    expect(ci).toContain('EVENT_NAME: pull_request');
     expect(windowsCall).toContain(
       "if: needs.classify.outputs.full-matrix == 'true'",
     );

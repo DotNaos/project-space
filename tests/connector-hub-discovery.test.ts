@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, setSystemTime, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 
 import {
   getRegisteredConnectorDiscovery,
@@ -59,8 +59,6 @@ function sourceDevelopmentRegistry(machineId: string) {
 }
 
 describe('connector discovery ownership', () => {
-  afterEach(() => setSystemTime());
-
   test('always namespaces connector IDs and retains structural machine ownership', async () => {
     await registerConnectorProjectRegistry(registry('collision-a', 'collision-b:project'));
     await registerConnectorProjectRegistry(registry('collision-a:collision-b', 'project'));
@@ -178,15 +176,21 @@ describe('connector discovery ownership', () => {
 
   test('keeps a stale machine and projects offline, then reconnects without duplication', async () => {
     const machineId = 'persistent-transition-machine';
-    setSystemTime(new Date('2026-07-11T00:00:00.000Z'));
-    await registerConnectorProjectRegistry(registry(machineId, 'before-restart'));
+    const connectedAt = Date.parse('2026-07-11T00:00:00.000Z');
+    const staleAt = Date.parse('2026-07-11T00:03:00.000Z');
+    await registerConnectorProjectRegistry(
+      registry(machineId, 'before-restart'),
+      undefined,
+      connectedAt
+    );
     expect(
-      (await getRegisteredConnectorMachines()).find((machine) => machine.id === machineId)
+      (await getRegisteredConnectorMachines(connectedAt)).find(
+        (machine) => machine.id === machineId
+      )
         ?.connector.status
     ).toBe('online');
 
-    setSystemTime(new Date('2026-07-11T00:03:00.000Z'));
-    const offlineMachines = (await getRegisteredConnectorMachines()).filter(
+    const offlineMachines = (await getRegisteredConnectorMachines(staleAt)).filter(
       (machine) => machine.id === machineId
     );
     expect(offlineMachines).toHaveLength(1);
@@ -197,8 +201,12 @@ describe('connector discovery ownership', () => {
       )
     ).toBe(true);
 
-    await registerConnectorProjectRegistry(registry(machineId, 'after-reconnect'));
-    const onlineMachines = (await getRegisteredConnectorMachines()).filter(
+    await registerConnectorProjectRegistry(
+      registry(machineId, 'after-reconnect'),
+      undefined,
+      staleAt
+    );
+    const onlineMachines = (await getRegisteredConnectorMachines(staleAt)).filter(
       (machine) => machine.id === machineId
     );
     expect(onlineMachines).toHaveLength(1);
