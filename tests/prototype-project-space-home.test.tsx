@@ -198,29 +198,29 @@ describe('project space home prototype', () => {
     );
 
     expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 437)!)).toBe('Backlog');
-    expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 426)!)).toBe('Started');
-    expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 398)!)).toBe('In progress');
-    expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 395)!)).toBe('In progress');
-    expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 434)!)).toBe('Done');
+    expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 426)!)).toBe('Active');
+    expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 398)!)).toBe('Review');
+    expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 395)!)).toBe('Review');
+    expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 434)!)).toBe('Completed');
     expect(mockTaskNeedsAttention(initialMockTasks.find((task) => task.number === 398)!)).toBe(true);
     expect(mockTaskNeedsAttention(initialMockTasks.find((task) => task.number === 395)!)).toBe(false);
     expect(html).toContain('>All<');
     expect(html).toContain('>Backlog<');
-    expect(html).toContain('>Started<');
-    expect(html).toContain('>In progress<');
-    expect(html).toContain('>Done<');
+    expect(html).toContain('>Active<');
+    expect(html).toContain('>Review<');
+    expect(html).toContain('>Completed<');
     expect(html).toContain('aria-labelledby="task-section-backlog"');
-    expect(html).toContain('aria-labelledby="task-section-started"');
-    expect(html).toContain('aria-labelledby="task-section-in-progress"');
-    expect(html).toContain('aria-labelledby="task-section-done"');
+    expect(html).toContain('aria-labelledby="task-section-active"');
+    expect(html).toContain('aria-labelledby="task-section-review"');
+    expect(html).toContain('aria-labelledby="task-section-completed"');
     expect(html).toContain('#437');
     expect(html).toContain('#398');
     expect(html).toContain('#434');
     expect(html).toContain('aria-label="Backlog"');
-    expect(html).toContain('aria-label="Started"');
-    expect(html).toContain('aria-label="In progress"');
+    expect(html).toContain('aria-label="Active"');
+    expect(html).toContain('aria-label="Review"');
     expect(html).toContain('aria-label="Error"');
-    expect(html).toContain('aria-label="Done"');
+    expect(html).toContain('aria-label="Completed"');
     expect(html).toContain('aria-label="Open pull request #420"');
     expect(html).toContain('aria-label="Draft pull request #427"');
     expect(html).toContain('aria-label="Merged pull request #435"');
@@ -419,7 +419,7 @@ describe('project space home prototype', () => {
     expect(html).not.toContain('>Lifecycle<');
     expect(html).toContain('Planning');
     expect(html).toContain('Codex is implementing the selected prototype direction.');
-    expect(html).toContain('Create draft PR');
+    expect(html).toContain('Finish setup');
     expect(html).toContain('Working context');
     expect(html).toContain('Development details');
     expect(html).toContain('Agent run · Local');
@@ -465,9 +465,9 @@ describe('project space home prototype', () => {
       />
     );
 
-    expect(html).toContain('aria-label="Started"');
+    expect(html).toContain('aria-label="Active"');
     expect(html).toContain('lucide-circle-dot');
-    expect(html).not.toContain('>Started<');
+    expect(html).not.toContain('>Active<');
     expect(html).not.toContain('>Feature<');
     expect(html).toContain('lucide-git-pull-request-draft');
     expect(html).toContain('Draft #427');
@@ -494,7 +494,7 @@ describe('project space home prototype', () => {
         task={inProgressTask}
       />
     );
-    expect(mockTaskWorkflowState(inProgressTask)).toBe('In progress');
+    expect(mockTaskWorkflowState(inProgressTask)).toBe('Review');
     expect(inProgressHtml).not.toContain('data-testid="task-mobile-primary-action"');
     expect(inProgressHtml).toContain('Pipeline');
     expect(inProgressHtml).toContain('Pass checks');

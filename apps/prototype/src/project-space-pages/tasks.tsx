@@ -14,7 +14,7 @@ import {
 } from "./task-model";
 import { TaskStatusIcon } from "./task-status-icon";
 
-type TaskFilter = "All" | "Backlog" | "Done" | "In progress" | "Started";
+type TaskFilter = "Active" | "All" | "Backlog" | "Completed" | "Review";
 
 function TaskSearch({
   className = "",
@@ -41,8 +41,8 @@ function TaskSearch({
 
 function TaskRow({ onOpen, task }: { onOpen(): void; task: MockTask }) {
   const state = mockTaskWorkflowState(task);
-  const pullRequestState = state === "Done" ? "Merged" : task.pullRequest?.phase === "draft" ? "Draft" : "Open";
-  const PullRequestIcon = state === "Done" ? GitMerge : GitPullRequest;
+  const pullRequestState = state === "Completed" ? "Merged" : task.pullRequest?.phase === "draft" ? "Draft" : "Open";
+  const PullRequestIcon = state === "Completed" ? GitMerge : GitPullRequest;
   return (
     <button
       aria-label={`Open task #${task.number}: ${task.title}`}
@@ -56,7 +56,7 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: MockTask }) {
         {task.pullRequest ? (
           <span
             aria-label={`${pullRequestState} pull request #${task.pullRequest.number}`}
-            className={`ml-auto flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${state === "Done" ? "bg-violet-500/[.12] text-violet-300" : task.pullRequest.phase === "draft" ? "bg-current/[.055] text-current/40" : "bg-emerald-500/[.12] text-emerald-300"}`}
+            className={`ml-auto flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${state === "Completed" ? "bg-violet-500/[.12] text-violet-300" : task.pullRequest.phase === "draft" ? "bg-current/[.055] text-current/40" : "bg-emerald-500/[.12] text-emerald-300"}`}
           >
             <PullRequestIcon className="size-3" />#{task.pullRequest.number}
           </span>
@@ -128,7 +128,7 @@ export function ProjectTasksPage({
         <TaskSearch className="hidden @lg:flex @lg:max-w-sm" onChange={setQuery} value={query} />
 
         <div className="flex w-full min-w-0 items-center gap-0.5 overflow-x-auto pe-1 [scrollbar-width:none] @lg:ml-auto @lg:w-auto @lg:gap-1">
-          {(["All", "Backlog", "Started", "In progress", "Done"] as const).map((value) => (
+          {(["All", "Backlog", "Active", "Review", "Completed"] as const).map((value) => (
             <button
               aria-pressed={filter === value}
               className={`flex h-7 shrink-0 items-center whitespace-nowrap rounded-full px-2.5 text-[8px] transition-[background-color,color,scale] active:scale-[.96] @lg:h-9 @lg:px-[18px] @lg:text-xs ${filter === value ? "bg-current/[.1] text-current" : "text-current/40 hover:text-current/70"}`}
@@ -147,9 +147,9 @@ export function ProjectTasksPage({
         {filter === "All" ? (
           <>
             <TaskStatusSection onOpenTask={onOpenTask} state="Backlog" tasks={visible.filter((task) => mockTaskWorkflowState(task) === "Backlog")} />
-            <TaskStatusSection onOpenTask={onOpenTask} state="Started" tasks={visible.filter((task) => mockTaskWorkflowState(task) === "Started")} />
-            <TaskStatusSection onOpenTask={onOpenTask} state="In progress" tasks={visible.filter((task) => mockTaskWorkflowState(task) === "In progress")} />
-            <TaskStatusSection onOpenTask={onOpenTask} state="Done" tasks={visible.filter((task) => mockTaskWorkflowState(task) === "Done")} />
+            <TaskStatusSection onOpenTask={onOpenTask} state="Active" tasks={visible.filter((task) => mockTaskWorkflowState(task) === "Active")} />
+            <TaskStatusSection onOpenTask={onOpenTask} state="Review" tasks={visible.filter((task) => mockTaskWorkflowState(task) === "Review")} />
+            <TaskStatusSection onOpenTask={onOpenTask} state="Completed" tasks={visible.filter((task) => mockTaskWorkflowState(task) === "Completed")} />
           </>
         ) : visible.map((task) => <TaskRow key={task.number} onOpen={() => onOpenTask(task.number)} task={task} />)}
         {visible.length === 0 ? <div className="grid min-h-40 place-items-center text-sm text-current/35">No matching tasks</div> : null}

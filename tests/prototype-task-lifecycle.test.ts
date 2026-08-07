@@ -27,10 +27,11 @@ describe("prototype task lifecycle", () => {
 
     task = runNext(task);
     expect(task.stage).toBe("branch");
+    expect(task.pullRequest?.phase).toBe("draft");
+    expect(nextTaskAction(task)?.label).toBe("Start Codex");
     task = runNext(task);
     expect(task.workspace?.devServer?.status).toBe("running");
     expect(task.agentThreads?.[0]?.status).toBe("running");
-    task = runNext(task);
     expect(task.pullRequest?.phase).toBe("draft");
     expect(task.agentRun?.status).toBe("running");
     expect(task.agentThreads?.[0]?.status).toBe("running");
@@ -46,7 +47,11 @@ describe("prototype task lifecycle", () => {
     task = runNext(task);
     expect(task.pullRequest?.checks).toBe("passed");
     expect(task.pullRequest?.preview).toBe("ready");
-    expect(nextTaskAction(task)?.label).toBe("Approve and merge");
+    expect(nextTaskAction(task)?.label).toBe("Approve PR");
+    task = runNext(task);
+    expect(task.pullRequest?.review).toBe("approved");
+    expect(task.stage).toBe("review");
+    expect(nextTaskAction(task)?.label).toBe("Merge pull request");
     task = runNext(task);
     expect(task.stage).toBe("merged");
     expect(task.pullRequest?.review).toBe("approved");
@@ -64,6 +69,25 @@ describe("prototype task lifecycle", () => {
     const completed = initialMockTasks.find((task) => task.number === 434)!;
     const next = updateMockTask(completed, { machine: "os-macbook", type: "remove-worktree" });
     expect(next).toBe(completed);
+  });
+
+  test("returns a branch-only recovery to coding-destination selection", () => {
+    const partial = {
+      ...createMockTask({
+        body: "Recover the missing draft pull request.",
+        labels: [],
+        number: 494,
+        title: "Recover development setup",
+        type: "Bug",
+      }),
+      branch: "issue-494-recover-development-setup",
+      stage: "branch" as const,
+    };
+
+    expect(nextTaskAction(partial)?.label).toBe("Finish setup");
+    const recovered = runNext(partial);
+    expect(recovered.pullRequest?.phase).toBe("draft");
+    expect(nextTaskAction(recovered)?.label).toBe("Start Codex");
   });
 
   test("suggests a short title while preserving the full idea for the description", () => {

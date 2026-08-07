@@ -27,10 +27,10 @@ import type { ProjectTaskViewModel } from './task-view-model';
 
 function TaskStateIcon({ task }: { task: ProjectTaskViewModel }) {
   const className = 'mt-1 size-5 shrink-0';
-  if (task.health === 'attention') return <CircleX aria-label="Needs attention" className={`${className} text-red-400`} />;
-  if (task.state === 'done') return <GitMerge aria-label="Done" className={`${className} text-violet-400`} />;
-  if (task.state === 'in-progress') return <CircleDot aria-label="In progress" className={`${className} text-emerald-400`} />;
-  if (task.state === 'started') return <CircleDot aria-label="Started" className={`${className} text-blue-400`} />;
+  if (task.health === 'attention' || task.workflowMessage) return <CircleX aria-label="Needs attention" className={`${className} text-red-400`} />;
+  if (task.state === 'completed') return <GitMerge aria-label="Completed" className={`${className} text-violet-400`} />;
+  if (task.state === 'review') return <CircleDot aria-label="Review" className={`${className} text-emerald-400`} />;
+  if (task.state === 'active') return <CircleDot aria-label="Active" className={`${className} text-blue-400`} />;
   return <CircleDashed aria-label="Backlog" className={`${className} text-neutral-600`} />;
 }
 
@@ -148,6 +148,9 @@ export function ProjectTaskDetail({
           <div className="mt-4 flex flex-wrap gap-1.5">
             {task.issue.labels.map((label) => <span className="rounded-full bg-current/[.045] px-2.5 py-1 text-[11px] text-current/35" key={label}>{label}</span>)}
           </div>
+        ) : null}
+        {task.workflowMessage ? (
+          <p className="mt-4 text-sm leading-6 text-amber-300">{task.workflowMessage}</p>
         ) : null}
       </header>
 

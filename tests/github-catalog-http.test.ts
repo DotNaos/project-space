@@ -115,4 +115,65 @@ describe('GitHub catalog HTTP contract', () => {
     expect(invalid.read().status).toBe(400);
     expect(calls).toHaveLength(1);
   });
+
+  test('validates the issue-development start request before orchestration', async () => {
+    const calls: unknown[] = [];
+    const backend = {
+      async startGitHubIssueDevelopment(input: unknown) {
+        calls.push(input);
+        return {
+          branch: { isDefault: false, name: 'issue-494-starting-development' },
+          branchDisposition: 'created' as const,
+          pullRequest: {
+            number: 495,
+            state: 'open' as const,
+            title: 'Start development',
+            url: 'https://github.com/DotNaos/project-space/pull/495'
+          },
+          pullRequestDisposition: 'created' as const,
+          state: 'ready' as const,
+          status: 'connected' as const
+        };
+      }
+    } as unknown as ProjectSpaceBackend;
+    const route = createProjectSpaceIntegrationApiRoutes(backend);
+    const payload = {
+      branchName: 'issue-494-starting-development',
+      fullName: 'DotNaos/project-space',
+      issueNumber: 494
+    };
+    const valid = responseRecorder();
+
+    expect(await route(
+      jsonRequest(payload),
+      valid.response,
+      new URL('https://test/api/github/issue-development')
+    )).toBe(true);
+    expect(valid.read().status).toBe(200);
+    expect(calls).toEqual([payload]);
+
+    const invalid = responseRecorder();
+    expect(await route(
+      jsonRequest({ ...payload, issueNumber: 0 }),
+      invalid.response,
+      new URL('https://test/api/github/issue-development')
+    )).toBe(true);
+    expect(invalid.read().status).toBe(400);
+    expect(calls).toHaveLength(1);
+
+    for (const malformed of [
+      { ...payload, branchName: 42 },
+      { ...payload, branchName: 'bad branch' },
+      { ...payload, fullName: '../private' }
+    ]) {
+      const rejected = responseRecorder();
+      expect(await route(
+        jsonRequest(malformed),
+        rejected.response,
+        new URL('https://test/api/github/issue-development')
+      )).toBe(true);
+      expect(rejected.read().status).toBe(400);
+    }
+    expect(calls).toHaveLength(1);
+  });
 });

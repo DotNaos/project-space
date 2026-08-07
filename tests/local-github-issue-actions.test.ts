@@ -31,7 +31,7 @@ describe('local GitHub issue actions', () => {
   test('keeps the full pull request head SHA returned by GitHub', () => {
     const headSha = 'f'.repeat(40);
     expect(mapGitHubPullRequest({
-      base: { repo: { full_name: 'DotNaos/project-space' } },
+      base: { ref: 'main', repo: { full_name: 'DotNaos/project-space' } },
       head: {
         ref: 'issue-263-preview',
         repo: { full_name: 'DotNaos/project-space' },
@@ -43,6 +43,7 @@ describe('local GitHub issue actions', () => {
       state: 'open',
       title: 'Preview deployments'
     }, 263)).toMatchObject({
+      baseBranch: 'main',
       headBranch: 'issue-263-preview',
       headRefPresent: true,
       headRepositoryFullName: 'DotNaos/project-space',
@@ -107,7 +108,7 @@ describe('local GitHub issue actions', () => {
     const request = (async <Result>(path: string, _token: string, init?: RequestInit) => {
       calls.push({ body: String(init?.body ?? ''), method: init?.method, path });
       return {
-        base: { repo: { full_name: 'DotNaos/project-space' } },
+        base: { ref: 'main', repo: { full_name: 'DotNaos/project-space' } },
         draft: true,
         head: {
           ref: 'issue-437-redesign',
@@ -131,7 +132,7 @@ describe('local GitHub issue actions', () => {
       requestGitHub: request,
       resolveOAuthToken: async () => ({ source: 'stored-oauth', token: 'secret-token' })
     })).resolves.toMatchObject({
-      pullRequest: { isDraft: true, linkedIssueNumbers: [437] },
+      pullRequest: { baseBranch: 'main', isDraft: true, linkedIssueNumbers: [437] },
       status: 'connected'
     });
 

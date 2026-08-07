@@ -17,6 +17,7 @@ import type {
   GitHubHistoryRequest,
   GitHubIssueCommentCreateRequest,
   GitHubIssueCreateRequest,
+  GitHubIssueDevelopmentStartRequest,
   GitHubIssueUpdateRequest,
   GitHubOAuthDevicePollRequest,
   GitHubPullRequestCreateRequest,
@@ -34,6 +35,7 @@ import type {
 } from '../src/shared/project-space-api';
 import { createGitHubRepositorySummaryRoute } from './github-repository-summary-route';
 import { isGitHubBranchComparisonRequest } from './github-branch-comparison';
+import { isGitHubIssueDevelopmentStartRequest } from './local-github-issue-development';
 import type { GitHubRepositorySummaryResult } from '../src/shared/github-repository-summary';
 
 interface ProjectSpaceIntegrationApiRouteOptions {
@@ -194,6 +196,16 @@ export function createProjectSpaceIntegrationApiRoutes(
     if (request.method === 'POST' && url.pathname === '/api/github/pull-requests') {
       const payload = await readJson<GitHubPullRequestCreateRequest>(request);
       writeJson(response, 200, await backend.createGitHubPullRequest(payload));
+      return true;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/github/issue-development') {
+      const payload = await readJson<GitHubIssueDevelopmentStartRequest>(request);
+      if (!isGitHubIssueDevelopmentStartRequest(payload)) {
+        writeJson(response, 400, { error: 'Invalid issue development request.' });
+        return true;
+      }
+      writeJson(response, 200, await backend.startGitHubIssueDevelopment(payload));
       return true;
     }
 

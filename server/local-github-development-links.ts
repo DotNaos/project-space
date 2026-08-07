@@ -23,6 +23,7 @@ interface GitHubGraphQLDevelopmentLinks {
     } | null;
     pullRequests?: {
       nodes?: Array<{
+        baseRefName?: string | null;
         closingIssuesReferences?: {
           nodes?: Array<{
             number: number;
@@ -107,6 +108,7 @@ export async function loadRepositoryDevelopmentLinks(
               title
               url
               state
+              baseRefName
               headRefName
               headRefOid
               headRef {
@@ -165,6 +167,7 @@ export async function loadRepositoryDevelopmentLinks(
     pullRequests: (data.repository?.pullRequests?.nodes ?? [])
       .filter((pullRequest): pullRequest is NonNullable<typeof pullRequest> => Boolean(pullRequest))
       .map((pullRequest) => ({
+        baseBranch: pullRequest.baseRefName ?? undefined,
         headBranch: pullRequest.headRefName ?? undefined,
         headRefPresent: Boolean(pullRequest.headRef),
         headRepositoryFullName: pullRequest.headRepository?.nameWithOwner ?? undefined,

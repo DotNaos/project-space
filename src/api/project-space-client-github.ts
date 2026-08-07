@@ -11,6 +11,8 @@ import type {
   GitHubIssueCommentsResult,
   GitHubIssueCreateRequest,
   GitHubIssueCreationResult,
+  GitHubIssueDevelopmentStartRequest,
+  GitHubIssueDevelopmentStartResult,
   GitHubIssueMutationResult,
   GitHubIssueUpdateRequest,
   GitHubOAuthDevicePollRequest,
@@ -59,6 +61,15 @@ export class GitHubProjectSpaceClient extends ProjectSpaceHttpClient {
     request: GitHubPullRequestCreateRequest
   ): Promise<GitHubPullRequestMutationResult> {
     return this.request('/api/github/pull-requests', {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  startGitHubIssueDevelopment(
+    request: GitHubIssueDevelopmentStartRequest
+  ): Promise<GitHubIssueDevelopmentStartResult> {
+    return this.request('/api/github/issue-development', {
       body: JSON.stringify(request),
       method: 'POST'
     });

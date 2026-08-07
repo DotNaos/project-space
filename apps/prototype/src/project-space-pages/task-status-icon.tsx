@@ -18,7 +18,7 @@ export function TaskStatusIcon({ className = "", task }: { className?: string; t
     ? CircleAlert
     : state === "Backlog"
       ? CircleDashed
-      : state === "Done"
+      : state === "Completed"
         ? CircleCheck
         : CircleDot;
   const label = needsAttention ? "Error" : state;
@@ -26,9 +26,9 @@ export function TaskStatusIcon({ className = "", task }: { className?: string; t
     ? "text-red-400"
     : state === "Backlog"
       ? "text-current/30"
-      : state === "Started"
+      : state === "Active"
         ? "text-blue-400"
-        : state === "In progress"
+        : state === "Review"
           ? "text-emerald-400"
           : "text-violet-400";
 
