@@ -177,8 +177,8 @@ func planNextTemplateValues(projectRoot string, template TemplateSpec, modules [
 			setTemplateValue(next, key, value)
 			continue
 		}
-		if value, ok := lookupTemplateValue(defaults, key); ok {
-			setTemplateValue(next, key, value)
+		if value, ok := lookupTemplateAny(defaults, key); ok {
+			setTemplateAny(next, key, cloneTemplateValue(value))
 			continue
 		}
 		if specs[key].Required {

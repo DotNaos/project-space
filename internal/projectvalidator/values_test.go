@@ -48,6 +48,31 @@ func TestRenderTemplateValuesUsesYAMLLoadedNestedValues(t *testing.T) {
 	}
 }
 
+func TestBooleanDefaultCanDriveConditionalRendering(t *testing.T) {
+	template := TemplateSpec{Modules: map[string]TemplateModuleSpec{
+		"core": {
+			Name: "core",
+			Values: map[string]TemplateValueSpec{
+				"feature.enabled": {Type: "boolean", Required: true, Default: "false"},
+			},
+		},
+	}}
+	values, err := defaultTemplateValuesForProject("/tmp/demo", template, []string{"core"})
+	if err != nil {
+		t.Fatalf("defaultTemplateValuesForProject returned error: %v", err)
+	}
+	if value, ok := lookupTemplateAny(values, "feature.enabled"); !ok || value != false {
+		t.Fatalf("feature.enabled = %#v, %t", value, ok)
+	}
+	rendered, err := renderTemplateBody([]byte("before\n{{#if feature.enabled}}\nenabled\n{{/if}}\nafter\n"), values)
+	if err != nil {
+		t.Fatalf("renderTemplateBody returned error: %v", err)
+	}
+	if got := string(rendered); got != "before\nafter\n" {
+		t.Fatalf("rendered = %q", got)
+	}
+}
+
 func TestDefaultTemplateValuesUseModuleValueSpecs(t *testing.T) {
 	template := TemplateSpec{
 		Modules: map[string]TemplateModuleSpec{

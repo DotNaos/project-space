@@ -19,6 +19,7 @@ type templateSmokeOptions struct {
 	SkipChecks        bool
 	SkipSecretsDoctor bool
 	GlobalTmp         bool
+	Targets           []string
 }
 
 func newTemplateSmokeCommand() *cobra.Command {
@@ -42,12 +43,18 @@ func newTemplateSmokeCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&options.SkipChecks, "skip-checks", false, "skip dependency, secrets, check, and build commands")
 	cmd.Flags().BoolVar(&options.SkipSecretsDoctor, "skip-secrets-doctor", false, "skip bun run secrets:doctor")
 	cmd.Flags().BoolVar(&options.GlobalTmp, "global-tmp", false, "create the generated project under /tmp")
+	cmd.Flags().StringArrayVar(&options.Targets, "target", nil, "app target and devices (<target>:<device>[,<device>...]); repeat for multiple targets")
 	must(cmd.RegisterFlagCompletionFunc("template", fixedValuesCompletion("DotNaos/project-template")))
 	must(cmd.RegisterFlagCompletionFunc("template-path", directoryCompletion))
 	return cmd
 }
 
 func runTemplateSmoke(cmd *cobra.Command, options templateSmokeOptions) error {
+	selections, err := parseAppTargetSelections(options.Targets)
+	if err != nil {
+		return err
+	}
+	options.Init.Targets = selections
 	target, err := tmpProjectTarget(options.Name, options.GlobalTmp)
 	if err != nil {
 		return err

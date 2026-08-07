@@ -229,6 +229,22 @@ func addPlaceholderFindings(template TemplateSpec, addFinding func(string, strin
 			addFinding("error", "placeholder_invalid", fileSpec.TemplatePath, err.Error())
 			continue
 		}
+		conditionPaths, err := conditionalTemplatePaths(body)
+		if err != nil {
+			addFinding("error", "conditional_invalid", fileSpec.TemplatePath, err.Error())
+			continue
+		}
+		for _, name := range conditionPaths {
+			used[name] = true
+			spec, ok := allTemplateValueSpecs(template)[name]
+			if !ok {
+				addFinding("error", "conditional_undeclared", fileSpec.TemplatePath, fmt.Sprintf("condition %s is not declared by any module", name))
+				continue
+			}
+			if spec.Type != "boolean" {
+				addFinding("error", "conditional_type", fileSpec.TemplatePath, fmt.Sprintf("condition %s must declare type boolean", name))
+			}
+		}
 		for _, name := range parsed.Placeholders() {
 			used[name] = true
 			if !declared[name] {

@@ -107,6 +107,16 @@ func TestCLIDocsMDXRendersSourceBoundaryAndSelfUpdate(t *testing.T) {
 	}
 }
 
+func TestEscapeMarkdownTableEscapesMDXTags(t *testing.T) {
+	t.Parallel()
+
+	got := escapeMarkdownTable("target (<target>:<device>) | next")
+	want := "target (&lt;target&gt;:&lt;device&gt;) \\| next"
+	if got != want {
+		t.Fatalf("escapeMarkdownTable() = %q, want %q", got, want)
+	}
+}
+
 func encodedCLIDocsModel(t *testing.T, model cliDocsModel) []byte {
 	t.Helper()
 	var output bytes.Buffer

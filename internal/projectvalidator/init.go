@@ -16,6 +16,8 @@ type InitOptions struct {
 	Version      string
 	Commit       string
 	Force        bool
+	Targets      []AppTargetSelection
+	generate     bool
 }
 
 func WriteTmpTemplateValues(projectRoot string) (string, error) {
@@ -35,7 +37,11 @@ func WriteTmpTemplateValues(projectRoot string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	values, err := defaultTemplateValuesForProject(root, template, modules)
+	current, err := readTemplateValues(root)
+	if err != nil {
+		return "", err
+	}
+	values, err := mergeTemplateValuesForModules(root, template, modules, current)
 	if err != nil {
 		return "", err
 	}
@@ -99,6 +105,7 @@ func CreateProject(projectRoot string, options InitOptions) (string, error) {
 	} else {
 		return "", err
 	}
+	options.generate = true
 	return InitProject(root, options)
 }
 
@@ -112,6 +119,10 @@ func InitProject(projectRoot string, options InitOptions) (string, error) {
 		return "", err
 	}
 	sourceTemplate, err := loadTemplateFromRoot(source.Root)
+	if err != nil {
+		return "", err
+	}
+	selectedModules, selectionValues, err := resolveAppTargetSelections(sourceTemplate, options.Targets, options.generate)
 	if err != nil {
 		return "", err
 	}
@@ -158,6 +169,7 @@ func InitProject(projectRoot string, options InitOptions) (string, error) {
 		Checksum:        checksum,
 		ChecksumVersion: templateChecksumVersion,
 		TemplatePath:    templatePath,
+		Modules:         selectedModules,
 	}
 	if _, err := writeTemplateLock(root, lock); err != nil {
 		return "", err
@@ -166,8 +178,24 @@ func InitProject(projectRoot string, options InitOptions) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := ensureTemplateValues(root, targetTemplate, lock.Modules); err != nil {
+	values, err := mergeTemplateValuesForModules(root, targetTemplate, lock.Modules, selectionValues)
+	if err != nil {
 		return "", err
+	}
+	if _, err := writeTemplateValues(root, values); err != nil {
+		return "", err
+	}
+	if options.generate && len(lock.Modules) > 0 {
+		files, conflicts, err := moduleInstallFiles(root, targetTemplate, lock.Modules)
+		if err != nil {
+			return "", err
+		}
+		if len(conflicts) > 0 {
+			return "", fmt.Errorf("project generation would overwrite files: %s", formatModuleConflicts(conflicts))
+		}
+		if err := applyModuleFiles(root, targetTemplate, values, files); err != nil {
+			return "", err
+		}
 	}
 	return lockPath, nil
 }

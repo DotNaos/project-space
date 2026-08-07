@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func validateStructure(projectRoot string, template TemplateSpec, files []FileValidation, blockers map[string]AdoptionFile, waivers map[string]AdoptionFile) []StructureEntry {
+func validateStructure(projectRoot string, template TemplateSpec, expectedFiles map[string]bool, files []FileValidation, blockers map[string]AdoptionFile, waivers map[string]AdoptionFile) []StructureEntry {
 	fileStatusByPath := map[string]FileValidation{}
 	for _, file := range files {
 		fileStatusByPath[file.Path] = file
@@ -16,7 +16,7 @@ func validateStructure(projectRoot string, template TemplateSpec, files []FileVa
 	ignore := readTemplateIgnore(template.Root)
 	entries := map[string]StructureEntry{}
 
-	for templateFile := range template.TemplateFiles {
+	for templateFile := range expectedFiles {
 		fileStatus, hasFileStatus := fileStatusByPath[templateFile]
 		if !actualFiles[templateFile] {
 			entries[templateFile] = StructureEntry{Path: templateFile, Kind: "file", Status: StatusMissing, Code: "missing", Note: "missing", Module: moduleForPath(template, templateFile)}
@@ -36,7 +36,7 @@ func validateStructure(projectRoot string, template TemplateSpec, files []FileVa
 	}
 
 	for actualFile := range actualFiles {
-		if template.TemplateFiles[actualFile] {
+		if expectedFiles[actualFile] {
 			continue
 		}
 		if blocker, ok := blockers[actualFile]; ok {

@@ -112,6 +112,9 @@ func parseTemplateYAML(templateRoot string, manifestPath string, body []byte) (T
 	if err := compileTemplateModuleOwnRules(&spec); err != nil {
 		return TemplateSpec{}, err
 	}
+	if err := validateTemplateAppTargets(spec); err != nil {
+		return TemplateSpec{}, err
+	}
 	selfValues, err := loadTemplateSelfValues(templateRoot)
 	if err != nil {
 		return TemplateSpec{}, err

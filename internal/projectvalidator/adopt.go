@@ -24,6 +24,14 @@ func PlanAdoption(projectRoot string) (AdoptionPlan, error) {
 	if err != nil {
 		return AdoptionPlan{}, err
 	}
+	expectedFiles := template.TemplateFiles
+	if len(lock.Modules) > 0 {
+		expectedFiles, err = templateFilesForModules(template, lock.Modules)
+		if err != nil {
+			return AdoptionPlan{}, err
+		}
+		template.Slots = templateSlotsForModules(template, lock.Modules)
+	}
 
 	actualFiles := listProjectFiles(root)
 	ignore := readTemplateIgnore(template.Root)
@@ -34,8 +42,8 @@ func PlanAdoption(projectRoot string) (AdoptionPlan, error) {
 		return AdoptionPlan{}, err
 	}
 
-	templatePaths := make([]string, 0, len(template.TemplateFiles))
-	for path := range template.TemplateFiles {
+	templatePaths := make([]string, 0, len(expectedFiles))
+	for path := range expectedFiles {
 		templatePaths = append(templatePaths, path)
 	}
 	sort.Strings(templatePaths)
@@ -73,15 +81,15 @@ func PlanAdoption(projectRoot string) (AdoptionPlan, error) {
 	}
 
 	for _, path := range actualPaths {
-		if blocker, ok := blockers[path]; ok && !template.TemplateFiles[path] {
+		if blocker, ok := blockers[path]; ok && !expectedFiles[path] {
 			files = append(files, blocker)
 			continue
 		}
-		if waiver, ok := waivers[path]; ok && !template.TemplateFiles[path] {
+		if waiver, ok := waivers[path]; ok && !expectedFiles[path] {
 			files = append(files, waiver)
 			continue
 		}
-		if template.TemplateFiles[path] || ignore.Match(path) {
+		if expectedFiles[path] || ignore.Match(path) {
 			continue
 		}
 		if slot, ok := matchingTreeSlot(template.Slots, path); ok {
