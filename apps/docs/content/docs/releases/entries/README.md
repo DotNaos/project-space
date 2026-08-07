@@ -1,6 +1,6 @@
 # Versioned release entries
 
-Only a short-lived pull request that intentionally publishes a new Project
-CLI, connector, installer, or machine-tools version adds one `<PR>.mdx` file
-here. Ordinary pull requests keep the current version and add no entry. Start
-from `../entry-template.mdx.template`; never add a generated placeholder.
+These files are immutable history from the former pull-request release
+authoring flow. New pull requests declare `none`, `patch`, `minor`, or `major`
+under `.github/release-intents/`; they do not add or edit versioned entries
+here. New GitHub Releases use generated notes for the exact tag range.

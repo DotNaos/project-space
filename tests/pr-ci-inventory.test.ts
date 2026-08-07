@@ -35,7 +35,7 @@ describe('read-only open PR inventory', () => {
     expect(
       classifyPullRequest(
         pullRequest({
-          files: [{ path: 'apps/docs/content/docs/releases/entries/435.mdx' }],
+          files: [{ path: '.github/release-intents/4a35123b-2783-4f15-a29b-05da1aa6630a.json' }],
           statusCheckRollup: [{ name: 'Release decision', conclusion: 'SUCCESS' }],
         }), new Date('2026-07-31T12:00:00Z'),
       ).classification,
@@ -49,7 +49,7 @@ describe('read-only open PR inventory', () => {
       ),
     ).toMatchObject({
       classification: 'ready_valid',
-      ownsReleaseEntry: false,
+      ownsReleaseIntent: false,
     });
     expect(classifyPullRequest(pullRequest(), new Date('2026-07-31T12:00:00Z')).classification).toBe('ready_needs_migration');
   });

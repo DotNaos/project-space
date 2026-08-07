@@ -14,8 +14,10 @@ import (
 )
 
 const (
-	testRequestedCommit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	testPreviousCommit  = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	testRequestedCommit  = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	testPreviousCommit   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	testRequestedVersion = "0.4.67"
+	testPreviousVersion  = "0.4.66"
 )
 
 func TestDeployLockLivesInsideEnvironmentOwnedStateDirectory(t *testing.T) {
@@ -51,6 +53,19 @@ func TestResolveExactDeployCommitRejectsMalformedAndSupersededCommits(t *testing
 	stateErr, ok := err.(deployStateError)
 	if !ok || stateErr.State != "superseded" {
 		t.Fatalf("stale SHA error = %#v", err)
+	}
+}
+
+func TestProductionDeployRequiresPublishedReleaseVersion(t *testing.T) {
+	if _, err := resolveDeployReleaseVersion("", deployProdEnvironment, testRequestedCommit, ""); err == nil || !strings.Contains(err.Error(), "require --release-version") {
+		t.Fatalf("missing production release version error = %v", err)
+	}
+	version, err := resolveDeployReleaseVersion("", deployProdEnvironment, testRequestedCommit, "  "+testRequestedVersion+" ")
+	if err != nil || version != testRequestedVersion {
+		t.Fatalf("explicit production release version = %q, %v", version, err)
+	}
+	if _, err := resolveDeployReleaseVersion("", deployProdEnvironment, testRequestedCommit, "latest"); err == nil || !strings.Contains(err.Error(), "stable Semantic Versioning") {
+		t.Fatalf("mutable production release version error = %v", err)
 	}
 }
 
@@ -148,6 +163,7 @@ func TestDeployTransactionRechecksMainUnderLockBeforeMutation(t *testing.T) {
 		Name: "project-space", Environment: "prod", RemoteURL: "https://example.invalid/repo.git",
 		RemotePath: remotePath, Branch: "main", ComposeProject: "project-space-prod",
 		WebURL: "https://projects.example", BuildCommit: testRequestedCommit, BuildRef: "refs/heads/main",
+		BuildVersion: testRequestedVersion,
 	}
 	options := deployOptions{LockTimeout: time.Second, ProjectDomain: "projects.example", APIDomain: "api.projects.example"}
 	script := deployTransactionScriptForPaths(project, options, filepath.Join(root, "deploy.lock"), filepath.Join(root, "state"))
@@ -224,6 +240,10 @@ func TestDeploySuccessPersistsExactRequestedCommit(t *testing.T) {
 			t.Fatalf("exact commit at %s = %q, %v", path, value, readErr)
 		}
 	}
+	release, readErr := os.ReadFile(filepath.Join(stateDir, "verified.release"))
+	if readErr != nil || strings.TrimSpace(string(release)) != testRequestedCommit+" "+testRequestedVersion {
+		t.Fatalf("exact release state = %q, %v", release, readErr)
+	}
 }
 
 func TestDeployRetriesTransientPublicIngressFailure(t *testing.T) {
@@ -271,6 +291,7 @@ func runDeployScenario(t *testing.T, failureMode string) ([]byte, error, string,
 	}
 	if failureMode != "legacy-compose" {
 		mustWriteDeployTestFile(t, filepath.Join(stateDir, "verified.sha"), testPreviousCommit+"\n")
+		mustWriteDeployTestFile(t, filepath.Join(stateDir, "verified.release"), testPreviousCommit+" "+testPreviousVersion+"\n")
 	}
 	mustWriteDeployTestFile(t, filepath.Join(stateRoot, "checkout"), testPreviousCommit+"\n")
 	mustWriteDeployTestFile(t, filepath.Join(stateRoot, "runtime"), testPreviousCommit+"\n")
@@ -286,6 +307,7 @@ func runDeployScenario(t *testing.T, failureMode string) ([]byte, error, string,
 		Name: "project-space", Environment: "prod", RemoteURL: "https://example.invalid/repo.git",
 		RemotePath: remotePath, Branch: "main", ComposeProject: "project-space-prod",
 		WebURL: "https://projects.example", BuildCommit: testRequestedCommit, BuildRef: "refs/heads/main",
+		BuildVersion: testRequestedVersion,
 	}
 	options := deployOptions{LockTimeout: time.Second, ProjectDomain: "projects.example", APIDomain: "api.projects.example"}
 	script := deployTransactionScriptForPaths(project, options, filepath.Join(root, "deploy.lock"), stateDir)
@@ -298,7 +320,9 @@ func runDeployScenario(t *testing.T, failureMode string) ([]byte, error, string,
 			"FAKE_STATE="+stateRoot,
 			"REMOTE_PATH="+remotePath,
 			"REQUESTED_COMMIT="+testRequestedCommit,
+			"REQUESTED_VERSION="+testRequestedVersion,
 			"PREVIOUS_COMMIT="+testPreviousCommit,
+			"PREVIOUS_VERSION="+testPreviousVersion,
 			"DEPLOY_FAILURE_MODE="+mode,
 			"LEGACY_IMAGE="+strconv.FormatBool(legacyImage),
 		)
@@ -327,6 +351,10 @@ func assertRollbackRestoredPrevious(t *testing.T, output []byte, stateRoot strin
 	if strings.TrimSpace(string(verified)) != testPreviousCommit {
 		t.Fatalf("verified state changed after failed deploy = %s", verified)
 	}
+	release, readErr := os.ReadFile(filepath.Join(stateDir, "verified.release"))
+	if readErr != nil || strings.TrimSpace(string(release)) != testPreviousCommit+" "+testPreviousVersion {
+		t.Fatalf("verified release changed after failed deploy = %q, %v", release, readErr)
+	}
 }
 
 func TestParseDeployEventsDistinguishesRollbackFailure(t *testing.T) {
@@ -346,6 +374,7 @@ func deployScriptFixture(root string) (deployProject, deployOptions, string) {
 		Name: "project-space", Environment: "prod", RemoteURL: "https://example.invalid/repo.git",
 		RemotePath: filepath.Join(root, "remote"), Branch: "main", ComposeProject: "project-space-prod",
 		WebURL: "https://projects.example", BuildCommit: testRequestedCommit, BuildRef: "refs/heads/main",
+		BuildVersion: testRequestedVersion,
 	}
 	options := deployOptions{LockTimeout: time.Second, ProjectDomain: "projects.example", APIDomain: "api.projects.example"}
 	return project, options, deployTransactionScriptForPaths(project, options, filepath.Join(root, "deploy.lock"), filepath.Join(root, "state"))
@@ -397,7 +426,10 @@ if [ "$1" = inspect ]; then
   case "$3" in
     *State.Status*) echo running ;;
     *State.Health*) echo healthy ;;
-    *Config.Env*) printf 'PROJECT_SPACE_BUILD_COMMIT=%s\n' "$(cat "$FAKE_STATE/runtime")" ;;
+    *Config.Env*)
+      runtime_commit="$(cat "$FAKE_STATE/runtime")"
+      if [ "$runtime_commit" = "$REQUESTED_COMMIT" ]; then runtime_version="$REQUESTED_VERSION"; else runtime_version="$PREVIOUS_VERSION"; fi
+      printf 'PROJECT_SPACE_BUILD_COMMIT=%s\nPROJECT_SPACE_BUILD_VERSION=%s\n' "$runtime_commit" "$runtime_version" ;;
     *Image*) echo sha256:test-image ;;
   esac
   exit 0
@@ -420,7 +452,10 @@ if [ "$DEPLOY_FAILURE_MODE" = transient ] && [ "$(cat "$FAKE_STATE/runtime")" = 
   [ "$transient_count" -gt 2 ] || exit 22
 fi
 case "$url" in
-  */api/app/meta) printf '{"commit":"%s"}' "$(cat "$FAKE_STATE/runtime")" ;;
+  */api/app/meta)
+    runtime_commit="$(cat "$FAKE_STATE/runtime")"
+    if [ "$runtime_commit" = "$REQUESTED_COMMIT" ]; then runtime_version="$REQUESTED_VERSION"; else runtime_version="$PREVIOUS_VERSION"; fi
+    printf '{"commit":"%s","version":"%s"}' "$runtime_commit" "$runtime_version" ;;
   */api/health)
     if [ "$DEPLOY_FAILURE_MODE" = health ] && [ "$(cat "$FAKE_STATE/runtime")" = "$REQUESTED_COMMIT" ]; then printf '{"ok":false}'; else printf '{"ok":true}'; fi ;;
   *) printf '<html></html>' ;;

@@ -82,15 +82,12 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Verify checked-out source and version
+      - name: Verify checked-out source
         env:
           RELEASE_SOURCE_SHA: ${{ inputs.source-sha }}
-          RELEASE_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           [[ $(git rev-parse HEAD) == "$RELEASE_SOURCE_SHA" ]]
-          package_version=$(awk -F '"' '/"version"/ { print $4; exit }' package.json)
-          [[ $package_version == "$RELEASE_VERSION" ]]
 
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6

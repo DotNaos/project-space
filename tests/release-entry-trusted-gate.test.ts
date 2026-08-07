@@ -66,11 +66,17 @@ test('validates one exact current PR head from trusted latest main', () => {
     "await gitTextValidation('show', `${headRef}:package.json`)",
   );
   expect(validator).toContain(
+    "await gitTextValidationRaw('show', `${headRef}:${path}`)",
+  );
+  expect(validator).toContain(
     "await gitText('show', `${baseRef}:package.json`)",
   );
   expect(validator).not.toContain(
     'release-entries.generated.json',
   );
-  expect(validator).toContain('validateReleaseIdentityBundle');
-  expect(validator).toContain('releaseIdentityPaths.map');
+  expect(validator).toContain("'--name-status'");
+  expect(validator).toContain('`${baseRef}...${headRef}`');
+  expect(validator).not.toContain('findGitHubRelease');
+  expect(validator).not.toContain('validateReleaseIdentityBundle');
+  expect(validator).not.toContain('releaseIdentityPaths.map');
 });

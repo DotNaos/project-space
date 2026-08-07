@@ -3,20 +3,15 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { parseReleaseCatalog } from '../apps/docs/lib/releases/catalog';
-import { parseReleaseEntryMdx } from '../apps/docs/lib/releases/mdx';
+import { releaseIntentDirectory } from
+  '../apps/docs/lib/releases/release-intent';
 import {
   validateReleasePullRequest,
   type ChangedReleaseFile,
 } from '../apps/docs/lib/releases/pull-request-gate';
-import {
-  releaseIdentityPaths,
-  validateReleaseIdentityBundle,
-} from './release-identity';
 
 const entryDirectory =
   'apps/docs/content/docs/releases/entries';
-const repository =
-  process.env.GITHUB_REPOSITORY || 'DotNaos/project-space';
 
 async function main() {
   const [mode, value] = process.argv.slice(2);
@@ -40,11 +35,10 @@ async function main() {
   const baseRef = releaseBaseRef();
   const headRef = releaseHeadRef();
   await run(['git', 'fetch', '--no-tags', 'origin', 'main']);
-  await run(['git', 'fetch', '--tags', '--force', 'origin']);
   await run(['git', 'cat-file', '-e', `${baseRef}^{commit}`]);
   await run(['git', 'cat-file', '-e', `${headRef}^{commit}`]);
 
-  const currentMainVersion = packageVersion(
+  const basePackageVersion = packageVersion(
     await gitText('show', `${baseRef}:package.json`),
     'latest main package.json',
   );
@@ -52,74 +46,25 @@ async function main() {
     await gitTextValidation('show', `${headRef}:package.json`),
     'PR package.json',
   );
-  const changedReleasePaths = await parseNameStatus(
+  const changedFiles = await parseNameStatus(
     await gitText(
       'diff',
       '--name-status',
       '--no-renames',
       `${baseRef}...${headRef}`,
-      '--',
-      entryDirectory,
     ),
     headRef,
   );
-  const headEntrySources = await readGitEntries(headRef);
-  const mainEntrySources = await readGitEntries(baseRef);
-  const ownedSource = headEntrySources.get(`${pullRequest}.mdx`);
-  const parsedOwned = ownedSource
-    ? parseReleaseEntryMdx(
-        ownedSource,
-        `${pullRequest}.mdx`,
-      )
-    : undefined;
-  const candidateTag = parsedOwned?.ok
-    ? `v${parsedOwned.entry.version}`
-    : undefined;
-  const existingTags = candidateTag
-    ? (await gitText('tag', '--list', candidateTag))
-        .split('\n')
-        .filter(Boolean)
-    : [];
-  const existingGitHubReleases = candidateTag
-    ? await findGitHubRelease(candidateTag)
-    : [];
-
   const result = validateReleasePullRequest({
-    changedReleaseFiles: changedReleasePaths,
-    currentMainVersion,
-    existingGithubReleaseTags: new Set(existingGitHubReleases),
-    existingGitTags: new Set(existingTags),
-    headEntries: headEntrySources,
+    basePackageVersion,
+    changedFiles,
     headPackageVersion,
-    mainEntries: mainEntrySources,
     pullRequestNumber: pullRequest,
   });
-  if (!result.ok) {
-    fail(result.errors);
-  }
-  const identitySources = new Map(
-    await Promise.all(
-      releaseIdentityPaths.map(async (path) => [
-        path,
-        await gitTextValidation('show', `${headRef}:${path}`),
-      ] as const),
-    ),
-  );
-  const identityErrors = validateReleaseIdentityBundle(
-    identitySources,
-    headPackageVersion,
-  );
-  if (identityErrors.length > 0) fail(identityErrors);
-
-  if (result.mode === 'ordinary') {
-    console.log(
-      `Release gate passed: PR #${pullRequest} keeps published version ${currentMainVersion}; no versioned release is requested.`,
-    );
-    return;
-  }
+  if (!result.ok) fail(result.errors);
 
   console.log(
-    `Release gate passed: PR #${pullRequest} owns ${result.entry.fileName}, version ${result.entry.version} (${result.entry.bump} from latest main ${currentMainVersion}).`,
+    `Release gate passed: PR #${pullRequest} declares ${result.intent} and keeps concrete version ${basePackageVersion} unassigned.`,
   );
 }
 
@@ -149,37 +94,11 @@ function readHeadEntries() {
       .sort()) {
       entries.set(
         basename(fileName),
-        readFileSync(
-          join(entryDirectory, fileName),
-          'utf8',
-        ),
+        readFileSync(join(entryDirectory, fileName), 'utf8'),
       );
     }
   } catch {
     return entries;
-  }
-  return entries;
-}
-
-async function readGitEntries(ref: string) {
-  const names = (
-    await gitText(
-      'ls-tree',
-      '-r',
-      '--name-only',
-      ref,
-      '--',
-      entryDirectory,
-    )
-  )
-    .split('\n')
-    .filter((path) => path.endsWith('.mdx'));
-  const entries = new Map<string, string>();
-  for (const path of names) {
-    entries.set(
-      basename(path),
-      await gitText('show', `${ref}:${path}`),
-    );
   }
   return entries;
 }
@@ -193,22 +112,23 @@ async function parseNameStatus(
       .split('\n')
       .filter(Boolean)
       .map(async (line) => {
-      const [rawStatus, path = ''] = line.split('\t');
-      const status = rawStatus.startsWith('A')
-        ? 'added'
-        : rawStatus.startsWith('D')
-          ? 'deleted'
-          : rawStatus.startsWith('R')
-            ? 'renamed'
-            : 'modified';
-      return {
-        path,
-        source:
-          status === 'deleted'
-            ? undefined
-            : await gitText('show', `${headRef}:${path}`),
-        status,
-      };
+        const [rawStatus, path = ''] = line.split('\t');
+        const status = rawStatus.startsWith('A')
+          ? 'added'
+          : rawStatus.startsWith('D')
+            ? 'deleted'
+            : rawStatus.startsWith('R')
+              ? 'renamed'
+              : 'modified';
+        return {
+          path,
+          source:
+            status !== 'deleted' &&
+              path.startsWith(`${releaseIntentDirectory}/`)
+              ? await gitTextValidationRaw('show', `${headRef}:${path}`)
+              : undefined,
+          status,
+        };
       }),
   );
 }
@@ -246,41 +166,16 @@ function packageVersion(source: string, label: string) {
   return version;
 }
 
-async function findGitHubRelease(tag: string) {
-  const response = await fetch(
-    `https://api.github.com/repos/${repository}/releases/tags/${encodeURIComponent(tag)}`,
-    {
-      headers: {
-        accept: 'application/vnd.github+json',
-        ...(process.env.GH_TOKEN
-          ? { authorization: `Bearer ${process.env.GH_TOKEN}` }
-          : {}),
-        'user-agent': 'project-space-release-gate',
-        'x-github-api-version': '2022-11-28',
-      },
-    },
-  );
-  if (response.status === 404) return [];
-  if (!response.ok) {
-    failInfrastructure(
-      `GitHub Release uniqueness check failed with HTTP ${response.status}; the release gate fails closed.`,
-    );
-  }
-  const body = await response.json();
-  if (!isRecord(body) || body.tag_name !== tag) {
-    failInfrastructure(
-      `GitHub Release uniqueness response for ${tag} was malformed; the release gate fails closed.`,
-    );
-  }
-  return [tag];
-}
-
 async function gitText(...args: string[]) {
   return (await run(['git', ...args])).trim();
 }
 
 async function gitTextValidation(...args: string[]) {
   return (await run(['git', ...args], 'validation')).trim();
+}
+
+async function gitTextValidationRaw(...args: string[]) {
+  return run(['git', ...args], 'validation');
 }
 
 async function run(

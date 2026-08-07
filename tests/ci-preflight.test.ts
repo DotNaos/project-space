@@ -85,7 +85,7 @@ describe('canonical local CI preflight', () => {
     const ids = plan.map(({ id }) => id);
 
     expect(ids).toEqual(expect.arrayContaining([
-      'release-entry',
+      'release-intent',
       'package-manager-policy',
       'generated-cli-docs',
       'cli-docs-contract',

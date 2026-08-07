@@ -13,7 +13,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: publish-merged-release-${{ github.sha }}
+  group: project-space-release-queue
   cancel-in-progress: false
 
 jobs:
@@ -23,11 +23,24 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - name: Check out exact merged revision
+      - name: Resolve current main queue head
+        id: main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          queue_head=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)
+          [[ "$queue_head" =~ ^[0-9a-f]{40}$ ]]
+          echo "sha=$queue_head" >> "$GITHUB_OUTPUT"
+          printf 'Release queue head: `%s`.\n' "$queue_head" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check out current main queue head
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ steps.main.outputs.sha }}
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -38,16 +51,22 @@ jobs:
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_AFTER_SHA: ${{ github.sha }}
+          RELEASE_AFTER_SHA: ${{ steps.main.outputs.sha }}
           RELEASE_EVENT_NAME: ${{ github.event_name }}
         run: bun scripts/publish-merged-release.ts
 
-      - name: Deploy an ordinary merged revision to Production
-        if: steps.release.outputs.ordinary_deploy_required == 'true'
+      - name: Deploy the exact queue-selected revision to Production
+        if: steps.release.outputs.deploy_required == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          MERGED_COMMIT: ${{ github.sha }}
+          MERGED_COMMIT: ${{ steps.release.outputs.deploy_commit }}
+          QUEUE_HEAD: ${{ steps.main.outputs.sha }}
+          RELEASE_VERSION: ${{ steps.release.outputs.deploy_version }}
         run: |
           set -euo pipefail
           [[ "$MERGED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
-          gh workflow run deploy-production.yml --ref main -f commit="$MERGED_COMMIT"
+          [[ "$MERGED_COMMIT" == "$QUEUE_HEAD" ]]
+          [[ "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          gh workflow run deploy-production.yml --ref main \
+            -f commit="$MERGED_COMMIT" \
+            -f release_version="$RELEASE_VERSION"
