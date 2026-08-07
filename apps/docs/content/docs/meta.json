@@ -5,6 +5,7 @@
     "setup",
     "cli",
     "api",
+    "project-mcp",
     "templates",
     "deploy",
     "[Changelog](/docs/changelog)",

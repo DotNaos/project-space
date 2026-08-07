@@ -54,6 +54,11 @@ export interface ConfiguredCodexMachineTasksOptions {
   sessionsRuntime?: Promise<CodexSessionsRuntime>;
 }
 
+export interface ConfiguredCodexMachineTasksRuntime {
+  service: ReturnType<typeof createCodexMachineTasksService>;
+  sessions: CodexSessionsRuntime;
+}
+
 export function createConfiguredCodexMachineTasksHandler(
   options: ConfiguredCodexMachineTasksOptions
 ): CodexMachineTasksHttpHandler {
@@ -86,6 +91,23 @@ export function createConfiguredCodexMachineTasksHandler(
 }
 
 async function createHandler(options: ConfiguredCodexMachineTasksOptions) {
+  const runtime = await createConfiguredCodexMachineTasksRuntime(options);
+  const resolveActor = createCodexMachineTasksAuthResolver({
+    authenticateMachine: async ({ machineId, token }) => (
+      options.machineConnection?.resolveMachineCredentialIdentity(token, machineId) ?? null
+    ),
+    authRequired: isProjectSpaceAuthRequired,
+    readHuman: async (request) => {
+      const session = await readAuthSessionFromRequest(request);
+      return session ? { userId: session.userId } : null;
+    }
+  });
+  return createCodexMachineTasksHttpApi(runtime.service, resolveActor);
+}
+
+export async function createConfiguredCodexMachineTasksRuntime(
+  options: ConfiguredCodexMachineTasksOptions
+): Promise<ConfiguredCodexMachineTasksRuntime> {
   const sessions = await (options.sessionsRuntime ?? createConfiguredCodexSessionsRuntime());
   const store = new PostgresCodexMachineTasksStore(await getCodexSessionsDatabaseClient());
   const service = createCodexMachineTasksService({
@@ -254,17 +276,7 @@ async function createHandler(options: ConfiguredCodexMachineTasksOptions) {
     },
     userCanUseConnector: undefined
   });
-  const resolveActor = createCodexMachineTasksAuthResolver({
-    authenticateMachine: async ({ machineId, token }) => (
-      options.machineConnection?.resolveMachineCredentialIdentity(token, machineId) ?? null
-    ),
-    authRequired: isProjectSpaceAuthRequired,
-    readHuman: async (request) => {
-      const session = await readAuthSessionFromRequest(request);
-      return session ? { userId: session.userId } : null;
-    }
-  });
-  return createCodexMachineTasksHttpApi(service, resolveActor);
+  return { service, sessions };
 }
 
 export function connectorReconciliationGeneration(
