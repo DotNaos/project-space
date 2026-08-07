@@ -34,6 +34,10 @@ import type {
   ToolLaunchRequest
 } from '../src/shared/project-space-api';
 import { createGitHubRepositorySummaryRoute } from './github-repository-summary-route';
+import {
+  getGitHubRepositoryFile,
+  getGitHubRepositoryTree
+} from './local-github-repository-tree';
 import { isGitHubBranchComparisonRequest } from './github-branch-comparison';
 import { isGitHubIssueDevelopmentStartRequest } from './local-github-issue-development';
 import type { GitHubRepositorySummaryResult } from '../src/shared/github-repository-summary';
@@ -84,6 +88,33 @@ export function createProjectSpaceIntegrationApiRoutes(
       }
 
       writeJson(response, 200, await backend.getGitHubRepositoryDetails(fullName));
+      return true;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/github/repository-tree') {
+      const fullName = url.searchParams.get('fullName');
+      const ref = url.searchParams.get('ref');
+      if (!fullName || !ref) {
+        writeJson(response, 400, { error: 'Missing fullName or ref.' });
+        return true;
+      }
+
+      response.setHeader('Cache-Control', 'private, no-store');
+      writeJson(response, 200, await getGitHubRepositoryTree(fullName, ref));
+      return true;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/github/repository-file') {
+      const fullName = url.searchParams.get('fullName');
+      const ref = url.searchParams.get('ref');
+      const path = url.searchParams.get('path');
+      if (!fullName || !ref || !path) {
+        writeJson(response, 400, { error: 'Missing fullName, ref, or path.' });
+        return true;
+      }
+
+      response.setHeader('Cache-Control', 'private, no-store');
+      writeJson(response, 200, await getGitHubRepositoryFile(fullName, ref, path));
       return true;
     }
 
