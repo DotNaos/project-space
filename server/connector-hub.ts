@@ -178,6 +178,7 @@ function registeredConnectorMachine({
   const reportedOsFamily = connectorReportedOsFamily(registry);
   return {
     battery: registry.connector.battery,
+    compute: registry.connector.compute,
     connector: {
       capabilities,
       daemon: registry.connector.daemon,

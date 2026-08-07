@@ -940,6 +940,7 @@ export interface MachineRecord {
     tailscaleIp?: string;
   };
   connector: MachineConnectorRecord;
+  compute?: import('./compute-environment-api').ConnectorComputeMetadata;
 }
 
 /**
@@ -993,6 +994,7 @@ export interface TailscaleStatusResult {
 }
 
 export interface ConnectorOverviewResult {
+  computeInventory?: import('./compute-environment-api').ComputeInventorySnapshot;
   connectorOrigin?: string;
   machines: MachineRecord[];
   physicalMachines?: PhysicalMachineRecord[];
@@ -1008,6 +1010,7 @@ export interface ConnectorProjectRegistryResult {
   connector: {
     battery?: MachineBatteryRecord;
     capabilities?: string[];
+    compute?: import('./compute-environment-api').ConnectorComputeMetadata;
     daemon?: CodexDaemonEvidence;
     environment?: ConnectorEnvironmentRecord;
     executionScopeId?: string;

@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react';
 import {
   Archive,
+  Boxes,
   ChevronRight,
+  Cloud,
+  Cpu,
   ExternalLink,
   MonitorCog,
   Pencil,
@@ -15,6 +18,13 @@ import type {
   PhysicalMachineRecord,
   PhysicalMachineSaveRequest
 } from '@/shared/project-space-api';
+import type {
+  ComputeEnvironmentNode,
+  ComputeInventorySnapshot,
+  ComputePlatformNode,
+  ResourceProfile
+} from '@/shared/compute-environment-api';
+import { groupComputeInventory, hostAssociationLabel } from '@/shared/compute-environment-api';
 import { ConnectorChannelChip } from './connector-channel-chip';
 import { MachineConnectorActionsMenu } from './machine-connector-actions-menu';
 import { MachineConnectionIcon, MachineDeviceIcon, MachineOsMark } from './machine-visuals';
@@ -37,8 +47,176 @@ interface SettingsMachineGroupsProps {
   loadError: string;
   onRefresh(): Promise<unknown>;
   onSaveMachine(request: PhysicalMachineSaveRequest): Promise<void>;
+  computeInventory?: ComputeInventorySnapshot;
   physicalMachines: readonly PhysicalMachineRecord[];
   status: SettingsMachineGroupsStatus;
+}
+
+function formatBytes(value: number | undefined) {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) return undefined;
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let amount = value;
+  let unit = 0;
+  while (amount >= 1_024 && unit < units.length - 1) {
+    amount /= 1_024;
+    unit += 1;
+  }
+  return `${amount >= 10 ? amount.toFixed(0) : amount.toFixed(1)} ${units[unit]}`;
+}
+
+function resourceSummary(resources: ResourceProfile | undefined) {
+  if (!resources) return 'Resources not reported';
+  return [
+    `${resources.cpu.cores} CPU`,
+    formatBytes(resources.memory.limitBytes ?? resources.memory.totalBytes),
+    formatBytes(resources.storage.totalBytes),
+    resources.gpu?.length ? `${resources.gpu.length} GPU` : undefined
+  ].filter(Boolean).join(' · ');
+}
+
+const environmentLabels: Record<ComputeEnvironmentNode['environment']['kind'], string> = {
+  cloud_sandbox: 'Cloud sandbox',
+  devbox: 'Devbox',
+  docker: 'Docker',
+  github_codespace: 'GitHub Codespace',
+  kubernetes_workload: 'Kubernetes workload',
+  native_linux: 'Linux',
+  native_macos: 'macOS',
+  native_windows: 'Windows',
+  other: 'Environment',
+  virtual_machine: 'Virtual machine',
+  wsl: 'WSL'
+};
+
+function EnvironmentRow({
+  node,
+  instancesById,
+  onEditConnector,
+  onRefresh
+}: {
+  node: ComputeEnvironmentNode;
+  instancesById: ReadonlyMap<string, SettingsConnectorInstance>;
+  onEditConnector(instance: SettingsConnectorInstance): void;
+  onRefresh(): Promise<unknown>;
+}) {
+  const instances = node.connectors.flatMap(({ connectorId }) => {
+    const instance = instancesById.get(connectorId);
+    return instance ? [instance] : [];
+  });
+  return (
+    <div className="border-t border-neutral-900 first:border-t-0">
+      <div className="flex min-w-0 items-start gap-3 px-4 py-3">
+        <Boxes className="mt-0.5 size-4 shrink-0 text-violet-300" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Text className="truncate text-sm font-medium text-neutral-100">{node.environment.name}</Text>
+            <Chip size="sm" variant="secondary">{environmentLabels[node.environment.kind]}</Chip>
+            <Chip
+              size="sm"
+              variant={node.environment.hostAssociation.resolution === 'verified' ? 'primary' : 'secondary'}
+            >
+              {hostAssociationLabel(node.environment.hostAssociation)}
+            </Chip>
+            {node.environment.identityResolution === 'conflict' ? (
+              <Chip size="sm" variant="secondary">Identity conflict · re-enroll required</Chip>
+            ) : null}
+          </div>
+          <Text className="mt-0.5 block text-xs text-neutral-500">
+            {resourceSummary(node.environment.resources)} · {instances.length} connector{instances.length === 1 ? '' : 's'}
+          </Text>
+        </div>
+      </div>
+      <div className="border-t border-neutral-900/70 bg-neutral-950/35 pl-5 sm:pl-8">
+        {instances.map((instance) => (
+          <ConnectorInstanceRow
+            key={instance.id}
+            instance={instance}
+            onEdit={() => onEditConnector(instance)}
+            onRefresh={onRefresh}
+          />
+        ))}
+        {node.children.map((child) => (
+          <EnvironmentRow
+            key={child.environment.id}
+            node={child}
+            instancesById={instancesById}
+            onEditConnector={onEditConnector}
+            onRefresh={onRefresh}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PlatformRow({
+  node,
+  instancesById,
+  onEditConnector,
+  onRefresh
+}: {
+  node: ComputePlatformNode;
+  instancesById: ReadonlyMap<string, SettingsConnectorInstance>;
+  onEditConnector(instance: SettingsConnectorInstance): void;
+  onRefresh(): Promise<unknown>;
+}) {
+  return (
+    <Disclosure defaultExpanded className="overflow-hidden border-b border-neutral-800 last:border-b-0">
+      <Disclosure.Heading className="flex min-w-0 items-center hover:bg-neutral-900/45">
+        <Disclosure.Trigger className="group flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400/60">
+          <Disclosure.Indicator className="size-4 shrink-0 text-neutral-500 transition-transform group-aria-expanded:rotate-90">
+            <ChevronRight />
+          </Disclosure.Indicator>
+          <Cloud className="size-4 shrink-0 text-sky-300" />
+          <span className="min-w-0 flex-1">
+            <Text className="block truncate text-sm font-semibold text-neutral-100">{node.platform.name}</Text>
+            <Text className="block truncate text-xs text-neutral-500">
+              {node.hosts.length} host{node.hosts.length === 1 ? '' : 's'} · {node.environments.length + node.hosts.reduce((count, host) => count + host.environments.length, 0)} top-level environment{node.environments.length === 1 ? '' : 's'}
+            </Text>
+          </span>
+        </Disclosure.Trigger>
+      </Disclosure.Heading>
+      <Disclosure.Content>
+        <Disclosure.Body className="bg-neutral-950/20">
+          {node.hosts.map((host) => (
+            <div key={host.host.id} className="border-t border-neutral-900 first:border-t-0">
+              <div className="flex items-start gap-3 bg-neutral-950/45 px-4 py-3 sm:pl-8">
+                <Cpu className="mt-0.5 size-4 shrink-0 text-emerald-300" />
+                <div className="min-w-0">
+                  <Text className="block truncate text-sm font-semibold text-neutral-200">{host.host.name}</Text>
+                  <Text className="block text-xs text-neutral-500">{resourceSummary(host.host.resources)}</Text>
+                </div>
+              </div>
+              <div className="pl-3 sm:pl-6">
+                {host.environments.map((environment) => (
+                  <EnvironmentRow
+                    key={environment.environment.id}
+                    node={environment}
+                    instancesById={instancesById}
+                    onEditConnector={onEditConnector}
+                    onRefresh={onRefresh}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+          {node.environments.length ? (
+            <div className="border-t border-neutral-900 first:border-t-0">
+              {node.environments.map((environment) => (
+                <EnvironmentRow
+                  key={environment.environment.id}
+                  node={environment}
+                  instancesById={instancesById}
+                  onEditConnector={onEditConnector}
+                  onRefresh={onRefresh}
+                />
+              ))}
+            </div>
+          ) : null}
+        </Disclosure.Body>
+      </Disclosure.Content>
+    </Disclosure>
+  );
 }
 
 function ConnectorInstanceRow({ instance, onEdit, onRefresh }: {
@@ -144,6 +322,7 @@ function MachineGroupRow({ group, onEditConnector, onRefresh }: {
 }
 
 export function SettingsMachineGroups({
+  computeInventory,
   connectors,
   credentials,
   loadError,
@@ -164,6 +343,16 @@ export function SettingsMachineGroups({
       (credential) => credential.status === 'revoked' || credential.status === 'expired'
     ).length
   );
+  const instancesById = useMemo(() => new Map(
+    grouping.groups.flatMap((group) => [...group.instances, ...group.archivedInstances])
+      .concat(grouping.unscopedInstances, grouping.archivedUnscopedInstances)
+      .map((instance) => [instance.id, instance])
+  ), [grouping]);
+  const computeHierarchy = useMemo(() => (
+    computeInventory && computeInventory.violations.length === 0
+      ? groupComputeInventory(computeInventory)
+      : undefined
+  ), [computeInventory]);
 
   return (
     <div>
@@ -190,7 +379,15 @@ export function SettingsMachineGroups({
             </div>
           ) : null}
           <div className="overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950/35">
-            {grouping.groups.map((group) => (
+            {computeHierarchy ? computeHierarchy.platforms.map((platform) => (
+              <PlatformRow
+                key={platform.platform.id}
+                node={platform}
+                instancesById={instancesById}
+                onEditConnector={setEditingConnector}
+                onRefresh={onRefresh}
+              />
+            )) : grouping.groups.map((group) => (
               <MachineGroupRow
                 key={group.id}
                 group={group}
@@ -198,7 +395,7 @@ export function SettingsMachineGroups({
                 onRefresh={onRefresh}
               />
             ))}
-            {grouping.unscopedInstances.length > 0 ? (
+            {!computeHierarchy && grouping.unscopedInstances.length > 0 ? (
               <div className="border-t border-neutral-800 first:border-t-0">
                 <Text className="block bg-neutral-950/60 px-4 py-2 text-xs font-medium text-neutral-500">
                   Ungrouped connector installations
@@ -213,7 +410,7 @@ export function SettingsMachineGroups({
                 ))}
               </div>
             ) : null}
-            {grouping.groups.length === 0 && grouping.unscopedInstances.length === 0 ? (
+            {(computeHierarchy ? computeHierarchy.platforms.length === 0 : grouping.groups.length === 0 && grouping.unscopedInstances.length === 0) ? (
               <div className="px-4 py-8 text-center">
                 <MonitorCog className="mx-auto size-5 text-neutral-600" />
                 <Text className="mt-2 block text-sm text-neutral-500">No connector installations found.</Text>

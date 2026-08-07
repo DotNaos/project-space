@@ -9,6 +9,7 @@ import type {
 } from '../../src/shared/codex-sessions-api';
 import type { MachineRecord, PhysicalMachineRecord } from '../../src/shared/project-space-api';
 import type { MachineRuntimeStatusResult } from '../../src/shared/connector-runtime-api';
+import type { ComputeInventorySnapshot } from '../../src/shared/compute-environment-api';
 
 export interface CodexMachineTaskStartPayload {
   branch: string;
@@ -125,6 +126,7 @@ export interface CodexMachineTasksServiceOptions {
   generationFor(connectorId: string): number | undefined;
   durableGenerationFor?(connectorId: string, generation: number): boolean;
   inventory(userId: string): Promise<{
+    computeInventory?: ComputeInventorySnapshot;
     connectors: MachineRecord[];
     physicalMachines: PhysicalMachineRecord[];
     runtimeStatuses?: ReadonlyMap<string, MachineRuntimeStatusResult>;

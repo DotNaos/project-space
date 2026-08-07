@@ -277,6 +277,7 @@ export function createLocalProjectSpaceBackend(
         connector: {
           battery: localMachine?.battery,
           capabilities,
+          compute: localMachine?.compute,
           daemon,
           environment: localMachine?.environment,
           executionScopeId: localMachine?.executionScopeId,

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import type { DatabaseQueryClient } from './client';
 import {
@@ -30,9 +30,20 @@ import type {
 import { normalizeProjectsState } from './projects-state';
 import type {
   MachineExecutionScopeRecord,
+  MachineRecord,
   PhysicalMachineRecord,
   ProjectsState
 } from '../../src/shared/project-space-api';
+import type {
+  ComputeEnvironmentRecord,
+  ComputeHostRecord,
+  ComputeInventorySnapshot,
+  ComputePlatformRecord,
+  ConnectorEnvironmentAssociation,
+  ConnectorComputeMetadata,
+  ResourceProfile
+} from '../../src/shared/compute-environment-api';
+import { validateComputeInventory } from '../../src/shared/compute-environment-api';
 
 interface MachineMembershipRow {
   created_at: Date | string;
@@ -92,6 +103,43 @@ interface PhysicalMachineRow {
   name: string;
 }
 
+interface ComputePlatformRow {
+  id: string;
+  kind: ComputePlatformRecord['kind'];
+  name: string;
+}
+
+interface ComputeHostRow {
+  id: string;
+  identity_key: string;
+  identity_version: number;
+  name: string;
+  platform_id: string;
+  resources: ResourceProfile | null;
+}
+
+interface ComputeEnvironmentRow {
+  host_evidence: ComputeEnvironmentRecord['hostAssociation']['evidence'];
+  host_id: string | null;
+  host_resolution: ComputeEnvironmentRecord['hostAssociation']['resolution'];
+  id: string;
+  identity_key: string;
+  identity_resolution: 'resolved' | 'conflict';
+  identity_version: number;
+  kind: ComputeEnvironmentRecord['kind'];
+  name: string;
+  parent_environment_id: string | null;
+  platform_id: string;
+  resource_mode: ComputeEnvironmentRecord['resourceMode'];
+  resources: ResourceProfile | null;
+}
+
+interface ConnectorEnvironmentRow {
+  associated_at: Date | string;
+  connector_id: string;
+  environment_id: string;
+}
+
 const membershipColumns = `
   id, machine_id, user_id, role, created_at, updated_at
 `;
@@ -127,6 +175,10 @@ function requireValue(value: string, name: string) {
 
 function normalizeAllowedHosts(hosts: readonly string[]) {
   return [...new Set(hosts.map((host) => host.trim().toLowerCase()).filter(Boolean))];
+}
+
+function accountScopedIdentity(userId: string, key: string) {
+  return `account:${createHash('sha256').update(userId).update('\0').update(key).digest('hex')}`;
 }
 
 function mapMembership(row: MachineMembershipRow): MachineMembership {
@@ -205,6 +257,238 @@ export class ProjectSpaceDatabaseRepository {
 
   async revokeConnectorCredential(input: RevokeConnectorCredentialInput) {
     return this.connectorCredentials.revoke(input);
+  }
+
+  async listComputeInventory(userId: string): Promise<ComputeInventorySnapshot> {
+    const ownerUserId = requireValue(userId, 'userId');
+    const [platformResult, hostResult, environmentResult, connectorResult] = await Promise.all([
+      this.client.query<ComputePlatformRow>(
+        `select id, kind, name from compute_platforms
+          where owner_user_id = $1 order by lower(name), id`,
+        [ownerUserId]
+      ),
+      this.client.query<ComputeHostRow>(
+        `select id, platform_id, identity_version, identity_key, name, resources
+           from compute_hosts where owner_user_id = $1 order by lower(name), id`,
+        [ownerUserId]
+      ),
+      this.client.query<ComputeEnvironmentRow>(
+        `select id, platform_id, host_id, parent_environment_id, identity_version,
+                identity_key, identity_resolution, kind, name, host_resolution, host_evidence,
+                resource_mode, resources
+           from compute_environments where owner_user_id = $1 order by lower(name), id`,
+        [ownerUserId]
+      ),
+      this.client.query<ConnectorEnvironmentRow>(
+        `select connector_id, environment_id, associated_at
+           from connector_compute_environments where owner_user_id = $1
+          order by connector_id`,
+        [ownerUserId]
+      )
+    ]);
+    const platforms: ComputePlatformRecord[] = platformResult.rows;
+    const hosts: ComputeHostRecord[] = hostResult.rows.map((row) => ({
+      id: row.id,
+      identity: { key: row.identity_key, version: row.identity_version },
+      name: row.name,
+      platformId: row.platform_id,
+      resources: row.resources ?? undefined
+    }));
+    const environments: ComputeEnvironmentRecord[] = environmentResult.rows.map((row) => ({
+      hostAssociation: row.host_resolution === 'verified'
+        ? { evidence: row.host_evidence as 'provider' | 'tpm' | 'smbios' | 'host_broker', hostId: row.host_id!, resolution: 'verified' }
+        : row.host_resolution === 'manual'
+          ? { evidence: 'user', hostId: row.host_id!, resolution: 'manual' }
+          : row.host_resolution === 'conflict'
+            ? { evidence: row.host_evidence, hostId: row.host_id ?? undefined, resolution: 'conflict' } as ComputeEnvironmentRecord['hostAssociation']
+            : row.host_resolution === 'not_applicable'
+              ? { evidence: row.host_evidence as 'none' | 'provider', resolution: 'not_applicable' }
+              : { evidence: 'none', resolution: 'unresolved' },
+      id: row.id,
+      identity: { key: row.identity_key, version: row.identity_version },
+      identityResolution: row.identity_resolution,
+      kind: row.kind,
+      name: row.name,
+      parentEnvironmentId: row.parent_environment_id ?? undefined,
+      platformId: row.platform_id,
+      resourceMode: row.resource_mode,
+      resources: row.resources ?? undefined
+    }));
+    const connectors: ConnectorEnvironmentAssociation[] = connectorResult.rows.map((row) => ({
+      associatedAt: toIsoString(row.associated_at),
+      connectorId: row.connector_id,
+      environmentId: row.environment_id
+    }));
+    const input = { connectors, environments, hosts, platforms };
+    return { ...input, violations: validateComputeInventory(input) };
+  }
+
+  async reconcileConnectorComputeInventory(
+    userId: string,
+    machines: readonly Pick<MachineRecord, 'compute' | 'id' | 'name'>[]
+  ) {
+    const ownerUserId = requireValue(userId, 'userId');
+    const reported = machines.filter((machine): machine is typeof machine & { compute: ConnectorComputeMetadata } => (
+      machine.compute !== undefined
+    ));
+    if (reported.length === 0) return;
+
+    const operation = async (client: DatabaseQueryClient) => {
+      for (const machine of reported) {
+        const owned = await client.query<{ machine_id: string }>(
+          `select machine_id from machine_memberships
+            where machine_id = $1 and user_id = $2 and role = 'owner' for update`,
+          [machine.id, ownerUserId]
+        );
+        if (!owned.rows[0]) continue;
+        const metadata = machine.compute;
+        const platform = await client.query<{ id: string }>(
+          `insert into compute_platforms (id, owner_user_id, kind, name)
+           values ($1, $2, $3, $4)
+           on conflict (owner_user_id, kind, name) do update set updated_at = now()
+           returning id`,
+          [this.createId(), ownerUserId, metadata.platformKind, metadata.platformName]
+        );
+        const platformId = platform.rows[0]?.id;
+        if (!platformId) throw new Error('The compute platform could not be reconciled.');
+        const environmentIdentityKey = accountScopedIdentity(
+          ownerUserId,
+          metadata.environmentIdentity.key
+        );
+        const currentAssociation = await client.query<{
+          association_source: string;
+          environment_id: string;
+          host_id: string | null;
+          host_identity_key: string | null;
+          identity_key: string;
+          platform_id: string;
+        }>(
+          `select association.association_source, association.environment_id,
+                  environment.identity_key, environment.platform_id, environment.host_id,
+                  host.identity_key as host_identity_key
+             from connector_compute_environments association
+             join compute_environments environment
+               on environment.id = association.environment_id
+              and environment.owner_user_id = association.owner_user_id
+             left join compute_hosts host
+               on host.id = environment.host_id
+              and host.owner_user_id = environment.owner_user_id
+            where association.connector_id = $1 and association.owner_user_id = $2
+            for update of association, environment`,
+          [machine.id, ownerUserId]
+        );
+        const current = currentAssociation.rows[0];
+        if (current && current.association_source !== 'legacy' && (
+          current.identity_key !== environmentIdentityKey || current.platform_id !== platformId
+        )) {
+          await client.query(
+            `update compute_environments
+                set identity_resolution = 'conflict', updated_at = now()
+              where id = $1 and owner_user_id = $2`,
+            [current.environment_id, ownerUserId]
+          );
+          continue;
+        }
+
+        const reportedHostIdentityKey = metadata.hostIdentity
+          ? accountScopedIdentity(ownerUserId, metadata.hostIdentity.key)
+          : null;
+        if (current && current.association_source !== 'legacy' &&
+          current.host_identity_key && reportedHostIdentityKey &&
+          current.host_identity_key !== reportedHostIdentityKey) {
+          await client.query(
+            `update compute_environments
+                set host_resolution = 'conflict', host_evidence = $3, updated_at = now()
+              where id = $1 and owner_user_id = $2`,
+            [current.environment_id, ownerUserId, metadata.hostEvidence]
+          );
+          continue;
+        }
+
+        let hostId: string | null = current?.host_id ?? null;
+        if (metadata.hostIdentity && metadata.hostName) {
+          const host = await client.query<{ id: string }>(
+            `insert into compute_hosts (
+               id, owner_user_id, platform_id, identity_version, identity_key, name, resources
+             ) values ($1, $2, $3, $4, $5, $6, $7::jsonb)
+             on conflict (owner_user_id, platform_id, identity_version, identity_key) do update set
+               name = excluded.name, resources = excluded.resources, updated_at = now()
+             returning id`,
+          [this.createId(), ownerUserId, platformId, metadata.hostIdentity.version,
+              reportedHostIdentityKey, metadata.hostName,
+              JSON.stringify(metadata.resourceMode === 'exclusive' ? metadata.resources ?? null : null)]
+          );
+          hostId = host.rows[0]?.id ?? null;
+        }
+
+        let parentEnvironmentId: string | null = null;
+        if (metadata.parentEnvironmentIdentity) {
+          const parentIdentityKey = accountScopedIdentity(
+            ownerUserId,
+            metadata.parentEnvironmentIdentity.key
+          );
+          const parent = await client.query<{ id: string }>(
+            `insert into compute_environments (
+               id, owner_user_id, platform_id, host_id, identity_version, identity_key,
+               kind, name, host_resolution, host_evidence, resource_mode
+             ) values ($1, $2, $3, $4, $5, $6, 'other', $7, $8, $9, 'shared')
+             on conflict (owner_user_id, platform_id, identity_version, identity_key) do update set
+               updated_at = now()
+             returning id`,
+            [this.createId(), ownerUserId, platformId, hostId,
+              metadata.parentEnvironmentIdentity.version, parentIdentityKey,
+              `${metadata.environmentName} parent`, metadata.hostResolution, metadata.hostEvidence]
+          );
+          parentEnvironmentId = parent.rows[0]?.id ?? null;
+        }
+
+        const environment = await client.query<{ id: string }>(
+          `insert into compute_environments (
+             id, owner_user_id, platform_id, host_id, parent_environment_id, identity_version, identity_key,
+             kind, name, host_resolution, host_evidence, resource_mode, resources
+           ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)
+           on conflict (owner_user_id, platform_id, identity_version, identity_key) do update set
+             host_id = excluded.host_id, identity_resolution = 'resolved',
+             parent_environment_id = excluded.parent_environment_id,
+             kind = excluded.kind, name = excluded.name,
+             host_resolution = excluded.host_resolution, host_evidence = excluded.host_evidence,
+             resource_mode = excluded.resource_mode, resources = excluded.resources, updated_at = now()
+           returning id`,
+          [this.createId(), ownerUserId, platformId, hostId, parentEnvironmentId,
+            metadata.environmentIdentity.version, environmentIdentityKey, metadata.environmentKind, metadata.environmentName,
+            metadata.hostResolution, metadata.hostEvidence, metadata.resourceMode,
+            JSON.stringify(metadata.resourceMode === 'exclusive' ? null : metadata.resources ?? null)]
+        );
+        const environmentId = environment.rows[0]?.id;
+        if (!environmentId) throw new Error('The compute environment could not be reconciled.');
+        const association = await client.query<{ environment_id: string }>(
+          `insert into connector_compute_environments (
+             connector_id, owner_user_id, environment_id, association_source
+           ) values ($1, $2, $3, 'connector')
+           on conflict (owner_user_id, connector_id) do update set
+             environment_id = excluded.environment_id,
+             association_source = 'connector',
+             associated_at = now()
+           where connector_compute_environments.association_source = 'legacy'
+              or connector_compute_environments.environment_id = excluded.environment_id
+           returning environment_id`,
+          [machine.id, ownerUserId, environmentId]
+        );
+        if (!association.rows[0]) throw new Error('The connector environment could not be persisted.');
+        await client.query(
+          `delete from compute_environments environment
+            where environment.owner_user_id = $1
+              and environment.id <> $2
+              and not exists (
+                select 1 from connector_compute_environments association
+                 where association.owner_user_id = environment.owner_user_id
+                   and association.environment_id = environment.id
+              )`,
+          [ownerUserId, environmentId]
+        );
+      }
+    };
+    return this.client.transaction ? this.client.transaction(operation) : operation(this.client);
   }
 
   async listPhysicalMachines(userId: string): Promise<PhysicalMachineRecord[]> {
@@ -286,6 +570,51 @@ export class ProjectSpaceDatabaseRepository {
            physical_machine_id = excluded.physical_machine_id`,
         [physicalMachineId, userId, connectorIds]
       );
+      const platform = await client.query<{ id: string }>(
+        `select id from compute_platforms
+          where owner_user_id = $1 and kind = 'local' and name = 'Local & self-hosted'
+          limit 1`,
+        [userId]
+      );
+      const platformId = platform.rows[0]?.id;
+      if (platformId) {
+        await client.query(
+          `insert into compute_hosts (
+             id, owner_user_id, platform_id, identity_version, identity_key, name
+           ) values ($1, $2, $3, 1, $4, $5)
+           on conflict (id, owner_user_id) do update set
+             name = excluded.name, updated_at = now()`,
+          [physicalMachineId, userId, platformId,
+            accountScopedIdentity(userId, `manual:${physicalMachineId}`), name]
+        );
+        await client.query(
+          `update compute_environments environment
+              set host_id = null, host_resolution = 'unresolved', host_evidence = 'none',
+                  updated_at = now()
+             from connector_compute_environments association
+            where environment.id = association.environment_id
+              and environment.owner_user_id = $1
+              and association.owner_user_id = $1
+              and environment.host_resolution = 'manual'
+              and not exists (
+                select 1 from physical_machine_connectors physical
+                 where physical.owner_user_id = association.owner_user_id
+                   and physical.connector_id = association.connector_id
+              )`,
+          [userId]
+        );
+        await client.query(
+          `update compute_environments environment
+              set host_id = $2, host_resolution = 'manual', host_evidence = 'user',
+                  updated_at = now()
+             from connector_compute_environments association
+            where environment.id = association.environment_id
+              and environment.owner_user_id = $1
+              and association.owner_user_id = $1
+              and association.connector_id = any($3::text[])`,
+          [userId, physicalMachineId, connectorIds]
+        );
+      }
       await client.query(
         `delete from physical_machines machine
           where machine.owner_user_id = $1
@@ -312,16 +641,29 @@ export class ProjectSpaceDatabaseRepository {
   }
 
   async deletePhysicalMachine(input: PhysicalMachineKey) {
-    const result = await this.client.query<{ id: string }>(
-      `delete from physical_machines
+    const physicalMachineId = requireValue(input.physicalMachineId, 'physicalMachineId');
+    const userId = requireValue(input.userId, 'userId');
+    const operation = async (client: DatabaseQueryClient) => {
+      await client.query(
+        `update compute_environments
+            set host_id = null, host_resolution = 'unresolved', host_evidence = 'none',
+                updated_at = now()
+          where host_id = $1 and owner_user_id = $2`,
+        [physicalMachineId, userId]
+      );
+      await client.query(
+        `delete from compute_hosts where id = $1 and owner_user_id = $2`,
+        [physicalMachineId, userId]
+      );
+      const result = await client.query<{ id: string }>(
+        `delete from physical_machines
         where id = $1 and owner_user_id = $2
-      returning id`,
-      [
-        requireValue(input.physicalMachineId, 'physicalMachineId'),
-        requireValue(input.userId, 'userId')
-      ]
-    );
-    return result.rows.length > 0;
+        returning id`,
+        [physicalMachineId, userId]
+      );
+      return result.rows.length > 0;
+    };
+    return this.client.transaction ? this.client.transaction(operation) : operation(this.client);
   }
 
   async listMachineExecutionScopes(userId: string): Promise<MachineExecutionScopeRecord[]> {

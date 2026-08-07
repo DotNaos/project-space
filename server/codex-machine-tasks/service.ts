@@ -60,12 +60,12 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
     userId: string,
     selector: Pick<
       CodexMachineTaskReadRequest,
-      'connectorId' | 'physicalMachineId' | 'physicalMachineName'
+      'connectorId' | 'environmentId' | 'physicalMachineId' | 'physicalMachineName'
     >,
     callerMachineId?: string
   ) {
     const inventory = await options.inventory(userId);
-    const callerPhysicalMachine = !selector.physicalMachineId && !selector.physicalMachineName &&
+    const callerPhysicalMachine = !selector.environmentId && !selector.physicalMachineId && !selector.physicalMachineName &&
       callerMachineId
       ? inventory.physicalMachines.find((machine) => machine.connectorIds.includes(callerMachineId))
       : undefined;

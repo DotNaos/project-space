@@ -47,6 +47,10 @@ import {
   projectSpaceMcpOAuthMigrationId,
   projectSpaceMcpOAuthMigrationSql
 } from './project-space-mcp-oauth-migration';
+import {
+  computeInventoryMigrationId,
+  computeInventoryMigrationSql
+} from './compute-inventory-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -675,6 +679,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: projectSpaceMcpOAuthMigrationId,
     sql: projectSpaceMcpOAuthMigrationSql
+  },
+  {
+    id: computeInventoryMigrationId,
+    sql: computeInventoryMigrationSql
   }
 ];
 

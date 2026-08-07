@@ -101,6 +101,7 @@ export interface ComputeEnvironmentRecord {
   hostAssociation: EnvironmentHostAssociation;
   id: string;
   identity: DerivedIdentityKey;
+  identityResolution?: 'resolved' | 'conflict';
   kind: ComputeEnvironmentKind;
   name: string;
   parentEnvironmentId?: string;
@@ -114,6 +115,120 @@ export interface ConnectorEnvironmentAssociation {
   associatedAt: string;
   connectorId: string;
   environmentId: string;
+}
+
+/** Privacy-preserving topology evidence reported by one connector runtime. */
+export interface ConnectorComputeMetadata {
+  environmentIdentity: DerivedIdentityKey;
+  environmentKind: ComputeEnvironmentKind;
+  environmentName: string;
+  hostEvidence: HostEvidence;
+  hostIdentity?: DerivedIdentityKey;
+  hostName?: string;
+  hostResolution: HostResolution;
+  parentEnvironmentIdentity?: DerivedIdentityKey;
+  platformKind: ComputePlatformKind;
+  platformName: string;
+  resourceMode: EnvironmentResourceMode;
+  resources?: ResourceProfile;
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function onlyKeys(value: Record<string, unknown>, allowed: readonly string[]) {
+  const keys = new Set(allowed);
+  return Object.keys(value).every((key) => keys.has(key));
+}
+
+function finiteNonNegative(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+export function isDerivedIdentityKey(value: unknown): value is DerivedIdentityKey {
+  return record(value) && onlyKeys(value, ['key', 'version']) &&
+    typeof value.key === 'string' && /^[A-Za-z0-9:_-]{8,256}$/.test(value.key) &&
+    Number.isSafeInteger(value.version) && Number(value.version) > 0;
+}
+
+export function isResourceProfile(value: unknown): value is ResourceProfile {
+  if (!record(value) || !onlyKeys(value, [
+    'architecture', 'operatingSystem', 'cpu', 'memory', 'storage', 'gpu',
+    'source', 'reportedAt'
+  ])) return false;
+  if (!record(value.cpu) || !onlyKeys(value.cpu, ['model', 'cores', 'limit']) ||
+    !Number.isSafeInteger(value.cpu.cores) || Number(value.cpu.cores) <= 0 ||
+    (value.cpu.limit !== undefined && !finiteNonNegative(value.cpu.limit)) ||
+    (value.cpu.model !== undefined && (typeof value.cpu.model !== 'string' || value.cpu.model.length > 256))) {
+    return false;
+  }
+  if (!record(value.memory) || !onlyKeys(value.memory, ['totalBytes', 'availableBytes', 'limitBytes']) ||
+    !finiteNonNegative(value.memory.totalBytes) ||
+    (value.memory.availableBytes !== undefined && !finiteNonNegative(value.memory.availableBytes)) ||
+    (value.memory.limitBytes !== undefined && !finiteNonNegative(value.memory.limitBytes))) {
+    return false;
+  }
+  if (!record(value.storage) || !onlyKeys(value.storage, ['totalBytes', 'availableBytes']) ||
+    !finiteNonNegative(value.storage.totalBytes) ||
+    (value.storage.availableBytes !== undefined && !finiteNonNegative(value.storage.availableBytes))) {
+    return false;
+  }
+  if (value.gpu !== undefined && (!Array.isArray(value.gpu) || value.gpu.length > 16 ||
+    value.gpu.some((gpu) => !record(gpu) || !onlyKeys(gpu, ['model', 'memoryBytes']) ||
+      typeof gpu.model !== 'string' || !gpu.model || gpu.model.length > 256 ||
+      (gpu.memoryBytes !== undefined && !finiteNonNegative(gpu.memoryBytes))))) {
+    return false;
+  }
+  return typeof value.architecture === 'string' && value.architecture.length <= 64 &&
+    typeof value.operatingSystem === 'string' && value.operatingSystem.length <= 128 &&
+    ['connector', 'provider', 'configured'].includes(String(value.source)) &&
+    typeof value.reportedAt === 'string' && Number.isFinite(Date.parse(value.reportedAt));
+}
+
+export function isConnectorComputeMetadataValue(
+  value: unknown
+): value is ConnectorComputeMetadata {
+  if (!record(value) || !onlyKeys(value, [
+    'environmentIdentity', 'environmentKind', 'environmentName', 'hostEvidence',
+    'hostIdentity', 'hostName', 'hostResolution', 'parentEnvironmentIdentity', 'platformKind', 'platformName',
+    'resourceMode', 'resources'
+  ])) return false;
+  const hostIdentity = value.hostIdentity;
+  const hostName = value.hostName;
+  const hostEvidence = String(value.hostEvidence);
+  const hostResolution = String(value.hostResolution);
+  const hasHost = hostIdentity !== undefined && hostName !== undefined;
+  const consistentHostAssociation =
+    (hostResolution === 'verified' && hasHost &&
+      ['provider', 'tpm', 'smbios', 'host_broker'].includes(hostEvidence)) ||
+    (hostResolution === 'manual' && hasHost && hostEvidence === 'user') ||
+    (hostResolution === 'unresolved' && !hasHost && hostEvidence === 'none') ||
+    (hostResolution === 'conflict' && hostEvidence !== 'none') ||
+    (hostResolution === 'not_applicable' && !hasHost &&
+      ['none', 'provider'].includes(hostEvidence));
+  return consistentHostAssociation && isDerivedIdentityKey(value.environmentIdentity) &&
+    (value.hostIdentity === undefined || isDerivedIdentityKey(value.hostIdentity)) &&
+    (value.parentEnvironmentIdentity === undefined || isDerivedIdentityKey(value.parentEnvironmentIdentity)) &&
+    ['local', 'github_codespaces', 'cloud_sandbox', 'kubernetes', 'virtualization', 'other']
+      .includes(String(value.platformKind)) &&
+    [
+      'native_macos', 'native_windows', 'native_linux', 'wsl', 'docker', 'devbox',
+      'github_codespace', 'cloud_sandbox', 'kubernetes_workload', 'virtual_machine', 'other'
+    ].includes(String(value.environmentKind)) &&
+    typeof value.platformName === 'string' && value.platformName.length > 0 && value.platformName.length <= 80 &&
+    typeof value.environmentName === 'string' && value.environmentName.length > 0 && value.environmentName.length <= 128 &&
+    (value.hostName === undefined || (
+      typeof value.hostName === 'string' && value.hostName.length > 0 && value.hostName.length <= 80
+    )) &&
+    ['provider', 'tpm', 'smbios', 'host_broker', 'user', 'none'].includes(String(value.hostEvidence)) &&
+    ['verified', 'manual', 'unresolved', 'conflict', 'not_applicable'].includes(String(value.hostResolution)) &&
+    ['dedicated', 'shared', 'exclusive'].includes(String(value.resourceMode)) &&
+    (value.resources === undefined || isResourceProfile(value.resources));
+}
+
+export interface ComputeInventorySnapshot extends ComputeInventoryInput {
+  violations: ComputeInventoryViolation[];
 }
 
 export interface DerivedIdentityClaim {
@@ -379,9 +494,9 @@ export function groupComputeInventory(input: ComputeInventoryInput): ComputeInve
 }
 
 /**
- * Returns the capacity owner used by summaries. Host-backed and nested shared
- * environments collapse to one owner; dedicated provider environments remain
- * independently countable.
+ * Returns the capacity owner used by summaries. Exclusive native environments
+ * count at their host, dedicated environments count their own allocation, and
+ * nested shared environments collapse to their parent capacity owner.
  */
 export function resourceCapacityOwner(
   environment: ComputeEnvironmentRecord,
@@ -396,8 +511,11 @@ function resolveResourceCapacityOwner(
   visited: Set<string>
 ): string {
   const hostId = associationHostId(environment.hostAssociation);
+  if (environment.resourceMode === 'exclusive') {
+    return hostId ? `host:${hostId}` : `environment:${environment.id}`;
+  }
+  if (environment.resourceMode === 'dedicated') return `environment:${environment.id}`;
   if (hostId) return `host:${hostId}`;
-  if (environment.resourceMode !== 'shared') return `environment:${environment.id}`;
   if (environment.parentEnvironmentId) {
     if (visited.has(environment.id)) throw new Error('Environment parent cycle');
     visited.add(environment.id);

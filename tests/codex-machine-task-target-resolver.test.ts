@@ -33,6 +33,38 @@ const physicalMachines: PhysicalMachineRecord[] = [
 ];
 
 describe('Codex machine-task target resolution', () => {
+  test('targets a provider-managed environment without inventing a physical host', () => {
+    expect(resolveCodexMachineTaskTarget({
+      computeInventory: {
+        connectors: [{
+          associatedAt: '2026-08-08T00:00:00.000Z',
+          connectorId: 'codespace-one',
+          environmentId: 'environment-codespace'
+        }],
+        environments: [{
+          hostAssociation: { evidence: 'provider', resolution: 'not_applicable' },
+          id: 'environment-codespace',
+          identity: { key: 'environment:codespace01234567', version: 1 },
+          kind: 'github_codespace',
+          name: 'project-space / issue-464',
+          platformId: 'platform-codespaces',
+          resourceMode: 'dedicated'
+        }],
+        hosts: [],
+        platforms: [{ id: 'platform-codespaces', kind: 'github_codespaces', name: 'GitHub Codespaces' }],
+        violations: []
+      },
+      connectors: [connector('codespace-one')],
+      environmentId: 'environment-codespace',
+      generationFor: () => 11,
+      physicalMachines
+    })).toEqual({
+      connector: { generation: 11, id: 'codespace-one', name: 'codespace-one' },
+      environment: { id: 'environment-codespace', name: 'project-space / issue-464' },
+      physicalMachine: { id: 'environment-codespace', name: 'project-space / issue-464' }
+    });
+  });
+
   test('selects the only eligible connector on an exact physical machine', () => {
     expect(resolveCodexMachineTaskTarget({
       connectors: [connector('mac-local'), connector('pc-windows'), connector('pc-wsl')],

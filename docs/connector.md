@@ -26,8 +26,9 @@ Open Machines in the hosted app and explicitly generate a managed installer.
 The command pins one exact release archive and checksum. After installing the
 Project CLI and connector together, it runs `project connect`, which creates the
 historical connector key locally and opens the short-lived signed-in approval
-page. Until transactional Environment enrollment lands, that key is exposed as
-`machineId` for API compatibility; it must not be interpreted as a Host or
+page. Enrollment creates the connector credential and its required bootstrap
+Environment association in one database transaction. The key remains exposed
+as `machineId` for API compatibility; it must not be interpreted as a Host or
 Environment identity.
 
 The installer downloads one pinned, checksum-verified macOS arm64 bundle. It
@@ -142,13 +143,14 @@ are display metadata, not trust signals. A connector registry can never select
 execution on the hosted server or make that server initiate SSH. Supported
 operations are routed back through the authenticated connector channel.
 
-Future enrollment resolves a versioned, privacy-preserving Environment identity
-before creating the Connector installation. Raw hardware, operating-system, and
-provider identifiers never leave their trust boundary. Native hosts use
-provider/TPM/SMBIOS evidence where available; WSL, Docker, and managed devboxes
-require a trusted parent or provisioner claim; Codespaces, cloud sandboxes, and
-Kubernetes use provider-derived identity. An unresolved enrollment request is
-not an unassigned Connector installation.
+The connector reports a versioned, privacy-preserving Environment identity and
+Resource Profile. Raw hardware, operating-system, container, and provider
+identifiers are hashed locally and never leave their trust boundary; the server
+derives the key again with the account ID before persistence. Native hosts use
+best-effort SMBIOS evidence where available; WSL and Docker remain distinct
+Environments; Codespaces and Kubernetes are provider-managed Platforms without
+fictional Hosts. Evidence-poor legacy connectors receive an explicit **Needs
+assignment** Environment rather than becoming unassigned.
 
 ## Worktree Development Servers
 
