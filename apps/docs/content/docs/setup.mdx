@@ -3,11 +3,24 @@ title: Setup
 description: Install Project and get a local project ready.
 ---
 
-## Choose The Installation Source
+## Install With The Managed Script
+
+For macOS arm64, open [Project Space Machines](https://projects.os-home.net),
+generate the pinned install command, copy it, and run it in a terminal. The
+single command installs the Project CLI and connector as one matching pair.
+
+This is the recommended installation method. The generated command pins an
+approved release and checksum rather than downloading a mutable latest build.
+Run it as your normal user, without `sudo`. Later updates use:
+
+```sh
+project self-update
+```
+
+## Other Installation Sources
 
 | Source | Install or update path |
 | --- | --- |
-| Managed macOS arm64 | Use the pinned installer generated from Project Space Machines; later run `project self-update` |
 | Managed Linux x64 or WSL | Install the signed machine-tools bundle from the approved GitHub release; later run `project self-update` |
 | Homebrew | Use Homebrew for both installation and updates |
 | Native Windows | Run the approved per-user installer; `self-update` verifies and points to the next installer |
@@ -15,7 +28,7 @@ description: Install Project and get a local project ready.
 
 Managed releases install the Project CLI and connector as one matching pair. They preserve machine identity and credentials when upgraded.
 
-## Homebrew
+## Homebrew (Secondary)
 
 ```sh
 brew tap DotNaos/project-space https://github.com/DotNaos/project-space
