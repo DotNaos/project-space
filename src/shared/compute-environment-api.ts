@@ -180,6 +180,10 @@ function identityId(identity: DerivedIdentityKey) {
   return `${identity.version}:${identity.key}`;
 }
 
+function scopedIdentityId(platformId: string, identity: DerivedIdentityKey) {
+  return JSON.stringify([platformId, identity.version, identity.key]);
+}
+
 function associationHostId(association: EnvironmentHostAssociation) {
   return 'hostId' in association ? association.hostId : undefined;
 }
@@ -246,11 +250,11 @@ export function validateComputeInventory(
   for (const id of duplicates(input.connectors.map(({ connectorId }) => connectorId))) {
     violations.push({ code: 'duplicate_connector', id });
   }
-  for (const id of duplicates(input.hosts.map((host) => `${host.platformId}:${identityId(host.identity)}`))) {
+  for (const id of duplicates(input.hosts.map((host) => scopedIdentityId(host.platformId, host.identity)))) {
     violations.push({ code: 'duplicate_host_identity', id });
   }
   for (const id of duplicates(input.environments.map((environment) =>
-    `${environment.platformId}:${identityId(environment.identity)}`
+    scopedIdentityId(environment.platformId, environment.identity)
   ))) {
     violations.push({ code: 'duplicate_environment_identity', id });
   }

@@ -167,6 +167,39 @@ describe('compute hierarchy and connector invariants', () => {
     ]);
   });
 
+  test('keeps scoped identity tuples collision-free', () => {
+    const firstPlatform: ComputePlatformRecord = { id: 'a', kind: 'other', name: 'First' };
+    const secondPlatform: ComputePlatformRecord = { id: 'a:1:b', kind: 'other', name: 'Second' };
+    const firstHost: ComputeHostRecord = {
+      id: 'first-host',
+      identity: { key: 'b:2:c', version: 1 },
+      name: 'First host',
+      platformId: firstPlatform.id
+    };
+    const secondHost: ComputeHostRecord = {
+      id: 'second-host',
+      identity: { key: 'c', version: 2 },
+      name: 'Second host',
+      platformId: secondPlatform.id
+    };
+    const firstEnvironment = environment('first-environment', {
+      hostAssociation: { evidence: 'provider', resolution: 'not_applicable' },
+      identity: firstHost.identity,
+      platformId: firstPlatform.id
+    });
+    const secondEnvironment = environment('second-environment', {
+      hostAssociation: { evidence: 'provider', resolution: 'not_applicable' },
+      identity: secondHost.identity,
+      platformId: secondPlatform.id
+    });
+
+    expect(validateComputeInventory(inventory({
+      environments: [firstEnvironment, secondEnvironment],
+      hosts: [firstHost, secondHost],
+      platforms: [firstPlatform, secondPlatform]
+    }))).toEqual([]);
+  });
+
   test('validates every host reference carried by a conflicted association', () => {
     const conflicted = environment('conflicted', {
       hostAssociation: {
