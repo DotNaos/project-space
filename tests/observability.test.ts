@@ -18,6 +18,19 @@ afterEach(async () => {
 });
 
 describe('Project Space observability', () => {
+  test('keeps routine test logs quiet unless the level is explicitly configured', () => {
+    const records: ProjectSpaceLogRecord[] = [];
+    const logger = createProjectSpaceLogger({
+      environment: { NODE_ENV: 'test' },
+      sink: { write: (record) => records.push(record) }
+    });
+
+    logger.info('test.routine');
+    logger.warn('test.warning');
+
+    expect(records.map((record) => record.event)).toEqual(['test.warning']);
+  });
+
   test('emits structured, correlated logs and redacts sensitive fields', () => {
     const records: ProjectSpaceLogRecord[] = [];
     const logger = createProjectSpaceLogger({

@@ -243,7 +243,8 @@ export function installProcessErrorHandlers(logger: ProjectSpaceLogger = project
 
 function configuredLogLevel(environment: NodeJS.ProcessEnv): LogLevel {
   const value = environment.PROJECT_SPACE_LOG_LEVEL?.trim().toLowerCase();
-  return value && value in levels ? value as LogLevel : 'info';
+  if (value && value in levels) return value as LogLevel;
+  return environment.NODE_ENV?.trim().toLowerCase() === 'test' ? 'warn' : 'info';
 }
 
 function openTelemetryConfigured(environment: NodeJS.ProcessEnv) {

@@ -33,6 +33,7 @@ describe('web server authenticated runtime mode', () => {
       env: {
         ...process.env,
         DATABASE_URL: 'postgres://must-not-connect.invalid/project-space',
+        PROJECT_SPACE_LOG_LEVEL: 'info',
         PROJECT_SPACE_PUBLIC_ORIGIN: 'https://projects.os-home.net',
         [connectorRuntimeProtocolEnvironment]: connectorRuntimeCredentialVersion
       },
