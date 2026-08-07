@@ -84,7 +84,8 @@ export function ProjectChatWorkspace({
   showChannelNavigation = fixedProjectId === undefined,
   syncRoute = fixedProjectId === undefined,
   taskTitles = [],
-  taskPreview
+  taskPreview,
+  threadDirectory
 }: {
   client: ProjectChatClient;
   /** Room to open on first render. Unlike `fixedProjectId` it can be left. */
@@ -98,6 +99,7 @@ export function ProjectChatWorkspace({
   syncRoute?: boolean;
   taskTitles?: readonly ProjectChatTaskTitle[];
   taskPreview?: ReactNode;
+  threadDirectory?: ReactNode;
 }) {
   const initialRoute = typeof window === 'undefined'
     ? { matches: true as const, projectId: undefined }
@@ -156,9 +158,15 @@ export function ProjectChatWorkspace({
     return () => window.removeEventListener('popstate', handlePopState);
   }, [syncRoute]);
 
-  const selectedChannel = selectedProjectId
+  const generalChannel = channels.find((channel) => channel.kind === 'general');
+  const projectChannel = selectedProjectId
     ? channels.find((channel) => channel.projectId === selectedProjectId)
-    : channels.find((channel) => channel.kind === 'general');
+    : undefined;
+  // Opening a project that has no room of its own — a Codex thread's project, for
+  // instance — should land in the lobby rather than on a dead end.
+  const selectedChannel = selectedProjectId
+    ? projectChannel ?? (fixedProjectId ? undefined : generalChannel)
+    : generalChannel;
 
   function selectChannel(channel: ProjectChatChannelRecord) {
     const projectId = channel.kind === 'project' ? channel.projectId : undefined;
@@ -226,6 +234,7 @@ export function ProjectChatWorkspace({
       showChannelNavigation={showChannelNavigation}
       taskTitles={taskTitles}
       taskPreview={taskPreview}
+      threadDirectory={threadDirectory}
     />
   );
 }
@@ -240,7 +249,8 @@ function ProjectChatRoomWorkspace({
   recentProjectIds,
   showChannelNavigation,
   taskTitles,
-  taskPreview
+  taskPreview,
+  threadDirectory
 }: {
   channel: ProjectChatChannelRecord;
   channels: ProjectChatChannelRecord[];
@@ -252,6 +262,7 @@ function ProjectChatRoomWorkspace({
   showChannelNavigation: boolean;
   taskTitles: readonly ProjectChatTaskTitle[];
   taskPreview?: ReactNode;
+  threadDirectory?: ReactNode;
 }) {
   const [channel, setChannel] = useState<ProjectChatChannelRecord>(initialChannel);
   const [connectionState, setConnectionState] = useState<ProjectChatConnectionState>('loading');
@@ -502,6 +513,7 @@ function ProjectChatRoomWorkspace({
       recentProjectIds={recentProjectIds}
       showChannelNavigation={showChannelNavigation}
       taskPreview={taskPreview}
+      threadDirectory={threadDirectory}
       unreadMentionCount={unreadMentionCount}
       viewer={viewer}
     />

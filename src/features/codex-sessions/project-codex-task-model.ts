@@ -208,6 +208,28 @@ export function presentProjectCodexTaskStatus(
   return { indicator: 'dot', label: label[effectiveStatus], loading: false, status: effectiveStatus };
 }
 
+/**
+ * Resolves the project a Codex thread runs in by matching its working directory
+ * against each project root and its managed worktrees, on the same machine.
+ */
+export function projectForCodexSession(
+  session: Pick<CodexSession, 'cwd' | 'machineId'>,
+  projects: readonly ProjectSpaceRecord[]
+): ProjectSpaceRecord | undefined {
+  if (!session.cwd) return undefined;
+  let match: { depth: number; project: ProjectSpaceRecord } | undefined;
+  for (const project of projects) {
+    for (const scope of projectPathScope(project)) {
+      if (!sessionMatchesScope(session, scope)) continue;
+      // A worktree root is longer than its project root, so the deepest scope
+      // wins when nested projects both contain the directory.
+      const depth = scope.projectRoot.length;
+      if (!match || depth > match.depth) match = { depth, project };
+    }
+  }
+  return match?.project;
+}
+
 function projectPathScope(project: ProjectSpaceRecord): ProjectPathScope[] {
   if (!project.machineId) return [];
   const projectRoot = comparablePath(project.rootPath);
@@ -223,7 +245,10 @@ function projectPathScope(project: ProjectSpaceRecord): ProjectPathScope[] {
   }];
 }
 
-function sessionMatchesScope(session: CodexSession, scope: ProjectPathScope) {
+function sessionMatchesScope(
+  session: Pick<CodexSession, 'cwd' | 'machineId'>,
+  scope: ProjectPathScope
+) {
   if (session.machineId !== scope.machineId) return false;
   const cwd = comparablePath(session.cwd);
   return Boolean(cwd) && (

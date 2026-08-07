@@ -1,4 +1,4 @@
-import { useMemo, useState, type Key } from 'react';
+import { useMemo, useState, type Key, type ReactNode } from 'react';
 import { AtSign, Bot, CircleAlert, Clock3, Hash, MessageSquareText, Radio, Search } from 'lucide-react';
 import { Button, Tab, TabList, Tabs, Text } from '@/app/dotnaos-ui';
 import type {
@@ -23,7 +23,7 @@ import {
 import { ParticipantVisual, PresenceDot } from './participant-visual';
 import type { CodexSessionTarget } from '../../codex-sessions/codex-session-route';
 
-export type ProjectChatInspectorTab = 'agents' | 'mentions' | 'rooms';
+export type ProjectChatInspectorTab = 'mentions' | 'rooms' | 'threads';
 
 function SectionLabel({ children, className = 'px-4' }: { children: string; className?: string }) {
   return (
@@ -294,6 +294,7 @@ export function ProjectChatInspector({
   activeTab,
   canSwitchRooms = false,
   channels,
+  threadDirectory,
   members,
   mentionError,
   mentionMessages,
@@ -315,6 +316,8 @@ export function ProjectChatInspector({
   activeTab: ProjectChatInspectorTab;
   canSwitchRooms?: boolean;
   channels: ProjectChatChannelRecord[];
+  /** Codex thread directory across every machine, supplied by the desktop shell. */
+  threadDirectory?: ReactNode;
   members: ProjectChatMemberRecord[];
   mentionError?: string;
   mentionMessages: ProjectChatMessageRecord[];
@@ -356,7 +359,7 @@ export function ProjectChatInspector({
               </span>
             ) : null}
           </Tab>
-          <Tab className="shrink-0 !px-2 text-xs" id="agents">Agents</Tab>
+          <Tab className="shrink-0 !px-2 text-xs" id="threads">Threads</Tab>
         </TabList>
       </Tabs>
 
@@ -400,12 +403,18 @@ export function ProjectChatInspector({
             ) : null}
           </>
         ) : null}
-        {activeTab === 'agents' ? (
+        {activeTab === 'threads' ? (
           <>
-            <AgentRows members={members} now={now} onOpenThread={onOpenThread} onSelectMember={onSelectMember} selectedMemberId={selectedMemberId} />
+            {threadDirectory}
+            {agentMembers.length > 0 ? (
+              <>
+                <SectionLabel>Room agents</SectionLabel>
+                <AgentRows members={members} now={now} onOpenThread={onOpenThread} onSelectMember={onSelectMember} selectedMemberId={selectedMemberId} />
+              </>
+            ) : null}
             {threads.length > 0 ? (
               <>
-                <SectionLabel>Origin threads</SectionLabel>
+                <SectionLabel>Origin threads in this room</SectionLabel>
                 <ThreadRows onSelectThread={onSelectThread} selectedThreadKey={selectedThreadKey} threads={threads} />
               </>
             ) : null}
@@ -415,13 +424,13 @@ export function ProjectChatInspector({
 
       <div className="flex items-center gap-1.5 border-t border-neutral-800/70 px-4 py-3 text-[11px] text-neutral-600">
         {activeTab === 'rooms' ? <Hash className="size-3.5" />
-          : activeTab === 'agents' ? <Bot className="size-3.5" />
+          : activeTab === 'threads' ? <Bot className="size-3.5" />
           : <Clock3 className="size-3.5" />}
         {activeTab === 'rooms'
           ? `${channels.length} ${channels.length === 1 ? 'room' : 'rooms'}`
           : activeTab === 'mentions'
             ? 'Unread mentions only'
-            : `${agentMembers.length} ${agentMembers.length === 1 ? 'agent' : 'agents'} · open a thread to connect`}
+            : 'Open a thread to connect to its agent'}
       </div>
     </aside>
   );

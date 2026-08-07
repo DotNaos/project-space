@@ -21,6 +21,7 @@ import { CodexSessionsControllerPage } from '@/features/codex-sessions/codex-ses
 import type { CodexSessionsController } from '@/features/codex-sessions/codex-sessions-controller';
 import type { CodexSessionTarget } from '@/features/codex-sessions/codex-session-route';
 import { ProjectCodexTasks } from '@/features/codex-sessions/project-codex-tasks';
+import { CodexThreadDirectory } from '@/features/codex-sessions/codex-thread-directory';
 import { useProjectCodexTaskTitles } from '@/features/codex-sessions/use-project-codex-task-titles';
 import { projectChatProjectId } from '@/shared/project-chat-project';
 import type {
@@ -553,6 +554,16 @@ export function ProjectMainPanel({
                 recentProjectIds={recentProjectIds}
                 showChannelNavigation={false}
                 syncRoute={false}
+                threadDirectory={(
+                  <CodexThreadDirectory
+                    connectorOverview={connectorOverview}
+                    controller={codexController}
+                    machineIds={codexMachineIds}
+                    onOpenProject={onSelectProject}
+                    onOpenThread={onOpenCodex}
+                    projects={projects}
+                  />
+                )}
                 taskTitles={projectCodexTaskTitles}
                 taskPreview={(
                   <ProjectCodexTasks

@@ -66,6 +66,7 @@ export interface ProjectChatPageProps {
   recentProjectIds?: string[];
   showChannelNavigation?: boolean;
   taskPreview?: ReactNode;
+  threadDirectory?: ReactNode;
   unreadMentionCount?: number;
   viewer?: ProjectChatMemberRecord;
 }
@@ -95,6 +96,7 @@ export function ProjectChatPage({
   recentProjectIds = [],
   showChannelNavigation = true,
   taskPreview,
+  threadDirectory,
   unreadMentionCount = 0,
   viewer
 }: ProjectChatPageProps) {
@@ -130,6 +132,7 @@ export function ProjectChatPage({
    */
   const canSwitchRooms = Boolean(roomSwitcher) && channels.length > 1;
   const hasInspectorContent = canSwitchRooms ||
+    Boolean(threadDirectory) ||
     mentionMessages.length > 0 ||
     threads.length > 0 ||
     members.some((member) => member.role === 'agent');
@@ -361,6 +364,7 @@ export function ProjectChatPage({
       selectedMemberId={selectedMemberId}
       selectedThreadKey={selectedThreadKey}
       onRetryMention={onRetryMention}
+      threadDirectory={threadDirectory}
       unreadMentionCount={unreadMentionCount}
     />
   );
