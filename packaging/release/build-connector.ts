@@ -60,7 +60,8 @@ async function packageVersion() {
 }
 
 async function currentBuildId(environment: NodeJS.ProcessEnv) {
-  const configured = environment.GITHUB_SHA?.trim() ||
+  const configured = environment.PROJECT_RELEASE_SOURCE_SHA?.trim() ||
+    environment.GITHUB_SHA?.trim() ||
     environment.PROJECT_SPACE_BUILD_ID?.trim();
   if (configured) return configured;
   const command = Bun.spawn(['git', 'rev-parse', 'HEAD'], {

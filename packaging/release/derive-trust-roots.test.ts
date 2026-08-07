@@ -103,14 +103,13 @@ describe('release trust roots', () => {
     );
     expect(releaseWorkflow).toContain('--now "$verification_now"');
     expect(releaseWorkflow).not.toContain('date -u -r');
-    expect(trustWorkflow.match(
-      /github\.ref_type == 'tag' && \(github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch'\)/g
-    )).toHaveLength(2);
+    expect(trustWorkflow).not.toContain('github.ref_type');
+    expect(trustWorkflow).not.toContain('Create disposable validation roots');
     expect(trustWorkflow).toContain(
-      "github.ref_type != 'tag' || (github.event_name != 'push' && github.event_name != 'workflow_dispatch')"
+      'Release tag must point at the exact queued merge.'
     );
     expect(trustWorkflow).toContain(
-      '[[ $GITHUB_REF_TYPE == tag && ($GITHUB_EVENT_NAME == push || $GITHUB_EVENT_NAME == workflow_dispatch) ]]'
+      'Queued release commit must be reachable from current main.'
     );
 
     for (const [fileName, expectedDigest] of pinnedRoots) {

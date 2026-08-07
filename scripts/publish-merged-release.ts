@@ -21,6 +21,7 @@ import { verifyConnectorRuntimeReleaseManifest } from
   '../server/connector-runtime-release-manifest';
 import {
   exactProductionRuns,
+  exactReleaseRuns,
   releaseRecoveryDecision,
   workflowRecoveryDecision,
   type HandoffRun,
@@ -327,8 +328,9 @@ async function reconcileRelease(decision: Extract<
   }
   const recovery = releaseRecoveryDecision(
     release ?? 'missing',
-    await workflowRuns(
-      'release.yml', decision.item.commit, decision.tag,
+    exactReleaseRuns(
+      await workflowRuns('release.yml', undefined, 'main'),
+      decision.tag,
     ),
   );
   if (recovery.kind === 'wait') {
@@ -359,7 +361,7 @@ async function reconcileRelease(decision: Extract<
   }
   await mutateGithub(
     `/repos/${repository}/actions/workflows/release.yml/dispatches`,
-    { ref: decision.tag },
+    { inputs: { 'release-tag': decision.tag }, ref: 'main' },
   );
   console.log(
     `${dryRun ? 'Would dispatch' : 'Dispatched'} signed release ${decision.tag}.`,
@@ -476,14 +478,14 @@ async function githubBranchCommit(branch: string) {
 
 async function workflowRuns(
   workflow: string,
-  commit: string,
+  commit: string | undefined,
   branch: string,
 ) {
   const query = new URLSearchParams({
     event: 'workflow_dispatch',
-    head_sha: commit,
     per_page: '100',
   });
+  if (commit) query.set('head_sha', commit);
   const response = await githubFetch(
     `/repos/${repository}/actions/workflows/${workflow}/runs?${query}`,
   );
@@ -493,7 +495,8 @@ async function workflowRuns(
     throw new Error(`GitHub returned invalid ${workflow} run data.`);
   }
   return body.workflow_runs.map(parseWorkflowRun).filter(
-    (run) => run.headSha === commit && run.headBranch === branch,
+    (run) => (!commit || run.headSha === commit) &&
+      run.headBranch === branch,
   ).sort((left, right) => right.id - left.id);
 }
 

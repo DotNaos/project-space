@@ -56,3 +56,9 @@ export function exactProductionRuns(
     run.headBranch === 'main' &&
     run.displayTitle === `Production · ${commit} · v${version}`);
 }
+
+export function exactReleaseRuns(runs: HandoffRun[], tag: string) {
+  return runs.filter((run) =>
+    run.headBranch === 'main' && run.displayTitle === `Release ${tag}`
+  );
+}

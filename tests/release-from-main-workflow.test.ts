@@ -55,9 +55,13 @@ test('processes merged intents through one exact-tag release queue', () => {
   expect(workflow).toContain(
     '-f release_version="$RELEASE_VERSION"',
   );
-  expect(releaseWorkflow.match(
-    /github\.ref_type == 'tag' && github\.event_name == 'workflow_dispatch'/g,
-  )).toHaveLength(5);
+  expect(releaseWorkflow).toContain('run-name: Release ${{ inputs.release-tag }}');
+  expect(releaseWorkflow).toContain('release-tag:');
+  expect(releaseWorkflow).toContain('ref-type: tag');
+  expect(releaseWorkflow).toContain(
+    'git rev-list --first-parent HEAD',
+  );
+  expect(releaseWorkflow).not.toContain("github.ref_type == 'tag'");
   expect(releaseWorkflow).not.toContain(
     'gh workflow run deploy-production.yml',
   );
@@ -85,7 +89,13 @@ test('processes merged intents through one exact-tag release queue', () => {
   expect(publisher).toContain('connectorReleaseSensitivePaths');
   expect(publisher).toContain('changes package version before queue assignment');
   expect(publisher).toContain('tagReservations');
-  expect(publisher).toContain("'release.yml', decision.item.commit, decision.tag");
+  expect(publisher).toContain(
+    "await workflowRuns('release.yml', undefined, 'main')",
+  );
+  expect(publisher).toContain('exactReleaseRuns');
+  expect(publisher).toContain(
+    "{ inputs: { 'release-tag': decision.tag }, ref: 'main' }",
+  );
   expect(publisher).toContain('/rerun`');
   expect(publisher).toContain('/actions/workflows/release.yml/dispatches');
   expect(publisher).toContain('already used its automatic recovery attempt');

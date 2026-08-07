@@ -8,7 +8,8 @@ import {
 describe('release connector build identity', () => {
   test('embeds the exact version, release, and full build SHA', async () => {
     const identity = await connectorBuildIdentity({
-      GITHUB_SHA: 'a'.repeat(40),
+      GITHUB_SHA: 'b'.repeat(40),
+      PROJECT_RELEASE_SOURCE_SHA: 'a'.repeat(40),
       RELEASE_ID: 'v1.2.3',
       VERSION: '1.2.3'
     });

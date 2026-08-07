@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   exactProductionRuns,
+  exactReleaseRuns,
   releaseRecoveryDecision,
   workflowRecoveryDecision,
   type HandoffRun,
@@ -76,5 +77,20 @@ describe('durable delivery recovery decisions', () => {
       kind: 'rerun',
       run: exact,
     });
+  });
+
+  test('binds release recovery to the reserved tag on protected main', () => {
+    const exact = run({
+      displayTitle: 'Release v1.2.3',
+      headBranch: 'main',
+    });
+    const legacyTagRun = run();
+    const wrongTag = run({
+      displayTitle: 'Release v1.2.4',
+      headBranch: 'main',
+      id: 102,
+    });
+    expect(exactReleaseRuns([legacyTagRun, wrongTag, exact], 'v1.2.3'))
+      .toEqual([exact]);
   });
 });

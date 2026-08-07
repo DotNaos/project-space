@@ -64,22 +64,15 @@ jobs:
         env:
           RELEASE_SOURCE_SHA: ${{ inputs.source-sha }}
           RELEASE_VERSION: ${{ inputs.version }}
-          RELEASE_REF_NAME: ${{ github.ref_name }}
-          RELEASE_REF_TYPE: ${{ github.ref_type }}
         run: |
           set -euo pipefail
           [[ $RELEASE_SOURCE_SHA =~ ^[0-9a-f]{40}$ ]]
-          [[ $RELEASE_SOURCE_SHA == "$GITHUB_SHA" ]]
           [[ $RELEASE_VERSION =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
-          if [[ $RELEASE_REF_TYPE == tag ]]; then
-            [[ $RELEASE_REF_NAME == "v${RELEASE_VERSION}" ]]
-          fi
           runtime_name="project-space-macos-runtime-v${RELEASE_VERSION}-${RELEASE_SOURCE_SHA}"
           signing_name="project-space-macos-signing-input-v${RELEASE_VERSION}-${RELEASE_SOURCE_SHA}"
           echo "runtime-artifact-name=$runtime_name" >> "$GITHUB_OUTPUT"
           echo "signing-artifact-name=$signing_name" >> "$GITHUB_OUTPUT"
           echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Check out exact source
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -95,7 +88,6 @@ jobs:
           [[ $(git rev-parse HEAD) == "$RELEASE_SOURCE_SHA" ]]
           [[ $(uname -m) == arm64 ]]
           bash -n packaging/macos/*.sh
-
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -117,9 +109,9 @@ jobs:
           go test ./internal/selfupdate
           go vet ./cmd/project ./internal/selfupdate
           packaging/macos/test-release-packaging.sh '${{ inputs.version }}'
-
       - name: Build unsigned arm64 executables
         env:
+          PROJECT_RELEASE_SOURCE_SHA: ${{ inputs.source-sha }}
           RELEASE_ID: v${{ inputs.version }}
           VERSION: ${{ inputs.version }}
         run: |
@@ -139,7 +131,6 @@ jobs:
             "$RUNNER_TEMP/project-space-macos-signing-input"
 
       - name: Upload immutable unsigned runtime
-        if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         id: upload-runtime
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -150,7 +141,6 @@ jobs:
           retention-days: 1
 
       - name: Upload immutable signing input
-        if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         id: upload-signing
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -162,7 +152,6 @@ jobs:
 
   sign:
     name: Sign macOS approval helper in isolation
-    if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: unsigned
     runs-on: macos-15
     timeout-minutes: 15
@@ -189,35 +178,33 @@ jobs:
         run: |
           [[ $DEFAULT_BRANCH == main ]]
           [[ $RELEASE_SOURCE_SHA =~ ^[0-9a-f]{40}$ ]]
-          [[ $RELEASE_SOURCE_SHA == "$GITHUB_SHA" ]]
           [[ $RELEASE_VERSION =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
-          [[ $GITHUB_REF_NAME == "v${RELEASE_VERSION}" ]]
-          [[ $GITHUB_REF == "refs/tags/v${RELEASE_VERSION}" ]]
           [[ $SIGNING_INPUT_ARTIFACT_ID =~ ^[1-9][0-9]*$ ]]
           [[ $SIGNING_INPUT_ARTIFACT_DIGEST =~ ^[0-9a-f]{64}$ ]]
           expected_signing_name="project-space-macos-signing-input-v${RELEASE_VERSION}-${RELEASE_SOURCE_SHA}"
           [[ $SIGNING_INPUT_ARTIFACT_NAME == "$expected_signing_name" ]]
 
           api_config="$RUNNER_TEMP/project-space-github-api-config"
-          main_metadata="$RUNNER_TEMP/project-space-main-commit.json"
           tag_metadata="$RUNNER_TEMP/project-space-tag-commit.json"
+          ancestry_metadata="$RUNNER_TEMP/project-space-main-ancestry.json"
           artifact_metadata="$RUNNER_TEMP/project-space-signing-input-artifact.json"
-          trap '/bin/rm -f "$api_config" "$main_metadata" "$tag_metadata" "$artifact_metadata"' EXIT
+          trap '/bin/rm -f "$api_config" "$tag_metadata" "$ancestry_metadata" "$artifact_metadata"' EXIT
           umask 077
           /usr/bin/printf '%s\n' \
             'header = "Accept: application/vnd.github+json"' \
             "header = \"Authorization: Bearer ${GH_TOKEN}\"" \
             'header = "X-GitHub-Api-Version: 2022-11-28"' > "$api_config"
           /usr/bin/curl --config "$api_config" --fail --location --silent --show-error \
-            --output "$main_metadata" \
-            --url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/main"
-          /usr/bin/curl --config "$api_config" --fail --location --silent --show-error \
             --output "$tag_metadata" \
-            --url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$GITHUB_REF_NAME"
-          current_main_sha=$(/usr/bin/plutil -extract sha raw -o - "$main_metadata")
+            --url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/v${RELEASE_VERSION}"
+          /usr/bin/curl --config "$api_config" --fail --location --silent --show-error \
+            --output "$ancestry_metadata" \
+            --url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/compare/${RELEASE_SOURCE_SHA}...main"
           current_tag_sha=$(/usr/bin/plutil -extract sha raw -o - "$tag_metadata")
-          [[ $current_main_sha == "$RELEASE_SOURCE_SHA" ]]
           [[ $current_tag_sha == "$RELEASE_SOURCE_SHA" ]]
+          ancestry_status=$(/usr/bin/plutil -extract status raw -o - "$ancestry_metadata")
+          [[ $ancestry_status == ahead || $ancestry_status == identical ]]
+          [[ $(/usr/bin/plutil -extract merge_base_commit.sha raw -o - "$ancestry_metadata") == "$RELEASE_SOURCE_SHA" ]]
           /usr/bin/curl --config "$api_config" --fail --location --silent --show-error \
             --output "$artifact_metadata" \
             --url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/$SIGNING_INPUT_ARTIFACT_ID"
@@ -228,7 +215,7 @@ jobs:
           [[ $artifact_digest == "$SIGNING_INPUT_ARTIFACT_DIGEST" ]]
           [[ $(/usr/bin/plutil -extract expired raw -o - "$artifact_metadata") == false ]]
           [[ $(/usr/bin/plutil -extract workflow_run.id raw -o - "$artifact_metadata") == "$GITHUB_RUN_ID" ]]
-          [[ $(/usr/bin/plutil -extract workflow_run.head_sha raw -o - "$artifact_metadata") == "$RELEASE_SOURCE_SHA" ]]
+          [[ $(/usr/bin/plutil -extract workflow_run.head_sha raw -o - "$artifact_metadata") == "$GITHUB_SHA" ]]
 
           signed_name="project-space-macos-signed-helper-v${RELEASE_VERSION}-${RELEASE_SOURCE_SHA}"
           echo "artifact-name=$signed_name" >> "$GITHUB_OUTPUT"
@@ -474,7 +461,7 @@ jobs:
             > "$signed/SHA256SUMS.txt"
           echo "signed-sha=$signed_sha" >> "$GITHUB_OUTPUT"
       - name: Confirm signing identity cleanup
-        if: always() && github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        if: always()
         shell: /bin/bash --noprofile --norc {0}
         env:
           BASH_ENV: /dev/null
@@ -549,7 +536,7 @@ jobs:
             && ! -e $RUNNER_TEMP/project-space-release-codesign.log ]] || cleanup_status=1
           exit "$cleanup_status"
       - name: Upload signed helper after cleanup
-        if: success() && github.ref_type == 'tag' && github.event_name == 'workflow_dispatch'
+        if: success()
         id: upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -560,7 +547,6 @@ jobs:
           retention-days: 1
   package:
     name: Package verified macOS machine tools
-    if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs:
       - unsigned
       - sign
@@ -594,7 +580,7 @@ jobs:
           TRUST_ARTIFACT_DIGEST: ${{ inputs.trust-artifact-digest }}
           TRUST_ARTIFACT_NAME: ${{ inputs.trust-artifact-name }}
         run: |
-          [[ $RELEASE_SOURCE_SHA =~ ^[0-9a-f]{40}$ && $RELEASE_SOURCE_SHA == "$GITHUB_SHA" ]]
+          [[ $RELEASE_SOURCE_SHA =~ ^[0-9a-f]{40}$ ]]
           [[ $RELEASE_VERSION =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           expected_trust_name="connector-runtime-trust-roots-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${RELEASE_SOURCE_SHA}"
           [[ $TRUST_ARTIFACT_NAME == "$expected_trust_name" ]]
@@ -621,7 +607,7 @@ jobs:
             [[ $artifact_digest == "$expected_digest" ]]
             [[ $(/usr/bin/plutil -extract expired raw -o - "$metadata") == false ]]
             [[ $(/usr/bin/plutil -extract workflow_run.id raw -o - "$metadata") == "$GITHUB_RUN_ID" ]]
-            [[ $(/usr/bin/plutil -extract workflow_run.head_sha raw -o - "$metadata") == "$RELEASE_SOURCE_SHA" ]]
+            [[ $(/usr/bin/plutil -extract workflow_run.head_sha raw -o - "$metadata") == "$GITHUB_SHA" ]]
           }
           validate_artifact "$RUNTIME_ARTIFACT_ID" "$RUNTIME_ARTIFACT_NAME" "$RUNTIME_ARTIFACT_DIGEST" runtime
           validate_artifact "$SIGNING_INPUT_ARTIFACT_ID" "$SIGNING_INPUT_ARTIFACT_NAME" "$SIGNING_INPUT_ARTIFACT_DIGEST" signing-input
