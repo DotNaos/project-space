@@ -44,6 +44,7 @@ import {
 import { createProjectConnectorWorktreeLoads } from './project-connector-worktree-loads';
 import { createProjectConnectorRuntimeStopControl } from './project-connector-runtime-stop';
 import { CodexDaemonManager } from './codex-daemon/manager';
+import { projectSpaceLogger, recordObservedError } from './observability';
 interface ProjectConnectorWebSocketOptions extends ProjectConnectorConnectionOptions {
   backend: ProjectSpaceBackend & Partial<ConnectorDevServerAdapter & ConnectorWorktreeActionAdapter>;
   environment?: NodeJS.ProcessEnv;
@@ -102,11 +103,11 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           }
         })
         .catch((error) => {
-          console.warn(
-            `Could not publish connector registry to ${target.name} (${resolvedHubHttpUrl}): ${
-              error instanceof Error ? error.message : String(error)
-            }`
-          );
+          recordObservedError('connector', 'registry_publish_failed');
+          projectSpaceLogger.warn('connector.registry.publish_failed', {
+            component: 'connector',
+            target: target.name
+          }, error);
         });
     }
 
@@ -123,9 +124,11 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
     }
 
     if (typeof WebSocket === 'undefined') {
-      console.warn(
-        `Connector hub ${target.name} has a WebSocket URL, but WebSocket is not available.`
-      );
+      recordObservedError('connector', 'websocket_unavailable');
+      projectSpaceLogger.warn('connector.websocket.unavailable', {
+        component: 'connector',
+        target: target.name
+      });
       return;
     }
 

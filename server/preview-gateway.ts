@@ -14,8 +14,25 @@ import {
   previewIdentityHeader,
   previewSignatureHeader
 } from './preview-gateway-policy';
+import { observeHttpRequest } from './http-observability';
+import {
+  currentRequestId,
+  initializeOpenTelemetry,
+  installProcessErrorHandlers,
+  projectSpaceLogger,
+  recordObservedError,
+  type ProjectSpaceLogger
+} from './observability';
 
 const maximumRequestBytes = 25 * 1024 * 1024;
+
+function requestPathname(request: IncomingMessage) {
+  try {
+    return new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
+  } catch {
+    return '/invalid-request-target';
+  }
+}
 
 function parseOrigin(name: string, value: string | undefined) {
   if (!value) throw new Error(`${name} is required.`);
@@ -247,6 +264,7 @@ async function proxy(
 
 interface PreviewGatewayDependencies {
   authenticate?: typeof readProjectSpaceAuthSession;
+  logger?: ProjectSpaceLogger;
 }
 
 export function createPreviewGatewayRequestHandler(
@@ -275,6 +293,7 @@ export function createPreviewGatewayRequestHandler(
     throw new Error('PROJECT_SPACE_PROTOTYPE_ACCESS_SECRET must contain at least 32 characters.');
   }
   const authenticate = dependencies.authenticate ?? readProjectSpaceAuthSession;
+  const logger = dependencies.logger ?? projectSpaceLogger.child({ component: 'preview-gateway' });
 
   return async function handlePreviewGatewayRequest(
     request: IncomingMessage,
@@ -511,7 +530,15 @@ export function createPreviewGatewayRequestHandler(
       headers.set(previewSignatureHeader, identityHeaders[previewSignatureHeader]);
       await proxy(request, response, upstreamOrigin, headers, requestUrl);
     } catch (error) {
-      response.writeHead(502).end(error instanceof Error ? error.message : 'Preview gateway failed.');
+      recordObservedError('preview_gateway', 'request_failed');
+      logger.error('preview_gateway.request.failed', {
+        method: request.method,
+        route: requestPathname(request)
+      }, error);
+      const requestId = currentRequestId();
+      response.writeHead(502).end(
+        `Preview gateway failed.${requestId ? ` Request ID: ${requestId}` : ''}`
+      );
     }
   };
 }
@@ -519,8 +546,14 @@ export function createPreviewGatewayRequestHandler(
 if (import.meta.main) {
   const port = Number(process.env.PORT ?? 4173);
   const host = process.env.PROJECT_SPACE_HOST ?? '127.0.0.1';
-  const server = createServer(createPreviewGatewayRequestHandler());
+  const logger = projectSpaceLogger.child({ component: 'preview-gateway' });
+  await initializeOpenTelemetry(logger);
+  installProcessErrorHandlers(logger);
+  const handler = createPreviewGatewayRequestHandler();
+  const server = createServer((request, response) => {
+    void observeHttpRequest(request, response, () => handler(request, response), logger);
+  });
   server.listen(port, host, () => {
-    console.log(`Project Space Preview gateway listening on http://${host}:${port}`);
+    logger.info('server.started', { mode: 'preview-gateway', origin: `http://${host}:${port}` });
   });
 }

@@ -9,7 +9,7 @@ export interface ProjectChatIntervalScheduler {
 
 export interface ProjectChatRetentionWorkerOptions {
   intervalMs?: number;
-  onError?: () => void;
+  onError?: (error: unknown) => void;
   scheduler?: ProjectChatIntervalScheduler;
 }
 
@@ -28,7 +28,7 @@ const defaultScheduler: ProjectChatIntervalScheduler = {
 
 export class ProjectChatRetentionWorker {
   private readonly intervalMs: number;
-  private readonly onError: () => void;
+  private readonly onError: (error: unknown) => void;
   private readonly scheduler: ProjectChatIntervalScheduler;
   private readonly target: ProjectChatRetentionTarget;
   private handle: unknown;
@@ -74,8 +74,8 @@ export class ProjectChatRetentionWorker {
   private async runScheduled() {
     try {
       await this.runOnce();
-    } catch {
-      this.onError();
+    } catch (error) {
+      this.onError(error);
     }
   }
 }

@@ -33,6 +33,7 @@ describe('web server authenticated runtime mode', () => {
       env: {
         ...process.env,
         DATABASE_URL: 'postgres://must-not-connect.invalid/project-space',
+        PROJECT_SPACE_LOG_LEVEL: 'info',
         PROJECT_SPACE_PUBLIC_ORIGIN: 'https://projects.os-home.net',
         [connectorRuntimeProtocolEnvironment]: connectorRuntimeCredentialVersion
       },
@@ -58,8 +59,9 @@ describe('web server authenticated runtime mode', () => {
     try {
       await waitForOutput(
         stdout,
-        'Project Space authenticated machine connector running.'
+        '"event":"server.started"'
       );
+      expect(stdout.value).toContain('"mode":"authenticated-machine-connector"');
       expect(stdout.value).not.toContain('fullstack server running');
       expect(stdout.value).not.toContain(credential);
       expect(stderr.value).not.toContain(credential);

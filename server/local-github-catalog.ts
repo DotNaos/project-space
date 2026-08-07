@@ -35,6 +35,7 @@ import { PostgresGitHubCatalogCacheStore } from './github-catalog-cache-store';
 import { GitHubCatalogService } from './github-catalog-service';
 import { getGitHubCatalogRequestTiming } from './github-catalog-timing';
 import { pullRequestHeadBranchRecord } from './github-branch-record';
+import { projectSpaceLogger } from './observability';
 
 interface StoredGitHubToken {
   accessToken: string;
@@ -456,7 +457,12 @@ export async function getGitHubCatalog(options: { forceRefresh?: boolean } = {})
   const result = await service.get(options.forceRefresh);
   const timing = getGitHubCatalogRequestTiming();
   const sanitized = { ...result, timings: { ...result.timings, authMs: timing?.authMs, totalMs: timing ? performance.now() - timing.requestStartedAt : performance.now() - requestStartedAt } };
-  console.info(JSON.stringify({ event: 'github_catalog_request', cache: sanitized.cache?.state ?? 'none', status: sanitized.status, timings: sanitized.timings }));
+  projectSpaceLogger.info('github_catalog.request.completed', {
+    cache: sanitized.cache?.state ?? 'none',
+    component: 'github-catalog',
+    status: sanitized.status,
+    timings: sanitized.timings
+  });
   return sanitized;
 }
 

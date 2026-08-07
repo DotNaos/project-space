@@ -8,6 +8,12 @@ import { readAndStartAuthenticatedProjectConnectorRuntime } from './project-conn
 import { createProjectSpaceServer } from './project-space-http';
 import { startProjectConnectorWebSocket } from './project-connector-websocket';
 import { connectorRuntimeRecord } from './connector-build-info';
+import {
+  initializeOpenTelemetry,
+  installProcessErrorHandlers,
+  projectSpaceLogger,
+  shutdownOpenTelemetry
+} from './observability';
 
 const version = connectorRuntimeRecord().version;
 const command = process.argv[2] ?? 'serve';
@@ -32,6 +38,8 @@ Environment:
   PROJECT_SPACE_PREVIEW_GATEWAY_SECRET  PR-scoped key used to verify Preview assertions.
   GITHUB_OAUTH_CLIENT_ID  GitHub OAuth app client ID for repository connection.
   PROJECT_SPACE_AUTH_DISABLED=1  Disable login protection for trusted local debugging only.
+  PROJECT_SPACE_LOG_LEVEL  Structured log level: debug, info, warn, error, or fatal.
+  OTEL_EXPORTER_OTLP_ENDPOINT  Optional OTLP collector base URL for traces and metrics.
 
 Configure the machine with:
   project connector setup
@@ -56,24 +64,28 @@ if (command !== 'serve') {
   process.exit(1);
 }
 
+const logger = projectSpaceLogger.child({ component: 'server', version });
+await initializeOpenTelemetry(logger);
+installProcessErrorHandlers(logger);
 const authenticatedRuntime = await readAndStartAuthenticatedProjectConnectorRuntime();
 
 if (authenticatedRuntime) {
   const runtime = authenticatedRuntime;
   let stopping = false;
-  function stopAuthenticatedRuntime() {
+  async function stopAuthenticatedRuntime() {
     if (stopping) return;
     stopping = true;
     try {
       runtime.close();
     } finally {
+      await shutdownOpenTelemetry(logger);
       process.exit(0);
     }
   }
 
-  process.once('SIGINT', stopAuthenticatedRuntime);
-  process.once('SIGTERM', stopAuthenticatedRuntime);
-  console.log('Project Space authenticated machine connector running.');
+  process.once('SIGINT', () => void stopAuthenticatedRuntime());
+  process.once('SIGTERM', () => void stopAuthenticatedRuntime());
+  logger.info('server.started', { mode: 'authenticated-machine-connector' });
 } else {
   const port = Number(process.env.PORT ?? process.env.PROJECT_SPACE_PORT ?? 4173);
   const host = process.env.PROJECT_SPACE_HOST ?? '127.0.0.1';
@@ -87,23 +99,30 @@ if (authenticatedRuntime) {
     backend,
     host,
     machineConnectionRuntime: machineConnectionRuntime ?? undefined,
+    logger,
     port,
     staticRoot
   });
   const bridge = startProjectConnectorWebSocket({ backend });
   let stopping = false;
 
-  function shutdown() {
+  async function shutdown() {
     if (stopping) return;
     stopping = true;
     bridge.close();
-    void server.close().finally(() => {
-      process.exit(0);
-    });
+    let exitCode = 0;
+    try {
+      await server.close();
+    } catch (error) {
+      exitCode = 1;
+      logger.error('server.shutdown.failed', {}, error);
+    }
+    await shutdownOpenTelemetry(logger);
+    process.exit(exitCode);
   }
 
-  process.once('SIGINT', shutdown);
-  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', () => void shutdown());
+  process.once('SIGTERM', () => void shutdown());
 
-  console.log(`Project Space fullstack server running at ${server.origin}`);
+  logger.info('server.started', { mode: 'fullstack', origin: server.origin });
 }

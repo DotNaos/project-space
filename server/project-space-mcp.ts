@@ -28,6 +28,14 @@ import {
   projectSpaceMcpScopes,
   projectSpaceMcpWriteScope
 } from './project-space-mcp-oauth-store';
+import {
+  currentRequestId,
+  projectSpaceLogger,
+  recordMcpTool,
+  recordObservedError,
+  withProjectSpaceSpan,
+  type ProjectSpaceLogger
+} from './observability';
 
 const mcpPath = '/mcp';
 const protectedResourcePath = '/.well-known/oauth-protected-resource/mcp';
@@ -44,6 +52,7 @@ type McpBackend = Pick<
 export interface ProjectSpaceMcpOptions {
   backend: McpBackend;
   createRuntime(): Promise<ConfiguredCodexMachineTasksRuntime>;
+  logger?: ProjectSpaceLogger;
   oauth?: ProjectSpaceMcpOAuthOptions;
 }
 
@@ -132,6 +141,7 @@ const tools: OAuthTool[] = [
 export function createProjectSpaceMcpHandler(options: ProjectSpaceMcpOptions) {
   const sessions = new Map<string, McpSession>();
   const oauth = createProjectSpaceMcpOAuth(options.oauth);
+  const logger = (options.logger ?? projectSpaceLogger).child({ component: 'mcp' });
   let runtime: Promise<ConfiguredCodexMachineTasksRuntime> | undefined;
   const getRuntime = () => (runtime ??= options.createRuntime().catch((error) => {
     runtime = undefined;
@@ -139,87 +149,111 @@ export function createProjectSpaceMcpHandler(options: ProjectSpaceMcpOptions) {
   }));
 
   return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
-    if (await oauth.handle(request, response, url)) return true;
-    if (!isMcpPath(url.pathname)) return false;
-    applyCors(response, url.pathname === mcpPath);
-    if (request.method === 'OPTIONS') {
-      response.writeHead(204).end();
-      return true;
-    }
-
-    if (!['GET', 'POST', 'DELETE'].includes(request.method ?? '')) {
-      return methodNotAllowed(response, 'GET, POST, DELETE, OPTIONS');
-    }
-
-    const challenge = authChallenge(requestPublicOrigin(request));
-    const authInfo = await authenticateMcpRequest(request, oauth.verifyAccessToken).catch(() => undefined);
-    if (!authInfo) {
-      response.setHeader('WWW-Authenticate', challenge);
-      writeJson(response, 401, { error: 'Unauthorized' });
-      return true;
-    }
-
-    pruneSessions(sessions);
+    let stage = 'oauth';
     const requestedSessionId = headerValue(request.headers[sessionHeader]);
-    let session = requestedSessionId ? sessions.get(requestedSessionId) : undefined;
-    if (requestedSessionId && (
-      !session ||
-      session.userId !== authInfo.extra?.userId ||
-      session.clientId !== authInfo.clientId
-    )) {
-      writeJson(response, 404, { error: 'MCP session not found.' });
-      return true;
-    }
-    if (!session) {
-      if (request.method !== 'POST') {
-        writeJson(response, 400, { error: 'Initialize an MCP session with POST first.' });
+    try {
+      if (await oauth.handle(request, response, url)) return true;
+      if (!isMcpPath(url.pathname)) return false;
+      applyCors(response, url.pathname === mcpPath);
+      if (request.method === 'OPTIONS') {
+        response.writeHead(204).end();
         return true;
       }
-      if (sessions.size >= maximumSessions) {
-        writeJson(response, 503, { error: 'The MCP session limit has been reached.' });
+
+      if (!['GET', 'POST', 'DELETE'].includes(request.method ?? '')) {
+        return methodNotAllowed(response, 'GET, POST, DELETE, OPTIONS');
+      }
+
+      stage = 'authentication';
+      const challenge = authChallenge(requestPublicOrigin(request));
+      let authInfo: AuthInfo | undefined;
+      try {
+        authInfo = await authenticateMcpRequest(request, oauth.verifyAccessToken);
+      } catch (error) {
+        logger.warn('mcp.authentication.failed', { method: request.method, route: url.pathname }, error);
+      }
+      if (!authInfo) {
+        response.setHeader('WWW-Authenticate', challenge);
+        writeJson(response, 401, { error: 'Unauthorized' });
         return true;
       }
-      const userId = requiredUserId(authInfo);
-      const server = createMcpServer(options.backend, getRuntime, challenge);
-      const transport = new StreamableHTTPServerTransport({
-        enableJsonResponse: true,
-        sessionIdGenerator: randomUUID,
-        onsessionclosed(sessionId) {
-          sessions.delete(sessionId);
-        },
-        onsessioninitialized(sessionId) {
-          sessions.set(sessionId, {
-            clientId: authInfo.clientId,
-            lastSeenAt: Date.now(),
-            server,
-            transport,
-            userId
-          });
+
+      stage = 'session_lookup';
+      pruneSessions(sessions, logger);
+      let session = requestedSessionId ? sessions.get(requestedSessionId) : undefined;
+      if (requestedSessionId && (
+        !session ||
+        session.userId !== authInfo.extra?.userId ||
+        session.clientId !== authInfo.clientId
+      )) {
+        writeJson(response, 404, { error: 'MCP session not found.' });
+        return true;
+      }
+      if (!session) {
+        if (request.method !== 'POST') {
+          writeJson(response, 400, { error: 'Initialize an MCP session with POST first.' });
+          return true;
         }
-      });
-      transport.onclose = () => {
-        if (transport.sessionId) sessions.delete(transport.sessionId);
-      };
-      await server.connect(transport);
-      session = {
-        clientId: authInfo.clientId,
-        lastSeenAt: Date.now(),
-        server,
-        transport,
-        userId
-      };
+        if (sessions.size >= maximumSessions) {
+          writeJson(response, 503, { error: 'The MCP session limit has been reached.' });
+          return true;
+        }
+        const userId = requiredUserId(authInfo);
+        const server = createMcpServer(options.backend, getRuntime, challenge, logger);
+        const transport = new StreamableHTTPServerTransport({
+          enableJsonResponse: true,
+          sessionIdGenerator: randomUUID,
+          onsessionclosed(sessionId) {
+            sessions.delete(sessionId);
+            logger.info('mcp.session.closed', { mcpSessionId: sessionId });
+          },
+          onsessioninitialized(sessionId) {
+            sessions.set(sessionId, {
+              clientId: authInfo.clientId,
+              lastSeenAt: Date.now(),
+              server,
+              transport,
+              userId
+            });
+            logger.info('mcp.session.initialized', { mcpSessionId: sessionId });
+          }
+        });
+        transport.onclose = () => {
+          if (transport.sessionId) sessions.delete(transport.sessionId);
+        };
+        stage = 'server_connect';
+        await server.connect(transport);
+        session = {
+          clientId: authInfo.clientId,
+          lastSeenAt: Date.now(),
+          server,
+          transport,
+          userId
+        };
+      }
+      session.lastSeenAt = Date.now();
+      (request as IncomingMessage & { auth?: AuthInfo }).auth = authInfo;
+      stage = 'transport_handle_request';
+      await session.transport.handleRequest(request, response);
+      return true;
+    } catch (error) {
+      recordObservedError('mcp.protocol', stage);
+      logger.error('mcp.request.failed', {
+        mcpSessionId: requestedSessionId,
+        method: request.method,
+        route: url.pathname,
+        stage
+      }, error);
+      throw error;
     }
-    session.lastSeenAt = Date.now();
-    (request as IncomingMessage & { auth?: AuthInfo }).auth = authInfo;
-    await session.transport.handleRequest(request, response);
-    return true;
   };
 }
 
 function createMcpServer(
   backend: McpBackend,
   runtime: () => Promise<ConfiguredCodexMachineTasksRuntime>,
-  challenge: string
+  challenge: string,
+  logger: ProjectSpaceLogger
 ) {
   const server = new Server(
     { name: 'project-space', version: '0.1.0' },
@@ -230,19 +264,33 @@ function createMcpServer(
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools } as { tools: Tool[] }));
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    const toolName = request.params.name;
+    const startedAt = performance.now();
     const userId = extra.authInfo?.extra?.userId;
     if (typeof userId !== 'string' || !userId) return authenticationError(challenge);
-    const requiredToolScopes = scopesForTool(request.params.name);
+    const requiredToolScopes = scopesForTool(toolName);
     if (!requiredToolScopes.every((scope) => extra.authInfo?.scopes.includes(scope))) {
       return authenticationError(challenge);
     }
     try {
-      return await runWithAuthSession(
+      const result = await withProjectSpaceSpan(`mcp.tool.${toolName}`, {
+        'mcp.tool.name': toolName
+      }, () => runWithAuthSession(
         { login: 'project-space-mcp', role: 'user', userId },
-        () => callTool(backend, runtime, userId, request.params.name, request.params.arguments ?? {})
-      );
+        () => callTool(backend, runtime, userId, toolName, request.params.arguments ?? {}, logger)
+      ));
+      const durationMs = performance.now() - startedAt;
+      recordMcpTool(toolName, false, durationMs);
+      logger.info('mcp.tool.completed', { durationMs, tool: toolName });
+      return result;
     } catch (error) {
-      return toolError(error instanceof Error ? error.message : 'The Project Space operation failed.');
+      const durationMs = performance.now() - startedAt;
+      recordMcpTool(toolName, true, durationMs);
+      logger.error('mcp.tool.failed', { durationMs, tool: toolName }, error);
+      return toolError(
+        'The Project Space operation failed.',
+        currentRequestId()
+      );
     }
   });
   return server;
@@ -253,14 +301,18 @@ async function callTool(
   runtime: () => Promise<ConfiguredCodexMachineTasksRuntime>,
   userId: string,
   name: string,
-  rawArguments: Record<string, unknown>
+  rawArguments: Record<string, unknown>,
+  logger: ProjectSpaceLogger
 ): Promise<CallToolResult> {
   switch (name) {
     case 'list_projects': {
       const input = toolSchemas.list_projects.parse(rawArguments);
       const [discovery, catalog] = await Promise.all([
         backend.loadProjectDiscovery(),
-        backend.getGitHubCatalog().catch(() => undefined)
+        backend.getGitHubCatalog().catch((error) => {
+          logger.warn('mcp.github_catalog.unavailable', { tool: name }, error);
+          return undefined;
+        })
       ]);
       const search = input.search?.toLowerCase();
       const projects = discovery.projects
@@ -316,6 +368,7 @@ async function callTool(
             sessions: result.sessions.map(sanitizeSession)
           };
         } catch (error) {
+          logger.warn('mcp.task_inventory.unavailable', { connectorId, tool: name }, error);
           return { connectorId, error: error instanceof Error ? error.message : 'Task inventory unavailable.' };
         }
       }));
@@ -345,7 +398,7 @@ async function callTool(
       return toolResult(sanitizeTaskRead(result));
     }
     default:
-      return toolError(`Unknown tool: ${name}`);
+      return toolError(`Unknown tool: ${name}`, currentRequestId());
   }
 }
 
@@ -397,13 +450,14 @@ function toolResult(value: unknown): CallToolResult {
   };
 }
 
-function toolError(message: string): CallToolResult {
-  return { content: [{ type: 'text', text: message }], isError: true };
+function toolError(message: string, requestId?: string): CallToolResult {
+  const suffix = requestId ? ` Request ID: ${requestId}` : '';
+  return { content: [{ type: 'text', text: `${message}${suffix}` }], isError: true };
 }
 
 function authenticationError(challenge: string): CallToolResult {
   return {
-    ...toolError('Authentication required.'),
+    ...toolError('Authentication required.', currentRequestId()),
     _meta: { 'mcp/www_authenticate': [challenge] }
   };
 }
@@ -498,17 +552,19 @@ function applyCors(response: ServerResponse, mcp: boolean) {
   response.setHeader('Access-Control-Allow-Origin', '*');
   if (mcp) {
     response.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-    response.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Last-Event-ID, MCP-Protocol-Version, MCP-Session-Id');
-    response.setHeader('Access-Control-Expose-Headers', 'MCP-Session-Id, WWW-Authenticate');
+    response.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Last-Event-ID, MCP-Protocol-Version, MCP-Session-Id, X-Request-ID');
+    response.setHeader('Access-Control-Expose-Headers', 'MCP-Session-Id, WWW-Authenticate, X-Request-ID');
   }
 }
 
-function pruneSessions(sessions: Map<string, McpSession>) {
+function pruneSessions(sessions: Map<string, McpSession>, logger: ProjectSpaceLogger) {
   const expiredBefore = Date.now() - sessionLifetimeMs;
   for (const [sessionId, session] of sessions) {
     if (session.lastSeenAt < expiredBefore) {
       sessions.delete(sessionId);
-      void session.server.close().catch(() => undefined);
+      void session.server.close().catch((error) => {
+        logger.warn('mcp.session.close_failed', { mcpSessionId: sessionId }, error);
+      });
     }
   }
 }

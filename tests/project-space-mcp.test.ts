@@ -6,6 +6,12 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 import type { ConfiguredCodexMachineTasksRuntime } from '../server/codex-machine-tasks/configured-runtime';
+import { observeHttpRequest } from '../server/http-observability';
+import {
+  createProjectSpaceLogger,
+  type ProjectSpaceLogger,
+  type ProjectSpaceLogRecord
+} from '../server/observability';
 import { createProjectSpaceMcpHandler } from '../server/project-space-mcp';
 import { MemoryProjectSpaceMcpOAuthStore } from '../server/project-space-mcp-oauth-store';
 
@@ -129,16 +135,27 @@ function runtime(calls: Array<{ kind: string; request: unknown; userId: string }
 
 async function startMcp(
   calls: Array<{ kind: string; request: unknown; userId: string }>,
-  options: Parameters<typeof createProjectSpaceMcpHandler>[0]['oauth'] = {}
+  options: Parameters<typeof createProjectSpaceMcpHandler>[0]['oauth'] = {},
+  dependencies: {
+    backend?: ReturnType<typeof backend>;
+    logger?: ProjectSpaceLogger;
+  } = {}
 ) {
+  const logger = dependencies.logger ?? createProjectSpaceLogger({
+    environment: { NODE_ENV: 'test' },
+    sink: { write() {} }
+  });
   const handler = createProjectSpaceMcpHandler({
-    backend: backend(),
+    backend: dependencies.backend ?? backend(),
     createRuntime: async () => runtime(calls),
+    logger,
     oauth: options
   });
-  const server = createServer(async (request, response) => {
-    const url = new URL(request.url ?? '/', 'http://127.0.0.1');
-    if (!await handler(request, response, url)) response.writeHead(404).end();
+  const server = createServer((request, response) => {
+    void observeHttpRequest(request, response, async () => {
+      const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+      if (!await handler(request, response, url)) response.writeHead(404).end();
+    }, logger);
   });
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -221,6 +238,37 @@ describe('Project Space remote MCP server', () => {
       }
     ]);
     expect((calls[1]?.request as { operationId?: string }).operationId).toMatch(/^mcp:start:/);
+  });
+
+  test('logs MCP tool failures with a client-visible request ID', async () => {
+    process.env.PROJECT_SPACE_AUTH_DISABLED = '1';
+    const records: ProjectSpaceLogRecord[] = [];
+    const logger = createProjectSpaceLogger({
+      environment: { NODE_ENV: 'test' },
+      sink: { write: (record) => records.push(record) }
+    });
+    const failingBackend: ReturnType<typeof backend> = {
+      ...backend(),
+      async loadProjectDiscovery() {
+        throw new Error('Project discovery exploded');
+      }
+    };
+    const origin = await startMcp([], {}, { backend: failingBackend, logger });
+    const client = new Client({ name: 'project-space-error-test', version: '1.0.0' });
+    clients.push(client);
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${origin}/mcp`)));
+
+    const result = await client.callTool({ name: 'list_projects', arguments: {} });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([
+      expect.objectContaining({ text: expect.stringMatching(/Request ID: [A-Za-z0-9._:-]+$/) })
+    ]);
+    expect(records.find((record) => record.event === 'mcp.tool.failed')).toMatchObject({
+      error: { message: 'Project discovery exploded', name: 'Error' },
+      tool: 'list_projects'
+    });
+    expect(records.find((record) => record.event === 'mcp.tool.failed')?.requestId).toBeTruthy();
   });
 
   test('registers a public ChatGPT client and completes PKCE with rotating refresh tokens', async () => {

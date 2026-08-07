@@ -51,6 +51,12 @@ import {
   type PreviewDocsProxyDependencies
 } from './preview-docs-proxy';
 import { createProjectSpaceMcpHandler } from './project-space-mcp';
+import { observeHttpRequest } from './http-observability';
+import {
+  projectSpaceLogger,
+  recordObservedError,
+  type ProjectSpaceLogger
+} from './observability';
 
 export interface ProjectSpaceHttpOptions {
   backend?: ProjectSpaceBackend;
@@ -58,6 +64,7 @@ export interface ProjectSpaceHttpOptions {
   codexAttachLeases?: CodexAttachLeaseStore;
   host?: string;
   machineConnectionRuntime?: MachineConnectionRuntime;
+  logger?: ProjectSpaceLogger;
   port?: number;
   projectChatRuntime?: ProjectChatRuntime;
   previewDocsProxy?: PreviewDocsProxyDependencies;
@@ -90,6 +97,7 @@ export function previewHubRedirectForOfflineHost(hostname: string, pathname: str
 }
 
 export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOptions = {}) {
+  const logger = options.logger ?? projectSpaceLogger.child({ component: 'http' });
   const rawBackend = options.backend ?? createLocalProjectSpaceBackend();
   const backend = createAuthorizedProjectSpaceBackend(rawBackend);
   const projectTopology = createProjectTopologyInventoryHttpHandler(
@@ -112,7 +120,8 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
       attachLeases: codexAttachLeases,
       backend: rawBackend,
       machineConnection: options.machineConnectionRuntime
-    })
+    }),
+    logger
   });
   const codexAuthorization = createConfiguredCodexAuthorizationHandler({
     backend: rawBackend,
@@ -156,54 +165,57 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     request: IncomingMessage,
     response: ServerResponse
   ) {
-    const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+    await observeHttpRequest(request, response, async () => {
+      const url = new URL(request.url ?? '/', 'http://127.0.0.1');
 
-    const offlinePreviewRedirect = previewHubRedirectForOfflineHost(
-      String(request.headers.host ?? ''),
-      url.pathname,
-      url.search
-    );
-    if (offlinePreviewRedirect) {
-      response.writeHead(302, { 'Cache-Control': 'no-store', Location: offlinePreviewRedirect }).end();
-      return;
-    }
-
-    if (request.method === 'GET' && url.pathname === '/connector/install.sh') {
-      writeText(
-        response,
-        200,
-        connectorInstallScript(requestPublicOrigin(request)),
-        'text/x-shellscript; charset=utf-8'
+      const offlinePreviewRedirect = previewHubRedirectForOfflineHost(
+        String(request.headers.host ?? ''),
+        url.pathname,
+        url.search
       );
-      return;
-    }
-
-    if (await projectSpaceMcp(request, response, url)) {
-      return;
-    }
-
-    if (await proxyPreviewDocs(request, response, url)) {
-      return;
-    }
-
-    if (url.pathname.startsWith('/api/')) {
-      const handled = await (await handleApiRequest)(request, response, url);
-      if (!handled) {
-        writeJson(response, 404, { error: 'Route not found.' });
+      if (offlinePreviewRedirect) {
+        response.writeHead(302, { 'Cache-Control': 'no-store', Location: offlinePreviewRedirect }).end();
+        return;
       }
-      return;
-    }
 
-    if (options.staticRoot) {
-      serveProjectSpaceStatic(response, options.staticRoot, url.pathname);
-      return;
-    }
+      if (request.method === 'GET' && url.pathname === '/connector/install.sh') {
+        writeText(
+          response,
+          200,
+          connectorInstallScript(requestPublicOrigin(request)),
+          'text/x-shellscript; charset=utf-8'
+        );
+        return;
+      }
 
-    writeJson(response, 404, { error: 'Route not found.' });
+      if (await projectSpaceMcp(request, response, url)) {
+        return;
+      }
+
+      if (await proxyPreviewDocs(request, response, url)) {
+        return;
+      }
+
+      if (url.pathname.startsWith('/api/')) {
+        const handled = await (await handleApiRequest)(request, response, url);
+        if (!handled) {
+          writeJson(response, 404, { error: 'Route not found.' });
+        }
+        return;
+      }
+
+      if (options.staticRoot) {
+        serveProjectSpaceStatic(response, options.staticRoot, url.pathname);
+        return;
+      }
+
+      writeJson(response, 404, { error: 'Route not found.' });
+    }, logger);
   };
 }
 
 export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions = {}) {
+  const logger = options.logger ?? projectSpaceLogger.child({ component: 'server' });
   const host = options.host ?? '127.0.0.1';
   const backend = options.backend ?? createLocalProjectSpaceBackend();
   const authorizedBackend = createAuthorizedProjectSpaceBackend(backend);
@@ -215,6 +227,7 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
       ...options,
       backend,
       codexAttachLeases,
+      logger,
       projectChatRuntime
     })
   );
@@ -240,12 +253,20 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   const codexAttach = createCodexAttachUpgradeHandler(codexAttachLeases);
 
   server.on('upgrade', (request, socket, head) => {
-    if (
-      !codexAttach.handleUpgrade(request, socket, head) &&
-      !connectorCommands.handleUpgrade(request, socket, head) &&
-      !handleMachineTerminalUpgrade(request, socket, head) &&
-      !handleProjectTerminalUpgrade(request, socket, head)
-    ) {
+    try {
+      if (
+        !codexAttach.handleUpgrade(request, socket, head) &&
+        !connectorCommands.handleUpgrade(request, socket, head) &&
+        !handleMachineTerminalUpgrade(request, socket, head) &&
+        !handleProjectTerminalUpgrade(request, socket, head)
+      ) {
+        socket.destroy();
+      }
+    } catch (error) {
+      recordObservedError('websocket', 'upgrade_failed');
+      logger.error('websocket.upgrade.failed', {
+        route: new URL(request.url ?? '/', 'http://127.0.0.1').pathname
+      }, error);
       socket.destroy();
     }
   });

@@ -23,6 +23,7 @@ import { ProjectChatRetentionWorker } from './retention-worker';
 import { ProjectChatService } from './service';
 import { createProjectChatProjectProvider } from './project-catalog';
 import type { ProjectSpaceBackend } from '../../src/shared/project-space-api';
+import { projectSpaceLogger, recordObservedError } from '../observability';
 
 type MaybePromise<Value> = Value | Promise<Value>;
 
@@ -74,8 +75,11 @@ export async function createProjectChatRuntime(
       : {})
   });
   const retention = new ProjectChatRetentionWorker(service, {
-    onError: options.onRetentionError ?? (() => {
-      console.warn('Project Chat retention cleanup failed.');
+    onError: options.onRetentionError ?? ((error) => {
+      recordObservedError('project_chat', 'retention_cleanup_failed');
+      projectSpaceLogger.warn('project_chat.retention_cleanup.failed', {
+        component: 'project-chat'
+      }, error);
     })
   });
   const resolveContext = unavailable
