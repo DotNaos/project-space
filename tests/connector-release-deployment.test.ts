@@ -107,10 +107,10 @@ describe('connector release and production deployment contract', () => {
     expect(linuxReleaseWorkflow).toContain(
       'bun packaging/linux/smoke-codex-runtime.ts "$(pwd -P)/dist/linux/codex"'
     );
-    expect(packageJson.scripts['build:project-cli:macos-arm64:finalize']).toContain(
+    expect(packageJson.scripts['build:project-cli:macos-arm64']).toContain(
       'main.projectMachineClientReleaseID=v$npm_package_version'
     );
-    expect(packageJson.scripts['build:project-cli:macos-arm64:finalize']).toContain(
+    expect(packageJson.scripts['build:project-cli:macos-arm64']).toContain(
       'main.projectMachineClientBuildID=$build_sha'
     );
   });
@@ -130,7 +130,7 @@ describe('connector release and production deployment contract', () => {
     }
   });
 
-  test('orchestrates isolated signers and grants their caller permissions explicitly', async () => {
+  test('orchestrates isolated platform builds and grants signer permissions explicitly', async () => {
     const workflow = await source('.github/workflows/release.yml');
     const classifier = await source('.github/actions/release-quality/action.yml');
     const linux = await source('.github/workflows/release-linux.yml');
@@ -143,6 +143,7 @@ describe('connector release and production deployment contract', () => {
     expect(macos).toContain('release-macos.yml');
     expect(macos).toContain('actions: read');
     expect(macos).toContain('contents: read');
+    expect(macos).not.toContain('OP_SERVICE_ACCOUNT_TOKEN');
     expect(manifestSign).toContain('release-manifest-sign.yml');
     expect(manifestSign).toContain('actions: read');
     expect(manifestSign).toContain('contents: read');
@@ -203,104 +204,25 @@ describe('connector release and production deployment contract', () => {
     }
   });
 
-  test('signs only the approval helper on a fresh protected macOS runner', async () => {
+  test('packages macOS tools without an approval helper or signing secret', async () => {
     const workflow = await source('.github/workflows/release-macos.yml');
-    const sign = jobBlock(workflow, 'sign');
+    const runtime = jobBlock(workflow, 'runtime');
     const packageJob = jobBlock(workflow, 'package');
 
-    expect(sign).toContain('runs-on: macos-15');
-    expect(sign).toContain('environment: release-signing');
-    expect(sign).toContain('artifact-ids: ${{ needs.unsigned.outputs.signing-artifact-id }}');
-    expect(sign).not.toContain('runtime-artifact');
-    expect(sign).not.toContain('project-space-connector');
-    expect(sign).toContain('entry_count == 3');
-    expect(sign).toContain("stat -f '%l'");
-    expect(sign).toContain("stat -f '%u'");
-    expect(sign).toContain('certificate 1[field.1.2.840.113635.100.6.2.6] exists');
-    expect(sign).toContain(
-      'certificate leaf[field.1.2.840.113635.100.6.1.13] exists'
-    );
-    expect(sign).toContain('certificate leaf[subject.OU] = "R72P4M9WMS"');
-    expect(sign).toContain('identifier "com.dotnaos.project.approval-signer"');
-    expect(sign).toContain('identity_count == 1');
-    expect(sign).toContain('project-space-release-import.p12');
-    expect(sign).toContain('-passin env:CERTIFICATE_PASSWORD');
-    expect(sign).toContain('-passout "pass:$import_password"');
-    expect(sign).toContain('security import "$import_p12" -f pkcs12');
-    const importStart = sign.indexOf('/usr/bin/security import "$import_p12"');
-    const importEnd = sign.indexOf('/bin/rm -f "$p12"', importStart);
-    const importCommand = sign.slice(importStart, importEnd);
-    expect(importStart).toBeGreaterThan(-1);
-    expect(importEnd).toBeGreaterThan(importStart);
-    expect(importCommand).not.toMatch(/(^|\s)-A(?:\s|\\|$)/);
-    expect(sign).not.toContain('security import "$pem"');
-    expect(sign).not.toContain('-P "$CERTIFICATE_PASSWORD"');
-    expect(sign).not.toContain('-f pemseq');
-    expect(sign).toContain(
-      '/usr/bin/security set-key-partition-list -S apple-tool:,apple:,codesign:'
-    );
-    expect(sign).not.toContain('-l "$identity_label"');
-    expect(sign).toContain('-k "$keychain_password" "$keychain"');
-    expect(sign).not.toContain('if ! /usr/bin/security set-key-partition-list');
-    expect(sign).toContain('--sign "$identity_label"');
-    expect(sign).toContain('[[ $leaf_fingerprint == "$identity" ]]');
-    expect(sign).toContain(
-      'security default-keychain -d user > "$default_keychain_snapshot"'
-    );
-    expect(sign).toContain('security default-keychain -d user -s "$keychain"');
-    expect(sign).toContain('security default-keychain -d user -s "$original_default"');
-    expect(sign).toContain('[[ $current_default != "$keychain" ]]');
-    const partitionStart = sign.indexOf('/usr/bin/security set-key-partition-list');
-    const partitionEnd = sign.indexOf('>/dev/null', partitionStart);
-    const partitionCommand = sign.slice(partitionStart, partitionEnd);
-    expect(partitionCommand).not.toMatch(/(^|\s)-s(\s|\\)/);
-    expect(sign.indexOf('security list-keychains -d user -s "$keychain"')).toBeLessThan(
-      sign.indexOf('security set-key-partition-list')
-    );
-    expect(sign.indexOf('security set-key-partition-list')).toBeLessThan(
-      sign.indexOf('/usr/bin/codesign --force')
-    );
-    expect(sign.indexOf('security set-key-partition-list')).toBeLessThan(
-      sign.indexOf('security default-keychain -d user -s "$keychain"')
-    );
-    expect(
-      sign.indexOf('security default-keychain -d user -s "$keychain"')
-    ).toBeLessThan(sign.indexOf('/usr/bin/codesign --force'));
-    expect(sign).toContain('security delete-keychain');
-    const cleanupStart = sign.indexOf('Confirm signing identity cleanup');
-    const uploadStart = sign.indexOf('Upload signed helper after cleanup');
-    const cleanup = sign.slice(cleanupStart, uploadStart);
-    const upload = sign.slice(uploadStart);
-    expect(cleanupStart).toBeGreaterThan(-1);
-    expect(cleanupStart).toBeLessThan(uploadStart);
-    const restoreDefault = cleanup.indexOf(
-      'default-keychain -d user -s "$original_default"'
-    );
-    const deleteKeychain = cleanup.indexOf('delete-keychain "$keychain"');
-    expect(restoreDefault).toBeGreaterThan(-1);
-    expect(deleteKeychain).toBeGreaterThan(-1);
-    expect(restoreDefault).toBeLessThan(deleteKeychain);
-    expect(upload).toContain(
-      'if: success()',
-    );
-
-    const packageScript = await source(
-      'packaging/macos/package-isolated-release-artifact.sh'
-    );
-    const workflowRequirement = sign.match(/^\s*requirement='([^']+)'$/m)?.[1];
-    const packageRequirement = packageScript.match(
-      /^signing_requirement='([^']+)'$/m
-    )?.[1];
-    expect(workflowRequirement).toBeDefined();
-    expect(packageRequirement).toBe(workflowRequirement);
-    expectNoRepositoryExecution(sign);
-
-    expect(packageJob).toContain('- unsigned');
-    expect(packageJob).toContain('- sign');
-    expect(packageJob).toContain('runtime-artifact-id');
-    expect(packageJob).toContain('signing-artifact-id');
-    expect(packageJob).toContain('signed artifact');
-    expect(packageJob.indexOf('Validate all immutable artifact metadata')).toBeLessThan(
+    expect(runtime).toContain('runs-on: macos-15');
+    expect(runtime).toContain('project-space-connector');
+    expect(runtime).not.toContain('project-approval-signer');
+    expect(workflow).not.toContain('environment: release-signing');
+    expect(workflow).not.toContain('OP_SERVICE_ACCOUNT_TOKEN');
+    expect(workflow).not.toContain('1password/load-secrets-action@');
+    expect(workflow).not.toContain('codesign');
+    expect(workflow).not.toContain('project-approval-signer');
+    expect(packageJob).toContain('needs: runtime');
+    expect(packageJob).toContain('RUNTIME_ARTIFACT_ID');
+    expect(packageJob).toContain('TRUST_ARTIFACT_ID');
+    expect(packageJob).toContain('commits/v${RELEASE_VERSION}');
+    expect(packageJob).toContain('compare/${RELEASE_SOURCE_SHA}...main');
+    expect(packageJob.indexOf('Validate immutable artifact metadata and release source')).toBeLessThan(
       packageJob.indexOf('Check out exact source after artifact validation')
     );
   });
@@ -418,7 +340,11 @@ describe('connector release and production deployment contract', () => {
       '"$RUNNER_TEMP/release-assets" \\\n            "$manifest_path"'
     );
     expect(macos).toContain("stat -f '%l'");
-    expect(macos).toContain('codesign --verify --strict --test-requirement');
+    expect(macos).not.toContain('codesign');
+    expect(macos).toContain(
+      '/usr/bin/install -m 0755 /dev/null "$staging_directory/project-approval-signer"'
+    );
+    expect(macos).toContain('project-approval-signer:0:0');
     expect(macos).toContain(
       '502f8b9dbbabec58aa8d2c794c7c052d5974215e2180f9e47ed4d7cff4ee45c1'
     );

@@ -6,10 +6,7 @@ import { describe, expect, test } from 'bun:test';
 const repositoryRoot = join(import.meta.dir, '..');
 const onePasswordCliVersion = '2.35.0';
 const serviceAccountSecret = 'OP_SERVICE_ACCOUNT_TOKEN';
-const reusableSignerWorkflows = [
-  '.github/workflows/release-macos.yml',
-  '.github/workflows/release-manifest-sign.yml'
-] as const;
+const reusableSignerWorkflows = ['.github/workflows/release-manifest-sign.yml'] as const;
 
 async function source(path: string) {
   return readFile(join(repositoryRoot, path), 'utf8');
@@ -55,7 +52,7 @@ describe('release signing service-account secret boundary', () => {
       block.includes(serviceAccountSecret)
     );
 
-    expect(secretCalls.map(({ name }) => name)).toEqual(['macos-arm64', 'manifest-sign']);
+    expect(secretCalls.map(({ name }) => name)).toEqual(['manifest-sign']);
     expect(workflow).not.toContain('secrets: inherit');
     for (const call of secretCalls) {
       const secretsBlock = call.source.match(/^    secrets:\n(?:      [^\n]+\n)+/m)?.[0];
@@ -112,7 +109,7 @@ describe('release signing service-account secret boundary', () => {
     }
   });
 
-  test('keeps former probe guarantees on the real signers instead of diagnostic workflows', async () => {
+  test('keeps signing secrets in the manifest signer and out of macOS packaging', async () => {
     for (const path of [
       '.github/workflows/macos-signing-identity-probe.yml',
       '.github/workflows/signing-secret-boundary-probe.yml',
@@ -122,9 +119,11 @@ describe('release signing service-account secret boundary', () => {
     }
 
     const macos = await source('.github/workflows/release-macos.yml');
-    expect(macos).toContain('identity_count == 1');
-    expect(macos).toContain('[[ $leaf_fingerprint == "$identity" ]]');
-    expect(macos).toContain('environment: release-signing');
-    expect(macos).toContain('security delete-keychain');
+    const manifest = await source('.github/workflows/release-manifest-sign.yml');
+    expect(macos).not.toContain(serviceAccountSecret);
+    expect(macos).not.toContain('environment: release-signing');
+    expect(macos).not.toContain('1password/load-secrets-action@');
+    expect(manifest).toContain('environment: release-signing');
+    expect(manifest).toContain(serviceAccountSecret);
   });
 });

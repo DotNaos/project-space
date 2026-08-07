@@ -117,8 +117,6 @@ jobs:
       actions: read
       contents: read
     uses: ./.github/workflows/release-macos.yml
-    secrets:
-      OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
     with:
       source-sha: ${{ needs.classify.outputs.source-sha }}
       trust-artifact-digest: ${{ needs.trust-roots.outputs.artifact-digest }}

@@ -67,12 +67,13 @@ if [[ "\${1:-}" == --version ]]; then
 fi
 printf '%s\n' 'connector $label'
 EOF
-  printf '#!/bin/bash\nprintf "signer %s\\n"\n' "$label" > "$directory/project-approval-signer"
-  chmod 0755 "$directory/project-space-connector" "$directory/project-approval-signer"
+  chmod 0755 "$directory/project-space-connector"
   write_trust_roots "$directory"
 }
 
 write_source "$temporary_root/source-v1" v1
+: > "$temporary_root/source-v1/project-approval-signer"
+chmod 0755 "$temporary_root/source-v1/project-approval-signer"
 mkdir -p "$temporary_root/first" "$temporary_root/second"
 SOURCE_DATE_EPOCH=0 "$script_directory/build-machine-tools.sh" "$version" "$temporary_root/source-v1" "$temporary_root/first" >/dev/null
 SOURCE_DATE_EPOCH=0 "$script_directory/build-machine-tools.sh" "$version" "$temporary_root/source-v1" "$temporary_root/second" >/dev/null
@@ -85,6 +86,7 @@ bundle_v1="$temporary_root/extracted-v1/project-space-machine-tools-darwin-arm64
 expected_members=$'SHA256SUMS.txt\nVERSION\nconnector-command-signing-public-key.pem\ninstall.sh\nproject\nproject-approval-signer\nproject-space-connector\nrelease-manifest-signing-public-key.pem'
 actual_members=$(find "$bundle_v1" -mindepth 1 -maxdepth 1 -type f -print | sed 's#.*/##' | sort)
 [[ $actual_members == "$expected_members" ]]
+[[ ! -s $bundle_v1/project-approval-signer ]]
 
 home="$temporary_root/home"
 install_root="$home/.local/bin"
@@ -106,7 +108,8 @@ export PROJECT_FIXTURE_LAUNCHCTL_LOG="$launchctl_log"
 
 "$bundle_v1/install.sh" --install-dir "$install_root" >/dev/null
 [[ $($install_root/project) == v1 ]]
-[[ -L $install_root/project && -L $install_root/project-space-connector && -L $install_root/project-approval-signer ]]
+[[ -L $install_root/project && -L $install_root/project-space-connector ]]
+[[ ! -e $install_root/project-approval-signer && ! -L $install_root/project-approval-signer ]]
 first_current=$(readlink "$install_root/.project-space-machine-tools/current")
 [[ $first_current == versions/${version}-* ]]
 cmp "$temporary_root/source-v1/connector-command-signing-public-key.pem" \
@@ -124,6 +127,15 @@ mkdir "$temporary_root/output-v2" "$temporary_root/extracted-v2"
 SOURCE_DATE_EPOCH=0 "$script_directory/build-machine-tools.sh" "$version" "$temporary_root/source-v2" "$temporary_root/output-v2" >/dev/null
 gtar -xzf "$temporary_root/output-v2/$archive" -C "$temporary_root/extracted-v2"
 bundle_v2="$temporary_root/extracted-v2/project-space-machine-tools-darwin-arm64-v${version}"
+
+# Upgrading from an approval-enabled release removes only the managed legacy
+# helper link. An unrelated file at the same path remains user-owned.
+printf 'user-owned\n' > "$install_root/project-approval-signer"
+"$bundle_v1/install.sh" --install-dir "$install_root" >/dev/null
+grep -Fx 'user-owned' "$install_root/project-approval-signer"
+rm -f -- "$install_root/project-approval-signer"
+ln -s -- ".project-space-machine-tools/current/project-approval-signer" \
+  "$install_root/project-approval-signer"
 
 # An installer must never switch the managed pointer while a named maintenance
 # operation or its unresolved result is still present.
@@ -189,12 +201,15 @@ set -e
 [[ $completed_race_status -eq 70 ]]
 [[ $(readlink "$install_root/.project-space-machine-tools/current") == 'versions/raced-release' ]]
 [[ $(grep -Fxc 'v1:connector service start-if-connected' "$service_log") == $((completed_race_starts_before + 1)) ]]
+[[ -L $install_root/project-approval-signer ]]
+[[ $(readlink "$install_root/project-approval-signer") == '.project-space-machine-tools/current/project-approval-signer' ]]
 ln -s -- "$maintenance_current_before" "$pointer_restore"
 mv -h -f -- "$pointer_restore" "$install_root/.project-space-machine-tools/current"
 rm -rf -- "$raced_release"
 
 "$bundle_v2/install.sh" --install-dir "$install_root" >/dev/null
 [[ $($install_root/project) == v2 ]]
+[[ ! -e $install_root/project-approval-signer && ! -L $install_root/project-approval-signer ]]
 second_current=$(readlink "$install_root/.project-space-machine-tools/current")
 [[ $second_current != "$first_current" ]]
 grep -Fx 'v2:connector service stop' "$service_log"

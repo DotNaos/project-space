@@ -114,7 +114,7 @@ describe('canonical local CI preflight', () => {
 
   test.each([
     '.github/actions/release-quality/action.yml',
-    'internal/approvalsigner/signer.go',
+    'internal/selfupdate/archive.go',
     'scripts/release-verification-policy.ts',
     'cmd/project/example_windows.go',
   ])('keeps classifier-critical path %s reachable from Release', (path) => {

@@ -1,17 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 6 ]]; then
-  echo "Usage: $0 <version> <source-sha> <connector> <approval-signer> <runtime-output> <signing-output>" >&2
+if [[ $# -ne 4 ]]; then
+  echo "Usage: $0 <version> <source-sha> <connector> <runtime-output>" >&2
   exit 64
 fi
 
 version=$1
 source_sha=$2
 connector=$3
-approval_signer=$4
-runtime_output=$5
-signing_output=$6
+runtime_output=$4
 
 [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
   echo "Invalid release version: $version" >&2
@@ -21,7 +19,7 @@ signing_output=$6
   echo "Invalid source commit: $source_sha" >&2
   exit 64
 }
-[[ ! -e $runtime_output && ! -e $signing_output ]] || {
+[[ ! -e $runtime_output ]] || {
   echo 'An unsigned artifact output path already exists.' >&2
   exit 73
 }
@@ -44,11 +42,9 @@ assert_build_input() {
   }
 }
 assert_build_input "$connector" 157286400
-assert_build_input "$approval_signer" 20971520
 
-/bin/mkdir -m 0700 "$runtime_output" "$signing_output"
+/bin/mkdir -m 0700 "$runtime_output"
 /usr/bin/install -m 0755 "$connector" "$runtime_output/project-space-connector"
-/usr/bin/install -m 0755 "$approval_signer" "$signing_output/project-approval-signer"
 
 connector_sha256=$(/usr/bin/shasum -a 256 "$runtime_output/project-space-connector")
 connector_sha256=${connector_sha256%% *}
@@ -65,26 +61,7 @@ runtime_receipt_sha=${runtime_receipt_sha%% *}
   "$runtime_receipt_sha" RUNTIME-RECEIPT.txt \
   > "$runtime_output/SHA256SUMS.txt"
 
-signer_sha256=$(/usr/bin/shasum -a 256 "$signing_output/project-approval-signer")
-signer_sha256=${signer_sha256%% *}
-/usr/bin/printf '%s\n' \
-  'schema=project-space-macos-signing-input-v1' \
-  "source_sha=$source_sha" \
-  "version=$version" \
-  "approval_signer_sha256=$signer_sha256" \
-  > "$signing_output/SIGNING-INPUT-RECEIPT.txt"
-signing_receipt_sha=$(/usr/bin/shasum -a 256 "$signing_output/SIGNING-INPUT-RECEIPT.txt")
-signing_receipt_sha=${signing_receipt_sha%% *}
-/usr/bin/printf '%s  %s\n' \
-  "$signer_sha256" project-approval-signer \
-  "$signing_receipt_sha" SIGNING-INPUT-RECEIPT.txt \
-  > "$signing_output/SHA256SUMS.txt"
-
 (
   cd "$runtime_output"
-  /usr/bin/shasum -a 256 -c SHA256SUMS.txt
-)
-(
-  cd "$signing_output"
   /usr/bin/shasum -a 256 -c SHA256SUMS.txt
 )
