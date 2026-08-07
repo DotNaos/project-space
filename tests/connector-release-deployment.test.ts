@@ -148,7 +148,7 @@ describe('connector release and production deployment contract', () => {
     expect(manifestSign).toContain('contents: read');
     expect(publish).toContain('release-publish.yml');
     expect(publish).toContain('contents: write');
-    expect(publish).toContain('needs: release-finalize');
+    expect(publish).toContain('needs: [classify, release-finalize]');
     expect(workflow).toContain('group: project-space-release-publication');
     expect(workflow).toContain('Continue the serial release queue');
     expect(workflow).toContain(
@@ -281,7 +281,7 @@ describe('connector release and production deployment contract', () => {
     expect(deleteKeychain).toBeGreaterThan(-1);
     expect(restoreDefault).toBeLessThan(deleteKeychain);
     expect(upload).toContain(
-      "if: success() && github.ref_type == 'tag' && github.event_name == 'workflow_dispatch'",
+      'if: success()',
     );
 
     const packageScript = await source(
@@ -311,7 +311,8 @@ describe('connector release and production deployment contract', () => {
 
     expect(sign).toContain('runs-on: ubuntu-24.04');
     expect(sign).toContain('environment: release-signing');
-    expect(sign).toContain('Release tags must point at the exact current main commit.');
+    expect(sign).toContain('Release tag must point at the exact queued merge.');
+    expect(sign).toContain('Queued release commit must be reachable from current main.');
     expect(sign).toContain('workflow.get("id") == int(sys.argv[6])');
     expect(sign).toContain('Prepared release manifest is not the exact canonical signing payload.');
     expect(sign).toContain(

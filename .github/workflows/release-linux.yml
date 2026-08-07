@@ -63,15 +63,11 @@ jobs:
         run: |
           set -euo pipefail
           [[ $RELEASE_SOURCE_SHA =~ ^[0-9a-f]{40}$ ]]
-          [[ $RELEASE_SOURCE_SHA == "$GITHUB_SHA" ]]
           [[ $RELEASE_VERSION =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           [[ $TRUST_ARTIFACT_ID =~ ^[1-9][0-9]*$ ]]
           [[ $TRUST_ARTIFACT_DIGEST =~ ^[0-9a-f]{64}$ ]]
           expected_trust_name="connector-runtime-trust-roots-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${RELEASE_SOURCE_SHA}"
           [[ $TRUST_ARTIFACT_NAME == "$expected_trust_name" ]]
-          if [[ $GITHUB_REF_TYPE == tag ]]; then
-            [[ $GITHUB_REF_NAME == "v${RELEASE_VERSION}" ]]
-          fi
           echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
           echo "artifact-name=project-space-machine-tools-linux-x64-v${RELEASE_VERSION}" >> "$GITHUB_OUTPUT"
 
@@ -119,6 +115,8 @@ jobs:
 
       - name: Build native Linux binaries
         env:
+          PROJECT_RELEASE_SOURCE_SHA: ${{ inputs.source-sha }}
+          RELEASE_SOURCE_SHA: ${{ inputs.source-sha }}
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
@@ -128,7 +126,7 @@ jobs:
             dist/linux/project-space-connector
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
             -trimpath \
-            -ldflags "-s -w -X main.projectMachineClientVersion=$VERSION -X main.projectMachineClientReleaseID=v$VERSION -X main.projectMachineClientBuildID=$GITHUB_SHA -X main.projectSpaceMachineBackendURL=https://projects.os-home.net" \
+            -ldflags "-s -w -X main.projectMachineClientVersion=$VERSION -X main.projectMachineClientReleaseID=v$VERSION -X main.projectMachineClientBuildID=$RELEASE_SOURCE_SHA -X main.projectSpaceMachineBackendURL=https://projects.os-home.net" \
             -o dist/linux/project \
             ./cmd/project
 

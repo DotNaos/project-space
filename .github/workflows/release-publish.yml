@@ -26,7 +26,6 @@ permissions:
 jobs:
   publish:
     name: Publish immutable release handoff
-    if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -46,9 +45,6 @@ jobs:
           [[ $EXPECTED_SHA =~ ^[0-9a-f]{40}$ ]]
           [[ $EXPECTED_VERSION =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           [[ $EXPECTED_REF == "v${EXPECTED_VERSION}" ]]
-          [[ $GITHUB_SHA == "$EXPECTED_SHA" ]]
-          [[ $GITHUB_REF == "refs/tags/${EXPECTED_REF}" ]]
-          [[ $GITHUB_REF_NAME == "$EXPECTED_REF" ]]
           api_root="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}"
           /usr/bin/curl --fail --silent --show-error \
             -H "Authorization: Bearer $GH_TOKEN" \
@@ -92,7 +88,7 @@ jobs:
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}" \
             > "$metadata"
           /usr/bin/python3 -I - "$metadata" "$ARTIFACT_ID" "$ARTIFACT_DIGEST" \
-            "$ARTIFACT_NAME" "$EXPECTED_SHA" "$GITHUB_RUN_ID" <<'PY'
+            "$ARTIFACT_NAME" "$GITHUB_SHA" "$GITHUB_RUN_ID" <<'PY'
           import json
           import pathlib
           import sys

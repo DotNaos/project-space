@@ -1,6 +1,12 @@
 name: Release
+run-name: Release ${{ inputs.release-tag }}
 on:
   workflow_dispatch:
+    inputs:
+      release-tag:
+        description: Reserved stable release tag to publish.
+        required: true
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -14,6 +20,8 @@ jobs:
     outputs:
       full-matrix: ${{ steps.classify.outputs.full-matrix }}
       policy-reason: ${{ steps.classify.outputs.policy-reason }}
+      source-ref: ${{ steps.source.outputs.ref }}
+      source-sha: ${{ steps.source.outputs.sha }}
       version: ${{ steps.classify.outputs.version }}
     steps:
       - name: Check out source
@@ -21,22 +29,38 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Resolve reserved release source
+        id: source
+        env:
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: |
+          set -euo pipefail
+          [[ $GITHUB_REF == refs/heads/main ]]
+          [[ $GITHUB_SHA == "$(git rev-parse HEAD)" ]]
+          [[ $RELEASE_TAG =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          git fetch --force origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          source_sha=$(git rev-parse "${RELEASE_TAG}^{commit}")
+          [[ $source_sha =~ ^[0-9a-f]{40}$ ]]
+          first_parent=$(git rev-list --first-parent HEAD)
+          grep -Fx "$source_sha" <<< "$first_parent"
+          echo "ref=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
       - name: Classify and validate exact source
         id: classify
         uses: ./.github/actions/release-quality
         with:
-          base-sha: ${{ github.event.pull_request.base.sha }}
+          base-sha: ''
           event-name: ${{ github.event_name }}
-          head-sha: ${{ github.event.pull_request.head.sha || github.sha }}
-          ref-name: ${{ github.ref_name }}
-          ref-type: ${{ github.ref_type }}
+          head-sha: ${{ steps.source.outputs.sha }}
+          ref-name: ${{ steps.source.outputs.ref }}
+          ref-type: tag
 
   shared-quality:
     name: Mandatory parallel quality lanes
     needs: classify
     uses: ./.github/workflows/release-quality.yml
     with:
-      source-sha: ${{ github.sha }}
+      source-sha: ${{ needs.classify.outputs.source-sha }}
 
   quality:
     name: Cross-platform quality gates
@@ -63,7 +87,7 @@ jobs:
     needs: classify
     uses: ./.github/workflows/release-trust-roots.yml
     with:
-      source-sha: ${{ github.sha }}
+      source-sha: ${{ needs.classify.outputs.source-sha }}
       version: ${{ needs.classify.outputs.version }}
   windows-x64:
     name: Windows x64 machine tools
@@ -71,7 +95,7 @@ jobs:
     if: needs.classify.outputs.full-matrix == 'true'
     uses: ./.github/workflows/release-windows.yml
     with:
-      source-sha: ${{ github.sha }}
+      source-sha: ${{ needs.classify.outputs.source-sha }}
       version: ${{ needs.classify.outputs.version }}
 
   linux-x64:
@@ -79,7 +103,7 @@ jobs:
     needs: [classify, trust-roots]
     uses: ./.github/workflows/release-linux.yml
     with:
-      source-sha: ${{ github.sha }}
+      source-sha: ${{ needs.classify.outputs.source-sha }}
       trust-artifact-digest: ${{ needs.trust-roots.outputs.artifact-digest }}
       trust-artifact-id: ${{ needs.trust-roots.outputs.artifact-id }}
       trust-artifact-name: ${{ needs.trust-roots.outputs.artifact-name }}
@@ -96,7 +120,7 @@ jobs:
     secrets:
       OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
     with:
-      source-sha: ${{ github.sha }}
+      source-sha: ${{ needs.classify.outputs.source-sha }}
       trust-artifact-digest: ${{ needs.trust-roots.outputs.artifact-digest }}
       trust-artifact-id: ${{ needs.trust-roots.outputs.artifact-id }}
       trust-artifact-name: ${{ needs.trust-roots.outputs.artifact-name }}
@@ -137,7 +161,7 @@ jobs:
 
   manifest-prepare:
     name: Prepare exact release manifest payload
-    if: github.ref_type == 'tag' && github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
     needs: [classify, trust-roots, windows-x64, linux-x64, macos-arm64, verification-policy]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -151,7 +175,7 @@ jobs:
       - name: Check out exact source without credentials
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.classify.outputs.source-sha }}
           fetch-depth: 1
           persist-credentials: false
 
@@ -165,14 +189,17 @@ jobs:
       - name: Validate platform handoff metadata
         shell: bash
         env:
+          EXPECTED_REF: ${{ needs.classify.outputs.source-ref }}
+          EXPECTED_SHA: ${{ needs.classify.outputs.source-sha }}
           EXPECTED_VERSION: ${{ needs.classify.outputs.version }}
           LINUX_VERSION: ${{ needs.linux-x64.outputs.version }}
           MACOS_VERSION: ${{ needs.macos-arm64.outputs.version }}
           WINDOWS_VERSION: ${{ needs.windows-x64.outputs.version }}
         run: |
           set -euo pipefail
-          [[ $GITHUB_REF_NAME == "v${EXPECTED_VERSION}" ]]
-          [[ $GITHUB_SHA =~ ^[0-9a-f]{40}$ ]]
+          [[ $EXPECTED_REF == "v${EXPECTED_VERSION}" ]]
+          [[ $EXPECTED_SHA =~ ^[0-9a-f]{40}$ ]]
+          [[ $(git rev-parse HEAD) == "$EXPECTED_SHA" ]]
           [[ $LINUX_VERSION == "$EXPECTED_VERSION" ]]
           [[ $MACOS_VERSION == "$EXPECTED_VERSION" ]]
           [[ $WINDOWS_VERSION == "$EXPECTED_VERSION" ]]
@@ -207,6 +234,8 @@ jobs:
 
       - name: Normalize and authenticate release inputs
         env:
+          RELEASE_REF: ${{ needs.classify.outputs.source-ref }}
+          SOURCE_SHA: ${{ needs.classify.outputs.source-sha }}
           VERSION: ${{ needs.classify.outputs.version }}
         run: |
           set -euo pipefail
@@ -220,7 +249,7 @@ jobs:
             "$RUNNER_TEMP/release-trust-roots/connector-command-signing-public-key.pem"
           cmp packaging/release/trust-roots/release-manifest-signing-public-key.pem \
             "$RUNNER_TEMP/release-trust-roots/release-manifest-signing-public-key.pem"
-          source_epoch=$(git show -s --format=%ct "$GITHUB_SHA")
+          source_epoch=$(git show -s --format=%ct "$SOURCE_SHA")
           current_epoch=$(date -u +%s)
           [[ $source_epoch =~ ^[0-9]+$ ]]
           (( source_epoch <= current_epoch + 300 ))
@@ -229,8 +258,8 @@ jobs:
           bun packaging/release/release-manifest-cli.ts prepare \
             --artifacts-dir "$RUNNER_TEMP/release-assets" \
             --version "$VERSION" \
-            --release-id "$GITHUB_REF_NAME" \
-            --commit "$GITHUB_SHA" \
+            --release-id "$RELEASE_REF" \
+            --commit "$SOURCE_SHA" \
             --source-epoch "$source_epoch" \
             --validity-days 365 \
             --manifest-output "$input_root/release-manifest.json" \
@@ -241,10 +270,10 @@ jobs:
           payload_size=$(stat -c %s "$input_root/release-manifest-payload.bin")
           cat > "$input_root/RELEASE-MANIFEST-INPUT.txt" <<RECEIPT
           schema=project-space.release-manifest-input/v1
-          source-sha=$GITHUB_SHA
-          source-ref=$GITHUB_REF_NAME
+          source-sha=$SOURCE_SHA
+          source-ref=$RELEASE_REF
           version=$VERSION
-          release-id=$GITHUB_REF_NAME
+          release-id=$RELEASE_REF
           manifest-sha256=$manifest_sha
           manifest-size=$manifest_size
           payload-sha256=$payload_sha
@@ -262,9 +291,11 @@ jobs:
       - name: Resolve prepared artifact name
         id: metadata
         shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.classify.outputs.source-sha }}
         run: |
           set -euo pipefail
-          echo "artifact-name=project-space-release-manifest-input-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "artifact-name=project-space-release-manifest-input-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Upload immutable manifest input
         id: upload
@@ -278,8 +309,8 @@ jobs:
 
   manifest-sign:
     name: Sign release manifest in isolation
-    if: github.ref_type == 'tag' && github.event_name == 'workflow_dispatch'
-    needs: [manifest-prepare, trust-roots]
+    if: github.event_name == 'workflow_dispatch'
+    needs: [classify, manifest-prepare, trust-roots]
     permissions:
       actions: read
       contents: read
@@ -290,8 +321,8 @@ jobs:
       prepared-artifact-digest: ${{ needs.manifest-prepare.outputs.artifact-digest }}
       prepared-artifact-id: ${{ needs.manifest-prepare.outputs.artifact-id }}
       prepared-artifact-name: ${{ needs.manifest-prepare.outputs.artifact-name }}
-      source-ref: ${{ github.ref_name }}
-      source-sha: ${{ github.sha }}
+      source-ref: ${{ needs.classify.outputs.source-ref }}
+      source-sha: ${{ needs.classify.outputs.source-sha }}
       trust-root-artifact-digest: ${{ needs.trust-roots.outputs.artifact-digest }}
       trust-root-artifact-id: ${{ needs.trust-roots.outputs.artifact-id }}
       trust-root-artifact-name: ${{ needs.trust-roots.outputs.artifact-name }}
@@ -299,7 +330,7 @@ jobs:
 
   release-finalize:
     name: Assemble and verify release handoff
-    if: github.ref_type == 'tag' && github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
     needs: [classify, trust-roots, windows-x64, linux-x64, macos-arm64, manifest-prepare, manifest-sign]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -313,7 +344,7 @@ jobs:
       - name: Check out exact source without credentials
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.classify.outputs.source-sha }}
           fetch-depth: 1
           persist-credentials: false
 
@@ -369,6 +400,8 @@ jobs:
 
       - name: Assemble and verify authenticated release
         env:
+          RELEASE_REF: ${{ needs.classify.outputs.source-ref }}
+          SOURCE_SHA: ${{ needs.classify.outputs.source-sha }}
           VERSION: ${{ needs.classify.outputs.version }}
         run: |
           set -euo pipefail
@@ -390,9 +423,9 @@ jobs:
             cd "$RUNNER_TEMP/release-manifest-signature"
             sha256sum --check --strict SHA256SUMS.txt
           )
-          grep -Fx "source-sha=$GITHUB_SHA" \
+          grep -Fx "source-sha=$SOURCE_SHA" \
             "$RUNNER_TEMP/release-manifest-input/RELEASE-MANIFEST-INPUT.txt"
-          grep -Fx "source-ref=$GITHUB_REF_NAME" \
+          grep -Fx "source-ref=$RELEASE_REF" \
             "$RUNNER_TEMP/release-manifest-input/RELEASE-MANIFEST-INPUT.txt"
           grep -Fx "version=$VERSION" \
             "$RUNNER_TEMP/release-manifest-input/RELEASE-MANIFEST-INPUT.txt"
@@ -413,7 +446,7 @@ jobs:
               --manifest "$manifest_path" \
               --public-key "$RUNNER_TEMP/release-trust-roots/release-manifest-signing-public-key.pem" \
               --target "$target" \
-              --release-id "$GITHUB_REF_NAME" \
+              --release-id "$RELEASE_REF" \
               --artifact "$RUNNER_TEMP/release-assets/$filename" \
               --now "$verification_now"
           done <<TARGETS
@@ -431,8 +464,8 @@ jobs:
           done
           bash packaging/release/create-publish-handoff.sh \
             "$VERSION" \
-            "$GITHUB_SHA" \
-            "$GITHUB_REF_NAME" \
+            "$SOURCE_SHA" \
+            "$RELEASE_REF" \
             "$RUNNER_TEMP/release-assets" \
             "$manifest_path" \
             "$RUNNER_TEMP/publish-handoff"
@@ -440,9 +473,11 @@ jobs:
       - name: Resolve final handoff name
         id: metadata
         shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.classify.outputs.source-sha }}
         run: |
           set -euo pipefail
-          echo "artifact-name=project-space-github-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "artifact-name=project-space-github-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Upload immutable release handoff
         id: upload
@@ -456,8 +491,8 @@ jobs:
 
   publish:
     name: Publish GitHub release
-    if: github.ref_type == 'tag' && github.event_name == 'workflow_dispatch'
-    needs: release-finalize
+    if: github.event_name == 'workflow_dispatch'
+    needs: [classify, release-finalize]
     permissions:
       actions: read
       contents: write
@@ -466,13 +501,13 @@ jobs:
       final-handoff-artifact-digest: ${{ needs.release-finalize.outputs.artifact-digest }}
       final-handoff-artifact-id: ${{ needs.release-finalize.outputs.artifact-id }}
       final-handoff-artifact-name: ${{ needs.release-finalize.outputs.artifact-name }}
-      source-ref: ${{ github.ref_name }}
-      source-sha: ${{ github.sha }}
+      source-ref: ${{ needs.classify.outputs.source-ref }}
+      source-sha: ${{ needs.classify.outputs.source-sha }}
       version: ${{ needs.release-finalize.outputs.version }}
 
   continue-release-queue:
     name: Continue serial release queue
-    if: github.ref_type == 'tag' && github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
     needs: publish
     runs-on: ubuntu-24.04
     timeout-minutes: 5
