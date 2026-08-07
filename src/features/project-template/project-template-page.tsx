@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ExternalLink, GitBranch, Plus, RefreshCw } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { ExternalLink, FileText, LayoutList, Plus, RefreshCw, ShieldCheck } from 'lucide-react';
 import { Button, Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import { projectTemplateRepository } from './template-contract-model';
-import { TemplateContractView } from './template-contract-view';
+import { TemplateBranchPicker } from './template-branch-picker';
+import { TemplateContractSummary, TemplateContractView } from './template-contract-view';
 import { TemplateFeatureDialog } from './template-feature-dialog';
 import { TemplateFileExplorer } from './template-file-explorer';
 import {
@@ -13,7 +14,13 @@ import {
   useTemplateTree
 } from './use-template-repository';
 
-type TemplateTab = 'contract' | 'files' | 'project check';
+type TemplateTab = 'check' | 'contract' | 'files';
+
+const tabs: Array<{ icon: typeof LayoutList; id: TemplateTab; label: string }> = [
+  { icon: LayoutList, id: 'contract', label: 'Contract' },
+  { icon: FileText, id: 'files', label: 'Files' },
+  { icon: ShieldCheck, id: 'check', label: 'Project check' }
+];
 
 export function ProjectTemplatePage({ projectCheck }: { projectCheck?: ReactNode }) {
   const branches = useTemplateBranches();
@@ -32,100 +39,85 @@ export function ProjectTemplatePage({ projectCheck }: { projectCheck?: ReactNode
     setSelectedPath('');
   }, [activeRef]);
 
-  const branchNames = useMemo(
-    () => [...branches.branches].sort((left, right) =>
-      Number(right.isDefault) - Number(left.isDefault) || left.name.localeCompare(right.name)
-    ),
-    [branches.branches]
-  );
   const entries = tree.result?.entries ?? [];
+  const visibleTabs = tabs.filter((entry) => entry.id !== 'check' || Boolean(projectCheck));
 
   return (
     <section className="flex h-full min-h-0 flex-col">
-      <header className="shrink-0 border-b border-neutral-800/70 pb-4">
-        <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <Text as="h1" className="block text-2xl font-semibold tracking-[-.02em] text-neutral-50">
-              Project Template
-            </Text>
-            <Text className="mt-1 block truncate text-sm text-neutral-500">
-              What {projectTemplateRepository} requires of every project.
-            </Text>
-          </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <a
-              className="inline-flex min-h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium text-neutral-400 transition hover:bg-neutral-900 hover:text-neutral-100"
-              href={`https://github.com/${projectTemplateRepository}`}
-              rel="noreferrer"
-              target="_blank"
-            >
-              GitHub <ExternalLink className="size-3.5" />
-            </a>
-            <Button onPress={() => setIsFeatureOpen(true)} size="sm" variant="primary">
-              <Plus className="size-4" />
-              New template feature
-            </Button>
-          </div>
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-3 pb-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <Text as="h1" className="shrink-0 text-2xl font-semibold tracking-[-.02em] text-neutral-50">
+            Project Template
+          </Text>
+          <TemplateBranchPicker
+            branches={branches.branches}
+            isDisabled={branches.isLoading || branches.branches.length === 0}
+            onSelect={setSelectedRef}
+            selected={activeRef}
+          />
         </div>
-      </header>
-
-      <div className="flex shrink-0 flex-col gap-3 border-b border-neutral-800/70 py-4 lg:flex-row lg:items-center lg:justify-between">
-        <label className="flex h-10 min-w-0 items-center gap-2 rounded-full bg-neutral-900/80 px-3 lg:max-w-xs">
-          <GitBranch className="size-3.5 shrink-0 text-neutral-600" />
-          <span className="sr-only">Branch</span>
-          <select
-            aria-label="Branch"
-            className="min-w-0 flex-1 bg-transparent text-sm text-neutral-100 outline-none"
-            disabled={branches.isLoading || branchNames.length === 0}
-            onChange={(event) => setSelectedRef(event.currentTarget.value)}
-            value={activeRef}
+        <div className="flex shrink-0 items-center gap-1">
+          <a
+            className="inline-flex size-9 items-center justify-center rounded-full text-neutral-500 transition hover:bg-neutral-900 hover:text-neutral-200"
+            href={`https://github.com/${projectTemplateRepository}`}
+            rel="noreferrer"
+            target="_blank"
+            title={`Open ${projectTemplateRepository} on GitHub`}
           >
-            {branchNames.length === 0 ? <option value={activeRef}>{activeRef}</option> : null}
-            {branchNames.map((branch) => (
-              <option key={branch.name} value={branch.name}>
-                {branch.name}{branch.isDefault ? ' · default' : ''}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <div className="flex min-w-0 items-center gap-1">
-          {(['contract', 'files', ...(projectCheck ? ['project check' as const] : [])] as const).map((id) => (
-            <Button
-              aria-pressed={tab === id}
-              className="shrink-0 rounded-full capitalize"
-              key={id}
-              onPress={() => setTab(id)}
-              size="sm"
-              variant={tab === id ? 'secondary' : 'ghost'}
-            >
-              {id}
-            </Button>
-          ))}
+            <ExternalLink className="size-4" />
+          </a>
           <Button
             aria-label="Reload the template contract"
-            className="ml-1 size-8 shrink-0 rounded-full px-0"
+            className="size-9 rounded-full px-0"
             isIconOnly
             onPress={() => void contract.reload()}
             size="sm"
             variant="ghost"
           >
-            <RefreshCw className={cn('size-3.5', contract.isLoading && 'animate-spin')} />
+            <RefreshCw className={cn('size-4', contract.isLoading && 'animate-spin')} />
+          </Button>
+          <Button className="ml-1" onPress={() => setIsFeatureOpen(true)} size="sm" variant="primary">
+            <Plus className="size-4" />
+            New template feature
           </Button>
         </div>
+      </header>
+
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-neutral-800/70 pb-3">
+        <div className="flex min-w-0 items-center gap-1">
+          {visibleTabs.map(({ icon: Icon, id, label }) => (
+            <Button
+              aria-pressed={tab === id}
+              className="shrink-0 rounded-full"
+              key={id}
+              onPress={() => setTab(id)}
+              size="sm"
+              variant={tab === id ? 'secondary' : 'ghost'}
+            >
+              <Icon className="size-3.5" />
+              {label}
+            </Button>
+          ))}
+        </div>
+        <TemplateContractSummary contract={contract.contract} />
       </div>
 
       {branches.error ? (
         <div
-          className="mt-3 shrink-0 rounded-xl border border-amber-500/25 bg-amber-500/[.07] px-4 py-3"
+          className="mt-3 shrink-0 rounded-xl border border-amber-500/25 bg-amber-500/[.07] px-4 py-2.5"
           role="alert"
         >
           <Text className="block text-xs text-amber-200">{branches.error}</Text>
         </div>
       ) : null}
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pt-4">
-        {tab === 'project check' ? (
+      <div
+        className={cn(
+          'flex min-h-0 flex-1 flex-col pt-4',
+          tab === 'check' ? 'overflow-y-auto' : 'overflow-hidden'
+        )}
+      >
+        {tab === 'check' ? (
           projectCheck
         ) : tab === 'contract' ? (
           <TemplateContractView contract={contract.contract} isLoading={contract.isLoading} />
@@ -144,14 +136,9 @@ export function ProjectTemplatePage({ projectCheck }: { projectCheck?: ReactNode
         )}
       </div>
 
-      <footer className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-neutral-800/70 py-3 text-xs text-neutral-600">
-        <span>{projectTemplateRepository} · {activeRef}</span>
-        <span>
-          {entries.filter((entry) => entry.type === 'blob').length} files
-          {contract.contract.modules.length > 0
-            ? ` · ${contract.contract.modules.length} ${contract.contract.modules.length === 1 ? 'module' : 'modules'}`
-            : ''}
-        </span>
+      <footer className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-neutral-800/70 py-2.5 text-[11px] text-neutral-700">
+        <span className="truncate">{projectTemplateRepository} · {activeRef}</span>
+        <span>{entries.filter((entry) => entry.type === 'blob').length} files</span>
       </footer>
 
       {isFeatureOpen ? (

@@ -448,7 +448,10 @@ export function ProjectMainPanel({
     mainView === 'project' &&
     project &&
     project.kind !== 'github' &&
-    (projectTab === 'history' || projectTab === 'issues' || projectTab === 'chat');
+    (projectTab === 'history' ||
+      projectTab === 'issues' ||
+      projectTab === 'chat' ||
+      projectTab === 'template');
 
   if (mainView === 'chat') {
     return (

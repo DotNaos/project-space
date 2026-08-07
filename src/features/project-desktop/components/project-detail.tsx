@@ -325,6 +325,7 @@ export function ProjectDetail({
     tab === 'issues' ||
     tab === 'chat' ||
     tab === 'codex' ||
+    tab === 'template' ||
     tab === 'workspaces';
   const templateTargetPath = joinTargetPath(selectedTargetPath, templateRelativePath);
 
