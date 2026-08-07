@@ -17,32 +17,32 @@ type TaskFilter = 'all' | ProjectTaskState;
 const filters: Array<{ id: TaskFilter; label: string }> = [
   { id: 'all', label: 'All' },
   { id: 'backlog', label: 'Backlog' },
-  { id: 'started', label: 'Started' },
-  { id: 'in-progress', label: 'In progress' },
-  { id: 'done', label: 'Done' }
+  { id: 'active', label: 'Active' },
+  { id: 'review', label: 'Review' },
+  { id: 'completed', label: 'Completed' }
 ];
 
 const sections = filters.slice(1) as Array<{ id: ProjectTaskState; label: string }>;
 
 function StatusIcon({ task }: { task: ProjectTaskViewModel }) {
-  if (task.health === 'attention') {
+  if (task.health === 'attention' || task.workflowMessage) {
     return <CircleX aria-label="Needs attention" className="size-4 shrink-0 text-red-400" />;
   }
-  if (task.state === 'done') {
-    return <GitMerge aria-label="Done" className="size-4 shrink-0 text-violet-400" />;
+  if (task.state === 'completed') {
+    return <GitMerge aria-label="Completed" className="size-4 shrink-0 text-violet-400" />;
   }
-  if (task.state === 'in-progress') {
-    return <CircleDot aria-label="In progress" className="size-4 shrink-0 text-emerald-400" />;
+  if (task.state === 'review') {
+    return <CircleDot aria-label="Review" className="size-4 shrink-0 text-emerald-400" />;
   }
-  if (task.state === 'started') {
-    return <CircleDot aria-label="Started" className="size-4 shrink-0 text-blue-400" />;
+  if (task.state === 'active') {
+    return <CircleDot aria-label="Active" className="size-4 shrink-0 text-blue-400" />;
   }
   return <CircleDashed aria-label="Backlog" className="size-4 shrink-0 text-neutral-600" />;
 }
 
 function TaskRow({ onOpen, task }: { onOpen(): void; task: ProjectTaskViewModel }) {
   const pullRequest = task.pullRequest;
-  const merged = task.state === 'done' && pullRequest?.state === 'merged';
+  const merged = pullRequest?.state === 'merged';
   const PullRequestIcon = merged ? GitMerge : GitPullRequest;
   return (
     <button
@@ -67,6 +67,11 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: ProjectTaskViewModel 
         <span className="mt-2 flex min-w-0 items-center gap-1 text-[11px] text-current/35">
           <GitBranch className="size-3 shrink-0" />
           <span className="truncate">{task.branch?.name ?? pullRequest?.headBranch}</span>
+        </span>
+      ) : null}
+      {task.workflowMessage ? (
+        <span className="mt-2 block text-[11px] leading-4 text-amber-300/80">
+          {task.workflowMessage}
         </span>
       ) : null}
     </button>

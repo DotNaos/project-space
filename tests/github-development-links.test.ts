@@ -12,6 +12,7 @@ describe('GitHub development links', () => {
         repository: {
           issues: { nodes: [] },
           pullRequests: { nodes: [{
+            baseRefName: 'main',
             closingIssuesReferences: { nodes: [{ number: 263 }] },
             headRef: { id: 'REF_263' },
             headRefName: 'issue-263-preview',
@@ -35,7 +36,9 @@ describe('GitHub development links', () => {
     );
 
     expect(query).toContain('headRefOid');
+    expect(query).toContain('baseRefName');
     expect(result.pullRequests[0]).toMatchObject({
+      baseBranch: 'main',
       headRefPresent: true,
       headRepositoryFullName: 'DotNaos/project-space',
       headSha,

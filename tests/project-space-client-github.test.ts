@@ -20,6 +20,21 @@ class RecordingGitHubClient extends GitHubProjectSpaceClient {
 }
 
 describe('Project Space GitHub client', () => {
+  test('serializes the coherent issue-development start contract', async () => {
+    const client = new RecordingGitHubClient();
+    const request = {
+      branchName: 'issue-494-starting-development',
+      fullName: 'DotNaos/project-space',
+      issueNumber: 494
+    };
+
+    await client.startGitHubIssueDevelopment(request);
+
+    expect(client.requestRecord?.path).toBe('/api/github/issue-development');
+    expect(client.requestRecord?.init?.method).toBe('POST');
+    expect(JSON.parse(String(client.requestRecord?.init?.body))).toEqual(request);
+  });
+
   test('serializes the linked-branch pre-PR comparison contract', async () => {
     const client = new RecordingGitHubClient();
     const request = {

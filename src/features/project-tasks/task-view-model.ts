@@ -5,8 +5,9 @@ import type {
   GitHubPullRequestRecord,
   GitHubWorkflowRunSummary
 } from '@/shared/project-space-api';
+import { resolveIssueDevelopmentHead } from '../project-desktop/components/issue-development-head';
 
-export type ProjectTaskState = 'backlog' | 'done' | 'in-progress' | 'started';
+export type ProjectTaskState = 'active' | 'backlog' | 'completed' | 'review';
 export type ProjectTaskHealth = 'attention' | 'healthy' | 'unknown';
 
 export interface ProjectTaskViewModel {
@@ -17,6 +18,7 @@ export interface ProjectTaskViewModel {
   pipeline?: GitHubWorkflowRunSummary;
   pullRequest?: GitHubPullRequestRecord;
   state: ProjectTaskState;
+  workflowMessage?: string;
 }
 
 function linkedPullRequest(
@@ -51,10 +53,32 @@ export function projectTaskState(
   issue: GitHubIssueRecord,
   pullRequest?: GitHubPullRequestRecord
 ): ProjectTaskState {
-  if (pullRequest?.state === 'merged') return 'done';
-  if (pullRequest?.state === 'open') return pullRequest.isDraft ? 'started' : 'in-progress';
-  if (issue.state === 'closed') return 'done';
+  if (pullRequest?.state === 'merged') {
+    return issue.state === 'closed' ? 'completed' : 'review';
+  }
+  if (pullRequest?.state === 'open' && pullRequest.isDraft === true) return 'active';
+  if (pullRequest?.state === 'open' && pullRequest.isDraft === false) return 'review';
   return 'backlog';
+}
+
+export function projectTaskWorkflowMessage(
+  issue: GitHubIssueRecord,
+  branch?: GitHubBranchRecord,
+  pullRequest?: GitHubPullRequestRecord
+) {
+  if (pullRequest?.state === 'merged' && issue.state !== 'closed') {
+    return 'The pull request is merged, but the issue is still open.';
+  }
+  if (issue.state === 'closed' && pullRequest?.state !== 'merged') {
+    return 'The issue is closed without a verified merged pull request.';
+  }
+  if (pullRequest?.state === 'open' && pullRequest.isDraft === undefined) {
+    return 'The pull request draft state could not be verified.';
+  }
+  if (branch && !pullRequest) {
+    return 'The linked branch is waiting for its draft pull request.';
+  }
+  return undefined;
 }
 
 export function projectTaskHealth(pipeline?: GitHubWorkflowRunSummary): ProjectTaskHealth {
@@ -83,25 +107,45 @@ export function createProjectTaskViewModels({
   commentsByIssue = new Map(),
   issues,
   pullRequests,
+  repositoryFullName,
   runs = []
 }: {
   branches: GitHubBranchRecord[];
   commentsByIssue?: ReadonlyMap<number, GitHubIssueCommentRecord[]>;
   issues: GitHubIssueRecord[];
   pullRequests: GitHubPullRequestRecord[];
+  repositoryFullName?: string;
   runs?: GitHubWorkflowRunSummary[];
 }): ProjectTaskViewModel[] {
   return issues.map((issue) => {
     const pullRequest = linkedPullRequest(issue, pullRequests);
+    const developmentHead = resolveIssueDevelopmentHead({
+      branches,
+      issue,
+      pullRequests,
+      repositoryFullName
+    });
+    const branch = developmentHead.state === 'verified'
+      ? developmentHead.branch
+      : linkedBranch(issue, pullRequest, branches);
     const pipeline = projectTaskPipeline(pullRequest, runs);
+    const state = pullRequest?.state === 'merged'
+      ? projectTaskState(issue, pullRequest)
+      : developmentHead.state === 'verified' && developmentHead.pullRequest
+        ? projectTaskState(issue, developmentHead.pullRequest)
+        : 'backlog';
+    const workflowMessage = developmentHead.state !== 'verified' && developmentHead.state !== 'none'
+      ? developmentHead.message
+      : projectTaskWorkflowMessage(issue, branch, pullRequest);
     return {
-      branch: linkedBranch(issue, pullRequest, branches),
+      branch,
       comments: commentsByIssue.get(issue.number) ?? [],
       health: projectTaskHealth(pipeline),
       issue,
       pipeline,
       pullRequest,
-      state: projectTaskState(issue, pullRequest)
+      state,
+      workflowMessage
     };
   });
 }

@@ -44,6 +44,16 @@ export type IssueDevelopmentHeadResolution =
       state: 'none';
     };
 
+export function canChooseIssueCodingDestination(
+  resolution: IssueDevelopmentHeadResolution
+) {
+  return (
+    resolution.state === 'verified' &&
+    resolution.pullRequest?.state === 'open' &&
+    typeof resolution.pullRequest.isDraft === 'boolean'
+  );
+}
+
 export function resolveIssueDevelopmentHead(input: {
   branches: GitHubBranchRecord[];
   issue: GitHubIssueRecord;
@@ -51,6 +61,7 @@ export function resolveIssueDevelopmentHead(input: {
   repositoryFullName?: string;
 }): IssueDevelopmentHeadResolution {
   const linkedBranches = issueBranchesForIssue(input);
+  const defaultBranch = input.branches.find((branch) => branch.isDefault)?.name;
   const openPullRequests = input.pullRequests
     .filter((pullRequest) => pullRequest.state === 'open')
     .filter((pullRequest) => pullRequestMatchesIssue(pullRequest, input.issue, linkedBranches));
@@ -103,6 +114,18 @@ export function resolveIssueDevelopmentHead(input: {
     ) {
       return {
         message: 'The pull request head branch could not be verified.',
+        state: 'unavailable'
+      };
+    }
+    if (typeof pullRequest.isDraft !== 'boolean') {
+      return {
+        message: 'The pull request draft state could not be verified.',
+        state: 'unavailable'
+      };
+    }
+    if (!defaultBranch || pullRequest.baseBranch !== defaultBranch) {
+      return {
+        message: 'The pull request does not target the repository default branch.',
         state: 'unavailable'
       };
     }

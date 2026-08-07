@@ -36,6 +36,7 @@ import {
   getGitHubIssueComments,
   updateGitHubIssue
 } from './local-github-issue-actions';
+import { startGitHubIssueDevelopment } from './local-github-issue-development';
 import {
   loadInstalledLauncherApps,
   loadLauncherAppIcon,
@@ -443,6 +444,9 @@ export function createLocalProjectSpaceBackend(
     },
     async createGitHubPullRequest(request) {
       return createGitHubPullRequest(request);
+    },
+    async startGitHubIssueDevelopment(request) {
+      return startGitHubIssueDevelopment(request);
     },
     async startScopeDevboxJob(request) {
       return startScopeDevboxJob(request);

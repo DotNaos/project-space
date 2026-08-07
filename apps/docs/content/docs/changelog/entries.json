@@ -2,6 +2,24 @@
   "schema": "project-space.changelog/v1",
   "entries": [
     {
+      "id": "pr-498-start-development-draft-pr",
+      "category": "changed",
+      "summary": "Start development with a verified draft pull request.",
+      "body": "Starting an issue now creates or reuses its linked branch and opens a verified draft pull request in one flow. Partial or unsafe GitHub states remain blocked with a clear recovery action, and coding tools unlock only after the pull request is confirmed.",
+      "issueNumber": 494,
+      "pullRequestNumber": 498,
+      "prototype": {
+        "scenarioId": "ready",
+        "surface": "desktop-prototype",
+        "viewport": "desktop"
+      },
+      "testing": [
+        "Open the fresh Backlog task, choose Start development, and confirm its branch and draft pull request appear before Start Codex becomes available.",
+        "Open the branch-only recovery task, choose Finish setup, and confirm it reuses the branch, creates the missing draft pull request, and then enables Start Codex.",
+        "Switch the prototype to the Phone viewport and confirm both flows remain readable without clipped or overlapping actions."
+      ]
+    },
+    {
       "id": "pr-382-issue-pr-prototype-launch",
       "category": "added",
       "summary": "Start and reopen exact issue and pull request prototypes.",
